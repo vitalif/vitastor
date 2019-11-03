@@ -147,7 +147,7 @@ public:
     spp::sparse_hash_map<object_id, dirty_list, oid_hash> dirty_queue;
     std::deque<blockstore_operation*> submit_queue;
     std::set<blockstore_operation*> in_process_ops;
-    int block_order, block_size;
+    uint32_t block_order, block_size;
     uint64_t block_count;
     allocator *data_alloc;
 
@@ -160,6 +160,7 @@ public:
     uint64_t data_offset, data_size, data_len;
 
     uint64_t journal_start, journal_end;
+    uint32_t journal_crc32_last;
 
     struct io_uring *ring;
 

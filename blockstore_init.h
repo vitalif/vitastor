@@ -3,20 +3,27 @@
 class blockstore_init_meta
 {
     blockstore *bs;
-    uint8_t *metadata_buffer;
+    uint8_t *metadata_buffer = NULL;
     uint64_t metadata_read = 0;
     struct iovec submit_iov;
     int prev = 0, prev_done = 0, done_len = 0, submitted = 0, done_cnt = 0;
+    void handle_entries(struct clean_disk_entry* entries, int count);
 public:
     blockstore_init_meta(blockstore* bs);
     int read_loop();
-    void handle_entries(struct clean_disk_entry* entries, int count);
 };
 
 class blockstore_init_journal
 {
     blockstore *bs;
-    uint8_t *journal_buffer;
+    uint8_t *journal_buffer = NULL;
+    int step = 0;
+    uint32_t crc32_last = 0;
+    struct iovec submit_iov;
+    uint64_t done_pos = 0, journal_pos = 0;
+    uint64_t cur_skip = 0;
+    int submitted = 0, done_buf = 0, done_len = 0;
+    int handle_journal(void *buf, int len);
 public:
     blockstore_init_journal(blockstore* bs);
     int read_loop();

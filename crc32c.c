@@ -96,3 +96,18 @@ uint32_t crc32c(uint8_t *buf, int len)
 	}
 	return crc^0xffffffff;
 }
+
+uint32_t crc32c_zero4(uint8_t *buf, int len)
+{
+	uint32_t crc = 0xffffffff;
+	// pretend that first 4 bytes are zero
+	crc = (crc>>8) ^ crctable[(crc ^ 0) & 0xFF];
+	crc = (crc>>8) ^ crctable[(crc ^ 0) & 0xFF];
+	crc = (crc>>8) ^ crctable[(crc ^ 0) & 0xFF];
+	crc = (crc>>8) ^ crctable[(crc ^ 0) & 0xFF];
+	while (len-- > 0)
+	{
+		crc = (crc>>8) ^ crctable[(crc ^ (*buf++)) & 0xFF];
+	}
+	return crc^0xffffffff;
+}

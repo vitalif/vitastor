@@ -12,22 +12,23 @@
 #define JE_STABLE      0x04
 #define JE_DELETE      0x05
 
+// crc32c comes first to ease calculation and is equal to crc32()
 struct __attribute__((__packed__)) journal_entry_start
 {
+    uint32_t crc32;
     uint16_t magic;
     uint16_t type;
     uint32_t size;
-    uint32_t crc32;
-    uint32_t reserved1;
-    uint64_t offset;
+    uint32_t crc32_replaced;
+    uint64_t journal_start;
 };
 
 struct __attribute__((__packed__)) journal_entry_small_write
 {
+    uint32_t crc32;
     uint16_t magic;
     uint16_t type;
     uint32_t size;
-    uint32_t crc32;
     uint32_t crc32_prev;
     object_id oid;
     uint64_t version;
@@ -38,10 +39,10 @@ struct __attribute__((__packed__)) journal_entry_small_write
 
 struct __attribute__((__packed__)) journal_entry_big_write
 {
+    uint32_t crc32;
     uint16_t magic;
     uint16_t type;
     uint32_t size;
-    uint32_t crc32;
     uint32_t crc32_prev;
     object_id oid;
     uint64_t version;
@@ -50,10 +51,10 @@ struct __attribute__((__packed__)) journal_entry_big_write
 
 struct __attribute__((__packed__)) journal_entry_stable
 {
+    uint32_t crc32;
     uint16_t magic;
     uint16_t type;
     uint32_t size;
-    uint32_t crc32;
     uint32_t crc32_prev;
     object_id oid;
     uint64_t version;
@@ -61,10 +62,10 @@ struct __attribute__((__packed__)) journal_entry_stable
 
 struct __attribute__((__packed__)) journal_entry_del
 {
+    uint32_t crc32;
     uint16_t magic;
     uint16_t type;
     uint32_t size;
-    uint32_t crc32;
     uint32_t crc32_prev;
     object_id oid;
     uint64_t version;
@@ -76,10 +77,11 @@ struct __attribute__((__packed__)) journal_entry
     {
         struct __attribute__((__packed__))
         {
+            uint32_t crc32;
             uint16_t magic;
             uint16_t type;
             uint32_t size;
-            uint32_t crc32;
+            uint32_t crc32_prev;
         };
         journal_entry_start start;
         journal_entry_small_write small_write;
