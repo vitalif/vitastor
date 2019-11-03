@@ -1,4 +1,4 @@
-all: allocator.o blockstore.o blockstore_open.o blockstore_read.o test
+all: allocator.o blockstore.o blockstore_init.o blockstore_open.o blockstore_read.o test
 %.o: %.cpp
 	gcc -c -o $@ $<
 test: test.cpp
