@@ -5,7 +5,22 @@ blockstore_init_meta::blockstore_init_meta(blockstore *bs)
     this->bs = bs;
 }
 
-int blockstore_init_meta::read_loop()
+void blockstore_init_meta::handle_event(ring_data_t *data)
+{
+    if (data->res < 0)
+    {
+        throw new std::runtime_error(
+            std::string("read metadata failed at offset ") + std::to_string(metadata_read) +
+            std::string(": ") + strerror(-data->res)
+        );
+    }
+    prev_done = data->res > 0 ? submitted : 0;
+    done_len = data->res;
+    metadata_read += data->res;
+    submitted = 0;
+}
+
+int blockstore_init_meta::loop()
 {
     if (metadata_read >= bs->meta_len)
     {
@@ -15,39 +30,20 @@ int blockstore_init_meta::read_loop()
     {
         metadata_buffer = (uint8_t*)memalign(512, 2*bs->metadata_buf_size);
     }
-    if (submitted)
-    {
-        struct io_uring_cqe *cqe;
-        io_uring_peek_cqe(bs->ring, &cqe);
-        if (cqe)
-        {
-            if (cqe->res < 0)
-            {
-                throw new std::runtime_error(
-                    std::string("read metadata failed at offset ") + std::to_string(metadata_read) +
-                    std::string(": ") + strerror(-cqe->res)
-                );
-            }
-            prev_done = cqe->res > 0 ? submitted : 0;
-            done_len = cqe->res;
-            metadata_read += cqe->res;
-            submitted = 0;
-            io_uring_cqe_seen(bs->ring, cqe);
-        }
-    }
     if (!submitted)
     {
-        struct io_uring_sqe *sqe = io_uring_get_sqe(bs->ring);
+        struct io_uring_sqe *sqe = bs->ringloop->get_sqe();
         if (!sqe)
         {
             throw new std::runtime_error("io_uring is full while trying to read metadata");
         }
-        submit_iov = {
+        struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
+        data->iov = {
             metadata_buffer + (prev == 1 ? bs->metadata_buf_size : 0),
             bs->meta_len - metadata_read > bs->metadata_buf_size ? bs->metadata_buf_size : bs->meta_len - metadata_read,
         };
-        io_uring_prep_readv(sqe, bs->meta_fd, &submit_iov, 1, bs->meta_offset + metadata_read);
-        io_uring_submit(bs->ring);
+        io_uring_prep_readv(sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + metadata_read);
+        bs->ringloop->submit();
         submitted = (prev == 1 ? 2 : 1);
         prev = submitted;
     }
@@ -101,7 +97,67 @@ bool iszero(uint64_t *buf, int len)
     return true;
 }
 
-int blockstore_init_journal::read_loop()
+void blockstore_init_journal::handle_event(ring_data_t *data)
+{
+    if (step == 1)
+    {
+        // Step 1: Read first block of the journal
+        if (data->res < 0)
+        {
+            throw new std::runtime_error(
+                std::string("read journal failed at offset ") + std::to_string(0) +
+                std::string(": ") + strerror(-data->res)
+            );
+        }
+        if (iszero((uint64_t*)journal_buffer, 3))
+        {
+            // Journal is empty
+            bs->journal_start = 512;
+            bs->journal_end = 512;
+            step = 99;
+        }
+        else
+        {
+            // First block always contains a single JE_START entry
+            journal_entry_start *je = (journal_entry_start*)journal_buffer;
+            if (je->magic != JOURNAL_MAGIC ||
+                je->type != JE_START ||
+                je->size != sizeof(journal_entry_start) ||
+                je_crc32((journal_entry*)je) != je->crc32)
+            {
+                // Entry is corrupt
+                throw new std::runtime_error("first entry of the journal is corrupt");
+            }
+            journal_pos = bs->journal_start = je->journal_start;
+            crc32_last = je->crc32_replaced;
+            step = 2;
+        }
+    }
+    else if (step == 2 || step == 3)
+    {
+        // Step 3: Read journal
+        if (data->res < 0)
+        {
+            throw new std::runtime_error(
+                std::string("read journal failed at offset ") + std::to_string(journal_pos) +
+                std::string(": ") + strerror(-data->res)
+            );
+        }
+        done_pos = journal_pos;
+        done_buf = submitted;
+        done_len = data->res;
+        journal_pos += data->res;
+        if (journal_pos >= bs->journal_len)
+        {
+            // Continue from the beginning
+            journal_pos = 512;
+            wrapped = true;
+        }
+        submitted = 0;
+    }
+}
+
+int blockstore_init_journal::loop()
 {
     if (step == 100)
     {
@@ -114,86 +170,20 @@ int blockstore_init_journal::read_loop()
     if (step == 0)
     {
         // Step 1: Read first block of the journal
-        struct io_uring_sqe *sqe = io_uring_get_sqe(bs->ring);
+        struct io_uring_sqe *sqe = bs->ringloop->get_sqe();
         if (!sqe)
         {
             throw new std::runtime_error("io_uring is full while trying to read journal");
         }
-        submit_iov = { journal_buffer, 512 };
-        io_uring_prep_readv(sqe, bs->journal_fd, &submit_iov, 1, bs->journal_offset);
-        io_uring_submit(bs->ring);
+        struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
+        data->iov = { journal_buffer, 512 };
+        io_uring_prep_readv(sqe, bs->journal_fd, &data->iov, 1, bs->journal_offset);
+        bs->ringloop->submit();
         step = 1;
-    }
-    if (step == 1)
-    {
-        // Step 2: Get the completion event and check the beginning for <START> entry
-        struct io_uring_cqe *cqe;
-        io_uring_peek_cqe(bs->ring, &cqe);
-        if (cqe)
-        {
-            if (cqe->res < 0)
-            {
-                throw new std::runtime_error(
-                    std::string("read journal failed at offset ") + std::to_string(0) +
-                    std::string(": ") + strerror(-cqe->res)
-                );
-            }
-            if (iszero((uint64_t*)journal_buffer, 3))
-            {
-                // Journal is empty
-                bs->journal_start = 512;
-                bs->journal_end = 512;
-                step = 99;
-            }
-            else
-            {
-                // First block always contains a single JE_START entry
-                journal_entry_start *je = (journal_entry_start*)journal_buffer;
-                if (je->magic != JOURNAL_MAGIC ||
-                    je->type != JE_START ||
-                    je->size != sizeof(journal_entry_start) ||
-                    je_crc32((journal_entry*)je) != je->crc32)
-                {
-                    // Entry is corrupt
-                    throw new std::runtime_error("first entry of the journal is corrupt");
-                }
-                journal_pos = bs->journal_start = je->journal_start;
-                crc32_last = je->crc32_replaced;
-                step = 2;
-            }
-            io_uring_cqe_seen(bs->ring, cqe);
-        }
     }
     if (step == 2 || step == 3)
     {
         // Step 3: Read journal
-        if (submitted)
-        {
-            struct io_uring_cqe *cqe;
-            io_uring_peek_cqe(bs->ring, &cqe);
-            if (cqe)
-            {
-                if (cqe->res < 0)
-                {
-                    throw new std::runtime_error(
-                        std::string("read journal failed at offset ") + std::to_string(journal_pos) +
-                        std::string(": ") + strerror(-cqe->res)
-                    );
-                }
-                done_pos = journal_pos;
-                done_buf = submitted;
-                done_len = cqe->res;
-                journal_pos += cqe->res;
-                if (journal_pos >= bs->journal_len)
-                {
-                    // Continue from the beginning
-                    journal_pos = 512;
-                    wrapped = true;
-                }
-                submitted = 0;
-                io_uring_cqe_seen(bs->ring, cqe);
-            }
-        }
         if (!submitted)
         {
             if (step != 3)
@@ -204,22 +194,23 @@ int blockstore_init_journal::read_loop()
                 }
                 else
                 {
-                    struct io_uring_sqe *sqe = io_uring_get_sqe(bs->ring);
+                    struct io_uring_sqe *sqe = bs->ringloop->get_sqe();
                     if (!sqe)
                     {
                         throw new std::runtime_error("io_uring is full while trying to read journal");
                     }
+                    struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
                     uint64_t end = bs->journal_len;
                     if (journal_pos < bs->journal_start)
                     {
                         end = bs->journal_start;
                     }
-                    submit_iov = {
+                    data->iov = {
                         journal_buffer + (done_buf == 1 ? JOURNAL_BUFFER_SIZE : 0),
                         end - journal_pos < JOURNAL_BUFFER_SIZE ? end - journal_pos : JOURNAL_BUFFER_SIZE,
                     };
-                    io_uring_prep_readv(sqe, bs->journal_fd, &submit_iov, 1, bs->journal_offset + journal_pos);
-                    io_uring_submit(bs->ring);
+                    io_uring_prep_readv(sqe, bs->journal_fd, &data->iov, 1, bs->journal_offset + journal_pos);
+                    bs->ringloop->submit();
                     submitted = done_buf == 1 ? 2 : 1;
                 }
             }

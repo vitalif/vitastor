@@ -1,9 +1,11 @@
 #include "blockstore.h"
 
-blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, io_uring *ring)
+blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, ring_loop_t *ringloop)
 {
-    this->ring = ring;
-    ring_data = (struct ring_data_t*)malloc(sizeof(ring_data_t) * ring->sq.ring_sz);
+    this->ringloop = ringloop;
+    ring_consumer.handle_event = [this](ring_data_t *d) { handle_event(d); };
+    ring_consumer.loop = [this]() { loop(); };
+    ringloop->register_consumer(ring_consumer);
     initialized = 0;
     block_order = stoull(config["block_size_order"]);
     block_size = 1 << block_order;
@@ -36,7 +38,7 @@ blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, 
 
 blockstore::~blockstore()
 {
-    free(ring_data);
+    ringloop->unregister_consumer(ring_consumer.number);
     if (data_fd >= 0)
         close(data_fd);
     if (meta_fd >= 0 && meta_fd != data_fd)
@@ -45,68 +47,61 @@ blockstore::~blockstore()
         close(journal_fd);
 }
 
-struct io_uring_sqe* blockstore::get_sqe()
+// main event loop - handle requests
+void blockstore::handle_event(ring_data_t *data)
 {
-    struct io_uring_sqe* sqe = io_uring_get_sqe(ring);
-    if (sqe)
+    if (initialized != 0)
     {
-        io_uring_sqe_set_data(sqe, ring_data + (sqe - ring->sq.sqes));
-    }
-    return sqe;
-}
-
-// must be called in the event loop until it returns 0
-int blockstore::init_loop()
-{
-    // read metadata, then journal
-    if (initialized)
-    {
-        return 0;
-    }
-    if (!metadata_init_reader)
-    {
-        metadata_init_reader = new blockstore_init_meta(this);
-    }
-    if (metadata_init_reader->read_loop())
-    {
-        return 1;
-    }
-    if (!journal_init_reader)
-    {
-        journal_init_reader = new blockstore_init_journal(this);
-    }
-    if (journal_init_reader->read_loop())
-    {
-        return 1;
-    }
-    initialized = true;
-    delete metadata_init_reader;
-    delete journal_init_reader;
-    metadata_init_reader = NULL;
-    journal_init_reader = NULL;
-    return 0;
-}
-
-// main event loop
-int blockstore::main_loop()
-{
-    while (true)
-    {
-        struct io_uring_cqe *cqe;
-        io_uring_peek_cqe(ring, &cqe);
-        if (cqe)
+        if (metadata_init_reader)
         {
-            struct ring_data *d = cqe->user_data;
-            if (d->source == SRC_BLOCKSTORE)
-            {
-                handle_event();
-            }
-            else
-            {
-                // someone else
-            }
-            io_uring_cqe_seen(ring, cqe);
+            metadata_init_reader->handle_event(data);
+        }
+        else if (journal_init_reader)
+        {
+            journal_init_reader->handle_event(data);
         }
     }
-    return 0;
+    else
+    {
+        
+    }
+}
+
+// main event loop - produce requests
+void blockstore::loop()
+{
+    if (initialized != 10)
+    {
+        // read metadata, then journal
+        if (initialized == 0)
+        {
+            metadata_init_reader = new blockstore_init_meta(this);
+            initialized = 1;
+        }
+        else if (initialized == 1)
+        {
+            int res = metadata_init_reader->loop();
+            if (!res)
+            {
+                delete metadata_init_reader;
+                metadata_init_reader = NULL;
+                journal_init_reader = new blockstore_init_journal(this);
+                initialized = 2;
+            }
+        }
+        else if (initialized == 2)
+        {
+            int res = journal_init_reader->loop();
+            if (!res)
+            {
+                delete journal_init_reader;
+                journal_init_reader = NULL;
+                initialized = 10;
+            }
+        }
+    }
+    else
+    {
+        
+    }
 }

@@ -17,8 +17,10 @@
 #include <set>
 #include <functional>
 
-#include "allocator.h"
 #include "sparsepp/sparsepp/spp.h"
+
+#include "allocator.h"
+#include "ringloop.h"
 
 // States are not stored on disk. Instead, they're deduced from the journal
 
@@ -140,19 +142,13 @@ struct blockstore_operation
     uint64_t wait_version;
 };
 
-/*struct ring_data_t
-{
-    uint64_t source;
-    struct iovec iov; // for single-entry read/write operations
-    void *op;
-};*/
-
 class blockstore;
 
 #include "blockstore_init.h"
 
 class blockstore
 {
+    struct ring_consumer_t ring_consumer;
 public:
     spp::sparse_hash_map<object_id, clean_entry, oid_hash> object_db;
     spp::sparse_hash_map<object_id, dirty_list, oid_hash> dirty_queue;
@@ -173,12 +169,11 @@ public:
     uint64_t journal_start, journal_end;
     uint32_t journal_crc32_last;
 
-    struct io_uring *ring;
-    struct ring_data_t *ring_data;
+    ring_loop_t *ringloop;
 
     struct io_uring_sqe* get_sqe();
 
-    blockstore(spp::sparse_hash_map<std::string, std::string> & config, struct io_uring *ring);
+    blockstore(spp::sparse_hash_map<std::string, std::string> & config, ring_loop_t *ringloop);
     ~blockstore();
 
     void calc_lengths(spp::sparse_hash_map<std::string, std::string> & config);
@@ -191,10 +186,10 @@ public:
     int metadata_buf_size;
     blockstore_init_meta* metadata_init_reader;
     blockstore_init_journal* journal_init_reader;
-    int init_loop();
 
     // Event loop
-    int main_loop();
+    void handle_event(ring_data_t* data);
+    void loop();
 
     // Read
     int read(blockstore_operation *read_op);

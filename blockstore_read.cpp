@@ -87,7 +87,7 @@ int blockstore::read(blockstore_operation *read_op)
         read_op->callback(read_op);
         return 0;
     }
-    unsigned prev_sqe_pos = ring->sq.sqe_tail;
+    unsigned prev_sqe_pos = ringloop->ring->sq.sqe_tail;
     uint64_t fulfilled = 0;
     if (dirty_it != object_db.end())
     {
@@ -99,7 +99,7 @@ int blockstore::read(blockstore_operation *read_op)
                 if (fulfill_read(read_op, dirty[i].offset, dirty[i].offset + dirty[i].size, dirty[i].state, dirty[i].version, dirty[i].location) < 0)
                 {
                     // need to wait for something, undo added requests and requeue op
-                    ring->sq.sqe_tail = prev_sqe_pos;
+                    ringloop->ring->sq.sqe_tail = prev_sqe_pos;
                     read_op->read_vec.clear();
                     submit_queue.push_front(read_op);
                     return 0;
@@ -112,7 +112,7 @@ int blockstore::read(blockstore_operation *read_op)
         if (fulfill_read(read_op, 0, block_size, ST_CURRENT, 0, clean_it->second.location) < 0)
         {
             // need to wait for something, undo added requests and requeue op
-            ring->sq.sqe_tail = prev_sqe_pos;
+            ringloop->ring->sq.sqe_tail = prev_sqe_pos;
             read_op->read_vec.clear();
             // FIXME: bad implementation
             submit_queue.push_front(read_op);
@@ -127,7 +127,7 @@ int blockstore::read(blockstore_operation *read_op)
         return 0;
     }
     // FIXME reap events!
-    int ret = io_uring_submit(ring);
+    int ret = ringloop->submit();
     if (ret < 0)
     {
         throw new std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));

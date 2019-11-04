@@ -21,8 +21,8 @@ struct ring_data_t
 struct ring_consumer_t
 {
     int number;
-    std::function<void (ring_data_t*)> handle_event;
-    std::function<void ()> loop;
+    std::function<void(ring_data_t*)> handle_event;
+    std::function<void(void)> loop;
 };
 
 class ring_loop_t
@@ -37,4 +37,8 @@ public:
     int register_consumer(ring_consumer_t & consumer);
     void unregister_consumer(int number);
     void loop(bool sleep);
+    inline int submit()
+    {
+        return io_uring_submit(ring);
+    }
 };
