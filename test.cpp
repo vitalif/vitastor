@@ -41,6 +41,7 @@ static void test_write(struct io_uring *ring, int fd)
         printf("cqe failed: %d %s\n", ret, strerror(-ret));
     else
         printf("result: %d\n", ret);
+    io_uring_cqe_seen(ring, cqe);
     free(buf);
 }
 

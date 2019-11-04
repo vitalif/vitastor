@@ -32,6 +32,7 @@ int blockstore_init_meta::read_loop()
             done_len = cqe->res;
             metadata_read += cqe->res;
             submitted = 0;
+            io_uring_cqe_seen(bs->ring, cqe);
         }
     }
     if (!submitted)
@@ -160,6 +161,7 @@ int blockstore_init_journal::read_loop()
                 crc32_last = je->crc32_replaced;
                 step = 2;
             }
+            io_uring_cqe_seen(bs->ring, cqe);
         }
     }
     if (step == 2 || step == 3)
@@ -189,6 +191,7 @@ int blockstore_init_journal::read_loop()
                     wrapped = true;
                 }
                 submitted = 0;
+                io_uring_cqe_seen(bs->ring, cqe);
             }
         }
         if (!submitted)

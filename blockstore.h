@@ -140,6 +140,13 @@ struct blockstore_operation
     uint64_t wait_version;
 };
 
+/*struct ring_data_t
+{
+    uint64_t source;
+    struct iovec iov; // for single-entry read/write operations
+    void *op;
+};*/
+
 class blockstore;
 
 #include "blockstore_init.h"
@@ -167,6 +174,9 @@ public:
     uint32_t journal_crc32_last;
 
     struct io_uring *ring;
+    struct ring_data_t *ring_data;
+
+    struct io_uring_sqe* get_sqe();
 
     blockstore(spp::sparse_hash_map<std::string, std::string> & config, struct io_uring *ring);
     ~blockstore();
@@ -183,10 +193,13 @@ public:
     blockstore_init_journal* journal_init_reader;
     int init_loop();
 
+    // Event loop
+    int main_loop();
+
     // Read
     int read(blockstore_operation *read_op);
-    int fulfill_read(blockstore_operation & read_op, uint32_t item_start, uint32_t item_end,
+    int fulfill_read(blockstore_operation *read_op, uint32_t item_start, uint32_t item_end,
         uint32_t item_state, uint64_t item_version, uint64_t item_location);
-    int fulfill_read_push(blockstore_operation & read_op, uint32_t item_start,
+    int fulfill_read_push(blockstore_operation *read_op, uint32_t item_start,
         uint32_t item_state, uint64_t item_version, uint64_t item_location, uint32_t cur_start, uint32_t cur_end);
 };

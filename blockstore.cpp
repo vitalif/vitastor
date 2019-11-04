@@ -3,6 +3,7 @@
 blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, io_uring *ring)
 {
     this->ring = ring;
+    ring_data = (struct ring_data_t*)malloc(sizeof(ring_data_t) * ring->sq.ring_sz);
     initialized = 0;
     block_order = stoull(config["block_size_order"]);
     block_size = 1 << block_order;
@@ -35,12 +36,23 @@ blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, 
 
 blockstore::~blockstore()
 {
+    free(ring_data);
     if (data_fd >= 0)
         close(data_fd);
     if (meta_fd >= 0 && meta_fd != data_fd)
         close(meta_fd);
     if (journal_fd >= 0 && journal_fd != meta_fd)
         close(journal_fd);
+}
+
+struct io_uring_sqe* blockstore::get_sqe()
+{
+    struct io_uring_sqe* sqe = io_uring_get_sqe(ring);
+    if (sqe)
+    {
+        io_uring_sqe_set_data(sqe, ring_data + (sqe - ring->sq.sqes));
+    }
+    return sqe;
 }
 
 // must be called in the event loop until it returns 0
@@ -72,5 +84,29 @@ int blockstore::init_loop()
     delete journal_init_reader;
     metadata_init_reader = NULL;
     journal_init_reader = NULL;
+    return 0;
+}
+
+// main event loop
+int blockstore::main_loop()
+{
+    while (true)
+    {
+        struct io_uring_cqe *cqe;
+        io_uring_peek_cqe(ring, &cqe);
+        if (cqe)
+        {
+            struct ring_data *d = cqe->user_data;
+            if (d->source == SRC_BLOCKSTORE)
+            {
+                handle_event();
+            }
+            else
+            {
+                // someone else
+            }
+            io_uring_cqe_seen(ring, cqe);
+        }
+    }
     return 0;
 }
