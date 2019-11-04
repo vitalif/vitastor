@@ -22,8 +22,9 @@ class blockstore_init_journal
     struct iovec submit_iov;
     uint64_t done_pos = 0, journal_pos = 0;
     uint64_t cur_skip = 0;
+    bool wrapped = false;
     int submitted = 0, done_buf = 0, done_len = 0;
-    int handle_journal(void *buf, int len);
+    int handle_journal_part(void *buf, uint64_t len);
 public:
     blockstore_init_journal(blockstore* bs);
     int read_loop();

@@ -35,8 +35,12 @@
 #define ST_D_STABLE 20
 #define ST_D_META_MOVED 21
 #define ST_D_META_COMMITTED 22
+#define ST_DEL_WRITTEN 23
+#define ST_DEL_SYNCED 24
+#define ST_DEL_STABLE 25
+#define ST_DEL_MOVED 26
 #define ST_CURRENT 32
-#define IS_STABLE(st) ((st) == 4 || (st) == 5 || (st) == 6 || (st) == 20 || (st) == 21 || (st) == 22 || (st) == 32)
+#define IS_STABLE(st) ((st) == 4 || (st) == 5 || (st) == 6 || (st) == 20 || (st) == 21 || (st) == 22 || (st) == 32 || (st) == 24 || (st) == 25)
 #define IS_JOURNAL(st) (st >= 2 && st <= 6)
 
 // Default object size is 128 KB
@@ -183,4 +187,6 @@ public:
     int read(blockstore_operation *read_op);
     int fulfill_read(blockstore_operation & read_op, uint32_t item_start, uint32_t item_end,
         uint32_t item_state, uint64_t item_version, uint64_t item_location);
+    int fulfill_read_push(blockstore_operation & read_op, uint32_t item_start,
+        uint32_t item_state, uint64_t item_version, uint64_t item_location, uint32_t cur_start, uint32_t cur_end);
 };

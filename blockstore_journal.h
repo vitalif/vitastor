@@ -1,7 +1,10 @@
 #pragma once
 
+#include "crc32c.h"
+
 #define MIN_JOURNAL_SIZE 4*1024*1024
 #define JOURNAL_MAGIC 0x4A33
+#define JOURNAL_BUFFER_SIZE 4*1024*1024
 
 // Journal entries
 // Journal entries are linked to each other by their crc32 value
@@ -90,3 +93,8 @@ struct __attribute__((__packed__)) journal_entry
         journal_entry_del del;
     };
 };
+
+inline uint32_t je_crc32(journal_entry *je)
+{
+    return crc32c_zero4(((uint8_t*)je)+4, je->size-4);
+}
