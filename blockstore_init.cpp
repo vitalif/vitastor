@@ -32,7 +32,7 @@ int blockstore_init_meta::loop()
     }
     if (!submitted)
     {
-        struct io_uring_sqe *sqe = bs->ringloop->get_sqe();
+        struct io_uring_sqe *sqe = bs->get_sqe();
         if (!sqe)
         {
             throw new std::runtime_error("io_uring is full while trying to read metadata");
@@ -170,7 +170,7 @@ int blockstore_init_journal::loop()
     if (step == 0)
     {
         // Step 1: Read first block of the journal
-        struct io_uring_sqe *sqe = bs->ringloop->get_sqe();
+        struct io_uring_sqe *sqe = bs->get_sqe();
         if (!sqe)
         {
             throw new std::runtime_error("io_uring is full while trying to read journal");
@@ -194,7 +194,7 @@ int blockstore_init_journal::loop()
                 }
                 else
                 {
-                    struct io_uring_sqe *sqe = bs->ringloop->get_sqe();
+                    struct io_uring_sqe *sqe = bs->get_sqe();
                     if (!sqe)
                     {
                         throw new std::runtime_error("io_uring is full while trying to read journal");

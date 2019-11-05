@@ -121,6 +121,7 @@ public:
 #define OP_SYNC 4
 #define OP_STABLE 5
 #define OP_DELETE 6
+#define OP_TYPE_MASK 0x7
 
 #define WAIT_SQE 1
 #define WAIT_IN_FLIGHT 2
@@ -135,9 +136,10 @@ struct blockstore_operation
     uint32_t offset;
     uint32_t len;
     uint8_t *buf;
+    int retval;
 
     std::map<uint64_t, struct iovec> read_vec;
-    int completed;
+    int pending_ops;
     int wait_for;
     uint64_t wait_version;
 };
@@ -171,7 +173,10 @@ public:
 
     ring_loop_t *ringloop;
 
-    struct io_uring_sqe* get_sqe();
+    inline struct io_uring_sqe* get_sqe()
+    {
+        return ringloop->get_sqe(ring_consumer.number);
+    }
 
     blockstore(spp::sparse_hash_map<std::string, std::string> & config, ring_loop_t *ringloop);
     ~blockstore();

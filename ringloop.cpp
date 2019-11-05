@@ -29,6 +29,18 @@ struct io_uring_sqe* ring_loop_t::get_sqe()
     return sqe;
 }
 
+struct io_uring_sqe* ring_loop_t::get_sqe(int consumer)
+{
+    struct io_uring_sqe* sqe = io_uring_get_sqe(ring);
+    if (sqe)
+    {
+        struct ring_data_t *data = ring_data + (sqe - ring->sq.sqes);
+        io_uring_sqe_set_data(sqe, data);
+        data->source = consumer;
+    }
+    return sqe;
+}
+
 int ring_loop_t::register_consumer(ring_consumer_t & consumer)
 {
     consumer.number = consumers.size();

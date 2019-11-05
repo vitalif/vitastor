@@ -63,7 +63,24 @@ void blockstore::handle_event(ring_data_t *data)
     }
     else
     {
-        
+        struct blockstore_operation* op = (struct blockstore_operation*)data->op;
+        if ((op->flags & OP_TYPE_MASK) == OP_READ_DIRTY ||
+            (op->flags & OP_TYPE_MASK) == OP_READ)
+        {
+            op->pending_ops--;
+            if (data->res < 0)
+            {
+                // read error
+                op->retval = data->res;
+            }
+            if (op->pending_ops == 0)
+            {
+                if (op->retval == 0)
+                    op->retval = op->len;
+                op->callback(op);
+                in_process_ops.erase(op);
+            }
+        }
     }
 }
 

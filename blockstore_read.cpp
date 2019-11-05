@@ -25,19 +25,19 @@ int blockstore::fulfill_read_push(blockstore_operation *read_op, uint32_t item_s
             read_op->wait_for = WAIT_SQE;
             return -1;
         }
-        read_op->read_vec[cur_start] = (struct iovec){
+        struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
+        data->iov = (struct iovec){
             read_op->buf + cur_start - read_op->offset,
             cur_end - cur_start
         };
-        // Тут 2 вопроса - 1) куда сохранить iovec 2) как потом сопоставить i/o и cqe
+        read_op->read_vec[cur_start] = data->iov;
         io_uring_prep_readv(
             sqe,
             IS_JOURNAL(item_state) ? journal_fd : data_fd,
-            // FIXME: &read_op->read_vec is forbidden
-            &read_op->read_vec[cur_start], 1,
+            &data->iov, 1,
             (IS_JOURNAL(item_state) ? journal_offset : data_offset) + item_location + cur_start - item_start
         );
-        ((ring_data_t*)(sqe->user_data))->op = read_op;
+        data->op = read_op;
     }
     return 0;
 }
@@ -84,6 +84,7 @@ int blockstore::read(blockstore_operation *read_op)
     {
         // region is not allocated - return zeroes
         memset(read_op->buf, 0, read_op->len);
+        read_op->retval = read_op->len;
         read_op->callback(read_op);
         return 0;
     }
@@ -94,7 +95,7 @@ int blockstore::read(blockstore_operation *read_op)
         dirty_list dirty = dirty_it->second;
         for (int i = dirty.size()-1; i >= 0; i--)
         {
-            if (read_op->flags == OP_READ_DIRTY || IS_STABLE(dirty[i].state))
+            if ((read_op->flags & OP_TYPE_MASK) == OP_READ_DIRTY || IS_STABLE(dirty[i].state))
             {
                 if (fulfill_read(read_op, dirty[i].offset, dirty[i].offset + dirty[i].size, dirty[i].state, dirty[i].version, dirty[i].location) < 0)
                 {
@@ -114,7 +115,7 @@ int blockstore::read(blockstore_operation *read_op)
             // need to wait for something, undo added requests and requeue op
             ringloop->ring->sq.sqe_tail = prev_sqe_pos;
             read_op->read_vec.clear();
-            // FIXME: bad implementation
+            // FIXME: manage enqueue/dequeue/requeue
             submit_queue.push_front(read_op);
             return 0;
         }
@@ -123,10 +124,12 @@ int blockstore::read(blockstore_operation *read_op)
     {
         // region is not allocated - return zeroes
         memset(read_op->buf, 0, read_op->len);
+        read_op->retval = read_op->len;
         read_op->callback(read_op);
         return 0;
     }
-    // FIXME reap events!
+    read_op->retval = 0;
+    read_op->pending_ops = read_op->read_vec.size();
     int ret = ringloop->submit();
     if (ret < 0)
     {

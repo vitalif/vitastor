@@ -34,6 +34,7 @@ public:
     ring_loop_t(int qd);
     ~ring_loop_t();
     struct io_uring_sqe* get_sqe();
+    struct io_uring_sqe* get_sqe(int consumer);
     int register_consumer(ring_consumer_t & consumer);
     void unregister_consumer(int number);
     void loop(bool sleep);
