@@ -9,7 +9,7 @@ int blockstore::fulfill_read_push(blockstore_operation *read_op, uint32_t item_s
         {
             // Pause until it's written somewhere
             read_op->wait_for = WAIT_IN_FLIGHT;
-            read_op->wait_version = item_version;
+            read_op->wait_detail = item_version;
             return -1;
         }
         else if (item_state == ST_DEL_WRITTEN || item_state == ST_DEL_SYNCED || item_state == ST_DEL_MOVED)

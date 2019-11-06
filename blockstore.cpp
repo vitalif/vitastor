@@ -138,14 +138,39 @@ void blockstore::loop()
                     break;
                 }
             }
+            else if (((*cur)->flags & OP_TYPE_MASK) == OP_WRITE ||
+                ((*cur)->flags & OP_TYPE_MASK) == OP_DELETE)
+            {
+                int dequeue_op = dequeue_write(*cur);
+                if (dequeue_op)
+                {
+                    submit_queue.erase(cur);
+                }
+                else if ((*cur)->wait_for == WAIT_SQE)
+                {
+                    // ring is full, stop submission
+                    break;
+                }
+            }
+            else if (((*cur)->flags & OP_TYPE_MASK) == OP_SYNC)
+            {
+                
+            }
+            else if (((*cur)->flags & OP_TYPE_MASK) == OP_STABLE)
+            {
+                
+            }
         }
     }
 }
 
 int blockstore::enqueue_op(blockstore_operation *op)
 {
-    if (op->offset >= block_size || op->len >= block_size-op->offset)
+    if (op->offset >= block_size || op->len >= block_size-op->offset ||
+        (op->len % DISK_ALIGNMENT) ||
+        (op->flags & OP_TYPE_MASK) < OP_READ || (op->flags & OP_TYPE_MASK) > OP_DELETE)
     {
+        // Basic verification not passed
         return -EINVAL;
     }
     submit_queue.push_back(op);

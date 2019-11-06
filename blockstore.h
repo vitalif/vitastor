@@ -69,6 +69,7 @@ inline bool operator == (const object_id & a, const object_id & b)
 }
 
 // 32 bytes per "clean" entry on disk with fixed metadata tables
+// FIXME: maybe add crc32's to metadata
 struct __attribute__((__packed__)) clean_disk_entry
 {
     object_id oid;
@@ -156,7 +157,7 @@ struct blockstore_operation
     std::map<uint64_t, struct iovec> read_vec;
     int pending_ops;
     int wait_for;
-    uint64_t wait_version;
+    uint64_t wait_detail;
 };
 
 class blockstore;
@@ -211,11 +212,18 @@ public:
     void handle_event(ring_data_t* data);
     void loop();
 
-    // Read
+    // Submission
     int enqueue_op(blockstore_operation *op);
+
+    // Read
     int dequeue_read(blockstore_operation *read_op);
     int fulfill_read(blockstore_operation *read_op, uint32_t item_start, uint32_t item_end,
         uint32_t item_state, uint64_t item_version, uint64_t item_location);
     int fulfill_read_push(blockstore_operation *read_op, uint32_t item_start,
         uint32_t item_state, uint64_t item_version, uint64_t item_location, uint32_t cur_start, uint32_t cur_end);
+
+    // Write
+    int dequeue_write(blockstore_operation *op);
+
+    // Sync
 };
