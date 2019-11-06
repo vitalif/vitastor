@@ -76,21 +76,21 @@ int blockstore::fulfill_read(blockstore_operation *read_op, uint32_t item_start,
     return 0;
 }
 
-int blockstore::read(blockstore_operation *read_op)
+int blockstore::dequeue_read(blockstore_operation *read_op)
 {
     auto clean_it = object_db.find(read_op->oid);
     auto dirty_it = dirty_queue.find(read_op->oid);
-    if (clean_it == object_db.end() && dirty_it == object_db.end())
+    if (clean_it == object_db.end() && dirty_it == dirty_queue.end())
     {
         // region is not allocated - return zeroes
         memset(read_op->buf, 0, read_op->len);
         read_op->retval = read_op->len;
         read_op->callback(read_op);
-        return 0;
+        return 1;
     }
     unsigned prev_sqe_pos = ringloop->ring->sq.sqe_tail;
     uint64_t fulfilled = 0;
-    if (dirty_it != object_db.end())
+    if (dirty_it != dirty_queue.end())
     {
         dirty_list dirty = dirty_it->second;
         for (int i = dirty.size()-1; i >= 0; i--)
@@ -99,10 +99,9 @@ int blockstore::read(blockstore_operation *read_op)
             {
                 if (fulfill_read(read_op, dirty[i].offset, dirty[i].offset + dirty[i].size, dirty[i].state, dirty[i].version, dirty[i].location) < 0)
                 {
-                    // need to wait for something, undo added requests and requeue op
+                    // need to wait. undo added requests, don't dequeue op
                     ringloop->ring->sq.sqe_tail = prev_sqe_pos;
                     read_op->read_vec.clear();
-                    submit_queue.push_front(read_op);
                     return 0;
                 }
             }
@@ -112,11 +111,9 @@ int blockstore::read(blockstore_operation *read_op)
     {
         if (fulfill_read(read_op, 0, block_size, ST_CURRENT, 0, clean_it->second.location) < 0)
         {
-            // need to wait for something, undo added requests and requeue op
+            // need to wait. undo added requests, don't dequeue op
             ringloop->ring->sq.sqe_tail = prev_sqe_pos;
             read_op->read_vec.clear();
-            // FIXME: manage enqueue/dequeue/requeue
-            submit_queue.push_front(read_op);
             return 0;
         }
     }
@@ -126,14 +123,15 @@ int blockstore::read(blockstore_operation *read_op)
         memset(read_op->buf, 0, read_op->len);
         read_op->retval = read_op->len;
         read_op->callback(read_op);
-        return 0;
+        return 1;
     }
     read_op->retval = 0;
     read_op->pending_ops = read_op->read_vec.size();
+    in_process_ops.insert(read_op);
     int ret = ringloop->submit();
     if (ret < 0)
     {
         throw new std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
     }
-    return 0;
+    return 1;
 }

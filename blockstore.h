@@ -13,7 +13,7 @@
 
 #include <vector>
 #include <map>
-#include <deque>
+#include <list>
 #include <set>
 #include <functional>
 
@@ -110,10 +110,25 @@ public:
     }
 };
 
-// SYNC must be submitted after previous WRITEs/DELETEs (not before!)
-// READs to the same object must be submitted after previous WRITEs/DELETEs
+// - Sync must be submitted after previous writes/deletes (not before!)
+// - Reads to the same object must be submitted after previous writes/deletes
+//   are written (not necessarily synced) in their location. This is because we
+//   rely on read-modify-write for erasure coding and we must return new data
+//   to calculate parity for subsequent writes
+// - Writes may be submitted in any order, because they don't overlap. Each write
+//   goes into a new location - either on the journal device or on the data device
+// - Journal trim may be processed only after all versions are moved to
+//   the main storage AND after all read operations for older versions complete
+// - If an operation can not be submitted because the ring is full
+//   we should stop submission of other operations. Otherwise some "scatter" reads
+//   may end up blocked for a long time.
 // Otherwise, the submit order is free, that is all operations may be submitted immediately
 // In fact, adding a write operation must immediately result in dirty_queue being populated
+
+// write -> immediately add to dirty ops, immediately submit. postpone if ring full
+// read -> check dirty ops, read or wait, remember max used journal offset, then unremember it
+// sync -> take all current writes (inflight + pending), wait for them to finish, sync, move their state
+// the question is: how to remember current writes.
 
 #define OP_READ 1
 #define OP_READ_DIRTY 2
@@ -154,7 +169,7 @@ class blockstore
 public:
     spp::sparse_hash_map<object_id, clean_entry, oid_hash> object_db;
     spp::sparse_hash_map<object_id, dirty_list, oid_hash> dirty_queue;
-    std::deque<blockstore_operation*> submit_queue;
+    std::list<blockstore_operation*> submit_queue;
     std::set<blockstore_operation*> in_process_ops;
     uint32_t block_order, block_size;
     uint64_t block_count;
@@ -197,7 +212,8 @@ public:
     void loop();
 
     // Read
-    int read(blockstore_operation *read_op);
+    int enqueue_op(blockstore_operation *op);
+    int dequeue_read(blockstore_operation *read_op);
     int fulfill_read(blockstore_operation *read_op, uint32_t item_start, uint32_t item_end,
         uint32_t item_state, uint64_t item_version, uint64_t item_location);
     int fulfill_read_push(blockstore_operation *read_op, uint32_t item_start,
