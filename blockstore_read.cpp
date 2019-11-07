@@ -33,9 +33,9 @@ int blockstore::fulfill_read_push(blockstore_operation *read_op, uint32_t item_s
         read_op->read_vec[cur_start] = data->iov;
         io_uring_prep_readv(
             sqe,
-            IS_JOURNAL(item_state) ? journal_fd : data_fd,
+            IS_JOURNAL(item_state) ? journal.fd : data_fd,
             &data->iov, 1,
-            (IS_JOURNAL(item_state) ? journal_offset : data_offset) + item_location + cur_start - item_start
+            (IS_JOURNAL(item_state) ? journal.offset : data_offset) + item_location + cur_start - item_start
         );
         data->op = read_op;
     }

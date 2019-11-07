@@ -13,7 +13,7 @@ blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, 
     {
         throw new std::runtime_error("Bad block size");
     }
-    data_fd = meta_fd = journal_fd = -1;
+    data_fd = meta_fd = journal.fd = -1;
     try
     {
         open_data(config);
@@ -30,8 +30,8 @@ blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, 
             close(data_fd);
         if (meta_fd >= 0 && meta_fd != data_fd)
             close(meta_fd);
-        if (journal_fd >= 0 && journal_fd != meta_fd)
-            close(journal_fd);
+        if (journal.fd >= 0 && journal.fd != meta_fd)
+            close(journal.fd);
         throw e;
     }
 }
@@ -43,8 +43,10 @@ blockstore::~blockstore()
         close(data_fd);
     if (meta_fd >= 0 && meta_fd != data_fd)
         close(meta_fd);
-    if (journal_fd >= 0 && journal_fd != meta_fd)
-        close(journal_fd);
+    if (journal.fd >= 0 && journal.fd != meta_fd)
+        close(journal.fd);
+    free(journal.sector_buf);
+    free(journal.sector_info);
 }
 
 // main event loop - handle requests
@@ -79,6 +81,32 @@ void blockstore::handle_event(ring_data_t *data)
                     op->retval = op->len;
                 op->callback(op);
                 in_process_ops.erase(op);
+            }
+        }
+        else if ((op->flags & OP_TYPE_MASK) == OP_WRITE ||
+            (op->flags & OP_TYPE_MASK) == OP_DELETE)
+        {
+            op->pending_ops--;
+            if (data->res < 0)
+            {
+                // write error
+                // FIXME: our state becomes corrupted after a write error. maybe do something better than just die
+                throw new std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
+                op->retval = data->res;
+            }
+            if (op->used_journal_sector > 0)
+            {
+                uint64_t s = op->used_journal_sector-1;
+                if (journal.sector_info[s].usage_count > 0)
+                {
+                    // The last write to this journal sector was made by this op, release the buffer
+                    journal.sector_info[s].usage_count--;
+                }
+                op->used_journal_sector = 0;
+            }
+            if (op->pending_ops == 0)
+            {
+                
             }
         }
     }
@@ -180,14 +208,14 @@ int blockstore::enqueue_op(blockstore_operation *op)
         auto dirty_it = dirty_queue.find(op->oid);
         if (dirty_it != dirty_queue.end())
         {
-            op->version = (*dirty_it).back().version + 1;
+            op->version = dirty_it->second.back().version + 1;
         }
         else
         {
             auto clean_it = object_db.find(op->oid);
             if (clean_it != object_db.end())
             {
-                op->version = (*clean_it).version + 1;
+                op->version = clean_it->second.version + 1;
             }
             else
             {
@@ -196,7 +224,7 @@ int blockstore::enqueue_op(blockstore_operation *op)
             dirty_it = dirty_queue.emplace(op->oid, dirty_list()).first;
         }
         // Immediately add the operation into the dirty queue, so subsequent reads could see it
-        (*dirty_it).push_back((dirty_entry){
+        dirty_it->second.push_back((dirty_entry){
             .version = op->version,
             .state = ST_IN_FLIGHT,
             .flags = 0,

@@ -112,8 +112,9 @@ void blockstore_init_journal::handle_event(ring_data_t *data)
         if (iszero((uint64_t*)journal_buffer, 3))
         {
             // Journal is empty
-            bs->journal_start = 512;
-            bs->journal_end = 512;
+            // FIXME handle this wrapping to 512 better
+            bs->journal.used_start = 512;
+            bs->journal.next_free = 512;
             step = 99;
         }
         else
@@ -128,7 +129,7 @@ void blockstore_init_journal::handle_event(ring_data_t *data)
                 // Entry is corrupt
                 throw new std::runtime_error("first entry of the journal is corrupt");
             }
-            journal_pos = bs->journal_start = je->journal_start;
+            journal_pos = bs->journal.used_start = je->journal_start;
             crc32_last = je->crc32_replaced;
             step = 2;
         }
@@ -147,7 +148,7 @@ void blockstore_init_journal::handle_event(ring_data_t *data)
         done_buf = submitted;
         done_len = data->res;
         journal_pos += data->res;
-        if (journal_pos >= bs->journal_len)
+        if (journal_pos >= bs->journal.len)
         {
             // Continue from the beginning
             journal_pos = 512;
@@ -177,7 +178,7 @@ int blockstore_init_journal::loop()
         }
         struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
         data->iov = { journal_buffer, 512 };
-        io_uring_prep_readv(sqe, bs->journal_fd, &data->iov, 1, bs->journal_offset);
+        io_uring_prep_readv(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
         bs->ringloop->submit();
         step = 1;
     }
@@ -188,7 +189,7 @@ int blockstore_init_journal::loop()
         {
             if (step != 3)
             {
-                if (journal_pos == bs->journal_start && wrapped)
+                if (journal_pos == bs->journal.used_start && wrapped)
                 {
                     step = 3;
                 }
@@ -200,16 +201,16 @@ int blockstore_init_journal::loop()
                         throw new std::runtime_error("io_uring is full while trying to read journal");
                     }
                     struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
-                    uint64_t end = bs->journal_len;
-                    if (journal_pos < bs->journal_start)
+                    uint64_t end = bs->journal.len;
+                    if (journal_pos < bs->journal.used_start)
                     {
-                        end = bs->journal_start;
+                        end = bs->journal.used_start;
                     }
                     data->iov = {
                         journal_buffer + (done_buf == 1 ? JOURNAL_BUFFER_SIZE : 0),
                         end - journal_pos < JOURNAL_BUFFER_SIZE ? end - journal_pos : JOURNAL_BUFFER_SIZE,
                     };
-                    io_uring_prep_readv(sqe, bs->journal_fd, &data->iov, 1, bs->journal_offset + journal_pos);
+                    io_uring_prep_readv(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + journal_pos);
                     bs->ringloop->submit();
                     submitted = done_buf == 1 ? 2 : 1;
                 }
@@ -233,7 +234,7 @@ int blockstore_init_journal::loop()
     if (step == 99)
     {
         free(journal_buffer);
-        bs->journal_crc32_last = crc32_last;
+        bs->journal.crc32_last = crc32_last;
         journal_buffer = NULL;
         step = 100;
     }
@@ -261,7 +262,8 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                 if (pos == 0)
                 {
                     // invalid entry in the beginning, this is definitely the end of the journal
-                    bs->journal_end = done_pos + total_pos + pos;
+                    // FIXME handle the edge case when the journal is full
+                    bs->journal.next_free = done_pos + total_pos;
                     return 0;
                 }
                 else
@@ -276,7 +278,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
             {
                 // oid, version, offset, len
                 uint64_t location;
-                if (cur_skip > 0 || done_pos + total_pos + je->small_write.len > bs->journal_len)
+                if (cur_skip > 0 || done_pos + total_pos + je->small_write.len > bs->journal.len)
                 {
                     // data continues from the beginning of the journal
                     location = 512 + cur_skip;

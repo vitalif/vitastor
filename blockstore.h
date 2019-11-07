@@ -139,8 +139,14 @@ public:
 #define OP_DELETE 6
 #define OP_TYPE_MASK 0x7
 
+// Suspend operation until there are more free SQEs
 #define WAIT_SQE 1
+// Suspend operation until version <wait_detail> of object <oid> is written
 #define WAIT_IN_FLIGHT 2
+// Suspend operation until there are <wait_detail> bytes of free space in the journal on disk
+#define WAIT_JOURNAL 3
+// Suspend operation until the next journal sector buffer is free
+#define WAIT_JOURNAL_BUFFER 4
 
 struct blockstore_operation
 {
@@ -158,6 +164,7 @@ struct blockstore_operation
     int pending_ops;
     int wait_for;
     uint64_t wait_detail;
+    uint64_t used_journal_sector;
 };
 
 class blockstore;
@@ -176,16 +183,13 @@ public:
     uint64_t block_count;
     allocator *data_alloc;
 
-    int journal_fd;
     int meta_fd;
     int data_fd;
 
-    uint64_t journal_offset, journal_size, journal_len;
     uint64_t meta_offset, meta_size, meta_area, meta_len;
     uint64_t data_offset, data_size, data_len;
 
-    uint64_t journal_start, journal_end;
-    uint32_t journal_crc32_last;
+    struct journal_t journal;
 
     ring_loop_t *ringloop;
 

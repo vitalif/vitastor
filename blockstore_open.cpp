@@ -8,10 +8,10 @@ void blockstore::calc_lengths(spp::sparse_hash_map<std::string, std::string> & c
     {
         data_len = meta_offset - data_offset;
     }
-    if (data_fd == journal_fd && data_offset < journal_offset)
+    if (data_fd == journal.fd && data_offset < journal.offset)
     {
-        data_len = data_len < journal_offset-data_offset
-            ? data_len : journal_offset-data_offset;
+        data_len = data_len < journal.offset-data_offset
+            ? data_len : journal.offset-data_offset;
     }
     // meta
     meta_area = (meta_fd == data_fd ? data_size : meta_size) - meta_offset;
@@ -19,21 +19,21 @@ void blockstore::calc_lengths(spp::sparse_hash_map<std::string, std::string> & c
     {
         meta_area = data_offset - meta_offset;
     }
-    if (meta_fd == journal_fd && meta_offset < journal_offset)
+    if (meta_fd == journal.fd && meta_offset < journal.offset)
     {
-        meta_area = meta_area < journal_offset-meta_offset
-            ? meta_area : journal_offset-meta_offset;
+        meta_area = meta_area < journal.offset-meta_offset
+            ? meta_area : journal.offset-meta_offset;
     }
     // journal
-    journal_len = (journal_fd == data_fd ? data_size : (journal_fd == meta_fd ? meta_size : journal_size)) - journal_offset;
-    if (journal_fd == data_fd && journal_offset < data_offset)
+    journal.len = (journal.fd == data_fd ? data_size : (journal.fd == meta_fd ? meta_size : journal.device_size)) - journal.offset;
+    if (journal.fd == data_fd && journal.offset < data_offset)
     {
-        journal_len = data_offset - journal_offset;
+        journal.len = data_offset - journal.offset;
     }
-    if (journal_fd == meta_fd && journal_offset < meta_offset)
+    if (journal.fd == meta_fd && journal.offset < meta_offset)
     {
-        journal_len = journal_len < meta_offset-journal_offset
-            ? journal_len : meta_offset-journal_offset;
+        journal.len = journal.len < meta_offset-journal.offset
+            ? journal.len : meta_offset-journal.offset;
     }
     // required metadata size
     block_count = data_len / block_size;
@@ -49,15 +49,15 @@ void blockstore::calc_lengths(spp::sparse_hash_map<std::string, std::string> & c
     }
     // requested journal size
     uint64_t journal_wanted = stoull(config["journal_size"]);
-    if (journal_wanted > journal_len)
+    if (journal_wanted > journal.len)
     {
         throw new std::runtime_error("Requested journal_size is too large");
     }
     else if (journal_wanted > 0)
     {
-        journal_len = journal_wanted;
+        journal.len = journal_wanted;
     }
-    if (journal_len < MIN_JOURNAL_SIZE)
+    if (journal.len < MIN_JOURNAL_SIZE)
     {
         throw new std::runtime_error("Journal is too small");
     }
@@ -129,20 +129,20 @@ void blockstore::open_meta(spp::sparse_hash_map<std::string, std::string> & conf
 void blockstore::open_journal(spp::sparse_hash_map<std::string, std::string> & config)
 {
     int sectsize;
-    journal_offset = stoull(config["journal_offset"]);
-    if (journal_offset % DISK_ALIGNMENT)
+    journal.offset = stoull(config["journal_offset"]);
+    if (journal.offset % DISK_ALIGNMENT)
     {
         throw new std::runtime_error("journal_offset not aligned");
     }
     if (config["journal_device"] != "")
     {
-        journal_fd = open(config["journal_device"].c_str(), O_DIRECT|O_RDWR);
-        if (journal_fd == -1)
+        journal.fd = open(config["journal_device"].c_str(), O_DIRECT|O_RDWR);
+        if (journal.fd == -1)
         {
             throw new std::runtime_error("Failed to open journal device");
         }
-        if (ioctl(journal_fd, BLKSSZGET, &sectsize) < 0 ||
-            ioctl(journal_fd, BLKGETSIZE64, &journal_size) < 0 ||
+        if (ioctl(journal.fd, BLKSSZGET, &sectsize) < 0 ||
+            ioctl(journal.fd, BLKGETSIZE64, &journal.device_size) < 0 ||
             sectsize != 512)
         {
             throw new std::runtime_error("Journal device sector is not equal to 512 bytes");
@@ -150,11 +150,22 @@ void blockstore::open_journal(spp::sparse_hash_map<std::string, std::string> & c
     }
     else
     {
-        journal_fd = meta_fd;
-        journal_size = 0;
-        if (journal_offset >= data_size)
+        journal.fd = meta_fd;
+        journal.device_size = 0;
+        if (journal.offset >= data_size)
         {
             throw new std::runtime_error("journal_offset exceeds device size");
         }
+    }
+    journal.sector_count = stoull(config["journal_sector_buffer_count"]);
+    if (!journal.sector_count)
+    {
+        journal.sector_count = 32;
+    }
+    journal.sector_buf = (uint8_t*)memalign(512, journal.sector_count * 512);
+    journal.sector_info = (journal_sector_info_t*)calloc(journal.sector_count, sizeof(journal_sector_info_t));
+    if (!journal.sector_buf || !journal.sector_info)
+    {
+        throw new std::bad_alloc();
     }
 }

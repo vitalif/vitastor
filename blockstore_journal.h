@@ -98,3 +98,27 @@ inline uint32_t je_crc32(journal_entry *je)
 {
     return crc32c_zero4(((uint8_t*)je)+4, je->size-4);
 }
+
+struct journal_sector_info_t
+{
+    uint64_t offset;
+    uint64_t usage_count;
+};
+
+struct journal_t
+{
+    int fd;
+    uint64_t device_size;
+
+    uint64_t offset, len;
+    uint64_t next_free = 512;
+    uint64_t used_start = 512;
+    uint32_t crc32_last = 0;
+
+    // Current sector(s) used for writing
+    uint8_t *sector_buf;
+    journal_sector_info_t *sector_info;
+    uint64_t sector_count;
+    uint64_t cur_sector = 0;
+    uint64_t in_sector_pos = 0;
+};
