@@ -27,7 +27,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
         }
         struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
         dirty_it->second.location = loc << block_order;
-        //dirty_it->second.state = ST_D_SUBMITTED;
+        dirty_it->second.state = ST_D_SUBMITTED;
         allocator_set(data_alloc, loc, true);
         data->iov = (struct iovec){ op->buf, op->len };
         data->op = op;
@@ -120,7 +120,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
             sqe2, journal.fd, &data2->iov, 1, journal.offset + journal.next_free
         );
         dirty_it->second.location = journal.next_free;
-        //dirty_it->second.state = ST_J_SUBMITTED;
+        dirty_it->second.state = ST_J_SUBMITTED;
         // Move journal.next_free and save last write for current sector
         journal.next_free += op->len;
         if (journal.next_free >= journal.len)

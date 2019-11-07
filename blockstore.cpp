@@ -92,7 +92,6 @@ void blockstore::handle_event(ring_data_t *data)
                 // write error
                 // FIXME: our state becomes corrupted after a write error. maybe do something better than just die
                 throw new std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
-                op->retval = data->res;
             }
             if (op->used_journal_sector > 0)
             {
@@ -106,8 +105,25 @@ void blockstore::handle_event(ring_data_t *data)
             }
             if (op->pending_ops == 0)
             {
-                
+                // Acknowledge write without sync
+                auto dirty_it = dirty_db.find((obj_ver_id){
+                    .oid = op->oid,
+                    .version = op->version,
+                });
+                dirty_it->second.state = (dirty_it->second.state == ST_J_SUBMITTED
+                    ? ST_J_WRITTEN : (dirty_it->second.state == ST_DEL_SUBMITTED ? ST_DEL_WRITTEN : ST_D_WRITTEN));
+                op->retval = op->len;
+                op->callback(op);
+                in_process_ops.erase(op);
             }
+        }
+        else if ((op->flags & OP_TYPE_MASK) == OP_SYNC)
+        {
+            
+        }
+        else if ((op->flags & OP_TYPE_MASK) == OP_STABLE)
+        {
+            
         }
     }
 }
@@ -152,6 +168,14 @@ void blockstore::loop()
         while (op != submit_queue.end())
         {
             auto cur = op++;
+            if ((*cur)->wait_for == WAIT_SQE)
+            {
+                
+            }
+            else if ((*cur)->wait_for == WAIT_IN_FLIGHT)
+            {
+                
+            }
             if (((*cur)->flags & OP_TYPE_MASK) == OP_READ_DIRTY ||
                 ((*cur)->flags & OP_TYPE_MASK) == OP_READ)
             {
@@ -201,6 +225,7 @@ int blockstore::enqueue_op(blockstore_operation *op)
         // Basic verification not passed
         return -EINVAL;
     }
+    op->wait_for = 0;
     submit_queue.push_back(op);
     if ((op->flags & OP_TYPE_MASK) == OP_WRITE)
     {

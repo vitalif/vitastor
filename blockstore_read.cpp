@@ -5,7 +5,7 @@ int blockstore::fulfill_read_push(blockstore_operation *read_op, uint32_t item_s
 {
     if (cur_end > cur_start)
     {
-        if (item_state == ST_IN_FLIGHT)
+        if (IS_IN_FLIGHT(item_state))
         {
             // Pause until it's written somewhere
             read_op->wait_for = WAIT_IN_FLIGHT;
@@ -78,6 +78,7 @@ int blockstore::fulfill_read(blockstore_operation *read_op, uint32_t item_start,
 
 int blockstore::dequeue_read(blockstore_operation *read_op)
 {
+    // FIXME: allow to read specific version
     auto clean_it = object_db.find(read_op->oid);
     auto dirty_it = dirty_db.upper_bound((obj_ver_id){
         .oid = read_op->oid,

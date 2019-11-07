@@ -25,25 +25,34 @@
 // States are not stored on disk. Instead, they're deduced from the journal
 
 #define ST_IN_FLIGHT 1
-#define ST_J_WRITTEN 2
-#define ST_J_SYNCED 3
-#define ST_J_STABLE 4
-#define ST_J_MOVED 5
-#define ST_J_MOVE_SYNCED 6
-#define ST_D_WRITTEN 16
-#define ST_D_SYNCED 17
-#define ST_D_META_WRITTEN 18
-#define ST_D_META_SYNCED 19
-#define ST_D_STABLE 20
-#define ST_D_META_MOVED 21
-#define ST_D_META_COMMITTED 22
-#define ST_DEL_WRITTEN 23
-#define ST_DEL_SYNCED 24
-#define ST_DEL_STABLE 25
-#define ST_DEL_MOVED 26
-#define ST_CURRENT 32
-#define IS_STABLE(st) ((st) == 4 || (st) == 5 || (st) == 6 || (st) == 20 || (st) == 21 || (st) == 22 || (st) == 32 || (st) == 24 || (st) == 25)
-#define IS_JOURNAL(st) (st >= 2 && st <= 6)
+
+#define ST_J_SUBMITTED 2
+#define ST_J_WRITTEN 3
+#define ST_J_SYNCED 4
+#define ST_J_STABLE 5
+#define ST_J_MOVED 6
+#define ST_J_MOVE_SYNCED 7
+
+#define ST_D_SUBMITTED 16
+#define ST_D_WRITTEN 17
+#define ST_D_SYNCED 18
+#define ST_D_META_WRITTEN 19
+#define ST_D_META_SYNCED 20
+#define ST_D_STABLE 21
+#define ST_D_META_MOVED 22
+#define ST_D_META_COMMITTED 23
+
+#define ST_DEL_SUBMITTED 32
+#define ST_DEL_WRITTEN 33
+#define ST_DEL_SYNCED 34
+#define ST_DEL_STABLE 35
+#define ST_DEL_MOVED 36
+
+#define ST_CURRENT 48
+
+#define IS_IN_FLIGHT(st) (st == ST_IN_FLIGHT || st == ST_J_SUBMITTED || st == ST_D_SUBMITTED || st == ST_DEL_SUBMITTED)
+#define IS_STABLE(st) (st >= ST_J_STABLE && st <= ST_J_MOVE_SYNCED || st >= ST_D_STABLE && st <= ST_D_META_COMMITTED || st >= ST_DEL_STABLE && st <= ST_DEL_MOVED || st == ST_CURRENT)
+#define IS_JOURNAL(st) (st >= ST_J_SUBMITTED && st <= ST_J_MOVE_SYNCED)
 
 // Default object size is 128 KB
 #define DEFAULT_ORDER 17
