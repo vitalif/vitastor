@@ -65,7 +65,12 @@ struct __attribute__((__packed__)) object_id
 
 inline bool operator == (const object_id & a, const object_id & b)
 {
-    return b.inode == a.inode && b.stripe == a.stripe;
+    return a.inode == b.inode && a.stripe == b.stripe;
+}
+
+inline bool operator < (const object_id & a, const object_id & b)
+{
+    return a.inode < b.inode || a.inode == b.inode && a.stripe < b.stripe;
 }
 
 // 32 bytes per "clean" entry on disk with fixed metadata tables
@@ -87,17 +92,25 @@ struct __attribute__((__packed__)) clean_entry
 };
 
 // 48 bytes per dirty entry in memory
+struct __attribute__((__packed__)) obj_ver_id
+{
+    object_id oid;
+    uint64_t version;
+};
+
+inline bool operator < (const obj_ver_id & a, const obj_ver_id & b)
+{
+    return a.oid < b.oid || a.oid == b.oid && a.version < b.version;
+}
+
 struct __attribute__((__packed__)) dirty_entry
 {
-    uint64_t version;
     uint32_t state;
     uint32_t flags;
     uint64_t location; // location in either journal or data
     uint32_t offset;   // offset within stripe
     uint32_t size;     // entry size
 };
-
-typedef std::vector<dirty_entry> dirty_list;
 
 class oid_hash
 {
@@ -124,7 +137,7 @@ public:
 //   we should stop submission of other operations. Otherwise some "scatter" reads
 //   may end up blocked for a long time.
 // Otherwise, the submit order is free, that is all operations may be submitted immediately
-// In fact, adding a write operation must immediately result in dirty_queue being populated
+// In fact, adding a write operation must immediately result in dirty_db being populated
 
 // write -> immediately add to dirty ops, immediately submit. postpone if ring full
 // read -> check dirty ops, read or wait, remember max used journal offset, then unremember it
@@ -176,7 +189,7 @@ class blockstore
     struct ring_consumer_t ring_consumer;
 public:
     spp::sparse_hash_map<object_id, clean_entry, oid_hash> object_db;
-    spp::sparse_hash_map<object_id, dirty_list, oid_hash> dirty_queue;
+    std::map<obj_ver_id, dirty_entry> dirty_db;
     std::list<blockstore_operation*> submit_queue;
     std::set<blockstore_operation*> in_process_ops;
     uint32_t block_order, block_size;

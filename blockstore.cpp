@@ -205,10 +205,14 @@ int blockstore::enqueue_op(blockstore_operation *op)
     if ((op->flags & OP_TYPE_MASK) == OP_WRITE)
     {
         // Assign version number
-        auto dirty_it = dirty_queue.find(op->oid);
-        if (dirty_it != dirty_queue.end())
+        auto dirty_it = dirty_db.upper_bound((obj_ver_id){
+            .oid = op->oid,
+            .version = UINT64_MAX,
+        });
+        dirty_it--;
+        if (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
         {
-            op->version = dirty_it->second.back().version + 1;
+            op->version = dirty_it->first.version + 1;
         }
         else
         {
@@ -221,11 +225,12 @@ int blockstore::enqueue_op(blockstore_operation *op)
             {
                 op->version = 1;
             }
-            dirty_it = dirty_queue.emplace(op->oid, dirty_list()).first;
         }
-        // Immediately add the operation into the dirty queue, so subsequent reads could see it
-        dirty_it->second.push_back((dirty_entry){
+        // Immediately add the operation into dirty_db, so subsequent reads could see it
+        dirty_db.emplace((obj_ver_id){
+            .oid = op->oid,
             .version = op->version,
+        }, (dirty_entry){
             .state = ST_IN_FLIGHT,
             .flags = 0,
             .location = 0,

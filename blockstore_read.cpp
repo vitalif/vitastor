@@ -79,8 +79,14 @@ int blockstore::fulfill_read(blockstore_operation *read_op, uint32_t item_start,
 int blockstore::dequeue_read(blockstore_operation *read_op)
 {
     auto clean_it = object_db.find(read_op->oid);
-    auto dirty_it = dirty_queue.find(read_op->oid);
-    if (clean_it == object_db.end() && dirty_it == dirty_queue.end())
+    auto dirty_it = dirty_db.upper_bound((obj_ver_id){
+        .oid = read_op->oid,
+        .version = UINT64_MAX,
+    });
+    dirty_it--;
+    bool clean_found = clean_it != object_db.end();
+    bool dirty_found = (dirty_it != dirty_db.end() && dirty_it->first.oid == read_op->oid);
+    if (!clean_found && !dirty_found)
     {
         // region is not allocated - return zeroes
         memset(read_op->buf, 0, read_op->len);
@@ -90,14 +96,15 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
     }
     unsigned prev_sqe_pos = ringloop->ring->sq.sqe_tail;
     uint64_t fulfilled = 0;
-    if (dirty_it != dirty_queue.end())
+    if (dirty_found)
     {
-        dirty_list dirty = dirty_it->second;
-        for (int i = dirty.size()-1; i >= 0; i--)
+        while (dirty_it->first.oid == read_op->oid)
         {
-            if ((read_op->flags & OP_TYPE_MASK) == OP_READ_DIRTY || IS_STABLE(dirty[i].state))
+            dirty_entry& dirty = dirty_it->second;
+            if ((read_op->flags & OP_TYPE_MASK) == OP_READ_DIRTY || IS_STABLE(dirty.state))
             {
-                if (fulfill_read(read_op, dirty[i].offset, dirty[i].offset + dirty[i].size, dirty[i].state, dirty[i].version, dirty[i].location) < 0)
+                if (fulfill_read(read_op, dirty.offset, dirty.offset + dirty.size,
+                    dirty.state, dirty_it->first.version, dirty.location) < 0)
                 {
                     // need to wait. undo added requests, don't dequeue op
                     ringloop->ring->sq.sqe_tail = prev_sqe_pos;
@@ -105,6 +112,7 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
                     return 0;
                 }
             }
+            dirty_it--;
         }
     }
     if (clean_it != object_db.end())

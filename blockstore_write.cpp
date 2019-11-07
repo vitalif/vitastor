@@ -3,7 +3,10 @@
 // First step of the write algorithm: dequeue operation and submit initial write(s)
 int blockstore::dequeue_write(blockstore_operation *op)
 {
-    auto dirty_it = dirty_queue[op->oid].find(op->version); // FIXME OOPS
+    auto dirty_it = dirty_db.find((obj_ver_id){
+        .oid = op->oid,
+        .version = op->version,
+    });
     if (op->len == block_size)
     {
         // Big (redirect) write
@@ -23,8 +26,8 @@ int blockstore::dequeue_write(blockstore_operation *op)
             return 0;
         }
         struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
-        (*dirty_it).location = loc << block_order;
-        //(*dirty_it).state = ST_D_SUBMITTED;
+        dirty_it->second.location = loc << block_order;
+        //dirty_it->second.state = ST_D_SUBMITTED;
         allocator_set(data_alloc, loc, true);
         data->iov = (struct iovec){ op->buf, op->len };
         data->op = op;
@@ -38,7 +41,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
     {
         // Small (journaled) write
         // First check if the journal has sufficient space
-        // FIXME Always two SQEs for now. Although it's possible to send 1
+        // FIXME Always two SQEs for now. Although it's possible to send 1 sometimes
         bool two_sqes = true;
         uint64_t next_pos = journal.next_free;
         if (512 - journal.in_sector_pos < sizeof(struct journal_entry_small_write))
@@ -116,8 +119,8 @@ int blockstore::dequeue_write(blockstore_operation *op)
         io_uring_prep_writev(
             sqe2, journal.fd, &data2->iov, 1, journal.offset + journal.next_free
         );
-        (*dirty_it).location = journal.next_free;
-        //(*dirty_it).state = ST_J_SUBMITTED;
+        dirty_it->second.location = journal.next_free;
+        //dirty_it->second.state = ST_J_SUBMITTED;
         // Move journal.next_free and save last write for current sector
         journal.next_free += op->len;
         if (journal.next_free >= journal.len)

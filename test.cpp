@@ -13,6 +13,8 @@
 #include <stdio.h>
 #include <liburing.h>
 
+#include <map>
+
 static int setup_context(unsigned entries, struct io_uring *ring)
 {
     int ret = io_uring_queue_init(entries, ring, 0);
@@ -47,6 +49,12 @@ static void test_write(struct io_uring *ring, int fd)
 
 int main(int argc, char *argv[])
 {
+    std::map<int, std::string> strs;
+    strs.emplace(12, "str");
+    auto it = strs.upper_bound(11);
+    printf("s = %d %s %d\n", it->first, it->second.c_str(), it == strs.begin());
+    it--;
+    printf("s = %d %s\n", it->first, it->second.c_str());
     struct io_uring ring;
     int fd = open("testfile", O_RDWR | O_DIRECT, 0644);
     if (fd < 0)

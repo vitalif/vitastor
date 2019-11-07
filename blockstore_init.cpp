@@ -290,8 +290,10 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     location = done_pos + total_pos;
                     total_pos += je->small_write.len;
                 }
-                bs->dirty_queue[je->small_write.oid].push_back((dirty_entry){
+                bs->dirty_db.emplace((obj_ver_id){
+                    .oid = je->small_write.oid,
                     .version = je->small_write.version,
+                }, (dirty_entry){
                     .state = ST_J_SYNCED,
                     .flags = 0,
                     .location = location,
@@ -302,8 +304,10 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
             else if (je->type == JE_BIG_WRITE)
             {
                 // oid, version, block
-                bs->dirty_queue[je->big_write.oid].push_back((dirty_entry){
+                bs->dirty_db.emplace((obj_ver_id){
+                    .oid = je->big_write.oid,
                     .version = je->big_write.version,
+                }, (dirty_entry){
                     .state = ST_D_META_SYNCED,
                     .flags = 0,
                     .location = je->big_write.block,
@@ -314,8 +318,11 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
             else if (je->type == JE_STABLE)
             {
                 // oid, version
-                auto it = bs->dirty_queue.find(je->stable.oid);
-                if (it == bs->dirty_queue.end())
+                auto it = bs->dirty_db.find((obj_ver_id){
+                    .oid = je->stable.oid,
+                    .version = je->stable.version,
+                });
+                if (it == bs->dirty_db.end())
                 {
                     // journal contains a legitimate STABLE entry for a non-existing dirty write
                     // this probably means that journal was trimmed between WRITTEN and STABLE entries
@@ -323,29 +330,18 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                 }
                 else
                 {
-                    auto & lst = it->second;
-                    int i;
-                    for (i = 0; i < lst.size(); i++)
-                    {
-                        if (lst[i].version == je->stable.version)
-                        {
-                            lst[i].state = (lst[i].state == ST_D_META_SYNCED
-                                ? ST_D_STABLE
-                                : (lst[i].state == ST_DEL_SYNCED ? ST_DEL_STABLE : ST_J_STABLE));
-                            break;
-                        }
-                    }
-                    if (i >= lst.size())
-                    {
-                        // same. STABLE entry for a missing object version
-                    }
+                    it->second.state = (it->second.state == ST_D_META_SYNCED
+                        ? ST_D_STABLE
+                        : (it->second.state == ST_DEL_SYNCED ? ST_DEL_STABLE : ST_J_STABLE));
                 }
             }
             else if (je->type == JE_DELETE)
             {
                 // oid, version
-                bs->dirty_queue[je->small_write.oid].push_back((dirty_entry){
-                    .version = je->small_write.version,
+                bs->dirty_db.emplace((obj_ver_id){
+                    .oid = je->del.oid,
+                    .version = je->del.version,
+                }, (dirty_entry){
                     .state = ST_DEL_SYNCED,
                     .flags = 0,
                     .location = 0,
