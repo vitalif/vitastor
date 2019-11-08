@@ -221,34 +221,19 @@ void blockstore::loop()
                     throw new std::runtime_error("BUG: op->wait_for value is unexpected");
                 }
             }
+            unsigned ring_space = io_uring_sq_space_left(ringloop->ring);
+            unsigned prev_sqe_pos = ringloop->ring->sq.sqe_tail;
+            int dequeue_op = 0;
             if ((op->flags & OP_TYPE_MASK) == OP_READ_DIRTY ||
                 (op->flags & OP_TYPE_MASK) == OP_READ)
             {
-                int dequeue_op = dequeue_read(op);
-                if (dequeue_op)
-                {
-                    submit_queue.erase(op_ptr);
-                }
-                else if (op->wait_for == WAIT_SQE)
-                {
-                    // ring is full, stop submission
-                    break;
-                }
+                dequeue_op = dequeue_read(op);
             }
             else if ((op->flags & OP_TYPE_MASK) == OP_WRITE ||
                 (op->flags & OP_TYPE_MASK) == OP_DELETE)
             {
-                int dequeue_op = dequeue_write(op);
-                if (dequeue_op)
-                {
-                    submit_queue.erase(op_ptr);
-                }
-                else if (op->wait_for == WAIT_SQE)
-                {
-                    // ring is full, stop submission
-                    break;
-                }
                 has_writes = true;
+                dequeue_op = dequeue_write(op);
             }
             else if ((op->flags & OP_TYPE_MASK) == OP_SYNC)
             {
@@ -261,20 +246,31 @@ void blockstore::loop()
                     // Can't submit SYNC before previous writes
                     continue;
                 }
-                int dequeue_op = dequeue_sync(op);
-                if (dequeue_op)
-                {
-                    submit_queue.erase(op_ptr);
-                }
-                else if (op->wait_for == WAIT_SQE)
-                {
-                    // ring is full, stop submission
-                    break;
-                }
+                dequeue_op = dequeue_sync(op);
             }
             else if ((op->flags & OP_TYPE_MASK) == OP_STABLE)
             {
                 
+            }
+            if (dequeue_op)
+            {
+                int ret = ringloop->submit();
+                if (ret < 0)
+                {
+                    throw new std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
+                }
+                submit_queue.erase(op_ptr);
+                in_process_ops.insert(op);
+            }
+            else
+            {
+                ringloop->ring->sq.sqe_tail = prev_sqe_pos;
+                if (op->wait_for == WAIT_SQE)
+                {
+                    op->wait_detail = 1 + ring_space;
+                    // ring is full, stop submission
+                    break;
+                }
             }
         }
     }

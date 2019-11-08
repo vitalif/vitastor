@@ -18,15 +18,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
             op->callback(op);
             return 1;
         }
-        struct io_uring_sqe *sqe = get_sqe();
-        if (!sqe)
-        {
-            // Pause until there are more requests available
-            op->wait_for = WAIT_SQE;
-            op->wait_detail = 1;
-            return 0;
-        }
-        struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
+        BS_GET_SQE(sqe, data);
         dirty_it->second.location = loc << block_order;
         dirty_it->second.state = ST_D_SUBMITTED;
         allocator_set(data_alloc, loc, true);
@@ -43,7 +35,6 @@ int blockstore::dequeue_write(blockstore_operation *op)
         // Small (journaled) write
         // First check if the journal has sufficient space
         // FIXME Always two SQEs for now. Although it's possible to send 1 sometimes
-        bool two_sqes = true;
         uint64_t next_pos = journal.next_free;
         if (512 - journal.in_sector_pos < sizeof(struct journal_entry_small_write))
         {
@@ -73,17 +64,8 @@ int blockstore::dequeue_write(blockstore_operation *op)
         }
         // There is sufficient space. Get SQE(s)
         unsigned prev_sqe_pos = ringloop->ring->sq.sqe_tail;
-        struct io_uring_sqe *sqe1 = get_sqe(), *sqe2 = two_sqes ? get_sqe() : NULL;
-        if (!sqe1 || two_sqes && !sqe2)
-        {
-            // Pause until there are more requests available
-            op->wait_for = WAIT_SQE;
-            op->wait_detail = two_sqes ? 2 : 1;
-            ringloop->ring->sq.sqe_tail = prev_sqe_pos;
-            return 0;
-        }
-        struct ring_data_t *data1 = ((ring_data_t*)sqe1->user_data);
-        struct ring_data_t *data2 = two_sqes ? ((ring_data_t*)sqe2->user_data) : NULL;
+        BS_GET_SQE(sqe1, data1);
+        BS_GET_SQE(sqe2, data2);
         // Got SQEs. Prepare journal sector write
         if (512 - journal.in_sector_pos < sizeof(struct journal_entry_small_write))
         {
@@ -134,12 +116,6 @@ int blockstore::dequeue_write(blockstore_operation *op)
         op->pending_ops = 2;
         op->used_journal_sector = 1 + journal.cur_sector;
     }
-    in_process_ops.insert(op);
-    int ret = ringloop->submit();
-    if (ret < 0)
-    {
-        throw new std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
-    }
     return 1;
 }
 
@@ -161,32 +137,15 @@ int blockstore::dequeue_sync(blockstore_operation *op)
     if (op->has_big_writes == 0x10000 || op->has_big_writes == ST_D_META_WRITTEN)
     {
         // Just fsync the journal
-        struct io_uring_sqe *sqe = get_sqe();
-        if (!sqe)
-        {
-            // Pause until there are more requests available
-            op->wait_for = WAIT_SQE;
-            op->wait_detail = 1;
-            return 0;
-        }
-        struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
+        BS_SUBMIT_GET_SQE(sqe, data);
         io_uring_prep_fsync(sqe, journal.fd, 0);
         data->op = op;
         op->pending_ops = 1;
     }
     else if (op->has_big_writes == ST_D_WRITTEN)
     {
-        // FIXME: try to remove duplicated get_sqe+!sqe+data code
         // 1st step: fsync data
-        struct io_uring_sqe *sqe = get_sqe();
-        if (!sqe)
-        {
-            // Pause until there are more requests available
-            op->wait_for = WAIT_SQE;
-            op->wait_detail = 1;
-            return 0;
-        }
-        struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
+        BS_SUBMIT_GET_SQE(sqe, data);
         io_uring_prep_fsync(sqe, data_fd, 0);
         data->op = op;
         op->pending_ops = 1;
@@ -195,13 +154,6 @@ int blockstore::dequeue_sync(blockstore_operation *op)
     {
         // 2nd step: Data device is synced, prepare & write journal entries
         
-    }
-    // FIXME: try to remove this duplicated code, too
-    in_process_ops.insert(op);
-    int ret = ringloop->submit();
-    if (ret < 0)
-    {
-        throw new std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
     }
     return 1;
 }

@@ -65,6 +65,16 @@
 #define STRIPE_NUM(oid) ((oid) >> 4)
 #define STRIPE_REPLICA(oid) ((oid) & 0xf)
 
+#define BS_SUBMIT_GET_SQE(sqe, data) \
+    struct io_uring_sqe *sqe = get_sqe();\
+    if (!sqe)\
+    {\
+        // Pause until there are more requests available\
+        op->wait_for = WAIT_SQE;\
+        return 0;\
+    }\
+    struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
+
 // 16 bytes per object/stripe id
 // stripe includes replica number in 4 least significant bits
 struct __attribute__((__packed__)) object_id

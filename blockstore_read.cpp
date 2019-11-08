@@ -1,6 +1,6 @@
 #include "blockstore.h"
 
-int blockstore::fulfill_read_push(blockstore_operation *read_op, uint32_t item_start,
+int blockstore::fulfill_read_push(blockstore_operation *op, uint32_t item_start,
     uint32_t item_state, uint64_t item_version, uint64_t item_location, uint32_t cur_start, uint32_t cur_end)
 {
     if (cur_end > cur_start)
@@ -8,38 +8,31 @@ int blockstore::fulfill_read_push(blockstore_operation *read_op, uint32_t item_s
         if (IS_IN_FLIGHT(item_state))
         {
             // Pause until it's written somewhere
-            read_op->wait_for = WAIT_IN_FLIGHT;
-            read_op->wait_detail = item_version;
-            return -1;
+            op->wait_for = WAIT_IN_FLIGHT;
+            op->wait_detail = item_version;
+            return 0;
         }
         else if (item_state == ST_DEL_WRITTEN || item_state == ST_DEL_SYNCED || item_state == ST_DEL_MOVED)
         {
             // item is unallocated - return zeroes
-            memset(read_op->buf + cur_start - read_op->offset, 0, cur_end - cur_start);
-            return 0;
+            memset(op->buf + cur_start - op->offset, 0, cur_end - cur_start);
+            return 1;
         }
-        struct io_uring_sqe *sqe = get_sqe();
-        if (!sqe)
-        {
-            // Pause until there are more requests available
-            read_op->wait_for = WAIT_SQE;
-            return -1;
-        }
-        struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
+        BS_SUBMIT_GET_SQE(sqe, data);
         data->iov = (struct iovec){
-            read_op->buf + cur_start - read_op->offset,
+            op->buf + cur_start - op->offset,
             cur_end - cur_start
         };
-        read_op->read_vec[cur_start] = data->iov;
+        op->read_vec[cur_start] = data->iov;
         io_uring_prep_readv(
             sqe,
             IS_JOURNAL(item_state) ? journal.fd : data_fd,
             &data->iov, 1,
             (IS_JOURNAL(item_state) ? journal.offset : data_offset) + item_location + cur_start - item_start
         );
-        data->op = read_op;
+        data->op = op;
     }
-    return 0;
+    return 1;
 }
 
 int blockstore::fulfill_read(blockstore_operation *read_op, uint32_t item_start, uint32_t item_end,
@@ -61,19 +54,19 @@ int blockstore::fulfill_read(blockstore_operation *read_op, uint32_t item_start,
         }
         while (fulfill_near != read_op->read_vec.end() && fulfill_near->first < item_end)
         {
-            if (fulfill_read_push(read_op, item_start, item_state, item_version, item_location, cur_start, fulfill_near->first) < 0)
+            if (!fulfill_read_push(read_op, item_start, item_state, item_version, item_location, cur_start, fulfill_near->first))
             {
-                return -1;
+                return 0;
             }
             cur_start = fulfill_near->first + fulfill_near->second.iov_len;
             fulfill_near++;
         }
-        if (fulfill_read_push(read_op, item_start, item_state, item_version, item_location, cur_start, item_end) < 0)
+        if (!fulfill_read_push(read_op, item_start, item_state, item_version, item_location, cur_start, item_end))
         {
-            return -1;
+            return 0;
         }
     }
-    return 0;
+    return 1;
 }
 
 int blockstore::dequeue_read(blockstore_operation *read_op)
@@ -95,8 +88,6 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
         read_op->callback(read_op);
         return 1;
     }
-    unsigned prev_sqe_pos = ringloop->ring->sq.sqe_tail;
-    unsigned ring_space = io_uring_sq_space_left(ringloop->ring);
     uint64_t fulfilled = 0;
     if (dirty_found)
     {
@@ -105,15 +96,10 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
             dirty_entry& dirty = dirty_it->second;
             if ((read_op->flags & OP_TYPE_MASK) == OP_READ_DIRTY || IS_STABLE(dirty.state))
             {
-                if (fulfill_read(read_op, dirty.offset, dirty.offset + dirty.size,
-                    dirty.state, dirty_it->first.version, dirty.location) < 0)
+                if (!fulfill_read(read_op, dirty.offset, dirty.offset + dirty.size,
+                    dirty.state, dirty_it->first.version, dirty.location))
                 {
                     // need to wait. undo added requests, don't dequeue op
-                    if (read_op->wait_for == WAIT_SQE)
-                    {
-                        read_op->wait_detail = 1 + ring_space;
-                    }
-                    ringloop->ring->sq.sqe_tail = prev_sqe_pos;
                     read_op->read_vec.clear();
                     return 0;
                 }
@@ -123,14 +109,9 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
     }
     if (clean_it != object_db.end())
     {
-        if (fulfill_read(read_op, 0, block_size, ST_CURRENT, 0, clean_it->second.location) < 0)
+        if (!fulfill_read(read_op, 0, block_size, ST_CURRENT, 0, clean_it->second.location))
         {
             // need to wait. undo added requests, don't dequeue op
-            if (read_op->wait_for == WAIT_SQE)
-            {
-                read_op->wait_detail = 1 + ring_space;
-            }
-            ringloop->ring->sq.sqe_tail = prev_sqe_pos;
             read_op->read_vec.clear();
             return 0;
         }
@@ -146,10 +127,5 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
     read_op->retval = 0;
     read_op->pending_ops = read_op->read_vec.size();
     in_process_ops.insert(read_op);
-    int ret = ringloop->submit();
-    if (ret < 0)
-    {
-        throw new std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
-    }
     return 1;
 }
