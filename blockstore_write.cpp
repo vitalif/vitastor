@@ -142,3 +142,66 @@ int blockstore::dequeue_write(blockstore_operation *op)
     }
     return 1;
 }
+
+int blockstore::dequeue_sync(blockstore_operation *op)
+{
+    op->has_big_writes = 0x10000;
+    op->sync_writes.swap(unsynced_writes);
+    unsynced_writes.clear();
+    auto it = sync_writes.begin();
+    while (it != sync_writes.end())
+    {
+        uint32_t state = dirty_db[*it].state;
+        if (IS_BIG_WRITE(state))
+        {
+            op->has_big_writes = op->has_big_writes < state ? op->has_big_writes : state;
+        }
+        it++;
+    }
+    if (op->has_big_writes == 0x10000 || op->has_big_writes == ST_D_META_WRITTEN)
+    {
+        // Just fsync the journal
+        struct io_uring_sqe *sqe = get_sqe();
+        if (!sqe)
+        {
+            // Pause until there are more requests available
+            op->wait_for = WAIT_SQE;
+            op->wait_detail = 1;
+            return 0;
+        }
+        struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
+        io_uring_prep_fsync(sqe, journal.fd, 0);
+        data->op = op;
+        op->pending_ops = 1;
+    }
+    else if (op->has_big_writes == ST_D_WRITTEN)
+    {
+        // FIXME: try to remove duplicated get_sqe+!sqe+data code
+        // 1st step: fsync data
+        struct io_uring_sqe *sqe = get_sqe();
+        if (!sqe)
+        {
+            // Pause until there are more requests available
+            op->wait_for = WAIT_SQE;
+            op->wait_detail = 1;
+            return 0;
+        }
+        struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
+        io_uring_prep_fsync(sqe, data_fd, 0);
+        data->op = op;
+        op->pending_ops = 1;
+    }
+    else if (op->has_big_writes == ST_D_SYNCED)
+    {
+        // 2nd step: Data device is synced, prepare & write journal entries
+        
+    }
+    // FIXME: try to remove this duplicated code, too
+    in_process_ops.insert(op);
+    int ret = ringloop->submit();
+    if (ret < 0)
+    {
+        throw new std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
+    }
+    return 1;
+}

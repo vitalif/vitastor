@@ -13,6 +13,7 @@
 
 #include <vector>
 #include <map>
+#include <deque>
 #include <list>
 #include <set>
 #include <functional>
@@ -53,6 +54,8 @@
 #define IS_IN_FLIGHT(st) (st == ST_IN_FLIGHT || st == ST_J_SUBMITTED || st == ST_D_SUBMITTED || st == ST_DEL_SUBMITTED)
 #define IS_STABLE(st) (st >= ST_J_STABLE && st <= ST_J_MOVE_SYNCED || st >= ST_D_STABLE && st <= ST_D_META_COMMITTED || st >= ST_DEL_STABLE && st <= ST_DEL_MOVED || st == ST_CURRENT)
 #define IS_JOURNAL(st) (st >= ST_J_SUBMITTED && st <= ST_J_MOVE_SYNCED)
+#define IS_BIG_WRITE(st) (st >= ST_D_SUBMITTED && st <= ST_D_META_COMMITTED)
+#define IS_UNSYNCED(st) (st == ST_J_WRITTEN || st >= ST_D_WRITTEN && st <= ST_D_META_WRITTEN || st == ST_DEL_WRITTEN)
 
 // Default object size is 128 KB
 #define DEFAULT_ORDER 17
@@ -182,11 +185,16 @@ struct blockstore_operation
     uint8_t *buf;
     int retval;
 
-    std::map<uint64_t, struct iovec> read_vec;
-    int pending_ops;
+    // Wait status
     int wait_for;
     uint64_t wait_detail;
+    int pending_ops;
+
+    // FIXME make all of these pointers and put them into a union
+    std::map<uint64_t, struct iovec> read_vec;
     uint64_t used_journal_sector;
+    std::deque<obj_ver_id> sync_writes;
+    bool has_big_writes;
 };
 
 class blockstore;
@@ -197,9 +205,11 @@ class blockstore
 {
     struct ring_consumer_t ring_consumer;
 public:
+    // Another option is https://github.com/algorithm-ninja/cpp-btree
     spp::sparse_hash_map<object_id, clean_entry, oid_hash> object_db;
     std::map<obj_ver_id, dirty_entry> dirty_db;
     std::list<blockstore_operation*> submit_queue;
+    std::deque<obj_ver_id> unsynced_writes;
     std::set<blockstore_operation*> in_process_ops;
     uint32_t block_order, block_size;
     uint64_t block_count;
@@ -252,4 +262,5 @@ public:
     int dequeue_write(blockstore_operation *op);
 
     // Sync
+    int dequeue_sync(blockstore_operation *op);
 };

@@ -115,6 +115,10 @@ void blockstore::handle_event(ring_data_t *data)
                 op->retval = op->len;
                 op->callback(op);
                 in_process_ops.erase(op);
+                unsynced_writes.push_back((obj_ver_id){
+                    .oid = op->oid,
+                    .version = op->version,
+                });
             }
         }
         else if ((op->flags & OP_TYPE_MASK) == OP_SYNC)
@@ -165,6 +169,7 @@ void blockstore::loop()
     {
         // try to submit ops
         auto cur = submit_queue.begin();
+        bool has_writes = false;
         while (cur != submit_queue.end())
         {
             auto op_ptr = cur;
@@ -243,6 +248,7 @@ void blockstore::loop()
                     // ring is full, stop submission
                     break;
                 }
+                has_writes = true;
             }
             else if ((op->flags & OP_TYPE_MASK) == OP_SYNC)
             {
@@ -250,7 +256,21 @@ void blockstore::loop()
                 // wait for all big writes to complete, submit data device fsync
                 // wait for the data device fsync to complete, then submit journal writes for big writes
                 // then submit an fsync operation
-                
+                if (has_writes)
+                {
+                    // Can't submit SYNC before previous writes
+                    continue;
+                }
+                int dequeue_op = dequeue_sync(op);
+                if (dequeue_op)
+                {
+                    submit_queue.erase(op_ptr);
+                }
+                else if (op->wait_for == WAIT_SQE)
+                {
+                    // ring is full, stop submission
+                    break;
+                }
             }
             else if ((op->flags & OP_TYPE_MASK) == OP_STABLE)
             {
