@@ -23,6 +23,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
         {
             // Pause until there are more requests available
             op->wait_for = WAIT_SQE;
+            op->wait_detail = 1;
             return 0;
         }
         struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
@@ -67,15 +68,18 @@ int blockstore::dequeue_write(blockstore_operation *op)
         {
             // No space in the journal. Wait for it.
             op->wait_for = WAIT_JOURNAL;
-            op->wait_detail = next_pos - journal.used_start;
+            op->wait_detail = next_pos;
             return 0;
         }
         // There is sufficient space. Get SQE(s)
+        unsigned prev_sqe_pos = ringloop->ring->sq.sqe_tail;
         struct io_uring_sqe *sqe1 = get_sqe(), *sqe2 = two_sqes ? get_sqe() : NULL;
         if (!sqe1 || two_sqes && !sqe2)
         {
             // Pause until there are more requests available
             op->wait_for = WAIT_SQE;
+            op->wait_detail = two_sqes ? 2 : 1;
+            ringloop->ring->sq.sqe_tail = prev_sqe_pos;
             return 0;
         }
         struct ring_data_t *data1 = ((ring_data_t*)sqe1->user_data);

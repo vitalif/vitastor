@@ -164,51 +164,95 @@ void blockstore::loop()
     else
     {
         // try to submit ops
-        auto op = submit_queue.begin();
-        while (op != submit_queue.end())
+        auto cur = submit_queue.begin();
+        while (cur != submit_queue.end())
         {
-            auto cur = op++;
-            if ((*cur)->wait_for == WAIT_SQE)
+            auto op_ptr = cur;
+            auto op = *(cur++);
+            if (op->wait_for)
             {
-                
+                if (op->wait_for == WAIT_SQE)
+                {
+                    if (io_uring_sq_space_left(ringloop->ring) < op->wait_detail)
+                    {
+                        // stop submission if there's still no free space
+                        break;
+                    }
+                    op->wait_for = 0;
+                }
+                else if (op->wait_for == WAIT_IN_FLIGHT)
+                {
+                    auto dirty_it = dirty_db.find((obj_ver_id){
+                        .oid = op->oid,
+                        .version = op->wait_detail,
+                    });
+                    if (dirty_it != dirty_db.end() && IS_IN_FLIGHT(dirty_it->second.state))
+                    {
+                        // do not submit
+                        continue;
+                    }
+                    op->wait_for = 0;
+                }
+                else if (op->wait_for == WAIT_JOURNAL)
+                {
+                    if (journal.used_start < op->wait_detail)
+                    {
+                        // do not submit
+                        continue;
+                    }
+                    op->wait_for = 0;
+                }
+                else if (op->wait_for == WAIT_JOURNAL_BUFFER)
+                {
+                    if (journal.sector_info[((journal.cur_sector + 1) % journal.sector_count)].usage_count > 0)
+                    {
+                        // do not submit
+                        continue;
+                    }
+                    op->wait_for = 0;
+                }
+                else
+                {
+                    throw new std::runtime_error("BUG: op->wait_for value is unexpected");
+                }
             }
-            else if ((*cur)->wait_for == WAIT_IN_FLIGHT)
+            if ((op->flags & OP_TYPE_MASK) == OP_READ_DIRTY ||
+                (op->flags & OP_TYPE_MASK) == OP_READ)
             {
-                
-            }
-            if (((*cur)->flags & OP_TYPE_MASK) == OP_READ_DIRTY ||
-                ((*cur)->flags & OP_TYPE_MASK) == OP_READ)
-            {
-                int dequeue_op = dequeue_read(*cur);
+                int dequeue_op = dequeue_read(op);
                 if (dequeue_op)
                 {
-                    submit_queue.erase(cur);
+                    submit_queue.erase(op_ptr);
                 }
-                else if ((*cur)->wait_for == WAIT_SQE)
+                else if (op->wait_for == WAIT_SQE)
                 {
                     // ring is full, stop submission
                     break;
                 }
             }
-            else if (((*cur)->flags & OP_TYPE_MASK) == OP_WRITE ||
-                ((*cur)->flags & OP_TYPE_MASK) == OP_DELETE)
+            else if ((op->flags & OP_TYPE_MASK) == OP_WRITE ||
+                (op->flags & OP_TYPE_MASK) == OP_DELETE)
             {
-                int dequeue_op = dequeue_write(*cur);
+                int dequeue_op = dequeue_write(op);
                 if (dequeue_op)
                 {
-                    submit_queue.erase(cur);
+                    submit_queue.erase(op_ptr);
                 }
-                else if ((*cur)->wait_for == WAIT_SQE)
+                else if (op->wait_for == WAIT_SQE)
                 {
                     // ring is full, stop submission
                     break;
                 }
             }
-            else if (((*cur)->flags & OP_TYPE_MASK) == OP_SYNC)
+            else if ((op->flags & OP_TYPE_MASK) == OP_SYNC)
             {
+                // wait for all small writes to be submitted
+                // wait for all big writes to complete, submit data device fsync
+                // wait for the data device fsync to complete, then submit journal writes for big writes
+                // then submit an fsync operation
                 
             }
-            else if (((*cur)->flags & OP_TYPE_MASK) == OP_STABLE)
+            else if ((op->flags & OP_TYPE_MASK) == OP_STABLE)
             {
                 
             }

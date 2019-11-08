@@ -96,6 +96,7 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
         return 1;
     }
     unsigned prev_sqe_pos = ringloop->ring->sq.sqe_tail;
+    unsigned ring_space = io_uring_sq_space_left(ringloop->ring);
     uint64_t fulfilled = 0;
     if (dirty_found)
     {
@@ -108,6 +109,10 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
                     dirty.state, dirty_it->first.version, dirty.location) < 0)
                 {
                     // need to wait. undo added requests, don't dequeue op
+                    if (read_op->wait_for == WAIT_SQE)
+                    {
+                        read_op->wait_detail = 1 + ring_space;
+                    }
                     ringloop->ring->sq.sqe_tail = prev_sqe_pos;
                     read_op->read_vec.clear();
                     return 0;
@@ -121,6 +126,10 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
         if (fulfill_read(read_op, 0, block_size, ST_CURRENT, 0, clean_it->second.location) < 0)
         {
             // need to wait. undo added requests, don't dequeue op
+            if (read_op->wait_for == WAIT_SQE)
+            {
+                read_op->wait_detail = 1 + ring_space;
+            }
             ringloop->ring->sq.sqe_tail = prev_sqe_pos;
             read_op->read_vec.clear();
             return 0;
