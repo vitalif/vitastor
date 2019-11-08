@@ -69,11 +69,20 @@
     struct io_uring_sqe *sqe = get_sqe();\
     if (!sqe)\
     {\
-        // Pause until there are more requests available\
+        /* Pause until there are more requests available */\
         op->wait_for = WAIT_SQE;\
         return 0;\
     }\
-    struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
+    struct ring_data_t *data = ((ring_data_t*)sqe->user_data)
+
+#define BS_SUBMIT_GET_SQE_DECL(sqe) \
+    sqe = get_sqe();\
+    if (!sqe)\
+    {\
+        /* Pause until there are more requests available */\
+        op->wait_for = WAIT_SQE;\
+        return 0;\
+    }
 
 // 16 bytes per object/stripe id
 // stripe includes replica number in 4 least significant bits
@@ -202,9 +211,10 @@ struct blockstore_operation
 
     // FIXME make all of these pointers and put them into a union
     std::map<uint64_t, struct iovec> read_vec;
-    uint64_t used_journal_sector;
+    uint64_t min_used_journal_sector, max_used_journal_sector;
     std::deque<obj_ver_id> sync_writes;
-    bool has_big_writes;
+    int big_write_count;
+    int big_write_state;
 };
 
 class blockstore;

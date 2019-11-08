@@ -93,15 +93,13 @@ void blockstore::handle_event(ring_data_t *data)
                 // FIXME: our state becomes corrupted after a write error. maybe do something better than just die
                 throw new std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
             }
-            if (op->used_journal_sector > 0)
+            if (op->min_used_journal_sector > 0)
             {
-                uint64_t s = op->used_journal_sector-1;
-                if (journal.sector_info[s].usage_count > 0)
+                for (uint64_t s = op->min_used_journal_sector; s <= op->max_used_journal_sector; s++)
                 {
-                    // The last write to this journal sector was made by this op, release the buffer
-                    journal.sector_info[s].usage_count--;
+                    journal.sector_info[s-1].usage_count--;
                 }
-                op->used_journal_sector = 0;
+                op->min_used_journal_sector = op->max_used_journal_sector = 0;
             }
             if (op->pending_ops == 0)
             {
@@ -123,6 +121,14 @@ void blockstore::handle_event(ring_data_t *data)
         }
         else if ((op->flags & OP_TYPE_MASK) == OP_SYNC)
         {
+            if (op->min_used_journal_sector > 0)
+            {
+                for (uint64_t s = op->min_used_journal_sector; s <= op->max_used_journal_sector; s++)
+                {
+                    journal.sector_info[s-1].usage_count--;
+                }
+                op->min_used_journal_sector = op->max_used_journal_sector = 0;
+            }
             
         }
         else if ((op->flags & OP_TYPE_MASK) == OP_STABLE)
