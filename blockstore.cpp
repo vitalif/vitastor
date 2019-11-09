@@ -69,67 +69,16 @@ void blockstore::handle_event(ring_data_t *data)
         if ((op->flags & OP_TYPE_MASK) == OP_READ_DIRTY ||
             (op->flags & OP_TYPE_MASK) == OP_READ)
         {
-            op->pending_ops--;
-            if (data->res < 0)
-            {
-                // read error
-                op->retval = data->res;
-            }
-            if (op->pending_ops == 0)
-            {
-                if (op->retval == 0)
-                    op->retval = op->len;
-                op->callback(op);
-                in_process_ops.erase(op);
-            }
+            handle_read_event(data, op);
         }
         else if ((op->flags & OP_TYPE_MASK) == OP_WRITE ||
             (op->flags & OP_TYPE_MASK) == OP_DELETE)
         {
-            op->pending_ops--;
-            if (data->res < 0)
-            {
-                // write error
-                // FIXME: our state becomes corrupted after a write error. maybe do something better than just die
-                throw new std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
-            }
-            if (op->min_used_journal_sector > 0)
-            {
-                for (uint64_t s = op->min_used_journal_sector; s <= op->max_used_journal_sector; s++)
-                {
-                    journal.sector_info[s-1].usage_count--;
-                }
-                op->min_used_journal_sector = op->max_used_journal_sector = 0;
-            }
-            if (op->pending_ops == 0)
-            {
-                // Acknowledge write without sync
-                auto dirty_it = dirty_db.find((obj_ver_id){
-                    .oid = op->oid,
-                    .version = op->version,
-                });
-                dirty_it->second.state = (dirty_it->second.state == ST_J_SUBMITTED
-                    ? ST_J_WRITTEN : (dirty_it->second.state == ST_DEL_SUBMITTED ? ST_DEL_WRITTEN : ST_D_WRITTEN));
-                op->retval = op->len;
-                op->callback(op);
-                in_process_ops.erase(op);
-                unsynced_writes.push_back((obj_ver_id){
-                    .oid = op->oid,
-                    .version = op->version,
-                });
-            }
+            handle_write_event(data, op);
         }
         else if ((op->flags & OP_TYPE_MASK) == OP_SYNC)
         {
-            if (op->min_used_journal_sector > 0)
-            {
-                for (uint64_t s = op->min_used_journal_sector; s <= op->max_used_journal_sector; s++)
-                {
-                    journal.sector_info[s-1].usage_count--;
-                }
-                op->min_used_journal_sector = op->max_used_journal_sector = 0;
-            }
-            
+            handle_sync_event(data, op);
         }
         else if ((op->flags & OP_TYPE_MASK) == OP_STABLE)
         {
@@ -182,50 +131,11 @@ void blockstore::loop()
             auto op = *(cur++);
             if (op->wait_for)
             {
+                check_wait(op);
                 if (op->wait_for == WAIT_SQE)
-                {
-                    if (io_uring_sq_space_left(ringloop->ring) < op->wait_detail)
-                    {
-                        // stop submission if there's still no free space
-                        break;
-                    }
-                    op->wait_for = 0;
-                }
-                else if (op->wait_for == WAIT_IN_FLIGHT)
-                {
-                    auto dirty_it = dirty_db.find((obj_ver_id){
-                        .oid = op->oid,
-                        .version = op->wait_detail,
-                    });
-                    if (dirty_it != dirty_db.end() && IS_IN_FLIGHT(dirty_it->second.state))
-                    {
-                        // do not submit
-                        continue;
-                    }
-                    op->wait_for = 0;
-                }
-                else if (op->wait_for == WAIT_JOURNAL)
-                {
-                    if (journal.used_start < op->wait_detail)
-                    {
-                        // do not submit
-                        continue;
-                    }
-                    op->wait_for = 0;
-                }
-                else if (op->wait_for == WAIT_JOURNAL_BUFFER)
-                {
-                    if (journal.sector_info[((journal.cur_sector + 1) % journal.sector_count)].usage_count > 0)
-                    {
-                        // do not submit
-                        continue;
-                    }
-                    op->wait_for = 0;
-                }
-                else
-                {
-                    throw new std::runtime_error("BUG: op->wait_for value is unexpected");
-                }
+                    break;
+                else if (op->wait_for)
+                    continue;
             }
             unsigned ring_space = io_uring_sq_space_left(ringloop->ring);
             unsigned prev_sqe_pos = ringloop->ring->sq.sqe_tail;
@@ -266,7 +176,7 @@ void blockstore::loop()
                     throw new std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
                 }
                 submit_queue.erase(op_ptr);
-                in_process_ops.insert(op);
+                in_progress_ops.insert(op);
             }
             else
             {
@@ -282,6 +192,54 @@ void blockstore::loop()
     }
 }
 
+void blockstore::check_wait(blockstore_operation *op)
+{
+    if (op->wait_for == WAIT_SQE)
+    {
+        if (io_uring_sq_space_left(ringloop->ring) < op->wait_detail)
+        {
+            // stop submission if there's still no free space
+            return;
+        }
+        op->wait_for = 0;
+    }
+    else if (op->wait_for == WAIT_IN_FLIGHT)
+    {
+        auto dirty_it = dirty_db.find((obj_ver_id){
+            .oid = op->oid,
+            .version = op->wait_detail,
+        });
+        if (dirty_it != dirty_db.end() && IS_IN_FLIGHT(dirty_it->second.state))
+        {
+            // do not submit
+            return;
+        }
+        op->wait_for = 0;
+    }
+    else if (op->wait_for == WAIT_JOURNAL)
+    {
+        if (journal.used_start < op->wait_detail)
+        {
+            // do not submit
+            return;
+        }
+        op->wait_for = 0;
+    }
+    else if (op->wait_for == WAIT_JOURNAL_BUFFER)
+    {
+        if (journal.sector_info[((journal.cur_sector + 1) % journal.sector_count)].usage_count > 0)
+        {
+            // do not submit
+            return;
+        }
+        op->wait_for = 0;
+    }
+    else
+    {
+        throw new std::runtime_error("BUG: op->wait_for value is unexpected");
+    }
+}
+
 int blockstore::enqueue_op(blockstore_operation *op)
 {
     if (op->offset >= block_size || op->len >= block_size-op->offset ||
@@ -292,6 +250,7 @@ int blockstore::enqueue_op(blockstore_operation *op)
         return -EINVAL;
     }
     op->wait_for = 0;
+    op->sync_state = 0;
     submit_queue.push_back(op);
     if ((op->flags & OP_TYPE_MASK) == OP_WRITE)
     {

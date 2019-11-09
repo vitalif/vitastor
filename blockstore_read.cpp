@@ -126,6 +126,23 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
     }
     read_op->retval = 0;
     read_op->pending_ops = read_op->read_vec.size();
-    in_process_ops.insert(read_op);
+    in_progress_ops.insert(read_op);
     return 1;
+}
+
+void blockstore::handle_read_event(ring_data_t *data, blockstore_operation *op)
+{
+    op->pending_ops--;
+    if (data->res < 0)
+    {
+        // read error
+        op->retval = data->res;
+    }
+    if (op->pending_ops == 0)
+    {
+        if (op->retval == 0)
+            op->retval = op->len;
+        op->callback(op);
+        in_progress_ops.erase(op);
+    }
 }

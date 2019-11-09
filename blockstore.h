@@ -195,7 +195,6 @@ public:
 struct blockstore_operation
 {
     std::function<void (blockstore_operation*)> callback;
-
     uint32_t flags;
     object_id oid;
     uint64_t version;
@@ -204,17 +203,24 @@ struct blockstore_operation
     uint8_t *buf;
     int retval;
 
+    // FIXME: Move internal fields somewhere
+    friend class blockstore;
+private:
     // Wait status
     int wait_for;
     uint64_t wait_detail;
     int pending_ops;
 
-    // FIXME make all of these pointers and put them into a union
+    // Read
     std::map<uint64_t, struct iovec> read_vec;
+
+    // Sync, write
     uint64_t min_used_journal_sector, max_used_journal_sector;
+
+    // Sync
     std::deque<obj_ver_id> sync_writes;
-    int big_write_count;
-    int big_write_state;
+    std::list<blockstore_operation*>::iterator in_progress_ptr;
+    int big_write_count, sync_state, prev_sync_count;
 };
 
 class blockstore;
@@ -224,13 +230,14 @@ class blockstore;
 class blockstore
 {
     struct ring_consumer_t ring_consumer;
-public:
+
     // Another option is https://github.com/algorithm-ninja/cpp-btree
     spp::sparse_hash_map<object_id, clean_entry, oid_hash> object_db;
     std::map<obj_ver_id, dirty_entry> dirty_db;
     std::list<blockstore_operation*> submit_queue;
     std::deque<obj_ver_id> unsynced_writes;
-    std::set<blockstore_operation*> in_process_ops;
+    std::list<blockstore_operation*> in_progress_syncs;
+    std::set<blockstore_operation*> in_progress_ops;
     uint32_t block_order, block_size;
     uint64_t block_count;
     allocator *data_alloc;
@@ -250,8 +257,8 @@ public:
         return ringloop->get_sqe(ring_consumer.number);
     }
 
-    blockstore(spp::sparse_hash_map<std::string, std::string> & config, ring_loop_t *ringloop);
-    ~blockstore();
+    friend class blockstore_init_meta;
+    friend class blockstore_init_journal;
 
     void calc_lengths(spp::sparse_hash_map<std::string, std::string> & config);
     void open_data(spp::sparse_hash_map<std::string, std::string> & config);
@@ -264,12 +271,7 @@ public:
     blockstore_init_meta* metadata_init_reader;
     blockstore_init_journal* journal_init_reader;
 
-    // Event loop
-    void handle_event(ring_data_t* data);
-    void loop();
-
-    // Submission
-    int enqueue_op(blockstore_operation *op);
+    void check_wait(blockstore_operation *op);
 
     // Read
     int dequeue_read(blockstore_operation *read_op);
@@ -277,10 +279,25 @@ public:
         uint32_t item_state, uint64_t item_version, uint64_t item_location);
     int fulfill_read_push(blockstore_operation *read_op, uint32_t item_start,
         uint32_t item_state, uint64_t item_version, uint64_t item_location, uint32_t cur_start, uint32_t cur_end);
+    void handle_read_event(ring_data_t *data, blockstore_operation *op);
 
     // Write
     int dequeue_write(blockstore_operation *op);
+    void handle_write_event(ring_data_t *data, blockstore_operation *op);
 
     // Sync
     int dequeue_sync(blockstore_operation *op);
+    void handle_sync_event(ring_data_t *data, blockstore_operation *op);
+
+public:
+
+    blockstore(spp::sparse_hash_map<std::string, std::string> & config, ring_loop_t *ringloop);
+    ~blockstore();
+
+    // Event loop
+    void handle_event(ring_data_t* data);
+    void loop();
+
+    // Submission
+    int enqueue_op(blockstore_operation *op);
 };
