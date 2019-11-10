@@ -81,7 +81,7 @@ void blockstore::handle_event(ring_data_t *data)
         }
         else if ((op->flags & OP_TYPE_MASK) == OP_STABLE)
         {
-            
+            handle_stable_event(data, op);
         }
     }
 }
@@ -169,7 +169,7 @@ void blockstore::loop()
             }
             else if ((op->flags & OP_TYPE_MASK) == OP_STABLE)
             {
-                
+                dequeue_op = dequeue_stable(op);
             }
             if (dequeue_op)
             {

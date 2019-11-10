@@ -162,6 +162,8 @@ public:
 //   to calculate parity for subsequent writes
 // - Writes may be submitted in any order, because they don't overlap. Each write
 //   goes into a new location - either on the journal device or on the data device
+// - Stable (stabilize) must be submitted after sync of that object is completed
+//   It's even OK to return an error to the caller if that object is not synced yet
 // - Journal trim may be processed only after all versions are moved to
 //   the main storage AND after all read operations for older versions complete
 // - If an operation can not be submitted because the ring is full
@@ -285,6 +287,10 @@ class blockstore
     void handle_sync_event(ring_data_t *data, blockstore_operation *op);
     int continue_sync(blockstore_operation *op);
     int ack_sync(blockstore_operation *op);
+
+    // Stable
+    int dequeue_stable(blockstore_operation *op);
+    void handle_stable_event(ring_data_t *data, blockstore_operation *op);
 
 public:
 
