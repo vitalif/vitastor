@@ -29,7 +29,6 @@ int blockstore::dequeue_sync(blockstore_operation *op)
         int done = ack_sync(op);
         if (!done)
         {
-            in_progress_ops.insert(op);
             op->prev_sync_count = in_progress_syncs.size();
             op->in_progress_ptr = in_progress_syncs.insert(in_progress_syncs.end(), op);
         }
@@ -206,14 +205,12 @@ int blockstore::ack_sync(blockstore_operation *op)
                 done_syncs++;
                 // Acknowledge next_sync
                 in_progress_syncs.erase(next_sync->in_progress_ptr);
-                in_progress_ops.erase(next_sync);
                 next_sync->retval = 0;
                 next_sync->callback(next_sync);
             }
         }
         // Acknowledge sync
         in_progress_syncs.erase(op->in_progress_ptr);
-        in_progress_ops.erase(op);
         op->retval = 0;
         op->callback(op);
         return 1;

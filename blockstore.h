@@ -233,7 +233,6 @@ class blockstore
     std::deque<obj_ver_id> unsynced_big_writes;
     int unsynced_small_writes = 0;
     std::list<blockstore_operation*> in_progress_syncs;
-    std::set<blockstore_operation*> in_progress_ops; // FIXME purpose of tracking this is unclear
     uint32_t block_order, block_size;
     uint64_t block_count;
     allocator *data_alloc;
