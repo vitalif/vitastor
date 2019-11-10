@@ -256,39 +256,7 @@ int blockstore::enqueue_op(blockstore_operation *op)
     submit_queue.push_back(op);
     if ((op->flags & OP_TYPE_MASK) == OP_WRITE)
     {
-        // Assign version number
-        auto dirty_it = dirty_db.upper_bound((obj_ver_id){
-            .oid = op->oid,
-            .version = UINT64_MAX,
-        });
-        dirty_it--;
-        if (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
-        {
-            op->version = dirty_it->first.version + 1;
-        }
-        else
-        {
-            auto clean_it = object_db.find(op->oid);
-            if (clean_it != object_db.end())
-            {
-                op->version = clean_it->second.version + 1;
-            }
-            else
-            {
-                op->version = 1;
-            }
-        }
-        // Immediately add the operation into dirty_db, so subsequent reads could see it
-        dirty_db.emplace((obj_ver_id){
-            .oid = op->oid,
-            .version = op->version,
-        }, (dirty_entry){
-            .state = ST_IN_FLIGHT,
-            .flags = 0,
-            .location = 0,
-            .offset = op->offset,
-            .size = op->len,
-        });
+        enqueue_write(op);
     }
     return 0;
 }

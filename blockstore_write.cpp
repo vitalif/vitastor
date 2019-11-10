@@ -1,5 +1,42 @@
 #include "blockstore.h"
 
+void blockstore::enqueue_write(blockstore_operation *op)
+{
+    // Assign version number
+    auto dirty_it = dirty_db.upper_bound((obj_ver_id){
+        .oid = op->oid,
+        .version = UINT64_MAX,
+    });
+    dirty_it--;
+    if (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
+    {
+        op->version = dirty_it->first.version + 1;
+    }
+    else
+    {
+        auto clean_it = object_db.find(op->oid);
+        if (clean_it != object_db.end())
+        {
+            op->version = clean_it->second.version + 1;
+        }
+        else
+        {
+            op->version = 1;
+        }
+    }
+    // Immediately add the operation into dirty_db, so subsequent reads could see it
+    dirty_db.emplace((obj_ver_id){
+        .oid = op->oid,
+        .version = op->version,
+    }, (dirty_entry){
+        .state = ST_IN_FLIGHT,
+        .flags = 0,
+        .location = 0,
+        .offset = op->offset,
+        .size = op->len,
+    });
+}
+
 // First step of the write algorithm: dequeue operation and submit initial write(s)
 int blockstore::dequeue_write(blockstore_operation *op)
 {
