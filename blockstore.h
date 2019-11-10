@@ -171,11 +171,10 @@ public:
 // In fact, adding a write operation must immediately result in dirty_db being populated
 
 #define OP_READ 1
-#define OP_READ_DIRTY 2
-#define OP_WRITE 3
-#define OP_SYNC 4
-#define OP_STABLE 5
-#define OP_DELETE 6
+#define OP_WRITE 2
+#define OP_SYNC 3
+#define OP_STABLE 4
+#define OP_DELETE 5
 #define OP_TYPE_MASK 0x7
 
 // Suspend operation until there are more free SQEs
@@ -192,6 +191,7 @@ struct blockstore_operation
     std::function<void (blockstore_operation*)> callback;
     uint32_t flags;
     object_id oid;
+    // For reads: version=0 -> last stable, version=UINT64_MAX -> last unstable, version=X -> specific version
     uint64_t version;
     uint32_t offset;
     uint32_t len;

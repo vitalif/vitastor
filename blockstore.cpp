@@ -66,8 +66,7 @@ void blockstore::handle_event(ring_data_t *data)
     else
     {
         struct blockstore_operation* op = (struct blockstore_operation*)data->op;
-        if ((op->flags & OP_TYPE_MASK) == OP_READ_DIRTY ||
-            (op->flags & OP_TYPE_MASK) == OP_READ)
+        if ((op->flags & OP_TYPE_MASK) == OP_READ)
         {
             handle_read_event(data, op);
         }
@@ -145,8 +144,7 @@ void blockstore::loop()
             unsigned ring_space = io_uring_sq_space_left(ringloop->ring);
             unsigned prev_sqe_pos = ringloop->ring->sq.sqe_tail;
             int dequeue_op = 0;
-            if ((op->flags & OP_TYPE_MASK) == OP_READ_DIRTY ||
-                (op->flags & OP_TYPE_MASK) == OP_READ)
+            if ((op->flags & OP_TYPE_MASK) == OP_READ)
             {
                 dequeue_op = dequeue_read(op);
             }

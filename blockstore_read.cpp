@@ -71,7 +71,6 @@ int blockstore::fulfill_read(blockstore_operation *read_op, uint32_t item_start,
 
 int blockstore::dequeue_read(blockstore_operation *read_op)
 {
-    // FIXME: allow to read specific version
     auto clean_it = object_db.find(read_op->oid);
     auto dirty_it = dirty_db.upper_bound((obj_ver_id){
         .oid = read_op->oid,
@@ -94,7 +93,7 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
         while (dirty_it->first.oid == read_op->oid)
         {
             dirty_entry& dirty = dirty_it->second;
-            if ((read_op->flags & OP_TYPE_MASK) == OP_READ_DIRTY || IS_STABLE(dirty.state))
+            if (IS_STABLE(dirty.state) || read_op->version >= dirty_it->first.version)
             {
                 if (!fulfill_read(read_op, dirty.offset, dirty.offset + dirty.size,
                     dirty.state, dirty_it->first.version, dirty.location))
