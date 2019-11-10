@@ -71,13 +71,13 @@ int blockstore::fulfill_read(blockstore_operation *read_op, uint32_t item_start,
 
 int blockstore::dequeue_read(blockstore_operation *read_op)
 {
-    auto clean_it = object_db.find(read_op->oid);
+    auto clean_it = clean_db.find(read_op->oid);
     auto dirty_it = dirty_db.upper_bound((obj_ver_id){
         .oid = read_op->oid,
         .version = UINT64_MAX,
     });
     dirty_it--;
-    bool clean_found = clean_it != object_db.end();
+    bool clean_found = clean_it != clean_db.end();
     bool dirty_found = (dirty_it != dirty_db.end() && dirty_it->first.oid == read_op->oid);
     if (!clean_found && !dirty_found)
     {
@@ -107,7 +107,7 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
             dirty_it--;
         }
     }
-    if (clean_it != object_db.end())
+    if (clean_it != clean_db.end())
     {
         if (!fulfill_read(read_op, 0, block_size, ST_CURRENT, 0, clean_it->second.location))
         {

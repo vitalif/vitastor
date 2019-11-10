@@ -8,8 +8,8 @@ int blockstore::dequeue_stable(blockstore_operation *op)
     });
     if (dirty_it == dirty_db.end())
     {
-        auto clean_it = object_db.find(op->oid);
-        if (clean_it == object_db.end() || clean_it->second.version < op->version)
+        auto clean_it = clean_db.find(op->oid);
+        if (clean_it == clean_db.end() || clean_it->second.version < op->version)
         {
             // No such object version
             op->retval = EINVAL;
@@ -116,7 +116,7 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
             dirty_it->second.state = ST_J_STABLE;
             // Copy data from the journal to the data device
             // -> increase version on the metadata device
-            // -> advance object_db entry's version and clear previous journal entries
+            // -> advance clean_db entry's version and clear previous journal entries
             // This makes 1 4K small write look like:
             // 512b+4K (journal) + sync + 512b (journal) + sync + 512b (metadata) + 4K (data) + sync.
             // WA = 2.375. It's not the best, SSD FTL-like redirect-write with defragmentation
@@ -127,7 +127,7 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
         {
             dirty_it->second.state = ST_D_STABLE;
             // Copy metadata from the journal to the metadata device
-            // -> move dirty_db entry to object_db and clear previous journal entries
+            // -> move dirty_db entry to clean_db and clear previous journal entries
             // This makes 1 128K big write look like:
             // 128K (data) + sync + 512b (journal) + sync + 512b (journal) + sync + 512b (metadata) + sync.
             // WA = 1.012. Very good :)

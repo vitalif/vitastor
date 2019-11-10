@@ -75,7 +75,7 @@ void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int 
         if (entries[i].oid.inode > 0)
         {
             allocator_set(bs->data_alloc, done_cnt+i, true);
-            bs->object_db[entries[i].oid] = (struct clean_entry){
+            bs->clean_db[entries[i].oid] = (struct clean_entry){
                 entries[i].version,
                 (uint32_t)(entries[i].flags ? ST_CURRENT : ST_D_META_SYNCED),
                 done_cnt+i

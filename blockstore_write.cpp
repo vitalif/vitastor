@@ -14,8 +14,8 @@ void blockstore::enqueue_write(blockstore_operation *op)
     }
     else
     {
-        auto clean_it = object_db.find(op->oid);
-        if (clean_it != object_db.end())
+        auto clean_it = clean_db.find(op->oid);
+        if (clean_it != clean_db.end())
         {
             op->version = clean_it->second.version + 1;
         }
