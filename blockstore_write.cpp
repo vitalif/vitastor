@@ -172,17 +172,28 @@ void blockstore::handle_write_event(ring_data_t *data, blockstore_operation *op)
             op->min_used_journal_sector = op->max_used_journal_sector = 0;
         }
         // Switch object state
-        auto dirty_it = dirty_db.find((obj_ver_id){
+        auto & dirty_entry = dirty_db[(obj_ver_id){
             .oid = op->oid,
             .version = op->version,
-        });
-        dirty_it->second.state = (dirty_it->second.state == ST_J_SUBMITTED
-            ? ST_J_WRITTEN : (dirty_it->second.state == ST_DEL_SUBMITTED ? ST_DEL_WRITTEN : ST_D_WRITTEN));
+        }];
+        if (dirty_entry.state == ST_J_SUBMITTED)
+        {
+            dirty_entry.state = ST_J_WRITTEN;
+        }
+        else if (dirty_entry.state == ST_D_SUBMITTED)
+        {
+            dirty_entry.state = ST_D_WRITTEN;
+        }
+        else if (dirty_entry.state == ST_DEL_SUBMITTED)
+        {
+            dirty_entry.state = ST_DEL_WRITTEN;
+        }
         // Acknowledge write without sync
         op->retval = op->len;
         op->callback(op);
         // Remember write as unsynced
-        if (IS_BIG_WRITE(dirty_it->second.state))
+        // FIXME: Could state change to ST_STABLE? It could break this check
+        if (IS_BIG_WRITE(dirty_entry.state))
         {
             unsynced_big_writes.push_back((obj_ver_id){
                 .oid = op->oid,
@@ -191,7 +202,10 @@ void blockstore::handle_write_event(ring_data_t *data, blockstore_operation *op)
         }
         else
         {
-            unsynced_small_writes++;
+            unsynced_small_writes.push_back((obj_ver_id){
+                .oid = op->oid,
+                .version = op->version,
+            });
         }
     }
 }

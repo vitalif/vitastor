@@ -1,6 +1,6 @@
 #include "blockstore.h"
 
-#define SYNC_NO_BIG 1
+#define SYNC_HAS_SMALL 1
 #define SYNC_HAS_BIG 2
 #define SYNC_DATA_SYNC_SENT 3
 #define SYNC_DATA_SYNC_DONE 4
@@ -11,17 +11,16 @@ int blockstore::dequeue_sync(blockstore_operation *op)
 {
     if (op->sync_state == 0)
     {
-        op->big_write_count = 0;
         op->sync_big_writes.swap(unsynced_big_writes);
-        op->big_write_count = op->sync_big_writes.size();
-        if (op->big_write_count > 0)
+        op->sync_small_writes.swap(unsynced_small_writes);
+        if (op->sync_big_writes.size() > 0)
             op->sync_state = SYNC_HAS_BIG;
-        else if (unsynced_small_writes == 0)
-            op->sync_state = SYNC_DONE;
+        else if (op->sync_small_writes.size() > 0)
+            op->sync_state = SYNC_HAS_SMALL;
         else
-            op->sync_state = SYNC_NO_BIG;
+            op->sync_state = SYNC_DONE;
         unsynced_big_writes.clear();
-        unsynced_small_writes = 0;
+        unsynced_small_writes.clear();
     }
     int r = continue_sync(op);
     if (r)
@@ -38,7 +37,7 @@ int blockstore::dequeue_sync(blockstore_operation *op)
 
 int blockstore::continue_sync(blockstore_operation *op)
 {
-    if (op->sync_state == SYNC_NO_BIG)
+    if (op->sync_state == SYNC_HAS_SMALL)
     {
         // No big writes, just fsync the journal
         BS_SUBMIT_GET_SQE(sqe, data);
@@ -60,7 +59,7 @@ int blockstore::continue_sync(blockstore_operation *op)
     {
         // 2nd step: Data device is synced, prepare & write journal entries
         // Check space in the journal and journal memory buffers
-        int required = op->big_write_count, sectors_required = 1;
+        int required = op->sync_big_writes.size(), sectors_required = 1;
         uint64_t next_pos = journal.next_free, next_sector = journal.cur_sector;
         while (1)
         {
@@ -94,7 +93,7 @@ int blockstore::continue_sync(blockstore_operation *op)
         // Prepare and submit journal entries
         op->min_used_journal_sector = 1 + journal.cur_sector;
         sectors_required = 0;
-        required = op->big_write_count;
+        required = op->sync_big_writes.size();
         auto it = op->sync_big_writes.begin();
         while (1)
         {
@@ -171,14 +170,26 @@ void blockstore::handle_sync_event(ring_data_t *data, blockstore_operation *op)
             }
             op->min_used_journal_sector = op->max_used_journal_sector = 0;
         }
-        // Handle state
+        // Handle states
         if (op->sync_state == SYNC_DATA_SYNC_SENT)
         {
             op->sync_state = SYNC_DATA_SYNC_DONE;
+            for (auto it = op->sync_big_writes.begin(); it != op->sync_big_writes.end(); it++)
+            {
+                dirty_db[*it].state = ST_D_SYNCED;
+            }
         }
         else if (op->sync_state == SYNC_JOURNAL_SYNC_SENT)
         {
             op->sync_state = SYNC_DONE;
+            for (auto it = op->sync_big_writes.begin(); it != op->sync_big_writes.end(); it++)
+            {
+                dirty_db[*it].state = ST_D_META_SYNCED;
+            }
+            for (auto it = op->sync_small_writes.begin(); it != op->sync_small_writes.end(); it++)
+            {
+                dirty_db[*it].state = ST_J_SYNCED;
+            }
         }
         else
         {
