@@ -275,9 +275,9 @@ class blockstore
 
     // Read
     int dequeue_read(blockstore_operation *read_op);
-    int fulfill_read(blockstore_operation *read_op, uint32_t item_start, uint32_t item_end,
+    int fulfill_read(blockstore_operation *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
         uint32_t item_state, uint64_t item_version, uint64_t item_location);
-    int fulfill_read_push(blockstore_operation *read_op, uint32_t item_start,
+    int fulfill_read_push(blockstore_operation *read_op, uint64_t &fulfilled, uint32_t item_start,
         uint32_t item_state, uint64_t item_version, uint64_t item_location, uint32_t cur_start, uint32_t cur_end);
     void handle_read_event(ring_data_t *data, blockstore_operation *op);
 
@@ -294,6 +294,7 @@ class blockstore
 
     // Stable
     int dequeue_stable(blockstore_operation *op);
+    int continue_stable(blockstore_operation *op);
     void handle_stable_event(ring_data_t *data, blockstore_operation *op);
 
 public:

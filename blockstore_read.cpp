@@ -1,6 +1,6 @@
 #include "blockstore.h"
 
-int blockstore::fulfill_read_push(blockstore_operation *op, uint32_t item_start,
+int blockstore::fulfill_read_push(blockstore_operation *op, uint64_t &fulfilled, uint32_t item_start,
     uint32_t item_state, uint64_t item_version, uint64_t item_location, uint32_t cur_start, uint32_t cur_end)
 {
     if (cur_end > cur_start)
@@ -31,11 +31,12 @@ int blockstore::fulfill_read_push(blockstore_operation *op, uint32_t item_start,
             (IS_JOURNAL(item_state) ? journal.offset : data_offset) + item_location + cur_start - item_start
         );
         data->op = op;
+        fulfilled += cur_end-cur_start;
     }
     return 1;
 }
 
-int blockstore::fulfill_read(blockstore_operation *read_op, uint32_t item_start, uint32_t item_end,
+int blockstore::fulfill_read(blockstore_operation *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
     uint32_t item_state, uint64_t item_version, uint64_t item_location)
 {
     uint32_t cur_start = item_start;
@@ -54,14 +55,14 @@ int blockstore::fulfill_read(blockstore_operation *read_op, uint32_t item_start,
         }
         while (fulfill_near != read_op->read_vec.end() && fulfill_near->first < item_end)
         {
-            if (!fulfill_read_push(read_op, item_start, item_state, item_version, item_location, cur_start, fulfill_near->first))
+            if (!fulfill_read_push(read_op, fulfilled, item_start, item_state, item_version, item_location, cur_start, fulfill_near->first))
             {
                 return 0;
             }
             cur_start = fulfill_near->first + fulfill_near->second.iov_len;
             fulfill_near++;
         }
-        if (!fulfill_read_push(read_op, item_start, item_state, item_version, item_location, cur_start, item_end))
+        if (!fulfill_read_push(read_op, fulfilled, item_start, item_state, item_version, item_location, cur_start, item_end))
         {
             return 0;
         }
@@ -87,16 +88,22 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
         read_op->callback(read_op);
         return 1;
     }
-    // FIXME track fulfilled and stop when it is equal to read_op->len
     uint64_t fulfilled = 0;
     if (dirty_found)
     {
         while (dirty_it->first.oid == read_op->oid)
         {
             dirty_entry& dirty = dirty_it->second;
-            if (IS_STABLE(dirty.state) || read_op->version >= dirty_it->first.version)
+            bool version_ok = read_op->version >= dirty_it->first.version;
+            if (IS_STABLE(dirty.state))
             {
-                if (!fulfill_read(read_op, dirty.offset, dirty.offset + dirty.size,
+                if (!version_ok && read_op->version != 0)
+                    read_op->version = dirty_it->first.version;
+                version_ok = true;
+            }
+            if (version_ok)
+            {
+                if (!fulfill_read(read_op, fulfilled, dirty.offset, dirty.offset + dirty.size,
                     dirty.state, dirty_it->first.version, dirty.location))
                 {
                     // need to wait. undo added requests, don't dequeue op
@@ -104,12 +111,16 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
                     return 0;
                 }
             }
+            if (fulfilled == read_op->len)
+            {
+                break;
+            }
             dirty_it--;
         }
     }
     if (clean_it != clean_db.end())
     {
-        if (!fulfill_read(read_op, 0, block_size, ST_CURRENT, 0, clean_it->second.location))
+        if (!fulfill_read(read_op, fulfilled, 0, block_size, ST_CURRENT, 0, clean_it->second.location))
         {
             // need to wait. undo added requests, don't dequeue op
             read_op->read_vec.clear();

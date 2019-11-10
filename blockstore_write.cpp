@@ -66,6 +66,11 @@ int blockstore::dequeue_write(blockstore_operation *op)
         );
         op->pending_ops = 1;
         op->min_used_journal_sector = op->max_used_journal_sector = 0;
+        // Remember write as unsynced
+        unsynced_big_writes.push_back((obj_ver_id){
+            .oid = op->oid,
+            .version = op->version,
+        });
     }
     else
     {
@@ -111,6 +116,10 @@ int blockstore::dequeue_write(blockstore_operation *op)
         dirty_it->second.state = ST_J_SUBMITTED;
         journal.next_free += op->len;
         op->pending_ops = 2;
+        unsynced_small_writes.push_back((obj_ver_id){
+            .oid = op->oid,
+            .version = op->version,
+        });
     }
     return 1;
 }
@@ -155,21 +164,5 @@ void blockstore::handle_write_event(ring_data_t *data, blockstore_operation *op)
         // Acknowledge write without sync
         op->retval = op->len;
         op->callback(op);
-        // Remember write as unsynced
-        // FIXME: Could state change to ST_STABLE? It could break this check
-        if (IS_BIG_WRITE(dirty_entry.state))
-        {
-            unsynced_big_writes.push_back((obj_ver_id){
-                .oid = op->oid,
-                .version = op->version,
-            });
-        }
-        else
-        {
-            unsynced_small_writes.push_back((obj_ver_id){
-                .oid = op->oid,
-                .version = op->version,
-            });
-        }
     }
 }

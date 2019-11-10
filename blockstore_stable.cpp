@@ -1,5 +1,29 @@
 #include "blockstore.h"
 
+// Stabilize small write:
+// 1) Copy data from the journal to the data device
+//    Sync it before writing metadata if we want to keep metadata consistent
+//    Overall it's optional because it can be replayed from the journal until
+//    it's cleared, and reads are also fulfilled from the journal
+// 2) Increase version on the metadata device and sync it
+// 3) Advance clean_db entry's version, clear previous journal entries
+//
+// This makes 1 4K small write+sync look like:
+// 512b+4K (journal) + sync + 512b (journal) + sync + 4K (data) [+ sync?] + 512b (metadata) + sync.
+// WA = 2.375. It's not the best, SSD FTL-like redirect-write with defragmentation
+// could probably be lower even with defragmentation. But it's fixed and it's still
+// better than in Ceph. :)
+
+// Stabilize big write:
+// 1) Copy metadata from the journal to the metadata device
+// 2) Move dirty_db entry to clean_db and clear previous journal entries
+//
+// This makes 1 128K big write+sync look like:
+// 128K (data) + sync + 512b (journal) + sync + 512b (journal) + sync + 512b (metadata) + sync.
+// WA = 1.012. Very good :)
+
+// AND We must do it in batches, for the sake of reduced fsync call count
+
 int blockstore::dequeue_stable(blockstore_operation *op)
 {
     auto dirty_it = dirty_db.find((obj_ver_id){
@@ -61,6 +85,11 @@ int blockstore::dequeue_stable(blockstore_operation *op)
     return 1;
 }
 
+int blockstore::continue_stable(blockstore_operation *op)
+{
+    return 0;
+}
+
 void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op)
 {
     if (data->res < 0)
@@ -72,21 +101,13 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
     op->pending_ops--;
     if (op->pending_ops == 0)
     {
-        // Mark dirty_db entry as stable
+        // Mark all dirty_db entries up to op->version as stable
         auto dirty_it = dirty_db.find((obj_ver_id){
             .oid = op->oid,
             .version = op->version,
         });
         if (dirty_it->second.state == ST_J_SYNCED)
         {
-            // 1) Copy data from the journal to the data device
-            // 2) Increase version on the metadata device
-            // 3) Advance clean_db entry's version, clear previous journal entries
-            // This makes 1 4K small write+sync look like:
-            // 512b+4K (journal) + sync + 512b (journal) + sync + 512b (metadata) + 4K (data) + sync.
-            // WA = 2.375. It's not the best, SSD FTL-like redirect-write with defragmentation
-            // could probably be lower even with defragmentation. But it's fixed and it's still
-            // better than in Ceph. :)
             dirty_it->second.state = ST_J_STABLE;
             // Acknowledge op
             op->retval = 0;
@@ -94,15 +115,18 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
         }
         else if (dirty_it->second.state == ST_D_META_SYNCED)
         {
-            // 1) Copy metadata from the journal to the metadata device
-            // 2) Move dirty_db entry to clean_db and clear previous journal entries
-            // This makes 1 128K big write+sync look like:
-            // 128K (data) + sync + 512b (journal) + sync + 512b (journal) + sync + 512b (metadata) + sync.
-            // WA = 1.012. Very good :)
             dirty_it->second.state = ST_D_STABLE;
             // Acknowledge op
             op->retval = 0;
             op->callback(op);
+        }
+        else if (dirty_it->second.state == ST_J_STABLE)
+        {
+            
+        }
+        else if (dirty_it->second.state == ST_D_STABLE)
+        {
+            
         }
     }
 }
