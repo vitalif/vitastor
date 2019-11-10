@@ -87,6 +87,7 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
         read_op->callback(read_op);
         return 1;
     }
+    // FIXME track fulfilled and stop when it is equal to read_op->len
     uint64_t fulfilled = 0;
     if (dirty_found)
     {

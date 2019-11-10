@@ -98,7 +98,6 @@ int blockstore::dequeue_write(blockstore_operation *op)
             return 0;
         }
         // There is sufficient space. Get SQE(s)
-        unsigned prev_sqe_pos = ringloop->ring->sq.sqe_tail;
         BS_SUBMIT_GET_SQE(sqe1, data1);
         BS_SUBMIT_GET_SQE(sqe2, data2);
         // Got SQEs. Prepare journal sector write
@@ -133,6 +132,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
         io_uring_prep_writev(
             sqe1, journal.fd, &data1->iov, 1, journal.offset + journal.sector_info[journal.cur_sector].offset
         );
+        journal.sector_info[journal.cur_sector].usage_count++;
         // Prepare journal data write
         journal.next_free = (journal.next_free + op->len) < journal.len ? journal.next_free + op->len : 512;
         data2->iov = (struct iovec){ op->buf, op->len };
@@ -142,9 +142,8 @@ int blockstore::dequeue_write(blockstore_operation *op)
         );
         dirty_it->second.location = journal.next_free;
         dirty_it->second.state = ST_J_SUBMITTED;
-        // Move journal.next_free and save last write for current sector
+        // Move journal.next_free
         journal.next_free += op->len;
-        journal.sector_info[journal.cur_sector].usage_count++;
         op->pending_ops = 2;
         op->min_used_journal_sector = op->max_used_journal_sector = 1 + journal.cur_sector;
     }
