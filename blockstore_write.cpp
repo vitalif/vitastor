@@ -29,6 +29,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
         );
         op->pending_ops = 1;
         op->min_used_journal_sector = op->max_used_journal_sector = 0;
+        in_progress_ops.insert(op);
     }
     else
     {
@@ -110,6 +111,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
         journal.sector_info[journal.cur_sector].usage_count++;
         op->pending_ops = 2;
         op->min_used_journal_sector = op->max_used_journal_sector = 1 + journal.cur_sector;
+        in_progress_ops.insert(op);
     }
     return 1;
 }
@@ -123,29 +125,39 @@ void blockstore::handle_write_event(ring_data_t *data, blockstore_operation *op)
         throw new std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
     }
     op->pending_ops--;
-    if (op->min_used_journal_sector > 0)
-    {
-        for (uint64_t s = op->min_used_journal_sector; s <= op->max_used_journal_sector; s++)
-        {
-            journal.sector_info[s-1].usage_count--;
-        }
-        op->min_used_journal_sector = op->max_used_journal_sector = 0;
-    }
     if (op->pending_ops == 0)
     {
-        // Acknowledge write without sync
+        // Release used journal sectors
+        if (op->min_used_journal_sector > 0)
+        {
+            for (uint64_t s = op->min_used_journal_sector; s <= op->max_used_journal_sector; s++)
+            {
+                journal.sector_info[s-1].usage_count--;
+            }
+            op->min_used_journal_sector = op->max_used_journal_sector = 0;
+        }
+        // Switch object state
         auto dirty_it = dirty_db.find((obj_ver_id){
             .oid = op->oid,
             .version = op->version,
         });
         dirty_it->second.state = (dirty_it->second.state == ST_J_SUBMITTED
             ? ST_J_WRITTEN : (dirty_it->second.state == ST_DEL_SUBMITTED ? ST_DEL_WRITTEN : ST_D_WRITTEN));
+        // Acknowledge write without sync
         op->retval = op->len;
         op->callback(op);
         in_progress_ops.erase(op);
-        unsynced_writes.push_back((obj_ver_id){
-            .oid = op->oid,
-            .version = op->version,
-        });
+        // Remember write as unsynced
+        if (IS_BIG_WRITE(dirty_it->second.state))
+        {
+            unsynced_big_writes.push_back((obj_ver_id){
+                .oid = op->oid,
+                .version = op->version,
+            });
+        }
+        else
+        {
+            unsynced_small_writes++;
+        }
     }
 }

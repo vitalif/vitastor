@@ -170,11 +170,6 @@ public:
 // Otherwise, the submit order is free, that is all operations may be submitted immediately
 // In fact, adding a write operation must immediately result in dirty_db being populated
 
-// write -> immediately add to dirty ops, immediately submit. postpone if ring full
-// read -> check dirty ops, read or wait, remember max used journal offset, then unremember it
-// sync -> take all current writes (inflight + pending), wait for them to finish, sync, move their state
-// the question is: how to remember current writes.
-
 #define OP_READ 1
 #define OP_READ_DIRTY 2
 #define OP_WRITE 3
@@ -218,7 +213,7 @@ private:
     uint64_t min_used_journal_sector, max_used_journal_sector;
 
     // Sync
-    std::deque<obj_ver_id> sync_writes;
+    std::deque<obj_ver_id> sync_big_writes;
     std::list<blockstore_operation*>::iterator in_progress_ptr;
     int big_write_count, sync_state, prev_sync_count;
 };
@@ -235,9 +230,10 @@ class blockstore
     spp::sparse_hash_map<object_id, clean_entry, oid_hash> object_db;
     std::map<obj_ver_id, dirty_entry> dirty_db;
     std::list<blockstore_operation*> submit_queue;
-    std::deque<obj_ver_id> unsynced_writes;
+    std::deque<obj_ver_id> unsynced_big_writes;
+    int unsynced_small_writes = 0;
     std::list<blockstore_operation*> in_progress_syncs;
-    std::set<blockstore_operation*> in_progress_ops;
+    std::set<blockstore_operation*> in_progress_ops; // FIXME purpose of tracking this is unclear
     uint32_t block_order, block_size;
     uint64_t block_count;
     allocator *data_alloc;
@@ -288,6 +284,8 @@ class blockstore
     // Sync
     int dequeue_sync(blockstore_operation *op);
     void handle_sync_event(ring_data_t *data, blockstore_operation *op);
+    int continue_sync(blockstore_operation *op);
+    int ack_sync(blockstore_operation *op);
 
 public:
 

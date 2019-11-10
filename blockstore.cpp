@@ -123,6 +123,11 @@ void blockstore::loop()
     else
     {
         // try to submit ops
+        auto cur_sync = in_progress_syncs.begin();
+        while (cur_sync != in_progress_syncs.end())
+        {
+            continue_sync(*cur_sync++);
+        }
         auto cur = submit_queue.begin();
         bool has_writes = false;
         while (cur != submit_queue.end())
@@ -176,7 +181,6 @@ void blockstore::loop()
                     throw new std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
                 }
                 submit_queue.erase(op_ptr);
-                in_progress_ops.insert(op);
             }
             else
             {
