@@ -84,6 +84,10 @@
         return 0;\
     }
 
+class blockstore;
+
+class blockstore_operation;
+
 // 16 bytes per object/stripe id
 // stripe includes replica number in 4 least significant bits
 struct __attribute__((__packed__)) object_id
@@ -202,6 +206,7 @@ struct blockstore_operation
 
     // FIXME: Move internal fields somewhere
     friend class blockstore;
+    friend class blockstore_journal_check_t;
 private:
     // Wait status
     int wait_for;
@@ -219,8 +224,6 @@ private:
     std::list<blockstore_operation*>::iterator in_progress_ptr;
     int sync_state, prev_sync_count;
 };
-
-class blockstore;
 
 #include "blockstore_init.h"
 
@@ -255,6 +258,7 @@ class blockstore
 
     friend class blockstore_init_meta;
     friend class blockstore_init_journal;
+    friend class blockstore_journal_check_t;
 
     void calc_lengths(spp::sparse_hash_map<std::string, std::string> & config);
     void open_data(spp::sparse_hash_map<std::string, std::string> & config);

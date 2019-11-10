@@ -72,59 +72,25 @@ int blockstore::dequeue_write(blockstore_operation *op)
         // Small (journaled) write
         // First check if the journal has sufficient space
         // FIXME Always two SQEs for now. Although it's possible to send 1 sometimes
-        uint64_t next_pos = journal.next_free;
-        if (512 - journal.in_sector_pos < sizeof(struct journal_entry_small_write))
+        //two_sqes = (512 - journal.in_sector_pos < sizeof(struct journal_entry_small_write)
+        //    ? (journal.len - next_pos < op->len)
+        //    : (journal.sector_info[journal.cur_sector].offset + 512 != journal.next_free ||
+        //    journal.len - next_pos < op->len);
+        blockstore_journal_check_t space_check(this);
+        if (!space_check.check_available(op, 1, sizeof(journal_entry_small_write), op->len))
         {
-            //if (journal.len - next_pos < op->len)
-            //    two_sqes = true;
-            next_pos = (next_pos+512) < journal.len ? next_pos+512 : 512;
-            // Also check if we have an unused memory buffer for the journal sector
-            if (journal.sector_info[((journal.cur_sector + 1) % journal.sector_count)].usage_count > 0)
-            {
-                // No memory buffer available. Wait for it.
-                op->wait_for = WAIT_JOURNAL_BUFFER;
-                return 0;
-            }
-        }
-        //else if (journal.sector_info[journal.cur_sector].offset + 512 != journal.next_free ||
-        //    journal.len - next_pos < op->len)
-        //    two_sqes = true;
-        next_pos = (journal.len - next_pos < op->len ? 512 : next_pos) + op->len;
-        if (next_pos >= journal.used_start)
-        {
-            // No space in the journal. Wait for it.
-            op->wait_for = WAIT_JOURNAL;
-            op->wait_detail = next_pos;
             return 0;
         }
         // There is sufficient space. Get SQE(s)
         BS_SUBMIT_GET_SQE(sqe1, data1);
         BS_SUBMIT_GET_SQE(sqe2, data2);
         // Got SQEs. Prepare journal sector write
-        if (512 - journal.in_sector_pos < sizeof(struct journal_entry_small_write))
-        {
-            // Move to the next journal sector
-            // Also select next sector buffer in memory
-            journal.cur_sector = ((journal.cur_sector + 1) % journal.sector_count);
-            journal.sector_info[journal.cur_sector].offset = journal.next_free;
-            journal.in_sector_pos = 0;
-            journal.next_free = (journal.next_free+512) < journal.len ? journal.next_free + 512 : 512;
-            memset(journal.sector_buf + 512*journal.cur_sector, 0, 512);
-        }
-        journal_entry_small_write *je = (struct journal_entry_small_write*)(
-            journal.sector_buf + 512*journal.cur_sector + journal.in_sector_pos
-        );
-        *je = {
-            .crc32 = 0,
-            .magic = JOURNAL_MAGIC,
-            .type = JE_SMALL_WRITE,
-            .size = sizeof(struct journal_entry_small_write),
-            .crc32_prev = journal.crc32_last,
-            .oid = op->oid,
-            .version = op->version,
-            .offset = op->offset,
-            .len = op->len,
-        };
+        journal_entry_small_write *je = (journal_entry_small_write*)
+            prefill_single_journal_entry(journal, JE_SMALL_WRITE, sizeof(struct journal_entry_small_write));
+        je->oid = op->oid;
+        je->version = op->version;
+        je->offset = op->offset;
+        je->len = op->len;
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
         data1->iov = (struct iovec){ journal.sector_buf + 512*journal.cur_sector, 512 };
@@ -133,8 +99,9 @@ int blockstore::dequeue_write(blockstore_operation *op)
             sqe1, journal.fd, &data1->iov, 1, journal.offset + journal.sector_info[journal.cur_sector].offset
         );
         journal.sector_info[journal.cur_sector].usage_count++;
+        op->min_used_journal_sector = op->max_used_journal_sector = 1 + journal.cur_sector;
         // Prepare journal data write
-        journal.next_free = (journal.next_free + op->len) < journal.len ? journal.next_free + op->len : 512;
+        journal.next_free = (journal.next_free + op->len) < journal.len ? journal.next_free : 512;
         data2->iov = (struct iovec){ op->buf, op->len };
         data2->op = op;
         io_uring_prep_writev(
@@ -142,10 +109,8 @@ int blockstore::dequeue_write(blockstore_operation *op)
         );
         dirty_it->second.location = journal.next_free;
         dirty_it->second.state = ST_J_SUBMITTED;
-        // Move journal.next_free
         journal.next_free += op->len;
         op->pending_ops = 2;
-        op->min_used_journal_sector = op->max_used_journal_sector = 1 + journal.cur_sector;
     }
     return 1;
 }
