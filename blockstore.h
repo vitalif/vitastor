@@ -311,6 +311,11 @@ public:
     void handle_event(ring_data_t* data);
     void loop();
 
+    // Returns true when it's safe to destroy the instance. If destroying the instance
+    // requires to purge some queues, starts that process. Should be called in the event
+    // loop until it returns true.
+    bool stop();
+
     // Submission
     int enqueue_op(blockstore_operation *op);
 };

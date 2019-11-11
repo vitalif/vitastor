@@ -194,6 +194,11 @@ void blockstore::loop()
     }
 }
 
+bool blockstore::stop()
+{
+    return false;
+}
+
 void blockstore::check_wait(blockstore_operation *op)
 {
     if (op->wait_for == WAIT_SQE)
