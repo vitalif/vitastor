@@ -14,6 +14,11 @@
 #include <liburing.h>
 
 #include <map>
+#include <vector>
+#include <deque>
+
+#include "blockstore.h"
+#include "cpp-btree/btree_map.h"
 
 static int setup_context(unsigned entries, struct io_uring *ring)
 {
@@ -47,7 +52,76 @@ static void test_write(struct io_uring *ring, int fd)
     free(buf);
 }
 
+class obj_ver_hash
+{
+public:
+    size_t operator()(const obj_ver_id &s) const
+    {
+        size_t seed = 0;
+        spp::hash_combine(seed, s.oid.inode);
+        spp::hash_combine(seed, s.oid.stripe);
+        spp::hash_combine(seed, s.version);
+        return seed;
+    }
+};
+
+inline bool operator == (const obj_ver_id & a, const obj_ver_id & b)
+{
+    return a.oid == b.oid && a.version == b.version;
+}
+
 int main(int argc, char *argv[])
+{
+    // std::map 5M entries -> 2.115s
+    // btree_map 5M entries -> 0.458s
+    // sparse_hash_map 5M entries -> 2.193s
+    //btree::btree_map<obj_ver_id, dirty_entry> dirty_db;
+    //std::map<obj_ver_id, dirty_entry> dirty_db;
+    spp::sparse_hash_map<obj_ver_id, dirty_entry, obj_ver_hash> dirty_db;
+    for (int i = 0; i < 5000000; i++)
+    {
+        dirty_db[(obj_ver_id){
+            .oid = (object_id){
+                .inode = 1,
+                .stripe = i,
+            },
+            .version = 1,
+        }] = (dirty_entry){
+            .state = ST_D_META_SYNCED,
+            .flags = 0,
+            .location = i << 17,
+            .offset = 0,
+            .size = 1 << 17,
+        };
+    }
+    return 0;
+}
+
+int main1(int argc, char *argv[])
+{
+    std::vector<uint64_t> v1, v2;
+    v1.reserve(10000);
+    v2.reserve(10000);
+    for (int i = 0; i < 10000; i++)
+    {
+        v1.push_back(i);
+        v2.push_back(i);
+    }
+    for (int i = 0; i < 100000; i++)
+    {
+        // haha (core i5-2500 | i7-6800HQ)
+        // vector 10000 items: 4.37/100000 | 3.66
+        // vector 100000 items: 9.68/10000 | 0.95
+        // deque 10000 items: 28.432/100000
+        // list 10000 items: 320.695/100000
+        std::vector<uint64_t> v3;
+        v3.insert(v3.end(), v1.begin(), v1.end());
+        v3.insert(v3.end(), v2.begin(), v2.end());
+    }
+    return 0;
+}
+
+int main2(int argc, char *argv[])
 {
     std::map<int, std::string> strs;
     strs.emplace(12, "str");

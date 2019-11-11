@@ -124,6 +124,7 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
     {
         // First step: mark dirty_db entries as stable, acknowledge op completion
         // FIXME: oops... we seem to have to copy object id/version pairs...
+        // No, no, no, copying is bad. We don't want copying.
         obj_ver_id* v;
         int i;
         for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)

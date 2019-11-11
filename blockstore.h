@@ -13,7 +13,6 @@
 
 #include <vector>
 #include <map>
-#include <deque>
 #include <list>
 #include <set>
 #include <functional>
@@ -226,7 +225,7 @@ private:
     uint64_t min_used_journal_sector, max_used_journal_sector;
 
     // Sync
-    std::deque<obj_ver_id> sync_big_writes, sync_small_writes;
+    std::vector<obj_ver_id> sync_big_writes, sync_small_writes;
     std::list<blockstore_operation*>::iterator in_progress_ptr;
     int sync_state, prev_sync_count;
 };
@@ -241,7 +240,7 @@ class blockstore
     spp::sparse_hash_map<object_id, clean_entry, oid_hash> clean_db;
     std::map<obj_ver_id, dirty_entry> dirty_db;
     std::list<blockstore_operation*> submit_queue;
-    std::deque<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
+    std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
     std::list<blockstore_operation*> in_progress_syncs;
     uint32_t block_order, block_size;
     uint64_t block_count;

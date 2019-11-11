@@ -7,4 +7,4 @@ crc32c.o: crc32c.c
 %.o: %.cpp blockstore.h
 	g++ -Wall -Wno-sign-compare -Wno-parentheses -c -o $@ $<
 test: test.cpp
-	g++ -o test -luring test.cpp
+	g++ -O3 -o test -luring test.cpp
