@@ -72,9 +72,9 @@ inline bool operator == (const obj_ver_id & a, const obj_ver_id & b)
 
 int main(int argc, char *argv[])
 {
-    // std::map 5M entries -> 2.115s
-    // btree_map 5M entries -> 0.458s
-    // sparse_hash_map 5M entries -> 2.193s
+    // std::map 5M entries monotone -> 2.115s, random -> 8.782s
+    // btree_map 5M entries monotone -> 0.458s, random -> 5.429s
+    // sparse_hash_map 5M entries -> 2.193s, random -> 2.586s
     //btree::btree_map<obj_ver_id, dirty_entry> dirty_db;
     //std::map<obj_ver_id, dirty_entry> dirty_db;
     spp::sparse_hash_map<obj_ver_id, dirty_entry, obj_ver_hash> dirty_db;
@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
     {
         dirty_db[(obj_ver_id){
             .oid = (object_id){
-                .inode = 1,
+                .inode = rand(),
                 .stripe = i,
             },
             .version = 1,
