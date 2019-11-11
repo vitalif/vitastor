@@ -35,6 +35,24 @@ void blockstore::enqueue_write(blockstore_operation *op)
         .offset = op->offset,
         .size = op->len,
     });
+    // Remember write as unsynced here, so external consumers could get
+    // the list of dirty objects to sync just before issuing a SYNC request
+    if (op->len == block_size)
+    {
+        // Remember big write as unsynced
+        unsynced_big_writes.push_back((obj_ver_id){
+            .oid = op->oid,
+            .version = op->version,
+        });
+    }
+    else
+    {
+        // Remember small write as unsynced
+        unsynced_small_writes.push_back((obj_ver_id){
+            .oid = op->oid,
+            .version = op->version,
+        });
+    }
 }
 
 // First step of the write algorithm: dequeue operation and submit initial write(s)
@@ -66,11 +84,6 @@ int blockstore::dequeue_write(blockstore_operation *op)
         );
         op->pending_ops = 1;
         op->min_used_journal_sector = op->max_used_journal_sector = 0;
-        // Remember write as unsynced
-        unsynced_big_writes.push_back((obj_ver_id){
-            .oid = op->oid,
-            .version = op->version,
-        });
     }
     else
     {
@@ -116,10 +129,6 @@ int blockstore::dequeue_write(blockstore_operation *op)
         dirty_it->second.state = ST_J_SUBMITTED;
         journal.next_free += op->len;
         op->pending_ops = 2;
-        unsynced_small_writes.push_back((obj_ver_id){
-            .oid = op->oid,
-            .version = op->version,
-        });
     }
     return 1;
 }

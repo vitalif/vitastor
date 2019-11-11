@@ -195,11 +195,16 @@ public:
 struct blockstore_operation
 {
     std::function<void (blockstore_operation*)> callback;
+    // flags contain operation type and possibly other flags
     uint32_t flags;
+    // For reads, writes & deletes: oid is the requested object
     object_id oid;
     // For reads: version=0 -> last stable, version=UINT64_MAX -> last unstable, version=X -> specific version
+    // For writes & deletes: a new version is assigned automatically
     uint64_t version;
+    // For reads & writes: offset & len are the requested part of the object, buf is the buffer
     uint32_t offset;
+    // For stabilize requests: buf contains <len> obj_ver_id's to stabilize
     uint32_t len;
     uint8_t *buf;
     int retval;
