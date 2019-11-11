@@ -111,12 +111,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
         je->len = op->len;
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
-        data1->iov = (struct iovec){ journal.sector_buf + 512*journal.cur_sector, 512 };
-        data1->op = op;
-        io_uring_prep_writev(
-            sqe1, journal.fd, &data1->iov, 1, journal.offset + journal.sector_info[journal.cur_sector].offset
-        );
-        journal.sector_info[journal.cur_sector].usage_count++;
+        prepare_journal_sector_write(op, journal, sqe1);
         op->min_used_journal_sector = op->max_used_journal_sector = 1 + journal.cur_sector;
         // Prepare journal data write
         journal.next_free = (journal.next_free + op->len) < journal.len ? journal.next_free : 512;

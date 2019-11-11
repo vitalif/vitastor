@@ -155,3 +155,6 @@ inline journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t
     je->crc32_prev = journal.crc32_last;
     return je;
 }
+
+// FIXME: make inline
+void prepare_journal_sector_write(blockstore_operation *op, journal_t & journal, io_uring_sqe *sqe);

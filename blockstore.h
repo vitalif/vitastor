@@ -212,6 +212,7 @@ struct blockstore_operation
     // FIXME: Move internal fields somewhere
     friend class blockstore;
     friend class blockstore_journal_check_t;
+    friend void prepare_journal_sector_write(blockstore_operation *op, journal_t & journal, io_uring_sqe *sqe);
 private:
     // Wait status
     int wait_for;

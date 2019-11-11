@@ -253,6 +253,7 @@ int blockstore::enqueue_op(blockstore_operation *op)
     }
     op->wait_for = 0;
     op->sync_state = 0;
+    op->pending_ops = 0;
     submit_queue.push_back(op);
     if ((op->flags & OP_TYPE_MASK) == OP_WRITE)
     {

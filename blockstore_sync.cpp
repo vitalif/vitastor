@@ -71,7 +71,6 @@ int blockstore::continue_sync(blockstore_operation *op)
             BS_SUBMIT_GET_SQE_DECL(sqe[i]);
         }
         // Prepare and submit journal entries
-        op->min_used_journal_sector = 1 + journal.cur_sector;
         auto it = op->sync_big_writes.begin();
         int s = 0, cur_sector = -1;
         while (it != op->sync_big_writes.end())
@@ -86,23 +85,18 @@ int blockstore::continue_sync(blockstore_operation *op)
             it++;
             if (cur_sector != journal.cur_sector)
             {
+                if (cur_sector == -1)
+                    op->min_used_journal_sector = 1 + journal.cur_sector;
                 cur_sector = journal.cur_sector;
-                journal.sector_info[journal.cur_sector].usage_count++;
-                struct ring_data_t *data = ((ring_data_t*)sqe[s]->user_data);
-                data->iov = (struct iovec){ journal.sector_buf + 512*journal.cur_sector, 512 };
-                data->op = op;
-                io_uring_prep_writev(
-                    sqe[s], journal.fd, &data->iov, 1, journal.offset + journal.sector_info[journal.cur_sector].offset
-                );
-                s++;
+                prepare_journal_sector_write(op, journal, sqe[s++]);
             }
         }
+        op->max_used_journal_sector = 1 + journal.cur_sector;
         // ... And a journal fsync
         io_uring_prep_fsync(sqe[s], journal.fd, 0);
         struct ring_data_t *data = ((ring_data_t*)sqe[s]->user_data);
         data->op = op;
         op->pending_ops = 1 + s;
-        op->max_used_journal_sector = 1 + journal.cur_sector;
         op->sync_state = SYNC_JOURNAL_SYNC_SENT;
     }
     else

@@ -78,13 +78,12 @@ int blockstore::dequeue_stable(blockstore_operation *op)
         return 0;
     }
     // There is sufficient space. Get SQEs
-    struct io_uring_sqe *sqe[space_check.sectors_required+1];
-    for (int i = 0; i < space_check.sectors_required+1; i++)
+    struct io_uring_sqe *sqe[space_check.sectors_required];
+    for (i = 0; i < space_check.sectors_required; i++)
     {
         BS_SUBMIT_GET_SQE_DECL(sqe[i]);
     }
     // Prepare and submit journal entries
-    op->min_used_journal_sector = 1 + journal.cur_sector;
     int s = 0, cur_sector = -1;
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
     {
@@ -96,20 +95,14 @@ int blockstore::dequeue_stable(blockstore_operation *op)
         journal.crc32_last = je->crc32;
         if (cur_sector != journal.cur_sector)
         {
+            if (cur_sector == -1)
+                op->min_used_journal_sector = 1 + journal.cur_sector;
             cur_sector = journal.cur_sector;
-            // FIXME: Deduplicate this piece of code, too (something like write_journal)
-            journal.sector_info[journal.cur_sector].usage_count++;
-            struct ring_data_t *data = ((ring_data_t*)sqe[s]->user_data);
-            data->iov = (struct iovec){ journal.sector_buf + 512*journal.cur_sector, 512 };
-            data->op = op;
-            io_uring_prep_writev(
-                sqe[s], journal.fd, &data->iov, 1, journal.offset + journal.sector_info[journal.cur_sector].offset
-            );
-            s++;
+            prepare_journal_sector_write(op, journal, sqe[s++]);
         }
     }
-    op->pending_ops = s;
     op->max_used_journal_sector = 1 + journal.cur_sector;
+    op->pending_ops = s;
     return 1;
 }
 
