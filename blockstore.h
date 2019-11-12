@@ -33,8 +33,9 @@
 #define ST_J_WRITTEN 3
 #define ST_J_SYNCED 4
 #define ST_J_STABLE 5
-#define ST_J_MOVED 6
-#define ST_J_MOVE_SYNCED 7
+#define ST_J_MOVE_READ_SUBMITTED 6
+#define ST_J_MOVE_WRITE_SUBMITTED 7
+#define ST_J_MOVE_SYNCED 8
 
 #define ST_D_SUBMITTED 16
 #define ST_D_WRITTEN 17
@@ -183,6 +184,7 @@ public:
 #define OP_SYNC 3
 #define OP_STABLE 4
 #define OP_DELETE 5
+#define OP_INTERNAL_FLUSH 6
 #define OP_TYPE_MASK 0x7
 
 // Suspend operation until there are more free SQEs
@@ -196,9 +198,10 @@ public:
 
 struct blockstore_operation
 {
-    std::function<void (blockstore_operation*)> callback;
     // flags contain operation type and possibly other flags
-    uint32_t flags;
+    uint64_t flags;
+    // finish callback
+    std::function<void (blockstore_operation*)> callback;
     // For reads, writes & deletes: oid is the requested object
     object_id oid;
     // For reads: version=0 -> last stable, version=UINT64_MAX -> last unstable, version=X -> specific version

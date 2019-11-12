@@ -83,6 +83,11 @@ void blockstore::handle_event(ring_data_t *data)
         {
             handle_stable_event(data, op);
         }
+        else if ((op->flags & OP_TYPE_MASK) == OP_INTERNAL_FLUSH)
+        {
+            // Operation is not a blockstore_operation at all
+            
+        }
     }
 }
 

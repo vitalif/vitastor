@@ -66,7 +66,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
     {
         // Big (redirect) write
         uint64_t loc = allocator_find_free(data_alloc);
-        if (loc == (uint64_t)-1)
+        if (loc == UINT64_MAX)
         {
             // no space
             op->retval = -ENOSPC;

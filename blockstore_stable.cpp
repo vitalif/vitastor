@@ -156,154 +156,170 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
     }
 }
 
-struct offset_len
+struct copy_buffer_t
 {
     uint64_t offset, len;
+    void *buf;
 };
 
 class journal_flusher_t
 {
     blockstore *bs;
-    int state;
+    int wait_state, wait_count;
+    struct io_uring_sqe *sqe;
+    struct ring_data_t *data;
+    bool skip_copy;
     obj_ver_id cur;
     std::map<obj_ver_id, dirty_entry>::iterator dirty_it;
-    std::vector<offset_len> v;
-    std::vector<offset_len>::iterator it;
-    uint64_t offset, len;
+    std::vector<copy_buffer_t> v;
+    std::vector<copy_buffer_t>::iterator it;
+    uint64_t offset, len, submit_len, clean_loc;
+    bool allocated;
 
 public:
-    journal_flusher_t();
+    journal_flusher_t(int flush_count);
     std::deque<obj_ver_id> flush_queue;
-    void stabilize_object_loop();
+    void loop();
 };
 
-#define F_NEXT_OBJ 0
-#define F_NEXT_VER 1
-#define F_FIND_POS 2
-#define F_SUBMIT_FULL 3
-#define F_SUBMIT_PART 4
-#define F_CUT_OFFSET 5
-#define F_FINISH_VER 6
-
-journal_flusher_t::journal_flusher_t()
+journal_flusher_t::journal_flusher_t(int flusher_count)
 {
-    state = F_NEXT_OBJ;
 }
 
-// It would be prettier as a coroutine (maybe https://github.com/hnes/libaco ?)
-// Now it's a state machine
-void journal_flusher_t::stabilize_object_loop()
+void journal_flusher_t::loop()
 {
-begin:
-    if (state == F_NEXT_OBJ)
+    // This is much better than implementing the whole function as an FSM
+    // Maybe I should consider a coroutine library like https://github.com/hnes/libaco ...
+    if (wait_state == 1)
+        goto resume_1;
+    else if (wait_state == 3)
+        goto resume_3;
+    else if (wait_state == 4)
+        goto resume_4;
+    else if (wait_state == 5)
+        goto resume_5;
+    if (!flush_queue.size())
+        return;
+    cur = flush_queue.front();
+    flush_queue.pop_front();
+    dirty_it = bs->dirty_db.find(cur);
+    if (dirty_it != bs->dirty_db.end())
     {
-        // Pick next object
-        if (!flush_queue.size())
-            return;
-        while (1)
+        v.clear();
+        wait_count = 0;
+        clean_loc = UINT64_MAX;
+        allocated = false;
+        skip_copy = false;
+        do
         {
-            cur = flush_queue.front();
-            flush_queue.pop_front();
-            dirty_it = bs->dirty_db.find(cur);
-            if (dirty_it != bs->dirty_db.end())
+            if (dirty_it->second.state == ST_J_STABLE)
             {
-                state = F_NEXT_VER;
-                v.clear();
+                // First we submit all reads
+                offset = dirty_it->second.offset;
+                len = dirty_it->second.size;
+                it = v.begin();
+                while (1)
+                {
+                    for (; it != v.end(); it++)
+                        if (it->offset >= offset)
+                            break;
+                    if (it == v.end() || it->offset > offset)
+                    {
+                        submit_len = it->offset >= offset+len ? len : it->offset-offset;
+                    resume_1:
+                        sqe = bs->get_sqe();
+                        if (!sqe)
+                        {
+                            // Can't submit read, ring is full
+                            wait_state = 1;
+                            return;
+                        }
+                        v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len, .buf = memalign(512, submit_len) });
+                        data = ((ring_data_t*)sqe->user_data);
+                        data->iov = (struct iovec){ v.end()->buf, (size_t)submit_len };
+                        data->op = this;
+                        io_uring_prep_readv(
+                            sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + dirty_it->second.location + offset
+                        );
+                        wait_count++;
+                    }
+                    if (it == v.end() || it->offset+it->len >= offset+len)
+                    {
+                        break;
+                    }
+                }
+                // So subsequent stabilizers don't flush the entry again
+                dirty_it->second.state = ST_J_READ_SUBMITTED;
+            }
+            else if (dirty_it->second.state == ST_D_STABLE)
+            {
+                // Copy last STABLE entry metadata
+                if (!skip_copy)
+                {
+                    clean_loc = dirty_it->second.location;
+                }
+                skip_copy = true;
+            }
+            else if (IS_STABLE(dirty_it->second.state))
+            {
                 break;
             }
-            else if (flush_queue.size() == 0)
-                return;
-        }
-    }
-    if (state == F_NEXT_VER)
-    {
-        if (dirty_it->second.state == ST_J_STABLE)
+            dirty_it--;
+        } while (dirty_it != bs->dirty_db.begin() && dirty_it->first.oid == cur.oid);
+        if (clean_loc == UINT64_MAX)
         {
-            offset = dirty_it->second.offset;
-            len = dirty_it->second.size;
-            it = v.begin();
-            state = F_FIND_POS;
-        }
-        else if (dirty_it->second.state == ST_D_STABLE)
-        {
-            
-            state = F_NEXT_OBJ;
-        }
-        else if (IS_STABLE(dirty_it->second.state))
-        {
-            state = F_NEXT_OBJ;
-        }
-        else
-            state = F_FINISH_VER;
-    }
-    if (state == F_FIND_POS)
-    {
-        for (; it != v.end(); it++)
-            if (it->offset >= offset)
-                break;
-        if (it == v.end() || it->offset >= offset+len)
-        {
-            state = F_SUBMIT_FULL;
-        }
-        else
-        {
-            if (it->offset > offset)
-                state = F_SUBMIT_PART;
+            // Find it in clean_db
+            auto clean_it = bs->clean_db.find(cur.oid);
+            if (clean_it == bs->clean_db.end())
+            {
+                // Object not present at all. We must allocate and zero it.
+                clean_loc = allocator_find_free(bs->data_alloc);
+                if (clean_loc == UINT64_MAX)
+                {
+                    throw new std::runtime_error("No space on the data device while trying to flush journal");
+                }
+                // This is an interesting part. Flushing journal results in an allocation we don't know where to put O_o.
+                allocator_set(bs->data_alloc, clean_loc, true);
+                allocated = true;
+            }
             else
-                state = F_CUT_OFFSET;
+                clean_loc = clean_it->second.location;
         }
-    }
-    if (state == F_SUBMIT_FULL)
-    {
-        struct io_uring_sqe *sqe = get_sqe();
-        if (!sqe)
-            return;
-        struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
-        data->iov = (struct iovec){ malloc(len), len };
-        data->op = op; // FIXME OOPS
-        io_uring_prep_readv(
-            sqe, journal_fd, &data->iov, 1, journal_offset + dirty_it->second.location + offset
-        );
-        op->pending_ops = 1;
-        v.insert(it, (offset_len){ .offset = offset, .len = len });
-        state = F_SUBMIT_FULL_WRITE;
-        return;
-    }
-    if (state == F_SUBMIT_FULL_WRITE)
-    {
-        struct io_uring_sqe *sqe = get_sqe();
-        if (!sqe)
-            return;
-        struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
-        
-    }
-    if (state == F_SUBMIT_PART)
-    {
-        if (!can_submit)
+        wait_state = 3;
+    resume_3:
+        // After reads complete we submit writes
+        if (wait_count == 0)
         {
-            return;
+            for (it = v.begin(); it != v.end(); it++)
+            {
+            resume_4:
+                sqe = bs->get_sqe();
+                if (!sqe)
+                {
+                    // Can't submit a write, ring is full
+                    wait_state = 4;
+                    return;
+                }
+                data = ((ring_data_t*)sqe->user_data);
+                data->iov = (struct iovec){ it->buf, (size_t)it->len };
+                data->op = this;
+                io_uring_prep_writev(
+                    sqe, bs->data_fd, &data->iov, 1, bs->data_offset + clean_loc + it->offset
+                );
+                wait_count++;
+            }
+            wait_state = 5;
+        resume_5:
+            // Done, free all buffers
+            if (wait_count == 0)
+            {
+                for (it = v.begin(); it != v.end(); it++)
+                {
+                    free(it->buf);
+                }
+                v.clear();
+                wait_state = 0;
+            }
         }
-        v.insert(it, (offset_len){ .offset = offset, .len = it->offset-offset });
-        state = F_CUT_OFFSET;
     }
-    if (state == F_CUT_OFFSET)
-    {
-        if (offset+len > it->offset+it->len)
-        {
-            len = offset+len - (it->offset+it->len);
-            offset = it->offset+it->len;
-            state = F_FIND_POS;
-        }
-        else
-            state = F_FINISH_VER;
-    }
-    if (state == F_FINISH_VER)
-    {
-        dirty_it--;
-        if (dirty_it == bs->dirty_db.begin() || dirty_it->first.oid != cur.oid)
-            state = F_NEXT_OBJ;
-        else
-            state = F_NEXT_VER;
-    }
-    goto begin;
 }
