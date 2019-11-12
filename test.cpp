@@ -72,6 +72,34 @@ inline bool operator == (const obj_ver_id & a, const obj_ver_id & b)
 
 int main(int argc, char *argv[])
 {
+    // queue with random removal: vector is best :D
+    // deque: 8.1s
+    // vector: 6.6s
+    // list: 9.3s
+    for (int i = 0; i < 10000; i++)
+    {
+        std::list<int> q;
+        for (int i = 0; i < 20480; i++)
+        {
+            for (auto it = q.begin(); it != q.end();)
+            {
+                if (rand() < RAND_MAX/2)
+                {
+                    //q.erase(it); -> for deque and vector
+                    auto p = it++;
+                    q.erase(p);
+                }
+                else
+                    it++;
+            }
+            q.push_back(rand());
+        }
+    }
+    return 0;
+}
+
+int main01(int argc, char *argv[])
+{
     // deque: 2.091s
     // vector: 18.733s
     // list: 5.216s
