@@ -72,8 +72,67 @@ inline bool operator == (const obj_ver_id & a, const obj_ver_id & b)
 
 int main(int argc, char *argv[])
 {
+    // deque: 2.091s
+    // vector: 18.733s
+    // list: 5.216s
+    // good, at least in this test deque is fine
+    for (int i = 0; i < 10000; i++)
+    {
+        std::deque<int> q;
+        for (int i = 0; i < 20480; i++)
+        {
+            int r = rand();
+            if (r < RAND_MAX/4 && q.size() > 0)
+                q.pop_front();
+                //q.erase(q.begin());
+            else
+                q.push_back(r);
+        }
+    }
+    return 0;
+}
+
+int main_vec(int argc, char *argv[])
+{
+    // vector: 16 elements -> 0.047s, 256 elements -> 1.622s, 1024 elements -> 16.087s, 2048 elements -> 55.8s
+    for (int i = 0; i < 100000; i++)
+    {
+        std::vector<iovec> v;
+        for (int i = 0; i < 2048; i++)
+        {
+            int r = rand();
+            int n = 0;
+            auto it = v.begin();
+            for (; it != v.end(); it++)
+                if (it->iov_len >= r)
+                    break;
+            v.insert(it, (iovec){ .iov_base = 0, .iov_len = r });
+        }
+    }
+    return 0;
+}
+
+int main_map(int argc, char *argv[])
+{
+    // map: 16 elements -> 0.105s, 256 elements -> 2.634s, 1024 elements -> 12.55s, 2048 elements -> 27.475s
+    // conclustion: vector is better in fulfill_read
+    for (int i = 0; i < 100000; i++)
+    {
+        std::map<int,iovec> v;
+        for (int i = 0; i < 2048; i++)
+        {
+            int r = rand();
+            v[r] = (iovec){ .iov_base = 0, .iov_len = r };
+        }
+    }
+    return 0;
+}
+
+int main0(int argc, char *argv[])
+{
     // std::map 5M entries monotone -> 2.115s, random -> 8.782s
     // btree_map 5M entries monotone -> 0.458s, random -> 5.429s
+    // absl::btree_map 5M entries random -> 5.09s
     // sparse_hash_map 5M entries -> 2.193s, random -> 2.586s
     //btree::btree_map<obj_ver_id, dirty_entry> dirty_db;
     //std::map<obj_ver_id, dirty_entry> dirty_db;
