@@ -1,6 +1,8 @@
 #pragma once
 
+#ifndef _LARGEFILE64_SOURCE
 #define _LARGEFILE64_SOURCE
+#endif
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
@@ -240,9 +242,9 @@ class blockstore
     // Another option is https://github.com/algorithm-ninja/cpp-btree
     spp::sparse_hash_map<object_id, clean_entry, oid_hash> clean_db;
     std::map<obj_ver_id, dirty_entry> dirty_db;
-    std::list<blockstore_operation*> submit_queue;
+    std::list<blockstore_operation*> submit_queue; // FIXME: funny thing is that vector is better here
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
-    std::list<blockstore_operation*> in_progress_syncs;
+    std::list<blockstore_operation*> in_progress_syncs; // ...and probably here, too
     uint32_t block_order, block_size;
     uint64_t block_count;
     allocator *data_alloc;
@@ -265,6 +267,7 @@ class blockstore
     friend class blockstore_init_meta;
     friend class blockstore_init_journal;
     friend class blockstore_journal_check_t;
+    friend class journal_flusher_t;
 
     void calc_lengths(spp::sparse_hash_map<std::string, std::string> & config);
     void open_data(spp::sparse_hash_map<std::string, std::string> & config);

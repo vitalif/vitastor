@@ -134,7 +134,7 @@ int main_vec(int argc, char *argv[])
             for (; it != v.end(); it++)
                 if (it->iov_len >= r)
                     break;
-            v.insert(it, (iovec){ .iov_base = 0, .iov_len = r });
+            v.insert(it, (iovec){ .iov_base = 0, .iov_len = (size_t)r });
         }
     }
     return 0;
@@ -150,7 +150,7 @@ int main_map(int argc, char *argv[])
         for (int i = 0; i < 2048; i++)
         {
             int r = rand();
-            v[r] = (iovec){ .iov_base = 0, .iov_len = r };
+            v[r] = (iovec){ .iov_base = 0, .iov_len = (size_t)r };
         }
     }
     return 0;
@@ -169,14 +169,14 @@ int main0(int argc, char *argv[])
     {
         dirty_db[(obj_ver_id){
             .oid = (object_id){
-                .inode = rand(),
-                .stripe = i,
+                .inode = (uint64_t)rand(),
+                .stripe = (uint64_t)i,
             },
             .version = 1,
         }] = (dirty_entry){
             .state = ST_D_META_SYNCED,
             .flags = 0,
-            .location = i << 17,
+            .location = (uint64_t)i << 17,
             .offset = 0,
             .size = 1 << 17,
         };
