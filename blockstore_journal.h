@@ -49,7 +49,7 @@ struct __attribute__((__packed__)) journal_entry_big_write
     uint32_t crc32_prev;
     object_id oid;
     uint64_t version;
-    uint64_t block;
+    uint64_t location;
 };
 
 struct __attribute__((__packed__)) journal_entry_stable

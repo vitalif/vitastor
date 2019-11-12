@@ -310,7 +310,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                 }, (dirty_entry){
                     .state = ST_D_META_SYNCED,
                     .flags = 0,
-                    .location = je->big_write.block,
+                    .location = je->big_write.location,
                     .offset = 0,
                     .size = bs->block_size,
                 });

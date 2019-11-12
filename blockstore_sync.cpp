@@ -79,7 +79,7 @@ int blockstore::continue_sync(blockstore_operation *op)
                 prefill_single_journal_entry(journal, JE_BIG_WRITE, sizeof(journal_entry_big_write));
             je->oid = it->oid;
             je->version = it->version;
-            je->block = dirty_db[*it].location;
+            je->location = dirty_db[*it].location;
             je->crc32 = je_crc32((journal_entry*)je);
             journal.crc32_last = je->crc32;
             it++;

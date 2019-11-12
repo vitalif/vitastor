@@ -81,8 +81,8 @@ int blockstore::dequeue_write(blockstore_operation *op)
         if (op->version == 1 && op->len != block_size)
         {
             // zero fill newly allocated object
-            // FIXME: it's not so good because it turns new small writes into big writes
-            // but it's the first and the simplest implementation
+            // This thing turns new small writes into big writes
+            // So FIXME: consider writing an empty big_write as version 1 instead of zero-filling here
             if (op->offset > 0)
                 op->iov_zerofill[vcnt++] = (struct iovec){ zero_object, op->offset };
             op->iov_zerofill[vcnt++] = (struct iovec){ op->buf, op->len };
