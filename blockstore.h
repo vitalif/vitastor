@@ -14,6 +14,7 @@
 #include <vector>
 #include <map>
 #include <list>
+#include <deque>
 #include <set>
 #include <functional>
 
@@ -143,7 +144,7 @@ struct __attribute__((__packed__)) dirty_entry
     uint32_t flags;
     uint64_t location; // location in either journal or data
     uint32_t offset;   // offset within stripe
-    uint32_t size;     // entry size
+    uint32_t size;     // entry size. FIXME: rename to len?
 };
 
 class oid_hash
@@ -297,10 +298,11 @@ class blockstore
     int continue_sync(blockstore_operation *op);
     int ack_sync(blockstore_operation *op);
 
-    // Stable
+    // Stabilize
     int dequeue_stable(blockstore_operation *op);
     int continue_stable(blockstore_operation *op);
     void handle_stable_event(ring_data_t *data, blockstore_operation *op);
+    void stabilize_object(object_id oid, uint64_t max_ver);
 
 public:
 

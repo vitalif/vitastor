@@ -149,9 +149,74 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
                     dirty_it--;
                 } while (dirty_it != dirty_db.begin() && dirty_it->first.oid == v->oid);
             }
-            // Acknowledge op
-            op->retval = 0;
-            op->callback(op);
         }
+        // Acknowledge op
+        op->retval = 0;
+        op->callback(op);
+    }
+}
+
+struct offset_len
+{
+    uint64_t offset, len;
+};
+
+struct journal_flusher_t
+{
+    std::deque<obj_ver_id> flush_queue;
+    obj_ver_id cur;
+    std::map<obj_ver_id, dirty_entry>::iterator dirty_it;
+    std::vector<offset_len> v;
+};
+
+void blockstore::stabilize_object(object_id oid, uint64_t max_ver)
+{
+    auto dirty_it = dirty_db.find((obj_ver_id){
+        .oid = oid,
+        .version = max_ver,
+    });
+    if (dirty_it != dirty_db.end())
+    {
+        std::vector<offset_len> v;
+        do
+        {
+            if (dirty_it->second.state == ST_J_STABLE)
+            {
+                uint64_t offset = dirty_it->second.offset, len = dirty_it->second.size;
+                auto it = v.begin();
+                while (1)
+                {
+                    for (; it != v.end(); it++)
+                        if (it->offset >= offset)
+                            break;
+                    if (it == v.end() || it->offset >= offset+len)
+                    {
+                        v.insert(it, (offset_len){ .offset = offset, .len = len });
+                        break;
+                    }
+                    else
+                    {
+                        if (it->offset > offset)
+                            v.insert(it, (offset_len){ .offset = offset, .len = it->offset-offset });
+                        if (offset+len > it->offset+it->len)
+                        {
+                            len = offset+len - (it->offset+it->len);
+                            offset = it->offset+it->len;
+                        }
+                        else
+                            break;
+                    }
+                }
+            }
+            else if (dirty_it->second.state == ST_D_STABLE)
+            {
+                
+                break;
+            }
+            else if (IS_STABLE(dirty_it->second.state))
+            {
+                break;
+            }
+        } while (dirty_it != dirty_db.begin());
     }
 }
