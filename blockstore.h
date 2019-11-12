@@ -69,14 +69,17 @@
 #define STRIPE_REPLICA(oid) ((oid) & 0xf)
 
 #define BS_SUBMIT_GET_SQE(sqe, data) \
+    BS_SUBMIT_GET_ONLY_SQE(sqe); \
+    struct ring_data_t *data = ((ring_data_t*)sqe->user_data)
+
+#define BS_SUBMIT_GET_ONLY_SQE(sqe) \
     struct io_uring_sqe *sqe = get_sqe();\
     if (!sqe)\
     {\
         /* Pause until there are more requests available */\
         op->wait_for = WAIT_SQE;\
         return 0;\
-    }\
-    struct ring_data_t *data = ((ring_data_t*)sqe->user_data)
+    }
 
 #define BS_SUBMIT_GET_SQE_DECL(sqe) \
     sqe = get_sqe();\
@@ -230,6 +233,9 @@ private:
     // Sync, write
     uint64_t min_used_journal_sector, max_used_journal_sector;
 
+    // Write
+    struct iovec iov_zerofill[3];
+
     // Sync
     std::vector<obj_ver_id> sync_big_writes, sync_small_writes;
     std::list<blockstore_operation*>::iterator in_progress_ptr;
@@ -251,6 +257,7 @@ class blockstore
     uint32_t block_order, block_size;
     uint64_t block_count;
     allocator *data_alloc;
+    uint8_t *zero_object;
 
     int meta_fd;
     int data_fd;

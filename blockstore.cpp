@@ -13,6 +13,7 @@ blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, 
     {
         throw new std::runtime_error("Bad block size");
     }
+    zero_object = (uint8_t*)memalign(DISK_ALIGNMENT, block_size);
     data_fd = meta_fd = journal.fd = -1;
     try
     {
@@ -38,6 +39,7 @@ blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, 
 
 blockstore::~blockstore()
 {
+    free(zero_object);
     ringloop->unregister_consumer(ring_consumer.number);
     if (data_fd >= 0)
         close(data_fd);

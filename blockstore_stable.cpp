@@ -174,7 +174,6 @@ class journal_flusher_t
     std::vector<copy_buffer_t> v;
     std::vector<copy_buffer_t>::iterator it;
     uint64_t offset, len, submit_len, clean_loc;
-    bool allocated;
 
 public:
     journal_flusher_t(int flush_count);
@@ -208,7 +207,6 @@ void journal_flusher_t::loop()
         v.clear();
         wait_count = 0;
         clean_loc = UINT64_MAX;
-        allocated = false;
         skip_copy = false;
         do
         {
@@ -249,7 +247,7 @@ void journal_flusher_t::loop()
                     }
                 }
                 // So subsequent stabilizers don't flush the entry again
-                dirty_it->second.state = ST_J_READ_SUBMITTED;
+                dirty_it->second.state = ST_J_MOVE_READ_SUBMITTED;
             }
             else if (dirty_it->second.state == ST_D_STABLE)
             {
@@ -272,15 +270,8 @@ void journal_flusher_t::loop()
             auto clean_it = bs->clean_db.find(cur.oid);
             if (clean_it == bs->clean_db.end())
             {
-                // Object not present at all. We must allocate and zero it.
-                clean_loc = allocator_find_free(bs->data_alloc);
-                if (clean_loc == UINT64_MAX)
-                {
-                    throw new std::runtime_error("No space on the data device while trying to flush journal");
-                }
-                // This is an interesting part. Flushing journal results in an allocation we don't know where to put O_o.
-                allocator_set(bs->data_alloc, clean_loc, true);
-                allocated = true;
+                // Object not present at all. This is a bug.
+                throw new std::runtime_error("BUG: Object we are trying to flush not allocated on the data device");
             }
             else
                 clean_loc = clean_it->second.location;

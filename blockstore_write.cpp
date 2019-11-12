@@ -37,7 +37,7 @@ void blockstore::enqueue_write(blockstore_operation *op)
     });
     // Remember write as unsynced here, so external consumers could get
     // the list of dirty objects to sync just before issuing a SYNC request
-    if (op->len == block_size)
+    if (op->len == block_size || op->version == 1)
     {
         // Remember big write as unsynced
         unsynced_big_writes.push_back((obj_ver_id){
@@ -62,7 +62,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
         .oid = op->oid,
         .version = op->version,
     });
-    if (op->len == block_size)
+    if (op->len == block_size || op->version == 1)
     {
         // Big (redirect) write
         uint64_t loc = allocator_find_free(data_alloc);
@@ -77,10 +77,26 @@ int blockstore::dequeue_write(blockstore_operation *op)
         dirty_it->second.location = loc << block_order;
         dirty_it->second.state = ST_D_SUBMITTED;
         allocator_set(data_alloc, loc, true);
-        data->iov = (struct iovec){ op->buf, op->len };
+        int vcnt = 0;
+        if (op->version == 1 && op->len != block_size)
+        {
+            // zero fill newly allocated object
+            // FIXME: it's not so good because it turns new small writes into big writes
+            // but it's the first and the simplest implementation
+            if (op->offset > 0)
+                op->iov_zerofill[vcnt++] = (struct iovec){ zero_object, op->offset };
+            op->iov_zerofill[vcnt++] = (struct iovec){ op->buf, op->len };
+            if (op->offset+op->len < block_size)
+                op->iov_zerofill[vcnt++] = (struct iovec){ zero_object, block_size - (op->offset + op->len) };
+        }
+        else
+        {
+            vcnt = 1;
+            op->iov_zerofill[0] = (struct iovec){ op->buf, op->len };
+        }
         data->op = op;
         io_uring_prep_writev(
-            sqe, data_fd, &data->iov, 1, data_offset + (loc << block_order)
+            sqe, data_fd, op->iov_zerofill, vcnt, data_offset + (loc << block_order)
         );
         op->pending_ops = 1;
         op->min_used_journal_sector = op->max_used_journal_sector = 0;
@@ -100,7 +116,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
             return 0;
         }
         // There is sufficient space. Get SQE(s)
-        BS_SUBMIT_GET_SQE(sqe1, data1);
+        BS_SUBMIT_GET_ONLY_SQE(sqe1);
         BS_SUBMIT_GET_SQE(sqe2, data2);
         // Got SQEs. Prepare journal sector write
         journal_entry_small_write *je = (journal_entry_small_write*)
