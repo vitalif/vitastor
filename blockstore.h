@@ -245,6 +245,8 @@ private:
 
 #include "blockstore_init.h"
 
+#include "blockstore_flush.h"
+
 class blockstore
 {
     struct ring_consumer_t ring_consumer;
@@ -267,6 +269,7 @@ class blockstore
     uint64_t data_offset, data_size, data_len;
 
     struct journal_t journal;
+    journal_flusher_t *flusher;
 
     ring_loop_t *ringloop;
 

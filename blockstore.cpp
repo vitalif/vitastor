@@ -35,10 +35,15 @@ blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, 
             close(journal.fd);
         throw e;
     }
+    int flusher_count = stoull(config["flusher_count"]);
+    if (!flusher_count)
+        flusher_count = 32;
+    flusher = new journal_flusher_t(flusher_count, this);
 }
 
 blockstore::~blockstore()
 {
+    delete flusher;
     free(zero_object);
     ringloop->unregister_consumer(ring_consumer.number);
     if (data_fd >= 0)
