@@ -279,6 +279,7 @@ class blockstore
     friend class blockstore_init_journal;
     friend class blockstore_journal_check_t;
     friend class journal_flusher_t;
+    friend class journal_flusher_co;
 
     void calc_lengths(spp::sparse_hash_map<std::string, std::string> & config);
     void open_data(spp::sparse_hash_map<std::string, std::string> & config);
