@@ -120,16 +120,17 @@ struct __attribute__((__packed__)) clean_disk_entry
 {
     object_id oid;
     uint64_t version;
-    uint8_t flags;
-    uint8_t reserved[7];
+    uint64_t flags;
 };
 
-// 28 bytes per "clean" entry in memory
+#define DISK_ENTRY_STABLE 1
+
+// 24 bytes per "clean" entry in memory
 struct __attribute__((__packed__)) clean_entry
 {
     uint64_t version;
-    uint32_t state;
     uint64_t location;
+    uint32_t state;
 };
 
 // 48 bytes per dirty entry in memory

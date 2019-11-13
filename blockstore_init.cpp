@@ -51,6 +51,7 @@ int blockstore_init_meta::loop()
     {
         assert(!(done_len % sizeof(clean_disk_entry)));
         int count = done_len / sizeof(clean_disk_entry);
+        // FIXME this requires sizeof(clean_disk_entry) to be a divisor of 512
         struct clean_disk_entry *entries = (struct clean_disk_entry*)(metadata_buffer + (prev_done == 1 ? bs->metadata_buf_size : 0));
         // handle <count> entries
         handle_entries(entries, count);
@@ -77,7 +78,7 @@ void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int 
             allocator_set(bs->data_alloc, done_cnt+i, true);
             bs->clean_db[entries[i].oid] = (struct clean_entry){
                 entries[i].version,
-                (uint32_t)(entries[i].flags ? ST_CURRENT : ST_D_META_SYNCED),
+                (uint32_t)(entries[i].flags & DISK_ENTRY_STABLE ? ST_CURRENT : ST_D_META_SYNCED),
                 done_cnt+i
             };
         }
