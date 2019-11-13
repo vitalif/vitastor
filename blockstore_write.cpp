@@ -149,7 +149,6 @@ void blockstore::handle_write_event(ring_data_t *data, blockstore_operation *op)
 {
     if (data->res < 0)
     {
-        // write error
         // FIXME: our state becomes corrupted after a write error. maybe do something better than just die
         throw new std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
     }

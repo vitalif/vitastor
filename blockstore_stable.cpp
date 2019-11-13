@@ -2,9 +2,6 @@
 
 // Stabilize small write:
 // 1) Copy data from the journal to the data device
-//    Sync it before writing metadata if we want to keep metadata consistent
-//    Overall it's optional because it can be replayed from the journal until
-//    it's cleared, and reads are also fulfilled from the journal
 // 2) Increase version on the metadata device and sync it
 // 3) Advance clean_db entry's version, clear previous journal entries
 //
@@ -112,8 +109,6 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
 {
     if (data->res < 0)
     {
-        // sync error
-        // FIXME: our state becomes corrupted after a write error. maybe do something better than just die
         throw new std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
     }
     op->pending_ops--;
