@@ -7,9 +7,9 @@ class blockstore_init_meta
     uint64_t metadata_read = 0;
     int prev = 0, prev_done = 0, done_len = 0, submitted = 0, done_cnt = 0;
     void handle_entries(struct clean_disk_entry* entries, int count);
+    void handle_event(ring_data_t *data);
 public:
     blockstore_init_meta(blockstore *bs);
-    void handle_event(ring_data_t *data);
     int loop();
 };
 
@@ -24,8 +24,8 @@ class blockstore_init_journal
     bool wrapped = false;
     int submitted = 0, done_buf = 0, done_len = 0;
     int handle_journal_part(void *buf, uint64_t len);
+    void handle_event(ring_data_t *data);
 public:
     blockstore_init_journal(blockstore* bs);
-    void handle_event(ring_data_t *data);
     int loop();
 };

@@ -52,7 +52,6 @@ void ring_loop_t::unregister_consumer(int number)
 {
     if (number < consumers.size())
     {
-        consumers[number].handle_event = NULL;
         consumers[number].loop = NULL;
     }
 }
@@ -67,14 +66,9 @@ void ring_loop_t::loop(bool sleep)
     while ((io_uring_peek_cqe(ring, &cqe), cqe))
     {
         struct ring_data_t *d = (struct ring_data_t*)cqe->user_data;
-        if (d->source < consumers.size())
+        if (d->callback)
         {
-            d->res = cqe->res;
-            ring_consumer_t & c = consumers[d->source];
-            if (c.handle_event != NULL)
-            {
-                c.handle_event(d);
-            }
+            d->callback(d);
         }
         io_uring_cqe_seen(ring, cqe);
     }

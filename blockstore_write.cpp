@@ -58,6 +58,7 @@ void blockstore::enqueue_write(blockstore_operation *op)
 // First step of the write algorithm: dequeue operation and submit initial write(s)
 int blockstore::dequeue_write(blockstore_operation *op)
 {
+    auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
     auto dirty_it = dirty_db.find((obj_ver_id){
         .oid = op->oid,
         .version = op->version,
@@ -94,7 +95,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
             vcnt = 1;
             op->iov_zerofill[0] = (struct iovec){ op->buf, op->len };
         }
-        data->op = op;
+        data->callback = cb;
         io_uring_prep_writev(
             sqe, data_fd, op->iov_zerofill, vcnt, data_offset + (loc << block_order)
         );
@@ -127,12 +128,12 @@ int blockstore::dequeue_write(blockstore_operation *op)
         je->len = op->len;
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
-        prepare_journal_sector_write(op, journal, sqe1);
+        prepare_journal_sector_write(journal, sqe1, cb);
         op->min_used_journal_sector = op->max_used_journal_sector = 1 + journal.cur_sector;
         // Prepare journal data write
         journal.next_free = (journal.next_free + op->len) < journal.len ? journal.next_free : 512;
         data2->iov = (struct iovec){ op->buf, op->len };
-        data2->op = op;
+        data2->callback = cb;
         io_uring_prep_writev(
             sqe2, journal.fd, &data2->iov, 1, journal.offset + journal.next_free
         );

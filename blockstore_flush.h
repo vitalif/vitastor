@@ -15,7 +15,7 @@ struct meta_sector_t
 class journal_flusher_t;
 
 // Journal flusher coroutine
-class journal_flusher_co
+struct journal_flusher_co
 {
     blockstore *bs;
     journal_flusher_t *flusher;

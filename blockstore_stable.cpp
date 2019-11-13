@@ -85,6 +85,7 @@ int blockstore::dequeue_stable(blockstore_operation *op)
         BS_SUBMIT_GET_SQE_DECL(sqe[i]);
     }
     // Prepare and submit journal entries
+    auto cb = [this, op](ring_data_t *data) { handle_stable_event(data, op); };
     int s = 0, cur_sector = -1;
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
     {
@@ -99,7 +100,7 @@ int blockstore::dequeue_stable(blockstore_operation *op)
             if (cur_sector == -1)
                 op->min_used_journal_sector = 1 + journal.cur_sector;
             cur_sector = journal.cur_sector;
-            prepare_journal_sector_write(op, journal, sqe[s++]);
+            prepare_journal_sector_write(journal, sqe[s++], cb);
         }
     }
     op->max_used_journal_sector = 1 + journal.cur_sector;

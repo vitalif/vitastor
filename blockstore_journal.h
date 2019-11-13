@@ -157,4 +157,4 @@ inline journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t
 }
 
 // FIXME: make inline
-void prepare_journal_sector_write(blockstore_operation *op, journal_t & journal, io_uring_sqe *sqe);
+void prepare_journal_sector_write(journal_t & journal, io_uring_sqe *sqe, std::function<void(ring_data_t*)> cb);

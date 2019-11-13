@@ -31,7 +31,7 @@ int blockstore::fulfill_read_push(blockstore_operation *op, uint64_t &fulfilled,
             &data->iov, 1,
             (IS_JOURNAL(item_state) ? journal.offset : data_offset) + item_location + cur_start - item_start
         );
-        data->op = op;
+        data->callback = [this, op](ring_data_t *data) { handle_read_event(data, op); };
         fulfilled += cur_end-cur_start;
     }
     return 1;

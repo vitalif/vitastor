@@ -37,12 +37,13 @@ int blockstore::dequeue_sync(blockstore_operation *op)
 
 int blockstore::continue_sync(blockstore_operation *op)
 {
+    auto cb = [this, op](ring_data_t *data) { handle_sync_event(data, op); };
     if (op->sync_state == SYNC_HAS_SMALL)
     {
         // No big writes, just fsync the journal
         BS_SUBMIT_GET_SQE(sqe, data);
         io_uring_prep_fsync(sqe, journal.fd, 0);
-        data->op = op;
+        data->callback = cb;
         op->pending_ops = 1;
         op->sync_state = SYNC_JOURNAL_SYNC_SENT;
     }
@@ -51,7 +52,7 @@ int blockstore::continue_sync(blockstore_operation *op)
         // 1st step: fsync data
         BS_SUBMIT_GET_SQE(sqe, data);
         io_uring_prep_fsync(sqe, data_fd, 0);
-        data->op = op;
+        data->callback = cb;
         op->pending_ops = 1;
         op->sync_state = SYNC_DATA_SYNC_SENT;
     }
@@ -88,14 +89,14 @@ int blockstore::continue_sync(blockstore_operation *op)
                 if (cur_sector == -1)
                     op->min_used_journal_sector = 1 + journal.cur_sector;
                 cur_sector = journal.cur_sector;
-                prepare_journal_sector_write(op, journal, sqe[s++]);
+                prepare_journal_sector_write(journal, sqe[s++], cb);
             }
         }
         op->max_used_journal_sector = 1 + journal.cur_sector;
         // ... And a journal fsync
         io_uring_prep_fsync(sqe[s], journal.fd, 0);
         struct ring_data_t *data = ((ring_data_t*)sqe[s]->user_data);
-        data->op = op;
+        data->callback = cb;
         op->pending_ops = 1 + s;
         op->sync_state = SYNC_JOURNAL_SYNC_SENT;
     }

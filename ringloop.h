@@ -15,13 +15,12 @@ struct ring_data_t
     uint64_t source;
     struct iovec iov; // for single-entry read/write operations
     int res;
-    void *op;
+    std::function<void(ring_data_t*)> callback;
 };
 
 struct ring_consumer_t
 {
     int number;
-    std::function<void(ring_data_t*)> handle_event;
     std::function<void(void)> loop;
 };
 

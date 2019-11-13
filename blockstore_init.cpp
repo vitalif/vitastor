@@ -42,6 +42,7 @@ int blockstore_init_meta::loop()
             metadata_buffer + (prev == 1 ? bs->metadata_buf_size : 0),
             bs->meta_len - metadata_read > bs->metadata_buf_size ? bs->metadata_buf_size : bs->meta_len - metadata_read,
         };
+        data->callback = [this](ring_data_t *data) { handle_event(data); };
         io_uring_prep_readv(sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + metadata_read);
         bs->ringloop->submit();
         submitted = (prev == 1 ? 2 : 1);
@@ -179,6 +180,7 @@ int blockstore_init_journal::loop()
         }
         struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
         data->iov = { journal_buffer, 512 };
+        data->callback = [this](ring_data_t *data) { handle_event(data); };
         io_uring_prep_readv(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
         bs->ringloop->submit();
         step = 1;
@@ -211,6 +213,7 @@ int blockstore_init_journal::loop()
                         journal_buffer + (done_buf == 1 ? JOURNAL_BUFFER_SIZE : 0),
                         end - journal_pos < JOURNAL_BUFFER_SIZE ? end - journal_pos : JOURNAL_BUFFER_SIZE,
                     };
+                    data->callback = [this](ring_data_t *data) { handle_event(data); };
                     io_uring_prep_readv(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + journal_pos);
                     bs->ringloop->submit();
                     submitted = done_buf == 1 ? 2 : 1;

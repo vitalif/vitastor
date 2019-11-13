@@ -188,7 +188,6 @@ public:
 #define OP_SYNC 3
 #define OP_STABLE 4
 #define OP_DELETE 5
-#define OP_INTERNAL_FLUSH 6
 #define OP_TYPE_MASK 0x7
 
 // Suspend operation until there are more free SQEs
@@ -221,7 +220,7 @@ struct blockstore_operation
     // FIXME: Move internal fields somewhere
     friend class blockstore;
     friend class blockstore_journal_check_t;
-    friend void prepare_journal_sector_write(blockstore_operation *op, journal_t & journal, io_uring_sqe *sqe);
+    friend void prepare_journal_sector_write(journal_t & journal, io_uring_sqe *sqe, std::function<void(ring_data_t*)> cb);
 private:
     // Wait status
     int wait_for;
@@ -328,7 +327,6 @@ public:
     ~blockstore();
 
     // Event loop
-    void handle_event(ring_data_t* data);
     void loop();
 
     // Returns true when it's safe to destroy the instance. If destroying the instance

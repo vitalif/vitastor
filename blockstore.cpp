@@ -3,7 +3,6 @@
 blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, ring_loop_t *ringloop)
 {
     this->ringloop = ringloop;
-    ring_consumer.handle_event = [this](ring_data_t *d) { handle_event(d); };
     ring_consumer.loop = [this]() { loop(); };
     ringloop->register_consumer(ring_consumer);
     initialized = 0;
@@ -54,48 +53,6 @@ blockstore::~blockstore()
         close(journal.fd);
     free(journal.sector_buf);
     free(journal.sector_info);
-}
-
-// main event loop - handle requests
-void blockstore::handle_event(ring_data_t *data)
-{
-    if (initialized != 10)
-    {
-        if (metadata_init_reader)
-        {
-            metadata_init_reader->handle_event(data);
-        }
-        else if (journal_init_reader)
-        {
-            journal_init_reader->handle_event(data);
-        }
-    }
-    else
-    {
-        struct blockstore_operation* op = (struct blockstore_operation*)data->op;
-        if ((op->flags & OP_TYPE_MASK) == OP_READ)
-        {
-            handle_read_event(data, op);
-        }
-        else if ((op->flags & OP_TYPE_MASK) == OP_WRITE ||
-            (op->flags & OP_TYPE_MASK) == OP_DELETE)
-        {
-            handle_write_event(data, op);
-        }
-        else if ((op->flags & OP_TYPE_MASK) == OP_SYNC)
-        {
-            handle_sync_event(data, op);
-        }
-        else if ((op->flags & OP_TYPE_MASK) == OP_STABLE)
-        {
-            handle_stable_event(data, op);
-        }
-        else if ((op->flags & OP_TYPE_MASK) == OP_INTERNAL_FLUSH)
-        {
-            // Operation is not a blockstore_operation at all
-            
-        }
-    }
 }
 
 // main event loop - produce requests

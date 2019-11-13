@@ -88,7 +88,10 @@ void journal_flusher_co::loop()
                         v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len, .buf = memalign(512, submit_len) });
                         data = ((ring_data_t*)sqe->user_data);
                         data->iov = (struct iovec){ v.end()->buf, (size_t)submit_len };
-                        data->op = this;
+                        data->callback = [this](ring_data_t* data)
+                        {
+                            wait_count--;
+                        };
                         io_uring_prep_readv(
                             sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + dirty_it->second.location + offset
                         );
@@ -156,7 +159,11 @@ void journal_flusher_co::loop()
             }
             data = ((ring_data_t*)sqe->user_data);
             data->iov = (struct iovec){ meta_it->second.buf, 512 };
-            data->op = this;
+            data->callback = [this](ring_data_t* data)
+            {
+                
+                wait_count--;
+            };
             io_uring_prep_writev(
                 sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + meta_sector
             );
@@ -181,7 +188,10 @@ void journal_flusher_co::loop()
                 }
                 data = ((ring_data_t*)sqe->user_data);
                 data->iov = (struct iovec){ it->buf, (size_t)it->len };
-                data->op = this;
+                data->callback = [this](ring_data_t* data)
+                {
+                    wait_count--;
+                };
                 io_uring_prep_writev(
                     sqe, bs->data_fd, &data->iov, 1, bs->data_offset + clean_loc + it->offset
                 );
@@ -210,7 +220,10 @@ void journal_flusher_co::loop()
             }
             data = ((ring_data_t*)sqe->user_data);
             data->iov = (struct iovec){ meta_it->second.buf, 512 };
-            data->op = this;
+            data->callback = [this](ring_data_t* data)
+            {
+                wait_count--;
+            };
             io_uring_prep_writev(
                 sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + meta_sector
             );
