@@ -6,7 +6,7 @@ class blockstore_init_meta
     uint8_t *metadata_buffer = NULL;
     uint64_t metadata_read = 0;
     int prev = 0, prev_done = 0, done_len = 0, submitted = 0, done_cnt = 0;
-    void handle_entries(struct clean_disk_entry* entries, int count);
+    void handle_entries(struct clean_disk_entry* entries, int count, int block_order);
     void handle_event(ring_data_t *data);
 public:
     blockstore_init_meta(blockstore *bs);

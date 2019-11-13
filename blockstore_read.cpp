@@ -104,7 +104,7 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
             }
             if (version_ok)
             {
-                if (!fulfill_read(read_op, fulfilled, dirty.offset, dirty.offset + dirty.size,
+                if (!fulfill_read(read_op, fulfilled, dirty.offset, dirty.offset + dirty.len,
                     dirty.state, dirty_it->first.version, dirty.location))
                 {
                     // need to wait. undo added requests, don't dequeue op

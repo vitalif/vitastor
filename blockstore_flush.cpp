@@ -67,7 +67,7 @@ void journal_flusher_co::loop()
             {
                 // First we submit all reads
                 offset = dirty_it->second.offset;
-                len = dirty_it->second.size;
+                len = dirty_it->second.len;
                 it = v.begin();
                 while (1)
                 {
@@ -161,7 +161,7 @@ void journal_flusher_co::loop()
             data->iov = (struct iovec){ meta_it->second.buf, 512 };
             data->callback = [this](ring_data_t* data)
             {
-                
+                meta_it->second.state = 1;
                 wait_count--;
             };
             io_uring_prep_writev(
@@ -208,7 +208,6 @@ void journal_flusher_co::loop()
             *((clean_disk_entry*)meta_it->second.buf + meta_pos) = {
                 .oid = cur.oid,
                 .version = cur.version,
-                .flags = DISK_ENTRY_STABLE,
             };
         resume_6:
             sqe = bs->get_sqe();

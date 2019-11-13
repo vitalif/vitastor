@@ -114,26 +114,22 @@ inline bool operator < (const object_id & a, const object_id & b)
     return a.inode < b.inode || a.inode == b.inode && a.stripe < b.stripe;
 }
 
-// 32 bytes per "clean" entry on disk with fixed metadata tables
+// 24 bytes per "clean" entry on disk with fixed metadata tables
 // FIXME: maybe add crc32's to metadata
 struct __attribute__((__packed__)) clean_disk_entry
 {
     object_id oid;
     uint64_t version;
-    uint64_t flags;
 };
 
-#define DISK_ENTRY_STABLE 1
-
-// 24 bytes per "clean" entry in memory
+// 32 = 16 + 16 bytes per "clean" entry in memory (object_id => clean_entry)
 struct __attribute__((__packed__)) clean_entry
 {
     uint64_t version;
     uint64_t location;
-    uint32_t state;
 };
 
-// 48 bytes per dirty entry in memory
+// 48 = 24 + 24 bytes per dirty entry in memory (obj_ver_id => dirty_entry)
 struct __attribute__((__packed__)) obj_ver_id
 {
     object_id oid;
@@ -148,10 +144,10 @@ inline bool operator < (const obj_ver_id & a, const obj_ver_id & b)
 struct __attribute__((__packed__)) dirty_entry
 {
     uint32_t state;
-    uint32_t flags;
+    uint32_t flags;    // unneeded, but present for alignment
     uint64_t location; // location in either journal or data
     uint32_t offset;   // offset within stripe
-    uint32_t size;     // entry size. FIXME: rename to len?
+    uint32_t len;      // data length
 };
 
 class oid_hash
@@ -274,7 +270,7 @@ class blockstore
 
     inline struct io_uring_sqe* get_sqe()
     {
-        return ringloop->get_sqe(ring_consumer.number);
+        return ringloop->get_sqe();
     }
 
     friend class blockstore_init_meta;
@@ -317,7 +313,6 @@ class blockstore
 
     // Stabilize
     int dequeue_stable(blockstore_operation *op);
-    int continue_stable(blockstore_operation *op);
     void handle_stable_event(ring_data_t *data, blockstore_operation *op);
     void stabilize_object(object_id oid, uint64_t max_ver);
 

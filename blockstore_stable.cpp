@@ -108,11 +108,6 @@ int blockstore::dequeue_stable(blockstore_operation *op)
     return 1;
 }
 
-int blockstore::continue_stable(blockstore_operation *op)
-{
-    return 0;
-}
-
 void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op)
 {
     if (data->res < 0)

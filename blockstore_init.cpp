@@ -50,13 +50,14 @@ int blockstore_init_meta::loop()
     }
     if (prev_done)
     {
-        assert(!(done_len % sizeof(clean_disk_entry)));
-        int count = done_len / sizeof(clean_disk_entry);
-        // FIXME this requires sizeof(clean_disk_entry) to be a divisor of 512
-        struct clean_disk_entry *entries = (struct clean_disk_entry*)(metadata_buffer + (prev_done == 1 ? bs->metadata_buf_size : 0));
-        // handle <count> entries
-        handle_entries(entries, count);
-        done_cnt += count;
+        int count = 512 / sizeof(clean_disk_entry);
+        for (int sector = 0; sector < done_len; sector += 512)
+        {
+            clean_disk_entry *entries = (clean_disk_entry*)(metadata_buffer + (prev_done == 1 ? bs->metadata_buf_size : 0) + sector);
+            // handle <count> entries
+            handle_entries(entries, count, bs->block_order);
+            done_cnt += count;
+        }
         prev_done = 0;
         done_len = 0;
     }
@@ -70,7 +71,7 @@ int blockstore_init_meta::loop()
     return 1;
 }
 
-void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int count)
+void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int count, int block_order)
 {
     for (unsigned i = 0; i < count; i++)
     {
@@ -78,9 +79,8 @@ void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int 
         {
             allocator_set(bs->data_alloc, done_cnt+i, true);
             bs->clean_db[entries[i].oid] = (struct clean_entry){
-                entries[i].version,
-                (uint32_t)(entries[i].flags & DISK_ENTRY_STABLE ? ST_CURRENT : ST_D_META_SYNCED),
-                done_cnt+i
+                .version = entries[i].version,
+                .location = (done_cnt+i) << block_order,
             };
         }
     }
@@ -302,7 +302,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .flags = 0,
                     .location = location,
                     .offset = je->small_write.offset,
-                    .size = je->small_write.len,
+                    .len = je->small_write.len,
                 });
             }
             else if (je->type == JE_BIG_WRITE)
@@ -316,7 +316,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .flags = 0,
                     .location = je->big_write.location,
                     .offset = 0,
-                    .size = bs->block_size,
+                    .len = bs->block_size,
                 });
             }
             else if (je->type == JE_STABLE)
@@ -350,7 +350,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .flags = 0,
                     .location = 0,
                     .offset = 0,
-                    .size = 0,
+                    .len = 0,
                 });
             }
         }

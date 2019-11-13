@@ -33,7 +33,7 @@ void blockstore::enqueue_write(blockstore_operation *op)
         .flags = 0,
         .location = 0,
         .offset = op->offset,
-        .size = op->len,
+        .len = op->len,
     });
     // Remember write as unsynced here, so external consumers could get
     // the list of dirty objects to sync just before issuing a SYNC request
