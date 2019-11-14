@@ -145,8 +145,8 @@ struct __attribute__((__packed__)) dirty_entry
 {
     uint32_t state;
     uint32_t flags;    // unneeded, but present for alignment
-    uint64_t location; // location in either journal or data
-    uint32_t offset;   // offset within stripe
+    uint64_t location; // location in either journal or data -> in BYTES
+    uint32_t offset;   // data offset within object (stripe)
     uint32_t len;      // data length
     uint64_t journal_sector; // journal sector used for this entry
 };

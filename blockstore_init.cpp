@@ -73,15 +73,25 @@ int blockstore_init_meta::loop()
 
 void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int count, int block_order)
 {
+    auto end = bs->clean_db.end();
     for (unsigned i = 0; i < count; i++)
     {
         if (entries[i].oid.inode > 0)
         {
-            allocator_set(bs->data_alloc, done_cnt+i, true);
-            bs->clean_db[entries[i].oid] = (struct clean_entry){
-                .version = entries[i].version,
-                .location = (done_cnt+i) << block_order,
-            };
+            auto clean_it = bs->clean_db.find(entries[i].oid);
+            if (clean_it == end || clean_it->second.version < entries[i].version)
+            {
+                if (clean_it != end)
+                {
+                    // free the previous block
+                    allocator_set(bs->data_alloc, clean_it->second.version >> block_order, false);
+                }
+                allocator_set(bs->data_alloc, done_cnt+i, true);
+                bs->clean_db[entries[i].oid] = (struct clean_entry){
+                    .version = entries[i].version,
+                    .location = (done_cnt+i) << block_order,
+                };
+            }
         }
     }
 }

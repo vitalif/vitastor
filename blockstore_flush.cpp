@@ -87,9 +87,10 @@ resume_0:
         return;
     cur = flusher->flush_queue.front();
     flusher->flush_queue.pop_front();
-    dirty_it = bs->dirty_db.find(cur);
-    if (dirty_it != bs->dirty_db.end())
+    dirty_end = bs->dirty_db.find(cur);
+    if (dirty_end != bs->dirty_db.end())
     {
+        dirty_it = dirty_end;
         flusher->active_flushers++;
         flusher->active_until_sync++;
         v.clear();
@@ -131,7 +132,7 @@ resume_0:
             }
             else if (dirty_it->second.state == ST_D_STABLE)
             {
-                // Copy last STABLE entry metadata
+                // There is an unflushed big write. Overwrite it with small writes
                 if (!skip_copy)
                 {
                     clean_loc = dirty_it->second.location;
@@ -140,14 +141,28 @@ resume_0:
             }
             else if (IS_STABLE(dirty_it->second.state))
             {
+                // Other coroutine is already flushing it, stop
                 break;
             }
+            else
+            {
+                throw new std::runtime_error("BUG: Unexpected dirty_entry state during flush: " + std::to_string(dirty_it->second.state));
+            }
+            dirty_start = dirty_it;
             dirty_it--;
         } while (dirty_it != bs->dirty_db.begin() && dirty_it->first.oid == cur.oid);
+        if (wait_count == 0 && clean_loc == UINT64_MAX)
+        {
+            // Nothing to flush
+            flusher->active_flushers--;
+            flusher->active_until_sync--;
+            wait_state = 0;
+            goto resume_0;
+        }
         if (clean_loc == UINT64_MAX)
         {
             // Find it in clean_db
-            auto clean_it = bs->clean_db.find(cur.oid);
+            clean_it = bs->clean_db.find(cur.oid);
             if (clean_it == bs->clean_db.end())
             {
                 // Object not present at all. This is a bug.
@@ -161,8 +176,8 @@ resume_0:
         // Another option is to keep all raw metadata in memory all the time. Maybe I'll do it sometime...
         // And yet another option is to use LSM trees for metadata, but it sophisticates everything a lot,
         // so I'll avoid it as long as I can.
-        meta_sector = (clean_loc / (512 / sizeof(clean_disk_entry))) * 512;
-        meta_pos = (clean_loc % (512 / sizeof(clean_disk_entry)));
+        meta_sector = ((clean_loc >> bs->block_order) / (512 / sizeof(clean_disk_entry))) * 512;
+        meta_pos = ((clean_loc >> bs->block_order) % (512 / sizeof(clean_disk_entry)));
         meta_it = flusher->meta_sectors.find(meta_sector);
         if (meta_it == flusher->meta_sectors.end())
         {
@@ -185,7 +200,7 @@ resume_0:
                 meta_it->second.state = 1;
                 wait_count--;
             };
-            io_uring_prep_writev(
+            io_uring_prep_readv(
                 sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + meta_sector
             );
             wait_count++;
@@ -289,8 +304,31 @@ resume_0:
                 flusher->syncs.erase(cur_sync);
             }
         }
-        // FIXME: Adjust clean_db and dirty_db
-        // FIXME: ...and clear part of the journal
+        // Update clean_db and dirty_db, free old data locations
+        if (clean_it != bs->clean_db.end() && clean_it->second.location != clean_loc)
+        {
+            allocator_set(bs->data_alloc, clean_it->second.location >> bs->block_order, false);
+        }
+        bs->clean_db[cur.oid] = {
+            .version = cur.version,
+            .location = clean_loc,
+        };
+        for (dirty_it = dirty_start; dirty_it != dirty_end; dirty_it++)
+        {
+            if (IS_BIG_WRITE(dirty_it->second.state) && dirty_it->second.location != clean_loc)
+            {
+                allocator_set(bs->data_alloc, dirty_it->second.location >> bs->block_order, false);
+            }
+            int used = --bs->journal.used_sectors[dirty_it->second.journal_sector];
+            if (used == 1)
+            {
+                bs->journal.used_sectors.erase(dirty_it->second.journal_sector);
+            }
+        }
+        // Then, basically, remove the whole version range from dirty_db...
+        // FIXME not until dirty_start, until other object. And wait for previous flushes.
+        bs->dirty_db.erase(dirty_start, std::next(dirty_end));
+        // FIXME: ...and clear unused part of the journal (with some interval, not for every flushed op)
         wait_state = 0;
         flusher->active_flushers--;
         goto resume_0;

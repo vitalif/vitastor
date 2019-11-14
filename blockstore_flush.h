@@ -30,7 +30,8 @@ class journal_flusher_co
     struct ring_data_t *data;
     bool skip_copy;
     obj_ver_id cur;
-    std::map<obj_ver_id, dirty_entry>::iterator dirty_it;
+    std::map<obj_ver_id, dirty_entry>::iterator dirty_it, dirty_start, dirty_end;
+    spp::sparse_hash_map<object_id, clean_entry, oid_hash>::iterator clean_it;
     std::vector<copy_buffer_t> v;
     std::vector<copy_buffer_t>::iterator it;
     uint64_t offset, len, submit_len, clean_loc, meta_sector, meta_pos;
