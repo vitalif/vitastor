@@ -276,6 +276,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     break;
                 }
             }
+            bs->journal.used_sectors[total_pos]++;
             pos += je->size;
             crc32_last = je->crc32;
             if (je->type == JE_SMALL_WRITE)
@@ -292,6 +293,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                 {
                     // data is right next
                     location = done_pos + total_pos;
+                    // FIXME: OOPS. Please don't modify total_pos here
                     total_pos += je->small_write.len;
                 }
                 bs->dirty_db.emplace((obj_ver_id){
@@ -303,6 +305,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .location = location,
                     .offset = je->small_write.offset,
                     .len = je->small_write.len,
+                    .journal_sector = total_pos,
                 });
             }
             else if (je->type == JE_BIG_WRITE)
@@ -317,6 +320,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .location = je->big_write.location,
                     .offset = 0,
                     .len = bs->block_size,
+                    .journal_sector = total_pos,
                 });
             }
             else if (je->type == JE_STABLE)
@@ -351,6 +355,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .location = 0,
                     .offset = 0,
                     .len = 0,
+                    .journal_sector = total_pos,
                 });
             }
         }

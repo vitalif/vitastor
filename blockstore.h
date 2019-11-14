@@ -129,7 +129,7 @@ struct __attribute__((__packed__)) clean_entry
     uint64_t location;
 };
 
-// 48 = 24 + 24 bytes per dirty entry in memory (obj_ver_id => dirty_entry)
+// 56 = 24 + 32 bytes per dirty entry in memory (obj_ver_id => dirty_entry)
 struct __attribute__((__packed__)) obj_ver_id
 {
     object_id oid;
@@ -148,6 +148,7 @@ struct __attribute__((__packed__)) dirty_entry
     uint64_t location; // location in either journal or data
     uint32_t offset;   // offset within stripe
     uint32_t len;      // data length
+    uint64_t journal_sector; // journal sector used for this entry
 };
 
 class oid_hash

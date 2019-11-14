@@ -289,6 +289,8 @@ resume_0:
                 flusher->syncs.erase(cur_sync);
             }
         }
+        // FIXME: Adjust clean_db and dirty_db
+        // FIXME: ...and clear part of the journal
         wait_state = 0;
         flusher->active_flushers--;
         goto resume_0;

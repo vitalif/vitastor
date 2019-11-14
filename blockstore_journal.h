@@ -121,6 +121,10 @@ struct journal_t
     uint64_t sector_count;
     int cur_sector = 0;
     int in_sector_pos = 0;
+
+    // Used sector map
+    // May use ~ 80 MB per 1 GB of used journal space in the worst case
+    std::map<uint64_t, uint64_t> used_sectors;
 };
 
 struct blockstore_journal_check_t

@@ -34,6 +34,7 @@ void blockstore::enqueue_write(blockstore_operation *op)
         .location = 0,
         .offset = op->offset,
         .len = op->len,
+        .journal_sector = 0,
     });
     // Remember write as unsynced here, so external consumers could get
     // the list of dirty objects to sync just before issuing a SYNC request
@@ -122,6 +123,8 @@ int blockstore::dequeue_write(blockstore_operation *op)
         // Got SQEs. Prepare journal sector write
         journal_entry_small_write *je = (journal_entry_small_write*)
             prefill_single_journal_entry(journal, JE_SMALL_WRITE, sizeof(struct journal_entry_small_write));
+        dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
+        journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
         je->oid = op->oid;
         je->version = op->version;
         je->offset = op->offset;

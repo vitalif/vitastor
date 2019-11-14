@@ -78,6 +78,8 @@ int blockstore::continue_sync(blockstore_operation *op)
         {
             journal_entry_big_write *je = (journal_entry_big_write*)
                 prefill_single_journal_entry(journal, JE_BIG_WRITE, sizeof(journal_entry_big_write));
+            dirty_db[*it].journal_sector = journal.sector_info[journal.cur_sector].offset;
+            journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
             je->oid = it->oid;
             je->version = it->version;
             je->location = dirty_db[*it].location;
