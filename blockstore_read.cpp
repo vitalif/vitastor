@@ -12,7 +12,7 @@ int blockstore::fulfill_read_push(blockstore_operation *op, uint64_t &fulfilled,
             op->wait_detail = item_version;
             return 0;
         }
-        else if (item_state == ST_DEL_WRITTEN || item_state == ST_DEL_SYNCED || item_state == ST_DEL_MOVED)
+        else if (IS_DELETE(item_state))
         {
             // item is unallocated - return zeroes
             memset(op->buf + cur_start - op->offset, 0, cur_end - cur_start);

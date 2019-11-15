@@ -33,8 +33,6 @@
 #define ST_J_WRITTEN 3
 #define ST_J_SYNCED 4
 #define ST_J_STABLE 5
-#define ST_J_MOVE_WRITE_SUBMITTED 7
-#define ST_J_MOVE_SYNCED 8
 
 #define ST_D_SUBMITTED 16
 #define ST_D_WRITTEN 17
@@ -42,22 +40,20 @@
 #define ST_D_META_WRITTEN 19
 #define ST_D_META_SYNCED 20
 #define ST_D_STABLE 21
-#define ST_D_META_MOVED 22
-#define ST_D_META_COMMITTED 23
 
 #define ST_DEL_SUBMITTED 32
 #define ST_DEL_WRITTEN 33
 #define ST_DEL_SYNCED 34
 #define ST_DEL_STABLE 35
-#define ST_DEL_MOVED 36
 
 #define ST_CURRENT 48
 
 #define IS_IN_FLIGHT(st) (st == ST_IN_FLIGHT || st == ST_J_SUBMITTED || st == ST_D_SUBMITTED || st == ST_DEL_SUBMITTED)
-#define IS_STABLE(st) (st >= ST_J_STABLE && st <= ST_J_MOVE_SYNCED || st >= ST_D_STABLE && st <= ST_D_META_COMMITTED || st >= ST_DEL_STABLE && st <= ST_DEL_MOVED || st == ST_CURRENT)
-#define IS_JOURNAL(st) (st >= ST_J_SUBMITTED && st <= ST_J_MOVE_SYNCED)
-#define IS_BIG_WRITE(st) (st >= ST_D_SUBMITTED && st <= ST_D_META_COMMITTED)
-#define IS_UNSYNCED(st) (st == ST_J_WRITTEN || st >= ST_D_WRITTEN && st <= ST_D_META_WRITTEN || st == ST_DEL_WRITTEN)
+#define IS_STABLE(st) (st == ST_J_STABLE || st == ST_D_STABLE || st == ST_DEL_STABLE || st == ST_CURRENT)
+#define IS_JOURNAL(st) (st >= ST_J_SUBMITTED && st <= ST_J_STABLE)
+#define IS_BIG_WRITE(st) (st >= ST_D_SUBMITTED && st <= ST_D_STABLE)
+#define IS_DELETE(st) (st >= ST_DEL_SUBMITTED && st <= ST_DEL_STABLE)
+#define IS_UNSYNCED(st) (st >= ST_J_SUBMITTED && st <= ST_J_WRITTEN || st >= ST_D_SUBMITTED && st <= ST_D_META_WRITTEN || st >= ST_DEL_SUBMITTED && st <= ST_DEL_WRITTEN)
 
 // Default object size is 128 KB
 #define DEFAULT_ORDER 17
