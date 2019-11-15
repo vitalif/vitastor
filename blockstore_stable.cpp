@@ -139,7 +139,7 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
                     }
                     dirty_it--;
                 } while (dirty_it != dirty_db.begin() && dirty_it->first.oid == v->oid);
-                flusher->flush_queue.push_back(*v);
+                flusher->queue_flush(*v);
             }
         }
         // Acknowledge op

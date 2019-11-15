@@ -36,6 +36,7 @@ class journal_flusher_co
     std::vector<copy_buffer_t>::iterator it;
     uint64_t offset, len, submit_len, clean_loc, meta_sector, meta_pos;
     std::map<uint64_t, meta_sector_t>::iterator meta_it;
+    std::map<object_id, uint64_t>::iterator repeat_it;
     std::function<void(ring_data_t*)> simple_callback;
     std::list<flusher_sync_t>::iterator cur_sync;
     friend class journal_flusher_t;
@@ -56,10 +57,15 @@ class journal_flusher_t
 
     int active_flushers, active_until_sync;
     std::list<flusher_sync_t> syncs;
-public:
+    std::map<object_id, uint64_t> sync_to_repeat;
+
     std::map<uint64_t, meta_sector_t> meta_sectors;
-    std::deque<obj_ver_id> flush_queue;
+    std::deque<object_id> flush_queue;
+    std::map<object_id, uint64_t> flush_versions;
+public:
     journal_flusher_t(int flusher_count, blockstore *bs);
     ~journal_flusher_t();
     void loop();
+    void queue_flush(obj_ver_id oid);
+    void unshift_flush(obj_ver_id oid);
 };

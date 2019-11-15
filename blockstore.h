@@ -33,7 +33,6 @@
 #define ST_J_WRITTEN 3
 #define ST_J_SYNCED 4
 #define ST_J_STABLE 5
-#define ST_J_MOVE_READ_SUBMITTED 6
 #define ST_J_MOVE_WRITE_SUBMITTED 7
 #define ST_J_MOVE_SYNCED 8
 
@@ -107,6 +106,11 @@ struct __attribute__((__packed__)) object_id
 inline bool operator == (const object_id & a, const object_id & b)
 {
     return a.inode == b.inode && a.stripe == b.stripe;
+}
+
+inline bool operator != (const object_id & a, const object_id & b)
+{
+    return a.inode != b.inode || a.stripe != b.stripe;
 }
 
 inline bool operator < (const object_id & a, const object_id & b)
