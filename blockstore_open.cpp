@@ -63,9 +63,35 @@ void blockstore::calc_lengths(spp::sparse_hash_map<std::string, std::string> & c
     }
 }
 
-void blockstore::open_data(spp::sparse_hash_map<std::string, std::string> & config)
+void check_size(int fd, uint64_t *size, std::string name)
 {
     int sectsize;
+    struct stat st;
+    if (fstat(fd, &st) < 0)
+    {
+        throw new std::runtime_error("Failed to stat "+name);
+    }
+    if (S_ISREG(st.st_mode))
+    {
+        *size = st.st_size;
+    }
+    else if (S_ISBLK(st.st_mode))
+    {
+        if (ioctl(fd, BLKSSZGET, &sectsize) < 0 ||
+            ioctl(fd, BLKGETSIZE64, size) < 0 ||
+            sectsize != 512)
+        {
+            throw new std::runtime_error(name+" sector is not equal to 512 bytes");
+        }
+    }
+    else
+    {
+        throw new std::runtime_error(name+" is neither a file nor a block device");
+    }
+}
+
+void blockstore::open_data(spp::sparse_hash_map<std::string, std::string> & config)
+{
     data_offset = stoull(config["data_offset"]);
     if (data_offset % DISK_ALIGNMENT)
     {
@@ -76,12 +102,7 @@ void blockstore::open_data(spp::sparse_hash_map<std::string, std::string> & conf
     {
         throw new std::runtime_error("Failed to open data device");
     }
-    if (ioctl(data_fd, BLKSSZGET, &sectsize) < 0 ||
-        ioctl(data_fd, BLKGETSIZE64, &data_size) < 0 ||
-        sectsize != 512)
-    {
-        throw new std::runtime_error("Data device sector is not equal to 512 bytes");
-    }
+    check_size(data_fd, &data_size, "data device");
     if (data_offset >= data_size)
     {
         throw new std::runtime_error("data_offset exceeds device size");
@@ -90,7 +111,6 @@ void blockstore::open_data(spp::sparse_hash_map<std::string, std::string> & conf
 
 void blockstore::open_meta(spp::sparse_hash_map<std::string, std::string> & config)
 {
-    int sectsize;
     meta_offset = stoull(config["meta_offset"]);
     if (meta_offset % DISK_ALIGNMENT)
     {
@@ -104,12 +124,7 @@ void blockstore::open_meta(spp::sparse_hash_map<std::string, std::string> & conf
         {
             throw new std::runtime_error("Failed to open metadata device");
         }
-        if (ioctl(meta_fd, BLKSSZGET, &sectsize) < 0 ||
-            ioctl(meta_fd, BLKGETSIZE64, &meta_size) < 0 ||
-            sectsize != 512)
-        {
-            throw new std::runtime_error("Metadata device sector is not equal to 512 bytes (or ioctl failed)");
-        }
+        check_size(meta_fd, &meta_size, "metadata device");
         if (meta_offset >= meta_size)
         {
             throw new std::runtime_error("meta_offset exceeds device size");
@@ -128,7 +143,6 @@ void blockstore::open_meta(spp::sparse_hash_map<std::string, std::string> & conf
 
 void blockstore::open_journal(spp::sparse_hash_map<std::string, std::string> & config)
 {
-    int sectsize;
     journal.offset = stoull(config["journal_offset"]);
     if (journal.offset % DISK_ALIGNMENT)
     {
@@ -141,12 +155,7 @@ void blockstore::open_journal(spp::sparse_hash_map<std::string, std::string> & c
         {
             throw new std::runtime_error("Failed to open journal device");
         }
-        if (ioctl(journal.fd, BLKSSZGET, &sectsize) < 0 ||
-            ioctl(journal.fd, BLKGETSIZE64, &journal.device_size) < 0 ||
-            sectsize != 512)
-        {
-            throw new std::runtime_error("Journal device sector is not equal to 512 bytes");
-        }
+        check_size(journal.fd, &journal.device_size, "metadata device");
     }
     else
     {
