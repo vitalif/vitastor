@@ -4,10 +4,13 @@ journal_flusher_t::journal_flusher_t(int flusher_count, blockstore *bs)
 {
     this->bs = bs;
     this->flusher_count = flusher_count;
-    this->active_flushers = 0;
-    this->active_until_sync = 0;
-    this->sync_required = true;
-    this->sync_threshold = flusher_count == 1 ? 1 : flusher_count/2;
+    active_flushers = 0;
+    active_until_sync = 0;
+    sync_required = true;
+    sync_threshold = flusher_count == 1 ? 1 : flusher_count/2;
+    journal_trim_interval = sync_threshold;
+    journal_trim_counter = 0;
+    journal_superblock = (uint8_t*)memalign(512, 512);
     co = new journal_flusher_co[flusher_count];
     for (int i = 0; i < flusher_count; i++)
     {
@@ -31,6 +34,7 @@ journal_flusher_co::journal_flusher_co()
 
 journal_flusher_t::~journal_flusher_t()
 {
+    free(journal_superblock);
     delete[] co;
 }
 
@@ -110,6 +114,10 @@ void journal_flusher_co::loop()
         goto resume_10;
     else if (wait_state == 11)
         goto resume_11;
+    else if (wait_state == 12)
+        goto resume_12;
+    else if (wait_state == 13)
+        goto resume_13;
 resume_0:
     if (!flusher->flush_queue.size())
         return;
@@ -276,8 +284,8 @@ resume_0:
             .oid = cur.oid,
             .version = cur.version,
         };
-        // I consider unordered writes to data & metadata safe here, because
-        // "dirty" entries always override "clean" entries in our case
+        // I consider unordered writes to data & metadata safe here
+        // BUT it requires that journal entries even older than clean_db should be replayed after restart
         await_sqe(6);
         data->iov = (struct iovec){ meta_it->second.buf, 512 };
         data->callback = simple_callback;
@@ -373,7 +381,57 @@ resume_0:
         if (dirty_it->first.oid != cur.oid)
             dirty_it++;
         bs->dirty_db.erase(dirty_it, std::next(dirty_end));
-        // FIXME: ...and clear unused part of the journal (with some interval, not for every flushed op)
+        // Clear unused part of the journal every <journal_trim_interval> flushes
+        if (!((++flusher->journal_trim_counter) % flusher->journal_trim_interval))
+        {
+            flusher->journal_trim_counter = 0;
+            journal_used_it = bs->journal.used_sectors.lower_bound(bs->journal.used_start);
+            if (journal_used_it == bs->journal.used_sectors.end())
+            {
+                // Journal is cleared to its end, restart from the beginning
+                journal_used_it = bs->journal.used_sectors.begin();
+                if (journal_used_it == bs->journal.used_sectors.end())
+                {
+                    // Journal is empty
+                    bs->journal.used_start = bs->journal.next_free;
+                }
+                else
+                {
+                    bs->journal.used_start = journal_used_it->first;
+                }
+            }
+            else if (journal_used_it->first > bs->journal.used_start)
+            {
+                // Journal is cleared up to <journal_used_it>
+                bs->journal.used_start = journal_used_it->first;
+            }
+            else
+            {
+                // Can't trim journal
+                goto do_not_trim;
+            }
+            // Update journal "superblock"
+            await_sqe(12);
+            data->callback = simple_callback;
+            *((journal_entry_start*)flusher->journal_superblock) = {
+                .crc32 = 0,
+                .magic = JOURNAL_MAGIC,
+                .type = JE_START,
+                .size = sizeof(journal_entry_start),
+                .reserved = 0,
+                .journal_start = bs->journal.used_start,
+            };
+            ((journal_entry_start*)flusher->journal_superblock)->crc32 = je_crc32((journal_entry*)flusher->journal_superblock);
+            data->iov = (struct iovec){ flusher->journal_superblock, 512 };
+            io_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
+            wait_count++;
+            wait_state = 13;
+        resume_13:
+            if (wait_count > 0)
+                return;
+        }
+    do_not_trim:
+        // All done
         wait_state = 0;
         flusher->active_flushers--;
         repeat_it = flusher->sync_to_repeat.find(cur.oid);

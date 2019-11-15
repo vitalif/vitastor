@@ -160,6 +160,7 @@ void blockstore::loop()
                 }
             }
         }
+        flusher->loop();
     }
 }
 

@@ -37,6 +37,7 @@ class journal_flusher_co
     uint64_t offset, len, submit_len, clean_loc, meta_sector, meta_pos;
     std::map<uint64_t, meta_sector_t>::iterator meta_it;
     std::map<object_id, uint64_t>::iterator repeat_it;
+    std::map<uint64_t, uint64_t>::iterator journal_used_it;
     std::function<void(ring_data_t*)> simple_callback;
     std::list<flusher_sync_t>::iterator cur_sync;
     friend class journal_flusher_t;
@@ -54,6 +55,9 @@ class journal_flusher_t
     journal_flusher_co *co;
     blockstore *bs;
     friend class journal_flusher_co;
+
+    int journal_trim_counter, journal_trim_interval;
+    uint8_t* journal_superblock;
 
     int active_flushers, active_until_sync;
     std::list<flusher_sync_t> syncs;

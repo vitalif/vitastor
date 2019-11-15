@@ -19,6 +19,7 @@ class blockstore_init_journal
     uint8_t *journal_buffer = NULL;
     int step = 0;
     uint32_t crc32_last = 0;
+    bool started = false;
     uint64_t done_pos = 0, journal_pos = 0;
     uint64_t cur_skip = 0;
     bool wrapped = false;

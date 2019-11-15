@@ -142,8 +142,9 @@ void blockstore_init_journal::handle_event(ring_data_t *data)
                 throw new std::runtime_error("first entry of the journal is corrupt");
             }
             journal_pos = bs->journal.used_start = je->journal_start;
-            crc32_last = je->crc32_replaced;
+            crc32_last = 0;
             step = 2;
+            started = false;
         }
     }
     else if (step == 2 || step == 3)
@@ -271,7 +272,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
         {
             journal_entry *je = (journal_entry*)((uint8_t*)buf + total_pos + pos);
             if (je->magic != JOURNAL_MAGIC || je_crc32(je) != je->crc32 ||
-                je->type < JE_SMALL_WRITE || je->type > JE_DELETE || je->crc32_prev != crc32_last)
+                je->type < JE_SMALL_WRITE || je->type > JE_DELETE || started && je->crc32_prev != crc32_last)
             {
                 if (pos == 0)
                 {
@@ -286,7 +287,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     break;
                 }
             }
-            bs->journal.used_sectors[total_pos]++;
+            started = true;
             pos += je->size;
             crc32_last = je->crc32;
             if (je->type == JE_SMALL_WRITE)
@@ -306,10 +307,11 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     // FIXME: OOPS. Please don't modify total_pos here
                     total_pos += je->small_write.len;
                 }
-                bs->dirty_db.emplace((obj_ver_id){
+                obj_ver_id ov = {
                     .oid = je->small_write.oid,
                     .version = je->small_write.version,
-                }, (dirty_entry){
+                };
+                bs->dirty_db.emplace(ov, (dirty_entry){
                     .state = ST_J_SYNCED,
                     .flags = 0,
                     .location = location,
@@ -317,14 +319,17 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .len = je->small_write.len,
                     .journal_sector = total_pos,
                 });
+                bs->journal.used_sectors[total_pos]++;
+                bs->flusher->queue_flush(ov);
             }
             else if (je->type == JE_BIG_WRITE)
             {
                 // oid, version, block
-                bs->dirty_db.emplace((obj_ver_id){
+                obj_ver_id ov = {
                     .oid = je->big_write.oid,
                     .version = je->big_write.version,
-                }, (dirty_entry){
+                };
+                bs->dirty_db.emplace(ov, (dirty_entry){
                     .state = ST_D_META_SYNCED,
                     .flags = 0,
                     .location = je->big_write.location,
@@ -332,14 +337,17 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .len = bs->block_size,
                     .journal_sector = total_pos,
                 });
+                bs->journal.used_sectors[total_pos]++;
+                bs->flusher->queue_flush(ov);
             }
             else if (je->type == JE_STABLE)
             {
                 // oid, version
-                auto it = bs->dirty_db.find((obj_ver_id){
+                obj_ver_id ov = {
                     .oid = je->stable.oid,
                     .version = je->stable.version,
-                });
+                };
+                auto it = bs->dirty_db.find(ov);
                 if (it == bs->dirty_db.end())
                 {
                     // journal contains a legitimate STABLE entry for a non-existing dirty write
@@ -356,10 +364,11 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
             else if (je->type == JE_DELETE)
             {
                 // oid, version
-                bs->dirty_db.emplace((obj_ver_id){
+                obj_ver_id ov = {
                     .oid = je->del.oid,
                     .version = je->del.version,
-                }, (dirty_entry){
+                };
+                bs->dirty_db.emplace(ov, (dirty_entry){
                     .state = ST_DEL_SYNCED,
                     .flags = 0,
                     .location = 0,
@@ -367,6 +376,8 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .len = 0,
                     .journal_sector = total_pos,
                 });
+                bs->journal.used_sectors[total_pos]++;
+                bs->flusher->queue_flush(ov);
             }
         }
     }

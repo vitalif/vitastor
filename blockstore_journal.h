@@ -22,7 +22,7 @@ struct __attribute__((__packed__)) journal_entry_start
     uint16_t magic;
     uint16_t type;
     uint32_t size;
-    uint32_t crc32_replaced;
+    uint32_t reserved;
     uint64_t journal_start;
 };
 
