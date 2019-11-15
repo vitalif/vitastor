@@ -26,7 +26,7 @@ journal_flusher_co::journal_flusher_co()
     {
         if (data->res < 0)
         {
-            throw new std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
+            throw std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
         }
         wait_count--;
     };
@@ -190,7 +190,7 @@ resume_0:
             }
             else if (!IS_STABLE(dirty_it->second.state))
             {
-                throw new std::runtime_error("BUG: Unexpected dirty_entry state during flush: " + std::to_string(dirty_it->second.state));
+                throw std::runtime_error("BUG: Unexpected dirty_entry state during flush: " + std::to_string(dirty_it->second.state));
             }
             dirty_it--;
         } while (dirty_it != bs->dirty_db.begin() && dirty_it->first.oid == cur.oid);
@@ -216,7 +216,7 @@ resume_0:
             if (clean_it == bs->clean_db.end())
             {
                 // Object not present at all. This is a bug.
-                throw new std::runtime_error("BUG: Object we are trying to flush not allocated on the data device");
+                throw std::runtime_error("BUG: Object we are trying to flush not allocated on the data device");
             }
             else
                 clean_loc = clean_it->second.location;
@@ -245,7 +245,7 @@ resume_0:
             {
                 if (data->res < 0)
                 {
-                    throw new std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
+                    throw std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
                 }
                 meta_it->second.state = 1;
                 wait_count--;

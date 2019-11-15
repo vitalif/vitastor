@@ -22,7 +22,7 @@ allocator *allocator_create(uint64_t blocks)
     buf->last_one_mask = (blocks % 64) == 0
         ? UINT64_MAX
         : ~(UINT64_MAX << (64 - blocks % 64));
-    for (uint64_t i = 0; i < blocks; i++)
+    for (uint64_t i = 0; i < total; i++)
     {
         buf->mask[i] = 0;
     }

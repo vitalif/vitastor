@@ -6,11 +6,15 @@ blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, 
     ring_consumer.loop = [this]() { loop(); };
     ringloop->register_consumer(ring_consumer);
     initialized = 0;
-    block_order = stoull(config["block_size_order"]);
+    block_order = strtoull(config["block_size_order"].c_str(), NULL, 10);
+    if (block_order == 0)
+    {
+        block_order = DEFAULT_ORDER;
+    }
     block_size = 1 << block_order;
     if (block_size <= 1 || block_size >= MAX_BLOCK_SIZE)
     {
-        throw new std::runtime_error("Bad block size");
+        throw std::runtime_error("Bad block size");
     }
     zero_object = (uint8_t*)memalign(DISK_ALIGNMENT, block_size);
     data_fd = meta_fd = journal.fd = -1;
@@ -22,7 +26,7 @@ blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, 
         calc_lengths(config);
         data_alloc = allocator_create(block_count);
         if (!data_alloc)
-            throw new std::bad_alloc();
+            throw std::bad_alloc();
     }
     catch (std::exception & e)
     {
@@ -32,9 +36,9 @@ blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, 
             close(meta_fd);
         if (journal.fd >= 0 && journal.fd != meta_fd)
             close(journal.fd);
-        throw e;
+        throw;
     }
-    int flusher_count = stoull(config["flusher_count"]);
+    int flusher_count = strtoull(config["flusher_count"].c_str(), NULL, 10);
     if (!flusher_count)
         flusher_count = 32;
     flusher = new journal_flusher_t(flusher_count, this);
@@ -110,8 +114,8 @@ void blockstore::loop()
                 else if (op->wait_for)
                     continue;
             }
-            unsigned ring_space = io_uring_sq_space_left(ringloop->ring);
-            unsigned prev_sqe_pos = ringloop->ring->sq.sqe_tail;
+            unsigned ring_space = io_uring_sq_space_left(&ringloop->ring);
+            unsigned prev_sqe_pos = ringloop->ring.sq.sqe_tail;
             int dequeue_op = 0;
             if ((op->flags & OP_TYPE_MASK) == OP_READ)
             {
@@ -145,13 +149,13 @@ void blockstore::loop()
                 int ret = ringloop->submit();
                 if (ret < 0)
                 {
-                    throw new std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
+                    throw std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
                 }
                 submit_queue.erase(op_ptr);
             }
             else
             {
-                ringloop->ring->sq.sqe_tail = prev_sqe_pos;
+                ringloop->ring.sq.sqe_tail = prev_sqe_pos;
                 if (op->wait_for == WAIT_SQE)
                 {
                     op->wait_detail = 1 + ring_space;
@@ -173,7 +177,7 @@ void blockstore::check_wait(blockstore_operation *op)
 {
     if (op->wait_for == WAIT_SQE)
     {
-        if (io_uring_sq_space_left(ringloop->ring) < op->wait_detail)
+        if (io_uring_sq_space_left(&ringloop->ring) < op->wait_detail)
         {
             // stop submission if there's still no free space
             return;
@@ -213,7 +217,7 @@ void blockstore::check_wait(blockstore_operation *op)
     }
     else
     {
-        throw new std::runtime_error("BUG: op->wait_for value is unexpected");
+        throw std::runtime_error("BUG: op->wait_for value is unexpected");
     }
 }
 

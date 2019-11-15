@@ -40,18 +40,18 @@ void blockstore::calc_lengths(spp::sparse_hash_map<std::string, std::string> & c
     meta_len = block_count * sizeof(clean_disk_entry);
     if (meta_area < meta_len)
     {
-        throw new std::runtime_error("Metadata area is too small");
+        throw std::runtime_error("Metadata area is too small");
     }
-    metadata_buf_size = stoull(config["meta_buf_size"]);
+    metadata_buf_size = strtoull(config["meta_buf_size"].c_str(), NULL, 10);
     if (metadata_buf_size < 65536)
     {
         metadata_buf_size = 4*1024*1024;
     }
     // requested journal size
-    uint64_t journal_wanted = stoull(config["journal_size"]);
+    uint64_t journal_wanted = strtoull(config["journal_size"].c_str(), NULL, 10);
     if (journal_wanted > journal.len)
     {
-        throw new std::runtime_error("Requested journal_size is too large");
+        throw std::runtime_error("Requested journal_size is too large");
     }
     else if (journal_wanted > 0)
     {
@@ -59,7 +59,7 @@ void blockstore::calc_lengths(spp::sparse_hash_map<std::string, std::string> & c
     }
     if (journal.len < MIN_JOURNAL_SIZE)
     {
-        throw new std::runtime_error("Journal is too small");
+        throw std::runtime_error("Journal is too small");
     }
 }
 
@@ -69,7 +69,7 @@ void check_size(int fd, uint64_t *size, std::string name)
     struct stat st;
     if (fstat(fd, &st) < 0)
     {
-        throw new std::runtime_error("Failed to stat "+name);
+        throw std::runtime_error("Failed to stat "+name);
     }
     if (S_ISREG(st.st_mode))
     {
@@ -81,40 +81,40 @@ void check_size(int fd, uint64_t *size, std::string name)
             ioctl(fd, BLKGETSIZE64, size) < 0 ||
             sectsize != 512)
         {
-            throw new std::runtime_error(name+" sector is not equal to 512 bytes");
+            throw std::runtime_error(name+" sector is not equal to 512 bytes");
         }
     }
     else
     {
-        throw new std::runtime_error(name+" is neither a file nor a block device");
+        throw std::runtime_error(name+" is neither a file nor a block device");
     }
 }
 
 void blockstore::open_data(spp::sparse_hash_map<std::string, std::string> & config)
 {
-    data_offset = stoull(config["data_offset"]);
+    data_offset = strtoull(config["data_offset"].c_str(), NULL, 10);
     if (data_offset % DISK_ALIGNMENT)
     {
-        throw new std::runtime_error("data_offset not aligned");
+        throw std::runtime_error("data_offset not aligned");
     }
     data_fd = open(config["data_device"].c_str(), O_DIRECT|O_RDWR);
     if (data_fd == -1)
     {
-        throw new std::runtime_error("Failed to open data device");
+        throw std::runtime_error("Failed to open data device");
     }
     check_size(data_fd, &data_size, "data device");
     if (data_offset >= data_size)
     {
-        throw new std::runtime_error("data_offset exceeds device size");
+        throw std::runtime_error("data_offset exceeds device size");
     }
 }
 
 void blockstore::open_meta(spp::sparse_hash_map<std::string, std::string> & config)
 {
-    meta_offset = stoull(config["meta_offset"]);
+    meta_offset = strtoull(config["meta_offset"].c_str(), NULL, 10);
     if (meta_offset % DISK_ALIGNMENT)
     {
-        throw new std::runtime_error("meta_offset not aligned");
+        throw std::runtime_error("meta_offset not aligned");
     }
     if (config["meta_device"] != "")
     {
@@ -122,12 +122,12 @@ void blockstore::open_meta(spp::sparse_hash_map<std::string, std::string> & conf
         meta_fd = open(config["meta_device"].c_str(), O_DIRECT|O_RDWR);
         if (meta_fd == -1)
         {
-            throw new std::runtime_error("Failed to open metadata device");
+            throw std::runtime_error("Failed to open metadata device");
         }
         check_size(meta_fd, &meta_size, "metadata device");
         if (meta_offset >= meta_size)
         {
-            throw new std::runtime_error("meta_offset exceeds device size");
+            throw std::runtime_error("meta_offset exceeds device size");
         }
     }
     else
@@ -136,24 +136,24 @@ void blockstore::open_meta(spp::sparse_hash_map<std::string, std::string> & conf
         meta_size = 0;
         if (meta_offset >= data_size)
         {
-            throw new std::runtime_error("meta_offset exceeds device size");
+            throw std::runtime_error("meta_offset exceeds device size");
         }
     }
 }
 
 void blockstore::open_journal(spp::sparse_hash_map<std::string, std::string> & config)
 {
-    journal.offset = stoull(config["journal_offset"]);
+    journal.offset = strtoull(config["journal_offset"].c_str(), NULL, 10);
     if (journal.offset % DISK_ALIGNMENT)
     {
-        throw new std::runtime_error("journal_offset not aligned");
+        throw std::runtime_error("journal_offset not aligned");
     }
     if (config["journal_device"] != "")
     {
         journal.fd = open(config["journal_device"].c_str(), O_DIRECT|O_RDWR);
         if (journal.fd == -1)
         {
-            throw new std::runtime_error("Failed to open journal device");
+            throw std::runtime_error("Failed to open journal device");
         }
         check_size(journal.fd, &journal.device_size, "metadata device");
     }
@@ -163,10 +163,10 @@ void blockstore::open_journal(spp::sparse_hash_map<std::string, std::string> & c
         journal.device_size = 0;
         if (journal.offset >= data_size)
         {
-            throw new std::runtime_error("journal_offset exceeds device size");
+            throw std::runtime_error("journal_offset exceeds device size");
         }
     }
-    journal.sector_count = stoull(config["journal_sector_buffer_count"]);
+    journal.sector_count = strtoull(config["journal_sector_buffer_count"].c_str(), NULL, 10);
     if (!journal.sector_count)
     {
         journal.sector_count = 32;
@@ -175,6 +175,6 @@ void blockstore::open_journal(spp::sparse_hash_map<std::string, std::string> & c
     journal.sector_info = (journal_sector_info_t*)calloc(journal.sector_count, sizeof(journal_sector_info_t));
     if (!journal.sector_buf || !journal.sector_info)
     {
-        throw new std::bad_alloc();
+        throw std::bad_alloc();
     }
 }

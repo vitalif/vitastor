@@ -178,7 +178,7 @@ int main0(int argc, char *argv[])
             .flags = 0,
             .location = (uint64_t)i << 17,
             .offset = 0,
-            .size = 1 << 17,
+            .len = 1 << 17,
         };
     }
     return 0;

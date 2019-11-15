@@ -28,7 +28,7 @@ class ring_loop_t
     std::vector<ring_consumer_t> consumers;
     struct ring_data_t *ring_data;
 public:
-    struct io_uring *ring;
+    struct io_uring ring;
     ring_loop_t(int qd);
     ~ring_loop_t();
     struct io_uring_sqe* get_sqe();
@@ -37,6 +37,6 @@ public:
     void loop(bool sleep);
     inline int submit()
     {
-        return io_uring_submit(ring);
+        return io_uring_submit(&ring);
     }
 };

@@ -9,7 +9,7 @@ void blockstore_init_meta::handle_event(ring_data_t *data)
 {
     if (data->res < 0)
     {
-        throw new std::runtime_error(
+        throw std::runtime_error(
             std::string("read metadata failed at offset ") + std::to_string(metadata_read) +
             std::string(": ") + strerror(-data->res)
         );
@@ -35,7 +35,7 @@ int blockstore_init_meta::loop()
         struct io_uring_sqe *sqe = bs->get_sqe();
         if (!sqe)
         {
-            throw new std::runtime_error("io_uring is full while trying to read metadata");
+            throw std::runtime_error("io_uring is full while trying to read metadata");
         }
         struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
         data->iov = {
@@ -116,7 +116,7 @@ void blockstore_init_journal::handle_event(ring_data_t *data)
         // Step 1: Read first block of the journal
         if (data->res < 0)
         {
-            throw new std::runtime_error(
+            throw std::runtime_error(
                 std::string("read journal failed at offset ") + std::to_string(0) +
                 std::string(": ") + strerror(-data->res)
             );
@@ -139,7 +139,7 @@ void blockstore_init_journal::handle_event(ring_data_t *data)
                 je_crc32((journal_entry*)je) != je->crc32)
             {
                 // Entry is corrupt
-                throw new std::runtime_error("first entry of the journal is corrupt");
+                throw std::runtime_error("first entry of the journal is corrupt");
             }
             journal_pos = bs->journal.used_start = je->journal_start;
             crc32_last = 0;
@@ -152,7 +152,7 @@ void blockstore_init_journal::handle_event(ring_data_t *data)
         // Step 3: Read journal
         if (data->res < 0)
         {
-            throw new std::runtime_error(
+            throw std::runtime_error(
                 std::string("read journal failed at offset ") + std::to_string(journal_pos) +
                 std::string(": ") + strerror(-data->res)
             );
@@ -187,7 +187,7 @@ int blockstore_init_journal::loop()
         struct io_uring_sqe *sqe = bs->get_sqe();
         if (!sqe)
         {
-            throw new std::runtime_error("io_uring is full while trying to read journal");
+            throw std::runtime_error("io_uring is full while trying to read journal");
         }
         struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
         data->iov = { journal_buffer, 512 };
@@ -212,7 +212,7 @@ int blockstore_init_journal::loop()
                     struct io_uring_sqe *sqe = bs->get_sqe();
                     if (!sqe)
                     {
-                        throw new std::runtime_error("io_uring is full while trying to read journal");
+                        throw std::runtime_error("io_uring is full while trying to read journal");
                     }
                     struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
                     uint64_t end = bs->journal.len;

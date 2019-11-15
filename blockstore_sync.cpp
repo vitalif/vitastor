@@ -113,7 +113,7 @@ void blockstore::handle_sync_event(ring_data_t *data, blockstore_operation *op)
 {
     if (data->res < 0)
     {
-        throw new std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
+        throw std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
     }
     op->pending_ops--;
     if (op->pending_ops == 0)
@@ -150,7 +150,7 @@ void blockstore::handle_sync_event(ring_data_t *data, blockstore_operation *op)
         }
         else
         {
-            throw new std::runtime_error("BUG: unexpected sync op state");
+            throw std::runtime_error("BUG: unexpected sync op state");
         }
         ack_sync(op);
     }
