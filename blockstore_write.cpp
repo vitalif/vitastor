@@ -96,6 +96,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
             vcnt = 1;
             op->iov_zerofill[0] = (struct iovec){ op->buf, op->len };
         }
+        data->iov.iov_len = op->len; // to check it in the callback
         data->callback = cb;
         my_uring_prep_writev(
             sqe, data_fd, op->iov_zerofill, vcnt, data_offset + (loc << block_order)
@@ -150,10 +151,13 @@ int blockstore::dequeue_write(blockstore_operation *op)
 
 void blockstore::handle_write_event(ring_data_t *data, blockstore_operation *op)
 {
-    if (data->res < 0)
+    if (data->res != data->iov.iov_len)
     {
         // FIXME: our state becomes corrupted after a write error. maybe do something better than just die
-        throw std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
+        throw std::runtime_error(
+            "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
+            "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
+        );
     }
     op->pending_ops--;
     if (op->pending_ops == 0)

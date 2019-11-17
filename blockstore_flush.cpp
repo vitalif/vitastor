@@ -24,9 +24,12 @@ journal_flusher_co::journal_flusher_co()
     wait_state = 0;
     simple_callback = [this](ring_data_t* data)
     {
-        if (data->res < 0)
+        if (data->res != data->iov.iov_len)
         {
-            throw std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
+            throw std::runtime_error(
+                "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
+                "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
+            );
         }
         wait_count--;
     };
@@ -243,9 +246,12 @@ resume_0:
             data->iov = (struct iovec){ meta_it->second.buf, 512 };
             data->callback = [this](ring_data_t* data)
             {
-                if (data->res < 0)
+                if (data->res != data->iov.iov_len)
                 {
-                    throw std::runtime_error("write operation failed. in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111");
+                    throw std::runtime_error(
+                        "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
+                        "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
+                    );
                 }
                 meta_it->second.state = 1;
                 wait_count--;

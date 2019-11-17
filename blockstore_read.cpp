@@ -144,7 +144,7 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
 void blockstore::handle_read_event(ring_data_t *data, blockstore_operation *op)
 {
     op->pending_ops--;
-    if (data->res < 0)
+    if (data->res != data->iov.iov_len)
     {
         // read error
         op->retval = data->res;

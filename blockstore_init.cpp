@@ -7,7 +7,7 @@ blockstore_init_meta::blockstore_init_meta(blockstore *bs)
 
 void blockstore_init_meta::handle_event(ring_data_t *data)
 {
-    if (data->res < 0)
+    if (data->res <= 0)
     {
         throw std::runtime_error(
             std::string("read metadata failed at offset ") + std::to_string(metadata_read) +
@@ -29,6 +29,8 @@ int blockstore_init_meta::loop()
     if (!metadata_buffer)
     {
         metadata_buffer = (uint8_t*)memalign(512, 2*bs->metadata_buf_size);
+        if (!metadata_buffer)
+            throw std::bad_alloc();
     }
     if (!submitted)
     {
