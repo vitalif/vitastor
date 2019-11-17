@@ -59,6 +59,11 @@ blockstore::~blockstore()
     free(journal.sector_info);
 }
 
+bool blockstore::is_started()
+{
+    return initialized == 10;
+}
+
 // main event loop - produce requests
 void blockstore::loop()
 {

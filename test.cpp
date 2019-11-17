@@ -212,10 +212,11 @@ int main(int argc, char *argv[])
 {
     std::map<int, std::string> strs;
     strs.emplace(12, "str");
-    auto it = strs.upper_bound(11);
-    printf("s = %d %s %d\n", it->first, it->second.c_str(), it == strs.begin());
+    auto it = strs.upper_bound(13);
+    //printf("s = %d %s %d\n", it->first, it->second.c_str(), it == strs.begin());
     it--;
-    printf("s = %d %s\n", it->first, it->second.c_str());
+    printf("%d\n", it == strs.end());
+    //printf("s = %d %s\n", it->first, it->second.c_str());
     struct io_uring ring;
     int fd = open("/dev/loop0", O_RDWR | O_DIRECT, 0644);
     if (fd < 0)

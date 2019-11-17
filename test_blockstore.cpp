@@ -10,8 +10,9 @@ class timerfd_interval
     int status;
     ring_loop_t *ringloop;
     ring_consumer_t consumer;
+    std::function<void(void)> callback;
 public:
-    timerfd_interval(ring_loop_t *ringloop, int seconds)
+    timerfd_interval(ring_loop_t *ringloop, int seconds, std::function<void(void)> cb)
     {
         wait_state = 0;
         timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
@@ -30,6 +31,7 @@ public:
         consumer.loop = [this]() { loop(); };
         ringloop->register_consumer(consumer);
         this->ringloop = ringloop;
+        this->callback = cb;
     }
 
     ~timerfd_interval()
@@ -61,7 +63,7 @@ public:
             uint64_t n;
             read(timerfd, &n, 8);
             wait_state = 0;
-            printf("tick 1s\n");
+            callback();
         };
         wait_state = 1;
         ringloop->submit();
@@ -76,13 +78,33 @@ int main(int narg, char *args[])
     config["data_device"] = "./test_data.bin";
     ring_loop_t *ringloop = new ring_loop_t(512);
     blockstore *bs = new blockstore(config, ringloop);
-    // print "tick" every second
-    timerfd_interval tick_tfd(ringloop, 1);
+    timerfd_interval tick_tfd(ringloop, 1, []()
+    {
+        printf("tick 1s\n");
+    });
+    blockstore_operation op;
+    op.flags = OP_WRITE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 0;
+    op.offset = 4096;
+    op.len = 4096;
+    op.buf = (uint8_t*)memalign(512, 4096);
+    memset(op.buf, 0xaa, 4096);
+    op.callback = [](blockstore_operation *op)
+    {
+        printf("completed %d\n", op->retval);
+    };
+    bool bs_was_done = false;
     while (true)
     {
+        bool bs_done = bs->is_started();
+        if (bs_done && !bs_was_done)
+        {
+            bs->enqueue_op(&op);
+            bs_was_done = true;
+        }
         ringloop->loop(true);
     }
-    
     delete bs;
     delete ringloop;
     return 0;

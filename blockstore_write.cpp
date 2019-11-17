@@ -3,16 +3,21 @@
 void blockstore::enqueue_write(blockstore_operation *op)
 {
     // Assign version number
-    auto dirty_it = dirty_db.upper_bound((obj_ver_id){
-        .oid = op->oid,
-        .version = UINT64_MAX,
-    });
-    dirty_it--;
-    if (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
+    bool found = false;
+    if (dirty_db.size() > 0)
     {
-        op->version = dirty_it->first.version + 1;
+        auto dirty_it = dirty_db.upper_bound((obj_ver_id){
+            .oid = op->oid,
+            .version = UINT64_MAX,
+        });
+        dirty_it--;
+        if (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
+        {
+            found = true;
+            op->version = dirty_it->first.version + 1;
+        }
     }
-    else
+    if (!found)
     {
         auto clean_it = clean_db.find(op->oid);
         if (clean_it != clean_db.end())

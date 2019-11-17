@@ -211,7 +211,7 @@ struct blockstore_operation
     uint32_t offset;
     // For stabilize requests: buf contains <len> obj_ver_id's to stabilize
     uint32_t len;
-    uint8_t *buf;
+    uint8_t *buf; // FIXME: void*
     int retval;
 
     // FIXME: Move internal fields somewhere
@@ -324,6 +324,8 @@ public:
 
     // Event loop
     void loop();
+
+    bool is_started();
 
     // Returns true when it's safe to destroy the instance. If destroying the instance
     // requires to purge some queues, starts that process. Should be called in the event
