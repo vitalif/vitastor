@@ -69,8 +69,9 @@ void blockstore::loop()
         {
             metadata_init_reader = new blockstore_init_meta(this);
             initialized = 1;
+            printf("reading blockstore metadata\n");
         }
-        else if (initialized == 1)
+        if (initialized == 1)
         {
             int res = metadata_init_reader->loop();
             if (!res)
@@ -79,9 +80,10 @@ void blockstore::loop()
                 metadata_init_reader = NULL;
                 journal_init_reader = new blockstore_init_journal(this);
                 initialized = 2;
+                printf("reading blockstore journal\n");
             }
         }
-        else if (initialized == 2)
+        if (initialized == 2)
         {
             int res = journal_init_reader->loop();
             if (!res)
@@ -89,6 +91,7 @@ void blockstore::loop()
                 delete journal_init_reader;
                 journal_init_reader = NULL;
                 initialized = 10;
+                printf("journal read\n");
             }
         }
     }
