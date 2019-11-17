@@ -43,6 +43,7 @@ void ring_loop_t::loop(bool sleep)
         struct ring_data_t *d = (struct ring_data_t*)cqe->user_data;
         if (d->callback)
         {
+            d->res = cqe->res;
             d->callback(d);
         }
         io_uring_cqe_seen(&ring, cqe);
