@@ -53,7 +53,7 @@ void prepare_journal_sector_write(journal_t & journal, io_uring_sqe *sqe, std::f
     ring_data_t *data = ((ring_data_t*)sqe->user_data);
     data->iov = (struct iovec){ journal.sector_buf + 512*journal.cur_sector, 512 };
     data->callback = cb;
-    io_uring_prep_writev(
+    my_uring_prep_writev(
         sqe, journal.fd, &data->iov, 1, journal.offset + journal.sector_info[journal.cur_sector].offset
     );
 }

@@ -25,7 +25,7 @@ int blockstore::fulfill_read_push(blockstore_operation *op, uint64_t &fulfilled,
         };
         // FIXME: use simple std::vector instead of map for read_vec
         op->read_vec[cur_start] = data->iov;
-        io_uring_prep_readv(
+        my_uring_prep_readv(
             sqe,
             IS_JOURNAL(item_state) ? journal.fd : data_fd,
             &data->iov, 1,

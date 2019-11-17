@@ -97,7 +97,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
             op->iov_zerofill[0] = (struct iovec){ op->buf, op->len };
         }
         data->callback = cb;
-        io_uring_prep_writev(
+        my_uring_prep_writev(
             sqe, data_fd, op->iov_zerofill, vcnt, data_offset + (loc << block_order)
         );
         op->pending_ops = 1;
@@ -137,7 +137,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
         journal.next_free = (journal.next_free + op->len) < journal.len ? journal.next_free : 512;
         data2->iov = (struct iovec){ op->buf, op->len };
         data2->callback = cb;
-        io_uring_prep_writev(
+        my_uring_prep_writev(
             sqe2, journal.fd, &data2->iov, 1, journal.offset + journal.next_free
         );
         dirty_it->second.location = journal.next_free;

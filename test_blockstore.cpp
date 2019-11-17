@@ -51,11 +51,17 @@ public:
             return;
         }
         struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
-        io_uring_prep_poll_add(sqe, timerfd, POLLIN);
+        my_uring_prep_poll_add(sqe, timerfd, POLLIN);
         data->callback = [&](ring_data_t *data)
         {
+            if (data->res < 0)
+            {
+                throw std::runtime_error(std::string("waiting for timer failed: ") + strerror(-data->res));
+            }
+            uint64_t n;
+            read(timerfd, &n, 8);
             wait_state = 0;
-            printf("tick\n");
+            printf("tick 1s\n");
         };
         wait_state = 1;
         ringloop->submit();
@@ -69,7 +75,7 @@ int main(int narg, char *args[])
     config["journal_device"] = "./test_journal.bin";
     config["data_device"] = "./test_data.bin";
     ring_loop_t *ringloop = new ring_loop_t(512);
-    // print "tick" each second
+    // print "tick" every second
     timerfd_interval tick_tfd(ringloop, 1);
     while (true)
     {

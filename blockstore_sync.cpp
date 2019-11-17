@@ -42,7 +42,7 @@ int blockstore::continue_sync(blockstore_operation *op)
     {
         // No big writes, just fsync the journal
         BS_SUBMIT_GET_SQE(sqe, data);
-        io_uring_prep_fsync(sqe, journal.fd, 0);
+        my_uring_prep_fsync(sqe, journal.fd, 0);
         data->callback = cb;
         op->pending_ops = 1;
         op->sync_state = SYNC_JOURNAL_SYNC_SENT;
@@ -51,7 +51,7 @@ int blockstore::continue_sync(blockstore_operation *op)
     {
         // 1st step: fsync data
         BS_SUBMIT_GET_SQE(sqe, data);
-        io_uring_prep_fsync(sqe, data_fd, 0);
+        my_uring_prep_fsync(sqe, data_fd, 0);
         data->callback = cb;
         op->pending_ops = 1;
         op->sync_state = SYNC_DATA_SYNC_SENT;
@@ -96,7 +96,7 @@ int blockstore::continue_sync(blockstore_operation *op)
         }
         op->max_used_journal_sector = 1 + journal.cur_sector;
         // ... And a journal fsync
-        io_uring_prep_fsync(sqe[s], journal.fd, 0);
+        my_uring_prep_fsync(sqe[s], journal.fd, 0);
         struct ring_data_t *data = ((ring_data_t*)sqe[s]->user_data);
         data->callback = cb;
         op->pending_ops = 1 + s;
