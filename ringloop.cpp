@@ -17,6 +17,7 @@ ring_loop_t::ring_loop_t(int qd)
 ring_loop_t::~ring_loop_t()
 {
     free(ring_data);
+    io_uring_queue_exit(&ring);
 }
 
 struct io_uring_sqe* ring_loop_t::get_sqe()
@@ -47,11 +48,7 @@ void ring_loop_t::unregister_consumer(int number)
 void ring_loop_t::loop(bool sleep)
 {
     struct io_uring_cqe *cqe;
-    if (sleep)
-    {
-        io_uring_wait_cqe(&ring, &cqe);
-    }
-    while ((io_uring_peek_cqe(&ring, &cqe), cqe))
+    while (!io_uring_peek_cqe(&ring, &cqe))
     {
         struct ring_data_t *d = (struct ring_data_t*)cqe->user_data;
         if (d->callback)
@@ -63,5 +60,9 @@ void ring_loop_t::loop(bool sleep)
     for (int i = 0; i < consumers.size(); i++)
     {
         consumers[i].loop();
+    }
+    if (sleep)
+    {
+        io_uring_wait_cqe(&ring, &cqe);
     }
 }

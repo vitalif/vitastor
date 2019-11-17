@@ -38,7 +38,7 @@ static void test_write(struct io_uring *ring, int fd)
     uint8_t *buf = (uint8_t*)memalign(512, 1024*1024*1024);
     struct iovec iov = { buf, 1024*1024*1024 };
     io_uring_prep_writev(sqe, fd, &iov, 1, 0);
-    io_uring_sqe_set_data(sqe, 0);
+    io_uring_sqe_set_data(sqe, buf);
     io_uring_submit_and_wait(ring, 1);
     struct io_uring_cqe *cqe;
     io_uring_peek_cqe(ring, &cqe);
@@ -47,7 +47,7 @@ static void test_write(struct io_uring *ring, int fd)
     if (ret < 0)
         printf("cqe failed: %d %s\n", ret, strerror(-ret));
     else
-        printf("result: %d\n", ret);
+        printf("result: %d user_data: %d -> %d\n", ret, sqe->user_data, cqe->user_data);
     io_uring_cqe_seen(ring, cqe);
     free(buf);
 }
@@ -70,7 +70,7 @@ inline bool operator == (const obj_ver_id & a, const obj_ver_id & b)
     return a.oid == b.oid && a.version == b.version;
 }
 
-int main(int argc, char *argv[])
+int main00(int argc, char *argv[])
 {
     // queue with random removal: vector is best :D
     // deque: 8.1s
@@ -208,7 +208,7 @@ int main1(int argc, char *argv[])
     return 0;
 }
 
-int main2(int argc, char *argv[])
+int main(int argc, char *argv[])
 {
     std::map<int, std::string> strs;
     strs.emplace(12, "str");
@@ -217,7 +217,7 @@ int main2(int argc, char *argv[])
     it--;
     printf("s = %d %s\n", it->first, it->second.c_str());
     struct io_uring ring;
-    int fd = open("testfile", O_RDWR | O_DIRECT, 0644);
+    int fd = open("/dev/loop0", O_RDWR | O_DIRECT, 0644);
     if (fd < 0)
     {
         perror("open infile");
