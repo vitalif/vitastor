@@ -48,7 +48,7 @@ blockstore::~blockstore()
 {
     delete flusher;
     free(zero_object);
-    ringloop->unregister_consumer(ring_consumer.number);
+    ringloop->unregister_consumer(ring_consumer);
     if (data_fd >= 0)
         close(data_fd);
     if (meta_fd >= 0 && meta_fd != data_fd)
@@ -246,5 +246,6 @@ int blockstore::enqueue_op(blockstore_operation *op)
     {
         enqueue_write(op);
     }
+    ringloop->wakeup(ring_consumer);
     return 0;
 }

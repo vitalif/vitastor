@@ -120,6 +120,7 @@ class ring_loop_t
 {
     std::vector<ring_consumer_t> consumers;
     struct ring_data_t *ring_data;
+    bool loop_again;
 public:
     struct io_uring ring;
     ring_loop_t(int qd);
@@ -134,8 +135,9 @@ public:
         return sqe;
     }
     int register_consumer(ring_consumer_t & consumer);
-    void unregister_consumer(int number);
-    void loop(bool sleep);
+    void wakeup(ring_consumer_t & consumer);
+    void unregister_consumer(ring_consumer_t & consumer);
+    void loop();
     inline int submit()
     {
         return io_uring_submit(&ring);

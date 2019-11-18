@@ -36,7 +36,7 @@ public:
 
     ~timerfd_interval()
     {
-        ringloop->unregister_consumer(consumer.number);
+        ringloop->unregister_consumer(consumer);
         close(timerfd);
     }
 
@@ -94,16 +94,22 @@ int main(int narg, char *args[])
     {
         printf("completed %d\n", op->retval);
     };
+    ring_consumer_t main_cons;
     bool bs_was_done = false;
-    while (true)
+    main_cons.loop = [&]()
     {
         bool bs_done = bs->is_started();
         if (bs_done && !bs_was_done)
         {
+            printf("init completed\n");
             bs->enqueue_op(&op);
             bs_was_done = true;
         }
-        ringloop->loop(true);
+    };
+    ringloop->register_consumer(main_cons);
+    while (true)
+    {
+        ringloop->loop();
     }
     delete bs;
     delete ringloop;

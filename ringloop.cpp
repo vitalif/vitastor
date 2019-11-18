@@ -27,17 +27,22 @@ int ring_loop_t::register_consumer(ring_consumer_t & consumer)
     return consumer.number;
 }
 
-void ring_loop_t::unregister_consumer(int number)
+void ring_loop_t::wakeup(ring_consumer_t & consumer)
 {
-    if (number < consumers.size())
+    loop_again = true;
+}
+
+void ring_loop_t::unregister_consumer(ring_consumer_t & consumer)
+{
+    if (consumer.number >= 0 && consumer.number < consumers.size())
     {
-        consumers[number].loop = NULL;
+        consumers[consumer.number].loop = NULL;
+        consumer.number = -1;
     }
 }
 
-void ring_loop_t::loop(bool sleep)
+void ring_loop_t::loop()
 {
-    // FIXME: we should loop until all "coroutines" are suspended. currently we loop only once before sleeping
     struct io_uring_cqe *cqe;
     while (!io_uring_peek_cqe(&ring, &cqe))
     {
@@ -49,12 +54,13 @@ void ring_loop_t::loop(bool sleep)
         }
         io_uring_cqe_seen(&ring, cqe);
     }
-    for (int i = 0; i < consumers.size(); i++)
+    do
     {
-        consumers[i].loop();
-    }
-    if (sleep)
-    {
-        io_uring_wait_cqe(&ring, &cqe);
-    }
+        loop_again = false;
+        for (int i = 0; i < consumers.size(); i++)
+        {
+            consumers[i].loop();
+        }
+    } while (loop_again);
+    io_uring_wait_cqe(&ring, &cqe);
 }

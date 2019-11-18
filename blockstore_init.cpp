@@ -254,6 +254,7 @@ int blockstore_init_journal::loop()
         bs->journal.crc32_last = crc32_last;
         journal_buffer = NULL;
         step = 100;
+        return 0;
     }
     return 1;
 }
