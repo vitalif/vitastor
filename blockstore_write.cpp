@@ -10,7 +10,7 @@ void blockstore::enqueue_write(blockstore_operation *op)
             .oid = op->oid,
             .version = UINT64_MAX,
         });
-        dirty_it--;
+        dirty_it--; // segfaults when dirty_db is empty
         if (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
         {
             found = true;
@@ -95,13 +95,14 @@ int blockstore::dequeue_write(blockstore_operation *op)
             op->iov_zerofill[vcnt++] = (struct iovec){ op->buf, op->len };
             if (op->offset+op->len < block_size)
                 op->iov_zerofill[vcnt++] = (struct iovec){ zero_object, block_size - (op->offset + op->len) };
+            data->iov.iov_len = block_size;
         }
         else
         {
             vcnt = 1;
             op->iov_zerofill[0] = (struct iovec){ op->buf, op->len };
+            data->iov.iov_len = op->len; // to check it in the callback
         }
-        data->iov.iov_len = op->len; // to check it in the callback
         data->callback = cb;
         my_uring_prep_writev(
             sqe, data_fd, op->iov_zerofill, vcnt, data_offset + (loc << block_order)

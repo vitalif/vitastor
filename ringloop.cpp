@@ -37,6 +37,7 @@ void ring_loop_t::unregister_consumer(int number)
 
 void ring_loop_t::loop(bool sleep)
 {
+    // FIXME: we should loop until all "coroutines" are suspended. currently we loop only once before sleeping
     struct io_uring_cqe *cqe;
     while (!io_uring_peek_cqe(&ring, &cqe))
     {
