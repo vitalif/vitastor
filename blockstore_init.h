@@ -16,7 +16,7 @@ public:
 class blockstore_init_journal
 {
     blockstore *bs;
-    int wait_state = 0;
+    int wait_state = 0, wait_count = 0;
     uint8_t *journal_buffer = NULL;
     uint32_t crc32_last = 0;
     bool started = false;
@@ -27,6 +27,7 @@ class blockstore_init_journal
     struct io_uring_sqe *sqe;
     struct ring_data_t *data;
     journal_entry_start *je_start;
+    std::function<void(ring_data_t*)> simple_callback;
     int handle_journal_part(void *buf, uint64_t len);
     void handle_event(ring_data_t *data);
 public:
