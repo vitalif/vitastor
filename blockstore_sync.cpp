@@ -101,6 +101,7 @@ int blockstore::continue_sync(blockstore_operation *op)
         data->callback = cb;
         op->pending_ops = 1 + s;
         op->sync_state = SYNC_JOURNAL_SYNC_SENT;
+        ringloop->submit();
     }
     else
     {
@@ -150,12 +151,12 @@ void blockstore::handle_sync_event(ring_data_t *data, blockstore_operation *op)
             {
                 dirty_db[*it].state = ST_J_SYNCED;
             }
+            ack_sync(op);
         }
         else
         {
             throw std::runtime_error("BUG: unexpected sync op state");
         }
-        ack_sync(op);
     }
 }
 

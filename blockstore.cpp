@@ -154,11 +154,6 @@ void blockstore::loop()
             }
             if (dequeue_op)
             {
-                int ret = ringloop->submit();
-                if (ret < 0)
-                {
-                    throw std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
-                }
                 submit_queue.erase(op_ptr);
             }
             else
@@ -173,6 +168,11 @@ void blockstore::loop()
             }
         }
         flusher->loop();
+        int ret = ringloop->submit();
+        if (ret < 0)
+        {
+            throw std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
+        }
     }
 }
 

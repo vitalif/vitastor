@@ -120,7 +120,7 @@ struct journal_t
     journal_sector_info_t *sector_info;
     uint64_t sector_count;
     int cur_sector = 0;
-    int in_sector_pos = 0;
+    int in_sector_pos = 512; // no free space because sector is initially inmapped
 
     // Used sector map
     // May use ~ 80 MB per 1 GB of used journal space in the worst case
@@ -137,28 +137,6 @@ struct blockstore_journal_check_t
     int check_available(blockstore_operation *op, int required, int size, int data_after);
 };
 
-inline journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, uint32_t size)
-{
-    if (512 - journal.in_sector_pos < size)
-    {
-        // Move to the next journal sector
-        // Also select next sector buffer in memory
-        journal.cur_sector = ((journal.cur_sector + 1) % journal.sector_count);
-        journal.sector_info[journal.cur_sector].offset = journal.next_free;
-        journal.in_sector_pos = 0;
-        journal.next_free = (journal.next_free+512) < journal.len ? journal.next_free + 512 : 512;
-        memset(journal.sector_buf + 512*journal.cur_sector, 0, 512);
-    }
-    journal_entry *je = (struct journal_entry*)(
-        journal.sector_buf + 512*journal.cur_sector + journal.in_sector_pos
-    );
-    journal.in_sector_pos += size;
-    je->magic = JOURNAL_MAGIC;
-    je->type = type;
-    je->size = size;
-    je->crc32_prev = journal.crc32_last;
-    return je;
-}
+journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, uint32_t size);
 
-// FIXME: make inline
 void prepare_journal_sector_write(journal_t & journal, io_uring_sqe *sqe, std::function<void(ring_data_t*)> cb);

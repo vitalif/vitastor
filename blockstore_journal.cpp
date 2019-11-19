@@ -12,6 +12,7 @@ blockstore_journal_check_t::blockstore_journal_check_t(blockstore *bs)
 // Check if we can write <required> entries of <size> bytes and <data_after> data bytes after them to the journal
 int blockstore_journal_check_t::check_available(blockstore_operation *op, int required, int size, int data_after)
 {
+    bool wrapped = false;
     while (1)
     {
         int fits = (512 - next_in_pos) / size;
@@ -22,10 +23,20 @@ int blockstore_journal_check_t::check_available(blockstore_operation *op, int re
             sectors_required++;
         }
         if (required <= 0)
+        {
             break;
-        next_pos = (next_pos+512) < bs->journal.len ? next_pos+512 : 512;
-        next_sector = ((next_sector + 1) % bs->journal.sector_count);
+        }
+        next_pos = next_pos+512;
+        if (next_pos >= bs->journal.len)
+        {
+            next_pos = 512;
+            wrapped = true;
+        }
         next_in_pos = 0;
+        if (bs->journal.sector_info[next_sector].usage_count > 0)
+        {
+            next_sector = ((next_sector + 1) % bs->journal.sector_count);
+        }
         if (bs->journal.sector_info[next_sector].usage_count > 0)
         {
             // No memory buffer available. Wait for it.
@@ -35,9 +46,14 @@ int blockstore_journal_check_t::check_available(blockstore_operation *op, int re
     }
     if (data_after > 0)
     {
-        next_pos = (bs->journal.len - next_pos < data_after ? 512 : next_pos) + data_after;
+        next_pos = next_pos + data_after;
+        if (next_pos > bs->journal.len)
+        {
+            wrapped = true;
+            next_pos = 512 + data_after;
+        }
     }
-    if (next_pos >= bs->journal.used_start)
+    if (wrapped && next_pos >= bs->journal.used_start)
     {
         // No space in the journal. Wait for it.
         op->wait_for = WAIT_JOURNAL;
@@ -45,6 +61,32 @@ int blockstore_journal_check_t::check_available(blockstore_operation *op, int re
         return 0;
     }
     return 1;
+}
+
+journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, uint32_t size)
+{
+    if (512 - journal.in_sector_pos < size)
+    {
+        // Move to the next journal sector
+        if (journal.sector_info[journal.cur_sector].usage_count > 0)
+        {
+            // Also select next sector buffer in memory
+            journal.cur_sector = ((journal.cur_sector + 1) % journal.sector_count);
+        }
+        journal.sector_info[journal.cur_sector].offset = journal.next_free;
+        journal.in_sector_pos = 0;
+        journal.next_free = (journal.next_free+512) < journal.len ? journal.next_free + 512 : 512;
+        memset(journal.sector_buf + 512*journal.cur_sector, 0, 512);
+    }
+    journal_entry *je = (struct journal_entry*)(
+        journal.sector_buf + 512*journal.cur_sector + journal.in_sector_pos
+    );
+    journal.in_sector_pos += size;
+    je->magic = JOURNAL_MAGIC;
+    je->type = type;
+    je->size = size;
+    je->crc32_prev = journal.crc32_last;
+    return je;
 }
 
 void prepare_journal_sector_write(journal_t & journal, io_uring_sqe *sqe, std::function<void(ring_data_t*)> cb)

@@ -82,30 +82,45 @@ int main(int narg, char *args[])
     {
         printf("tick 1s\n");
     });
+
     blockstore_operation op;
-    op.flags = OP_WRITE;
-    op.oid = { .inode = 1, .stripe = 0 };
-    op.version = 0;
-    op.offset = 4096;
-    op.len = 4096;
-    op.buf = (uint8_t*)memalign(512, 4096);
-    memset(op.buf, 0xaa, 4096);
-    op.callback = [](blockstore_operation *op)
-    {
-        printf("completed %d\n", op->retval);
-    };
+    int main_state = 0;
     ring_consumer_t main_cons;
-    bool bs_was_done = false;
+    op.callback = [&](blockstore_operation *op)
+    {
+        printf("op completed %d\n", op->retval);
+        if (main_state == 1)
+            main_state = 2;
+        else if (main_state == 3)
+            main_state = 4;
+    };
     main_cons.loop = [&]()
     {
-        bool bs_done = bs->is_started();
-        if (bs_done && !bs_was_done)
+        if (main_state == 0)
         {
-            printf("init completed\n");
+            if (bs->is_started())
+            {
+                printf("init completed\n");
+                op.flags = OP_WRITE;
+                op.oid = { .inode = 1, .stripe = 0 };
+                op.version = 0;
+                op.offset = 4096;
+                op.len = 4096;
+                op.buf = (uint8_t*)memalign(512, 4096);
+                memset(op.buf, 0xaa, 4096);
+                bs->enqueue_op(&op);
+                main_state = 1;
+            }
+        }
+        else if (main_state == 2)
+        {
+            printf("syncing\n");
+            op.flags = OP_SYNC;
             bs->enqueue_op(&op);
-            bs_was_done = true;
+            main_state = 3;
         }
     };
+
     ringloop->register_consumer(main_cons);
     while (true)
     {
