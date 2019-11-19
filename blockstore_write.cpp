@@ -132,16 +132,18 @@ int blockstore::dequeue_write(blockstore_operation *op)
             prefill_single_journal_entry(journal, JE_SMALL_WRITE, sizeof(struct journal_entry_small_write));
         dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
+        // Figure out where data will be
+        journal.next_free = (journal.next_free + op->len) < journal.len ? journal.next_free : 512;
         je->oid = op->oid;
         je->version = op->version;
         je->offset = op->offset;
         je->len = op->len;
+        je->data_offset = journal.next_free;
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
         prepare_journal_sector_write(journal, sqe1, cb);
         op->min_used_journal_sector = op->max_used_journal_sector = 1 + journal.cur_sector;
         // Prepare journal data write
-        journal.next_free = (journal.next_free + op->len) < journal.len ? journal.next_free : 512;
         data2->iov = (struct iovec){ op->buf, op->len };
         data2->callback = cb;
         my_uring_prep_writev(

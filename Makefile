@@ -5,7 +5,7 @@ clean:
 	rm -f *.o
 crc32c.o: crc32c.c
 	g++ -c -o $@ $<
-%.o: %.cpp blockstore.h
+%.o: %.cpp allocator.h blockstore_flush.h blockstore.h blockstore_init.h blockstore_journal.h crc32c.h ringloop.h xor.h
 	g++ -g -Wall -Wno-sign-compare -Wno-parentheses -c -o $@ $<
 test: test.cpp
 	g++ -g -O3 -o test -luring test.cpp

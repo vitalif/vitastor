@@ -37,7 +37,9 @@ struct __attribute__((__packed__)) journal_entry_small_write
     uint64_t version;
     uint32_t offset;
     uint32_t len;
-    // small_write entries contain <len> bytes of data, but data is stored in the next journal sector
+    // small_write entries contain <len> bytes of data which is stored in next sectors
+    // data_offset is its offset within journal
+    uint64_t data_offset;
 };
 
 struct __attribute__((__packed__)) journal_entry_big_write

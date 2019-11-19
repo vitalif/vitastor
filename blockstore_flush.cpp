@@ -184,7 +184,7 @@ resume_0:
             }
             else if (dirty_it->second.state == ST_D_STABLE)
             {
-                // There is an unflushed big write. Overwrite it with small writes
+                // There is an unflushed big write. Copy small writes in its position
                 if (!skip_copy)
                 {
                     clean_loc = dirty_it->second.location;
