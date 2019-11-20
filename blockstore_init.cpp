@@ -334,6 +334,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .oid = je->small_write.oid,
                     .version = je->small_write.version,
                 };
+                printf("je_small_write oid=%lu:%lu ver=%lu offset=%u len=%u\n", ov.oid.inode, ov.oid.stripe, ov.version, je->small_write.offset, je->small_write.len);
                 bs->dirty_db.emplace(ov, (dirty_entry){
                     .state = ST_J_SYNCED,
                     .flags = 0,
@@ -351,6 +352,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .oid = je->big_write.oid,
                     .version = je->big_write.version,
                 };
+                printf("je_big_write oid=%lu:%lu ver=%lu\n", ov.oid.inode, ov.oid.stripe, ov.version);
                 bs->dirty_db.emplace(ov, (dirty_entry){
                     .state = ST_D_META_SYNCED,
                     .flags = 0,
@@ -377,9 +379,18 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                 }
                 else
                 {
-                    it->second.state = (it->second.state == ST_D_META_SYNCED
-                        ? ST_D_STABLE
-                        : (it->second.state == ST_DEL_SYNCED ? ST_DEL_STABLE : ST_J_STABLE));
+                    printf("je_stable oid=%lu:%lu ver=%lu\n", ov.oid.inode, ov.oid.stripe, ov.version);
+                    while (1)
+                    {
+                        it->second.state = (it->second.state == ST_D_META_SYNCED
+                            ? ST_D_STABLE
+                            : (it->second.state == ST_DEL_SYNCED ? ST_DEL_STABLE : ST_J_STABLE));
+                        if (it == bs->dirty_db.begin())
+                            break;
+                        it--;
+                        if (it->first.oid != ov.oid || IS_STABLE(it->second.state))
+                            break;
+                    }
                     bs->flusher->queue_flush(ov);
                 }
             }

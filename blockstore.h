@@ -333,5 +333,5 @@ public:
     bool stop();
 
     // Submission
-    int enqueue_op(blockstore_operation *op);
+    void enqueue_op(blockstore_operation *op);
 };

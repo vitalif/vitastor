@@ -229,14 +229,16 @@ void blockstore::check_wait(blockstore_operation *op)
     }
 }
 
-int blockstore::enqueue_op(blockstore_operation *op)
+void blockstore::enqueue_op(blockstore_operation *op)
 {
-    if (op->offset >= block_size || op->len >= block_size-op->offset ||
-        (op->len % DISK_ALIGNMENT) ||
-        (op->flags & OP_TYPE_MASK) < OP_READ || (op->flags & OP_TYPE_MASK) > OP_DELETE)
+    int type = op->flags & OP_TYPE_MASK;
+    if (type < OP_READ || type > OP_DELETE || (type == OP_READ || type == OP_WRITE) &&
+        (op->offset >= block_size || op->len >= block_size-op->offset || (op->len % DISK_ALIGNMENT)))
     {
         // Basic verification not passed
-        return -EINVAL;
+        op->retval = -EINVAL;
+        op->callback(op);
+        return;
     }
     op->wait_for = 0;
     op->sync_state = 0;
@@ -247,5 +249,4 @@ int blockstore::enqueue_op(blockstore_operation *op)
         enqueue_write(op);
     }
     ringloop->wakeup(ring_consumer);
-    return 0;
 }

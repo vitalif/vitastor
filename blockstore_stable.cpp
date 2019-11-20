@@ -41,7 +41,7 @@ int blockstore::dequeue_stable(blockstore_operation *op)
             if (clean_it == clean_db.end() || clean_it->second.version < v->version)
             {
                 // No such object version
-                op->retval = EINVAL;
+                op->retval = -EINVAL;
                 op->callback(op);
                 return 1;
             }

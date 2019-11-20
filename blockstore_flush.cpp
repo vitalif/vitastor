@@ -151,7 +151,7 @@ resume_0:
         wait_count = 0;
         clean_loc = UINT64_MAX;
         skip_copy = false;
-        do
+        while (1)
         {
             if (dirty_it->second.state == ST_J_STABLE && !skip_copy)
             {
@@ -166,9 +166,9 @@ resume_0:
                             break;
                     if (it == v.end() || it->offset > offset)
                     {
-                        submit_len = it->offset >= offset+len ? len : it->offset-offset;
+                        submit_len = it == v.end() || it->offset >= offset+len ? len : it->offset-offset;
                         await_sqe(1);
-                        v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len, .buf = memalign(512, submit_len) });
+                        it = v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len, .buf = memalign(512, submit_len) });
                         data->iov = (struct iovec){ v.back().buf, (size_t)submit_len };
                         data->callback = simple_callback;
                         my_uring_prep_readv(
@@ -185,6 +185,7 @@ resume_0:
             else if (dirty_it->second.state == ST_D_STABLE)
             {
                 // There is an unflushed big write. Copy small writes in its position
+                printf("found ");
                 if (!skip_copy)
                 {
                     clean_loc = dirty_it->second.location;
@@ -195,8 +196,16 @@ resume_0:
             {
                 throw std::runtime_error("BUG: Unexpected dirty_entry state during flush: " + std::to_string(dirty_it->second.state));
             }
+            if (dirty_it == bs->dirty_db.begin())
+            {
+                break;
+            }
             dirty_it--;
-        } while (dirty_it != bs->dirty_db.begin() && dirty_it->first.oid == cur.oid);
+            if (dirty_it->first.oid != cur.oid)
+            {
+                break;
+            }
+        }
         if (wait_count == 0 && clean_loc == UINT64_MAX)
         {
             // Nothing to flush
@@ -219,11 +228,13 @@ resume_0:
             if (clean_it == bs->clean_db.end())
             {
                 // Object not present at all. This is a bug.
-                throw std::runtime_error("BUG: Object we are trying to flush not allocated on the data device");
+                throw std::runtime_error("BUG: Object we are trying to flush is not allocated on the data device");
             }
             else
                 clean_loc = clean_it->second.location;
         }
+        else
+            clean_it = bs->clean_db.end();
         // Also we need to submit the metadata read. We do a read-modify-write for every operation.
         // But we must check if the same sector is already in memory.
         // Another option is to keep all raw metadata in memory all the time. Maybe I'll do it sometime...

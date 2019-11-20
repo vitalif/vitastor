@@ -85,6 +85,7 @@ int main(int narg, char *args[])
 
     blockstore_operation op;
     int main_state = 0;
+    uint64_t version = 0;
     ring_consumer_t main_cons;
     op.callback = [&](blockstore_operation *op)
     {
@@ -93,6 +94,8 @@ int main(int narg, char *args[])
             main_state = 2;
         else if (main_state == 3)
             main_state = 4;
+        else if (main_state == 5)
+            main_state = 6;
     };
     main_cons.loop = [&]()
     {
@@ -114,10 +117,23 @@ int main(int narg, char *args[])
         }
         else if (main_state == 2)
         {
-            printf("syncing\n");
+            printf("version %u written, syncing\n", op.version);
+            version = op.version;
             op.flags = OP_SYNC;
             bs->enqueue_op(&op);
             main_state = 3;
+        }
+        else if (main_state == 4)
+        {
+            printf("stabilizing version %u\n", version);
+            op.flags = OP_STABLE;
+            op.len = 1;
+            *((obj_ver_id*)op.buf) = {
+                .oid = { .inode = 1, .stripe = 0 },
+                .version = version,
+            };
+            bs->enqueue_op(&op);
+            main_state = 5;
         }
     };
 
