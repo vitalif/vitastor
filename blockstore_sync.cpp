@@ -43,6 +43,7 @@ int blockstore::continue_sync(blockstore_operation *op)
         // No big writes, just fsync the journal
         BS_SUBMIT_GET_SQE(sqe, data);
         my_uring_prep_fsync(sqe, journal.fd, 0);
+        data->iov = { 0 };
         data->callback = cb;
         op->pending_ops = 1;
         op->sync_state = SYNC_JOURNAL_SYNC_SENT;
@@ -52,6 +53,7 @@ int blockstore::continue_sync(blockstore_operation *op)
         // 1st step: fsync data
         BS_SUBMIT_GET_SQE(sqe, data);
         my_uring_prep_fsync(sqe, data_fd, 0);
+        data->iov = { 0 };
         data->callback = cb;
         op->pending_ops = 1;
         op->sync_state = SYNC_DATA_SYNC_SENT;
@@ -98,6 +100,7 @@ int blockstore::continue_sync(blockstore_operation *op)
         // ... And a journal fsync
         my_uring_prep_fsync(sqe[s], journal.fd, 0);
         struct ring_data_t *data = ((ring_data_t*)sqe[s]->user_data);
+        data->iov = { 0 };
         data->callback = cb;
         op->pending_ops = 1 + s;
         op->sync_state = SYNC_JOURNAL_SYNC_SENT;
@@ -112,7 +115,7 @@ int blockstore::continue_sync(blockstore_operation *op)
 
 void blockstore::handle_sync_event(ring_data_t *data, blockstore_operation *op)
 {
-    if (data->res < data->iov.iov_len)
+    if (data->res != data->iov.iov_len)
     {
         throw std::runtime_error(
             "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+

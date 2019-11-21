@@ -342,12 +342,14 @@ resume_0:
                 // Sync batch is ready. Do it.
                 await_sqe(9);
                 data->callback = simple_callback;
+                data->iov = { 0 };
                 my_uring_prep_fsync(sqe, bs->data_fd, 0);
                 wait_count++;
                 if (bs->meta_fd != bs->data_fd)
                 {
                     await_sqe(10);
                     data->callback = simple_callback;
+                    data->iov = { 0 };
                     my_uring_prep_fsync(sqe, bs->meta_fd, 0);
                     wait_count++;
                 }

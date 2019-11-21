@@ -109,6 +109,7 @@ blockstore_init_journal::blockstore_init_journal(blockstore *bs)
     this->bs = bs;
     simple_callback = [this](ring_data_t *data1)
     {
+        printf("%d %d\n", data1->res, data1->iov.iov_len);
         if (data1->res != data1->iov.iov_len)
         {
             throw std::runtime_error(std::string("I/O operation failed while reading journal: ") + strerror(-data1->res));
@@ -184,29 +185,33 @@ resume_1:
     if (iszero((uint64_t*)journal_buffer, 3))
     {
         // Journal is empty
-        // FIXME handle this wrapping to 512 better ... and align it to 4096
+        // FIXME handle this wrapping to 512 better
         bs->journal.used_start = 512;
         bs->journal.next_free = 512;
-        // Initialize journal "superblock"
+        // Initialize journal "superblock" and the first block
+        // Cool effect. Same operations result in journal replay.
+        // FIXME: Randomize initial crc32. Track crc32 when trimming.
         GET_SQE();
-        memset(journal_buffer, 0, 512);
+        memset(journal_buffer, 0, 1024);
         *((journal_entry_start*)journal_buffer) = {
             .crc32 = 0,
             .magic = JOURNAL_MAGIC,
             .type = JE_START,
             .size = sizeof(journal_entry_start),
             .reserved = 0,
-            .journal_start = bs->journal.used_start,
+            .journal_start = 512,
         };
         ((journal_entry_start*)journal_buffer)->crc32 = je_crc32((journal_entry*)journal_buffer);
-        data->iov = (struct iovec){ journal_buffer, 512 };
+        data->iov = (struct iovec){ journal_buffer, 1024 };
         data->callback = simple_callback;
         my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
         wait_count++;
         GET_SQE();
         my_uring_prep_fsync(sqe, bs->journal.fd, 0);
+        data->iov = { 0 };
         data->callback = simple_callback;
         wait_count++;
+        printf("Resetting journal\n");
         bs->ringloop->submit();
     resume_4:
         if (wait_count > 0)
