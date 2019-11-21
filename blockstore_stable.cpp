@@ -126,7 +126,7 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
             auto dirty_it = dirty_db.find(*v);
             if (dirty_it != dirty_db.end())
             {
-                do
+                while (1)
                 {
                     if (dirty_it->second.state == ST_J_SYNCED)
                     {
@@ -140,8 +140,16 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
                     {
                         break;
                     }
+                    if (dirty_it == dirty_db.begin())
+                    {
+                        break;
+                    }
                     dirty_it--;
-                } while (dirty_it != dirty_db.begin() && dirty_it->first.oid == v->oid);
+                    if (dirty_it->first.oid != v->oid)
+                    {
+                        break;
+                    }
+                }
                 flusher->queue_flush(*v);
             }
         }

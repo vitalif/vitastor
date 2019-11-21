@@ -172,7 +172,7 @@ resume_0:
                         data->iov = (struct iovec){ v.back().buf, (size_t)submit_len };
                         data->callback = simple_callback;
                         my_uring_prep_readv(
-                            sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + dirty_it->second.location + offset
+                            sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + dirty_it->second.location + offset - dirty_it->second.offset
                         );
                         wait_count++;
                     }
@@ -185,7 +185,6 @@ resume_0:
             else if (dirty_it->second.state == ST_D_STABLE)
             {
                 // There is an unflushed big write. Copy small writes in its position
-                printf("found ");
                 if (!skip_copy)
                 {
                     clean_loc = dirty_it->second.location;
@@ -274,10 +273,12 @@ resume_0:
         }
         else
             meta_it->second.usage_count++;
-        wait_state = 3;
     resume_3:
         if (wait_count > 0)
+        {
+            wait_state = 3;
             return;
+        }
         // Reads completed, submit writes
         for (it = v.begin(); it != v.end(); it++)
         {
@@ -297,12 +298,12 @@ resume_0:
             wait_state = 5;
             return;
         }
-        *((clean_disk_entry*)meta_it->second.buf + meta_pos) = {
+        ((clean_disk_entry*)meta_it->second.buf)[meta_pos] = {
             .oid = cur.oid,
             .version = cur.version,
         };
         // I consider unordered writes to data & metadata safe here
-        // BUT it requires that journal entries even older than clean_db should be replayed after restart
+        // BUT it requires that journal entries even older than clean_db are replayed after restart
         await_sqe(6);
         data->iov = (struct iovec){ meta_it->second.buf, 512 };
         data->callback = simple_callback;
@@ -310,10 +311,12 @@ resume_0:
             sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + meta_sector
         );
         wait_count++;
-        wait_state = 7;
     resume_7:
         if (wait_count > 0)
+        {
+            wait_state = 7;
             return;
+        }
         // Done, free all buffers
         meta_it->second.usage_count--;
         if (meta_it->second.usage_count == 0)
@@ -383,7 +386,7 @@ resume_0:
             .location = clean_loc,
         };
         dirty_it = dirty_end;
-        do
+        while (1)
         {
             if (IS_BIG_WRITE(dirty_it->second.state) && dirty_it->second.location != clean_loc)
             {
@@ -394,8 +397,16 @@ resume_0:
             {
                 bs->journal.used_sectors.erase(dirty_it->second.journal_sector);
             }
+            if (dirty_it == bs->dirty_db.begin())
+            {
+                break;
+            }
             dirty_it--;
-        } while (dirty_it != bs->dirty_db.begin() && dirty_it->first.oid == cur.oid);
+            if (dirty_it->first.oid != cur.oid)
+            {
+                break;
+            }
+        }
         // Then, basically, remove everything up to the current version from dirty_db...
         if (dirty_it->first.oid != cur.oid)
             dirty_it++;
@@ -417,6 +428,7 @@ resume_0:
                 else
                 {
                     bs->journal.used_start = journal_used_it->first;
+                    // next_free does not need updating here
                 }
             }
             else if (journal_used_it->first > bs->journal.used_start)
@@ -444,10 +456,12 @@ resume_0:
             data->iov = (struct iovec){ flusher->journal_superblock, 512 };
             my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
             wait_count++;
-            wait_state = 13;
         resume_13:
             if (wait_count > 0)
+            {
+                wait_state = 13;
                 return;
+            }
         }
     do_not_trim:
         // All done
@@ -458,8 +472,8 @@ resume_0:
         {
             // Requeue version
             flusher->unshift_flush({ .oid = cur.oid, .version = repeat_it->second });
+            flusher->sync_to_repeat.erase(repeat_it);
         }
-        flusher->sync_to_repeat.erase(repeat_it);
         goto resume_0;
     }
 }

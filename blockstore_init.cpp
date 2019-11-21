@@ -58,7 +58,7 @@ int blockstore_init_meta::loop()
             int count = 512 / sizeof(clean_disk_entry);
             for (int sector = 0; sector < done_len; sector += 512)
             {
-                clean_disk_entry *entries = (clean_disk_entry*)(metadata_buffer + (prev_done == 1 ? bs->metadata_buf_size : 0) + sector);
+                clean_disk_entry *entries = (clean_disk_entry*)(metadata_buffer + (prev_done == 2 ? bs->metadata_buf_size : 0) + sector);
                 // handle <count> entries
                 handle_entries(entries, count, bs->block_order);
                 done_cnt += count;
@@ -88,12 +88,13 @@ void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int 
             auto clean_it = bs->clean_db.find(entries[i].oid);
             if (clean_it == end || clean_it->second.version < entries[i].version)
             {
-                entries_loaded++;
                 if (clean_it != end)
                 {
                     // free the previous block
                     allocator_set(bs->data_alloc, clean_it->second.version >> block_order, false);
                 }
+                else
+                    entries_loaded++;
                 allocator_set(bs->data_alloc, done_cnt+i, true);
                 bs->clean_db[entries[i].oid] = (struct clean_entry){
                     .version = entries[i].version,
@@ -109,7 +110,6 @@ blockstore_init_journal::blockstore_init_journal(blockstore *bs)
     this->bs = bs;
     simple_callback = [this](ring_data_t *data1)
     {
-        printf("%d %d\n", data1->res, data1->iov.iov_len);
         if (data1->res != data1->iov.iov_len)
         {
             throw std::runtime_error(std::string("I/O operation failed while reading journal: ") + strerror(-data1->res));
@@ -235,7 +235,7 @@ resume_1:
         journal_pos = bs->journal.used_start = je_start->journal_start;
         crc32_last = 0;
         // Read journal
-        while (true)
+        while (1)
         {
         resume_2:
             if (submitted)
