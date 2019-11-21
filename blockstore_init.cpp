@@ -22,55 +22,60 @@ void blockstore_init_meta::handle_event(ring_data_t *data)
 
 int blockstore_init_meta::loop()
 {
-    if (metadata_read >= bs->meta_len)
-    {
-        return 0;
-    }
+    if (wait_state == 1)
+        goto resume_1;
+    metadata_buffer = (uint8_t*)memalign(512, 2*bs->metadata_buf_size);
     if (!metadata_buffer)
+        throw std::bad_alloc();
+    while (1)
     {
-        metadata_buffer = (uint8_t*)memalign(512, 2*bs->metadata_buf_size);
-        if (!metadata_buffer)
-            throw std::bad_alloc();
-    }
-    if (!submitted)
-    {
-        struct io_uring_sqe *sqe = bs->get_sqe();
-        if (!sqe)
+    resume_1:
+        if (submitted)
         {
-            throw std::runtime_error("io_uring is full while trying to read metadata");
+            wait_state = 1;
+            return 1;
         }
-        struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
-        data->iov = {
-            metadata_buffer + (prev == 1 ? bs->metadata_buf_size : 0),
-            bs->meta_len - metadata_read > bs->metadata_buf_size ? bs->metadata_buf_size : bs->meta_len - metadata_read,
-        };
-        data->callback = [this](ring_data_t *data) { handle_event(data); };
-        my_uring_prep_readv(sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + metadata_read);
-        bs->ringloop->submit();
-        submitted = (prev == 1 ? 2 : 1);
-        prev = submitted;
-    }
-    if (prev_done)
-    {
-        int count = 512 / sizeof(clean_disk_entry);
-        for (int sector = 0; sector < done_len; sector += 512)
+        if (metadata_read < bs->meta_len)
         {
-            clean_disk_entry *entries = (clean_disk_entry*)(metadata_buffer + (prev_done == 1 ? bs->metadata_buf_size : 0) + sector);
-            // handle <count> entries
-            handle_entries(entries, count, bs->block_order);
-            done_cnt += count;
+            sqe = bs->get_sqe();
+            if (!sqe)
+            {
+                throw std::runtime_error("io_uring is full while trying to read metadata");
+            }
+            data = ((ring_data_t*)sqe->user_data);
+            data->iov = {
+                metadata_buffer + (prev == 1 ? bs->metadata_buf_size : 0),
+                bs->meta_len - metadata_read > bs->metadata_buf_size ? bs->metadata_buf_size : bs->meta_len - metadata_read,
+            };
+            data->callback = [this](ring_data_t *data) { handle_event(data); };
+            my_uring_prep_readv(sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + metadata_read);
+            bs->ringloop->submit();
+            submitted = (prev == 1 ? 2 : 1);
+            prev = submitted;
         }
-        prev_done = 0;
-        done_len = 0;
+        if (prev_done)
+        {
+            int count = 512 / sizeof(clean_disk_entry);
+            for (int sector = 0; sector < done_len; sector += 512)
+            {
+                clean_disk_entry *entries = (clean_disk_entry*)(metadata_buffer + (prev_done == 1 ? bs->metadata_buf_size : 0) + sector);
+                // handle <count> entries
+                handle_entries(entries, count, bs->block_order);
+                done_cnt += count;
+            }
+            prev_done = 0;
+            done_len = 0;
+        }
+        if (!submitted)
+        {
+            break;
+        }
     }
-    if (metadata_read >= bs->meta_len)
-    {
-        // metadata read finished
-        free(metadata_buffer);
-        metadata_buffer = NULL;
-        return 0;
-    }
-    return 1;
+    // metadata read finished
+    printf("Metadata entries loaded: %d\n", entries_loaded);
+    free(metadata_buffer);
+    metadata_buffer = NULL;
+    return 0;
 }
 
 void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int count, int block_order)
@@ -83,6 +88,7 @@ void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int 
             auto clean_it = bs->clean_db.find(entries[i].oid);
             if (clean_it == end || clean_it->second.version < entries[i].version)
             {
+                entries_loaded++;
                 if (clean_it != end)
                 {
                     // free the previous block

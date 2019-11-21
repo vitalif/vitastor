@@ -8,7 +8,7 @@ journal_flusher_t::journal_flusher_t(int flusher_count, blockstore *bs)
     active_until_sync = 0;
     sync_required = true;
     sync_threshold = flusher_count == 1 ? 1 : flusher_count/2;
-    journal_trim_interval = sync_threshold;
+    journal_trim_interval = 1;//sync_threshold; //FIXME
     journal_trim_counter = 0;
     journal_superblock = (uint8_t*)memalign(512, 512);
     co = new journal_flusher_co[flusher_count];
@@ -43,12 +43,12 @@ journal_flusher_t::~journal_flusher_t()
 
 void journal_flusher_t::loop()
 {
-    if (!active_flushers && !flush_queue.size())
-    {
-        return;
-    }
     for (int i = 0; i < flusher_count; i++)
     {
+        if (!active_flushers && !flush_queue.size())
+        {
+            return;
+        }
         co[i].loop();
     }
 }
