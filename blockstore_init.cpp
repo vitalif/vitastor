@@ -355,6 +355,8 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .journal_sector = proc_pos,
                 });
                 bs->journal.used_sectors[proc_pos]++;
+                auto & unstab = bs->unstable_writes[ov.oid];
+                unstab = !unstab || unstab > ov.version ? ov.version : unstab;
             }
             else if (je->type == JE_BIG_WRITE)
             {
@@ -373,6 +375,8 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .journal_sector = proc_pos,
                 });
                 bs->journal.used_sectors[proc_pos]++;
+                auto & unstab = bs->unstable_writes[ov.oid];
+                unstab = !unstab || unstab > ov.version ? ov.version : unstab;
             }
             else if (je->type == JE_STABLE)
             {
@@ -403,6 +407,11 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                             break;
                     }
                     bs->flusher->queue_flush(ov);
+                }
+                auto unstab_it = bs->unstable_writes.find(ov.oid);
+                if (unstab_it != bs->unstable_writes.end() && unstab_it->second <= ov.version)
+                {
+                    bs->unstable_writes.erase(unstab_it);
                 }
             }
             else if (je->type == JE_DELETE)

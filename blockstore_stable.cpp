@@ -22,11 +22,10 @@
 // AND We must do it in batches, for the sake of reduced fsync call count
 // AND We must know what we stabilize. Basic workflow is like:
 // 1) primary OSD receives sync request
-// 2) it determines his own unsynced writes from blockstore's information
-//    just before submitting fsync
-// 3) it submits syncs to blockstore and peers
-// 4) after everyone acks sync it takes the object list and sends stabilize requests to everyone
-// 5) after everyone acks stabilize requests it acks the client's sync operation
+// 2) it submits syncs to blockstore and peers
+// 3) after everyone acks sync it acks sync to the client
+// 4) after a while it takes his synced object list and sends stabilize requests
+//    to peers and to its own blockstore, thus freeing the old version
 
 int blockstore::dequeue_stable(blockstore_operation *op)
 {

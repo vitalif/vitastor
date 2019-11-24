@@ -50,6 +50,7 @@
 
 #define IS_IN_FLIGHT(st) (st == ST_IN_FLIGHT || st == ST_J_SUBMITTED || st == ST_D_SUBMITTED || st == ST_DEL_SUBMITTED)
 #define IS_STABLE(st) (st == ST_J_STABLE || st == ST_D_STABLE || st == ST_DEL_STABLE || st == ST_CURRENT)
+#define IS_SYNCED(st) (IS_STABLE(st) || st == ST_J_SYNCED || st == ST_D_META_SYNCED)
 #define IS_JOURNAL(st) (st >= ST_J_SUBMITTED && st <= ST_J_STABLE)
 #define IS_BIG_WRITE(st) (st >= ST_D_SUBMITTED && st <= ST_D_STABLE)
 #define IS_DELETE(st) (st >= ST_DEL_SUBMITTED && st <= ST_DEL_STABLE)
@@ -252,6 +253,7 @@ class blockstore
     std::map<obj_ver_id, dirty_entry> dirty_db;
     std::list<blockstore_operation*> submit_queue; // FIXME: funny thing is that vector is better here
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
+    std::map<object_id, uint64_t> unstable_writes;
     std::list<blockstore_operation*> in_progress_syncs; // ...and probably here, too
     uint32_t block_order, block_size;
     uint64_t block_count;

@@ -148,10 +148,14 @@ void blockstore::handle_sync_event(ring_data_t *data, blockstore_operation *op)
             op->sync_state = SYNC_DONE;
             for (auto it = op->sync_big_writes.begin(); it != op->sync_big_writes.end(); it++)
             {
+                auto & unstab = unstable_writes[it->oid];
+                unstab = !unstab || unstab > it->version ? it->version : unstab;
                 dirty_db[*it].state = ST_D_META_SYNCED;
             }
             for (auto it = op->sync_small_writes.begin(); it != op->sync_small_writes.end(); it++)
             {
+                auto & unstab = unstable_writes[it->oid];
+                unstab = !unstab || unstab > it->version ? it->version : unstab;
                 dirty_db[*it].state = ST_J_SYNCED;
             }
             ack_sync(op);

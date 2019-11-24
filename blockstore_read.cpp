@@ -96,7 +96,7 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
         {
             dirty_entry& dirty = dirty_it->second;
             bool version_ok = read_op->version >= dirty_it->first.version;
-            if (IS_STABLE(dirty.state))
+            if (IS_SYNCED(dirty.state))
             {
                 if (!version_ok && read_op->version != 0)
                     read_op->version = dirty_it->first.version;
