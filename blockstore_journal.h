@@ -40,6 +40,7 @@ struct __attribute__((__packed__)) journal_entry_small_write
     // small_write entries contain <len> bytes of data which is stored in next sectors
     // data_offset is its offset within journal
     uint64_t data_offset;
+    // FIXME add & verify data crc32c
 };
 
 struct __attribute__((__packed__)) journal_entry_big_write
@@ -98,7 +99,8 @@ struct __attribute__((__packed__)) journal_entry
 
 inline uint32_t je_crc32(journal_entry *je)
 {
-    return crc32c_zero4(((uint8_t*)je)+4, je->size-4);
+    // 0x48674bc7 = crc32(4 zero bytes)
+    return crc32c(0x48674bc7, ((uint8_t*)je)+4, je->size-4);
 }
 
 struct journal_sector_info_t
