@@ -11,6 +11,7 @@ int blockstore::dequeue_sync(blockstore_operation *op)
 {
     if (op->sync_state == 0)
     {
+        stop_sync_submitted = false;
         op->sync_big_writes.swap(unsynced_big_writes);
         op->sync_small_writes.swap(unsynced_small_writes);
         if (op->sync_big_writes.size() > 0)

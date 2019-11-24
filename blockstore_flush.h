@@ -70,6 +70,7 @@ public:
     journal_flusher_t(int flusher_count, blockstore *bs);
     ~journal_flusher_t();
     void loop();
+    bool is_active();
     void queue_flush(obj_ver_id oid);
     void unshift_flush(obj_ver_id oid);
 };

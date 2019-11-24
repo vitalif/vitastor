@@ -271,6 +271,8 @@ class blockstore
 
     ring_loop_t *ringloop;
 
+    bool stop_sync_submitted;
+
     inline struct io_uring_sqe* get_sqe()
     {
         return ringloop->get_sqe();
@@ -327,12 +329,14 @@ public:
     // Event loop
     void loop();
 
+    // Returns true when blockstore is ready to process operations
+    // (Although you're free to enqueue them before that)
     bool is_started();
 
     // Returns true when it's safe to destroy the instance. If destroying the instance
     // requires to purge some queues, starts that process. Should be called in the event
     // loop until it returns true.
-    bool stop();
+    bool is_safe_to_stop();
 
     // Submission
     void enqueue_op(blockstore_operation *op);

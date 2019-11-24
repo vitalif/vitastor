@@ -176,9 +176,32 @@ void blockstore::loop()
     }
 }
 
-bool blockstore::stop()
+bool blockstore::is_safe_to_stop()
 {
-    return false;
+    // It's safe to stop blockstore when there are no in-flight operations,
+    // no in-progress syncs and flusher isn't doing anything
+    if (submit_queue.size() > 0 || in_progress_syncs.size() > 0 || flusher->is_active())
+    {
+        return false;
+    }
+    if (unsynced_big_writes.size() > 0 || unsynced_small_writes.size() > 0)
+    {
+        if (!stop_sync_submitted)
+        {
+            // We should sync the blockstore before unmounting
+            blockstore_operation *op = new blockstore_operation;
+            op->flags = OP_SYNC;
+            op->buf = NULL;
+            op->callback = [&](blockstore_operation *op)
+            {
+                delete op;
+            };
+            enqueue_op(op);
+            stop_sync_submitted = true;
+        }
+        return false;
+    }
+    return true;
 }
 
 void blockstore::check_wait(blockstore_operation *op)

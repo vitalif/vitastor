@@ -41,6 +41,11 @@ journal_flusher_t::~journal_flusher_t()
     delete[] co;
 }
 
+bool journal_flusher_t::is_active()
+{
+    return active_flushers > 0 || flush_queue.size() > 0;
+}
+
 void journal_flusher_t::loop()
 {
     for (int i = 0; i < flusher_count; i++)
