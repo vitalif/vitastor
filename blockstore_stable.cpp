@@ -85,6 +85,12 @@ int blockstore::dequeue_stable(blockstore_operation *op)
     int s = 0, cur_sector = -1;
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
     {
+        auto unstab_it = unstable_writes.find(v->oid);
+        if (unstab_it != unstable_writes.end() &&
+            unstab_it->second <= v->version)
+        {
+            unstable_writes.erase(unstab_it);
+        }
         journal_entry_stable *je = (journal_entry_stable*)
             prefill_single_journal_entry(journal, JE_STABLE, sizeof(journal_entry_stable));
         je->oid = v->oid;

@@ -236,6 +236,9 @@ static void crc32c_init_hw(void)
 /* Compute CRC-32C using the Intel hardware instruction. */
 static uint32_t crc32c_hw(uint32_t crc, const void *buf, size_t len)
 {
+#ifndef __x86_64__
+    return 0;
+#else
     const unsigned char *next = (const unsigned char*)buf;
     const unsigned char *end;
     uint64_t crc0, crc1, crc2;      /* need to be 64 bits for crc32q */
@@ -338,6 +341,7 @@ static uint32_t crc32c_hw(uint32_t crc, const void *buf, size_t len)
 
     /* return a post-processed crc */
     return (uint32_t)crc0 ^ 0xffffffff;
+#endif
 }
 
 /* Check for SSE 4.2.  SSE 4.2 was first supported in Nehalem processors
@@ -360,8 +364,11 @@ static uint32_t crc32c_hw(uint32_t crc, const void *buf, size_t len)
    version.  Otherwise, use the software version. */
 uint32_t crc32c(uint32_t crc, const void *buf, size_t len)
 {
+#ifndef __x86_64__
+    return crc32c_sw(crc, buf, len);
+#else
     int sse42;
-
     SSE42(sse42);
     return sse42 ? crc32c_hw(crc, buf, len) : crc32c_sw(crc, buf, len);
+#endif
 }
