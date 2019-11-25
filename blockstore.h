@@ -212,7 +212,7 @@ struct blockstore_operation
     uint32_t offset;
     // For stabilize requests: buf contains <len> obj_ver_id's to stabilize
     uint32_t len;
-    uint8_t *buf; // FIXME: void*
+    void *buf;
     int retval;
 
     // FIXME: Move internal fields somewhere
@@ -253,9 +253,7 @@ class blockstore
     std::map<obj_ver_id, dirty_entry> dirty_db;
     std::list<blockstore_operation*> submit_queue; // FIXME: funny thing is that vector is better here
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
-    std::map<object_id, uint64_t> unstable_writes;
     std::list<blockstore_operation*> in_progress_syncs; // ...and probably here, too
-    uint32_t block_order, block_size;
     uint64_t block_count;
     allocator *data_alloc;
     uint8_t *zero_object;
@@ -340,4 +338,8 @@ public:
 
     // Submission
     void enqueue_op(blockstore_operation *op);
+
+    // FIXME public morozov
+    std::map<object_id, uint64_t> unstable_writes;
+    uint32_t block_order, block_size;
 };

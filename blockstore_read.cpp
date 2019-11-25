@@ -15,12 +15,12 @@ int blockstore::fulfill_read_push(blockstore_operation *op, uint64_t &fulfilled,
         else if (IS_DELETE(item_state))
         {
             // item is unallocated - return zeroes
-            memset(op->buf + cur_start - op->offset, 0, cur_end - cur_start);
+            memset((uint8_t*)op->buf + cur_start - op->offset, 0, cur_end - cur_start);
             return 1;
         }
         BS_SUBMIT_GET_SQE(sqe, data);
         data->iov = (struct iovec){
-            op->buf + cur_start - op->offset,
+            (uint8_t*)op->buf + cur_start - op->offset,
             cur_end - cur_start
         };
         // FIXME: use simple std::vector instead of map for read_vec

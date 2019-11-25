@@ -1,7 +1,11 @@
 // FIO engine to test Blockstore
 
 #include "blockstore.h"
-#include "fio.h"
+extern "C" {
+#define CONFIG_PWRITEV2
+#include "fio/fio.h"
+#include "fio/optgroup.h"
+}
 
 struct bs_data
 {
@@ -20,11 +24,11 @@ static struct fio_option options[] = {
     {
         .name   = "data_device",
         .lname  = "Data device",
+        .type   = FIO_OPT_STR_STORE,
+        .off1   = offsetof(struct bs_options, data_device),
         .help   = "Name of the data device",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
-        .type   = FIO_OPT_STR_STORE,
-        .off1   = offsetof(struct bs_options, data_device),
     },
     {
         .name = NULL,
@@ -34,7 +38,7 @@ static struct fio_option options[] = {
 static int bs_setup(struct thread_data *td)
 {
     bs_data *bsd;
-    bs_options *o = td->eo;
+    bs_options *o = (bs_options*)td->eo;
     fio_file *f;
     int r;
     //int64_t size;
@@ -62,20 +66,20 @@ static int bs_setup(struct thread_data *td)
 
 static void bs_cleanup(struct thread_data *td)
 {
-    bs_data *bsd = td->io_ops_data;
+    bs_data *bsd = (bs_data*)td->io_ops_data;
 
     if (bsd)
     {
         
-        free(bs_data);
+        free(bsd);
     }
 }
 
 /* Connect to the server from each thread. */
 static int bs_init(struct thread_data *td)
 {
-    struct bs_options *o = td->eo;
-    struct bs_data *bs_data = td->io_ops_data;
+    bs_options *o = (bs_options*)td->eo;
+    bs_data *bsd = (bs_data*)td->io_ops_data;
     int r;
 
     spp::sparse_hash_map<std::string, std::string> config;
@@ -83,7 +87,7 @@ static int bs_init(struct thread_data *td)
     config["journal_device"] = "./test_journal.bin";
     config["data_device"] = "./test_data.bin";
     bsd->ringloop = new ring_loop_t(512);
-    bsd->bs = new blockstore(config, ringloop);
+    bsd->bs = new blockstore(config, bsd->ringloop);
     while (!bsd->bs->is_started())
     {
         bsd->ringloop->loop();
@@ -96,14 +100,14 @@ static int bs_init(struct thread_data *td)
 /* Begin read or write request. */
 static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io_u)
 {
-    struct bs_data *bsd = td->io_ops_data;
+    bs_data *bsd = (bs_data*)td->io_ops_data;
 
     fio_ro_check(td, io_u);
 
     io_u->engine_data = bsd;
 
     if (io_u->ddir == DDIR_WRITE || io_u->ddir == DDIR_READ)
-        assert(io_u->xfer_buflen <= bsd->block_size);
+        assert(io_u->xfer_buflen <= bsd->bs->block_size);
 
     blockstore_operation *op = new blockstore_operation;
 
@@ -114,9 +118,9 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io_u)
         op->buf = io_u->xfer_buf;
         op->oid = {
             .inode = 1,
-            .stripe = io_u->offset >> bsd->block_order,
+            .stripe = io_u->offset >> bsd->bs->block_order,
         };
-        op->offset = io_u->offset % bsd->block_size;
+        op->offset = io_u->offset % bsd->bs->block_size;
         op->len = io_u->xfer_buflen;
         op->callback = [&](blockstore_operation *op)
         {
@@ -129,9 +133,9 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io_u)
         op->buf = io_u->xfer_buf;
         op->oid = {
             .inode = 1,
-            .stripe = io_u->offset >> bsd->block_order,
+            .stripe = io_u->offset >> bsd->bs->block_order,
         };
-        op->offset = io_u->offset % bsd->block_size;
+        op->offset = io_u->offset % bsd->bs->block_size;
         op->len = io_u->xfer_buflen;
         op->callback = [&](blockstore_operation *op)
         {
@@ -147,11 +151,12 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io_u)
             {
                 op->flags = OP_STABLE;
                 op->len = bsd->bs->unstable_writes.size();
-                op->buf = new obj_ver_id[op->len];
+                obj_ver_id *vers = new obj_ver_id[op->len];
+                op->buf = vers;
                 int i = 0;
                 for (auto it = bsd->bs->unstable_writes.begin(); it != bsd->bs->unstable_writes.end(); it++, i++)
                 {
-                    op->buf[i] = {
+                    vers[i] = {
                         .oid = it->first,
                         .version = it->second,
                     };
@@ -160,7 +165,8 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io_u)
                 op->callback = [&](blockstore_operation *op)
                 {
                     bsd->completed.push_back(io_u);
-                    delete[] op->buf;
+                    obj_ver_id *vers = (obj_ver_id*)op->buf;
+                    delete[] vers;
                     delete op;
                 };
             }
@@ -184,7 +190,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io_u)
 
 static int bs_getevents(struct thread_data *td, unsigned int min, unsigned int max, const struct timespec *t)
 {
-    struct bs_data *bsd = td->io_ops_data;
+    bs_data *bsd = (bs_data*)td->io_ops_data;
     // FIXME timeout
     while (bsd->completed.size() < min)
     {
@@ -195,7 +201,7 @@ static int bs_getevents(struct thread_data *td, unsigned int min, unsigned int m
 
 static struct io_u *bs_event(struct thread_data *td, int event)
 {
-    struct bs_data *bsd = td->io_ops_data;
+    bs_data *bsd = (bs_data*)td->io_ops_data;
     if (bsd->completed.size() == 0)
         return NULL;
     /* FIXME We ignore the event number and assume fio calls us exactly once for [0..nr_events-1] */
@@ -224,24 +230,20 @@ static int bs_invalidate(struct thread_data *td, struct fio_file *f)
     return 0;
 }
 
-static struct ioengine_ops ioengine = {
+struct ioengine_ops ioengine = {
     .name               = "microceph_blockstore",
     .version            = FIO_IOOPS_VERSION,
-    .options            = options,
-    .option_struct_size = sizeof(struct bs_options),
     .flags              = FIO_MEMALIGN | FIO_DISKLESSIO | FIO_NOEXTEND,
-
     .setup              = bs_setup,
     .init               = bs_init,
-    .cleanup            = bs_cleanup,
     .queue              = bs_queue,
     .getevents          = bs_getevents,
     .event              = bs_event,
-    .io_u_init          = bs_io_u_init,
-    .io_u_free          = bs_io_u_free,
-
+    .cleanup            = bs_cleanup,
     .open_file          = bs_open_file,
     .invalidate         = bs_invalidate,
+    .io_u_init          = bs_io_u_init,
+    .io_u_free          = bs_io_u_free,
 };
 
 static void fio_init fio_bs_register(void)
