@@ -43,7 +43,7 @@ static int bs_setup(struct thread_data *td)
     int r;
     //int64_t size;
 
-    bsd = (bs_data*)calloc(1, sizeof(*bsd));
+    bsd = new bs_data;
     if (!bsd)
     {
         td_verror(td, errno, "calloc");
@@ -71,7 +71,7 @@ static void bs_cleanup(struct thread_data *td)
     if (bsd)
     {
         
-        free(bsd);
+        delete bsd;
     }
 }
 
@@ -88,9 +88,12 @@ static int bs_init(struct thread_data *td)
     config["data_device"] = "./test_data.bin";
     bsd->ringloop = new ring_loop_t(512);
     bsd->bs = new blockstore(config, bsd->ringloop);
-    while (!bsd->bs->is_started())
+    while (1)
     {
         bsd->ringloop->loop();
+        if (bsd->bs->is_started())
+            break;
+        bsd->ringloop->wait();
     }
 
     log_info("fio: blockstore initialized\n");
@@ -122,8 +125,9 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io_u)
         };
         op->offset = io_u->offset % bsd->bs->block_size;
         op->len = io_u->xfer_buflen;
-        op->callback = [&](blockstore_operation *op)
+        op->callback = [io_u](blockstore_operation *op)
         {
+            bs_data *bsd = (bs_data*)io_u->engine_data;
             bsd->completed.push_back(io_u);
             delete op;
         };
@@ -137,16 +141,18 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io_u)
         };
         op->offset = io_u->offset % bsd->bs->block_size;
         op->len = io_u->xfer_buflen;
-        op->callback = [&](blockstore_operation *op)
+        op->callback = [io_u](blockstore_operation *op)
         {
+            bs_data *bsd = (bs_data*)io_u->engine_data;
             bsd->completed.push_back(io_u);
             delete op;
         };
         break;
     case DDIR_SYNC:
         op->flags = OP_SYNC;
-        op->callback = [&](blockstore_operation *op)
+        op->callback = [io_u](blockstore_operation *op)
         {
+            bs_data *bsd = (bs_data*)io_u->engine_data;
             if (bsd->bs->unstable_writes.size() > 0)
             {
                 op->flags = OP_STABLE;
@@ -162,8 +168,9 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io_u)
                     };
                 }
                 bsd->bs->enqueue_op(op);
-                op->callback = [&](blockstore_operation *op)
+                op->callback = [io_u](blockstore_operation *op)
                 {
+                    bs_data *bsd = (bs_data*)io_u->engine_data;
                     bsd->completed.push_back(io_u);
                     obj_ver_id *vers = (obj_ver_id*)op->buf;
                     delete[] vers;
@@ -192,9 +199,12 @@ static int bs_getevents(struct thread_data *td, unsigned int min, unsigned int m
 {
     bs_data *bsd = (bs_data*)td->io_ops_data;
     // FIXME timeout
-    while (bsd->completed.size() < min)
+    while (true)
     {
         bsd->ringloop->loop();
+        if (bsd->completed.size() >= min)
+            break;
+        bsd->ringloop->wait();
     }
     return bsd->completed.size();
 }

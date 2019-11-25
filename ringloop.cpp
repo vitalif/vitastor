@@ -62,5 +62,4 @@ void ring_loop_t::loop()
             consumers[i].loop();
         }
     } while (loop_again);
-    io_uring_wait_cqe(&ring, &cqe);
 }

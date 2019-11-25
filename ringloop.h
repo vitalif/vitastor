@@ -142,4 +142,9 @@ public:
     {
         return io_uring_submit(&ring);
     }
+    inline int wait()
+    {
+        struct io_uring_cqe *cqe;
+        return io_uring_wait_cqe(&ring, &cqe);
+    }
 };
