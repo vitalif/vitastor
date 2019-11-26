@@ -1,4 +1,5 @@
 // FIO engine to test Blockstore
+// fio -thread -ioengine=./libfio_blockstore.so -name=test -bs=4k -direct=1 -fsync=16 -iodepth=16 -rw=randwrite -size=1G
 
 #include "blockstore.h"
 extern "C" {

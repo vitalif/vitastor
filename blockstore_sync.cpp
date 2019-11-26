@@ -39,6 +39,7 @@ int blockstore::continue_sync(blockstore_operation *op)
     if (op->sync_state == SYNC_HAS_SMALL)
     {
         // No big writes, just fsync the journal
+        // FIXME: Add no-fsync mode
         BS_SUBMIT_GET_SQE(sqe, data);
         my_uring_prep_fsync(sqe, journal.fd, 0);
         data->iov = { 0 };
@@ -50,6 +51,7 @@ int blockstore::continue_sync(blockstore_operation *op)
     else if (op->sync_state == SYNC_HAS_BIG)
     {
         // 1st step: fsync data
+        // FIXME: Add no-fsync mode
         BS_SUBMIT_GET_SQE(sqe, data);
         my_uring_prep_fsync(sqe, data_fd, 0);
         data->iov = { 0 };
