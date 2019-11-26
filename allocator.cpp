@@ -57,7 +57,7 @@ void allocator::set(uint64_t addr, bool value)
         {
             if (value)
             {
-                mask[last] = mask[last] | (1 << bit);
+                mask[last] = mask[last] | (1l << bit);
                 if (mask[last] != (!is_last || cur_addr/64 < size/64
                     ? UINT64_MAX : last_one_mask))
                 {
@@ -66,7 +66,7 @@ void allocator::set(uint64_t addr, bool value)
             }
             else
             {
-                mask[last] = mask[last] & ~(1 << bit);
+                mask[last] = mask[last] & ~(1l << bit);
                 if (mask[last] != 0)
                 {
                     break;

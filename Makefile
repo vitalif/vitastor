@@ -11,5 +11,7 @@ test: test.cpp
 	g++ -g -O3 -o test -luring test.cpp
 test_blockstore: $(BLOCKSTORE_OBJS) test_blockstore.cpp
 	g++ -g -o test_blockstore -luring test_blockstore.cpp $(BLOCKSTORE_OBJS)
+test_allocator: test_allocator.cpp allocator.o
+	g++ -g -o test_allocator test_allocator.cpp allocator.o
 libfio_blockstore.so: fio_engine.cpp $(BLOCKSTORE_OBJS)
 	g++ -g -Wno-pointer-arith -fPIC -shared -luring -o libfio_blockstore.so fio_engine.cpp $(BLOCKSTORE_OBJS)
