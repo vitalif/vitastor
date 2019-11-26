@@ -226,20 +226,21 @@ resume_0:
             wait_state = 0;
             goto resume_0;
         }
+        // Find it in clean_db
+        {
+            auto clean_it = bs->clean_db.find(cur.oid);
+            old_clean_loc = (clean_it != bs->clean_db.end() ? clean_it->second.location : UINT64_MAX);
+        }
         if (clean_loc == UINT64_MAX)
         {
-            // Find it in clean_db
-            clean_it = bs->clean_db.find(cur.oid);
-            if (clean_it == bs->clean_db.end())
+            if (old_clean_loc == UINT64_MAX)
             {
                 // Object not present at all. This is a bug.
                 throw std::runtime_error("BUG: Object we are trying to flush is not allocated on the data device");
             }
             else
-                clean_loc = clean_it->second.location;
+                clean_loc = old_clean_loc;
         }
-        else
-            clean_it = bs->clean_db.end();
         // Also we need to submit the metadata read. We do a read-modify-write for every operation.
         // But we must check if the same sector is already in memory.
         // Another option is to keep all raw metadata in memory all the time. Maybe I'll do it sometime...
@@ -383,9 +384,9 @@ resume_0:
             }
         }
         // Update clean_db and dirty_db, free old data locations
-        if (clean_it != bs->clean_db.end() && clean_it->second.location != clean_loc)
+        if (old_clean_loc != clean_loc)
         {
-            bs->data_alloc->set(clean_it->second.location >> bs->block_order, false);
+            bs->data_alloc->set(old_clean_loc >> bs->block_order, false);
         }
         bs->clean_db[cur.oid] = {
             .version = cur.version,

@@ -4,9 +4,9 @@ all: $(BLOCKSTORE_OBJS) test test_blockstore libfio_blockstore.so
 clean:
 	rm -f *.o
 crc32c.o: crc32c.c
-	g++ -fPIC -c -o $@ $<
+	g++ -g -O3 -fPIC -c -o $@ $<
 %.o: %.cpp allocator.h blockstore_flush.h blockstore.h blockstore_init.h blockstore_journal.h crc32c.h ringloop.h xor.h timerfd_interval.h
-	g++ -g -Wall -Wno-sign-compare -Wno-parentheses -fPIC -c -o $@ $<
+	g++ -g -O3 -Wall -Wno-sign-compare -Wno-parentheses -fPIC -c -o $@ $<
 test: test.cpp
 	g++ -g -O3 -o test -luring test.cpp
 test_blockstore: $(BLOCKSTORE_OBJS) test_blockstore.cpp
@@ -14,4 +14,4 @@ test_blockstore: $(BLOCKSTORE_OBJS) test_blockstore.cpp
 test_allocator: test_allocator.cpp allocator.o
 	g++ -g -o test_allocator test_allocator.cpp allocator.o
 libfio_blockstore.so: fio_engine.cpp $(BLOCKSTORE_OBJS)
-	g++ -g -Wno-pointer-arith -fPIC -shared -luring -o libfio_blockstore.so fio_engine.cpp $(BLOCKSTORE_OBJS)
+	g++ -g -O3 -Wno-pointer-arith -fPIC -shared -luring -o libfio_blockstore.so fio_engine.cpp $(BLOCKSTORE_OBJS)
