@@ -15,7 +15,7 @@ struct bs_data
     ring_loop_t *ringloop;
     /* The list of completed io_u structs. */
     std::vector<io_u*> completed;
-    int op_n = 0;
+    int op_n = 0, inflight = 0;
 };
 
 struct bs_options
@@ -151,6 +151,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         {
             io->error = op->retval < 0 ? -op->retval : 0;
             bs_data *bsd = (bs_data*)io->engine_data;
+            bsd->inflight--;
             bsd->completed.push_back(io);
             if (DEBUG)
                 printf("--- OP_WRITE %llx n=%d retval=%d\n", io, n, op->retval);
@@ -182,6 +183,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
                     io->error = op->retval < 0 ? -op->retval : 0;
                     bs_data *bsd = (bs_data*)io->engine_data;
                     bsd->completed.push_back(io);
+                    bsd->inflight--;
                     obj_ver_id *vers = (obj_ver_id*)op->buf;
                     delete[] vers;
                     if (DEBUG)
@@ -193,6 +195,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
             {
                 io->error = op->retval < 0 ? -op->retval : 0;
                 bsd->completed.push_back(io);
+                bsd->inflight--;
                 if (DEBUG)
                     printf("--- OP_SYNC %llx n=%d retval=%d\n", io, n, op->retval);
                 delete op;
@@ -207,6 +210,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
     if (DEBUG)
         printf("+++ %s %llx\n", op->flags == OP_WRITE ? "OP_WRITE" : "OP_SYNC", io);
     io->error = 0;
+    bsd->inflight++;
     bsd->bs->enqueue_op(op);
     bsd->op_n++;
 

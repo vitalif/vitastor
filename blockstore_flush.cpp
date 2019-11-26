@@ -141,14 +141,15 @@ resume_0:
         {
             // We don't flush different parts of history of the same object in parallel
             // So we check if someone is already flushing this object
-            // In that case we set sync_to_repeat to 2 and pick another object
-            // Another coroutine will see this "2" and re-queue the object after it finishes
-            repeat_it->second = cur.version;
+            // In that case we set sync_to_repeat and pick another object
+            // Another coroutine will see it and re-queue the object after it finishes
+            if (repeat_it->second < cur.version)
+                repeat_it->second = cur.version;
             wait_state = 0;
             goto resume_0;
         }
         else
-            repeat_it->second = 0;
+            flusher->sync_to_repeat[cur.oid] = 0;
         dirty_it = dirty_end;
         flusher->active_flushers++;
         flusher->active_until_sync++;

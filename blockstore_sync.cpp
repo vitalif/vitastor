@@ -26,12 +26,9 @@ int blockstore::dequeue_sync(blockstore_operation *op)
     int r = continue_sync(op);
     if (r)
     {
-        int done = ack_sync(op);
-        if (!done)
-        {
-            op->prev_sync_count = in_progress_syncs.size();
-            op->in_progress_ptr = in_progress_syncs.insert(in_progress_syncs.end(), op);
-        }
+        op->prev_sync_count = in_progress_syncs.size();
+        op->in_progress_ptr = in_progress_syncs.insert(in_progress_syncs.end(), op);
+        ack_sync(op);
     }
     return r;
 }
@@ -39,7 +36,6 @@ int blockstore::dequeue_sync(blockstore_operation *op)
 int blockstore::continue_sync(blockstore_operation *op)
 {
     auto cb = [this, op](ring_data_t *data) { handle_sync_event(data, op); };
-    op->min_used_journal_sector = op->max_used_journal_sector = 0;
     if (op->sync_state == SYNC_HAS_SMALL)
     {
         // No big writes, just fsync the journal
@@ -47,6 +43,7 @@ int blockstore::continue_sync(blockstore_operation *op)
         my_uring_prep_fsync(sqe, journal.fd, 0);
         data->iov = { 0 };
         data->callback = cb;
+        op->min_used_journal_sector = op->max_used_journal_sector = 0;
         op->pending_ops = 1;
         op->sync_state = SYNC_JOURNAL_SYNC_SENT;
     }
@@ -57,6 +54,7 @@ int blockstore::continue_sync(blockstore_operation *op)
         my_uring_prep_fsync(sqe, data_fd, 0);
         data->iov = { 0 };
         data->callback = cb;
+        op->min_used_journal_sector = op->max_used_journal_sector = 0;
         op->pending_ops = 1;
         op->sync_state = SYNC_DATA_SYNC_SENT;
     }
@@ -107,10 +105,6 @@ int blockstore::continue_sync(blockstore_operation *op)
         op->pending_ops = 1 + s;
         op->sync_state = SYNC_JOURNAL_SYNC_SENT;
         ringloop->submit();
-    }
-    else
-    {
-        return 0;
     }
     return 1;
 }
