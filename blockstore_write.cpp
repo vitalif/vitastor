@@ -72,7 +72,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
     if (op->len == block_size || op->version == 1)
     {
         // Big (redirect) write
-        uint64_t loc = allocator_find_free(data_alloc);
+        uint64_t loc = data_alloc->find_free();
         if (loc == UINT64_MAX)
         {
             // no space
@@ -83,7 +83,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
         BS_SUBMIT_GET_SQE(sqe, data);
         dirty_it->second.location = loc << block_order;
         dirty_it->second.state = ST_D_SUBMITTED;
-        allocator_set(data_alloc, loc, true);
+        data_alloc->set(loc, true);
         int vcnt = 0;
         if (op->version == 1 && op->len != block_size)
         {

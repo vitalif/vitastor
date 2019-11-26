@@ -1,13 +1,14 @@
+#include <stdexcept>
 #include "allocator.h"
 
 #include <stdlib.h>
 #include <malloc.h>
 
-allocator *allocator_create(uint64_t blocks)
+allocator::allocator(uint64_t blocks)
 {
     if (blocks >= 0x80000000 || blocks <= 1)
     {
-        return NULL;
+        throw std::invalid_argument("blocks");
     }
     uint64_t p2 = 1, total = 1;
     while (p2 * 64 < blocks)
@@ -17,31 +18,30 @@ allocator *allocator_create(uint64_t blocks)
     }
     total -= p2;
     total += (blocks+63) / 64;
-    allocator *buf = (allocator*)memalign(sizeof(uint64_t), (2 + total)*sizeof(uint64_t));
-    buf->size = blocks;
-    buf->last_one_mask = (blocks % 64) == 0
+    mask = new uint64_t[2 + total];
+    size = blocks;
+    last_one_mask = (blocks % 64) == 0
         ? UINT64_MAX
         : ~(UINT64_MAX << (64 - blocks % 64));
     for (uint64_t i = 0; i < total; i++)
     {
-        buf->mask[i] = 0;
+        mask[i] = 0;
     }
-    return buf;
 }
 
-void allocator_destroy(allocator *alloc)
+allocator::~allocator()
 {
-    free(alloc);
+    delete[] mask;
 }
 
-void allocator_set(allocator *alloc, uint64_t addr, bool value)
+void allocator::set(uint64_t addr, bool value)
 {
-    if (addr >= alloc->size)
+    if (addr >= size)
     {
         return;
     }
     uint64_t p2 = 1, offset = 0;
-    while (p2 * 64 < alloc->size)
+    while (p2 * 64 < size)
     {
         offset += p2;
         p2 = p2 * 64;
@@ -53,21 +53,21 @@ void allocator_set(allocator *alloc, uint64_t addr, bool value)
     {
         uint64_t last = offset + cur_addr/64;
         uint64_t bit = cur_addr % 64;
-        if (((alloc->mask[last] >> bit) & 1) != value64)
+        if (((mask[last] >> bit) & 1) != value64)
         {
             if (value)
             {
-                alloc->mask[last] = alloc->mask[last] | (1 << bit);
-                if (alloc->mask[last] != (!is_last || cur_addr/64 < alloc->size/64
-                    ? UINT64_MAX : alloc->last_one_mask))
+                mask[last] = mask[last] | (1 << bit);
+                if (mask[last] != (!is_last || cur_addr/64 < size/64
+                    ? UINT64_MAX : last_one_mask))
                 {
                     break;
                 }
             }
             else
             {
-                alloc->mask[last] = alloc->mask[last] & ~(1 << bit);
-                if (alloc->mask[last] != 0)
+                mask[last] = mask[last] & ~(1 << bit);
+                if (mask[last] != 0)
                 {
                     break;
                 }
@@ -91,15 +91,15 @@ void allocator_set(allocator *alloc, uint64_t addr, bool value)
     }
 }
 
-uint64_t allocator_find_free(allocator *alloc)
+uint64_t allocator::find_free()
 {
     uint64_t p2 = 1, offset = 0, addr = 0, f, i;
-    while (p2 < alloc->size)
+    while (p2 < size)
     {
-        uint64_t mask = alloc->mask[offset + addr];
+        uint64_t m = mask[offset + addr];
         for (i = 0, f = 1; i < 64; i++, f <<= 1)
         {
-            if (!(mask & f))
+            if (!(m & f))
             {
                 break;
             }
@@ -110,7 +110,7 @@ uint64_t allocator_find_free(allocator *alloc)
             return UINT64_MAX;
         }
         addr = (addr * 64) | i;
-        if (addr >= alloc->size)
+        if (addr >= size)
         {
             // No space
             return UINT64_MAX;

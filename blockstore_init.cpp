@@ -90,11 +90,11 @@ void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int 
                 if (clean_it != bs->clean_db.end())
                 {
                     // free the previous block
-                    allocator_set(bs->data_alloc, clean_it->second.version >> block_order, false);
+                    bs->data_alloc->set(clean_it->second.version >> block_order, false);
                 }
                 else
                     entries_loaded++;
-                allocator_set(bs->data_alloc, done_cnt+i, true);
+                bs->data_alloc->set(done_cnt+i, true);
                 bs->clean_db[entries[i].oid] = (struct clean_entry){
                     .version = entries[i].version,
                     .location = (done_cnt+i) << block_order,

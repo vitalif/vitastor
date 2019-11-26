@@ -255,7 +255,7 @@ class blockstore
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
     std::list<blockstore_operation*> in_progress_syncs; // ...and probably here, too
     uint64_t block_count;
-    allocator *data_alloc;
+    allocator *data_alloc = NULL;
     uint8_t *zero_object;
 
     int meta_fd;

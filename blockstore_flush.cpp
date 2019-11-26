@@ -384,7 +384,7 @@ resume_0:
         // Update clean_db and dirty_db, free old data locations
         if (clean_it != bs->clean_db.end() && clean_it->second.location != clean_loc)
         {
-            allocator_set(bs->data_alloc, clean_it->second.location >> bs->block_order, false);
+            bs->data_alloc->set(clean_it->second.location >> bs->block_order, false);
         }
         bs->clean_db[cur.oid] = {
             .version = cur.version,
@@ -395,7 +395,7 @@ resume_0:
         {
             if (IS_BIG_WRITE(dirty_it->second.state) && dirty_it->second.location != clean_loc)
             {
-                allocator_set(bs->data_alloc, dirty_it->second.location >> bs->block_order, false);
+                bs->data_alloc->set(dirty_it->second.location >> bs->block_order, false);
             }
             int used = --bs->journal.used_sectors[dirty_it->second.journal_sector];
             if (used == 0)

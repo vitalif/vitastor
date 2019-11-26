@@ -24,9 +24,7 @@ blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, 
         open_meta(config);
         open_journal(config);
         calc_lengths(config);
-        data_alloc = allocator_create(block_count);
-        if (!data_alloc)
-            throw std::bad_alloc();
+        data_alloc = new allocator(block_count);
     }
     catch (std::exception & e)
     {
@@ -46,6 +44,7 @@ blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, 
 
 blockstore::~blockstore()
 {
+    delete data_alloc;
     delete flusher;
     free(zero_object);
     ringloop->unregister_consumer(ring_consumer);
