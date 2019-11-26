@@ -206,7 +206,7 @@ resume_1:
         my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
         wait_count++;
         GET_SQE();
-        my_uring_prep_fsync(sqe, bs->journal.fd, 0);
+        my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
         data->iov = { 0 };
         data->callback = simple_callback;
         wait_count++;

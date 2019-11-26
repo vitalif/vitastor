@@ -41,7 +41,7 @@ int blockstore::continue_sync(blockstore_operation *op)
         // No big writes, just fsync the journal
         // FIXME: Add no-fsync mode
         BS_SUBMIT_GET_SQE(sqe, data);
-        my_uring_prep_fsync(sqe, journal.fd, 0);
+        my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
         data->iov = { 0 };
         data->callback = cb;
         op->min_used_journal_sector = op->max_used_journal_sector = 0;
@@ -53,7 +53,7 @@ int blockstore::continue_sync(blockstore_operation *op)
         // 1st step: fsync data
         // FIXME: Add no-fsync mode
         BS_SUBMIT_GET_SQE(sqe, data);
-        my_uring_prep_fsync(sqe, data_fd, 0);
+        my_uring_prep_fsync(sqe, data_fd, IORING_FSYNC_DATASYNC);
         data->iov = { 0 };
         data->callback = cb;
         op->min_used_journal_sector = op->max_used_journal_sector = 0;
@@ -100,7 +100,7 @@ int blockstore::continue_sync(blockstore_operation *op)
         }
         op->max_used_journal_sector = 1 + journal.cur_sector;
         // ... And a journal fsync
-        my_uring_prep_fsync(sqe[s], journal.fd, 0);
+        my_uring_prep_fsync(sqe[s], journal.fd, IORING_FSYNC_DATASYNC);
         struct ring_data_t *data = ((ring_data_t*)sqe[s]->user_data);
         data->iov = { 0 };
         data->callback = cb;

@@ -7,9 +7,9 @@
 //
 // This makes 1 4K small write+sync look like:
 // 512b+4K (journal) + sync + 512b (journal) + sync + 4K (data) [+ sync?] + 512b (metadata) + sync.
-// WA = 2.375. It's not the best, SSD FTL-like redirect-write with defragmentation
-// could probably be lower even with defragmentation. But it's fixed and it's still
-// better than in Ceph. :) except for HDD-only clusters, because each write results in 3 seeks.
+// WA = 2.375. It's not the best, SSD FTL-like redirect-write could probably be lower
+// even with defragmentation. But it's fixed and it's still better than in Ceph. :)
+// except for HDD-only clusters, because each write results in 3 seeks.
 
 // Stabilize big write:
 // 1) Copy metadata from the journal to the metadata device
