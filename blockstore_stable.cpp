@@ -122,6 +122,19 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
     op->pending_ops--;
     if (op->pending_ops == 0)
     {
+        // Release used journal sectors
+        if (op->min_used_journal_sector > 0)
+        {
+            uint64_t s = op->min_used_journal_sector;
+            while (1)
+            {
+                journal.sector_info[s-1].usage_count--;
+                if (s == op->max_used_journal_sector)
+                    break;
+                s = (s + 1) % journal.sector_count;
+            }
+            op->min_used_journal_sector = op->max_used_journal_sector = 0;
+        }
         // First step: mark dirty_db entries as stable, acknowledge op completion
         obj_ver_id* v;
         int i;

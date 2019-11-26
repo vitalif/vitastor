@@ -256,7 +256,7 @@ void blockstore::enqueue_op(blockstore_operation *op)
 {
     int type = op->flags & OP_TYPE_MASK;
     if (type < OP_READ || type > OP_DELETE || (type == OP_READ || type == OP_WRITE) &&
-        (op->offset >= block_size || op->len >= block_size-op->offset || (op->len % DISK_ALIGNMENT)))
+        (op->offset >= block_size || op->len > block_size-op->offset || (op->len % DISK_ALIGNMENT)))
     {
         // Basic verification not passed
         op->retval = -EINVAL;
