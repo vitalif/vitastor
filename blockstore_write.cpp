@@ -139,6 +139,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
         je->offset = op->offset;
         je->len = op->len;
         je->data_offset = journal.next_free;
+        je->crc32_data = crc32c(0, op->buf, op->len);
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
         prepare_journal_sector_write(journal, sqe1, cb);
