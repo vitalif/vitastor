@@ -179,7 +179,7 @@ void blockstore::handle_write_event(ring_data_t *data, blockstore_operation *op)
                 journal.sector_info[s-1].usage_count--;
                 if (s == op->max_used_journal_sector)
                     break;
-                s = (s + 1) % journal.sector_count;
+                s = 1 + s % journal.sector_count;
             }
             op->min_used_journal_sector = op->max_used_journal_sector = 0;
         }

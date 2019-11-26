@@ -39,6 +39,7 @@ int blockstore::dequeue_sync(blockstore_operation *op)
 int blockstore::continue_sync(blockstore_operation *op)
 {
     auto cb = [this, op](ring_data_t *data) { handle_sync_event(data, op); };
+    op->min_used_journal_sector = op->max_used_journal_sector = 0;
     if (op->sync_state == SYNC_HAS_SMALL)
     {
         // No big writes, just fsync the journal
@@ -135,7 +136,7 @@ void blockstore::handle_sync_event(ring_data_t *data, blockstore_operation *op)
                 journal.sector_info[s-1].usage_count--;
                 if (s == op->max_used_journal_sector)
                     break;
-                s = (s + 1) % journal.sector_count;
+                s = 1 + s % journal.sector_count;
             }
             op->min_used_journal_sector = op->max_used_journal_sector = 0;
         }
