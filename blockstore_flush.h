@@ -37,7 +37,7 @@ class journal_flusher_co
     std::map<uint64_t, meta_sector_t>::iterator meta_it;
     std::map<object_id, uint64_t>::iterator repeat_it;
     std::map<uint64_t, uint64_t>::iterator journal_used_it;
-    std::function<void(ring_data_t*)> simple_callback;
+    std::function<void(ring_data_t*)> simple_callback_r, simple_callback_w;
     std::list<flusher_sync_t>::iterator cur_sync;
     friend class journal_flusher_t;
 public:
