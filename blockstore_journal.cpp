@@ -7,12 +7,12 @@ blockstore_journal_check_t::blockstore_journal_check_t(blockstore *bs)
     next_pos = bs->journal.next_free;
     next_sector = bs->journal.cur_sector;
     next_in_pos = bs->journal.in_sector_pos;
+    right_dir = next_pos >= bs->journal.used_start;
 }
 
 // Check if we can write <required> entries of <size> bytes and <data_after> data bytes after them to the journal
 int blockstore_journal_check_t::check_available(blockstore_operation *op, int required, int size, int data_after)
 {
-    bool wrapped = false;
     while (1)
     {
         int fits = (512 - next_in_pos) / size;
@@ -30,7 +30,7 @@ int blockstore_journal_check_t::check_available(blockstore_operation *op, int re
         if (next_pos >= bs->journal.len)
         {
             next_pos = 512;
-            wrapped = true;
+            right_dir = false;
         }
         next_in_pos = 0;
         if (bs->journal.sector_info[next_sector].usage_count > 0)
@@ -49,11 +49,11 @@ int blockstore_journal_check_t::check_available(blockstore_operation *op, int re
         next_pos = next_pos + data_after;
         if (next_pos > bs->journal.len)
         {
-            wrapped = true;
             next_pos = 512 + data_after;
+            right_dir = false;
         }
     }
-    if (wrapped && next_pos >= bs->journal.used_start)
+    if (!right_dir && next_pos >= bs->journal.used_start-512)
     {
         // No space in the journal. Wait for it.
         op->wait_for = WAIT_JOURNAL;

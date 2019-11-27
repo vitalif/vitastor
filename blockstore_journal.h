@@ -137,6 +137,7 @@ struct blockstore_journal_check_t
     blockstore *bs;
     uint64_t next_pos, next_sector, next_in_pos;
     int sectors_required;
+    bool right_dir; // writing to the end or the beginning of the ring buffer
 
     blockstore_journal_check_t(blockstore *bs);
     int check_available(blockstore_operation *op, int required, int size, int data_after);
