@@ -120,8 +120,8 @@ class ring_loop_t
 {
     std::vector<ring_consumer_t> consumers;
     struct ring_data_t *ring_data;
-    bool loop_again;
 public:
+    bool loop_again;
     struct io_uring ring;
     ring_loop_t(int qd);
     ~ring_loop_t();

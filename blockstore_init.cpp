@@ -349,7 +349,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .oid = je->small_write.oid,
                     .version = je->small_write.version,
                 };
+#ifdef BLOCKSTORE_DEBUG
                 printf("je_small_write oid=%lu:%lu ver=%lu offset=%u len=%u\n", ov.oid.inode, ov.oid.stripe, ov.version, je->small_write.offset, je->small_write.len);
+#endif
                 bs->dirty_db.emplace(ov, (dirty_entry){
                     .state = ST_J_SYNCED,
                     .flags = 0,
@@ -372,7 +374,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .oid = je->big_write.oid,
                     .version = je->big_write.version,
                 };
+#ifdef BLOCKSTORE_DEBUG
                 printf("je_big_write oid=%lu:%lu ver=%lu\n", ov.oid.inode, ov.oid.stripe, ov.version);
+#endif
                 bs->dirty_db.emplace(ov, (dirty_entry){
                     .state = ST_D_META_SYNCED,
                     .flags = 0,
@@ -401,7 +405,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                 }
                 else
                 {
+#ifdef BLOCKSTORE_DEBUG
                     printf("je_stable oid=%lu:%lu ver=%lu\n", ov.oid.inode, ov.oid.stripe, ov.version);
+#endif
                     while (1)
                     {
                         it->second.state = (it->second.state == ST_D_META_SYNCED

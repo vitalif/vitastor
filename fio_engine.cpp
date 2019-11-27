@@ -89,12 +89,19 @@ static void bs_cleanup(struct thread_data *td)
     bs_data *bsd = (bs_data*)td->io_ops_data;
     if (bsd)
     {
-        while (!bsd->bs->is_safe_to_stop())
+        while (1)
         {
-            bsd->ringloop->loop();
+            do
+            {
+                bsd->ringloop->loop();
+                if (bsd->bs->is_safe_to_stop())
+                    goto safe;
+            } while (bsd->ringloop->loop_again);
             bsd->ringloop->wait();
         }
+    safe:
         delete bsd->bs;
+        delete bsd->ringloop;
         delete bsd;
     }
 }

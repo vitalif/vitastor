@@ -141,7 +141,10 @@ void journal_flusher_co::loop()
         goto resume_13;
 resume_0:
     if (!flusher->flush_queue.size())
+    {
+        wait_state = 0;
         return;
+    }
     cur.oid = flusher->flush_queue.front();
     cur.version = flusher->flush_versions[cur.oid];
     flusher->flush_queue.pop_front();
@@ -161,7 +164,6 @@ resume_0:
             // Another coroutine will see it and re-queue the object after it finishes
             if (repeat_it->second < cur.version)
                 repeat_it->second = cur.version;
-            wait_state = 0;
             goto resume_0;
         }
         else
@@ -248,7 +250,6 @@ resume_0:
                 flusher->unshift_flush({ .oid = cur.oid, .version = repeat_it->second });
             }
             flusher->sync_to_repeat.erase(repeat_it);
-            wait_state = 0;
             goto resume_0;
         }
         // Find it in clean_db
@@ -371,13 +372,13 @@ resume_0:
         {
             // And sync everything (in batches - not per each operation!)
             cur_sync = flusher->syncs.end();
-            if (cur_sync == flusher->syncs.begin())
+            if (cur_sync == flusher->syncs.begin() || cur_sync->state == 1)
                 cur_sync = flusher->syncs.emplace(flusher->syncs.end(), (flusher_sync_t){ .ready_count = 0, .state = 0 });
             else
                 cur_sync--;
             cur_sync->ready_count++;
             if (cur_sync->ready_count >= flusher->sync_threshold ||
-                !flusher->active_until_sync && !flusher->flush_queue.size())
+                !flusher->active_until_sync && (!flusher->flush_queue.size() || flusher->active_flushers >= flusher->flusher_count))
             {
                 // Sync batch is ready. Do it.
                 await_sqe(9);
@@ -393,12 +394,15 @@ resume_0:
                     my_uring_prep_fsync(sqe, bs->meta_fd, IORING_FSYNC_DATASYNC);
                     wait_count++;
                 }
-                wait_state = 11;
             resume_11:
                 if (wait_count > 0)
+                {
+                    wait_state = 11;
                     return;
+                }
                 // Sync completed. All previous coroutines waiting for it must be resumed
                 cur_sync->state = 1;
+                bs->ringloop->wakeup(bs->ring_consumer);
             }
             // Wait until someone else sends and completes a sync.
         resume_8:
@@ -519,7 +523,6 @@ resume_0:
 #ifdef BLOCKSTORE_DEBUG
         printf("Flushed %lu:%lu v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
 #endif
-        wait_state = 0;
         flusher->active_flushers--;
         repeat_it = flusher->sync_to_repeat.find(cur.oid);
         if (repeat_it->second > cur.version)

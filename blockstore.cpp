@@ -208,7 +208,7 @@ bool blockstore::is_safe_to_stop()
             blockstore_operation *op = new blockstore_operation;
             op->flags = OP_SYNC;
             op->buf = NULL;
-            op->callback = [&](blockstore_operation *op)
+            op->callback = [](blockstore_operation *op)
             {
                 delete op;
             };
