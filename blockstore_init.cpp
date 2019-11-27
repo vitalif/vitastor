@@ -338,7 +338,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                 }
                 if (location != je->small_write.data_offset)
                 {
-                    throw new std::runtime_error("BUG: calculated journal data offset != stored journal data offset");
+                    throw std::runtime_error("BUG: calculated journal data offset != stored journal data offset");
                 }
                 obj_ver_id ov = {
                     .oid = je->small_write.oid,
