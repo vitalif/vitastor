@@ -58,7 +58,7 @@ void journal_flusher_t::loop()
     }
 }
 
-void journal_flusher_t::queue_flush(obj_ver_id ov)
+void journal_flusher_t::enqueue_flush(obj_ver_id ov)
 {
     auto it = flush_versions.find(ov.oid);
     if (it != flush_versions.end())

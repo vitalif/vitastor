@@ -70,6 +70,6 @@ public:
     ~journal_flusher_t();
     void loop();
     bool is_active();
-    void queue_flush(obj_ver_id oid);
+    void enqueue_flush(obj_ver_id oid);
     void unshift_flush(obj_ver_id oid);
 };

@@ -146,6 +146,8 @@ int blockstore::dequeue_write(blockstore_operation *op)
         dirty_it->second.location = journal.next_free;
         dirty_it->second.state = ST_J_SUBMITTED;
         journal.next_free += op->len;
+        if (journal.next_free >= journal.len)
+            journal.next_free = 512;
         op->pending_ops = 2;
         // Remember small write as unsynced
         unsynced_small_writes.push_back((obj_ver_id){

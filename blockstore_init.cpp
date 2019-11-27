@@ -86,7 +86,7 @@ void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int 
         {
             auto clean_it = bs->clean_db.find(entries[i].oid);
 #ifdef BLOCKSTORE_DEBUG
-            printf("Clean entry %lu: %lu:%lu v%lu\n", done_cnt+i, entries[i].oid.inode, entries[i].oid.stripe, entries[i].version);
+            printf("Clean entry %u: %lu:%lu v%lu\n", done_cnt+i, entries[i].oid.inode, entries[i].oid.stripe, entries[i].version);
 #endif
             if (clean_it == bs->clean_db.end() || clean_it->second.version < entries[i].version)
             {
@@ -359,8 +359,11 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .journal_sector = proc_pos,
                 });
                 bs->journal.used_sectors[proc_pos]++;
+#ifdef BLOCKSTORE_DEBUG
+                printf("journal offset %lu is used by %lu:%lu v%lu\n", proc_pos, ov.oid.inode, ov.oid.stripe, ov.version);
+#endif
                 auto & unstab = bs->unstable_writes[ov.oid];
-                unstab = !unstab || unstab > ov.version ? ov.version : unstab;
+                unstab = unstab < ov.version ? ov.version : unstab;
             }
             else if (je->type == JE_BIG_WRITE)
             {
@@ -380,7 +383,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                 });
                 bs->journal.used_sectors[proc_pos]++;
                 auto & unstab = bs->unstable_writes[ov.oid];
-                unstab = !unstab || unstab > ov.version ? ov.version : unstab;
+                unstab = unstab < ov.version ? ov.version : unstab;
             }
             else if (je->type == JE_STABLE)
             {
@@ -410,7 +413,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                         if (it->first.oid != ov.oid || IS_STABLE(it->second.state))
                             break;
                     }
-                    bs->flusher->queue_flush(ov);
+                    bs->flusher->enqueue_flush(ov);
                 }
                 auto unstab_it = bs->unstable_writes.find(ov.oid);
                 if (unstab_it != bs->unstable_writes.end() && unstab_it->second <= ov.version)

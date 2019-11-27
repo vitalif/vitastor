@@ -114,7 +114,7 @@ void blockstore::loop()
             auto op_ptr = cur;
             auto op = *(cur++);
             // FIXME: This needs some simplification
-            // Writes should not block reads if the ring is not null and if reads don't depend on them
+            // Writes should not block reads if the ring is not full and if reads don't depend on them
             // In all other cases we should stop submission
             if (op->wait_for)
             {
