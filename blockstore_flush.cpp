@@ -141,6 +141,9 @@ resume_0:
         repeat_it = flusher->sync_to_repeat.find(cur.oid);
         if (repeat_it != flusher->sync_to_repeat.end())
         {
+#ifdef BLOCKSTORE_DEBUG
+            printf("Postpone %lu:%lu v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
+#endif
             // We don't flush different parts of history of the same object in parallel
             // So we check if someone is already flushing this object
             // In that case we set sync_to_repeat and pick another object
@@ -152,6 +155,9 @@ resume_0:
         }
         else
             flusher->sync_to_repeat[cur.oid] = 0;
+#ifdef BLOCKSTORE_DEBUG
+        printf("Flushing %lu:%lu v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
+#endif
         dirty_it = dirty_end;
         flusher->active_flushers++;
         flusher->active_until_sync++;
@@ -406,6 +412,9 @@ resume_0:
             {
                 bs->data_alloc->set(dirty_it->second.location >> bs->block_order, false);
             }
+#ifdef BLOCKSTORE_DEBUG
+            printf("remove usage of journal offset %lu by %lu:%lu v%lu\n", dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
+#endif
             int used = --bs->journal.used_sectors[dirty_it->second.journal_sector];
             if (used == 0)
             {
@@ -430,6 +439,11 @@ resume_0:
         {
             flusher->journal_trim_counter = 0;
             journal_used_it = bs->journal.used_sectors.lower_bound(bs->journal.used_start);
+#ifdef BLOCKSTORE_DEBUG
+            printf("Trimming journal (used_start=%lu, next_free=%lu, first_used=%lu, usage_count=%lu)\n", bs->journal.used_start, bs->journal.next_free,
+                journal_used_it == bs->journal.used_sectors.end() ? 0 : journal_used_it->first,
+                journal_used_it == bs->journal.used_sectors.end() ? 0 : journal_used_it->second);
+#endif
             if (journal_used_it == bs->journal.used_sectors.end())
             {
                 // Journal is cleared to its end, restart from the beginning
@@ -455,6 +469,9 @@ resume_0:
                 // Can't trim journal
                 goto do_not_trim;
             }
+#ifdef BLOCKSTORE_DEBUG
+            printf("Journal trimmed to %lu (next_free=%lu)\n", bs->journal.used_start, bs->journal.next_free);
+#endif
             // Update journal "superblock"
             await_sqe(12);
             data->callback = simple_callback;
@@ -479,6 +496,9 @@ resume_0:
         }
     do_not_trim:
         // All done
+#ifdef BLOCKSTORE_DEBUG
+        printf("Flushed %lu:%lu v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
+#endif
         wait_state = 0;
         flusher->active_flushers--;
         repeat_it = flusher->sync_to_repeat.find(cur.oid);

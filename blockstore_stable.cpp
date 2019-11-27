@@ -168,6 +168,9 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
                         break;
                     }
                 }
+#ifdef BLOCKSTORE_DEBUG
+                printf("enqueue_flush %lu:%lu v%lu\n", v->oid.inode, v->oid.stripe, v->version);
+#endif
                 flusher->queue_flush(*v);
             }
         }

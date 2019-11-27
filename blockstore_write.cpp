@@ -30,6 +30,9 @@ void blockstore::enqueue_write(blockstore_operation *op)
         }
     }
     // Immediately add the operation into dirty_db, so subsequent reads could see it
+#ifdef BLOCKSTORE_DEBUG
+    printf("Write %lu:%lu v%lu\n", op->oid.inode, op->oid.stripe, op->version);
+#endif
     dirty_db.emplace((obj_ver_id){
         .oid = op->oid,
         .version = op->version,
@@ -119,6 +122,9 @@ int blockstore::dequeue_write(blockstore_operation *op)
             prefill_single_journal_entry(journal, JE_SMALL_WRITE, sizeof(struct journal_entry_small_write));
         dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
+#ifdef BLOCKSTORE_DEBUG
+        printf("journal offset %lu is used by %lu:%lu v%lu\n", dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
+#endif
         // Figure out where data will be
         journal.next_free = (journal.next_free + op->len) < journal.len ? journal.next_free : 512;
         je->oid = op->oid;
@@ -181,6 +187,9 @@ void blockstore::handle_write_event(ring_data_t *data, blockstore_operation *op)
             .oid = op->oid,
             .version = op->version,
         }];
+#ifdef BLOCKSTORE_DEBUG
+        printf("Ack write %lu:%lu v%lu = %d\n", op->oid.inode, op->oid.stripe, op->version, dirty_entry.state);
+#endif
         if (dirty_entry.state == ST_J_SUBMITTED)
         {
             dirty_entry.state = ST_J_WRITTEN;

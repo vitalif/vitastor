@@ -25,6 +25,8 @@
 #include "allocator.h"
 #include "ringloop.h"
 
+//#define BLOCKSTORE_DEBUG
+
 // States are not stored on disk. Instead, they're deduced from the journal
 
 #define ST_IN_FLIGHT 1

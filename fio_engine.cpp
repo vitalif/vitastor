@@ -8,8 +8,6 @@ extern "C" {
 #include "fio/optgroup.h"
 }
 
-static const int DEBUG = 0;
-
 struct bs_data
 {
     blockstore *bs;
@@ -154,8 +152,9 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
             bs_data *bsd = (bs_data*)io->engine_data;
             bsd->inflight--;
             bsd->completed.push_back(io);
-            if (DEBUG)
-                printf("--- OP_WRITE %llx n=%d retval=%d\n", io, n, op->retval);
+#ifdef BLOCKSTORE_DEBUG
+            printf("--- OP_WRITE %llx n=%d retval=%d\n", io, n, op->retval);
+#endif
             delete op;
         };
         break;
@@ -187,8 +186,9 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
                     bsd->inflight--;
                     obj_ver_id *vers = (obj_ver_id*)op->buf;
                     delete[] vers;
-                    if (DEBUG)
-                        printf("--- OP_SYNC %llx n=%d retval=%d\n", io, n, op->retval);
+#ifdef BLOCKSTORE_DEBUG
+                    printf("--- OP_SYNC %llx n=%d retval=%d\n", io, n, op->retval);
+#endif
                     delete op;
                 };
                 bsd->bs->enqueue_op(op);
@@ -198,8 +198,9 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
                 io->error = op->retval < 0 ? -op->retval : 0;
                 bsd->completed.push_back(io);
                 bsd->inflight--;
-                if (DEBUG)
-                    printf("--- OP_SYNC %llx n=%d retval=%d\n", io, n, op->retval);
+#ifdef BLOCKSTORE_DEBUG
+                printf("--- OP_SYNC %llx n=%d retval=%d\n", io, n, op->retval);
+#endif
                 delete op;
             }
         };
@@ -209,8 +210,9 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         return FIO_Q_COMPLETED;
     }
 
-    if (DEBUG)
-        printf("+++ %s %llx\n", op->flags == OP_WRITE ? "OP_WRITE" : "OP_SYNC", io);
+#ifdef BLOCKSTORE_DEBUG
+    printf("+++ %s %llx\n", op->flags == OP_WRITE ? "OP_WRITE" : "OP_SYNC", io);
+#endif
     io->error = 0;
     bsd->inflight++;
     bsd->bs->enqueue_op(op);

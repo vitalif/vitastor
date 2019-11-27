@@ -84,6 +84,9 @@ int blockstore::continue_sync(blockstore_operation *op)
                 prefill_single_journal_entry(journal, JE_BIG_WRITE, sizeof(journal_entry_big_write));
             dirty_db[*it].journal_sector = journal.sector_info[journal.cur_sector].offset;
             journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
+#ifdef BLOCKSTORE_DEBUG
+            printf("journal offset %lu is used by %lu:%lu v%lu\n", dirty_db[*it].journal_sector, it->oid.inode, it->oid.stripe, it->version);
+#endif
             je->oid = it->oid;
             je->version = it->version;
             je->location = dirty_db[*it].location;
@@ -189,12 +192,18 @@ void blockstore::ack_one_sync(blockstore_operation *op)
     // Handle states
     for (auto it = op->sync_big_writes.begin(); it != op->sync_big_writes.end(); it++)
     {
+#ifdef BLOCKSTORE_DEBUG
+        printf("Ack sync big %lu:%lu v%lu\n", it->oid.inode, it->oid.stripe, it->version);
+#endif
         auto & unstab = unstable_writes[it->oid];
         unstab = unstab < it->version ? it->version : unstab;
         dirty_db[*it].state = ST_D_META_SYNCED;
     }
     for (auto it = op->sync_small_writes.begin(); it != op->sync_small_writes.end(); it++)
     {
+#ifdef BLOCKSTORE_DEBUG
+        printf("Ack sync small %lu:%lu v%lu\n", it->oid.inode, it->oid.stripe, it->version);
+#endif
         auto & unstab = unstable_writes[it->oid];
         unstab = unstab < it->version ? it->version : unstab;
         dirty_db[*it].state = ST_J_SYNCED;
