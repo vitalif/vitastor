@@ -108,18 +108,30 @@ void blockstore::loop()
             continue_sync(*cur_sync++);
         }
         auto cur = submit_queue.begin();
-        bool has_writes = false;
+        int has_writes = 0;
         while (cur != submit_queue.end())
         {
             auto op_ptr = cur;
             auto op = *(cur++);
+            // FIXME: This needs some simplification
+            // Writes should not block reads if the ring is not null and if reads don't depend on them
+            // In all other cases we should stop submission
             if (op->wait_for)
             {
                 check_wait(op);
                 if (op->wait_for == WAIT_SQE)
+                {
                     break;
+                }
                 else if (op->wait_for)
+                {
+                    if ((op->flags & OP_TYPE_MASK) == OP_WRITE ||
+                        (op->flags & OP_TYPE_MASK) == OP_DELETE)
+                    {
+                        has_writes = 2;
+                    }
                     continue;
+                }
             }
             unsigned ring_space = io_uring_sq_space_left(&ringloop->ring);
             unsigned prev_sqe_pos = ringloop->ring.sq.sqe_tail;
@@ -131,8 +143,13 @@ void blockstore::loop()
             else if ((op->flags & OP_TYPE_MASK) == OP_WRITE ||
                 (op->flags & OP_TYPE_MASK) == OP_DELETE)
             {
-                has_writes = true;
+                if (has_writes == 2)
+                {
+                    // Some writes could not be submitted
+                    break;
+                }
                 dequeue_op = dequeue_write(op);
+                has_writes = dequeue_op ? 1 : 2;
             }
             else if ((op->flags & OP_TYPE_MASK) == OP_SYNC)
             {
@@ -229,7 +246,7 @@ void blockstore::check_wait(blockstore_operation *op)
     }
     else if (op->wait_for == WAIT_JOURNAL)
     {
-        if (journal.used_start < op->wait_detail)
+        if (journal.used_start == op->wait_detail)
         {
             // do not submit
             return;

@@ -140,6 +140,7 @@ void blockstore::handle_sync_event(ring_data_t *data, blockstore_operation *op)
         if (op->sync_state == SYNC_DATA_SYNC_SENT)
         {
             op->sync_state = SYNC_DATA_SYNC_DONE;
+            // FIXME: This is not needed, in fact
             for (auto it = op->sync_big_writes.begin(); it != op->sync_big_writes.end(); it++)
             {
                 dirty_db[*it].state = ST_D_SYNCED;
@@ -148,18 +149,6 @@ void blockstore::handle_sync_event(ring_data_t *data, blockstore_operation *op)
         else if (op->sync_state == SYNC_JOURNAL_SYNC_SENT)
         {
             op->sync_state = SYNC_DONE;
-            for (auto it = op->sync_big_writes.begin(); it != op->sync_big_writes.end(); it++)
-            {
-                auto & unstab = unstable_writes[it->oid];
-                unstab = !unstab || unstab > it->version ? it->version : unstab;
-                dirty_db[*it].state = ST_D_META_SYNCED;
-            }
-            for (auto it = op->sync_small_writes.begin(); it != op->sync_small_writes.end(); it++)
-            {
-                auto & unstab = unstable_writes[it->oid];
-                unstab = !unstab || unstab > it->version ? it->version : unstab;
-                dirty_db[*it].state = ST_J_SYNCED;
-            }
             ack_sync(op);
         }
         else
@@ -177,6 +166,8 @@ int blockstore::ack_sync(blockstore_operation *op)
         auto it = op->in_progress_ptr;
         int done_syncs = 1;
         ++it;
+        // Acknowledge sync
+        ack_one_sync(op);
         while (it != in_progress_syncs.end())
         {
             auto & next_sync = *it++;
@@ -185,16 +176,30 @@ int blockstore::ack_sync(blockstore_operation *op)
             {
                 done_syncs++;
                 // Acknowledge next_sync
-                in_progress_syncs.erase(next_sync->in_progress_ptr);
-                next_sync->retval = 0;
-                next_sync->callback(next_sync);
+                ack_one_sync(next_sync);
             }
         }
-        // Acknowledge sync
-        in_progress_syncs.erase(op->in_progress_ptr);
-        op->retval = 0;
-        op->callback(op);
         return 1;
     }
     return 0;
+}
+
+void blockstore::ack_one_sync(blockstore_operation *op)
+{
+    // Handle states
+    for (auto it = op->sync_big_writes.begin(); it != op->sync_big_writes.end(); it++)
+    {
+        auto & unstab = unstable_writes[it->oid];
+        unstab = unstab < it->version ? it->version : unstab;
+        dirty_db[*it].state = ST_D_META_SYNCED;
+    }
+    for (auto it = op->sync_small_writes.begin(); it != op->sync_small_writes.end(); it++)
+    {
+        auto & unstab = unstable_writes[it->oid];
+        unstab = unstab < it->version ? it->version : unstab;
+        dirty_db[*it].state = ST_J_SYNCED;
+    }
+    in_progress_syncs.erase(op->in_progress_ptr);
+    op->retval = 0;
+    op->callback(op);
 }

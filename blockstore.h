@@ -312,6 +312,7 @@ class blockstore
     int dequeue_sync(blockstore_operation *op);
     void handle_sync_event(ring_data_t *data, blockstore_operation *op);
     int continue_sync(blockstore_operation *op);
+    void ack_one_sync(blockstore_operation *op);
     int ack_sync(blockstore_operation *op);
 
     // Stabilize

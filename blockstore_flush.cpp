@@ -63,7 +63,8 @@ void journal_flusher_t::queue_flush(obj_ver_id ov)
     auto it = flush_versions.find(ov.oid);
     if (it != flush_versions.end())
     {
-        it->second = ov.version;
+        if (it->second < ov.version)
+            it->second = ov.version;
     }
     else
     {
@@ -77,7 +78,8 @@ void journal_flusher_t::unshift_flush(obj_ver_id ov)
     auto it = flush_versions.find(ov.oid);
     if (it != flush_versions.end())
     {
-        it->second = ov.version;
+        if (it->second < ov.version)
+            it->second = ov.version;
     }
     else
     {
@@ -199,7 +201,12 @@ resume_0:
             }
             else if (!IS_STABLE(dirty_it->second.state))
             {
-                throw std::runtime_error("BUG: Unexpected dirty_entry state during flush: " + std::to_string(dirty_it->second.state));
+                char err[1024];
+                snprintf(
+                    err, 1024, "BUG: Unexpected dirty_entry %lu:%lu v%lu state during flush: %d",
+                    dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version, dirty_it->second.state
+                );
+                throw std::runtime_error(err);
             }
             if (dirty_it == bs->dirty_db.begin())
             {
@@ -217,7 +224,7 @@ resume_0:
             flusher->active_flushers--;
             flusher->active_until_sync--;
             repeat_it = flusher->sync_to_repeat.find(cur.oid);
-            if (repeat_it->second != 0)
+            if (repeat_it->second > cur.version)
             {
                 // Requeue version
                 flusher->unshift_flush({ .oid = cur.oid, .version = repeat_it->second });
@@ -475,12 +482,12 @@ resume_0:
         wait_state = 0;
         flusher->active_flushers--;
         repeat_it = flusher->sync_to_repeat.find(cur.oid);
-        if (repeat_it->second != 0)
+        if (repeat_it->second > cur.version)
         {
             // Requeue version
             flusher->unshift_flush({ .oid = cur.oid, .version = repeat_it->second });
-            flusher->sync_to_repeat.erase(repeat_it);
         }
+        flusher->sync_to_repeat.erase(repeat_it);
         goto resume_0;
     }
 }

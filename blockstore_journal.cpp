@@ -55,9 +55,9 @@ int blockstore_journal_check_t::check_available(blockstore_operation *op, int re
     }
     if (!right_dir && next_pos >= bs->journal.used_start-512)
     {
-        // No space in the journal. Wait for it.
+        // No space in the journal. Wait until used_start changes.
         op->wait_for = WAIT_JOURNAL;
-        op->wait_detail = next_pos;
+        op->wait_detail = bs->journal.used_start;
         return 0;
     }
     return 1;

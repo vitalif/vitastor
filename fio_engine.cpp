@@ -178,7 +178,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
                         .version = it->second,
                     };
                 }
-                bsd->bs->enqueue_op(op);
+                bsd->bs->unstable_writes.clear();
                 op->callback = [io, n](blockstore_operation *op)
                 {
                     io->error = op->retval < 0 ? -op->retval : 0;
@@ -191,6 +191,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
                         printf("--- OP_SYNC %llx n=%d retval=%d\n", io, n, op->retval);
                     delete op;
                 };
+                bsd->bs->enqueue_op(op);
             }
             else
             {
