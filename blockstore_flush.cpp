@@ -181,6 +181,7 @@ resume_0:
             if (dirty_it->second.state == ST_J_STABLE && !skip_copy)
             {
                 // First we submit all reads
+                // FIXME: Introduce a (default) mode where we'll keep the whole journal in memory instead of re-reading data during flush
                 offset = dirty_it->second.offset;
                 len = dirty_it->second.len;
                 it = v.begin();
