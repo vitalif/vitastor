@@ -249,7 +249,12 @@ resume_0:
             if (old_clean_loc == UINT64_MAX)
             {
                 // Object not present at all. This is a bug.
-                throw std::runtime_error("BUG: Object we are trying to flush is not allocated on the data device");
+                char err[1024];
+                snprintf(
+                    err, 1024, "BUG: Object %lu:%lu v%lu that we are trying to flush is not allocated on the data device",
+                    cur.oid.inode, cur.oid.stripe, cur.version
+                );
+                throw std::runtime_error(err);
             }
             else
                 clean_loc = old_clean_loc;
@@ -279,7 +284,7 @@ resume_0:
                 if (data->res != data->iov.iov_len)
                 {
                     throw std::runtime_error(
-                        "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
+                        "metadata read operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
                         "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
                     );
                 }
@@ -440,9 +445,12 @@ resume_0:
             flusher->journal_trim_counter = 0;
             journal_used_it = bs->journal.used_sectors.lower_bound(bs->journal.used_start);
 #ifdef BLOCKSTORE_DEBUG
-            printf("Trimming journal (used_start=%lu, next_free=%lu, first_used=%lu, usage_count=%lu)\n", bs->journal.used_start, bs->journal.next_free,
+            printf(
+                "Trimming journal (used_start=%lu, next_free=%lu, first_used=%lu, usage_count=%lu)\n",
+                bs->journal.used_start, bs->journal.next_free,
                 journal_used_it == bs->journal.used_sectors.end() ? 0 : journal_used_it->first,
-                journal_used_it == bs->journal.used_sectors.end() ? 0 : journal_used_it->second);
+                journal_used_it == bs->journal.used_sectors.end() ? 0 : journal_used_it->second
+            );
 #endif
             if (journal_used_it == bs->journal.used_sectors.end())
             {

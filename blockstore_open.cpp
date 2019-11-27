@@ -37,7 +37,7 @@ void blockstore::calc_lengths(spp::sparse_hash_map<std::string, std::string> & c
     }
     // required metadata size
     block_count = data_len / block_size;
-    meta_len = block_count * sizeof(clean_disk_entry);
+    meta_len = (block_count / (512 / sizeof(clean_disk_entry))) * 512;
     if (meta_area < meta_len)
     {
         throw std::runtime_error("Metadata area is too small");

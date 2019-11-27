@@ -126,7 +126,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
         printf("journal offset %lu is used by %lu:%lu v%lu\n", dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
 #endif
         // Figure out where data will be
-        journal.next_free = (journal.next_free + op->len) < journal.len ? journal.next_free : 512;
+        journal.next_free = (journal.next_free + op->len) <= journal.len ? journal.next_free : 512;
         je->oid = op->oid;
         je->version = op->version;
         je->offset = op->offset;

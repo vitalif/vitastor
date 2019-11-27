@@ -85,6 +85,9 @@ void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int 
         if (entries[i].oid.inode > 0)
         {
             auto clean_it = bs->clean_db.find(entries[i].oid);
+#ifdef BLOCKSTORE_DEBUG
+            printf("Clean entry %lu: %lu:%lu v%lu\n", done_cnt+i, entries[i].oid.inode, entries[i].oid.stripe, entries[i].version);
+#endif
             if (clean_it == bs->clean_db.end() || clean_it->second.version < entries[i].version)
             {
                 if (clean_it != bs->clean_db.end())
@@ -338,7 +341,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                 }
                 if (location != je->small_write.data_offset)
                 {
-                    throw std::runtime_error("BUG: calculated journal data offset != stored journal data offset");
+                    char err[1024];
+                    snprintf(err, 1024, "BUG: calculated journal data offset (%lu) != stored journal data offset (%lu)", location, je->small_write.data_offset);
+                    throw std::runtime_error(err);
                 }
                 obj_ver_id ov = {
                     .oid = je->small_write.oid,
