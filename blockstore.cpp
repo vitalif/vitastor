@@ -1,6 +1,6 @@
 #include "blockstore.h"
 
-blockstore::blockstore(spp::sparse_hash_map<std::string, std::string> & config, ring_loop_t *ringloop)
+blockstore::blockstore(blockstore_config_t & config, ring_loop_t *ringloop)
 {
     this->ringloop = ringloop;
     ring_consumer.loop = [this]() { loop(); };

@@ -246,6 +246,8 @@ private:
 
 #include "blockstore_flush.h"
 
+typedef spp::sparse_hash_map<std::string, std::string> blockstore_config_t;
+
 class blockstore
 {
     struct ring_consumer_t ring_consumer;
@@ -284,10 +286,10 @@ class blockstore
     friend class journal_flusher_t;
     friend class journal_flusher_co;
 
-    void calc_lengths(spp::sparse_hash_map<std::string, std::string> & config);
-    void open_data(spp::sparse_hash_map<std::string, std::string> & config);
-    void open_meta(spp::sparse_hash_map<std::string, std::string> & config);
-    void open_journal(spp::sparse_hash_map<std::string, std::string> & config);
+    void calc_lengths(blockstore_config_t & config);
+    void open_data(blockstore_config_t & config);
+    void open_meta(blockstore_config_t & config);
+    void open_journal(blockstore_config_t & config);
 
     // Asynchronous init
     int initialized;
@@ -324,7 +326,7 @@ class blockstore
 
 public:
 
-    blockstore(spp::sparse_hash_map<std::string, std::string> & config, ring_loop_t *ringloop);
+    blockstore(blockstore_config_t & config, ring_loop_t *ringloop);
     ~blockstore();
 
     // Event loop

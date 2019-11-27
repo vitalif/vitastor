@@ -1,5 +1,6 @@
 // FIO engine to test Blockstore
-// fio -thread -ioengine=./libfio_blockstore.so -name=test -bs=4k -direct=1 -fsync=16 -iodepth=16 -rw=randwrite -size=1G
+// fio -thread -ioengine=./libfio_blockstore.so -name=test -bs=4k -direct=1 -fsync=16 -iodepth=16 -rw=randwrite \
+//     -data_device=./test_data.bin -meta_device=./test_meta.bin -journal_device=./test_journal.bin -size=1G
 
 #include "blockstore.h"
 extern "C" {
@@ -19,6 +20,7 @@ struct bs_data
 
 struct bs_options
 {
+    int __pad;
     char *data_device, *meta_device, *journal_device;
 };
 
@@ -28,7 +30,25 @@ static struct fio_option options[] = {
         .lname  = "Data device",
         .type   = FIO_OPT_STR_STORE,
         .off1   = offsetof(struct bs_options, data_device),
-        .help   = "Name of the data device",
+        .help   = "Name of the data device/file",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "meta_device",
+        .lname  = "Metadata device",
+        .type   = FIO_OPT_STR_STORE,
+        .off1   = offsetof(struct bs_options, meta_device),
+        .help   = "Name of the metadata device/file",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "journal_device",
+        .lname  = "Journal device",
+        .type   = FIO_OPT_STR_STORE,
+        .off1   = offsetof(struct bs_options, journal_device),
+        .help   = "Name of the journal device/file",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
     },
@@ -40,7 +60,6 @@ static struct fio_option options[] = {
 static int bs_setup(struct thread_data *td)
 {
     bs_data *bsd;
-    bs_options *o = (bs_options*)td->eo;
     fio_file *f;
     int r;
     //int64_t size;
@@ -62,17 +81,20 @@ static int bs_setup(struct thread_data *td)
     f = td->files[0];
 
     //f->real_file_size = size;
-
     return 0;
 }
 
 static void bs_cleanup(struct thread_data *td)
 {
     bs_data *bsd = (bs_data*)td->io_ops_data;
-
     if (bsd)
     {
-        
+        while (!bsd->bs->is_safe_to_stop())
+        {
+            bsd->ringloop->loop();
+            bsd->ringloop->wait();
+        }
+        delete bsd->bs;
         delete bsd;
     }
 }
@@ -84,10 +106,10 @@ static int bs_init(struct thread_data *td)
     bs_data *bsd = (bs_data*)td->io_ops_data;
     int r;
 
-    spp::sparse_hash_map<std::string, std::string> config;
-    config["meta_device"] = "./test_meta.bin";
-    config["journal_device"] = "./test_journal.bin";
-    config["data_device"] = "./test_data.bin";
+    blockstore_config_t config;
+    config["journal_device"] = o->journal_device;
+    config["meta_device"] = o->meta_device;
+    config["data_device"] = o->data_device;
     bsd->ringloop = new ring_loop_t(512);
     bsd->bs = new blockstore(config, bsd->ringloop);
     while (1)
@@ -282,6 +304,8 @@ struct ioengine_ops ioengine = {
     .invalidate         = bs_invalidate,
     .io_u_init          = bs_io_u_init,
     .io_u_free          = bs_io_u_free,
+    .option_struct_size = sizeof(struct bs_options),
+    .options            = options,
 };
 
 static void fio_init fio_bs_register(void)

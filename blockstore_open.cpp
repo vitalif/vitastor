@@ -1,6 +1,6 @@
 #include "blockstore.h"
 
-void blockstore::calc_lengths(spp::sparse_hash_map<std::string, std::string> & config)
+void blockstore::calc_lengths(blockstore_config_t & config)
 {
     // data
     data_len = data_size - data_offset;
@@ -90,7 +90,7 @@ void check_size(int fd, uint64_t *size, std::string name)
     }
 }
 
-void blockstore::open_data(spp::sparse_hash_map<std::string, std::string> & config)
+void blockstore::open_data(blockstore_config_t & config)
 {
     data_offset = strtoull(config["data_offset"].c_str(), NULL, 10);
     if (data_offset % DISK_ALIGNMENT)
@@ -109,7 +109,7 @@ void blockstore::open_data(spp::sparse_hash_map<std::string, std::string> & conf
     }
 }
 
-void blockstore::open_meta(spp::sparse_hash_map<std::string, std::string> & config)
+void blockstore::open_meta(blockstore_config_t & config)
 {
     meta_offset = strtoull(config["meta_offset"].c_str(), NULL, 10);
     if (meta_offset % DISK_ALIGNMENT)
@@ -141,7 +141,7 @@ void blockstore::open_meta(spp::sparse_hash_map<std::string, std::string> & conf
     }
 }
 
-void blockstore::open_journal(spp::sparse_hash_map<std::string, std::string> & config)
+void blockstore::open_journal(blockstore_config_t & config)
 {
     journal.offset = strtoull(config["journal_offset"].c_str(), NULL, 10);
     if (journal.offset % DISK_ALIGNMENT)
