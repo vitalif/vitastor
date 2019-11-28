@@ -72,7 +72,7 @@ int blockstore_init_meta::loop()
         }
     }
     // metadata read finished
-    printf("Metadata entries loaded: %d\n", entries_loaded);
+    printf("Metadata entries loaded: %lu, free blocks: %lu / %lu\n", entries_loaded, bs->data_alloc->get_free_count(), bs->block_count);
     free(metadata_buffer);
     metadata_buffer = NULL;
     return 0;
@@ -93,10 +93,9 @@ void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int 
                 if (clean_it != bs->clean_db.end())
                 {
                     // free the previous block
-                    bs->data_alloc->set(clean_it->second.version >> block_order, false);
+                    bs->data_alloc->set(clean_it->second.location >> block_order, false);
                 }
-                else
-                    entries_loaded++;
+                entries_loaded++;
                 bs->data_alloc->set(done_cnt+i, true);
                 bs->clean_db[entries[i].oid] = (struct clean_entry){
                     .version = entries[i].version,
@@ -287,7 +286,7 @@ resume_1:
             }
         }
     }
-    printf("Journal entries loaded: %d\n", entries_loaded);
+    printf("Journal entries loaded: %lu, free blocks: %lu / %lu\n", entries_loaded, bs->data_alloc->get_free_count(), bs->block_count);
     if (!bs->journal.inmemory)
     {
         free(journal_buffer);
@@ -397,6 +396,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     .len = bs->block_size,
                     .journal_sector = proc_pos,
                 });
+                bs->data_alloc->set(je->big_write.location >> bs->block_order, true);
                 bs->journal.used_sectors[proc_pos]++;
                 auto & unstab = bs->unstable_writes[ov.oid];
                 unstab = unstab < ov.version ? ov.version : unstab;

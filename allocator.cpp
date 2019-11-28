@@ -19,7 +19,7 @@ allocator::allocator(uint64_t blocks)
     total -= p2;
     total += (blocks+63) / 64;
     mask = new uint64_t[2 + total];
-    size = blocks;
+    size = free = blocks;
     last_one_mask = (blocks % 64) == 0
         ? UINT64_MAX
         : ~(UINT64_MAX << (64 - blocks % 64));
@@ -55,6 +55,10 @@ void allocator::set(uint64_t addr, bool value)
         uint64_t bit = cur_addr % 64;
         if (((mask[last] >> bit) & 1) != value64)
         {
+            if (is_last)
+            {
+                free += value ? -1 : 1;
+            }
             if (value)
             {
                 mask[last] = mask[last] | (1l << bit);
@@ -119,4 +123,9 @@ uint64_t allocator::find_free()
         p2 = p2 * 64;
     }
     return addr;
+}
+
+uint64_t allocator::get_free_count()
+{
+    return free;
 }

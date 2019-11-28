@@ -49,7 +49,6 @@ void blockstore::enqueue_write(blockstore_operation *op)
 // First step of the write algorithm: dequeue operation and submit initial write(s)
 int blockstore::dequeue_write(blockstore_operation *op)
 {
-    auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
     auto dirty_it = dirty_db.find((obj_ver_id){
         .oid = op->oid,
         .version = op->version,
@@ -61,6 +60,12 @@ int blockstore::dequeue_write(blockstore_operation *op)
         if (loc == UINT64_MAX)
         {
             // no space
+            if (flusher->is_active())
+            {
+                // hope that some space will be available after flush
+                op->wait_for = WAIT_FREE;
+                return 0;
+            }
             op->retval = -ENOSPC;
             op->callback(op);
             return 1;
@@ -87,7 +92,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
             op->iov_zerofill[0] = (struct iovec){ op->buf, op->len };
             data->iov.iov_len = op->len; // to check it in the callback
         }
-        data->callback = cb;
+        data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         my_uring_prep_writev(
             sqe, data_fd, op->iov_zerofill, vcnt, data_offset + (loc << block_order)
         );
@@ -134,6 +139,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
         je->crc32_data = crc32c(0, op->buf, op->len);
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
+        auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         prepare_journal_sector_write(journal, sqe1, cb);
         op->min_used_journal_sector = op->max_used_journal_sector = 1 + journal.cur_sector;
         // Prepare journal data write

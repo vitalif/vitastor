@@ -7,7 +7,7 @@ class blockstore_init_meta
     uint8_t *metadata_buffer = NULL;
     uint64_t metadata_read = 0;
     int prev = 0, prev_done = 0, done_len = 0, submitted = 0, done_cnt = 0;
-    int entries_loaded = 0;
+    uint64_t entries_loaded = 0;
     struct io_uring_sqe *sqe;
     struct ring_data_t *data;
     void handle_entries(struct clean_disk_entry* entries, int count, int block_order);
@@ -21,7 +21,7 @@ class blockstore_init_journal
 {
     blockstore *bs;
     int wait_state = 0, wait_count = 0;
-    int entries_loaded = 0;
+    uint64_t entries_loaded = 0;
     void *journal_buffer = NULL;
     uint32_t crc32_last = 0;
     bool started = false;

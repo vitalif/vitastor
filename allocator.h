@@ -6,6 +6,7 @@
 class allocator
 {
     uint64_t size;
+    uint64_t free;
     uint64_t last_one_mask;
     uint64_t *mask;
 public:
@@ -13,4 +14,5 @@ public:
     ~allocator();
     void set(uint64_t addr, bool value);
     uint64_t find_free();
+    uint64_t get_free_count();
 };

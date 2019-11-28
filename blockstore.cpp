@@ -260,6 +260,14 @@ void blockstore::check_wait(blockstore_operation *op)
         }
         op->wait_for = 0;
     }
+    else if (op->wait_for == WAIT_FREE)
+    {
+        if (!data_alloc->get_free_count() && !flusher->is_active())
+        {
+            return;
+        }
+        op->wait_for = 0;
+    }
     else
     {
         throw std::runtime_error("BUG: op->wait_for value is unexpected");
