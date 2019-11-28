@@ -340,11 +340,11 @@ resume_0:
             );
             wait_count++;
         }
-        // And a metadata write
     resume_5:
-        if (meta_it->second.state == 0)
+        // And a metadata write, but only after data writes complete
+        if (meta_it->second.state == 0 || wait_count > 0)
         {
-            // metadata sector is still being read, wait for it
+            // metadata sector is still being read or data is still being written, wait for it
             wait_state = 5;
             return;
         }
@@ -352,8 +352,6 @@ resume_0:
             .oid = cur.oid,
             .version = cur.version,
         };
-        // I consider unordered writes to data & metadata safe here
-        // BUT it requires that journal entries even older than clean_db are replayed after restart
         await_sqe(6);
         data->iov = (struct iovec){ meta_it->second.buf, 512 };
         data->callback = simple_callback_w;
@@ -432,6 +430,9 @@ resume_0:
         // Update clean_db and dirty_db, free old data locations
         if (old_clean_loc != clean_loc)
         {
+#ifdef BLOCKSTORE_DEBUG
+            printf("Free block %lu\n", old_clean_loc >> bs->block_order);
+#endif
             bs->data_alloc->set(old_clean_loc >> bs->block_order, false);
         }
         bs->clean_db[cur.oid] = {
@@ -443,6 +444,9 @@ resume_0:
         {
             if (IS_BIG_WRITE(dirty_it->second.state) && dirty_it->second.location != clean_loc)
             {
+#ifdef BLOCKSTORE_DEBUG
+                printf("Free block %lu\n", dirty_it->second.location >> bs->block_order);
+#endif
                 bs->data_alloc->set(dirty_it->second.location >> bs->block_order, false);
             }
 #ifdef BLOCKSTORE_DEBUG

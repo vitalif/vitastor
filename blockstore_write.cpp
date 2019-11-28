@@ -73,6 +73,9 @@ int blockstore::dequeue_write(blockstore_operation *op)
         BS_SUBMIT_GET_SQE(sqe, data);
         dirty_it->second.location = loc << block_order;
         dirty_it->second.state = ST_D_SUBMITTED;
+#ifdef BLOCKSTORE_DEBUG
+        printf("Allocate block %lu\n", loc);
+#endif
         data_alloc->set(loc, true);
         int vcnt = 0;
         if (op->version == 1 && op->len != block_size)

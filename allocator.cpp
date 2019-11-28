@@ -71,10 +71,6 @@ void allocator::set(uint64_t addr, bool value)
             else
             {
                 mask[last] = mask[last] & ~(1l << bit);
-                if (mask[last] != 0)
-                {
-                    break;
-                }
             }
             is_last = false;
             if (p2 > 1)

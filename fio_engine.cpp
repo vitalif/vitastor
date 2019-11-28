@@ -1,6 +1,19 @@
 // FIO engine to test Blockstore
+//
+// Random write:
+//
 // fio -thread -ioengine=./libfio_blockstore.so -name=test -bs=4k -direct=1 -fsync=16 -iodepth=16 -rw=randwrite \
-//     -data_device=./test_data.bin -meta_device=./test_meta.bin -journal_device=./test_journal.bin -size=1G
+//     -data_device=./test_data.bin -meta_device=./test_meta.bin -journal_device=./test_journal.bin -size=1000M
+//
+// Linear write:
+//
+// fio -thread -ioengine=./libfio_blockstore.so -name=test -bs=128k -direct=1 -fsync=32 -iodepth=32 -rw=write \
+//     -data_device=./test_data.bin -meta_device=./test_meta.bin -journal_device=./test_journal.bin -size=1000M
+//
+// Random read (run with -iodepth=32 or -iodepth=1):
+//
+// fio -thread -ioengine=./libfio_blockstore.so -name=test -bs=4k -direct=1 -iodepth=32 -rw=randread \
+//     -data_device=./test_data.bin -meta_device=./test_meta.bin -journal_device=./test_journal.bin -size=1000M
 
 #include "blockstore.h"
 extern "C" {

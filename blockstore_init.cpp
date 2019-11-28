@@ -85,23 +85,30 @@ void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int 
         if (entries[i].oid.inode > 0)
         {
             auto clean_it = bs->clean_db.find(entries[i].oid);
-#ifdef BLOCKSTORE_DEBUG
-            printf("Clean entry %u: %lu:%lu v%lu\n", done_cnt+i, entries[i].oid.inode, entries[i].oid.stripe, entries[i].version);
-#endif
             if (clean_it == bs->clean_db.end() || clean_it->second.version < entries[i].version)
             {
                 if (clean_it != bs->clean_db.end())
                 {
                     // free the previous block
+#ifdef BLOCKSTORE_DEBUG
+                    printf("Free block %lu\n", clean_it->second.location >> bs->block_order);
+#endif
                     bs->data_alloc->set(clean_it->second.location >> block_order, false);
                 }
                 entries_loaded++;
+#ifdef BLOCKSTORE_DEBUG
+                printf("Allocate block (clean entry) %lu: %lu:%lu v%lu\n", done_cnt+i, entries[i].oid.inode, entries[i].oid.stripe, entries[i].version);
+#endif
                 bs->data_alloc->set(done_cnt+i, true);
                 bs->clean_db[entries[i].oid] = (struct clean_entry){
                     .version = entries[i].version,
                     .location = (done_cnt+i) << block_order,
                 };
             }
+#ifdef BLOCKSTORE_DEBUG
+            else
+                printf("Old clean entry %lu: %lu:%lu v%lu\n", done_cnt+i, entries[i].oid.inode, entries[i].oid.stripe, entries[i].version);
+#endif
         }
     }
 }
@@ -286,6 +293,7 @@ resume_1:
             }
         }
     }
+    // FIXME Trim journal on start so we don't stall when all entries are older
     printf("Journal entries loaded: %lu, free blocks: %lu / %lu\n", entries_loaded, bs->data_alloc->get_free_count(), bs->block_count);
     if (!bs->journal.inmemory)
     {
@@ -356,50 +364,63 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
                     snprintf(err, 1024, "BUG: calculated journal data offset (%lu) != stored journal data offset (%lu)", location, je->small_write.data_offset);
                     throw std::runtime_error(err);
                 }
-                obj_ver_id ov = {
-                    .oid = je->small_write.oid,
-                    .version = je->small_write.version,
-                };
+                auto clean_it = bs->clean_db.find(je->small_write.oid);
+                if (clean_it == bs->clean_db.end() ||
+                    clean_it->second.version < je->big_write.version)
+                {
+                    obj_ver_id ov = {
+                        .oid = je->small_write.oid,
+                        .version = je->small_write.version,
+                    };
 #ifdef BLOCKSTORE_DEBUG
-                printf("je_small_write oid=%lu:%lu ver=%lu offset=%u len=%u\n", ov.oid.inode, ov.oid.stripe, ov.version, je->small_write.offset, je->small_write.len);
+                    printf("je_small_write oid=%lu:%lu ver=%lu offset=%u len=%u\n", ov.oid.inode, ov.oid.stripe, ov.version, je->small_write.offset, je->small_write.len);
 #endif
-                bs->dirty_db.emplace(ov, (dirty_entry){
-                    .state = ST_J_SYNCED,
-                    .flags = 0,
-                    .location = location,
-                    .offset = je->small_write.offset,
-                    .len = je->small_write.len,
-                    .journal_sector = proc_pos,
-                });
-                bs->journal.used_sectors[proc_pos]++;
+                    bs->dirty_db.emplace(ov, (dirty_entry){
+                        .state = ST_J_SYNCED,
+                        .flags = 0,
+                        .location = location,
+                        .offset = je->small_write.offset,
+                        .len = je->small_write.len,
+                        .journal_sector = proc_pos,
+                    });
+                    bs->journal.used_sectors[proc_pos]++;
 #ifdef BLOCKSTORE_DEBUG
-                printf("journal offset %lu is used by %lu:%lu v%lu\n", proc_pos, ov.oid.inode, ov.oid.stripe, ov.version);
+                    printf("journal offset %lu is used by %lu:%lu v%lu\n", proc_pos, ov.oid.inode, ov.oid.stripe, ov.version);
 #endif
-                auto & unstab = bs->unstable_writes[ov.oid];
-                unstab = unstab < ov.version ? ov.version : unstab;
+                    auto & unstab = bs->unstable_writes[ov.oid];
+                    unstab = unstab < ov.version ? ov.version : unstab;
+                }
             }
             else if (je->type == JE_BIG_WRITE)
             {
-                // oid, version, block
-                obj_ver_id ov = {
-                    .oid = je->big_write.oid,
-                    .version = je->big_write.version,
-                };
+                auto clean_it = bs->clean_db.find(je->big_write.oid);
+                if (clean_it == bs->clean_db.end() ||
+                    clean_it->second.version < je->big_write.version)
+                {
+                    // oid, version, block
+                    obj_ver_id ov = {
+                        .oid = je->big_write.oid,
+                        .version = je->big_write.version,
+                    };
 #ifdef BLOCKSTORE_DEBUG
-                printf("je_big_write oid=%lu:%lu ver=%lu\n", ov.oid.inode, ov.oid.stripe, ov.version);
+                    printf("je_big_write oid=%lu:%lu ver=%lu\n", ov.oid.inode, ov.oid.stripe, ov.version);
 #endif
-                bs->dirty_db.emplace(ov, (dirty_entry){
-                    .state = ST_D_META_SYNCED,
-                    .flags = 0,
-                    .location = je->big_write.location,
-                    .offset = 0,
-                    .len = bs->block_size,
-                    .journal_sector = proc_pos,
-                });
-                bs->data_alloc->set(je->big_write.location >> bs->block_order, true);
-                bs->journal.used_sectors[proc_pos]++;
-                auto & unstab = bs->unstable_writes[ov.oid];
-                unstab = unstab < ov.version ? ov.version : unstab;
+                    bs->dirty_db.emplace(ov, (dirty_entry){
+                        .state = ST_D_META_SYNCED,
+                        .flags = 0,
+                        .location = je->big_write.location,
+                        .offset = 0,
+                        .len = bs->block_size,
+                        .journal_sector = proc_pos,
+                    });
+#ifdef BLOCKSTORE_DEBUG
+                    printf("Allocate block %lu\n", je->big_write.location >> bs->block_order);
+#endif
+                    bs->data_alloc->set(je->big_write.location >> bs->block_order, true);
+                    bs->journal.used_sectors[proc_pos]++;
+                    auto & unstab = bs->unstable_writes[ov.oid];
+                    unstab = unstab < ov.version ? ov.version : unstab;
+                }
             }
             else if (je->type == JE_STABLE)
             {

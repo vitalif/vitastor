@@ -6,7 +6,8 @@ class blockstore_init_meta
     int wait_state = 0, wait_count = 0;
     uint8_t *metadata_buffer = NULL;
     uint64_t metadata_read = 0;
-    int prev = 0, prev_done = 0, done_len = 0, submitted = 0, done_cnt = 0;
+    int prev = 0, prev_done = 0, done_len = 0, submitted = 0;
+    uint64_t done_cnt = 0;
     uint64_t entries_loaded = 0;
     struct io_uring_sqe *sqe;
     struct ring_data_t *data;
