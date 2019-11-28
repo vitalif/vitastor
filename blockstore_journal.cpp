@@ -121,3 +121,45 @@ journal_t::~journal_t()
     sector_info = NULL;
     buffer = NULL;
 }
+
+bool journal_t::trim()
+{
+    auto journal_used_it = used_sectors.lower_bound(used_start);
+#ifdef BLOCKSTORE_DEBUG
+    printf(
+        "Trimming journal (used_start=%lu, next_free=%lu, first_used=%lu, usage_count=%lu)\n",
+        used_start, next_free,
+        journal_used_it == used_sectors.end() ? 0 : journal_used_it->first,
+        journal_used_it == used_sectors.end() ? 0 : journal_used_it->second
+    );
+#endif
+    if (journal_used_it == used_sectors.end())
+    {
+        // Journal is cleared to its end, restart from the beginning
+        journal_used_it = used_sectors.begin();
+        if (journal_used_it == used_sectors.end())
+        {
+            // Journal is empty
+            used_start = next_free;
+        }
+        else
+        {
+            used_start = journal_used_it->first;
+            // next_free does not need updating here
+        }
+    }
+    else if (journal_used_it->first > used_start)
+    {
+        // Journal is cleared up to <journal_used_it>
+        used_start = journal_used_it->first;
+    }
+    else
+    {
+        // Can't trim journal
+        return false;
+    }
+#ifdef BLOCKSTORE_DEBUG
+    printf("Journal trimmed to %lu (next_free=%lu)\n", used_start, next_free);
+#endif
+    return true;
+}

@@ -24,6 +24,7 @@ int blockstore_init_meta::loop()
 {
     if (wait_state == 1)
         goto resume_1;
+    printf("Reading blockstore metadata\n");
     metadata_buffer = (uint8_t*)memalign(512, 2*bs->metadata_buf_size);
     if (!metadata_buffer)
         throw std::bad_alloc();
@@ -173,6 +174,7 @@ int blockstore_init_journal::loop()
         goto resume_3;
     else if (wait_state == 4)
         goto resume_4;
+    printf("Reading blockstore journal\n");
     if (!bs->journal.inmemory)
     {
         journal_buffer = (uint8_t*)memalign(DISK_ALIGNMENT, 2*JOURNAL_BUFFER_SIZE);
@@ -293,7 +295,8 @@ resume_1:
             }
         }
     }
-    // FIXME Trim journal on start so we don't stall when all entries are older
+    // Trim journal on start so we don't stall when all entries are older
+    bs->journal.trim();
     printf("Journal entries loaded: %lu, free blocks: %lu / %lu\n", entries_loaded, bs->data_alloc->get_free_count(), bs->block_count);
     if (!bs->journal.inmemory)
     {

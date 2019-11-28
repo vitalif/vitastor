@@ -134,6 +134,7 @@ struct journal_t
     std::map<uint64_t, uint64_t> used_sectors;
 
     ~journal_t();
+    bool trim();
 };
 
 struct blockstore_journal_check_t

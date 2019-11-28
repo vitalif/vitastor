@@ -475,43 +475,10 @@ resume_0:
         if (!((++flusher->journal_trim_counter) % flusher->journal_trim_interval))
         {
             flusher->journal_trim_counter = 0;
-            journal_used_it = bs->journal.used_sectors.lower_bound(bs->journal.used_start);
-#ifdef BLOCKSTORE_DEBUG
-            printf(
-                "Trimming journal (used_start=%lu, next_free=%lu, first_used=%lu, usage_count=%lu)\n",
-                bs->journal.used_start, bs->journal.next_free,
-                journal_used_it == bs->journal.used_sectors.end() ? 0 : journal_used_it->first,
-                journal_used_it == bs->journal.used_sectors.end() ? 0 : journal_used_it->second
-            );
-#endif
-            if (journal_used_it == bs->journal.used_sectors.end())
+            if (!bs->journal.trim())
             {
-                // Journal is cleared to its end, restart from the beginning
-                journal_used_it = bs->journal.used_sectors.begin();
-                if (journal_used_it == bs->journal.used_sectors.end())
-                {
-                    // Journal is empty
-                    bs->journal.used_start = bs->journal.next_free;
-                }
-                else
-                {
-                    bs->journal.used_start = journal_used_it->first;
-                    // next_free does not need updating here
-                }
-            }
-            else if (journal_used_it->first > bs->journal.used_start)
-            {
-                // Journal is cleared up to <journal_used_it>
-                bs->journal.used_start = journal_used_it->first;
-            }
-            else
-            {
-                // Can't trim journal
                 goto do_not_trim;
             }
-#ifdef BLOCKSTORE_DEBUG
-            printf("Journal trimmed to %lu (next_free=%lu)\n", bs->journal.used_start, bs->journal.next_free);
-#endif
             // Update journal "superblock"
             await_sqe(12);
             data->callback = simple_callback_w;
