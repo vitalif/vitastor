@@ -22,7 +22,7 @@ class blockstore_init_journal
     blockstore *bs;
     int wait_state = 0, wait_count = 0;
     int entries_loaded = 0;
-    uint8_t *journal_buffer = NULL;
+    void *journal_buffer = NULL;
     uint32_t crc32_last = 0;
     bool started = false;
     uint64_t done_pos = 0, journal_pos = 0;

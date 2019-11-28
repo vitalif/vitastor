@@ -114,6 +114,8 @@ struct journal_t
 {
     int fd;
     uint64_t device_size;
+    bool inmemory = false;
+    void *buffer = NULL;
 
     uint64_t offset, len;
     uint64_t next_free = 512;
@@ -121,8 +123,8 @@ struct journal_t
     uint32_t crc32_last = 0;
 
     // Current sector(s) used for writing
-    uint8_t *sector_buf;
-    journal_sector_info_t *sector_info;
+    void *sector_buf = NULL;
+    journal_sector_info_t *sector_info = NULL;
     uint64_t sector_count;
     int cur_sector = 0;
     int in_sector_pos = 512; // no free space because sector is initially unmapped
@@ -130,6 +132,8 @@ struct journal_t
     // Used sector map
     // May use ~ 80 MB per 1 GB of used journal space in the worst case
     std::map<uint64_t, uint64_t> used_sectors;
+
+    ~journal_t();
 };
 
 struct blockstore_journal_check_t

@@ -10,7 +10,7 @@ journal_flusher_t::journal_flusher_t(int flusher_count, blockstore *bs)
     sync_threshold = flusher_count == 1 ? 1 : flusher_count/2;
     journal_trim_interval = sync_threshold;
     journal_trim_counter = 0;
-    journal_superblock = (uint8_t*)memalign(512, 512);
+    journal_superblock = bs->journal.inmemory ? bs->journal.buffer : memalign(512, 512);
     co = new journal_flusher_co[flusher_count];
     for (int i = 0; i < flusher_count; i++)
     {
@@ -48,7 +48,8 @@ journal_flusher_co::journal_flusher_co()
 
 journal_flusher_t::~journal_flusher_t()
 {
-    free(journal_superblock);
+    if (!bs->journal.inmemory)
+        free(journal_superblock);
     delete[] co;
 }
 
@@ -176,6 +177,7 @@ resume_0:
         flusher->active_until_sync++;
         v.clear();
         wait_count = 0;
+        copy_count = 0;
         clean_loc = UINT64_MAX;
         skip_copy = false;
         while (1)
@@ -183,7 +185,6 @@ resume_0:
             if (dirty_it->second.state == ST_J_STABLE && !skip_copy)
             {
                 // First we submit all reads
-                // FIXME: Introduce a (default) mode where we'll keep the whole journal in memory instead of re-reading data during flush
                 offset = dirty_it->second.offset;
                 len = dirty_it->second.len;
                 it = v.begin();
@@ -194,15 +195,26 @@ resume_0:
                             break;
                     if (it == v.end() || it->offset > offset)
                     {
+                        submit_offset = dirty_it->second.location + offset - dirty_it->second.offset;
                         submit_len = it == v.end() || it->offset >= offset+len ? len : it->offset-offset;
-                        await_sqe(1);
                         it = v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len, .buf = memalign(512, submit_len) });
-                        data->iov = (struct iovec){ v.back().buf, (size_t)submit_len };
-                        data->callback = simple_callback_r;
-                        my_uring_prep_readv(
-                            sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + dirty_it->second.location + offset - dirty_it->second.offset
-                        );
-                        wait_count++;
+                        copy_count++;
+                        if (bs->journal.inmemory)
+                        {
+                            // Take it from memory
+                            memcpy(v.back().buf, bs->journal.buffer + submit_offset, submit_len);
+                        }
+                        else
+                        {
+                            // Read it from disk
+                            await_sqe(1);
+                            data->iov = (struct iovec){ v.back().buf, (size_t)submit_len };
+                            data->callback = simple_callback_r;
+                            my_uring_prep_readv(
+                                sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + submit_offset
+                            );
+                            wait_count++;
+                        }
                     }
                     if (it == v.end() || it->offset+it->len >= offset+len)
                     {
@@ -238,7 +250,7 @@ resume_0:
                 break;
             }
         }
-        if (wait_count == 0 && clean_loc == UINT64_MAX)
+        if (copy_count == 0 && clean_loc == UINT64_MAX)
         {
             // Nothing to flush
             flusher->active_flushers--;

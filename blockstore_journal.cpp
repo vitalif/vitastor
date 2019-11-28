@@ -76,10 +76,14 @@ journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, 
         journal.sector_info[journal.cur_sector].offset = journal.next_free;
         journal.in_sector_pos = 0;
         journal.next_free = (journal.next_free+512) < journal.len ? journal.next_free + 512 : 512;
-        memset(journal.sector_buf + 512*journal.cur_sector, 0, 512);
+        memset(journal.inmemory
+            ? journal.buffer + journal.sector_info[journal.cur_sector].offset
+            : journal.sector_buf + 512*journal.cur_sector, 0, 512);
     }
     journal_entry *je = (struct journal_entry*)(
-        journal.sector_buf + 512*journal.cur_sector + journal.in_sector_pos
+        (journal.inmemory
+            ? journal.buffer + journal.sector_info[journal.cur_sector].offset
+            : journal.sector_buf + 512*journal.cur_sector) + journal.in_sector_pos
     );
     journal.in_sector_pos += size;
     je->magic = JOURNAL_MAGIC;
@@ -93,9 +97,27 @@ void prepare_journal_sector_write(journal_t & journal, io_uring_sqe *sqe, std::f
 {
     journal.sector_info[journal.cur_sector].usage_count++;
     ring_data_t *data = ((ring_data_t*)sqe->user_data);
-    data->iov = (struct iovec){ journal.sector_buf + 512*journal.cur_sector, 512 };
+    data->iov = (struct iovec){
+        (journal.inmemory
+            ? journal.buffer + journal.sector_info[journal.cur_sector].offset
+            : journal.sector_buf + 512*journal.cur_sector),
+        512
+    };
     data->callback = cb;
     my_uring_prep_writev(
         sqe, journal.fd, &data->iov, 1, journal.offset + journal.sector_info[journal.cur_sector].offset
     );
+}
+
+journal_t::~journal_t()
+{
+    if (sector_buf)
+        free(sector_buf);
+    if (sector_info)
+        free(sector_info);
+    if (buffer)
+        free(buffer);
+    sector_buf = NULL;
+    sector_info = NULL;
+    buffer = NULL;
 }

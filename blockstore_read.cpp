@@ -18,6 +18,16 @@ int blockstore::fulfill_read_push(blockstore_operation *op, uint64_t &fulfilled,
             memset((uint8_t*)op->buf + cur_start - op->offset, 0, cur_end - cur_start);
             return 1;
         }
+        if (journal.inmemory && IS_JOURNAL(item_state))
+        {
+            iovec v = {
+                (uint8_t*)op->buf + cur_start - op->offset,
+                cur_end - cur_start
+            };
+            op->read_vec[cur_start] = v;
+            memcpy(v.iov_base, journal.buffer + item_location + cur_start - item_start, v.iov_len);
+            return 1;
+        }
         BS_SUBMIT_GET_SQE(sqe, data);
         data->iov = (struct iovec){
             (uint8_t*)op->buf + cur_start - op->offset,
@@ -25,6 +35,7 @@ int blockstore::fulfill_read_push(blockstore_operation *op, uint64_t &fulfilled,
         };
         // FIXME: use simple std::vector instead of map for read_vec
         op->read_vec[cur_start] = data->iov;
+        op->pending_ops++;
         my_uring_prep_readv(
             sqe,
             IS_JOURNAL(item_state) ? journal.fd : data_fd,
@@ -90,6 +101,7 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
         return 1;
     }
     uint64_t fulfilled = 0;
+    read_op->pending_ops = 0;
     if (dirty_found)
     {
         while (dirty_it->first.oid == read_op->oid)
@@ -137,7 +149,6 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
         return 1;
     }
     read_op->retval = 0;
-    read_op->pending_ops = read_op->read_vec.size();
     return 1;
 }
 

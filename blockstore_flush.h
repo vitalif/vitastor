@@ -33,7 +33,8 @@ class journal_flusher_co
     std::map<obj_ver_id, dirty_entry>::iterator dirty_it, dirty_start, dirty_end;
     std::vector<copy_buffer_t> v;
     std::vector<copy_buffer_t>::iterator it;
-    uint64_t offset, len, submit_len, clean_loc, old_clean_loc, meta_sector, meta_pos;
+    int copy_count;
+    uint64_t offset, len, submit_offset, submit_len, clean_loc, old_clean_loc, meta_sector, meta_pos;
     std::map<uint64_t, meta_sector_t>::iterator meta_it;
     std::map<object_id, uint64_t>::iterator repeat_it;
     std::map<uint64_t, uint64_t>::iterator journal_used_it;
@@ -56,7 +57,7 @@ class journal_flusher_t
     friend class journal_flusher_co;
 
     int journal_trim_counter, journal_trim_interval;
-    uint8_t* journal_superblock;
+    void* journal_superblock;
 
     int active_flushers, active_until_sync;
     std::list<flusher_sync_t> syncs;

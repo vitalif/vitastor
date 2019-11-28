@@ -137,6 +137,11 @@ int blockstore::dequeue_write(blockstore_operation *op)
         prepare_journal_sector_write(journal, sqe1, cb);
         op->min_used_journal_sector = op->max_used_journal_sector = 1 + journal.cur_sector;
         // Prepare journal data write
+        if (journal.inmemory)
+        {
+            // Copy data
+            memcpy(journal.buffer + journal.next_free, op->buf, op->len);
+        }
         data2->iov = (struct iovec){ op->buf, op->len };
         data2->callback = cb;
         my_uring_prep_writev(

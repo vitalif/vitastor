@@ -61,6 +61,12 @@ void blockstore::calc_lengths(blockstore_config_t & config)
     {
         throw std::runtime_error("Journal is too small");
     }
+    if (journal.inmemory)
+    {
+        journal.buffer = memalign(512, journal.len);
+        if (!journal.buffer)
+            throw std::bad_alloc();
+    }
 }
 
 void check_size(int fd, uint64_t *size, std::string name)
@@ -171,10 +177,20 @@ void blockstore::open_journal(blockstore_config_t & config)
     {
         journal.sector_count = 32;
     }
-    journal.sector_buf = (uint8_t*)memalign(512, journal.sector_count * 512);
     journal.sector_info = (journal_sector_info_t*)calloc(journal.sector_count, sizeof(journal_sector_info_t));
-    if (!journal.sector_buf || !journal.sector_info)
+    if (!journal.sector_info)
     {
         throw std::bad_alloc();
+    }
+    if (config["journal_inmemory"] == "false")
+    {
+        journal.inmemory = false;
+        journal.sector_buf = (uint8_t*)memalign(512, journal.sector_count * 512);
+        if (!journal.sector_buf)
+            throw std::bad_alloc();
+    }
+    else
+    {
+        journal.inmemory = true;
     }
 }

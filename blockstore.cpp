@@ -54,8 +54,6 @@ blockstore::~blockstore()
         close(meta_fd);
     if (journal.fd >= 0 && journal.fd != meta_fd)
         close(journal.fd);
-    free(journal.sector_buf);
-    free(journal.sector_info);
 }
 
 bool blockstore::is_started()

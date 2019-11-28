@@ -167,7 +167,14 @@ int blockstore_init_journal::loop()
         goto resume_3;
     else if (wait_state == 4)
         goto resume_4;
-    journal_buffer = (uint8_t*)memalign(DISK_ALIGNMENT, 2*JOURNAL_BUFFER_SIZE);
+    if (!bs->journal.inmemory)
+    {
+        journal_buffer = (uint8_t*)memalign(DISK_ALIGNMENT, 2*JOURNAL_BUFFER_SIZE);
+        if (!journal_buffer)
+            throw std::bad_alloc();
+    }
+    else
+        journal_buffer = bs->journal.buffer;
     // Read first block of the journal
     sqe = bs->get_sqe();
     if (!sqe)
@@ -254,7 +261,7 @@ resume_1:
                     end = bs->journal.used_start;
                 }
                 data->iov = {
-                    journal_buffer + (done_buf == 1 ? JOURNAL_BUFFER_SIZE : 0),
+                    journal_buffer + (bs->journal.inmemory ? journal_pos : (done_buf == 1 ? JOURNAL_BUFFER_SIZE : 0)),
                     end - journal_pos < JOURNAL_BUFFER_SIZE ? end - journal_pos : JOURNAL_BUFFER_SIZE,
                 };
                 data->callback = [this](ring_data_t *data1) { handle_event(data1); };
@@ -262,7 +269,9 @@ resume_1:
                 bs->ringloop->submit();
                 submitted = done_buf == 1 ? 2 : 1;
             }
-            if (done_buf && handle_journal_part(journal_buffer + (done_buf == 1 ? 0 : JOURNAL_BUFFER_SIZE), done_len) == 0)
+            if (done_buf && handle_journal_part(journal_buffer + (bs->journal.inmemory
+                ? done_pos
+                : (done_buf == 1 ? 0 : JOURNAL_BUFFER_SIZE)), done_len) == 0)
             {
                 // journal ended. wait for the next read to complete, then stop
             resume_3:
@@ -279,7 +288,10 @@ resume_1:
         }
     }
     printf("Journal entries loaded: %d\n", entries_loaded);
-    free(journal_buffer);
+    if (!bs->journal.inmemory)
+    {
+        free(journal_buffer);
+    }
     bs->journal.crc32_last = crc32_last;
     journal_buffer = NULL;
     return 0;

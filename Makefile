@@ -6,7 +6,7 @@ clean:
 crc32c.o: crc32c.c
 	g++ -g -O3 -fPIC -c -o $@ $<
 %.o: %.cpp allocator.h blockstore_flush.h blockstore.h blockstore_init.h blockstore_journal.h crc32c.h ringloop.h xor.h timerfd_interval.h
-	g++ -g -O3 -Wall -Wno-sign-compare -Wno-parentheses -fPIC -c -o $@ $<
+	g++ -g -O3 -Wall -Wno-sign-compare -Wno-parentheses -Wno-pointer-arith -fPIC -c -o $@ $<
 test: test.cpp
 	g++ -g -O3 -o test -luring test.cpp
 test_blockstore: $(BLOCKSTORE_OBJS) test_blockstore.cpp
