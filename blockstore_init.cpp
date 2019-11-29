@@ -249,7 +249,7 @@ resume_1:
             // Entry is corrupt
             throw std::runtime_error("first entry of the journal is corrupt");
         }
-        journal_pos = bs->journal.used_start = je_start->journal_start;
+        next_free = journal_pos = bs->journal.used_start = je_start->journal_start;
         crc32_last = 0;
         // Read journal
         while (1)
@@ -309,26 +309,24 @@ resume_1:
 
 int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
 {
-    uint64_t buf_pos = 0;
-    if (cur_skip >= 0)
+    while (next_free >= done_pos && next_free < done_pos+len)
     {
-        buf_pos = cur_skip;
-        cur_skip = 0;
-    }
-    while (buf_pos < len)
-    {
-        uint64_t proc_pos = buf_pos, pos = 0;
-        buf_pos += 512;
+        uint64_t proc_pos = next_free, pos = 0;
+        next_free += 512;
+        if (next_free >= bs->journal.len)
+        {
+            next_free = 512;
+        }
         while (pos < 512)
         {
-            journal_entry *je = (journal_entry*)((uint8_t*)buf + proc_pos + pos);
+            journal_entry *je = (journal_entry*)((uint8_t*)buf + proc_pos - done_pos + pos);
             if (je->magic != JOURNAL_MAGIC || je_crc32(je) != je->crc32 ||
                 je->type < JE_SMALL_WRITE || je->type > JE_DELETE || started && je->crc32_prev != crc32_last)
             {
                 if (pos == 0)
                 {
                     // invalid entry in the beginning, this is definitely the end of the journal
-                    bs->journal.next_free = done_pos + proc_pos;
+                    bs->journal.next_free = next_free;
                     return 0;
                 }
                 else
@@ -343,23 +341,16 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
             if (je->type == JE_SMALL_WRITE)
             {
                 // oid, version, offset, len
-                uint64_t location;
-                if (cur_skip > 0 || done_pos + buf_pos + je->small_write.len > bs->journal.len)
+                if (next_free + je->small_write.len > bs->journal.len)
                 {
                     // data continues from the beginning of the journal
-                    if (buf_pos > len)
-                    {
-                        // if something is already skipped, skip everything until the end of the journal
-                        buf_pos = bs->journal.len-done_pos;
-                    }
-                    location = 512 + cur_skip;
-                    cur_skip += je->small_write.len;
+                    next_free = 512;
                 }
-                else
+                uint64_t location = next_free;
+                next_free += je->small_write.len;
+                if (next_free >= bs->journal.len)
                 {
-                    // data is right next
-                    location = done_pos + buf_pos;
-                    buf_pos += je->small_write.len;
+                    next_free = 512;
                 }
                 if (location != je->small_write.data_offset)
                 {
@@ -483,9 +474,6 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t len)
             entries_loaded++;
         }
     }
-    if (buf_pos > len)
-    {
-        cur_skip = buf_pos - len;
-    }
+    bs->journal.next_free = next_free;
     return 1;
 }

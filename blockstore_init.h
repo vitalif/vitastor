@@ -27,7 +27,7 @@ class blockstore_init_journal
     uint32_t crc32_last = 0;
     bool started = false;
     uint64_t done_pos = 0, journal_pos = 0;
-    uint64_t cur_skip = 0;
+    uint64_t next_free = 512;
     bool wrapped = false;
     int submitted = 0, done_buf = 0, done_len = 0;
     struct io_uring_sqe *sqe;
