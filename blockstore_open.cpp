@@ -6,6 +6,10 @@ void blockstore::calc_lengths(blockstore_config_t & config)
     {
         readonly = true;
     }
+    if (config["disable_fsync"] == "true" || config["disable_fsync"] == "1" || config["disable_fsync"] == "yes")
+    {
+        disable_fsync = true;
+    }
     // data
     data_len = data_size - data_offset;
     if (data_fd == meta_fd && data_offset < meta_offset)

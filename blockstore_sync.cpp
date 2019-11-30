@@ -39,28 +39,40 @@ int blockstore::continue_sync(blockstore_operation *op)
     if (op->sync_state == SYNC_HAS_SMALL)
     {
         // No big writes, just fsync the journal
-        // FIXME: Add no-fsync mode
-        BS_SUBMIT_GET_SQE(sqe, data);
-        my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
-        data->iov = { 0 };
-        data->callback = cb;
-        op->min_used_journal_sector = op->max_used_journal_sector = 0;
-        op->pending_ops = 1;
-        op->sync_state = SYNC_JOURNAL_SYNC_SENT;
+        if (!disable_fsync)
+        {
+            BS_SUBMIT_GET_SQE(sqe, data);
+            my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
+            data->iov = { 0 };
+            data->callback = cb;
+            op->min_used_journal_sector = op->max_used_journal_sector = 0;
+            op->pending_ops = 1;
+            op->sync_state = SYNC_JOURNAL_SYNC_SENT;
+        }
+        else
+        {
+            op->sync_state = SYNC_DONE;
+        }
     }
     else if (op->sync_state == SYNC_HAS_BIG)
     {
         // 1st step: fsync data
-        // FIXME: Add no-fsync mode
-        BS_SUBMIT_GET_SQE(sqe, data);
-        my_uring_prep_fsync(sqe, data_fd, IORING_FSYNC_DATASYNC);
-        data->iov = { 0 };
-        data->callback = cb;
-        op->min_used_journal_sector = op->max_used_journal_sector = 0;
-        op->pending_ops = 1;
-        op->sync_state = SYNC_DATA_SYNC_SENT;
+        if (!disable_fsync)
+        {
+            BS_SUBMIT_GET_SQE(sqe, data);
+            my_uring_prep_fsync(sqe, data_fd, IORING_FSYNC_DATASYNC);
+            data->iov = { 0 };
+            data->callback = cb;
+            op->min_used_journal_sector = op->max_used_journal_sector = 0;
+            op->pending_ops = 1;
+            op->sync_state = SYNC_DATA_SYNC_SENT;
+        }
+        else
+        {
+            op->sync_state = SYNC_DATA_SYNC_DONE;
+        }
     }
-    else if (op->sync_state == SYNC_DATA_SYNC_DONE)
+    if (op->sync_state == SYNC_DATA_SYNC_DONE)
     {
         // 2nd step: Data device is synced, prepare & write journal entries
         // Check space in the journal and journal memory buffers
@@ -70,8 +82,8 @@ int blockstore::continue_sync(blockstore_operation *op)
             return 0;
         }
         // Get SQEs. Don't bother about merging, submit each journal sector as a separate request
-        struct io_uring_sqe *sqe[space_check.sectors_required+1];
-        for (int i = 0; i < space_check.sectors_required+1; i++)
+        struct io_uring_sqe *sqe[space_check.sectors_required + (disable_fsync ? 0 : 1)];
+        for (int i = 0; i < space_check.sectors_required + (disable_fsync ? 0 : 1); i++)
         {
             BS_SUBMIT_GET_SQE_DECL(sqe[i]);
         }
@@ -103,11 +115,16 @@ int blockstore::continue_sync(blockstore_operation *op)
         }
         op->max_used_journal_sector = 1 + journal.cur_sector;
         // ... And a journal fsync
-        my_uring_prep_fsync(sqe[s], journal.fd, IORING_FSYNC_DATASYNC);
-        struct ring_data_t *data = ((ring_data_t*)sqe[s]->user_data);
-        data->iov = { 0 };
-        data->callback = cb;
-        op->pending_ops = 1 + s;
+        if (!disable_fsync)
+        {
+            my_uring_prep_fsync(sqe[s], journal.fd, IORING_FSYNC_DATASYNC);
+            struct ring_data_t *data = ((ring_data_t*)sqe[s]->user_data);
+            data->iov = { 0 };
+            data->callback = cb;
+            op->pending_ops = 1 + s;
+        }
+        else
+            op->pending_ops = s;
         op->sync_state = SYNC_JOURNAL_SYNC_SENT;
         ringloop->submit();
     }
@@ -143,11 +160,6 @@ void blockstore::handle_sync_event(ring_data_t *data, blockstore_operation *op)
         if (op->sync_state == SYNC_DATA_SYNC_SENT)
         {
             op->sync_state = SYNC_DATA_SYNC_DONE;
-            // FIXME: This is not needed, in fact
-            for (auto it = op->sync_big_writes.begin(); it != op->sync_big_writes.end(); it++)
-            {
-                dirty_db[*it].state = ST_D_SYNCED;
-            }
         }
         else if (op->sync_state == SYNC_JOURNAL_SYNC_SENT)
         {

@@ -6,7 +6,6 @@ journal_flusher_t::journal_flusher_t(int flusher_count, blockstore *bs)
     this->flusher_count = flusher_count;
     active_flushers = 0;
     active_until_sync = 0;
-    sync_required = true;
     sync_threshold = flusher_count == 1 ? 1 : flusher_count/2;
     journal_trim_interval = sync_threshold;
     journal_trim_counter = 0;
@@ -378,7 +377,7 @@ resume_0:
         }
         v.clear();
         flusher->active_until_sync--;
-        if (flusher->sync_required)
+        if (!bs->disable_fsync)
         {
             // And sync everything (in batches - not per each operation!)
             cur_sync = flusher->syncs.end();

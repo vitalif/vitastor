@@ -38,7 +38,6 @@
 
 #define ST_D_SUBMITTED 16
 #define ST_D_WRITTEN 17
-#define ST_D_SYNCED 18
 #define ST_D_META_WRITTEN 19
 #define ST_D_META_SYNCED 20
 #define ST_D_STABLE 21
@@ -271,6 +270,7 @@ class blockstore
     uint64_t data_offset, data_size, data_len;
 
     bool readonly = false;
+    bool disable_fsync = false;
 
     struct journal_t journal;
     journal_flusher_t *flusher;

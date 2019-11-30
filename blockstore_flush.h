@@ -50,7 +50,6 @@ class journal_flusher_t
 {
     int flusher_count;
     int sync_threshold;
-    bool sync_required;
     journal_flusher_co *co;
     blockstore *bs;
     friend class journal_flusher_co;

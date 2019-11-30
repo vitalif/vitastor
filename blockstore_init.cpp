@@ -232,11 +232,14 @@ resume_1:
             data->callback = simple_callback;
             my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
             wait_count++;
-            GET_SQE();
-            my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
-            data->iov = { 0 };
-            data->callback = simple_callback;
-            wait_count++;
+            if (!bs->disable_fsync)
+            {
+                GET_SQE();
+                my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
+                data->iov = { 0 };
+                data->callback = simple_callback;
+                wait_count++;
+            }
             printf("Resetting journal\n");
             bs->ringloop->submit();
         resume_4:
@@ -309,11 +312,14 @@ resume_1:
                         data->callback = simple_callback;
                         wait_count++;
                         my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + init_write_sector);
-                        GET_SQE();
-                        data->iov = { 0 };
-                        data->callback = simple_callback;
-                        wait_count++;
-                        my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
+                        if (!bs->disable_fsync)
+                        {
+                            GET_SQE();
+                            data->iov = { 0 };
+                            data->callback = simple_callback;
+                            wait_count++;
+                            my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
+                        }
                         bs->ringloop->submit();
                     resume_5:
                         if (wait_count > 0)
