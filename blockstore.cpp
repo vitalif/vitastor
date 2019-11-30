@@ -91,7 +91,6 @@ void blockstore::loop()
                 delete journal_init_reader;
                 journal_init_reader = NULL;
                 initialized = 10;
-                printf("journal read\n");
             }
         }
     }

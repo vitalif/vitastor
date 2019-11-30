@@ -270,6 +270,8 @@ class blockstore
     uint64_t meta_offset, meta_size, meta_area, meta_len;
     uint64_t data_offset, data_size, data_len;
 
+    // FIXME: add readonly option
+
     struct journal_t journal;
     journal_flusher_t *flusher;
 

@@ -41,7 +41,6 @@ struct __attribute__((__packed__)) journal_entry_small_write
     // data_offset is its offset within journal
     uint64_t data_offset;
     uint32_t crc32_data;
-    // FIXME verify data crc32c
 };
 
 struct __attribute__((__packed__)) journal_entry_big_write
