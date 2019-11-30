@@ -178,7 +178,10 @@ void blockstore::loop()
                 }
             }
         }
-        flusher->loop();
+        if (!readonly)
+        {
+            flusher->loop();
+        }
         int ret = ringloop->submit();
         if (ret < 0)
         {
@@ -191,13 +194,13 @@ bool blockstore::is_safe_to_stop()
 {
     // It's safe to stop blockstore when there are no in-flight operations,
     // no in-progress syncs and flusher isn't doing anything
-    if (submit_queue.size() > 0 || in_progress_syncs.size() > 0 || flusher->is_active())
+    if (submit_queue.size() > 0 || in_progress_syncs.size() > 0 || !readonly && flusher->is_active())
     {
         return false;
     }
     if (unsynced_big_writes.size() > 0 || unsynced_small_writes.size() > 0)
     {
-        if (!stop_sync_submitted)
+        if (!readonly && !stop_sync_submitted)
         {
             // We should sync the blockstore before unmounting
             blockstore_operation *op = new blockstore_operation;
@@ -275,7 +278,8 @@ void blockstore::enqueue_op(blockstore_operation *op)
 {
     int type = op->flags & OP_TYPE_MASK;
     if (type < OP_READ || type > OP_DELETE || (type == OP_READ || type == OP_WRITE) &&
-        (op->offset >= block_size || op->len > block_size-op->offset || (op->len % DISK_ALIGNMENT)))
+        (op->offset >= block_size || op->len > block_size-op->offset || (op->len % DISK_ALIGNMENT)) ||
+        readonly && type != OP_READ)
     {
         // Basic verification not passed
         op->retval = -EINVAL;

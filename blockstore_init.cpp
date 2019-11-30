@@ -209,9 +209,6 @@ resume_1:
         bs->journal.used_start = 512;
         bs->journal.next_free = 512;
         // Initialize journal "superblock" and the first block
-        // Cool effect. Same operations result in journal replay.
-        // FIXME: Randomize initial crc32. Track crc32 when trimming.
-        GET_SQE();
         memset(submitted_buf, 0, 1024);
         *((journal_entry_start*)submitted_buf) = {
             .crc32 = 0,
@@ -222,25 +219,37 @@ resume_1:
             .journal_start = 512,
         };
         ((journal_entry_start*)submitted_buf)->crc32 = je_crc32((journal_entry*)submitted_buf);
-        data->iov = (struct iovec){ submitted_buf, 1024 };
-        data->callback = simple_callback;
-        my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
-        wait_count++;
-        GET_SQE();
-        my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
-        data->iov = { 0 };
-        data->callback = simple_callback;
-        wait_count++;
-        printf("Resetting journal\n");
-        bs->ringloop->submit();
-    resume_4:
-        if (wait_count > 0)
+        if (bs->readonly)
         {
-            wait_state = 4;
-            return 1;
+            printf("Skipping journal initialization because blockstore is readonly\n");
+        }
+        else
+        {
+            // Cool effect. Same operations result in journal replay.
+            // FIXME: Randomize initial crc32. Track crc32 when trimming.
+            GET_SQE();
+            data->iov = (struct iovec){ submitted_buf, 1024 };
+            data->callback = simple_callback;
+            my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
+            wait_count++;
+            GET_SQE();
+            my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
+            data->iov = { 0 };
+            data->callback = simple_callback;
+            wait_count++;
+            printf("Resetting journal\n");
+            bs->ringloop->submit();
+        resume_4:
+            if (wait_count > 0)
+            {
+                wait_state = 4;
+                return 1;
+            }
         }
         if (!bs->journal.inmemory)
+        {
             free(submitted_buf);
+        }
     }
     else
     {
@@ -293,13 +302,18 @@ resume_1:
                 {
                     // journal ended
                     // zero out corrupted entry, if required
-                    if (init_write_buf)
+                    if (init_write_buf && !bs->readonly)
                     {
                         GET_SQE();
                         data->iov = { init_write_buf, 512 };
                         data->callback = simple_callback;
                         wait_count++;
                         my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + init_write_sector);
+                        GET_SQE();
+                        data->iov = { 0 };
+                        data->callback = simple_callback;
+                        wait_count++;
+                        my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
                         bs->ringloop->submit();
                     resume_5:
                         if (wait_count > 0)

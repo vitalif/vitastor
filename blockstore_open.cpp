@@ -2,6 +2,10 @@
 
 void blockstore::calc_lengths(blockstore_config_t & config)
 {
+    if (config["readonly"] == "true" || config["readonly"] == "1" || config["readonly"] == "yes")
+    {
+        readonly = true;
+    }
     // data
     data_len = data_size - data_offset;
     if (data_fd == meta_fd && data_offset < meta_offset)
