@@ -285,7 +285,7 @@ resume_0:
         }
         // Also we need to submit the metadata read. We do a read-modify-write for every operation.
         // But we must check if the same sector is already in memory.
-        // Another option is to keep all raw metadata in memory all the time. Maybe I'll do it sometime...
+        // Another option is to keep all raw metadata in memory all the time. FIXME: Maybe add this mode.
         // And yet another option is to use LSM trees for metadata, but it sophisticates everything a lot,
         // so I'll avoid it as long as I can.
         meta_sector = ((clean_loc >> bs->block_order) / (512 / sizeof(clean_disk_entry))) * 512;
