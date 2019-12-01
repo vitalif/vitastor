@@ -218,7 +218,7 @@ void blockstore::ack_one_sync(blockstore_operation *op)
 #endif
         auto & unstab = unstable_writes[it->oid];
         unstab = unstab < it->version ? it->version : unstab;
-        dirty_db[*it].state = ST_J_SYNCED;
+        dirty_db[*it].state = dirty_db[*it].state == ST_DEL_WRITTEN ? ST_DEL_SYNCED : ST_J_SYNCED;
     }
     in_progress_syncs.erase(op->in_progress_ptr);
     op->retval = 0;

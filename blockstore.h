@@ -29,19 +29,20 @@
 
 // States are not stored on disk. Instead, they're deduced from the journal
 
-#define ST_IN_FLIGHT 1
-
+#define ST_J_IN_FLIGHT 1
 #define ST_J_SUBMITTED 2
 #define ST_J_WRITTEN 3
 #define ST_J_SYNCED 4
 #define ST_J_STABLE 5
 
+#define ST_D_IN_FLIGHT 15
 #define ST_D_SUBMITTED 16
 #define ST_D_WRITTEN 17
 #define ST_D_META_WRITTEN 19
 #define ST_D_META_SYNCED 20
 #define ST_D_STABLE 21
 
+#define ST_DEL_IN_FLIGHT 31
 #define ST_DEL_SUBMITTED 32
 #define ST_DEL_WRITTEN 33
 #define ST_DEL_SYNCED 34
@@ -49,9 +50,9 @@
 
 #define ST_CURRENT 48
 
-#define IS_IN_FLIGHT(st) (st == ST_IN_FLIGHT || st == ST_J_SUBMITTED || st == ST_D_SUBMITTED || st == ST_DEL_SUBMITTED)
+#define IS_IN_FLIGHT(st) (st == ST_J_IN_FLIGHT || st == ST_D_IN_FLIGHT || st == ST_DEL_IN_FLIGHT || st == ST_J_SUBMITTED || st == ST_D_SUBMITTED || st == ST_DEL_SUBMITTED)
 #define IS_STABLE(st) (st == ST_J_STABLE || st == ST_D_STABLE || st == ST_DEL_STABLE || st == ST_CURRENT)
-#define IS_SYNCED(st) (IS_STABLE(st) || st == ST_J_SYNCED || st == ST_D_META_SYNCED)
+#define IS_SYNCED(st) (IS_STABLE(st) || st == ST_J_SYNCED || st == ST_D_META_SYNCED || st == ST_DEL_SYNCED)
 #define IS_JOURNAL(st) (st >= ST_J_SUBMITTED && st <= ST_J_STABLE)
 #define IS_BIG_WRITE(st) (st >= ST_D_SUBMITTED && st <= ST_D_STABLE)
 #define IS_DELETE(st) (st >= ST_DEL_SUBMITTED && st <= ST_DEL_STABLE)
@@ -314,6 +315,7 @@ class blockstore
     // Write
     void enqueue_write(blockstore_operation *op);
     int dequeue_write(blockstore_operation *op);
+    int dequeue_del(blockstore_operation *op);
     void handle_write_event(ring_data_t *data, blockstore_operation *op);
 
     // Sync

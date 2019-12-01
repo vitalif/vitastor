@@ -3,7 +3,7 @@
 void blockstore::enqueue_write(blockstore_operation *op)
 {
     // Assign version number
-    bool found = false;
+    bool found = false, deleted = false, is_del = (op->flags & OP_TYPE_MASK) == OP_DELETE;
     if (dirty_db.size() > 0)
     {
         auto dirty_it = dirty_db.upper_bound((obj_ver_id){
@@ -15,6 +15,7 @@ void blockstore::enqueue_write(blockstore_operation *op)
         {
             found = true;
             op->version = dirty_it->first.version + 1;
+            deleted = IS_DELETE(dirty_it->second.state);
         }
     }
     if (!found)
@@ -26,22 +27,34 @@ void blockstore::enqueue_write(blockstore_operation *op)
         }
         else
         {
+            deleted = true;
             op->version = 1;
         }
     }
+    if (deleted && is_del)
+    {
+        // Already deleted
+        op->retval = 0;
+        op->callback(op);
+        return;
+    }
     // Immediately add the operation into dirty_db, so subsequent reads could see it
 #ifdef BLOCKSTORE_DEBUG
-    printf("Write %lu:%lu v%lu\n", op->oid.inode, op->oid.stripe, op->version);
+    printf("%s %lu:%lu v%lu\n", is_del ? "Delete" : "Write", op->oid.inode, op->oid.stripe, op->version);
 #endif
     dirty_db.emplace((obj_ver_id){
         .oid = op->oid,
         .version = op->version,
     }, (dirty_entry){
-        .state = ST_IN_FLIGHT,
+        .state = (uint32_t)(
+            is_del
+                ? ST_DEL_IN_FLIGHT
+                : (op->len == block_size || deleted ? ST_D_IN_FLIGHT : ST_J_IN_FLIGHT)
+        ),
         .flags = 0,
         .location = 0,
-        .offset = op->offset,
-        .len = op->len,
+        .offset = is_del ? 0 : op->offset,
+        .len = is_del ? 0 : op->len,
         .journal_sector = 0,
     });
 }
@@ -53,7 +66,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
         .oid = op->oid,
         .version = op->version,
     });
-    if (op->len == block_size || op->version == 1)
+    if (dirty_it->second.state == ST_D_IN_FLIGHT)
     {
         // Big (redirect) write
         uint64_t loc = data_alloc->find_free();
@@ -221,4 +234,41 @@ void blockstore::handle_write_event(ring_data_t *data, blockstore_operation *op)
         op->retval = op->len;
         op->callback(op);
     }
+}
+
+int blockstore::dequeue_del(blockstore_operation *op)
+{
+    auto dirty_it = dirty_db.find((obj_ver_id){
+        .oid = op->oid,
+        .version = op->version,
+    });
+    blockstore_journal_check_t space_check(this);
+    if (!space_check.check_available(op, 1, sizeof(journal_entry_del), 0))
+    {
+        return 0;
+    }
+    BS_SUBMIT_GET_ONLY_SQE(sqe);
+    // Prepare journal sector write
+    journal_entry_del *je = (journal_entry_del*)
+        prefill_single_journal_entry(journal, JE_DELETE, sizeof(struct journal_entry_del));
+    dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
+    journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
+#ifdef BLOCKSTORE_DEBUG
+    printf("journal offset %lu is used by %lu:%lu v%lu\n", dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
+#endif
+    je->oid = op->oid;
+    je->version = op->version;
+    je->crc32 = je_crc32((journal_entry*)je);
+    journal.crc32_last = je->crc32;
+    auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
+    prepare_journal_sector_write(journal, sqe, cb);
+    op->min_used_journal_sector = op->max_used_journal_sector = 1 + journal.cur_sector;
+    op->pending_ops = 1;
+    dirty_it->second.state = ST_DEL_SUBMITTED;
+    // Remember small write as unsynced
+    unsynced_small_writes.push_back((obj_ver_id){
+        .oid = op->oid,
+        .version = op->version,
+    });
+    return 1;
 }

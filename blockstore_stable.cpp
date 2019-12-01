@@ -19,6 +19,14 @@
 // 128K (data) + sync + 512b (journal) + sync + 512b (journal) + sync + 512b (metadata) + sync.
 // WA = 1.012. Very good :)
 
+// Stabilize delete:
+// 1) Remove metadata entry and sync it
+// 2) Remove dirty_db entry and clear previous journal entries
+// Note that it will lead to problems in a degraded cluster, because deleting 2 of 3 replicas
+// and restarting the last replica will then result in extra "missing" objects. To solve that
+// we need to store the "tombstones" of deleted objects. We can't do that with current simple
+// metadata storage so we'll skip TRIM implementation for now.
+
 // AND We must do it in batches, for the sake of reduced fsync call count
 // AND We must know what we stabilize. Basic workflow is like:
 // 1) primary OSD receives sync request
@@ -153,6 +161,10 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op
                     else if (dirty_it->second.state == ST_D_META_SYNCED)
                     {
                         dirty_it->second.state = ST_D_STABLE;
+                    }
+                    else if (dirty_it->second.state == ST_DEL_SYNCED)
+                    {
+                        dirty_it->second.state = ST_DEL_STABLE;
                     }
                     else if (IS_STABLE(dirty_it->second.state))
                     {
