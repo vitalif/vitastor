@@ -22,10 +22,13 @@
 // Stabilize delete:
 // 1) Remove metadata entry and sync it
 // 2) Remove dirty_db entry and clear previous journal entries
-// Note that it will lead to problems in a degraded cluster, because deleting 2 of 3 replicas
-// and restarting the last replica will then result in extra "missing" objects. To solve that
-// we need to store the "tombstones" of deleted objects. We can't do that with current simple
-// metadata storage so we'll skip TRIM implementation for now.
+// We have 2 problems here:
+// - In the cluster environment, we must store the "tombstones" of deleted objects until
+//   all replicas (not just quorum) agrees about their deletion. That is, "stabilize" is
+//   not possible for deletes in degraded placement groups
+// - With simple "fixed" metadata tables we can't just clear the metadata entry of the latest
+//   object version. We must clear all previous entries, too.
+// FIXME Fix both problems - probably, by switching from "fixed" metadata tables to "dynamic"
 
 // AND We must do it in batches, for the sake of reduced fsync call count
 // AND We must know what we stabilize. Basic workflow is like:

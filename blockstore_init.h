@@ -11,7 +11,7 @@ class blockstore_init_meta
     uint64_t entries_loaded = 0;
     struct io_uring_sqe *sqe;
     struct ring_data_t *data;
-    void handle_entries(struct clean_disk_entry* entries, int count, int block_order);
+    void handle_entries(struct clean_disk_entry* entries, unsigned count, int block_order);
     void handle_event(ring_data_t *data);
 public:
     blockstore_init_meta(blockstore *bs);

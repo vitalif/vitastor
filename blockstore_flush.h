@@ -18,6 +18,13 @@ struct flusher_sync_t
     int state;
 };
 
+struct flusher_meta_write_t
+{
+    uint64_t sector, pos;
+    bool submitted;
+    std::map<uint64_t, meta_sector_t>::iterator it;
+};
+
 class journal_flusher_t;
 
 // Journal flusher coroutine
@@ -28,21 +35,24 @@ class journal_flusher_co
     int wait_state, wait_count;
     struct io_uring_sqe *sqe;
     struct ring_data_t *data;
-    bool skip_copy;
+    bool skip_copy, has_delete;
     obj_ver_id cur;
     std::map<obj_ver_id, dirty_entry>::iterator dirty_it, dirty_start, dirty_end;
     std::vector<copy_buffer_t> v;
     std::vector<copy_buffer_t>::iterator it;
     int copy_count;
-    uint64_t offset, len, submit_offset, submit_len, clean_loc, old_clean_loc, meta_sector, meta_pos;
-    std::map<uint64_t, meta_sector_t>::iterator meta_it;
+    uint64_t offset, len, submit_offset, submit_len, clean_loc, old_clean_loc, old_clean_ver;
+    flusher_meta_write_t meta_old, meta_new;
     std::map<object_id, uint64_t>::iterator repeat_it;
     std::function<void(ring_data_t*)> simple_callback_r, simple_callback_w;
     std::list<flusher_sync_t>::iterator cur_sync;
     friend class journal_flusher_t;
+    bool modify_meta_read(uint64_t meta_loc, flusher_meta_write_t &wr, int wait_base);
+    void update_clean_db();
+    bool fsync_batch();
 public:
     journal_flusher_co();
-    void loop();
+    bool loop();
 };
 
 // Journal flusher itself

@@ -56,7 +56,7 @@ int blockstore_init_meta::loop()
         }
         if (prev_done)
         {
-            int count = 512 / sizeof(clean_disk_entry);
+            unsigned count = 512 / sizeof(clean_disk_entry);
             for (int sector = 0; sector < done_len; sector += 512)
             {
                 clean_disk_entry *entries = (clean_disk_entry*)(metadata_buffer + (prev_done == 2 ? bs->metadata_buf_size : 0) + sector);
@@ -79,7 +79,7 @@ int blockstore_init_meta::loop()
     return 0;
 }
 
-void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int count, int block_order)
+void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, unsigned count, int block_order)
 {
     for (unsigned i = 0; i < count; i++)
     {
@@ -106,10 +106,12 @@ void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, int 
                     .location = (done_cnt+i) << block_order,
                 };
             }
-#ifdef BLOCKSTORE_DEBUG
             else
+            {
+#ifdef BLOCKSTORE_DEBUG
                 printf("Old clean entry %lu: %lu:%lu v%lu\n", done_cnt+i, entries[i].oid.inode, entries[i].oid.stripe, entries[i].version);
 #endif
+            }
         }
     }
 }
