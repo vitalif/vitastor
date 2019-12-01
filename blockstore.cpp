@@ -12,7 +12,7 @@ blockstore::blockstore(blockstore_config_t & config, ring_loop_t *ringloop)
         block_order = DEFAULT_ORDER;
     }
     block_size = 1 << block_order;
-    if (block_size <= 1 || block_size >= MAX_BLOCK_SIZE)
+    if (block_size < MIN_BLOCK_SIZE || block_size >= MAX_BLOCK_SIZE)
     {
         throw std::runtime_error("Bad block size");
     }
@@ -54,6 +54,8 @@ blockstore::~blockstore()
         close(meta_fd);
     if (journal.fd >= 0 && journal.fd != meta_fd)
         close(journal.fd);
+    if (metadata_buffer)
+        free(metadata_buffer);
 }
 
 bool blockstore::is_started()

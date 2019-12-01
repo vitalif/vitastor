@@ -341,7 +341,7 @@ resume_0:
         }
     resume_5:
         // And metadata writes, but only after data writes complete
-        if (meta_new.it->second.state == 0 || wait_count > 0)
+        if (!bs->inmemory_meta && meta_new.it->second.state == 0 || wait_count > 0)
         {
             // metadata sector is still being read or data is still being written, wait for it
             wait_state = 5;
@@ -349,28 +349,28 @@ resume_0:
         }
         if (old_clean_loc != UINT64_MAX && old_clean_loc != clean_loc)
         {
-            if (meta_old.it->second.state == 0)
+            if (!bs->inmemory_meta && meta_old.it->second.state == 0)
             {
                 wait_state = 5;
                 return false;
             }
-            ((clean_disk_entry*)meta_old.it->second.buf)[meta_old.pos] = { 0 };
+            ((clean_disk_entry*)meta_old.buf)[meta_old.pos] = { 0 };
             await_sqe(15);
-            data->iov = (struct iovec){ meta_old.it->second.buf, 512 };
+            data->iov = (struct iovec){ meta_old.buf, 512 };
             data->callback = simple_callback_w;
             my_uring_prep_writev(
                 sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + meta_old.sector
             );
             wait_count++;
         }
-        ((clean_disk_entry*)meta_new.it->second.buf)[meta_new.pos] = has_delete
+        ((clean_disk_entry*)meta_new.buf)[meta_new.pos] = has_delete
             ? (clean_disk_entry){ 0 }
             : (clean_disk_entry){
                 .oid = cur.oid,
                 .version = cur.version,
             };
         await_sqe(6);
-        data->iov = (struct iovec){ meta_new.it->second.buf, 512 };
+        data->iov = (struct iovec){ meta_new.buf, 512 };
         data->callback = simple_callback_w;
         my_uring_prep_writev(
             sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + meta_new.sector
@@ -383,19 +383,22 @@ resume_0:
             return false;
         }
         // Done, free all buffers
-        meta_new.it->second.usage_count--;
-        if (meta_new.it->second.usage_count == 0)
+        if (!bs->inmemory_meta)
         {
-            free(meta_new.it->second.buf);
-            flusher->meta_sectors.erase(meta_new.it);
-        }
-        if (old_clean_loc != UINT64_MAX && old_clean_loc != clean_loc)
-        {
-            meta_old.it->second.usage_count--;
-            if (meta_old.it->second.usage_count == 0)
+            meta_new.it->second.usage_count--;
+            if (meta_new.it->second.usage_count == 0)
             {
-                free(meta_old.it->second.buf);
-                flusher->meta_sectors.erase(meta_old.it);
+                free(meta_new.it->second.buf);
+                flusher->meta_sectors.erase(meta_new.it);
+            }
+            if (old_clean_loc != UINT64_MAX && old_clean_loc != clean_loc)
+            {
+                meta_old.it->second.usage_count--;
+                if (meta_old.it->second.usage_count == 0)
+                {
+                    free(meta_old.it->second.buf);
+                    flusher->meta_sectors.erase(meta_old.it);
+                }
             }
         }
         for (it = v.begin(); it != v.end(); it++)
@@ -465,21 +468,26 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
 {
     if (wait_state == wait_base)
         goto resume_0;
-    // But we must check if the same sector is already in memory.
-    // Another option is to keep all raw metadata in memory all the time. FIXME: Maybe add this mode.
+    // We must check if the same sector is already in memory if we don't keep all metadata in memory all the time.
     // And yet another option is to use LSM trees for metadata, but it sophisticates everything a lot,
     // so I'll avoid it as long as I can.
     wr.sector = ((meta_loc >> bs->block_order) / (512 / sizeof(clean_disk_entry))) * 512;
     wr.pos = ((meta_loc >> bs->block_order) % (512 / sizeof(clean_disk_entry)));
+    if (bs->inmemory_meta)
+    {
+        wr.buf = bs->metadata_buffer + wr.sector;
+        return true;
+    }
     wr.it = flusher->meta_sectors.find(wr.sector);
     if (wr.it == flusher->meta_sectors.end())
     {
         // Not in memory yet, read it
+        wr.buf = memalign(512, 512);
         wr.it = flusher->meta_sectors.emplace(wr.sector, (meta_sector_t){
             .offset = wr.sector,
             .len = 512,
             .state = 0, // 0 = not read yet
-            .buf = memalign(512, 512),
+            .buf = wr.buf,
             .usage_count = 1,
         }).first;
         await_sqe(0);
@@ -494,6 +502,7 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
     else
     {
         wr.submitted = false;
+        wr.buf = wr.it->second.buf;
         wr.it->second.usage_count++;
     }
     return true;

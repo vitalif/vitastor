@@ -55,6 +55,13 @@ void blockstore::calc_lengths(blockstore_config_t & config)
     {
         metadata_buf_size = 4*1024*1024;
     }
+    inmemory_meta = config["inmemory_metadata"] != "false";
+    if (inmemory_meta)
+    {
+        metadata_buffer = memalign(512, meta_len);
+        if (!metadata_buffer)
+            throw std::runtime_error("Failed to allocate memory for metadata");
+    }
     // requested journal size
     uint64_t journal_wanted = strtoull(config["journal_size"].c_str(), NULL, 10);
     if (journal_wanted > journal.len)
@@ -73,7 +80,7 @@ void blockstore::calc_lengths(blockstore_config_t & config)
     {
         journal.buffer = memalign(512, journal.len);
         if (!journal.buffer)
-            throw std::bad_alloc();
+            throw std::runtime_error("Failed to allocate memory for journal");
     }
 }
 
@@ -190,7 +197,7 @@ void blockstore::open_journal(blockstore_config_t & config)
     {
         throw std::bad_alloc();
     }
-    if (config["journal_inmemory"] == "false")
+    if (config["inmemory_journal"] == "false")
     {
         journal.inmemory = false;
         journal.sector_buf = (uint8_t*)memalign(512, journal.sector_count * 512);

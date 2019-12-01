@@ -58,8 +58,9 @@
 #define IS_DELETE(st) (st >= ST_DEL_SUBMITTED && st <= ST_DEL_STABLE)
 #define IS_UNSYNCED(st) (st >= ST_J_SUBMITTED && st <= ST_J_WRITTEN || st >= ST_D_SUBMITTED && st <= ST_D_META_WRITTEN || st >= ST_DEL_SUBMITTED && st <= ST_DEL_WRITTEN)
 
-// Default object size is 128 KB
+// Default block size is 128 KB, current allowed range is 4K - 128M
 #define DEFAULT_ORDER 17
+#define MIN_BLOCK_SIZE 4*1024
 #define MAX_BLOCK_SIZE 128*1024*1024
 #define DISK_ALIGNMENT 512
 
@@ -272,6 +273,8 @@ class blockstore
 
     bool readonly = false;
     bool disable_fsync = false;
+    bool inmemory_meta = false;
+    void *metadata_buffer = NULL;
 
     struct journal_t journal;
     journal_flusher_t *flusher;

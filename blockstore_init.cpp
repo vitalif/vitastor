@@ -16,6 +16,7 @@ void blockstore_init_meta::handle_event(ring_data_t *data)
     }
     prev_done = data->res > 0 ? submitted : 0;
     done_len = data->res;
+    done_pos = metadata_read;
     metadata_read += data->res;
     submitted = 0;
 }
@@ -25,9 +26,12 @@ int blockstore_init_meta::loop()
     if (wait_state == 1)
         goto resume_1;
     printf("Reading blockstore metadata\n");
-    metadata_buffer = (uint8_t*)memalign(512, 2*bs->metadata_buf_size);
+    if (bs->inmemory_meta)
+        metadata_buffer = bs->metadata_buffer;
+    else
+        metadata_buffer = memalign(512, 2*bs->metadata_buf_size);
     if (!metadata_buffer)
-        throw std::bad_alloc();
+        throw std::runtime_error("Failed to allocate metadata read buffer");
     while (1)
     {
     resume_1:
@@ -45,7 +49,9 @@ int blockstore_init_meta::loop()
             }
             data = ((ring_data_t*)sqe->user_data);
             data->iov = {
-                metadata_buffer + (prev == 1 ? bs->metadata_buf_size : 0),
+                metadata_buffer + (bs->inmemory_meta
+                    ? metadata_read
+                    : (prev == 1 ? bs->metadata_buf_size : 0)),
                 bs->meta_len - metadata_read > bs->metadata_buf_size ? bs->metadata_buf_size : bs->meta_len - metadata_read,
             };
             data->callback = [this](ring_data_t *data) { handle_event(data); };
@@ -56,10 +62,13 @@ int blockstore_init_meta::loop()
         }
         if (prev_done)
         {
+            void *done_buf = bs->inmemory_meta
+                ? (metadata_buffer + done_pos)
+                : (metadata_buffer + (prev_done == 2 ? bs->metadata_buf_size : 0));
             unsigned count = 512 / sizeof(clean_disk_entry);
             for (int sector = 0; sector < done_len; sector += 512)
             {
-                clean_disk_entry *entries = (clean_disk_entry*)(metadata_buffer + (prev_done == 2 ? bs->metadata_buf_size : 0) + sector);
+                clean_disk_entry *entries = (clean_disk_entry*)(done_buf + sector);
                 // handle <count> entries
                 handle_entries(entries, count, bs->block_order);
                 done_cnt += count;
@@ -74,8 +83,11 @@ int blockstore_init_meta::loop()
     }
     // metadata read finished
     printf("Metadata entries loaded: %lu, free blocks: %lu / %lu\n", entries_loaded, bs->data_alloc->get_free_count(), bs->block_count);
-    free(metadata_buffer);
-    metadata_buffer = NULL;
+    if (!bs->inmemory_meta)
+    {
+        free(metadata_buffer);
+        metadata_buffer = NULL;
+    }
     return 0;
 }
 
@@ -394,7 +406,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
     resume:
         while (pos < 512)
         {
-            journal_entry *je = (journal_entry*)((uint8_t*)buf + proc_pos - done_pos + pos);
+            journal_entry *je = (journal_entry*)(buf + proc_pos - done_pos + pos);
             if (je->magic != JOURNAL_MAGIC || je_crc32(je) != je->crc32 ||
                 je->type < JE_SMALL_WRITE || je->type > JE_DELETE || started && je->crc32_prev != crc32_last)
             {

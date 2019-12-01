@@ -22,6 +22,7 @@ struct flusher_meta_write_t
 {
     uint64_t sector, pos;
     bool submitted;
+    void *buf;
     std::map<uint64_t, meta_sector_t>::iterator it;
 };
 
