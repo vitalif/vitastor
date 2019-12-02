@@ -53,14 +53,14 @@ journal_flusher_t::~journal_flusher_t()
 
 bool journal_flusher_t::is_active()
 {
-    return active_flushers > 0 || flush_queue.size() > 0;
+    return active_flushers > 0 || flush_queue.size() >= sync_threshold;
 }
 
 void journal_flusher_t::loop()
 {
     for (int i = 0; i < flusher_count; i++)
     {
-        if (!active_flushers && !flush_queue.size())
+        if (!active_flushers && flush_queue.size() < sync_threshold)
         {
             return;
         }
@@ -147,7 +147,8 @@ bool journal_flusher_co::loop()
     else if (wait_state == 18)
         goto resume_18;
 resume_0:
-    if (!flusher->flush_queue.size())
+    if (!flusher->flush_queue.size() ||
+        !flusher->active_flushers && flusher->flush_queue.size() < flusher->sync_threshold)
     {
         wait_state = 0;
         return true;
