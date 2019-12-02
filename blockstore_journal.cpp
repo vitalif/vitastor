@@ -57,6 +57,7 @@ int blockstore_journal_check_t::check_available(blockstore_operation *op, int re
     {
         // No space in the journal. Wait until used_start changes.
         op->wait_for = WAIT_JOURNAL;
+        bs->flusher->force_start();
         op->wait_detail = bs->journal.used_start;
         return 0;
     }

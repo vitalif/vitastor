@@ -53,14 +53,14 @@ journal_flusher_t::~journal_flusher_t()
 
 bool journal_flusher_t::is_active()
 {
-    return active_flushers > 0 || flush_queue.size() >= sync_threshold;
+    return active_flushers > 0 || start_forced && flush_queue.size() > 0 || flush_queue.size() >= sync_threshold;
 }
 
 void journal_flusher_t::loop()
 {
     for (int i = 0; i < flusher_count; i++)
     {
-        if (!active_flushers && flush_queue.size() < sync_threshold)
+        if (!active_flushers && (start_forced ? !flush_queue.size() : (flush_queue.size() < sync_threshold)))
         {
             return;
         }
@@ -96,6 +96,12 @@ void journal_flusher_t::unshift_flush(obj_ver_id ov)
         flush_versions[ov.oid] = ov.version;
         flush_queue.push_front(ov.oid);
     }
+}
+
+void journal_flusher_t::force_start()
+{
+    start_forced = true;
+    bs->ringloop->wakeup(bs->ring_consumer);
 }
 
 #define await_sqe(label) \
@@ -148,8 +154,9 @@ bool journal_flusher_co::loop()
         goto resume_18;
 resume_0:
     if (!flusher->flush_queue.size() ||
-        !flusher->active_flushers && flusher->flush_queue.size() < flusher->sync_threshold)
+        !flusher->start_forced && !flusher->active_flushers && flusher->flush_queue.size() < flusher->sync_threshold)
     {
+        flusher->start_forced = false;
         wait_state = 0;
         return true;
     }

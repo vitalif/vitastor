@@ -60,6 +60,7 @@ public:
 // Journal flusher itself
 class journal_flusher_t
 {
+    bool start_forced = false;
     int flusher_count;
     int sync_threshold;
     journal_flusher_co *co;
@@ -81,6 +82,7 @@ public:
     ~journal_flusher_t();
     void loop();
     bool is_active();
+    void force_start();
     void enqueue_flush(obj_ver_id oid);
     void unshift_flush(obj_ver_id oid);
 };
