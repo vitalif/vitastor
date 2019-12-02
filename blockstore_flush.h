@@ -14,6 +14,7 @@ struct meta_sector_t
 
 struct flusher_sync_t
 {
+    bool fsync_meta;
     int ready_count;
     int state;
 };
@@ -50,7 +51,7 @@ class journal_flusher_co
     friend class journal_flusher_t;
     bool modify_meta_read(uint64_t meta_loc, flusher_meta_write_t &wr, int wait_base);
     void update_clean_db();
-    bool fsync_batch();
+    bool fsync_batch(bool fsync_meta, int wait_base);
 public:
     journal_flusher_co();
     bool loop();
@@ -68,7 +69,7 @@ class journal_flusher_t
     int journal_trim_counter, journal_trim_interval;
     void* journal_superblock;
 
-    int active_flushers, active_until_sync;
+    int active_flushers;
     std::list<flusher_sync_t> syncs;
     std::map<object_id, uint64_t> sync_to_repeat;
 

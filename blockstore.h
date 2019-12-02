@@ -272,6 +272,7 @@ class blockstore
     uint64_t data_offset, data_size, data_len;
 
     bool readonly = false;
+    // FIXME: separate flags for data, metadata and journal
     bool disable_fsync = false;
     bool inmemory_meta = false;
     void *metadata_buffer = NULL;
