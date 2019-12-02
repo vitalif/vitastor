@@ -34,7 +34,7 @@ struct bs_data
 struct bs_options
 {
     int __pad;
-    char *data_device = NULL, *meta_device = NULL, *journal_device = NULL, *disable_fsync = NULL;
+    char *data_device = NULL, *meta_device = NULL, *journal_device = NULL, *disable_fsync = NULL, *block_size_order = NULL;
 };
 
 static struct fio_option options[] = {
@@ -71,6 +71,15 @@ static struct fio_option options[] = {
         .type   = FIO_OPT_STR_STORE,
         .off1   = offsetof(struct bs_options, disable_fsync),
         .help   = "Disable fsyncs for blockstore (unsafe if your disk has cache)",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "block_size_order",
+        .lname  = "Power of 2 for blockstore block size",
+        .type   = FIO_OPT_STR_STORE,
+        .off1   = offsetof(struct bs_options, block_size_order),
+        .help   = "Set blockstore block size to 2^this value (from 12 to 27)",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
     },
@@ -139,6 +148,8 @@ static int bs_init(struct thread_data *td)
     config["journal_device"] = o->journal_device;
     config["meta_device"] = o->meta_device;
     config["data_device"] = o->data_device;
+    if (o->block_size_order)
+        config["block_size_order"] = o->block_size_order;
     if (o->disable_fsync)
         config["disable_fsync"] = o->disable_fsync;
     if (read_only)
