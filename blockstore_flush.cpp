@@ -341,6 +341,9 @@ resume_0:
         }
     resume_5:
         // And metadata writes, but only after data writes complete
+        // FIXME: Oops. We must sync data before writing metadata.
+        // Because this will result in more fsyncs we should reduce flushers activity by postponing
+        // flushes until there is sufficient amount of work to do (for example, at least ~32 operations in the queue).
         if (!bs->inmemory_meta && meta_new.it->second.state == 0 || wait_count > 0)
         {
             // metadata sector is still being read or data is still being written, wait for it
