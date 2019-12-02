@@ -142,7 +142,6 @@ static int bs_init(struct thread_data *td)
 {
     bs_options *o = (bs_options*)td->eo;
     bs_data *bsd = (bs_data*)td->io_ops_data;
-    int r;
 
     blockstore_config_t config;
     config["journal_device"] = o->journal_device;

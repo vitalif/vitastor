@@ -165,10 +165,6 @@ void blockstore::loop()
             {
                 dequeue_op = dequeue_stable(op);
             }
-            else if ((op->flags & OP_TYPE_MASK) == OP_DELETE)
-            {
-                // FIXME: Implement DELETE
-            }
             if (dequeue_op)
             {
                 submit_queue.erase(op_ptr);

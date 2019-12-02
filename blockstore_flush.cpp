@@ -152,7 +152,6 @@ bool journal_flusher_co::loop()
         goto resume_17;
     else if (wait_state == 18)
         goto resume_18;
-resume_0:
     if (!flusher->flush_queue.size() ||
         !flusher->start_forced && !flusher->active_flushers && flusher->flush_queue.size() < flusher->sync_threshold)
     {
@@ -179,7 +178,8 @@ resume_0:
             // Another coroutine will see it and re-queue the object after it finishes
             if (repeat_it->second < cur.version)
                 repeat_it->second = cur.version;
-            goto resume_0;
+            wait_state = 0;
+            return true;
         }
         else
             flusher->sync_to_repeat[cur.oid] = 0;
@@ -278,7 +278,8 @@ resume_0:
                 flusher->unshift_flush({ .oid = cur.oid, .version = repeat_it->second });
             }
             flusher->sync_to_repeat.erase(repeat_it);
-            goto resume_0;
+            wait_state = 0;
+            return true;
         }
         // Find it in clean_db
         {
@@ -476,7 +477,8 @@ resume_0:
             flusher->unshift_flush({ .oid = cur.oid, .version = repeat_it->second });
         }
         flusher->sync_to_repeat.erase(repeat_it);
-        goto resume_0;
+        wait_state = 0;
+        return true;
     }
     return true;
 }
