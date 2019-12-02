@@ -89,7 +89,8 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
         .oid = read_op->oid,
         .version = UINT64_MAX,
     });
-    dirty_it--;
+    if (dirty_it != dirty_db.begin())
+        dirty_it--;
     bool clean_found = clean_it != clean_db.end();
     bool dirty_found = (dirty_it != dirty_db.end() && dirty_it->first.oid == read_op->oid);
     if (!clean_found && !dirty_found)
