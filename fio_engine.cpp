@@ -194,11 +194,15 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         };
         op->offset = io->offset % bsd->bs->block_size;
         op->len = io->xfer_buflen;
-        op->callback = [io](blockstore_operation *op)
+        op->callback = [io, n](blockstore_operation *op)
         {
             io->error = op->retval < 0 ? -op->retval : 0;
             bs_data *bsd = (bs_data*)io->engine_data;
+            bsd->inflight--;
             bsd->completed.push_back(io);
+#ifdef BLOCKSTORE_DEBUG
+            printf("--- OP_READ %llx n=%d retval=%d\n", io, n, op->retval);
+#endif
             delete op;
         };
         break;
@@ -276,7 +280,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
     }
 
 #ifdef BLOCKSTORE_DEBUG
-    printf("+++ %s %llx\n", op->flags == OP_WRITE ? "OP_WRITE" : "OP_SYNC", io);
+    printf("+++ %s %llx n=%d\n", op->flags == OP_READ ? "OP_READ" : (op->flags == OP_WRITE ? "OP_WRITE" : "OP_SYNC"), io, n);
 #endif
     io->error = 0;
     bsd->inflight++;

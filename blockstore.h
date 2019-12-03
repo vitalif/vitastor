@@ -202,6 +202,11 @@ public:
 // Suspend operation until there is some free space on the data device
 #define WAIT_FREE 5
 
+struct fulfill_read_t
+{
+    uint64_t offset, len;
+};
+
 struct blockstore_operation
 {
     // flags contain operation type and possibly other flags
@@ -231,7 +236,7 @@ private:
     int pending_ops;
 
     // Read
-    std::map<uint64_t, struct iovec> read_vec;
+    std::vector<fulfill_read_t> read_vec;
 
     // Sync, write
     uint64_t min_used_journal_sector, max_used_journal_sector;
@@ -312,8 +317,8 @@ class blockstore
     int dequeue_read(blockstore_operation *read_op);
     int fulfill_read(blockstore_operation *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
         uint32_t item_state, uint64_t item_version, uint64_t item_location);
-    int fulfill_read_push(blockstore_operation *read_op, uint64_t &fulfilled, uint32_t item_start,
-        uint32_t item_state, uint64_t item_version, uint64_t item_location, uint32_t cur_start, uint32_t cur_end);
+    int fulfill_read_push(blockstore_operation *op, void *buf, uint64_t offset, uint64_t len,
+        uint32_t item_state, uint64_t item_version);
     void handle_read_event(ring_data_t *data, blockstore_operation *op);
 
     // Write

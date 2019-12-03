@@ -1,50 +1,36 @@
 #include "blockstore.h"
 
-int blockstore::fulfill_read_push(blockstore_operation *op, uint64_t &fulfilled, uint32_t item_start,
-    uint32_t item_state, uint64_t item_version, uint64_t item_location, uint32_t cur_start, uint32_t cur_end)
+int blockstore::fulfill_read_push(blockstore_operation *op, void *buf, uint64_t offset, uint64_t len,
+    uint32_t item_state, uint64_t item_version)
 {
-    if (cur_end > cur_start)
+    if (IS_IN_FLIGHT(item_state))
     {
-        if (IS_IN_FLIGHT(item_state))
-        {
-            // Pause until it's written somewhere
-            op->wait_for = WAIT_IN_FLIGHT;
-            op->wait_detail = item_version;
-            return 0;
-        }
-        else if (IS_DELETE(item_state))
-        {
-            // item is unallocated - return zeroes
-            memset((uint8_t*)op->buf + cur_start - op->offset, 0, cur_end - cur_start);
-            return 1;
-        }
-        if (journal.inmemory && IS_JOURNAL(item_state))
-        {
-            iovec v = {
-                (uint8_t*)op->buf + cur_start - op->offset,
-                cur_end - cur_start
-            };
-            op->read_vec[cur_start] = v;
-            memcpy(v.iov_base, journal.buffer + item_location + cur_start - item_start, v.iov_len);
-            return 1;
-        }
-        BS_SUBMIT_GET_SQE(sqe, data);
-        data->iov = (struct iovec){
-            (uint8_t*)op->buf + cur_start - op->offset,
-            cur_end - cur_start
-        };
-        // FIXME: use simple std::vector instead of map for read_vec
-        op->read_vec[cur_start] = data->iov;
-        op->pending_ops++;
-        my_uring_prep_readv(
-            sqe,
-            IS_JOURNAL(item_state) ? journal.fd : data_fd,
-            &data->iov, 1,
-            (IS_JOURNAL(item_state) ? journal.offset : data_offset) + item_location + cur_start - item_start
-        );
-        data->callback = [this, op](ring_data_t *data) { handle_read_event(data, op); };
-        fulfilled += cur_end-cur_start;
+        // Pause until it's written somewhere
+        op->wait_for = WAIT_IN_FLIGHT;
+        op->wait_detail = item_version;
+        return 0;
     }
+    else if (IS_DELETE(item_state))
+    {
+        // item is unallocated - return zeroes
+        memset(buf, 0, len);
+        return 1;
+    }
+    if (journal.inmemory && IS_JOURNAL(item_state))
+    {
+        memcpy(buf, journal.buffer + offset, len);
+        return 1;
+    }
+    BS_SUBMIT_GET_SQE(sqe, data);
+    data->iov = (struct iovec){ buf, len };
+    op->pending_ops++;
+    my_uring_prep_readv(
+        sqe,
+        IS_JOURNAL(item_state) ? journal.fd : data_fd,
+        &data->iov, 1,
+        (IS_JOURNAL(item_state) ? journal.offset : data_offset) + offset
+    );
+    data->callback = [this, op](ring_data_t *data) { handle_read_event(data, op); };
     return 1;
 }
 
@@ -56,27 +42,28 @@ int blockstore::fulfill_read(blockstore_operation *read_op, uint64_t &fulfilled,
     {
         cur_start = cur_start < read_op->offset ? read_op->offset : cur_start;
         item_end = item_end > read_op->offset + read_op->len ? read_op->offset + read_op->len : item_end;
-        auto fulfill_near = read_op->read_vec.lower_bound(cur_start);
-        if (fulfill_near != read_op->read_vec.begin())
+        auto it = read_op->read_vec.begin();
+        while (1)
         {
-            fulfill_near--;
-            if (fulfill_near->first + fulfill_near->second.iov_len <= cur_start)
+            for (; it != read_op->read_vec.end(); it++)
+                if (it->offset >= cur_start)
+                    break;
+            if (it == read_op->read_vec.end() || it->offset > cur_start)
             {
-                fulfill_near++;
+                fulfill_read_t el = {
+                    .offset = cur_start,
+                    .len = it == read_op->read_vec.end() || it->offset >= item_end ? item_end-cur_start : it->offset-cur_start,
+                };
+                it = read_op->read_vec.insert(it, el);
+                fulfilled += el.len;
+                if (!fulfill_read_push(read_op, read_op->buf + el.offset - read_op->offset, item_location + el.offset - item_start, el.len, item_state, item_version))
+                {
+                    return 0;
+                }
             }
-        }
-        while (fulfill_near != read_op->read_vec.end() && fulfill_near->first < item_end)
-        {
-            if (!fulfill_read_push(read_op, fulfilled, item_start, item_state, item_version, item_location, cur_start, fulfill_near->first))
-            {
-                return 0;
-            }
-            cur_start = fulfill_near->first + fulfill_near->second.iov_len;
-            fulfill_near++;
-        }
-        if (!fulfill_read_push(read_op, fulfilled, item_start, item_state, item_version, item_location, cur_start, item_end))
-        {
-            return 0;
+            cur_start = it->offset + it->len;
+            if (it == read_op->read_vec.end() || cur_start >= item_end)
+                break;
         }
     }
     return 1;
@@ -141,10 +128,18 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
             return 0;
         }
     }
-    if (!read_op->read_vec.size())
+    if (!read_op->pending_ops)
     {
-        // region is not allocated - return zeroes
-        memset(read_op->buf, 0, read_op->len);
+        // everything is fulfilled from memory
+        if (!read_op->read_vec.size())
+        {
+            // region is not allocated - return zeroes
+            memset(read_op->buf, 0, read_op->len);
+        }
+        if (fulfilled != read_op->len)
+        {
+            printf("BUG: fulfilled %lu < %d read bytes\n", fulfilled, read_op->len);
+        }
         read_op->retval = read_op->len;
         read_op->callback(read_op);
         return 1;

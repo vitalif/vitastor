@@ -200,7 +200,7 @@ bool journal_flusher_co::loop()
             {
                 // First we submit all reads
                 offset = dirty_it->second.offset;
-                len = dirty_it->second.len;
+                end_offset = dirty_it->second.offset + dirty_it->second.len;
                 it = v.begin();
                 while (1)
                 {
@@ -210,7 +210,7 @@ bool journal_flusher_co::loop()
                     if (it == v.end() || it->offset > offset)
                     {
                         submit_offset = dirty_it->second.location + offset - dirty_it->second.offset;
-                        submit_len = it == v.end() || it->offset >= offset+len ? len : it->offset-offset;
+                        submit_len = it == v.end() || it->offset >= end_offset ? end_offset-offset : it->offset-offset;
                         it = v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len, .buf = memalign(512, submit_len) });
                         copy_count++;
                         if (bs->journal.inmemory)
@@ -230,10 +230,9 @@ bool journal_flusher_co::loop()
                             wait_count++;
                         }
                     }
-                    if (it == v.end() || it->offset+it->len >= offset+len)
-                    {
+                    offset = it->offset+it->len;
+                    if (it == v.end() || offset >= end_offset)
                         break;
-                    }
                 }
             }
             else if (dirty_it->second.state == ST_D_STABLE && !skip_copy)

@@ -43,7 +43,7 @@ class journal_flusher_co
     std::vector<copy_buffer_t> v;
     std::vector<copy_buffer_t>::iterator it;
     int copy_count;
-    uint64_t offset, len, submit_offset, submit_len, clean_loc, old_clean_loc, old_clean_ver;
+    uint64_t offset, end_offset, submit_offset, submit_len, clean_loc, old_clean_loc, old_clean_ver;
     flusher_meta_write_t meta_old, meta_new;
     std::map<object_id, uint64_t>::iterator repeat_it;
     std::function<void(ring_data_t*)> simple_callback_r, simple_callback_w;
