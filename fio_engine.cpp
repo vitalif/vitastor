@@ -178,7 +178,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
     io->engine_data = bsd;
 
     if (io->ddir == DDIR_WRITE || io->ddir == DDIR_READ)
-        assert(io->xfer_buflen <= bsd->bs->block_size);
+        assert(io->xfer_buflen <= bsd->bs->get_block_size());
 
     blockstore_operation *op = new blockstore_operation;
     op->callback = NULL;
@@ -190,9 +190,9 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->buf = io->xfer_buf;
         op->oid = {
             .inode = 1,
-            .stripe = io->offset >> bsd->bs->block_order,
+            .stripe = io->offset >> bsd->bs->get_block_order(),
         };
-        op->offset = io->offset % bsd->bs->block_size;
+        op->offset = io->offset % bsd->bs->get_block_size();
         op->len = io->xfer_buflen;
         op->callback = [io, n](blockstore_operation *op)
         {
@@ -211,9 +211,9 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->buf = io->xfer_buf;
         op->oid = {
             .inode = 1,
-            .stripe = io->offset >> bsd->bs->block_order,
+            .stripe = io->offset >> bsd->bs->get_block_order(),
         };
-        op->offset = io->offset % bsd->bs->block_size;
+        op->offset = io->offset % bsd->bs->get_block_size();
         op->len = io->xfer_buflen;
         op->callback = [io, n](blockstore_operation *op)
         {

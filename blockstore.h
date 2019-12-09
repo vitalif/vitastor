@@ -266,9 +266,11 @@ class blockstore
     std::list<blockstore_operation*> submit_queue; // FIXME: funny thing is that vector is better here
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
     std::list<blockstore_operation*> in_progress_syncs; // ...and probably here, too
-    uint64_t block_count;
     allocator *data_alloc = NULL;
     uint8_t *zero_object;
+
+    uint64_t block_count;
+    uint32_t block_order, block_size;
 
     int meta_fd;
     int data_fd;
@@ -359,7 +361,10 @@ public:
     // Submission
     void enqueue_op(blockstore_operation *op);
 
-    // FIXME public morozov
+    // Unstable writes are added here (map of object_id -> version)
     std::map<object_id, uint64_t> unstable_writes;
-    uint32_t block_order, block_size;
+
+    inline uint32_t get_block_size() { return block_size; }
+    inline uint32_t get_block_order() { return block_order; }
+    inline uint64_t get_block_count() { return block_count; }
 };
