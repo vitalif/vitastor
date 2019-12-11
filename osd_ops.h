@@ -1,9 +1,12 @@
 #pragma once
 
+#include "blockstore.h"
 #include <stdint.h>
 
 #define SECONDARY_OSD_OP_MAGIC      0xf3f003b966ace9ab2bd7b10325434553
 #define SECONDARY_OSD_REPLY_MAGIC   0xd17a57243b580b99baa699b87b434553
+#define OSD_OP_PACKET_SIZE          0x80
+#define OSD_REPLY_PACKET_SIZE       0x80
 #define OSD_OP_SECONDARY_READ       0x01
 #define OSD_OP_SECONDARY_WRITE      0x02
 #define OSD_OP_SECONDARY_SYNC       0x03
@@ -144,3 +147,25 @@ struct __attribute__((__packed__)) osd_reply_secondary_list_t
     // oid array
     object_id *oids;
 };
+
+union osd_any_op_t
+{
+    osd_op_secondary_rw_t secondary_rw;
+    osd_op_secondary_del_t secondary_del;
+    osd_op_secondary_sync_t op_sync;
+    osd_op_secondary_stabilize_t op_stabilize;
+    osd_op_secondary_list_t op_list;
+};
+
+union osd_any_reply_t
+{
+    osd_reply_secondary_rw_t secondary_rw;
+    osd_reply_secondary_del_t secondary_del;
+    osd_reply_secondary_sync_t op_sync;
+    osd_reply_secondary_stabilize_t op_stabilize;
+    osd_reply_secondary_list_t op_list;
+};
+
+static int size_ok = sizeof(osd_any_op_t) < OSD_OP_PACKET_SIZE &&
+    sizeof(osd_any_reply_t) < OSD_REPLY_PACKET_SIZE
+    ? (perror("BUG: too small packet size"), 0) : 1;
