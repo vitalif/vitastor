@@ -13,6 +13,11 @@
 #include <stdio.h>
 #include <liburing.h>
 
+#include <sys/socket.h>
+#include <sys/epoll.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 #include <map>
 #include <vector>
 #include <deque>
@@ -208,7 +213,7 @@ int main1(int argc, char *argv[])
     return 0;
 }
 
-int main(int argc, char *argv[])
+int main02(int argc, char *argv[])
 {
     std::map<int, std::string> strs;
     strs.emplace(12, "str");
@@ -229,5 +234,43 @@ int main(int argc, char *argv[])
     test_write(&ring, fd);
     close(fd);
     io_uring_queue_exit(&ring);
+    return 0;
+}
+
+int main(int argc, char *argv[])
+{
+    int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in bind_addr;
+    assert(inet_pton(AF_INET, "0.0.0.0", &bind_addr.sin_addr) == 1);
+    bind_addr.sin_family = AF_INET;
+    bind_addr.sin_port = 13892;
+    assert(bind(listen_fd, (sockaddr*)&bind_addr, sizeof(bind_addr)) == 0);
+    assert(listen(listen_fd, 128) == 0);
+    struct sockaddr_in peer_addr;
+    socklen_t peer_addr_size = sizeof(peer_addr);
+    int peer_fd = accept(listen_fd, (sockaddr*)&peer_addr, &peer_addr_size);
+    assert(peer_fd >= 0);
+    //fcntl(peer_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
+
+    struct io_uring ring;
+    assert(setup_context(32, &ring) == 0);
+    void *buf = memalign(512, 4096*1024);
+
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+    assert(sqe);
+    struct iovec iov = { buf, 4096*1024 };
+    struct msghdr msg = { 0 };
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    io_uring_prep_recvmsg(sqe, peer_fd, &msg, 0);
+    io_uring_sqe_set_data(sqe, buf);
+    io_uring_submit_and_wait(&ring, 1);
+    struct io_uring_cqe *cqe;
+    io_uring_peek_cqe(&ring, &cqe);
+    int ret = cqe->res;
+    printf("cqe result: %d\n", ret);
+    // ok, io_uring's sendmsg always reads as much data as is available and finishes
+    io_uring_cqe_seen(&ring, cqe);
+
     return 0;
 }
