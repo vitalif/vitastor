@@ -127,6 +127,7 @@ public:
     ~ring_loop_t();
     inline struct io_uring_sqe* get_sqe()
     {
+        // FIXME: Limit inflight ops count to not overflow the completion ring
         struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
         if (sqe)
         {

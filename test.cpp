@@ -239,12 +239,19 @@ int main02(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
-    int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int listen_fd = socket(AF_INET, SOCK_STREAM, 0), enable = 1;
+    assert(listen_fd >= 0);
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
     struct sockaddr_in bind_addr;
     assert(inet_pton(AF_INET, "0.0.0.0", &bind_addr.sin_addr) == 1);
     bind_addr.sin_family = AF_INET;
-    bind_addr.sin_port = 13892;
-    assert(bind(listen_fd, (sockaddr*)&bind_addr, sizeof(bind_addr)) == 0);
+    bind_addr.sin_port = htons(13892);
+    int r = bind(listen_fd, (sockaddr*)&bind_addr, sizeof(bind_addr));
+    if (r)
+    {
+        perror("bind");
+        return 1;
+    }
     assert(listen(listen_fd, 128) == 0);
     struct sockaddr_in peer_addr;
     socklen_t peer_addr_size = sizeof(peer_addr);
@@ -271,6 +278,9 @@ int main(int argc, char *argv[])
     printf("cqe result: %d\n", ret);
     // ok, io_uring's sendmsg always reads as much data as is available and finishes
     io_uring_cqe_seen(&ring, cqe);
+    close(peer_fd);
+    close(listen_fd);
+    io_uring_queue_exit(&ring);
 
     return 0;
 }
