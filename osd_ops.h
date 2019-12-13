@@ -3,10 +3,13 @@
 #include "blockstore.h"
 #include <stdint.h>
 
+// Magic numbers
 #define SECONDARY_OSD_OP_MAGIC      0xf3f003b966ace9ab2bd7b10325434553
 #define SECONDARY_OSD_REPLY_MAGIC   0xd17a57243b580b99baa699b87b434553
+// Operation request headers and operation reply headers have fixed size after which comes data
 #define OSD_OP_PACKET_SIZE          0x80
 #define OSD_REPLY_PACKET_SIZE       0x80
+// Opcodes
 #define OSD_OP_MIN                  0x01
 #define OSD_OP_SECONDARY_READ       0x01
 #define OSD_OP_SECONDARY_WRITE      0x02
@@ -15,10 +18,11 @@
 #define OSD_OP_SECONDARY_DELETE     0x05
 #define OSD_OP_SECONDARY_LIST       0x10
 #define OSD_OP_MAX                  0x10
+// Alignment & limit for read/write operations
 #define OSD_RW_ALIGN                512
 #define OSD_RW_MAX                  64*1024*1024
 
-// common header of all operations
+// common request and reply headers
 struct __attribute__((__packed__)) osd_op_header_t
 {
     // magic & protocol version
@@ -42,114 +46,76 @@ struct __attribute__((__packed__)) osd_reply_header_t
 // read or write to the secondary OSD
 struct __attribute__((__packed__)) osd_op_secondary_rw_t
 {
-    struct __attribute__((__packed__))
-    {
-        osd_op_header_t header;
-        // object
-        object_id oid;
-        // read/write version (automatic or specific)
-        uint64_t version;
-        // offset
-        uint32_t offset;
-        // length
-        uint32_t len;
-    } packet;
-    // buffer (direct IO aligned)
-    void *buf;
+    osd_op_header_t header;
+    // object
+    object_id oid;
+    // read/write version (automatic or specific)
+    uint64_t version;
+    // offset
+    uint32_t offset;
+    // length
+    uint32_t len;
 };
 
 struct __attribute__((__packed__)) osd_reply_secondary_rw_t
 {
-    struct __attribute__((__packed__))
-    {
-        osd_reply_header_t header;
-        // buffer size
-        uint64_t len;
-    } packet;
-    // buffer (direct IO aligned)
-    void *buf;
+    osd_reply_header_t header;
+    // buffer size
+    uint64_t len;
 };
 
 // delete object on the secondary OSD
 struct __attribute__((__packed__)) osd_op_secondary_del_t
 {
-    struct __attribute__((__packed__))
-    {
-        osd_op_header_t header;
-        // object
-        object_id oid;
-        // delete version (automatic or specific)
-        uint64_t version;
-    } packet;
+    osd_op_header_t header;
+    // object
+    object_id oid;
+    // delete version (automatic or specific)
+    uint64_t version;
 };
 
 struct __attribute__((__packed__)) osd_reply_secondary_del_t
 {
-    struct __attribute__((__packed__))
-    {
-        osd_op_header_t header;
-    } packet;
+    osd_reply_header_t header;
 };
 
 // sync to the secondary OSD
 struct __attribute__((__packed__)) osd_op_secondary_sync_t
 {
-    struct __attribute__((__packed__))
-    {
-        osd_op_header_t header;
-    } packet;
+    osd_op_header_t header;
 };
 
 struct __attribute__((__packed__)) osd_reply_secondary_sync_t
 {
-    struct __attribute__((__packed__))
-    {
-        osd_op_header_t header;
-    } packet;
+    osd_reply_header_t header;
 };
 
 // stabilize objects on the secondary OSD
 struct __attribute__((__packed__)) osd_op_secondary_stabilize_t
 {
-    struct __attribute__((__packed__))
-    {
-        osd_op_header_t header;
-        // obj_ver_id array length in bytes
-        uint32_t len;
-    } packet;
-    // object&version array
-    obj_ver_id *objects;
+    osd_op_header_t header;
+    // obj_ver_id array length in bytes
+    uint32_t len;
 };
 
 struct __attribute__((__packed__)) osd_reply_secondary_stabilize_t
 {
-    struct __attribute__((__packed__))
-    {
-        osd_op_header_t header;
-    } packet;
+    osd_reply_header_t header;
 };
 
 // list objects on replica
 struct __attribute__((__packed__)) osd_op_secondary_list_t
 {
-    struct __attribute__((__packed__))
-    {
-        osd_op_header_t header;
-        // placement group number
-        uint64_t pgnum;
-    } packet;
+    osd_op_header_t header;
+    // placement group number
+    uint64_t pgnum;
 };
 
 struct __attribute__((__packed__)) osd_reply_secondary_list_t
 {
-    struct __attribute__((__packed__))
-    {
-        osd_reply_header_t header;
-        // oid array length
-        uint64_t len;
-    } packet;
-    // oid array
-    object_id *oids;
+    osd_reply_header_t header;
+    // oid array length
+    uint64_t len;
 };
 
 union osd_any_op_t
