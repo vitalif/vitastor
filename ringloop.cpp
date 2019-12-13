@@ -27,7 +27,7 @@ int ring_loop_t::register_consumer(ring_consumer_t & consumer)
     return consumer.number;
 }
 
-void ring_loop_t::wakeup(ring_consumer_t & consumer)
+void ring_loop_t::wakeup()
 {
     loop_again = true;
 }

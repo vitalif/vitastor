@@ -8,7 +8,7 @@
 #define SECONDARY_OSD_REPLY_MAGIC   0xd17a57243b580b99baa699b87b434553
 // Operation request headers and operation reply headers have fixed size after which comes data
 #define OSD_OP_PACKET_SIZE          0x80
-#define OSD_REPLY_PACKET_SIZE       0x80
+#define OSD_REPLY_PACKET_SIZE       0x40
 // Opcodes
 #define OSD_OP_MIN                  0x01
 #define OSD_OP_SECONDARY_READ       0x01
@@ -130,6 +130,7 @@ union osd_any_op_t
 
 union osd_any_reply_t
 {
+    osd_reply_header_t hdr;
     osd_reply_secondary_rw_t sec_rw;
     osd_reply_secondary_del_t sec_del;
     osd_reply_secondary_sync_t sec_sync;

@@ -101,7 +101,7 @@ void journal_flusher_t::unshift_flush(obj_ver_id ov)
 void journal_flusher_t::force_start()
 {
     start_forced = true;
-    bs->ringloop->wakeup(bs->ring_consumer);
+    bs->ringloop->wakeup();
 }
 
 #define await_sqe(label) \
@@ -330,12 +330,12 @@ bool journal_flusher_co::loop()
         if (meta_new.submitted)
         {
             meta_new.it->second.state = 1;
-            bs->ringloop->wakeup(bs->ring_consumer);
+            bs->ringloop->wakeup();
         }
         if (meta_old.submitted)
         {
             meta_old.it->second.state = 1;
-            bs->ringloop->wakeup(bs->ring_consumer);
+            bs->ringloop->wakeup();
         }
         // Reads completed, submit writes
         for (it = v.begin(); it != v.end(); it++)
@@ -624,7 +624,7 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
             }
             // Sync completed. All previous coroutines waiting for it must be resumed
             cur_sync->state = 2;
-            bs->ringloop->wakeup(bs->ring_consumer);
+            bs->ringloop->wakeup();
         }
         // Wait until someone else sends and completes a sync.
     resume_2:

@@ -296,5 +296,5 @@ void blockstore::enqueue_op(blockstore_operation *op)
     {
         enqueue_write(op);
     }
-    ringloop->wakeup(ring_consumer);
+    ringloop->wakeup();
 }

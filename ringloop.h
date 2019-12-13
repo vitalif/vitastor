@@ -136,7 +136,7 @@ public:
         return sqe;
     }
     int register_consumer(ring_consumer_t & consumer);
-    void wakeup(ring_consumer_t & consumer);
+    void wakeup();
     void unregister_consumer(ring_consumer_t & consumer);
     void loop();
     inline int submit()
