@@ -61,8 +61,6 @@ struct __attribute__((__packed__)) osd_op_secondary_rw_t
 struct __attribute__((__packed__)) osd_reply_secondary_rw_t
 {
     osd_reply_header_t header;
-    // buffer size
-    uint64_t len;
 };
 
 // delete object on the secondary OSD
@@ -115,8 +113,6 @@ struct __attribute__((__packed__)) osd_op_secondary_list_t
 struct __attribute__((__packed__)) osd_reply_secondary_list_t
 {
     osd_reply_header_t header;
-    // oid array length
-    uint64_t len;
 };
 
 union osd_any_op_t
@@ -138,7 +134,3 @@ union osd_any_reply_t
     osd_reply_secondary_stabilize_t sec_stabilize;
     osd_reply_secondary_list_t sec_list;
 };
-
-static int size_ok = sizeof(osd_any_op_t) < OSD_OP_PACKET_SIZE &&
-    sizeof(osd_any_reply_t) < OSD_REPLY_PACKET_SIZE
-    ? (perror("BUG: too small packet size"), 0) : 1;
