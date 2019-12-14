@@ -63,6 +63,8 @@ class osd_t
 {
     // config
 
+    std::string bind_address;
+    int bind_port, listen_backlog;
     int client_queue_depth = 128;
 
     // fields
@@ -74,9 +76,6 @@ class osd_t
     int epoll_fd = 0;
     int listen_fd = 0;
     ring_consumer_t consumer;
-
-    std::string bind_address;
-    int bind_port, listen_backlog;
 
     std::unordered_map<int,osd_client_t> clients;
     std::vector<int> read_ready_clients;
@@ -94,4 +93,5 @@ class osd_t
 public:
     osd_t(blockstore_config_t & config, blockstore *bs, ring_loop_t *ringloop);
     ~osd_t();
+    bool shutdown();
 };

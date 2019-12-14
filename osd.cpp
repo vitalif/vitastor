@@ -83,6 +83,11 @@ osd_t::~osd_t()
     close(listen_fd);
 }
 
+bool osd_t::shutdown()
+{
+    // TODO
+}
+
 void osd_t::loop()
 {
     if (wait_state == 0)
@@ -132,6 +137,8 @@ int osd_t::handle_epoll_events()
                 int peer_fd;
                 while ((peer_fd = accept(listen_fd, (sockaddr*)&addr, &peer_addr_size)) >= 0)
                 {
+                    char peer_str[256];
+                    printf("osd: new client %d: connection from %s port %d\n", peer_fd, inet_ntop(AF_INET, &addr.sin_addr, peer_str, 256), ntohs(addr.sin_port));
                     fcntl(peer_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
                     clients[peer_fd] = {
                         .peer_addr = addr,
@@ -141,7 +148,7 @@ int osd_t::handle_epoll_events()
                     // Add FD to epoll
                     epoll_event ev;
                     ev.data.fd = peer_fd;
-                    ev.events = EPOLLIN | EPOLLHUP;
+                    ev.events = EPOLLIN | EPOLLRDHUP;
                     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, peer_fd, &ev) < 0)
                     {
                         throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
@@ -157,9 +164,10 @@ int osd_t::handle_epoll_events()
             else
             {
                 auto & cl = clients[events[i].data.fd];
-                if (events[i].events & EPOLLHUP)
+                if (events[i].events & EPOLLRDHUP)
                 {
                     // Stop client
+                    printf("osd: client %d disconnected\n", cl.peer_fd);
                     stop_client(cl.peer_fd);
                 }
                 else if (!cl.read_ready)
