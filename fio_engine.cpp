@@ -91,8 +91,8 @@ static struct fio_option options[] = {
 static int bs_setup(struct thread_data *td)
 {
     bs_data *bsd;
-    fio_file *f;
-    int r;
+    //fio_file *f;
+    //int r;
     //int64_t size;
 
     bsd = new bs_data;
@@ -109,8 +109,8 @@ static int bs_setup(struct thread_data *td)
         td->o.nr_files = td->o.nr_files ? : 1;
         td->o.open_files++;
     }
-    f = td->files[0];
 
+    //f = td->files[0];
     //f->real_file_size = size;
     return 0;
 }

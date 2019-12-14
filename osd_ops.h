@@ -4,8 +4,9 @@
 #include <stdint.h>
 
 // Magic numbers
-#define SECONDARY_OSD_OP_MAGIC      0xf3f003b966ace9ab2bd7b10325434553
-#define SECONDARY_OSD_REPLY_MAGIC   0xd17a57243b580b99baa699b87b434553
+
+#define SECONDARY_OSD_OP_MAGIC      0x2bd7b10325434553l
+#define SECONDARY_OSD_REPLY_MAGIC   0xbaa699b87b434553l
 // Operation request headers and operation reply headers have fixed size after which comes data
 #define OSD_OP_PACKET_SIZE          0x80
 #define OSD_REPLY_PACKET_SIZE       0x40
