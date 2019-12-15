@@ -1,5 +1,11 @@
 // FIO engine to test Blockstore
 //
+// Initialize storage for tests:
+//
+// dd if=/dev/zero of=test_data.bin bs=1024 count=1048576
+// dd if=/dev/zero of=test_meta.bin bs=1024 count=256
+// dd if=/dev/zero of=test_journal.bin bs=1024 count=4096
+//
 // Random write:
 //
 // fio -thread -ioengine=./libfio_blockstore.so -name=test -bs=4k -direct=1 -fsync=16 -iodepth=16 -rw=randwrite \
