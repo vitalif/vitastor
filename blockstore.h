@@ -53,18 +53,20 @@ inline bool operator < (const obj_ver_id & a, const obj_ver_id & b)
     return a.oid < b.oid || a.oid == b.oid && a.version < b.version;
 }
 
-class oid_hash
+namespace std
 {
-public:
-    size_t operator()(const object_id &s) const
+    template<> struct hash<object_id>
     {
-        size_t seed = 0;
-        // Copy-pasted from spp::hash_combine()
-        seed ^= (s.inode + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
-        seed ^= (s.stripe + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
-        return seed;
-    }
-};
+        inline size_t operator()(const object_id &s) const
+        {
+            size_t seed = 0;
+            // Copy-pasted from spp::hash_combine()
+            seed ^= (s.inode + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+            seed ^= (s.stripe + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+            return seed;
+        }
+    };
+}
 
 #define OP_READ 1
 #define OP_WRITE 2

@@ -170,7 +170,7 @@ class blockstore_impl_t
     struct ring_consumer_t ring_consumer;
 
     // Another option is https://github.com/algorithm-ninja/cpp-btree
-    spp::sparse_hash_map<object_id, clean_entry, oid_hash> clean_db;
+    spp::sparse_hash_map<object_id, clean_entry> clean_db;
     std::map<obj_ver_id, dirty_entry> dirty_db;
     std::list<blockstore_op_t*> submit_queue; // FIXME: funny thing is that vector is better here
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
