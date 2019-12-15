@@ -1,4 +1,4 @@
-#include "blockstore.h"
+#include "blockstore_impl.h"
 
 // Stabilize small write:
 // 1) Copy data from the journal to the data device
@@ -38,7 +38,7 @@
 // 4) after a while it takes his synced object list and sends stabilize requests
 //    to peers and to its own blockstore, thus freeing the old version
 
-int blockstore::dequeue_stable(blockstore_op_t *op)
+int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
 {
     obj_ver_id* v;
     int i, todo = 0;
@@ -52,7 +52,7 @@ int blockstore::dequeue_stable(blockstore_op_t *op)
             {
                 // No such object version
                 op->retval = -EINVAL;
-                op->callback(op);
+                FINISH_OP(op);
                 return 1;
             }
             else
@@ -64,7 +64,7 @@ int blockstore::dequeue_stable(blockstore_op_t *op)
         {
             // Object not synced yet. Caller must sync it first
             op->retval = EAGAIN;
-            op->callback(op);
+            FINISH_OP(op);
             return 1;
         }
         else if (!IS_STABLE(dirty_it->second.state))
@@ -76,7 +76,7 @@ int blockstore::dequeue_stable(blockstore_op_t *op)
     {
         // Already stable
         op->retval = 0;
-        op->callback(op);
+        FINISH_OP(op);
         return 1;
     }
     // Check journal space
@@ -111,17 +111,17 @@ int blockstore::dequeue_stable(blockstore_op_t *op)
         if (cur_sector != journal.cur_sector)
         {
             if (cur_sector == -1)
-                op->min_used_journal_sector = 1 + journal.cur_sector;
+                PRIV(op)->min_used_journal_sector = 1 + journal.cur_sector;
             cur_sector = journal.cur_sector;
             prepare_journal_sector_write(journal, sqe[s++], cb);
         }
     }
-    op->max_used_journal_sector = 1 + journal.cur_sector;
-    op->pending_ops = s;
+    PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
+    PRIV(op)->pending_ops = s;
     return 1;
 }
 
-void blockstore::handle_stable_event(ring_data_t *data, blockstore_op_t *op)
+void blockstore_impl_t::handle_stable_event(ring_data_t *data, blockstore_op_t *op)
 {
     if (data->res != data->iov.iov_len)
     {
@@ -130,21 +130,21 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_op_t *op)
             "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
         );
     }
-    op->pending_ops--;
-    if (op->pending_ops == 0)
+    PRIV(op)->pending_ops--;
+    if (PRIV(op)->pending_ops == 0)
     {
         // Release used journal sectors
-        if (op->min_used_journal_sector > 0)
+        if (PRIV(op)->min_used_journal_sector > 0)
         {
-            uint64_t s = op->min_used_journal_sector;
+            uint64_t s = PRIV(op)->min_used_journal_sector;
             while (1)
             {
                 journal.sector_info[s-1].usage_count--;
-                if (s == op->max_used_journal_sector)
+                if (s == PRIV(op)->max_used_journal_sector)
                     break;
                 s = 1 + s % journal.sector_count;
             }
-            op->min_used_journal_sector = op->max_used_journal_sector = 0;
+            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
         }
         // First step: mark dirty_db entries as stable, acknowledge op completion
         obj_ver_id* v;
@@ -191,6 +191,6 @@ void blockstore::handle_stable_event(ring_data_t *data, blockstore_op_t *op)
         }
         // Acknowledge op
         op->retval = 0;
-        op->callback(op);
+        FINISH_OP(op);
     }
 }

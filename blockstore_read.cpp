@@ -1,13 +1,13 @@
-#include "blockstore.h"
+#include "blockstore_impl.h"
 
-int blockstore::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offset, uint64_t len,
+int blockstore_impl_t::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offset, uint64_t len,
     uint32_t item_state, uint64_t item_version)
 {
     if (IS_IN_FLIGHT(item_state))
     {
         // Pause until it's written somewhere
-        op->wait_for = WAIT_IN_FLIGHT;
-        op->wait_detail = item_version;
+        PRIV(op)->wait_for = WAIT_IN_FLIGHT;
+        PRIV(op)->wait_detail = item_version;
         return 0;
     }
     else if (IS_DELETE(item_state))
@@ -23,7 +23,7 @@ int blockstore::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offse
     }
     BS_SUBMIT_GET_SQE(sqe, data);
     data->iov = (struct iovec){ buf, len };
-    op->pending_ops++;
+    PRIV(op)->pending_ops++;
     my_uring_prep_readv(
         sqe,
         IS_JOURNAL(item_state) ? journal.fd : data_fd,
@@ -34,7 +34,7 @@ int blockstore::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offse
     return 1;
 }
 
-int blockstore::fulfill_read(blockstore_op_t *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
+int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
     uint32_t item_state, uint64_t item_version, uint64_t item_location)
 {
     uint32_t cur_start = item_start;
@@ -42,19 +42,19 @@ int blockstore::fulfill_read(blockstore_op_t *read_op, uint64_t &fulfilled, uint
     {
         cur_start = cur_start < read_op->offset ? read_op->offset : cur_start;
         item_end = item_end > read_op->offset + read_op->len ? read_op->offset + read_op->len : item_end;
-        auto it = read_op->read_vec.begin();
+        auto it = PRIV(read_op)->read_vec.begin();
         while (1)
         {
-            for (; it != read_op->read_vec.end(); it++)
+            for (; it != PRIV(read_op)->read_vec.end(); it++)
                 if (it->offset >= cur_start)
                     break;
-            if (it == read_op->read_vec.end() || it->offset > cur_start)
+            if (it == PRIV(read_op)->read_vec.end() || it->offset > cur_start)
             {
                 fulfill_read_t el = {
                     .offset = cur_start,
-                    .len = it == read_op->read_vec.end() || it->offset >= item_end ? item_end-cur_start : it->offset-cur_start,
+                    .len = it == PRIV(read_op)->read_vec.end() || it->offset >= item_end ? item_end-cur_start : it->offset-cur_start,
                 };
-                it = read_op->read_vec.insert(it, el);
+                it = PRIV(read_op)->read_vec.insert(it, el);
                 fulfilled += el.len;
                 if (!fulfill_read_push(read_op, read_op->buf + el.offset - read_op->offset, item_location + el.offset - item_start, el.len, item_state, item_version))
                 {
@@ -62,14 +62,14 @@ int blockstore::fulfill_read(blockstore_op_t *read_op, uint64_t &fulfilled, uint
                 }
             }
             cur_start = it->offset + it->len;
-            if (it == read_op->read_vec.end() || cur_start >= item_end)
+            if (it == PRIV(read_op)->read_vec.end() || cur_start >= item_end)
                 break;
         }
     }
     return 1;
 }
 
-int blockstore::dequeue_read(blockstore_op_t *read_op)
+int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
 {
     auto clean_it = clean_db.find(read_op->oid);
     auto dirty_it = dirty_db.upper_bound((obj_ver_id){
@@ -89,7 +89,7 @@ int blockstore::dequeue_read(blockstore_op_t *read_op)
         return 1;
     }
     uint64_t fulfilled = 0;
-    read_op->pending_ops = 0;
+    PRIV(read_op)->pending_ops = 0;
     if (dirty_found)
     {
         while (dirty_it->first.oid == read_op->oid)
@@ -108,7 +108,7 @@ int blockstore::dequeue_read(blockstore_op_t *read_op)
                     dirty.state, dirty_it->first.version, dirty.location))
                 {
                     // need to wait. undo added requests, don't dequeue op
-                    read_op->read_vec.clear();
+                    PRIV(read_op)->read_vec.clear();
                     return 0;
                 }
             }
@@ -124,14 +124,14 @@ int blockstore::dequeue_read(blockstore_op_t *read_op)
         if (!fulfill_read(read_op, fulfilled, 0, block_size, ST_CURRENT, 0, clean_it->second.location))
         {
             // need to wait. undo added requests, don't dequeue op
-            read_op->read_vec.clear();
+            PRIV(read_op)->read_vec.clear();
             return 0;
         }
     }
-    if (!read_op->pending_ops)
+    if (!PRIV(read_op)->pending_ops)
     {
         // everything is fulfilled from memory
-        if (!read_op->read_vec.size())
+        if (!PRIV(read_op)->read_vec.size())
         {
             // region is not allocated - return zeroes
             memset(read_op->buf, 0, read_op->len);
@@ -148,18 +148,18 @@ int blockstore::dequeue_read(blockstore_op_t *read_op)
     return 1;
 }
 
-void blockstore::handle_read_event(ring_data_t *data, blockstore_op_t *op)
+void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op)
 {
-    op->pending_ops--;
+    PRIV(op)->pending_ops--;
     if (data->res != data->iov.iov_len)
     {
         // read error
         op->retval = data->res;
     }
-    if (op->pending_ops == 0)
+    if (PRIV(op)->pending_ops == 0)
     {
         if (op->retval == 0)
             op->retval = op->len;
-        op->callback(op);
+        FINISH_OP(op);
     }
 }

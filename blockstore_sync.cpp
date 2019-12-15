@@ -1,4 +1,4 @@
-#include "blockstore.h"
+#include "blockstore_impl.h"
 
 #define SYNC_HAS_SMALL 1
 #define SYNC_HAS_BIG 2
@@ -7,36 +7,36 @@
 #define SYNC_JOURNAL_SYNC_SENT 5
 #define SYNC_DONE 6
 
-int blockstore::dequeue_sync(blockstore_op_t *op)
+int blockstore_impl_t::dequeue_sync(blockstore_op_t *op)
 {
-    if (op->sync_state == 0)
+    if (PRIV(op)->sync_state == 0)
     {
         stop_sync_submitted = false;
-        op->sync_big_writes.swap(unsynced_big_writes);
-        op->sync_small_writes.swap(unsynced_small_writes);
-        if (op->sync_big_writes.size() > 0)
-            op->sync_state = SYNC_HAS_BIG;
-        else if (op->sync_small_writes.size() > 0)
-            op->sync_state = SYNC_HAS_SMALL;
+        PRIV(op)->sync_big_writes.swap(unsynced_big_writes);
+        PRIV(op)->sync_small_writes.swap(unsynced_small_writes);
+        if (PRIV(op)->sync_big_writes.size() > 0)
+            PRIV(op)->sync_state = SYNC_HAS_BIG;
+        else if (PRIV(op)->sync_small_writes.size() > 0)
+            PRIV(op)->sync_state = SYNC_HAS_SMALL;
         else
-            op->sync_state = SYNC_DONE;
+            PRIV(op)->sync_state = SYNC_DONE;
         unsynced_big_writes.clear();
         unsynced_small_writes.clear();
     }
     int r = continue_sync(op);
     if (r)
     {
-        op->prev_sync_count = in_progress_syncs.size();
-        op->in_progress_ptr = in_progress_syncs.insert(in_progress_syncs.end(), op);
+        PRIV(op)->prev_sync_count = in_progress_syncs.size();
+        PRIV(op)->in_progress_ptr = in_progress_syncs.insert(in_progress_syncs.end(), op);
         ack_sync(op);
     }
     return r;
 }
 
-int blockstore::continue_sync(blockstore_op_t *op)
+int blockstore_impl_t::continue_sync(blockstore_op_t *op)
 {
     auto cb = [this, op](ring_data_t *data) { handle_sync_event(data, op); };
-    if (op->sync_state == SYNC_HAS_SMALL)
+    if (PRIV(op)->sync_state == SYNC_HAS_SMALL)
     {
         // No big writes, just fsync the journal
         if (!disable_fsync)
@@ -45,16 +45,16 @@ int blockstore::continue_sync(blockstore_op_t *op)
             my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
             data->iov = { 0 };
             data->callback = cb;
-            op->min_used_journal_sector = op->max_used_journal_sector = 0;
-            op->pending_ops = 1;
-            op->sync_state = SYNC_JOURNAL_SYNC_SENT;
+            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
+            PRIV(op)->pending_ops = 1;
+            PRIV(op)->sync_state = SYNC_JOURNAL_SYNC_SENT;
         }
         else
         {
-            op->sync_state = SYNC_DONE;
+            PRIV(op)->sync_state = SYNC_DONE;
         }
     }
-    else if (op->sync_state == SYNC_HAS_BIG)
+    else if (PRIV(op)->sync_state == SYNC_HAS_BIG)
     {
         // 1st step: fsync data
         if (!disable_fsync)
@@ -63,21 +63,21 @@ int blockstore::continue_sync(blockstore_op_t *op)
             my_uring_prep_fsync(sqe, data_fd, IORING_FSYNC_DATASYNC);
             data->iov = { 0 };
             data->callback = cb;
-            op->min_used_journal_sector = op->max_used_journal_sector = 0;
-            op->pending_ops = 1;
-            op->sync_state = SYNC_DATA_SYNC_SENT;
+            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
+            PRIV(op)->pending_ops = 1;
+            PRIV(op)->sync_state = SYNC_DATA_SYNC_SENT;
         }
         else
         {
-            op->sync_state = SYNC_DATA_SYNC_DONE;
+            PRIV(op)->sync_state = SYNC_DATA_SYNC_DONE;
         }
     }
-    if (op->sync_state == SYNC_DATA_SYNC_DONE)
+    if (PRIV(op)->sync_state == SYNC_DATA_SYNC_DONE)
     {
         // 2nd step: Data device is synced, prepare & write journal entries
         // Check space in the journal and journal memory buffers
         blockstore_journal_check_t space_check(this);
-        if (!space_check.check_available(op, op->sync_big_writes.size(), sizeof(journal_entry_big_write), 0))
+        if (!space_check.check_available(op, PRIV(op)->sync_big_writes.size(), sizeof(journal_entry_big_write), 0))
         {
             return 0;
         }
@@ -88,9 +88,9 @@ int blockstore::continue_sync(blockstore_op_t *op)
             BS_SUBMIT_GET_SQE_DECL(sqe[i]);
         }
         // Prepare and submit journal entries
-        auto it = op->sync_big_writes.begin();
+        auto it = PRIV(op)->sync_big_writes.begin();
         int s = 0, cur_sector = -1;
-        while (it != op->sync_big_writes.end())
+        while (it != PRIV(op)->sync_big_writes.end())
         {
             journal_entry_big_write *je = (journal_entry_big_write*)
                 prefill_single_journal_entry(journal, JE_BIG_WRITE, sizeof(journal_entry_big_write));
@@ -108,12 +108,12 @@ int blockstore::continue_sync(blockstore_op_t *op)
             if (cur_sector != journal.cur_sector)
             {
                 if (cur_sector == -1)
-                    op->min_used_journal_sector = 1 + journal.cur_sector;
+                    PRIV(op)->min_used_journal_sector = 1 + journal.cur_sector;
                 cur_sector = journal.cur_sector;
                 prepare_journal_sector_write(journal, sqe[s++], cb);
             }
         }
-        op->max_used_journal_sector = 1 + journal.cur_sector;
+        PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
         // ... And a journal fsync
         if (!disable_fsync)
         {
@@ -121,17 +121,17 @@ int blockstore::continue_sync(blockstore_op_t *op)
             struct ring_data_t *data = ((ring_data_t*)sqe[s]->user_data);
             data->iov = { 0 };
             data->callback = cb;
-            op->pending_ops = 1 + s;
+            PRIV(op)->pending_ops = 1 + s;
         }
         else
-            op->pending_ops = s;
-        op->sync_state = SYNC_JOURNAL_SYNC_SENT;
+            PRIV(op)->pending_ops = s;
+        PRIV(op)->sync_state = SYNC_JOURNAL_SYNC_SENT;
         ringloop->submit();
     }
     return 1;
 }
 
-void blockstore::handle_sync_event(ring_data_t *data, blockstore_op_t *op)
+void blockstore_impl_t::handle_sync_event(ring_data_t *data, blockstore_op_t *op)
 {
     if (data->res != data->iov.iov_len)
     {
@@ -140,30 +140,30 @@ void blockstore::handle_sync_event(ring_data_t *data, blockstore_op_t *op)
             "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
         );
     }
-    op->pending_ops--;
-    if (op->pending_ops == 0)
+    PRIV(op)->pending_ops--;
+    if (PRIV(op)->pending_ops == 0)
     {
         // Release used journal sectors
-        if (op->min_used_journal_sector > 0)
+        if (PRIV(op)->min_used_journal_sector > 0)
         {
-            uint64_t s = op->min_used_journal_sector;
+            uint64_t s = PRIV(op)->min_used_journal_sector;
             while (1)
             {
                 journal.sector_info[s-1].usage_count--;
-                if (s == op->max_used_journal_sector)
+                if (s == PRIV(op)->max_used_journal_sector)
                     break;
                 s = 1 + s % journal.sector_count;
             }
-            op->min_used_journal_sector = op->max_used_journal_sector = 0;
+            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
         }
         // Handle states
-        if (op->sync_state == SYNC_DATA_SYNC_SENT)
+        if (PRIV(op)->sync_state == SYNC_DATA_SYNC_SENT)
         {
-            op->sync_state = SYNC_DATA_SYNC_DONE;
+            PRIV(op)->sync_state = SYNC_DATA_SYNC_DONE;
         }
-        else if (op->sync_state == SYNC_JOURNAL_SYNC_SENT)
+        else if (PRIV(op)->sync_state == SYNC_JOURNAL_SYNC_SENT)
         {
-            op->sync_state = SYNC_DONE;
+            PRIV(op)->sync_state = SYNC_DONE;
             ack_sync(op);
         }
         else
@@ -173,12 +173,12 @@ void blockstore::handle_sync_event(ring_data_t *data, blockstore_op_t *op)
     }
 }
 
-int blockstore::ack_sync(blockstore_op_t *op)
+int blockstore_impl_t::ack_sync(blockstore_op_t *op)
 {
-    if (op->sync_state == SYNC_DONE && op->prev_sync_count == 0)
+    if (PRIV(op)->sync_state == SYNC_DONE && PRIV(op)->prev_sync_count == 0)
     {
         // Remove dependency of subsequent syncs
-        auto it = op->in_progress_ptr;
+        auto it = PRIV(op)->in_progress_ptr;
         int done_syncs = 1;
         ++it;
         // Acknowledge sync
@@ -186,8 +186,8 @@ int blockstore::ack_sync(blockstore_op_t *op)
         while (it != in_progress_syncs.end())
         {
             auto & next_sync = *it++;
-            next_sync->prev_sync_count -= done_syncs;
-            if (next_sync->prev_sync_count == 0 && next_sync->sync_state == SYNC_DONE)
+            PRIV(next_sync)->prev_sync_count -= done_syncs;
+            if (PRIV(next_sync)->prev_sync_count == 0 && PRIV(next_sync)->sync_state == SYNC_DONE)
             {
                 done_syncs++;
                 // Acknowledge next_sync
@@ -199,10 +199,10 @@ int blockstore::ack_sync(blockstore_op_t *op)
     return 0;
 }
 
-void blockstore::ack_one_sync(blockstore_op_t *op)
+void blockstore_impl_t::ack_one_sync(blockstore_op_t *op)
 {
     // Handle states
-    for (auto it = op->sync_big_writes.begin(); it != op->sync_big_writes.end(); it++)
+    for (auto it = PRIV(op)->sync_big_writes.begin(); it != PRIV(op)->sync_big_writes.end(); it++)
     {
 #ifdef BLOCKSTORE_DEBUG
         printf("Ack sync big %lu:%lu v%lu\n", it->oid.inode, it->oid.stripe, it->version);
@@ -211,7 +211,7 @@ void blockstore::ack_one_sync(blockstore_op_t *op)
         unstab = unstab < it->version ? it->version : unstab;
         dirty_db[*it].state = ST_D_META_SYNCED;
     }
-    for (auto it = op->sync_small_writes.begin(); it != op->sync_small_writes.end(); it++)
+    for (auto it = PRIV(op)->sync_small_writes.begin(); it != PRIV(op)->sync_small_writes.end(); it++)
     {
 #ifdef BLOCKSTORE_DEBUG
         printf("Ack sync small %lu:%lu v%lu\n", it->oid.inode, it->oid.stripe, it->version);
@@ -220,7 +220,7 @@ void blockstore::ack_one_sync(blockstore_op_t *op)
         unstab = unstab < it->version ? it->version : unstab;
         dirty_db[*it].state = dirty_db[*it].state == ST_DEL_WRITTEN ? ST_DEL_SYNCED : ST_J_SYNCED;
     }
-    in_progress_syncs.erase(op->in_progress_ptr);
+    in_progress_syncs.erase(PRIV(op)->in_progress_ptr);
     op->retval = 0;
-    op->callback(op);
+    FINISH_OP(op);
 }

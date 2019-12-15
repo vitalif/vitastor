@@ -2,7 +2,7 @@
 
 class blockstore_init_meta
 {
-    blockstore *bs;
+    blockstore_impl_t *bs;
     int wait_state = 0, wait_count = 0;
     void *metadata_buffer = NULL;
     uint64_t metadata_read = 0;
@@ -14,7 +14,7 @@ class blockstore_init_meta
     void handle_entries(struct clean_disk_entry* entries, unsigned count, int block_order);
     void handle_event(ring_data_t *data);
 public:
-    blockstore_init_meta(blockstore *bs);
+    blockstore_init_meta(blockstore_impl_t *bs);
     int loop();
 };
 
@@ -26,11 +26,12 @@ struct bs_init_journal_done
 
 class blockstore_init_journal
 {
-    blockstore *bs;
+    blockstore_impl_t *bs;
     int wait_state = 0, wait_count = 0, handle_res = 0;
     uint64_t entries_loaded = 0;
     uint32_t crc32_last = 0;
     bool started = false;
+    // FIXME: use DISK_ALIGNMENT everywhere
     uint64_t next_free = 512;
     std::vector<bs_init_journal_done> done;
     uint64_t journal_pos = 0;
@@ -46,6 +47,6 @@ class blockstore_init_journal
     int handle_journal_part(void *buf, uint64_t done_pos, uint64_t len);
     void handle_event(ring_data_t *data);
 public:
-    blockstore_init_journal(blockstore* bs);
+    blockstore_init_journal(blockstore_impl_t* bs);
     int loop();
 };

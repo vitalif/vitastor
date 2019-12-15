@@ -13,7 +13,7 @@
 #define CL_WRITE_REPLY 2
 #define CL_WRITE_DATA 3
 
-osd_t::osd_t(blockstore_config_t & config, blockstore *bs, ring_loop_t *ringloop)
+osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop)
 {
     bind_address = config["bind_address"];
     if (bind_address == "")

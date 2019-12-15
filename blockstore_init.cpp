@@ -1,6 +1,6 @@
-#include "blockstore.h"
+#include "blockstore_impl.h"
 
-blockstore_init_meta::blockstore_init_meta(blockstore *bs)
+blockstore_init_meta::blockstore_init_meta(blockstore_impl_t *bs)
 {
     this->bs = bs;
 }
@@ -128,7 +128,7 @@ void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, unsi
     }
 }
 
-blockstore_init_journal::blockstore_init_journal(blockstore *bs)
+blockstore_init_journal::blockstore_init_journal(blockstore_impl_t *bs)
 {
     this->bs = bs;
     simple_callback = [this](ring_data_t *data1)

@@ -13,7 +13,7 @@ int main(int narg, char *args[])
     config["journal_device"] = "./test_journal.bin";
     config["data_device"] = "./test_data.bin";
     ring_loop_t *ringloop = new ring_loop_t(512);
-    blockstore *bs = new blockstore(config, ringloop);
+    blockstore_t *bs = new blockstore_t(config, ringloop);
     osd_t *osd = new osd_t(config, bs, ringloop);
     while (1)
     {

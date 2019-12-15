@@ -32,7 +32,7 @@ class journal_flusher_t;
 // Journal flusher coroutine
 class journal_flusher_co
 {
-    blockstore *bs;
+    blockstore_impl_t *bs;
     journal_flusher_t *flusher;
     int wait_state, wait_count;
     struct io_uring_sqe *sqe;
@@ -64,7 +64,7 @@ class journal_flusher_t
     int flusher_count;
     int sync_threshold;
     journal_flusher_co *co;
-    blockstore *bs;
+    blockstore_impl_t *bs;
     friend class journal_flusher_co;
 
     int journal_trim_counter, journal_trim_interval;
@@ -78,7 +78,7 @@ class journal_flusher_t
     std::deque<object_id> flush_queue;
     std::map<object_id, uint64_t> flush_versions;
 public:
-    journal_flusher_t(int flusher_count, blockstore *bs);
+    journal_flusher_t(int flusher_count, blockstore_impl_t *bs);
     ~journal_flusher_t();
     void loop();
     bool is_active();

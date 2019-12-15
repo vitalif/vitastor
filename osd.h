@@ -1,8 +1,16 @@
 #pragma once
 
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <malloc.h>
 #include <arpa/inet.h>
+#include <malloc.h>
 
 #include <unordered_map>
+#include <deque>
 
 #include "ringloop.h"
 #include "osd_ops.h"
@@ -72,7 +80,7 @@ class osd_t
 
     // fields
 
-    blockstore *bs;
+    blockstore_t *bs;
     ring_loop_t *ringloop;
 
     int wait_state = 0;
@@ -94,7 +102,7 @@ class osd_t
     void make_reply(osd_op_t *op);
     void handle_send(ring_data_t *data, int peer_fd);
 public:
-    osd_t(blockstore_config_t & config, blockstore *bs, ring_loop_t *ringloop);
+    osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);
     ~osd_t();
     bool shutdown();
 };

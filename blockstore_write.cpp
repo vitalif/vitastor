@@ -1,6 +1,6 @@
-#include "blockstore.h"
+#include "blockstore_impl.h"
 
-void blockstore::enqueue_write(blockstore_op_t *op)
+void blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 {
     // Assign version number
     bool found = false, deleted = false, is_del = (op->flags & OP_TYPE_MASK) == OP_DELETE;
@@ -35,7 +35,7 @@ void blockstore::enqueue_write(blockstore_op_t *op)
     {
         // Already deleted
         op->retval = 0;
-        op->callback(op);
+        FINISH_OP(op);
         return;
     }
     // Immediately add the operation into dirty_db, so subsequent reads could see it
@@ -60,7 +60,7 @@ void blockstore::enqueue_write(blockstore_op_t *op)
 }
 
 // First step of the write algorithm: dequeue operation and submit initial write(s)
-int blockstore::dequeue_write(blockstore_op_t *op)
+int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
 {
     auto dirty_it = dirty_db.find((obj_ver_id){
         .oid = op->oid,
@@ -76,11 +76,11 @@ int blockstore::dequeue_write(blockstore_op_t *op)
             if (flusher->is_active())
             {
                 // hope that some space will be available after flush
-                op->wait_for = WAIT_FREE;
+                PRIV(op)->wait_for = WAIT_FREE;
                 return 0;
             }
             op->retval = -ENOSPC;
-            op->callback(op);
+            FINISH_OP(op);
             return 1;
         }
         BS_SUBMIT_GET_SQE(sqe, data);
@@ -96,24 +96,24 @@ int blockstore::dequeue_write(blockstore_op_t *op)
             // Zero fill newly allocated object. First write is always a big write
             // FIXME: Add "no-zero-fill" mode which will just leave random garbage (insecure, but may be useful)
             if (op->offset > 0)
-                op->iov_zerofill[vcnt++] = (struct iovec){ zero_object, op->offset };
-            op->iov_zerofill[vcnt++] = (struct iovec){ op->buf, op->len };
+                PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, op->offset };
+            PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ op->buf, op->len };
             if (op->offset+op->len < block_size)
-                op->iov_zerofill[vcnt++] = (struct iovec){ zero_object, block_size - (op->offset + op->len) };
+                PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, block_size - (op->offset + op->len) };
             data->iov.iov_len = block_size;
         }
         else
         {
             vcnt = 1;
-            op->iov_zerofill[0] = (struct iovec){ op->buf, op->len };
+            PRIV(op)->iov_zerofill[0] = (struct iovec){ op->buf, op->len };
             data->iov.iov_len = op->len; // to check it in the callback
         }
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         my_uring_prep_writev(
-            sqe, data_fd, op->iov_zerofill, vcnt, data_offset + (loc << block_order)
+            sqe, data_fd, PRIV(op)->iov_zerofill, vcnt, data_offset + (loc << block_order)
         );
-        op->pending_ops = 1;
-        op->min_used_journal_sector = op->max_used_journal_sector = 0;
+        PRIV(op)->pending_ops = 1;
+        PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
         // Remember big write as unsynced
         unsynced_big_writes.push_back((obj_ver_id){
             .oid = op->oid,
@@ -157,7 +157,7 @@ int blockstore::dequeue_write(blockstore_op_t *op)
         journal.crc32_last = je->crc32;
         auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         prepare_journal_sector_write(journal, sqe1, cb);
-        op->min_used_journal_sector = op->max_used_journal_sector = 1 + journal.cur_sector;
+        PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
         // Prepare journal data write
         if (journal.inmemory)
         {
@@ -174,7 +174,7 @@ int blockstore::dequeue_write(blockstore_op_t *op)
         journal.next_free += op->len;
         if (journal.next_free >= journal.len)
             journal.next_free = 512;
-        op->pending_ops = 2;
+        PRIV(op)->pending_ops = 2;
         // Remember small write as unsynced
         unsynced_small_writes.push_back((obj_ver_id){
             .oid = op->oid,
@@ -184,7 +184,7 @@ int blockstore::dequeue_write(blockstore_op_t *op)
     return 1;
 }
 
-void blockstore::handle_write_event(ring_data_t *data, blockstore_op_t *op)
+void blockstore_impl_t::handle_write_event(ring_data_t *data, blockstore_op_t *op)
 {
     if (data->res != data->iov.iov_len)
     {
@@ -194,21 +194,21 @@ void blockstore::handle_write_event(ring_data_t *data, blockstore_op_t *op)
             "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
         );
     }
-    op->pending_ops--;
-    if (op->pending_ops == 0)
+    PRIV(op)->pending_ops--;
+    if (PRIV(op)->pending_ops == 0)
     {
         // Release used journal sectors
-        if (op->min_used_journal_sector > 0)
+        if (PRIV(op)->min_used_journal_sector > 0)
         {
-            uint64_t s = op->min_used_journal_sector;
+            uint64_t s = PRIV(op)->min_used_journal_sector;
             while (1)
             {
                 journal.sector_info[s-1].usage_count--;
-                if (s == op->max_used_journal_sector)
+                if (s == PRIV(op)->max_used_journal_sector)
                     break;
                 s = 1 + s % journal.sector_count;
             }
-            op->min_used_journal_sector = op->max_used_journal_sector = 0;
+            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
         }
         // Switch object state
         auto & dirty_entry = dirty_db[(obj_ver_id){
@@ -232,11 +232,11 @@ void blockstore::handle_write_event(ring_data_t *data, blockstore_op_t *op)
         }
         // Acknowledge write without sync
         op->retval = op->len;
-        op->callback(op);
+        FINISH_OP(op);
     }
 }
 
-int blockstore::dequeue_del(blockstore_op_t *op)
+int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
 {
     auto dirty_it = dirty_db.find((obj_ver_id){
         .oid = op->oid,
@@ -262,8 +262,8 @@ int blockstore::dequeue_del(blockstore_op_t *op)
     journal.crc32_last = je->crc32;
     auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
     prepare_journal_sector_write(journal, sqe, cb);
-    op->min_used_journal_sector = op->max_used_journal_sector = 1 + journal.cur_sector;
-    op->pending_ops = 1;
+    PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
+    PRIV(op)->pending_ops = 1;
     dirty_it->second.state = ST_DEL_SUBMITTED;
     // Remember small write as unsynced
     unsynced_small_writes.push_back((obj_ver_id){

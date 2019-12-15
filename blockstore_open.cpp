@@ -1,6 +1,6 @@
-#include "blockstore.h"
+#include "blockstore_impl.h"
 
-void blockstore::calc_lengths(blockstore_config_t & config)
+void blockstore_impl_t::calc_lengths(blockstore_config_t & config)
 {
     if (config["readonly"] == "true" || config["readonly"] == "1" || config["readonly"] == "yes")
     {
@@ -111,7 +111,7 @@ void check_size(int fd, uint64_t *size, std::string name)
     }
 }
 
-void blockstore::open_data(blockstore_config_t & config)
+void blockstore_impl_t::open_data(blockstore_config_t & config)
 {
     data_offset = strtoull(config["data_offset"].c_str(), NULL, 10);
     if (data_offset % DISK_ALIGNMENT)
@@ -130,7 +130,7 @@ void blockstore::open_data(blockstore_config_t & config)
     }
 }
 
-void blockstore::open_meta(blockstore_config_t & config)
+void blockstore_impl_t::open_meta(blockstore_config_t & config)
 {
     meta_offset = strtoull(config["meta_offset"].c_str(), NULL, 10);
     if (meta_offset % DISK_ALIGNMENT)
@@ -162,7 +162,7 @@ void blockstore::open_meta(blockstore_config_t & config)
     }
 }
 
-void blockstore::open_journal(blockstore_config_t & config)
+void blockstore_impl_t::open_journal(blockstore_config_t & config)
 {
     journal.offset = strtoull(config["journal_offset"].c_str(), NULL, 10);
     if (journal.offset % DISK_ALIGNMENT)

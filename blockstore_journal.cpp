@@ -1,6 +1,6 @@
-#include "blockstore.h"
+#include "blockstore_impl.h"
 
-blockstore_journal_check_t::blockstore_journal_check_t(blockstore *bs)
+blockstore_journal_check_t::blockstore_journal_check_t(blockstore_impl_t *bs)
 {
     this->bs = bs;
     sectors_required = 0;
@@ -40,7 +40,7 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int require
         if (bs->journal.sector_info[next_sector].usage_count > 0)
         {
             // No memory buffer available. Wait for it.
-            op->wait_for = WAIT_JOURNAL_BUFFER;
+            PRIV(op)->wait_for = WAIT_JOURNAL_BUFFER;
             return 0;
         }
     }
@@ -56,9 +56,9 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int require
     if (!right_dir && next_pos >= bs->journal.used_start-512)
     {
         // No space in the journal. Wait until used_start changes.
-        op->wait_for = WAIT_JOURNAL;
+        PRIV(op)->wait_for = WAIT_JOURNAL;
         bs->flusher->force_start();
-        op->wait_detail = bs->journal.used_start;
+        PRIV(op)->wait_detail = bs->journal.used_start;
         return 0;
     }
     return 1;

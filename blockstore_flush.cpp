@@ -1,6 +1,6 @@
-#include "blockstore.h"
+#include "blockstore_impl.h"
 
-journal_flusher_t::journal_flusher_t(int flusher_count, blockstore *bs)
+journal_flusher_t::journal_flusher_t(int flusher_count, blockstore_impl_t *bs)
 {
     this->bs = bs;
     this->flusher_count = flusher_count;

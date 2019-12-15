@@ -24,7 +24,7 @@ extern "C" {
 
 struct bs_data
 {
-    blockstore *bs;
+    blockstore_t *bs;
     ring_loop_t *ringloop;
     /* The list of completed io_u structs. */
     std::vector<io_u*> completed;
@@ -154,7 +154,7 @@ static int bs_init(struct thread_data *td)
     if (read_only)
         config["readonly"] = "true";
     bsd->ringloop = new ring_loop_t(512);
-    bsd->bs = new blockstore(config, bsd->ringloop);
+    bsd->bs = new blockstore_t(config, bsd->ringloop);
     while (1)
     {
         bsd->ringloop->loop();
@@ -232,21 +232,22 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->callback = [io, n](blockstore_op_t *op)
         {
             bs_data *bsd = (bs_data*)io->engine_data;
-            if (op->retval >= 0 && bsd->bs->unstable_writes.size() > 0)
+            auto & unstable_writes = bsd->bs->get_unstable_writes();
+            if (op->retval >= 0 && unstable_writes.size() > 0)
             {
                 op->flags = OP_STABLE;
-                op->len = bsd->bs->unstable_writes.size();
+                op->len = unstable_writes.size();
                 obj_ver_id *vers = new obj_ver_id[op->len];
                 op->buf = vers;
                 int i = 0;
-                for (auto it = bsd->bs->unstable_writes.begin(); it != bsd->bs->unstable_writes.end(); it++, i++)
+                for (auto it = unstable_writes.begin(); it != unstable_writes.end(); it++, i++)
                 {
                     vers[i] = {
                         .oid = it->first,
                         .version = it->second,
                     };
                 }
-                bsd->bs->unstable_writes.clear();
+                unstable_writes.clear();
                 op->callback = [io, n](blockstore_op_t *op)
                 {
                     io->error = op->retval < 0 ? -op->retval : 0;
