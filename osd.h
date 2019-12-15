@@ -7,6 +7,9 @@
 #include "ringloop.h"
 #include "osd_ops.h"
 
+#define STRIPE_NUM(stripe) ((stripe) >> 4)
+#define STRIPE_REPLICA(stripe) ((stripe) & 0xf)
+
 struct osd_op_t
 {
     int peer_fd;
@@ -20,7 +23,7 @@ struct osd_op_t
         osd_any_reply_t reply;
         uint8_t reply_buf[OSD_REPLY_PACKET_SIZE] = { 0 };
     };
-    blockstore_operation bs_op;
+    blockstore_op_t bs_op;
     void *buf = NULL;
 
     ~osd_op_t()

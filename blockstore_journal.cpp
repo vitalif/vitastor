@@ -11,7 +11,7 @@ blockstore_journal_check_t::blockstore_journal_check_t(blockstore *bs)
 }
 
 // Check if we can write <required> entries of <size> bytes and <data_after> data bytes after them to the journal
-int blockstore_journal_check_t::check_available(blockstore_operation *op, int required, int size, int data_after)
+int blockstore_journal_check_t::check_available(blockstore_op_t *op, int required, int size, int data_after)
 {
     while (1)
     {

@@ -1,6 +1,6 @@
 #include "blockstore.h"
 
-void blockstore::enqueue_write(blockstore_operation *op)
+void blockstore::enqueue_write(blockstore_op_t *op)
 {
     // Assign version number
     bool found = false, deleted = false, is_del = (op->flags & OP_TYPE_MASK) == OP_DELETE;
@@ -60,7 +60,7 @@ void blockstore::enqueue_write(blockstore_operation *op)
 }
 
 // First step of the write algorithm: dequeue operation and submit initial write(s)
-int blockstore::dequeue_write(blockstore_operation *op)
+int blockstore::dequeue_write(blockstore_op_t *op)
 {
     auto dirty_it = dirty_db.find((obj_ver_id){
         .oid = op->oid,
@@ -184,7 +184,7 @@ int blockstore::dequeue_write(blockstore_operation *op)
     return 1;
 }
 
-void blockstore::handle_write_event(ring_data_t *data, blockstore_operation *op)
+void blockstore::handle_write_event(ring_data_t *data, blockstore_op_t *op)
 {
     if (data->res != data->iov.iov_len)
     {
@@ -236,7 +236,7 @@ void blockstore::handle_write_event(ring_data_t *data, blockstore_operation *op)
     }
 }
 
-int blockstore::dequeue_del(blockstore_operation *op)
+int blockstore::dequeue_del(blockstore_op_t *op)
 {
     auto dirty_it = dirty_db.find((obj_ver_id){
         .oid = op->oid,

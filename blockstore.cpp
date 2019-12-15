@@ -205,10 +205,10 @@ bool blockstore::is_safe_to_stop()
         if (!readonly && !stop_sync_submitted)
         {
             // We should sync the blockstore before unmounting
-            blockstore_operation *op = new blockstore_operation;
+            blockstore_op_t *op = new blockstore_op_t;
             op->flags = OP_SYNC;
             op->buf = NULL;
-            op->callback = [](blockstore_operation *op)
+            op->callback = [](blockstore_op_t *op)
             {
                 delete op;
             };
@@ -220,7 +220,7 @@ bool blockstore::is_safe_to_stop()
     return true;
 }
 
-void blockstore::check_wait(blockstore_operation *op)
+void blockstore::check_wait(blockstore_op_t *op)
 {
     if (op->wait_for == WAIT_SQE)
     {
@@ -276,7 +276,7 @@ void blockstore::check_wait(blockstore_operation *op)
     }
 }
 
-void blockstore::enqueue_op(blockstore_operation *op)
+void blockstore::enqueue_op(blockstore_op_t *op)
 {
     int type = op->flags & OP_TYPE_MASK;
     if (type < OP_READ || type > OP_DELETE || (type == OP_READ || type == OP_WRITE) &&

@@ -309,7 +309,7 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
 
 void osd_t::enqueue_op(osd_op_t *cur_op)
 {
-    cur_op->bs_op.callback = [this, cur_op](blockstore_operation* bs_op)
+    cur_op->bs_op.callback = [this, cur_op](blockstore_op_t* bs_op)
     {
         auto cl_it = clients.find(cur_op->peer_fd);
         if (cl_it != clients.end())

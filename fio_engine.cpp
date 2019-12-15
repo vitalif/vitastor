@@ -180,7 +180,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
     if (io->ddir == DDIR_WRITE || io->ddir == DDIR_READ)
         assert(io->xfer_buflen <= bsd->bs->get_block_size());
 
-    blockstore_operation *op = new blockstore_operation;
+    blockstore_op_t *op = new blockstore_op_t;
     op->callback = NULL;
 
     switch (io->ddir)
@@ -194,7 +194,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         };
         op->offset = io->offset % bsd->bs->get_block_size();
         op->len = io->xfer_buflen;
-        op->callback = [io, n](blockstore_operation *op)
+        op->callback = [io, n](blockstore_op_t *op)
         {
             io->error = op->retval < 0 ? -op->retval : 0;
             bs_data *bsd = (bs_data*)io->engine_data;
@@ -215,7 +215,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         };
         op->offset = io->offset % bsd->bs->get_block_size();
         op->len = io->xfer_buflen;
-        op->callback = [io, n](blockstore_operation *op)
+        op->callback = [io, n](blockstore_op_t *op)
         {
             io->error = op->retval < 0 ? -op->retval : 0;
             bs_data *bsd = (bs_data*)io->engine_data;
@@ -229,7 +229,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         break;
     case DDIR_SYNC:
         op->flags = OP_SYNC;
-        op->callback = [io, n](blockstore_operation *op)
+        op->callback = [io, n](blockstore_op_t *op)
         {
             bs_data *bsd = (bs_data*)io->engine_data;
             if (op->retval >= 0 && bsd->bs->unstable_writes.size() > 0)
@@ -247,7 +247,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
                     };
                 }
                 bsd->bs->unstable_writes.clear();
-                op->callback = [io, n](blockstore_operation *op)
+                op->callback = [io, n](blockstore_op_t *op)
                 {
                     io->error = op->retval < 0 ? -op->retval : 0;
                     bs_data *bsd = (bs_data*)io->engine_data;

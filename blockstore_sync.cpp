@@ -7,7 +7,7 @@
 #define SYNC_JOURNAL_SYNC_SENT 5
 #define SYNC_DONE 6
 
-int blockstore::dequeue_sync(blockstore_operation *op)
+int blockstore::dequeue_sync(blockstore_op_t *op)
 {
     if (op->sync_state == 0)
     {
@@ -33,7 +33,7 @@ int blockstore::dequeue_sync(blockstore_operation *op)
     return r;
 }
 
-int blockstore::continue_sync(blockstore_operation *op)
+int blockstore::continue_sync(blockstore_op_t *op)
 {
     auto cb = [this, op](ring_data_t *data) { handle_sync_event(data, op); };
     if (op->sync_state == SYNC_HAS_SMALL)
@@ -131,7 +131,7 @@ int blockstore::continue_sync(blockstore_operation *op)
     return 1;
 }
 
-void blockstore::handle_sync_event(ring_data_t *data, blockstore_operation *op)
+void blockstore::handle_sync_event(ring_data_t *data, blockstore_op_t *op)
 {
     if (data->res != data->iov.iov_len)
     {
@@ -173,7 +173,7 @@ void blockstore::handle_sync_event(ring_data_t *data, blockstore_operation *op)
     }
 }
 
-int blockstore::ack_sync(blockstore_operation *op)
+int blockstore::ack_sync(blockstore_op_t *op)
 {
     if (op->sync_state == SYNC_DONE && op->prev_sync_count == 0)
     {
@@ -199,7 +199,7 @@ int blockstore::ack_sync(blockstore_operation *op)
     return 0;
 }
 
-void blockstore::ack_one_sync(blockstore_operation *op)
+void blockstore::ack_one_sync(blockstore_op_t *op)
 {
     // Handle states
     for (auto it = op->sync_big_writes.begin(); it != op->sync_big_writes.end(); it++)

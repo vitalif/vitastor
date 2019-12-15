@@ -144,7 +144,7 @@ struct blockstore_journal_check_t
     bool right_dir; // writing to the end or the beginning of the ring buffer
 
     blockstore_journal_check_t(blockstore *bs);
-    int check_available(blockstore_operation *op, int required, int size, int data_after);
+    int check_available(blockstore_op_t *op, int required, int size, int data_after);
 };
 
 journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, uint32_t size);

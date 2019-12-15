@@ -64,9 +64,6 @@
 #define MAX_BLOCK_SIZE 128*1024*1024
 #define DISK_ALIGNMENT 512
 
-#define STRIPE_NUM(oid) ((oid) >> 4)
-#define STRIPE_REPLICA(oid) ((oid) & 0xf)
-
 #define BS_SUBMIT_GET_SQE(sqe, data) \
     BS_SUBMIT_GET_ONLY_SQE(sqe); \
     struct ring_data_t *data = ((ring_data_t*)sqe->user_data)
@@ -91,7 +88,7 @@
 
 class blockstore;
 
-class blockstore_operation;
+class blockstore_op_t;
 
 // 16 bytes per object/stripe id
 // stripe includes replica number in 4 least significant bits
@@ -207,12 +204,12 @@ struct fulfill_read_t
     uint64_t offset, len;
 };
 
-struct blockstore_operation
+struct blockstore_op_t
 {
     // flags contain operation type and possibly other flags
     uint64_t flags;
     // finish callback
-    std::function<void (blockstore_operation*)> callback;
+    std::function<void (blockstore_op_t*)> callback;
     // For reads, writes & deletes: oid is the requested object
     object_id oid;
     // For reads: version=0 -> last stable, version=UINT64_MAX -> last unstable, version=X -> specific version
@@ -246,7 +243,7 @@ private:
 
     // Sync
     std::vector<obj_ver_id> sync_big_writes, sync_small_writes;
-    std::list<blockstore_operation*>::iterator in_progress_ptr;
+    std::list<blockstore_op_t*>::iterator in_progress_ptr;
     int sync_state, prev_sync_count;
 };
 
@@ -263,9 +260,9 @@ class blockstore
     // Another option is https://github.com/algorithm-ninja/cpp-btree
     spp::sparse_hash_map<object_id, clean_entry, oid_hash> clean_db;
     std::map<obj_ver_id, dirty_entry> dirty_db;
-    std::list<blockstore_operation*> submit_queue; // FIXME: funny thing is that vector is better here
+    std::list<blockstore_op_t*> submit_queue; // FIXME: funny thing is that vector is better here
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
-    std::list<blockstore_operation*> in_progress_syncs; // ...and probably here, too
+    std::list<blockstore_op_t*> in_progress_syncs; // ...and probably here, too
     allocator *data_alloc = NULL;
     uint8_t *zero_object;
 
@@ -313,32 +310,32 @@ class blockstore
     blockstore_init_meta* metadata_init_reader;
     blockstore_init_journal* journal_init_reader;
 
-    void check_wait(blockstore_operation *op);
+    void check_wait(blockstore_op_t *op);
 
     // Read
-    int dequeue_read(blockstore_operation *read_op);
-    int fulfill_read(blockstore_operation *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
+    int dequeue_read(blockstore_op_t *read_op);
+    int fulfill_read(blockstore_op_t *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
         uint32_t item_state, uint64_t item_version, uint64_t item_location);
-    int fulfill_read_push(blockstore_operation *op, void *buf, uint64_t offset, uint64_t len,
+    int fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offset, uint64_t len,
         uint32_t item_state, uint64_t item_version);
-    void handle_read_event(ring_data_t *data, blockstore_operation *op);
+    void handle_read_event(ring_data_t *data, blockstore_op_t *op);
 
     // Write
-    void enqueue_write(blockstore_operation *op);
-    int dequeue_write(blockstore_operation *op);
-    int dequeue_del(blockstore_operation *op);
-    void handle_write_event(ring_data_t *data, blockstore_operation *op);
+    void enqueue_write(blockstore_op_t *op);
+    int dequeue_write(blockstore_op_t *op);
+    int dequeue_del(blockstore_op_t *op);
+    void handle_write_event(ring_data_t *data, blockstore_op_t *op);
 
     // Sync
-    int dequeue_sync(blockstore_operation *op);
-    void handle_sync_event(ring_data_t *data, blockstore_operation *op);
-    int continue_sync(blockstore_operation *op);
-    void ack_one_sync(blockstore_operation *op);
-    int ack_sync(blockstore_operation *op);
+    int dequeue_sync(blockstore_op_t *op);
+    void handle_sync_event(ring_data_t *data, blockstore_op_t *op);
+    int continue_sync(blockstore_op_t *op);
+    void ack_one_sync(blockstore_op_t *op);
+    int ack_sync(blockstore_op_t *op);
 
     // Stabilize
-    int dequeue_stable(blockstore_operation *op);
-    void handle_stable_event(ring_data_t *data, blockstore_operation *op);
+    int dequeue_stable(blockstore_op_t *op);
+    void handle_stable_event(ring_data_t *data, blockstore_op_t *op);
     void stabilize_object(object_id oid, uint64_t max_ver);
 
 public:
@@ -359,7 +356,7 @@ public:
     bool is_safe_to_stop();
 
     // Submission
-    void enqueue_op(blockstore_operation *op);
+    void enqueue_op(blockstore_op_t *op);
 
     // Unstable writes are added here (map of object_id -> version)
     std::map<object_id, uint64_t> unstable_writes;

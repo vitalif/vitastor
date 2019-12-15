@@ -38,7 +38,7 @@
 // 4) after a while it takes his synced object list and sends stabilize requests
 //    to peers and to its own blockstore, thus freeing the old version
 
-int blockstore::dequeue_stable(blockstore_operation *op)
+int blockstore::dequeue_stable(blockstore_op_t *op)
 {
     obj_ver_id* v;
     int i, todo = 0;
@@ -121,7 +121,7 @@ int blockstore::dequeue_stable(blockstore_operation *op)
     return 1;
 }
 
-void blockstore::handle_stable_event(ring_data_t *data, blockstore_operation *op)
+void blockstore::handle_stable_event(ring_data_t *data, blockstore_op_t *op)
 {
     if (data->res != data->iov.iov_len)
     {

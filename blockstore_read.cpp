@@ -1,6 +1,6 @@
 #include "blockstore.h"
 
-int blockstore::fulfill_read_push(blockstore_operation *op, void *buf, uint64_t offset, uint64_t len,
+int blockstore::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offset, uint64_t len,
     uint32_t item_state, uint64_t item_version)
 {
     if (IS_IN_FLIGHT(item_state))
@@ -34,7 +34,7 @@ int blockstore::fulfill_read_push(blockstore_operation *op, void *buf, uint64_t 
     return 1;
 }
 
-int blockstore::fulfill_read(blockstore_operation *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
+int blockstore::fulfill_read(blockstore_op_t *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
     uint32_t item_state, uint64_t item_version, uint64_t item_location)
 {
     uint32_t cur_start = item_start;
@@ -69,7 +69,7 @@ int blockstore::fulfill_read(blockstore_operation *read_op, uint64_t &fulfilled,
     return 1;
 }
 
-int blockstore::dequeue_read(blockstore_operation *read_op)
+int blockstore::dequeue_read(blockstore_op_t *read_op)
 {
     auto clean_it = clean_db.find(read_op->oid);
     auto dirty_it = dirty_db.upper_bound((obj_ver_id){
@@ -148,7 +148,7 @@ int blockstore::dequeue_read(blockstore_operation *read_op)
     return 1;
 }
 
-void blockstore::handle_read_event(ring_data_t *data, blockstore_operation *op)
+void blockstore::handle_read_event(ring_data_t *data, blockstore_op_t *op)
 {
     op->pending_ops--;
     if (data->res != data->iov.iov_len)

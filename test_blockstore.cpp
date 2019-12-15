@@ -15,11 +15,11 @@ int main(int narg, char *args[])
         printf("tick 1s\n");
     });
 
-    blockstore_operation op;
+    blockstore_op_t op;
     int main_state = 0;
     uint64_t version = 0;
     ring_consumer_t main_cons;
-    op.callback = [&](blockstore_operation *op)
+    op.callback = [&](blockstore_op_t *op)
     {
         printf("op completed %d\n", op->retval);
         if (main_state == 1)
