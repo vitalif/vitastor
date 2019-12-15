@@ -307,27 +307,28 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
     }
 }
 
+void osd_t::blockstore_op_callback(osd_op_t *cur_op)
+{
+    auto cl_it = clients.find(cur_op->peer_fd);
+    if (cl_it != clients.end())
+    {
+        auto & cl = cl_it->second;
+        if (cl.write_state == 0)
+        {
+            cl.write_state = CL_WRITE_READY;
+            write_ready_clients.push_back(cur_op->peer_fd);
+        }
+        cl.completions.push_back(cur_op);
+        ringloop->wakeup();
+    }
+    else
+    {
+        delete cur_op;
+    }
+}
+
 void osd_t::enqueue_op(osd_op_t *cur_op)
 {
-    cur_op->bs_op.callback = [this, cur_op](blockstore_op_t* bs_op)
-    {
-        auto cl_it = clients.find(cur_op->peer_fd);
-        if (cl_it != clients.end())
-        {
-            auto & cl = cl_it->second;
-            if (cl.write_state == 0)
-            {
-                cl.write_state = CL_WRITE_READY;
-                write_ready_clients.push_back(cur_op->peer_fd);
-            }
-            cl.completions.push_back(cur_op);
-            ringloop->wakeup();
-        }
-        else
-        {
-            delete cur_op;
-        }
-    };
     if (cur_op->op.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
         cur_op->op.hdr.opcode < OSD_OP_MIN || cur_op->op.hdr.opcode > OSD_OP_MAX ||
         (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ || cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE) &&
@@ -335,10 +336,57 @@ void osd_t::enqueue_op(osd_op_t *cur_op)
     {
         // Bad command
         cur_op->bs_op.retval = -EINVAL;
-        cur_op->bs_op.callback(&cur_op->bs_op);
+        blockstore_op_callback(cur_op);
+        return;
+    }
+    if (cur_op->op.hdr.opcode == OSD_OP_TEST_SYNC_STAB_ALL)
+    {
+        // Sync and stabilize all objects
+        // This command is only valid for tests
+        // FIXME: Dedup between here & fio_engine
+        if (!allow_test_ops)
+        {
+            cur_op->bs_op.retval = -EINVAL;
+            blockstore_op_callback(cur_op);
+            return;
+        }
+        cur_op->bs_op.flags = OP_SYNC;
+        cur_op->bs_op.callback = [this, cur_op](blockstore_op_t *op)
+        {
+            auto & unstable_writes = bs->get_unstable_writes();
+            if (op->retval >= 0 && unstable_writes.size() > 0)
+            {
+                op->flags = OP_STABLE;
+                op->len = unstable_writes.size();
+                obj_ver_id *vers = new obj_ver_id[op->len];
+                op->buf = vers;
+                int i = 0;
+                for (auto it = unstable_writes.begin(); it != unstable_writes.end(); it++, i++)
+                {
+                    vers[i] = {
+                        .oid = it->first,
+                        .version = it->second,
+                    };
+                }
+                unstable_writes.clear();
+                op->callback = [this, cur_op](blockstore_op_t *op)
+                {
+                    blockstore_op_callback(cur_op);
+                    obj_ver_id *vers = (obj_ver_id*)op->buf;
+                    delete[] vers;
+                };
+                bs->enqueue_op(op);
+            }
+            else
+            {
+                blockstore_op_callback(cur_op);
+            }
+        };
+        bs->enqueue_op(&cur_op->bs_op);
         return;
     }
     // FIXME: LIST is not a blockstore op yet
+    cur_op->bs_op.callback = [this, cur_op](blockstore_op_t* bs_op) { blockstore_op_callback(cur_op); };
     cur_op->bs_op.flags = (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ ? OP_READ
         : (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ? OP_WRITE
         : (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_SYNC ? OP_SYNC

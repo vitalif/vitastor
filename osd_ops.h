@@ -4,7 +4,6 @@
 #include <stdint.h>
 
 // Magic numbers
-
 #define SECONDARY_OSD_OP_MAGIC      0x2bd7b10325434553l
 #define SECONDARY_OSD_REPLY_MAGIC   0xbaa699b87b434553l
 // Operation request headers and operation reply headers have fixed size after which comes data
@@ -17,8 +16,9 @@
 #define OSD_OP_SECONDARY_SYNC       0x03
 #define OSD_OP_SECONDARY_STABILIZE  0x04
 #define OSD_OP_SECONDARY_DELETE     0x05
-#define OSD_OP_SECONDARY_LIST       0x10
-#define OSD_OP_MAX                  0x10
+#define OSD_OP_TEST_SYNC_STAB_ALL   0x06
+#define OSD_OP_SECONDARY_LIST       0x07
+#define OSD_OP_MAX                  0x07
 // Alignment & limit for read/write operations
 #define OSD_RW_ALIGN                512
 #define OSD_RW_MAX                  64*1024*1024

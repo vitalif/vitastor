@@ -77,6 +77,7 @@ class osd_t
     std::string bind_address;
     int bind_port, listen_backlog;
     int client_queue_depth = 128;
+    bool allow_test_ops = true;
 
     // fields
 
@@ -101,6 +102,7 @@ class osd_t
     void send_replies();
     void make_reply(osd_op_t *op);
     void handle_send(ring_data_t *data, int peer_fd);
+    void blockstore_op_callback(osd_op_t *cur_op);
 public:
     osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);
     ~osd_t();
