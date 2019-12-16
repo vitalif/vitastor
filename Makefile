@@ -1,7 +1,7 @@
 BLOCKSTORE_OBJS := allocator.o blockstore.o blockstore_impl.o blockstore_init.o blockstore_open.o blockstore_journal.o blockstore_read.o \
 	blockstore_write.o blockstore_sync.o blockstore_stable.o blockstore_flush.o crc32c.o ringloop.o timerfd_interval.o
 CXXFLAGS := -g -O3 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fPIC -fdiagnostics-color=always
-all: $(BLOCKSTORE_OBJS) test test_blockstore libfio_blockstore.so osd
+all: $(BLOCKSTORE_OBJS) test test_blockstore libfio_blockstore.so osd libfio_sec_osd.so
 clean:
 	rm -f *.o
 crc32c.o: crc32c.c
@@ -18,3 +18,5 @@ test_allocator: test_allocator.cpp allocator.o
 	g++ $(CXXFLAGS) -o test_allocator test_allocator.cpp allocator.o
 libfio_blockstore.so: fio_engine.cpp $(BLOCKSTORE_OBJS)
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -luring -o libfio_blockstore.so fio_engine.cpp $(BLOCKSTORE_OBJS)
+libfio_sec_osd.so: fio_sec_osd.cpp
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -luring -o libfio_sec_osd.so fio_sec_osd.cpp
