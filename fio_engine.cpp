@@ -133,7 +133,7 @@ static void bs_cleanup(struct thread_data *td)
                 bsd->ringloop->loop();
                 if (bsd->bs->is_safe_to_stop())
                     goto safe;
-            } while (bsd->ringloop->loop_again);
+            } while (bsd->ringloop->get_loop_again());
             bsd->ringloop->wait();
         }
     safe:

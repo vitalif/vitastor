@@ -37,7 +37,7 @@ journal_flusher_co::journal_flusher_co()
         {
             throw std::runtime_error(
                 "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
-                "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
+                "). state "+std::to_string(wait_state)+". in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
             );
         }
         wait_count--;
@@ -443,7 +443,6 @@ bool journal_flusher_co::loop()
             {
                 // Update journal "superblock"
                 await_sqe(12);
-                data->callback = simple_callback_w;
                 *((journal_entry_start*)flusher->journal_superblock) = {
                     .crc32 = 0,
                     .magic = JOURNAL_MAGIC,
@@ -454,6 +453,7 @@ bool journal_flusher_co::loop()
                 };
                 ((journal_entry_start*)flusher->journal_superblock)->crc32 = je_crc32((journal_entry*)flusher->journal_superblock);
                 data->iov = (struct iovec){ flusher->journal_superblock, 512 };
+                data->callback = simple_callback_w;
                 my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
                 wait_count++;
             resume_13:
@@ -611,8 +611,8 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
         {
             // Sync batch is ready. Do it.
             await_sqe(0);
-            data->callback = simple_callback_w;
             data->iov = { 0 };
+            data->callback = simple_callback_w;
             my_uring_prep_fsync(sqe, fsync_meta ? bs->meta_fd : bs->data_fd, IORING_FSYNC_DATASYNC);
             cur_sync->state = 1;
             wait_count++;

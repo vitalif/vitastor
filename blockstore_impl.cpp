@@ -131,8 +131,8 @@ void blockstore_impl_t::loop()
                     continue;
                 }
             }
-            unsigned ring_space = io_uring_sq_space_left(&ringloop->ring);
-            unsigned prev_sqe_pos = ringloop->ring.sq.sqe_tail;
+            unsigned ring_space = ringloop->space_left();
+            unsigned prev_sqe_pos = ringloop->save();
             int dequeue_op = 0;
             if ((op->flags & OP_TYPE_MASK) == OP_READ)
             {
@@ -172,7 +172,7 @@ void blockstore_impl_t::loop()
             }
             else
             {
-                ringloop->ring.sq.sqe_tail = prev_sqe_pos;
+                ringloop->restore(prev_sqe_pos);
                 if (PRIV(op)->wait_for == WAIT_SQE)
                 {
                     PRIV(op)->wait_detail = 1 + ring_space;
@@ -225,7 +225,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
 {
     if (PRIV(op)->wait_for == WAIT_SQE)
     {
-        if (io_uring_sq_space_left(&ringloop->ring) < PRIV(op)->wait_detail)
+        if (ringloop->space_left() < PRIV(op)->wait_detail)
         {
             // stop submission if there's still no free space
             return;

@@ -4,8 +4,9 @@
 #define _LARGEFILE64_SOURCE
 #endif
 
-#include <liburing.h>
 #include <string.h>
+#include <assert.h>
+#include <liburing.h>
 
 #include <functional>
 #include <vector>
@@ -119,26 +120,26 @@ struct ring_consumer_t
 class ring_loop_t
 {
     std::vector<ring_consumer_t> consumers;
-    struct ring_data_t *ring_data;
-public:
+    struct ring_data_t *ring_datas;
+    int *free_ring_data;
+    unsigned free_ring_data_ptr;
     bool loop_again;
     struct io_uring ring;
+public:
     ring_loop_t(int qd);
     ~ring_loop_t();
+    int register_consumer(ring_consumer_t & consumer);
+    void unregister_consumer(ring_consumer_t & consumer);
+
     inline struct io_uring_sqe* get_sqe()
     {
-        // FIXME: Limit inflight ops count to not overflow the completion ring
+        if (free_ring_data_ptr == 0)
+            return NULL;
         struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
         if (sqe)
-        {
-            io_uring_sqe_set_data(sqe, ring_data + (sqe - ring.sq.sqes));
-        }
+            io_uring_sqe_set_data(sqe, ring_datas + free_ring_data[--free_ring_data_ptr]);
         return sqe;
     }
-    int register_consumer(ring_consumer_t & consumer);
-    void wakeup();
-    void unregister_consumer(ring_consumer_t & consumer);
-    void loop();
     inline int submit()
     {
         return io_uring_submit(&ring);
@@ -148,4 +149,18 @@ public:
         struct io_uring_cqe *cqe;
         return io_uring_wait_cqe(&ring, &cqe);
     }
+    inline unsigned space_left()
+    {
+        return free_ring_data_ptr;
+    }
+    inline bool get_loop_again()
+    {
+        return loop_again;
+    }
+
+    void loop();
+    void wakeup();
+
+    unsigned save();
+    void restore(unsigned sqe_tail);
 };

@@ -194,15 +194,20 @@ void osd_t::stop_client(int peer_fd)
         throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
     }
     auto it = clients.find(peer_fd);
-    if (it->second.read_ready)
+    for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
     {
-        for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
+        if (*rit == peer_fd)
         {
-            if (*rit == peer_fd)
-            {
-                read_ready_clients.erase(rit);
-                break;
-            }
+            read_ready_clients.erase(rit);
+            break;
+        }
+    }
+    for (auto wit = write_ready_clients.begin(); wit != write_ready_clients.end(); wit++)
+    {
+        if (*wit == peer_fd)
+        {
+            write_ready_clients.erase(wit);
+            break;
         }
     }
     clients.erase(it);
