@@ -1,7 +1,6 @@
 #pragma once
 
-#include "blockstore.h"
-#include <stdint.h>
+#include "object_id.h"
 
 // Magic numbers
 #define SECONDARY_OSD_OP_MAGIC      0x2bd7b10325434553l

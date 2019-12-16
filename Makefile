@@ -6,7 +6,7 @@ clean:
 	rm -f *.o
 crc32c.o: crc32c.c
 	g++ $(CXXFLAGS) -c -o $@ $<
-%.o: %.cpp allocator.h blockstore_flush.h blockstore.h blockstore_impl.h blockstore_init.h blockstore_journal.h crc32c.h ringloop.h xor.h timerfd_interval.h
+%.o: %.cpp allocator.h blockstore_flush.h blockstore.h blockstore_impl.h blockstore_init.h blockstore_journal.h crc32c.h ringloop.h xor.h timerfd_interval.h object_id.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd: $(BLOCKSTORE_OBJS) osd_main.cpp osd.h osd_ops.h osd.o
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -luring -o osd osd_main.cpp osd.o $(BLOCKSTORE_OBJS)

@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <deque>
 
+#include "blockstore.h"
 #include "ringloop.h"
 #include "osd_ops.h"
 
