@@ -82,6 +82,8 @@ class osd_t
 
     // fields
 
+    bool stopping = false;
+    int inflight_ops = 0;
     blockstore_t *bs;
     ring_loop_t *ringloop;
 

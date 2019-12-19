@@ -85,7 +85,12 @@ osd_t::~osd_t()
 
 bool osd_t::shutdown()
 {
-    // TODO
+    stopping = true;
+    if (inflight_ops > 0)
+    {
+        return false;
+    }
+    return bs->is_safe_to_stop();
 }
 
 void osd_t::loop()
@@ -314,6 +319,7 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
 
 void osd_t::secondary_op_callback(osd_op_t *cur_op)
 {
+    inflight_ops--;
     auto cl_it = clients.find(cur_op->peer_fd);
     if (cl_it != clients.end())
     {
@@ -334,6 +340,13 @@ void osd_t::secondary_op_callback(osd_op_t *cur_op)
 
 void osd_t::enqueue_op(osd_op_t *cur_op)
 {
+    if (stopping)
+    {
+        // Throw operation away
+        delete cur_op;
+        return;
+    }
+    inflight_ops++;
     if (cur_op->op.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
         cur_op->op.hdr.opcode < OSD_OP_MIN || cur_op->op.hdr.opcode > OSD_OP_MAX ||
         (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ || cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE) &&
