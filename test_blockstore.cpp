@@ -36,7 +36,7 @@ int main(int narg, char *args[])
             if (bs->is_started())
             {
                 printf("init completed\n");
-                op.flags = OP_WRITE;
+                op.opcode = BS_OP_WRITE;
                 op.oid = { .inode = 1, .stripe = 0 };
                 op.version = 0;
                 op.offset = 4096;
@@ -51,14 +51,14 @@ int main(int narg, char *args[])
         {
             printf("version %lu written, syncing\n", op.version);
             version = op.version;
-            op.flags = OP_SYNC;
+            op.opcode = BS_OP_SYNC;
             bs->enqueue_op(&op);
             main_state = 3;
         }
         else if (main_state == 4)
         {
             printf("stabilizing version %lu\n", version);
-            op.flags = OP_STABLE;
+            op.opcode = BS_OP_STABLE;
             op.len = 1;
             *((obj_ver_id*)op.buf) = {
                 .oid = { .inode = 1, .stripe = 0 },

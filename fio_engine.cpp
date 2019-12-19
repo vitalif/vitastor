@@ -192,12 +192,13 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
     switch (io->ddir)
     {
     case DDIR_READ:
-        op->flags = OP_READ;
+        op->opcode = BS_OP_READ;
         op->buf = io->xfer_buf;
         op->oid = {
             .inode = 1,
             .stripe = io->offset >> bsd->bs->get_block_order(),
         };
+        op->version = UINT64_MAX; // last unstable
         op->offset = io->offset % bsd->bs->get_block_size();
         op->len = io->xfer_buflen;
         op->callback = [io, n](blockstore_op_t *op)
@@ -213,12 +214,13 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         };
         break;
     case DDIR_WRITE:
-        op->flags = OP_WRITE;
+        op->opcode = BS_OP_WRITE;
         op->buf = io->xfer_buf;
         op->oid = {
             .inode = 1,
             .stripe = io->offset >> bsd->bs->get_block_order(),
         };
+        op->version = 0; // assign automatically
         op->offset = io->offset % bsd->bs->get_block_size();
         op->len = io->xfer_buflen;
         op->callback = [io, n](blockstore_op_t *op)
@@ -234,14 +236,14 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         };
         break;
     case DDIR_SYNC:
-        op->flags = OP_SYNC;
+        op->opcode = BS_OP_SYNC;
         op->callback = [io, n](blockstore_op_t *op)
         {
             bs_data *bsd = (bs_data*)io->engine_data;
             auto & unstable_writes = bsd->bs->get_unstable_writes();
             if (op->retval >= 0 && unstable_writes.size() > 0)
             {
-                op->flags = OP_STABLE;
+                op->opcode = BS_OP_STABLE;
                 op->len = unstable_writes.size();
                 obj_ver_id *vers = new obj_ver_id[op->len];
                 op->buf = vers;
@@ -287,7 +289,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
     }
 
 #ifdef BLOCKSTORE_DEBUG
-    printf("+++ %s %llx n=%d\n", op->flags == OP_READ ? "OP_READ" : (op->flags == OP_WRITE ? "OP_WRITE" : "OP_SYNC"), io, n);
+    printf("+++ %s %llx n=%d\n", op->opcode == OP_READ ? "OP_READ" : (op->opcode == OP_WRITE ? "OP_WRITE" : "OP_SYNC"), io, n);
 #endif
     io->error = 0;
     bsd->inflight++;

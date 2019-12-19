@@ -19,19 +19,19 @@
 #define MAX_BLOCK_SIZE 128*1024*1024
 #define DISK_ALIGNMENT 512
 
-#define OP_READ 1
-#define OP_WRITE 2
-#define OP_SYNC 3
-#define OP_STABLE 4
-#define OP_DELETE 5
-#define OP_TYPE_MASK 0x7
+#define BS_OP_READ 1
+#define BS_OP_WRITE 2
+#define BS_OP_SYNC 3
+#define BS_OP_STABLE 4
+#define BS_OP_DELETE 5
+#define BS_OP_TYPE_MASK 0x7
 
 #define BS_OP_PRIVATE_DATA_SIZE 256
 
 struct blockstore_op_t
 {
-    // flags contain operation type and possibly other flags
-    uint64_t flags;
+    // operation
+    uint64_t opcode;
     // finish callback
     std::function<void (blockstore_op_t*)> callback;
     // For reads, writes & deletes: oid is the requested object

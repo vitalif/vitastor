@@ -2,8 +2,8 @@
 
 void blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 {
-    // Assign version number
-    bool found = false, deleted = false, is_del = (op->flags & OP_TYPE_MASK) == OP_DELETE;
+    // Check or assign version number
+    bool found = false, deleted = false, is_del = (op->opcode & BS_OP_TYPE_MASK) == BS_OP_DELETE;
     if (dirty_db.size() > 0)
     {
         auto dirty_it = dirty_db.upper_bound((obj_ver_id){
