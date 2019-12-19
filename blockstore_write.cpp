@@ -4,6 +4,7 @@ void blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 {
     // Check or assign version number
     bool found = false, deleted = false, is_del = (op->opcode & BS_OP_TYPE_MASK) == BS_OP_DELETE;
+    uint64_t version = 1;
     if (dirty_db.size() > 0)
     {
         auto dirty_it = dirty_db.upper_bound((obj_ver_id){
@@ -14,7 +15,7 @@ void blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         if (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
         {
             found = true;
-            op->version = dirty_it->first.version + 1;
+            version = dirty_it->first.version + 1;
             deleted = IS_DELETE(dirty_it->second.state);
         }
     }
@@ -23,13 +24,23 @@ void blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         auto clean_it = clean_db.find(op->oid);
         if (clean_it != clean_db.end())
         {
-            op->version = clean_it->second.version + 1;
+            version = clean_it->second.version + 1;
         }
         else
         {
             deleted = true;
-            op->version = 1;
         }
+    }
+    if (op->version == 0)
+    {
+        op->version = version;
+    }
+    else if (op->version < version)
+    {
+        // Invalid version requested
+        op->retval = -EINVAL;
+        FINISH_OP(op);
+        return;
     }
     if (deleted && is_del)
     {
