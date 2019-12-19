@@ -105,13 +105,15 @@ struct __attribute__((__packed__)) osd_reply_secondary_stabilize_t
 struct __attribute__((__packed__)) osd_op_secondary_list_t
 {
     osd_op_header_t header;
-    // placement group number
-    uint64_t pgnum;
+    // placement group total number and total count
+    uint32_t pgnum, pgtotal;
 };
 
 struct __attribute__((__packed__)) osd_reply_secondary_list_t
 {
     osd_reply_header_t header;
+    // stable object version count. header.retval = total object version count
+    uint64_t stable_count;
 };
 
 union osd_any_op_t

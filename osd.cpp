@@ -390,14 +390,14 @@ void osd_t::enqueue_op(osd_op_t *cur_op)
         bs->enqueue_op(&cur_op->bs_op);
         return;
     }
-    // FIXME: LIST is not a blockstore op yet
     cur_op->bs_op.callback = [this, cur_op](blockstore_op_t* bs_op) { secondary_op_callback(cur_op); };
     cur_op->bs_op.opcode = (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ ? BS_OP_READ
         : (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ? BS_OP_WRITE
         : (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_SYNC ? BS_OP_SYNC
         : (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ? BS_OP_STABLE
         : (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_DELETE ? BS_OP_DELETE
-        : -1)))));
+        : (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_LIST ? BS_OP_LIST
+        : -1))))));
     if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ ||
         cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE)
     {
@@ -416,6 +416,11 @@ void osd_t::enqueue_op(osd_op_t *cur_op)
     {
         cur_op->bs_op.len = cur_op->op.sec_stabilize.len/sizeof(obj_ver_id);
         cur_op->bs_op.buf = cur_op->buf;
+    }
+    else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_LIST)
+    {
+        cur_op->bs_op.len = cur_op->op.sec_list.pgtotal;
+        cur_op->bs_op.offset = cur_op->op.sec_list.pgnum;
     }
     bs->enqueue_op(&cur_op->bs_op);
 }
@@ -459,6 +464,8 @@ void osd_t::make_reply(osd_op_t *op)
     op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
     op->reply.hdr.id = op->op.hdr.id;
     op->reply.hdr.retval = op->bs_op.retval;
+    if (op->op.hdr.opcode == OSD_OP_SECONDARY_LIST)
+        op->reply.sec_list.stable_count = op->bs_op.version;
 }
 
 void osd_t::handle_send(ring_data_t *data, int peer_fd)
@@ -493,9 +500,13 @@ void osd_t::handle_send(ring_data_t *data, int peer_fd)
                         cl.write_remaining = cur_op->reply.hdr.retval;
                         cl.write_state = CL_WRITE_DATA;
                     }
-                    else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_LIST)
+                    else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_LIST &&
+                        cur_op->reply.hdr.retval > 0)
                     {
-                        // FIXME
+                        // Send data
+                        cl.write_buf = cur_op->buf;
+                        cl.write_remaining = cur_op->reply.hdr.retval * sizeof(obj_ver_id);
+                        cl.write_state = CL_WRITE_DATA;
                     }
                     else
                     {
