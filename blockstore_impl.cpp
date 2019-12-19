@@ -280,12 +280,19 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
 void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
 {
     int type = op->opcode & BS_OP_TYPE_MASK;
-    if (type < BS_OP_READ || type > BS_OP_DELETE || (type == BS_OP_READ || type == BS_OP_WRITE) &&
+    if (type < BS_OP_MIN || type > BS_OP_MAX || (type == BS_OP_READ || type == BS_OP_WRITE) &&
         (op->offset >= block_size || op->len > block_size-op->offset || (op->len % DISK_ALIGNMENT)) ||
         readonly && type != BS_OP_READ)
     {
         // Basic verification not passed
         op->retval = -EINVAL;
+        op->callback(op);
+        return;
+    }
+    else if (type == BS_OP_LIST)
+    {
+        // List operation is processed synchronously
+        process_list(op);
         op->callback(op);
         return;
     }
@@ -295,9 +302,77 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
     PRIV(op)->sync_state = 0;
     PRIV(op)->pending_ops = 0;
     submit_queue.push_back(op);
-    if ((op->opcode & BS_OP_TYPE_MASK) == BS_OP_WRITE)
+    if (type == BS_OP_WRITE)
     {
         enqueue_write(op);
     }
     ringloop->wakeup();
+}
+
+void blockstore_impl_t::process_list(blockstore_op_t *op)
+{
+    // Count objects
+    uint64_t stable_count = 0;
+    if (op->len)
+    {
+        for (auto it = clean_db.begin(); it != clean_db.end(); it++)
+        {
+            if ((it->first % op->len) == op->offset)
+            {
+                stable_count++;
+            }
+        }
+    }
+    else
+    {
+        stable_count = clean_db.size();
+    }
+    uint64_t total_count = stable_count;
+    for (auto it = dirty_db.begin(); it != dirty_db.end(); it++)
+    {
+        if (!op->len || (it->first.oid % op->len) == op->offset)
+        {
+            if (IS_STABLE(it->second.state))
+            {
+                stable_count++;
+            }
+            total_count++;
+        }
+    }
+    // Allocate memory
+    op->version = stable_count;
+    op->retval = total_count;
+    op->buf = memalign(512, sizeof(obj_ver_id) * total_count);
+    if (!op->buf)
+    {
+        op->retval = -ENOMEM;
+        return;
+    }
+    obj_ver_id *vers = (obj_ver_id*)op->buf;
+    int i = 0;
+    for (auto it = clean_db.begin(); it != clean_db.end(); it++)
+    {
+        if (!op->len || (it->first % op->len) == op->offset)
+        {
+            vers[i++] = {
+                .oid = it->first,
+                .version = it->second.version,
+            };
+        }
+    }
+    int j = stable_count;
+    for (auto it = dirty_db.begin(); it != dirty_db.end(); it++)
+    {
+        if (!op->len || (it->first.oid % op->len) == op->offset)
+        {
+            if (IS_STABLE(it->second.state))
+            {
+                vers[i++] = it->first;
+            }
+            else
+            {
+                vers[j++] = it->first;
+            }
+        }
+    }
 }

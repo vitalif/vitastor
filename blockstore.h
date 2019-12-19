@@ -19,14 +19,30 @@
 #define MAX_BLOCK_SIZE 128*1024*1024
 #define DISK_ALIGNMENT 512
 
+#define BS_OP_MIN 1
 #define BS_OP_READ 1
 #define BS_OP_WRITE 2
 #define BS_OP_SYNC 3
 #define BS_OP_STABLE 4
 #define BS_OP_DELETE 5
+#define BS_OP_LIST 6
+#define BS_OP_MAX 6
 #define BS_OP_TYPE_MASK 0x7
 
 #define BS_OP_PRIVATE_DATA_SIZE 256
+
+/* BS_OP_LIST:
+
+Input:
+- len = divisor
+- offset = modulo. object is listed if (object_id % len) == offset.
+
+Output:
+- retval = total obj_ver_id count
+- version = stable obj_ver_id count
+- buf = obj_ver_id array allocated by the blockstore. stable versions come first
+
+*/
 
 struct blockstore_op_t
 {

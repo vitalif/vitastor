@@ -10,6 +10,11 @@ struct __attribute__((__packed__)) object_id
     uint64_t stripe;
 };
 
+inline uint64_t operator % (const object_id & a, const uint64_t b)
+{
+    return ((a.inode % b) * (0x100000000 % b) * (0x100000000 % b) + a.stripe % b) % b;
+}
+
 inline bool operator == (const object_id & a, const object_id & b)
 {
     return a.inode == b.inode && a.stripe == b.stripe;

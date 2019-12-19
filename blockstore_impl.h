@@ -251,6 +251,9 @@ class blockstore_impl_t
     void handle_stable_event(ring_data_t *data, blockstore_op_t *op);
     void stabilize_object(object_id oid, uint64_t max_ver);
 
+    // List
+    void process_list(blockstore_op_t *op);
+
 public:
 
     blockstore_impl_t(blockstore_config_t & config, ring_loop_t *ringloop);
