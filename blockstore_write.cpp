@@ -147,7 +147,13 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         }
         // There is sufficient space. Get SQE(s)
         BS_SUBMIT_GET_ONLY_SQE(sqe1);
-        BS_SUBMIT_GET_SQE(sqe2, data2);
+        struct io_uring_sqe *sqe2 = NULL;
+        struct ring_data_t *data2 = NULL;
+        if (op->len > 0)
+        {
+            BS_SUBMIT_GET_SQE_DECL(sqe2);
+            data2 = ((ring_data_t*)sqe2->user_data);
+        }
         // Got SQEs. Prepare journal sector write
         journal_entry_small_write *je = (journal_entry_small_write*)
             prefill_single_journal_entry(journal, JE_SMALL_WRITE, sizeof(struct journal_entry_small_write));
@@ -169,23 +175,31 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         prepare_journal_sector_write(journal, sqe1, cb);
         PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
-        // Prepare journal data write
-        if (journal.inmemory)
+        if (op->len > 0)
         {
-            // Copy data
-            memcpy(journal.buffer + journal.next_free, op->buf, op->len);
+            // Prepare journal data write
+            if (journal.inmemory)
+            {
+                // Copy data
+                memcpy(journal.buffer + journal.next_free, op->buf, op->len);
+            }
+            data2->iov = (struct iovec){ op->buf, op->len };
+            data2->callback = cb;
+            my_uring_prep_writev(
+                sqe2, journal.fd, &data2->iov, 1, journal.offset + journal.next_free
+            );
+            PRIV(op)->pending_ops = 2;
         }
-        data2->iov = (struct iovec){ op->buf, op->len };
-        data2->callback = cb;
-        my_uring_prep_writev(
-            sqe2, journal.fd, &data2->iov, 1, journal.offset + journal.next_free
-        );
+        else
+        {
+            // Zero-length overwrite. Allowed to bump object version in EC placement groups without actually writing data
+            PRIV(op)->pending_ops = 1;
+        }
         dirty_it->second.location = journal.next_free;
         dirty_it->second.state = ST_J_SUBMITTED;
         journal.next_free += op->len;
         if (journal.next_free >= journal.len)
             journal.next_free = 512;
-        PRIV(op)->pending_ops = 2;
         // Remember small write as unsynced
         unsynced_small_writes.push_back((obj_ver_id){
             .oid = op->oid,

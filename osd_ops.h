@@ -116,6 +116,23 @@ struct __attribute__((__packed__)) osd_reply_secondary_list_t
     uint64_t stable_count;
 };
 
+// read or write to the primary OSD
+struct __attribute__((__packed__)) osd_op_rw_t
+{
+    osd_op_header_t header;
+    // inode
+    uint64_t inode;
+    // offset
+    uint64_t offset;
+    // length
+    uint64_t len;
+};
+
+struct __attribute__((__packed__)) osd_reply_rw_t
+{
+    osd_reply_header_t header;
+};
+
 union osd_any_op_t
 {
     osd_op_header_t hdr;
@@ -124,6 +141,7 @@ union osd_any_op_t
     osd_op_secondary_sync_t sec_sync;
     osd_op_secondary_stabilize_t sec_stabilize;
     osd_op_secondary_list_t sec_list;
+    osd_op_rw_t rw;
 };
 
 union osd_any_reply_t
@@ -134,4 +152,5 @@ union osd_any_reply_t
     osd_reply_secondary_sync_t sec_sync;
     osd_reply_secondary_stabilize_t sec_stabilize;
     osd_reply_secondary_list_t sec_list;
+    osd_reply_rw_t rw;
 };

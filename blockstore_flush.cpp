@@ -207,7 +207,7 @@ bool journal_flusher_co::loop()
                     for (; it != v.end(); it++)
                         if (it->offset >= offset)
                             break;
-                    if (it == v.end() || it->offset > offset)
+                    if (it == v.end() || it->offset > offset && it->len > 0)
                     {
                         submit_offset = dirty_it->second.location + offset - dirty_it->second.offset;
                         submit_len = it == v.end() || it->offset >= end_offset ? end_offset-offset : it->offset-offset;

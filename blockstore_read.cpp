@@ -3,6 +3,11 @@
 int blockstore_impl_t::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offset, uint64_t len,
     uint32_t item_state, uint64_t item_version)
 {
+    if (!len)
+    {
+        // Zero-length version - skip
+        return 1;
+    }
     if (IS_IN_FLIGHT(item_state))
     {
         // Pause until it's written somewhere
