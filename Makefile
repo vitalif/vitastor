@@ -6,10 +6,12 @@ clean:
 	rm -f *.o
 crc32c.o: crc32c.c
 	g++ $(CXXFLAGS) -c -o $@ $<
+json11.o: json11/json11.cpp
+	g++ $(CXXFLAGS) -c -o json11.o json11/json11.cpp
 %.o: %.cpp allocator.h blockstore_flush.h blockstore.h blockstore_impl.h blockstore_init.h blockstore_journal.h crc32c.h ringloop.h xor.h timerfd_interval.h object_id.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd: $(BLOCKSTORE_OBJS) osd_main.cpp osd.h osd_ops.h osd.o
-	g++ $(CXXFLAGS) -ltcmalloc_minimal -luring -o osd osd_main.cpp osd.o $(BLOCKSTORE_OBJS)
+osd: $(BLOCKSTORE_OBJS) osd_main.cpp osd.h osd_ops.h osd.o json11.o
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -luring -o osd osd_main.cpp osd.o json11.o $(BLOCKSTORE_OBJS)
 test: test.cpp
 	g++ $(CXXFLAGS) -o test -luring test.cpp
 test_blockstore: $(BLOCKSTORE_OBJS) test_blockstore.cpp

@@ -9,15 +9,18 @@
 #define OSD_OP_PACKET_SIZE          0x80
 #define OSD_REPLY_PACKET_SIZE       0x40
 // Opcodes
-#define OSD_OP_MIN                  0x01
-#define OSD_OP_SECONDARY_READ       0x01
-#define OSD_OP_SECONDARY_WRITE      0x02
-#define OSD_OP_SECONDARY_SYNC       0x03
-#define OSD_OP_SECONDARY_STABILIZE  0x04
-#define OSD_OP_SECONDARY_DELETE     0x05
-#define OSD_OP_TEST_SYNC_STAB_ALL   0x06
-#define OSD_OP_SECONDARY_LIST       0x07
-#define OSD_OP_MAX                  0x07
+#define OSD_OP_MIN                  1
+#define OSD_OP_SECONDARY_READ       1
+#define OSD_OP_SECONDARY_WRITE      2
+#define OSD_OP_SECONDARY_SYNC       3
+#define OSD_OP_SECONDARY_STABILIZE  4
+#define OSD_OP_SECONDARY_DELETE     5
+#define OSD_OP_TEST_SYNC_STAB_ALL   6
+#define OSD_OP_SECONDARY_LIST       7
+#define OSD_OP_SHOW_CONFIG          8
+#define OSD_OP_READ                 9
+#define OSD_OP_WRITE                10
+#define OSD_OP_MAX                  10
 // Alignment & limit for read/write operations
 #define OSD_RW_ALIGN                512
 #define OSD_RW_MAX                  64*1024*1024
@@ -101,6 +104,17 @@ struct __attribute__((__packed__)) osd_reply_secondary_stabilize_t
     osd_reply_header_t header;
 };
 
+// show configuration
+struct __attribute__((__packed__)) osd_op_show_config_t
+{
+    osd_op_header_t header;
+};
+
+struct __attribute__((__packed__)) osd_reply_show_config_t
+{
+    osd_reply_header_t header;
+};
+
 // list objects on replica
 struct __attribute__((__packed__)) osd_op_secondary_list_t
 {
@@ -141,6 +155,7 @@ union osd_any_op_t
     osd_op_secondary_sync_t sec_sync;
     osd_op_secondary_stabilize_t sec_stabilize;
     osd_op_secondary_list_t sec_list;
+    osd_op_show_config_t show_conf;
     osd_op_rw_t rw;
 };
 
@@ -152,5 +167,6 @@ union osd_any_reply_t
     osd_reply_secondary_sync_t sec_sync;
     osd_reply_secondary_stabilize_t sec_stabilize;
     osd_reply_secondary_list_t sec_list;
+    osd_reply_show_config_t show_conf;
     osd_reply_rw_t rw;
 };

@@ -35,11 +35,7 @@ struct osd_op_t
     blockstore_op_t bs_op;
     void *buf = NULL;
 
-    ~osd_op_t()
-    {
-        if (buf)
-            free(buf);
-    }
+    ~osd_op_t();
 };
 
 struct osd_client_t
@@ -75,6 +71,7 @@ class osd_t
 {
     // config
 
+    blockstore_config_t config;
     std::string bind_address;
     int bind_port, listen_backlog;
     int client_queue_depth = 128;

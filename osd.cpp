@@ -4,6 +4,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include "json11/json11.hpp"
+
 #include "osd.h"
 
 #define CL_READ_OP 1
@@ -22,6 +24,7 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
     if (!bind_port || bind_port > 65535)
         bind_port = 11203;
 
+    this->config = config;
     this->bs = bs;
     this->ringloop = ringloop;
 
@@ -81,6 +84,21 @@ osd_t::~osd_t()
     ringloop->unregister_consumer(consumer);
     close(epoll_fd);
     close(listen_fd);
+}
+
+osd_op_t::~osd_op_t()
+{
+    if (buf)
+    {
+        // Note: reusing osd_op_t WILL currently lead to memory leaks
+        if (op.hdr.opcode == OSD_OP_SHOW_CONFIG)
+        {
+            std::string *str = (std::string*)buf;
+            delete str;
+        }
+        else
+            free(buf);
+    }
 }
 
 bool osd_t::shutdown()
@@ -287,12 +305,20 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
                         // Allocate a buffer
                         cur_op->buf = memalign(512, cur_op->op.sec_rw.len);
                     }
+                    else if (cur_op->op.hdr.opcode == OSD_OP_READ ||
+                        cur_op->op.hdr.opcode == OSD_OP_WRITE)
+                    {
+                        cur_op->buf = memalign(512, cur_op->op.rw.len);
+                    }
                     if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
-                        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE)
+                        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
+                        cur_op->op.hdr.opcode == OSD_OP_WRITE)
                     {
                         // Read data
                         cl.read_buf = cur_op->buf;
-                        cl.read_remaining = cur_op->op.sec_rw.len;
+                        cl.read_remaining = (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE
+                            ? cur_op->op.sec_rw.len
+                            : cur_op->op.rw.len);
                         cl.read_state = CL_READ_DATA;
                     }
                     else
@@ -349,7 +375,8 @@ void osd_t::enqueue_op(osd_op_t *cur_op)
     inflight_ops++;
     if (cur_op->op.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
         cur_op->op.hdr.opcode < OSD_OP_MIN || cur_op->op.hdr.opcode > OSD_OP_MAX ||
-        (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ || cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE) &&
+        (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ || cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
+        cur_op->op.hdr.opcode == OSD_OP_READ || cur_op->op.hdr.opcode == OSD_OP_WRITE) &&
         (cur_op->op.sec_rw.len > OSD_RW_MAX || cur_op->op.sec_rw.len % OSD_RW_ALIGN || cur_op->op.sec_rw.offset % OSD_RW_ALIGN))
     {
         // Bad command
@@ -401,6 +428,18 @@ void osd_t::enqueue_op(osd_op_t *cur_op)
             }
         };
         bs->enqueue_op(&cur_op->bs_op);
+        return;
+    }
+    else if (cur_op->op.hdr.opcode == OSD_OP_SHOW_CONFIG)
+    {
+        // FIXME: Send the real config, not its source
+        std::string *cfg_str = new std::string(std::move(json11::Json(config).dump()));
+        cur_op->buf = cfg_str;
+        auto & cl = clients[cur_op->peer_fd];
+        cl.write_state = CL_WRITE_READY;
+        write_ready_clients.push_back(cur_op->peer_fd);
+        cl.completions.push_back(cur_op);
+        ringloop->wakeup();
         return;
     }
     cur_op->bs_op.callback = [this, cur_op](blockstore_op_t* bs_op) { secondary_op_callback(cur_op); };
@@ -476,9 +515,17 @@ void osd_t::make_reply(osd_op_t *op)
 {
     op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
     op->reply.hdr.id = op->op.hdr.id;
-    op->reply.hdr.retval = op->bs_op.retval;
-    if (op->op.hdr.opcode == OSD_OP_SECONDARY_LIST)
-        op->reply.sec_list.stable_count = op->bs_op.version;
+    if (op->op.hdr.opcode == OSD_OP_SHOW_CONFIG)
+    {
+        std::string *str = (std::string*)op->buf;
+        op->reply.hdr.retval = str->size()+1;
+    }
+    else
+    {
+        op->reply.hdr.retval = op->bs_op.retval;
+        if (op->op.hdr.opcode == OSD_OP_SECONDARY_LIST)
+            op->reply.sec_list.stable_count = op->bs_op.version;
+    }
 }
 
 void osd_t::handle_send(ring_data_t *data, int peer_fd)
@@ -505,10 +552,10 @@ void osd_t::handle_send(ring_data_t *data, int peer_fd)
                 osd_op_t *cur_op = cl.write_op;
                 if (cl.write_state == CL_WRITE_REPLY)
                 {
+                    // Send data
                     if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ &&
                         cur_op->reply.hdr.retval > 0)
                     {
-                        // Send data
                         cl.write_buf = cur_op->buf;
                         cl.write_remaining = cur_op->reply.hdr.retval;
                         cl.write_state = CL_WRITE_DATA;
@@ -516,9 +563,15 @@ void osd_t::handle_send(ring_data_t *data, int peer_fd)
                     else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_LIST &&
                         cur_op->reply.hdr.retval > 0)
                     {
-                        // Send data
                         cl.write_buf = cur_op->buf;
                         cl.write_remaining = cur_op->reply.hdr.retval * sizeof(obj_ver_id);
+                        cl.write_state = CL_WRITE_DATA;
+                    }
+                    else if (cur_op->op.hdr.opcode == OSD_OP_SHOW_CONFIG &&
+                        cur_op->reply.hdr.retval > 0)
+                    {
+                        cl.write_buf = (void*)((std::string*)cur_op->buf)->c_str();
+                        cl.write_remaining = cur_op->reply.hdr.retval;
                         cl.write_state = CL_WRITE_DATA;
                     }
                     else
