@@ -5,9 +5,8 @@
 // Magic numbers
 #define SECONDARY_OSD_OP_MAGIC      0x2bd7b10325434553l
 #define SECONDARY_OSD_REPLY_MAGIC   0xbaa699b87b434553l
-// Operation request headers and operation reply headers have fixed size after which comes data
-#define OSD_OP_PACKET_SIZE          0x80
-#define OSD_REPLY_PACKET_SIZE       0x40
+// Operation request / reply headers have fixed size after which comes data
+#define OSD_PACKET_SIZE             0x80
 // Opcodes
 #define OSD_OP_MIN                  1
 #define OSD_OP_SECONDARY_READ       1
@@ -42,6 +41,8 @@ struct __attribute__((__packed__)) osd_reply_header_t
     uint64_t magic;
     // operation id
     uint64_t id;
+    // operation type
+    uint64_t opcode;
     // return value
     int64_t retval;
 };
@@ -127,10 +128,11 @@ struct __attribute__((__packed__)) osd_reply_secondary_list_t
 {
     osd_reply_header_t header;
     // stable object version count. header.retval = total object version count
+    // FIXME: maybe change to the number of bytes in the reply...
     uint64_t stable_count;
 };
 
-// read or write to the primary OSD
+// read or write to the primary OSD (must be within individual stripe)
 struct __attribute__((__packed__)) osd_op_rw_t
 {
     osd_op_header_t header;
@@ -153,7 +155,7 @@ union osd_any_op_t
     osd_op_secondary_rw_t sec_rw;
     osd_op_secondary_del_t sec_del;
     osd_op_secondary_sync_t sec_sync;
-    osd_op_secondary_stabilize_t sec_stabilize;
+    osd_op_secondary_stabilize_t sec_stab;
     osd_op_secondary_list_t sec_list;
     osd_op_show_config_t show_conf;
     osd_op_rw_t rw;
@@ -165,7 +167,7 @@ union osd_any_reply_t
     osd_reply_secondary_rw_t sec_rw;
     osd_reply_secondary_del_t sec_del;
     osd_reply_secondary_sync_t sec_sync;
-    osd_reply_secondary_stabilize_t sec_stabilize;
+    osd_reply_secondary_stabilize_t sec_stab;
     osd_reply_secondary_list_t sec_list;
     osd_reply_show_config_t show_conf;
     osd_reply_rw_t rw;

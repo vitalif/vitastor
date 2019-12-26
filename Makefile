@@ -20,5 +20,5 @@ test_allocator: test_allocator.cpp allocator.o
 	g++ $(CXXFLAGS) -o test_allocator test_allocator.cpp allocator.o
 libfio_blockstore.so: fio_engine.cpp $(BLOCKSTORE_OBJS)
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -luring -o libfio_blockstore.so fio_engine.cpp $(BLOCKSTORE_OBJS)
-libfio_sec_osd.so: fio_sec_osd.cpp
+libfio_sec_osd.so: fio_sec_osd.cpp osd_ops.h
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -luring -o libfio_sec_osd.so fio_sec_osd.cpp

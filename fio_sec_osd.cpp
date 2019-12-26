@@ -154,7 +154,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     union
     {
         osd_any_op_t op;
-        uint8_t op_buf[OSD_OP_PACKET_SIZE] = { 0 };
+        uint8_t op_buf[OSD_PACKET_SIZE] = { 0 };
     };
 
     op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
@@ -195,7 +195,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     bsd->op_n++;
     bsd->queue[n] = io;
 
-    if (write(bsd->connect_fd, op_buf, OSD_OP_PACKET_SIZE) != OSD_OP_PACKET_SIZE)
+    if (write(bsd->connect_fd, op_buf, OSD_PACKET_SIZE) != OSD_PACKET_SIZE)
     {
         perror("write");
         exit(1);
@@ -249,11 +249,11 @@ static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int 
     union
     {
         osd_any_reply_t reply;
-        uint8_t reply_buf[OSD_REPLY_PACKET_SIZE] = { 0 };
+        uint8_t reply_buf[OSD_PACKET_SIZE] = { 0 };
     };
     while (bsd->completed.size() < min)
     {
-        read_blocking(bsd->connect_fd, reply_buf, OSD_REPLY_PACKET_SIZE);
+        read_blocking(bsd->connect_fd, reply_buf, OSD_PACKET_SIZE);
         if (reply.hdr.magic != SECONDARY_OSD_REPLY_MAGIC)
         {
             fprintf(stderr, "bad reply: magic = %lx instead of %lx\n", reply.hdr.magic, SECONDARY_OSD_REPLY_MAGIC);

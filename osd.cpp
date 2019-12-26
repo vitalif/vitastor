@@ -10,10 +10,13 @@
 
 #define CL_READ_OP 1
 #define CL_READ_DATA 2
+#define CL_READ_REPLY_DATA 3
 #define SQE_SENT 0x100l
 #define CL_WRITE_READY 1
 #define CL_WRITE_REPLY 2
 #define CL_WRITE_DATA 3
+
+// FIXME: Split into more files
 
 osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop)
 {
@@ -91,7 +94,8 @@ osd_op_t::~osd_op_t()
     if (buf)
     {
         // Note: reusing osd_op_t WILL currently lead to memory leaks
-        if (op.hdr.opcode == OSD_OP_SHOW_CONFIG)
+        if (op_type == OSD_OP_IN &&
+            op.hdr.opcode == OSD_OP_SHOW_CONFIG)
         {
             std::string *str = (std::string*)buf;
             delete str;
@@ -252,10 +256,16 @@ void osd_t::read_requests()
         ring_data_t* data = ((ring_data_t*)sqe->user_data);
         if (!cl.read_buf)
         {
-            // no reads in progress, so this is probably a new command
-            cl.read_op = new osd_op_t;
+            // no reads in progress
+            // so this is either a new command or a reply to a previously sent command
+            if (!cl.read_op)
+            {
+                cl.read_op = new osd_op_t;
+                cl.read_op->peer_fd = peer_fd;
+            }
+            cl.read_op->op_type = OSD_OP_IN;
             cl.read_buf = &cl.read_op->op_buf;
-            cl.read_remaining = OSD_OP_PACKET_SIZE;
+            cl.read_remaining = OSD_PACKET_SIZE;
             cl.read_state = CL_READ_OP;
         }
         cl.read_iov.iov_base = cl.read_buf;
@@ -294,53 +304,118 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
             cl.read_buf += data->res;
             if (cl.read_remaining <= 0)
             {
-                osd_op_t *cur_op = cl.read_op;
                 cl.read_buf = NULL;
                 if (cl.read_state == CL_READ_OP)
                 {
-                    if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ ||
-                        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
-                        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE)
+                    if (cl.read_op->op.hdr.magic == SECONDARY_OSD_REPLY_MAGIC)
                     {
-                        // Allocate a buffer
-                        cur_op->buf = memalign(512, cur_op->op.sec_rw.len);
-                    }
-                    else if (cur_op->op.hdr.opcode == OSD_OP_READ ||
-                        cur_op->op.hdr.opcode == OSD_OP_WRITE)
-                    {
-                        cur_op->buf = memalign(512, cur_op->op.rw.len);
-                    }
-                    if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
-                        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
-                        cur_op->op.hdr.opcode == OSD_OP_WRITE)
-                    {
-                        // Read data
-                        cl.read_buf = cur_op->buf;
-                        cl.read_remaining = (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE
-                            ? cur_op->op.sec_rw.len
-                            : cur_op->op.rw.len);
-                        cl.read_state = CL_READ_DATA;
+                        handle_read_reply(&cl);
                     }
                     else
                     {
-                        // Command is ready
-                        cur_op->peer_fd = peer_fd;
-                        enqueue_op(cur_op);
-                        cl.read_op = NULL;
-                        cl.read_state = 0;
+                        handle_read_op(&cl);
                     }
                 }
                 else if (cl.read_state == CL_READ_DATA)
                 {
-                    // Command is ready
-                    cur_op->peer_fd = peer_fd;
-                    enqueue_op(cur_op);
+                    // Operation is ready
+                    enqueue_op(cl.read_op);
                     cl.read_op = NULL;
                     cl.read_state = 0;
+                }
+                else if (cl.read_state == CL_READ_REPLY_DATA)
+                {
+                    // Reply is ready
+                    auto req_it = cl.sent_ops.find(cl.read_reply_id);
+                    osd_op_t *request = req_it->second;
+                    cl.sent_ops.erase(req_it);
+                    cl.read_reply_id = 0;
+                    cl.read_state = 0;
+                    handle_reply(request);
                 }
             }
         }
     }
+}
+
+void osd_t::handle_read_op(osd_client_t *cl)
+{
+    osd_op_t *cur_op = cl->read_op;
+    if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ ||
+        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
+        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE)
+    {
+        // Allocate a buffer
+        cur_op->buf = memalign(512, cur_op->op.sec_rw.len);
+    }
+    else if (cur_op->op.hdr.opcode == OSD_OP_READ ||
+        cur_op->op.hdr.opcode == OSD_OP_WRITE)
+    {
+        cur_op->buf = memalign(512, cur_op->op.rw.len);
+    }
+    if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
+        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
+        cur_op->op.hdr.opcode == OSD_OP_WRITE)
+    {
+        // Read data
+        cl->read_buf = cur_op->buf;
+        cl->read_remaining = (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE
+            ? cur_op->op.sec_rw.len
+            : cur_op->op.rw.len);
+        cl->read_state = CL_READ_DATA;
+    }
+    else
+    {
+        // Operation is ready
+        cl->read_op = NULL;
+        cl->read_state = 0;
+        enqueue_op(cur_op);
+    }
+}
+
+void osd_t::handle_read_reply(osd_client_t *cl)
+{
+    osd_op_t *cur_op = cl->read_op;
+    auto req_it = cl->sent_ops.find(cur_op->op.hdr.id);
+    if (req_it == cl->sent_ops.end())
+    {
+        // Command out of sync. Drop connection
+        // FIXME This is probably a peer, so handle all previously sent operations carefully
+        stop_client(cl->peer_fd);
+        return;
+    }
+    osd_op_t *request = req_it->second;
+    memcpy(request->reply_buf, cur_op->op_buf, OSD_PACKET_SIZE);
+    if (request->reply.hdr.opcode == OSD_OP_SECONDARY_READ &&
+        request->reply.hdr.retval > 0)
+    {
+        // Read data
+        // FIXME: request->buf must be allocated
+        cl->read_state = CL_READ_REPLY_DATA;
+        cl->read_reply_id = request->op.hdr.id;
+        cl->read_buf = request->buf;
+        cl->read_remaining = request->reply.hdr.retval;
+    }
+    else if (request->reply.hdr.opcode == OSD_OP_SECONDARY_LIST &&
+        request->reply.hdr.retval > 0)
+    {
+        request->buf = memalign(512, sizeof(obj_ver_id) * request->reply.hdr.retval);
+        cl->read_state = CL_READ_REPLY_DATA;
+        cl->read_reply_id = request->op.hdr.id;
+        cl->read_buf = request->buf;
+        cl->read_remaining = sizeof(obj_ver_id) * request->reply.hdr.retval;
+    }
+    else
+    {
+        cl->read_state = 0;
+        cl->sent_ops.erase(req_it);
+        handle_reply(request);
+    }
+}
+
+void osd_t::handle_reply(osd_op_t *cur_op)
+{
+    
 }
 
 void osd_t::secondary_op_callback(osd_op_t *cur_op)
@@ -355,6 +430,7 @@ void osd_t::secondary_op_callback(osd_op_t *cur_op)
             cl.write_state = CL_WRITE_READY;
             write_ready_clients.push_back(cur_op->peer_fd);
         }
+        make_reply(cur_op);
         cl.completions.push_back(cur_op);
         ringloop->wakeup();
     }
@@ -438,9 +514,23 @@ void osd_t::enqueue_op(osd_op_t *cur_op)
         auto & cl = clients[cur_op->peer_fd];
         cl.write_state = CL_WRITE_READY;
         write_ready_clients.push_back(cur_op->peer_fd);
+        make_reply(cur_op);
         cl.completions.push_back(cur_op);
         ringloop->wakeup();
         return;
+    }
+    else if (cur_op->op.hdr.opcode == OSD_OP_READ)
+    {
+        // Primary OSD also works with individual stripes, but they're twice the size of the blockstore's stripe
+        // - convert offset & len to stripe number
+        // - fail operation if offset & len span multiple stripes
+        // - calc stripe hash and determine PG
+        // - check if this is our PG
+        // - redirect or fail operation if not
+        // - determine whether we need to read A and B or just A or just B or A + parity or B + parity
+        //   and determine read ranges for both objects
+        // - send read requests
+        // - reconstruct result
     }
     cur_op->bs_op.callback = [this, cur_op](blockstore_op_t* bs_op) { secondary_op_callback(cur_op); };
     cur_op->bs_op.opcode = (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ ? BS_OP_READ
@@ -466,7 +556,7 @@ void osd_t::enqueue_op(osd_op_t *cur_op)
     }
     else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE)
     {
-        cur_op->bs_op.len = cur_op->op.sec_stabilize.len/sizeof(obj_ver_id);
+        cur_op->bs_op.len = cur_op->op.sec_stab.len/sizeof(obj_ver_id);
         cur_op->bs_op.buf = cur_op->buf;
     }
     else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_LIST)
@@ -495,10 +585,18 @@ void osd_t::send_replies()
             // pick next command
             cl.write_op = cl.completions.front();
             cl.completions.pop_front();
-            make_reply(cl.write_op);
-            cl.write_buf = &cl.write_op->reply_buf;
-            cl.write_remaining = OSD_REPLY_PACKET_SIZE;
-            cl.write_state = CL_WRITE_REPLY;
+            if (cl.write_op->op_type == OSD_OP_OUT)
+            {
+                cl.write_buf = &cl.write_op->op_buf;
+                cl.write_remaining = OSD_PACKET_SIZE;
+                cl.write_state = CL_WRITE_REPLY;
+            }
+            else
+            {
+                cl.write_buf = &cl.write_op->reply_buf;
+                cl.write_remaining = OSD_PACKET_SIZE;
+                cl.write_state = CL_WRITE_REPLY;
+            }
         }
         cl.write_iov.iov_base = cl.write_buf;
         cl.write_iov.iov_len = cl.write_remaining;
@@ -515,6 +613,7 @@ void osd_t::make_reply(osd_op_t *op)
 {
     op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
     op->reply.hdr.id = op->op.hdr.id;
+    op->reply.hdr.opcode = op->op.hdr.opcode;
     if (op->op.hdr.opcode == OSD_OP_SHOW_CONFIG)
     {
         std::string *str = (std::string*)op->buf;
@@ -553,37 +652,72 @@ void osd_t::handle_send(ring_data_t *data, int peer_fd)
                 if (cl.write_state == CL_WRITE_REPLY)
                 {
                     // Send data
-                    if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ &&
-                        cur_op->reply.hdr.retval > 0)
+                    if (cur_op->op_type == OSD_OP_IN)
                     {
-                        cl.write_buf = cur_op->buf;
-                        cl.write_remaining = cur_op->reply.hdr.retval;
-                        cl.write_state = CL_WRITE_DATA;
-                    }
-                    else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_LIST &&
-                        cur_op->reply.hdr.retval > 0)
-                    {
-                        cl.write_buf = cur_op->buf;
-                        cl.write_remaining = cur_op->reply.hdr.retval * sizeof(obj_ver_id);
-                        cl.write_state = CL_WRITE_DATA;
-                    }
-                    else if (cur_op->op.hdr.opcode == OSD_OP_SHOW_CONFIG &&
-                        cur_op->reply.hdr.retval > 0)
-                    {
-                        cl.write_buf = (void*)((std::string*)cur_op->buf)->c_str();
-                        cl.write_remaining = cur_op->reply.hdr.retval;
-                        cl.write_state = CL_WRITE_DATA;
+                        if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ &&
+                            cur_op->reply.hdr.retval > 0)
+                        {
+                            cl.write_buf = cur_op->buf;
+                            cl.write_remaining = cur_op->reply.hdr.retval;
+                            cl.write_state = CL_WRITE_DATA;
+                        }
+                        else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_LIST &&
+                            cur_op->reply.hdr.retval > 0)
+                        {
+                            cl.write_buf = cur_op->buf;
+                            cl.write_remaining = cur_op->reply.hdr.retval * sizeof(obj_ver_id);
+                            cl.write_state = CL_WRITE_DATA;
+                        }
+                        else if (cur_op->op.hdr.opcode == OSD_OP_SHOW_CONFIG &&
+                            cur_op->reply.hdr.retval > 0)
+                        {
+                            cl.write_buf = (void*)((std::string*)cur_op->buf)->c_str();
+                            cl.write_remaining = cur_op->reply.hdr.retval;
+                            cl.write_state = CL_WRITE_DATA;
+                        }
+                        else
+                        {
+                            goto op_done;
+                        }
                     }
                     else
                     {
-                        goto op_done;
+                        if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE)
+                        {
+                            cl.write_buf = cur_op->buf;
+                            cl.write_remaining = cur_op->op.sec_rw.len;
+                            cl.write_state = CL_WRITE_DATA;
+                        }
+                        else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE)
+                        {
+                            cl.write_buf = cur_op->buf;
+                            cl.write_remaining = cur_op->op.sec_stab.len;
+                            cl.write_state = CL_WRITE_DATA;
+                        }
+                        else if (cur_op->op.hdr.opcode == OSD_OP_WRITE)
+                        {
+                            cl.write_buf = cur_op->buf;
+                            cl.write_remaining = cur_op->op.rw.len;
+                            cl.write_state = CL_WRITE_DATA;
+                        }
+                        else
+                        {
+                            goto op_done;
+                        }
                     }
                 }
                 else if (cl.write_state == CL_WRITE_DATA)
                 {
                 op_done:
                     // Done
-                    delete cur_op;
+                    if (cur_op->op_type == OSD_OP_IN)
+                    {
+                        delete cur_op;
+                    }
+                    else
+                    {
+                        cl.sent_ops[cl.write_op->op.hdr.id] = cl.write_op;
+                    }
                     cl.write_op = NULL;
                     cl.write_state = cl.completions.size() > 0 ? CL_WRITE_READY : 0;
                 }

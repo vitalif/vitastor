@@ -2,8 +2,8 @@
 
 int main(int narg, char *args[])
 {
-    if (sizeof(osd_any_op_t) >= OSD_OP_PACKET_SIZE ||
-        sizeof(osd_any_reply_t) >= OSD_REPLY_PACKET_SIZE)
+    if (sizeof(osd_any_op_t) >= OSD_PACKET_SIZE ||
+        sizeof(osd_any_reply_t) >= OSD_PACKET_SIZE)
     {
         perror("BUG: too small packet size");
         return 1;
