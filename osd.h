@@ -24,6 +24,15 @@
 #define OSD_OP_IN 0
 #define OSD_OP_OUT 1
 
+#define CL_READ_OP 1
+#define CL_READ_DATA 2
+#define CL_READ_REPLY_DATA 3
+#define SQE_SENT 0x100l
+#define CL_WRITE_READY 1
+#define CL_WRITE_REPLY 2
+#define CL_WRITE_DATA 3
+#define MAX_EPOLL_EVENTS 16
+
 struct osd_op_t
 {
     int op_type;
@@ -171,7 +180,10 @@ class osd_t
     void handle_send(ring_data_t *data, int peer_fd);
 
     void handle_reply(osd_op_t *cur_op);
-    void enqueue_op(osd_op_t *cur_op);
+    void exec_op(osd_op_t *cur_op);
+    void exec_sync_stab_all(osd_op_t *cur_op);
+    void exec_show_config(osd_op_t *cur_op);
+    void exec_secondary(osd_op_t *cur_op);
     void secondary_op_callback(osd_op_t *cur_op);
 public:
     osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);
