@@ -53,11 +53,17 @@ struct osd_op_t
     ~osd_op_t();
 };
 
+#define PEER_CONNECTING 1
+#define PEER_CONNECTED 2
+
 struct osd_client_t
 {
     sockaddr_in peer_addr;
-    socklen_t peer_addr_size;
+    int peer_port;
     int peer_fd;
+    int peer_state;
+    std::function<void(int)> connect_callback;
+    uint64_t osd_num = 0;
     //int in_flight_ops = 0;
 
     // Read state
@@ -112,17 +118,22 @@ namespace std
     };
 }
 
-#define PG_ST_OFFLINE 1
-#define PG_ST_PEERING 2
-#define PG_ST_INCOMPLETE 3
-#define PG_ST_DEGRADED 4
-#define PG_ST_MISPLACED 5
-#define PG_ST_ACTIVE 6
+// Placement group state:
+// Exactly one of these:
+#define PG_OFFLINE (1<<0)
+#define PG_PEERING (1<<1)
+#define PG_INCOMPLETE (1<<2)
+#define PG_ACTIVE (1<<3)
+// Plus any of these:
+#define PG_HAS_UNFOUND (1<<4)
+#define PG_HAS_DEGRADED (1<<5)
+#define PG_HAS_MISPLACED (1<<6)
 
 struct osd_pg_t
 {
     int state;
     unsigned num;
+    uint64_t n_unfound = 0, n_degraded = 0, n_misplaced = 0;
     std::vector<osd_pg_role_t> target_set;
     // moved object map. by default, each object is considered to reside on the target_set.
     // this map stores all objects that differ.
@@ -137,7 +148,7 @@ class osd_t
 {
     // config
 
-    uint64_t osd_num = 0;
+    uint64_t osd_num = 1; // OSD numbers start with 1
     blockstore_config_t config;
     std::string bind_address;
     int bind_port, listen_backlog;
@@ -168,9 +179,9 @@ class osd_t
 
     // methods
 
+    // event loop, socket read/write
     void loop();
     int handle_epoll_events();
-    void stop_client(int peer_fd);
     void read_requests();
     void handle_read(ring_data_t *data, int peer_fd);
     void handle_read_op(osd_client_t *cl);
@@ -179,6 +190,12 @@ class osd_t
     void make_reply(osd_op_t *op);
     void handle_send(ring_data_t *data, int peer_fd);
 
+    // connect/disconnect
+    void connect_peer(unsigned osd_num, char *peer_host, int peer_port, std::function<void(int)> callback);
+    void handle_connect_result(int peer_fd);
+    void stop_client(int peer_fd);
+
+    // op execution
     void handle_reply(osd_op_t *cur_op);
     void exec_op(osd_op_t *cur_op);
     void exec_sync_stab_all(osd_op_t *cur_op);

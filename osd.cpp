@@ -82,6 +82,7 @@ osd_op_t::~osd_op_t()
     if (buf)
     {
         // Note: reusing osd_op_t WILL currently lead to memory leaks
+        // So we don't reuse it, but free it every time
         if (op_type == OSD_OP_IN &&
             op.hdr.opcode == OSD_OP_SHOW_CONFIG)
         {
@@ -134,6 +135,79 @@ void osd_t::loop()
     ringloop->submit();
 }
 
+void osd_t::connect_peer(unsigned osd_num, char *peer_host, int peer_port, std::function<void(int)> callback)
+{
+    struct sockaddr_in addr;
+    int r;
+    if ((r = inet_pton(AF_INET, peer_host, &addr.sin_addr)) != 1)
+    {
+        callback(-EINVAL);
+        return;
+    }
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(peer_port ? peer_port : 11203);
+    int peer_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (peer_fd < 0)
+    {
+        callback(-errno);
+        return;
+    }
+    fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
+    r = connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
+    if (r < 0 && r != EINPROGRESS)
+    {
+        close(peer_fd);
+        callback(-errno);
+        return;
+    }
+    clients[peer_fd] = (osd_client_t){
+        .peer_addr = addr,
+        .peer_port = peer_port,
+        .peer_fd = peer_fd,
+        .peer_state = PEER_CONNECTING,
+        .connect_callback = callback,
+        .osd_num = osd_num,
+    };
+    osd_peer_fds[osd_num] = peer_fd;
+    // Add FD to epoll (EPOLLOUT for tracking connect() result)
+    epoll_event ev;
+    ev.data.fd = peer_fd;
+    ev.events = EPOLLOUT | EPOLLIN | EPOLLRDHUP;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, peer_fd, &ev) < 0)
+    {
+        throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
+    }
+}
+
+void osd_t::handle_connect_result(int peer_fd)
+{
+    auto & cl = clients[peer_fd];
+    std::function<void(int)> callback = cl.connect_callback;
+    int result = 0;
+    socklen_t result_len = sizeof(result);
+    if (getsockopt(peer_fd, SOL_SOCKET, SO_ERROR, &result, &result_len) < 0)
+    {
+        result = errno;
+    }
+    if (result != 0)
+    {
+        stop_client(peer_fd);
+        callback(-result);
+        return;
+    }
+    // Disable EPOLLOUT on this fd
+    cl.connect_callback = NULL;
+    cl.peer_state = PEER_CONNECTED;
+    epoll_event ev;
+    ev.data.fd = peer_fd;
+    ev.events = EPOLLIN | EPOLLRDHUP;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_MOD, peer_fd, &ev) < 0)
+    {
+        throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
+    }
+    callback(peer_fd);
+}
+
 int osd_t::handle_epoll_events()
 {
     epoll_event events[MAX_EPOLL_EVENTS];
@@ -153,8 +227,9 @@ int osd_t::handle_epoll_events()
                 fcntl(peer_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
                 clients[peer_fd] = {
                     .peer_addr = addr,
-                    .peer_addr_size = peer_addr_size,
+                    .peer_port = ntohs(addr.sin_port),
                     .peer_fd = peer_fd,
+                    .peer_state = PEER_CONNECTED,
                 };
                 // Add FD to epoll
                 epoll_event ev;
@@ -180,6 +255,13 @@ int osd_t::handle_epoll_events()
                 // Stop client
                 printf("osd: client %d disconnected\n", cl.peer_fd);
                 stop_client(cl.peer_fd);
+            }
+            else if (cl.peer_state == PEER_CONNECTING)
+            {
+                if (events[i].events & EPOLLOUT)
+                {
+                    handle_connect_result(cl.peer_fd);
+                }
             }
             else if (!cl.read_ready)
             {
@@ -207,6 +289,10 @@ void osd_t::stop_client(int peer_fd)
         throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
     }
     auto it = clients.find(peer_fd);
+    if (it->second.osd_num)
+    {
+        osd_peer_fds.erase(it->second.osd_num);
+    }
     for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
     {
         if (*rit == peer_fd)
