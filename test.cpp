@@ -23,7 +23,7 @@
 #include <deque>
 
 #include "blockstore.h"
-#include "cpp-btree/btree_map.h"
+#include "blockstore_impl.h"
 
 static int setup_context(unsigned entries, struct io_uring *ring)
 {
@@ -52,7 +52,7 @@ static void test_write(struct io_uring *ring, int fd)
     if (ret < 0)
         printf("cqe failed: %d %s\n", ret, strerror(-ret));
     else
-        printf("result: %d user_data: %d -> %d\n", ret, sqe->user_data, cqe->user_data);
+        printf("result: %d user_data: %lld -> %lld\n", ret, sqe->user_data, cqe->user_data);
     io_uring_cqe_seen(ring, cqe);
     free(buf);
 }
@@ -134,7 +134,6 @@ int main_vec(int argc, char *argv[])
         for (int i = 0; i < 2048; i++)
         {
             int r = rand();
-            int n = 0;
             auto it = v.begin();
             for (; it != v.end(); it++)
                 if (it->iov_len >= r)

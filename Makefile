@@ -17,14 +17,14 @@ osd_read.o: osd_read.cpp osd.h osd_ops.h
 osd_send.o: osd_send.cpp osd.h osd_ops.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd: $(BLOCKSTORE_OBJS) osd_main.cpp osd.h osd_ops.h osd.o osd_exec_secondary.o osd_read.o osd_send.o json11.o
-	g++ $(CXXFLAGS) -ltcmalloc_minimal -luring -o osd osd_main.cpp osd.o osd_exec_secondary.o osd_read.o osd_send.o json11.o $(BLOCKSTORE_OBJS)
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -o osd osd_main.cpp osd.o osd_exec_secondary.o osd_read.o osd_send.o json11.o $(BLOCKSTORE_OBJS) -luring
 test: test.cpp
-	g++ $(CXXFLAGS) -o test -luring test.cpp
+	g++ $(CXXFLAGS) -o test test.cpp -luring
 test_blockstore: $(BLOCKSTORE_OBJS) test_blockstore.cpp
-	g++ $(CXXFLAGS) -o test_blockstore -ltcmalloc_minimal -luring test_blockstore.cpp $(BLOCKSTORE_OBJS)
+	g++ $(CXXFLAGS) -o test_blockstore -ltcmalloc_minimal test_blockstore.cpp $(BLOCKSTORE_OBJS) -luring
 test_allocator: test_allocator.cpp allocator.o
 	g++ $(CXXFLAGS) -o test_allocator test_allocator.cpp allocator.o
 libfio_blockstore.so: fio_engine.cpp $(BLOCKSTORE_OBJS)
-	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -luring -o libfio_blockstore.so fio_engine.cpp $(BLOCKSTORE_OBJS)
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o libfio_blockstore.so fio_engine.cpp $(BLOCKSTORE_OBJS) -luring
 libfio_sec_osd.so: fio_sec_osd.cpp osd_ops.h
-	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -luring -o libfio_sec_osd.so fio_sec_osd.cpp
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o libfio_sec_osd.so fio_sec_osd.cpp -luring
