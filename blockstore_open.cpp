@@ -23,22 +23,22 @@ void blockstore_impl_t::calc_lengths(blockstore_config_t & config)
     }
     // meta
     meta_area = (meta_fd == data_fd ? data_size : meta_size) - meta_offset;
-    if (meta_fd == data_fd && meta_offset < data_offset)
+    if (meta_fd == data_fd && meta_offset <= data_offset)
     {
         meta_area = data_offset - meta_offset;
     }
-    if (meta_fd == journal.fd && meta_offset < journal.offset)
+    if (meta_fd == journal.fd && meta_offset <= journal.offset)
     {
         meta_area = meta_area < journal.offset-meta_offset
             ? meta_area : journal.offset-meta_offset;
     }
     // journal
     journal.len = (journal.fd == data_fd ? data_size : (journal.fd == meta_fd ? meta_size : journal.device_size)) - journal.offset;
-    if (journal.fd == data_fd && journal.offset < data_offset)
+    if (journal.fd == data_fd && journal.offset <= data_offset)
     {
         journal.len = data_offset - journal.offset;
     }
-    if (journal.fd == meta_fd && journal.offset < meta_offset)
+    if (journal.fd == meta_fd && journal.offset <= meta_offset)
     {
         journal.len = journal.len < meta_offset-journal.offset
             ? journal.len : meta_offset-journal.offset;
@@ -48,7 +48,7 @@ void blockstore_impl_t::calc_lengths(blockstore_config_t & config)
     meta_len = ((block_count - 1 + 512 / sizeof(clean_disk_entry)) / (512 / sizeof(clean_disk_entry))) * 512;
     if (meta_area < meta_len)
     {
-        throw std::runtime_error("Metadata area is too small");
+        throw std::runtime_error("Metadata area is too small, need at least "+std::to_string(meta_len)+" bytes");
     }
     metadata_buf_size = strtoull(config["meta_buf_size"].c_str(), NULL, 10);
     if (metadata_buf_size < 65536)
@@ -74,7 +74,7 @@ void blockstore_impl_t::calc_lengths(blockstore_config_t & config)
     }
     if (journal.len < MIN_JOURNAL_SIZE)
     {
-        throw std::runtime_error("Journal is too small");
+        throw std::runtime_error("Journal is too small, need at least "+std::to_string(MIN_JOURNAL_SIZE)+" bytes");
     }
     if (journal.inmemory)
     {
@@ -137,7 +137,7 @@ void blockstore_impl_t::open_meta(blockstore_config_t & config)
     {
         throw std::runtime_error("meta_offset not aligned");
     }
-    if (config["meta_device"] != "")
+    if (config["meta_device"] != "" && config["meta_device"] != config["data_device"])
     {
         meta_offset = 0;
         meta_fd = open(config["meta_device"].c_str(), O_DIRECT|O_RDWR);
@@ -169,7 +169,7 @@ void blockstore_impl_t::open_journal(blockstore_config_t & config)
     {
         throw std::runtime_error("journal_offset not aligned");
     }
-    if (config["journal_device"] != "")
+    if (config["journal_device"] != "" && config["journal_device"] != config["meta_device"])
     {
         journal.fd = open(config["journal_device"].c_str(), O_DIRECT|O_RDWR);
         if (journal.fd == -1)
