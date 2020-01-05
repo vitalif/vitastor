@@ -41,6 +41,7 @@ struct bs_options
 {
     int __pad;
     char *data_device = NULL, *meta_device = NULL, *journal_device = NULL, *disable_fsync = NULL, *block_size_order = NULL;
+    char *data_offset = NULL, *meta_offset = NULL, *journal_offset = NULL;
 };
 
 static struct fio_option options[] = {
@@ -68,6 +69,33 @@ static struct fio_option options[] = {
         .type   = FIO_OPT_STR_STORE,
         .off1   = offsetof(struct bs_options, journal_device),
         .help   = "Name of the journal device/file",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "data_offset",
+        .lname  = "Data offset",
+        .type   = FIO_OPT_STR_STORE,
+        .off1   = offsetof(struct bs_options, data_offset),
+        .help   = "Data offset",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "meta_offset",
+        .lname  = "Metadata offset",
+        .type   = FIO_OPT_STR_STORE,
+        .off1   = offsetof(struct bs_options, meta_offset),
+        .help   = "Metadata offset",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "journal_offset",
+        .lname  = "Journal offset",
+        .type   = FIO_OPT_STR_STORE,
+        .off1   = offsetof(struct bs_options, journal_offset),
+        .help   = "Journal offset",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
     },
@@ -157,6 +185,12 @@ static int bs_init(struct thread_data *td)
         config["block_size_order"] = o->block_size_order;
     if (o->disable_fsync)
         config["disable_fsync"] = o->disable_fsync;
+    if (o->data_offset)
+        config["data_offset"] = o->data_offset;
+    if (o->meta_offset)
+        config["meta_offset"] = o->meta_offset;
+    if (o->journal_offset)
+        config["journal_offset"] = o->journal_offset;
     if (read_only)
         config["readonly"] = "true";
     bsd->ringloop = new ring_loop_t(512);
