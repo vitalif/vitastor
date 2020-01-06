@@ -117,8 +117,8 @@ struct journal_t
     void *buffer = NULL;
 
     uint64_t offset, len;
-    uint64_t next_free = 512;
-    uint64_t used_start = 512;
+    uint64_t next_free = JOURNAL_BLOCK_SIZE;
+    uint64_t used_start = JOURNAL_BLOCK_SIZE;
     uint32_t crc32_last = 0;
 
     // Current sector(s) used for writing
@@ -126,7 +126,7 @@ struct journal_t
     journal_sector_info_t *sector_info = NULL;
     uint64_t sector_count;
     int cur_sector = 0;
-    int in_sector_pos = 512; // no free space because sector is initially unmapped
+    int in_sector_pos = JOURNAL_BLOCK_SIZE; // no free space because sector is initially unmapped
 
     // Used sector map
     // May use ~ 80 MB per 1 GB of used journal space in the worst case

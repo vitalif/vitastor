@@ -45,7 +45,7 @@ void blockstore_impl_t::calc_lengths(blockstore_config_t & config)
     }
     // required metadata size
     block_count = data_len / block_size;
-    meta_len = ((block_count - 1 + 512 / sizeof(clean_disk_entry)) / (512 / sizeof(clean_disk_entry))) * 512;
+    meta_len = ((block_count - 1 + META_BLOCK_SIZE / sizeof(clean_disk_entry)) / (META_BLOCK_SIZE / sizeof(clean_disk_entry))) * META_BLOCK_SIZE;
     if (meta_area < meta_len)
     {
         throw std::runtime_error("Metadata area is too small, need at least "+std::to_string(meta_len)+" bytes");
@@ -58,7 +58,7 @@ void blockstore_impl_t::calc_lengths(blockstore_config_t & config)
     inmemory_meta = config["inmemory_metadata"] != "false";
     if (inmemory_meta)
     {
-        metadata_buffer = memalign(512, meta_len);
+        metadata_buffer = memalign(MEM_ALIGNMENT, meta_len);
         if (!metadata_buffer)
             throw std::runtime_error("Failed to allocate memory for metadata");
     }
@@ -78,7 +78,7 @@ void blockstore_impl_t::calc_lengths(blockstore_config_t & config)
     }
     if (journal.inmemory)
     {
-        journal.buffer = memalign(512, journal.len);
+        journal.buffer = memalign(MEM_ALIGNMENT, journal.len);
         if (!journal.buffer)
             throw std::runtime_error("Failed to allocate memory for journal");
     }
@@ -200,7 +200,7 @@ void blockstore_impl_t::open_journal(blockstore_config_t & config)
     if (config["inmemory_journal"] == "false")
     {
         journal.inmemory = false;
-        journal.sector_buf = (uint8_t*)memalign(512, journal.sector_count * 512);
+        journal.sector_buf = (uint8_t*)memalign(MEM_ALIGNMENT, journal.sector_count * JOURNAL_BLOCK_SIZE);
         if (!journal.sector_buf)
             throw std::bad_alloc();
     }

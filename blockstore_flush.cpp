@@ -8,7 +8,7 @@ journal_flusher_t::journal_flusher_t(int flusher_count, blockstore_impl_t *bs)
     sync_threshold = flusher_count == 1 ? 1 : flusher_count/2;
     journal_trim_interval = sync_threshold;
     journal_trim_counter = 0;
-    journal_superblock = bs->journal.inmemory ? bs->journal.buffer : memalign(512, 512);
+    journal_superblock = bs->journal.inmemory ? bs->journal.buffer : memalign(MEM_ALIGNMENT, JOURNAL_BLOCK_SIZE);
     co = new journal_flusher_co[flusher_count];
     for (int i = 0; i < flusher_count; i++)
     {
@@ -211,7 +211,7 @@ bool journal_flusher_co::loop()
                     {
                         submit_offset = dirty_it->second.location + offset - dirty_it->second.offset;
                         submit_len = it == v.end() || it->offset >= end_offset ? end_offset-offset : it->offset-offset;
-                        it = v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len, .buf = memalign(512, submit_len) });
+                        it = v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len, .buf = memalign(MEM_ALIGNMENT, submit_len) });
                         copy_count++;
                         if (bs->journal.inmemory)
                         {
@@ -374,7 +374,7 @@ bool journal_flusher_co::loop()
             }
             ((clean_disk_entry*)meta_old.buf)[meta_old.pos] = { 0 };
             await_sqe(15);
-            data->iov = (struct iovec){ meta_old.buf, 512 };
+            data->iov = (struct iovec){ meta_old.buf, META_BLOCK_SIZE };
             data->callback = simple_callback_w;
             my_uring_prep_writev(
                 sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + meta_old.sector
@@ -388,7 +388,7 @@ bool journal_flusher_co::loop()
                 .version = cur.version,
             };
         await_sqe(6);
-        data->iov = (struct iovec){ meta_new.buf, 512 };
+        data->iov = (struct iovec){ meta_new.buf, META_BLOCK_SIZE };
         data->callback = simple_callback_w;
         my_uring_prep_writev(
             sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + meta_new.sector
@@ -452,7 +452,7 @@ bool journal_flusher_co::loop()
                     .journal_start = bs->journal.used_start,
                 };
                 ((journal_entry_start*)flusher->journal_superblock)->crc32 = je_crc32((journal_entry*)flusher->journal_superblock);
-                data->iov = (struct iovec){ flusher->journal_superblock, 512 };
+                data->iov = (struct iovec){ flusher->journal_superblock, JOURNAL_BLOCK_SIZE };
                 data->callback = simple_callback_w;
                 my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
                 wait_count++;
@@ -489,8 +489,8 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
     // We must check if the same sector is already in memory if we don't keep all metadata in memory all the time.
     // And yet another option is to use LSM trees for metadata, but it sophisticates everything a lot,
     // so I'll avoid it as long as I can.
-    wr.sector = ((meta_loc >> bs->block_order) / (512 / sizeof(clean_disk_entry))) * 512;
-    wr.pos = ((meta_loc >> bs->block_order) % (512 / sizeof(clean_disk_entry)));
+    wr.sector = ((meta_loc >> bs->block_order) / (META_BLOCK_SIZE / sizeof(clean_disk_entry))) * META_BLOCK_SIZE;
+    wr.pos = ((meta_loc >> bs->block_order) % (META_BLOCK_SIZE / sizeof(clean_disk_entry)));
     if (bs->inmemory_meta)
     {
         wr.buf = bs->metadata_buffer + wr.sector;
@@ -500,16 +500,16 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
     if (wr.it == flusher->meta_sectors.end())
     {
         // Not in memory yet, read it
-        wr.buf = memalign(512, 512);
+        wr.buf = memalign(MEM_ALIGNMENT, META_BLOCK_SIZE);
         wr.it = flusher->meta_sectors.emplace(wr.sector, (meta_sector_t){
             .offset = wr.sector,
-            .len = 512,
+            .len = META_BLOCK_SIZE,
             .state = 0, // 0 = not read yet
             .buf = wr.buf,
             .usage_count = 1,
         }).first;
         await_sqe(0);
-        data->iov = (struct iovec){ wr.it->second.buf, 512 };
+        data->iov = (struct iovec){ wr.it->second.buf, META_BLOCK_SIZE };
         data->callback = simple_callback_r;
         wr.submitted = true;
         my_uring_prep_readv(

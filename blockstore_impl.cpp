@@ -17,7 +17,7 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *
     {
         throw std::runtime_error("Bad block size");
     }
-    zero_object = (uint8_t*)memalign(DISK_ALIGNMENT, block_size);
+    zero_object = (uint8_t*)memalign(MEM_ALIGNMENT, block_size);
     data_fd = meta_fd = journal.fd = -1;
     try
     {
@@ -342,7 +342,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     // Allocate memory
     op->version = stable_count;
     op->retval = total_count;
-    op->buf = memalign(512, sizeof(obj_ver_id) * total_count);
+    op->buf = memalign(MEM_ALIGNMENT, sizeof(obj_ver_id) * total_count);
     if (!op->buf)
     {
         op->retval = -ENOMEM;

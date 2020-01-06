@@ -31,8 +31,7 @@ class blockstore_init_journal
     uint64_t entries_loaded = 0;
     uint32_t crc32_last = 0;
     bool started = false;
-    // FIXME: use DISK_ALIGNMENT everywhere
-    uint64_t next_free = 512;
+    uint64_t next_free = JOURNAL_BLOCK_SIZE;
     std::vector<bs_init_journal_done> done;
     uint64_t journal_pos = 0;
     uint64_t continue_pos = 0;

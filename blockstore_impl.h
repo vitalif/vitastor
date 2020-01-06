@@ -23,6 +23,11 @@
 
 //#define BLOCKSTORE_DEBUG
 
+#define DISK_ALIGNMENT 512
+#define MEM_ALIGNMENT 512
+#define JOURNAL_BLOCK_SIZE 512
+#define META_BLOCK_SIZE 512
+
 // States are not stored on disk. Instead, they're deduced from the journal
 
 #define ST_J_IN_FLIGHT 1

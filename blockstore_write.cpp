@@ -136,9 +136,9 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         // Small (journaled) write
         // First check if the journal has sufficient space
         // FIXME Always two SQEs for now. Although it's possible to send 1 sometimes
-        //two_sqes = (512 - journal.in_sector_pos < sizeof(struct journal_entry_small_write)
+        //two_sqes = (JOURNAL_BLOCK_SIZE - journal.in_sector_pos < sizeof(struct journal_entry_small_write)
         //    ? (journal.len - next_pos < op->len)
-        //    : (journal.sector_info[journal.cur_sector].offset + 512 != journal.next_free ||
+        //    : (journal.sector_info[journal.cur_sector].offset + JOURNAL_BLOCK_SIZE != journal.next_free ||
         //    journal.len - next_pos < op->len);
         blockstore_journal_check_t space_check(this);
         if (!space_check.check_available(op, 1, sizeof(journal_entry_small_write), op->len))
@@ -163,7 +163,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         printf("journal offset %lu is used by %lu:%lu v%lu\n", dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
 #endif
         // Figure out where data will be
-        journal.next_free = (journal.next_free + op->len) <= journal.len ? journal.next_free : 512;
+        journal.next_free = (journal.next_free + op->len) <= journal.len ? journal.next_free : JOURNAL_BLOCK_SIZE;
         je->oid = op->oid;
         je->version = op->version;
         je->offset = op->offset;
@@ -199,7 +199,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         dirty_it->second.state = ST_J_SUBMITTED;
         journal.next_free += op->len;
         if (journal.next_free >= journal.len)
-            journal.next_free = 512;
+            journal.next_free = JOURNAL_BLOCK_SIZE;
         // Remember small write as unsynced
         unsynced_small_writes.push_back((obj_ver_id){
             .oid = op->oid,

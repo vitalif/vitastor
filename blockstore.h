@@ -17,7 +17,6 @@
 #define DEFAULT_ORDER 17
 #define MIN_BLOCK_SIZE 4*1024
 #define MAX_BLOCK_SIZE 128*1024*1024
-#define DISK_ALIGNMENT 512
 
 #define BS_OP_MIN 1
 #define BS_OP_READ 1
