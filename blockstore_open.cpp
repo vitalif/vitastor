@@ -10,6 +10,10 @@ void blockstore_impl_t::calc_lengths(blockstore_config_t & config)
     {
         disable_fsync = true;
     }
+    if (config["zerofill"] == "true" || config["zerofill"] == "1" || config["zerofill"] == "yes")
+    {
+        zerofill_enabled = true;
+    }
     // data
     data_len = data_size - data_offset;
     if (data_fd == meta_fd && data_offset < meta_offset)

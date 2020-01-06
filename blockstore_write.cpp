@@ -102,10 +102,10 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
 #endif
         data_alloc->set(loc, true);
         int vcnt = 0;
-        if (op->version == 1 && op->len != block_size)
+        uint64_t stripe_offset = 0;
+        if (op->len != block_size && zerofill_enabled)
         {
-            // Zero fill newly allocated object. First write is always a big write
-            // FIXME: Add "no-zero-fill" mode which will just leave random garbage (insecure, but may be useful)
+            // Zero fill newly allocated object if required
             if (op->offset > 0)
                 PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, op->offset };
             PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ op->buf, op->len };
@@ -118,10 +118,11 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             vcnt = 1;
             PRIV(op)->iov_zerofill[0] = (struct iovec){ op->buf, op->len };
             data->iov.iov_len = op->len; // to check it in the callback
+            stripe_offset = op->offset;
         }
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         my_uring_prep_writev(
-            sqe, data_fd, PRIV(op)->iov_zerofill, vcnt, data_offset + (loc << block_order)
+            sqe, data_fd, PRIV(op)->iov_zerofill, vcnt, data_offset + (loc << block_order) + stripe_offset
         );
         PRIV(op)->pending_ops = 1;
         PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;

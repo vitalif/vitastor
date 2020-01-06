@@ -195,7 +195,12 @@ class blockstore_impl_t
 
     bool readonly = false;
     // FIXME: separate flags for data, metadata and journal
+    // It is safe to disable fsync() if drive write cache is writethrough
     bool disable_fsync = false;
+    // It is safe to disable zero fill if drive is zeroed before formatting.
+    // For example, with TRIM and Deterministic Read Zeroes after TRIM.
+    // FIXME: OP_DELETE should trim/zero out the block.
+    bool zerofill_enabled = false;
     bool inmemory_meta = false;
     void *metadata_buffer = NULL;
 
