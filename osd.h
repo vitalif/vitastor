@@ -33,6 +33,8 @@
 #define CL_WRITE_DATA 3
 #define MAX_EPOLL_EVENTS 16
 
+//#define OSD_STUB
+
 struct osd_op_t
 {
     int op_type;

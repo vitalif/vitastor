@@ -63,7 +63,12 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
         cur_op->bs_op.len = cur_op->op.sec_list.pgtotal;
         cur_op->bs_op.offset = cur_op->op.sec_list.pgnum;
     }
+#ifdef OSD_STUB
+    cur_op->bs_op.retval = cur_op->bs_op.len;
+    secondary_op_callback(cur_op);
+#else
     bs->enqueue_op(&cur_op->bs_op);
+#endif
 }
 
 void osd_t::exec_show_config(osd_op_t *cur_op)
@@ -122,7 +127,12 @@ void osd_t::exec_sync_stab_all(osd_op_t *cur_op)
             secondary_op_callback(cur_op);
         }
     };
+#ifdef OSD_STUB
+    cur_op->bs_op.retval = 0;
+    secondary_op_callback(cur_op);
+#else
     bs->enqueue_op(&cur_op->bs_op);
+#endif
 }
 
 void osd_t::make_reply(osd_op_t *op)
