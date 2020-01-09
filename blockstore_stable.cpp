@@ -123,6 +123,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
 
 void blockstore_impl_t::handle_stable_event(ring_data_t *data, blockstore_op_t *op)
 {
+    live = true;
     if (data->res != data->iov.iov_len)
     {
         throw std::runtime_error(

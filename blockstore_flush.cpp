@@ -22,6 +22,7 @@ journal_flusher_co::journal_flusher_co()
     wait_state = 0;
     simple_callback_r = [this](ring_data_t* data)
     {
+        bs->live = true;
         if (data->res != data->iov.iov_len)
         {
             throw std::runtime_error(
@@ -33,6 +34,7 @@ journal_flusher_co::journal_flusher_co()
     };
     simple_callback_w = [this](ring_data_t* data)
     {
+        bs->live = true;
         if (data->res != data->iov.iov_len)
         {
             throw std::runtime_error(

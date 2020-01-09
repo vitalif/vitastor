@@ -155,6 +155,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
 
 void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op)
 {
+    live = true;
     PRIV(op)->pending_ops--;
     if (data->res != data->iov.iov_len)
     {

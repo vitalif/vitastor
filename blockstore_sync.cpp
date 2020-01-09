@@ -133,6 +133,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
 
 void blockstore_impl_t::handle_sync_event(ring_data_t *data, blockstore_op_t *op)
 {
+    live = true;
     if (data->res != data->iov.iov_len)
     {
         throw std::runtime_error(

@@ -212,6 +212,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
 
 void blockstore_impl_t::handle_write_event(ring_data_t *data, blockstore_op_t *op)
 {
+    live = true;
     if (data->res != data->iov.iov_len)
     {
         // FIXME: our state becomes corrupted after a write error. maybe do something better than just die

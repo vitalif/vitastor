@@ -64,6 +64,11 @@ bool blockstore_impl_t::is_started()
     return initialized == 10;
 }
 
+bool blockstore_impl_t::is_stalled()
+{
+    return queue_stall;
+}
+
 // main event loop - produce requests
 void blockstore_impl_t::loop()
 {
@@ -100,6 +105,7 @@ void blockstore_impl_t::loop()
     else
     {
         // try to submit ops
+        unsigned initial_ring_space = ringloop->space_left();
         auto cur_sync = in_progress_syncs.begin();
         while (cur_sync != in_progress_syncs.end())
         {
@@ -190,6 +196,12 @@ void blockstore_impl_t::loop()
         {
             throw std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
         }
+        if ((initial_ring_space - ringloop->space_left()) > 0)
+        {
+            live = true;
+        }
+        queue_stall = !live && !ringloop->get_loop_again();
+        live = false;
     }
 }
 

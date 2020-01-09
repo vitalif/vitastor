@@ -82,6 +82,9 @@ public:
     // (Although you're free to enqueue them before that)
     bool is_started();
 
+    // Returns true when blockstore is stalled
+    bool is_stalled();
+
     // Returns true when it's safe to destroy the instance. If destroying the instance
     // requires to purge some queues, starts that process. Should be called in the event
     // loop until it returns true.

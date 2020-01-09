@@ -20,6 +20,11 @@ bool blockstore_t::is_started()
     return impl->is_started();
 }
 
+bool blockstore_t::is_stalled()
+{
+    return impl->is_stalled();
+}
+
 bool blockstore_t::is_safe_to_stop()
 {
     return impl->is_safe_to_stop();

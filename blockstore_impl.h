@@ -207,6 +207,7 @@ class blockstore_impl_t
     struct journal_t journal;
     journal_flusher_t *flusher;
 
+    bool live = false, queue_stall = false;
     ring_loop_t *ringloop;
 
     bool stop_sync_submitted;
@@ -280,6 +281,9 @@ public:
     // requires to purge some queues, starts that process. Should be called in the event
     // loop until it returns true.
     bool is_safe_to_stop();
+
+    // Returns true if stalled
+    bool is_stalled();
 
     // Submission
     void enqueue_op(blockstore_op_t *op);
