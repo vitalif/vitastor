@@ -35,6 +35,7 @@ void osd_t::send_replies()
         cl.write_iov.iov_len = cl.write_remaining;
         cl.write_msg.msg_iov = &cl.write_iov;
         cl.write_msg.msg_iovlen = 1;
+        // FIXME: This is basically a busy-loop. It's probably better to add epoll here
         data->callback = [this, peer_fd](ring_data_t *data) { handle_send(data, peer_fd); };
         my_uring_prep_sendmsg(sqe, peer_fd, &cl.write_msg, 0);
         cl.write_state = cl.write_state | SQE_SENT;

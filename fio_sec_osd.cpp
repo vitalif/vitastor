@@ -20,6 +20,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 
 #include <vector>
 #include <unordered_map>
@@ -136,6 +137,8 @@ static int sec_init(struct thread_data *td)
         perror("connect");
         return 1;
     }
+    int one = 1;
+    setsockopt(bsd->connect_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
 
     // FIXME: read config (block size) from OSD
 

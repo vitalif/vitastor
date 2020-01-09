@@ -2,6 +2,7 @@
 #include <sys/epoll.h>
 #include <sys/poll.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 
 #include "osd.h"
@@ -197,6 +198,8 @@ void osd_t::handle_connect_result(int peer_fd)
         callback(-result);
         return;
     }
+    int one = 1;
+    setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
     // Disable EPOLLOUT on this fd
     cl.connect_callback = NULL;
     cl.peer_state = PEER_CONNECTED;
@@ -227,6 +230,8 @@ int osd_t::handle_epoll_events()
                 char peer_str[256];
                 printf("osd: new client %d: connection from %s port %d\n", peer_fd, inet_ntop(AF_INET, &addr.sin_addr, peer_str, 256), ntohs(addr.sin_port));
                 fcntl(peer_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
+                int one = 1;
+                setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
                 clients[peer_fd] = {
                     .peer_addr = addr,
                     .peer_port = ntohs(addr.sin_port),
