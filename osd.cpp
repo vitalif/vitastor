@@ -63,6 +63,8 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
     ev.events = EPOLLIN;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &ev) < 0)
     {
+        close(listen_fd);
+        close(epoll_fd);
         throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
     }
 
@@ -281,10 +283,7 @@ int osd_t::handle_epoll_events()
 
 void osd_t::stop_client(int peer_fd)
 {
-    epoll_event ev;
-    ev.data.fd = peer_fd;
-    ev.events = EPOLLIN | EPOLLHUP;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, &ev) < 0)
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) < 0)
     {
         throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
     }
