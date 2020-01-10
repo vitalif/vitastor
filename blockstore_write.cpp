@@ -79,6 +79,11 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     });
     if (dirty_it->second.state == ST_D_IN_FLIGHT)
     {
+        blockstore_journal_check_t space_check(this);
+        if (!space_check.check_available(op, unsynced_big_writes.size() + 1, sizeof(journal_entry_big_write), JOURNAL_STABILIZE_RESERVATION))
+        {
+            return 0;
+        }
         // Big (redirect) write
         uint64_t loc = data_alloc->find_free();
         if (loc == UINT64_MAX)
@@ -137,12 +142,9 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         // Small (journaled) write
         // First check if the journal has sufficient space
         // FIXME Always two SQEs for now. Although it's possible to send 1 sometimes
-        //two_sqes = (JOURNAL_BLOCK_SIZE - journal.in_sector_pos < sizeof(struct journal_entry_small_write)
-        //    ? (journal.len - next_pos < op->len)
-        //    : (journal.sector_info[journal.cur_sector].offset + JOURNAL_BLOCK_SIZE != journal.next_free ||
-        //    journal.len - next_pos < op->len);
         blockstore_journal_check_t space_check(this);
-        if (!space_check.check_available(op, 1, sizeof(journal_entry_small_write), op->len))
+        if (unsynced_big_writes.size() && !space_check.check_available(op, unsynced_big_writes.size(), sizeof(journal_entry_big_write), 0)
+            || !space_check.check_available(op, 1, sizeof(journal_entry_small_write), op->len + JOURNAL_STABILIZE_RESERVATION))
         {
             return 0;
         }

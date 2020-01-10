@@ -289,12 +289,17 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
     }
 }
 
-void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
+void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
 {
     int type = op->opcode & BS_OP_TYPE_MASK;
-    if (type < BS_OP_MIN || type > BS_OP_MAX || (type == BS_OP_READ || type == BS_OP_WRITE) &&
-        (op->offset >= block_size || op->len > block_size-op->offset || (op->len % DISK_ALIGNMENT)) ||
-        readonly && type != BS_OP_READ)
+    if (type < BS_OP_MIN || type > BS_OP_MAX ||
+        ((type == BS_OP_READ || type == BS_OP_WRITE) && (
+            op->offset >= block_size ||
+            op->len > block_size-op->offset ||
+            (op->len % DISK_ALIGNMENT)
+        )) ||
+        readonly && type != BS_OP_READ ||
+        first && type == BS_OP_WRITE)
     {
         // Basic verification not passed
         op->retval = -EINVAL;
@@ -313,7 +318,14 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
     PRIV(op)->wait_for = 0;
     PRIV(op)->sync_state = 0;
     PRIV(op)->pending_ops = 0;
-    submit_queue.push_back(op);
+    if (!first)
+    {
+        submit_queue.push_back(op);
+    }
+    else
+    {
+        submit_queue.push_front(op);
+    }
     if (type == BS_OP_WRITE)
     {
         enqueue_write(op);

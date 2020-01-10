@@ -32,7 +32,12 @@ bool blockstore_t::is_safe_to_stop()
 
 void blockstore_t::enqueue_op(blockstore_op_t *op)
 {
-    impl->enqueue_op(op);
+    impl->enqueue_op(op, false);
+}
+
+void blockstore_t::enqueue_op_first(blockstore_op_t *op)
+{
+    impl->enqueue_op(op, true);
 }
 
 std::map<object_id, uint64_t> & blockstore_t::get_unstable_writes()

@@ -93,6 +93,10 @@ public:
     // Submission
     void enqueue_op(blockstore_op_t *op);
 
+    // Insert operation into the beginning of the queue
+    // Intended for the OSD syncer "thread" to be able to stabilize something when the journal is full
+    void enqueue_op_first(blockstore_op_t *op);
+
     // Unstable writes are added here (map of object_id -> version)
     std::map<object_id, uint64_t> & get_unstable_writes();
 

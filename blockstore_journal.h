@@ -6,6 +6,9 @@
 #define JOURNAL_MAGIC 0x4A33
 #define JOURNAL_BUFFER_SIZE 4*1024*1024
 
+// We reserve some extra space for future stabilize requests during writes
+#define JOURNAL_STABILIZE_RESERVATION 65536
+
 // Journal entries
 // Journal entries are linked to each other by their crc32 value
 // The journal is almost a blockchain, because object versions constantly increase
