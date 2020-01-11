@@ -57,6 +57,8 @@ blockstore_impl_t::~blockstore_impl_t()
         close(journal.fd);
     if (metadata_buffer)
         free(metadata_buffer);
+    if (clean_bitmap)
+        free(clean_bitmap);
 }
 
 bool blockstore_impl_t::is_started()

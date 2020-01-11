@@ -65,12 +65,11 @@ int blockstore_init_meta::loop()
             void *done_buf = bs->inmemory_meta
                 ? (metadata_buffer + done_pos)
                 : (metadata_buffer + (prev_done == 2 ? bs->metadata_buf_size : 0));
-            unsigned count = META_BLOCK_SIZE / sizeof(clean_disk_entry);
+            unsigned count = META_BLOCK_SIZE / bs->clean_entry_size;
             for (int sector = 0; sector < done_len; sector += META_BLOCK_SIZE)
             {
-                clean_disk_entry *entries = (clean_disk_entry*)(done_buf + sector);
                 // handle <count> entries
-                handle_entries(entries, count, bs->block_order);
+                handle_entries(done_buf + sector, count, bs->block_order);
                 done_cnt += count;
             }
             prev_done = 0;
@@ -91,14 +90,19 @@ int blockstore_init_meta::loop()
     return 0;
 }
 
-void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, unsigned count, int block_order)
+void blockstore_init_meta::handle_entries(void* entries, unsigned count, int block_order)
 {
     for (unsigned i = 0; i < count; i++)
     {
-        if (entries[i].oid.inode > 0)
+        clean_disk_entry *entry = (clean_disk_entry*)(entries + i*bs->clean_entry_size);
+        if (!bs->inmemory_meta && bs->clean_entry_bitmap_size)
         {
-            auto clean_it = bs->clean_db.find(entries[i].oid);
-            if (clean_it == bs->clean_db.end() || clean_it->second.version < entries[i].version)
+            memcpy(bs->clean_bitmap + (done_cnt+i)*bs->clean_entry_bitmap_size, &entry->bitmap, bs->clean_entry_bitmap_size);
+        }
+        if (entry->oid.inode > 0)
+        {
+            auto clean_it = bs->clean_db.find(entry->oid);
+            if (clean_it == bs->clean_db.end() || clean_it->second.version < entry->version)
             {
                 if (clean_it != bs->clean_db.end())
                 {
@@ -110,18 +114,18 @@ void blockstore_init_meta::handle_entries(struct clean_disk_entry* entries, unsi
                 }
                 entries_loaded++;
 #ifdef BLOCKSTORE_DEBUG
-                printf("Allocate block (clean entry) %lu: %lu:%lu v%lu\n", done_cnt+i, entries[i].oid.inode, entries[i].oid.stripe, entries[i].version);
+                printf("Allocate block (clean entry) %lu: %lu:%lu v%lu\n", done_cnt+i, entry->oid.inode, entry->oid.stripe, entry->version);
 #endif
                 bs->data_alloc->set(done_cnt+i, true);
-                bs->clean_db[entries[i].oid] = (struct clean_entry){
-                    .version = entries[i].version,
+                bs->clean_db[entry->oid] = (struct clean_entry){
+                    .version = entry->version,
                     .location = (done_cnt+i) << block_order,
                 };
             }
             else
             {
 #ifdef BLOCKSTORE_DEBUG
-                printf("Old clean entry %lu: %lu:%lu v%lu\n", done_cnt+i, entries[i].oid.inode, entries[i].oid.stripe, entries[i].version);
+                printf("Old clean entry %lu: %lu:%lu v%lu\n", done_cnt+i, entry->oid.inode, entry->oid.stripe, entry->version);
 #endif
             }
         }

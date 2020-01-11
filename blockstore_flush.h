@@ -37,21 +37,34 @@ class journal_flusher_co
     int wait_state, wait_count;
     struct io_uring_sqe *sqe;
     struct ring_data_t *data;
-    bool skip_copy, has_delete;
+
+    std::list<flusher_sync_t>::iterator cur_sync;
+
     obj_ver_id cur;
-    std::map<obj_ver_id, dirty_entry>::iterator dirty_it, dirty_start, dirty_end;
+    std::map<obj_ver_id, dirty_entry>::iterator dirty_it, dirty_end;
+    std::map<object_id, uint64_t>::iterator repeat_it;
+    std::function<void(ring_data_t*)> simple_callback_r, simple_callback_w;
+
+    bool skip_copy, has_delete;
+    spp::sparse_hash_map<object_id, clean_entry>::iterator clean_it;
     std::vector<copy_buffer_t> v;
     std::vector<copy_buffer_t>::iterator it;
     int copy_count;
-    uint64_t offset, end_offset, submit_offset, submit_len, clean_loc, old_clean_loc, old_clean_ver;
+    uint64_t clean_loc, old_clean_loc;
     flusher_meta_write_t meta_old, meta_new;
-    std::map<object_id, uint64_t>::iterator repeat_it;
-    std::function<void(ring_data_t*)> simple_callback_r, simple_callback_w;
-    std::list<flusher_sync_t>::iterator cur_sync;
+    bool clean_init_bitmap;
+    uint64_t clean_bitmap_offset, clean_bitmap_len;
+    void *new_clean_bitmap;
+
+    // local: scan_dirty()
+    uint64_t offset, end_offset, submit_offset, submit_len;
+
     friend class journal_flusher_t;
+    bool scan_dirty(int wait_base);
     bool modify_meta_read(uint64_t meta_loc, flusher_meta_write_t &wr, int wait_base);
     void update_clean_db();
     bool fsync_batch(bool fsync_meta, int wait_base);
+    void bitmap_set(void *bitmap, uint64_t start, uint64_t len);
 public:
     journal_flusher_co();
     bool loop();

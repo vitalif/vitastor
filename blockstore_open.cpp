@@ -10,10 +10,6 @@ void blockstore_impl_t::calc_lengths(blockstore_config_t & config)
     {
         disable_fsync = true;
     }
-    if (config["zerofill"] == "true" || config["zerofill"] == "1" || config["zerofill"] == "yes")
-    {
-        zerofill_enabled = true;
-    }
     // data
     data_len = data_size - data_offset;
     if (data_fd == meta_fd && data_offset < meta_offset)
@@ -48,8 +44,18 @@ void blockstore_impl_t::calc_lengths(blockstore_config_t & config)
             ? journal.len : meta_offset-journal.offset;
     }
     // required metadata size
+    if (BITMAP_GRANULARITY % DISK_ALIGNMENT)
+    {
+        throw std::runtime_error("Sparse write tracking granularity must be a multiple of write alignment");
+    }
+    if (block_size % BITMAP_GRANULARITY)
+    {
+        throw std::runtime_error("Block size must be a multiple of sparse write tracking granularity");
+    }
+    clean_entry_bitmap_size = block_size / BITMAP_GRANULARITY / 8;
+    clean_entry_size = sizeof(clean_disk_entry) + clean_entry_bitmap_size;
     block_count = data_len / block_size;
-    meta_len = ((block_count - 1 + META_BLOCK_SIZE / sizeof(clean_disk_entry)) / (META_BLOCK_SIZE / sizeof(clean_disk_entry))) * META_BLOCK_SIZE;
+    meta_len = ((block_count - 1 + META_BLOCK_SIZE / clean_entry_size) / (META_BLOCK_SIZE / clean_entry_size)) * META_BLOCK_SIZE;
     if (meta_area < meta_len)
     {
         throw std::runtime_error("Metadata area is too small, need at least "+std::to_string(meta_len)+" bytes");
@@ -64,7 +70,13 @@ void blockstore_impl_t::calc_lengths(blockstore_config_t & config)
     {
         metadata_buffer = memalign(MEM_ALIGNMENT, meta_len);
         if (!metadata_buffer)
-            throw std::runtime_error("Failed to allocate memory for metadata");
+            throw std::runtime_error("Failed to allocate memory for the metadata");
+    }
+    else if (clean_entry_bitmap_size)
+    {
+        clean_bitmap = (uint8_t*)malloc(block_count * clean_entry_bitmap_size);
+        if (!clean_bitmap)
+            throw std::runtime_error("Failed to allocate memory for the metadata sparse write bitmap");
     }
     // requested journal size
     uint64_t journal_wanted = strtoull(config["journal_size"].c_str(), NULL, 10);

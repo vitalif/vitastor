@@ -23,10 +23,19 @@
 
 //#define BLOCKSTORE_DEBUG
 
-#define DISK_ALIGNMENT 512
+// Memory alignment for direct I/O (usually 512 bytes)
+// All other alignments must be a multiple of this one
 #define MEM_ALIGNMENT 512
+// FIXME: Make following constants configurable
+// Required write alignment and journal/metadata/data areas' location alignment
+#define DISK_ALIGNMENT 512
+// Journal block size - minimum_io_size of the journal device is the best choice
 #define JOURNAL_BLOCK_SIZE 512
+// Metadata block size - minimum_io_size of the metadata device is the best choice
 #define META_BLOCK_SIZE 512
+// Sparse write tracking granularity. 4 KB is a good choice. Must be a multiple
+// of the write alignment.
+#define BITMAP_GRANULARITY 4096
 
 // States are not stored on disk. Instead, they're deduced from the journal
 
@@ -83,12 +92,13 @@
 
 #include "blockstore_journal.h"
 
-// 24 bytes per "clean" entry on disk with fixed metadata tables
+// 24 bytes + block bitmap per "clean" entry on disk with fixed metadata tables
 // FIXME: maybe add crc32's to metadata
 struct __attribute__((__packed__)) clean_disk_entry
 {
     object_id oid;
     uint64_t version;
+    uint8_t bitmap[];
 };
 
 // 32 = 16 + 16 bytes per "clean" entry in memory (object_id => clean_entry)
@@ -177,6 +187,7 @@ class blockstore_impl_t
 
     // Another option is https://github.com/algorithm-ninja/cpp-btree
     spp::sparse_hash_map<object_id, clean_entry> clean_db;
+    uint8_t *clean_bitmap = NULL;
     std::map<obj_ver_id, dirty_entry> dirty_db;
     std::list<blockstore_op_t*> submit_queue; // FIXME: funny thing is that vector is better here
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
@@ -186,6 +197,7 @@ class blockstore_impl_t
 
     uint64_t block_count;
     uint32_t block_order, block_size;
+    uint32_t clean_entry_bitmap_size = 0, clean_entry_size = 0;
 
     int meta_fd;
     int data_fd;
@@ -197,10 +209,6 @@ class blockstore_impl_t
     // FIXME: separate flags for data, metadata and journal
     // It is safe to disable fsync() if drive write cache is writethrough
     bool disable_fsync = false;
-    // It is safe to disable zero fill if drive is zeroed before formatting.
-    // For example, with TRIM and Deterministic Read Zeroes after TRIM.
-    // FIXME: OP_DELETE should trim/zero out the block.
-    bool zerofill_enabled = false;
     bool inmemory_meta = false;
     void *metadata_buffer = NULL;
 

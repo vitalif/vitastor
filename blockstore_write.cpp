@@ -106,28 +106,24 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         printf("Allocate block %lu\n", loc);
 #endif
         data_alloc->set(loc, true);
+        uint64_t stripe_offset = (op->offset % BITMAP_GRANULARITY);
+        uint64_t stripe_end = (op->offset + op->len) % BITMAP_GRANULARITY;
+        // Zero fill up to BITMAP_GRANULARITY
         int vcnt = 0;
-        uint64_t stripe_offset = 0;
-        if (op->len != block_size && zerofill_enabled)
+        if (stripe_offset)
         {
-            // Zero fill newly allocated object if required
-            if (op->offset > 0)
-                PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, op->offset };
-            PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ op->buf, op->len };
-            if (op->offset+op->len < block_size)
-                PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, block_size - (op->offset + op->len) };
-            data->iov.iov_len = block_size;
+            PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, stripe_offset };
         }
-        else
+        PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ op->buf, op->len };
+        if (stripe_end)
         {
-            vcnt = 1;
-            PRIV(op)->iov_zerofill[0] = (struct iovec){ op->buf, op->len };
-            data->iov.iov_len = op->len; // to check it in the callback
-            stripe_offset = op->offset;
+            stripe_end = BITMAP_GRANULARITY - stripe_end;
+            PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, stripe_end };
         }
+        data->iov.iov_len = op->len + stripe_offset + stripe_end; // to check it in the callback
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         my_uring_prep_writev(
-            sqe, data_fd, PRIV(op)->iov_zerofill, vcnt, data_offset + (loc << block_order) + stripe_offset
+            sqe, data_fd, PRIV(op)->iov_zerofill, vcnt, data_offset + (loc << block_order) + op->offset - stripe_offset
         );
         PRIV(op)->pending_ops = 1;
         PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
