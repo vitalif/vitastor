@@ -692,12 +692,12 @@ void journal_flusher_co::bitmap_set(void *bitmap, uint64_t start, uint64_t len)
     {
         if (len == 32*BITMAP_GRANULARITY)
         {
-            *((uint32_t*)bitmap) = 1;
+            *((uint32_t*)bitmap) = UINT32_MAX;
             return;
         }
         else if (len == 64*BITMAP_GRANULARITY)
         {
-            *((uint64_t*)bitmap) = 1;
+            *((uint64_t*)bitmap) = UINT64_MAX;
             return;
         }
     }
@@ -707,7 +707,7 @@ void journal_flusher_co::bitmap_set(void *bitmap, uint64_t start, uint64_t len)
     {
         if (!(bit_start & 7) && bit_end >= bit_start+8)
         {
-            ((uint8_t*)bitmap)[bit_start / 8] = 1;
+            ((uint8_t*)bitmap)[bit_start / 8] = UINT8_MAX;
             bit_start += 8;
         }
         else

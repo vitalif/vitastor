@@ -60,7 +60,10 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op, uint64_t &fulfille
                     .len = it == PRIV(read_op)->read_vec.end() || it->offset >= item_end ? item_end-cur_start : it->offset-cur_start,
                 };
                 it = PRIV(read_op)->read_vec.insert(it, el);
-                if (!fulfill_read_push(read_op, read_op->buf + el.offset - read_op->offset, item_location + el.offset - item_start, el.len, item_state, item_version))
+                if (!fulfill_read_push(read_op,
+                    read_op->buf + el.offset - read_op->offset,
+                    item_location + el.offset - item_start,
+                    el.len, item_state, item_version))
                 {
                     return 0;
                 }
@@ -97,7 +100,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
     PRIV(read_op)->pending_ops = 0;
     if (dirty_found)
     {
-        while (dirty_it->first.oid == read_op->oid && fulfilled < read_op->len)
+        while (dirty_it->first.oid == read_op->oid)
         {
             dirty_entry& dirty = dirty_it->second;
             bool version_ok = read_op->version >= dirty_it->first.version;
@@ -110,14 +113,14 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             if (version_ok)
             {
                 if (!fulfill_read(read_op, fulfilled, dirty.offset, dirty.offset + dirty.len,
-                    dirty.state, dirty_it->first.version, dirty.location))
+                    dirty.state, dirty_it->first.version, dirty.location + (IS_JOURNAL(dirty.state) ? 0 : dirty.offset)))
                 {
                     // need to wait. undo added requests, don't dequeue op
                     PRIV(read_op)->read_vec.clear();
                     return 0;
                 }
             }
-            if (fulfilled == read_op->len)
+            if (fulfilled == read_op->len || dirty_it == dirty_db.begin())
             {
                 break;
             }
@@ -152,11 +155,17 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             uint64_t bmp_start = 0, bmp_end = 0, bmp_size = block_size/BITMAP_GRANULARITY;
             while (bmp_start < bmp_size)
             {
-                while (!(clean_entry_bitmap[bmp_start >> 3] & (1 << (bmp_start & 0x7))) && bmp_start < bmp_size)
+                while (!(clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7))) && bmp_end < bmp_size)
                 {
-                    bmp_start++;
+                    bmp_end++;
                 }
-                bmp_end = bmp_start;
+                if (bmp_end > bmp_start)
+                {
+                    // fill with zeroes
+                    fulfill_read(read_op, fulfilled, bmp_start * BITMAP_GRANULARITY,
+                        bmp_end * BITMAP_GRANULARITY, ST_DEL_STABLE, 0, 0);
+                }
+                bmp_start = bmp_end;
                 while (clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7)) && bmp_end < bmp_size)
                 {
                     bmp_end++;
@@ -164,7 +173,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                 if (bmp_end > bmp_start)
                 {
                     if (!fulfill_read(read_op, fulfilled, bmp_start * BITMAP_GRANULARITY,
-                        (bmp_end - bmp_start) * BITMAP_GRANULARITY, ST_CURRENT, 0, clean_it->second.location + bmp_start * BITMAP_GRANULARITY))
+                        bmp_end * BITMAP_GRANULARITY, ST_CURRENT, 0, clean_it->second.location + bmp_start * BITMAP_GRANULARITY))
                     {
                         // need to wait. undo added requests, don't dequeue op
                         PRIV(read_op)->read_vec.clear();
@@ -175,6 +184,12 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             }
         }
     }
+    else if (fulfilled < read_op->len)
+    {
+        // fill remaining parts with zeroes
+        fulfill_read(read_op, fulfilled, 0, block_size, ST_DEL_STABLE, 0, 0);
+    }
+    assert(fulfilled == read_op->len);
     if (!PRIV(read_op)->pending_ops)
     {
         // everything is fulfilled from memory
@@ -182,10 +197,6 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         {
             // region is not allocated - return zeroes
             memset(read_op->buf, 0, read_op->len);
-        }
-        if (fulfilled != read_op->len)
-        {
-            printf("BUG: fulfilled %lu < %d read bytes\n", fulfilled, read_op->len);
         }
         read_op->retval = read_op->len;
         read_op->callback(read_op);

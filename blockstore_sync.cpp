@@ -101,6 +101,8 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
 #endif
             je->oid = it->oid;
             je->version = it->version;
+            je->offset = dirty_db[*it].offset;
+            je->len = dirty_db[*it].len;
             je->location = dirty_db[*it].location;
             je->crc32 = je_crc32((journal_entry*)je);
             journal.crc32_last = je->crc32;

@@ -55,6 +55,8 @@ struct __attribute__((__packed__)) journal_entry_big_write
     uint32_t crc32_prev;
     object_id oid;
     uint64_t version;
+    uint32_t offset;
+    uint32_t len;
     uint64_t location;
 };
 

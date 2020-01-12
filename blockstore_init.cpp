@@ -417,7 +417,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                 if (pos == 0)
                 {
                     // invalid entry in the beginning, this is definitely the end of the journal
-                    bs->journal.next_free = next_free;
+                    bs->journal.next_free = proc_pos;
                     return 0;
                 }
                 else
@@ -531,8 +531,8 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .state = ST_D_META_SYNCED,
                         .flags = 0,
                         .location = je->big_write.location,
-                        .offset = 0,
-                        .len = bs->block_size,
+                        .offset = je->big_write.offset,
+                        .len = je->big_write.len,
                         .journal_sector = proc_pos,
                     });
 #ifdef BLOCKSTORE_DEBUG
