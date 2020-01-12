@@ -28,6 +28,10 @@ int main(int narg, char *args[])
             main_state = 4;
         else if (main_state == 5)
             main_state = 6;
+        else if (main_state == 7)
+            main_state = 8;
+        else if (main_state == 9)
+            main_state = 10;
     };
     main_cons.loop = [&]()
     {
@@ -39,9 +43,9 @@ int main(int narg, char *args[])
                 op.opcode = BS_OP_WRITE;
                 op.oid = { .inode = 1, .stripe = 0 };
                 op.version = 0;
-                op.offset = 4096;
+                op.offset = 16384;
                 op.len = 4096;
-                op.buf = (uint8_t*)memalign(512, 4096);
+                op.buf = (uint8_t*)memalign(512, 128*1024);
                 memset(op.buf, 0xaa, 4096);
                 bs->enqueue_op(&op);
                 main_state = 1;
@@ -66,6 +70,48 @@ int main(int narg, char *args[])
             };
             bs->enqueue_op(&op);
             main_state = 5;
+        }
+        else if (main_state == 6)
+        {
+            printf("stabilizing version %lu\n", version);
+            op.opcode = BS_OP_STABLE;
+            op.len = 1;
+            *((obj_ver_id*)op.buf) = {
+                .oid = { .inode = 1, .stripe = 0 },
+                .version = version,
+            };
+            bs->enqueue_op(&op);
+            main_state = 7;
+        }
+        else if (main_state == 8)
+        {
+            printf("reading 0-128K\n");
+            op.opcode = BS_OP_READ;
+            op.oid = { .inode = 1, .stripe = 0 };
+            op.version = UINT64_MAX;
+            op.offset = 0;
+            op.len = 128*1024;
+            bs->enqueue_op(&op);
+            main_state = 9;
+        }
+        else if (main_state == 10)
+        {
+            void *cmp = memalign(512, 128*1024);
+            memset(cmp, 0, 128*1024);
+            memset(cmp+16384, 0xaa, 4096);
+            int ok = 1;
+            for (int i = 0; i < 128*1024; i += 4096)
+            {
+                if (memcmp(cmp+i, op.buf+i, 4096) != 0)
+                {
+                    printf("bitmap works incorrectly, bytes %d - %d differ (%02x, should be %02x)\n", i, i+4096, ((uint8_t*)op.buf)[i], ((uint8_t*)cmp)[i]);
+                    ok = 0;
+                }
+            }
+            if (ok)
+                printf("bitmap works correctly\n");
+            free(cmp);
+            main_state = 11;
         }
     };
 
