@@ -137,7 +137,6 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     {
         // Small (journaled) write
         // First check if the journal has sufficient space
-        // FIXME Always two SQEs for now. Although it's possible to send 1 sometimes
         blockstore_journal_check_t space_check(this);
         if (unsynced_big_writes.size() && !space_check.check_available(op, unsynced_big_writes.size(), sizeof(journal_entry_big_write), 0)
             || !space_check.check_available(op, 1, sizeof(journal_entry_small_write), op->len + JOURNAL_STABILIZE_RESERVATION))
@@ -145,18 +144,34 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             return 0;
         }
         // There is sufficient space. Get SQE(s)
-        BS_SUBMIT_GET_ONLY_SQE(sqe1);
+        struct io_uring_sqe *sqe1 = NULL;
+        if ((JOURNAL_BLOCK_SIZE - journal.in_sector_pos) < sizeof(journal_entry_small_write) &&
+            journal.sector_info[journal.cur_sector].dirty)
+        {
+            // Write current journal sector only if it's dirty and full
+            BS_SUBMIT_GET_SQE_DECL(sqe1);
+        }
         struct io_uring_sqe *sqe2 = NULL;
-        struct ring_data_t *data2 = NULL;
         if (op->len > 0)
         {
             BS_SUBMIT_GET_SQE_DECL(sqe2);
-            data2 = ((ring_data_t*)sqe2->user_data);
         }
-        // FIXME: Write journal sector here only if it is full. Otherwise, defer it until SYNC. This will help reduce WA
-        // Got SQEs. Prepare journal sector write
+        // Got SQEs. Prepare previous journal sector write if required
+        auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
+        if (sqe1)
+        {
+            prepare_journal_sector_write(journal, journal.cur_sector, sqe1, cb);
+            // FIXME rename to min/max _flushing
+            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
+            PRIV(op)->pending_ops++;
+        }
+        else
+        {
+            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
+        }
+        // Then pre-fill journal entry
         journal_entry_small_write *je = (journal_entry_small_write*)
-            prefill_single_journal_entry(journal, JE_SMALL_WRITE, sizeof(struct journal_entry_small_write));
+            prefill_single_journal_entry(journal, JE_SMALL_WRITE, sizeof(journal_entry_small_write));
         dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
@@ -172,9 +187,6 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         je->crc32_data = crc32c(0, op->buf, op->len);
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
-        auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
-        prepare_journal_sector_write(journal, sqe1, cb);
-        PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
         if (op->len > 0)
         {
             // Prepare journal data write
@@ -183,28 +195,34 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 // Copy data
                 memcpy(journal.buffer + journal.next_free, op->buf, op->len);
             }
+            ring_data_t *data2 = ((ring_data_t*)sqe2->user_data);
             data2->iov = (struct iovec){ op->buf, op->len };
             data2->callback = cb;
             my_uring_prep_writev(
                 sqe2, journal.fd, &data2->iov, 1, journal.offset + journal.next_free
             );
-            PRIV(op)->pending_ops = 2;
+            PRIV(op)->pending_ops++;
         }
         else
         {
             // Zero-length overwrite. Allowed to bump object version in EC placement groups without actually writing data
-            PRIV(op)->pending_ops = 1;
         }
         dirty_it->second.location = journal.next_free;
         dirty_it->second.state = ST_J_SUBMITTED;
         journal.next_free += op->len;
         if (journal.next_free >= journal.len)
+        {
             journal.next_free = JOURNAL_BLOCK_SIZE;
+        }
         // Remember small write as unsynced
         unsynced_small_writes.push_back((obj_ver_id){
             .oid = op->oid,
             .version = op->version,
         });
+        if (!PRIV(op)->pending_ops)
+        {
+            ack_write(op);
+        }
     }
     return 1;
 }
@@ -223,43 +241,54 @@ void blockstore_impl_t::handle_write_event(ring_data_t *data, blockstore_op_t *o
     PRIV(op)->pending_ops--;
     if (PRIV(op)->pending_ops == 0)
     {
-        // Release used journal sectors
-        if (PRIV(op)->min_used_journal_sector > 0)
-        {
-            uint64_t s = PRIV(op)->min_used_journal_sector;
-            while (1)
-            {
-                journal.sector_info[s-1].usage_count--;
-                if (s == PRIV(op)->max_used_journal_sector)
-                    break;
-                s = 1 + s % journal.sector_count;
-            }
-            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
-        }
-        // Switch object state
-        auto & dirty_entry = dirty_db[(obj_ver_id){
-            .oid = op->oid,
-            .version = op->version,
-        }];
-#ifdef BLOCKSTORE_DEBUG
-        printf("Ack write %lu:%lu v%lu = %d\n", op->oid.inode, op->oid.stripe, op->version, dirty_entry.state);
-#endif
-        if (dirty_entry.state == ST_J_SUBMITTED)
-        {
-            dirty_entry.state = ST_J_WRITTEN;
-        }
-        else if (dirty_entry.state == ST_D_SUBMITTED)
-        {
-            dirty_entry.state = ST_D_WRITTEN;
-        }
-        else if (dirty_entry.state == ST_DEL_SUBMITTED)
-        {
-            dirty_entry.state = ST_DEL_WRITTEN;
-        }
-        // Acknowledge write without sync
-        op->retval = op->len;
-        FINISH_OP(op);
+        release_journal_sectors(op);
+        ack_write(op);
     }
+}
+
+void blockstore_impl_t::release_journal_sectors(blockstore_op_t *op)
+{
+    // Release used journal sectors
+    if (PRIV(op)->min_used_journal_sector > 0 &&
+        PRIV(op)->max_used_journal_sector > 0)
+    {
+        uint64_t s = PRIV(op)->min_used_journal_sector;
+        while (1)
+        {
+            journal.sector_info[s-1].usage_count--;
+            if (s == PRIV(op)->max_used_journal_sector)
+                break;
+            s = 1 + s % journal.sector_count;
+        }
+        PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
+    }
+}
+
+void blockstore_impl_t::ack_write(blockstore_op_t *op)
+{
+    // Switch object state
+    auto & dirty_entry = dirty_db[(obj_ver_id){
+        .oid = op->oid,
+        .version = op->version,
+    }];
+#ifdef BLOCKSTORE_DEBUG
+    printf("Ack write %lu:%lu v%lu = %d\n", op->oid.inode, op->oid.stripe, op->version, dirty_entry.state);
+#endif
+    if (dirty_entry.state == ST_J_SUBMITTED)
+    {
+        dirty_entry.state = ST_J_WRITTEN;
+    }
+    else if (dirty_entry.state == ST_D_SUBMITTED)
+    {
+        dirty_entry.state = ST_D_WRITTEN;
+    }
+    else if (dirty_entry.state == ST_DEL_SUBMITTED)
+    {
+        dirty_entry.state = ST_DEL_WRITTEN;
+    }
+    // Acknowledge write without sync
+    op->retval = op->len;
+    FINISH_OP(op);
 }
 
 int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
@@ -287,7 +316,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     je->crc32 = je_crc32((journal_entry*)je);
     journal.crc32_last = je->crc32;
     auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
-    prepare_journal_sector_write(journal, sqe, cb);
+    prepare_journal_sector_write(journal, journal.cur_sector, sqe, cb);
     PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
     PRIV(op)->pending_ops = 1;
     dirty_it->second.state = ST_DEL_SUBMITTED;

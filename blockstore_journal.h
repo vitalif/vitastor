@@ -112,6 +112,7 @@ struct journal_sector_info_t
 {
     uint64_t offset;
     uint64_t usage_count;
+    bool dirty;
 };
 
 struct journal_t
@@ -154,4 +155,4 @@ struct blockstore_journal_check_t
 
 journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, uint32_t size);
 
-void prepare_journal_sector_write(journal_t & journal, io_uring_sqe *sqe, std::function<void(ring_data_t*)> cb);
+void prepare_journal_sector_write(journal_t & journal, int sector, io_uring_sqe *sqe, std::function<void(ring_data_t*)> cb);

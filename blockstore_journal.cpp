@@ -22,6 +22,11 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int require
             next_in_pos += fits * size;
             sectors_required++;
         }
+        else if (bs->journal.sector_info[next_sector].dirty)
+        {
+            // sectors_required is more like "sectors to write"
+            sectors_required++;
+        }
         if (required <= 0)
         {
             break;
@@ -33,13 +38,19 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int require
             right_dir = false;
         }
         next_in_pos = 0;
-        if (bs->journal.sector_info[next_sector].usage_count > 0)
+        if (bs->journal.sector_info[next_sector].usage_count > 0 ||
+            bs->journal.sector_info[next_sector].dirty)
         {
             next_sector = ((next_sector + 1) % bs->journal.sector_count);
         }
-        if (bs->journal.sector_info[next_sector].usage_count > 0)
+        if (bs->journal.sector_info[next_sector].usage_count > 0 ||
+            bs->journal.sector_info[next_sector].dirty)
         {
             // No memory buffer available. Wait for it.
+#ifdef BLOCKSTORE_DEBUG
+            printf("next journal buffer %d is still dirty=%d used=%d\n", next_sector,
+                bs->journal.sector_info[next_sector].dirty, bs->journal.sector_info[next_sector].usage_count);
+#endif
             PRIV(op)->wait_for = WAIT_JOURNAL_BUFFER;
             return 0;
         }
@@ -68,6 +79,7 @@ journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, 
 {
     if (JOURNAL_BLOCK_SIZE - journal.in_sector_pos < size)
     {
+        assert(!journal.sector_info[journal.cur_sector].dirty);
         // Move to the next journal sector
         if (journal.sector_info[journal.cur_sector].usage_count > 0)
         {
@@ -91,22 +103,24 @@ journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, 
     je->type = type;
     je->size = size;
     je->crc32_prev = journal.crc32_last;
+    journal.sector_info[journal.cur_sector].dirty = true;
     return je;
 }
 
-void prepare_journal_sector_write(journal_t & journal, io_uring_sqe *sqe, std::function<void(ring_data_t*)> cb)
+void prepare_journal_sector_write(journal_t & journal, int cur_sector, io_uring_sqe *sqe, std::function<void(ring_data_t*)> cb)
 {
-    journal.sector_info[journal.cur_sector].usage_count++;
+    journal.sector_info[cur_sector].dirty = false;
+    journal.sector_info[cur_sector].usage_count++;
     ring_data_t *data = ((ring_data_t*)sqe->user_data);
     data->iov = (struct iovec){
         (journal.inmemory
-            ? journal.buffer + journal.sector_info[journal.cur_sector].offset
-            : journal.sector_buf + JOURNAL_BLOCK_SIZE*journal.cur_sector),
+            ? journal.buffer + journal.sector_info[cur_sector].offset
+            : journal.sector_buf + JOURNAL_BLOCK_SIZE*cur_sector),
         JOURNAL_BLOCK_SIZE
     };
     data->callback = cb;
     my_uring_prep_writev(
-        sqe, journal.fd, &data->iov, 1, journal.offset + journal.sector_info[journal.cur_sector].offset
+        sqe, journal.fd, &data->iov, 1, journal.offset + journal.sector_info[cur_sector].offset
     );
 }
 

@@ -39,14 +39,36 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
     if (PRIV(op)->sync_state == SYNC_HAS_SMALL)
     {
         // No big writes, just fsync the journal
-        if (!disable_fsync)
+        int n_sqes = disable_fsync ? 0 : 1;
+        if (journal.sector_info[journal.cur_sector].dirty)
         {
-            BS_SUBMIT_GET_SQE(sqe, data);
-            my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
-            data->iov = { 0 };
-            data->callback = cb;
-            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
-            PRIV(op)->pending_ops = 1;
+            n_sqes++;
+        }
+        if (n_sqes > 0)
+        {
+            io_uring_sqe* sqes[n_sqes];
+            for (int i = 0; i < n_sqes; i++)
+            {
+                BS_SUBMIT_GET_SQE_DECL(sqes[i]);
+            }
+            int s = 0;
+            if (journal.sector_info[journal.cur_sector].dirty)
+            {
+                prepare_journal_sector_write(journal, journal.cur_sector, sqes[s++], cb);
+                PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
+            }
+            else
+            {
+                PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
+            }
+            if (!disable_fsync)
+            {
+                ring_data_t *data = ((ring_data_t*)sqes[s]->user_data);
+                my_uring_prep_fsync(sqes[s++], journal.fd, IORING_FSYNC_DATASYNC);
+                data->iov = { 0 };
+                data->callback = cb;
+            }
+            PRIV(op)->pending_ops = s;
             PRIV(op)->sync_state = SYNC_JOURNAL_SYNC_SENT;
         }
         else
@@ -90,11 +112,20 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         // Prepare and submit journal entries
         auto it = PRIV(op)->sync_big_writes.begin();
         int s = 0, cur_sector = -1;
+        if ((JOURNAL_BLOCK_SIZE - journal.in_sector_pos) < sizeof(journal_entry_big_write) &&
+            journal.sector_info[journal.cur_sector].dirty)
+        {
+            if (cur_sector == -1)
+                PRIV(op)->min_used_journal_sector = 1 + journal.cur_sector;
+            cur_sector = journal.cur_sector;
+            prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
+        }
         while (it != PRIV(op)->sync_big_writes.end())
         {
             journal_entry_big_write *je = (journal_entry_big_write*)
                 prefill_single_journal_entry(journal, JE_BIG_WRITE, sizeof(journal_entry_big_write));
             dirty_db[*it].journal_sector = journal.sector_info[journal.cur_sector].offset;
+            journal.sector_info[journal.cur_sector].dirty = false;
             journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
             printf("journal offset %lu is used by %lu:%lu v%lu\n", dirty_db[*it].journal_sector, it->oid.inode, it->oid.stripe, it->version);
@@ -112,7 +143,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
                 if (cur_sector == -1)
                     PRIV(op)->min_used_journal_sector = 1 + journal.cur_sector;
                 cur_sector = journal.cur_sector;
-                prepare_journal_sector_write(journal, sqe[s++], cb);
+                prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
             }
         }
         PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
@@ -147,18 +178,7 @@ void blockstore_impl_t::handle_sync_event(ring_data_t *data, blockstore_op_t *op
     if (PRIV(op)->pending_ops == 0)
     {
         // Release used journal sectors
-        if (PRIV(op)->min_used_journal_sector > 0)
-        {
-            uint64_t s = PRIV(op)->min_used_journal_sector;
-            while (1)
-            {
-                journal.sector_info[s-1].usage_count--;
-                if (s == PRIV(op)->max_used_journal_sector)
-                    break;
-                s = 1 + s % journal.sector_count;
-            }
-            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
-        }
+        release_journal_sectors(op);
         // Handle states
         if (PRIV(op)->sync_state == SYNC_DATA_SYNC_SENT)
         {

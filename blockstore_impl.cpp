@@ -125,6 +125,12 @@ void blockstore_impl_t::loop()
             if (PRIV(op)->wait_for)
             {
                 check_wait(op);
+#ifdef BLOCKSTORE_DEBUG
+                if (PRIV(op)->wait_for)
+                {
+                    printf("still waiting for %d\n", PRIV(op)->wait_for);
+                }
+#endif
                 if (PRIV(op)->wait_for == WAIT_SQE)
                 {
                     break;
@@ -270,7 +276,9 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
     }
     else if (PRIV(op)->wait_for == WAIT_JOURNAL_BUFFER)
     {
-        if (journal.sector_info[((journal.cur_sector + 1) % journal.sector_count)].usage_count > 0)
+        int next = ((journal.cur_sector + 1) % journal.sector_count);
+        if (journal.sector_info[next].usage_count > 0 ||
+            journal.sector_info[next].dirty)
         {
             // do not submit
             return;

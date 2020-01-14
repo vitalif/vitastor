@@ -94,6 +94,14 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     // Prepare and submit journal entries
     auto cb = [this, op](ring_data_t *data) { handle_stable_event(data, op); };
     int s = 0, cur_sector = -1;
+    if ((JOURNAL_BLOCK_SIZE - journal.in_sector_pos) < sizeof(journal_entry_stable) &&
+        journal.sector_info[journal.cur_sector].dirty)
+    {
+        if (cur_sector == -1)
+            PRIV(op)->min_used_journal_sector = 1 + journal.cur_sector;
+        cur_sector = journal.cur_sector;
+        prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
+    }
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
     {
         auto unstab_it = unstable_writes.find(v->oid);
@@ -104,6 +112,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
         }
         journal_entry_stable *je = (journal_entry_stable*)
             prefill_single_journal_entry(journal, JE_STABLE, sizeof(journal_entry_stable));
+        journal.sector_info[journal.cur_sector].dirty = false;
         je->oid = v->oid;
         je->version = v->version;
         je->crc32 = je_crc32((journal_entry*)je);
@@ -113,7 +122,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
             if (cur_sector == -1)
                 PRIV(op)->min_used_journal_sector = 1 + journal.cur_sector;
             cur_sector = journal.cur_sector;
-            prepare_journal_sector_write(journal, sqe[s++], cb);
+            prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
         }
     }
     PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
@@ -135,18 +144,7 @@ void blockstore_impl_t::handle_stable_event(ring_data_t *data, blockstore_op_t *
     if (PRIV(op)->pending_ops == 0)
     {
         // Release used journal sectors
-        if (PRIV(op)->min_used_journal_sector > 0)
-        {
-            uint64_t s = PRIV(op)->min_used_journal_sector;
-            while (1)
-            {
-                journal.sector_info[s-1].usage_count--;
-                if (s == PRIV(op)->max_used_journal_sector)
-                    break;
-                s = 1 + s % journal.sector_count;
-            }
-            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
-        }
+        release_journal_sectors(op);
         // First step: mark dirty_db entries as stable, acknowledge op completion
         obj_ver_id* v;
         int i;

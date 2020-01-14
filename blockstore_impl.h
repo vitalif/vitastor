@@ -256,6 +256,8 @@ class blockstore_impl_t
     void enqueue_write(blockstore_op_t *op);
     int dequeue_write(blockstore_op_t *op);
     int dequeue_del(blockstore_op_t *op);
+    void ack_write(blockstore_op_t *op);
+    void release_journal_sectors(blockstore_op_t *op);
     void handle_write_event(ring_data_t *data, blockstore_op_t *op);
 
     // Sync
