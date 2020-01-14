@@ -153,6 +153,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             BS_SUBMIT_GET_SQE_DECL(sqe2);
             data2 = ((ring_data_t*)sqe2->user_data);
         }
+        // FIXME: Write journal sector here only if it is full. Otherwise, defer it until SYNC. This will help reduce WA
         // Got SQEs. Prepare journal sector write
         journal_entry_small_write *je = (journal_entry_small_write*)
             prefill_single_journal_entry(journal, JE_SMALL_WRITE, sizeof(struct journal_entry_small_write));
