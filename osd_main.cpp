@@ -1,5 +1,12 @@
 #include "osd.h"
 
+#include <signal.h>
+
+void handle_sigint(int sig)
+{
+    exit(0);
+}
+
 int main(int narg, char *args[])
 {
     if (sizeof(osd_any_op_t) >= OSD_PACKET_SIZE ||
@@ -9,9 +16,15 @@ int main(int narg, char *args[])
         return 1;
     }
     blockstore_config_t config;
-    config["meta_device"] = "./test_meta.bin";
-    config["journal_device"] = "./test_journal.bin";
-    config["data_device"] = "./test_data.bin";
+    for (int i = 1; i < narg; i++)
+    {
+        if (args[i][0] == '-' && args[i][1] == '-' && i < narg-1)
+        {
+            char *opt = args[i]+2;
+            config[opt] = args[++i];
+        }
+    }
+    signal(SIGINT, handle_sigint);
     ring_loop_t *ringloop = new ring_loop_t(512);
     blockstore_t *bs = new blockstore_t(config, ringloop);
     osd_t *osd = new osd_t(config, bs, ringloop);
