@@ -201,7 +201,7 @@ resume_1:
             // Nothing to flush
             flusher->active_flushers--;
             repeat_it = flusher->sync_to_repeat.find(cur.oid);
-            if (repeat_it->second > cur.version)
+            if (repeat_it != flusher->sync_to_repeat.end() && repeat_it->second > cur.version)
             {
                 // Requeue version
                 flusher->unshift_flush({ .oid = cur.oid, .version = repeat_it->second });
@@ -420,7 +420,7 @@ resume_1:
 #endif
         flusher->active_flushers--;
         repeat_it = flusher->sync_to_repeat.find(cur.oid);
-        if (repeat_it->second > cur.version)
+        if (repeat_it != flusher->sync_to_repeat.end() && repeat_it->second > cur.version)
         {
             // Requeue version
             flusher->unshift_flush({ .oid = cur.oid, .version = repeat_it->second });
