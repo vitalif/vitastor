@@ -38,6 +38,7 @@ struct sec_data
     /* block_size = 1 << block_order (128KB by default) */
     uint64_t block_order = 17, block_size = 1 << 17;
     std::unordered_map<uint64_t, io_u*> queue;
+    bool last_sync = false;
     /* The list of completed io_u structs. */
     std::vector<io_u*> completed;
     uint64_t op_n = 0, inflight = 0;
@@ -73,6 +74,9 @@ static struct fio_option options[] = {
         .name = NULL,
     },
 };
+
+static int read_blocking(int fd, void *read_buf, size_t remaining);
+static int write_blocking(int fd, void *write_buf, size_t remaining);
 
 static int sec_setup(struct thread_data *td)
 {
@@ -152,6 +156,10 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     int n = bsd->op_n;
 
     fio_ro_check(td, io);
+    if (io->ddir == DDIR_SYNC && bsd->last_sync)
+    {
+        return FIO_Q_COMPLETED;
+    }
 
     io->engine_data = bsd;
     union
@@ -173,6 +181,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
         op.sec_rw.version = UINT64_MAX; // last unstable
         op.sec_rw.offset = io->offset % bsd->block_size;
         op.sec_rw.len = io->xfer_buflen;
+        bsd->last_sync = false;
         break;
     case DDIR_WRITE:
         op.hdr.opcode = OSD_OP_SECONDARY_WRITE;
@@ -183,10 +192,13 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
         op.sec_rw.version = 0; // assign automatically
         op.sec_rw.offset = io->offset % bsd->block_size;
         op.sec_rw.len = io->xfer_buflen;
+        bsd->last_sync = false;
         break;
     case DDIR_SYNC:
         // Allowed only for testing: sync & stabilize all unstable object versions
         op.hdr.opcode = OSD_OP_TEST_SYNC_STAB_ALL;
+        // fio sends 32 syncs with -fsync=32. we omit 31 of them even though it's not 100% fine (FIXME: fix fio itself)
+        bsd->last_sync = true;
         break;
     default:
         io->error = EINVAL;
@@ -206,23 +218,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     if (io->ddir == DDIR_WRITE)
     {
         // Send data
-        void *send_buf = io->xfer_buf;
-        size_t remaining = io->xfer_buflen;
-        while (remaining > 0)
-        {
-            size_t r = write(bsd->connect_fd, send_buf, remaining);
-            if (r < 0)
-            {
-                if (r != EAGAIN)
-                {
-                    perror("write");
-                    exit(1);
-                }
-                continue;
-            }
-            remaining -= r;
-            send_buf += r;
-        }
+        write_blocking(bsd->connect_fd, io->xfer_buf, io->xfer_buflen);
     }
 
     if (io->error != 0)
@@ -230,19 +226,52 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     return FIO_Q_QUEUED;
 }
 
-void read_blocking(int fd, void *read_buf, size_t remaining)
+
+static int read_blocking(int fd, void *read_buf, size_t remaining)
 {
-    while (remaining > 0)
+    size_t done = 0;
+    while (done < remaining)
     {
-        size_t r = read(fd, read_buf, remaining);
+        size_t r = read(fd, read_buf, remaining-done);
         if (r <= 0)
         {
-            perror("read");
-            exit(1);
+            if (!errno)
+            {
+                // EOF
+                return done;
+            }
+            else if (errno != EAGAIN && errno != EPIPE)
+            {
+                perror("read");
+                exit(1);
+            }
+            continue;
         }
-        remaining -= r;
+        done += r;
         read_buf += r;
     }
+    return done;
+}
+
+static int write_blocking(int fd, void *write_buf, size_t remaining)
+{
+    size_t done = 0;
+    while (done < remaining)
+    {
+        size_t r = write(fd, write_buf, remaining-done);
+        if (r < 0)
+        {
+            if (errno != EAGAIN && errno != EPIPE)
+            {
+                perror("write");
+                exit(1);
+            }
+            continue;
+        }
+        done += r;
+        write_buf += r;
+    }
+    return done;
 }
 
 static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int max, const struct timespec *t)
