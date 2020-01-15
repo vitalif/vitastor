@@ -144,15 +144,15 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             uint8_t *clean_entry_bitmap;
             if (inmemory_meta)
             {
-                uint64_t sector = (meta_loc / (META_BLOCK_SIZE / clean_entry_size)) * META_BLOCK_SIZE;
-                uint64_t pos = (meta_loc % (META_BLOCK_SIZE / clean_entry_size));
+                uint64_t sector = (meta_loc / (meta_block_size / clean_entry_size)) * meta_block_size;
+                uint64_t pos = (meta_loc % (meta_block_size / clean_entry_size));
                 clean_entry_bitmap = (uint8_t*)(metadata_buffer + sector + pos*clean_entry_size + sizeof(clean_disk_entry));
             }
             else
             {
                 clean_entry_bitmap = (uint8_t*)(clean_bitmap + meta_loc*clean_entry_bitmap_size);
             }
-            uint64_t bmp_start = 0, bmp_end = 0, bmp_size = block_size/BITMAP_GRANULARITY;
+            uint64_t bmp_start = 0, bmp_end = 0, bmp_size = block_size/bitmap_granularity;
             while (bmp_start < bmp_size)
             {
                 while (!(clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7))) && bmp_end < bmp_size)
@@ -162,8 +162,8 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                 if (bmp_end > bmp_start)
                 {
                     // fill with zeroes
-                    fulfill_read(read_op, fulfilled, bmp_start * BITMAP_GRANULARITY,
-                        bmp_end * BITMAP_GRANULARITY, ST_DEL_STABLE, 0, 0);
+                    fulfill_read(read_op, fulfilled, bmp_start * bitmap_granularity,
+                        bmp_end * bitmap_granularity, ST_DEL_STABLE, 0, 0);
                 }
                 bmp_start = bmp_end;
                 while (clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7)) && bmp_end < bmp_size)
@@ -172,8 +172,8 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                 }
                 if (bmp_end > bmp_start)
                 {
-                    if (!fulfill_read(read_op, fulfilled, bmp_start * BITMAP_GRANULARITY,
-                        bmp_end * BITMAP_GRANULARITY, ST_CURRENT, 0, clean_it->second.location + bmp_start * BITMAP_GRANULARITY))
+                    if (!fulfill_read(read_op, fulfilled, bmp_start * bitmap_granularity,
+                        bmp_end * bitmap_granularity, ST_CURRENT, 0, clean_it->second.location + bmp_start * bitmap_granularity))
                     {
                         // need to wait. undo added requests, don't dequeue op
                         PRIV(read_op)->read_vec.clear();

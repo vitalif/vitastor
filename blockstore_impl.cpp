@@ -7,24 +7,15 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *
     ring_consumer.loop = [this]() { loop(); };
     ringloop->register_consumer(ring_consumer);
     initialized = 0;
-    block_order = strtoull(config["block_size_order"].c_str(), NULL, 10);
-    if (block_order == 0)
-    {
-        block_order = DEFAULT_ORDER;
-    }
-    block_size = 1 << block_order;
-    if (block_size < MIN_BLOCK_SIZE || block_size >= MAX_BLOCK_SIZE)
-    {
-        throw std::runtime_error("Bad block size");
-    }
     zero_object = (uint8_t*)memalign(MEM_ALIGNMENT, block_size);
     data_fd = meta_fd = journal.fd = -1;
+    parse_config(config);
     try
     {
-        open_data(config);
-        open_meta(config);
-        open_journal(config);
-        calc_lengths(config);
+        open_data();
+        open_meta();
+        open_journal();
+        calc_lengths();
         data_alloc = new allocator(block_count);
     }
     catch (std::exception & e)
@@ -37,9 +28,6 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *
             close(journal.fd);
         throw;
     }
-    int flusher_count = strtoull(config["flusher_count"].c_str(), NULL, 10);
-    if (!flusher_count)
-        flusher_count = 32;
     flusher = new journal_flusher_t(flusher_count, this);
 }
 
@@ -306,7 +294,7 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
         ((type == BS_OP_READ || type == BS_OP_WRITE) && (
             op->offset >= block_size ||
             op->len > block_size-op->offset ||
-            (op->len % DISK_ALIGNMENT)
+            (op->len % disk_alignment)
         )) ||
         readonly && type != BS_OP_READ ||
         first && type == BS_OP_WRITE)

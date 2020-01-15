@@ -26,16 +26,6 @@
 // Memory alignment for direct I/O (usually 512 bytes)
 // All other alignments must be a multiple of this one
 #define MEM_ALIGNMENT 512
-// FIXME: Make following constants configurable
-// Required write alignment and journal/metadata/data areas' location alignment
-#define DISK_ALIGNMENT 512
-// Journal block size - minimum_io_size of the journal device is the best choice
-#define JOURNAL_BLOCK_SIZE 512
-// Metadata block size - minimum_io_size of the metadata device is the best choice
-#define META_BLOCK_SIZE 512
-// Sparse write tracking granularity. 4 KB is a good choice. Must be a multiple
-// of the write alignment.
-#define BITMAP_GRANULARITY 4096
 
 // States are not stored on disk. Instead, they're deduced from the journal
 
@@ -181,8 +171,36 @@ struct blockstore_op_private_t
 
 #include "blockstore_flush.h"
 
+struct blockstore_params_t
+{
+    uint32_t block_size;
+    
+};
+
 class blockstore_impl_t
 {
+    /******* OPTIONS *******/
+    std::string data_device, meta_device, journal_device;
+    uint32_t block_size;
+    uint64_t meta_offset;
+    uint64_t data_offset;
+    uint64_t cfg_journal_size;
+    // Required write alignment and journal/metadata/data areas' location alignment
+    uint64_t disk_alignment = 512;
+    // Journal block size - minimum_io_size of the journal device is the best choice
+    uint64_t journal_block_size = 512;
+    // Metadata block size - minimum_io_size of the metadata device is the best choice
+    uint64_t meta_block_size = 512;
+    // Sparse write tracking granularity. 4 KB is a good choice. Must be a multiple of disk_alignment
+    uint64_t bitmap_granularity = 4096;
+    bool readonly = false;
+    // FIXME: separate flags for data, metadata and journal
+    // It is safe to disable fsync() if drive write cache is writethrough
+    bool disable_fsync = false;
+    bool inmemory_meta = false;
+    int flusher_count;
+    /******* END OF OPTIONS *******/
+
     struct ring_consumer_t ring_consumer;
 
     // Another option is https://github.com/algorithm-ninja/cpp-btree
@@ -195,21 +213,15 @@ class blockstore_impl_t
     allocator *data_alloc = NULL;
     uint8_t *zero_object;
 
+    uint32_t block_order;
     uint64_t block_count;
-    uint32_t block_order, block_size;
     uint32_t clean_entry_bitmap_size = 0, clean_entry_size = 0;
 
     int meta_fd;
     int data_fd;
+    uint64_t meta_size, meta_area, meta_len;
+    uint64_t data_size, data_len;
 
-    uint64_t meta_offset, meta_size, meta_area, meta_len;
-    uint64_t data_offset, data_size, data_len;
-
-    bool readonly = false;
-    // FIXME: separate flags for data, metadata and journal
-    // It is safe to disable fsync() if drive write cache is writethrough
-    bool disable_fsync = false;
-    bool inmemory_meta = false;
     void *metadata_buffer = NULL;
 
     struct journal_t journal;
@@ -231,10 +243,11 @@ class blockstore_impl_t
     friend class journal_flusher_t;
     friend class journal_flusher_co;
 
-    void calc_lengths(blockstore_config_t & config);
-    void open_data(blockstore_config_t & config);
-    void open_meta(blockstore_config_t & config);
-    void open_journal(blockstore_config_t & config);
+    void parse_config(blockstore_config_t & config);
+    void calc_lengths();
+    void open_data();
+    void open_meta();
+    void open_journal();
 
     // Asynchronous init
     int initialized;
@@ -302,6 +315,5 @@ public:
     std::map<object_id, uint64_t> unstable_writes;
 
     inline uint32_t get_block_size() { return block_size; }
-    inline uint32_t get_block_order() { return block_order; }
     inline uint64_t get_block_count() { return block_count; }
 };

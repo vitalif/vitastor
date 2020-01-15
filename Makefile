@@ -21,8 +21,8 @@ timerfd_interval.o: timerfd_interval.cpp timerfd_interval.h
 
 libblockstore.so: $(BLOCKSTORE_OBJS)
 	g++ $(CXXFLAGS) -o libblockstore.so -shared $(BLOCKSTORE_OBJS) -ltcmalloc_minimal -luring
-libfio_blockstore.so: ./libblockstore.so fio_engine.cpp
-	g++ $(CXXFLAGS) -shared -o libfio_blockstore.so fio_engine.cpp ./libblockstore.so -ltcmalloc_minimal -luring
+libfio_blockstore.so: ./libblockstore.so fio_engine.cpp json11.o
+	g++ $(CXXFLAGS) -shared -o libfio_blockstore.so fio_engine.cpp json11.o ./libblockstore.so -ltcmalloc_minimal -luring
 
 osd_exec_secondary.o: osd_exec_secondary.cpp osd.h osd_ops.h
 	g++ $(CXXFLAGS) -c -o $@ $<

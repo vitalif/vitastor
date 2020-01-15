@@ -101,6 +101,5 @@ public:
     std::map<object_id, uint64_t> & get_unstable_writes();
 
     uint32_t get_block_size();
-    uint32_t get_block_order();
     uint64_t get_block_count();
 };

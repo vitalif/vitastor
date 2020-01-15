@@ -106,9 +106,9 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         printf("Allocate block %lu\n", loc);
 #endif
         data_alloc->set(loc, true);
-        uint64_t stripe_offset = (op->offset % BITMAP_GRANULARITY);
-        uint64_t stripe_end = (op->offset + op->len) % BITMAP_GRANULARITY;
-        // Zero fill up to BITMAP_GRANULARITY
+        uint64_t stripe_offset = (op->offset % bitmap_granularity);
+        uint64_t stripe_end = (op->offset + op->len) % bitmap_granularity;
+        // Zero fill up to bitmap_granularity
         int vcnt = 0;
         if (stripe_offset)
         {
@@ -117,7 +117,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ op->buf, op->len };
         if (stripe_end)
         {
-            stripe_end = BITMAP_GRANULARITY - stripe_end;
+            stripe_end = bitmap_granularity - stripe_end;
             PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, stripe_end };
         }
         data->iov.iov_len = op->len + stripe_offset + stripe_end; // to check it in the callback
@@ -145,7 +145,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         }
         // There is sufficient space. Get SQE(s)
         struct io_uring_sqe *sqe1 = NULL;
-        if ((JOURNAL_BLOCK_SIZE - journal.in_sector_pos) < sizeof(journal_entry_small_write) &&
+        if ((journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_small_write) &&
             journal.sector_info[journal.cur_sector].dirty)
         {
             // Write current journal sector only if it's dirty and full
@@ -178,7 +178,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         printf("journal offset %lu is used by %lu:%lu v%lu\n", dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
 #endif
         // Figure out where data will be
-        journal.next_free = (journal.next_free + op->len) <= journal.len ? journal.next_free : JOURNAL_BLOCK_SIZE;
+        journal.next_free = (journal.next_free + op->len) <= journal.len ? journal.next_free : journal_block_size;
         je->oid = op->oid;
         je->version = op->version;
         je->offset = op->offset;
@@ -212,7 +212,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         journal.next_free += op->len;
         if (journal.next_free >= journal.len)
         {
-            journal.next_free = JOURNAL_BLOCK_SIZE;
+            journal.next_free = journal_block_size;
         }
         // Remember small write as unsynced
         unsynced_small_writes.push_back((obj_ver_id){

@@ -65,8 +65,8 @@ int blockstore_init_meta::loop()
             void *done_buf = bs->inmemory_meta
                 ? (metadata_buffer + done_pos)
                 : (metadata_buffer + (prev_done == 2 ? bs->metadata_buf_size : 0));
-            unsigned count = META_BLOCK_SIZE / bs->clean_entry_size;
-            for (int sector = 0; sector < done_len; sector += META_BLOCK_SIZE)
+            unsigned count = bs->meta_block_size / bs->clean_entry_size;
+            for (int sector = 0; sector < done_len; sector += bs->meta_block_size)
             {
                 // handle <count> entries
                 handle_entries(done_buf + sector, count, bs->block_order);
@@ -135,6 +135,7 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
 blockstore_init_journal::blockstore_init_journal(blockstore_impl_t *bs)
 {
     this->bs = bs;
+    next_free = bs->journal.block_size;
     simple_callback = [this](ring_data_t *data1)
     {
         if (data1->res != data1->iov.iov_len)
@@ -171,7 +172,7 @@ void blockstore_init_journal::handle_event(ring_data_t *data1)
     if (journal_pos >= bs->journal.len)
     {
         // Continue from the beginning
-        journal_pos = JOURNAL_BLOCK_SIZE;
+        journal_pos = bs->journal.block_size;
         wrapped = true;
     }
     submitted_buf = NULL;
@@ -198,7 +199,7 @@ int blockstore_init_journal::loop()
     printf("Reading blockstore journal\n");
     if (!bs->journal.inmemory)
     {
-        submitted_buf = memalign(MEM_ALIGNMENT, 2*JOURNAL_BLOCK_SIZE);
+        submitted_buf = memalign(MEM_ALIGNMENT, 2*bs->journal.block_size);
         if (!submitted_buf)
             throw std::bad_alloc();
     }
@@ -209,7 +210,7 @@ int blockstore_init_journal::loop()
     if (!sqe)
         throw std::runtime_error("io_uring is full while trying to read journal");
     data = ((ring_data_t*)sqe->user_data);
-    data->iov = { submitted_buf, JOURNAL_BLOCK_SIZE };
+    data->iov = { submitted_buf, bs->journal.block_size };
     data->callback = simple_callback;
     my_uring_prep_readv(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
     bs->ringloop->submit();
@@ -223,18 +224,18 @@ resume_1:
     if (iszero((uint64_t*)submitted_buf, 3))
     {
         // Journal is empty
-        // FIXME handle this wrapping to JOURNAL_BLOCK_SIZE better (maybe)
-        bs->journal.used_start = JOURNAL_BLOCK_SIZE;
-        bs->journal.next_free = JOURNAL_BLOCK_SIZE;
+        // FIXME handle this wrapping to journal_block_size better (maybe)
+        bs->journal.used_start = bs->journal.block_size;
+        bs->journal.next_free = bs->journal.block_size;
         // Initialize journal "superblock" and the first block
-        memset(submitted_buf, 0, 2*JOURNAL_BLOCK_SIZE);
+        memset(submitted_buf, 0, 2*bs->journal.block_size);
         *((journal_entry_start*)submitted_buf) = {
             .crc32 = 0,
             .magic = JOURNAL_MAGIC,
             .type = JE_START,
             .size = sizeof(journal_entry_start),
             .reserved = 0,
-            .journal_start = JOURNAL_BLOCK_SIZE,
+            .journal_start = bs->journal.block_size,
         };
         ((journal_entry_start*)submitted_buf)->crc32 = je_crc32((journal_entry*)submitted_buf);
         if (bs->readonly)
@@ -246,7 +247,7 @@ resume_1:
             // Cool effect. Same operations result in journal replay.
             // FIXME: Randomize initial crc32. Track crc32 when trimming.
             GET_SQE();
-            data->iov = (struct iovec){ submitted_buf, 2*JOURNAL_BLOCK_SIZE };
+            data->iov = (struct iovec){ submitted_buf, 2*bs->journal.block_size };
             data->callback = simple_callback;
             my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
             wait_count++;
@@ -326,7 +327,7 @@ resume_1:
                     if (init_write_buf && !bs->readonly)
                     {
                         GET_SQE();
-                        data->iov = { init_write_buf, JOURNAL_BLOCK_SIZE };
+                        data->iov = { init_write_buf, bs->journal.block_size };
                         data->callback = simple_callback;
                         wait_count++;
                         my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + init_write_sector);
@@ -393,8 +394,8 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
     uint64_t proc_pos, pos;
     if (continue_pos != 0)
     {
-        proc_pos = (continue_pos / JOURNAL_BLOCK_SIZE) * JOURNAL_BLOCK_SIZE;
-        pos = continue_pos % JOURNAL_BLOCK_SIZE;
+        proc_pos = (continue_pos / bs->journal.block_size) * bs->journal.block_size;
+        pos = continue_pos % bs->journal.block_size;
         continue_pos = 0;
         goto resume;
     }
@@ -402,13 +403,13 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
     {
         proc_pos = next_free;
         pos = 0;
-        next_free += JOURNAL_BLOCK_SIZE;
+        next_free += bs->journal.block_size;
         if (next_free >= bs->journal.len)
         {
-            next_free = JOURNAL_BLOCK_SIZE;
+            next_free = bs->journal.block_size;
         }
     resume:
-        while (pos < JOURNAL_BLOCK_SIZE)
+        while (pos < bs->journal.block_size)
         {
             journal_entry *je = (journal_entry*)(buf + proc_pos - done_pos + pos);
             if (je->magic != JOURNAL_MAGIC || je_crc32(je) != je->crc32 ||
@@ -436,13 +437,13 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                 if (next_free + je->small_write.len > bs->journal.len)
                 {
                     // data continues from the beginning of the journal
-                    next_free = JOURNAL_BLOCK_SIZE;
+                    next_free = bs->journal.block_size;
                 }
                 uint64_t location = next_free;
                 next_free += je->small_write.len;
                 if (next_free >= bs->journal.len)
                 {
-                    next_free = JOURNAL_BLOCK_SIZE;
+                    next_free = bs->journal.block_size;
                 }
                 if (location != je->small_write.data_offset)
                 {
@@ -483,7 +484,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                 {
                     // journal entry is corrupt, stop here
                     // interesting thing is that we must clear the corrupt entry if we're not readonly
-                    memset(buf + proc_pos - done_pos + pos, 0, JOURNAL_BLOCK_SIZE - pos);
+                    memset(buf + proc_pos - done_pos + pos, 0, bs->journal.block_size - pos);
                     bs->journal.next_free = prev_free;
                     init_write_buf = buf + proc_pos - done_pos;
                     init_write_sector = proc_pos;

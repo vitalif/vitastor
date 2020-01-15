@@ -50,11 +50,6 @@ uint32_t blockstore_t::get_block_size()
     return impl->get_block_size();
 }
 
-uint32_t blockstore_t::get_block_order()
-{
-    return impl->get_block_order();
-}
-
 uint64_t blockstore_t::get_block_count()
 {
     return impl->get_block_count();

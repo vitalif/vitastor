@@ -8,7 +8,7 @@ journal_flusher_t::journal_flusher_t(int flusher_count, blockstore_impl_t *bs)
     sync_threshold = flusher_count == 1 ? 1 : flusher_count/2;
     journal_trim_interval = sync_threshold;
     journal_trim_counter = 0;
-    journal_superblock = bs->journal.inmemory ? bs->journal.buffer : memalign(MEM_ALIGNMENT, JOURNAL_BLOCK_SIZE);
+    journal_superblock = bs->journal.inmemory ? bs->journal.buffer : memalign(MEM_ALIGNMENT, bs->journal_block_size);
     co = new journal_flusher_co[flusher_count];
     for (int i = 0; i < flusher_count; i++)
     {
@@ -316,7 +316,7 @@ resume_1:
             }
             memset(meta_old.buf + meta_old.pos*bs->clean_entry_size, 0, bs->clean_entry_size);
             await_sqe(15);
-            data->iov = (struct iovec){ meta_old.buf, META_BLOCK_SIZE };
+            data->iov = (struct iovec){ meta_old.buf, bs->meta_block_size };
             data->callback = simple_callback_w;
             my_uring_prep_writev(
                 sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + meta_old.sector
@@ -338,7 +338,7 @@ resume_1:
             }
         }
         await_sqe(6);
-        data->iov = (struct iovec){ meta_new.buf, META_BLOCK_SIZE };
+        data->iov = (struct iovec){ meta_new.buf, bs->meta_block_size };
         data->callback = simple_callback_w;
         my_uring_prep_writev(
             sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + meta_new.sector
@@ -402,7 +402,7 @@ resume_1:
                     .journal_start = bs->journal.used_start,
                 };
                 ((journal_entry_start*)flusher->journal_superblock)->crc32 = je_crc32((journal_entry*)flusher->journal_superblock);
-                data->iov = (struct iovec){ flusher->journal_superblock, JOURNAL_BLOCK_SIZE };
+                data->iov = (struct iovec){ flusher->journal_superblock, bs->journal_block_size };
                 data->callback = simple_callback_w;
                 my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
                 wait_count++;
@@ -533,8 +533,8 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
     // We must check if the same sector is already in memory if we don't keep all metadata in memory all the time.
     // And yet another option is to use LSM trees for metadata, but it sophisticates everything a lot,
     // so I'll avoid it as long as I can.
-    wr.sector = ((meta_loc >> bs->block_order) / (META_BLOCK_SIZE / bs->clean_entry_size)) * META_BLOCK_SIZE;
-    wr.pos = ((meta_loc >> bs->block_order) % (META_BLOCK_SIZE / bs->clean_entry_size));
+    wr.sector = ((meta_loc >> bs->block_order) / (bs->meta_block_size / bs->clean_entry_size)) * bs->meta_block_size;
+    wr.pos = ((meta_loc >> bs->block_order) % (bs->meta_block_size / bs->clean_entry_size));
     if (bs->inmemory_meta)
     {
         wr.buf = bs->metadata_buffer + wr.sector;
@@ -544,16 +544,16 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
     if (wr.it == flusher->meta_sectors.end())
     {
         // Not in memory yet, read it
-        wr.buf = memalign(MEM_ALIGNMENT, META_BLOCK_SIZE);
+        wr.buf = memalign(MEM_ALIGNMENT, bs->meta_block_size);
         wr.it = flusher->meta_sectors.emplace(wr.sector, (meta_sector_t){
             .offset = wr.sector,
-            .len = META_BLOCK_SIZE,
+            .len = bs->meta_block_size,
             .state = 0, // 0 = not read yet
             .buf = wr.buf,
             .usage_count = 1,
         }).first;
         await_sqe(0);
-        data->iov = (struct iovec){ wr.it->second.buf, META_BLOCK_SIZE };
+        data->iov = (struct iovec){ wr.it->second.buf, bs->meta_block_size };
         data->callback = simple_callback_r;
         wr.submitted = true;
         my_uring_prep_readv(
@@ -690,19 +690,19 @@ void journal_flusher_co::bitmap_set(void *bitmap, uint64_t start, uint64_t len)
 {
     if (start == 0)
     {
-        if (len == 32*BITMAP_GRANULARITY)
+        if (len == 32*bs->bitmap_granularity)
         {
             *((uint32_t*)bitmap) = UINT32_MAX;
             return;
         }
-        else if (len == 64*BITMAP_GRANULARITY)
+        else if (len == 64*bs->bitmap_granularity)
         {
             *((uint64_t*)bitmap) = UINT64_MAX;
             return;
         }
     }
-    unsigned bit_start = start / BITMAP_GRANULARITY;
-    unsigned bit_end = ((start + len) + BITMAP_GRANULARITY - 1) / BITMAP_GRANULARITY;
+    unsigned bit_start = start / bs->bitmap_granularity;
+    unsigned bit_end = ((start + len) + bs->bitmap_granularity - 1) / bs->bitmap_granularity;
     while (bit_start < bit_end)
     {
         if (!(bit_start & 7) && bit_end >= bit_start+8)

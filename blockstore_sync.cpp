@@ -112,7 +112,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         // Prepare and submit journal entries
         auto it = PRIV(op)->sync_big_writes.begin();
         int s = 0, cur_sector = -1;
-        if ((JOURNAL_BLOCK_SIZE - journal.in_sector_pos) < sizeof(journal_entry_big_write) &&
+        if ((journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_big_write) &&
             journal.sector_info[journal.cur_sector].dirty)
         {
             if (cur_sector == -1)

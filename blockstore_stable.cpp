@@ -94,7 +94,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     // Prepare and submit journal entries
     auto cb = [this, op](ring_data_t *data) { handle_stable_event(data, op); };
     int s = 0, cur_sector = -1;
-    if ((JOURNAL_BLOCK_SIZE - journal.in_sector_pos) < sizeof(journal_entry_stable) &&
+    if ((journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_stable) &&
         journal.sector_info[journal.cur_sector].dirty)
     {
         if (cur_sector == -1)

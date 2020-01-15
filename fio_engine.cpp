@@ -9,17 +9,17 @@
 // Random write:
 //
 // fio -thread -ioengine=./libfio_blockstore.so -name=test -bs=4k -direct=1 -fsync=16 -iodepth=16 -rw=randwrite \
-//     -data_device=./test_data.bin -meta_device=./test_meta.bin -journal_device=./test_journal.bin -size=1000M
+//     -bs_config='{"data_device":"./test_data.bin"}' -size=1000M
 //
 // Linear write:
 //
 // fio -thread -ioengine=./libfio_blockstore.so -name=test -bs=128k -direct=1 -fsync=32 -iodepth=32 -rw=write \
-//     -data_device=./test_data.bin -meta_device=./test_meta.bin -journal_device=./test_journal.bin -size=1000M
+//     -bs_config='{"data_device":"./test_data.bin"}' -size=1000M
 //
 // Random read (run with -iodepth=32 or -iodepth=1):
 //
 // fio -thread -ioengine=./libfio_blockstore.so -name=test -bs=4k -direct=1 -iodepth=32 -rw=randread \
-//     -data_device=./test_data.bin -meta_device=./test_meta.bin -journal_device=./test_journal.bin -size=1000M
+//     -bs_config='{"data_device":"./test_data.bin"}' -size=1000M
 
 #include "blockstore.h"
 extern "C" {
@@ -27,6 +27,8 @@ extern "C" {
 #include "fio/fio.h"
 #include "fio/optgroup.h"
 }
+
+#include "json11/json11.hpp"
 
 struct bs_data
 {
@@ -40,80 +42,16 @@ struct bs_data
 struct bs_options
 {
     int __pad;
-    char *data_device = NULL, *meta_device = NULL, *journal_device = NULL, *disable_fsync = NULL, *block_size_order = NULL;
-    char *data_offset = NULL, *meta_offset = NULL, *journal_offset = NULL;
+    char *json_config = NULL;
 };
 
 static struct fio_option options[] = {
     {
-        .name   = "data_device",
-        .lname  = "Data device",
+        .name   = "bs_config",
+        .lname  = "JSON config for Blockstore",
         .type   = FIO_OPT_STR_STORE,
-        .off1   = offsetof(struct bs_options, data_device),
-        .help   = "Name of the data device/file",
-        .category = FIO_OPT_C_ENGINE,
-        .group  = FIO_OPT_G_FILENAME,
-    },
-    {
-        .name   = "meta_device",
-        .lname  = "Metadata device",
-        .type   = FIO_OPT_STR_STORE,
-        .off1   = offsetof(struct bs_options, meta_device),
-        .help   = "Name of the metadata device/file",
-        .category = FIO_OPT_C_ENGINE,
-        .group  = FIO_OPT_G_FILENAME,
-    },
-    {
-        .name   = "journal_device",
-        .lname  = "Journal device",
-        .type   = FIO_OPT_STR_STORE,
-        .off1   = offsetof(struct bs_options, journal_device),
-        .help   = "Name of the journal device/file",
-        .category = FIO_OPT_C_ENGINE,
-        .group  = FIO_OPT_G_FILENAME,
-    },
-    {
-        .name   = "data_offset",
-        .lname  = "Data offset",
-        .type   = FIO_OPT_STR_STORE,
-        .off1   = offsetof(struct bs_options, data_offset),
-        .help   = "Data offset",
-        .category = FIO_OPT_C_ENGINE,
-        .group  = FIO_OPT_G_FILENAME,
-    },
-    {
-        .name   = "meta_offset",
-        .lname  = "Metadata offset",
-        .type   = FIO_OPT_STR_STORE,
-        .off1   = offsetof(struct bs_options, meta_offset),
-        .help   = "Metadata offset",
-        .category = FIO_OPT_C_ENGINE,
-        .group  = FIO_OPT_G_FILENAME,
-    },
-    {
-        .name   = "journal_offset",
-        .lname  = "Journal offset",
-        .type   = FIO_OPT_STR_STORE,
-        .off1   = offsetof(struct bs_options, journal_offset),
-        .help   = "Journal offset",
-        .category = FIO_OPT_C_ENGINE,
-        .group  = FIO_OPT_G_FILENAME,
-    },
-    {
-        .name   = "disable_fsync",
-        .lname  = "Disable fsync",
-        .type   = FIO_OPT_STR_STORE,
-        .off1   = offsetof(struct bs_options, disable_fsync),
-        .help   = "Disable fsyncs for blockstore (unsafe if your disk has cache)",
-        .category = FIO_OPT_C_ENGINE,
-        .group  = FIO_OPT_G_FILENAME,
-    },
-    {
-        .name   = "block_size_order",
-        .lname  = "Power of 2 for blockstore block size",
-        .type   = FIO_OPT_STR_STORE,
-        .off1   = offsetof(struct bs_options, block_size_order),
-        .help   = "Set blockstore block size to 2^this value (from 12 to 27)",
+        .off1   = offsetof(struct bs_options, json_config),
+        .help   = "JSON config for Blockstore",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
     },
@@ -178,21 +116,18 @@ static int bs_init(struct thread_data *td)
     bs_data *bsd = (bs_data*)td->io_ops_data;
 
     blockstore_config_t config;
-    config["journal_device"] = o->journal_device;
-    config["meta_device"] = o->meta_device;
-    config["data_device"] = o->data_device;
-    if (o->block_size_order)
-        config["block_size_order"] = o->block_size_order;
-    if (o->disable_fsync)
-        config["disable_fsync"] = o->disable_fsync;
-    if (o->data_offset)
-        config["data_offset"] = o->data_offset;
-    if (o->meta_offset)
-        config["meta_offset"] = o->meta_offset;
-    if (o->journal_offset)
-        config["journal_offset"] = o->journal_offset;
-    if (read_only)
-        config["readonly"] = "true";
+    if (o->json_config)
+    {
+        std::string json_err;
+        auto json_cfg = json11::Json::parse(o->json_config, json_err);
+        for (auto p: json_cfg.object_items())
+        {
+            if (p.second.is_string())
+                config[p.first] = p.second.string_value();
+            else
+                config[p.first] = p.second.dump();
+        }
+    }
     bsd->ringloop = new ring_loop_t(512);
     bsd->bs = new blockstore_t(config, bsd->ringloop);
     while (1)
@@ -230,7 +165,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->buf = io->xfer_buf;
         op->oid = {
             .inode = 1,
-            .stripe = io->offset >> bsd->bs->get_block_order(),
+            .stripe = io->offset / bsd->bs->get_block_size(),
         };
         op->version = UINT64_MAX; // last unstable
         op->offset = io->offset % bsd->bs->get_block_size();
@@ -252,7 +187,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->buf = io->xfer_buf;
         op->oid = {
             .inode = 1,
-            .stripe = io->offset >> bsd->bs->get_block_order(),
+            .stripe = io->offset / bsd->bs->get_block_size(),
         };
         op->version = 0; // assign automatically
         op->offset = io->offset % bsd->bs->get_block_size();

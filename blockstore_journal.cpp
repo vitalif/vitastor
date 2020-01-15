@@ -15,7 +15,7 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int require
 {
     while (1)
     {
-        int fits = (JOURNAL_BLOCK_SIZE - next_in_pos) / size;
+        int fits = (bs->journal.block_size - next_in_pos) / size;
         if (fits > 0)
         {
             required -= fits;
@@ -31,10 +31,10 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int require
         {
             break;
         }
-        next_pos = next_pos + JOURNAL_BLOCK_SIZE;
+        next_pos = next_pos + bs->journal.block_size;
         if (next_pos >= bs->journal.len)
         {
-            next_pos = JOURNAL_BLOCK_SIZE;
+            next_pos = bs->journal.block_size;
             right_dir = false;
         }
         next_in_pos = 0;
@@ -60,11 +60,11 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int require
         next_pos = next_pos + data_after;
         if (next_pos > bs->journal.len)
         {
-            next_pos = JOURNAL_BLOCK_SIZE + data_after;
+            next_pos = bs->journal.block_size + data_after;
             right_dir = false;
         }
     }
-    if (!right_dir && next_pos >= bs->journal.used_start-JOURNAL_BLOCK_SIZE)
+    if (!right_dir && next_pos >= bs->journal.used_start-bs->journal.block_size)
     {
         // No space in the journal. Wait until used_start changes.
         PRIV(op)->wait_for = WAIT_JOURNAL;
@@ -77,7 +77,7 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int require
 
 journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, uint32_t size)
 {
-    if (JOURNAL_BLOCK_SIZE - journal.in_sector_pos < size)
+    if (journal.block_size - journal.in_sector_pos < size)
     {
         assert(!journal.sector_info[journal.cur_sector].dirty);
         // Move to the next journal sector
@@ -88,15 +88,15 @@ journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, 
         }
         journal.sector_info[journal.cur_sector].offset = journal.next_free;
         journal.in_sector_pos = 0;
-        journal.next_free = (journal.next_free+JOURNAL_BLOCK_SIZE) < journal.len ? journal.next_free + JOURNAL_BLOCK_SIZE : JOURNAL_BLOCK_SIZE;
+        journal.next_free = (journal.next_free+journal.block_size) < journal.len ? journal.next_free + journal.block_size : journal.block_size;
         memset(journal.inmemory
             ? journal.buffer + journal.sector_info[journal.cur_sector].offset
-            : journal.sector_buf + JOURNAL_BLOCK_SIZE*journal.cur_sector, 0, JOURNAL_BLOCK_SIZE);
+            : journal.sector_buf + journal.block_size*journal.cur_sector, 0, journal.block_size);
     }
     journal_entry *je = (struct journal_entry*)(
         (journal.inmemory
             ? journal.buffer + journal.sector_info[journal.cur_sector].offset
-            : journal.sector_buf + JOURNAL_BLOCK_SIZE*journal.cur_sector) + journal.in_sector_pos
+            : journal.sector_buf + journal.block_size*journal.cur_sector) + journal.in_sector_pos
     );
     journal.in_sector_pos += size;
     je->magic = JOURNAL_MAGIC;
@@ -115,8 +115,8 @@ void prepare_journal_sector_write(journal_t & journal, int cur_sector, io_uring_
     data->iov = (struct iovec){
         (journal.inmemory
             ? journal.buffer + journal.sector_info[cur_sector].offset
-            : journal.sector_buf + JOURNAL_BLOCK_SIZE*cur_sector),
-        JOURNAL_BLOCK_SIZE
+            : journal.sector_buf + journal.block_size*cur_sector),
+        journal.block_size
     };
     data->callback = cb;
     my_uring_prep_writev(
