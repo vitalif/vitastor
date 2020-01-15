@@ -37,6 +37,7 @@ struct bs_data
     /* The list of completed io_u structs. */
     std::vector<io_u*> completed;
     int op_n = 0, inflight = 0;
+    bool last_sync = false;
 };
 
 struct bs_options
@@ -147,6 +148,10 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
 {
     bs_data *bsd = (bs_data*)td->io_ops_data;
     int n = bsd->op_n;
+    if (io->ddir == DDIR_SYNC && bsd->last_sync)
+    {
+        return FIO_Q_COMPLETED;
+    }
 
     fio_ro_check(td, io);
 
@@ -203,6 +208,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
 #endif
             delete op;
         };
+        bsd->last_sync = false;
         break;
     case DDIR_SYNC:
         op->opcode = BS_OP_SYNC;
@@ -251,6 +257,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
                 delete op;
             }
         };
+        bsd->last_sync = true;
         break;
     default:
         io->error = EINVAL;
