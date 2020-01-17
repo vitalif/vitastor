@@ -635,14 +635,16 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
         goto resume_1;
     else if (wait_state == wait_base+2)
         goto resume_2;
-    if (!bs->disable_fsync)
+    if (!(fsync_meta ? bs->disable_meta_fsync : bs->disable_journal_fsync))
     {
         cur_sync = flusher->syncs.end();
         while (cur_sync != flusher->syncs.begin())
         {
             cur_sync--;
             if (cur_sync->fsync_meta == fsync_meta && cur_sync->state == 0)
+            {
                 goto sync_found;
+            }
         }
         cur_sync = flusher->syncs.emplace(flusher->syncs.end(), (flusher_sync_t){
             .fsync_meta = fsync_meta,

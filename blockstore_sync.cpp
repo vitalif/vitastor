@@ -39,7 +39,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
     if (PRIV(op)->sync_state == SYNC_HAS_SMALL)
     {
         // No big writes, just fsync the journal
-        int n_sqes = disable_fsync ? 0 : 1;
+        int n_sqes = disable_journal_fsync ? 0 : 1;
         if (journal.sector_info[journal.cur_sector].dirty)
         {
             n_sqes++;
@@ -61,7 +61,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             {
                 PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
             }
-            if (!disable_fsync)
+            if (!disable_journal_fsync)
             {
                 ring_data_t *data = ((ring_data_t*)sqes[s]->user_data);
                 my_uring_prep_fsync(sqes[s++], journal.fd, IORING_FSYNC_DATASYNC);
@@ -79,7 +79,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
     else if (PRIV(op)->sync_state == SYNC_HAS_BIG)
     {
         // 1st step: fsync data
-        if (!disable_fsync)
+        if (!disable_data_fsync)
         {
             BS_SUBMIT_GET_SQE(sqe, data);
             my_uring_prep_fsync(sqe, data_fd, IORING_FSYNC_DATASYNC);
@@ -104,8 +104,8 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             return 0;
         }
         // Get SQEs. Don't bother about merging, submit each journal sector as a separate request
-        struct io_uring_sqe *sqe[space_check.sectors_required + (disable_fsync ? 0 : 1)];
-        for (int i = 0; i < space_check.sectors_required + (disable_fsync ? 0 : 1); i++)
+        struct io_uring_sqe *sqe[space_check.sectors_required + (disable_journal_fsync ? 0 : 1)];
+        for (int i = 0; i < space_check.sectors_required + (disable_journal_fsync ? 0 : 1); i++)
         {
             BS_SUBMIT_GET_SQE_DECL(sqe[i]);
         }
@@ -148,7 +148,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         }
         PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
         // ... And a journal fsync
-        if (!disable_fsync)
+        if (!disable_journal_fsync)
         {
             my_uring_prep_fsync(sqe[s], journal.fd, IORING_FSYNC_DATASYNC);
             struct ring_data_t *data = ((ring_data_t*)sqe[s]->user_data);
@@ -157,7 +157,9 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             PRIV(op)->pending_ops = 1 + s;
         }
         else
+        {
             PRIV(op)->pending_ops = s;
+        }
         PRIV(op)->sync_state = SYNC_JOURNAL_SYNC_SENT;
         ringloop->submit();
     }

@@ -22,9 +22,17 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     {
         readonly = true;
     }
-    if (config["disable_fsync"] == "true" || config["disable_fsync"] == "1" || config["disable_fsync"] == "yes")
+    if (config["disable_data_fsync"] == "true" || config["disable_data_fsync"] == "1" || config["disable_data_fsync"] == "yes")
     {
-        disable_fsync = true;
+        disable_data_fsync = true;
+    }
+    if (config["disable_meta_fsync"] == "true" || config["disable_meta_fsync"] == "1" || config["disable_meta_fsync"] == "yes")
+    {
+        disable_meta_fsync = true;
+    }
+    if (config["disable_journal_fsync"] == "true" || config["disable_journal_fsync"] == "1" || config["disable_journal_fsync"] == "yes")
+    {
+        disable_journal_fsync = true;
     }
     metadata_buf_size = strtoull(config["meta_buf_size"].c_str(), NULL, 10);
     cfg_journal_size = strtoull(config["journal_size"].c_str(), NULL, 10);
@@ -265,6 +273,7 @@ void blockstore_impl_t::open_meta()
     else
     {
         meta_fd = data_fd;
+        disable_meta_fsync = disable_data_fsync;
         meta_size = 0;
         if (meta_offset >= data_size)
         {
@@ -287,6 +296,7 @@ void blockstore_impl_t::open_journal()
     else
     {
         journal.fd = meta_fd;
+        disable_journal_fsync = disable_meta_fsync;
         journal.device_size = 0;
         if (journal.offset >= data_size)
         {

@@ -251,7 +251,7 @@ resume_1:
             data->callback = simple_callback;
             my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
             wait_count++;
-            if (!bs->disable_fsync)
+            if (!bs->disable_journal_fsync)
             {
                 GET_SQE();
                 my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
@@ -331,7 +331,7 @@ resume_1:
                         data->callback = simple_callback;
                         wait_count++;
                         my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + init_write_sector);
-                        if (!bs->disable_fsync)
+                        if (!bs->disable_journal_fsync)
                         {
                             GET_SQE();
                             data->iov = { 0 };

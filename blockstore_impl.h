@@ -194,9 +194,8 @@ class blockstore_impl_t
     // Sparse write tracking granularity. 4 KB is a good choice. Must be a multiple of disk_alignment
     uint64_t bitmap_granularity = 4096;
     bool readonly = false;
-    // FIXME: separate flags for data, metadata and journal
     // It is safe to disable fsync() if drive write cache is writethrough
-    bool disable_fsync = false;
+    bool disable_data_fsync = false, disable_meta_fsync = false, disable_journal_fsync = false;
     bool inmemory_meta = false;
     int flusher_count;
     /******* END OF OPTIONS *******/
