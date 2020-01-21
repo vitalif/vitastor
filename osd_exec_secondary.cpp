@@ -2,11 +2,6 @@
 
 #include "json11/json11.hpp"
 
-void osd_t::handle_reply(osd_op_t *cur_op)
-{
-    
-}
-
 void osd_t::secondary_op_callback(osd_op_t *cur_op)
 {
     inflight_ops--;
@@ -14,14 +9,8 @@ void osd_t::secondary_op_callback(osd_op_t *cur_op)
     if (cl_it != clients.end())
     {
         auto & cl = cl_it->second;
-        if (cl.write_state == 0)
-        {
-            cl.write_state = CL_WRITE_READY;
-            write_ready_clients.push_back(cur_op->peer_fd);
-        }
         make_reply(cur_op);
-        cl.completions.push_back(cur_op);
-        ringloop->wakeup();
+        outbox_push(cl, cur_op);
     }
     else
     {
@@ -80,7 +69,7 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
     cl.write_state = CL_WRITE_READY;
     write_ready_clients.push_back(cur_op->peer_fd);
     make_reply(cur_op);
-    cl.completions.push_back(cur_op);
+    cl.outbox.push_back(cur_op);
     ringloop->wakeup();
 }
 

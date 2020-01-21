@@ -1,5 +1,16 @@
 #include "osd.h"
 
+void osd_t::outbox_push(osd_client_t & cl, osd_op_t *cur_op)
+{
+    if (cl.write_state == 0)
+    {
+        cl.write_state = CL_WRITE_READY;
+        write_ready_clients.push_back(cur_op->peer_fd);
+    }
+    cl.outbox.push_back(cur_op);
+    ringloop->wakeup();
+}
+
 void osd_t::send_replies()
 {
     for (int i = 0; i < write_ready_clients.size(); i++)
@@ -16,8 +27,8 @@ void osd_t::send_replies()
         if (!cl.write_buf)
         {
             // pick next command
-            cl.write_op = cl.completions.front();
-            cl.completions.pop_front();
+            cl.write_op = cl.outbox.front();
+            cl.outbox.pop_front();
             if (cl.write_op->op_type == OSD_OP_OUT)
             {
                 cl.write_buf = &cl.write_op->op_buf;
@@ -135,7 +146,7 @@ void osd_t::handle_send(ring_data_t *data, int peer_fd)
                         cl.sent_ops[cl.write_op->op.hdr.id] = cl.write_op;
                     }
                     cl.write_op = NULL;
-                    cl.write_state = cl.completions.size() > 0 ? CL_WRITE_READY : 0;
+                    cl.write_state = cl.outbox.size() > 0 ? CL_WRITE_READY : 0;
                 }
             }
         }

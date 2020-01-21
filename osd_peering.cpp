@@ -18,7 +18,7 @@ void osd_t::init_primary()
         .object_map = spp::sparse_hash_map<object_id, int>(),
     });
     pg_count = 1;
-    needs_peering = true;
+    peering_state = 1;
 }
 
 osd_peer_def_t osd_t::parse_peer(std::string peer)
@@ -120,7 +120,7 @@ void osd_t::handle_connect_result(int peer_fd)
 // Ideally: Connect -> Ask & check config -> Start PG peering
 void osd_t::handle_peers()
 {
-    if (needs_peering)
+    if (peering_state & 1)
     {
         for (int i = 0; i < peers.size(); i++)
         {
@@ -131,27 +131,100 @@ void osd_t::handle_peers()
                 connect_peer(peers[i].osd_num, peers[i].addr.c_str(), peers[i].port, [this](int peer_fd)
                 {
                     printf("Connected with peer OSD %lu (fd %d)\n", clients[peer_fd].osd_num, peer_fd);
-                    // Restart PG peering
-                    pgs[0].state = PG_PEERING;
-                    pgs[0].acting_set_ids.clear();
-                    pgs[0].acting_sets.clear();
-                    pgs[0].object_map.clear();
-                    if (pgs[0].peering_state)
-                        delete pgs[0].peering_state;
-                    ringloop->wakeup();
+                    int i;
+                    for (i = 0; i < peers.size(); i++)
+                    {
+                        auto it = osd_peer_fds.find(peers[i].osd_num);
+                        if (it == osd_peer_fds.end() || clients[it->second].peer_state != PEER_CONNECTED)
+                        {
+                            break;
+                        }
+                    }
+                    if (i >= peers.size())
+                    {
+                        // Start PG peering
+                        pgs[0].state = PG_PEERING;
+                        pgs[0].acting_set_ids.clear();
+                        pgs[0].acting_sets.clear();
+                        pgs[0].object_map.clear();
+                        if (pgs[0].peering_state)
+                            delete pgs[0].peering_state;
+                        peering_state = 2;
+                        ringloop->wakeup();
+                    }
                 });
             }
         }
     }
-    for (int i = 0; i < pgs.size(); i++)
+    if (peering_state & 2)
     {
-        if (pgs[i].state == PG_PEERING)
+        for (int i = 0; i < pgs.size(); i++)
         {
-            if (!pgs[i].peering_state)
+            if (pgs[i].state == PG_PEERING)
             {
-                pgs[i].peering_state = new osd_pg_peering_state_t();
-                
+                if (!pgs[i].peering_state)
+                {
+                    start_pg_peering(i);
+                }
+                else if (pgs[i].peering_state->list_done >= 3)
+                {
+                    // FIXME
+                    peering_state = 0;
+                }
             }
         }
+    }
+}
+
+void osd_t::start_pg_peering(int pg_idx)
+{
+    auto & pg = pgs[pg_idx];
+    auto ps = pg.peering_state = new osd_pg_peering_state_t();
+    ps->self = this;
+    ps->pg_num = pg_idx; // FIXME probably shouldn't be pg_idx
+    {
+        osd_op_t *op = new osd_op_t();
+        op->op_type = 0;
+        op->peer_fd = 0;
+        op->bs_op.opcode = BS_OP_LIST;
+        op->bs_op.callback = [ps, op](blockstore_op_t *bs_op)
+        {
+            printf(
+                "Got object list from OSD %lu (local): %d objects (%lu of them stable)\n",
+                ps->self->osd_num, bs_op->retval, bs_op->version
+            );
+            ps->list_done++;
+        };
+        pg.peering_state->list_ops[osd_num] = op;
+        bs->enqueue_op(&op->bs_op);
+    }
+    for (int i = 0; i < peers.size(); i++)
+    {
+        auto & cl = clients[osd_peer_fds[peers[i].osd_num]];
+        osd_op_t *op = new osd_op_t();
+        op->op_type = OSD_OP_OUT;
+        op->peer_fd = cl.peer_fd;
+        op->op = {
+            .sec_list = {
+                .header = {
+                    .magic = SECONDARY_OSD_OP_MAGIC,
+                    .id = 1,
+                    .opcode = OSD_OP_SECONDARY_LIST,
+                },
+                .pgnum = 1,
+                .pgtotal = 1,
+            },
+        };
+        op->callback = [ps](osd_op_t *op)
+        {
+            printf(
+                "Got object list from OSD %lu: %ld objects (%lu of them stable)\n",
+                ps->self->clients[op->peer_fd].osd_num, op->reply.hdr.retval,
+                op->reply.sec_list.stable_count
+            );
+            ps->list_done++;
+        };
+        pg.peering_state->list_ops[cl.osd_num] = op;
+        outbox_push(cl, op);
     }
 }

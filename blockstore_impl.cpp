@@ -62,6 +62,7 @@ bool blockstore_impl_t::is_stalled()
 // main event loop - produce requests
 void blockstore_impl_t::loop()
 {
+    // FIXME: initialized == 10 is ugly
     if (initialized != 10)
     {
         // read metadata, then journal
@@ -89,6 +90,7 @@ void blockstore_impl_t::loop()
                 delete journal_init_reader;
                 journal_init_reader = NULL;
                 initialized = 10;
+                ringloop->wakeup();
             }
         }
     }
@@ -167,6 +169,11 @@ void blockstore_impl_t::loop()
             else if ((op->opcode & BS_OP_TYPE_MASK) == BS_OP_STABLE)
             {
                 dequeue_op = dequeue_stable(op);
+            }
+            else if ((op->opcode & BS_OP_TYPE_MASK) == BS_OP_LIST)
+            {
+                process_list(op);
+                dequeue_op = true;
             }
             if (dequeue_op)
             {
@@ -304,13 +311,6 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
         op->callback(op);
         return;
     }
-    else if (type == BS_OP_LIST)
-    {
-        // List operation is processed synchronously
-        process_list(op);
-        op->callback(op);
-        return;
-    }
     // Call constructor without allocating memory. We'll call destructor before returning op back
     new ((void*)op->private_data) blockstore_op_private_t;
     PRIV(op)->wait_for = 0;
@@ -397,4 +397,5 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
             }
         }
     }
+    FINISH_OP(op);
 }

@@ -52,6 +52,7 @@ struct osd_op_t
     };
     blockstore_op_t bs_op;
     void *buf = NULL;
+    std::function<void(osd_op_t*)> callback;
 
     ~osd_op_t();
 };
@@ -83,8 +84,8 @@ struct osd_client_t
     // Outbound operations sent to this client (which is probably an OSD peer)
     std::map<int, osd_op_t*> sent_ops;
 
-    // Completed operations to send replies back to the client
-    std::deque<osd_op_t*> completions;
+    // Outbound messages (replies or requests)
+    std::deque<osd_op_t*> outbox;
 
     // Write state
     osd_op_t *write_op = NULL;
@@ -141,9 +142,14 @@ namespace std
 #define OSD_HALF_STABLE 0x10000
 #define OSD_NEEDS_ROLLBACK 0x20000
 
+class osd_t;
+
 struct osd_pg_peering_state_t
 {
+    osd_t* self;
+    uint64_t pg_num;
     std::unordered_map<uint64_t, osd_op_t*> list_ops;
+    int list_done = 0;
 };
 
 struct osd_pg_t
@@ -187,7 +193,7 @@ class osd_t
 
     std::map<uint64_t, int> osd_peer_fds;
     std::vector<osd_pg_t> pgs;
-    bool needs_peering = false;
+    int peering_state = 0;
     unsigned pg_count = 0;
 
     // client & peer I/O
@@ -218,6 +224,7 @@ class osd_t
     void send_replies();
     void make_reply(osd_op_t *op);
     void handle_send(ring_data_t *data, int peer_fd);
+    void outbox_push(osd_client_t & cl, osd_op_t *op);
 
     // peer handling (primary OSD logic)
     void connect_peer(unsigned osd_num, const char *peer_host, int peer_port, std::function<void(int)> callback);
@@ -226,9 +233,9 @@ class osd_t
     osd_peer_def_t parse_peer(std::string peer);
     void init_primary();
     void handle_peers();
+    void start_pg_peering(int i);
 
     // op execution
-    void handle_reply(osd_op_t *cur_op);
     void exec_op(osd_op_t *cur_op);
     void exec_sync_stab_all(osd_op_t *cur_op);
     void exec_show_config(osd_op_t *cur_op);

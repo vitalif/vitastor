@@ -90,7 +90,7 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
                     cl.sent_ops.erase(req_it);
                     cl.read_reply_id = 0;
                     cl.read_state = 0;
-                    handle_reply(request);
+                    request->callback(request);
                 }
             }
         }
@@ -168,6 +168,6 @@ void osd_t::handle_read_reply(osd_client_t *cl)
     {
         cl->read_state = 0;
         cl->sent_ops.erase(req_it);
-        handle_reply(request);
+        request->callback(request);
     }
 }
