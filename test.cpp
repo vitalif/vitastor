@@ -21,6 +21,7 @@
 #include <map>
 #include <vector>
 #include <deque>
+#include <algorithm>
 
 #include "blockstore.h"
 #include "blockstore_impl.h"
@@ -236,7 +237,7 @@ int main02(int argc, char *argv[])
     return 0;
 }
 
-int main(int argc, char *argv[])
+int main03(int argc, char *argv[])
 {
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0), enable = 1;
     assert(listen_fd >= 0);
@@ -281,5 +282,69 @@ int main(int argc, char *argv[])
     close(listen_fd);
     io_uring_queue_exit(&ring);
 
+    return 0;
+}
+
+struct obj_ver_role
+{
+    object_id oid;
+    uint64_t version;
+    uint32_t osd_num;
+    uint32_t is_stable;
+};
+
+inline bool operator < (const obj_ver_role & a, const obj_ver_role & b)
+{
+    return a.oid < b.oid ||
+        a.oid == b.oid && a.version < b.version ||
+        a.oid == b.oid && a.version == b.version ||
+        a.oid == b.oid && a.version == b.version && a.osd_num < b.osd_num;
+}
+
+int main(int argc, char *argv[])
+{
+    /*spp::sparse_hash_set<obj_ver_id> osd1, osd2;
+    // fill takes 18.9 s
+    for (int i = 0; i < 1024*1024*8*2; i++)
+    {
+        obj_ver_id ovid = { { rand() % 500, rand() }, rand() };
+        osd1.insert(ovid);
+        osd2.insert(ovid);
+    }
+    for (int i = 0; i < 50000; i++)
+    {
+        obj_ver_id ovid = { { rand() % 500, rand() }, rand() };
+        osd1.insert(ovid);
+        ovid = { { rand() % 500, rand() }, rand() };
+        osd2.insert(ovid);
+    }
+    // diff takes only 2.3 s
+    spp::sparse_hash_set<obj_ver_id> osd1diff;
+    for (obj_ver_id e: osd1)
+    {
+        auto it = osd2.find(e);
+        if (it != osd2.end())
+            osd2.erase(it);
+        else
+            osd1diff.insert(e);
+    }*/
+    // fill vector takes 2 s
+    std::vector<obj_ver_role> to_sort;
+    to_sort.resize(1024*1024*8*2*3);
+    printf("Filling\n");
+    for (int i = 0; i < 1024*1024*8*2*3; i++)
+    {
+        to_sort[i] = {
+            .oid = (object_id){
+                .inode = rand() % 500,
+                .stripe = rand(),
+            },
+            .version = rand(),
+            .osd_num = rand() % 16,
+        };
+    }
+    printf("Sorting\n");
+    // sort takes 7 s
+    std::sort(to_sort.begin(), to_sort.end());
     return 0;
 }

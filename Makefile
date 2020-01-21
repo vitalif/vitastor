@@ -30,10 +30,12 @@ osd_read.o: osd_read.cpp osd.h osd_ops.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_send.o: osd_send.cpp osd.h osd_ops.h
 	g++ $(CXXFLAGS) -c -o $@ $<
+osd_peering.o: osd_peering.cpp osd.h osd_ops.h
+	g++ $(CXXFLAGS) -c -o $@ $<
 osd.o: osd.cpp osd.h osd_ops.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h osd.o osd_exec_secondary.o osd_read.o osd_send.o json11.o
-	g++ $(CXXFLAGS) -o osd osd_main.cpp osd.o osd_exec_secondary.o osd_read.o osd_send.o json11.o ./libblockstore.so -ltcmalloc_minimal -luring
+osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h osd.o osd_exec_secondary.o osd_read.o osd_send.o osd_peering.o json11.o
+	g++ $(CXXFLAGS) -o osd osd_main.cpp osd.o osd_exec_secondary.o osd_read.o osd_send.o osd_peering.o json11.o ./libblockstore.so -ltcmalloc_minimal -luring
 stub_osd: stub_osd.cpp osd_ops.h
 	g++ $(CXXFLAGS) -o stub_osd stub_osd.cpp -ltcmalloc_minimal
 

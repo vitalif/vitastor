@@ -9,16 +9,22 @@
 
 osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop)
 {
+    this->config = config;
+    this->bs = bs;
+    this->ringloop = ringloop;
+
     bind_address = config["bind_address"];
     if (bind_address == "")
         bind_address = "0.0.0.0";
     bind_port = strtoull(config["bind_port"].c_str(), NULL, 10);
     if (!bind_port || bind_port > 65535)
         bind_port = 11203;
-
-    this->config = config;
-    this->bs = bs;
-    this->ringloop = ringloop;
+    osd_num = strtoull(config["osd_num"].c_str(), NULL, 10);
+    if (!osd_num)
+        throw std::runtime_error("osd_num is required in the configuration");
+    run_primary = config["run_primary"] == "true" || config["run_primary"] == "1" || config["run_primary"] == "yes";
+    if (run_primary)
+        init_primary();
 
     listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd < 0)
@@ -61,6 +67,7 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
 
     epoll_event ev;
     ev.data.fd = listen_fd;
+    // FIXME: Use EPOLLET
     ev.events = EPOLLIN;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &ev) < 0)
     {
@@ -133,84 +140,10 @@ void osd_t::loop()
     {
         handle_epoll_events();
     }
+    handle_peers();
     send_replies();
     read_requests();
     ringloop->submit();
-}
-
-void osd_t::connect_peer(unsigned osd_num, char *peer_host, int peer_port, std::function<void(int)> callback)
-{
-    struct sockaddr_in addr;
-    int r;
-    if ((r = inet_pton(AF_INET, peer_host, &addr.sin_addr)) != 1)
-    {
-        callback(-EINVAL);
-        return;
-    }
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(peer_port ? peer_port : 11203);
-    int peer_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (peer_fd < 0)
-    {
-        callback(-errno);
-        return;
-    }
-    fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
-    r = connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
-    if (r < 0 && r != EINPROGRESS)
-    {
-        close(peer_fd);
-        callback(-errno);
-        return;
-    }
-    clients[peer_fd] = (osd_client_t){
-        .peer_addr = addr,
-        .peer_port = peer_port,
-        .peer_fd = peer_fd,
-        .peer_state = PEER_CONNECTING,
-        .connect_callback = callback,
-        .osd_num = osd_num,
-    };
-    osd_peer_fds[osd_num] = peer_fd;
-    // Add FD to epoll (EPOLLOUT for tracking connect() result)
-    epoll_event ev;
-    ev.data.fd = peer_fd;
-    ev.events = EPOLLOUT | EPOLLIN | EPOLLRDHUP;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, peer_fd, &ev) < 0)
-    {
-        throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
-    }
-}
-
-void osd_t::handle_connect_result(int peer_fd)
-{
-    auto & cl = clients[peer_fd];
-    std::function<void(int)> callback = cl.connect_callback;
-    int result = 0;
-    socklen_t result_len = sizeof(result);
-    if (getsockopt(peer_fd, SOL_SOCKET, SO_ERROR, &result, &result_len) < 0)
-    {
-        result = errno;
-    }
-    if (result != 0)
-    {
-        stop_client(peer_fd);
-        callback(-result);
-        return;
-    }
-    int one = 1;
-    setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
-    // Disable EPOLLOUT on this fd
-    cl.connect_callback = NULL;
-    cl.peer_state = PEER_CONNECTED;
-    epoll_event ev;
-    ev.data.fd = peer_fd;
-    ev.events = EPOLLIN | EPOLLRDHUP;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_MOD, peer_fd, &ev) < 0)
-    {
-        throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
-    }
-    callback(peer_fd);
 }
 
 int osd_t::handle_epoll_events()

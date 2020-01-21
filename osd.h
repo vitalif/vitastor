@@ -97,7 +97,8 @@ struct osd_client_t
 
 struct osd_pg_role_t
 {
-    int role;
+    // role = (stripe role: 1, 2, 3, ...) | (stable ? 0 : 1<<63)
+    uint64_t role;
     uint64_t osd_num;
 };
 
@@ -121,7 +122,7 @@ namespace std
     };
 }
 
-// Placement group state:
+// Placement group states
 // Exactly one of these:
 #define PG_OFFLINE (1<<0)
 #define PG_PEERING (1<<1)
@@ -132,10 +133,23 @@ namespace std
 #define PG_HAS_DEGRADED (1<<5)
 #define PG_HAS_MISPLACED (1<<6)
 
+// OSD object states
+#define OSD_CLEAN 0x01
+#define OSD_MISPLACED 0x02
+#define OSD_DEGRADED 0x03
+#define OSD_INCOMPLETE 0x04
+#define OSD_HALF_STABLE 0x10000
+#define OSD_NEEDS_ROLLBACK 0x20000
+
+struct osd_pg_peering_state_t
+{
+    std::unordered_map<uint64_t, osd_op_t*> list_ops;
+};
+
 struct osd_pg_t
 {
     int state;
-    unsigned num;
+    uint64_t pg_num;
     uint64_t n_unfound = 0, n_degraded = 0, n_misplaced = 0;
     std::vector<osd_pg_role_t> target_set;
     // moved object map. by default, each object is considered to reside on the target_set.
@@ -145,6 +159,15 @@ struct osd_pg_t
     std::unordered_map<osd_acting_set_t, int> acting_set_ids;
     std::map<int, osd_acting_set_t> acting_sets;
     spp::sparse_hash_map<object_id, int> object_map;
+    osd_pg_peering_state_t *peering_state = NULL;
+};
+
+struct osd_peer_def_t
+{
+    uint64_t osd_num = 0;
+    std::string addr;
+    int port = 0;
+    time_t last_connect_attempt = 0;
 };
 
 class osd_t
@@ -152,6 +175,8 @@ class osd_t
     // config
 
     uint64_t osd_num = 1; // OSD numbers start with 1
+    bool run_primary = false;
+    std::vector<osd_peer_def_t> peers;
     blockstore_config_t config;
     std::string bind_address;
     int bind_port, listen_backlog;
@@ -162,7 +187,8 @@ class osd_t
 
     std::map<uint64_t, int> osd_peer_fds;
     std::vector<osd_pg_t> pgs;
-    unsigned pg_count;
+    bool needs_peering = false;
+    unsigned pg_count = 0;
 
     // client & peer I/O
 
@@ -193,10 +219,13 @@ class osd_t
     void make_reply(osd_op_t *op);
     void handle_send(ring_data_t *data, int peer_fd);
 
-    // connect/disconnect
-    void connect_peer(unsigned osd_num, char *peer_host, int peer_port, std::function<void(int)> callback);
+    // peer handling (primary OSD logic)
+    void connect_peer(unsigned osd_num, const char *peer_host, int peer_port, std::function<void(int)> callback);
     void handle_connect_result(int peer_fd);
     void stop_client(int peer_fd);
+    osd_peer_def_t parse_peer(std::string peer);
+    void init_primary();
+    void handle_peers();
 
     // op execution
     void handle_reply(osd_op_t *cur_op);

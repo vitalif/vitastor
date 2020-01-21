@@ -28,6 +28,7 @@
 #define MEM_ALIGNMENT 512
 
 // States are not stored on disk. Instead, they're deduced from the journal
+// FIXME: Rename to BS_ST_*
 
 #define ST_J_IN_FLIGHT 1
 #define ST_J_SUBMITTED 2
@@ -170,12 +171,6 @@ struct blockstore_op_private_t
 #include "blockstore_init.h"
 
 #include "blockstore_flush.h"
-
-struct blockstore_params_t
-{
-    uint32_t block_size;
-    
-};
 
 class blockstore_impl_t
 {

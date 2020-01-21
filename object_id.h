@@ -55,4 +55,17 @@ namespace std
             return seed;
         }
     };
+
+    template<> struct hash<obj_ver_id>
+    {
+        inline size_t operator()(const obj_ver_id &s) const
+        {
+            size_t seed = 0;
+            // Copy-pasted from spp::hash_combine()
+            seed ^= (s.oid.inode + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+            seed ^= (s.oid.stripe + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+            seed ^= (s.version + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+            return seed;
+        }
+    };
 }
