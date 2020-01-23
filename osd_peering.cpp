@@ -1,5 +1,8 @@
 #include <netinet/tcp.h>
 #include <sys/epoll.h>
+
+#include <algorithm>
+
 #include "osd.h"
 
 void osd_t::init_primary()
@@ -14,8 +17,9 @@ void osd_t::init_primary()
     pgs.push_back((osd_pg_t){
         .state = PG_OFFLINE,
         .pg_num = 1,
-        .target_set = { { .role = 1, .osd_num = 1 }, { .role = 2, .osd_num = 2 }, { .role = 3, .osd_num = 3 } },
-        .object_map = spp::sparse_hash_map<object_id, int>(),
+        .target_set = { 1, 2, 3 },
+        .obj_states = spp::sparse_hash_map<object_id, const osd_obj_state_t*>(),
+        .ver_override = spp::sparse_hash_map<object_id, osd_ver_override_t>(),
     });
     pg_count = 1;
     peering_state = 1;
@@ -144,9 +148,9 @@ void osd_t::handle_peers()
                     {
                         // Start PG peering
                         pgs[0].state = PG_PEERING;
-                        pgs[0].acting_set_ids.clear();
-                        pgs[0].acting_sets.clear();
-                        pgs[0].object_map.clear();
+                        pgs[0].state_dict.clear();
+                        pgs[0].obj_states.clear();
+                        pgs[0].ver_override.clear();
                         if (pgs[0].peering_state)
                             delete pgs[0].peering_state;
                         peering_state = 2;
@@ -168,7 +172,7 @@ void osd_t::handle_peers()
                 }
                 else if (pgs[i].peering_state->list_done >= 3)
                 {
-                    // FIXME
+                    calc_object_states(pgs[i]);
                     peering_state = 0;
                 }
             }
@@ -193,6 +197,9 @@ void osd_t::start_pg_peering(int pg_idx)
                 "Got object list from OSD %lu (local): %d objects (%lu of them stable)\n",
                 ps->self->osd_num, bs_op->retval, bs_op->version
             );
+            op->buf = op->bs_op.buf;
+            op->reply.hdr.retval = op->bs_op.retval;
+            op->reply.sec_list.stable_count = op->bs_op.version;
             ps->list_done++;
         };
         pg.peering_state->list_ops[osd_num] = op;
@@ -226,5 +233,150 @@ void osd_t::start_pg_peering(int pg_idx)
         };
         pg.peering_state->list_ops[cl.osd_num] = op;
         outbox_push(cl, op);
+    }
+}
+
+void osd_t::remember_object(osd_pg_t &pg, osd_obj_state_check_t &st, std::vector<obj_ver_role> &all, int end)
+{
+    // Remember the decision
+    uint64_t state = 0;
+    if (st.n_roles == pg.pg_size)
+    {
+        if (st.n_matched == pg.pg_size)
+            state = OBJ_CLEAN;
+        else
+            state = OBJ_MISPLACED;
+    }
+    else if (st.n_roles < pg.pg_minsize)
+        state = OBJ_INCOMPLETE;
+    else
+        state = OBJ_DEGRADED;
+    if (st.n_copies > pg.pg_size)
+        state |= OBJ_OVERCOPIED;
+    if (st.n_stable < st.n_copies)
+        state |= OBJ_NONSTABILIZED;
+    if (st.target_ver < st.max_ver)
+        state |= OBJ_UNDERWRITTEN;
+    if (st.is_buggy)
+        state |= OBJ_BUGGY;
+    if (state != OBJ_CLEAN)
+    {
+        st.state_obj.state = state;
+        st.state_obj.loc.clear();
+        for (int i = st.start; i < end; i++)
+        {
+            st.state_obj.loc.push_back((osd_obj_loc_t){
+                .role = (all[i].oid.stripe & STRIPE_MASK),
+                .osd_num = all[i].osd_num,
+                .stable = all[i].is_stable,
+            });
+        }
+        std::sort(st.state_obj.loc.begin(), st.state_obj.loc.end());
+        auto ins = pg.state_dict.insert(st.state_obj);
+        pg.obj_states[st.oid] = &(*(ins.first));
+        if (state & OBJ_UNDERWRITTEN)
+        {
+            pg.ver_override[st.oid] = {
+                .max_ver = st.max_ver,
+                .target_ver = st.target_ver,
+            };
+        }
+    }
+}
+
+void osd_t::calc_object_states(osd_pg_t &pg)
+{
+    // Copy all object lists into one array
+    std::vector<obj_ver_role> all;
+    auto ps = pg.peering_state;
+    for (auto e: ps->list_ops)
+    {
+        osd_op_t* op = e.second;
+        auto nstab = op->reply.sec_list.stable_count;
+        auto n = op->reply.hdr.retval;
+        auto osd_num = clients[op->peer_fd].osd_num;
+        all.resize(all.size() + n);
+        obj_ver_id *ov = (obj_ver_id*)op->buf;
+        for (uint64_t i = 0; i < n; i++, ov++)
+        {
+            all[i] = {
+                .oid = ov->oid,
+                .version = ov->version,
+                .osd_num = osd_num,
+                .is_stable = i < nstab,
+            };
+        }
+        free(op->buf);
+        op->buf = NULL;
+    }
+    // Sort
+    std::sort(all.begin(), all.end());
+    // Walk over it and check object states
+    int replica = 0;
+    osd_obj_state_check_t st;
+    for (int i = 0; i < all.size(); i++)
+    {
+        if (st.oid.inode != all[i].oid.inode ||
+            st.oid.stripe != (all[i].oid.stripe >> STRIPE_SHIFT))
+        {
+            if (st.oid.inode != 0)
+            {
+                // Remember object state
+                remember_object(pg, st, all, i);
+            }
+            st.start = i;
+            st.oid = { .inode = all[i].oid.inode, .stripe = all[i].oid.stripe >> STRIPE_SHIFT };
+            st.max_ver = st.target_ver = all[i].version;
+            st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
+            st.is_buggy = false;
+        }
+        if (st.target_ver != all[i].version)
+        {
+            if (st.n_stable > 0 || st.n_roles >= pg.pg_minsize)
+            {
+                // Version is either recoverable or stable, choose it as target and skip previous versions
+                remember_object(pg, st, all, i);
+                while (i < all.size() && st.oid.inode == all[i].oid.inode &&
+                    st.oid.stripe == (all[i].oid.stripe >> STRIPE_SHIFT))
+                {
+                    i++;
+                }
+                continue;
+            }
+            else
+            {
+                // Remember that there are newer unrecoverable versions
+                st.target_ver = all[i].version;
+                st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
+            }
+        }
+        replica = (all[i].oid.stripe & STRIPE_MASK);
+        st.n_copies++;
+        if (replica >= pg.pg_size)
+        {
+            // FIXME In the future, check it against the PG epoch number to handle replication factor/scheme changes
+            st.is_buggy = true;
+        }
+        else
+        {
+            if (all[i].is_stable)
+            {
+                st.n_stable++;
+            }
+            else if (pg.target_set[replica] == all[i].osd_num)
+            {
+                st.n_matched++;
+            }
+            if (!(st.has_roles & (1 << replica)))
+            {
+                st.has_roles = st.has_roles | (1 << replica);
+                st.n_roles++;
+            }
+        }
+    }
+    if (st.oid.inode != 0)
+    {
+        // Remember object state
+        remember_object(pg, st, all, all.size());
     }
 }

@@ -10,7 +10,7 @@
 #include <arpa/inet.h>
 #include <malloc.h>
 
-#include <unordered_map>
+#include <set>
 #include <deque>
 
 #include "blockstore.h"
@@ -96,27 +96,49 @@ struct osd_client_t
     int write_state = 0;
 };
 
-struct osd_pg_role_t
+struct osd_obj_loc_t
 {
-    // role = (stripe role: 1, 2, 3, ...) | (stable ? 0 : 1<<63)
     uint64_t role;
     uint64_t osd_num;
+    bool stable;
 };
 
-typedef std::vector<osd_pg_role_t> osd_acting_set_t;
+inline bool operator < (const osd_obj_loc_t &a, const osd_obj_loc_t &b)
+{
+    return a.role < b.role || a.role == b.role && a.osd_num < b.osd_num;
+}
+
+struct osd_obj_state_t
+{
+    std::vector<osd_obj_loc_t> loc;
+    uint64_t state = 0;
+    uint64_t object_count = 0;
+};
+
+struct osd_ver_override_t
+{
+    uint64_t max_ver;
+    uint64_t target_ver;
+};
+
+inline bool operator < (const osd_obj_state_t &a, const osd_obj_state_t &b)
+{
+    return a.loc < b.loc;
+}
 
 namespace std
 {
-    template<> struct hash<osd_acting_set_t>
+    template<> struct hash<osd_obj_state_t>
     {
-        inline size_t operator()(const osd_acting_set_t &s) const
+        inline size_t operator()(const osd_obj_state_t &s) const
         {
             size_t seed = 0;
-            for (int i = 0; i < s.size(); i++)
+            for (int i = 0; i < s.loc.size(); i++)
             {
                 // Copy-pasted from spp::hash_combine()
-                seed ^= (s[i].role + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
-                seed ^= (s[i].osd_num + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+                seed ^= (s.loc[i].role + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+                seed ^= (s.loc[i].osd_num + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+                seed ^= ((s.loc[i].stable ? 1 : 0) + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
             }
             return seed;
         }
@@ -135,18 +157,21 @@ namespace std
 #define PG_HAS_MISPLACED (1<<6)
 
 // OSD object states
-#define OSD_CLEAN 0x01
-#define OSD_MISPLACED 0x02
-#define OSD_DEGRADED 0x03
-#define OSD_INCOMPLETE 0x04
-#define OSD_HALF_STABLE 0x10000
-#define OSD_NEEDS_ROLLBACK 0x20000
+#define OBJ_CLEAN 0x01
+#define OBJ_MISPLACED 0x02
+#define OBJ_DEGRADED 0x03
+#define OBJ_INCOMPLETE 0x04
+#define OBJ_NONSTABILIZED 0x10000
+#define OBJ_UNDERWRITTEN 0x20000
+#define OBJ_OVERCOPIED 0x40000
+#define OBJ_BUGGY 0x80000
 
 class osd_t;
 
 struct osd_pg_peering_state_t
 {
     osd_t* self;
+    // FIXME: add types for pg_num and osd_num?
     uint64_t pg_num;
     std::unordered_map<uint64_t, osd_op_t*> list_ops;
     int list_done = 0;
@@ -155,17 +180,50 @@ struct osd_pg_peering_state_t
 struct osd_pg_t
 {
     int state;
+    uint64_t pg_size = 3, pg_minsize = 2;
     uint64_t pg_num;
-    uint64_t n_unfound = 0, n_degraded = 0, n_misplaced = 0;
-    std::vector<osd_pg_role_t> target_set;
+    // target_set = (role => osd_num). role starts from zero
+    std::vector<uint64_t> target_set;
     // moved object map. by default, each object is considered to reside on the target_set.
     // this map stores all objects that differ.
     // this map may consume up to ~ (raw storage / object size) * 24 bytes in the worst case scenario
     // which is up to ~192 MB per 1 TB in the worst case scenario
-    std::unordered_map<osd_acting_set_t, int> acting_set_ids;
-    std::map<int, osd_acting_set_t> acting_sets;
-    spp::sparse_hash_map<object_id, int> object_map;
+    std::set<osd_obj_state_t> state_dict;
+    spp::sparse_hash_map<object_id, const osd_obj_state_t*> obj_states;
+    spp::sparse_hash_map<object_id, osd_ver_override_t> ver_override;
     osd_pg_peering_state_t *peering_state = NULL;
+};
+
+struct obj_ver_role
+{
+    object_id oid;
+    uint64_t version;
+    uint64_t osd_num;
+    bool is_stable;
+};
+
+inline bool operator < (const obj_ver_role & a, const obj_ver_role & b)
+{
+    return a.oid < b.oid ||
+        // object versions go in descending order
+        a.oid == b.oid && a.version > b.version ||
+        a.oid == b.oid && a.version == b.version ||
+        a.oid == b.oid && a.version == b.version && a.osd_num < b.osd_num;
+}
+
+// Max 64 replicas
+#define STRIPE_MASK 0x3F
+#define STRIPE_SHIFT 6
+
+struct osd_obj_state_check_t
+{
+    int start = 0;
+    object_id oid = { 0 };
+    uint64_t max_ver = 0;
+    uint64_t target_ver = 0;
+    uint64_t n_copies = 0, has_roles = 0, n_roles = 0, n_stable = 0, n_matched = 0;
+    bool is_buggy = false;
+    osd_obj_state_t state_obj;
 };
 
 struct osd_peer_def_t
@@ -234,6 +292,8 @@ class osd_t
     void init_primary();
     void handle_peers();
     void start_pg_peering(int i);
+    void calc_object_states(osd_pg_t &pg);
+    void remember_object(osd_pg_t &pg, osd_obj_state_check_t &st, std::vector<obj_ver_role> &all, int end);
 
     // op execution
     void exec_op(osd_op_t *cur_op);

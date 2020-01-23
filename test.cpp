@@ -344,7 +344,11 @@ int main(int argc, char *argv[])
         };
     }
     printf("Sorting\n");
-    // sort takes 7 s
-    std::sort(to_sort.begin(), to_sort.end());
+    // sorting the whole array takes 7 s
+    //std::sort(to_sort.begin(), to_sort.end());
+    // sorting in 3 parts... almost the same, 6 s
+    std::sort(to_sort.begin(), to_sort.begin() + to_sort.size()/3);
+    std::sort(to_sort.begin() + to_sort.size()/3, to_sort.begin() + to_sort.size()*2/3);
+    std::sort(to_sort.begin() + to_sort.size()*2/3, to_sort.end());
     return 0;
 }
