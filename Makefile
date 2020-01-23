@@ -24,18 +24,21 @@ libblockstore.so: $(BLOCKSTORE_OBJS)
 libfio_blockstore.so: ./libblockstore.so fio_engine.cpp json11.o
 	g++ $(CXXFLAGS) -shared -o libfio_blockstore.so fio_engine.cpp json11.o ./libblockstore.so -ltcmalloc_minimal -luring
 
+OSD_OBJS := osd.o osd_exec_secondary.o osd_read.o osd_send.o osd_peering.o osd_peering_pg.o json11.o
 osd_exec_secondary.o: osd_exec_secondary.cpp osd.h osd_ops.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_read.o: osd_read.cpp osd.h osd_ops.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_send.o: osd_send.cpp osd.h osd_ops.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_peering.o: osd_peering.cpp osd.h osd_ops.h
+osd_peering.o: osd_peering.cpp osd.h osd_ops.h osd_peering_pg.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd.o: osd.cpp osd.h osd_ops.h
+osd_peering_pg.o: osd_peering_pg.cpp object_id.h osd_peering_pg.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h osd.o osd_exec_secondary.o osd_read.o osd_send.o osd_peering.o json11.o
-	g++ $(CXXFLAGS) -o osd osd_main.cpp osd.o osd_exec_secondary.o osd_read.o osd_send.o osd_peering.o json11.o ./libblockstore.so -ltcmalloc_minimal -luring
+osd.o: osd.cpp osd.h osd_ops.h osd_peering_pg.h
+	g++ $(CXXFLAGS) -c -o $@ $<
+osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h $(OSD_OBJS)
+	g++ $(CXXFLAGS) -o osd osd_main.cpp $(OSD_OBJS) ./libblockstore.so -ltcmalloc_minimal -luring
 stub_osd: stub_osd.cpp osd_ops.h
 	g++ $(CXXFLAGS) -o stub_osd stub_osd.cpp -ltcmalloc_minimal
 
@@ -44,7 +47,7 @@ libfio_sec_osd.so: fio_sec_osd.cpp osd_ops.h
 
 test_blockstore: ./libblockstore.so test_blockstore.cpp
 	g++ $(CXXFLAGS) -o test_blockstore test_blockstore.cpp ./libblockstore.so -ltcmalloc_minimal -luring
-test: test.cpp
-	g++ $(CXXFLAGS) -o test test.cpp -luring
+test: test.cpp osd_peering_pg.o
+	g++ $(CXXFLAGS) -o test test.cpp osd_peering_pg.o -luring
 test_allocator: test_allocator.cpp allocator.o
 	g++ $(CXXFLAGS) -o test_allocator test_allocator.cpp allocator.o

@@ -14,12 +14,10 @@ void osd_t::init_primary()
     peers.push_back(parse_peer(config["peer2"]));
     if (peers[1].osd_num == peers[0].osd_num)
         throw std::runtime_error("peer1 and peer2 osd numbers are the same");
-    pgs.push_back((osd_pg_t){
+    pgs.push_back((pg_t){
         .state = PG_OFFLINE,
         .pg_num = 1,
         .target_set = { 1, 2, 3 },
-        .obj_states = spp::sparse_hash_map<object_id, const osd_obj_state_t*>(),
-        .ver_override = spp::sparse_hash_map<object_id, osd_ver_override_t>(),
     });
     pg_count = 1;
     peering_state = 1;
@@ -172,7 +170,7 @@ void osd_t::handle_peers()
                 }
                 else if (pgs[i].peering_state->list_done >= 3)
                 {
-                    calc_object_states(pgs[i]);
+                    pgs[i].calc_object_states();
                     peering_state = 0;
                 }
             }
@@ -183,30 +181,36 @@ void osd_t::handle_peers()
 void osd_t::start_pg_peering(int pg_idx)
 {
     auto & pg = pgs[pg_idx];
-    auto ps = pg.peering_state = new osd_pg_peering_state_t();
-    ps->self = this;
-    ps->pg_num = pg_idx; // FIXME probably shouldn't be pg_idx
+    auto ps = pg.peering_state = new pg_peering_state_t();
     {
+        uint64_t osd_num = this->osd_num;
         osd_op_t *op = new osd_op_t();
         op->op_type = 0;
         op->peer_fd = 0;
         op->bs_op.opcode = BS_OP_LIST;
-        op->bs_op.callback = [ps, op](blockstore_op_t *bs_op)
+        op->bs_op.callback = [ps, op, osd_num](blockstore_op_t *bs_op)
         {
+            if (op->bs_op.retval < 0)
+            {
+                throw std::runtime_error("OP_LIST failed");
+            }
             printf(
                 "Got object list from OSD %lu (local): %d objects (%lu of them stable)\n",
-                ps->self->osd_num, bs_op->retval, bs_op->version
+                osd_num, bs_op->retval, bs_op->version
             );
-            op->buf = op->bs_op.buf;
-            op->reply.hdr.retval = op->bs_op.retval;
-            op->reply.sec_list.stable_count = op->bs_op.version;
+            ps->list_results[osd_num] = {
+                .buf = (obj_ver_id*)op->bs_op.buf,
+                .total_count = (uint64_t)op->bs_op.retval,
+                .stable_count = op->bs_op.version,
+            };
             ps->list_done++;
+            delete op;
         };
-        pg.peering_state->list_ops[osd_num] = op;
         bs->enqueue_op(&op->bs_op);
     }
     for (int i = 0; i < peers.size(); i++)
     {
+        uint64_t osd_num = peers[i].osd_num;
         auto & cl = clients[osd_peer_fds[peers[i].osd_num]];
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
@@ -222,161 +226,25 @@ void osd_t::start_pg_peering(int pg_idx)
                 .pgtotal = 1,
             },
         };
-        op->callback = [ps](osd_op_t *op)
+        op->callback = [ps, osd_num](osd_op_t *op)
         {
+            if (op->reply.hdr.retval < 0)
+            {
+                throw std::runtime_error("OP_LIST failed");
+            }
             printf(
                 "Got object list from OSD %lu: %ld objects (%lu of them stable)\n",
-                ps->self->clients[op->peer_fd].osd_num, op->reply.hdr.retval,
-                op->reply.sec_list.stable_count
+                osd_num, op->reply.hdr.retval, op->reply.sec_list.stable_count
             );
+            ps->list_results[osd_num] = {
+                .buf = (obj_ver_id*)op->buf,
+                .total_count = (uint64_t)op->reply.hdr.retval,
+                .stable_count = op->reply.sec_list.stable_count,
+            };
+            op->buf = NULL;
             ps->list_done++;
+            delete op;
         };
-        pg.peering_state->list_ops[cl.osd_num] = op;
         outbox_push(cl, op);
-    }
-}
-
-void osd_t::remember_object(osd_pg_t &pg, osd_obj_state_check_t &st, std::vector<obj_ver_role> &all, int end)
-{
-    // Remember the decision
-    uint64_t state = 0;
-    if (st.n_roles == pg.pg_size)
-    {
-        if (st.n_matched == pg.pg_size)
-            state = OBJ_CLEAN;
-        else
-            state = OBJ_MISPLACED;
-    }
-    else if (st.n_roles < pg.pg_minsize)
-        state = OBJ_INCOMPLETE;
-    else
-        state = OBJ_DEGRADED;
-    if (st.n_copies > pg.pg_size)
-        state |= OBJ_OVERCOPIED;
-    if (st.n_stable < st.n_copies)
-        state |= OBJ_NONSTABILIZED;
-    if (st.target_ver < st.max_ver)
-        state |= OBJ_UNDERWRITTEN;
-    if (st.is_buggy)
-        state |= OBJ_BUGGY;
-    if (state != OBJ_CLEAN)
-    {
-        st.state_obj.state = state;
-        st.state_obj.loc.clear();
-        for (int i = st.start; i < end; i++)
-        {
-            st.state_obj.loc.push_back((osd_obj_loc_t){
-                .role = (all[i].oid.stripe & STRIPE_MASK),
-                .osd_num = all[i].osd_num,
-                .stable = all[i].is_stable,
-            });
-        }
-        std::sort(st.state_obj.loc.begin(), st.state_obj.loc.end());
-        auto ins = pg.state_dict.insert(st.state_obj);
-        pg.obj_states[st.oid] = &(*(ins.first));
-        if (state & OBJ_UNDERWRITTEN)
-        {
-            pg.ver_override[st.oid] = {
-                .max_ver = st.max_ver,
-                .target_ver = st.target_ver,
-            };
-        }
-    }
-}
-
-void osd_t::calc_object_states(osd_pg_t &pg)
-{
-    // Copy all object lists into one array
-    std::vector<obj_ver_role> all;
-    auto ps = pg.peering_state;
-    for (auto e: ps->list_ops)
-    {
-        osd_op_t* op = e.second;
-        auto nstab = op->reply.sec_list.stable_count;
-        auto n = op->reply.hdr.retval;
-        auto osd_num = clients[op->peer_fd].osd_num;
-        all.resize(all.size() + n);
-        obj_ver_id *ov = (obj_ver_id*)op->buf;
-        for (uint64_t i = 0; i < n; i++, ov++)
-        {
-            all[i] = {
-                .oid = ov->oid,
-                .version = ov->version,
-                .osd_num = osd_num,
-                .is_stable = i < nstab,
-            };
-        }
-        free(op->buf);
-        op->buf = NULL;
-    }
-    // Sort
-    std::sort(all.begin(), all.end());
-    // Walk over it and check object states
-    int replica = 0;
-    osd_obj_state_check_t st;
-    for (int i = 0; i < all.size(); i++)
-    {
-        if (st.oid.inode != all[i].oid.inode ||
-            st.oid.stripe != (all[i].oid.stripe >> STRIPE_SHIFT))
-        {
-            if (st.oid.inode != 0)
-            {
-                // Remember object state
-                remember_object(pg, st, all, i);
-            }
-            st.start = i;
-            st.oid = { .inode = all[i].oid.inode, .stripe = all[i].oid.stripe >> STRIPE_SHIFT };
-            st.max_ver = st.target_ver = all[i].version;
-            st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
-            st.is_buggy = false;
-        }
-        if (st.target_ver != all[i].version)
-        {
-            if (st.n_stable > 0 || st.n_roles >= pg.pg_minsize)
-            {
-                // Version is either recoverable or stable, choose it as target and skip previous versions
-                remember_object(pg, st, all, i);
-                while (i < all.size() && st.oid.inode == all[i].oid.inode &&
-                    st.oid.stripe == (all[i].oid.stripe >> STRIPE_SHIFT))
-                {
-                    i++;
-                }
-                continue;
-            }
-            else
-            {
-                // Remember that there are newer unrecoverable versions
-                st.target_ver = all[i].version;
-                st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
-            }
-        }
-        replica = (all[i].oid.stripe & STRIPE_MASK);
-        st.n_copies++;
-        if (replica >= pg.pg_size)
-        {
-            // FIXME In the future, check it against the PG epoch number to handle replication factor/scheme changes
-            st.is_buggy = true;
-        }
-        else
-        {
-            if (all[i].is_stable)
-            {
-                st.n_stable++;
-            }
-            else if (pg.target_set[replica] == all[i].osd_num)
-            {
-                st.n_matched++;
-            }
-            if (!(st.has_roles & (1 << replica)))
-            {
-                st.has_roles = st.has_roles | (1 << replica);
-                st.n_roles++;
-            }
-        }
-    }
-    if (st.oid.inode != 0)
-    {
-        // Remember object state
-        remember_object(pg, st, all, all.size());
     }
 }

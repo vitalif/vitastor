@@ -25,6 +25,7 @@
 
 #include "blockstore.h"
 #include "blockstore_impl.h"
+#include "osd_peering_pg.h"
 
 static int setup_context(unsigned entries, struct io_uring *ring)
 {
@@ -285,23 +286,7 @@ int main03(int argc, char *argv[])
     return 0;
 }
 
-struct obj_ver_role
-{
-    object_id oid;
-    uint64_t version;
-    uint32_t osd_num;
-    uint32_t is_stable;
-};
-
-inline bool operator < (const obj_ver_role & a, const obj_ver_role & b)
-{
-    return a.oid < b.oid ||
-        a.oid == b.oid && a.version < b.version ||
-        a.oid == b.oid && a.version == b.version ||
-        a.oid == b.oid && a.version == b.version && a.osd_num < b.osd_num;
-}
-
-int main(int argc, char *argv[])
+int main04(int argc, char *argv[])
 {
     /*spp::sparse_hash_set<obj_ver_id> osd1, osd2;
     // fill takes 18.9 s
@@ -336,19 +321,54 @@ int main(int argc, char *argv[])
     {
         to_sort[i] = {
             .oid = (object_id){
-                .inode = rand() % 500,
-                .stripe = rand(),
+                .inode = (uint64_t)(rand() % 500),
+                .stripe = (uint64_t)rand(),
             },
-            .version = rand(),
-            .osd_num = rand() % 16,
+            .version = (uint64_t)rand(),
+            .osd_num = (uint64_t)(rand() % 16),
         };
     }
     printf("Sorting\n");
     // sorting the whole array takes 7 s
-    //std::sort(to_sort.begin(), to_sort.end());
     // sorting in 3 parts... almost the same, 6 s
-    std::sort(to_sort.begin(), to_sort.begin() + to_sort.size()/3);
-    std::sort(to_sort.begin() + to_sort.size()/3, to_sort.begin() + to_sort.size()*2/3);
-    std::sort(to_sort.begin() + to_sort.size()*2/3, to_sort.end());
+    std::sort(to_sort.begin(), to_sort.end());
+    return 0;
+}
+
+int main(int argc, char *argv[])
+{
+    // FIXME extract this into a test
+    pg_t pg = {
+        .state = PG_PEERING,
+        .pg_num = 1,
+        .target_set = { 1, 2, 3 },
+        .peering_state = new pg_peering_state_t(),
+    };
+    pg.peering_state->list_done = 3;
+    for (uint64_t osd_num = 1; osd_num <= 3; osd_num++)
+    {
+        pg_list_result_t r = {
+            .buf = (obj_ver_id*)malloc(sizeof(obj_ver_id) * 1024*1024*8),
+            .total_count = 1024*1024*8,
+            .stable_count = (uint64_t)(1024*1024*8 - (osd_num == 1 ? 10 : 0)),
+        };
+        for (uint64_t i = 0; i < r.total_count; i++)
+        {
+            r.buf[i] = {
+                .oid = {
+                    .inode = 1,
+                    .stripe = (i << STRIPE_SHIFT) | (osd_num-1),
+                },
+                .version = (uint64_t)(osd_num == 1 && i >= r.total_count - 10 ? 2 : 1),
+            };
+        }
+        pg.peering_state->list_results[osd_num] = r;
+    }
+    pg.calc_object_states();
+    printf("deviation variants=%ld clean=%lu\n", pg.state_dict.size(), pg.clean_count);
+    for (auto it: pg.state_dict)
+    {
+        printf("dev: state=%lx\n", it.second.state);
+    }
     return 0;
 }
