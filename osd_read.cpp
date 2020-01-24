@@ -102,7 +102,8 @@ void osd_t::handle_read_op(osd_client_t *cl)
     osd_op_t *cur_op = cl->read_op;
     if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ ||
         cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
-        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE)
+        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
+        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
     {
         // Allocate a buffer
         cur_op->buf = memalign(512, cur_op->op.sec_rw.len);
@@ -114,6 +115,7 @@ void osd_t::handle_read_op(osd_client_t *cl)
     }
     if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
         cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
+        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK ||
         cur_op->op.hdr.opcode == OSD_OP_WRITE)
     {
         // Read data

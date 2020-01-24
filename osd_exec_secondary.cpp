@@ -25,9 +25,10 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
         : (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ? BS_OP_WRITE
         : (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_SYNC ? BS_OP_SYNC
         : (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ? BS_OP_STABLE
+        : (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK ? BS_OP_ROLLBACK
         : (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_DELETE ? BS_OP_DELETE
         : (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_LIST ? BS_OP_LIST
-        : -1))))));
+        : -1)))))));
     if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ ||
         cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE)
     {
@@ -42,7 +43,8 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
         cur_op->bs_op.oid = cur_op->op.sec_del.oid;
         cur_op->bs_op.version = cur_op->op.sec_del.version;
     }
-    else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE)
+    else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
+        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
     {
         cur_op->bs_op.len = cur_op->op.sec_stab.len/sizeof(obj_ver_id);
         cur_op->bs_op.buf = cur_op->buf;

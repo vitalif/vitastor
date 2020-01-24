@@ -13,13 +13,14 @@
 #define OSD_OP_SECONDARY_WRITE      2
 #define OSD_OP_SECONDARY_SYNC       3
 #define OSD_OP_SECONDARY_STABILIZE  4
-#define OSD_OP_SECONDARY_DELETE     5
-#define OSD_OP_TEST_SYNC_STAB_ALL   6
-#define OSD_OP_SECONDARY_LIST       7
-#define OSD_OP_SHOW_CONFIG          8
-#define OSD_OP_READ                 9
-#define OSD_OP_WRITE                10
-#define OSD_OP_MAX                  10
+#define OSD_OP_SECONDARY_ROLLBACK   5
+#define OSD_OP_SECONDARY_DELETE     6
+#define OSD_OP_TEST_SYNC_STAB_ALL   7
+#define OSD_OP_SECONDARY_LIST       8
+#define OSD_OP_SHOW_CONFIG          9
+#define OSD_OP_READ                 10
+#define OSD_OP_WRITE                11
+#define OSD_OP_MAX                  11
 // Alignment & limit for read/write operations
 #define OSD_RW_ALIGN                512
 #define OSD_RW_MAX                  64*1024*1024
@@ -95,18 +96,20 @@ struct __attribute__((__packed__)) osd_reply_secondary_sync_t
     osd_reply_header_t header;
 };
 
-// stabilize objects on the secondary OSD
+// stabilize or rollback objects on the secondary OSD
 struct __attribute__((__packed__)) osd_op_secondary_stabilize_t
 {
     osd_op_header_t header;
     // obj_ver_id array length in bytes
     uint32_t len;
 };
+typedef osd_op_secondary_stabilize_t osd_op_secondary_rollback_t;
 
 struct __attribute__((__packed__)) osd_reply_secondary_stabilize_t
 {
     osd_reply_header_t header;
 };
+typedef osd_reply_secondary_stabilize_t osd_reply_secondary_rollback_t;
 
 // show configuration
 struct __attribute__((__packed__)) osd_op_show_config_t

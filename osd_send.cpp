@@ -115,7 +115,8 @@ void osd_t::handle_send(ring_data_t *data, int peer_fd)
                             cl.write_remaining = cur_op->op.sec_rw.len;
                             cl.write_state = CL_WRITE_DATA;
                         }
-                        else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE)
+                        else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
+                            cur_op->op.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
                         {
                             cl.write_buf = cur_op->buf;
                             cl.write_remaining = cur_op->op.sec_stab.len;
