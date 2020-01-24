@@ -438,7 +438,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
     {
         goto resume_0;
     }
-    dirty_it = dirty_end;
+    dirty_it = dirty_start = dirty_end;
     v.clear();
     wait_count = 0;
     copy_count = 0;
@@ -511,6 +511,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
             );
             throw std::runtime_error(err);
         }
+        dirty_start = dirty_it;
         if (dirty_it == bs->dirty_db.begin())
         {
             break;
@@ -593,38 +594,7 @@ void journal_flusher_co::update_clean_db()
             .location = clean_loc,
         };
     }
-    dirty_it = dirty_end;
-    while (1)
-    {
-        if (IS_BIG_WRITE(dirty_it->second.state) && dirty_it->second.location != clean_loc)
-        {
-#ifdef BLOCKSTORE_DEBUG
-            printf("Free block %lu\n", dirty_it->second.location >> bs->block_order);
-#endif
-            bs->data_alloc->set(dirty_it->second.location >> bs->block_order, false);
-        }
-#ifdef BLOCKSTORE_DEBUG
-        printf("remove usage of journal offset %lu by %lu:%lu v%lu\n", dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
-#endif
-        int used = --bs->journal.used_sectors[dirty_it->second.journal_sector];
-        if (used == 0)
-        {
-            bs->journal.used_sectors.erase(dirty_it->second.journal_sector);
-        }
-        if (dirty_it == bs->dirty_db.begin())
-        {
-            break;
-        }
-        dirty_it--;
-        if (dirty_it->first.oid != cur.oid)
-        {
-            break;
-        }
-    }
-    // Then, basically, remove everything up to the current version from dirty_db...
-    if (dirty_it->first.oid != cur.oid)
-        dirty_it++;
-    bs->dirty_db.erase(dirty_it, std::next(dirty_end));
+    bs->erase_dirty(dirty_start, std::next(dirty_end), clean_loc);
 }
 
 bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)

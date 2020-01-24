@@ -41,7 +41,7 @@ class journal_flusher_co
     std::list<flusher_sync_t>::iterator cur_sync;
 
     obj_ver_id cur;
-    std::map<obj_ver_id, dirty_entry>::iterator dirty_it, dirty_end;
+    std::map<obj_ver_id, dirty_entry>::iterator dirty_it, dirty_start, dirty_end;
     std::map<object_id, uint64_t>::iterator repeat_it;
     std::function<void(ring_data_t*)> simple_callback_r, simple_callback_w;
 

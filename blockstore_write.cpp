@@ -3,7 +3,7 @@
 void blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 {
     // Check or assign version number
-    bool found = false, deleted = false, is_del = (op->opcode & BS_OP_TYPE_MASK) == BS_OP_DELETE;
+    bool found = false, deleted = false, is_del = (op->opcode == BS_OP_DELETE);
     uint64_t version = 1;
     if (dirty_db.size() > 0)
     {

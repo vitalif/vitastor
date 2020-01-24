@@ -25,8 +25,8 @@
 #define BS_OP_STABLE 4
 #define BS_OP_DELETE 5
 #define BS_OP_LIST 6
-#define BS_OP_MAX 6
-#define BS_OP_TYPE_MASK 0x7
+#define BS_OP_ROLLBACK 7
+#define BS_OP_MAX 7
 
 #define BS_OP_PRIVATE_DATA_SIZE 256
 

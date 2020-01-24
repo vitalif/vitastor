@@ -139,5 +139,9 @@ void osd_t::make_reply(osd_op_t *op)
         op->reply.hdr.retval = op->bs_op.retval;
         if (op->op.hdr.opcode == OSD_OP_SECONDARY_LIST)
             op->reply.sec_list.stable_count = op->bs_op.version;
+        else if (op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE)
+            op->reply.sec_rw.version = op->bs_op.version;
+        else if (op->op.hdr.opcode == OSD_OP_SECONDARY_DELETE)
+            op->reply.sec_del.version = op->bs_op.version;
     }
 }

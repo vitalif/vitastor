@@ -145,7 +145,7 @@ void blockstore_impl_t::handle_stable_event(ring_data_t *data, blockstore_op_t *
     {
         // Release used journal sectors
         release_journal_sectors(op);
-        // First step: mark dirty_db entries as stable, acknowledge op completion
+        // Mark dirty_db entries as stable, acknowledge op completion
         obj_ver_id* v;
         int i;
         for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)

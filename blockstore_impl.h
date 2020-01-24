@@ -167,6 +167,8 @@ struct blockstore_op_private_t
     int sync_state, prev_sync_count;
 };
 
+typedef std::map<obj_ver_id, dirty_entry> blockstore_dirty_db_t;
+
 #include "blockstore_init.h"
 
 #include "blockstore_flush.h"
@@ -199,7 +201,7 @@ class blockstore_impl_t
     // Another option is https://github.com/algorithm-ninja/cpp-btree
     spp::sparse_hash_map<object_id, clean_entry> clean_db;
     uint8_t *clean_bitmap = NULL;
-    std::map<obj_ver_id, dirty_entry> dirty_db;
+    blockstore_dirty_db_t dirty_db;
     std::list<blockstore_op_t*> submit_queue; // FIXME: funny thing is that vector is better here
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
     std::list<blockstore_op_t*> in_progress_syncs; // ...and probably here, too
@@ -277,6 +279,11 @@ class blockstore_impl_t
     int dequeue_stable(blockstore_op_t *op);
     void handle_stable_event(ring_data_t *data, blockstore_op_t *op);
     void stabilize_object(object_id oid, uint64_t max_ver);
+
+    // Rollback
+    int dequeue_rollback(blockstore_op_t *op);
+    void handle_rollback_event(ring_data_t *data, blockstore_op_t *op);
+    void erase_dirty(blockstore_dirty_db_t::iterator dirty_start, blockstore_dirty_db_t::iterator dirty_end, uint64_t clean_loc);
 
     // List
     void process_list(blockstore_op_t *op);

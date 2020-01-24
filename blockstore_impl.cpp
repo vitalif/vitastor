@@ -127,8 +127,7 @@ void blockstore_impl_t::loop()
                 }
                 else if (PRIV(op)->wait_for)
                 {
-                    if ((op->opcode & BS_OP_TYPE_MASK) == BS_OP_WRITE ||
-                        (op->opcode & BS_OP_TYPE_MASK) == BS_OP_DELETE)
+                    if (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_DELETE)
                     {
                         has_writes = 2;
                     }
@@ -138,12 +137,11 @@ void blockstore_impl_t::loop()
             unsigned ring_space = ringloop->space_left();
             unsigned prev_sqe_pos = ringloop->save();
             int dequeue_op = 0;
-            if ((op->opcode & BS_OP_TYPE_MASK) == BS_OP_READ)
+            if (op->opcode == BS_OP_READ)
             {
                 dequeue_op = dequeue_read(op);
             }
-            else if ((op->opcode & BS_OP_TYPE_MASK) == BS_OP_WRITE ||
-                (op->opcode & BS_OP_TYPE_MASK) == BS_OP_DELETE)
+            else if (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_DELETE)
             {
                 if (has_writes == 2)
                 {
@@ -153,7 +151,7 @@ void blockstore_impl_t::loop()
                 dequeue_op = dequeue_write(op);
                 has_writes = dequeue_op ? 1 : 2;
             }
-            else if ((op->opcode & BS_OP_TYPE_MASK) == BS_OP_SYNC)
+            else if (op->opcode == BS_OP_SYNC)
             {
                 // wait for all small writes to be submitted
                 // wait for all big writes to complete, submit data device fsync
@@ -166,11 +164,15 @@ void blockstore_impl_t::loop()
                 }
                 dequeue_op = dequeue_sync(op);
             }
-            else if ((op->opcode & BS_OP_TYPE_MASK) == BS_OP_STABLE)
+            else if (op->opcode == BS_OP_STABLE)
             {
                 dequeue_op = dequeue_stable(op);
             }
-            else if ((op->opcode & BS_OP_TYPE_MASK) == BS_OP_LIST)
+            else if (op->opcode == BS_OP_ROLLBACK)
+            {
+                dequeue_op = dequeue_rollback(op);
+            }
+            else if (op->opcode == BS_OP_LIST)
             {
                 process_list(op);
                 dequeue_op = true;
@@ -296,15 +298,14 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
 
 void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
 {
-    int type = op->opcode & BS_OP_TYPE_MASK;
-    if (type < BS_OP_MIN || type > BS_OP_MAX ||
-        ((type == BS_OP_READ || type == BS_OP_WRITE) && (
+    if (op->opcode < BS_OP_MIN || op->opcode > BS_OP_MAX ||
+        ((op->opcode == BS_OP_READ || op->opcode == BS_OP_WRITE) && (
             op->offset >= block_size ||
             op->len > block_size-op->offset ||
             (op->len % disk_alignment)
         )) ||
-        readonly && type != BS_OP_READ ||
-        first && type == BS_OP_WRITE)
+        readonly && op->opcode != BS_OP_READ ||
+        first && op->opcode == BS_OP_WRITE)
     {
         // Basic verification not passed
         op->retval = -EINVAL;
@@ -324,7 +325,7 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
     {
         submit_queue.push_front(op);
     }
-    if (type == BS_OP_WRITE)
+    if (op->opcode == BS_OP_WRITE)
     {
         enqueue_write(op);
     }

@@ -17,6 +17,7 @@
 #define JE_BIG_WRITE   0x03
 #define JE_STABLE      0x04
 #define JE_DELETE      0x05
+#define JE_ROLLBACK    0x06
 
 // crc32c comes first to ease calculation and is equal to crc32()
 struct __attribute__((__packed__)) journal_entry_start
@@ -71,6 +72,17 @@ struct __attribute__((__packed__)) journal_entry_stable
     uint64_t version;
 };
 
+struct __attribute__((__packed__)) journal_entry_rollback
+{
+    uint32_t crc32;
+    uint16_t magic;
+    uint16_t type;
+    uint32_t size;
+    uint32_t crc32_prev;
+    object_id oid;
+    uint64_t version;
+};
+
 struct __attribute__((__packed__)) journal_entry_del
 {
     uint32_t crc32;
@@ -98,6 +110,7 @@ struct __attribute__((__packed__)) journal_entry
         journal_entry_small_write small_write;
         journal_entry_big_write big_write;
         journal_entry_stable stable;
+        journal_entry_rollback rollback;
         journal_entry_del del;
     };
 };
