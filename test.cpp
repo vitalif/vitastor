@@ -2,6 +2,7 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdint.h>
@@ -26,6 +27,7 @@
 #include "blockstore.h"
 #include "blockstore_impl.h"
 #include "osd_peering_pg.h"
+//#include "cpp-btree/btree_map.h"
 
 static int setup_context(unsigned entries, struct io_uring *ring)
 {
@@ -335,7 +337,7 @@ int main04(int argc, char *argv[])
     return 0;
 }
 
-int main(int argc, char *argv[])
+int main05(int argc, char *argv[])
 {
     // FIXME extract this into a test
     pg_t pg = {
@@ -370,5 +372,52 @@ int main(int argc, char *argv[])
     {
         printf("dev: state=%lx\n", it.second.state);
     }
+    return 0;
+}
+
+int main(int argc, char *argv[])
+{
+    timeval fill_start, fill_end, filter_end;
+    spp::sparse_hash_map<object_id, clean_entry> clean_db;
+    //std::map<object_id, clean_entry> clean_db;
+    //btree::btree_map<object_id, clean_entry> clean_db;
+    gettimeofday(&fill_start, NULL);
+    printf("filling\n");
+    uint64_t total = 1024*1024*8*4;
+    clean_db.resize(total);
+    for (uint64_t i = 0; i < total; i++)
+    {
+        clean_db[(object_id){
+            .inode = 1,
+            //.stripe = (i << STRIPE_SHIFT),
+            .stripe = (((367*i) % total) << STRIPE_SHIFT),
+        }] = (clean_entry){
+            .version = 1,
+            .location = i << DEFAULT_ORDER,
+        };
+    }
+    gettimeofday(&fill_end, NULL);
+    // no resize():
+    // spp = 17.87s (seq), 41.81s (rand), 3.29s (seq+resize), 8.3s (rand+resize), ~1.3G RAM in all cases
+    // std::unordered_map = 6.14 sec, ~2.3G RAM
+    // std::map = 13 sec (seq), 5.54 sec (rand), ~2.5G RAM
+    // cpp-btree = 2.47 sec (seq) ~1.2G RAM, 20.6 sec (pseudo-random 367*i % total) ~1.5G RAM
+    printf("filled %.2f sec\n", (fill_end.tv_sec - fill_start.tv_sec) + (fill_end.tv_usec - fill_start.tv_usec) / 1000000.0);
+    for (int pg = 0; pg < 100; pg++)
+    {
+        obj_ver_id* buf1 = (obj_ver_id*)malloc(sizeof(obj_ver_id) * ((total+99)/100));
+        int j = 0;
+        for (auto it: clean_db)
+            if ((it.first % 100) == pg)
+                buf1[j++] = { .oid = it.first, .version = it.second.version };
+        free(buf1);
+        printf("filtered %d\n", j);
+    }
+    gettimeofday(&filter_end, NULL);
+    // spp = 42.15 sec / 60 sec (rand)
+    // std::unordered_map = 43.7 sec
+    // std::map = 156.13 sec
+    // cpp-btree = 21.87 sec (seq), 44.33 sec (rand)
+    printf("100 times filter %.2f sec\n", (filter_end.tv_sec - fill_end.tv_sec) + (filter_end.tv_usec - fill_end.tv_usec) / 1000000.0);
     return 0;
 }

@@ -2,8 +2,12 @@
 
 #include <stdint.h>
 
+// Max 64 replicas
+#define STRIPE_MASK 0x3F
+#define STRIPE_SHIFT 6
+
 // 16 bytes per object/stripe id
-// stripe includes replica number in 4 least significant bits
+// stripe includes replica number in 6 (or maybe 4, see above) least significant bits
 struct __attribute__((__packed__)) object_id
 {
     uint64_t inode;
@@ -12,7 +16,7 @@ struct __attribute__((__packed__)) object_id
 
 inline uint64_t operator % (const object_id & a, const uint64_t b)
 {
-    return ((a.inode % b) * (0x100000000 % b) * (0x100000000 % b) + a.stripe % b) % b;
+    return ((a.inode % b) * (0x100000000 % b) * (0x100000000 % b) + (a.stripe >> STRIPE_SHIFT) % b) % b;
 }
 
 inline bool operator == (const object_id & a, const object_id & b)

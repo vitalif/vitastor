@@ -180,6 +180,7 @@ void osd_t::handle_peers()
 
 void osd_t::start_pg_peering(int pg_idx)
 {
+    // FIXME: Set PG_INCOMPLETE if incomplete
     auto & pg = pgs[pg_idx];
     auto ps = pg.peering_state = new pg_peering_state_t();
     {

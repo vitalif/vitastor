@@ -1,33 +1,56 @@
 #include "osd_peering_pg.h"
 
-void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &all, int end)
+void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &all)
 {
     auto & pg = *this;
     // Remember the decision
     uint64_t state = 0;
-    if (st.n_roles == pg.pg_size)
+    if (st.n_roles == pg.pg_cursize)
     {
-        if (st.n_matched == pg.pg_size)
+        if (st.n_matched == pg.pg_cursize)
             state = OBJ_CLEAN;
         else
+        {
             state = OBJ_MISPLACED;
+            pg.state = pg.state | PG_HAS_MISPLACED;
+        }
     }
     else if (st.n_roles < pg.pg_minsize)
+    {
         state = OBJ_INCOMPLETE;
+        pg.state = pg.state | PG_HAS_INCOMPLETE;
+    }
     else
+    {
         state = OBJ_DEGRADED;
+        pg.state = pg.state | PG_HAS_DEGRADED;
+    }
     if (st.n_copies > pg.pg_size)
+    {
         state |= OBJ_OVERCOPIED;
+        pg.state = pg.state | PG_HAS_UNCLEAN;
+    }
     if (st.n_stable < st.n_copies)
-        state |= OBJ_NONSTABILIZED;
-    if (st.target_ver < st.max_ver)
-        state |= OBJ_UNDERWRITTEN;
+    {
+        state |= OBJ_NEEDS_STABLE;
+        pg.state = pg.state | PG_HAS_UNCLEAN;
+    }
+    if (st.target_ver < st.max_ver || st.has_old_unstable)
+    {
+        state |= OBJ_NEEDS_ROLLBACK;
+        pg.state = pg.state | PG_HAS_UNCLEAN;
+        pg.ver_override[st.oid] = st.target_ver;
+    }
     if (st.is_buggy)
+    {
         state |= OBJ_BUGGY;
+        // FIXME: bring pg offline
+        throw std::runtime_error("buggy object state");
+    }
     if (state != OBJ_CLEAN)
     {
         st.osd_set.clear();
-        for (int i = st.start; i < end; i++)
+        for (int i = st.ver_start; i < st.ver_end; i++)
         {
             st.osd_set.push_back((pg_obj_loc_t){
                 .role = (all[i].oid.stripe & STRIPE_MASK),
@@ -47,14 +70,52 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
             it = pg.state_dict.find(st.osd_set);
         }
         else
-            it->second.object_count++;
-        pg.obj_states[st.oid] = &it->second;
-        if (state & OBJ_UNDERWRITTEN)
         {
-            pg.ver_override[st.oid] = {
-                .max_ver = st.max_ver,
-                .target_ver = st.target_ver,
-            };
+            it->second.object_count++;
+        }
+        pg.obj_states[st.oid] = &it->second;
+        if (st.target_ver < st.max_ver)
+        {
+            pg.ver_override[st.oid] = st.target_ver;
+        }
+        if (state & (OBJ_NEEDS_ROLLBACK | OBJ_NEEDS_STABLE))
+        {
+            spp::sparse_hash_map<obj_piece_id_t, obj_piece_ver_t> pieces;
+            for (int i = st.obj_start; i < st.obj_end; i++)
+            {
+                auto & pcs = pieces[(obj_piece_id_t){ .oid = all[i].oid, .osd_num = all[i].osd_num }];
+                if (!pcs.max_ver)
+                {
+                    pcs.max_ver = all[i].version;
+                }
+                if (all[i].is_stable && !pcs.stable_ver)
+                {
+                    pcs.stable_ver = all[i].version;
+                }
+            }
+            for (auto pp: pieces)
+            {
+                auto & pcs = pp.second;
+                if (pcs.stable_ver < pcs.max_ver)
+                {
+                    auto & act = obj_stab_actions[pp.first];
+                    if (pcs.max_ver > st.target_ver)
+                    {
+                        act.rollback = true;
+                        act.rollback_to = st.target_ver;
+                    }
+                    else if (pcs.max_ver < st.target_ver && pcs.stable_ver < pcs.max_ver)
+                    {
+                        act.rollback = true;
+                        act.rollback_to = pcs.stable_ver;
+                    }
+                    if (pcs.max_ver >= st.target_ver && pcs.stable_ver < st.target_ver)
+                    {
+                        act.make_stable = true;
+                        act.stable_to = st.target_ver;
+                    }
+                }
+            }
         }
     }
     else
@@ -102,30 +163,40 @@ void pg_t::calc_object_states()
             if (st.oid.inode != 0)
             {
                 // Remember object state
-                remember_object(st, all, i);
+                st.obj_end = st.ver_end = i;
+                remember_object(st, all);
             }
-            st.start = i;
+            st.obj_start = st.ver_start = i;
             st.oid = { .inode = all[i].oid.inode, .stripe = all[i].oid.stripe >> STRIPE_SHIFT };
             st.max_ver = st.target_ver = all[i].version;
             st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
-            st.is_buggy = false;
+            st.is_buggy = st.has_old_unstable = false;
         }
-        if (st.target_ver != all[i].version)
+        else if (st.target_ver != all[i].version)
         {
             if (st.n_stable > 0 || st.n_roles >= pg.pg_minsize)
             {
                 // Version is either recoverable or stable, choose it as target and skip previous versions
-                remember_object(st, all, i);
+                st.ver_end = i;
+                i++;
                 while (i < all.size() && st.oid.inode == all[i].oid.inode &&
                     st.oid.stripe == (all[i].oid.stripe >> STRIPE_SHIFT))
                 {
+                    if (!all[i].is_stable)
+                    {
+                        st.has_old_unstable = true;
+                    }
                     i++;
                 }
+                st.obj_end = i;
+                remember_object(st, all);
+                i--;
                 continue;
             }
             else
             {
                 // Remember that there are newer unrecoverable versions
+                st.ver_start = i;
                 st.target_ver = all[i].version;
                 st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
             }
@@ -157,6 +228,8 @@ void pg_t::calc_object_states()
     if (st.oid.inode != 0)
     {
         // Remember object state
-        remember_object(st, all, all.size());
+        st.obj_end = st.ver_end = all.size();
+        remember_object(st, all);
     }
+    pg.state = pg.state | PG_ACTIVE;
 }
