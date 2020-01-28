@@ -164,10 +164,16 @@ class osd_t
 
     // op execution
     void exec_op(osd_op_t *cur_op);
+
+    // secondary ops
     void exec_sync_stab_all(osd_op_t *cur_op);
     void exec_show_config(osd_op_t *cur_op);
     void exec_secondary(osd_op_t *cur_op);
     void secondary_op_callback(osd_op_t *cur_op);
+
+    // primary ops
+    void exec_primary(osd_op_t *cur_op);
+    void make_primary_reply(osd_op_t *op);
 public:
     osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);
     ~osd_t();

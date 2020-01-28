@@ -63,6 +63,8 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             }
             if (!disable_journal_fsync)
             {
+                // FIXME: Wait for completion of writes before issuing an fsync
+                // Fsync and write requests posted at the same time can be reordered
                 ring_data_t *data = ((ring_data_t*)sqes[s]->user_data);
                 my_uring_prep_fsync(sqes[s++], journal.fd, IORING_FSYNC_DATASYNC);
                 data->iov = { 0 };
@@ -81,6 +83,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         // 1st step: fsync data
         if (!disable_data_fsync)
         {
+            // FIXME Wait for completion of writes before issuing an fsync
             BS_SUBMIT_GET_SQE(sqe, data);
             my_uring_prep_fsync(sqe, data_fd, IORING_FSYNC_DATASYNC);
             data->iov = { 0 };
@@ -150,6 +153,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         // ... And a journal fsync
         if (!disable_journal_fsync)
         {
+            // FIXME Wait for completion of writes before issuing an fsync
             my_uring_prep_fsync(sqe[s], journal.fd, IORING_FSYNC_DATASYNC);
             struct ring_data_t *data = ((ring_data_t*)sqe[s]->user_data);
             data->iov = { 0 };

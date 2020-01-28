@@ -254,6 +254,7 @@ resume_1:
             if (!bs->disable_journal_fsync)
             {
                 GET_SQE();
+                // FIXME Wait for completion of writes before issuing an fsync
                 my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
                 data->iov = { 0 };
                 data->callback = simple_callback;
@@ -337,6 +338,7 @@ resume_1:
                             data->iov = { 0 };
                             data->callback = simple_callback;
                             wait_count++;
+                            // FIXME Wait for completion of writes before issuing an fsync
                             my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
                         }
                         bs->ringloop->submit();

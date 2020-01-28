@@ -278,18 +278,9 @@ void osd_t::exec_op(osd_op_t *cur_op)
     {
         exec_show_config(cur_op);
     }
-    else if (cur_op->op.hdr.opcode == OSD_OP_READ)
+    else if (cur_op->op.hdr.opcode == OSD_OP_READ || cur_op->op.hdr.opcode == OSD_OP_WRITE)
     {
-        // Primary OSD also works with individual stripes, but they're twice the size of the blockstore's stripe
-        // - convert offset & len to stripe number
-        // - fail operation if offset & len span multiple stripes
-        // - calc stripe hash and determine PG
-        // - check if this is our PG
-        // - redirect or fail operation if not
-        // - determine whether we need to read A and B or just A or just B or A + parity or B + parity
-        //   and determine read ranges for both objects
-        // - send read requests
-        // - reconstruct result
+        exec_primary(cur_op);
     }
     else
     {
