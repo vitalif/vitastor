@@ -196,6 +196,10 @@ int blockstore_init_journal::loop()
         goto resume_4;
     else if (wait_state == 5)
         goto resume_5;
+    else if (wait_state == 6)
+        goto resume_6;
+    else if (wait_state == 7)
+        goto resume_7;
     printf("Reading blockstore journal\n");
     if (!bs->journal.inmemory)
     {
@@ -246,22 +250,28 @@ resume_1:
         {
             // Cool effect. Same operations result in journal replay.
             // FIXME: Randomize initial crc32. Track crc32 when trimming.
+            printf("Resetting journal\n");
             GET_SQE();
             data->iov = (struct iovec){ submitted_buf, 2*bs->journal.block_size };
             data->callback = simple_callback;
             my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
             wait_count++;
+            bs->ringloop->submit();
+        resume_6:
+            if (wait_count > 0)
+            {
+                wait_state = 6;
+                return 1;
+            }
             if (!bs->disable_journal_fsync)
             {
                 GET_SQE();
-                // FIXME Wait for completion of writes before issuing an fsync
                 my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
                 data->iov = { 0 };
                 data->callback = simple_callback;
                 wait_count++;
+                bs->ringloop->submit();
             }
-            printf("Resetting journal\n");
-            bs->ringloop->submit();
         resume_4:
             if (wait_count > 0)
             {
@@ -330,18 +340,24 @@ resume_1:
                         GET_SQE();
                         data->iov = { init_write_buf, bs->journal.block_size };
                         data->callback = simple_callback;
-                        wait_count++;
                         my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + init_write_sector);
+                        wait_count++;
+                        bs->ringloop->submit();
+                    resume_7:
+                        if (wait_count > 0)
+                        {
+                            wait_state = 7;
+                            return 1;
+                        }
                         if (!bs->disable_journal_fsync)
                         {
                             GET_SQE();
                             data->iov = { 0 };
                             data->callback = simple_callback;
-                            wait_count++;
-                            // FIXME Wait for completion of writes before issuing an fsync
                             my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
+                            wait_count++;
+                            bs->ringloop->submit();
                         }
-                        bs->ringloop->submit();
                     resume_5:
                         if (wait_count > 0)
                         {
