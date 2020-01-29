@@ -163,6 +163,7 @@ struct blockstore_op_private_t
 
     // Sync
     std::vector<obj_ver_id> sync_big_writes, sync_small_writes;
+    int sync_small_checked, sync_big_checked;
     std::list<blockstore_op_t*>::iterator in_progress_ptr;
     int sync_state, prev_sync_count;
 };
