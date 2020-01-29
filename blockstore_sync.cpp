@@ -16,6 +16,8 @@ int blockstore_impl_t::dequeue_sync(blockstore_op_t *op)
         stop_sync_submitted = false;
         PRIV(op)->sync_big_writes.swap(unsynced_big_writes);
         PRIV(op)->sync_small_writes.swap(unsynced_small_writes);
+        PRIV(op)->sync_small_checked = 0;
+        PRIV(op)->sync_big_checked = 0;
         unsynced_big_writes.clear();
         unsynced_small_writes.clear();
         if (PRIV(op)->sync_big_writes.size() > 0)
@@ -28,11 +30,7 @@ int blockstore_impl_t::dequeue_sync(blockstore_op_t *op)
         PRIV(op)->prev_sync_count = in_progress_syncs.size();
         PRIV(op)->in_progress_ptr = in_progress_syncs.insert(in_progress_syncs.end(), op);
     }
-    int r = continue_sync(op);
-    if (r)
-    {
-        ack_sync(op);
-    }
+    continue_sync(op);
     // Always dequeue because we always add syncs to in_progress_syncs
     return 1;
 }
@@ -173,6 +171,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         else
         {
             PRIV(op)->sync_state = SYNC_DONE;
+            ack_sync(op);
         }
     }
     return 1;
