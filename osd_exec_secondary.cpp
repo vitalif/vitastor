@@ -51,8 +51,15 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
     }
     else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_LIST)
     {
+        if (cur_op->op.sec_list.pgtotal < cur_op->op.sec_list.pgnum)
+        {
+            // requested pg number is greater than total pg count
+            cur_op->bs_op.retval = -EINVAL;
+            secondary_op_callback(cur_op);
+            return;
+        }
         cur_op->bs_op.len = cur_op->op.sec_list.pgtotal;
-        cur_op->bs_op.offset = cur_op->op.sec_list.pgnum;
+        cur_op->bs_op.offset = cur_op->op.sec_list.pgnum - 1;
     }
 #ifdef OSD_STUB
     cur_op->bs_op.retval = cur_op->bs_op.len;
@@ -68,11 +75,8 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
     std::string *cfg_str = new std::string(std::move(json11::Json(config).dump()));
     cur_op->buf = cfg_str;
     auto & cl = clients[cur_op->peer_fd];
-    cl.write_state = CL_WRITE_READY;
-    write_ready_clients.push_back(cur_op->peer_fd);
     make_reply(cur_op);
-    cl.outbox.push_back(cur_op);
-    ringloop->wakeup();
+    outbox_push(cl, cur_op);
 }
 
 void osd_t::exec_sync_stab_all(osd_op_t *cur_op)

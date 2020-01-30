@@ -22,10 +22,6 @@
 
 //#define BLOCKSTORE_DEBUG
 
-// Memory alignment for direct I/O (usually 512 bytes)
-// All other alignments must be a multiple of this one
-#define MEM_ALIGNMENT 512
-
 // States are not stored on disk. Instead, they're deduced from the journal
 // FIXME: Rename to BS_ST_*
 
@@ -183,7 +179,7 @@ class blockstore_impl_t
     uint64_t data_offset;
     uint64_t cfg_journal_size;
     // Required write alignment and journal/metadata/data areas' location alignment
-    uint64_t disk_alignment = 512;
+    uint32_t disk_alignment = 512;
     // Journal block size - minimum_io_size of the journal device is the best choice
     uint64_t journal_block_size = 512;
     // Metadata block size - minimum_io_size of the metadata device is the best choice
@@ -317,4 +313,5 @@ public:
 
     inline uint32_t get_block_size() { return block_size; }
     inline uint64_t get_block_count() { return block_count; }
+    inline uint32_t get_disk_alignment() { return disk_alignment; }
 };

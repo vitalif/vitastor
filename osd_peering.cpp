@@ -223,8 +223,8 @@ void osd_t::start_pg_peering(int pg_idx)
                     .id = 1,
                     .opcode = OSD_OP_SECONDARY_LIST,
                 },
-                .pgnum = 1,
-                .pgtotal = 1,
+                .pgnum = pg.pg_num,
+                .pgtotal = pg_count,
             },
         };
         op->callback = [ps, osd_num](osd_op_t *op)

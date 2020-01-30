@@ -128,6 +128,7 @@ class osd_t
     bool stopping = false;
     int inflight_ops = 0;
     blockstore_t *bs;
+    uint32_t bs_block_size, bs_disk_alignment;
     ring_loop_t *ringloop;
 
     int wait_state = 0;
@@ -172,7 +173,9 @@ class osd_t
     void secondary_op_callback(osd_op_t *cur_op);
 
     // primary ops
-    void exec_primary(osd_op_t *cur_op);
+    void exec_primary_read(osd_op_t *cur_op);
+    void exec_primary_write(osd_op_t *cur_op);
+    void exec_primary_sync(osd_op_t *cur_op);
     void make_primary_reply(osd_op_t *op);
 public:
     osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);

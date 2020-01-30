@@ -101,8 +101,7 @@ struct pg_t
     uint64_t pg_cursize = 3, pg_size = 3, pg_minsize = 2;
     uint64_t pg_num;
     uint64_t clean_count = 0;
-    // target_set = (role => osd_num). role numbers start with zero
-    // when PG is degraded, target_set only includes 2 OSDs
+    // target_set = (role => osd_num or UINT64_MAX if missing). role numbers start with zero
     std::vector<uint64_t> target_set;
     // moved object map. by default, each object is considered to reside on the target_set.
     // this map stores all objects that differ.

@@ -20,7 +20,8 @@
 #define OSD_OP_SHOW_CONFIG          9
 #define OSD_OP_READ                 10
 #define OSD_OP_WRITE                11
-#define OSD_OP_MAX                  11
+#define OSD_OP_SYNC                 12
+#define OSD_OP_MAX                  12
 // Alignment & limit for read/write operations
 #define OSD_RW_ALIGN                512
 #define OSD_RW_MAX                  64*1024*1024
@@ -155,6 +156,17 @@ struct __attribute__((__packed__)) osd_reply_rw_t
     osd_reply_header_t header;
 };
 
+// sync to the primary OSD
+struct __attribute__((__packed__)) osd_op_sync_t
+{
+    osd_op_header_t header;
+};
+
+struct __attribute__((__packed__)) osd_reply_sync_t
+{
+    osd_reply_header_t header;
+};
+
 union osd_any_op_t
 {
     osd_op_header_t hdr;
@@ -165,6 +177,7 @@ union osd_any_op_t
     osd_op_secondary_list_t sec_list;
     osd_op_show_config_t show_conf;
     osd_op_rw_t rw;
+    osd_op_sync_t sync;
 };
 
 union osd_any_reply_t
@@ -177,4 +190,5 @@ union osd_any_reply_t
     osd_reply_secondary_list_t sec_list;
     osd_reply_show_config_t show_conf;
     osd_reply_rw_t rw;
+    osd_reply_sync_t sync;
 };

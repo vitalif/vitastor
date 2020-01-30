@@ -12,6 +12,9 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
     this->config = config;
     this->bs = bs;
     this->ringloop = ringloop;
+    this->bs_block_size = bs->get_block_size();
+    // FIXME: use bitmap granularity instead
+    this->bs_disk_alignment = bs->get_disk_alignment();
 
     bind_address = config["bind_address"];
     if (bind_address == "")
@@ -278,9 +281,13 @@ void osd_t::exec_op(osd_op_t *cur_op)
     {
         exec_show_config(cur_op);
     }
-    else if (cur_op->op.hdr.opcode == OSD_OP_READ || cur_op->op.hdr.opcode == OSD_OP_WRITE)
+    else if (cur_op->op.hdr.opcode == OSD_OP_READ)
     {
-        exec_primary(cur_op);
+        exec_primary_read(cur_op);
+    }
+    else if (cur_op->op.hdr.opcode == OSD_OP_WRITE)
+    {
+        exec_primary_write(cur_op);
     }
     else
     {

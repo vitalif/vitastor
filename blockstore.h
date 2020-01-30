@@ -13,6 +13,10 @@
 #include "object_id.h"
 #include "ringloop.h"
 
+// Memory alignment for direct I/O (usually 512 bytes)
+// All other alignments must be a multiple of this one
+#define MEM_ALIGNMENT 512
+
 // Default block size is 128 KB, current allowed range is 4K - 128M
 #define DEFAULT_ORDER 17
 #define MIN_BLOCK_SIZE 4*1024
@@ -100,6 +104,9 @@ public:
     // Unstable writes are added here (map of object_id -> version)
     std::map<object_id, uint64_t> & get_unstable_writes();
 
+    // FIXME rename to object_size
     uint32_t get_block_size();
     uint64_t get_block_count();
+
+    uint32_t get_disk_alignment();
 };
