@@ -16,7 +16,7 @@ ringloop.o: ringloop.cpp ringloop.h
 timerfd_interval.o: timerfd_interval.cpp timerfd_interval.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 
-%.o: %.cpp allocator.h blockstore_flush.h blockstore.h blockstore_impl.h blockstore_init.h blockstore_journal.h crc32c.h ringloop.h xor.h timerfd_interval.h object_id.h
+%.o: %.cpp allocator.h blockstore_flush.h blockstore.h blockstore_impl.h blockstore_init.h blockstore_journal.h crc32c.h ringloop.h timerfd_interval.h object_id.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 
 libblockstore.so: $(BLOCKSTORE_OBJS)
@@ -35,7 +35,7 @@ osd_peering.o: osd_peering.cpp osd.h osd_ops.h osd_peering_pg.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_peering_pg.o: osd_peering_pg.cpp object_id.h osd_peering_pg.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_primary.o: osd_primary.cpp osd.h osd_ops.h osd_peering_pg.h
+osd_primary.o: osd_primary.cpp osd.h osd_ops.h osd_peering_pg.h xor.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd.o: osd.cpp osd.h osd_ops.h osd_peering_pg.h
 	g++ $(CXXFLAGS) -c -o $@ $<

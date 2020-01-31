@@ -1,4 +1,5 @@
 #include "osd.h"
+#include "xor.h"
 
 void osd_t::exec_primary_read(osd_op_t *cur_op)
 {
@@ -29,7 +30,6 @@ void osd_t::exec_primary_read(osd_op_t *cur_op)
         return;
     }
     // role -> start, end
-    void *buf = memalign(MEM_ALIGNMENT, cur_op->op.rw.len);
     uint64_t reads[pgs[pg_num].pg_minsize*2] = { 0 };
     for (int role = 0; role < pgs[pg_num].pg_minsize; role++)
     {
@@ -41,6 +41,8 @@ void osd_t::exec_primary_read(osd_op_t *cur_op)
     }
     if (pgs[pg_num].pg_cursize == 3)
     {
+        // Fast happy-path
+        void *buf = memalign(MEM_ALIGNMENT, cur_op->op.rw.len);
         
     }
     else
@@ -67,7 +69,7 @@ void osd_t::exec_primary_read(osd_op_t *cur_op)
                         else
                         {
                             real_reads[j*2] = reads[j*2] < reads[role*2] ? reads[j*2] : reads[role*2];
-                            real_reads[j*2] = reads[j*2+1] > reads[role*2+1] ? reads[j*2+1] : reads[role*2+1];
+                            real_reads[j*2+1] = reads[j*2+1] > reads[role*2+1] ? reads[j*2+1] : reads[role*2+1];
                         }
                         exist++;
                         if (exist >= pgs[pg_num].pg_minsize)
@@ -78,6 +80,31 @@ void osd_t::exec_primary_read(osd_op_t *cur_op)
                 }
             }
         }
+        uint64_t pos[pgs[pg_num].pg_size];
+        uint64_t buf_size = 0;
+        for (int role = 0; role < pgs[pg_num].pg_size; role++)
+        {
+            pos[role] = buf_size;
+            buf_size += real_reads[role*2+1];
+        }
+        void *buf = memalign(MEM_ALIGNMENT, buf_size);
+        // ...<SUBMIT READS AND GET REPLIES>...
+        
+        // Reconstruct missing stripes
+        for (int role = 0; role < pgs[pg_num].pg_minsize; role++)
+        {
+            if (reads[role*2+1] != 0 && pgs[pg_num].target_set[role] == UINT64_MAX)
+            {
+                int other = role == 0 ? 1 : 0;
+                int parity = pgs[pg_num].pg_size-1;
+                memxor(
+                    buf + pos[other] + (real_reads[other*2]-reads[role*2]),
+                    buf + pos[parity] + (real_reads[parity*2]-reads[role*2]),
+                    buf + pos[role], reads[role*2+1]-reads[role*2]
+                );
+            }
+        }
+        // Send buffer in parts to avoid copying
     }
 }
 
