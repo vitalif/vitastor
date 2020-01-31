@@ -39,6 +39,8 @@ void osd_t::exec_primary_read(osd_op_t *cur_op)
             reads[role*2+1] = end > (role+1)*bs_block_size ? bs_block_size : end-role*bs_block_size;
         }
     }
+    auto vo_it = pgs[pg_num].ver_override.find(oid);
+    uint64_t target_ver = vo_it != pgs[pg_num].ver_override.end() ? vo_it.second : UINT64_MAX;
     if (pgs[pg_num].pg_cursize == 3)
     {
         // Fast happy-path
@@ -82,14 +84,53 @@ void osd_t::exec_primary_read(osd_op_t *cur_op)
         }
         uint64_t pos[pgs[pg_num].pg_size];
         uint64_t buf_size = 0;
+        int n_subops = 0;
         for (int role = 0; role < pgs[pg_num].pg_size; role++)
         {
-            pos[role] = buf_size;
-            buf_size += real_reads[role*2+1];
+            if (real_reads[role*2+1] != 0)
+            {
+                n_subops++;
+                pos[role] = buf_size;
+                buf_size += real_reads[role*2+1];
+            }
         }
         void *buf = memalign(MEM_ALIGNMENT, buf_size);
-        // ...<SUBMIT READS AND GET REPLIES>...
-        
+        // Submit reads
+        osd_op_t read_ops[n_subops];
+        int subop = 0;
+        for (int role = 0; role < pgs[pg_num].pg_size; role++)
+        {
+            // FIXME Take remapped objects into account
+            uint64_t role_osd_num = pgs[pg_num].target_set[role];
+            if (role_osd_num != UINT64_MAX)
+            {
+                if (role_osd_num == this->osd_num)
+                {
+                }
+                else
+                {
+                    read_ops[subop].op_type = OSD_OP_OUT;
+                    read_ops[subop].peer_fd = osd_peer_fds.get(role_osd_num);
+                    read_ops[subop].op.sec_rw = {
+                        .header = {
+                            .magic = SECONDARY_OSD_OP_MAGIC,
+                            .id = next_op_id++,
+                            .opcode = OSD_OP_SECONDARY_READ,
+                        },
+                        .oid = {
+                            .inode = oid.inode,
+                            .stripe = oid.stripe | role,
+                        },
+                        .version = target_ver,
+                        .offset = real_reads[role*2],
+                        .len = real_reads[role*2+1] - real_reads[role*2],
+                    };
+                    read_ops[subop].buf = buf + pos[role];
+                    read_ops[subop].callback = NULL;
+                }
+                subop++;
+            }
+        }
         // Reconstruct missing stripes
         for (int role = 0; role < pgs[pg_num].pg_minsize; role++)
         {
