@@ -74,8 +74,8 @@ struct osd_client_t
     int peer_fd;
     int peer_state;
     std::function<void(int)> connect_callback;
+    // osd numbers begin with 1
     uint64_t osd_num = 0;
-    //int in_flight_ops = 0;
 
     // Read state
     bool read_ready = false;
@@ -122,6 +122,7 @@ class osd_t
     std::vector<pg_t> pgs;
     int peering_state = 0;
     unsigned pg_count = 0;
+    uint64_t next_subop_id = 1;
 
     // client & peer I/O
 

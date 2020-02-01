@@ -62,7 +62,18 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
         auto it = pg.state_dict.find(st.osd_set);
         if (it == pg.state_dict.end())
         {
+            std::vector<uint64_t> read_target;
+            read_target.resize(pg.pg_size);
+            for (int i = 0; i < pg.pg_size; i++)
+            {
+                read_target[i] = 0;
+            }
+            for (auto & o: st.osd_set)
+            {
+                read_target[o.role] = o.osd_num;
+            }
             pg.state_dict[st.osd_set] = {
+                .read_target = read_target,
                 .osd_set = st.osd_set,
                 .state = state,
                 .object_count = 1,

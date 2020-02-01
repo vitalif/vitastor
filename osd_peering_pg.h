@@ -39,6 +39,7 @@ typedef std::vector<pg_obj_loc_t> pg_osd_set_t;
 
 struct pg_osd_set_state_t
 {
+    std::vector<uint64_t> read_target;
     pg_osd_set_t osd_set;
     uint64_t state = 0;
     uint64_t object_count = 0;
