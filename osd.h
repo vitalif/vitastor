@@ -30,13 +30,63 @@
 #define CL_WRITE_REPLY 2
 #define CL_WRITE_DATA 3
 #define MAX_EPOLL_EVENTS 16
+#define OSD_OP_INLINE_BUF_COUNT 4
 
 #define PEER_CONNECTING 1
 #define PEER_CONNECTED 2
 
 //#define OSD_STUB
 
-// FIXME: add types for pg_num and osd_num?
+struct osd_op_buf_t
+{
+    void *buf;
+    int len;
+};
+
+struct osd_op_buf_list_t
+{
+    int count = 0, alloc = 0, sent = 0;
+    osd_op_buf_t *buf = NULL;
+    osd_op_buf_t inline_buf[OSD_OP_INLINE_BUF_COUNT];
+
+    ~osd_op_buf_list_t()
+    {
+        if (buf && buf != inline_buf)
+        {
+            free(buf);
+        }
+    }
+
+    inline void push_back(void *nbuf, int len)
+    {
+        if (count >= alloc)
+        {
+            if (!alloc)
+            {
+                alloc = OSD_OP_INLINE_BUF_COUNT;
+                buf = inline_buf;
+            }
+            else if (buf == inline_buf)
+            {
+                int old = alloc;
+                alloc = ((alloc/16)*16 + 1);
+                buf = (osd_op_buf_t*)malloc(sizeof(osd_op_buf_t) * alloc);
+                memcpy(buf, inline_buf, sizeof(osd_op_buf_t)*old);
+            }
+            else
+            {
+                alloc = ((alloc/16)*16 + 1);
+                buf = (osd_op_buf_t*)realloc(buf, sizeof(osd_op_buf_t) * alloc);
+            }
+        }
+        buf[count++] = { .buf = nbuf, .len = len };
+    }
+
+    inline osd_op_buf_t & operator [] (int i)
+    {
+        return buf[i];
+    }
+};
 
 struct osd_op_t
 {
@@ -54,14 +104,17 @@ struct osd_op_t
     };
     blockstore_op_t bs_op;
     void *buf = NULL;
+    void *op_data = NULL;
     std::function<void(osd_op_t*)> callback;
+
+    osd_op_buf_list_t send_list;
 
     ~osd_op_t();
 };
 
 struct osd_peer_def_t
 {
-    uint64_t osd_num = 0;
+    osd_num_t osd_num = 0;
     std::string addr;
     int port = 0;
     time_t last_connect_attempt = 0;
@@ -74,8 +127,7 @@ struct osd_client_t
     int peer_fd;
     int peer_state;
     std::function<void(int)> connect_callback;
-    // osd numbers begin with 1
-    uint64_t osd_num = 0;
+    osd_num_t osd_num = 0;
 
     // Read state
     bool read_ready = false;
@@ -103,11 +155,14 @@ struct osd_client_t
     int write_state = 0;
 };
 
+struct osd_primary_read_t;
+struct osd_read_stripe_t;
+
 class osd_t
 {
     // config
 
-    uint64_t osd_num = 1; // OSD numbers start with 1
+    osd_num_t osd_num = 1; // OSD numbers start with 1
     bool run_primary = false;
     std::vector<osd_peer_def_t> peers;
     blockstore_config_t config;
@@ -156,7 +211,7 @@ class osd_t
     void outbox_push(osd_client_t & cl, osd_op_t *op);
 
     // peer handling (primary OSD logic)
-    void connect_peer(unsigned osd_num, const char *peer_host, int peer_port, std::function<void(int)> callback);
+    void connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(int)> callback);
     void handle_connect_result(int peer_fd);
     void stop_client(int peer_fd);
     osd_peer_def_t parse_peer(std::string peer);
@@ -178,6 +233,10 @@ class osd_t
     void exec_primary_write(osd_op_t *cur_op);
     void exec_primary_sync(osd_op_t *cur_op);
     void make_primary_reply(osd_op_t *op);
+    void finish_primary_op(osd_op_t *cur_op, int retval);
+    void handle_primary_read_subop(osd_op_t *cur_op, int ok);
+    int extend_missing_stripes(osd_read_stripe_t *stripes, osd_num_t *target_set, int minsize, int size);
+    void submit_read_subops(int read_pg_size, const uint64_t* target_set, osd_op_t *cur_op);
 public:
     osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);
     ~osd_t();

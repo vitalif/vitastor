@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "object_id.h"
+#include "osd_ops.h"
 
 #include "sparsepp/sparsepp/spp.h"
 
@@ -31,7 +32,7 @@
 struct pg_obj_loc_t
 {
     uint64_t role;
-    uint64_t osd_num;
+    osd_num_t osd_num;
     bool stable;
 };
 
@@ -39,7 +40,7 @@ typedef std::vector<pg_obj_loc_t> pg_osd_set_t;
 
 struct pg_osd_set_state_t
 {
-    std::vector<uint64_t> read_target;
+    std::vector<osd_num_t> read_target;
     pg_osd_set_t osd_set;
     uint64_t state = 0;
     uint64_t object_count = 0;
@@ -55,7 +56,7 @@ struct pg_list_result_t
 struct pg_peering_state_t
 {
     // osd_num -> list result
-    spp::sparse_hash_map<uint64_t, pg_list_result_t> list_results;
+    spp::sparse_hash_map<osd_num_t, pg_list_result_t> list_results;
     int list_done = 0;
 };
 
@@ -100,10 +101,10 @@ struct pg_t
 {
     int state;
     uint64_t pg_cursize = 3, pg_size = 3, pg_minsize = 2;
-    uint64_t pg_num;
+    pg_num_t pg_num;
     uint64_t clean_count = 0;
     // target_set = (role => osd_num or UINT64_MAX if missing). role numbers start with zero
-    std::vector<uint64_t> target_set;
+    std::vector<osd_num_t> target_set;
     // moved object map. by default, each object is considered to reside on the target_set.
     // this map stores all objects that differ.
     // it may consume up to ~ (raw storage / object size) * 24 bytes in the worst case scenario

@@ -46,7 +46,7 @@ void osd_t::send_replies()
         cl.write_iov.iov_len = cl.write_remaining;
         cl.write_msg.msg_iov = &cl.write_iov;
         cl.write_msg.msg_iovlen = 1;
-        // FIXME: This is basically a busy-loop. It's probably better to add epoll here
+        // FIXME: This is basically a busy-loop. It may be better to add epoll here(?)
         data->callback = [this, peer_fd](ring_data_t *data) { handle_send(data, peer_fd); };
         my_uring_prep_sendmsg(sqe, peer_fd, &cl.write_msg, 0);
         cl.write_state = cl.write_state | SQE_SENT;
@@ -76,67 +76,16 @@ void osd_t::handle_send(ring_data_t *data, int peer_fd)
             {
                 cl.write_buf = NULL;
                 osd_op_t *cur_op = cl.write_op;
-                if (cl.write_state == CL_WRITE_REPLY)
+                if (cur_op->send_list.sent < cur_op->send_list.count)
                 {
                     // Send data
-                    if (cur_op->op_type == OSD_OP_IN)
-                    {
-                        if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ &&
-                            cur_op->reply.hdr.retval > 0)
-                        {
-                            cl.write_buf = cur_op->buf;
-                            cl.write_remaining = cur_op->reply.hdr.retval;
-                            cl.write_state = CL_WRITE_DATA;
-                        }
-                        else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_LIST &&
-                            cur_op->reply.hdr.retval > 0)
-                        {
-                            cl.write_buf = cur_op->buf;
-                            cl.write_remaining = cur_op->reply.hdr.retval * sizeof(obj_ver_id);
-                            cl.write_state = CL_WRITE_DATA;
-                        }
-                        else if (cur_op->op.hdr.opcode == OSD_OP_SHOW_CONFIG &&
-                            cur_op->reply.hdr.retval > 0)
-                        {
-                            cl.write_buf = (void*)((std::string*)cur_op->buf)->c_str();
-                            cl.write_remaining = cur_op->reply.hdr.retval;
-                            cl.write_state = CL_WRITE_DATA;
-                        }
-                        else
-                        {
-                            goto op_done;
-                        }
-                    }
-                    else
-                    {
-                        if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE)
-                        {
-                            cl.write_buf = cur_op->buf;
-                            cl.write_remaining = cur_op->op.sec_rw.len;
-                            cl.write_state = CL_WRITE_DATA;
-                        }
-                        else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
-                            cur_op->op.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
-                        {
-                            cl.write_buf = cur_op->buf;
-                            cl.write_remaining = cur_op->op.sec_stab.len;
-                            cl.write_state = CL_WRITE_DATA;
-                        }
-                        else if (cur_op->op.hdr.opcode == OSD_OP_WRITE)
-                        {
-                            cl.write_buf = cur_op->buf;
-                            cl.write_remaining = cur_op->op.rw.len;
-                            cl.write_state = CL_WRITE_DATA;
-                        }
-                        else
-                        {
-                            goto op_done;
-                        }
-                    }
+                    cl.write_buf = cur_op->send_list[cur_op->send_list.sent].buf;
+                    cl.write_remaining = cur_op->send_list[cur_op->send_list.sent].len;
+                    cur_op->send_list.sent++;
+                    cl.write_state = CL_WRITE_DATA;
                 }
-                else if (cl.write_state == CL_WRITE_DATA)
+                else
                 {
-                op_done:
                     // Done
                     if (cur_op->op_type == OSD_OP_IN)
                     {

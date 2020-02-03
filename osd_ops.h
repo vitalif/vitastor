@@ -26,6 +26,9 @@
 #define OSD_RW_ALIGN                512
 #define OSD_RW_MAX                  64*1024*1024
 
+typedef uint64_t osd_num_t;
+typedef uint32_t pg_num_t;
+
 // common request and reply headers
 struct __attribute__((__packed__)) osd_op_header_t
 {
@@ -128,7 +131,7 @@ struct __attribute__((__packed__)) osd_op_secondary_list_t
 {
     osd_op_header_t header;
     // placement group total number and total count
-    uint32_t pgnum, pgtotal;
+    pg_num_t pgnum, pgtotal;
 };
 
 struct __attribute__((__packed__)) osd_reply_secondary_list_t

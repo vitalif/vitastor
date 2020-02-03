@@ -139,6 +139,7 @@ void osd_t::make_reply(osd_op_t *op)
     {
         std::string *str = (std::string*)op->buf;
         op->reply.hdr.retval = str->size()+1;
+        op->send_list.push_back((void*)str->c_str(), op->reply.hdr.retval);
     }
     else
     {
@@ -149,5 +150,15 @@ void osd_t::make_reply(osd_op_t *op)
             op->reply.sec_rw.version = op->bs_op.version;
         else if (op->op.hdr.opcode == OSD_OP_SECONDARY_DELETE)
             op->reply.sec_del.version = op->bs_op.version;
+    }
+    if (op->op.hdr.opcode == OSD_OP_SECONDARY_READ &&
+        op->reply.hdr.retval > 0)
+    {
+        op->send_list.push_back(op->buf, op->reply.hdr.retval);
+    }
+    else if (op->op.hdr.opcode == OSD_OP_SECONDARY_LIST &&
+        op->reply.hdr.retval > 0)
+    {
+        op->send_list.push_back(op->buf, op->reply.hdr.retval * sizeof(obj_ver_id));
     }
 }

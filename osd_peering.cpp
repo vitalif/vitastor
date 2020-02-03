@@ -43,7 +43,7 @@ osd_peer_def_t osd_t::parse_peer(std::string peer)
     return r;
 }
 
-void osd_t::connect_peer(unsigned osd_num, const char *peer_host, int peer_port, std::function<void(int)> callback)
+void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(int)> callback)
 {
     struct sockaddr_in addr;
     int r;
@@ -184,7 +184,7 @@ void osd_t::start_pg_peering(int pg_idx)
     auto & pg = pgs[pg_idx];
     auto ps = pg.peering_state = new pg_peering_state_t();
     {
-        uint64_t osd_num = this->osd_num;
+        osd_num_t osd_num = this->osd_num;
         osd_op_t *op = new osd_op_t();
         op->op_type = 0;
         op->peer_fd = 0;
@@ -211,7 +211,7 @@ void osd_t::start_pg_peering(int pg_idx)
     }
     for (int i = 0; i < peers.size(); i++)
     {
-        uint64_t osd_num = peers[i].osd_num;
+        osd_num_t osd_num = peers[i].osd_num;
         auto & cl = clients[osd_peer_fds[peers[i].osd_num]];
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
