@@ -22,7 +22,7 @@ uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ve
 
 void* test_primary_read(int connect_fd, uint64_t inode, uint64_t offset, uint64_t len);
 
-bool check_pattern(void *buf, uint64_t len, uint64_t pattern);
+bool check_pattern(void *buf, uint64_t offset, uint64_t len, uint64_t pattern);
 
 #define PATTERN0 0x8c4641acc762840e
 #define PATTERN1 0x70a549add9a2280a
@@ -51,13 +51,13 @@ int main(int narg, char *args[])
     // Cluster read
     connect_fd = connect_osd("127.0.0.1", 11203);
     data = test_primary_read(connect_fd, 2, 0, 128*1024);
-    if (data && check_pattern(data, 128*1024, PATTERN0))
+    if (data && check_pattern(data, 0, 128*1024, PATTERN0))
         printf("inode=2 0-128K OK\n");
     if (data)
         free(data);
     data = test_primary_read(connect_fd, 2, 0, 256*1024);
-    if (data && check_pattern(data, 128*1024, PATTERN0) &&
-        check_pattern(data+128*1024, 128*1024, PATTERN1))
+    if (data && check_pattern(data, 0, 128*1024, PATTERN0) &&
+        check_pattern(data, 128*1024, 128*1024, PATTERN1))
         printf("inode=2 0-256K OK\n");
     if (data)
         free(data);
@@ -186,13 +186,13 @@ void* test_primary_read(int connect_fd, uint64_t inode, uint64_t offset, uint64_
     return data;
 }
 
-bool check_pattern(void *buf, uint64_t len, uint64_t pattern)
+bool check_pattern(void *buf, uint64_t offset, uint64_t len, uint64_t pattern)
 {
     for (int i = 0; i < len/sizeof(uint64_t); i++)
     {
-        if (((uint64_t*)buf)[i] != pattern)
+        if (((uint64_t*)(buf+offset))[i] != pattern)
         {
-            printf("(result[%d] = %lu) != %lu\n", i, ((uint64_t*)buf)[i], pattern);
+            printf("(result + %lu bytes = %lx) != %lx\n", i*sizeof(uint64_t)+offset, ((uint64_t*)buf+offset)[i], pattern);
             return false;
         }
     }

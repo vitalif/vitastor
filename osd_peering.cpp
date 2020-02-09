@@ -8,6 +8,7 @@
 void osd_t::init_primary()
 {
     // Initial test version of clustering code requires exactly 2 peers
+    // FIXME Hardcode
     if (config["peer1"] == "" || config["peer2"] == "")
         throw std::runtime_error("run_primary requires two peers");
     peers.push_back(parse_peer(config["peer1"]));
@@ -16,8 +17,9 @@ void osd_t::init_primary()
         throw std::runtime_error("peer1 and peer2 osd numbers are the same");
     pgs.push_back((pg_t){
         .state = PG_OFFLINE,
+        .pg_cursize = 2, // or 3
         .pg_num = 1,
-        .target_set = { 1, 2, 3 },
+        .target_set = { 1, 0, 3 }, // or { 1, 2, 3 }
     });
     pg_count = 1;
     peering_state = 1;

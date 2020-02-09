@@ -3,10 +3,10 @@
 
 // read: read directly or read paired stripe(s), reconstruct, return
 // write: read paired stripe(s), modify, write
+//
 // nuance: take care to read the same version from paired stripes!
-// if there are no write requests in progress we're good (stripes must be in sync)
-// and... remember the last readable version during a write request
-// and... postpone other write requests to the same stripe until the completion of previous ones
+// to do so, we remember "last readable" version until a write request completes
+// and we postpone other write requests to the same stripe until completion of previous ones
 //
 // sync: sync peers, get unstable versions from somewhere, stabilize them
 
@@ -79,7 +79,7 @@ void osd_t::exec_primary_read(osd_op_t *cur_op)
         auto vo_it = pgs[pg_num].ver_override.find(oid);
         op_data->target_ver = vo_it != pgs[pg_num].ver_override.end() ? vo_it->second : UINT64_MAX;
     }
-    if (pgs[pg_num].pg_cursize == 3)
+    if (pgs[pg_num].pg_cursize == pgs[pg_num].pg_size)
     {
         // Fast happy-path
         submit_read_subops(pgs[pg_num].pg_minsize, pgs[pg_num].target_set.data(), cur_op);
@@ -162,8 +162,9 @@ int osd_t::extend_missing_stripes(osd_read_stripe_t *stripes, osd_num_t *target_
 {
     for (int role = 0; role < minsize; role++)
     {
-        if (stripes[role*2+1].end != 0 && target_set[role] == 0)
+        if (stripes[role].end != 0 && target_set[role] == 0)
         {
+            stripes[role].real_start = stripes[role].real_end = 0;
             // Stripe is missing. Extend read to other stripes.
             // We need at least pg_minsize stripes to recover the lost part.
             int exist = 0;
@@ -212,6 +213,11 @@ void osd_t::submit_read_subops(int read_pg_size, const uint64_t* target_set, osd
             stripes[role].pos = buf_size;
             buf_size += stripes[role].real_end - stripes[role].real_start;
         }
+        else if (stripes[role].end != 0)
+        {
+            stripes[role].pos = buf_size;
+            buf_size += stripes[role].end - stripes[role].start;
+        }
     }
     osd_op_t *subops = new osd_op_t[n_subops];
     cur_op->buf = memalign(MEM_ALIGNMENT, buf_size);
@@ -227,7 +233,6 @@ void osd_t::submit_read_subops(int read_pg_size, const uint64_t* target_set, osd
         auto role_osd_num = target_set[role];
         if (role_osd_num != 0)
         {
-            printf("Read subop from %lu: %lu / %lu\n", role_osd_num, op_data->oid.inode, op_data->oid.stripe | role);
             if (role_osd_num == this->osd_num)
             {
                 subops[subop].bs_op = {
