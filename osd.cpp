@@ -193,18 +193,16 @@ int osd_t::handle_epoll_events()
         else
         {
             auto & cl = clients[events[i].data.fd];
-            if (events[i].events & EPOLLRDHUP)
+            if (cl.peer_state == PEER_CONNECTING)
+            {
+                // Either OUT (connected) or HUP
+                handle_connect_result(cl.peer_fd);
+            }
+            else if (events[i].events & EPOLLRDHUP)
             {
                 // Stop client
                 printf("osd: client %d disconnected\n", cl.peer_fd);
                 stop_client(cl.peer_fd);
-            }
-            else if (cl.peer_state == PEER_CONNECTING)
-            {
-                if (events[i].events & EPOLLOUT)
-                {
-                    handle_connect_result(cl.peer_fd);
-                }
             }
             else if (!cl.read_ready)
             {

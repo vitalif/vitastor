@@ -2,6 +2,7 @@
 
 void osd_t::outbox_push(osd_client_t & cl, osd_op_t *cur_op)
 {
+    assert(cur_op->peer_fd);
     if (cl.write_state == 0)
     {
         cl.write_state = CL_WRITE_READY;
@@ -80,6 +81,7 @@ void osd_t::handle_send(ring_data_t *data, int peer_fd)
                 {
                     // Send data
                     cl.write_buf = cur_op->send_list[cur_op->send_list.sent].buf;
+                    assert(cl.write_buf);
                     cl.write_remaining = cur_op->send_list[cur_op->send_list.sent].len;
                     cur_op->send_list.sent++;
                     cl.write_state = CL_WRITE_DATA;

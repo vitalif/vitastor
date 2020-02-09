@@ -159,6 +159,7 @@ void osd_t::make_reply(osd_op_t *op)
     else if (op->op.hdr.opcode == OSD_OP_SECONDARY_LIST &&
         op->reply.hdr.retval > 0)
     {
+        op->buf = op->bs_op.buf; // allocated by blockstore
         op->send_list.push_back(op->buf, op->reply.hdr.retval * sizeof(obj_ver_id));
     }
 }

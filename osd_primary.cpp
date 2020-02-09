@@ -62,6 +62,7 @@ void osd_t::exec_primary_read(osd_op_t *cur_op)
     osd_primary_read_t *op_data = (osd_primary_read_t*)calloc(
         sizeof(osd_primary_read_t) + sizeof(osd_read_stripe_t) * pgs[pg_num].pg_size, 1
     );
+    op_data->oid = oid;
     osd_read_stripe_t *stripes = (op_data->stripes = ((osd_read_stripe_t*)(op_data+1)));
     cur_op->op_data = op_data;
     for (int role = 0; role < pgs[pg_num].pg_minsize; role++)
@@ -219,9 +220,14 @@ void osd_t::submit_read_subops(int read_pg_size, const uint64_t* target_set, osd
     int subop = 0;
     for (int role = 0; role < read_pg_size; role++)
     {
+        if (stripes[role].real_end == 0)
+        {
+            continue;
+        }
         auto role_osd_num = target_set[role];
         if (role_osd_num != 0)
         {
+            printf("Read subop from %lu: %lu / %lu\n", role_osd_num, op_data->oid.inode, op_data->oid.stripe | role);
             if (role_osd_num == this->osd_num)
             {
                 subops[subop].bs_op = {
@@ -262,8 +268,11 @@ void osd_t::submit_read_subops(int read_pg_size, const uint64_t* target_set, osd
                 subops[subop].buf = cur_op->buf + stripes[role].pos;
                 subops[subop].callback = [this, cur_op](osd_op_t *subop)
                 {
+                    // so it doesn't get freed. FIXME: do it better
+                    subop->buf = NULL;
                     handle_primary_read_subop(cur_op, subop->reply.hdr.retval == subop->op.sec_rw.len);
                 };
+                outbox_push(clients[subops[subop].peer_fd], &subops[subop]);
             }
             subop++;
         }

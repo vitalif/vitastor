@@ -43,13 +43,13 @@ osd_peer_def_t osd_t::parse_peer(std::string peer)
     return r;
 }
 
-void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(int)> callback)
+void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(osd_num_t, int)> callback)
 {
     struct sockaddr_in addr;
     int r;
     if ((r = inet_pton(AF_INET, peer_host, &addr.sin_addr)) != 1)
     {
-        callback(-EINVAL);
+        callback(osd_num, -EINVAL);
         return;
     }
     addr.sin_family = AF_INET;
@@ -57,7 +57,7 @@ void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port
     int peer_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (peer_fd < 0)
     {
-        callback(-errno);
+        callback(osd_num, -errno);
         return;
     }
     fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
@@ -65,7 +65,7 @@ void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port
     if (r < 0 && errno != EINPROGRESS)
     {
         close(peer_fd);
-        callback(-errno);
+        callback(osd_num, -errno);
         return;
     }
     clients[peer_fd] = (osd_client_t){
@@ -90,7 +90,8 @@ void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port
 void osd_t::handle_connect_result(int peer_fd)
 {
     auto & cl = clients[peer_fd];
-    std::function<void(int)> callback = cl.connect_callback;
+    osd_num_t osd_num = cl.osd_num;
+    auto callback = cl.connect_callback;
     int result = 0;
     socklen_t result_len = sizeof(result);
     if (getsockopt(peer_fd, SOL_SOCKET, SO_ERROR, &result, &result_len) < 0)
@@ -100,7 +101,7 @@ void osd_t::handle_connect_result(int peer_fd)
     if (result != 0)
     {
         stop_client(peer_fd);
-        callback(-result);
+        callback(osd_num, -result);
         return;
     }
     int one = 1;
@@ -115,7 +116,7 @@ void osd_t::handle_connect_result(int peer_fd)
     {
         throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
     }
-    callback(peer_fd);
+    callback(osd_num, peer_fd);
 }
 
 // Peering loop
@@ -130,8 +131,13 @@ void osd_t::handle_peers()
                 time(NULL) - peers[i].last_connect_attempt > 5)
             {
                 peers[i].last_connect_attempt = time(NULL);
-                connect_peer(peers[i].osd_num, peers[i].addr.c_str(), peers[i].port, [this](int peer_fd)
+                connect_peer(peers[i].osd_num, peers[i].addr.c_str(), peers[i].port, [this](osd_num_t osd_num, int peer_fd)
                 {
+                    if (peer_fd < 0)
+                    {
+                        printf("Failed to connect to peer OSD %lu: %s\n", osd_num, strerror(-peer_fd));
+                        return;
+                    }
                     printf("Connected with peer OSD %lu (fd %d)\n", clients[peer_fd].osd_num, peer_fd);
                     int i;
                     for (i = 0; i < peers.size(); i++)

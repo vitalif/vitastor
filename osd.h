@@ -126,7 +126,7 @@ struct osd_client_t
     int peer_port;
     int peer_fd;
     int peer_state;
-    std::function<void(int)> connect_callback;
+    std::function<void(osd_num_t, int)> connect_callback;
     osd_num_t osd_num = 0;
 
     // Read state
@@ -211,7 +211,7 @@ class osd_t
     void outbox_push(osd_client_t & cl, osd_op_t *op);
 
     // peer handling (primary OSD logic)
-    void connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(int)> callback);
+    void connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(osd_num_t, int)> callback);
     void handle_connect_result(int peer_fd);
     void stop_client(int peer_fd);
     osd_peer_def_t parse_peer(std::string peer);
