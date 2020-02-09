@@ -25,6 +25,7 @@
 #include <vector>
 #include <unordered_map>
 
+#include "rw_blocking.h"
 #include "osd_ops.h"
 extern "C" {
 #define CONFIG_PWRITEV2
@@ -74,9 +75,6 @@ static struct fio_option options[] = {
         .name = NULL,
     },
 };
-
-static int read_blocking(int fd, void *read_buf, size_t remaining);
-static int write_blocking(int fd, void *write_buf, size_t remaining);
 
 static int sec_setup(struct thread_data *td)
 {
@@ -224,54 +222,6 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     if (io->error != 0)
         return FIO_Q_COMPLETED;
     return FIO_Q_QUEUED;
-}
-
-
-static int read_blocking(int fd, void *read_buf, size_t remaining)
-{
-    size_t done = 0;
-    while (done < remaining)
-    {
-        size_t r = read(fd, read_buf, remaining-done);
-        if (r <= 0)
-        {
-            if (!errno)
-            {
-                // EOF
-                return done;
-            }
-            else if (errno != EAGAIN && errno != EPIPE)
-            {
-                perror("read");
-                exit(1);
-            }
-            continue;
-        }
-        done += r;
-        read_buf += r;
-    }
-    return done;
-}
-
-static int write_blocking(int fd, void *write_buf, size_t remaining)
-{
-    size_t done = 0;
-    while (done < remaining)
-    {
-        size_t r = write(fd, write_buf, remaining-done);
-        if (r < 0)
-        {
-            if (errno != EAGAIN && errno != EPIPE)
-            {
-                perror("write");
-                exit(1);
-            }
-            continue;
-        }
-        done += r;
-        write_buf += r;
-    }
-    return done;
 }
 
 static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int max, const struct timespec *t)

@@ -41,15 +41,15 @@ osd.o: osd.cpp osd.h osd_ops.h osd_peering_pg.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h $(OSD_OBJS)
 	g++ $(CXXFLAGS) -o osd osd_main.cpp $(OSD_OBJS) ./libblockstore.so -ltcmalloc_minimal -luring
-stub_osd: stub_osd.cpp osd_ops.h
-	g++ $(CXXFLAGS) -o stub_osd stub_osd.cpp -ltcmalloc_minimal
+stub_osd: stub_osd.cpp osd_ops.h rw_blocking.o
+	g++ $(CXXFLAGS) -o stub_osd stub_osd.cpp rw_blocking.o -ltcmalloc_minimal
 rw_blocking.o: rw_blocking.cpp rw_blocking.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 test_osd: test_osd.cpp osd_ops.h rw_blocking.o
 	g++ $(CXXFLAGS) -o test_osd test_osd.cpp rw_blocking.o -ltcmalloc_minimal
 
-libfio_sec_osd.so: fio_sec_osd.cpp osd_ops.h
-	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o libfio_sec_osd.so fio_sec_osd.cpp -luring
+libfio_sec_osd.so: fio_sec_osd.cpp osd_ops.h rw_blocking.o
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o libfio_sec_osd.so fio_sec_osd.cpp rw_blocking.o -luring
 
 test_blockstore: ./libblockstore.so test_blockstore.cpp
 	g++ $(CXXFLAGS) -o test_blockstore test_blockstore.cpp ./libblockstore.so -ltcmalloc_minimal -luring
