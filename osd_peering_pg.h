@@ -14,10 +14,11 @@
 #define PG_INCOMPLETE (1<<2)
 #define PG_ACTIVE (1<<3)
 // Plus any of these:
-#define PG_HAS_INCOMPLETE (1<<4)
-#define PG_HAS_DEGRADED (1<<5)
-#define PG_HAS_MISPLACED (1<<6)
-#define PG_HAS_UNCLEAN (1<<7)
+#define PG_DEGRADED (1<<4)
+#define PG_HAS_UNFOUND (1<<5)
+#define PG_HAS_DEGRADED (1<<6)
+#define PG_HAS_MISPLACED (1<<7)
+#define PG_HAS_UNCLEAN (1<<8)
 
 // OSD object states
 #define OBJ_CLEAN 0x01
@@ -40,7 +41,9 @@ typedef std::vector<pg_obj_loc_t> pg_osd_set_t;
 
 struct pg_osd_set_state_t
 {
+    // (role -> osd_num_t) map, as in pg.target_set and pg.cur_set
     std::vector<osd_num_t> read_target;
+    // full OSD set including additional OSDs where the object is misplaced
     pg_osd_set_t osd_set;
     uint64_t state = 0;
     uint64_t object_count = 0;
@@ -53,9 +56,12 @@ struct pg_list_result_t
     uint64_t stable_count;
 };
 
+struct osd_op_t;
+
 struct pg_peering_state_t
 {
     // osd_num -> list result
+    spp::sparse_hash_map<osd_num_t, osd_op_t*> list_ops;
     spp::sparse_hash_map<osd_num_t, pg_list_result_t> list_results;
     int list_done = 0;
 };
@@ -103,9 +109,12 @@ struct pg_t
     uint64_t pg_cursize = 3, pg_size = 3, pg_minsize = 2;
     pg_num_t pg_num;
     uint64_t clean_count = 0;
-    // target_set = (role => osd_num or UINT64_MAX if missing). role numbers start with zero
+    // target_set is the "correct" peer OSD set for this PG
     std::vector<osd_num_t> target_set;
-    // moved object map. by default, each object is considered to reside on the target_set.
+    // cur_set is the current set of connected peer OSDs for this PG
+    // cur_set = (role => osd_num or UINT64_MAX if missing). role numbers begin with zero
+    std::vector<osd_num_t> cur_set;
+    // moved object map. by default, each object is considered to reside on the cur_set.
     // this map stores all objects that differ.
     // it may consume up to ~ (raw storage / object size) * 24 bytes in the worst case scenario
     // which is up to ~192 MB per 1 TB in the worst case scenario

@@ -54,7 +54,9 @@ void osd_t::exec_primary_read(osd_op_t *cur_op)
     pg_num_t pg_num = (oid % pg_count); // FIXME +1
     if (((end - 1) / (bs_block_size*2)) != oid.stripe ||
         (start % bs_disk_alignment) || (end % bs_disk_alignment) ||
-        pg_num > pgs.size())
+        pg_num > pgs.size() ||
+        // FIXME: Postpone operations in inactive PGs
+        !(pgs[pg_num].state & PG_ACTIVE))
     {
         finish_primary_op(cur_op, -EINVAL);
         return;
@@ -79,30 +81,28 @@ void osd_t::exec_primary_read(osd_op_t *cur_op)
         auto vo_it = pgs[pg_num].ver_override.find(oid);
         op_data->target_ver = vo_it != pgs[pg_num].ver_override.end() ? vo_it->second : UINT64_MAX;
     }
-    if (pgs[pg_num].pg_cursize == pgs[pg_num].pg_size)
+    if (pgs[pg_num].state == PG_ACTIVE)
     {
         // Fast happy-path
-        submit_read_subops(pgs[pg_num].pg_minsize, pgs[pg_num].target_set.data(), cur_op);
+        submit_read_subops(pgs[pg_num].pg_minsize, pgs[pg_num].cur_set.data(), cur_op);
         cur_op->send_list.push_back(cur_op->buf, cur_op->op.rw.len);
     }
     else
     {
-        // PG is degraded
-        uint64_t* target_set;
-        {
-            auto it = pgs[pg_num].obj_states.find(oid);
-            target_set = (it != pgs[pg_num].obj_states.end()
-                ? it->second->read_target.data()
-                : pgs[pg_num].target_set.data());
-        }
-        if (extend_missing_stripes(stripes, target_set, pgs[pg_num].pg_minsize, pgs[pg_num].pg_size) < 0)
+        // PG may be degraded or have misplaced objects
+        spp::sparse_hash_map<object_id, pg_osd_set_state_t*> obj_states;
+        auto st_it = pgs[pg_num].obj_states.find(oid);
+        uint64_t* cur_set = (st_it != pgs[pg_num].obj_states.end()
+            ? st_it->second->read_target.data()
+            : pgs[pg_num].cur_set.data());
+        if (extend_missing_stripes(stripes, cur_set, pgs[pg_num].pg_minsize, pgs[pg_num].pg_size) < 0)
         {
             free(op_data);
             finish_primary_op(cur_op, -EIO);
             return;
         }
         // Submit reads
-        submit_read_subops(pgs[pg_num].pg_size, target_set, cur_op);
+        submit_read_subops(pgs[pg_num].pg_size, cur_set, cur_op);
         op_data->pg_minsize = pgs[pg_num].pg_minsize;
         op_data->pg_size = pgs[pg_num].pg_size;
         op_data->degraded = 1;
@@ -158,11 +158,11 @@ void osd_t::handle_primary_read_subop(osd_op_t *cur_op, int ok)
     }
 }
 
-int osd_t::extend_missing_stripes(osd_read_stripe_t *stripes, osd_num_t *target_set, int minsize, int size)
+int osd_t::extend_missing_stripes(osd_read_stripe_t *stripes, osd_num_t *osd_set, int minsize, int size)
 {
     for (int role = 0; role < minsize; role++)
     {
-        if (stripes[role].end != 0 && target_set[role] == 0)
+        if (stripes[role].end != 0 && osd_set[role] == 0)
         {
             stripes[role].real_start = stripes[role].real_end = 0;
             // Stripe is missing. Extend read to other stripes.
@@ -170,7 +170,7 @@ int osd_t::extend_missing_stripes(osd_read_stripe_t *stripes, osd_num_t *target_
             int exist = 0;
             for (int j = 0; j < size; j++)
             {
-                if (target_set[j] != 0)
+                if (osd_set[j] != 0)
                 {
                     if (stripes[j].real_end == 0 || j >= minsize)
                     {
@@ -199,7 +199,7 @@ int osd_t::extend_missing_stripes(osd_read_stripe_t *stripes, osd_num_t *target_
     return 0;
 }
 
-void osd_t::submit_read_subops(int read_pg_size, const uint64_t* target_set, osd_op_t *cur_op)
+void osd_t::submit_read_subops(int read_pg_size, const uint64_t* osd_set, osd_op_t *cur_op)
 {
     osd_primary_read_t *op_data = (osd_primary_read_t*)cur_op->op_data;
     osd_read_stripe_t *stripes = op_data->stripes;
@@ -230,7 +230,7 @@ void osd_t::submit_read_subops(int read_pg_size, const uint64_t* target_set, osd
         {
             continue;
         }
-        auto role_osd_num = target_set[role];
+        auto role_osd_num = osd_set[role];
         if (role_osd_num != 0)
         {
             if (role_osd_num == this->osd_num)

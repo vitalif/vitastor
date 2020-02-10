@@ -12,6 +12,7 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
     this->config = config;
     this->bs = bs;
     this->ringloop = ringloop;
+    this->tick_tfd = new timerfd_interval(ringloop, 1, []() {});
     this->bs_block_size = bs->get_block_size();
     // FIXME: use bitmap granularity instead
     this->bs_disk_alignment = bs->get_disk_alignment();
@@ -85,6 +86,7 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
 
 osd_t::~osd_t()
 {
+    delete tick_tfd;
     ringloop->unregister_consumer(consumer);
     close(epoll_fd);
     close(listen_fd);
@@ -229,7 +231,10 @@ void osd_t::stop_client(int peer_fd)
     auto it = clients.find(peer_fd);
     if (it->second.osd_num)
     {
+        // FIXME cancel outbound operations
         osd_peer_fds.erase(it->second.osd_num);
+        repeer_pgs(it->second.osd_num, false);
+        peering_state |= OSD_PEERING_PEERS;
     }
     for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
     {

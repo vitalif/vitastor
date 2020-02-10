@@ -14,6 +14,7 @@
 
 #include "blockstore.h"
 #include "ringloop.h"
+#include "timerfd_interval.h"
 #include "osd_ops.h"
 #include "osd_peering_pg.h"
 
@@ -34,6 +35,8 @@
 
 #define PEER_CONNECTING 1
 #define PEER_CONNECTED 2
+#define OSD_PEERING_PEERS 1
+#define OSD_PEERING_PGS 2
 
 //#define OSD_STUB
 
@@ -186,6 +189,7 @@ class osd_t
     blockstore_t *bs;
     uint32_t bs_block_size, bs_disk_alignment;
     ring_loop_t *ringloop;
+    timerfd_interval *tick_tfd;
 
     int wait_state = 0;
     int epoll_fd = 0;
@@ -217,6 +221,7 @@ class osd_t
     osd_peer_def_t parse_peer(std::string peer);
     void init_primary();
     void handle_peers();
+    void repeer_pgs(osd_num_t osd_num, bool is_connected);
     void start_pg_peering(int i);
 
     // op execution
@@ -235,8 +240,8 @@ class osd_t
     void make_primary_reply(osd_op_t *op);
     void finish_primary_op(osd_op_t *cur_op, int retval);
     void handle_primary_read_subop(osd_op_t *cur_op, int ok);
-    int extend_missing_stripes(osd_read_stripe_t *stripes, osd_num_t *target_set, int minsize, int size);
-    void submit_read_subops(int read_pg_size, const uint64_t* target_set, osd_op_t *cur_op);
+    int extend_missing_stripes(osd_read_stripe_t *stripes, osd_num_t *osd_set, int minsize, int size);
+    void submit_read_subops(int read_pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
 public:
     osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);
     ~osd_t();

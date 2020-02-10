@@ -344,9 +344,9 @@ int main05(int argc, char *argv[])
         .state = PG_PEERING,
         .pg_num = 1,
         .target_set = { 1, 2, 3 },
+        .cur_set = { 1, 2, 3 },
         .peering_state = new pg_peering_state_t(),
     };
-    pg.peering_state->list_done = 3;
     for (uint64_t osd_num = 1; osd_num <= 3; osd_num++)
     {
         pg_list_result_t r = {
