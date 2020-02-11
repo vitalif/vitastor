@@ -222,19 +222,58 @@ int osd_t::handle_epoll_events()
     return nfds;
 }
 
+void osd_t::cancel_osd_ops(osd_client_t & cl)
+{
+    for (auto p: cl.sent_ops)
+    {
+        cancel_op(p.second);
+    }
+    cl.sent_ops.clear();
+    for (auto op: cl.outbox)
+    {
+        cancel_op(op);
+    }
+    cl.outbox.clear();
+    if (cl.write_op)
+    {
+        cancel_op(cl.write_op);
+        cl.write_op = NULL;
+        cl.write_buf = NULL;
+    }
+}
+
+void osd_t::cancel_op(osd_op_t *op)
+{
+    op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
+    op->reply.hdr.id = op->op.hdr.id;
+    op->reply.hdr.opcode = op->op.hdr.opcode;
+    op->reply.hdr.retval = -EPIPE;
+    op->callback(op);
+}
+
 void osd_t::stop_client(int peer_fd)
 {
+    auto it = clients.find(peer_fd);
+    if (it == clients.end())
+    {
+        return;
+    }
+    auto & cl = it->second;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) < 0)
     {
         throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
     }
-    auto it = clients.find(peer_fd);
-    if (it->second.osd_num)
+    if (cl.osd_num)
     {
-        // FIXME cancel outbound operations
-        osd_peer_fds.erase(it->second.osd_num);
-        repeer_pgs(it->second.osd_num, false);
+        // Cancel outbound operations
+        cancel_osd_ops(cl);
+        osd_peer_fds.erase(cl.osd_num);
+        repeer_pgs(cl.osd_num, false);
         peering_state |= OSD_PEERING_PEERS;
+    }
+    if (cl.read_op)
+    {
+        delete cl.read_op;
     }
     for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
     {

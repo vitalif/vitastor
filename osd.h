@@ -217,6 +217,8 @@ class osd_t
     // peer handling (primary OSD logic)
     void connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(osd_num_t, int)> callback);
     void handle_connect_result(int peer_fd);
+    void cancel_osd_ops(osd_client_t & cl);
+    void cancel_op(osd_op_t *op);
     void stop_client(int peer_fd);
     osd_peer_def_t parse_peer(std::string peer);
     void init_primary();

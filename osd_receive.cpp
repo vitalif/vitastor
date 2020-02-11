@@ -141,7 +141,6 @@ void osd_t::handle_read_reply(osd_client_t *cl)
     if (req_it == cl->sent_ops.end())
     {
         // Command out of sync. Drop connection
-        // FIXME This is probably a peer, so handle all previously sent operations carefully
         stop_client(cl->peer_fd);
         return;
     }
