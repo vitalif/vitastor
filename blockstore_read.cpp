@@ -92,12 +92,14 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
     {
         // region is not allocated - return zeroes
         memset(read_op->buf, 0, read_op->len);
+        read_op->version = 0;
         read_op->retval = read_op->len;
         read_op->callback(read_op);
         return 1;
     }
     uint64_t fulfilled = 0;
     PRIV(read_op)->pending_ops = 0;
+    uint64_t result_version = 0;
     if (dirty_found)
     {
         while (dirty_it->first.oid == read_op->oid)
@@ -112,6 +114,10 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             }
             if (version_ok)
             {
+                if (!result_version)
+                {
+                    result_version = dirty_it->first.version;
+                }
                 if (!fulfill_read(read_op, fulfilled, dirty.offset, dirty.offset + dirty.len,
                     dirty.state, dirty_it->first.version, dirty.location + (IS_JOURNAL(dirty.state) ? 0 : dirty.offset)))
                 {
@@ -129,6 +135,10 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
     }
     if (clean_it != clean_db.end() && fulfilled < read_op->len)
     {
+        if (!result_version)
+        {
+            result_version = clean_it->second.version;
+        }
         if (!clean_entry_bitmap_size)
         {
             if (!fulfill_read(read_op, fulfilled, 0, block_size, ST_CURRENT, 0, clean_it->second.location))
@@ -190,6 +200,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         fulfill_read(read_op, fulfilled, 0, block_size, ST_DEL_STABLE, 0, 0);
     }
     assert(fulfilled == read_op->len);
+    read_op->version = result_version;
     if (!PRIV(read_op)->pending_ops)
     {
         // everything is fulfilled from memory

@@ -55,8 +55,15 @@ struct blockstore_op_t
     std::function<void (blockstore_op_t*)> callback;
     // For reads, writes & deletes: oid is the requested object
     object_id oid;
-    // For reads: version=0 -> last stable, version=UINT64_MAX -> last unstable, version=X -> specific version
-    // For writes & deletes: a new version is assigned automatically
+    // For reads:
+    //   version == 0 -> read the last stable version,
+    //   version == UINT64_MAX -> read the last version,
+    //   otherwise -> read the newest version that is <= the specified version
+    //   after execution, version is equal to the version that was read from the blockstore
+    // For writes & deletes:
+    //   if version == 0, a new version is assigned automatically
+    //   if version != 0, it is assigned for the new write if possible, otherwise -EINVAL is returned
+    //   after execution, version is equal to the version that was written to the blockstore
     uint64_t version;
     // For reads & writes: offset & len are the requested part of the object, buf is the buffer
     uint32_t offset;
@@ -102,7 +109,7 @@ public:
     void enqueue_op_first(blockstore_op_t *op);
 
     // Unstable writes are added here (map of object_id -> version)
-    std::map<object_id, uint64_t> & get_unstable_writes();
+    std::unordered_map<object_id, uint64_t> & get_unstable_writes();
 
     // FIXME rename to object_size
     uint32_t get_block_size();

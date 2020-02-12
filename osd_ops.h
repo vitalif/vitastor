@@ -69,7 +69,7 @@ struct __attribute__((__packed__)) osd_op_secondary_rw_t
 struct __attribute__((__packed__)) osd_reply_secondary_rw_t
 {
     osd_reply_header_t header;
-    // for writes: assigned version number
+    // for reads and writes: assigned or read version number
     uint64_t version;
 };
 

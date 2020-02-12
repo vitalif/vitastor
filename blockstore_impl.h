@@ -309,7 +309,7 @@ public:
     void enqueue_op(blockstore_op_t *op, bool first = false);
 
     // Unstable writes are added here (map of object_id -> version)
-    std::map<object_id, uint64_t> unstable_writes;
+    std::unordered_map<object_id, uint64_t> unstable_writes;
 
     inline uint32_t get_block_size() { return block_size; }
     inline uint64_t get_block_count() { return block_count; }
