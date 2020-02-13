@@ -20,6 +20,9 @@
 #define PG_HAS_MISPLACED (1<<7)
 #define PG_HAS_UNCLEAN (1<<8)
 
+// FIXME: Safe default that doesn't depend on parity_block_size of pg_parity_size
+#define STRIPE_MASK ((uint64_t)4096 - 1)
+
 // OSD object states
 #define OBJ_CLEAN 0x01
 #define OBJ_MISPLACED 0x02

@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 #include <malloc.h>
 
+#include <set>
 #include <deque>
 
 #include "blockstore.h"
@@ -149,6 +150,9 @@ struct osd_client_t
     // Outbound messages (replies or requests)
     std::deque<osd_op_t*> outbox;
 
+    // PGs dirtied by this client's primary-writes
+    std::set<pg_num_t> dirty_pgs;
+
     // Write state
     osd_op_t *write_op = NULL;
     iovec write_iov;
@@ -188,6 +192,7 @@ class osd_t
     int inflight_ops = 0;
     blockstore_t *bs;
     uint32_t bs_block_size, bs_disk_alignment;
+    uint64_t parity_block_size = 4*1024*1024; // 4 MB by default
     ring_loop_t *ringloop;
     timerfd_interval *tick_tfd;
 
@@ -239,7 +244,6 @@ class osd_t
     void exec_primary_read(osd_op_t *cur_op);
     void exec_primary_write(osd_op_t *cur_op);
     void exec_primary_sync(osd_op_t *cur_op);
-    void make_primary_reply(osd_op_t *op);
     void finish_primary_op(osd_op_t *cur_op, int retval);
     void handle_primary_read_subop(osd_op_t *cur_op, int ok);
     int extend_missing_stripes(osd_read_stripe_t *stripes, osd_num_t *osd_set, int minsize, int size);

@@ -37,8 +37,9 @@
 /* BS_OP_LIST:
 
 Input:
-- len = divisor
-- offset = modulo. object is listed if (object_id % len) == offset.
+- oid.stripe = parity block size
+- len = PG count or 0 to list all objects
+- offset = PG number
 
 Output:
 - retval = total obj_ver_id count

@@ -258,7 +258,7 @@ class blockstore_impl_t
     void handle_read_event(ring_data_t *data, blockstore_op_t *op);
 
     // Write
-    void enqueue_write(blockstore_op_t *op);
+    bool enqueue_write(blockstore_op_t *op);
     int dequeue_write(blockstore_op_t *op);
     int dequeue_del(blockstore_op_t *op);
     void ack_write(blockstore_op_t *op);

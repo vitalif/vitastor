@@ -51,15 +51,16 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
     }
     else if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_LIST)
     {
-        if (cur_op->op.sec_list.pgtotal < cur_op->op.sec_list.pgnum)
+        if (cur_op->op.sec_list.pg_count < cur_op->op.sec_list.list_pg)
         {
             // requested pg number is greater than total pg count
             cur_op->bs_op.retval = -EINVAL;
             secondary_op_callback(cur_op);
             return;
         }
-        cur_op->bs_op.len = cur_op->op.sec_list.pgtotal;
-        cur_op->bs_op.offset = cur_op->op.sec_list.pgnum - 1;
+        cur_op->bs_op.oid.stripe = cur_op->op.sec_list.parity_block_size;
+        cur_op->bs_op.len = cur_op->op.sec_list.pg_count;
+        cur_op->bs_op.offset = cur_op->op.sec_list.list_pg - 1;
     }
 #ifdef OSD_STUB
     cur_op->bs_op.retval = cur_op->bs_op.len;

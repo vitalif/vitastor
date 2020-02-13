@@ -234,18 +234,18 @@ void osd_t::start_pg_peering(int pg_idx)
     if (pg.peering_state)
     {
         // Adjust the peering operation that's still in progress
-        for (auto & p: pg.peering_state->list_ops)
+        for (auto it = pg.peering_state->list_ops.begin(); it != pg.peering_state->list_ops.end(); it++)
         {
             int role;
             for (role = 0; role < pg.cur_set.size(); role++)
             {
-                if (pg.cur_set[role] == p.first)
+                if (pg.cur_set[role] == it->first)
                     break;
             }
             if (pg.state == PG_INCOMPLETE || role >= pg.cur_set.size())
             {
                 // Discard the result after completion, which, chances are, will be unsuccessful
-                auto list_op = p.second;
+                auto list_op = it->second;
                 if (list_op->peer_fd == 0)
                 {
                     // Self
@@ -264,7 +264,8 @@ void osd_t::start_pg_peering(int pg_idx)
                         delete list_op;
                     };
                 }
-                pg.peering_state->list_ops.erase(p.first);
+                pg.peering_state->list_ops.erase(it);
+                it = pg.peering_state->list_ops.begin();
             }
         }
         for (auto & p: pg.peering_state->list_results)
@@ -315,6 +316,9 @@ void osd_t::start_pg_peering(int pg_idx)
             op->op_type = 0;
             op->peer_fd = 0;
             op->bs_op.opcode = BS_OP_LIST;
+            op->bs_op.oid.stripe = parity_block_size;
+            op->bs_op.len = pg_count,
+            op->bs_op.offset = pg.pg_num-1,
             op->bs_op.callback = [ps, op, role_osd](blockstore_op_t *bs_op)
             {
                 if (op->bs_op.retval < 0)
@@ -351,19 +355,19 @@ void osd_t::start_pg_peering(int pg_idx)
                         .id = this->next_subop_id++,
                         .opcode = OSD_OP_SECONDARY_LIST,
                     },
-                    .pgnum = pg.pg_num,
-                    .pgtotal = pg_count,
+                    .list_pg = pg.pg_num,
+                    .pg_count = pg_count,
+                    .parity_block_size = parity_block_size,
                 },
             };
             op->callback = [this, ps, role_osd](osd_op_t *op)
             {
                 if (op->reply.hdr.retval < 0)
                 {
-                    int peer_fd = op->peer_fd;
-                    printf("Failed to get object list from OSD %lu, disconnecting peer\n", role_osd);
-                    delete op;
+                    printf("Failed to get object list from OSD %lu (retval=%ld), disconnecting peer\n", role_osd, op->reply.hdr.retval);
                     ps->list_ops.erase(role_osd);
-                    stop_client(peer_fd);
+                    stop_client(op->peer_fd);
+                    delete op;
                     return;
                 }
                 printf(

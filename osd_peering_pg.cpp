@@ -170,7 +170,7 @@ void pg_t::calc_object_states()
     for (int i = 0; i < all.size(); i++)
     {
         if (st.oid.inode != all[i].oid.inode ||
-            st.oid.stripe != (all[i].oid.stripe >> STRIPE_SHIFT))
+            st.oid.stripe != (all[i].oid.stripe & ~STRIPE_MASK))
         {
             if (st.oid.inode != 0)
             {
@@ -179,7 +179,7 @@ void pg_t::calc_object_states()
                 remember_object(st, all);
             }
             st.obj_start = st.ver_start = i;
-            st.oid = { .inode = all[i].oid.inode, .stripe = all[i].oid.stripe >> STRIPE_SHIFT };
+            st.oid = { .inode = all[i].oid.inode, .stripe = all[i].oid.stripe & ~STRIPE_MASK };
             st.max_ver = st.target_ver = all[i].version;
             st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
             st.is_buggy = st.has_old_unstable = false;
@@ -192,7 +192,7 @@ void pg_t::calc_object_states()
                 st.ver_end = i;
                 i++;
                 while (i < all.size() && st.oid.inode == all[i].oid.inode &&
-                    st.oid.stripe == (all[i].oid.stripe >> STRIPE_SHIFT))
+                    st.oid.stripe == (all[i].oid.stripe & ~STRIPE_MASK))
                 {
                     if (!all[i].is_stable)
                     {
@@ -248,7 +248,7 @@ void pg_t::calc_object_states()
         pg.state = pg.state | PG_DEGRADED;
     }
     printf(
-        "PG %u is active%s%s%s%s\n", pg.pg_num,
+        "PG %u is active%s%s%s%s%s\n", pg.pg_num,
         (pg.state & PG_DEGRADED) ? " + degraded" : "",
         (pg.state & PG_HAS_UNFOUND) ? " + has_unfound" : "",
         (pg.state & PG_HAS_DEGRADED) ? " + has_degraded" : "",

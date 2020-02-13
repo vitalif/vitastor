@@ -43,20 +43,46 @@ void osd_t::finish_primary_op(osd_op_t *cur_op, int retval)
     outbox_push(this->clients[cur_op->peer_fd], cur_op);
 }
 
+inline void split_stripes(uint64_t pg_minsize, uint32_t bs_block_size, uint64_t start, uint64_t end, osd_read_stripe_t *stripes)
+{
+    for (int role = 0; role < pg_minsize; role++)
+    {
+        if (start < (1+role)*bs_block_size && end > role*bs_block_size)
+        {
+            stripes[role].real_start = stripes[role].start
+                = start < role*bs_block_size ? 0 : start-role*bs_block_size;
+            stripes[role].real_end = stripes[role].end
+                = end > (role+1)*bs_block_size ? bs_block_size : end-role*bs_block_size;
+        }
+    }
+}
+
 void osd_t::exec_primary_read(osd_op_t *cur_op)
 {
-    object_id oid = {
-        .inode = cur_op->op.rw.inode,
-        .stripe = (cur_op->op.rw.offset / (bs_block_size*2)) << STRIPE_SHIFT,
-    };
+    // PG number is calculated from the offset
+    // Our EC scheme stores data in fixed chunks equal to (K*block size)
+    // But we must not use K in the process of calculating the PG number
+    // So we calculate the PG number using a separate setting which should be per-inode (FIXME)
     uint64_t start = cur_op->op.rw.offset;
     uint64_t end = cur_op->op.rw.offset + cur_op->op.rw.len;
-    pg_num_t pg_num = (oid % pg_count); // FIXME +1
-    if (((end - 1) / (bs_block_size*2)) != oid.stripe ||
-        (start % bs_disk_alignment) || (end % bs_disk_alignment) ||
-        pg_num > pgs.size() ||
-        // FIXME: Postpone operations in inactive PGs
-        !(pgs[pg_num].state & PG_ACTIVE))
+    // FIXME Real pg_num should equal the below expression + 1
+    pg_num_t pg_num = (cur_op->op.rw.inode + cur_op->op.rw.offset / parity_block_size) % pg_count;
+    // FIXME: Postpone operations in inactive PGs
+    if (pg_num > pgs.size() || !(pgs[pg_num].state & PG_ACTIVE))
+    {
+        finish_primary_op(cur_op, -EINVAL);
+        return;
+    }
+    uint64_t pg_parity_size = bs_block_size * pgs[pg_num].pg_minsize;
+    object_id oid = {
+        .inode = cur_op->op.rw.inode,
+        // oid.stripe = starting offset of the parity stripe, so it can be mapped back to the PG
+        .stripe = (cur_op->op.rw.offset / parity_block_size) * parity_block_size +
+            ((cur_op->op.rw.offset % parity_block_size) / pg_parity_size) * pg_parity_size
+    };
+    if (end > (oid.stripe + pg_parity_size) ||
+        (start % bs_disk_alignment) != 0 ||
+        (end % bs_disk_alignment) != 0)
     {
         finish_primary_op(cur_op, -EINVAL);
         return;
@@ -65,18 +91,10 @@ void osd_t::exec_primary_read(osd_op_t *cur_op)
         sizeof(osd_primary_read_t) + sizeof(osd_read_stripe_t) * pgs[pg_num].pg_size, 1
     );
     op_data->oid = oid;
-    osd_read_stripe_t *stripes = (op_data->stripes = ((osd_read_stripe_t*)(op_data+1)));
+    op_data->stripes = ((osd_read_stripe_t*)(op_data+1));
     cur_op->op_data = op_data;
-    for (int role = 0; role < pgs[pg_num].pg_minsize; role++)
-    {
-        if (start < (1+role)*bs_block_size && end > role*bs_block_size)
-        {
-            stripes[role].real_start = stripes[role].start
-                = start < role*bs_block_size ? 0 : start-role*bs_block_size;
-            stripes[role].end = stripes[role].real_end
-                = end > (role+1)*bs_block_size ? bs_block_size : end-role*bs_block_size;
-        }
-    }
+    split_stripes(pgs[pg_num].pg_minsize, bs_block_size, start, end, op_data->stripes);
+    // Determine version
     {
         auto vo_it = pgs[pg_num].ver_override.find(oid);
         op_data->target_ver = vo_it != pgs[pg_num].ver_override.end() ? vo_it->second : UINT64_MAX;
@@ -95,7 +113,7 @@ void osd_t::exec_primary_read(osd_op_t *cur_op)
         uint64_t* cur_set = (st_it != pgs[pg_num].obj_states.end()
             ? st_it->second->read_target.data()
             : pgs[pg_num].cur_set.data());
-        if (extend_missing_stripes(stripes, cur_set, pgs[pg_num].pg_minsize, pgs[pg_num].pg_size) < 0)
+        if (extend_missing_stripes(op_data->stripes, cur_set, pgs[pg_num].pg_minsize, pgs[pg_num].pg_size) < 0)
         {
             free(op_data);
             finish_primary_op(cur_op, -EIO);
@@ -130,18 +148,40 @@ void osd_t::handle_primary_read_subop(osd_op_t *cur_op, int ok)
         if (op_data->degraded)
         {
             // Reconstruct missing stripes
+            // FIXME: Always EC(k+1) by now. Add different coding schemes
             osd_read_stripe_t *stripes = op_data->stripes;
             for (int role = 0; role < op_data->pg_minsize; role++)
             {
                 if (stripes[role].end != 0 && stripes[role].real_end == 0)
                 {
-                    int other = role == 0 ? 1 : 0;
-                    int parity = op_data->pg_size-1;
-                    memxor(
-                        cur_op->buf + stripes[other].pos + (stripes[other].real_start - stripes[role].start),
-                        cur_op->buf + stripes[parity].pos + (stripes[parity].real_start - stripes[role].start),
-                        cur_op->buf + stripes[role].pos, stripes[role].end - stripes[role].start
-                    );
+                    int prev = -2;
+                    for (int other = 0; other < op_data->pg_size; other++)
+                    {
+                        if (other != role)
+                        {
+                            if (prev == -2)
+                            {
+                                prev = other;
+                            }
+                            else if (prev >= 0)
+                            {
+                                memxor(
+                                    cur_op->buf + stripes[prev].pos + (stripes[prev].real_start - stripes[role].start),
+                                    cur_op->buf + stripes[other].pos + (stripes[other].real_start - stripes[other].start),
+                                    cur_op->buf + stripes[role].pos, stripes[role].end - stripes[role].start
+                                );
+                                prev = -1;
+                            }
+                            else
+                            {
+                                memxor(
+                                    cur_op->buf + stripes[role].pos,
+                                    cur_op->buf + stripes[other].pos + (stripes[other].real_start - stripes[role].start),
+                                    cur_op->buf + stripes[role].pos, stripes[role].end - stripes[role].start
+                                );
+                            }
+                        }
+                    }
                 }
                 if (stripes[role].end != 0)
                 {
@@ -286,17 +326,35 @@ void osd_t::submit_read_subops(int read_pg_size, const uint64_t* osd_set, osd_op
 
 void osd_t::exec_primary_write(osd_op_t *cur_op)
 {
+    // "RAID5" EC(k+1) parity modification variants (Px = previous, Nx = new):
+    // 1,2,3 write N1 -> read P2 -> write N3 = N1^P2
+    // _,2,3 write N1 -> read P2 -> write N3 = N1^P2
+    // 1,_,3 write N1 -> read P1,P3 -> write N3 = N1^P3^P1
+    // 1,2,_ write N1 -> read nothing
+    // 1,2,3,4 write N1 -> read P2,P3 -> write N4 = N1^P2^P3
+    //                 (or read P1,P4 -> write N4 = N1^P4^P1)
+    // 1,_,3,4 write N1 -> read P1,P4 -> write N4 = N1^P4^P1
+    // _,2,3,4 write N1 -> read P2,P3 -> write N4 = N1^P3^P2
+    // 1,2,3,4,5 write N1 -> read P1,P5 -> write N5 = N1^P5^P1
+    // 1,_,3,4,5 write N1 -> read P1,P5 -> write N5 = N1^P5^P1
+    // _,2,3,4,5 write N1 -> read P2,P3,P4 -> write N5 = N1^P2^P3^P4
+    //
+    // I.e, when we write a part:
+    // 1) If parity is missing and all other parts are available:
+    //    just overwrite the part
+    // 2) If the modified part is missing and all other parts are available:
+    //    read all other parts except parity, xor them all with the new data
+    // 3) If all parts are available and size=3:
+    //    read the paired data stripe, xor it with the new data
+    // 4) Otherwise:
+    //    read old parity and old data of the modified part, xor them both with the new data
+    // Ouсh. Scary. But faster than the generic variant.
+    //
+    // Generic variant for jerasure is a simple RMW process: read all -> decode -> modify -> encode -> write
     
 }
 
 void osd_t::exec_primary_sync(osd_op_t *cur_op)
 {
     
-}
-
-void osd_t::make_primary_reply(osd_op_t *op)
-{
-    op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
-    op->reply.hdr.id = op->op.hdr.id;
-    op->reply.hdr.opcode = op->op.hdr.opcode;
 }

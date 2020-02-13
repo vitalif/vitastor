@@ -94,6 +94,27 @@ int connect_osd(const char *osd_address, int osd_port)
     return connect_fd;
 }
 
+bool check_reply(int r, osd_any_op_t & op, osd_any_reply_t & reply, int expected)
+{
+    if (r != OSD_PACKET_SIZE)
+    {
+        printf("read failed\n");
+        return false;
+    }
+    if (reply.hdr.magic != SECONDARY_OSD_REPLY_MAGIC ||
+        reply.hdr.id != op.hdr.id || reply.hdr.opcode != op.hdr.opcode)
+    {
+        printf("bad reply: magic, id or opcode does not match request\n");
+        return false;
+    }
+    if (reply.hdr.retval != expected)
+    {
+        printf("operation failed, retval=%ld\n", reply.hdr.retval);
+        return false;
+    }
+    return true;
+}
+
 uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t version, uint64_t pattern)
 {
     union
@@ -116,18 +137,15 @@ uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ve
     op.sec_rw.version = version;
     op.sec_rw.offset = 0;
     op.sec_rw.len = 128*1024;
-    void *data = memalign(512, 128*1024);
-    for (int i = 0; i < 128*1024/sizeof(uint64_t); i++)
+    void *data = memalign(512, op.sec_rw.len);
+    for (int i = 0; i < (op.sec_rw.len)/sizeof(uint64_t); i++)
         ((uint64_t*)data)[i] = pattern;
     write_blocking(connect_fd, op_buf, OSD_PACKET_SIZE);
-    write_blocking(connect_fd, data, 128*1024);
+    write_blocking(connect_fd, data, op.sec_rw.len);
     int r = read_blocking(connect_fd, reply_buf, OSD_PACKET_SIZE);
-    if (r != OSD_PACKET_SIZE || reply.hdr.magic != SECONDARY_OSD_REPLY_MAGIC ||
-        reply.hdr.id != 1 || reply.hdr.opcode != OSD_OP_SECONDARY_WRITE ||
-        reply.hdr.retval != 128*1024)
+    if (!check_reply(r, op, reply, op.sec_rw.len))
     {
         free(data);
-        perror("read");
         return 0;
     }
     version = reply.sec_rw.version;
@@ -135,12 +153,9 @@ uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ve
     op.hdr.id = 2;
     write_blocking(connect_fd, op_buf, OSD_PACKET_SIZE);
     r = read_blocking(connect_fd, reply_buf, OSD_PACKET_SIZE);
-    if (r != OSD_PACKET_SIZE || reply.hdr.magic != SECONDARY_OSD_REPLY_MAGIC ||
-        reply.hdr.id != 2 || reply.hdr.opcode != OSD_OP_TEST_SYNC_STAB_ALL ||
-        reply.hdr.retval != 0)
+    if (!check_reply(r, op, reply, 0))
     {
         free(data);
-        perror("read");
         return 0;
     }
     free(data);
@@ -168,12 +183,9 @@ void* test_primary_read(int connect_fd, uint64_t inode, uint64_t offset, uint64_
     void *data = memalign(512, len);
     write_blocking(connect_fd, op_buf, OSD_PACKET_SIZE);
     int r = read_blocking(connect_fd, reply_buf, OSD_PACKET_SIZE);
-    if (r != OSD_PACKET_SIZE || reply.hdr.magic != SECONDARY_OSD_REPLY_MAGIC ||
-        reply.hdr.id != 1 || reply.hdr.opcode != OSD_OP_READ ||
-        reply.hdr.retval != len)
+    if (!check_reply(r, op, reply, len))
     {
         free(data);
-        perror("read");
         return NULL;
     }
     r = read_blocking(connect_fd, data, len);

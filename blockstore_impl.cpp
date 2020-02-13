@@ -312,6 +312,10 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
         op->callback(op);
         return;
     }
+    if (op->opcode == BS_OP_WRITE && !enqueue_write(op))
+    {
+        return;
+    }
     // Call constructor without allocating memory. We'll call destructor before returning op back
     new ((void*)op->private_data) blockstore_op_private_t;
     PRIV(op)->wait_for = 0;
@@ -325,22 +329,28 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
     {
         submit_queue.push_front(op);
     }
-    if (op->opcode == BS_OP_WRITE)
-    {
-        enqueue_write(op);
-    }
     ringloop->wakeup();
 }
 
 void blockstore_impl_t::process_list(blockstore_op_t *op)
 {
     // Count objects
+    uint32_t list_pg = op->offset;
+    uint32_t pg_count = op->len;
+    uint64_t parity_block_size = op->oid.stripe;
+    if (pg_count != 0 && (parity_block_size < MIN_BLOCK_SIZE || list_pg >= pg_count))
+    {
+        op->retval = -EINVAL;
+        FINISH_OP(op);
+        return;
+    }
     uint64_t stable_count = 0;
-    if (op->len)
+    if (pg_count > 0)
     {
         for (auto it = clean_db.begin(); it != clean_db.end(); it++)
         {
-            if ((it->first % op->len) == op->offset)
+            uint32_t pg = (it->first.inode + it->first.stripe / parity_block_size) % pg_count;
+            if (pg == list_pg)
             {
                 stable_count++;
             }
@@ -353,7 +363,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     uint64_t total_count = stable_count;
     for (auto it = dirty_db.begin(); it != dirty_db.end(); it++)
     {
-        if (!op->len || (it->first.oid % op->len) == op->offset)
+        if (!pg_count || ((it->first.oid.inode + it->first.oid.stripe / parity_block_size) % pg_count) == list_pg)
         {
             if (IS_STABLE(it->second.state))
             {
@@ -369,13 +379,14 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     if (!op->buf)
     {
         op->retval = -ENOMEM;
+        FINISH_OP(op);
         return;
     }
     obj_ver_id *vers = (obj_ver_id*)op->buf;
     int i = 0;
     for (auto it = clean_db.begin(); it != clean_db.end(); it++)
     {
-        if (!op->len || (it->first % op->len) == op->offset)
+        if (!pg_count || ((it->first.inode + it->first.stripe / parity_block_size) % pg_count) == list_pg)
         {
             vers[i++] = {
                 .oid = it->first,
@@ -386,7 +397,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     int j = stable_count;
     for (auto it = dirty_db.begin(); it != dirty_db.end(); it++)
     {
-        if (!op->len || (it->first.oid % op->len) == op->offset)
+        if (!pg_count || ((it->first.oid.inode + it->first.oid.stripe / parity_block_size) % pg_count) == list_pg)
         {
             if (IS_STABLE(it->second.state))
             {
