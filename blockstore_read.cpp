@@ -94,7 +94,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         memset(read_op->buf, 0, read_op->len);
         read_op->version = 0;
         read_op->retval = read_op->len;
-        read_op->callback(read_op);
+        FINISH_OP(read_op);
         return 1;
     }
     uint64_t fulfilled = 0;
@@ -210,7 +210,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             memset(read_op->buf, 0, read_op->len);
         }
         read_op->retval = read_op->len;
-        read_op->callback(read_op);
+        FINISH_OP(read_op);
         return 1;
     }
     read_op->retval = 0;
