@@ -92,6 +92,8 @@ struct osd_op_buf_list_t
     }
 };
 
+struct osd_primary_op_data_t;
+
 struct osd_op_t
 {
     int op_type;
@@ -108,7 +110,7 @@ struct osd_op_t
     };
     blockstore_op_t bs_op;
     void *buf = NULL;
-    void *op_data = NULL;
+    osd_primary_op_data_t* op_data = NULL;
     std::function<void(osd_op_t*)> callback;
 
     osd_op_buf_list_t send_list;
@@ -241,12 +243,12 @@ class osd_t
     void secondary_op_callback(osd_op_t *cur_op);
 
     // primary ops
+    bool prepare_primary_rw(osd_op_t *cur_op);
     void exec_primary_read(osd_op_t *cur_op);
     void exec_primary_write(osd_op_t *cur_op);
     void exec_primary_sync(osd_op_t *cur_op);
     void finish_primary_op(osd_op_t *cur_op, int retval);
     void handle_primary_read_subop(osd_op_t *cur_op, int ok);
-    int extend_missing_stripes(osd_read_stripe_t *stripes, osd_num_t *osd_set, int minsize, int size);
     void submit_read_subops(int read_pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
 public:
     osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);

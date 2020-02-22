@@ -189,6 +189,9 @@ class blockstore_impl_t
     bool readonly = false;
     // It is safe to disable fsync() if drive write cache is writethrough
     bool disable_data_fsync = false, disable_meta_fsync = false, disable_journal_fsync = false;
+    // Enable if you want every operation to be executed with an "implicit fsync"
+    // FIXME Not implemented yet
+    bool immediate_commit = false;
     bool inmemory_meta = false;
     int flusher_count;
     /******* END OF OPTIONS *******/

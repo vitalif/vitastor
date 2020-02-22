@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <functional>
 
 // 16 bytes per object/stripe id
 // stripe = (start of the parity stripe + peer role)

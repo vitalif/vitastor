@@ -1,6 +1,7 @@
 #pragma once
 
 #include "object_id.h"
+#include "osd_id.h"
 
 // Magic numbers
 #define SECONDARY_OSD_OP_MAGIC      0x2bd7b10325434553l
@@ -25,9 +26,6 @@
 // Alignment & limit for read/write operations
 #define OSD_RW_ALIGN                512
 #define OSD_RW_MAX                  64*1024*1024
-
-typedef uint64_t osd_num_t;
-typedef uint32_t pg_num_t;
 
 // common request and reply headers
 struct __attribute__((__packed__)) osd_op_header_t
@@ -152,7 +150,7 @@ struct __attribute__((__packed__)) osd_op_rw_t
     // offset
     uint64_t offset;
     // length
-    uint64_t len;
+    uint32_t len;
 };
 
 struct __attribute__((__packed__)) osd_reply_rw_t
