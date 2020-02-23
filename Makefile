@@ -24,8 +24,8 @@ libblockstore.so: $(BLOCKSTORE_OBJS)
 libfio_blockstore.so: ./libblockstore.so fio_engine.cpp json11.o
 	g++ $(CXXFLAGS) -shared -o libfio_blockstore.so fio_engine.cpp json11.o ./libblockstore.so -ltcmalloc_minimal -luring
 
-OSD_OBJS := osd.o osd_exec_secondary.o osd_receive.o osd_send.o osd_peering.o osd_peering_pg.o osd_primary.o osd_rmw.o json11.o timerfd_interval.o
-osd_exec_secondary.o: osd_exec_secondary.cpp osd.h osd_ops.h
+OSD_OBJS := osd.o osd_secondary.o osd_receive.o osd_send.o osd_peering.o osd_peering_pg.o osd_primary.o osd_rmw.o json11.o timerfd_interval.o
+osd_secondary.o: osd_secondary.cpp osd.h osd_ops.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_receive.o: osd_receive.cpp osd.h osd_ops.h
 	g++ $(CXXFLAGS) -c -o $@ $<
