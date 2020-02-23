@@ -332,11 +332,11 @@ void osd_t::exec_op(osd_op_t *cur_op)
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_READ)
     {
-        exec_primary_read(cur_op);
+        continue_primary_read(cur_op);
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_WRITE)
     {
-        exec_primary_write(cur_op);
+        continue_primary_write(cur_op);
     }
     else
     {

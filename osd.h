@@ -236,12 +236,12 @@ class osd_t
 
     // primary ops
     bool prepare_primary_rw(osd_op_t *cur_op);
-    void exec_primary_read(osd_op_t *cur_op);
-    void exec_primary_write(osd_op_t *cur_op);
+    void continue_primary_read(osd_op_t *cur_op);
+    void continue_primary_write(osd_op_t *cur_op);
     void exec_primary_sync(osd_op_t *cur_op);
     void finish_primary_op(osd_op_t *cur_op, int retval);
-    void handle_primary_read_subop(osd_op_t *cur_op, int ok);
-    void submit_read_subops(int read_pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
+    void handle_primary_subop(osd_op_t *cur_op, int ok, uint64_t version);
+    void submit_primary_subops(int submit_type, int read_pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
 public:
     osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);
     ~osd_t();
