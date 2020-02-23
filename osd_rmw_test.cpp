@@ -12,7 +12,7 @@
 int main(int narg, char *args[])
 {
     osd_num_t osd_set[3] = { 1, 0, 3 };
-    osd_read_stripe_t stripes[3] = { 0 };
+    osd_rmw_stripe_t stripes[3] = { 0 };
     // Test 1
     split_stripes(2, 128*1024, 128*1024-4096, 8192, stripes);
     assert(stripes[0].req_start == 128*1024-4096 && stripes[0].req_end == 128*1024);

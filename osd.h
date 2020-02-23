@@ -157,7 +157,7 @@ struct osd_client_t
 };
 
 struct osd_primary_read_t;
-struct osd_read_stripe_t;
+struct osd_rmw_stripe_t;
 
 class osd_t
 {

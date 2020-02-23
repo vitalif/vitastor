@@ -17,7 +17,7 @@ struct osd_primary_op_data_t
     uint64_t target_ver;
     int n_subops = 0, done = 0, errors = 0;
     int degraded = 0, pg_size, pg_minsize;
-    osd_read_stripe_t *stripes;
+    osd_rmw_stripe_t *stripes;
     osd_op_t *subops = NULL;
     void *rmw_buf = NULL;
 
@@ -63,11 +63,11 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         return false;
     }
     osd_primary_op_data_t *op_data = (osd_primary_op_data_t*)calloc(
-        sizeof(osd_primary_op_data_t) + sizeof(osd_read_stripe_t) * pgs[pg_num].pg_size, 1
+        sizeof(osd_primary_op_data_t) + sizeof(osd_rmw_stripe_t) * pgs[pg_num].pg_size, 1
     );
     op_data->pg_num = pg_num;
     op_data->oid = oid;
-    op_data->stripes = ((osd_read_stripe_t*)(op_data+1));
+    op_data->stripes = ((osd_rmw_stripe_t*)(op_data+1));
     cur_op->op_data = op_data;
     split_stripes(pgs[pg_num].pg_minsize, bs_block_size, (uint32_t)(cur_op->req.rw.offset - oid.stripe), cur_op->req.rw.len, op_data->stripes);
     return true;
@@ -140,7 +140,7 @@ void osd_t::handle_primary_read_subop(osd_op_t *cur_op, int ok)
         {
             // Reconstruct missing stripes
             // FIXME: Always EC(k+1) by now. Add different coding schemes
-            osd_read_stripe_t *stripes = op_data->stripes;
+            osd_rmw_stripe_t *stripes = op_data->stripes;
             for (int role = 0; role < op_data->pg_minsize; role++)
             {
                 if (stripes[role].read_end != 0 && stripes[role].missing)
@@ -165,7 +165,7 @@ void osd_t::handle_primary_read_subop(osd_op_t *cur_op, int ok)
 void osd_t::submit_read_subops(int read_pg_size, const uint64_t* osd_set, osd_op_t *cur_op)
 {
     osd_primary_op_data_t *op_data = (osd_primary_op_data_t*)cur_op->op_data;
-    osd_read_stripe_t *stripes = op_data->stripes;
+    osd_rmw_stripe_t *stripes = op_data->stripes;
     // Allocate subops
     int n_subops = 0, force_read = -1;
     for (int role = 0; role < read_pg_size; role++)

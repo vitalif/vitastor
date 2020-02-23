@@ -14,7 +14,7 @@ struct buf_len_t
     uint64_t len;
 };
 
-struct osd_read_stripe_t
+struct osd_rmw_stripe_t
 {
     void *read_buf, *write_buf;
     uint32_t req_start, req_end;
@@ -23,14 +23,14 @@ struct osd_read_stripe_t
     bool missing;
 };
 
-void split_stripes(uint64_t pg_minsize, uint32_t bs_block_size, uint32_t start, uint32_t len, osd_read_stripe_t *stripes);
+void split_stripes(uint64_t pg_minsize, uint32_t bs_block_size, uint32_t start, uint32_t len, osd_rmw_stripe_t *stripes);
 
-void reconstruct_stripe(osd_read_stripe_t *stripes, int pg_size, int role);
+void reconstruct_stripe(osd_rmw_stripe_t *stripes, int pg_size, int role);
 
-int extend_missing_stripes(osd_read_stripe_t *stripes, osd_num_t *osd_set, int minsize, int size);
+int extend_missing_stripes(osd_rmw_stripe_t *stripes, osd_num_t *osd_set, int minsize, int size);
 
-void* alloc_read_buffer(osd_read_stripe_t *stripes, int read_pg_size, uint64_t add_size);
+void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t add_size);
 
-void* calc_rmw_reads(void *write_buf, osd_read_stripe_t *stripes, uint64_t *osd_set, uint64_t pg_size, uint64_t pg_minsize, uint64_t pg_cursize);
+void* calc_rmw_reads(void *write_buf, osd_rmw_stripe_t *stripes, uint64_t *osd_set, uint64_t pg_size, uint64_t pg_minsize, uint64_t pg_cursize);
 
-void calc_rmw_parity(osd_read_stripe_t *stripes, int pg_size);
+void calc_rmw_parity(osd_rmw_stripe_t *stripes, int pg_size);

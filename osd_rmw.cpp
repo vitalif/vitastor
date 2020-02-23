@@ -3,7 +3,7 @@
 #include "xor.h"
 #include "osd_rmw.h"
 
-static inline void extend_read(uint32_t start, uint32_t end, osd_read_stripe_t & stripe)
+static inline void extend_read(uint32_t start, uint32_t end, osd_rmw_stripe_t & stripe)
 {
     if (stripe.read_end == 0)
     {
@@ -19,7 +19,7 @@ static inline void extend_read(uint32_t start, uint32_t end, osd_read_stripe_t &
     }
 }
 
-static inline void cover_read(uint32_t start, uint32_t end, osd_read_stripe_t & stripe)
+static inline void cover_read(uint32_t start, uint32_t end, osd_rmw_stripe_t & stripe)
 {
     // Subtract <to> write request from <from> request
     if (start >= stripe.req_start &&
@@ -53,7 +53,7 @@ static inline void cover_read(uint32_t start, uint32_t end, osd_read_stripe_t & 
     }
 }
 
-void split_stripes(uint64_t pg_minsize, uint32_t bs_block_size, uint32_t start, uint32_t end, osd_read_stripe_t *stripes)
+void split_stripes(uint64_t pg_minsize, uint32_t bs_block_size, uint32_t start, uint32_t end, osd_rmw_stripe_t *stripes)
 {
     end = start+end;
     for (int role = 0; role < pg_minsize; role++)
@@ -66,7 +66,7 @@ void split_stripes(uint64_t pg_minsize, uint32_t bs_block_size, uint32_t start, 
     }
 }
 
-void reconstruct_stripe(osd_read_stripe_t *stripes, int pg_size, int role)
+void reconstruct_stripe(osd_rmw_stripe_t *stripes, int pg_size, int role)
 {
     int prev = -2;
     for (int other = 0; other < pg_size; other++)
@@ -98,7 +98,7 @@ void reconstruct_stripe(osd_read_stripe_t *stripes, int pg_size, int role)
     }
 }
 
-int extend_missing_stripes(osd_read_stripe_t *stripes, osd_num_t *osd_set, int minsize, int size)
+int extend_missing_stripes(osd_rmw_stripe_t *stripes, osd_num_t *osd_set, int minsize, int size)
 {
     for (int role = 0; role < minsize; role++)
     {
@@ -131,7 +131,7 @@ int extend_missing_stripes(osd_read_stripe_t *stripes, osd_num_t *osd_set, int m
     return 0;
 }
 
-void* alloc_read_buffer(osd_read_stripe_t *stripes, int read_pg_size, uint64_t add_size)
+void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t add_size)
 {
     // Calculate buffer size
     uint64_t buf_size = add_size;
@@ -156,7 +156,7 @@ void* alloc_read_buffer(osd_read_stripe_t *stripes, int read_pg_size, uint64_t a
     return buf;
 }
 
-void* calc_rmw_reads(void *write_buf, osd_read_stripe_t *stripes, uint64_t *osd_set, uint64_t pg_size, uint64_t pg_minsize, uint64_t pg_cursize)
+void* calc_rmw_reads(void *write_buf, osd_rmw_stripe_t *stripes, uint64_t *osd_set, uint64_t pg_size, uint64_t pg_minsize, uint64_t pg_cursize)
 {
     // Generic parity modification (read-modify-write) algorithm
     // Reconstruct -> Read -> Calc parity -> Write
@@ -238,7 +238,7 @@ void* calc_rmw_reads(void *write_buf, osd_read_stripe_t *stripes, uint64_t *osd_
     return rmw_buf;
 }
 
-static void get_old_new_buffers(osd_read_stripe_t & stripe, uint32_t wr_start, uint32_t wr_end, buf_len_t *bufs, int & nbufs)
+static void get_old_new_buffers(osd_rmw_stripe_t & stripe, uint32_t wr_start, uint32_t wr_end, buf_len_t *bufs, int & nbufs)
 {
     uint32_t ns = 0, ne = 0, os = 0, oe = 0;
     if (stripe.req_end > wr_start &&
@@ -319,7 +319,7 @@ static void xor_multiple_buffers(buf_len_t *xor1, int n1, buf_len_t *xor2, int n
     }
 }
 
-void calc_rmw_parity(osd_read_stripe_t *stripes, int pg_size)
+void calc_rmw_parity(osd_rmw_stripe_t *stripes, int pg_size)
 {
     if (stripes[pg_size-1].missing)
     {
