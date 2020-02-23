@@ -202,7 +202,7 @@ void osd_t::submit_read_subops(int read_pg_size, const uint64_t* osd_set, osd_op
         {
             if (role_osd_num == this->osd_num)
             {
-                subops[subop].bs_op = {
+                subops[subop].bs_op = new blockstore_op_t({
                     .opcode = BS_OP_READ,
                     .callback = [cur_op, this](blockstore_op_t *subop)
                     {
@@ -216,8 +216,8 @@ void osd_t::submit_read_subops(int read_pg_size, const uint64_t* osd_set, osd_op
                     .offset = stripes[role].read_start,
                     .len = stripes[role].read_end - stripes[role].read_start,
                     .buf = stripes[role].read_buf,
-                };
-                bs->enqueue_op(&subops[subop].bs_op);
+                });
+                bs->enqueue_op(subops[subop].bs_op);
             }
             else
             {

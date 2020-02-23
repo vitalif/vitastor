@@ -94,6 +94,10 @@ osd_t::~osd_t()
 
 osd_op_t::~osd_op_t()
 {
+    if (bs_op)
+    {
+        delete bs_op;
+    }
     if (buf)
     {
         // Note: reusing osd_op_t WILL currently lead to memory leaks
@@ -311,7 +315,7 @@ void osd_t::exec_op(osd_op_t *cur_op)
         (cur_op->req.sec_rw.len > OSD_RW_MAX || cur_op->req.sec_rw.len % OSD_RW_ALIGN || cur_op->req.sec_rw.offset % OSD_RW_ALIGN))
     {
         // Bad command
-        cur_op->bs_op.retval = -EINVAL;
+        cur_op->bs_op->retval = -EINVAL;
         secondary_op_callback(cur_op);
         return;
     }

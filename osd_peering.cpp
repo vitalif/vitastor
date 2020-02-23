@@ -249,10 +249,10 @@ void osd_t::start_pg_peering(int pg_idx)
                 if (list_op->peer_fd == 0)
                 {
                     // Self
-                    list_op->bs_op.callback = [list_op](blockstore_op_t *bs_op)
+                    list_op->bs_op->callback = [list_op](blockstore_op_t *bs_op)
                     {
-                        if (list_op->bs_op.buf)
-                            free(list_op->bs_op.buf);
+                        if (list_op->bs_op->buf)
+                            free(list_op->bs_op->buf);
                         delete list_op;
                     };
                 }
@@ -315,13 +315,14 @@ void osd_t::start_pg_peering(int pg_idx)
             osd_op_t *op = new osd_op_t();
             op->op_type = 0;
             op->peer_fd = 0;
-            op->bs_op.opcode = BS_OP_LIST;
-            op->bs_op.oid.stripe = parity_block_size;
-            op->bs_op.len = pg_count,
-            op->bs_op.offset = pg.pg_num-1,
-            op->bs_op.callback = [ps, op, role_osd](blockstore_op_t *bs_op)
+            op->bs_op = new blockstore_op_t();
+            op->bs_op->opcode = BS_OP_LIST;
+            op->bs_op->oid.stripe = parity_block_size;
+            op->bs_op->len = pg_count,
+            op->bs_op->offset = pg.pg_num-1,
+            op->bs_op->callback = [ps, op, role_osd](blockstore_op_t *bs_op)
             {
-                if (op->bs_op.retval < 0)
+                if (op->bs_op->retval < 0)
                 {
                     throw std::runtime_error("local OP_LIST failed");
                 }
@@ -330,15 +331,15 @@ void osd_t::start_pg_peering(int pg_idx)
                     role_osd, bs_op->retval, bs_op->version
                 );
                 ps->list_results[role_osd] = {
-                    .buf = (obj_ver_id*)op->bs_op.buf,
-                    .total_count = (uint64_t)op->bs_op.retval,
-                    .stable_count = op->bs_op.version,
+                    .buf = (obj_ver_id*)op->bs_op->buf,
+                    .total_count = (uint64_t)op->bs_op->retval,
+                    .stable_count = op->bs_op->version,
                 };
                 ps->list_done++;
                 ps->list_ops.erase(role_osd);
                 delete op;
             };
-            bs->enqueue_op(&op->bs_op);
+            bs->enqueue_op(op->bs_op);
             ps->list_ops[role_osd] = op;
         }
         else

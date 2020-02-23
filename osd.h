@@ -100,7 +100,7 @@ struct osd_op_t
     int peer_fd;
     osd_any_op_t req;
     osd_any_reply_t reply;
-    blockstore_op_t bs_op;
+    blockstore_op_t *bs_op = NULL;
     void *buf = NULL;
     osd_primary_op_data_t* op_data = NULL;
     std::function<void(osd_op_t*)> callback;
