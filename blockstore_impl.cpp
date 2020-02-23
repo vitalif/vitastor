@@ -312,8 +312,47 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
         op->callback(op);
         return;
     }
+    if (op->opcode == BS_OP_SYNC_STAB_ALL)
+    {
+        std::function<void(blockstore_op_t*)> *old_callback = new std::function<void(blockstore_op_t*)>(op->callback);
+        op->opcode = BS_OP_SYNC;
+        op->callback = [this, old_callback](blockstore_op_t *op)
+        {
+            if (op->retval >= 0 && unstable_writes.size() > 0)
+            {
+                op->opcode = BS_OP_STABLE;
+                op->len = unstable_writes.size();
+                obj_ver_id *vers = new obj_ver_id[op->len];
+                op->buf = vers;
+                int i = 0;
+                for (auto it = unstable_writes.begin(); it != unstable_writes.end(); it++, i++)
+                {
+                    vers[i] = {
+                        .oid = it->first,
+                        .version = it->second,
+                    };
+                }
+                unstable_writes.clear();
+                op->callback = [this, old_callback](blockstore_op_t *op)
+                {
+                    obj_ver_id *vers = (obj_ver_id*)op->buf;
+                    delete[] vers;
+                    op->buf = NULL;
+                    (*old_callback)(op);
+                    delete old_callback;
+                };
+                this->enqueue_op(op);
+            }
+            else
+            {
+                (*old_callback)(op);
+                delete old_callback;
+            }
+        };
+    }
     if (op->opcode == BS_OP_WRITE && !enqueue_write(op))
     {
+        op->callback(op);
         return;
     }
     if (0 && op->opcode == BS_OP_SYNC && immediate_commit)

@@ -211,51 +211,17 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         bsd->last_sync = false;
         break;
     case DDIR_SYNC:
-        op->opcode = BS_OP_SYNC;
+        op->opcode = BS_OP_SYNC_STAB_ALL;
         op->callback = [io, n](blockstore_op_t *op)
         {
             bs_data *bsd = (bs_data*)io->engine_data;
-            auto & unstable_writes = bsd->bs->get_unstable_writes();
-            if (op->retval >= 0 && unstable_writes.size() > 0)
-            {
-                op->opcode = BS_OP_STABLE;
-                op->len = unstable_writes.size();
-                obj_ver_id *vers = new obj_ver_id[op->len];
-                op->buf = vers;
-                int i = 0;
-                for (auto it = unstable_writes.begin(); it != unstable_writes.end(); it++, i++)
-                {
-                    vers[i] = {
-                        .oid = it->first,
-                        .version = it->second,
-                    };
-                }
-                unstable_writes.clear();
-                op->callback = [io, n](blockstore_op_t *op)
-                {
-                    io->error = op->retval < 0 ? -op->retval : 0;
-                    bs_data *bsd = (bs_data*)io->engine_data;
-                    bsd->completed.push_back(io);
-                    bsd->inflight--;
-                    obj_ver_id *vers = (obj_ver_id*)op->buf;
-                    delete[] vers;
+            io->error = op->retval < 0 ? -op->retval : 0;
+            bsd->completed.push_back(io);
+            bsd->inflight--;
 #ifdef BLOCKSTORE_DEBUG
-                    printf("--- OP_SYNC %llx n=%d retval=%d\n", io, n, op->retval);
+            printf("--- OP_SYNC %llx n=%d retval=%d\n", io, n, op->retval);
 #endif
-                    delete op;
-                };
-                bsd->bs->enqueue_op(op);
-            }
-            else
-            {
-                io->error = op->retval < 0 ? -op->retval : 0;
-                bsd->completed.push_back(io);
-                bsd->inflight--;
-#ifdef BLOCKSTORE_DEBUG
-                printf("--- OP_SYNC %llx n=%d retval=%d\n", io, n, op->retval);
-#endif
-                delete op;
-            }
+            delete op;
         };
         bsd->last_sync = true;
         break;

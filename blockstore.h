@@ -30,7 +30,8 @@
 #define BS_OP_DELETE 5
 #define BS_OP_LIST 6
 #define BS_OP_ROLLBACK 7
-#define BS_OP_MAX 7
+#define BS_OP_SYNC_STAB_ALL 8
+#define BS_OP_MAX 8
 
 #define BS_OP_PRIVATE_DATA_SIZE 256
 

@@ -84,44 +84,16 @@ void osd_t::exec_sync_stab_all(osd_op_t *cur_op)
 {
     // Sync and stabilize all objects
     // This command is only valid for tests
-    // FIXME: Dedup between here & fio_engine
     if (!allow_test_ops)
     {
         cur_op->bs_op.retval = -EINVAL;
         secondary_op_callback(cur_op);
         return;
     }
-    cur_op->bs_op.opcode = BS_OP_SYNC;
+    cur_op->bs_op.opcode = BS_OP_SYNC_STAB_ALL;
     cur_op->bs_op.callback = [this, cur_op](blockstore_op_t *bs_op)
     {
-        auto & unstable_writes = bs->get_unstable_writes();
-        if (bs_op->retval >= 0 && unstable_writes.size() > 0)
-        {
-            bs_op->opcode = BS_OP_STABLE;
-            bs_op->len = unstable_writes.size();
-            obj_ver_id *vers = new obj_ver_id[bs_op->len];
-            bs_op->buf = vers;
-            int i = 0;
-            for (auto it = unstable_writes.begin(); it != unstable_writes.end(); it++, i++)
-            {
-                vers[i] = {
-                    .oid = it->first,
-                    .version = it->second,
-                };
-            }
-            unstable_writes.clear();
-            bs_op->callback = [this, cur_op](blockstore_op_t *bs_op)
-            {
-                secondary_op_callback(cur_op);
-                obj_ver_id *vers = (obj_ver_id*)bs_op->buf;
-                delete[] vers;
-            };
-            bs->enqueue_op(bs_op);
-        }
-        else
-        {
-            secondary_op_callback(cur_op);
-        }
+        secondary_op_callback(cur_op);
     };
 #ifdef OSD_STUB
     cur_op->bs_op.retval = 0;

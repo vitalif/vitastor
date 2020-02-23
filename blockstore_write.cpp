@@ -39,14 +39,12 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     {
         // Invalid version requested
         op->retval = -EINVAL;
-        FINISH_OP(op);
         return false;
     }
     if (deleted && is_del)
     {
         // Already deleted
         op->retval = 0;
-        FINISH_OP(op);
         return false;
     }
     // Immediately add the operation into dirty_db, so subsequent reads could see it
