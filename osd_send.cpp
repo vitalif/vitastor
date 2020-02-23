@@ -32,13 +32,13 @@ void osd_t::send_replies()
             cl.outbox.pop_front();
             if (cl.write_op->op_type == OSD_OP_OUT)
             {
-                cl.write_buf = &cl.write_op->op_buf;
+                cl.write_buf = &cl.write_op->op.buf;
                 cl.write_remaining = OSD_PACKET_SIZE;
                 cl.write_state = CL_WRITE_REPLY;
             }
             else
             {
-                cl.write_buf = &cl.write_op->reply_buf;
+                cl.write_buf = &cl.write_op->reply.buf;
                 cl.write_remaining = OSD_PACKET_SIZE;
                 cl.write_state = CL_WRITE_REPLY;
             }

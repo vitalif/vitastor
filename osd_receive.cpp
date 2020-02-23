@@ -23,7 +23,7 @@ void osd_t::read_requests()
                 cl.read_op->peer_fd = peer_fd;
             }
             cl.read_op->op_type = OSD_OP_IN;
-            cl.read_buf = &cl.read_op->op_buf;
+            cl.read_buf = &cl.read_op->op.buf;
             cl.read_remaining = OSD_PACKET_SIZE;
             cl.read_state = CL_READ_OP;
         }
@@ -145,7 +145,7 @@ void osd_t::handle_read_reply(osd_client_t *cl)
         return;
     }
     osd_op_t *request = req_it->second;
-    memcpy(request->reply_buf, cur_op->op_buf, OSD_PACKET_SIZE);
+    memcpy(request->reply.buf, cur_op->op.buf, OSD_PACKET_SIZE);
     if (request->reply.hdr.opcode == OSD_OP_SECONDARY_READ &&
         request->reply.hdr.retval > 0)
     {

@@ -98,16 +98,8 @@ struct osd_op_t
 {
     int op_type;
     int peer_fd;
-    union
-    {
-        osd_any_op_t op;
-        uint8_t op_buf[OSD_PACKET_SIZE] = { 0 };
-    };
-    union
-    {
-        osd_any_reply_t reply;
-        uint8_t reply_buf[OSD_PACKET_SIZE] = { 0 };
-    };
+    osd_any_op_t op;
+    osd_any_reply_t reply;
     blockstore_op_t bs_op;
     void *buf = NULL;
     osd_primary_op_data_t* op_data = NULL;

@@ -180,6 +180,7 @@ union osd_any_op_t
     osd_op_show_config_t show_conf;
     osd_op_rw_t rw;
     osd_op_sync_t sync;
+    uint8_t buf[OSD_PACKET_SIZE];
 };
 
 union osd_any_reply_t
@@ -193,4 +194,5 @@ union osd_any_reply_t
     osd_reply_show_config_t show_conf;
     osd_reply_rw_t rw;
     osd_reply_sync_t sync;
+    uint8_t buf[OSD_PACKET_SIZE];
 };

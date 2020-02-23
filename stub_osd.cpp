@@ -112,20 +112,12 @@ int bind_stub(const char *bind_address, int bind_port)
 
 void run_stub(int peer_fd)
 {
-    union
-    {
-        osd_any_op_t op;
-        uint8_t op_buf[OSD_PACKET_SIZE] = { 0 };
-    };
-    union
-    {
-        osd_any_reply_t reply;
-        uint8_t reply_buf[OSD_PACKET_SIZE] = { 0 };
-    };
+    osd_any_op_t op;
+    osd_any_reply_t reply;
     void *buf = NULL;
     while (1)
     {
-        int r = read_blocking(peer_fd, op_buf, OSD_PACKET_SIZE);
+        int r = read_blocking(peer_fd, op.buf, OSD_PACKET_SIZE);
         if (r < OSD_PACKET_SIZE)
         {
             break;
@@ -142,7 +134,7 @@ void run_stub(int peer_fd)
         {
             reply.hdr.retval = op.sec_rw.len;
             buf = malloc(op.sec_rw.len);
-            r = write_blocking(peer_fd, reply_buf, OSD_PACKET_SIZE);
+            r = write_blocking(peer_fd, reply.buf, OSD_PACKET_SIZE);
             if (r == OSD_PACKET_SIZE)
                 r = write_blocking(peer_fd, &buf, op.sec_rw.len);
             free(buf);
@@ -156,7 +148,7 @@ void run_stub(int peer_fd)
             free(buf);
             reply.hdr.retval = op.sec_rw.len;
             if (r == op.sec_rw.len)
-                r = write_blocking(peer_fd, reply_buf, OSD_PACKET_SIZE);
+                r = write_blocking(peer_fd, reply.buf, OSD_PACKET_SIZE);
             else
                 r = 0;
             if (r < OSD_PACKET_SIZE)
@@ -165,7 +157,7 @@ void run_stub(int peer_fd)
         else if (op.hdr.opcode == OSD_OP_TEST_SYNC_STAB_ALL)
         {
             reply.hdr.retval = 0;
-            r = write_blocking(peer_fd, reply_buf, OSD_PACKET_SIZE);
+            r = write_blocking(peer_fd, reply.buf, OSD_PACKET_SIZE);
             if (r < OSD_PACKET_SIZE)
                 break;
         }

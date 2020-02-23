@@ -117,16 +117,8 @@ bool check_reply(int r, osd_any_op_t & op, osd_any_reply_t & reply, int expected
 
 uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t version, uint64_t pattern)
 {
-    union
-    {
-        osd_any_op_t op;
-        uint8_t op_buf[OSD_PACKET_SIZE] = { 0 };
-    };
-    union
-    {
-        osd_any_reply_t reply;
-        uint8_t reply_buf[OSD_PACKET_SIZE] = { 0 };
-    };
+    osd_any_op_t op;
+    osd_any_reply_t reply;
     op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
     op.hdr.id = 1;
     op.hdr.opcode = OSD_OP_SECONDARY_WRITE;
@@ -140,9 +132,9 @@ uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ve
     void *data = memalign(512, op.sec_rw.len);
     for (int i = 0; i < (op.sec_rw.len)/sizeof(uint64_t); i++)
         ((uint64_t*)data)[i] = pattern;
-    write_blocking(connect_fd, op_buf, OSD_PACKET_SIZE);
+    write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
     write_blocking(connect_fd, data, op.sec_rw.len);
-    int r = read_blocking(connect_fd, reply_buf, OSD_PACKET_SIZE);
+    int r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
     if (!check_reply(r, op, reply, op.sec_rw.len))
     {
         free(data);
@@ -151,8 +143,8 @@ uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ve
     version = reply.sec_rw.version;
     op.hdr.opcode = OSD_OP_TEST_SYNC_STAB_ALL;
     op.hdr.id = 2;
-    write_blocking(connect_fd, op_buf, OSD_PACKET_SIZE);
-    r = read_blocking(connect_fd, reply_buf, OSD_PACKET_SIZE);
+    write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
+    r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
     if (!check_reply(r, op, reply, 0))
     {
         free(data);
@@ -164,16 +156,8 @@ uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ve
 
 void* test_primary_read(int connect_fd, uint64_t inode, uint64_t offset, uint64_t len)
 {
-    union
-    {
-        osd_any_op_t op;
-        uint8_t op_buf[OSD_PACKET_SIZE] = { 0 };
-    };
-    union
-    {
-        osd_any_reply_t reply;
-        uint8_t reply_buf[OSD_PACKET_SIZE] = { 0 };
-    };
+    osd_any_op_t op;
+    osd_any_reply_t reply;
     op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
     op.hdr.id = 1;
     op.hdr.opcode = OSD_OP_READ;
@@ -181,8 +165,8 @@ void* test_primary_read(int connect_fd, uint64_t inode, uint64_t offset, uint64_
     op.rw.offset = offset;
     op.rw.len = len;
     void *data = memalign(512, len);
-    write_blocking(connect_fd, op_buf, OSD_PACKET_SIZE);
-    int r = read_blocking(connect_fd, reply_buf, OSD_PACKET_SIZE);
+    write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
+    int r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
     if (!check_reply(r, op, reply, len))
     {
         free(data);
