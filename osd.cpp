@@ -98,18 +98,19 @@ osd_op_t::~osd_op_t()
     {
         delete bs_op;
     }
+    if (op_data)
+    {
+        free(op_data);
+    }
+    if (rmw_buf)
+    {
+        free(rmw_buf);
+    }
     if (buf)
     {
         // Note: reusing osd_op_t WILL currently lead to memory leaks
         // So we don't reuse it, but free it every time
-        if (op_type == OSD_OP_IN &&
-            req.hdr.opcode == OSD_OP_SHOW_CONFIG)
-        {
-            std::string *str = (std::string*)buf;
-            delete str;
-        }
-        else
-            free(buf);
+        free(buf);
     }
 }
 
@@ -307,7 +308,6 @@ void osd_t::exec_op(osd_op_t *cur_op)
         delete cur_op;
         return;
     }
-    inflight_ops++;
     if (cur_op->req.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
         cur_op->req.hdr.opcode < OSD_OP_MIN || cur_op->req.hdr.opcode > OSD_OP_MAX ||
         (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ || cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
@@ -315,10 +315,13 @@ void osd_t::exec_op(osd_op_t *cur_op)
         (cur_op->req.sec_rw.len > OSD_RW_MAX || cur_op->req.sec_rw.len % OSD_RW_ALIGN || cur_op->req.sec_rw.offset % OSD_RW_ALIGN))
     {
         // Bad command
-        cur_op->bs_op->retval = -EINVAL;
-        secondary_op_callback(cur_op);
+        cur_op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
+        cur_op->reply.hdr.id = cur_op->req.hdr.id;
+        cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
+        cur_op->reply.hdr.retval = -EINVAL;
         return;
     }
+    inflight_ops++;
     if (cur_op->req.hdr.opcode == OSD_OP_TEST_SYNC_STAB_ALL)
     {
         exec_sync_stab_all(cur_op);

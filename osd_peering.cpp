@@ -268,17 +268,22 @@ void osd_t::start_pg_peering(int pg_idx)
                 it = pg.peering_state->list_ops.begin();
             }
         }
-        for (auto & p: pg.peering_state->list_results)
+        for (auto it = pg.peering_state->list_results.begin(); it != pg.peering_state->list_results.end(); it++)
         {
             int role;
             for (role = 0; role < pg.cur_set.size(); role++)
             {
-                if (pg.cur_set[role] == p.first)
+                if (pg.cur_set[role] == it->first)
                     break;
             }
             if (pg.state == PG_INCOMPLETE || role >= pg.cur_set.size())
             {
-                pg.peering_state->list_results.erase(p.first);
+                if (it->second.buf)
+                {
+                    free(it->second.buf);
+                }
+                pg.peering_state->list_results.erase(it);
+                it = pg.peering_state->list_results.begin();
             }
         }
     }
@@ -380,7 +385,7 @@ void osd_t::start_pg_peering(int pg_idx)
                     .total_count = (uint64_t)op->reply.hdr.retval,
                     .stable_count = op->reply.sec_list.stable_count,
                 };
-                // so it doesn't get freed. FIXME: do it better
+                // set op->buf to NULL so it doesn't get freed
                 op->buf = NULL;
                 ps->list_done++;
                 ps->list_ops.erase(role_osd);

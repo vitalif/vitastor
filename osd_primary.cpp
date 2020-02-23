@@ -19,8 +19,6 @@ struct osd_primary_op_data_t
     int degraded = 0, pg_size, pg_minsize;
     osd_rmw_stripe_t *stripes;
     osd_op_t *subops = NULL;
-    void *rmw_buf = NULL;
-
     bool should_read_version = false;
 };
 
@@ -240,7 +238,7 @@ void osd_t::submit_read_subops(int read_pg_size, const uint64_t* osd_set, osd_op
                 subops[subop].buf = stripes[role].read_buf;
                 subops[subop].callback = [cur_op, this](osd_op_t *subop)
                 {
-                    // so it doesn't get freed. FIXME: do it better
+                    // so it doesn't get freed
                     subop->buf = NULL;
                     handle_primary_read_subop(cur_op, subop->reply.hdr.retval == subop->req.sec_rw.len);
                 };
@@ -276,7 +274,7 @@ void osd_t::exec_primary_write(osd_op_t *cur_op)
     // Check if there are other write requests to the same object
     
     // Determine blocks to read
-    op_data->rmw_buf = calc_rmw_reads(cur_op->buf, op_data->stripes, pg.cur_set.data(), pg.pg_size, pg.pg_minsize, pg.pg_cursize);
+    cur_op->rmw_buf = calc_rmw_reads(cur_op->buf, op_data->stripes, pg.cur_set.data(), pg.pg_size, pg.pg_minsize, pg.pg_cursize);
     op_data->should_read_version = true;
     // Read required blocks
     submit_read_subops(pg.pg_size, pg.cur_set.data(), cur_op);

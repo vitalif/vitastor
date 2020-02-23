@@ -54,7 +54,7 @@ struct pg_osd_set_state_t
 
 struct pg_list_result_t
 {
-    obj_ver_id *buf;
+    obj_ver_id *buf = NULL;
     uint64_t total_count;
     uint64_t stable_count;
 };

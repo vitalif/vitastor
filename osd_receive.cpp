@@ -149,8 +149,8 @@ void osd_t::handle_read_reply(osd_client_t *cl)
     if (op->reply.hdr.opcode == OSD_OP_SECONDARY_READ &&
         op->reply.hdr.retval > 0)
     {
-        // Read data
-        // FIXME: op->buf must be allocated
+        // Read data. In this case we assume that the buffer is preallocated by the caller (!)
+        assert(op->buf);
         cl->read_state = CL_READ_REPLY_DATA;
         cl->read_reply_id = op->req.hdr.id;
         cl->read_buf = op->buf;

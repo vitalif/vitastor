@@ -102,6 +102,7 @@ struct osd_op_t
     osd_any_reply_t reply;
     blockstore_op_t *bs_op = NULL;
     void *buf = NULL;
+    void *rmw_buf = NULL;
     osd_primary_op_data_t* op_data = NULL;
     std::function<void(osd_op_t*)> callback;
 
@@ -209,7 +210,6 @@ class osd_t
     void handle_read_op(osd_client_t *cl);
     void handle_read_reply(osd_client_t *cl);
     void send_replies();
-    void make_reply(osd_op_t *op);
     void handle_send(ring_data_t *data, int peer_fd);
     void outbox_push(osd_client_t & cl, osd_op_t *op);
 

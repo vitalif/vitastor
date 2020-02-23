@@ -2,19 +2,46 @@
 
 #include "json11/json11.hpp"
 
-void osd_t::secondary_op_callback(osd_op_t *cur_op)
+void osd_t::secondary_op_callback(osd_op_t *op)
 {
     inflight_ops--;
-    auto cl_it = clients.find(cur_op->peer_fd);
+    auto cl_it = clients.find(op->peer_fd);
     if (cl_it != clients.end())
     {
+        op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
+        op->reply.hdr.id = op->req.hdr.id;
+        op->reply.hdr.opcode = op->req.hdr.opcode;
+        op->reply.hdr.retval = op->bs_op->retval;
+        if (op->req.hdr.opcode == OSD_OP_SECONDARY_LIST)
+        {
+            op->reply.sec_list.stable_count = op->bs_op->version;
+        }
+        else if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
+            op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
+        {
+            op->reply.sec_rw.version = op->bs_op->version;
+        }
+        else if (op->req.hdr.opcode == OSD_OP_SECONDARY_DELETE)
+        {
+            op->reply.sec_del.version = op->bs_op->version;
+        }
+        if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ &&
+            op->reply.hdr.retval > 0)
+        {
+            op->send_list.push_back(op->buf, op->reply.hdr.retval);
+        }
+        else if (op->req.hdr.opcode == OSD_OP_SECONDARY_LIST &&
+            op->reply.hdr.retval > 0)
+        {
+            op->buf = op->bs_op->buf; // allocated by blockstore
+            op->send_list.push_back(op->buf, op->reply.hdr.retval * sizeof(obj_ver_id));
+        }
         auto & cl = cl_it->second;
-        make_reply(cur_op);
-        outbox_push(cl, cur_op);
+        outbox_push(cl, op);
     }
     else
     {
-        delete cur_op;
+        delete op;
     }
 }
 
@@ -74,10 +101,15 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
 void osd_t::exec_show_config(osd_op_t *cur_op)
 {
     // FIXME: Send the real config, not its source
-    std::string *cfg_str = new std::string(std::move(json11::Json(config).dump()));
-    cur_op->buf = cfg_str;
+    std::string cfg_str = json11::Json(config).dump();
+    cur_op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
+    cur_op->reply.hdr.id = cur_op->req.hdr.id;
+    cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
+    cur_op->reply.hdr.retval = cfg_str.size()+1;
+    cur_op->buf = malloc(cfg_str.size()+1);
+    memcpy(cur_op->buf, cfg_str.c_str(), cfg_str.size()+1);
     auto & cl = clients[cur_op->peer_fd];
-    make_reply(cur_op);
+    cur_op->send_list.push_back(cur_op->buf, cur_op->reply.hdr.retval);
     outbox_push(cl, cur_op);
 }
 
@@ -103,39 +135,4 @@ void osd_t::exec_sync_stab_all(osd_op_t *cur_op)
 #else
     bs->enqueue_op(cur_op->bs_op);
 #endif
-}
-
-void osd_t::make_reply(osd_op_t *op)
-{
-    op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
-    op->reply.hdr.id = op->req.hdr.id;
-    op->reply.hdr.opcode = op->req.hdr.opcode;
-    if (op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)
-    {
-        std::string *str = (std::string*)op->buf;
-        op->reply.hdr.retval = str->size()+1;
-        op->send_list.push_back((void*)str->c_str(), op->reply.hdr.retval);
-    }
-    else
-    {
-        op->reply.hdr.retval = op->bs_op->retval;
-        if (op->req.hdr.opcode == OSD_OP_SECONDARY_LIST)
-            op->reply.sec_list.stable_count = op->bs_op->version;
-        else if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
-            op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
-            op->reply.sec_rw.version = op->bs_op->version;
-        else if (op->req.hdr.opcode == OSD_OP_SECONDARY_DELETE)
-            op->reply.sec_del.version = op->bs_op->version;
-    }
-    if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ &&
-        op->reply.hdr.retval > 0)
-    {
-        op->send_list.push_back(op->buf, op->reply.hdr.retval);
-    }
-    else if (op->req.hdr.opcode == OSD_OP_SECONDARY_LIST &&
-        op->reply.hdr.retval > 0)
-    {
-        op->buf = op->bs_op->buf; // allocated by blockstore
-        op->send_list.push_back(op->buf, op->reply.hdr.retval * sizeof(obj_ver_id));
-    }
 }
