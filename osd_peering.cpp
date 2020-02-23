@@ -348,7 +348,7 @@ void osd_t::start_pg_peering(int pg_idx)
             osd_op_t *op = new osd_op_t();
             op->op_type = OSD_OP_OUT;
             op->peer_fd = cl.peer_fd;
-            op->op = {
+            op->req = {
                 .sec_list = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,

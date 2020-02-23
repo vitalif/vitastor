@@ -98,7 +98,7 @@ struct osd_op_t
 {
     int op_type;
     int peer_fd;
-    osd_any_op_t op;
+    osd_any_op_t req;
     osd_any_reply_t reply;
     blockstore_op_t bs_op;
     void *buf = NULL;

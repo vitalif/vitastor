@@ -32,7 +32,7 @@ void osd_t::send_replies()
             cl.outbox.pop_front();
             if (cl.write_op->op_type == OSD_OP_OUT)
             {
-                cl.write_buf = &cl.write_op->op.buf;
+                cl.write_buf = &cl.write_op->req.buf;
                 cl.write_remaining = OSD_PACKET_SIZE;
                 cl.write_state = CL_WRITE_REPLY;
             }
@@ -95,7 +95,7 @@ void osd_t::handle_send(ring_data_t *data, int peer_fd)
                     }
                     else
                     {
-                        cl.sent_ops[cl.write_op->op.hdr.id] = cl.write_op;
+                        cl.sent_ops[cl.write_op->req.hdr.id] = cl.write_op;
                     }
                     cl.write_op = NULL;
                     cl.write_state = cl.outbox.size() > 0 ? CL_WRITE_READY : 0;

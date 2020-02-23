@@ -23,7 +23,7 @@ void osd_t::read_requests()
                 cl.read_op->peer_fd = peer_fd;
             }
             cl.read_op->op_type = OSD_OP_IN;
-            cl.read_buf = &cl.read_op->op.buf;
+            cl.read_buf = &cl.read_op->req.buf;
             cl.read_remaining = OSD_PACKET_SIZE;
             cl.read_state = CL_READ_OP;
         }
@@ -66,7 +66,7 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
                 cl.read_buf = NULL;
                 if (cl.read_state == CL_READ_OP)
                 {
-                    if (cl.read_op->op.hdr.magic == SECONDARY_OSD_REPLY_MAGIC)
+                    if (cl.read_op->req.hdr.magic == SECONDARY_OSD_REPLY_MAGIC)
                     {
                         handle_read_reply(&cl);
                     }
@@ -100,29 +100,29 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
 void osd_t::handle_read_op(osd_client_t *cl)
 {
     osd_op_t *cur_op = cl->read_op;
-    if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ ||
-        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
-        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
-        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
+    if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
+        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
+        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
+        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
     {
         // Allocate a buffer
-        cur_op->buf = memalign(512, cur_op->op.sec_rw.len);
+        cur_op->buf = memalign(512, cur_op->req.sec_rw.len);
     }
-    else if (cur_op->op.hdr.opcode == OSD_OP_READ ||
-        cur_op->op.hdr.opcode == OSD_OP_WRITE)
+    else if (cur_op->req.hdr.opcode == OSD_OP_READ ||
+        cur_op->req.hdr.opcode == OSD_OP_WRITE)
     {
-        cur_op->buf = memalign(512, cur_op->op.rw.len);
+        cur_op->buf = memalign(512, cur_op->req.rw.len);
     }
-    if (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
-        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
-        cur_op->op.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK ||
-        cur_op->op.hdr.opcode == OSD_OP_WRITE)
+    if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
+        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
+        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK ||
+        cur_op->req.hdr.opcode == OSD_OP_WRITE)
     {
         // Read data
         cl->read_buf = cur_op->buf;
-        cl->read_remaining = (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE
-            ? cur_op->op.sec_rw.len
-            : cur_op->op.rw.len);
+        cl->read_remaining = (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE
+            ? cur_op->req.sec_rw.len
+            : cur_op->req.rw.len);
         cl->read_state = CL_READ_DATA;
     }
     else
@@ -137,38 +137,38 @@ void osd_t::handle_read_op(osd_client_t *cl)
 void osd_t::handle_read_reply(osd_client_t *cl)
 {
     osd_op_t *cur_op = cl->read_op;
-    auto req_it = cl->sent_ops.find(cur_op->op.hdr.id);
+    auto req_it = cl->sent_ops.find(cur_op->req.hdr.id);
     if (req_it == cl->sent_ops.end())
     {
         // Command out of sync. Drop connection
         stop_client(cl->peer_fd);
         return;
     }
-    osd_op_t *request = req_it->second;
-    memcpy(request->reply.buf, cur_op->op.buf, OSD_PACKET_SIZE);
-    if (request->reply.hdr.opcode == OSD_OP_SECONDARY_READ &&
-        request->reply.hdr.retval > 0)
+    osd_op_t *op = req_it->second;
+    memcpy(op->reply.buf, cur_op->req.buf, OSD_PACKET_SIZE);
+    if (op->reply.hdr.opcode == OSD_OP_SECONDARY_READ &&
+        op->reply.hdr.retval > 0)
     {
         // Read data
-        // FIXME: request->buf must be allocated
+        // FIXME: op->buf must be allocated
         cl->read_state = CL_READ_REPLY_DATA;
-        cl->read_reply_id = request->op.hdr.id;
-        cl->read_buf = request->buf;
-        cl->read_remaining = request->reply.hdr.retval;
+        cl->read_reply_id = op->req.hdr.id;
+        cl->read_buf = op->buf;
+        cl->read_remaining = op->reply.hdr.retval;
     }
-    else if (request->reply.hdr.opcode == OSD_OP_SECONDARY_LIST &&
-        request->reply.hdr.retval > 0)
+    else if (op->reply.hdr.opcode == OSD_OP_SECONDARY_LIST &&
+        op->reply.hdr.retval > 0)
     {
-        request->buf = memalign(512, sizeof(obj_ver_id) * request->reply.hdr.retval);
+        op->buf = memalign(512, sizeof(obj_ver_id) * op->reply.hdr.retval);
         cl->read_state = CL_READ_REPLY_DATA;
-        cl->read_reply_id = request->op.hdr.id;
-        cl->read_buf = request->buf;
-        cl->read_remaining = sizeof(obj_ver_id) * request->reply.hdr.retval;
+        cl->read_reply_id = op->req.hdr.id;
+        cl->read_buf = op->buf;
+        cl->read_remaining = sizeof(obj_ver_id) * op->reply.hdr.retval;
     }
     else
     {
         cl->read_state = 0;
         cl->sent_ops.erase(req_it);
-        request->callback(request);
+        op->callback(op);
     }
 }

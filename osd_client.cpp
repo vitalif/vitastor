@@ -4,18 +4,18 @@ void slice()
     // Primary OSD still operates individual stripes, except they're twice the size of the blockstore's stripe.
     std::vector read_parts;
     int block = bs->get_block_size();
-    uint64_t stripe1 = cur_op->op.rw.offset / block / 2;
-    uint64_t stripe2 = (cur_op->op.rw.offset + cur_op->op.rw.len + block*2 - 1) / block / 2 - 1;
+    uint64_t stripe1 = cur_op->req.rw.offset / block / 2;
+    uint64_t stripe2 = (cur_op->req.rw.offset + cur_op->req.rw.len + block*2 - 1) / block / 2 - 1;
     for (uint64_t s = stripe1; s <= stripe2; s++)
     {
-        uint64_t start = s == stripe1 ? cur_op->op.rw.offset - stripe1*block*2 : 0;
-        uint64_t end = s == stripe2 ? cur_op->op.rw.offset + cur_op->op.rw.len - stripe2*block*2 : block*2;
+        uint64_t start = s == stripe1 ? cur_op->req.rw.offset - stripe1*block*2 : 0;
+        uint64_t end = s == stripe2 ? cur_op->req.rw.offset + cur_op->req.rw.len - stripe2*block*2 : block*2;
         if (start < block)
         {
             read_parts.push_back({
                 .role = 1,
                 .oid = {
-                    .inode = cur_op->op.rw.inode,
+                    .inode = cur_op->req.rw.inode,
                     .stripe = (s << STRIPE_ROLE_BITS) | 1,
                 },
                 .version = UINT64_MAX,
@@ -28,7 +28,7 @@ void slice()
             read_parts.push_back({
                 .role = 2,
                 .oid = {
-                    .inode = cur_op->op.rw.inode,
+                    .inode = cur_op->req.rw.inode,
                     .stripe = (s << STRIPE_ROLE_BITS) | 2,
                 },
                 .version = UINT64_MAX,

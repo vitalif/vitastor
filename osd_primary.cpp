@@ -28,8 +28,8 @@ void osd_t::finish_primary_op(osd_op_t *cur_op, int retval)
 {
     // FIXME add separate magics
     cur_op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
-    cur_op->reply.hdr.id = cur_op->op.hdr.id;
-    cur_op->reply.hdr.opcode = cur_op->op.hdr.opcode;
+    cur_op->reply.hdr.id = cur_op->req.hdr.id;
+    cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
     cur_op->reply.hdr.retval = retval;
     outbox_push(this->clients[cur_op->peer_fd], cur_op);
 }
@@ -41,7 +41,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     // But we must not use K in the process of calculating the PG number
     // So we calculate the PG number using a separate setting which should be per-inode (FIXME)
     // FIXME Real pg_num should equal the below expression + 1
-    pg_num_t pg_num = (cur_op->op.rw.inode + cur_op->op.rw.offset / parity_block_size) % pg_count;
+    pg_num_t pg_num = (cur_op->req.rw.inode + cur_op->req.rw.offset / parity_block_size) % pg_count;
     // FIXME: Postpone operations in inactive PGs
     if (pg_num > pgs.size() || !(pgs[pg_num].state & PG_ACTIVE))
     {
@@ -50,14 +50,14 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     }
     uint64_t pg_parity_size = bs_block_size * pgs[pg_num].pg_minsize;
     object_id oid = {
-        .inode = cur_op->op.rw.inode,
+        .inode = cur_op->req.rw.inode,
         // oid.stripe = starting offset of the parity stripe, so it can be mapped back to the PG
-        .stripe = (cur_op->op.rw.offset / parity_block_size) * parity_block_size +
-            ((cur_op->op.rw.offset % parity_block_size) / pg_parity_size) * pg_parity_size
+        .stripe = (cur_op->req.rw.offset / parity_block_size) * parity_block_size +
+            ((cur_op->req.rw.offset % parity_block_size) / pg_parity_size) * pg_parity_size
     };
-    if ((cur_op->op.rw.offset + cur_op->op.rw.len) > (oid.stripe + pg_parity_size) ||
-        (cur_op->op.rw.offset % bs_disk_alignment) != 0 ||
-        (cur_op->op.rw.len % bs_disk_alignment) != 0)
+    if ((cur_op->req.rw.offset + cur_op->req.rw.len) > (oid.stripe + pg_parity_size) ||
+        (cur_op->req.rw.offset % bs_disk_alignment) != 0 ||
+        (cur_op->req.rw.len % bs_disk_alignment) != 0)
     {
         finish_primary_op(cur_op, -EINVAL);
         return false;
@@ -69,7 +69,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     op_data->oid = oid;
     op_data->stripes = ((osd_read_stripe_t*)(op_data+1));
     cur_op->op_data = op_data;
-    split_stripes(pgs[pg_num].pg_minsize, bs_block_size, (uint32_t)(cur_op->op.rw.offset - oid.stripe), cur_op->op.rw.len, op_data->stripes);
+    split_stripes(pgs[pg_num].pg_minsize, bs_block_size, (uint32_t)(cur_op->req.rw.offset - oid.stripe), cur_op->req.rw.len, op_data->stripes);
     return true;
 }
 
@@ -94,7 +94,7 @@ void osd_t::exec_primary_read(osd_op_t *cur_op)
         // Fast happy-path
         cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_minsize, 0);
         submit_read_subops(pg.pg_minsize, pg.cur_set.data(), cur_op);
-        cur_op->send_list.push_back(cur_op->buf, cur_op->op.rw.len);
+        cur_op->send_list.push_back(cur_op->buf, cur_op->req.rw.len);
     }
     else
     {
@@ -158,7 +158,7 @@ void osd_t::handle_primary_read_subop(osd_op_t *cur_op, int ok)
         }
         free(op_data);
         cur_op->op_data = NULL;
-        finish_primary_op(cur_op, cur_op->op.rw.len);
+        finish_primary_op(cur_op, cur_op->req.rw.len);
     }
 }
 
@@ -223,7 +223,7 @@ void osd_t::submit_read_subops(int read_pg_size, const uint64_t* osd_set, osd_op
             {
                 subops[subop].op_type = OSD_OP_OUT;
                 subops[subop].peer_fd = this->osd_peer_fds.at(role_osd_num);
-                subops[subop].op.sec_rw = {
+                subops[subop].req.sec_rw = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
                         .id = this->next_subop_id++,
@@ -242,7 +242,7 @@ void osd_t::submit_read_subops(int read_pg_size, const uint64_t* osd_set, osd_op
                 {
                     // so it doesn't get freed. FIXME: do it better
                     subop->buf = NULL;
-                    handle_primary_read_subop(cur_op, subop->reply.hdr.retval == subop->op.sec_rw.len);
+                    handle_primary_read_subop(cur_op, subop->reply.hdr.retval == subop->req.sec_rw.len);
                 };
                 outbox_push(clients[subops[subop].peer_fd], &subops[subop]);
             }

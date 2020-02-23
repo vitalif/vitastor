@@ -99,7 +99,7 @@ osd_op_t::~osd_op_t()
         // Note: reusing osd_op_t WILL currently lead to memory leaks
         // So we don't reuse it, but free it every time
         if (op_type == OSD_OP_IN &&
-            op.hdr.opcode == OSD_OP_SHOW_CONFIG)
+            req.hdr.opcode == OSD_OP_SHOW_CONFIG)
         {
             std::string *str = (std::string*)buf;
             delete str;
@@ -245,8 +245,8 @@ void osd_t::cancel_osd_ops(osd_client_t & cl)
 void osd_t::cancel_op(osd_op_t *op)
 {
     op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
-    op->reply.hdr.id = op->op.hdr.id;
-    op->reply.hdr.opcode = op->op.hdr.opcode;
+    op->reply.hdr.id = op->req.hdr.id;
+    op->reply.hdr.opcode = op->req.hdr.opcode;
     op->reply.hdr.retval = -EPIPE;
     op->callback(op);
 }
@@ -304,30 +304,30 @@ void osd_t::exec_op(osd_op_t *cur_op)
         return;
     }
     inflight_ops++;
-    if (cur_op->op.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
-        cur_op->op.hdr.opcode < OSD_OP_MIN || cur_op->op.hdr.opcode > OSD_OP_MAX ||
-        (cur_op->op.hdr.opcode == OSD_OP_SECONDARY_READ || cur_op->op.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
-        cur_op->op.hdr.opcode == OSD_OP_READ || cur_op->op.hdr.opcode == OSD_OP_WRITE) &&
-        (cur_op->op.sec_rw.len > OSD_RW_MAX || cur_op->op.sec_rw.len % OSD_RW_ALIGN || cur_op->op.sec_rw.offset % OSD_RW_ALIGN))
+    if (cur_op->req.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
+        cur_op->req.hdr.opcode < OSD_OP_MIN || cur_op->req.hdr.opcode > OSD_OP_MAX ||
+        (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ || cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
+        cur_op->req.hdr.opcode == OSD_OP_READ || cur_op->req.hdr.opcode == OSD_OP_WRITE) &&
+        (cur_op->req.sec_rw.len > OSD_RW_MAX || cur_op->req.sec_rw.len % OSD_RW_ALIGN || cur_op->req.sec_rw.offset % OSD_RW_ALIGN))
     {
         // Bad command
         cur_op->bs_op.retval = -EINVAL;
         secondary_op_callback(cur_op);
         return;
     }
-    if (cur_op->op.hdr.opcode == OSD_OP_TEST_SYNC_STAB_ALL)
+    if (cur_op->req.hdr.opcode == OSD_OP_TEST_SYNC_STAB_ALL)
     {
         exec_sync_stab_all(cur_op);
     }
-    else if (cur_op->op.hdr.opcode == OSD_OP_SHOW_CONFIG)
+    else if (cur_op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)
     {
         exec_show_config(cur_op);
     }
-    else if (cur_op->op.hdr.opcode == OSD_OP_READ)
+    else if (cur_op->req.hdr.opcode == OSD_OP_READ)
     {
         exec_primary_read(cur_op);
     }
-    else if (cur_op->op.hdr.opcode == OSD_OP_WRITE)
+    else if (cur_op->req.hdr.opcode == OSD_OP_WRITE)
     {
         exec_primary_write(cur_op);
     }
