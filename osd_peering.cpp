@@ -332,7 +332,7 @@ void osd_t::start_pg_peering(int pg_idx)
                     throw std::runtime_error("local OP_LIST failed");
                 }
                 printf(
-                    "Got object list from OSD %lu (local): %d objects (%lu of them stable)\n",
+                    "Got object list from OSD %lu (local): %d object versions (%lu of them stable)\n",
                     role_osd, bs_op->retval, bs_op->version
                 );
                 ps->list_results[role_osd] = {
@@ -377,7 +377,7 @@ void osd_t::start_pg_peering(int pg_idx)
                     return;
                 }
                 printf(
-                    "Got object list from OSD %lu: %ld objects (%lu of them stable)\n",
+                    "Got object list from OSD %lu: %ld object versions (%lu of them stable)\n",
                     role_osd, op->reply.hdr.retval, op->reply.sec_list.stable_count
                 );
                 ps->list_results[role_osd] = {

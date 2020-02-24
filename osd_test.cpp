@@ -15,6 +15,7 @@
 
 #include "osd_ops.h"
 #include "rw_blocking.h"
+#include "test_pattern.h"
 
 int connect_osd(const char *osd_address, int osd_port);
 
@@ -22,11 +23,9 @@ uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ve
 
 void* test_primary_read(int connect_fd, uint64_t inode, uint64_t offset, uint64_t len);
 
-bool check_pattern(void *buf, uint64_t offset, uint64_t len, uint64_t pattern);
+void test_primary_write(int connect_fd, uint64_t inode, uint64_t offset, uint64_t len, uint64_t pattern);
 
-#define PATTERN0 0x8c4641acc762840e
-#define PATTERN1 0x70a549add9a2280a
-#define PATTERN2 (PATTERN0 ^ PATTERN1)
+void test_sync_stab_all(int connect_fd);
 
 int main0(int narg, char *args[])
 {
@@ -39,7 +38,32 @@ int main0(int narg, char *args[])
     test_write(connect_fd, 2, 1, 1, PATTERN1);
     close(connect_fd);
     connect_fd = connect_osd("127.0.0.1", 11205);
-    test_write(connect_fd, 2, 2, 1, PATTERN2);
+    test_write(connect_fd, 2, 2, 1, PATTERN0^PATTERN1);
+    close(connect_fd);
+    return 0;
+}
+
+int main1(int narg, char *args[])
+{
+    int connect_fd;
+    void *data;
+    // Cluster read
+    connect_fd = connect_osd("127.0.0.1", 11203);
+    data = test_primary_read(connect_fd, 2, 0, 128*1024);
+    if (data)
+    {
+        check_pattern(data, 128*1024, PATTERN0);
+        printf("inode=2 0-128K OK\n");
+        free(data);
+    }
+    data = test_primary_read(connect_fd, 2, 0, 256*1024);
+    if (data)
+    {
+        check_pattern(data, 128*1024, PATTERN0);
+        check_pattern(data+128*1024, 128*1024, PATTERN1);
+        printf("inode=2 0-256K OK\n");
+        free(data);
+    }
     close(connect_fd);
     return 0;
 }
@@ -47,21 +71,24 @@ int main0(int narg, char *args[])
 int main(int narg, char *args[])
 {
     int connect_fd;
-    void *data;
-    // Cluster read
+    // Cluster write (sync not implemented yet)
     connect_fd = connect_osd("127.0.0.1", 11203);
-    data = test_primary_read(connect_fd, 2, 0, 128*1024);
-    if (data && check_pattern(data, 0, 128*1024, PATTERN0))
-        printf("inode=2 0-128K OK\n");
-    if (data)
-        free(data);
-    data = test_primary_read(connect_fd, 2, 0, 256*1024);
-    if (data && check_pattern(data, 0, 128*1024, PATTERN0) &&
-        check_pattern(data, 128*1024, 128*1024, PATTERN1))
-        printf("inode=2 0-256K OK\n");
-    if (data)
-        free(data);
+    test_primary_write(connect_fd, 2, 0, 128*1024, PATTERN0);
+    test_primary_write(connect_fd, 2, 128*1024, 128*1024, PATTERN1);
+    test_sync_stab_all(connect_fd);
     close(connect_fd);
+    connect_fd = connect_osd("127.0.0.1", 11204);
+    if (connect_fd >= 0)
+    {
+        test_sync_stab_all(connect_fd);
+        close(connect_fd);
+    }
+    connect_fd = connect_osd("127.0.0.1", 11205);
+    if (connect_fd >= 0)
+    {
+        test_sync_stab_all(connect_fd);
+        close(connect_fd);
+    }
     return 0;
 }
 
@@ -182,15 +209,33 @@ void* test_primary_read(int connect_fd, uint64_t inode, uint64_t offset, uint64_
     return data;
 }
 
-bool check_pattern(void *buf, uint64_t offset, uint64_t len, uint64_t pattern)
+void test_primary_write(int connect_fd, uint64_t inode, uint64_t offset, uint64_t len, uint64_t pattern)
 {
-    for (int i = 0; i < len/sizeof(uint64_t); i++)
-    {
-        if (((uint64_t*)(buf+offset))[i] != pattern)
-        {
-            printf("(result + %lu bytes = %lx) != %lx\n", i*sizeof(uint64_t)+offset, ((uint64_t*)buf+offset)[i], pattern);
-            return false;
-        }
-    }
-    return true;
+    osd_any_op_t op;
+    osd_any_reply_t reply;
+    op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    op.hdr.id = 1;
+    op.hdr.opcode = OSD_OP_WRITE;
+    op.rw.inode = inode;
+    op.rw.offset = offset;
+    op.rw.len = len;
+    void *data = memalign(512, len);
+    set_pattern(data, len, pattern);
+    write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
+    write_blocking(connect_fd, data, len);
+    free(data);
+    int r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
+    assert(check_reply(r, op, reply, len));
+}
+
+void test_sync_stab_all(int connect_fd)
+{
+    osd_any_op_t op;
+    osd_any_reply_t reply;
+    op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    op.hdr.id = 1;
+    op.hdr.opcode = OSD_OP_TEST_SYNC_STAB_ALL;
+    write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
+    int r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
+    assert(check_reply(r, op, reply, 0));
 }

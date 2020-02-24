@@ -68,11 +68,11 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
                 {
                     if (cl.read_op->req.hdr.magic == SECONDARY_OSD_REPLY_MAGIC)
                     {
-                        handle_read_reply(&cl);
+                        handle_reply_hdr(&cl);
                     }
                     else
                     {
-                        handle_read_op(&cl);
+                        handle_op_hdr(&cl);
                     }
                 }
                 else if (cl.read_state == CL_READ_DATA)
@@ -97,32 +97,39 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
     }
 }
 
-void osd_t::handle_read_op(osd_client_t *cl)
+void osd_t::handle_op_hdr(osd_client_t *cl)
 {
     osd_op_t *cur_op = cl->read_op;
-    if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
-        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
+    if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ)
+    {
+        if (cur_op->req.sec_rw.len > 0)
+            cur_op->buf = memalign(512, cur_op->req.sec_rw.len);
+        cl->read_remaining = 0;
+    }
+    else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
         cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
         cur_op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
     {
-        // Allocate a buffer
-        cur_op->buf = memalign(512, cur_op->req.sec_rw.len);
+        if (cur_op->req.sec_rw.len > 0)
+            cur_op->buf = memalign(512, cur_op->req.sec_rw.len);
+        cl->read_remaining = cur_op->req.sec_rw.len;
     }
-    else if (cur_op->req.hdr.opcode == OSD_OP_READ ||
-        cur_op->req.hdr.opcode == OSD_OP_WRITE)
+    else if (cur_op->req.hdr.opcode == OSD_OP_READ)
     {
-        cur_op->buf = memalign(512, cur_op->req.rw.len);
+        if (cur_op->req.rw.len > 0)
+            cur_op->buf = memalign(512, cur_op->req.rw.len);
+        cl->read_remaining = 0;
     }
-    if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
-        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
-        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK ||
-        cur_op->req.hdr.opcode == OSD_OP_WRITE)
+    else if (cur_op->req.hdr.opcode == OSD_OP_WRITE)
+    {
+        if (cur_op->req.rw.len > 0)
+            cur_op->buf = memalign(512, cur_op->req.rw.len);
+        cl->read_remaining = cur_op->req.rw.len;
+    }
+    if (cl->read_remaining > 0)
     {
         // Read data
         cl->read_buf = cur_op->buf;
-        cl->read_remaining = (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE
-            ? cur_op->req.sec_rw.len
-            : cur_op->req.rw.len);
         cl->read_state = CL_READ_DATA;
     }
     else
@@ -134,7 +141,7 @@ void osd_t::handle_read_op(osd_client_t *cl)
     }
 }
 
-void osd_t::handle_read_reply(osd_client_t *cl)
+void osd_t::handle_reply_hdr(osd_client_t *cl)
 {
     osd_op_t *cur_op = cl->read_op;
     auto req_it = cl->sent_ops.find(cur_op->req.hdr.id);

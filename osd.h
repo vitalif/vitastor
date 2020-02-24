@@ -157,7 +157,6 @@ struct osd_client_t
     int write_state = 0;
 };
 
-struct osd_primary_read_t;
 struct osd_rmw_stripe_t;
 
 class osd_t
@@ -180,6 +179,9 @@ class osd_t
     int peering_state = 0;
     unsigned pg_count = 0;
     uint64_t next_subop_id = 1;
+
+    // Unstable writes
+    spp::sparse_hash_map<osd_num_t, spp::sparse_hash_map<object_id, uint64_t>> unstable_writes;
 
     // client & peer I/O
 
@@ -207,8 +209,8 @@ class osd_t
     int handle_epoll_events();
     void read_requests();
     void handle_read(ring_data_t *data, int peer_fd);
-    void handle_read_op(osd_client_t *cl);
-    void handle_read_reply(osd_client_t *cl);
+    void handle_op_hdr(osd_client_t *cl);
+    void handle_reply_hdr(osd_client_t *cl);
     void send_replies();
     void handle_send(ring_data_t *data, int peer_fd);
     void outbox_push(osd_client_t & cl, osd_op_t *op);

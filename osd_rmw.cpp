@@ -170,6 +170,8 @@ void* calc_rmw_reads(void *write_buf, osd_rmw_stripe_t *stripes, uint64_t *osd_s
         {
             start = !end || stripes[role].req_start < start ? stripes[role].req_start : start;
             end = std::max(stripes[role].req_end, end);
+            stripes[role].write_start = stripes[role].req_start;
+            stripes[role].write_end = stripes[role].req_end;
         }
     }
     for (int role = 0; role < pg_minsize; role++)
@@ -251,7 +253,7 @@ static void get_old_new_buffers(osd_rmw_stripe_t & stripe, uint32_t wr_start, ui
         stripe.read_start < wr_end)
     {
         os = std::max(stripe.read_start, wr_start);
-        oe = std::min(stripe.req_end, wr_end);
+        oe = std::min(stripe.read_end, wr_end);
     }
     if (ne && (!oe || ns <= os))
     {

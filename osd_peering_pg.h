@@ -127,6 +127,8 @@ struct pg_t
     spp::sparse_hash_map<object_id, uint64_t> ver_override;
     pg_peering_state_t *peering_state = NULL;
 
+    std::multimap<object_id, osd_op_t*> write_queue;
+
     void calc_object_states();
     void remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &all);
 };
@@ -139,11 +141,13 @@ inline bool operator < (const pg_obj_loc_t &a, const pg_obj_loc_t &b)
 
 inline bool operator < (const obj_ver_role & a, const obj_ver_role & b)
 {
-    return a.oid < b.oid ||
-        // object versions come in descending order
-        a.oid == b.oid && a.version > b.version ||
-        a.oid == b.oid && a.version == b.version ||
-        a.oid == b.oid && a.version == b.version && a.osd_num < b.osd_num;
+    // ORDER BY inode ASC, stripe & ~STRIPE_MASK ASC, version DESC, osd_num ASC
+    return a.oid.inode < b.oid.inode || a.oid.inode == b.oid.inode && (
+        (a.oid.stripe & ~STRIPE_MASK) < (b.oid.stripe & ~STRIPE_MASK) ||
+        (a.oid.stripe & ~STRIPE_MASK) == (b.oid.stripe & ~STRIPE_MASK) && (
+            a.version > b.version || a.version == b.version && a.osd_num < b.osd_num
+        )
+    );
 }
 
 inline bool operator == (const obj_piece_id_t & a, const obj_piece_id_t & b)

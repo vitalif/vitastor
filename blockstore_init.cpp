@@ -535,7 +535,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
             else if (je->type == JE_BIG_WRITE)
             {
 #ifdef BLOCKSTORE_DEBUG
-                printf("je_big_write oid=%lu:%lu ver=%lu\n", je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version);
+                printf("je_big_write oid=%lu:%lu ver=%lu loc=%lu\n", je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location);
 #endif
                 auto clean_it = bs->clean_db.find(je->big_write.oid);
                 if (clean_it == bs->clean_db.end() ||

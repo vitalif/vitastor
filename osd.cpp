@@ -310,15 +310,17 @@ void osd_t::exec_op(osd_op_t *cur_op)
     }
     if (cur_op->req.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
         cur_op->req.hdr.opcode < OSD_OP_MIN || cur_op->req.hdr.opcode > OSD_OP_MAX ||
-        (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ || cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
-        cur_op->req.hdr.opcode == OSD_OP_READ || cur_op->req.hdr.opcode == OSD_OP_WRITE) &&
-        (cur_op->req.sec_rw.len > OSD_RW_MAX || cur_op->req.sec_rw.len % OSD_RW_ALIGN || cur_op->req.sec_rw.offset % OSD_RW_ALIGN))
+        (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ || cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE) &&
+        (cur_op->req.sec_rw.len > OSD_RW_MAX || cur_op->req.sec_rw.len % OSD_RW_ALIGN || cur_op->req.sec_rw.offset % OSD_RW_ALIGN) ||
+        (cur_op->req.hdr.opcode == OSD_OP_READ || cur_op->req.hdr.opcode == OSD_OP_WRITE) &&
+        (cur_op->req.rw.len > OSD_RW_MAX || cur_op->req.rw.len % OSD_RW_ALIGN || cur_op->req.rw.offset % OSD_RW_ALIGN))
     {
         // Bad command
         cur_op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
         cur_op->reply.hdr.id = cur_op->req.hdr.id;
         cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
         cur_op->reply.hdr.retval = -EINVAL;
+        outbox_push(this->clients[cur_op->peer_fd], cur_op);
         return;
     }
     inflight_ops++;

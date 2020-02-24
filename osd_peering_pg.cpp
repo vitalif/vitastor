@@ -17,11 +17,13 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
     }
     else if (st.n_roles < pg.pg_minsize)
     {
+        printf("Object is unfound: inode=%lu stripe=%lu version=%lu/%lu\n", st.oid.inode, st.oid.stripe, st.target_ver, st.max_ver);
         state = OBJ_INCOMPLETE;
         pg.state = pg.state | PG_HAS_UNFOUND;
     }
     else
     {
+        printf("Object is degraded: inode=%lu stripe=%lu version=%lu/%lu\n", st.oid.inode, st.oid.stripe, st.target_ver, st.max_ver);
         state = OBJ_DEGRADED;
         pg.state = pg.state | PG_HAS_DEGRADED;
     }
@@ -133,6 +135,7 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
         pg.clean_count++;
 }
 
+// FIXME: Write at least some tests for this function
 void pg_t::calc_object_states()
 {
     auto & pg = *this;
@@ -188,7 +191,7 @@ void pg_t::calc_object_states()
         {
             if (st.n_stable > 0 || st.n_roles >= pg.pg_minsize)
             {
-                // Version is either recoverable or stable, choose it as target and skip previous versions
+                // Last processed version is either recoverable or stable, choose it as target and skip previous versions
                 st.ver_end = i;
                 i++;
                 while (i < all.size() && st.oid.inode == all[i].oid.inode &&
@@ -201,13 +204,13 @@ void pg_t::calc_object_states()
                     i++;
                 }
                 st.obj_end = i;
-                remember_object(st, all);
                 i--;
                 continue;
             }
             else
             {
-                // Remember that there are newer unrecoverable versions
+                // Last processed version is unstable and unrecoverable
+                // We'll know that because target_ver < max_ver
                 st.ver_start = i;
                 st.target_ver = all[i].version;
                 st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;

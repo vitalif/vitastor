@@ -174,8 +174,7 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
         {
             zero_read = role;
         }
-        if (osd_set[role] != 0 &&
-            (w ? stripes[role].write_end : stripes[role].read_end) != 0)
+        if (osd_set[role] != 0 && (w || stripes[role].read_end != 0))
         {
             n_subops++;
         }
@@ -195,11 +194,12 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
     int subop = 0;
     for (int role = 0; role < pg_size; role++)
     {
-        if ((submit_type == SUBMIT_WRITE ? stripes[role].write_end : stripes[role].read_end) == 0 && zero_read != role)
+        // We always submit zero-length writes to all replicas, even if the stripe is not modified
+        if (!(w || stripes[role].read_end != 0 || zero_read == role))
         {
             continue;
         }
-        auto role_osd_num = osd_set[role];
+        osd_num_t role_osd_num = osd_set[role];
         if (role_osd_num != 0)
         {
             if (role_osd_num == this->osd_num)
@@ -240,6 +240,10 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                     .len = w ? stripes[role].write_end - stripes[role].write_start : stripes[role].read_end - stripes[role].read_start,
                 };
                 subops[subop].buf = w ? stripes[role].write_buf : stripes[role].read_buf;
+                if (w && stripes[role].write_end > 0)
+                {
+                    subops[subop].send_list.push_back(stripes[role].write_buf, stripes[role].write_end - stripes[role].write_start);
+                }
                 subops[subop].callback = [cur_op, this](osd_op_t *subop)
                 {
                     // so it doesn't get freed
@@ -318,7 +322,7 @@ resume_1:
         if (vo_it != pg.ver_override.end())
         {
             op_data->st = 1;
-            //pg.write_queue.push_back(cur_op);
+            pg.write_queue.emplace(op_data->oid, cur_op);
             return;
         }
     }
@@ -326,25 +330,48 @@ resume_1:
     cur_op->rmw_buf = calc_rmw_reads(cur_op->buf, op_data->stripes, pg.cur_set.data(), pg.pg_size, pg.pg_minsize, pg.pg_cursize);
     // Read required blocks
     submit_primary_subops(SUBMIT_RMW_READ, pg.pg_size, pg.cur_set.data(), cur_op);
-    op_data->st = 2;
 resume_2:
+    op_data->st = 2;
     return;
 resume_3:
-    // Save version override
+    // Save version override for parallel reads
     pg.ver_override[op_data->oid] = op_data->fact_ver;
     // Calculate parity
-    calc_rmw_parity(op_data->stripes, op_data->pg_size);
+    calc_rmw_parity(op_data->stripes, pg.pg_size);
     // Send writes
     submit_primary_subops(SUBMIT_WRITE, pg.pg_size, pg.cur_set.data(), cur_op);
-    op_data->st = 4;
 resume_4:
+    op_data->st = 4;
     return;
 resume_5:
     // Remember version as unstable
-    
-    // Remove version override if degraded
-    
+    osd_num_t *osd_set = pg.cur_set.data();
+    for (int role = 0; role < pg.pg_size; role++)
+    {
+        if (osd_set[role] != 0)
+        {
+            this->unstable_writes[osd_set[role]][(object_id){
+                .inode = op_data->oid.inode,
+                .stripe = op_data->oid.stripe | role,
+            }] = op_data->fact_ver;
+        }
+    }
+    // Remember PG as dirty to drop the connection when PG goes offline
+    // (this is required because of the "lazy sync")
+    this->clients[cur_op->peer_fd].dirty_pgs.insert(op_data->pg_num);
+    // Remove version override
+    pg.ver_override.erase(op_data->oid);
     finish_primary_op(cur_op, cur_op->req.rw.len);
+    // Continue other write operations to the same object
+    {
+        auto next_it = pg.write_queue.find(op_data->oid);
+        if (next_it != pg.write_queue.end())
+        {
+            osd_op_t *next_op = next_it->second;
+            pg.write_queue.erase(next_it);
+            continue_primary_write(next_op);
+        }
+    }
 }
 
 void osd_t::exec_primary_sync(osd_op_t *cur_op)
