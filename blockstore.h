@@ -35,17 +35,88 @@
 
 #define BS_OP_PRIVATE_DATA_SIZE 256
 
-/* BS_OP_LIST:
+/*
+
+Blockstore opcode documentation:
+
+## BS_OP_READ / BS_OP_WRITE
+
+Read or write object data.
 
 Input:
-- oid.stripe = parity block size
+- oid = requested object
+- version = requested version.
+  For reads:
+  - version == 0: read the last stable version,
+  - version == UINT64_MAX: read the last version,
+  - otherwise: read the newest version that is <= the specified version
+  For writes:
+  - if version == 0, a new version is assigned automatically
+  - if version != 0, it is assigned for the new write if possible, otherwise -EINVAL is returned
+- offset, len = offset and length within object. length may be zero, in that case
+  read operation only returns the version / write operation only bumps the version
+- buf = pre-allocated buffer for data (read) / with data (write). may be NULL if len == 0.
+
+Output:
+- retval = number of bytes actually read/written or negative error number (-EINVAL or -ENOSPC)
+- version = the version actually read or written
+
+## BS_OP_DELETE
+
+Delete an object.
+
+Input:
+- oid = requested object
+- version = requested version. Treated the same as with BS_OP_WRITE
+
+Output:
+- retval = 0 or negative error number (-EINVAL)
+- version = the version actually written (delete is initially written as an object version)
+
+## BS_OP_SYNC
+
+Make sure all previously issued modifications reach physical media.
+
+Input: Nothing except opcode
+Output:
+- retval = 0 or negative error number (-EINVAL)
+
+## BS_OP_STABLE / BS_OP_ROLLBACK
+
+Mark objects as stable / rollback previous unstable writes.
+
+Input:
+- len = count of obj_ver_id's to stabilize or rollback
+  - stabilize: all object versions up to the requested version of each object are marked as stable
+  - rollback: all objects are rolled back to the requested stable versions
+- buf = pre-allocated obj_ver_id array <len> units long
+
+Output:
+- retval = 0 or negative error number (-EINVAL)
+
+## BS_OP_SYNC_STAB_ALL
+
+ONLY FOR TESTS! Sync and mark all unstable object versions as stable, at once.
+
+Input: Nothing except opcode
+Output:
+- retval = 0 or negative error number (-EINVAL)
+
+## BS_OP_LIST
+
+Get a list of all objects in this Blockstore.
+
+Input:
+- oid.stripe = PG alignment
 - len = PG count or 0 to list all objects
 - offset = PG number
 
 Output:
 - retval = total obj_ver_id count
 - version = stable obj_ver_id count
-- buf = obj_ver_id array allocated by the blockstore. stable versions come first
+- buf = obj_ver_id array allocated by the blockstore. Stable versions come first.
+  You must free it yourself after usage with free().
+  Output includes all objects for which (((inode + stripe / <PG alignment>) % <PG count>) == <PG number>).
 
 */
 
@@ -55,21 +126,9 @@ struct blockstore_op_t
     uint64_t opcode;
     // finish callback
     std::function<void (blockstore_op_t*)> callback;
-    // For reads, writes & deletes: oid is the requested object
     object_id oid;
-    // For reads:
-    //   version == 0 -> read the last stable version,
-    //   version == UINT64_MAX -> read the last version,
-    //   otherwise -> read the newest version that is <= the specified version
-    //   after execution, version is equal to the version that was read from the blockstore
-    // For writes & deletes:
-    //   if version == 0, a new version is assigned automatically
-    //   if version != 0, it is assigned for the new write if possible, otherwise -EINVAL is returned
-    //   after execution, version is equal to the version that was written to the blockstore
     uint64_t version;
-    // For reads & writes: offset & len are the requested part of the object, buf is the buffer
     uint32_t offset;
-    // For stabilize requests: buf contains <len> obj_ver_id's to stabilize
     uint32_t len;
     void *buf;
     int retval;

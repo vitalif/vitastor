@@ -159,6 +159,12 @@ struct osd_client_t
 
 struct osd_rmw_stripe_t;
 
+struct osd_object_id_t
+{
+    osd_num_t osd_num;
+    object_id oid;
+};
+
 class osd_t
 {
     // config
@@ -181,7 +187,8 @@ class osd_t
     uint64_t next_subop_id = 1;
 
     // Unstable writes
-    spp::sparse_hash_map<osd_num_t, spp::sparse_hash_map<object_id, uint64_t>> unstable_writes;
+    std::map<osd_object_id_t, uint64_t> unstable_writes;
+    std::deque<osd_op_t*> syncs_in_progress;
 
     // client & peer I/O
 
@@ -240,12 +247,26 @@ class osd_t
     bool prepare_primary_rw(osd_op_t *cur_op);
     void continue_primary_read(osd_op_t *cur_op);
     void continue_primary_write(osd_op_t *cur_op);
-    void exec_primary_sync(osd_op_t *cur_op);
+    void continue_primary_sync(osd_op_t *cur_op);
     void finish_primary_op(osd_op_t *cur_op, int retval);
     void handle_primary_subop(osd_op_t *cur_op, int ok, uint64_t version);
     void submit_primary_subops(int submit_type, int read_pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
+    void submit_primary_sync_subops(osd_op_t *cur_op);
+    void submit_primary_stab_subops(osd_op_t *cur_op);
 public:
     osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);
     ~osd_t();
     bool shutdown();
 };
+
+inline bool operator == (const osd_object_id_t & a, const osd_object_id_t & b)
+{
+    return a.osd_num == b.osd_num && a.oid.inode == b.oid.inode && a.oid.stripe == b.oid.stripe;
+}
+
+inline bool operator < (const osd_object_id_t & a, const osd_object_id_t & b)
+{
+    return a.osd_num < b.osd_num || a.osd_num == b.osd_num && (
+        a.oid.inode < b.oid.inode || a.oid.inode == b.oid.inode && a.oid.stripe < b.oid.stripe
+    );
+}

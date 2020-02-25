@@ -340,6 +340,10 @@ void osd_t::exec_op(osd_op_t *cur_op)
     {
         continue_primary_write(cur_op);
     }
+    else if (cur_op->req.hdr.opcode == OSD_OP_SYNC)
+    {
+        continue_primary_sync(cur_op);
+    }
     else
     {
         exec_secondary(cur_op);

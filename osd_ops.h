@@ -103,7 +103,7 @@ struct __attribute__((__packed__)) osd_op_secondary_stabilize_t
 {
     osd_op_header_t header;
     // obj_ver_id array length in bytes
-    uint32_t len;
+    uint64_t len;
 };
 typedef osd_op_secondary_stabilize_t osd_op_secondary_rollback_t;
 

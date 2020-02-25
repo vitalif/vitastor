@@ -14,6 +14,12 @@
 //
 // sync: sync peers, get unstable versions from somewhere, stabilize them
 
+struct unstable_osd_num_t
+{
+    osd_num_t osd_num;
+    int start, len;
+};
+
 struct osd_primary_op_data_t
 {
     int st = 0;
@@ -25,6 +31,9 @@ struct osd_primary_op_data_t
     int degraded = 0, pg_size, pg_minsize;
     osd_rmw_stripe_t *stripes;
     osd_op_t *subops = NULL;
+    // for sync. oops, requires freeing
+    std::vector<unstable_osd_num_t> *unstable_write_osds = NULL;
+    obj_ver_id *unstable_writes = NULL;
 };
 
 void osd_t::finish_primary_op(osd_op_t *cur_op, int retval)
@@ -350,9 +359,12 @@ resume_5:
     {
         if (osd_set[role] != 0)
         {
-            this->unstable_writes[osd_set[role]][(object_id){
-                .inode = op_data->oid.inode,
-                .stripe = op_data->oid.stripe | role,
+            this->unstable_writes[(osd_object_id_t){
+                .osd_num = osd_set[role],
+                .oid = {
+                    .inode = op_data->oid.inode,
+                    .stripe = op_data->oid.stripe | role,
+                },
             }] = op_data->fact_ver;
         }
     }
@@ -374,7 +386,193 @@ resume_5:
     }
 }
 
-void osd_t::exec_primary_sync(osd_op_t *cur_op)
+// Save and clear unstable_writes -> SYNC all -> STABLE all
+// FIXME: Run regular automatic syncs based on the number of unstable writes and/or system time
+void osd_t::continue_primary_sync(osd_op_t *cur_op)
 {
-    
+    if (!cur_op->op_data)
+    {
+        cur_op->op_data = (osd_primary_op_data_t*)calloc(sizeof(osd_primary_op_data_t), 1);
+    }
+    if (cur_op->op_data->st == 1)      goto resume_1;
+    else if (cur_op->op_data->st == 2) goto resume_2;
+    else if (cur_op->op_data->st == 3) goto resume_3;
+    else if (cur_op->op_data->st == 4) goto resume_4;
+    else if (cur_op->op_data->st == 5) goto resume_5;
+    else if (cur_op->op_data->st == 6) goto resume_6;
+    if (syncs_in_progress.size() > 0)
+    {
+        // Wait for previous syncs, if any
+        // FIXME: We may try to execute the current one in parallel, like in Blockstore, but I'm not sure if it matters at all
+        syncs_in_progress.push_back(cur_op);
+        cur_op->op_data->st = 1;
+resume_1:
+        return;
+    }
+    else
+    {
+        syncs_in_progress.push_back(cur_op);
+    }
+resume_2:
+    // FIXME: Handle operation cancel
+    if (unstable_writes.size() == 0)
+    {
+        // Nothing to sync
+        goto finish;
+    }
+    // Save and clear unstable_writes
+    // FIXME: This is possible to do it on a per-client basis
+    // It would be cool not to copy them here at all, but someone has to deduplicate them by object IDs anyway
+    cur_op->op_data->unstable_write_osds = new std::vector<unstable_osd_num_t>();
+    cur_op->op_data->unstable_writes = new obj_ver_id[unstable_writes.size()];
+    {
+        osd_num_t last_osd = 0;
+        int last_start = 0, last_end = 0;
+        for (auto it = unstable_writes.begin(); it != unstable_writes.end(); it++)
+        {
+            if (last_osd != it->first.osd_num)
+            {
+                if (last_osd != 0)
+                {
+                    cur_op->op_data->unstable_write_osds->push_back((unstable_osd_num_t){
+                        .osd_num = last_osd,
+                        .start = last_start,
+                        .len = last_end - last_start,
+                    });
+                }
+                last_osd = it->first.osd_num;
+                last_start = last_end;
+            }
+            cur_op->op_data->unstable_writes[last_end] = (obj_ver_id){
+                .oid = it->first.oid,
+                .version = it->second,
+            };
+            last_start++;
+            last_end++;
+        }
+        if (last_osd != 0)
+        {
+            cur_op->op_data->unstable_write_osds->push_back((unstable_osd_num_t){
+                .osd_num = last_osd,
+                .start = last_start,
+                .len = last_end - last_start,
+            });
+        }
+    }
+    unstable_writes.clear();
+    // SYNC
+    submit_primary_sync_subops(cur_op);
+resume_3:
+    cur_op->op_data->st = 3;
+    return;
+resume_4:
+    // Stabilize version sets
+    submit_primary_stab_subops(cur_op);
+resume_5:
+    cur_op->op_data->st = 5;
+    return;
+resume_6:
+    // FIXME: Free them correctly (via a destructor or so)
+    delete cur_op->op_data->unstable_write_osds;
+    delete cur_op->op_data->unstable_writes;
+    cur_op->op_data->unstable_writes = NULL;
+    cur_op->op_data->unstable_write_osds = NULL;
+finish:
+    assert(syncs_in_progress.front() == cur_op);
+    syncs_in_progress.pop_front();
+    finish_primary_op(cur_op, 0);
+    if (syncs_in_progress.size() > 0)
+    {
+        osd_op_t *next_op = syncs_in_progress.front();
+        next_op->op_data->st++;
+        continue_primary_sync(next_op);
+    }
+}
+
+void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
+{
+    osd_primary_op_data_t *op_data = cur_op->op_data;
+    int n_osds = op_data->unstable_write_osds->size();
+    osd_op_t *subops = new osd_op_t[n_osds];
+    op_data->done = op_data->errors = 0;
+    op_data->n_subops = n_osds;
+    op_data->subops = subops;
+    for (int i = 0; i < n_osds; i++)
+    {
+        osd_num_t sync_osd = (*(op_data->unstable_write_osds))[i].osd_num;
+        if (sync_osd == this->osd_num)
+        {
+            subops[i].bs_op = new blockstore_op_t({
+                .opcode = BS_OP_SYNC,
+                .callback = [cur_op, this](blockstore_op_t *subop)
+                {
+                    handle_primary_subop(cur_op, subop->retval == 0, 0);
+                },
+            });
+            bs->enqueue_op(subops[i].bs_op);
+        }
+        else
+        {
+            subops[i].op_type = OSD_OP_OUT;
+            subops[i].peer_fd = osd_peer_fds.at(sync_osd);
+            subops[i].req.sec_sync = {
+                .header = {
+                    .magic = SECONDARY_OSD_OP_MAGIC,
+                    .id = this->next_subop_id++,
+                    .opcode = OSD_OP_SECONDARY_SYNC,
+                },
+            };
+            subops[i].callback = [cur_op, this](osd_op_t *subop)
+            {
+                handle_primary_subop(cur_op, subop->reply.hdr.retval == 0, 0);
+            };
+            outbox_push(clients[subops[i].peer_fd], &subops[i]);
+        }
+    }
+}
+
+void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
+{
+    osd_primary_op_data_t *op_data = cur_op->op_data;
+    int n_osds = op_data->unstable_write_osds->size();
+    osd_op_t *subops = new osd_op_t[n_osds];
+    op_data->done = op_data->errors = 0;
+    op_data->n_subops = n_osds;
+    op_data->subops = subops;
+    for (int i = 0; i < n_osds; i++)
+    {
+        auto & stab_osd = (*(op_data->unstable_write_osds))[i];
+        if (stab_osd.osd_num == this->osd_num)
+        {
+            subops[i].bs_op = new blockstore_op_t({
+                .opcode = BS_OP_STABLE,
+                .callback = [cur_op, this](blockstore_op_t *subop)
+                {
+                    handle_primary_subop(cur_op, subop->retval == 0, 0);
+                },
+                .len = (uint32_t)stab_osd.len,
+                .buf = (void*)(op_data->unstable_writes + stab_osd.start),
+            });
+            bs->enqueue_op(subops[i].bs_op);
+        }
+        else
+        {
+            subops[i].op_type = OSD_OP_OUT;
+            subops[i].peer_fd = osd_peer_fds.at(stab_osd.osd_num);
+            subops[i].req.sec_stab = {
+                .header = {
+                    .magic = SECONDARY_OSD_OP_MAGIC,
+                    .id = this->next_subop_id++,
+                    .opcode = OSD_OP_SECONDARY_STABILIZE,
+                },
+                .len = (uint64_t)(stab_osd.len * sizeof(obj_ver_id)),
+            };
+            subops[i].send_list.push_back(op_data->unstable_writes + stab_osd.start, stab_osd.len * sizeof(obj_ver_id));
+            subops[i].callback = [cur_op, this](osd_op_t *subop)
+            {
+                handle_primary_subop(cur_op, subop->reply.hdr.retval == 0, 0);
+            };
+            outbox_push(clients[subops[i].peer_fd], &subops[i]);
+        }
+    }
 }
