@@ -106,13 +106,18 @@ void osd_t::handle_op_hdr(osd_client_t *cl)
             cur_op->buf = memalign(512, cur_op->req.sec_rw.len);
         cl->read_remaining = 0;
     }
-    else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
-        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
-        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
+    else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
     {
         if (cur_op->req.sec_rw.len > 0)
             cur_op->buf = memalign(512, cur_op->req.sec_rw.len);
         cl->read_remaining = cur_op->req.sec_rw.len;
+    }
+    else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
+        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
+    {
+        if (cur_op->req.sec_stab.len > 0)
+            cur_op->buf = memalign(512, cur_op->req.sec_stab.len);
+        cl->read_remaining = cur_op->req.sec_stab.len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_READ)
     {
@@ -148,6 +153,7 @@ void osd_t::handle_reply_hdr(osd_client_t *cl)
     if (req_it == cl->sent_ops.end())
     {
         // Command out of sync. Drop connection
+        printf("Client %d command out of sync: id %lu\n", cl->peer_fd, cur_op->req.hdr.id);
         stop_client(cl->peer_fd);
         return;
     }

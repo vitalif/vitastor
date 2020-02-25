@@ -287,9 +287,13 @@ void osd_t::handle_primary_subop(osd_op_t *cur_op, int ok, uint64_t version)
         {
             continue_primary_read(cur_op);
         }
-        else
+        else if (cur_op->req.hdr.opcode == OSD_OP_WRITE)
         {
             continue_primary_write(cur_op);
+        }
+        else if (cur_op->req.hdr.opcode == OSD_OP_SYNC)
+        {
+            continue_primary_sync(cur_op);
         }
     }
 }
@@ -447,7 +451,6 @@ resume_2:
                 .oid = it->first.oid,
                 .version = it->second,
             };
-            last_start++;
             last_end++;
         }
         if (last_osd != 0)

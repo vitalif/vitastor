@@ -25,6 +25,8 @@ void* test_primary_read(int connect_fd, uint64_t inode, uint64_t offset, uint64_
 
 void test_primary_write(int connect_fd, uint64_t inode, uint64_t offset, uint64_t len, uint64_t pattern);
 
+void test_primary_sync(int connect_fd);
+
 void test_sync_stab_all(int connect_fd);
 
 int main0(int narg, char *args[])
@@ -68,7 +70,7 @@ int main1(int narg, char *args[])
     return 0;
 }
 
-int main(int narg, char *args[])
+int main2(int narg, char *args[])
 {
     int connect_fd;
     // Cluster write (sync not implemented yet)
@@ -89,6 +91,18 @@ int main(int narg, char *args[])
         test_sync_stab_all(connect_fd);
         close(connect_fd);
     }
+    return 0;
+}
+
+int main(int narg, char *args[])
+{
+    int connect_fd;
+    // Cluster write (sync not implemented yet)
+    connect_fd = connect_osd("127.0.0.1", 11203);
+    test_primary_write(connect_fd, 2, 0, 128*1024, PATTERN0);
+    test_primary_write(connect_fd, 2, 128*1024, 128*1024, PATTERN1);
+    test_primary_sync(connect_fd);
+    close(connect_fd);
     return 0;
 }
 
@@ -226,6 +240,18 @@ void test_primary_write(int connect_fd, uint64_t inode, uint64_t offset, uint64_
     free(data);
     int r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
     assert(check_reply(r, op, reply, len));
+}
+
+void test_primary_sync(int connect_fd)
+{
+    osd_any_op_t op;
+    osd_any_reply_t reply;
+    op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    op.hdr.id = 1;
+    op.hdr.opcode = OSD_OP_SYNC;
+    write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
+    int r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
+    assert(check_reply(r, op, reply, 0));
 }
 
 void test_sync_stab_all(int connect_fd)
