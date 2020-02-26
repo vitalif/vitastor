@@ -111,7 +111,7 @@ struct pg_t
     int state;
     uint64_t pg_cursize = 3, pg_size = 3, pg_minsize = 2;
     pg_num_t pg_num;
-    uint64_t clean_count = 0;
+    uint64_t clean_count = 0, total_count = 0;
     // target_set is the "correct" peer OSD set for this PG
     std::vector<osd_num_t> target_set;
     // cur_set is the current set of connected peer OSDs for this PG

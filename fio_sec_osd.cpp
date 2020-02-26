@@ -5,7 +5,7 @@
 // Random write:
 //
 // fio -thread -ioengine=./libfio_sec_osd.so -name=test -bs=4k -direct=1 -fsync=16 -iodepth=16 -rw=randwrite \
-//     -host=127.0.0.1 -port=11203 -size=1000M
+//     -host=127.0.0.1 -port=11203 [-single_primary=1] -size=1000M
 //
 // Linear write:
 //
@@ -50,6 +50,7 @@ struct sec_options
     int __pad;
     char *host = NULL;
     int port = 0;
+    bool single_primary = false;
 };
 
 static struct fio_option options[] = {
@@ -68,6 +69,16 @@ static struct fio_option options[] = {
         .type   = FIO_OPT_INT,
         .off1   = offsetof(struct sec_options, port),
         .help   = "Test Secondary OSD port",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "single_primary",
+        .lname  = "Single Primary",
+        .type   = FIO_OPT_BOOL,
+        .off1   = offsetof(struct sec_options, single_primary),
+        .help   = "Test single Primary OSD (one PG) instead of Secondary",
+        .def    = "0",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
     },
@@ -150,6 +161,7 @@ static int sec_init(struct thread_data *td)
 /* Begin read or write request. */
 static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
 {
+    sec_options *opt = (sec_options*)td->eo;
     sec_data *bsd = (sec_data*)td->io_ops_data;
     int n = bsd->op_n;
 
@@ -167,31 +179,59 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     switch (io->ddir)
     {
     case DDIR_READ:
-        op.hdr.opcode = OSD_OP_SECONDARY_READ;
-        op.sec_rw.oid = {
-            .inode = 1,
-            .stripe = io->offset >> bsd->block_order,
-        };
-        op.sec_rw.version = UINT64_MAX; // last unstable
-        op.sec_rw.offset = io->offset % bsd->block_size;
-        op.sec_rw.len = io->xfer_buflen;
+        if (!opt->single_primary)
+        {
+            op.hdr.opcode = OSD_OP_SECONDARY_READ;
+            op.sec_rw.oid = {
+                .inode = 1,
+                .stripe = io->offset >> bsd->block_order,
+            };
+            op.sec_rw.version = UINT64_MAX; // last unstable
+            op.sec_rw.offset = io->offset % bsd->block_size;
+            op.sec_rw.len = io->xfer_buflen;
+        }
+        else
+        {
+            op.hdr.opcode = OSD_OP_READ;
+            op.rw.inode = 1;
+            op.rw.offset = io->offset;
+            op.rw.len = io->xfer_buflen;
+        }
         bsd->last_sync = false;
         break;
     case DDIR_WRITE:
-        op.hdr.opcode = OSD_OP_SECONDARY_WRITE;
-        op.sec_rw.oid = {
-            .inode = 1,
-            .stripe = io->offset >> bsd->block_order,
-        };
-        op.sec_rw.version = 0; // assign automatically
-        op.sec_rw.offset = io->offset % bsd->block_size;
-        op.sec_rw.len = io->xfer_buflen;
+        if (!opt->single_primary)
+        {
+            op.hdr.opcode = OSD_OP_SECONDARY_WRITE;
+            op.sec_rw.oid = {
+                .inode = 1,
+                .stripe = io->offset >> bsd->block_order,
+            };
+            op.sec_rw.version = 0; // assign automatically
+            op.sec_rw.offset = io->offset % bsd->block_size;
+            op.sec_rw.len = io->xfer_buflen;
+        }
+        else
+        {
+            op.hdr.opcode = OSD_OP_WRITE;
+            op.rw.inode = 1;
+            op.rw.offset = io->offset;
+            op.rw.len = io->xfer_buflen;
+        }
         bsd->last_sync = false;
         break;
     case DDIR_SYNC:
-        // Allowed only for testing: sync & stabilize all unstable object versions
-        op.hdr.opcode = OSD_OP_TEST_SYNC_STAB_ALL;
-        // fio sends 32 syncs with -fsync=32. we omit 31 of them even though it's not 100% fine (FIXME: fix fio itself)
+        if (!opt->single_primary)
+        {
+            // Allowed only for testing: sync & stabilize all unstable object versions
+            op.hdr.opcode = OSD_OP_TEST_SYNC_STAB_ALL;
+        }
+        else
+        {
+            op.hdr.opcode = OSD_OP_SYNC;
+        }
+        // fio sends 32 syncs with -fsync=32. we omit 31 of them even though
+        // generally it may not be 100% correct (FIXME: fix fio itself)
         bsd->last_sync = true;
         break;
     default:

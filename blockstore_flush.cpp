@@ -154,6 +154,7 @@ bool journal_flusher_co::loop()
         goto resume_17;
     else if (wait_state == 18)
         goto resume_18;
+resume_0:
     if (!flusher->flush_queue.size() ||
         !flusher->start_forced && !flusher->active_flushers && flusher->flush_queue.size() < flusher->sync_threshold)
     {
@@ -181,7 +182,7 @@ bool journal_flusher_co::loop()
             if (repeat_it->second < cur.version)
                 repeat_it->second = cur.version;
             wait_state = 0;
-            return true;
+            goto resume_0;
         }
         else
             flusher->sync_to_repeat[cur.oid] = 0;
@@ -196,7 +197,7 @@ resume_1:
             wait_state += 1;
             return false;
         }
-        if (copy_count == 0 && clean_loc == UINT64_MAX && !has_delete)
+        if (copy_count == 0 && clean_loc == UINT64_MAX && !has_delete && !has_empty)
         {
             // Nothing to flush
             flusher->active_flushers--;
@@ -208,7 +209,7 @@ resume_1:
             }
             flusher->sync_to_repeat.erase(repeat_it);
             wait_state = 0;
-            return true;
+            goto resume_0;
         }
         // Find it in clean_db
         clean_it = bs->clean_db.find(cur.oid);
@@ -427,7 +428,7 @@ resume_1:
         }
         flusher->sync_to_repeat.erase(repeat_it);
         wait_state = 0;
-        return true;
+        goto resume_0;
     }
     return true;
 }
@@ -444,6 +445,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
     copy_count = 0;
     clean_loc = UINT64_MAX;
     has_delete = false;
+    has_empty = false;
     skip_copy = false;
     clean_init_bitmap = false;
     while (1)
@@ -451,40 +453,47 @@ bool journal_flusher_co::scan_dirty(int wait_base)
         if (dirty_it->second.state == ST_J_STABLE && !skip_copy)
         {
             // First we submit all reads
-            offset = dirty_it->second.offset;
-            end_offset = dirty_it->second.offset + dirty_it->second.len;
-            it = v.begin();
-            while (1)
+            if (dirty_it->second.len == 0)
             {
-                for (; it != v.end(); it++)
-                    if (it->offset >= offset)
-                        break;
-                if (it == v.end() || it->offset > offset && it->len > 0)
+                has_empty = true;
+            }
+            else
+            {
+                offset = dirty_it->second.offset;
+                end_offset = dirty_it->second.offset + dirty_it->second.len;
+                it = v.begin();
+                while (1)
                 {
-                    submit_offset = dirty_it->second.location + offset - dirty_it->second.offset;
-                    submit_len = it == v.end() || it->offset >= end_offset ? end_offset-offset : it->offset-offset;
-                    it = v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len, .buf = memalign(MEM_ALIGNMENT, submit_len) });
-                    copy_count++;
-                    if (bs->journal.inmemory)
+                    for (; it != v.end(); it++)
+                        if (it->offset >= offset)
+                            break;
+                    if (it == v.end() || it->offset > offset && it->len > 0)
                     {
-                        // Take it from memory
-                        memcpy(v.back().buf, bs->journal.buffer + submit_offset, submit_len);
+                        submit_offset = dirty_it->second.location + offset - dirty_it->second.offset;
+                        submit_len = it == v.end() || it->offset >= end_offset ? end_offset-offset : it->offset-offset;
+                        it = v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len, .buf = memalign(MEM_ALIGNMENT, submit_len) });
+                        copy_count++;
+                        if (bs->journal.inmemory)
+                        {
+                            // Take it from memory
+                            memcpy(v.back().buf, bs->journal.buffer + submit_offset, submit_len);
+                        }
+                        else
+                        {
+                            // Read it from disk
+                            await_sqe(0);
+                            data->iov = (struct iovec){ v.back().buf, (size_t)submit_len };
+                            data->callback = simple_callback_r;
+                            my_uring_prep_readv(
+                                sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + submit_offset
+                            );
+                            wait_count++;
+                        }
                     }
-                    else
-                    {
-                        // Read it from disk
-                        await_sqe(0);
-                        data->iov = (struct iovec){ v.back().buf, (size_t)submit_len };
-                        data->callback = simple_callback_r;
-                        my_uring_prep_readv(
-                            sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + submit_offset
-                        );
-                        wait_count++;
-                    }
+                    offset = it->offset+it->len;
+                    if (it == v.end() || offset >= end_offset)
+                        break;
                 }
-                offset = it->offset+it->len;
-                if (it == v.end() || offset >= end_offset)
-                    break;
             }
         }
         else if (dirty_it->second.state == ST_D_STABLE && !skip_copy)

@@ -67,6 +67,12 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int require
     if (!right_dir && next_pos >= bs->journal.used_start-bs->journal.block_size)
     {
         // No space in the journal. Wait until used_start changes.
+        printf(
+            "Ran out of journal space (free space: %lu bytes)\n",
+            (bs->journal.next_free >= bs->journal.used_start
+                ? bs->journal.len-bs->journal.block_size - (bs->journal.next_free-bs->journal.used_start)
+                : bs->journal.used_start - bs->journal.next_free)
+        );
         PRIV(op)->wait_for = WAIT_JOURNAL;
         bs->flusher->force_start();
         PRIV(op)->wait_detail = bs->journal.used_start;

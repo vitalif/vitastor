@@ -402,7 +402,15 @@ resume_1:
     }
     // Trim journal on start so we don't stall when all entries are older
     bs->journal.trim();
-    printf("Journal entries loaded: %lu, free blocks: %lu / %lu\n", entries_loaded, bs->data_alloc->get_free_count(), bs->block_count);
+    printf(
+        "Journal entries loaded: %lu, free journal space: %lu bytes (%lu..%lu is used), free blocks: %lu / %lu\n",
+        entries_loaded,
+        (bs->journal.next_free >= bs->journal.used_start
+            ? bs->journal.len-bs->journal.block_size - (bs->journal.next_free-bs->journal.used_start)
+            : bs->journal.used_start - bs->journal.next_free),
+        bs->journal.used_start, bs->journal.next_free,
+        bs->data_alloc->get_free_count(), bs->block_count
+    );
     bs->journal.crc32_last = crc32_last;
     return 0;
 }

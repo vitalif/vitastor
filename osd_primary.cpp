@@ -328,17 +328,18 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
             return;
         }
     }
-resume_1:
     // Check if there are other write requests to the same object
     {
-        auto vo_it = pg.ver_override.find(op_data->oid);
-        if (vo_it != pg.ver_override.end())
+        auto vo_it = pg.write_queue.find(op_data->oid);
+        if (vo_it != pg.write_queue.end())
         {
             op_data->st = 1;
             pg.write_queue.emplace(op_data->oid, cur_op);
             return;
         }
+        pg.write_queue.emplace(op_data->oid, cur_op);
     }
+resume_1:
     // Determine blocks to read
     cur_op->rmw_buf = calc_rmw_reads(cur_op->buf, op_data->stripes, pg.cur_set.data(), pg.pg_size, pg.pg_minsize, pg.pg_cursize);
     // Read required blocks
@@ -381,10 +382,13 @@ resume_5:
     // Continue other write operations to the same object
     {
         auto next_it = pg.write_queue.find(op_data->oid);
-        if (next_it != pg.write_queue.end())
+        auto this_it = next_it;
+        next_it++;
+        pg.write_queue.erase(this_it);
+        if (next_it != pg.write_queue.end() &&
+            next_it->first == op_data->oid)
         {
             osd_op_t *next_op = next_it->second;
-            pg.write_queue.erase(next_it);
             continue_primary_write(next_op);
         }
     }

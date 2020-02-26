@@ -133,6 +133,7 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
     }
     else
         pg.clean_count++;
+    pg.total_count++;
 }
 
 // FIXME: Write at least some tests for this function
@@ -167,6 +168,7 @@ void pg_t::calc_object_states()
     std::sort(all.begin(), all.end());
     // Walk over it and check object states
     pg.clean_count = 0;
+    pg.total_count = 0;
     pg.state = 0;
     int replica = 0;
     pg_obj_state_check_t st;
@@ -251,12 +253,13 @@ void pg_t::calc_object_states()
         pg.state = pg.state | PG_DEGRADED;
     }
     printf(
-        "PG %u is active%s%s%s%s%s\n", pg.pg_num,
+        "PG %u is active%s%s%s%s%s (%lu objects)\n", pg.pg_num,
         (pg.state & PG_DEGRADED) ? " + degraded" : "",
         (pg.state & PG_HAS_UNFOUND) ? " + has_unfound" : "",
         (pg.state & PG_HAS_DEGRADED) ? " + has_degraded" : "",
         (pg.state & PG_HAS_MISPLACED) ? " + has_misplaced" : "",
-        (pg.state & PG_HAS_UNCLEAN) ? " + has_unclean" : ""
+        (pg.state & PG_HAS_UNCLEAN) ? " + has_unclean" : "",
+        pg.total_count
     );
     pg.state = pg.state | PG_ACTIVE;
 }
