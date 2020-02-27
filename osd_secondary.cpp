@@ -12,11 +12,7 @@ void osd_t::secondary_op_callback(osd_op_t *op)
         op->reply.hdr.id = op->req.hdr.id;
         op->reply.hdr.opcode = op->req.hdr.opcode;
         op->reply.hdr.retval = op->bs_op->retval;
-        if (op->req.hdr.opcode == OSD_OP_SECONDARY_LIST)
-        {
-            op->reply.sec_list.stable_count = op->bs_op->version;
-        }
-        else if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
+        if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
             op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
         {
             op->reply.sec_rw.version = op->bs_op->version;
@@ -30,11 +26,15 @@ void osd_t::secondary_op_callback(osd_op_t *op)
         {
             op->send_list.push_back(op->buf, op->reply.hdr.retval);
         }
-        else if (op->req.hdr.opcode == OSD_OP_SECONDARY_LIST &&
-            op->reply.hdr.retval > 0)
+        else if (op->req.hdr.opcode == OSD_OP_SECONDARY_LIST)
         {
-            op->buf = op->bs_op->buf; // allocated by blockstore
-            op->send_list.push_back(op->buf, op->reply.hdr.retval * sizeof(obj_ver_id));
+            // allocated by blockstore
+            op->buf = op->bs_op->buf;
+            if (op->reply.hdr.retval > 0)
+            {
+                op->send_list.push_back(op->buf, op->reply.hdr.retval * sizeof(obj_ver_id));
+            }
+            op->reply.sec_list.stable_count = op->bs_op->version;
         }
         auto & cl = cl_it->second;
         outbox_push(cl, op);
@@ -65,17 +65,26 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
         cur_op->bs_op->offset = cur_op->req.sec_rw.offset;
         cur_op->bs_op->len = cur_op->req.sec_rw.len;
         cur_op->bs_op->buf = cur_op->buf;
+#ifdef OSD_STUB
+        cur_op->bs_op->retval = cur_op->bs_op->len;
+#endif
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_DELETE)
     {
         cur_op->bs_op->oid = cur_op->req.sec_del.oid;
         cur_op->bs_op->version = cur_op->req.sec_del.version;
+#ifdef OSD_STUB
+        cur_op->bs_op->retval = 0;
+#endif
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
         cur_op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
     {
         cur_op->bs_op->len = cur_op->req.sec_stab.len/sizeof(obj_ver_id);
         cur_op->bs_op->buf = cur_op->buf;
+#ifdef OSD_STUB
+        cur_op->bs_op->retval = 0;
+#endif
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_LIST)
     {
@@ -89,9 +98,12 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
         cur_op->bs_op->oid.stripe = cur_op->req.sec_list.parity_block_size;
         cur_op->bs_op->len = cur_op->req.sec_list.pg_count;
         cur_op->bs_op->offset = cur_op->req.sec_list.list_pg - 1;
+#ifdef OSD_STUB
+        cur_op->bs_op->retval = 0;
+        cur_op->bs_op->buf = NULL;
+#endif
     }
 #ifdef OSD_STUB
-    cur_op->bs_op->retval = cur_op->bs_op->len;
     secondary_op_callback(cur_op);
 #else
     bs->enqueue_op(cur_op->bs_op);

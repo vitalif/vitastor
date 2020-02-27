@@ -171,8 +171,11 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         else
         {
             PRIV(op)->sync_state = SYNC_DONE;
-            ack_sync(op);
         }
+    }
+    if (PRIV(op)->sync_state == SYNC_DONE)
+    {
+        ack_sync(op);
     }
     return 1;
 }

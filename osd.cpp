@@ -249,11 +249,18 @@ void osd_t::cancel_osd_ops(osd_client_t & cl)
 
 void osd_t::cancel_op(osd_op_t *op)
 {
-    op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
-    op->reply.hdr.id = op->req.hdr.id;
-    op->reply.hdr.opcode = op->req.hdr.opcode;
-    op->reply.hdr.retval = -EPIPE;
-    op->callback(op);
+    if (op->op_type == OSD_OP_OUT)
+    {
+        op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
+        op->reply.hdr.id = op->req.hdr.id;
+        op->reply.hdr.opcode = op->req.hdr.opcode;
+        op->reply.hdr.retval = -EPIPE;
+        op->callback(op);
+    }
+    else
+    {
+        delete op;
+    }
 }
 
 void osd_t::stop_client(int peer_fd)

@@ -38,12 +38,20 @@ struct osd_primary_op_data_t
 
 void osd_t::finish_primary_op(osd_op_t *cur_op, int retval)
 {
-    // FIXME add separate magics
-    cur_op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
-    cur_op->reply.hdr.id = cur_op->req.hdr.id;
-    cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
-    cur_op->reply.hdr.retval = retval;
-    outbox_push(this->clients[cur_op->peer_fd], cur_op);
+    // FIXME add separate magic number
+    auto cl_it = clients.find(cur_op->peer_fd);
+    if (cl_it != clients.end())
+    {
+        cur_op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
+        cur_op->reply.hdr.id = cur_op->req.hdr.id;
+        cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
+        cur_op->reply.hdr.retval = retval;
+        outbox_push(cl_it->second, cur_op);
+    }
+    else
+    {
+        delete cur_op;
+    }
 }
 
 bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
@@ -272,6 +280,7 @@ void osd_t::handle_primary_subop(osd_op_t *cur_op, int ok, uint64_t version)
     op_data->fact_ver = version;
     if (!ok)
     {
+        // FIXME: Handle errors
         op_data->errors++;
     }
     else
@@ -295,6 +304,10 @@ void osd_t::handle_primary_subop(osd_op_t *cur_op, int ok, uint64_t version)
         {
             continue_primary_sync(cur_op);
         }
+        else
+        {
+            throw std::runtime_error("BUG: unknown opcode");
+        }
     }
 }
 
@@ -312,6 +325,7 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
     else if (op_data->st == 3) goto resume_3;
     else if (op_data->st == 4) goto resume_4;
     else if (op_data->st == 5) goto resume_5;
+    assert(op_data->st == 0);
     // Check if actions are pending for this object
     {
         auto act_it = pg.obj_stab_actions.lower_bound((obj_piece_id_t){
@@ -408,6 +422,7 @@ void osd_t::continue_primary_sync(osd_op_t *cur_op)
     else if (cur_op->op_data->st == 4) goto resume_4;
     else if (cur_op->op_data->st == 5) goto resume_5;
     else if (cur_op->op_data->st == 6) goto resume_6;
+    assert(cur_op->op_data->st == 0);
     if (syncs_in_progress.size() > 0)
     {
         // Wait for previous syncs, if any
@@ -481,7 +496,7 @@ resume_5:
 resume_6:
     // FIXME: Free them correctly (via a destructor or so)
     delete cur_op->op_data->unstable_write_osds;
-    delete cur_op->op_data->unstable_writes;
+    delete[] cur_op->op_data->unstable_writes;
     cur_op->op_data->unstable_writes = NULL;
     cur_op->op_data->unstable_write_osds = NULL;
 finish:
@@ -490,9 +505,9 @@ finish:
     finish_primary_op(cur_op, 0);
     if (syncs_in_progress.size() > 0)
     {
-        osd_op_t *next_op = syncs_in_progress.front();
-        next_op->op_data->st++;
-        continue_primary_sync(next_op);
+        cur_op = syncs_in_progress.front();
+        cur_op->op_data->st++;
+        goto resume_2;
     }
 }
 

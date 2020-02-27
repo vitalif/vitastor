@@ -420,7 +420,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     // Allocate memory
     op->version = stable_count;
     op->retval = total_count;
-    op->buf = memalign(MEM_ALIGNMENT, sizeof(obj_ver_id) * total_count);
+    op->buf = malloc(sizeof(obj_ver_id) * total_count);
     if (!op->buf)
     {
         op->retval = -ENOMEM;

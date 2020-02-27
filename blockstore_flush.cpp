@@ -543,6 +543,7 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
     // We must check if the same sector is already in memory if we don't keep all metadata in memory all the time.
     // And yet another option is to use LSM trees for metadata, but it sophisticates everything a lot,
     // so I'll avoid it as long as I can.
+    wr.submitted = false;
     wr.sector = ((meta_loc >> bs->block_order) / (bs->meta_block_size / bs->clean_entry_size)) * bs->meta_block_size;
     wr.pos = ((meta_loc >> bs->block_order) % (bs->meta_block_size / bs->clean_entry_size));
     if (bs->inmemory_meta)
@@ -573,7 +574,6 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
     }
     else
     {
-        wr.submitted = false;
         wr.buf = wr.it->second.buf;
         wr.it->second.usage_count++;
     }

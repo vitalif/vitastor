@@ -50,7 +50,8 @@ struct sec_options
     int __pad;
     char *host = NULL;
     int port = 0;
-    bool single_primary = false;
+    int single_primary = 0;
+    int trace = 0;
 };
 
 static struct fio_option options[] = {
@@ -78,6 +79,16 @@ static struct fio_option options[] = {
         .type   = FIO_OPT_BOOL,
         .off1   = offsetof(struct sec_options, single_primary),
         .help   = "Test single Primary OSD (one PG) instead of Secondary",
+        .def    = "0",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "osd_trace",
+        .lname  = "OSD trace",
+        .type   = FIO_OPT_BOOL,
+        .off1   = offsetof(struct sec_options, trace),
+        .help   = "Trace OSD operations",
         .def    = "0",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
@@ -239,6 +250,12 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
         return FIO_Q_COMPLETED;
     }
 
+    if (opt->trace)
+    {
+        printf("+++ %s # %d\n", io->ddir == DDIR_READ ? "READ" :
+            (io->ddir == DDIR_WRITE ? "WRITE" : "SYNC"), n);
+    }
+
     io->error = 0;
     bsd->inflight++;
     bsd->op_n++;
@@ -262,6 +279,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
 
 static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int max, const struct timespec *t)
 {
+    sec_options *opt = (sec_options*)td->eo;
     sec_data *bsd = (sec_data*)td->io_ops_data;
     // FIXME timeout, at least poll. Now it's the stupidest implementation possible
     osd_any_reply_t reply;
@@ -304,6 +322,11 @@ static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int 
                 fprintf(stderr, "Sync failed: retval = %ld\n", reply.hdr.retval);
                 exit(1);
             }
+        }
+        if (opt->trace)
+        {
+            printf("--- %s # %ld\n", io->ddir == DDIR_READ ? "READ" :
+                (io->ddir == DDIR_WRITE ? "WRITE" : "SYNC"), reply.hdr.id);
         }
         bsd->completed.push_back(io);
     }
