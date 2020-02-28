@@ -96,6 +96,7 @@ struct osd_primary_op_data_t;
 
 struct osd_op_t
 {
+    timeval tv_begin;
     int op_type = OSD_OP_IN;
     int peer_fd;
     osd_any_op_t req;
@@ -208,6 +209,10 @@ class osd_t
     std::unordered_map<int,osd_client_t> clients;
     std::vector<int> read_ready_clients;
     std::vector<int> write_ready_clients;
+    uint64_t op_stat_sum[OSD_OP_MAX+1] = { 0 };
+    uint64_t op_stat_count[OSD_OP_MAX+1] = { 0 };
+    uint64_t subop_stat_sum[OSD_OP_MAX+1] = { 0 };
+    uint64_t subop_stat_count[OSD_OP_MAX+1] = { 0 };
 
     // methods
 

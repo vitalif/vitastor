@@ -3,6 +3,10 @@
 void osd_t::outbox_push(osd_client_t & cl, osd_op_t *cur_op)
 {
     assert(cur_op->peer_fd);
+    if (cur_op->op_type == OSD_OP_OUT)
+    {
+        gettimeofday(&cur_op->tv_begin, NULL);
+    }
     if (cl.write_state == 0)
     {
         cl.write_state = CL_WRITE_READY;
@@ -38,6 +42,14 @@ void osd_t::send_replies()
             }
             else
             {
+                // Measure execution latency
+                timeval tv_end;
+                gettimeofday(&tv_end, NULL);
+                op_stat_count[cl.write_op->req.hdr.opcode]++;
+                op_stat_sum[cl.write_op->req.hdr.opcode] += (
+                    (tv_end.tv_sec - cl.write_op->tv_begin.tv_sec)*1000000 +
+                    tv_end.tv_usec - cl.write_op->tv_begin.tv_usec
+                );
                 cl.write_buf = &cl.write_op->reply.buf;
                 cl.write_remaining = OSD_PACKET_SIZE;
                 cl.write_state = CL_WRITE_REPLY;

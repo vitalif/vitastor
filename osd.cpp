@@ -7,12 +7,48 @@
 
 #include "osd.h"
 
+static const char* osd_op_names[] = {
+    "",
+    "read",
+    "write",
+    "sync",
+    "stabilize",
+    "rollback",
+    "delete",
+    "sync_stab_all",
+    "list",
+    "show_config",
+    "primary_read",
+    "primary_write",
+    "primary_sync",
+};
+
 osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop)
 {
     this->config = config;
     this->bs = bs;
     this->ringloop = ringloop;
-    this->tick_tfd = new timerfd_interval(ringloop, 1, []() {});
+    this->tick_tfd = new timerfd_interval(ringloop, 3, [this]()
+    {
+        for (int i = 0; i <= OSD_OP_MAX; i++)
+        {
+            if (op_stat_count[i] != 0)
+            {
+                printf("avg latency for op %d (%s): %ld us\n", i, osd_op_names[i], op_stat_sum[i]/op_stat_count[i]);
+                op_stat_count[i] = 0;
+                op_stat_sum[i] = 0;
+            }
+        }
+        for (int i = 0; i <= OSD_OP_MAX; i++)
+        {
+            if (subop_stat_count[i] != 0)
+            {
+                printf("avg latency for subop %d (%s): %ld us\n", i, osd_op_names[i], subop_stat_sum[i]/subop_stat_count[i]);
+                subop_stat_count[i] = 0;
+                subop_stat_sum[i] = 0;
+            }
+        }
+    });
     this->bs_block_size = bs->get_block_size();
     // FIXME: use bitmap granularity instead
     this->bs_disk_alignment = bs->get_disk_alignment();
@@ -309,6 +345,7 @@ void osd_t::stop_client(int peer_fd)
 
 void osd_t::exec_op(osd_op_t *cur_op)
 {
+    gettimeofday(&cur_op->tv_begin, NULL);
     if (stopping)
     {
         // Throw operation away
