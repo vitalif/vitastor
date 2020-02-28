@@ -27,12 +27,10 @@
 #define CL_READ_OP 1
 #define CL_READ_DATA 2
 #define CL_READ_REPLY_DATA 3
-#define SQE_SENT 0x100l
 #define CL_WRITE_READY 1
 #define CL_WRITE_REPLY 2
-#define CL_WRITE_DATA 3
 #define MAX_EPOLL_EVENTS 64
-#define OSD_OP_INLINE_BUF_COUNT 4
+#define OSD_OP_INLINE_BUF_COUNT 16
 
 #define PEER_CONNECTING 1
 #define PEER_CONNECTED 2
@@ -41,17 +39,11 @@
 
 //#define OSD_STUB
 
-struct osd_op_buf_t
-{
-    void *buf;
-    int len;
-};
-
 struct osd_op_buf_list_t
 {
     int count = 0, alloc = 0, sent = 0;
-    osd_op_buf_t *buf = NULL;
-    osd_op_buf_t inline_buf[OSD_OP_INLINE_BUF_COUNT];
+    iovec *buf = NULL;
+    iovec inline_buf[OSD_OP_INLINE_BUF_COUNT];
 
     ~osd_op_buf_list_t()
     {
@@ -61,7 +53,17 @@ struct osd_op_buf_list_t
         }
     }
 
-    inline void push_back(void *nbuf, int len)
+    inline iovec* get_iovec()
+    {
+        return (buf ? buf : inline_buf) + sent;
+    }
+
+    inline int get_size()
+    {
+        return count - sent;
+    }
+
+    inline void push_back(void *nbuf, size_t len)
     {
         if (count >= alloc)
         {
@@ -74,21 +76,16 @@ struct osd_op_buf_list_t
             {
                 int old = alloc;
                 alloc = ((alloc/16)*16 + 1);
-                buf = (osd_op_buf_t*)malloc(sizeof(osd_op_buf_t) * alloc);
-                memcpy(buf, inline_buf, sizeof(osd_op_buf_t)*old);
+                buf = (iovec*)malloc(sizeof(iovec) * alloc);
+                memcpy(buf, inline_buf, sizeof(iovec)*old);
             }
             else
             {
                 alloc = ((alloc/16)*16 + 1);
-                buf = (osd_op_buf_t*)realloc(buf, sizeof(osd_op_buf_t) * alloc);
+                buf = (iovec*)realloc(buf, sizeof(iovec) * alloc);
             }
         }
-        buf[count++] = { .buf = nbuf, .len = len };
-    }
-
-    inline osd_op_buf_t & operator [] (int i)
-    {
-        return buf[i];
+        buf[count++] = { .iov_base = nbuf, .iov_len = len };
     }
 };
 
@@ -151,10 +148,7 @@ struct osd_client_t
 
     // Write state
     osd_op_t *write_op = NULL;
-    iovec write_iov;
     msghdr write_msg;
-    void *write_buf = NULL;
-    int write_remaining = 0;
     int write_state = 0;
 };
 

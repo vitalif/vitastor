@@ -353,6 +353,7 @@ void osd_t::start_pg_peering(int pg_idx)
             auto & cl = clients[osd_peer_fds[role_osd]];
             osd_op_t *op = new osd_op_t();
             op->op_type = OSD_OP_OUT;
+            op->send_list.push_back(op->req.buf, OSD_PACKET_SIZE);
             op->peer_fd = cl.peer_fd;
             op->req = {
                 .sec_list = {

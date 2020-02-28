@@ -284,7 +284,6 @@ void osd_t::cancel_osd_ops(osd_client_t & cl)
     {
         cancel_op(cl.write_op);
         cl.write_op = NULL;
-        cl.write_buf = NULL;
     }
 }
 
@@ -357,6 +356,7 @@ void osd_t::exec_op(osd_op_t *cur_op)
         delete cur_op;
         return;
     }
+    cur_op->send_list.push_back(cur_op->reply.buf, OSD_PACKET_SIZE);
     if (cur_op->req.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
         cur_op->req.hdr.opcode < OSD_OP_MIN || cur_op->req.hdr.opcode > OSD_OP_MAX ||
         (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ || cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE) &&

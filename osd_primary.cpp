@@ -241,6 +241,7 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
             else
             {
                 subops[subop].op_type = OSD_OP_OUT;
+                subops[subop].send_list.push_back(subops[subop].req.buf, OSD_PACKET_SIZE);
                 subops[subop].peer_fd = this->osd_peer_fds.at(role_osd_num);
                 subops[subop].req.sec_rw = {
                     .header = {
@@ -536,6 +537,7 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
         else
         {
             subops[i].op_type = OSD_OP_OUT;
+            subops[i].send_list.push_back(subops[i].req.buf, OSD_PACKET_SIZE);
             subops[i].peer_fd = osd_peer_fds.at(sync_osd);
             subops[i].req.sec_sync = {
                 .header = {
@@ -580,6 +582,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
         else
         {
             subops[i].op_type = OSD_OP_OUT;
+            subops[i].send_list.push_back(subops[i].req.buf, OSD_PACKET_SIZE);
             subops[i].peer_fd = osd_peer_fds.at(stab_osd.osd_num);
             subops[i].req.sec_stab = {
                 .header = {
