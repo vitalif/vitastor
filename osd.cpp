@@ -113,8 +113,7 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
 
     epoll_event ev;
     ev.data.fd = listen_fd;
-    // FIXME: Use EPOLLET
-    ev.events = EPOLLIN;
+    ev.events = EPOLLIN | EPOLLET;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &ev) < 0)
     {
         close(listen_fd);
@@ -168,40 +167,23 @@ bool osd_t::shutdown()
 
 void osd_t::loop()
 {
-    if (wait_state == 0)
-    {
-        io_uring_sqe *sqe = ringloop->get_sqe();
-        if (!sqe)
-        {
-            wait_state = 0;
-            return;
-        }
-        ring_data_t *data = ((ring_data_t*)sqe->user_data);
-        my_uring_prep_poll_add(sqe, epoll_fd, POLLIN);
-        data->callback = [&](ring_data_t *data)
-        {
-            if (data->res < 0)
-            {
-                throw std::runtime_error(std::string("epoll failed: ") + strerror(-data->res));
-            }
-            handle_epoll_events();
-        };
-        wait_state = 1;
-    }
-    else if (wait_state == 2)
+    if (!wait_state)
     {
         handle_epoll_events();
+        wait_state = 1;
     }
     handle_peers();
-    send_replies();
     read_requests();
+    send_replies();
     ringloop->submit();
 }
 
-int osd_t::handle_epoll_events()
+void osd_t::handle_epoll_events()
 {
+    int nfds;
     epoll_event events[MAX_EPOLL_EVENTS];
-    int nfds = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, 0);
+restart:
+    nfds = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, 0);
     for (int i = 0; i < nfds; i++)
     {
         if (events[i].data.fd == listen_fd)
@@ -226,7 +208,7 @@ int osd_t::handle_epoll_events()
                 // Add FD to epoll
                 epoll_event ev;
                 ev.data.fd = peer_fd;
-                ev.events = EPOLLIN | EPOLLRDHUP;
+                ev.events = EPOLLIN | EPOLLET | EPOLLRDHUP;
                 if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, peer_fd, &ev) < 0)
                 {
                     throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
@@ -253,11 +235,11 @@ int osd_t::handle_epoll_events()
                 printf("osd: client %d disconnected\n", cl.peer_fd);
                 stop_client(cl.peer_fd);
             }
-            else if (!cl.read_ready)
+            else
             {
                 // Mark client as ready (i.e. some data is available)
-                cl.read_ready = true;
-                if (!cl.reading)
+                cl.read_ready++;
+                if (cl.read_ready == 1)
                 {
                     read_ready_clients.push_back(cl.peer_fd);
                     ringloop->wakeup();
@@ -265,8 +247,25 @@ int osd_t::handle_epoll_events()
             }
         }
     }
-    wait_state = nfds == MAX_EPOLL_EVENTS ? 2 : 0;
-    return nfds;
+    if (nfds == MAX_EPOLL_EVENTS)
+    {
+        goto restart;
+    }
+    io_uring_sqe *sqe = ringloop->get_sqe();
+    if (!sqe)
+    {
+        throw std::runtime_error("can't get SQE, will fall out of sync with EPOLLET");
+    }
+    ring_data_t *data = ((ring_data_t*)sqe->user_data);
+    my_uring_prep_poll_add(sqe, epoll_fd, POLLIN);
+    data->callback = [this](ring_data_t *data)
+    {
+        if (data->res < 0)
+        {
+            throw std::runtime_error(std::string("epoll failed: ") + strerror(-data->res));
+        }
+        handle_epoll_events();
+    };
 }
 
 void osd_t::cancel_osd_ops(osd_client_t & cl)
