@@ -36,6 +36,7 @@ void osd_t::send_replies()
             cl.outbox.pop_front();
             if (cl.write_op->op_type == OSD_OP_OUT)
             {
+                gettimeofday(&cl.write_op->tv_send, NULL);
                 cl.write_buf = &cl.write_op->req.buf;
                 cl.write_remaining = OSD_PACKET_SIZE;
                 cl.write_state = CL_WRITE_REPLY;
@@ -59,7 +60,6 @@ void osd_t::send_replies()
         cl.write_iov.iov_len = cl.write_remaining;
         cl.write_msg.msg_iov = &cl.write_iov;
         cl.write_msg.msg_iovlen = 1;
-        // FIXME: This is basically a busy-loop. It may be better to add epoll here(?)
         data->callback = [this, peer_fd](ring_data_t *data) { handle_send(data, peer_fd); };
         my_uring_prep_sendmsg(sqe, peer_fd, &cl.write_msg, 0);
         cl.write_state = cl.write_state | SQE_SENT;
@@ -107,6 +107,18 @@ void osd_t::handle_send(ring_data_t *data, int peer_fd)
                     }
                     else
                     {
+                        // Measure subops with data
+                        if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
+                            cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
+                        {
+                            timeval tv_end;
+                            gettimeofday(&tv_end, NULL);
+                            send_stat_count++;
+                            send_stat_sum += (
+                                (tv_end.tv_sec - cl.write_op->tv_send.tv_sec)*1000000 +
+                                tv_end.tv_usec - cl.write_op->tv_send.tv_usec
+                            );
+                        }
                         cl.sent_ops[cl.write_op->req.hdr.id] = cl.write_op;
                     }
                     cl.write_op = NULL;

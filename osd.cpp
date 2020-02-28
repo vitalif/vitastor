@@ -48,6 +48,12 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
                 subop_stat_sum[i] = 0;
             }
         }
+        if (send_stat_count != 0)
+        {
+            printf("avg latency to send subops with data: %ld us\n", send_stat_sum/send_stat_count);
+            send_stat_count = 0;
+            send_stat_sum = 0;
+        }
     });
     this->bs_block_size = bs->get_block_size();
     // FIXME: use bitmap granularity instead

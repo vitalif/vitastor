@@ -31,7 +31,7 @@
 #define CL_WRITE_READY 1
 #define CL_WRITE_REPLY 2
 #define CL_WRITE_DATA 3
-#define MAX_EPOLL_EVENTS 16
+#define MAX_EPOLL_EVENTS 64
 #define OSD_OP_INLINE_BUF_COUNT 4
 
 #define PEER_CONNECTING 1
@@ -97,6 +97,7 @@ struct osd_primary_op_data_t;
 struct osd_op_t
 {
     timeval tv_begin;
+    timeval tv_send;
     int op_type = OSD_OP_IN;
     int peer_fd;
     osd_any_op_t req;
@@ -213,6 +214,8 @@ class osd_t
     uint64_t op_stat_count[OSD_OP_MAX+1] = { 0 };
     uint64_t subop_stat_sum[OSD_OP_MAX+1] = { 0 };
     uint64_t subop_stat_count[OSD_OP_MAX+1] = { 0 };
+    uint64_t send_stat_sum = 0;
+    uint64_t send_stat_count = 0;
 
     // methods
 
