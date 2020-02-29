@@ -9,12 +9,18 @@ void osd_t::init_primary()
 {
     // Initial test version of clustering code requires exactly 2 peers
     // FIXME Hardcode
-    if (config["peer1"] == "" || config["peer2"] == "")
-        throw std::runtime_error("run_primary requires two peers");
-    peers.push_back(parse_peer(config["peer1"]));
-    peers.push_back(parse_peer(config["peer2"]));
-    if (peers[1].osd_num == peers[0].osd_num)
-        throw std::runtime_error("peer1 and peer2 osd numbers are the same");
+    std::string peerstr = config["peers"];
+    while (peerstr.size())
+    {
+        int pos = peerstr.find(',');
+        peers.push_back(parse_peer(pos < 0 ? peerstr : peerstr.substr(0, pos)));
+        peerstr = pos < 0 ? std::string("") : peerstr.substr(pos+1);
+        for (int i = 0; i < peers.size()-1; i++)
+            if (peers[i].osd_num == peers[peers.size()-1].osd_num)
+                throw std::runtime_error("same osd number "+std::to_string(peers[i].osd_num)+" specified twice in peers");
+    }
+    if (peers.size() < 2)
+        throw std::runtime_error("run_primary requires at least 2 peers");
     pgs.push_back((pg_t){
         .state = PG_OFFLINE,
         .pg_cursize = 0,
@@ -29,8 +35,8 @@ void osd_t::init_primary()
 osd_peer_def_t osd_t::parse_peer(std::string peer)
 {
     // OSD_NUM:IP:PORT
-    size_t pos1 = peer.find(':');
-    size_t pos2 = peer.find(':', pos1+1);
+    int pos1 = peer.find(':');
+    int pos2 = peer.find(':', pos1+1);
     if (pos1 < 0 || pos2 < 0)
         throw new std::runtime_error("OSD peer string must be in the form OSD_NUM:IP:PORT");
     osd_peer_def_t r;
