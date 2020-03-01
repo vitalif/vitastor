@@ -13,22 +13,16 @@ void osd_t::read_requests()
             return;
         }
         ring_data_t* data = ((ring_data_t*)sqe->user_data);
-        if (!cl.read_buf)
+        if (!cl.read_op || cl.read_remaining < receive_buffer_size)
         {
-            // no reads in progress
-            // so this is either a new command or a reply to a previously sent command
-            if (!cl.read_op)
-            {
-                cl.read_op = new osd_op_t;
-                cl.read_op->peer_fd = peer_fd;
-            }
-            cl.read_op->op_type = OSD_OP_IN;
-            cl.read_buf = &cl.read_op->req.buf;
-            cl.read_remaining = OSD_PACKET_SIZE;
-            cl.read_state = CL_READ_OP;
+            cl.read_iov.iov_base = cl.in_buf;
+            cl.read_iov.iov_len = receive_buffer_size;
         }
-        cl.read_iov.iov_base = cl.read_buf;
-        cl.read_iov.iov_len = cl.read_remaining;
+        else
+        {
+            cl.read_iov.iov_base = cl.read_buf;
+            cl.read_iov.iov_len = cl.read_remaining;
+        }
         cl.read_msg.msg_iov = &cl.read_iov;
         cl.read_msg.msg_iovlen = 1;
         data->callback = [this, peer_fd](ring_data_t *data) { handle_read(data, peer_fd); };
@@ -60,49 +54,90 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
         read_ready_clients.push_back(peer_fd);
         if (data->res > 0)
         {
-            cl.read_remaining -= data->res;
-            cl.read_buf += data->res;
-            if (cl.read_remaining <= 0)
+            if (cl.read_iov.iov_base == cl.in_buf)
             {
-                cl.read_buf = NULL;
-                if (cl.read_state == CL_READ_OP)
+                // Compose operation(s) from the buffer
+                int remain = data->res;
+                void *curbuf = cl.in_buf;
+                while (remain > 0)
                 {
-                    if (cl.read_op->req.hdr.magic == SECONDARY_OSD_REPLY_MAGIC)
+                    if (!cl.read_op)
                     {
-                        handle_reply_hdr(&cl);
+                        cl.read_op = new osd_op_t;
+                        cl.read_op->peer_fd = peer_fd;
+                        cl.read_op->op_type = OSD_OP_IN;
+                        cl.read_buf = cl.read_op->req.buf;
+                        cl.read_remaining = OSD_PACKET_SIZE;
+                        cl.read_state = CL_READ_HDR;
+                    }
+                    if (cl.read_remaining > remain)
+                    {
+                        memcpy(cl.read_buf, curbuf, remain);
+                        cl.read_remaining -= remain;
+                        cl.read_buf += remain;
+                        remain = 0;
+                        if (cl.read_remaining <= 0)
+                            handle_finished_read(cl);
                     }
                     else
                     {
-                        handle_op_hdr(&cl);
+                        memcpy(cl.read_buf, curbuf, cl.read_remaining);
+                        curbuf += cl.read_remaining;
+                        remain -= cl.read_remaining;
+                        cl.read_remaining = 0;
+                        cl.read_buf = NULL;
+                        handle_finished_read(cl);
                     }
                 }
-                else if (cl.read_state == CL_READ_DATA)
+            }
+            else
+            {
+                // Long data
+                cl.read_remaining -= data->res;
+                cl.read_buf += data->res;
+                if (cl.read_remaining <= 0)
                 {
-                    // Operation is ready
-                    exec_op(cl.read_op);
-                    cl.read_op = NULL;
-                    cl.read_state = 0;
-                }
-                else if (cl.read_state == CL_READ_REPLY_DATA)
-                {
-                    // Reply is ready
-                    auto req_it = cl.sent_ops.find(cl.read_reply_id);
-                    osd_op_t *request = req_it->second;
-                    cl.sent_ops.erase(req_it);
-                    cl.read_reply_id = 0;
-                    cl.read_state = 0;
-                    // Measure subop latency
-                    timespec tv_end;
-                    clock_gettime(CLOCK_REALTIME, &tv_end);
-                    subop_stat_count[request->req.hdr.opcode]++;
-                    subop_stat_sum[request->req.hdr.opcode] += (
-                        (tv_end.tv_sec - request->tv_begin.tv_sec)*1000000 +
-                        (tv_end.tv_nsec - request->tv_begin.tv_nsec)/1000
-                    );
-                    request->callback(request);
+                    handle_finished_read(cl);
                 }
             }
         }
+    }
+}
+
+void osd_t::handle_finished_read(osd_client_t & cl)
+{
+    if (cl.read_state == CL_READ_HDR)
+    {
+        if (cl.read_op->req.hdr.magic == SECONDARY_OSD_REPLY_MAGIC)
+            handle_reply_hdr(&cl);
+        else
+            handle_op_hdr(&cl);
+    }
+    else if (cl.read_state == CL_READ_DATA)
+    {
+        // Operation is ready
+        exec_op(cl.read_op);
+        cl.read_op = NULL;
+        cl.read_state = 0;
+    }
+    else if (cl.read_state == CL_READ_REPLY_DATA)
+    {
+        // Reply is ready
+        auto req_it = cl.sent_ops.find(cl.read_reply_id);
+        osd_op_t *request = req_it->second;
+        cl.sent_ops.erase(req_it);
+        cl.read_reply_id = 0;
+        cl.read_op = NULL;
+        cl.read_state = 0;
+        // Measure subop latency
+        timespec tv_end;
+        clock_gettime(CLOCK_REALTIME, &tv_end);
+        subop_stat_count[request->req.hdr.opcode]++;
+        subop_stat_sum[request->req.hdr.opcode] += (
+            (tv_end.tv_sec - request->tv_begin.tv_sec)*1000000 +
+            (tv_end.tv_nsec - request->tv_begin.tv_nsec)/1000
+        );
+        request->callback(request);
     }
 }
 
@@ -190,6 +225,7 @@ void osd_t::handle_reply_hdr(osd_client_t *cl)
     else
     {
         cl->read_state = 0;
+        cl->read_op = NULL;
         cl->sent_ops.erase(req_it);
         // Measure subop latency
         timespec tv_end;

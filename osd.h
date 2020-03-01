@@ -22,7 +22,7 @@
 #define OSD_OP_IN 0
 #define OSD_OP_OUT 1
 
-#define CL_READ_OP 1
+#define CL_READ_HDR 1
 #define CL_READ_DATA 2
 #define CL_READ_REPLY_DATA 3
 #define CL_WRITE_READY 1
@@ -125,6 +125,8 @@ struct osd_client_t
     std::function<void(osd_num_t, int)> connect_callback;
     osd_num_t osd_num = 0;
 
+    void *in_buf = NULL;
+
     // Read state
     int read_ready = 0;
     osd_op_t *read_op = NULL;
@@ -170,6 +172,7 @@ class osd_t
     int bind_port, listen_backlog;
     int client_queue_depth = 128;
     bool allow_test_ops = true;
+    int receive_buffer_size = 9000;
 
     // peer OSDs
 
@@ -215,6 +218,7 @@ class osd_t
     void handle_epoll_events();
     void read_requests();
     void handle_read(ring_data_t *data, int peer_fd);
+    void handle_finished_read(osd_client_t & cl);
     void handle_op_hdr(osd_client_t *cl);
     void handle_reply_hdr(osd_client_t *cl);
     bool try_send(osd_client_t & cl);

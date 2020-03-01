@@ -220,6 +220,7 @@ restart:
                     .peer_port = ntohs(addr.sin_port),
                     .peer_fd = peer_fd,
                     .peer_state = PEER_CONNECTED,
+                    .in_buf = malloc(receive_buffer_size),
                 };
                 // Add FD to epoll
                 epoll_event ev;
@@ -344,6 +345,7 @@ void osd_t::stop_client(int peer_fd)
             break;
         }
     }
+    free(cl.in_buf);
     clients.erase(it);
     close(peer_fd);
 }

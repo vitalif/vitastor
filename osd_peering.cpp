@@ -84,6 +84,7 @@ void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port
         .peer_state = PEER_CONNECTING,
         .connect_callback = callback,
         .osd_num = osd_num,
+        .in_buf = malloc(receive_buffer_size),
     };
     osd_peer_fds[osd_num] = peer_fd;
     // Add FD to epoll (EPOLLOUT for tracking connect() result)
