@@ -7,13 +7,54 @@ void osd_t::outbox_push(osd_client_t & cl, osd_op_t *cur_op)
     {
         gettimeofday(&cur_op->tv_begin, NULL);
     }
-    if (cl.write_state == 0)
-    {
-        cl.write_state = CL_WRITE_READY;
-        write_ready_clients.push_back(cur_op->peer_fd);
-    }
     cl.outbox.push_back(cur_op);
-    ringloop->wakeup();
+    if (cl.write_op || cl.outbox.size() > 1 || !try_send(cl))
+    {
+        if (cl.write_state == 0)
+        {
+            cl.write_state = CL_WRITE_READY;
+            write_ready_clients.push_back(cur_op->peer_fd);
+        }
+        ringloop->wakeup();
+    }
+}
+
+bool osd_t::try_send(osd_client_t & cl)
+{
+    int peer_fd = cl.peer_fd;
+    io_uring_sqe* sqe = ringloop->get_sqe();
+    if (!sqe)
+    {
+        return false;
+    }
+    ring_data_t* data = ((ring_data_t*)sqe->user_data);
+    if (!cl.write_op)
+    {
+        // pick next command
+        cl.write_op = cl.outbox.front();
+        cl.outbox.pop_front();
+        cl.write_state = CL_WRITE_REPLY;
+        if (cl.write_op->op_type == OSD_OP_OUT)
+        {
+            gettimeofday(&cl.write_op->tv_send, NULL);
+        }
+        else
+        {
+            // Measure execution latency
+            timeval tv_end;
+            gettimeofday(&tv_end, NULL);
+            op_stat_count[cl.write_op->req.hdr.opcode]++;
+            op_stat_sum[cl.write_op->req.hdr.opcode] += (
+                (tv_end.tv_sec - cl.write_op->tv_begin.tv_sec)*1000000 +
+                tv_end.tv_usec - cl.write_op->tv_begin.tv_usec
+            );
+        }
+    }
+    cl.write_msg.msg_iov = cl.write_op->send_list.get_iovec();
+    cl.write_msg.msg_iovlen = cl.write_op->send_list.get_size();
+    data->callback = [this, peer_fd](ring_data_t *data) { handle_send(data, peer_fd); };
+    my_uring_prep_sendmsg(sqe, peer_fd, &cl.write_msg, 0);
+    return true;
 }
 
 void osd_t::send_replies()
@@ -21,40 +62,11 @@ void osd_t::send_replies()
     for (int i = 0; i < write_ready_clients.size(); i++)
     {
         int peer_fd = write_ready_clients[i];
-        auto & cl = clients[peer_fd];
-        io_uring_sqe* sqe = ringloop->get_sqe();
-        if (!sqe)
+        if (!try_send(clients[peer_fd]))
         {
             write_ready_clients.erase(write_ready_clients.begin(), write_ready_clients.begin() + i);
             return;
         }
-        ring_data_t* data = ((ring_data_t*)sqe->user_data);
-        if (!cl.write_op)
-        {
-            // pick next command
-            cl.write_op = cl.outbox.front();
-            cl.outbox.pop_front();
-            cl.write_state = CL_WRITE_REPLY;
-            if (cl.write_op->op_type == OSD_OP_OUT)
-            {
-                gettimeofday(&cl.write_op->tv_send, NULL);
-            }
-            else
-            {
-                // Measure execution latency
-                timeval tv_end;
-                gettimeofday(&tv_end, NULL);
-                op_stat_count[cl.write_op->req.hdr.opcode]++;
-                op_stat_sum[cl.write_op->req.hdr.opcode] += (
-                    (tv_end.tv_sec - cl.write_op->tv_begin.tv_sec)*1000000 +
-                    tv_end.tv_usec - cl.write_op->tv_begin.tv_usec
-                );
-            }
-        }
-        cl.write_msg.msg_iov = cl.write_op->send_list.get_iovec();
-        cl.write_msg.msg_iovlen = cl.write_op->send_list.get_size();
-        data->callback = [this, peer_fd](ring_data_t *data) { handle_send(data, peer_fd); };
-        my_uring_prep_sendmsg(sqe, peer_fd, &cl.write_msg, 0);
     }
     write_ready_clients.clear();
 }

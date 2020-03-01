@@ -219,6 +219,7 @@ class osd_t
     void handle_read(ring_data_t *data, int peer_fd);
     void handle_op_hdr(osd_client_t *cl);
     void handle_reply_hdr(osd_client_t *cl);
+    bool try_send(osd_client_t & cl);
     void send_replies();
     void handle_send(ring_data_t *data, int peer_fd);
     void outbox_push(osd_client_t & cl, osd_op_t *op);
