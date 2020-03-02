@@ -261,15 +261,18 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     bsd->op_n++;
     bsd->queue[n] = io;
 
-    if (write(bsd->connect_fd, op.buf, OSD_PACKET_SIZE) != OSD_PACKET_SIZE)
-    {
-        perror("write");
-        exit(1);
-    }
+    iovec iov[2] = { { .iov_base = op.buf, .iov_len = OSD_PACKET_SIZE } };
+    int iovcnt = 1, wtotal = OSD_PACKET_SIZE;
     if (io->ddir == DDIR_WRITE)
     {
-        // Send data
-        write_blocking(bsd->connect_fd, io->xfer_buf, io->xfer_buflen);
+        iov[1] = { .iov_base = io->xfer_buf, .iov_len = io->xfer_buflen };
+        wtotal += io->xfer_buflen;
+        iovcnt++;
+    }
+    if (writev_blocking(bsd->connect_fd, iov, iovcnt) != wtotal)
+    {
+        perror("writev");
+        exit(1);
     }
 
     if (io->error != 0)
