@@ -180,6 +180,22 @@ void osd_t::loop()
 
 void osd_t::handle_epoll_events()
 {
+    io_uring_sqe *sqe = ringloop->get_sqe();
+    if (!sqe)
+    {
+        throw std::runtime_error("can't get SQE, will fall out of sync with EPOLLET");
+    }
+    ring_data_t *data = ((ring_data_t*)sqe->user_data);
+    my_uring_prep_poll_add(sqe, epoll_fd, POLLIN);
+    data->callback = [this](ring_data_t *data)
+    {
+        if (data->res < 0)
+        {
+            throw std::runtime_error(std::string("epoll failed: ") + strerror(-data->res));
+        }
+        handle_epoll_events();
+    };
+    ringloop->submit();
     int nfds;
     epoll_event events[MAX_EPOLL_EVENTS];
 restart:
@@ -251,21 +267,6 @@ restart:
     {
         goto restart;
     }
-    io_uring_sqe *sqe = ringloop->get_sqe();
-    if (!sqe)
-    {
-        throw std::runtime_error("can't get SQE, will fall out of sync with EPOLLET");
-    }
-    ring_data_t *data = ((ring_data_t*)sqe->user_data);
-    my_uring_prep_poll_add(sqe, epoll_fd, POLLIN);
-    data->callback = [this](ring_data_t *data)
-    {
-        if (data->res < 0)
-        {
-            throw std::runtime_error(std::string("epoll failed: ") + strerror(-data->res));
-        }
-        handle_epoll_events();
-    };
 }
 
 void osd_t::cancel_osd_ops(osd_client_t & cl)
