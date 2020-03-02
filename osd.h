@@ -1,7 +1,7 @@
 #pragma once
 
 #include <sys/types.h>
-#include <sys/time.h>
+#include <time.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -93,8 +93,8 @@ struct osd_primary_op_data_t;
 
 struct osd_op_t
 {
-    timeval tv_begin;
-    timeval tv_send;
+    timespec tv_begin;
+    timespec tv_send;
     int op_type = OSD_OP_IN;
     int peer_fd;
     osd_any_op_t req;

@@ -349,7 +349,7 @@ void osd_t::stop_client(int peer_fd)
 
 void osd_t::exec_op(osd_op_t *cur_op)
 {
-    gettimeofday(&cur_op->tv_begin, NULL);
+    clock_gettime(CLOCK_REALTIME, &cur_op->tv_begin);
     if (stopping)
     {
         // Throw operation away

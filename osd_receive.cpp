@@ -92,12 +92,12 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
                     cl.read_reply_id = 0;
                     cl.read_state = 0;
                     // Measure subop latency
-                    timeval tv_end;
-                    gettimeofday(&tv_end, NULL);
+                    timespec tv_end;
+                    clock_gettime(CLOCK_REALTIME, &tv_end);
                     subop_stat_count[request->req.hdr.opcode]++;
                     subop_stat_sum[request->req.hdr.opcode] += (
                         (tv_end.tv_sec - request->tv_begin.tv_sec)*1000000 +
-                        tv_end.tv_usec - request->tv_begin.tv_usec
+                        (tv_end.tv_nsec - request->tv_begin.tv_nsec)/1000
                     );
                     request->callback(request);
                 }
@@ -192,12 +192,12 @@ void osd_t::handle_reply_hdr(osd_client_t *cl)
         cl->read_state = 0;
         cl->sent_ops.erase(req_it);
         // Measure subop latency
-        timeval tv_end;
-        gettimeofday(&tv_end, NULL);
+        timespec tv_end;
+        clock_gettime(CLOCK_REALTIME, &tv_end);
         subop_stat_count[op->req.hdr.opcode]++;
         subop_stat_sum[op->req.hdr.opcode] += (
             (tv_end.tv_sec - op->tv_begin.tv_sec)*1000000 +
-            tv_end.tv_usec - op->tv_begin.tv_usec
+            (tv_end.tv_nsec - op->tv_begin.tv_nsec)/1000
         );
         op->callback(op);
     }

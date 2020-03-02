@@ -5,7 +5,7 @@ void osd_t::outbox_push(osd_client_t & cl, osd_op_t *cur_op)
     assert(cur_op->peer_fd);
     if (cur_op->op_type == OSD_OP_OUT)
     {
-        gettimeofday(&cur_op->tv_begin, NULL);
+        clock_gettime(CLOCK_REALTIME, &cur_op->tv_begin);
     }
     cl.outbox.push_back(cur_op);
     if (cl.write_op || cl.outbox.size() > 1 || !try_send(cl))
@@ -36,17 +36,17 @@ bool osd_t::try_send(osd_client_t & cl)
         cl.write_state = CL_WRITE_REPLY;
         if (cl.write_op->op_type == OSD_OP_OUT)
         {
-            gettimeofday(&cl.write_op->tv_send, NULL);
+            clock_gettime(CLOCK_REALTIME, &cl.write_op->tv_send);
         }
         else
         {
             // Measure execution latency
-            timeval tv_end;
-            gettimeofday(&tv_end, NULL);
+            timespec tv_end;
+            clock_gettime(CLOCK_REALTIME, &tv_end);
             op_stat_count[cl.write_op->req.hdr.opcode]++;
             op_stat_sum[cl.write_op->req.hdr.opcode] += (
                 (tv_end.tv_sec - cl.write_op->tv_begin.tv_sec)*1000000 +
-                tv_end.tv_usec - cl.write_op->tv_begin.tv_usec
+                (tv_end.tv_nsec - cl.write_op->tv_begin.tv_nsec)/1000
             );
         }
     }
@@ -115,12 +115,12 @@ void osd_t::handle_send(ring_data_t *data, int peer_fd)
                     if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
                         cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
                     {
-                        timeval tv_end;
-                        gettimeofday(&tv_end, NULL);
+                        timespec tv_end;
+                        clock_gettime(CLOCK_REALTIME, &tv_end);
                         send_stat_count++;
                         send_stat_sum += (
                             (tv_end.tv_sec - cl.write_op->tv_send.tv_sec)*1000000 +
-                            tv_end.tv_usec - cl.write_op->tv_send.tv_usec
+                            (tv_end.tv_nsec - cl.write_op->tv_send.tv_nsec)/1000
                         );
                     }
                     cl.sent_ops[cl.write_op->req.hdr.id] = cl.write_op;
