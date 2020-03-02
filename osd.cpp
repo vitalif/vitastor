@@ -50,7 +50,7 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
         }
         if (send_stat_count != 0)
         {
-            printf("avg latency to send subops with data: %ld us\n", send_stat_sum/send_stat_count);
+            printf("avg latency to send stabilize subop: %ld us\n", send_stat_sum/send_stat_count);
             send_stat_count = 0;
             send_stat_sum = 0;
         }
