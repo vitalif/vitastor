@@ -38,6 +38,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     cfg_journal_size = strtoull(config["journal_size"].c_str(), NULL, 10);
     data_device = config["data_device"];
     data_offset = strtoull(config["data_offset"].c_str(), NULL, 10);
+    cfg_data_size = strtoull(config["data_size"].c_str(), NULL, 10);
     meta_device = config["meta_device"];
     meta_offset = strtoull(config["meta_offset"].c_str(), NULL, 10);
     block_size = strtoull(config["block_size"].c_str(), NULL, 10);
@@ -150,6 +151,15 @@ void blockstore_impl_t::calc_lengths()
     {
         data_len = data_len < journal.offset-data_offset
             ? data_len : journal.offset-data_offset;
+    }
+    if (cfg_data_size != 0)
+    {
+        if (data_len < cfg_data_size)
+        {
+            throw std::runtime_error("Data area ("+std::to_string(data_len)+
+                " bytes) is less than configured size ("+std::to_string(cfg_data_size)+" bytes)");
+        }
+        data_len = cfg_data_size;
     }
     // meta
     meta_area = (meta_fd == data_fd ? data_size : meta_size) - meta_offset;

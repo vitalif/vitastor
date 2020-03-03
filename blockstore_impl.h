@@ -177,7 +177,7 @@ class blockstore_impl_t
     uint32_t block_size;
     uint64_t meta_offset;
     uint64_t data_offset;
-    uint64_t cfg_journal_size;
+    uint64_t cfg_journal_size, cfg_data_size;
     // Required write alignment and journal/metadata/data areas' location alignment
     uint32_t disk_alignment = 512;
     // Journal block size - minimum_io_size of the journal device is the best choice
