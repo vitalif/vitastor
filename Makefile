@@ -14,7 +14,7 @@ allocator.o: allocator.cpp allocator.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 ringloop.o: ringloop.cpp ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-timerfd_interval.o: timerfd_interval.cpp timerfd_interval.h
+timerfd_interval.o: timerfd_interval.cpp timerfd_interval.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 
 %.o: %.cpp allocator.h blockstore_flush.h blockstore.h blockstore_impl.h blockstore_init.h blockstore_journal.h crc32c.h ringloop.h timerfd_interval.h object_id.h
@@ -26,13 +26,13 @@ libfio_blockstore.so: ./libblockstore.so fio_engine.cpp json11.o
 	g++ $(CXXFLAGS) -shared -o libfio_blockstore.so fio_engine.cpp json11.o ./libblockstore.so -ltcmalloc_minimal -luring
 
 OSD_OBJS := osd.o osd_secondary.o osd_receive.o osd_send.o osd_peering.o osd_peering_pg.o osd_primary.o osd_rmw.o json11.o timerfd_interval.o
-osd_secondary.o: osd_secondary.cpp osd.h osd_ops.h
+osd_secondary.o: osd_secondary.cpp osd.h osd_ops.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_receive.o: osd_receive.cpp osd.h osd_ops.h
+osd_receive.o: osd_receive.cpp osd.h osd_ops.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_send.o: osd_send.cpp osd.h osd_ops.h
+osd_send.o: osd_send.cpp osd.h osd_ops.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_peering.o: osd_peering.cpp osd.h osd_ops.h osd_peering_pg.h
+osd_peering.o: osd_peering.cpp osd.h osd_ops.h osd_peering_pg.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_peering_pg.o: osd_peering_pg.cpp object_id.h osd_peering_pg.h
 	g++ $(CXXFLAGS) -c -o $@ $<
@@ -40,9 +40,9 @@ osd_rmw.o: osd_rmw.cpp osd_rmw.h xor.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_rmw_test: osd_rmw_test.cpp osd_rmw.cpp osd_rmw.h xor.h
 	g++ $(CXXFLAGS) -o $@ $<
-osd_primary.o: osd_primary.cpp osd.h osd_ops.h osd_peering_pg.h xor.h
+osd_primary.o: osd_primary.cpp osd.h osd_ops.h osd_peering_pg.h xor.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd.o: osd.cpp osd.h osd_ops.h osd_peering_pg.h
+osd.o: osd.cpp osd.h osd_ops.h osd_peering_pg.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h $(OSD_OBJS)
 	g++ $(CXXFLAGS) -o osd osd_main.cpp $(OSD_OBJS) ./libblockstore.so -ltcmalloc_minimal -luring
