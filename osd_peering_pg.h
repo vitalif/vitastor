@@ -1,11 +1,12 @@
 #include <map>
+#include <unordered_map>
 #include <vector>
 #include <algorithm>
 
+#include "cpp-btree/btree_map.h"
+
 #include "object_id.h"
 #include "osd_ops.h"
-
-#include "sparsepp/sparsepp/spp.h"
 
 // Placement group states
 // Exactly one of these:
@@ -64,8 +65,8 @@ struct osd_op_t;
 struct pg_peering_state_t
 {
     // osd_num -> list result
-    spp::sparse_hash_map<osd_num_t, osd_op_t*> list_ops;
-    spp::sparse_hash_map<osd_num_t, pg_list_result_t> list_results;
+    std::unordered_map<osd_num_t, osd_op_t*> list_ops;
+    std::unordered_map<osd_num_t, pg_list_result_t> list_results;
     int list_done = 0;
 };
 
@@ -122,9 +123,9 @@ struct pg_t
     // it may consume up to ~ (raw storage / object size) * 24 bytes in the worst case scenario
     // which is up to ~192 MB per 1 TB in the worst case scenario
     std::map<pg_osd_set_t, pg_osd_set_state_t> state_dict;
-    spp::sparse_hash_map<object_id, pg_osd_set_state_t*> obj_states;
+    btree::btree_map<object_id, pg_osd_set_state_t*> obj_states;
     std::map<obj_piece_id_t, obj_stab_action_t> obj_stab_actions;
-    spp::sparse_hash_map<object_id, uint64_t> ver_override;
+    btree::btree_map<object_id, uint64_t> ver_override;
     pg_peering_state_t *peering_state = NULL;
 
     std::multimap<object_id, osd_op_t*> write_queue;

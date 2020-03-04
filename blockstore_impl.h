@@ -16,7 +16,7 @@
 #include <deque>
 #include <new>
 
-#include "sparsepp/sparsepp/spp.h"
+#include "cpp-btree/btree_map.h"
 
 #include "allocator.h"
 
@@ -164,6 +164,10 @@ struct blockstore_op_private_t
     int sync_state, prev_sync_count;
 };
 
+// https://github.com/algorithm-ninja/cpp-btree
+// https://github.com/greg7mdp/sparsepp/ was used previously, but it was TERRIBLY slow after resizing
+// with sparsepp, random reads dropped to ~700 iops very fast with just as much as ~32k objects in the DB
+typedef btree::btree_map<object_id, clean_entry> blockstore_clean_db_t;
 typedef std::map<obj_ver_id, dirty_entry> blockstore_dirty_db_t;
 
 #include "blockstore_init.h"
@@ -198,8 +202,7 @@ class blockstore_impl_t
 
     struct ring_consumer_t ring_consumer;
 
-    // Another option is https://github.com/algorithm-ninja/cpp-btree
-    spp::sparse_hash_map<object_id, clean_entry> clean_db;
+    blockstore_clean_db_t clean_db;
     uint8_t *clean_bitmap = NULL;
     blockstore_dirty_db_t dirty_db;
     std::list<blockstore_op_t*> submit_queue; // FIXME: funny thing is that vector is better here

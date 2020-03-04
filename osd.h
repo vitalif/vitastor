@@ -19,8 +19,6 @@
 #include "osd_ops.h"
 #include "osd_peering_pg.h"
 
-#include "sparsepp/sparsepp/spp.h"
-
 #define OSD_OP_IN 0
 #define OSD_OP_OUT 1
 

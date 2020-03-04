@@ -46,7 +46,7 @@ class journal_flusher_co
     std::function<void(ring_data_t*)> simple_callback_r, simple_callback_w;
 
     bool skip_copy, has_delete, has_empty;
-    spp::sparse_hash_map<object_id, clean_entry>::iterator clean_it;
+    blockstore_clean_db_t::iterator clean_it;
     std::vector<copy_buffer_t> v;
     std::vector<copy_buffer_t>::iterator it;
     int copy_count;

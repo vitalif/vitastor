@@ -93,7 +93,7 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
         }
         if (state & (OBJ_NEEDS_ROLLBACK | OBJ_NEEDS_STABLE))
         {
-            spp::sparse_hash_map<obj_piece_id_t, obj_piece_ver_t> pieces;
+            std::unordered_map<obj_piece_id_t, obj_piece_ver_t> pieces;
             for (int i = st.obj_start; i < st.obj_end; i++)
             {
                 auto & pcs = pieces[(obj_piece_id_t){ .oid = all[i].oid, .osd_num = all[i].osd_num }];
