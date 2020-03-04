@@ -37,21 +37,27 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
     if (cl_it != clients.end())
     {
         auto & cl = cl_it->second;
-        if (data->res == -EAGAIN)
-        {
-            cl.read_ready--;
-            if (cl.read_ready > 0)
-                read_ready_clients.push_back(peer_fd);
-            return;
-        }
-        else if (data->res < 0)
+        if (data->res < 0 && data->res != -EAGAIN)
         {
             // this is a client socket, so don't panic. just disconnect it
             printf("Client %d socket read error: %d (%s). Disconnecting client\n", peer_fd, -data->res, strerror(-data->res));
             stop_client(peer_fd);
             return;
         }
-        read_ready_clients.push_back(peer_fd);
+        if (data->res == -EAGAIN || cl.read_iov.iov_base == cl.in_buf && data->res < receive_buffer_size)
+        {
+            cl.read_ready--;
+            if (cl.read_ready > 0)
+                read_ready_clients.push_back(peer_fd);
+        }
+        else
+        {
+            read_ready_clients.push_back(peer_fd);
+        }
+        if (data->res == -EAGAIN)
+        {
+            return;
+        }
         if (data->res > 0)
         {
             if (cl.read_iov.iov_base == cl.in_buf)
