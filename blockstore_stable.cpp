@@ -143,6 +143,7 @@ void blockstore_impl_t::handle_stable_event(ring_data_t *data, blockstore_op_t *
     PRIV(op)->pending_ops--;
     if (PRIV(op)->pending_ops == 0)
     {
+        // FIXME Oops. We must sync the device!
         // Release used journal sectors
         release_journal_sectors(op);
         // Mark dirty_db entries as stable, acknowledge op completion
