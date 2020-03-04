@@ -27,11 +27,10 @@ ring_loop_t::~ring_loop_t()
     io_uring_queue_exit(&ring);
 }
 
-int ring_loop_t::register_consumer(ring_consumer_t & consumer)
+void ring_loop_t::register_consumer(ring_consumer_t *consumer)
 {
-    consumer.number = consumers.size();
+    unregister_consumer(consumer);
     consumers.push_back(consumer);
-    return consumer.number;
 }
 
 void ring_loop_t::wakeup()
@@ -39,12 +38,15 @@ void ring_loop_t::wakeup()
     loop_again = true;
 }
 
-void ring_loop_t::unregister_consumer(ring_consumer_t & consumer)
+void ring_loop_t::unregister_consumer(ring_consumer_t *consumer)
 {
-    if (consumer.number >= 0 && consumer.number < consumers.size())
+    for (int i = 0; i < consumers.size(); i++)
     {
-        consumers[consumer.number].loop = NULL;
-        consumer.number = -1;
+        if (consumers[i] == consumer)
+        {
+            consumers.erase(consumers.begin()+i, consumers.begin()+i+1);
+            break;
+        }
     }
 }
 
@@ -67,7 +69,7 @@ void ring_loop_t::loop()
         loop_again = false;
         for (int i = 0; i < consumers.size(); i++)
         {
-            consumers[i].loop();
+            consumers[i]->loop();
         }
     } while (loop_again);
 }

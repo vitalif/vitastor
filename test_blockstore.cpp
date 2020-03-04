@@ -115,7 +115,7 @@ int main(int narg, char *args[])
         }
     };
 
-    ringloop->register_consumer(main_cons);
+    ringloop->register_consumer(&main_cons);
     while (1)
     {
         ringloop->loop();

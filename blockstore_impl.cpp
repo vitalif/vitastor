@@ -5,7 +5,7 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *
     assert(sizeof(blockstore_op_private_t) <= BS_OP_PRIVATE_DATA_SIZE);
     this->ringloop = ringloop;
     ring_consumer.loop = [this]() { loop(); };
-    ringloop->register_consumer(ring_consumer);
+    ringloop->register_consumer(&ring_consumer);
     initialized = 0;
     zero_object = (uint8_t*)memalign(MEM_ALIGNMENT, block_size);
     data_fd = meta_fd = journal.fd = -1;
@@ -36,7 +36,7 @@ blockstore_impl_t::~blockstore_impl_t()
     delete data_alloc;
     delete flusher;
     free(zero_object);
-    ringloop->unregister_consumer(ring_consumer);
+    ringloop->unregister_consumer(&ring_consumer);
     if (data_fd >= 0)
         close(data_fd);
     if (meta_fd >= 0 && meta_fd != data_fd)
@@ -205,7 +205,7 @@ void blockstore_impl_t::loop()
         {
             live = true;
         }
-        queue_stall = !live && !ringloop->get_loop_again();
+        queue_stall = !live && !ringloop->has_work();
         live = false;
     }
 }

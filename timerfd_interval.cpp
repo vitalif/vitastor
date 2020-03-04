@@ -20,14 +20,14 @@ timerfd_interval::timerfd_interval(ring_loop_t *ringloop, int seconds, std::func
         throw std::runtime_error(std::string("timerfd_settime: ") + strerror(errno));
     }
     consumer.loop = [this]() { loop(); };
-    ringloop->register_consumer(consumer);
+    ringloop->register_consumer(&consumer);
     this->ringloop = ringloop;
     this->callback = cb;
 }
 
 timerfd_interval::~timerfd_interval()
 {
-    ringloop->unregister_consumer(consumer);
+    ringloop->unregister_consumer(&consumer);
     close(timerfd);
 }
 

@@ -122,13 +122,13 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
     }
 
     consumer.loop = [this]() { loop(); };
-    ringloop->register_consumer(consumer);
+    ringloop->register_consumer(&consumer);
 }
 
 osd_t::~osd_t()
 {
     delete tick_tfd;
-    ringloop->unregister_consumer(consumer);
+    ringloop->unregister_consumer(&consumer);
     close(epoll_fd);
     close(listen_fd);
 }

@@ -113,13 +113,12 @@ struct ring_data_t
 
 struct ring_consumer_t
 {
-    int number;
     std::function<void(void)> loop;
 };
 
 class ring_loop_t
 {
-    std::vector<ring_consumer_t> consumers;
+    std::vector<ring_consumer_t*> consumers;
     struct ring_data_t *ring_datas;
     int *free_ring_data;
     unsigned free_ring_data_ptr;
@@ -128,8 +127,8 @@ class ring_loop_t
 public:
     ring_loop_t(int qd);
     ~ring_loop_t();
-    int register_consumer(ring_consumer_t & consumer);
-    void unregister_consumer(ring_consumer_t & consumer);
+    void register_consumer(ring_consumer_t *consumer);
+    void unregister_consumer(ring_consumer_t *consumer);
 
     inline struct io_uring_sqe* get_sqe()
     {
@@ -153,7 +152,7 @@ public:
     {
         return free_ring_data_ptr;
     }
-    inline bool get_loop_again()
+    inline bool has_work()
     {
         return loop_again;
     }
