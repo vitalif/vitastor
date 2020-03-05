@@ -5,43 +5,61 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
     auto & pg = *this;
     // Remember the decision
     uint64_t state = 0;
-    if (st.n_roles == pg.pg_cursize)
+    if (st.target_ver == 0)
     {
-        if (st.n_matched == pg.pg_cursize)
-            state = OBJ_CLEAN;
-        else
-        {
-            state = OBJ_MISPLACED;
-            pg.state = pg.state | PG_HAS_MISPLACED;
-        }
-    }
-    else if (st.n_roles < pg.pg_minsize)
-    {
-        printf("Object is unfound: inode=%lu stripe=%lu version=%lu/%lu\n", st.oid.inode, st.oid.stripe, st.target_ver, st.max_ver);
-        state = OBJ_INCOMPLETE;
-        pg.state = pg.state | PG_HAS_UNFOUND;
+        st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
+        st.ver_start = st.ver_end = st.obj_end;
+        state = OBJ_CLEAN;
     }
     else
     {
-        printf("Object is degraded: inode=%lu stripe=%lu version=%lu/%lu\n", st.oid.inode, st.oid.stripe, st.target_ver, st.max_ver);
-        state = OBJ_DEGRADED;
-        pg.state = pg.state | PG_HAS_DEGRADED;
-    }
-    if (st.n_copies > pg.pg_size)
-    {
-        state |= OBJ_OVERCOPIED;
-        pg.state = pg.state | PG_HAS_UNCLEAN;
-    }
-    if (st.n_stable < st.n_copies)
-    {
-        state |= OBJ_NEEDS_STABLE;
-        pg.state = pg.state | PG_HAS_UNCLEAN;
+        if (st.n_roles == pg.pg_cursize)
+        {
+            if (st.n_matched == pg.pg_cursize)
+            {
+                state = OBJ_CLEAN;
+            }
+            else
+            {
+                state = OBJ_MISPLACED;
+                pg.state = pg.state | PG_HAS_MISPLACED;
+            }
+        }
+        else if (st.n_roles < pg.pg_minsize)
+        {
+            printf("Object is unfound: inode=%lu stripe=%lu version=%lu/%lu\n", st.oid.inode, st.oid.stripe, st.target_ver, st.max_ver);
+            for (int i = st.ver_start; i < st.ver_end; i++)
+            {
+                printf("Present on: osd %lu, role %ld%s\n", all[i].osd_num, (all[i].oid.stripe & STRIPE_MASK), all[i].is_stable ? " (stable)" : "");
+            }
+            state = OBJ_INCOMPLETE;
+            pg.state = pg.state | PG_HAS_UNFOUND;
+        }
+        else
+        {
+            printf("Object is degraded: inode=%lu stripe=%lu version=%lu/%lu\n", st.oid.inode, st.oid.stripe, st.target_ver, st.max_ver);
+            for (int i = st.ver_start; i < st.ver_end; i++)
+            {
+                printf("Present on: osd %lu, role %ld%s\n", all[i].osd_num, (all[i].oid.stripe & STRIPE_MASK), all[i].is_stable ? " (stable)" : "");
+            }
+            state = OBJ_DEGRADED;
+            pg.state = pg.state | PG_HAS_DEGRADED;
+        }
+        if (st.n_copies > pg.pg_size)
+        {
+            state |= OBJ_OVERCOPIED;
+            pg.state = pg.state | PG_HAS_UNCLEAN;
+        }
+        if (st.n_stable < st.n_copies)
+        {
+            state |= OBJ_NEEDS_STABLE;
+            pg.state = pg.state | PG_HAS_UNCLEAN;
+        }
     }
     if (st.target_ver < st.max_ver || st.has_old_unstable)
     {
         state |= OBJ_NEEDS_ROLLBACK;
         pg.state = pg.state | PG_HAS_UNCLEAN;
-        pg.ver_override[st.oid] = st.target_ver;
     }
     if (st.is_buggy)
     {
@@ -49,7 +67,12 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
         // FIXME: bring pg offline
         throw std::runtime_error("buggy object state");
     }
-    if (state != OBJ_CLEAN)
+    pg.total_count++;
+    if (state == OBJ_CLEAN)
+    {
+        pg.clean_count++;
+    }
+    else
     {
         st.osd_set.clear();
         for (int i = st.ver_start; i < st.ver_end; i++)
@@ -131,9 +154,6 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
             }
         }
     }
-    else
-        pg.clean_count++;
-    pg.total_count++;
 }
 
 // FIXME: Write at least some tests for this function
@@ -180,72 +200,75 @@ void pg_t::calc_object_states()
             if (st.oid.inode != 0)
             {
                 // Remember object state
-                st.obj_end = st.ver_end = i;
-                remember_object(st, all);
-            }
-            st.obj_start = st.ver_start = i;
-            st.oid = { .inode = all[i].oid.inode, .stripe = all[i].oid.stripe & ~STRIPE_MASK };
-            st.max_ver = st.target_ver = all[i].version;
-            st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
-            st.is_buggy = st.has_old_unstable = false;
-        }
-        else if (st.target_ver != all[i].version)
-        {
-            if (st.n_stable > 0 || st.n_roles >= pg.pg_minsize)
-            {
-                // Last processed version is either recoverable or stable, choose it as target and skip previous versions
-                st.ver_end = i;
-                i++;
-                while (i < all.size() && st.oid.inode == all[i].oid.inode &&
-                    st.oid.stripe == (all[i].oid.stripe & ~STRIPE_MASK))
+                if (!st.target_ver && (st.n_stable > 0 || st.n_roles >= pg.pg_minsize))
                 {
-                    if (!all[i].is_stable)
-                    {
-                        st.has_old_unstable = true;
-                    }
-                    i++;
+                    // Version is either stable or recoverable
+                    st.target_ver = st.last_ver;
+                    st.ver_end = i;
                 }
                 st.obj_end = i;
-                i--;
-                continue;
+                remember_object(st, all);
+            }
+            st.obj_start = i;
+            st.oid = { .inode = all[i].oid.inode, .stripe = all[i].oid.stripe & ~STRIPE_MASK };
+            st.last_ver = st.max_ver = all[i].version;
+            st.target_ver = 0;
+            st.ver_start = i;
+            st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
+        }
+        if (!st.target_ver && st.last_ver != all[i].version && (st.n_stable > 0 || st.n_roles >= pg.pg_minsize))
+        {
+            // Version is either stable or recoverable
+            st.target_ver = st.last_ver;
+            st.ver_end = i;
+        }
+        if (!st.target_ver)
+        {
+            if (st.last_ver != all[i].version)
+            {
+                st.ver_start = i;
+                st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
+                st.last_ver = all[i].version;
+            }
+            replica = (all[i].oid.stripe & STRIPE_MASK);
+            st.n_copies++;
+            if (replica >= pg.pg_size)
+            {
+                // FIXME In the future, check it against the PG epoch number to handle replication factor/scheme changes
+                st.is_buggy = true;
             }
             else
             {
-                // Last processed version is unstable and unrecoverable
-                // We'll know that because target_ver < max_ver
-                st.ver_start = i;
-                st.target_ver = all[i].version;
-                st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
+                if (all[i].is_stable)
+                {
+                    st.n_stable++;
+                }
+                if (pg.cur_set[replica] == all[i].osd_num)
+                {
+                    st.n_matched++;
+                }
+                if (!(st.has_roles & (1 << replica)))
+                {
+                    st.has_roles = st.has_roles | (1 << replica);
+                    st.n_roles++;
+                }
             }
         }
-        replica = (all[i].oid.stripe & STRIPE_MASK);
-        st.n_copies++;
-        if (replica >= pg.pg_size)
+        else if (!all[i].is_stable)
         {
-            // FIXME In the future, check it against the PG epoch number to handle replication factor/scheme changes
-            st.is_buggy = true;
-        }
-        else
-        {
-            if (all[i].is_stable)
-            {
-                st.n_stable++;
-            }
-            if (pg.cur_set[replica] == all[i].osd_num)
-            {
-                st.n_matched++;
-            }
-            if (!(st.has_roles & (1 << replica)))
-            {
-                st.has_roles = st.has_roles | (1 << replica);
-                st.n_roles++;
-            }
+            st.has_old_unstable = true;
         }
     }
     if (st.oid.inode != 0)
     {
         // Remember object state
-        st.obj_end = st.ver_end = all.size();
+        if (!st.target_ver && (st.n_stable > 0 || st.n_roles >= pg.pg_minsize))
+        {
+            // Version is either stable or recoverable
+            st.target_ver = st.last_ver;
+            st.ver_end = all.size();
+        }
+        st.obj_end = all.size();
         remember_object(st, all);
     }
     if (pg.pg_cursize < pg.pg_size)

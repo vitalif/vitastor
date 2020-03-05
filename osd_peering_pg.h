@@ -75,6 +75,7 @@ struct pg_obj_state_check_t
     int obj_start = 0, obj_end = 0, ver_start = 0, ver_end = 0;
     object_id oid = { 0 };
     uint64_t max_ver = 0;
+    uint64_t last_ver = 0;
     uint64_t target_ver = 0;
     uint64_t n_copies = 0, has_roles = 0, n_roles = 0, n_stable = 0, n_matched = 0;
     bool is_buggy = false, has_old_unstable = false;
