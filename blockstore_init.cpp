@@ -509,7 +509,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                 if (data_crc32 != je->small_write.crc32_data)
                 {
                     // journal entry is corrupt, stop here
-                    // interesting thing is that we must clear the corrupt entry if we're not readonly
+                    // interesting thing is that we must clear the corrupt entry if we're not readonly,
+                    // because we don't write next entries in the same journal block
+                    printf("Journal entry data is corrupt (data crc32 %x != %x)\n", data_crc32, je->small_write.crc32_data);
                     memset(buf + proc_pos - done_pos + pos, 0, bs->journal.block_size - pos);
                     bs->journal.next_free = prev_free;
                     init_write_buf = buf + proc_pos - done_pos;
