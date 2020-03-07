@@ -4,8 +4,9 @@ journal_flusher_t::journal_flusher_t(int flusher_count, blockstore_impl_t *bs)
 {
     this->bs = bs;
     this->flusher_count = flusher_count;
+    dequeuing = false;
     active_flushers = 0;
-    sync_threshold = flusher_count == 1 ? 1 : flusher_count/2;
+    sync_threshold = bs->journal_block_size / sizeof(journal_entry_stable);
     journal_trim_interval = sync_threshold;
     journal_trim_counter = 0;
     journal_superblock = bs->journal.inmemory ? bs->journal.buffer : memalign(MEM_ALIGNMENT, bs->journal_block_size);
@@ -55,17 +56,13 @@ journal_flusher_t::~journal_flusher_t()
 
 bool journal_flusher_t::is_active()
 {
-    return active_flushers > 0 || start_forced && flush_queue.size() > 0 || flush_queue.size() >= sync_threshold;
+    return active_flushers > 0 || dequeuing;
 }
 
 void journal_flusher_t::loop()
 {
-    for (int i = 0; i < flusher_count; i++)
+    for (int i = 0; (active_flushers > 0 || dequeuing) && i < flusher_count; i++)
     {
-        if (!active_flushers && (start_forced ? !flush_queue.size() : (flush_queue.size() < sync_threshold)))
-        {
-            return;
-        }
         co[i].loop();
     }
 }
@@ -83,6 +80,11 @@ void journal_flusher_t::enqueue_flush(obj_ver_id ov)
         flush_versions[ov.oid] = ov.version;
         flush_queue.push_back(ov.oid);
     }
+    if (!dequeuing && flush_queue.size() >= sync_threshold)
+    {
+        dequeuing = true;
+        bs->ringloop->wakeup();
+    }
 }
 
 void journal_flusher_t::unshift_flush(obj_ver_id ov)
@@ -98,11 +100,16 @@ void journal_flusher_t::unshift_flush(obj_ver_id ov)
         flush_versions[ov.oid] = ov.version;
         flush_queue.push_front(ov.oid);
     }
+    if (!dequeuing && flush_queue.size() >= sync_threshold)
+    {
+        dequeuing = true;
+        bs->ringloop->wakeup();
+    }
 }
 
 void journal_flusher_t::force_start()
 {
-    start_forced = true;
+    dequeuing = true;
     bs->ringloop->wakeup();
 }
 
@@ -155,10 +162,9 @@ bool journal_flusher_co::loop()
     else if (wait_state == 18)
         goto resume_18;
 resume_0:
-    if (!flusher->flush_queue.size() ||
-        !flusher->start_forced && !flusher->active_flushers && flusher->flush_queue.size() < flusher->sync_threshold)
+    if (!flusher->flush_queue.size() || !flusher->dequeuing)
     {
-        flusher->start_forced = false;
+        flusher->dequeuing = false;
         wait_state = 0;
         return true;
     }
@@ -169,6 +175,16 @@ resume_0:
     dirty_end = bs->dirty_db.find(cur);
     if (dirty_end != bs->dirty_db.end())
     {
+        if (dirty_end->second.journal_sector >= bs->journal.dirty_start &&
+            (bs->journal.dirty_start >= bs->journal.used_start ||
+            dirty_end->second.journal_sector < bs->journal.used_start))
+        {
+            // We can't flush journal sectors that are still written to
+            flusher->enqueue_flush(cur);
+            flusher->dequeuing = false;
+            wait_state = 0;
+            return true;
+        }
         repeat_it = flusher->sync_to_repeat.find(cur.oid);
         if (repeat_it != flusher->sync_to_repeat.end())
         {

@@ -249,7 +249,7 @@ void blockstore_impl_t::handle_write_event(ring_data_t *data, blockstore_op_t *o
 
 void blockstore_impl_t::release_journal_sectors(blockstore_op_t *op)
 {
-    // Release used journal sectors
+    // Release flushed journal sectors
     if (PRIV(op)->min_flushed_journal_sector > 0 &&
         PRIV(op)->max_flushed_journal_sector > 0)
     {
@@ -257,6 +257,16 @@ void blockstore_impl_t::release_journal_sectors(blockstore_op_t *op)
         while (1)
         {
             journal.sector_info[s-1].usage_count--;
+            if (s != (1+journal.cur_sector) && journal.sector_info[s-1].usage_count == 0)
+            {
+                // We know for sure that we won't write into this sector anymore
+                uint64_t new_ds = journal.sector_info[s-1].offset + journal.block_size;
+                if ((journal.dirty_start + (journal.dirty_start >= journal.used_start ? 0 : journal.len)) <
+                    (new_ds + (new_ds >= journal.used_start ? 0 : journal.len)))
+                {
+                    journal.dirty_start = new_ds;
+                }
+            }
             if (s == PRIV(op)->max_flushed_journal_sector)
                 break;
             s = 1 + s % journal.sector_count;

@@ -137,8 +137,12 @@ struct journal_t
 
     uint64_t block_size = 512;
     uint64_t offset, len;
+    // Next free block offset
     uint64_t next_free = 0;
+    // First occupied block offset
     uint64_t used_start = 0;
+    // End of the last block not used for writing anymore
+    uint64_t dirty_start = 0;
     uint32_t crc32_last = 0;
 
     // Current sector(s) used for writing

@@ -73,7 +73,7 @@ public:
 // Journal flusher itself
 class journal_flusher_t
 {
-    bool start_forced = false;
+    bool dequeuing;
     int flusher_count;
     int sync_threshold;
     journal_flusher_co *co;

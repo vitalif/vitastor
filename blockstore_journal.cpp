@@ -92,6 +92,10 @@ journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, 
             // Also select next sector buffer in memory
             journal.cur_sector = ((journal.cur_sector + 1) % journal.sector_count);
         }
+        else
+        {
+            journal.dirty_start = journal.next_free;
+        }
         journal.sector_info[journal.cur_sector].offset = journal.next_free;
         journal.in_sector_pos = 0;
         journal.next_free = (journal.next_free+journal.block_size) < journal.len ? journal.next_free + journal.block_size : journal.block_size;
