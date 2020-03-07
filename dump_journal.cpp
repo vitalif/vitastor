@@ -76,7 +76,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            printf("offset %08lx: no magic in the beginning, looks like random data\n", self.journal_pos);
+            printf("offset %08lx: no magic in the beginning, looks like random data (pattern=%lx)\n", self.journal_pos, *((uint64_t*)data));
             self.journal_pos += self.journal_block;
         }
     }

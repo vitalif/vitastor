@@ -148,7 +148,7 @@ bool journal_t::trim()
     auto journal_used_it = used_sectors.lower_bound(used_start);
 #ifdef BLOCKSTORE_DEBUG
     printf(
-        "Trimming journal (used_start=%lu, next_free=%lu, first_used=%lu, usage_count=%lu)\n",
+        "Trimming journal (used_start=%08lx, next_free=%08lx, first_used=%08lx, usage_count=%08lx)\n",
         used_start, next_free,
         journal_used_it == used_sectors.end() ? 0 : journal_used_it->first,
         journal_used_it == used_sectors.end() ? 0 : journal_used_it->second
@@ -180,7 +180,7 @@ bool journal_t::trim()
         return false;
     }
 #ifdef BLOCKSTORE_DEBUG
-    printf("Journal trimmed to %lu (next_free=%lu)\n", used_start, next_free);
+    printf("Journal trimmed to %08lx (next_free=%08lx)\n", used_start, next_free);
 #endif
     return true;
 }
