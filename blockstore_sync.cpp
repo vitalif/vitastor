@@ -54,7 +54,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             // Write out the last journal sector if it happens to be dirty
             BS_SUBMIT_GET_ONLY_SQE(sqe);
             prepare_journal_sector_write(journal, journal.cur_sector, sqe, cb);
-            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
+            PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
             PRIV(op)->pending_ops = 1;
             PRIV(op)->sync_state = SYNC_JOURNAL_WRITE_SENT;
             return 1;
@@ -81,7 +81,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             my_uring_prep_fsync(sqe, data_fd, IORING_FSYNC_DATASYNC);
             data->iov = { 0 };
             data->callback = cb;
-            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
+            PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
             PRIV(op)->pending_ops = 1;
             PRIV(op)->sync_state = SYNC_DATA_SYNC_SENT;
             return 1;
@@ -121,7 +121,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             journal.sector_info[journal.cur_sector].dirty)
         {
             if (cur_sector == -1)
-                PRIV(op)->min_used_journal_sector = 1 + journal.cur_sector;
+                PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
             cur_sector = journal.cur_sector;
             prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
         }
@@ -146,12 +146,12 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             if (cur_sector != journal.cur_sector)
             {
                 if (cur_sector == -1)
-                    PRIV(op)->min_used_journal_sector = 1 + journal.cur_sector;
+                    PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
                 cur_sector = journal.cur_sector;
                 prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
             }
         }
-        PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
+        PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
         PRIV(op)->pending_ops = s;
         PRIV(op)->sync_state = SYNC_JOURNAL_WRITE_SENT;
         return 1;

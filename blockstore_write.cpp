@@ -128,7 +128,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             sqe, data_fd, PRIV(op)->iov_zerofill, vcnt, data_offset + (loc << block_order) + op->offset - stripe_offset
         );
         PRIV(op)->pending_ops = 1;
-        PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
+        PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
         // Remember big write as unsynced
         unsynced_big_writes.push_back((obj_ver_id){
             .oid = op->oid,
@@ -163,13 +163,12 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (sqe1)
         {
             prepare_journal_sector_write(journal, journal.cur_sector, sqe1, cb);
-            // FIXME rename to min/max _flushing
-            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
+            PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
             PRIV(op)->pending_ops++;
         }
         else
         {
-            PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
+            PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
         }
         // Then pre-fill journal entry
         journal_entry_small_write *je = (journal_entry_small_write*)
@@ -251,18 +250,18 @@ void blockstore_impl_t::handle_write_event(ring_data_t *data, blockstore_op_t *o
 void blockstore_impl_t::release_journal_sectors(blockstore_op_t *op)
 {
     // Release used journal sectors
-    if (PRIV(op)->min_used_journal_sector > 0 &&
-        PRIV(op)->max_used_journal_sector > 0)
+    if (PRIV(op)->min_flushed_journal_sector > 0 &&
+        PRIV(op)->max_flushed_journal_sector > 0)
     {
-        uint64_t s = PRIV(op)->min_used_journal_sector;
+        uint64_t s = PRIV(op)->min_flushed_journal_sector;
         while (1)
         {
             journal.sector_info[s-1].usage_count--;
-            if (s == PRIV(op)->max_used_journal_sector)
+            if (s == PRIV(op)->max_flushed_journal_sector)
                 break;
             s = 1 + s % journal.sector_count;
         }
-        PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 0;
+        PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
     }
 }
 
@@ -319,7 +318,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     journal.crc32_last = je->crc32;
     auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
     prepare_journal_sector_write(journal, journal.cur_sector, sqe, cb);
-    PRIV(op)->min_used_journal_sector = PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
+    PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
     PRIV(op)->pending_ops = 1;
     dirty_it->second.state = ST_DEL_SUBMITTED;
     // Remember small write as unsynced

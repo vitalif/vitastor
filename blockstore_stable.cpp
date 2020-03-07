@@ -98,7 +98,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
         journal.sector_info[journal.cur_sector].dirty)
     {
         if (cur_sector == -1)
-            PRIV(op)->min_used_journal_sector = 1 + journal.cur_sector;
+            PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
         cur_sector = journal.cur_sector;
         prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
     }
@@ -120,12 +120,12 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
         if (cur_sector != journal.cur_sector)
         {
             if (cur_sector == -1)
-                PRIV(op)->min_used_journal_sector = 1 + journal.cur_sector;
+                PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
             cur_sector = journal.cur_sector;
             prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
         }
     }
-    PRIV(op)->max_used_journal_sector = 1 + journal.cur_sector;
+    PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
     PRIV(op)->pending_ops = s;
     return 1;
 }
