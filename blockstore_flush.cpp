@@ -6,6 +6,7 @@ journal_flusher_t::journal_flusher_t(int flusher_count, blockstore_impl_t *bs)
     this->flusher_count = flusher_count;
     dequeuing = false;
     active_flushers = 0;
+    syncing_flushers = 0;
     sync_threshold = bs->journal_block_size / sizeof(journal_entry_stable);
     journal_trim_interval = sync_threshold;
     journal_trim_counter = 0;
@@ -649,7 +650,8 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
         });
     sync_found:
         cur_sync->ready_count++;
-        if (cur_sync->ready_count >= flusher->sync_threshold || !flusher->flush_queue.size())
+        flusher->syncing_flushers++;
+        if (flusher->syncing_flushers >= flusher->flusher_count || !flusher->flush_queue.size())
         {
             // Sync batch is ready. Do it.
             await_sqe(0);
@@ -675,6 +677,7 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
             wait_state = 2;
             return false;
         }
+        flusher->syncing_flushers--;
         cur_sync->ready_count--;
         if (cur_sync->ready_count == 0)
         {

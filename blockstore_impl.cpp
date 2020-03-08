@@ -364,7 +364,7 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
     // Call constructor without allocating memory. We'll call destructor before returning op back
     new ((void*)op->private_data) blockstore_op_private_t;
     PRIV(op)->wait_for = 0;
-    PRIV(op)->sync_state = 0;
+    PRIV(op)->op_state = 0;
     PRIV(op)->pending_ops = 0;
     if (!first)
     {

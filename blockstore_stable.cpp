@@ -40,6 +40,10 @@
 
 int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
 {
+    if (PRIV(op)->op_state)
+    {
+        return continue_stable(op);
+    }
     obj_ver_id* v;
     int i, todo = 0;
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
@@ -127,6 +131,87 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     }
     PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
     PRIV(op)->pending_ops = s;
+    PRIV(op)->op_state = 1;
+    return 1;
+}
+
+int blockstore_impl_t::continue_stable(blockstore_op_t *op)
+{
+    if (PRIV(op)->op_state == 2)
+        goto resume_2;
+    else if (PRIV(op)->op_state == 3)
+        goto resume_3;
+    else if (PRIV(op)->op_state == 5)
+        goto resume_5;
+    else
+        return 1;
+resume_2:
+    // Release used journal sectors
+    release_journal_sectors(op);
+resume_3:
+    if (!disable_journal_fsync)
+    {
+        io_uring_sqe *sqe = get_sqe();
+        if (!sqe)
+        {
+            return 0;
+        }
+        ring_data_t *data = ((ring_data_t*)sqe->user_data);
+        my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
+        data->iov = { 0 };
+        data->callback = [this, op](ring_data_t *data) { handle_stable_event(data, op); };
+        PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
+        PRIV(op)->pending_ops = 1;
+        PRIV(op)->op_state = 4;
+        return 1;
+    }
+resume_5:
+    // Mark dirty_db entries as stable, acknowledge op completion
+    obj_ver_id* v;
+    int i;
+    for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
+    {
+        // Mark all dirty_db entries up to op->version as stable
+        auto dirty_it = dirty_db.find(*v);
+        if (dirty_it != dirty_db.end())
+        {
+            while (1)
+            {
+                if (dirty_it->second.state == ST_J_SYNCED)
+                {
+                    dirty_it->second.state = ST_J_STABLE;
+                }
+                else if (dirty_it->second.state == ST_D_META_SYNCED)
+                {
+                    dirty_it->second.state = ST_D_STABLE;
+                }
+                else if (dirty_it->second.state == ST_DEL_SYNCED)
+                {
+                    dirty_it->second.state = ST_DEL_STABLE;
+                }
+                else if (IS_STABLE(dirty_it->second.state))
+                {
+                    break;
+                }
+                if (dirty_it == dirty_db.begin())
+                {
+                    break;
+                }
+                dirty_it--;
+                if (dirty_it->first.oid != v->oid)
+                {
+                    break;
+                }
+            }
+#ifdef BLOCKSTORE_DEBUG
+            printf("enqueue_flush %lu:%lu v%lu\n", v->oid.inode, v->oid.stripe, v->version);
+#endif
+            flusher->enqueue_flush(*v);
+        }
+    }
+    // Acknowledge op
+    op->retval = 0;
+    FINISH_OP(op);
     return 1;
 }
 
@@ -143,54 +228,10 @@ void blockstore_impl_t::handle_stable_event(ring_data_t *data, blockstore_op_t *
     PRIV(op)->pending_ops--;
     if (PRIV(op)->pending_ops == 0)
     {
-        // FIXME Oops. We must sync the device!
-        // Release used journal sectors
-        release_journal_sectors(op);
-        // Mark dirty_db entries as stable, acknowledge op completion
-        obj_ver_id* v;
-        int i;
-        for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
+        PRIV(op)->op_state++;
+        if (!continue_stable(op))
         {
-            // Mark all dirty_db entries up to op->version as stable
-            auto dirty_it = dirty_db.find(*v);
-            if (dirty_it != dirty_db.end())
-            {
-                while (1)
-                {
-                    if (dirty_it->second.state == ST_J_SYNCED)
-                    {
-                        dirty_it->second.state = ST_J_STABLE;
-                    }
-                    else if (dirty_it->second.state == ST_D_META_SYNCED)
-                    {
-                        dirty_it->second.state = ST_D_STABLE;
-                    }
-                    else if (dirty_it->second.state == ST_DEL_SYNCED)
-                    {
-                        dirty_it->second.state = ST_DEL_STABLE;
-                    }
-                    else if (IS_STABLE(dirty_it->second.state))
-                    {
-                        break;
-                    }
-                    if (dirty_it == dirty_db.begin())
-                    {
-                        break;
-                    }
-                    dirty_it--;
-                    if (dirty_it->first.oid != v->oid)
-                    {
-                        break;
-                    }
-                }
-#ifdef BLOCKSTORE_DEBUG
-                printf("enqueue_flush %lu:%lu v%lu\n", v->oid.inode, v->oid.stripe, v->version);
-#endif
-                flusher->enqueue_flush(*v);
-            }
+            submit_queue.push_front(op);
         }
-        // Acknowledge op
-        op->retval = 0;
-        FINISH_OP(op);
     }
 }

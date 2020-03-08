@@ -2,6 +2,10 @@
 
 int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
 {
+    if (PRIV(op)->op_state)
+    {
+        return continue_rollback(op);
+    }
     obj_ver_id* v;
     int i, todo = op->len;
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
@@ -110,6 +114,70 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
     }
     PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
     PRIV(op)->pending_ops = s;
+    PRIV(op)->op_state = 1;
+    return 1;
+}
+
+int blockstore_impl_t::continue_rollback(blockstore_op_t *op)
+{
+    if (PRIV(op)->op_state == 2)
+        goto resume_2;
+    else if (PRIV(op)->op_state == 3)
+        goto resume_3;
+    else if (PRIV(op)->op_state == 5)
+        goto resume_5;
+    else
+        return 1;
+resume_2:
+    // Release used journal sectors
+    release_journal_sectors(op);
+resume_3:
+    if (!disable_journal_fsync)
+    {
+        io_uring_sqe *sqe = get_sqe();
+        if (!sqe)
+        {
+            return 0;
+        }
+        ring_data_t *data = ((ring_data_t*)sqe->user_data);
+        my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
+        data->iov = { 0 };
+        data->callback = [this, op](ring_data_t *data) { handle_stable_event(data, op); };
+        PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
+        PRIV(op)->pending_ops = 1;
+        PRIV(op)->op_state = 4;
+        return 1;
+    }
+resume_5:
+    obj_ver_id* v;
+    int i;
+    for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
+    {
+        // Erase dirty_db entries
+        auto rm_end = dirty_db.lower_bound((obj_ver_id){
+            .oid = v->oid,
+            .version = UINT64_MAX,
+        });
+        rm_end--;
+        auto rm_start = rm_end;
+        while (1)
+        {
+            if (rm_end->first.oid != v->oid)
+                break;
+            else if (rm_end->first.version <= v->version)
+                break;
+            rm_start = rm_end;
+            if (rm_end == dirty_db.begin())
+                break;
+            rm_end--;
+        }
+        if (rm_end != rm_start)
+            erase_dirty(rm_start, rm_end, UINT64_MAX);
+    }
+    journal.trim();
+    // Acknowledge op
+    op->retval = 0;
+    FINISH_OP(op);
     return 1;
 }
 
@@ -126,37 +194,11 @@ void blockstore_impl_t::handle_rollback_event(ring_data_t *data, blockstore_op_t
     PRIV(op)->pending_ops--;
     if (PRIV(op)->pending_ops == 0)
     {
-        // Release used journal sectors
-        release_journal_sectors(op);
-        obj_ver_id* v;
-        int i;
-        for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
+        PRIV(op)->op_state++;
+        if (!continue_stable(op))
         {
-            // Erase dirty_db entries
-            auto rm_end = dirty_db.lower_bound((obj_ver_id){
-                .oid = v->oid,
-                .version = UINT64_MAX,
-            });
-            rm_end--;
-            auto rm_start = rm_end;
-            while (1)
-            {
-                if (rm_end->first.oid != v->oid)
-                    break;
-                else if (rm_end->first.version <= v->version)
-                    break;
-                rm_start = rm_end;
-                if (rm_end == dirty_db.begin())
-                    break;
-                rm_end--;
-            }
-            if (rm_end != rm_start)
-                erase_dirty(rm_start, rm_end, UINT64_MAX);
+            submit_queue.push_front(op);
         }
-        journal.trim();
-        // Acknowledge op
-        op->retval = 0;
-        FINISH_OP(op);
     }
 }
 

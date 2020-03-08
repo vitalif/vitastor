@@ -147,6 +147,7 @@ struct blockstore_op_private_t
     int wait_for;
     uint64_t wait_detail;
     int pending_ops;
+    int op_state;
 
     // Read
     std::vector<fulfill_read_t> read_vec;
@@ -161,7 +162,7 @@ struct blockstore_op_private_t
     std::vector<obj_ver_id> sync_big_writes, sync_small_writes;
     int sync_small_checked, sync_big_checked;
     std::list<blockstore_op_t*>::iterator in_progress_ptr;
-    int sync_state, prev_sync_count;
+    int prev_sync_count;
 };
 
 // https://github.com/algorithm-ninja/cpp-btree
@@ -280,11 +281,13 @@ class blockstore_impl_t
 
     // Stabilize
     int dequeue_stable(blockstore_op_t *op);
+    int continue_stable(blockstore_op_t *op);
     void handle_stable_event(ring_data_t *data, blockstore_op_t *op);
     void stabilize_object(object_id oid, uint64_t max_ver);
 
     // Rollback
     int dequeue_rollback(blockstore_op_t *op);
+    int continue_rollback(blockstore_op_t *op);
     void handle_rollback_event(ring_data_t *data, blockstore_op_t *op);
     void erase_dirty(blockstore_dirty_db_t::iterator dirty_start, blockstore_dirty_db_t::iterator dirty_end, uint64_t clean_loc);
 

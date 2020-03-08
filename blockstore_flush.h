@@ -84,6 +84,7 @@ class journal_flusher_t
     void* journal_superblock;
 
     int active_flushers;
+    int syncing_flushers;
     std::list<flusher_sync_t> syncs;
     std::map<object_id, uint64_t> sync_to_repeat;
 
