@@ -68,6 +68,10 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
     osd_num = strtoull(config["osd_num"].c_str(), NULL, 10);
     if (!osd_num)
         throw std::runtime_error("osd_num is required in the configuration");
+    if (config["immediate_commit"] == "all")
+        immediate_commit = IMMEDIATE_ALL;
+    else if (config["immediate_commit"] == "small")
+        immediate_commit = IMMEDIATE_SMALL;
     run_primary = config["run_primary"] == "true" || config["run_primary"] == "1" || config["run_primary"] == "yes";
     if (run_primary)
         init_primary();

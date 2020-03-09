@@ -35,6 +35,10 @@
 #define OSD_PEERING_PEERS 1
 #define OSD_PEERING_PGS 2
 
+#define IMMEDIATE_NONE 0
+#define IMMEDIATE_SMALL 1
+#define IMMEDIATE_ALL 2
+
 //#define OSD_STUB
 
 struct osd_op_buf_list_t
@@ -173,6 +177,7 @@ class osd_t
     int client_queue_depth = 128;
     bool allow_test_ops = true;
     int receive_buffer_size = 9000;
+    int immediate_commit = IMMEDIATE_NONE;
 
     // peer OSDs
 
