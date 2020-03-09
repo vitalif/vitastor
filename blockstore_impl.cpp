@@ -355,7 +355,7 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
         op->callback(op);
         return;
     }
-    if (0 && op->opcode == BS_OP_SYNC && immediate_commit)
+    if (op->opcode == BS_OP_SYNC && immediate_commit == IMMEDIATE_ALL)
     {
         op->retval = 0;
         op->callback(op);

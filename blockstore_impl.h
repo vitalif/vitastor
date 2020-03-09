@@ -34,8 +34,7 @@
 #define ST_D_IN_FLIGHT 15
 #define ST_D_SUBMITTED 16
 #define ST_D_WRITTEN 17
-#define ST_D_META_WRITTEN 19
-#define ST_D_META_SYNCED 20
+#define ST_D_SYNCED 20
 #define ST_D_STABLE 21
 
 #define ST_DEL_IN_FLIGHT 31
@@ -46,13 +45,17 @@
 
 #define ST_CURRENT 48
 
+#define IMMEDIATE_NONE 0
+#define IMMEDIATE_SMALL 1
+#define IMMEDIATE_ALL 2
+
 #define IS_IN_FLIGHT(st) (st == ST_J_IN_FLIGHT || st == ST_D_IN_FLIGHT || st == ST_DEL_IN_FLIGHT || st == ST_J_SUBMITTED || st == ST_D_SUBMITTED || st == ST_DEL_SUBMITTED)
 #define IS_STABLE(st) (st == ST_J_STABLE || st == ST_D_STABLE || st == ST_DEL_STABLE || st == ST_CURRENT)
-#define IS_SYNCED(st) (IS_STABLE(st) || st == ST_J_SYNCED || st == ST_D_META_SYNCED || st == ST_DEL_SYNCED)
+#define IS_SYNCED(st) (IS_STABLE(st) || st == ST_J_SYNCED || st == ST_D_SYNCED || st == ST_DEL_SYNCED)
 #define IS_JOURNAL(st) (st >= ST_J_SUBMITTED && st <= ST_J_STABLE)
 #define IS_BIG_WRITE(st) (st >= ST_D_SUBMITTED && st <= ST_D_STABLE)
 #define IS_DELETE(st) (st >= ST_DEL_SUBMITTED && st <= ST_DEL_STABLE)
-#define IS_UNSYNCED(st) (st >= ST_J_SUBMITTED && st <= ST_J_WRITTEN || st >= ST_D_SUBMITTED && st <= ST_D_META_WRITTEN || st >= ST_DEL_SUBMITTED && st <= ST_DEL_WRITTEN)
+#define IS_UNSYNCED(st) (st >= ST_J_SUBMITTED && st <= ST_J_WRITTEN || st >= ST_D_SUBMITTED && st <= ST_D_WRITTEN|| st >= ST_DEL_SUBMITTED && st <= ST_DEL_WRITTEN)
 
 #define BS_SUBMIT_GET_SQE(sqe, data) \
     BS_SUBMIT_GET_ONLY_SQE(sqe); \
@@ -195,8 +198,8 @@ class blockstore_impl_t
     // It is safe to disable fsync() if drive write cache is writethrough
     bool disable_data_fsync = false, disable_meta_fsync = false, disable_journal_fsync = false;
     // Enable if you want every operation to be executed with an "implicit fsync"
-    // FIXME Not implemented yet
-    bool immediate_commit = false;
+    // Suitable only for server SSDs with capacitors, requires disabled data and journal fsyncs
+    int immediate_commit = IMMEDIATE_NONE;
     bool inmemory_meta = false;
     int flusher_count;
     /******* END OF OPTIONS *******/
@@ -268,7 +271,7 @@ class blockstore_impl_t
     bool enqueue_write(blockstore_op_t *op);
     int dequeue_write(blockstore_op_t *op);
     int dequeue_del(blockstore_op_t *op);
-    void ack_write(blockstore_op_t *op);
+    int continue_write(blockstore_op_t *op);
     void release_journal_sectors(blockstore_op_t *op);
     void handle_write_event(ring_data_t *data, blockstore_op_t *op);
 

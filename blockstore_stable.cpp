@@ -181,7 +181,7 @@ resume_5:
                 {
                     dirty_it->second.state = ST_J_STABLE;
                 }
-                else if (dirty_it->second.state == ST_D_META_SYNCED)
+                else if (dirty_it->second.state == ST_D_SYNCED)
                 {
                     dirty_it->second.state = ST_D_STABLE;
                 }

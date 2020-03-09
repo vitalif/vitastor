@@ -181,7 +181,7 @@ int main0(int argc, char *argv[])
             },
             .version = 1,
         }] = (dirty_entry){
-            .state = ST_D_META_SYNCED,
+            .state = ST_D_SYNCED,
             .flags = 0,
             .location = (uint64_t)i << 17,
             .offset = 0,

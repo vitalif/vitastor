@@ -34,6 +34,14 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     {
         disable_journal_fsync = true;
     }
+    if (config["immediate_commit"] == "all")
+    {
+        immediate_commit = IMMEDIATE_ALL;
+    }
+    else if (config["immediate_commit"] == "small")
+    {
+        immediate_commit = IMMEDIATE_SMALL;
+    }
     metadata_buf_size = strtoull(config["meta_buf_size"].c_str(), NULL, 10);
     cfg_journal_size = strtoull(config["journal_size"].c_str(), NULL, 10);
     data_device = config["data_device"];
@@ -128,6 +136,22 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     if (metadata_buf_size < 65536)
     {
         metadata_buf_size = 4*1024*1024;
+    }
+    if (meta_device == "")
+    {
+        disable_meta_fsync = disable_data_fsync;
+    }
+    if (journal_device == "")
+    {
+        disable_journal_fsync = disable_meta_fsync;
+    }
+    if (immediate_commit != IMMEDIATE_NONE && !disable_journal_fsync)
+    {
+        throw std::runtime_error("immediate_commit requires disable_journal_fsync");
+    }
+    if (immediate_commit == IMMEDIATE_ALL && !disable_data_fsync)
+    {
+        throw std::runtime_error("immediate_commit=all requires disable_journal_fsync and disable_data_fsync");
     }
     // init some fields
     clean_entry_bitmap_size = block_size / bitmap_granularity / 8;
@@ -283,7 +307,6 @@ void blockstore_impl_t::open_meta()
     else
     {
         meta_fd = data_fd;
-        disable_meta_fsync = disable_data_fsync;
         meta_size = 0;
         if (meta_offset >= data_size)
         {
@@ -306,7 +329,6 @@ void blockstore_impl_t::open_journal()
     else
     {
         journal.fd = meta_fd;
-        disable_journal_fsync = disable_meta_fsync;
         journal.device_size = 0;
         if (journal.offset >= data_size)
         {
