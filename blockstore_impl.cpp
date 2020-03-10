@@ -98,10 +98,19 @@ void blockstore_impl_t::loop()
     {
         // try to submit ops
         unsigned initial_ring_space = ringloop->space_left();
+        // FIXME: rework this "sync polling"
         auto cur_sync = in_progress_syncs.begin();
         while (cur_sync != in_progress_syncs.end())
         {
-            continue_sync(*cur_sync++);
+            if (continue_sync(*cur_sync) != 2)
+            {
+                // List is unmodified
+                cur_sync++;
+            }
+            else
+            {
+                cur_sync = in_progress_syncs.begin();
+            }
         }
         auto cur = submit_queue.begin();
         int has_writes = 0;
