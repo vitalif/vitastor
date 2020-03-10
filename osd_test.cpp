@@ -29,6 +29,8 @@ void test_primary_sync(int connect_fd);
 
 void test_sync_stab_all(int connect_fd);
 
+void test_list_stab(int connect_fd);
+
 int main0(int narg, char *args[])
 {
     int connect_fd;
@@ -94,6 +96,15 @@ int main2(int narg, char *args[])
     return 0;
 }
 
+int main3(int narg, char *args[])
+{
+    int connect_fd;
+    connect_fd = connect_osd("127.0.0.1", 11203);
+    test_list_stab(connect_fd);
+    close(connect_fd);
+    return 0;
+}
+
 int main(int narg, char *args[])
 {
     int connect_fd;
@@ -148,7 +159,7 @@ bool check_reply(int r, osd_any_op_t & op, osd_any_reply_t & reply, int expected
         printf("bad reply: magic, id or opcode does not match request\n");
         return false;
     }
-    if (reply.hdr.retval != expected)
+    if (expected >= 0 && reply.hdr.retval != expected)
     {
         printf("operation failed, retval=%ld\n", reply.hdr.retval);
         return false;
@@ -264,4 +275,41 @@ void test_sync_stab_all(int connect_fd)
     write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
     int r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
     assert(check_reply(r, op, reply, 0));
+}
+
+void test_list_stab(int connect_fd)
+{
+    osd_any_op_t op;
+    osd_any_reply_t reply;
+    op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    op.hdr.id = 1;
+    op.hdr.opcode = OSD_OP_SECONDARY_LIST;
+    op.sec_list.pg_count = 0;
+    assert(write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE) == OSD_PACKET_SIZE);
+    int r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
+    assert(check_reply(r, op, reply, -1));
+    int total_count = reply.hdr.retval;
+    int stable_count = reply.sec_list.stable_count;
+    obj_ver_id *data = (obj_ver_id*)malloc(total_count * sizeof(obj_ver_id));
+    assert(data);
+    assert(read_blocking(connect_fd, data, total_count * sizeof(obj_ver_id)) == (total_count * sizeof(obj_ver_id)));
+    int last_start = stable_count;
+    for (int i = stable_count; i <= total_count; i++)
+    {
+        // Stabilize in portions of 32 entries
+        if (i - last_start >= 32 || i == total_count)
+        {
+            op.hdr.opcode = OSD_OP_SECONDARY_STABILIZE;
+            op.sec_stab.len = sizeof(obj_ver_id) * (i - last_start);
+            assert(write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE) == OSD_PACKET_SIZE);
+            assert(write_blocking(connect_fd, data + last_start, op.sec_stab.len) == op.sec_stab.len);
+            r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
+            assert(check_reply(r, op, reply, 0));
+            last_start = i;
+        }
+    }
+    obj_ver_id *data2 = (obj_ver_id*)malloc(sizeof(obj_ver_id) * 32);
+    assert(data2);
+    free(data2);
+    free(data);
 }
