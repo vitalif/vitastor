@@ -10,6 +10,14 @@ const stableStringify = require('./stable-stringify.js');
 const PGUtil = require('./PGUtil.js');
 
 // FIXME document all etcd keys and config variables in the form of JSON schema or similar
+const etcd_nonempty_keys = {
+    'config/global': 1,
+    'config/node_placement': 1,
+    'config/pools': 1,
+    'config/pgs': 1,
+    'history/last_clean_pgs': 1,
+    'stats': 1,
+};
 const etcd_allow = new RegExp('^'+[
     'config/global',
     'config/node_placement',
@@ -1206,16 +1214,20 @@ class Mon
             console.log('Bad value in etcd: '+kv.key+' = '+kv.value);
             return;
         }
-        key = key.split('/');
+        let key_parts = key.split('/');
         let cur = this.state;
-        for (let i = 0; i < key.length-1; i++)
+        for (let i = 0; i < key_parts.length-1; i++)
         {
-            cur = (cur[key[i]] = cur[key[i]] || {});
+            cur = (cur[key_parts[i]] = cur[key_parts[i]] || {});
         }
-        cur[key[key.length-1]] = kv.value;
-        if (key.join('/') === 'config/global')
+        if (etcd_nonempty_keys[key])
         {
-            this.state.config.global = this.state.config.global || {};
+            // Do not clear these to null
+            kv.value = kv.value || {};
+        }
+        cur[key_parts[key_parts.length-1]] = kv.value;
+        if (key === 'config/global')
+        {
             this.config = this.state.config.global;
             this.check_config();
             for (const osd_num in this.state.osd.stats)
@@ -1226,7 +1238,7 @@ class Mon
                 );
             }
         }
-        else if (key.join('/') === 'config/pools')
+        else if (key === 'config/pools')
         {
             for (const pool_id in this.state.config.pools)
             {
@@ -1235,7 +1247,7 @@ class Mon
                 this.validate_pool_cfg(pool_id, pool_cfg, true);
             }
         }
-        else if (key[0] === 'osd' && key[1] === 'stats')
+        else if (key_parts[0] === 'osd' && key_parts[1] === 'stats')
         {
             // Recheck PGs <osd_out_time> later
             this.schedule_next_recheck_at(
