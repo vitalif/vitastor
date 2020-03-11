@@ -521,7 +521,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                 }
                 auto clean_it = bs->clean_db.find(je->small_write.oid);
                 if (clean_it == bs->clean_db.end() ||
-                    clean_it->second.version < je->big_write.version)
+                    clean_it->second.version < je->small_write.version)
                 {
                     obj_ver_id ov = {
                         .oid = je->small_write.oid,

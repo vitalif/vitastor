@@ -252,7 +252,17 @@ void blockstore_impl_t::ack_one_sync(blockstore_op_t *op)
 #endif
         auto & unstab = unstable_writes[it->oid];
         unstab = unstab < it->version ? it->version : unstab;
-        dirty_db[*it].state = ST_D_SYNCED;
+        auto dirty_it = dirty_db.find(*it);
+        dirty_it->second.state = ST_D_SYNCED;
+        dirty_it++;
+        while (dirty_it != dirty_db.end() && dirty_it->first.oid == it->oid)
+        {
+            if (dirty_it->second.state == ST_J_WAIT_BIG)
+            {
+                dirty_it->second.state = ST_J_IN_FLIGHT;
+            }
+            dirty_it++;
+        }
     }
     for (auto it = PRIV(op)->sync_small_writes.begin(); it != PRIV(op)->sync_small_writes.end(); it++)
     {
