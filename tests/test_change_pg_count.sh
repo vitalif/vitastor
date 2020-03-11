@@ -28,8 +28,6 @@ cd ..
 node mon/mon-main.js --etcd_url http://$ETCD_URL --etcd_prefix "/vitastor" --verbose 1 &>./testdata/mon.log &
 MON_PID=$!
 
-$ETCDCTL put /vitastor/config/global '{"immediate_commit":"all"}'
-
 $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":2,"pg_count":16,"failure_domain":"osd"}}'
 
 sleep 2
