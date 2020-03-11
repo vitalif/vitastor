@@ -180,14 +180,18 @@ void osd_t::start_pg_peering(pg_t & pg)
         // (PG history is kept up to the latest active+clean state)
         for (auto & history_set: pg.target_history)
         {
-            bool found = false;
+            bool found = true;
             for (auto history_osd: history_set)
             {
-                if (history_osd != 0 && (history_osd == this->osd_num ||
-                    c_cli.osd_peer_fds.find(history_osd) != c_cli.osd_peer_fds.end()))
+                if (history_osd != 0)
                 {
-                    found = true;
-                    break;
+                    found = false;
+                    if (history_osd == this->osd_num ||
+                        c_cli.osd_peer_fds.find(history_osd) != c_cli.osd_peer_fds.end())
+                    {
+                        found = true;
+                        break;
+                    }
                 }
             }
             if (!found)

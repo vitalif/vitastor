@@ -655,7 +655,8 @@ class Mon
                 osd_set,
                 primary: alive_set.length ? alive_set[Math.floor(Math.random()*alive_set.length)] : 0,
             };
-            if (prev_pgs[i] && prev_pgs[i].join(' ') != osd_set.join(' '))
+            if (prev_pgs[i] && prev_pgs[i].join(' ') != osd_set.join(' ') &&
+                prev_pgs[i].filter(osd_num => osd_num).length > 0)
             {
                 pg_history[i] = pg_history[i] || {};
                 pg_history[i].osd_sets = pg_history[i].osd_sets || [];
