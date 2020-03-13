@@ -18,6 +18,10 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
         });
         if (dirty_it == dirty_db.begin())
         {
+            if (v->version == 0)
+            {
+                // Already rolled back
+            }
         bad_op:
             op->retval = -EINVAL;
             FINISH_OP(op);
@@ -115,6 +119,7 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
     PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
     PRIV(op)->pending_ops = s;
     PRIV(op)->op_state = 1;
+    inflight_writes++;
     return 1;
 }
 
@@ -175,6 +180,7 @@ resume_5:
             erase_dirty(rm_start, rm_end, UINT64_MAX);
     }
     journal.trim();
+    inflight_writes--;
     // Acknowledge op
     op->retval = 0;
     FINISH_OP(op);
@@ -186,6 +192,7 @@ void blockstore_impl_t::handle_rollback_event(ring_data_t *data, blockstore_op_t
     live = true;
     if (data->res != data->iov.iov_len)
     {
+        inflight_writes--;
         throw std::runtime_error(
             "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
             "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"

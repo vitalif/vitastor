@@ -230,6 +230,7 @@ class blockstore_impl_t
 
     bool live = false, queue_stall = false;
     ring_loop_t *ringloop;
+    int inflight_writes = 0;
 
     bool stop_sync_submitted;
 

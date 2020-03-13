@@ -276,6 +276,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             PRIV(op)->op_state = 3;
         }
     }
+    inflight_writes++;
     return 1;
 }
 
@@ -357,6 +358,7 @@ resume_4:
             dirty_it++;
         }
     }
+    inflight_writes--;
     // Acknowledge write
     op->retval = op->len;
     FINISH_OP(op);
@@ -368,6 +370,7 @@ void blockstore_impl_t::handle_write_event(ring_data_t *data, blockstore_op_t *o
     live = true;
     if (data->res != data->iov.iov_len)
     {
+        inflight_writes--;
         // FIXME: our state becomes corrupted after a write error. maybe do something better than just die
         throw std::runtime_error(
             "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+

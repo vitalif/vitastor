@@ -145,7 +145,7 @@ void blockstore_impl_t::loop()
             }
             unsigned ring_space = ringloop->space_left();
             unsigned prev_sqe_pos = ringloop->save();
-            int dequeue_op = 0;
+            bool dequeue_op = false;
             if (op->opcode == BS_OP_READ)
             {
                 dequeue_op = dequeue_read(op);
@@ -175,16 +175,33 @@ void blockstore_impl_t::loop()
             }
             else if (op->opcode == BS_OP_STABLE)
             {
+                if (has_writes == 2)
+                {
+                    // Don't submit additional flushes before completing previous LISTs
+                    break;
+                }
                 dequeue_op = dequeue_stable(op);
             }
             else if (op->opcode == BS_OP_ROLLBACK)
             {
+                if (has_writes == 2)
+                {
+                    // Don't submit additional flushes before completing previous LISTs
+                    break;
+                }
                 dequeue_op = dequeue_rollback(op);
             }
             else if (op->opcode == BS_OP_LIST)
             {
-                process_list(op);
-                dequeue_op = true;
+                // Block LIST operation by previous modifications,
+                // so it always returns a consistent state snapshot
+                if (has_writes == 2 || inflight_writes > 0)
+                    has_writes = 2;
+                else
+                {
+                    process_list(op);
+                    dequeue_op = true;
+                }
             }
             if (dequeue_op)
             {

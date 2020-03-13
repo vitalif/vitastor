@@ -108,6 +108,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     }
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
     {
+        // FIXME: Only stabilize versions that aren't stable yet
         auto unstab_it = unstable_writes.find(v->oid);
         if (unstab_it != unstable_writes.end() &&
             unstab_it->second <= v->version)
@@ -132,6 +133,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
     PRIV(op)->pending_ops = s;
     PRIV(op)->op_state = 1;
+    inflight_writes++;
     return 1;
 }
 
@@ -209,6 +211,7 @@ resume_5:
             flusher->enqueue_flush(*v);
         }
     }
+    inflight_writes--;
     // Acknowledge op
     op->retval = 0;
     FINISH_OP(op);
@@ -220,6 +223,7 @@ void blockstore_impl_t::handle_stable_event(ring_data_t *data, blockstore_op_t *
     live = true;
     if (data->res != data->iov.iov_len)
     {
+        inflight_writes--;
         throw std::runtime_error(
             "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
             "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
