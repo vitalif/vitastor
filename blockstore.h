@@ -50,6 +50,7 @@ Input:
   - version == 0: read the last stable version,
   - version == UINT64_MAX: read the last version,
   - otherwise: read the newest version that is <= the specified version
+  - reads aren't guaranteed to return data from previous unfinished writes
   For writes:
   - if version == 0, a new version is assigned automatically
   - if version != 0, it is assigned for the new write if possible, otherwise -EINVAL is returned

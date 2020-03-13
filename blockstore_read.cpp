@@ -8,12 +8,10 @@ int blockstore_impl_t::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_
         // Zero-length version - skip
         return 1;
     }
-    if (IS_IN_FLIGHT(item_state))
+    else if (IS_IN_FLIGHT(item_state))
     {
-        // Pause until it's written somewhere
-        PRIV(op)->wait_for = WAIT_IN_FLIGHT;
-        PRIV(op)->wait_detail = item_version;
-        return 0;
+        // Write not finished yet - skip
+        return 1;
     }
     else if (IS_DELETE(item_state))
     {

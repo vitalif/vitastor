@@ -63,13 +63,14 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         };
         enqueue_op(sync_op);
     }
-    // Immediately add the operation into dirty_db, so subsequent reads could see it
 #ifdef BLOCKSTORE_DEBUG
     if (is_del)
         printf("Delete %lu:%lu v%lu\n", op->oid.inode, op->oid.stripe, op->version);
     else
         printf("Write %lu:%lu v%lu offset=%u len=%u\n", op->oid.inode, op->oid.stripe, op->version, op->offset, op->len);
 #endif
+    // No strict need to add it into dirty_db here, it's just left
+    // from the previous implementation where reads waited for writes
     dirty_db.emplace((obj_ver_id){
         .oid = op->oid,
         .version = op->version,

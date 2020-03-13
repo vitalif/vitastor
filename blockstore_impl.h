@@ -128,8 +128,6 @@ struct __attribute__((__packed__)) dirty_entry
 
 // Suspend operation until there are more free SQEs
 #define WAIT_SQE 1
-// Suspend operation until version <wait_detail> of object <oid> is written
-#define WAIT_IN_FLIGHT 2
 // Suspend operation until there are <wait_detail> bytes of free space in the journal on disk
 #define WAIT_JOURNAL 3
 // Suspend operation until the next journal sector buffer is free

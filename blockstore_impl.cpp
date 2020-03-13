@@ -258,19 +258,6 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
         }
         PRIV(op)->wait_for = 0;
     }
-    else if (PRIV(op)->wait_for == WAIT_IN_FLIGHT)
-    {
-        auto dirty_it = dirty_db.find((obj_ver_id){
-            .oid = op->oid,
-            .version = PRIV(op)->wait_detail,
-        });
-        if (dirty_it != dirty_db.end() && IS_IN_FLIGHT(dirty_it->second.state))
-        {
-            // do not submit
-            return;
-        }
-        PRIV(op)->wait_for = 0;
-    }
     else if (PRIV(op)->wait_for == WAIT_JOURNAL)
     {
         if (journal.used_start == PRIV(op)->wait_detail)
