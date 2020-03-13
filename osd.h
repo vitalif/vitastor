@@ -32,8 +32,10 @@
 
 #define PEER_CONNECTING 1
 #define PEER_CONNECTED 2
-#define OSD_PEERING_PEERS 1
+
+#define OSD_CONNECTING_PEERS 1
 #define OSD_PEERING_PGS 2
+#define OSD_FLUSHING_PGS 4
 
 #define IMMEDIATE_NONE 0
 #define IMMEDIATE_SMALL 1
@@ -182,7 +184,7 @@ class osd_t
     // peer OSDs
 
     std::map<uint64_t, int> osd_peer_fds;
-    std::vector<pg_t> pgs;
+    std::map<pg_num_t, pg_t> pgs;
     int peering_state = 0;
     unsigned pg_count = 0;
     uint64_t next_subop_id = 1;
@@ -241,7 +243,10 @@ class osd_t
     void init_primary();
     void handle_peers();
     void repeer_pgs(osd_num_t osd_num, bool is_connected);
-    void start_pg_peering(int i);
+    void start_pg_peering(pg_num_t pg_num);
+    void submit_pg_flush_ops(pg_num_t pg_num);
+    void handle_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t osd_num, bool ok);
+    void submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t osd_num, int count, obj_ver_id *data);
 
     // op execution
     void exec_op(osd_op_t *cur_op);

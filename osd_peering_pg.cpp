@@ -134,7 +134,7 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
                 auto & pcs = pp.second;
                 if (pcs.stable_ver < pcs.max_ver)
                 {
-                    auto & act = obj_stab_actions[pp.first];
+                    auto & act = flush_actions[pp.first];
                     if (pcs.max_ver > st.target_ver)
                     {
                         act.rollback = true;

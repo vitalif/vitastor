@@ -327,7 +327,7 @@ void osd_t::stop_client(int peer_fd)
         cancel_osd_ops(cl);
         osd_peer_fds.erase(cl.osd_num);
         repeer_pgs(cl.osd_num, false);
-        peering_state |= OSD_PEERING_PEERS;
+        peering_state |= OSD_CONNECTING_PEERS;
     }
     if (cl.read_op)
     {
@@ -388,6 +388,7 @@ void osd_t::exec_op(osd_op_t *cur_op)
     {
         exec_show_config(cur_op);
     }
+    // FIXME: Do not handle operations immediately, manage some sort of a queue instead
     else if (cur_op->req.hdr.opcode == OSD_OP_READ)
     {
         continue_primary_read(cur_op);

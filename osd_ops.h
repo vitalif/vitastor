@@ -169,6 +169,7 @@ struct __attribute__((__packed__)) osd_reply_sync_t
     osd_reply_header_t header;
 };
 
+// FIXME it would be interesting to try to unify blockstore_op and osd_op formats
 union osd_any_op_t
 {
     osd_op_header_t hdr;

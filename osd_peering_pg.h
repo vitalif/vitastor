@@ -102,11 +102,14 @@ struct obj_piece_ver_t
     uint64_t stable_ver = 0;
 };
 
-struct obj_stab_action_t
+struct flush_action_t
 {
     bool rollback = false, make_stable = false;
     uint64_t stable_to = 0, rollback_to = 0;
+    bool submitted = false;
 };
+
+struct pg_flush_batch_t;
 
 struct pg_t
 {
@@ -125,9 +128,11 @@ struct pg_t
     // which is up to ~192 MB per 1 TB in the worst case scenario
     std::map<pg_osd_set_t, pg_osd_set_state_t> state_dict;
     btree::btree_map<object_id, pg_osd_set_state_t*> obj_states;
-    std::map<obj_piece_id_t, obj_stab_action_t> obj_stab_actions;
+    std::map<obj_piece_id_t, flush_action_t> flush_actions;
     btree::btree_map<object_id, uint64_t> ver_override;
     pg_peering_state_t *peering_state = NULL;
+    pg_flush_batch_t *flush_batch = NULL;
+    int flush_actions_in_progress = 0;
 
     std::multimap<object_id, osd_op_t*> write_queue;
 

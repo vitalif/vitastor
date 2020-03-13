@@ -12,12 +12,14 @@
 // Journal entries
 // Journal entries are linked to each other by their crc32 value
 // The journal is almost a blockchain, because object versions constantly increase
+#define JE_MIN         0x01
 #define JE_START       0x01
 #define JE_SMALL_WRITE 0x02
 #define JE_BIG_WRITE   0x03
 #define JE_STABLE      0x04
 #define JE_DELETE      0x05
 #define JE_ROLLBACK    0x06
+#define JE_MAX         0x06
 
 // crc32c comes first to ease calculation and is equal to crc32()
 struct __attribute__((__packed__)) journal_entry_start

@@ -440,7 +440,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
         {
             journal_entry *je = (journal_entry*)(buf + proc_pos - done_pos + pos);
             if (je->magic != JOURNAL_MAGIC || je_crc32(je) != je->crc32 ||
-                je->type < JE_SMALL_WRITE || je->type > JE_DELETE || started && je->crc32_prev != crc32_last)
+                je->type < JE_MIN || je->type > JE_MAX || started && je->crc32_prev != crc32_last)
             {
                 if (pos == 0)
                 {

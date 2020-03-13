@@ -21,6 +21,7 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
             if (v->version == 0)
             {
                 // Already rolled back
+                // FIXME Skip this object version
             }
         bad_op:
             op->retval = -EINVAL;
@@ -147,7 +148,7 @@ resume_3:
         ring_data_t *data = ((ring_data_t*)sqe->user_data);
         my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
         data->iov = { 0 };
-        data->callback = [this, op](ring_data_t *data) { handle_stable_event(data, op); };
+        data->callback = [this, op](ring_data_t *data) { handle_rollback_event(data, op); };
         PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
         PRIV(op)->pending_ops = 1;
         PRIV(op)->op_state = 4;
@@ -163,18 +164,18 @@ resume_5:
             .oid = v->oid,
             .version = UINT64_MAX,
         });
-        rm_end--;
         auto rm_start = rm_end;
+        assert(rm_start != dirty_db.begin());
+        rm_start--;
         while (1)
         {
-            if (rm_end->first.oid != v->oid)
+            if (rm_start->first.oid != v->oid)
                 break;
-            else if (rm_end->first.version <= v->version)
+            else if (rm_start->first.version <= v->version)
                 break;
-            rm_start = rm_end;
-            if (rm_end == dirty_db.begin())
+            if (rm_start == dirty_db.begin())
                 break;
-            rm_end--;
+            rm_start--;
         }
         if (rm_end != rm_start)
             erase_dirty(rm_start, rm_end, UINT64_MAX);
@@ -202,7 +203,7 @@ void blockstore_impl_t::handle_rollback_event(ring_data_t *data, blockstore_op_t
     if (PRIV(op)->pending_ops == 0)
     {
         PRIV(op)->op_state++;
-        if (!continue_stable(op))
+        if (!continue_rollback(op))
         {
             submit_queue.push_front(op);
         }

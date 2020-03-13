@@ -60,10 +60,9 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     // Our EC scheme stores data in fixed chunks equal to (K*block size)
     // But we must not use K in the process of calculating the PG number
     // So we calculate the PG number using a separate setting which should be per-inode (FIXME)
-    // FIXME Real pg_num should equal the below expression + 1
-    pg_num_t pg_num = (cur_op->req.rw.inode + cur_op->req.rw.offset / parity_block_size) % pg_count;
+    pg_num_t pg_num = (cur_op->req.rw.inode + cur_op->req.rw.offset / parity_block_size) % pg_count + 1;
     // FIXME: Postpone operations in inactive PGs
-    if (pg_num > pgs.size() || !(pgs[pg_num].state & PG_ACTIVE))
+    if (pgs.find(pg_num) == pgs.end() || !(pgs[pg_num].state & PG_ACTIVE))
     {
         finish_primary_op(cur_op, -EINVAL);
         return false;
@@ -331,17 +330,15 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
     assert(op_data->st == 0);
     // Check if actions are pending for this object
     {
-        auto act_it = pg.obj_stab_actions.lower_bound((obj_piece_id_t){
+        auto act_it = pg.flush_actions.lower_bound((obj_piece_id_t){
             .oid = op_data->oid,
             .osd_num = 0,
         });
-        if (act_it != pg.obj_stab_actions.end() &&
+        if (act_it != pg.flush_actions.end() &&
             act_it->first.oid.inode == op_data->oid.inode &&
             (act_it->first.oid.stripe & ~STRIPE_MASK) == op_data->oid.stripe)
         {
-            // FIXME postpone the request until actions are done
-            free(op_data);
-            finish_primary_op(cur_op, -EIO);
+            pg.write_queue.emplace(op_data->oid, cur_op);
             return;
         }
     }
