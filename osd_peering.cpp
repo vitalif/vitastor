@@ -28,6 +28,7 @@ void osd_t::init_primary()
         .target_set = { 1, 2, 3 },
         .cur_set = { 1, 0, 0 },
     };
+    pgs[1].print_state();
     pg_count = 1;
     peering_state = OSD_CONNECTING_PEERS;
 }
@@ -346,6 +347,7 @@ void osd_t::handle_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t osd
         if (!pg.flush_actions.size())
         {
             pg.state = pg.state & ~PG_HAS_UNCLEAN;
+            pg.print_state();
         }
         for (osd_op_t *op: continue_ops)
         {
@@ -435,6 +437,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
 {
     auto & pg = pgs[pg_num];
     pg.state = PG_PEERING;
+    pg.print_state();
     pg.state_dict.clear();
     pg.obj_states.clear();
     pg.ver_override.clear();
@@ -453,6 +456,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     if (pg.pg_cursize < pg.pg_minsize)
     {
         pg.state = PG_INCOMPLETE;
+        pg.print_state();
     }
     if (pg.peering_state)
     {
@@ -517,7 +521,6 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
             delete pg.peering_state;
             pg.peering_state = NULL;
         }
-        printf("PG %d is incomplete\n", pg.pg_num);
         return;
     }
     if (!pg.peering_state)

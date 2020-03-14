@@ -275,14 +275,23 @@ void pg_t::calc_object_states()
     {
         pg.state = pg.state | PG_DEGRADED;
     }
-    printf(
-        "PG %u is active%s%s%s%s%s (%lu objects)\n", pg.pg_num,
-        (pg.state & PG_DEGRADED) ? " + degraded" : "",
-        (pg.state & PG_HAS_UNFOUND) ? " + has_unfound" : "",
-        (pg.state & PG_HAS_DEGRADED) ? " + has_degraded" : "",
-        (pg.state & PG_HAS_MISPLACED) ? " + has_misplaced" : "",
-        (pg.state & PG_HAS_UNCLEAN) ? " + has_unclean" : "",
-        pg.total_count
-    );
     pg.state = pg.state | PG_ACTIVE;
+    pg.print_state();
+}
+
+void pg_t::print_state()
+{
+    printf(
+        "PG %u is %s%s%s%s%s%s%s%s%s (%lu objects)\n", pg_num,
+        (state & PG_OFFLINE) ? "offline" : "",
+        (state & PG_PEERING) ? "peering" : "",
+        (state & PG_INCOMPLETE) ? "incomplete" : "",
+        (state & PG_ACTIVE) ? "active" : "",
+        (state & PG_DEGRADED) ? " + degraded" : "",
+        (state & PG_HAS_UNFOUND) ? " + has_unfound" : "",
+        (state & PG_HAS_DEGRADED) ? " + has_degraded" : "",
+        (state & PG_HAS_MISPLACED) ? " + has_misplaced" : "",
+        (state & PG_HAS_UNCLEAN) ? " + has_unclean" : "",
+        total_count
+    );
 }

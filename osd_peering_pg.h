@@ -138,6 +138,7 @@ struct pg_t
 
     void calc_object_states();
     void remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &all);
+    void print_state();
 };
 
 inline bool operator < (const pg_obj_loc_t &a, const pg_obj_loc_t &b)
