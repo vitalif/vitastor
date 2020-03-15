@@ -27,13 +27,13 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
         }
         else if (st.n_roles < pg.pg_minsize)
         {
-            printf("Object is unfound: inode=%lu stripe=%lu version=%lu/%lu\n", st.oid.inode, st.oid.stripe, st.target_ver, st.max_ver);
+            printf("Object is incomplete: inode=%lu stripe=%lu version=%lu/%lu\n", st.oid.inode, st.oid.stripe, st.target_ver, st.max_ver);
             for (int i = st.ver_start; i < st.ver_end; i++)
             {
                 printf("Present on: osd %lu, role %ld%s\n", all[i].osd_num, (all[i].oid.stripe & STRIPE_MASK), all[i].is_stable ? " (stable)" : "");
             }
             state = OBJ_INCOMPLETE;
-            pg.state = pg.state | PG_HAS_UNFOUND;
+            pg.state = pg.state | PG_HAS_INCOMPLETE;
         }
         else
         {
@@ -48,7 +48,7 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
         if (st.n_copies > pg.pg_size)
         {
             state |= OBJ_OVERCOPIED;
-            pg.state = pg.state | PG_HAS_UNCLEAN;
+            pg.state = pg.state | PG_HAS_MISPLACED;
         }
         if (st.n_stable < st.n_copies)
         {
@@ -288,7 +288,7 @@ void pg_t::print_state()
         (state & PG_INCOMPLETE) ? "incomplete" : "",
         (state & PG_ACTIVE) ? "active" : "",
         (state & PG_DEGRADED) ? " + degraded" : "",
-        (state & PG_HAS_UNFOUND) ? " + has_unfound" : "",
+        (state & PG_HAS_INCOMPLETE) ? " + has_incomplete" : "",
         (state & PG_HAS_DEGRADED) ? " + has_degraded" : "",
         (state & PG_HAS_MISPLACED) ? " + has_misplaced" : "",
         (state & PG_HAS_UNCLEAN) ? " + has_unclean" : "",

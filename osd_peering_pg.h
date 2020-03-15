@@ -16,12 +16,12 @@
 #define PG_ACTIVE (1<<3)
 // Plus any of these:
 #define PG_DEGRADED (1<<4)
-#define PG_HAS_UNFOUND (1<<5)
+#define PG_HAS_INCOMPLETE (1<<5)
 #define PG_HAS_DEGRADED (1<<6)
 #define PG_HAS_MISPLACED (1<<7)
 #define PG_HAS_UNCLEAN (1<<8)
 
-// FIXME: Safe default that doesn't depend on parity_block_size of pg_parity_size
+// FIXME: Safe default that doesn't depend on parity_block_size or pg_parity_size
 #define STRIPE_MASK ((uint64_t)4096 - 1)
 
 // OSD object states
@@ -109,7 +109,13 @@ struct flush_action_t
     bool submitted = false;
 };
 
-struct pg_flush_batch_t;
+struct pg_flush_batch_t
+{
+    std::map<osd_num_t, std::vector<obj_ver_id>> rollback_lists;
+    std::map<osd_num_t, std::vector<obj_ver_id>> stable_lists;
+    int flush_ops = 0, flush_done = 0;
+    int flush_objects = 0;
+};
 
 struct pg_t
 {
