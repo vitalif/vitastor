@@ -65,6 +65,6 @@ libfio_sec_osd.so: fio_sec_osd.cpp osd_ops.h rw_blocking.o
 test_blockstore: ./libblockstore.so test_blockstore.cpp
 	g++ $(CXXFLAGS) -o test_blockstore test_blockstore.cpp ./libblockstore.so -ltcmalloc_minimal -luring
 test: test.cpp osd_peering_pg.o
-	g++ $(CXXFLAGS) -o test test.cpp osd_peering_pg.o -luring
+	g++ $(CXXFLAGS) -o test test.cpp osd_peering_pg.o -luring -lm
 test_allocator: test_allocator.cpp allocator.o
 	g++ $(CXXFLAGS) -o test_allocator test_allocator.cpp allocator.o

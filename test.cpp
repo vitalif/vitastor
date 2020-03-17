@@ -13,6 +13,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <liburing.h>
+#include <math.h>
 
 #include <sys/socket.h>
 #include <sys/epoll.h>
@@ -26,6 +27,7 @@
 
 #include "blockstore.h"
 #include "blockstore_impl.h"
+#include "osd_peering_pg.h"
 //#include "cpp-btree/btree_map.h"
 
 static int setup_context(unsigned entries, struct io_uring *ring)
@@ -58,24 +60,6 @@ static void test_write(struct io_uring *ring, int fd)
         printf("result: %d user_data: %lld -> %lld\n", ret, sqe->user_data, cqe->user_data);
     io_uring_cqe_seen(ring, cqe);
     free(buf);
-}
-
-class obj_ver_hash
-{
-public:
-    size_t operator()(const obj_ver_id &s) const
-    {
-        size_t seed = 0;
-        spp::hash_combine(seed, s.oid.inode);
-        spp::hash_combine(seed, s.oid.stripe);
-        spp::hash_combine(seed, s.version);
-        return seed;
-    }
-};
-
-inline bool operator == (const obj_ver_id & a, const obj_ver_id & b)
-{
-    return a.oid == b.oid && a.version == b.version;
 }
 
 int main00(int argc, char *argv[])
@@ -169,9 +153,9 @@ int main0(int argc, char *argv[])
     // btree_map 5M entries monotone -> 0.458s, random -> 5.429s
     // absl::btree_map 5M entries random -> 5.09s
     // sparse_hash_map 5M entries -> 2.193s, random -> 2.586s
-    //btree::btree_map<obj_ver_id, dirty_entry> dirty_db;
+    btree::btree_map<obj_ver_id, dirty_entry> dirty_db;
     //std::map<obj_ver_id, dirty_entry> dirty_db;
-    spp::sparse_hash_map<obj_ver_id, dirty_entry, obj_ver_hash> dirty_db;
+    //spp::sparse_hash_map<obj_ver_id, dirty_entry, obj_ver_hash> dirty_db;
     for (int i = 0; i < 5000000; i++)
     {
         dirty_db[(obj_ver_id){
@@ -336,49 +320,253 @@ int main04(int argc, char *argv[])
     return 0;
 }
 
+uint64_t jumphash(uint64_t key, int count)
+{
+    uint64_t b = 0;
+    uint64_t seed = key;
+    for (int j = 1; j < count; j++)
+    {
+        seed = 2862933555777941757ull*seed + 3037000493ull; // LCPRNG
+        if (seed < (UINT64_MAX / (j+1)))
+        {
+            b = j;
+        }
+    }
+    return b;
+}
+
+void jumphash_prepare(int count, uint64_t *out_weights, uint64_t *in_weights)
+{
+    if (count <= 0)
+    {
+        return;
+    }
+    uint64_t total_weight = in_weights[0];
+    out_weights[0] = UINT64_MAX;
+    for (int j = 1; j < count; j++)
+    {
+        total_weight += in_weights[j];
+        out_weights[j] = UINT64_MAX / total_weight * in_weights[j];
+    }
+}
+
+uint64_t jumphash_weights(uint64_t key, int count, uint64_t *prepared_weights)
+{
+    uint64_t b = 0;
+    uint64_t seed = key;
+    for (int j = 1; j < count; j++)
+    {
+        seed = 2862933555777941757ull*seed + 3037000493ull; // LCPRNG
+        if (seed < prepared_weights[j])
+        {
+            b = j;
+        }
+    }
+    return b;
+}
+
+void jumphash3(uint64_t key, int count, uint64_t *weights, uint64_t *r)
+{
+    r[0] = 0;
+    r[1] = 1;
+    r[2] = 2;
+    uint64_t total_weight = weights[0]+weights[1]+weights[2];
+    uint64_t seed = key;
+    for (int j = 3; j < count; j++)
+    {
+        seed = 2862933555777941757ull*seed + 3037000493ull; // LCPRNG
+        total_weight += weights[j];
+        if (seed < UINT64_MAX*1.0*weights[j]/total_weight)
+            r[0] = j;
+        else
+        {
+            seed = 2862933555777941757ull*seed + 3037000493ull; // LCPRNG
+            if (seed < UINT64_MAX*1.0*weights[j]/total_weight)
+                r[1] = j;
+            else
+            {
+                seed = 2862933555777941757ull*seed + 3037000493ull; // LCPRNG
+                if (seed < UINT64_MAX*1.0*weights[j]/total_weight)
+                    r[2] = j;
+            }
+        }
+    }
+}
+
+uint64_t crush(uint64_t key, int count, uint64_t *weights)
+{
+    uint64_t b = 0;
+    uint64_t seed = 0;
+    uint64_t max = 0;
+    for (int j = 0; j < count; j++)
+    {
+        seed = (key + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+        seed ^= (j + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+        seed = 2862933555777941757ull*seed + 3037000493ull; // LCPRNG
+        seed = -log(((double)seed) / (1ul << 32) / (1ul << 32)) * weights[j];
+        if (seed > max)
+        {
+            max = seed;
+            b = j;
+        }
+    }
+    return b;
+}
+
+void crush3(uint64_t key, int count, uint64_t *weights, uint64_t *r, uint64_t total_weight)
+{
+    uint64_t seed = 0;
+    uint64_t max = 0;
+    for (int k1 = 0; k1 < count; k1++)
+    {
+        for (int k2 = k1+1; k2 < count; k2++)
+        {
+            if (k2 == k1)
+            {
+                continue;
+            }
+            for (int k3 = k2+1; k3 < count; k3++)
+            {
+                if (k3 == k1 || k3 == k2)
+                {
+                    continue;
+                }
+                seed = (key + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+                seed ^= (k1 + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+                seed ^= (k2 + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+                seed ^= (k3 + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+                seed = 2862933555777941757ull*seed + 3037000493ull; // LCPRNG
+                //seed = ((double)seed) / (1ul << 32) / (1ul << 32) * (weights[k1] + weights[k2] + weights[k3]);
+                seed = ((double)seed) / (1ul << 32) / (1ul << 32) * (1 -
+                    (1 - 1.0*weights[k1]/total_weight)*
+                    (1 - 1.0*weights[k2]/total_weight)*
+                    (1 - 1.0*weights[k3]/total_weight)
+                ) * UINT64_MAX;
+                if (seed > max)
+                {
+                    r[0] = k1;
+                    r[1] = k2;
+                    r[2] = k3;
+                    max = seed;
+                }
+            }
+        }
+    }
+}
+
 int main(int argc, char *argv[])
 {
-    timeval fill_start, fill_end, filter_end;
-    spp::sparse_hash_map<object_id, clean_entry> clean_db;
-    //std::map<object_id, clean_entry> clean_db;
-    //btree::btree_map<object_id, clean_entry> clean_db;
-    gettimeofday(&fill_start, NULL);
-    printf("filling\n");
-    uint64_t total = 1024*1024*8*4;
-    clean_db.resize(total);
-    for (uint64_t i = 0; i < total; i++)
+    int host_count = 6;
+    uint64_t host_weights[] = {
+        34609*3,
+        34931*3,
+        35850+36387+35859,
+        36387,
+        36387*2,
+        36387,
+    };
+    /*int osd_count[] = { 3, 3, 3, 1, 2 };
+    uint64_t osd_weights[][3] = {
+        { 34609, 34609, 34609 },
+        { 34931, 34931, 34931 },
+        { 35850, 36387, 35859 },
+        { 36387 },
+        { 36387, 36387 },
+    };*/
+    uint64_t total_weight = 0;
+    for (int i = 0; i < host_count; i++)
     {
-        clean_db[(object_id){
-            .inode = 1,
-            //.stripe = (i << STRIPE_SHIFT),
-            .stripe = (((367*i) % total) << STRIPE_SHIFT),
-        }] = (clean_entry){
-            .version = 1,
-            .location = i << DEFAULT_ORDER,
-        };
+        total_weight += host_weights[i];
     }
-    gettimeofday(&fill_end, NULL);
-    // no resize():
-    // spp = 17.87s (seq), 41.81s (rand), 3.29s (seq+resize), 8.3s (rand+resize), ~1.3G RAM in all cases
-    // std::unordered_map = 6.14 sec, ~2.3G RAM
-    // std::map = 13 sec (seq), 5.54 sec (rand), ~2.5G RAM
-    // cpp-btree = 2.47 sec (seq) ~1.2G RAM, 20.6 sec (pseudo-random 367*i % total) ~1.5G RAM
-    printf("filled %.2f sec\n", (fill_end.tv_sec - fill_start.tv_sec) + (fill_end.tv_usec - fill_start.tv_usec) / 1000000.0);
-    for (int pg = 0; pg < 100; pg++)
+    uint64_t host_weights_prepared[host_count];
+    jumphash_prepare(host_count, host_weights_prepared, host_weights);
+    uint64_t total_pgs[host_count] = { 0 };
+    int pg_count = 256;
+    double uniformity[pg_count] = { 0 };
+    for (uint64_t pg = 1; pg <= pg_count; pg++)
     {
-        obj_ver_id* buf1 = (obj_ver_id*)malloc(sizeof(obj_ver_id) * ((total+99)/100));
-        int j = 0;
-        for (auto it: clean_db)
-            if ((it.first % 100) == pg)
-                buf1[j++] = { .oid = it.first, .version = it.second.version };
-        free(buf1);
-        printf("filtered %d\n", j);
+        uint64_t r[3];
+
+/*
+        // Select first host
+        //r[0] = jumphash_weights(pg, host_count, host_weights_prepared);
+        r[0] = crush(pg, host_count, host_weights);
+        // Select second host
+        uint64_t seed = pg;
+        r[1] = r[0];
+        while (r[1] == r[0])
+        {
+            seed = 2862933555777941757ull*seed + 3037000493ull; // LCPRNG
+            //r[1] = jumphash_weights(seed, host_count, host_weights_prepared);
+            r[1] = crush(seed, host_count, host_weights);
+        }
+        // Select third host
+        seed = pg;
+        r[2] = r[0];
+        while (r[2] == r[0] || r[2] == r[1])
+        {
+            seed = 2862933555777941757ull*seed + 3037000493ull; // LCPRNG
+            //r[2] = jumphash_weights(seed, host_count, host_weights_prepared);
+            r[2] = crush(seed, host_count, host_weights);
+        }
+*/
+
+/*
+        // Select second host
+        uint64_t host_weights1[host_count];
+        for (int i = 0; i < r[0]; i++)
+            host_weights1[i] = host_weights[i];
+        for (int i = r[0]+1; i < host_count; i++)
+            host_weights1[i-1] = host_weights[i];
+        r[1] = crush(pg, host_count-1, host_weights1);
+        // Select third host
+        for (int i = r[1]+1; i < host_count-1; i++)
+            host_weights1[i-1] = host_weights[i];
+        r[2] = crush(pg, host_count-2, host_weights1);
+        // Transform numbers
+        r[2] = r[2] >= r[1] ? 1+r[2] : r[2];
+        r[2] = r[2] >= r[0] ? 1+r[2] : r[2];
+        r[1] = r[1] >= r[0] ? 1+r[1] : r[1];
+*/
+
+        crush3(pg, host_count, host_weights, r, total_weight);
+        uint64_t shift = (2862933555777941757ull*pg + 3037000493ull) % host_count;
+        if (shift == 1)
+        {
+            uint64_t tmp;
+            tmp = r[0];
+            r[0] = r[1];
+            r[1] = r[2];
+            r[2] = tmp;
+        }
+        else if (shift == 2)
+        {
+            uint64_t tmp;
+            tmp = r[0];
+            r[0] = r[2];
+            r[2] = r[1];
+            r[1] = tmp;
+        }
+
+        total_pgs[r[0]]++;
+        total_pgs[r[1]]++;
+        total_pgs[r[2]]++;
+
+        double u = 0;
+        for (int i = 0; i < host_count; i++)
+        {
+            double d = abs(1 - total_pgs[i]/3.0/pg * total_weight/host_weights[i]);
+            u += d;
+        }
+        uniformity[pg-1] = u/host_count;
+
+        printf("pg %lu: hosts %lu, %lu, %lu ; avg deviation = %.2f\n", pg, r[0], r[1], r[2], u/host_count);
     }
-    gettimeofday(&filter_end, NULL);
-    // spp = 42.15 sec / 60 sec (rand)
-    // std::unordered_map = 43.7 sec
-    // std::map = 156.13 sec
-    // cpp-btree = 21.87 sec (seq), 44.33 sec (rand)
-    printf("100 times filter %.2f sec\n", (filter_end.tv_sec - fill_end.tv_sec) + (filter_end.tv_usec - fill_end.tv_usec) / 1000000.0);
+    printf("total PGs: ");
+    for (int i = 0; i < host_count; i++)
+    {
+        printf(i > 0 ? ", %lu (%.2f)" : "%lu (%.2f)", total_pgs[i], total_pgs[i]/3.0/pg_count * total_weight/host_weights[i]);
+    }
+    printf("\n");
     return 0;
 }
