@@ -41,7 +41,7 @@ sub optimize_initial
     {
         $lp .= "pg_".join("_", @$pg)." >= 0;\n";
     }
-    $lp .= "sec ".join(", ", map { "pg_".join("_", @$_) } @$pgs).";\n";
+    $lp .= "int ".join(", ", map { "pg_".join("_", @$_) } @$pgs).";\n";
     my ($score, $weights) = lp_solve($lp);
     my $int_pgs = make_int_pgs($weights, $pg_count);
     my $eff = pg_list_space_efficiency($int_pgs, $osd_tree);
@@ -127,9 +127,15 @@ sub get_int_pg_weights
 # Try to minimize data movement
 sub optimize_change
 {
-    my ($prev_int_pgs, $osd_tree, $target_efficiency) = @_;
-    $target_efficiency = $target_efficiency || 0.9;
-    my $prev_weights = get_int_pg_weights($prev_int_pgs, $osd_tree);
+    my ($prev_int_pgs, $osd_tree) = @_;
+    my $pg_count = scalar(@$prev_int_pgs);
+    my $prev_weights = {};
+    my $prev_pg_per_osd = {};
+    for my $pg (@$prev_int_pgs)
+    {
+        $prev_weights->{"pg_".join("_", @$pg)}++;
+        push @{$prev_pg_per_osd->{$_}}, "pg_".join("_", @$pg) for @$pg;
+    }
     # Get all combinations
     my $pgs = all_combinations($osd_tree);
     my $pg_per_osd = {};
@@ -158,10 +164,9 @@ sub optimize_change
     my $tw = 0;
     $tw += $all_weights->{$_} for keys %$all_weights;
     $tw = $tw/3;
-    $tw -= ($prev_weights->{$_} || 0) for @$pg_names;
-    # Generate an LP problem
+    # Generate the LP problem
     my $lp = "min: ".join(" + ", map { $move_weights->{$_} . ' * ' . ($prev_weights->{$_} ? "add_$_" : "$_") } @$pg_names).";\n";
-    $lp .= join(" + ", map { $prev_weights->{$_} ? "add_$_ - del_$_" : $_ } @$pg_names)." >= ".($tw * $target_efficiency).";\n";
+    $lp .= join(" + ", map { $prev_weights->{$_} ? "add_$_ - del_$_" : $_ } @$pg_names)." = 0;\n";
     for my $osd (keys %$pg_per_osd)
     {
         my $w = $all_weights->{$osd};
@@ -170,7 +175,6 @@ sub optimize_change
         {
             if ($prev_weights->{$pg})
             {
-                $w -= $prev_weights->{$pg};
                 push @s, "add_$pg - del_$pg";
             }
             else
@@ -178,7 +182,7 @@ sub optimize_change
                 push @s, $pg;
             }
         }
-        $lp .= join(" + ", @s)." <= $w;\n";
+        $lp .= join(" + ", @s)." <= ".int($all_weights->{$osd}/$tw*$pg_count - scalar(@{$prev_pg_per_osd->{$osd} || []})).";\n";
     }
     my @sec;
     for my $pg (@$pg_names)
@@ -198,7 +202,7 @@ sub optimize_change
             $lp .= "$pg >= 0;\n";
         }
     }
-    $lp .= "sec ".join(", ", @sec).";\n";
+    $lp .= "int ".join(", ", @sec).";\n";
     # Solve it
     my ($score, $result) = lp_solve($lp);
     # Generate the new distribution
@@ -217,6 +221,10 @@ sub optimize_change
         {
             $weights->{$k} = $result->{$k};
         }
+    }
+    for my $k (keys %$weights)
+    {
+        delete $weights->{$k} if !$weights->{$k};
     }
     my $int_pgs = make_int_pgs($weights, scalar @$prev_int_pgs);
     # Align them with most similar previous PGs
