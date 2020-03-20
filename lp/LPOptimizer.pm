@@ -137,21 +137,6 @@ sub optimize_change
     {
         push @{$pg_per_osd->{$_}}, "pg_".join("_", @$pg) for @$pg;
     }
-    # Check that old distribution
-    my $check_extra = { %$prev_weights };
-    for my $pg (@$pgs)
-    {
-        delete $check_extra->{"pg_".join("_", @$pg)};
-    }
-    if (%$check_extra)
-    {
-        print "Old distribution includes strange PGs:\n";
-        for my $pg (keys %$check_extra)
-        {
-            print "$pg\n";
-        }
-        exit;
-    }
     # Penalize PGs based on their similarity to old PGs
     my $intersect = {};
     for my $pg_name (keys %$prev_weights)
