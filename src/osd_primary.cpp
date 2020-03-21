@@ -659,7 +659,10 @@ resume_2:
     if (immediate_commit != IMMEDIATE_ALL)
     {
         // SYNC
-        submit_primary_sync_subops(cur_op);
+        if (!submit_primary_sync_subops(cur_op))
+        {
+            goto resume_4;
+        }
 resume_3:
         op_data->st = 3;
         return;

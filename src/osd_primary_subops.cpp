@@ -451,7 +451,7 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
     }
 }
 
-void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
+int osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     int n_osds = op_data->dirty_osd_count;
@@ -459,6 +459,7 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
     op_data->done = op_data->errors = 0;
     op_data->n_subops = n_osds;
     op_data->subops = subops;
+    std::map<uint64_t, int>::iterator peer_it;
     for (int i = 0; i < n_osds; i++)
     {
         osd_num_t sync_osd = op_data->dirty_osds[i];
@@ -475,10 +476,10 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
             });
             bs->enqueue_op(subops[i].bs_op);
         }
-        else
+        else if ((peer_it = c_cli.osd_peer_fds.find(sync_osd)) != c_cli.osd_peer_fds.end())
         {
             subops[i].op_type = OSD_OP_OUT;
-            subops[i].peer_fd = c_cli.osd_peer_fds.at(sync_osd);
+            subops[i].peer_fd = peer_it->second;
             subops[i].req.sec_sync = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
@@ -498,7 +499,18 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
             };
             c_cli.outbox_push(&subops[i]);
         }
+        else
+        {
+            op_data->done++;
+        }
     }
+    if (op_data->done >= op_data->n_subops)
+    {
+        delete[] op_data->subops;
+        op_data->subops = NULL;
+        return 0;
+    }
+    return 1;
 }
 
 void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
