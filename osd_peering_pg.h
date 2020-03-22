@@ -69,36 +69,10 @@ struct pg_peering_state_t
     int list_done = 0;
 };
 
-struct pg_obj_state_check_t
-{
-    int obj_start = 0, obj_end = 0, ver_start = 0, ver_end = 0;
-    object_id oid = { 0 };
-    uint64_t max_ver = 0;
-    uint64_t last_ver = 0;
-    uint64_t target_ver = 0;
-    uint64_t n_copies = 0, has_roles = 0, n_roles = 0, n_stable = 0, n_mismatched = 0;
-    bool is_buggy = false, has_old_unstable = false;
-    pg_osd_set_t osd_set;
-};
-
-struct obj_ver_role
-{
-    object_id oid;
-    uint64_t version;
-    uint64_t osd_num;
-    bool is_stable;
-};
-
 struct obj_piece_id_t
 {
     object_id oid;
     uint64_t osd_num;
-};
-
-struct obj_piece_ver_t
-{
-    uint64_t max_ver = 0;
-    uint64_t stable_ver = 0;
 };
 
 struct flush_action_t
@@ -142,7 +116,6 @@ struct pg_t
     std::multimap<object_id, osd_op_t*> write_queue;
 
     void calc_object_states();
-    void remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &all);
     void print_state();
 };
 
@@ -150,17 +123,6 @@ inline bool operator < (const pg_obj_loc_t &a, const pg_obj_loc_t &b)
 {
     return a.role < b.role || a.role == b.role && a.osd_num < b.osd_num ||
         a.role == b.role && a.osd_num == b.osd_num && a.stable < b.stable;
-}
-
-inline bool operator < (const obj_ver_role & a, const obj_ver_role & b)
-{
-    // ORDER BY inode ASC, stripe & ~STRIPE_MASK ASC, version DESC, osd_num ASC
-    return a.oid.inode < b.oid.inode || a.oid.inode == b.oid.inode && (
-        (a.oid.stripe & ~STRIPE_MASK) < (b.oid.stripe & ~STRIPE_MASK) ||
-        (a.oid.stripe & ~STRIPE_MASK) == (b.oid.stripe & ~STRIPE_MASK) && (
-            a.version > b.version || a.version == b.version && a.osd_num < b.osd_num
-        )
-    );
 }
 
 inline bool operator == (const obj_piece_id_t & a, const obj_piece_id_t & b)
