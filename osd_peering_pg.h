@@ -26,12 +26,11 @@
 
 // OSD object states
 #define OBJ_CLEAN 0x01
-#define OBJ_MISPLACED 0x02
-#define OBJ_DEGRADED 0x03
+#define OBJ_DEGRADED 0x02
 #define OBJ_INCOMPLETE 0x04
+#define OBJ_MISPLACED 0x08
 #define OBJ_NEEDS_STABLE 0x10000
 #define OBJ_NEEDS_ROLLBACK 0x20000
-#define OBJ_OVERCOPIED 0x40000
 #define OBJ_BUGGY 0x80000
 
 struct pg_obj_loc_t
@@ -77,7 +76,7 @@ struct pg_obj_state_check_t
     uint64_t max_ver = 0;
     uint64_t last_ver = 0;
     uint64_t target_ver = 0;
-    uint64_t n_copies = 0, has_roles = 0, n_roles = 0, n_stable = 0, n_matched = 0;
+    uint64_t n_copies = 0, has_roles = 0, n_roles = 0, n_stable = 0, n_mismatched = 0;
     bool is_buggy = false, has_old_unstable = false;
     pg_osd_set_t osd_set;
 };

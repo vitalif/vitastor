@@ -4,28 +4,10 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
 {
     auto & pg = *this;
     // Remember the decision
-    uint64_t state = 0;
-    if (st.target_ver == 0)
+    uint64_t state = OBJ_CLEAN;
+    if (st.target_ver > 0)
     {
-        st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
-        st.ver_start = st.ver_end = st.obj_end;
-        state = OBJ_CLEAN;
-    }
-    else
-    {
-        if (st.n_roles == pg.pg_cursize)
-        {
-            if (st.n_matched == pg.pg_cursize)
-            {
-                state = OBJ_CLEAN;
-            }
-            else
-            {
-                state = OBJ_MISPLACED;
-                pg.state = pg.state | PG_HAS_MISPLACED;
-            }
-        }
-        else if (st.n_roles < pg.pg_minsize)
+        if (st.n_roles < pg.pg_minsize)
         {
             printf("Object is incomplete: inode=%lu stripe=%lu version=%lu/%lu\n", st.oid.inode, st.oid.stripe, st.target_ver, st.max_ver);
             for (int i = st.ver_start; i < st.ver_end; i++)
@@ -35,7 +17,7 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
             state = OBJ_INCOMPLETE;
             pg.state = pg.state | PG_HAS_INCOMPLETE;
         }
-        else
+        else if (st.n_roles < pg.pg_cursize)
         {
             printf("Object is degraded: inode=%lu stripe=%lu version=%lu/%lu\n", st.oid.inode, st.oid.stripe, st.target_ver, st.max_ver);
             for (int i = st.ver_start; i < st.ver_end; i++)
@@ -45,9 +27,9 @@ void pg_t::remember_object(pg_obj_state_check_t &st, std::vector<obj_ver_role> &
             state = OBJ_DEGRADED;
             pg.state = pg.state | PG_HAS_DEGRADED;
         }
-        if (st.n_copies > pg.pg_size)
+        if (st.n_mismatched > 0)
         {
-            state |= OBJ_OVERCOPIED;
+            state |= OBJ_MISPLACED;
             pg.state = pg.state | PG_HAS_MISPLACED;
         }
         if (st.n_stable < st.n_copies)
@@ -214,7 +196,7 @@ void pg_t::calc_object_states()
             st.last_ver = st.max_ver = all[i].version;
             st.target_ver = 0;
             st.ver_start = i;
-            st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
+            st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_mismatched = 0;
         }
         if (!st.target_ver && st.last_ver != all[i].version && (st.n_stable > 0 || st.n_roles >= pg.pg_minsize))
         {
@@ -227,7 +209,7 @@ void pg_t::calc_object_states()
             if (st.last_ver != all[i].version)
             {
                 st.ver_start = i;
-                st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_matched = 0;
+                st.has_roles = st.n_copies = st.n_roles = st.n_stable = st.n_mismatched = 0;
                 st.last_ver = all[i].version;
             }
             replica = (all[i].oid.stripe & STRIPE_MASK);
@@ -243,9 +225,9 @@ void pg_t::calc_object_states()
                 {
                     st.n_stable++;
                 }
-                if (pg.cur_set[replica] == all[i].osd_num)
+                if (pg.cur_set[replica] != all[i].osd_num)
                 {
-                    st.n_matched++;
+                    st.n_mismatched++;
                 }
                 if (!(st.has_roles & (1 << replica)))
                 {
