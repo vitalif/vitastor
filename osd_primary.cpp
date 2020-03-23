@@ -31,6 +31,7 @@ struct osd_primary_op_data_t
     int degraded = 0, pg_size, pg_minsize;
     osd_rmw_stripe_t *stripes;
     osd_op_t *subops = NULL;
+    void *recovery_buf = NULL;
     // for sync. oops, requires freeing
     std::vector<unstable_osd_num_t> *unstable_write_osds = NULL;
     obj_ver_id *unstable_writes = NULL;
@@ -100,6 +101,30 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     return true;
 }
 
+uint64_t* get_object_osd_set(pg_t &pg, object_id &oid, uint64_t *def)
+{
+    if (!(pg.state & (PG_HAS_INCOMPLETE | PG_HAS_DEGRADED | PG_HAS_MISPLACED)))
+    {
+        return def;
+    }
+    auto st_it = pg.incomplete_objects.find(oid);
+    if (st_it != pg.incomplete_objects.end())
+    {
+        return st_it->second->read_target.data();
+    }
+    st_it = pg.degraded_objects.find(oid);
+    if (st_it != pg.degraded_objects.end())
+    {
+        return st_it->second->read_target.data();
+    }
+    st_it = pg.misplaced_objects.find(oid);
+    if (st_it != pg.misplaced_objects.end())
+    {
+        return st_it->second->read_target.data();
+    }
+    return def;
+}
+
 void osd_t::continue_primary_read(osd_op_t *cur_op)
 {
     if (!cur_op->op_data && !prepare_primary_rw(cur_op))
@@ -130,10 +155,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         else
         {
             // PG may be degraded or have misplaced objects
-            auto st_it = pg.obj_states.find(op_data->oid);
-            uint64_t* cur_set = (st_it != pg.obj_states.end()
-                ? st_it->second->read_target.data()
-                : pg.cur_set.data());
+            uint64_t* cur_set = get_object_osd_set(pg, op_data->oid, pg.cur_set.data());
             if (extend_missing_stripes(op_data->stripes, cur_set, pg.pg_minsize, pg.pg_size) < 0)
             {
                 free(op_data);
@@ -335,6 +357,8 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
     else if (op_data->st == 5) goto resume_5;
     else if (op_data->st == 6) goto resume_6;
     else if (op_data->st == 7) goto resume_7;
+    else if (op_data->st == 8) goto resume_8;
+    else if (op_data->st == 9) goto resume_9;
     assert(op_data->st == 0);
     // Check if actions are pending for this object
     {
@@ -361,6 +385,41 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
         }
         pg.write_queue.emplace(op_data->oid, cur_op);
     }
+    if (pg.state != PG_ACTIVE)
+    {
+        // If the object is degraded, read and write the whole object
+        auto st_it = pg.degraded_objects.find(op_data->oid);
+        if (st_it != pg.degraded_objects.end())
+        {
+            uint64_t* cur_set = st_it->second->read_target.data();
+            for (int i = 0; i < pg.pg_minsize; i++)
+            {
+                op_data->stripes[i] = {
+                    .req_start = 0,
+                    .req_end = bs_block_size,
+                    .read_start = 0,
+                    .read_end = bs_block_size,
+                };
+            }
+            assert(extend_missing_stripes(op_data->stripes, cur_set, pg.pg_minsize, pg.pg_size) >= 0);
+            op_data->degraded = 1;
+            op_data->recovery_buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0);
+            submit_primary_subops(SUBMIT_READ, pg.pg_size, cur_set, cur_op);
+            op_data->st = 8;
+            return;
+        }
+    }
+    goto resume_1;
+resume_8:
+    return;
+resume_9:
+    memcpy(
+        op_data->recovery_buf + cur_op->req.rw.offset - op_data->oid.stripe,
+        cur_op->buf, cur_op->req.rw.len
+    );
+    free(cur_op->buf);
+    cur_op->buf = op_data->recovery_buf;
+    op_data->recovery_buf = NULL;
 resume_1:
     // Determine blocks to read
     cur_op->rmw_buf = calc_rmw_reads(cur_op->buf, op_data->stripes, pg.cur_set.data(), pg.pg_size, pg.pg_minsize, pg.pg_cursize);

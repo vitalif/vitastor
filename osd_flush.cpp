@@ -185,3 +185,138 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
         outbox_push(clients[peer_fd], op);
     }
 }
+
+// Just trigger write requests for degraded objects. They'll be recovered during writing
+bool osd_t::continue_recovery()
+{
+    pg_t *pg = NULL;
+    if (recovery_state->st == 0)      goto resume_0;
+    else if (recovery_state->st == 1) goto resume_1;
+    else if (recovery_state->st == 2) goto resume_2;
+    else if (recovery_state->st == 3) goto resume_3;
+    else if (recovery_state->st == 4) goto resume_4;
+resume_0:
+    for (auto p: pgs)
+    {
+        if (p.second.state & PG_HAS_DEGRADED)
+        {
+            recovery_state->pg_num = p.first;
+            goto resume_1;
+        }
+    }
+    recovery_state->st = 0;
+    return false;
+resume_1:
+    pg = &pgs[recovery_state->pg_num];
+    if (!pg->degraded_objects.size())
+    {
+        pg->state = pg->state & ~PG_HAS_DEGRADED;
+        goto resume_0;
+    }
+    recovery_state->oid = pg->degraded_objects.begin()->first;
+    recovery_state->op = new osd_op_t();
+    recovery_state->op->op_type = OSD_OP_OUT;
+    recovery_state->op->req = {
+        .rw = {
+            .header = {
+                .magic = SECONDARY_OSD_OP_MAGIC,
+                .id = 0,
+                .opcode = OSD_OP_WRITE,
+            },
+            .inode = recovery_state->oid.inode,
+            .offset = recovery_state->oid.stripe,
+            .len = 0,
+        },
+    };
+    recovery_state->op->callback = [this](osd_op_t *op)
+    {
+        if (op->reply.hdr.retval < 0)
+            recovery_state->st += 1; // error
+        else
+            recovery_state->st += 2; // ok
+        continue_recovery();
+    };
+    exec_op(recovery_state->op);
+    recovery_state->st = 2;
+resume_2:
+    return true;
+resume_3:
+    // FIXME handle error
+    throw std::runtime_error("failed to recover an object");
+resume_4:
+    delete recovery_state->op;
+    recovery_state->op = NULL;
+    // Don't sync the write, it will be synced by our regular sync coroutine
+    pg = &pgs[recovery_state->pg_num];
+    pg_osd_set_state_t *st;
+    {
+        auto st_it = pg->degraded_objects.find(recovery_state->oid);
+        st = st_it->second;
+        pg->degraded_objects.erase(st_it);
+    }
+    st->object_count--;
+    if (st->state == OBJ_DEGRADED)
+    {
+        pg->clean_count++;
+    }
+    else
+    {
+        assert(st->state == (OBJ_DEGRADED|OBJ_MISPLACED));
+        pg_osd_set_state_t *new_st;
+        pg_osd_set_t new_set(st->osd_set);
+        for (uint64_t role = 0; role < pg->pg_size; role++)
+        {
+            if (pg->cur_set[role] != 0)
+            {
+                // Maintain order (outdated -> role -> osd_num)
+                int added = 0;
+                for (int j = 0; j < new_set.size(); j++)
+                {
+                    if (new_set[j].role == role && new_set[j].osd_num == pg->cur_set[role])
+                    {
+                        if (new_set[j].outdated)
+                        {
+                            if (!added)
+                                new_set[j].outdated = false;
+                            else
+                            {
+                                new_set.erase(new_set.begin()+j);
+                                j--;
+                            }
+                        }
+                        break;
+                    }
+                    else if (!added && (new_set[j].outdated || new_set[j].role > role ||
+                        new_set[j].role == role && new_set[j].osd_num > pg->cur_set[role]))
+                    {
+                        new_set.insert(new_set.begin()+j, (pg_obj_loc_t){
+                            .role = role,
+                            .osd_num = pg->cur_set[role],
+                            .outdated = false,
+                        });
+                        added = 1;
+                    }
+                }
+            }
+        }
+        auto st_it = pg->state_dict.find(new_set);
+        if (st_it != pg->state_dict.end())
+        {
+            st_it = pg->state_dict.emplace(new_set, (pg_osd_set_state_t){
+                .read_target = pg->cur_set,
+                .osd_set = new_set,
+                .state = OBJ_MISPLACED,
+                .object_count = 0,
+            }).first;
+        }
+        new_st = &st_it->second;
+        new_st->object_count++;
+        pg->misplaced_objects[recovery_state->oid] = new_st;
+    }
+    if (!st->object_count)
+    {
+        pg->state_dict.erase(st->osd_set);
+    }
+    recovery_state->st = 0;
+    goto resume_0;
+}

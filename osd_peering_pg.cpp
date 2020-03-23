@@ -10,11 +10,15 @@ struct obj_ver_role
 
 inline bool operator < (const obj_ver_role & a, const obj_ver_role & b)
 {
-    // ORDER BY inode ASC, stripe & ~STRIPE_MASK ASC, version DESC, osd_num ASC
+    // ORDER BY inode ASC, stripe & ~STRIPE_MASK ASC, version DESC, role ASC, osd_num ASC
     return a.oid.inode < b.oid.inode || a.oid.inode == b.oid.inode && (
         (a.oid.stripe & ~STRIPE_MASK) < (b.oid.stripe & ~STRIPE_MASK) ||
         (a.oid.stripe & ~STRIPE_MASK) == (b.oid.stripe & ~STRIPE_MASK) && (
-            a.version > b.version || a.version == b.version && a.osd_num < b.osd_num
+            a.version > b.version ||
+            a.version == b.version && (
+                a.oid.stripe < b.oid.stripe ||
+                a.oid.stripe == b.oid.stripe && a.osd_num < b.osd_num
+            )
         )
     );
 }
@@ -142,41 +146,12 @@ void pg_obj_state_check_t::finish_object()
     }
     obj_end = list_pos;
     // Remember the decision
-    uint64_t state = OBJ_CLEAN;
+    uint64_t state = 0;
     if (n_buggy > 0)
     {
         state = OBJ_BUGGY;
         // FIXME: bring pg offline
         throw std::runtime_error("buggy object state");
-    }
-    if (target_ver > 0)
-    {
-        if (n_roles < pg->pg_minsize)
-        {
-            printf("Object is incomplete: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
-            for (int i = ver_start; i < ver_end; i++)
-            {
-                printf("Present on: osd %lu, role %ld%s\n", list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
-            }
-            state = OBJ_INCOMPLETE;
-            pg->state = pg->state | PG_HAS_INCOMPLETE;
-        }
-        else if (n_roles < pg->pg_cursize)
-        {
-            printf("Object is degraded: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
-            for (int i = ver_start; i < ver_end; i++)
-            {
-                printf("Present on: osd %lu, role %ld%s\n", list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
-            }
-            state = OBJ_DEGRADED;
-            pg->state = pg->state | PG_HAS_DEGRADED;
-        }
-        if (n_mismatched > 0)
-        {
-            state |= OBJ_MISPLACED;
-            pg->state = pg->state | PG_HAS_MISPLACED;
-        }
-        pg->total_count++;
     }
     if (n_unstable > 0)
     {
@@ -207,20 +182,48 @@ void pg_obj_state_check_t::finish_object()
                 // osd_set doesn't include rollback/stable states, so don't include them in the state code either
                 if (pcs.max_ver > target_ver)
                 {
-                    //state |= OBJ_NEEDS_ROLLBACK;
                     act.rollback = true;
                     act.rollback_to = pcs.max_target;
                 }
                 if (pcs.stable_ver < (pcs.max_ver > target_ver ? pcs.max_target : pcs.max_ver))
                 {
-                    //state |= OBJ_NEEDS_STABLE;
                     act.make_stable = true;
                     act.stable_to = pcs.max_ver > target_ver ? pcs.max_target : pcs.max_ver;
                 }
             }
         }
     }
-    if (state != OBJ_CLEAN || ver_end < obj_end)
+    if (!target_ver)
+    {
+        return;
+    }
+    if (n_roles < pg->pg_minsize)
+    {
+        printf("Object is incomplete: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
+        for (int i = ver_start; i < ver_end; i++)
+        {
+            printf("Present on: osd %lu, role %ld%s\n", list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
+        }
+        state = OBJ_INCOMPLETE;
+        pg->state = pg->state | PG_HAS_INCOMPLETE;
+    }
+    else if (n_roles < pg->pg_cursize)
+    {
+        printf("Object is degraded: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
+        for (int i = ver_start; i < ver_end; i++)
+        {
+            printf("Present on: osd %lu, role %ld%s\n", list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
+        }
+        state = OBJ_DEGRADED;
+        pg->state = pg->state | PG_HAS_DEGRADED;
+    }
+    if (n_mismatched > 0)
+    {
+        state |= OBJ_MISPLACED;
+        pg->state = pg->state | PG_HAS_MISPLACED;
+    }
+    pg->total_count++;
+    if (state != 0 || ver_end < obj_end)
     {
         osd_set.clear();
         for (int i = ver_start; i < ver_end; i++)
@@ -261,7 +264,7 @@ void pg_obj_state_check_t::finish_object()
     {
         pg->ver_override[oid] = target_ver;
     }
-    if (state == OBJ_CLEAN)
+    if (state == 0)
     {
         pg->clean_count++;
     }
@@ -295,7 +298,18 @@ void pg_obj_state_check_t::finish_object()
         {
             it->second.object_count++;
         }
-        pg->obj_states[oid] = &it->second;
+        if (state & OBJ_INCOMPLETE)
+        {
+            pg->incomplete_objects[oid] = &it->second;
+        }
+        else if (state & OBJ_DEGRADED)
+        {
+            pg->degraded_objects[oid] = &it->second;
+        }
+        else
+        {
+            pg->misplaced_objects[oid] = &it->second;
+        }
     }
 }
 

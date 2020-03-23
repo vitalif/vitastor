@@ -25,7 +25,6 @@
 #define STRIPE_MASK ((uint64_t)4096 - 1)
 
 // OSD object states
-#define OBJ_CLEAN 0x01
 #define OBJ_DEGRADED 0x02
 #define OBJ_INCOMPLETE 0x04
 #define OBJ_MISPLACED 0x08
@@ -106,7 +105,7 @@ struct pg_t
     // it may consume up to ~ (raw storage / object size) * 24 bytes in the worst case scenario
     // which is up to ~192 MB per 1 TB in the worst case scenario
     std::map<pg_osd_set_t, pg_osd_set_state_t> state_dict;
-    btree::btree_map<object_id, pg_osd_set_state_t*> obj_states;
+    btree::btree_map<object_id, pg_osd_set_state_t*> incomplete_objects, misplaced_objects, degraded_objects;
     std::map<obj_piece_id_t, flush_action_t> flush_actions;
     btree::btree_map<object_id, uint64_t> ver_override;
     pg_peering_state_t *peering_state = NULL;
@@ -121,9 +120,9 @@ struct pg_t
 
 inline bool operator < (const pg_obj_loc_t &a, const pg_obj_loc_t &b)
 {
-    return a.role < b.role ||
-        a.role == b.role && a.outdated < b.outdated ||
-        a.role == b.role && a.outdated == b.outdated && a.osd_num < b.osd_num;
+    return a.outdated < b.outdated ||
+        a.outdated == b.outdated && a.role < b.role ||
+        a.outdated == b.outdated && a.role == b.role && a.osd_num < b.osd_num;
 }
 
 inline bool operator == (const obj_piece_id_t & a, const obj_piece_id_t & b)

@@ -209,7 +209,14 @@ void osd_t::handle_peers()
         }
         if (!still)
         {
-            peering_state = peering_state & ~OSD_FLUSHING_PGS;
+            peering_state = peering_state & ~OSD_FLUSHING_PGS | OSD_RECOVERING;
+        }
+    }
+    if (peering_state & OSD_RECOVERING)
+    {
+        if (!continue_recovery())
+        {
+            peering_state = peering_state & ~OSD_RECOVERING;
         }
     }
 }
@@ -249,7 +256,8 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     pg.state = PG_PEERING;
     pg.print_state();
     pg.state_dict.clear();
-    pg.obj_states.clear();
+    pg.misplaced_objects.clear();
+    pg.degraded_objects.clear();
     pg.ver_override.clear();
     pg.flush_actions.clear();
     if (pg.flush_batch)

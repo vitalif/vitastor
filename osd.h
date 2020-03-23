@@ -36,6 +36,7 @@
 #define OSD_CONNECTING_PEERS 1
 #define OSD_PEERING_PGS 2
 #define OSD_FLUSHING_PGS 4
+#define OSD_RECOVERING 8
 
 #define IMMEDIATE_NONE 0
 #define IMMEDIATE_SMALL 1
@@ -166,6 +167,14 @@ struct osd_object_id_t
     object_id oid;
 };
 
+struct osd_recovery_state_t
+{
+    int st;
+    pg_num_t pg_num;
+    object_id oid;
+    osd_op_t *op;
+};
+
 class osd_t
 {
     // config
@@ -188,6 +197,7 @@ class osd_t
     int peering_state = 0;
     unsigned pg_count = 0;
     uint64_t next_subop_id = 1;
+    osd_recovery_state_t *recovery_state;
 
     // Unstable writes
     std::map<osd_object_id_t, uint64_t> unstable_writes;
@@ -244,9 +254,12 @@ class osd_t
     void handle_peers();
     void repeer_pgs(osd_num_t osd_num, bool is_connected);
     void start_pg_peering(pg_num_t pg_num);
+
+    // flushing, recovery and backfill
     void submit_pg_flush_ops(pg_num_t pg_num);
     void handle_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t osd_num, bool ok);
     void submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t osd_num, int count, obj_ver_id *data);
+    bool continue_recovery();
 
     // op execution
     void exec_op(osd_op_t *cur_op);
