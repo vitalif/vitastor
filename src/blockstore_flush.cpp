@@ -804,7 +804,7 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
         goto resume_1;
     else if (wait_state == wait_base+2)
         goto resume_2;
-    if (!(fsync_meta ? bs->disable_meta_fsync : bs->disable_journal_fsync))
+    if (!(fsync_meta ? bs->disable_meta_fsync : bs->disable_data_fsync))
     {
         cur_sync = flusher->syncs.end();
         while (cur_sync != flusher->syncs.begin())
