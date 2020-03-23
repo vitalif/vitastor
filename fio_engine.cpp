@@ -23,6 +23,7 @@
 
 #include "blockstore.h"
 extern "C" {
+#define CONFIG_HAVE_GETTID
 #define CONFIG_PWRITEV2
 #include "fio/fio.h"
 #include "fio/optgroup.h"
