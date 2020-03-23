@@ -24,6 +24,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
     if (PRIV(op)->op_state == 0)
     {
         stop_sync_submitted = false;
+        unsynced_big_write_count -= unsynced_big_writes.size();
         PRIV(op)->sync_big_writes.swap(unsynced_big_writes);
         PRIV(op)->sync_small_writes.swap(unsynced_small_writes);
         PRIV(op)->sync_small_checked = 0;

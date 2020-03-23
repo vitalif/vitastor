@@ -201,7 +201,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     if ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE)
     {
         blockstore_journal_check_t space_check(this);
-        if (!space_check.check_available(op, unsynced_big_writes.size() + 1, sizeof(journal_entry_big_write), JOURNAL_STABILIZE_RESERVATION))
+        if (!space_check.check_available(op, unsynced_big_write_count + 1, sizeof(journal_entry_big_write), JOURNAL_STABILIZE_RESERVATION))
         {
             return 0;
         }
@@ -250,11 +250,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
         if (immediate_commit != IMMEDIATE_ALL)
         {
-            // Remember big write as unsynced
-            unsynced_big_writes.push_back((obj_ver_id){
-                .oid = op->oid,
-                .version = op->version,
-            });
+            // Increase the counter, but don't save into unsynced_writes yet (can't sync until the write is finished)
+            unsynced_big_write_count++;
             PRIV(op)->op_state = 3;
         }
         else
@@ -267,7 +264,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         // Small (journaled) write
         // First check if the journal has sufficient space
         blockstore_journal_check_t space_check(this);
-        if (unsynced_big_writes.size() && !space_check.check_available(op, unsynced_big_writes.size(), sizeof(journal_entry_big_write), 0)
+        if (unsynced_big_write_count && !space_check.check_available(op, unsynced_big_write_count, sizeof(journal_entry_big_write), 0)
             || !space_check.check_available(op, 1, sizeof(journal_entry_small_write), op->len + JOURNAL_STABILIZE_RESERVATION))
         {
             return 0;
@@ -359,14 +356,6 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         {
             journal.next_free = journal_block_size;
         }
-        if (immediate_commit == IMMEDIATE_NONE)
-        {
-            // Remember small write as unsynced
-            unsynced_small_writes.push_back((obj_ver_id){
-                .oid = op->oid,
-                .version = op->version,
-            });
-        }
         if (!PRIV(op)->pending_ops)
         {
             PRIV(op)->op_state = 4;
@@ -431,7 +420,7 @@ resume_2:
 resume_4:
     // Switch object state
 #ifdef BLOCKSTORE_DEBUG
-    printf("Ack write %lx:%lx v%lu = state %x\n", op->oid.inode, op->oid.stripe, op->version, dirty_it->second.state);
+    printf("Ack write %lx:%lx v%lu = state 0x%x\n", op->oid.inode, op->oid.stripe, op->version, dirty_it->second.state);
 #endif
     bool imm = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE
         ? (immediate_commit == IMMEDIATE_ALL)
@@ -445,11 +434,31 @@ resume_4:
         | (imm ? BS_ST_SYNCED : BS_ST_WRITTEN);
     if (imm && ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_DELETE || (dirty_it->second.state & BS_ST_INSTANT)))
     {
-        // Deletions are treated as immediately stable
+        // Deletions and 'instant' operations are treated as immediately stable
         mark_stable(dirty_it->first);
     }
-    if (immediate_commit == IMMEDIATE_ALL)
+    if (!imm)
     {
+        if ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE)
+        {
+            // Remember big write as unsynced
+            unsynced_big_writes.push_back((obj_ver_id){
+                .oid = op->oid,
+                .version = op->version,
+            });
+        }
+        else
+        {
+            // Remember small write as unsynced
+            unsynced_small_writes.push_back((obj_ver_id){
+                .oid = op->oid,
+                .version = op->version,
+            });
+        }
+    }
+    if (imm && (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE)
+    {
+        // Unblock small writes
         dirty_it++;
         while (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
         {
@@ -582,14 +591,6 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
         prepare_journal_sector_write(journal, journal.cur_sector, sqe, cb);
         PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
         PRIV(op)->pending_ops++;
-    }
-    else
-    {
-        // Remember delete as unsynced
-        unsynced_small_writes.push_back((obj_ver_id){
-            .oid = op->oid,
-            .version = op->version,
-        });
     }
     if (!PRIV(op)->pending_ops)
     {

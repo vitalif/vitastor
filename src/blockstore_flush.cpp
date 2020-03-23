@@ -646,7 +646,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
         {
             char err[1024];
             snprintf(
-                err, 1024, "BUG: Unexpected dirty_entry %lx:%lx v%lu unstable state during flush: %d",
+                err, 1024, "BUG: Unexpected dirty_entry %lx:%lx v%lu unstable state during flush: 0x%x",
                 dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version, dirty_it->second.state
             );
             throw std::runtime_error(err);
