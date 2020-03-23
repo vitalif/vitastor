@@ -36,7 +36,7 @@ struct osd_primary_op_data_t
     obj_ver_id *unstable_writes = NULL;
 };
 
-void osd_t::finish_primary_op(osd_op_t *cur_op, int retval)
+void osd_t::finish_op(osd_op_t *cur_op, int retval)
 {
     // FIXME add separate magic number
     auto cl_it = clients.find(cur_op->peer_fd);
@@ -46,7 +46,15 @@ void osd_t::finish_primary_op(osd_op_t *cur_op, int retval)
         cur_op->reply.hdr.id = cur_op->req.hdr.id;
         cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
         cur_op->reply.hdr.retval = retval;
-        outbox_push(cl_it->second, cur_op);
+        if (!cur_op->peer_fd)
+        {
+            cur_op->callback(cur_op);
+            delete cur_op;
+        }
+        else
+        {
+            outbox_push(cl_it->second, cur_op);
+        }
     }
     else
     {
@@ -64,7 +72,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     // FIXME: Postpone operations in inactive PGs
     if (pgs.find(pg_num) == pgs.end() || !(pgs[pg_num].state & PG_ACTIVE))
     {
-        finish_primary_op(cur_op, -EINVAL);
+        finish_op(cur_op, -EINVAL);
         return false;
     }
     uint64_t pg_parity_size = bs_block_size * pgs[pg_num].pg_minsize;
@@ -78,7 +86,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         (cur_op->req.rw.offset % bs_disk_alignment) != 0 ||
         (cur_op->req.rw.len % bs_disk_alignment) != 0)
     {
-        finish_primary_op(cur_op, -EINVAL);
+        finish_op(cur_op, -EINVAL);
         return false;
     }
     osd_primary_op_data_t *op_data = (osd_primary_op_data_t*)calloc(
@@ -129,7 +137,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
             if (extend_missing_stripes(op_data->stripes, cur_set, pg.pg_minsize, pg.pg_size) < 0)
             {
                 free(op_data);
-                finish_primary_op(cur_op, -EIO);
+                finish_op(cur_op, -EIO);
                 return;
             }
             // Submit reads
@@ -148,7 +156,7 @@ resume_2:
     {
         free(op_data);
         cur_op->op_data = NULL;
-        finish_primary_op(cur_op, -EIO);
+        finish_op(cur_op, -EIO);
         return;
     }
     if (op_data->degraded)
@@ -174,7 +182,7 @@ resume_2:
     }
     free(op_data);
     cur_op->op_data = NULL;
-    finish_primary_op(cur_op, cur_op->req.rw.len);
+    finish_op(cur_op, cur_op->req.rw.len);
 }
 
 void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* osd_set, osd_op_t *cur_op)
@@ -435,7 +443,7 @@ resume_7:
     }
     // Remove version override
     pg.ver_override.erase(op_data->oid);
-    finish_primary_op(cur_op, cur_op->req.rw.len);
+    finish_op(cur_op, cur_op->req.rw.len);
     // Continue other write operations to the same object
     {
         auto next_it = pg.write_queue.find(op_data->oid);
@@ -548,7 +556,7 @@ resume_6:
 finish:
     assert(syncs_in_progress.front() == cur_op);
     syncs_in_progress.pop_front();
-    finish_primary_op(cur_op, 0);
+    finish_op(cur_op, 0);
     if (syncs_in_progress.size() > 0)
     {
         cur_op = syncs_in_progress.front();

@@ -5,44 +5,31 @@
 void osd_t::secondary_op_callback(osd_op_t *op)
 {
     inflight_ops--;
-    auto cl_it = clients.find(op->peer_fd);
-    if (cl_it != clients.end())
+    if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
+        op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
     {
-        op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
-        op->reply.hdr.id = op->req.hdr.id;
-        op->reply.hdr.opcode = op->req.hdr.opcode;
-        op->reply.hdr.retval = op->bs_op->retval;
-        if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
-            op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
-        {
-            op->reply.sec_rw.version = op->bs_op->version;
-        }
-        else if (op->req.hdr.opcode == OSD_OP_SECONDARY_DELETE)
-        {
-            op->reply.sec_del.version = op->bs_op->version;
-        }
-        if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ &&
-            op->reply.hdr.retval > 0)
-        {
-            op->send_list.push_back(op->buf, op->reply.hdr.retval);
-        }
-        else if (op->req.hdr.opcode == OSD_OP_SECONDARY_LIST)
-        {
-            // allocated by blockstore
-            op->buf = op->bs_op->buf;
-            if (op->reply.hdr.retval > 0)
-            {
-                op->send_list.push_back(op->buf, op->reply.hdr.retval * sizeof(obj_ver_id));
-            }
-            op->reply.sec_list.stable_count = op->bs_op->version;
-        }
-        auto & cl = cl_it->second;
-        outbox_push(cl, op);
+        op->reply.sec_rw.version = op->bs_op->version;
     }
-    else
+    else if (op->req.hdr.opcode == OSD_OP_SECONDARY_DELETE)
     {
-        delete op;
+        op->reply.sec_del.version = op->bs_op->version;
     }
+    if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ &&
+        op->bs_op->retval > 0)
+    {
+        op->send_list.push_back(op->buf, op->bs_op->retval);
+    }
+    else if (op->req.hdr.opcode == OSD_OP_SECONDARY_LIST)
+    {
+        // allocated by blockstore
+        op->buf = op->bs_op->buf;
+        if (op->bs_op->retval > 0)
+        {
+            op->send_list.push_back(op->buf, op->bs_op->retval * sizeof(obj_ver_id));
+        }
+        op->reply.sec_list.stable_count = op->bs_op->version;
+    }
+    finish_op(op, op->bs_op->retval);
 }
 
 void osd_t::exec_secondary(osd_op_t *cur_op)
@@ -114,15 +101,10 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
 {
     // FIXME: Send the real config, not its source
     std::string cfg_str = json11::Json(config).dump();
-    cur_op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
-    cur_op->reply.hdr.id = cur_op->req.hdr.id;
-    cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
-    cur_op->reply.hdr.retval = cfg_str.size()+1;
     cur_op->buf = malloc(cfg_str.size()+1);
     memcpy(cur_op->buf, cfg_str.c_str(), cfg_str.size()+1);
-    auto & cl = clients[cur_op->peer_fd];
     cur_op->send_list.push_back(cur_op->buf, cur_op->reply.hdr.retval);
-    outbox_push(cl, cur_op);
+    finish_op(cur_op, cfg_str.size()+1);
 }
 
 void osd_t::exec_sync_stab_all(osd_op_t *cur_op)

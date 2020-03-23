@@ -376,7 +376,14 @@ void osd_t::exec_op(osd_op_t *cur_op)
         cur_op->reply.hdr.id = cur_op->req.hdr.id;
         cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
         cur_op->reply.hdr.retval = -EINVAL;
-        outbox_push(this->clients[cur_op->peer_fd], cur_op);
+        if (cur_op->peer_fd)
+        {
+            outbox_push(this->clients[cur_op->peer_fd], cur_op);
+        }
+        else
+        {
+            cur_op->callback(cur_op);
+        }
         return;
     }
     inflight_ops++;
