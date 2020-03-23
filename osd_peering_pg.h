@@ -37,7 +37,7 @@ struct pg_obj_loc_t
 {
     uint64_t role;
     osd_num_t osd_num;
-    bool stable;
+    bool outdated;
 };
 
 typedef std::vector<pg_obj_loc_t> pg_osd_set_t;
@@ -121,8 +121,9 @@ struct pg_t
 
 inline bool operator < (const pg_obj_loc_t &a, const pg_obj_loc_t &b)
 {
-    return a.role < b.role || a.role == b.role && a.osd_num < b.osd_num ||
-        a.role == b.role && a.osd_num == b.osd_num && a.stable < b.stable;
+    return a.role < b.role ||
+        a.role == b.role && a.outdated < b.outdated ||
+        a.role == b.role && a.outdated == b.outdated && a.osd_num < b.osd_num;
 }
 
 inline bool operator == (const obj_piece_id_t & a, const obj_piece_id_t & b)
@@ -147,7 +148,6 @@ namespace std
                 // Copy-pasted from spp::hash_combine()
                 seed ^= (e.role + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
                 seed ^= (e.osd_num + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
-                seed ^= ((e.stable ? 1 : 0) + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
             }
             return seed;
         }

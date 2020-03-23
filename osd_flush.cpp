@@ -90,6 +90,10 @@ void osd_t::handle_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t osd
                 it->first.oid.inode != prev_it->first.oid.inode ||
                 (it->first.oid.stripe & ~STRIPE_MASK) != (prev_it->first.oid.stripe & ~STRIPE_MASK))
             {
+                pg.ver_override.erase((object_id){
+                    .inode = prev_it->first.oid.inode,
+                    .stripe = (prev_it->first.oid.stripe & ~STRIPE_MASK),
+                });
                 auto wr_it = pg.write_queue.find((object_id){
                     .inode = prev_it->first.oid.inode,
                     .stripe = (prev_it->first.oid.stripe & ~STRIPE_MASK),

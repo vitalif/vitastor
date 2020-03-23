@@ -23,20 +23,21 @@ struct obj_piece_ver_t
 {
     uint64_t max_ver = 0;
     uint64_t stable_ver = 0;
+    uint64_t max_target = 0;
 };
 
 struct pg_obj_state_check_t
 {
     pg_t *pg;
-    int i;
     std::vector<obj_ver_role> list;
+    int list_pos;
     int obj_start = 0, obj_end = 0, ver_start = 0, ver_end = 0;
     object_id oid = { 0 };
     uint64_t max_ver = 0;
     uint64_t last_ver = 0;
     uint64_t target_ver = 0;
     uint64_t n_copies = 0, has_roles = 0, n_roles = 0, n_stable = 0, n_mismatched = 0;
-    bool is_buggy = false, has_old_unstable = false;
+    uint64_t n_unstable = 0, n_buggy = 0;
     pg_osd_set_t osd_set;
 
     void walk();
@@ -50,10 +51,10 @@ void pg_obj_state_check_t::walk()
     pg->clean_count = 0;
     pg->total_count = 0;
     pg->state = 0;
-    for (i = 0; i < list.size(); i++)
+    for (list_pos = 0; list_pos < list.size(); list_pos++)
     {
-        if (oid.inode != list[i].oid.inode ||
-            oid.stripe != (list[i].oid.stripe & ~STRIPE_MASK))
+        if (oid.inode != list[list_pos].oid.inode ||
+            oid.stripe != (list[list_pos].oid.stripe & ~STRIPE_MASK))
         {
             if (oid.inode != 0)
             {
@@ -76,45 +77,45 @@ void pg_obj_state_check_t::walk()
 
 void pg_obj_state_check_t::start_object()
 {
-    obj_start = i;
-    oid = { .inode = list[i].oid.inode, .stripe = list[i].oid.stripe & ~STRIPE_MASK };
-    last_ver = max_ver = list[i].version;
+    obj_start = list_pos;
+    oid = { .inode = list[list_pos].oid.inode, .stripe = list[list_pos].oid.stripe & ~STRIPE_MASK };
+    last_ver = max_ver = list[list_pos].version;
     target_ver = 0;
-    ver_start = i;
+    ver_start = list_pos;
     has_roles = n_copies = n_roles = n_stable = n_mismatched = 0;
-    is_buggy = false;
+    n_unstable = n_buggy = 0;
 }
 
 void pg_obj_state_check_t::handle_version()
 {
-    if (!target_ver && last_ver != list[i].version && (n_stable > 0 || n_roles >= pg->pg_minsize))
+    if (!target_ver && last_ver != list[list_pos].version && (n_stable > 0 || n_roles >= pg->pg_minsize))
     {
         // Version is either stable or recoverable
         target_ver = last_ver;
-        ver_end = i;
+        ver_end = list_pos;
     }
     if (!target_ver)
     {
-        if (last_ver != list[i].version)
+        if (last_ver != list[list_pos].version)
         {
-            ver_start = i;
+            ver_start = list_pos;
             has_roles = n_copies = n_roles = n_stable = n_mismatched = 0;
-            last_ver = list[i].version;
+            last_ver = list[list_pos].version;
         }
-        int replica = (list[i].oid.stripe & STRIPE_MASK);
+        int replica = (list[list_pos].oid.stripe & STRIPE_MASK);
         n_copies++;
         if (replica >= pg->pg_size)
         {
             // FIXME In the future, check it against the PG epoch number to handle replication factor/scheme changes
-            is_buggy = true;
+            n_buggy++;
         }
         else
         {
-            if (list[i].is_stable)
+            if (list[list_pos].is_stable)
             {
                 n_stable++;
             }
-            if (pg->cur_set[replica] != list[i].osd_num)
+            if (pg->cur_set[replica] != list[list_pos].osd_num)
             {
                 n_mismatched++;
             }
@@ -125,9 +126,9 @@ void pg_obj_state_check_t::handle_version()
             }
         }
     }
-    else if (!list[i].is_stable)
+    if (!list[list_pos].is_stable)
     {
-        has_old_unstable = true;
+        n_unstable++;
     }
 }
 
@@ -137,11 +138,17 @@ void pg_obj_state_check_t::finish_object()
     {
         // Version is either stable or recoverable
         target_ver = last_ver;
-        ver_end = i;
+        ver_end = list_pos;
     }
-    obj_end = i;
+    obj_end = list_pos;
     // Remember the decision
     uint64_t state = OBJ_CLEAN;
+    if (n_buggy > 0)
+    {
+        state = OBJ_BUGGY;
+        // FIXME: bring pg offline
+        throw std::runtime_error("buggy object state");
+    }
     if (target_ver > 0)
     {
         if (n_roles < pg->pg_minsize)
@@ -169,29 +176,51 @@ void pg_obj_state_check_t::finish_object()
             state |= OBJ_MISPLACED;
             pg->state = pg->state | PG_HAS_MISPLACED;
         }
-        if (n_stable < n_copies)
+        pg->total_count++;
+    }
+    if (n_unstable > 0)
+    {
+        pg->state |= PG_HAS_UNCLEAN;
+        std::unordered_map<obj_piece_id_t, obj_piece_ver_t> pieces;
+        for (int i = obj_start; i < obj_end; i++)
         {
-            state |= OBJ_NEEDS_STABLE;
-            pg->state = pg->state | PG_HAS_UNCLEAN;
+            auto & pcs = pieces[(obj_piece_id_t){ .oid = list[i].oid, .osd_num = list[i].osd_num }];
+            if (!pcs.max_ver)
+            {
+                pcs.max_ver = list[i].version;
+            }
+            if (list[i].is_stable && !pcs.stable_ver)
+            {
+                pcs.stable_ver = list[i].version;
+            }
+            if (list[i].version <= target_ver)
+            {
+                pcs.max_target = list[i].version;
+            }
+        }
+        for (auto pp: pieces)
+        {
+            auto & pcs = pp.second;
+            if (pcs.stable_ver < pcs.max_ver)
+            {
+                auto & act = pg->flush_actions[pp.first];
+                // osd_set doesn't include rollback/stable states, so don't include them in the state code either
+                if (pcs.max_ver > target_ver)
+                {
+                    //state |= OBJ_NEEDS_ROLLBACK;
+                    act.rollback = true;
+                    act.rollback_to = pcs.max_target;
+                }
+                if (pcs.stable_ver < (pcs.max_ver > target_ver ? pcs.max_target : pcs.max_ver))
+                {
+                    //state |= OBJ_NEEDS_STABLE;
+                    act.make_stable = true;
+                    act.stable_to = pcs.max_ver > target_ver ? pcs.max_target : pcs.max_ver;
+                }
+            }
         }
     }
-    if (target_ver < max_ver || has_old_unstable)
-    {
-        state |= OBJ_NEEDS_ROLLBACK;
-        pg->state = pg->state | PG_HAS_UNCLEAN;
-    }
-    if (is_buggy)
-    {
-        state |= OBJ_BUGGY;
-        // FIXME: bring pg offline
-        throw std::runtime_error("buggy object state");
-    }
-    pg->total_count++;
-    if (state == OBJ_CLEAN)
-    {
-        pg->clean_count++;
-    }
-    else
+    if (state != OBJ_CLEAN || ver_end < obj_end)
     {
         osd_set.clear();
         for (int i = ver_start; i < ver_end; i++)
@@ -199,10 +228,45 @@ void pg_obj_state_check_t::finish_object()
             osd_set.push_back((pg_obj_loc_t){
                 .role = (list[i].oid.stripe & STRIPE_MASK),
                 .osd_num = list[i].osd_num,
-                .stable = list[i].is_stable,
+                .outdated = false,
             });
         }
-        std::sort(osd_set.begin(), osd_set.end());
+    }
+    if (ver_end < obj_end)
+    {
+        // Check for outdated versions not present in the current target OSD set
+        for (int i = ver_end; i < obj_end; i++)
+        {
+            int j;
+            for (j = 0; j < osd_set.size(); j++)
+            {
+                if (osd_set[j].osd_num == list[i].osd_num)
+                {
+                    break;
+                }
+            }
+            if (j >= osd_set.size() && pg->cur_set[list[i].oid.stripe & STRIPE_MASK] != list[i].osd_num)
+            {
+                osd_set.push_back((pg_obj_loc_t){
+                    .role = (list[i].oid.stripe & STRIPE_MASK),
+                    .osd_num = list[i].osd_num,
+                    .outdated = true,
+                });
+                state |= OBJ_MISPLACED;
+                pg->state = pg->state | PG_HAS_MISPLACED;
+            }
+        }
+    }
+    if (target_ver < max_ver)
+    {
+        pg->ver_override[oid] = target_ver;
+    }
+    if (state == OBJ_CLEAN)
+    {
+        pg->clean_count++;
+    }
+    else
+    {
         auto it = pg->state_dict.find(osd_set);
         if (it == pg->state_dict.end())
         {
@@ -214,7 +278,10 @@ void pg_obj_state_check_t::finish_object()
             }
             for (auto & o: osd_set)
             {
-                read_target[o.role] = o.osd_num;
+                if (!o.outdated)
+                {
+                    read_target[o.role] = o.osd_num;
+                }
             }
             pg->state_dict[osd_set] = {
                 .read_target = read_target,
@@ -229,49 +296,6 @@ void pg_obj_state_check_t::finish_object()
             it->second.object_count++;
         }
         pg->obj_states[oid] = &it->second;
-        if (target_ver < max_ver)
-        {
-            pg->ver_override[oid] = target_ver;
-        }
-        if (state & (OBJ_NEEDS_ROLLBACK | OBJ_NEEDS_STABLE))
-        {
-            std::unordered_map<obj_piece_id_t, obj_piece_ver_t> pieces;
-            for (int i = obj_start; i < obj_end; i++)
-            {
-                auto & pcs = pieces[(obj_piece_id_t){ .oid = list[i].oid, .osd_num = list[i].osd_num }];
-                if (!pcs.max_ver)
-                {
-                    pcs.max_ver = list[i].version;
-                }
-                if (list[i].is_stable && !pcs.stable_ver)
-                {
-                    pcs.stable_ver = list[i].version;
-                }
-            }
-            for (auto pp: pieces)
-            {
-                auto & pcs = pp.second;
-                if (pcs.stable_ver < pcs.max_ver)
-                {
-                    auto & act = pg->flush_actions[pp.first];
-                    if (pcs.max_ver > target_ver)
-                    {
-                        act.rollback = true;
-                        act.rollback_to = target_ver;
-                    }
-                    else if (pcs.max_ver < target_ver && pcs.stable_ver < pcs.max_ver)
-                    {
-                        act.rollback = true;
-                        act.rollback_to = pcs.stable_ver;
-                    }
-                    if (pcs.max_ver >= target_ver && pcs.stable_ver < target_ver)
-                    {
-                        act.make_stable = true;
-                        act.stable_to = target_ver;
-                    }
-                }
-            }
-        }
     }
 }
 
