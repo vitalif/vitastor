@@ -165,6 +165,11 @@ resume_5:
         // Remove version override just after the write, but before stabilizing
         pg.ver_override.erase(op_data->oid);
     }
+    if (op_data->errors > 0)
+    {
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+        return;
+    }
     if (op_data->object_state)
     {
         // We must forget the unclean state of the object before deleting it
@@ -173,17 +178,10 @@ resume_5:
         remove_object_from_state(op_data->oid, op_data->object_state, pg);
         pg.clean_count++;
     }
-    if (op_data->errors > 0)
-    {
-        free_object_state(pg, &op_data->object_state);
-        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
-        return;
-    }
 resume_6:
 resume_7:
     if (!remember_unstable_write(cur_op, pg, pg.cur_loc_set, 6))
     {
-        free_object_state(pg, &op_data->object_state);
         return;
     }
     if (op_data->fact_ver == 1)
