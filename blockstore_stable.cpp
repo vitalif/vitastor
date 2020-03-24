@@ -67,7 +67,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
         else if (IS_UNSYNCED(dirty_it->second.state))
         {
             // Object not synced yet. Caller must sync it first
-            op->retval = EAGAIN;
+            op->retval = -EAGAIN;
             FINISH_OP(op);
             return 1;
         }

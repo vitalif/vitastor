@@ -233,7 +233,9 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
     {
         zero_read = -1;
     }
+    uint64_t op_version = w ? op_data->fact_ver+1 : (submit_type == SUBMIT_RMW_READ ? UINT64_MAX : op_data->target_ver);
     osd_op_t *subops = new osd_op_t[n_subops];
+    op_data->fact_ver = 0;
     op_data->done = op_data->errors = 0;
     op_data->n_subops = n_subops;
     op_data->subops = subops;
@@ -254,13 +256,14 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                     .opcode = (uint64_t)(w ? BS_OP_WRITE : BS_OP_READ),
                     .callback = [cur_op, this](blockstore_op_t *subop)
                     {
-                        handle_primary_subop(cur_op, subop->retval == subop->len, subop->version);
+                        handle_primary_subop(subop->opcode == BS_OP_WRITE ? OSD_OP_SECONDARY_WRITE : OSD_OP_SECONDARY_READ,
+                            cur_op, subop->retval == subop->len, subop->version);
                     },
                     .oid = {
                         .inode = op_data->oid.inode,
                         .stripe = op_data->oid.stripe | role,
                     },
-                    .version = w ? 0 : (submit_type == SUBMIT_RMW_READ ? UINT64_MAX : op_data->target_ver),
+                    .version = op_version,
                     .offset = w ? stripes[role].write_start : stripes[role].read_start,
                     .len = w ? stripes[role].write_end - stripes[role].write_start : stripes[role].read_end - stripes[role].read_start,
                     .buf = w ? stripes[role].write_buf : stripes[role].read_buf,
@@ -282,7 +285,7 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                         .inode = op_data->oid.inode,
                         .stripe = op_data->oid.stripe | role,
                     },
-                    .version = w ? 0 : (submit_type == SUBMIT_RMW_READ ? UINT64_MAX : op_data->target_ver),
+                    .version = op_version,
                     .offset = w ? stripes[role].write_start : stripes[role].read_start,
                     .len = w ? stripes[role].write_end - stripes[role].write_start : stripes[role].read_end - stripes[role].read_start,
                 };
@@ -295,7 +298,7 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                 {
                     // so it doesn't get freed
                     subop->buf = NULL;
-                    handle_primary_subop(cur_op, subop->reply.hdr.retval == subop->req.sec_rw.len, subop->reply.sec_rw.version);
+                    handle_primary_subop(subop->req.hdr.opcode, cur_op, subop->reply.hdr.retval == subop->req.sec_rw.len, subop->reply.sec_rw.version);
                 };
                 outbox_push(clients[subops[subop].peer_fd], &subops[subop]);
             }
@@ -304,14 +307,22 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
     }
 }
 
-void osd_t::handle_primary_subop(osd_op_t *cur_op, int ok, uint64_t version)
+void osd_t::handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int ok, uint64_t version)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    op_data->fact_ver = version;
+    if (opcode == OSD_OP_SECONDARY_READ || opcode == OSD_OP_SECONDARY_WRITE)
+    {
+        if (op_data->fact_ver != 0 && op_data->fact_ver != version)
+        {
+            throw std::runtime_error("different fact_versions returned from subops: "+std::to_string(version)+" vs "+std::to_string(op_data->fact_ver));
+        }
+        op_data->fact_ver = version;
+    }
     if (!ok)
     {
         // FIXME: Handle errors
         op_data->errors++;
+        throw std::runtime_error("subop error for op "+std::to_string(cur_op->req.hdr.opcode)+": "+std::to_string(op_data->st));
     }
     else
     {
@@ -413,6 +424,11 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
 resume_8:
     return;
 resume_9:
+    for (int i = 0; i < pg.pg_minsize; i++)
+    {
+        op_data->stripes[i].read_start = 0;
+        op_data->stripes[i].read_end = 0;
+    }
     memcpy(
         op_data->recovery_buf + cur_op->req.rw.offset - op_data->oid.stripe,
         cur_op->buf, cur_op->req.rw.len
@@ -420,8 +436,11 @@ resume_9:
     free(cur_op->buf);
     cur_op->buf = op_data->recovery_buf;
     op_data->recovery_buf = NULL;
+    // Determine blocks to write, bypass RMW_READ
+    cur_op->rmw_buf = calc_rmw_reads(cur_op->buf, op_data->stripes, pg.cur_set.data(), pg.pg_size, pg.pg_minsize, pg.pg_cursize);
+    goto resume_3;
 resume_1:
-    // Determine blocks to read
+    // Determine blocks to read and write
     cur_op->rmw_buf = calc_rmw_reads(cur_op->buf, op_data->stripes, pg.cur_set.data(), pg.pg_size, pg.pg_minsize, pg.pg_cursize);
     // Read required blocks
     submit_primary_subops(SUBMIT_RMW_READ, pg.pg_size, pg.cur_set.data(), cur_op);
@@ -641,7 +660,7 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
                 .opcode = BS_OP_SYNC,
                 .callback = [cur_op, this](blockstore_op_t *subop)
                 {
-                    handle_primary_subop(cur_op, subop->retval == 0, 0);
+                    handle_primary_subop(OSD_OP_SECONDARY_SYNC, cur_op, subop->retval == 0, 0);
                 },
             });
             bs->enqueue_op(subops[i].bs_op);
@@ -660,7 +679,7 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
             };
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
-                handle_primary_subop(cur_op, subop->reply.hdr.retval == 0, 0);
+                handle_primary_subop(OSD_OP_SECONDARY_SYNC, cur_op, subop->reply.hdr.retval == 0, 0);
             };
             outbox_push(clients[subops[i].peer_fd], &subops[i]);
         }
@@ -684,7 +703,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
                 .opcode = BS_OP_STABLE,
                 .callback = [cur_op, this](blockstore_op_t *subop)
                 {
-                    handle_primary_subop(cur_op, subop->retval == 0, 0);
+                    handle_primary_subop(OSD_OP_SECONDARY_STABILIZE, cur_op, subop->retval == 0, 0);
                 },
                 .len = (uint32_t)stab_osd.len,
                 .buf = (void*)(op_data->unstable_writes + stab_osd.start),
@@ -707,7 +726,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
             subops[i].send_list.push_back(op_data->unstable_writes + stab_osd.start, stab_osd.len * sizeof(obj_ver_id));
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
-                handle_primary_subop(cur_op, subop->reply.hdr.retval == 0, 0);
+                handle_primary_subop(OSD_OP_SECONDARY_STABILIZE, cur_op, subop->reply.hdr.retval == 0, 0);
             };
             outbox_push(clients[subops[i].peer_fd], &subops[i]);
         }

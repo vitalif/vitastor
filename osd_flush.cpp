@@ -190,67 +190,68 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
 bool osd_t::continue_recovery()
 {
     pg_t *pg = NULL;
-    if (recovery_state->st == 0)      goto resume_0;
-    else if (recovery_state->st == 1) goto resume_1;
-    else if (recovery_state->st == 2) goto resume_2;
-    else if (recovery_state->st == 3) goto resume_3;
-    else if (recovery_state->st == 4) goto resume_4;
+    if (recovery_state.st == 0)      goto resume_0;
+    else if (recovery_state.st == 1) goto resume_1;
+    else if (recovery_state.st == 2) goto resume_2;
+    else if (recovery_state.st == 3) goto resume_3;
+    else if (recovery_state.st == 4) goto resume_4;
 resume_0:
     for (auto p: pgs)
     {
         if (p.second.state & PG_HAS_DEGRADED)
         {
-            recovery_state->pg_num = p.first;
+            recovery_state.pg_num = p.first;
             goto resume_1;
         }
     }
-    recovery_state->st = 0;
+    recovery_state.st = 0;
     return false;
 resume_1:
-    pg = &pgs[recovery_state->pg_num];
+    pg = &pgs[recovery_state.pg_num];
     if (!pg->degraded_objects.size())
     {
         pg->state = pg->state & ~PG_HAS_DEGRADED;
+        pg->print_state();
         goto resume_0;
     }
-    recovery_state->oid = pg->degraded_objects.begin()->first;
-    recovery_state->op = new osd_op_t();
-    recovery_state->op->op_type = OSD_OP_OUT;
-    recovery_state->op->req = {
+    recovery_state.oid = pg->degraded_objects.begin()->first;
+    recovery_state.op = new osd_op_t();
+    recovery_state.op->op_type = OSD_OP_OUT;
+    recovery_state.op->req = {
         .rw = {
             .header = {
                 .magic = SECONDARY_OSD_OP_MAGIC,
-                .id = 0,
+                .id = 1,
                 .opcode = OSD_OP_WRITE,
             },
-            .inode = recovery_state->oid.inode,
-            .offset = recovery_state->oid.stripe,
+            .inode = recovery_state.oid.inode,
+            .offset = recovery_state.oid.stripe,
             .len = 0,
         },
     };
-    recovery_state->op->callback = [this](osd_op_t *op)
+    recovery_state.op->callback = [this](osd_op_t *op)
     {
         if (op->reply.hdr.retval < 0)
-            recovery_state->st += 1; // error
+            recovery_state.st += 1; // error
         else
-            recovery_state->st += 2; // ok
+            recovery_state.st += 2; // ok
         continue_recovery();
     };
-    exec_op(recovery_state->op);
-    recovery_state->st = 2;
+    exec_op(recovery_state.op);
+    recovery_state.st = 2;
 resume_2:
     return true;
 resume_3:
     // FIXME handle error
     throw std::runtime_error("failed to recover an object");
 resume_4:
-    delete recovery_state->op;
-    recovery_state->op = NULL;
+    delete recovery_state.op;
+    recovery_state.op = NULL;
     // Don't sync the write, it will be synced by our regular sync coroutine
-    pg = &pgs[recovery_state->pg_num];
+    pg = &pgs[recovery_state.pg_num];
     pg_osd_set_state_t *st;
     {
-        auto st_it = pg->degraded_objects.find(recovery_state->oid);
+        auto st_it = pg->degraded_objects.find(recovery_state.oid);
         st = st_it->second;
         pg->degraded_objects.erase(st_it);
     }
@@ -311,12 +312,12 @@ resume_4:
         }
         new_st = &st_it->second;
         new_st->object_count++;
-        pg->misplaced_objects[recovery_state->oid] = new_st;
+        pg->misplaced_objects[recovery_state.oid] = new_st;
     }
     if (!st->object_count)
     {
         pg->state_dict.erase(st->osd_set);
     }
-    recovery_state->st = 0;
+    recovery_state.st = 0;
     goto resume_0;
 }

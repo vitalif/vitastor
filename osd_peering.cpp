@@ -177,9 +177,9 @@ void osd_t::handle_peers()
                 {
                     p.second.calc_object_states();
                     if (p.second.state & PG_HAS_UNCLEAN)
-                    {
                         peering_state = peering_state | OSD_FLUSHING_PGS;
-                    }
+                    else
+                        peering_state = peering_state | OSD_RECOVERING;
                 }
                 else
                 {
