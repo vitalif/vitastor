@@ -133,6 +133,7 @@ void osd_t::handle_finished_read(osd_client_t & cl)
         osd_op_t *request = req_it->second;
         cl.sent_ops.erase(req_it);
         cl.read_reply_id = 0;
+        delete cl.read_op;
         cl.read_op = NULL;
         cl.read_state = 0;
         // Measure subop latency
@@ -144,6 +145,10 @@ void osd_t::handle_finished_read(osd_client_t & cl)
             (tv_end.tv_nsec - request->tv_begin.tv_nsec)/1000
         );
         request->callback(request);
+    }
+    else
+    {
+        assert(0);
     }
 }
 
@@ -230,6 +235,7 @@ void osd_t::handle_reply_hdr(osd_client_t *cl)
     }
     else
     {
+        delete cl->read_op;
         cl->read_state = 0;
         cl->read_op = NULL;
         cl->sent_ops.erase(req_it);
