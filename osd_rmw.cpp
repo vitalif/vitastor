@@ -321,13 +321,8 @@ static void xor_multiple_buffers(buf_len_t *xor1, int n1, buf_len_t *xor2, int n
     }
 }
 
-void calc_rmw_parity(osd_rmw_stripe_t *stripes, int pg_size)
+void reconstruct_stripes(osd_rmw_stripe_t *stripes, int pg_size)
 {
-    if (stripes[pg_size-1].missing)
-    {
-        // Parity OSD is unavailable
-        return;
-    }
     for (int role = 0; role < pg_size; role++)
     {
         if (stripes[role].read_end != 0 && stripes[role].missing)
@@ -337,6 +332,16 @@ void calc_rmw_parity(osd_rmw_stripe_t *stripes, int pg_size)
             break;
         }
     }
+}
+
+void calc_rmw_parity(osd_rmw_stripe_t *stripes, int pg_size)
+{
+    if (stripes[pg_size-1].missing)
+    {
+        // Parity OSD is unavailable
+        return;
+    }
+    reconstruct_stripes(stripes, pg_size);
     // Calculate new parity (EC k+1)
     int parity = pg_size-1, prev = -2;
     auto wr_end = stripes[parity].write_end;

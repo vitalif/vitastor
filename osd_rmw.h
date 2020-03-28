@@ -25,6 +25,8 @@ struct osd_rmw_stripe_t
 
 void split_stripes(uint64_t pg_minsize, uint32_t bs_block_size, uint32_t start, uint32_t len, osd_rmw_stripe_t *stripes);
 
+void reconstruct_stripes(osd_rmw_stripe_t *stripes, int pg_size);
+
 void reconstruct_stripe(osd_rmw_stripe_t *stripes, int pg_size, int role);
 
 int extend_missing_stripes(osd_rmw_stripe_t *stripes, osd_num_t *osd_set, int minsize, int size);
