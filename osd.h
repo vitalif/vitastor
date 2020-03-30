@@ -150,7 +150,7 @@ struct osd_client_t
     // Outbound messages (replies or requests)
     std::deque<osd_op_t*> outbox;
 
-    // PGs dirtied by this client's primary-writes
+    // PGs dirtied by this client's primary-writes (FIXME to drop the connection)
     std::set<pg_num_t> dirty_pgs;
 
     // Write state
@@ -276,7 +276,8 @@ class osd_t
     void continue_primary_write(osd_op_t *cur_op);
     void continue_primary_sync(osd_op_t *cur_op);
     void finish_op(osd_op_t *cur_op, int retval);
-    void handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int ok, uint64_t version);
+    void handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int retval, int expected, uint64_t version);
+    void pg_cancel_write_queue(pg_t & pg, object_id oid, int retval);
     void submit_primary_subops(int submit_type, int read_pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
     void submit_primary_sync_subops(osd_op_t *cur_op);
     void submit_primary_stab_subops(osd_op_t *cur_op);

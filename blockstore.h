@@ -93,7 +93,7 @@ Input:
 - buf = pre-allocated obj_ver_id array <len> units long
 
 Output:
-- retval = 0 or negative error number (-EINVAL)
+- retval = 0 or negative error number (-EINVAL or -EBUSY if not synced)
 
 ## BS_OP_SYNC_STAB_ALL
 

@@ -14,12 +14,13 @@
 #define PG_PEERING (1<<1)
 #define PG_INCOMPLETE (1<<2)
 #define PG_ACTIVE (1<<3)
+#define PG_STOPPING (1<<4)
 // Plus any of these:
-#define PG_DEGRADED (1<<4)
-#define PG_HAS_INCOMPLETE (1<<5)
-#define PG_HAS_DEGRADED (1<<6)
-#define PG_HAS_MISPLACED (1<<7)
-#define PG_HAS_UNCLEAN (1<<8)
+#define PG_DEGRADED (1<<5)
+#define PG_HAS_INCOMPLETE (1<<6)
+#define PG_HAS_DEGRADED (1<<7)
+#define PG_HAS_MISPLACED (1<<8)
+#define PG_HAS_UNCLEAN (1<<9)
 
 // FIXME: Safe default that doesn't depend on parity_block_size or pg_parity_size
 #define STRIPE_MASK ((uint64_t)4096 - 1)
@@ -110,7 +111,6 @@ struct pg_t
     btree::btree_map<object_id, uint64_t> ver_override;
     pg_peering_state_t *peering_state = NULL;
     pg_flush_batch_t *flush_batch = NULL;
-    int flush_actions_in_progress = 0;
 
     std::multimap<object_id, osd_op_t*> write_queue;
 

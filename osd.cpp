@@ -305,7 +305,7 @@ void osd_t::cancel_op(osd_op_t *op)
     }
     else
     {
-        delete op;
+        finish_op(op, -EPIPE);
     }
 }
 

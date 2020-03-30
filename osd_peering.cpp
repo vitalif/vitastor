@@ -256,13 +256,21 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     pg.state = PG_PEERING;
     pg.print_state();
     pg.state_dict.clear();
+    pg.incomplete_objects.clear();
     pg.misplaced_objects.clear();
     pg.degraded_objects.clear();
-    pg.ver_override.clear();
     pg.flush_actions.clear();
+    pg.ver_override.clear();
     if (pg.flush_batch)
+    {
         delete pg.flush_batch;
+    }
     pg.flush_batch = NULL;
+    for (auto p: pg.write_queue)
+    {
+        cancel_op(p.second);
+    }
+    pg.write_queue.clear();
     pg.pg_cursize = 0;
     for (int role = 0; role < pg.cur_set.size(); role++)
     {
