@@ -271,6 +271,15 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
         cancel_op(p.second);
     }
     pg.write_queue.clear();
+    // Forget this PG's unstable writes
+    for (auto it = unstable_writes.begin(); it != unstable_writes.end(); )
+    {
+        pg_num_t n = (it->first.oid.inode + it->first.oid.stripe / pg_stripe_size) % pg_count + 1;
+        if (n == pg.pg_num)
+            unstable_writes.erase(it++);
+        else
+            it++;
+    }
     pg.pg_cursize = 0;
     for (int role = 0; role < pg.cur_set.size(); role++)
     {
@@ -374,7 +383,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
             op->peer_fd = 0;
             op->bs_op = new blockstore_op_t();
             op->bs_op->opcode = BS_OP_LIST;
-            op->bs_op->oid.stripe = parity_block_size;
+            op->bs_op->oid.stripe = pg_stripe_size;
             op->bs_op->len = pg_count;
             op->bs_op->offset = pg.pg_num-1;
             op->bs_op->callback = [ps, op, role_osd](blockstore_op_t *bs_op)
@@ -416,7 +425,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
                     },
                     .list_pg = pg.pg_num,
                     .pg_count = pg_count,
-                    .parity_block_size = parity_block_size,
+                    .pg_stripe_size = pg_stripe_size,
                 },
             };
             op->callback = [this, ps, role_osd](osd_op_t *op)

@@ -209,7 +209,7 @@ class osd_t
     int inflight_ops = 0;
     blockstore_t *bs;
     uint32_t bs_block_size, bs_disk_alignment;
-    uint64_t parity_block_size = 4*1024*1024; // 4 MB by default
+    uint64_t pg_stripe_size = 4*1024*1024; // 4 MB by default
     ring_loop_t *ringloop;
     timerfd_interval *tick_tfd;
 
@@ -281,6 +281,11 @@ class osd_t
     void submit_primary_subops(int submit_type, int read_pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
     void submit_primary_sync_subops(osd_op_t *cur_op);
     void submit_primary_stab_subops(osd_op_t *cur_op);
+
+    inline pg_num_t map_to_pg(object_id oid)
+    {
+        return (oid.inode + oid.stripe / pg_stripe_size) % pg_count + 1;
+    }
 public:
     osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);
     ~osd_t();

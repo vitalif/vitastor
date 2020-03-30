@@ -130,7 +130,7 @@ struct __attribute__((__packed__)) osd_op_secondary_list_t
     osd_op_header_t header;
     // placement group total number and total count
     pg_num_t list_pg, pg_count;
-    uint64_t parity_block_size;
+    uint64_t pg_stripe_size;
 };
 
 struct __attribute__((__packed__)) osd_reply_secondary_list_t

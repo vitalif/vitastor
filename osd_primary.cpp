@@ -69,21 +69,21 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     // Our EC scheme stores data in fixed chunks equal to (K*block size)
     // But we must not use K in the process of calculating the PG number
     // So we calculate the PG number using a separate setting which should be per-inode (FIXME)
-    pg_num_t pg_num = (cur_op->req.rw.inode + cur_op->req.rw.offset / parity_block_size) % pg_count + 1;
+    pg_num_t pg_num = (cur_op->req.rw.inode + cur_op->req.rw.offset / pg_stripe_size) % pg_count + 1;
     // FIXME: Postpone operations in inactive PGs
     if (pgs.find(pg_num) == pgs.end() || !(pgs[pg_num].state & PG_ACTIVE))
     {
         finish_op(cur_op, -EINVAL);
         return false;
     }
-    uint64_t pg_parity_size = bs_block_size * pgs[pg_num].pg_minsize;
+    uint64_t pg_block_size = bs_block_size * pgs[pg_num].pg_minsize;
     object_id oid = {
         .inode = cur_op->req.rw.inode,
         // oid.stripe = starting offset of the parity stripe, so it can be mapped back to the PG
-        .stripe = (cur_op->req.rw.offset / parity_block_size) * parity_block_size +
-            ((cur_op->req.rw.offset % parity_block_size) / pg_parity_size) * pg_parity_size
+        .stripe = (cur_op->req.rw.offset / pg_stripe_size) * pg_stripe_size +
+            ((cur_op->req.rw.offset % pg_stripe_size) / pg_block_size) * pg_block_size
     };
-    if ((cur_op->req.rw.offset + cur_op->req.rw.len) > (oid.stripe + pg_parity_size) ||
+    if ((cur_op->req.rw.offset + cur_op->req.rw.len) > (oid.stripe + pg_block_size) ||
         (cur_op->req.rw.offset % bs_disk_alignment) != 0 ||
         (cur_op->req.rw.len % bs_disk_alignment) != 0)
     {
@@ -708,7 +708,6 @@ resume_5:
     op_data->st = 5;
     return;
 resume_6:
-    // FIXME: Free them correctly (via a destructor or so)
     if (op_data->errors > 0)
     {
         // Return objects back into the unstable write set
@@ -716,15 +715,20 @@ resume_6:
         {
             for (int i = 0; i < unstable_osd.len; i++)
             {
-                uint64_t & uv = this->unstable_writes[(osd_object_id_t){
-                    .osd_num = unstable_osd.osd_num,
-                    .oid = op_data->unstable_writes[i].oid,
-                }];
-                uv = uv < op_data->unstable_writes[i].version ? op_data->unstable_writes[i].version : uv;
+                // Expect those from peered PGs
+                auto & w = op_data->unstable_writes[i];
+                if (pgs[map_to_pg(w.oid)].state & PG_ACTIVE)
+                {
+                    uint64_t & dest = this->unstable_writes[(osd_object_id_t){
+                        .osd_num = unstable_osd.osd_num,
+                        .oid = w.oid,
+                    }];
+                    dest = dest < w.version ? w.version : dest;
+                }
             }
-            // FIXME: But filter those from peered PGs
         }
     }
+    // FIXME: Free those in the destructor?
     delete op_data->unstable_write_osds;
     delete[] op_data->unstable_writes;
     op_data->unstable_writes = NULL;

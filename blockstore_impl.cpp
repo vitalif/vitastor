@@ -395,8 +395,8 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     // Count objects
     uint32_t list_pg = op->offset;
     uint32_t pg_count = op->len;
-    uint64_t parity_block_size = op->oid.stripe;
-    if (pg_count != 0 && (parity_block_size < MIN_BLOCK_SIZE || list_pg >= pg_count))
+    uint64_t pg_stripe_size = op->oid.stripe;
+    if (pg_count != 0 && (pg_stripe_size < MIN_BLOCK_SIZE || list_pg >= pg_count))
     {
         op->retval = -EINVAL;
         FINISH_OP(op);
@@ -407,7 +407,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     {
         for (auto it = clean_db.begin(); it != clean_db.end(); it++)
         {
-            uint32_t pg = (it->first.inode + it->first.stripe / parity_block_size) % pg_count;
+            uint32_t pg = (it->first.inode + it->first.stripe / pg_stripe_size) % pg_count;
             if (pg == list_pg)
             {
                 stable_count++;
@@ -421,7 +421,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     uint64_t total_count = stable_count;
     for (auto it = dirty_db.begin(); it != dirty_db.end(); it++)
     {
-        if (!pg_count || ((it->first.oid.inode + it->first.oid.stripe / parity_block_size) % pg_count) == list_pg)
+        if (!pg_count || ((it->first.oid.inode + it->first.oid.stripe / pg_stripe_size) % pg_count) == list_pg)
         {
             if (IS_STABLE(it->second.state))
             {
@@ -444,7 +444,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     int i = 0;
     for (auto it = clean_db.begin(); it != clean_db.end(); it++)
     {
-        if (!pg_count || ((it->first.inode + it->first.stripe / parity_block_size) % pg_count) == list_pg)
+        if (!pg_count || ((it->first.inode + it->first.stripe / pg_stripe_size) % pg_count) == list_pg)
         {
             vers[i++] = {
                 .oid = it->first,
@@ -455,7 +455,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     int j = stable_count;
     for (auto it = dirty_db.begin(); it != dirty_db.end(); it++)
     {
-        if (!pg_count || ((it->first.oid.inode + it->first.oid.stripe / parity_block_size) % pg_count) == list_pg)
+        if (!pg_count || ((it->first.oid.inode + it->first.oid.stripe / pg_stripe_size) % pg_count) == list_pg)
         {
             if (IS_STABLE(it->second.state))
             {

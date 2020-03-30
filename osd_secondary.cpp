@@ -82,7 +82,7 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
             secondary_op_callback(cur_op);
             return;
         }
-        cur_op->bs_op->oid.stripe = cur_op->req.sec_list.parity_block_size;
+        cur_op->bs_op->oid.stripe = cur_op->req.sec_list.pg_stripe_size;
         cur_op->bs_op->len = cur_op->req.sec_list.pg_count;
         cur_op->bs_op->offset = cur_op->req.sec_list.list_pg - 1;
 #ifdef OSD_STUB
