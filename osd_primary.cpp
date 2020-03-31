@@ -42,7 +42,8 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
 {
     if (!cur_op->peer_fd)
     {
-        cur_op->callback(cur_op);
+        // Copy lambda to be unaffected by `delete op`
+        std::function<void(osd_op_t*)>(cur_op->callback)(cur_op);
     }
     else
     {
@@ -254,7 +255,7 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                         if (subop->opcode == BS_OP_WRITE && subop->retval != subop->len)
                         {
                             // die
-                            throw std::runtime_error("local write operation failed");
+                            throw std::runtime_error("local write operation failed (retval = "+std::to_string(subop->retval)+")");
                         }
                         handle_primary_subop(
                             subop->opcode == BS_OP_WRITE ? OSD_OP_SECONDARY_WRITE : OSD_OP_SECONDARY_READ,
@@ -298,17 +299,19 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                 }
                 subops[subop].callback = [cur_op, this](osd_op_t *subop)
                 {
+                    int fail_fd = subop->req.hdr.opcode == OSD_OP_SECONDARY_WRITE &&
+                        subop->reply.hdr.retval != subop->req.sec_rw.len ? subop->peer_fd : -1;
                     // so it doesn't get freed
                     subop->buf = NULL;
-                    if (subop->req.hdr.opcode == OSD_OP_SECONDARY_WRITE && cur_op->reply.hdr.retval != cur_op->req.sec_rw.len)
-                    {
-                        // write operation failed, drop the connection
-                        stop_client(subop->peer_fd);
-                    }
                     handle_primary_subop(
                         subop->req.hdr.opcode, cur_op, subop->reply.hdr.retval,
                         subop->req.sec_rw.len, subop->reply.sec_rw.version
                     );
+                    if (fail_fd >= 0)
+                    {
+                        // write operation failed, drop the connection
+                        stop_client(fail_fd);
+                    }
                 };
                 outbox_push(clients[subops[subop].peer_fd], &subops[subop]);
             }
@@ -322,8 +325,11 @@ void osd_t::handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int retval, 
     osd_primary_op_data_t *op_data = cur_op->op_data;
     if (retval != expected)
     {
+        printf("%s subop failed: retval = %d (expected %d)\n", osd_op_names[opcode], retval, expected);
         if (retval == -EPIPE)
+        {
             op_data->epipe++;
+        }
         op_data->errors++;
     }
     else
@@ -565,7 +571,7 @@ resume_6:
         op_data->st = 6;
         return;
 resume_7:
-        // FIXME: Free them correctly (via a destructor or so)
+        // FIXME: Free those in the destructor?
         delete op_data->unstable_write_osds;
         delete[] op_data->unstable_writes;
         op_data->unstable_writes = NULL;
@@ -796,12 +802,13 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
             };
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
-                if (cur_op->reply.hdr.retval != 0)
+                int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : 0;
+                handle_primary_subop(OSD_OP_SECONDARY_SYNC, cur_op, subop->reply.hdr.retval, 0, 0);
+                if (fail_fd >= 0)
                 {
                     // sync operation failed, drop the connection
-                    stop_client(subop->peer_fd);
+                    stop_client(fail_fd);
                 }
-                handle_primary_subop(OSD_OP_SECONDARY_SYNC, cur_op, subop->reply.hdr.retval, 0, 0);
             };
             outbox_push(clients[subops[i].peer_fd], &subops[i]);
         }
@@ -853,12 +860,13 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
             subops[i].send_list.push_back(op_data->unstable_writes + stab_osd.start, stab_osd.len * sizeof(obj_ver_id));
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
-                if (cur_op->reply.hdr.retval != 0)
+                int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : 0;
+                handle_primary_subop(OSD_OP_SECONDARY_STABILIZE, cur_op, subop->reply.hdr.retval, 0, 0);
+                if (fail_fd >= 0)
                 {
                     // sync operation failed, drop the connection
-                    stop_client(subop->peer_fd);
+                    stop_client(fail_fd);
                 }
-                handle_primary_subop(OSD_OP_SECONDARY_STABILIZE, cur_op, subop->reply.hdr.retval, 0, 0);
             };
             outbox_push(clients[subops[i].peer_fd], &subops[i]);
         }

@@ -322,7 +322,7 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
     {
         // Basic verification not passed
         op->retval = -EINVAL;
-        op->callback(op);
+        std::function<void (blockstore_op_t*)>(op->callback)(op);
         return;
     }
     if (op->opcode == BS_OP_SYNC_STAB_ALL)
@@ -365,13 +365,13 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
     }
     if (op->opcode == BS_OP_WRITE && !enqueue_write(op))
     {
-        op->callback(op);
+        std::function<void (blockstore_op_t*)>(op->callback)(op);
         return;
     }
     if (op->opcode == BS_OP_SYNC && immediate_commit == IMMEDIATE_ALL)
     {
         op->retval = 0;
-        op->callback(op);
+        std::function<void (blockstore_op_t*)>(op->callback)(op);
         return;
     }
     // Call constructor without allocating memory. We'll call destructor before returning op back

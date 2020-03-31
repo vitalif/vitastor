@@ -42,7 +42,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     else if (op->version < version)
     {
         // Invalid version requested
-        op->retval = -EINVAL;
+        op->retval = -EEXIST;
         return false;
     }
     if (deleted && is_del)

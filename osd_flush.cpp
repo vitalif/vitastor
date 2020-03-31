@@ -254,6 +254,7 @@ resume_4:
         auto st_it = pg->degraded_objects.find(recovery_state.oid);
         st = st_it->second;
         pg->degraded_objects.erase(st_it);
+        degraded_objects--;
     }
     st->object_count--;
     if (st->state == OBJ_DEGRADED)

@@ -24,7 +24,7 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
                 // FIXME Skip this object version
             }
         bad_op:
-            op->retval = -EINVAL;
+            op->retval = -ENOENT;
             FINISH_OP(op);
             return 1;
         }

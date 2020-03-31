@@ -176,6 +176,9 @@ void osd_t::handle_peers()
                 if (!p.second.peering_state->list_ops.size())
                 {
                     p.second.calc_object_states();
+                    incomplete_objects += p.second.incomplete_objects.size();
+                    misplaced_objects += p.second.misplaced_objects.size();
+                    degraded_objects += p.second.degraded_objects.size();
                     if (p.second.state & PG_HAS_UNCLEAN)
                         peering_state = peering_state | OSD_FLUSHING_PGS;
                     else
@@ -256,6 +259,9 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     pg.state = PG_PEERING;
     pg.print_state();
     pg.state_dict.clear();
+    incomplete_objects -= pg.incomplete_objects.size();
+    misplaced_objects -= pg.misplaced_objects.size();
+    degraded_objects -= pg.degraded_objects.size();
     pg.incomplete_objects.clear();
     pg.misplaced_objects.clear();
     pg.degraded_objects.clear();

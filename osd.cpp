@@ -7,7 +7,7 @@
 
 #include "osd.h"
 
-static const char* osd_op_names[] = {
+const char* osd_op_names[] = {
     "",
     "read",
     "write",
@@ -53,6 +53,18 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
             printf("avg latency to send stabilize subop: %ld us\n", send_stat_sum/send_stat_count);
             send_stat_count = 0;
             send_stat_sum = 0;
+        }
+        if (incomplete_objects > 0)
+        {
+            printf("%lu object(s) incomplete\n", incomplete_objects);
+        }
+        if (degraded_objects > 0)
+        {
+            printf("%lu object(s) degraded\n", degraded_objects);
+        }
+        if (misplaced_objects > 0)
+        {
+            printf("%lu object(s) misplaced\n", misplaced_objects);
         }
     });
     this->bs_block_size = bs->get_block_size();
@@ -301,7 +313,8 @@ void osd_t::cancel_op(osd_op_t *op)
         op->reply.hdr.id = op->req.hdr.id;
         op->reply.hdr.opcode = op->req.hdr.opcode;
         op->reply.hdr.retval = -EPIPE;
-        op->callback(op);
+        // Copy lambda to be unaffected by `delete op`
+        std::function<void(osd_op_t*)>(op->callback)(op);
     }
     else
     {
@@ -316,7 +329,16 @@ void osd_t::stop_client(int peer_fd)
     {
         return;
     }
-    auto & cl = it->second;
+    osd_client_t cl = it->second;
+    if (cl.osd_num)
+    {
+        printf("[%lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl.osd_num);
+    }
+    else
+    {
+        printf("[%lu] Stopping client %d (regular client)\n", osd_num, peer_fd);
+    }
+    clients.erase(it);
     if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) < 0)
     {
         throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
@@ -350,7 +372,6 @@ void osd_t::stop_client(int peer_fd)
         }
     }
     free(cl.in_buf);
-    clients.erase(it);
     close(peer_fd);
 }
 
@@ -372,18 +393,7 @@ void osd_t::exec_op(osd_op_t *cur_op)
         (cur_op->req.rw.len > OSD_RW_MAX || cur_op->req.rw.len % OSD_RW_ALIGN || cur_op->req.rw.offset % OSD_RW_ALIGN))
     {
         // Bad command
-        cur_op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
-        cur_op->reply.hdr.id = cur_op->req.hdr.id;
-        cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
-        cur_op->reply.hdr.retval = -EINVAL;
-        if (cur_op->peer_fd)
-        {
-            outbox_push(this->clients[cur_op->peer_fd], cur_op);
-        }
-        else
-        {
-            cur_op->callback(cur_op);
-        }
+        finish_op(cur_op, -EINVAL);
         return;
     }
     inflight_ops++;

@@ -44,6 +44,8 @@
 
 //#define OSD_STUB
 
+extern const char* osd_op_names[];
+
 struct osd_op_buf_list_t
 {
     int count = 0, alloc = 0, sent = 0;
@@ -194,6 +196,7 @@ class osd_t
 
     std::map<uint64_t, int> osd_peer_fds;
     std::map<pg_num_t, pg_t> pgs;
+    uint64_t misplaced_objects = 0, degraded_objects = 0, incomplete_objects = 0;
     int peering_state = 0;
     unsigned pg_count = 0;
     uint64_t next_subop_id = 1;

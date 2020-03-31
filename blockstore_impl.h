@@ -141,7 +141,7 @@ struct fulfill_read_t
 };
 
 #define PRIV(op) ((blockstore_op_private_t*)(op)->private_data)
-#define FINISH_OP(op) PRIV(op)->~blockstore_op_private_t(); op->callback(op)
+#define FINISH_OP(op) PRIV(op)->~blockstore_op_private_t(); std::function<void (blockstore_op_t*)>(op->callback)(op)
 
 struct blockstore_op_private_t
 {

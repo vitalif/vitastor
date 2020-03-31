@@ -247,6 +247,7 @@ void osd_t::handle_reply_hdr(osd_client_t *cl)
             (tv_end.tv_sec - op->tv_begin.tv_sec)*1000000 +
             (tv_end.tv_nsec - op->tv_begin.tv_nsec)/1000
         );
-        op->callback(op);
+        // Copy lambda to be unaffected by `delete op`
+        std::function<void(osd_op_t*)>(op->callback)(op);
     }
 }

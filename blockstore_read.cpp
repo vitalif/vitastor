@@ -131,63 +131,66 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             dirty_it--;
         }
     }
-    if (clean_it != clean_db.end() && fulfilled < read_op->len)
+    if (clean_it != clean_db.end())
     {
         if (!result_version)
         {
             result_version = clean_it->second.version;
         }
-        if (!clean_entry_bitmap_size)
+        if (fulfilled < read_op->len)
         {
-            if (!fulfill_read(read_op, fulfilled, 0, block_size, ST_CURRENT, 0, clean_it->second.location))
+            if (!clean_entry_bitmap_size)
             {
-                // need to wait. undo added requests, don't dequeue op
-                PRIV(read_op)->read_vec.clear();
-                return 0;
-            }
-        }
-        else
-        {
-            uint64_t meta_loc = clean_it->second.location >> block_order;
-            uint8_t *clean_entry_bitmap;
-            if (inmemory_meta)
-            {
-                uint64_t sector = (meta_loc / (meta_block_size / clean_entry_size)) * meta_block_size;
-                uint64_t pos = (meta_loc % (meta_block_size / clean_entry_size));
-                clean_entry_bitmap = (uint8_t*)(metadata_buffer + sector + pos*clean_entry_size + sizeof(clean_disk_entry));
+                if (!fulfill_read(read_op, fulfilled, 0, block_size, ST_CURRENT, 0, clean_it->second.location))
+                {
+                    // need to wait. undo added requests, don't dequeue op
+                    PRIV(read_op)->read_vec.clear();
+                    return 0;
+                }
             }
             else
             {
-                clean_entry_bitmap = (uint8_t*)(clean_bitmap + meta_loc*clean_entry_bitmap_size);
-            }
-            uint64_t bmp_start = 0, bmp_end = 0, bmp_size = block_size/bitmap_granularity;
-            while (bmp_start < bmp_size)
-            {
-                while (!(clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7))) && bmp_end < bmp_size)
+                uint64_t meta_loc = clean_it->second.location >> block_order;
+                uint8_t *clean_entry_bitmap;
+                if (inmemory_meta)
                 {
-                    bmp_end++;
+                    uint64_t sector = (meta_loc / (meta_block_size / clean_entry_size)) * meta_block_size;
+                    uint64_t pos = (meta_loc % (meta_block_size / clean_entry_size));
+                    clean_entry_bitmap = (uint8_t*)(metadata_buffer + sector + pos*clean_entry_size + sizeof(clean_disk_entry));
                 }
-                if (bmp_end > bmp_start)
+                else
                 {
-                    // fill with zeroes
-                    fulfill_read(read_op, fulfilled, bmp_start * bitmap_granularity,
-                        bmp_end * bitmap_granularity, ST_DEL_STABLE, 0, 0);
+                    clean_entry_bitmap = (uint8_t*)(clean_bitmap + meta_loc*clean_entry_bitmap_size);
                 }
-                bmp_start = bmp_end;
-                while (clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7)) && bmp_end < bmp_size)
+                uint64_t bmp_start = 0, bmp_end = 0, bmp_size = block_size/bitmap_granularity;
+                while (bmp_start < bmp_size)
                 {
-                    bmp_end++;
-                }
-                if (bmp_end > bmp_start)
-                {
-                    if (!fulfill_read(read_op, fulfilled, bmp_start * bitmap_granularity,
-                        bmp_end * bitmap_granularity, ST_CURRENT, 0, clean_it->second.location + bmp_start * bitmap_granularity))
+                    while (!(clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7))) && bmp_end < bmp_size)
                     {
-                        // need to wait. undo added requests, don't dequeue op
-                        PRIV(read_op)->read_vec.clear();
-                        return 0;
+                        bmp_end++;
+                    }
+                    if (bmp_end > bmp_start)
+                    {
+                        // fill with zeroes
+                        fulfill_read(read_op, fulfilled, bmp_start * bitmap_granularity,
+                            bmp_end * bitmap_granularity, ST_DEL_STABLE, 0, 0);
                     }
                     bmp_start = bmp_end;
+                    while (clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7)) && bmp_end < bmp_size)
+                    {
+                        bmp_end++;
+                    }
+                    if (bmp_end > bmp_start)
+                    {
+                        if (!fulfill_read(read_op, fulfilled, bmp_start * bitmap_granularity,
+                            bmp_end * bitmap_granularity, ST_CURRENT, 0, clean_it->second.location + bmp_start * bitmap_granularity))
+                        {
+                            // need to wait. undo added requests, don't dequeue op
+                            PRIV(read_op)->read_vec.clear();
+                            return 0;
+                        }
+                        bmp_start = bmp_end;
+                    }
                 }
             }
         }
