@@ -42,6 +42,9 @@
 #define IMMEDIATE_SMALL 1
 #define IMMEDIATE_ALL 2
 
+#define MAX_AUTOSYNC_INTERVAL 3600
+#define DEFAULT_AUTOSYNC_INTERVAL 5
+
 //#define OSD_STUB
 
 extern const char* osd_op_names[];
@@ -191,6 +194,7 @@ class osd_t
     bool allow_test_ops = true;
     int receive_buffer_size = 9000;
     int immediate_commit = IMMEDIATE_NONE;
+    int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // sync every 5 seconds
 
     // peer OSDs
 
@@ -201,6 +205,7 @@ class osd_t
     unsigned pg_count = 0;
     uint64_t next_subop_id = 1;
     osd_recovery_state_t recovery_state;
+    osd_op_t *autosync_op = NULL;
 
     // Unstable writes
     std::map<osd_object_id_t, uint64_t> unstable_writes;
@@ -214,7 +219,7 @@ class osd_t
     uint32_t bs_block_size, bs_disk_alignment;
     uint64_t pg_stripe_size = 4*1024*1024; // 4 MB by default
     ring_loop_t *ringloop;
-    timerfd_interval *tick_tfd;
+    timerfd_interval *stats_tfd = NULL, *sync_tfd = NULL;
 
     int wait_state = 0;
     int epoll_fd = 0;
@@ -232,6 +237,9 @@ class osd_t
     uint64_t send_stat_count = 0;
 
     // methods
+    void parse_config(blockstore_config_t & config);
+    void bind_socket();
+    void print_stats();
 
     // event loop, socket read/write
     void loop();
@@ -274,6 +282,7 @@ class osd_t
     void secondary_op_callback(osd_op_t *cur_op);
 
     // primary ops
+    void autosync();
     bool prepare_primary_rw(osd_op_t *cur_op);
     void continue_primary_read(osd_op_t *cur_op);
     void continue_primary_write(osd_op_t *cur_op);

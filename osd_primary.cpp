@@ -71,10 +71,9 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     // But we must not use K in the process of calculating the PG number
     // So we calculate the PG number using a separate setting which should be per-inode (FIXME)
     pg_num_t pg_num = (cur_op->req.rw.inode + cur_op->req.rw.offset / pg_stripe_size) % pg_count + 1;
-    // FIXME: Postpone operations in inactive PGs
     if (pgs.find(pg_num) == pgs.end() || !(pgs[pg_num].state & PG_ACTIVE))
     {
-        finish_op(cur_op, -EINVAL);
+        finish_op(cur_op, -EPIPE);
         return false;
     }
     uint64_t pg_block_size = bs_block_size * pgs[pg_num].pg_minsize;
@@ -620,8 +619,35 @@ resume_7:
     }
 }
 
+void osd_t::autosync()
+{
+    if (immediate_commit != IMMEDIATE_ALL && !autosync_op)
+    {
+        autosync_op = new osd_op_t();
+        autosync_op->op_type = OSD_OP_IN;
+        autosync_op->req = {
+            .sync = {
+                .header = {
+                    .magic = SECONDARY_OSD_OP_MAGIC,
+                    .id = 1,
+                    .opcode = OSD_OP_SYNC,
+                },
+            },
+        };
+        autosync_op->callback = [this](osd_op_t *op)
+        {
+            if (op->reply.hdr.retval < 0)
+            {
+                printf("Warning: automatic sync resulted in an error: %ld (%s)\n", -op->reply.hdr.retval, strerror(-op->reply.hdr.retval));
+            }
+            delete autosync_op;
+            autosync_op = NULL;
+        };
+        exec_op(autosync_op);
+    }
+}
+
 // Save and clear unstable_writes -> SYNC all -> STABLE all
-// FIXME: Run regular automatic syncs based on the number of unstable writes and/or system time
 void osd_t::continue_primary_sync(osd_op_t *cur_op)
 {
     if (!cur_op->op_data)

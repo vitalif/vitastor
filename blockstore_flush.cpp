@@ -124,6 +124,7 @@ void journal_flusher_t::force_start()
         }\
         data = ((ring_data_t*)sqe->user_data);
 
+// FIXME: Implement batch flushing
 bool journal_flusher_co::loop()
 {
     // This is much better than implementing the whole function as an FSM

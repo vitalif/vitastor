@@ -28,49 +28,64 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
     this->config = config;
     this->bs = bs;
     this->ringloop = ringloop;
-    this->tick_tfd = new timerfd_interval(ringloop, 3, [this]()
-    {
-        for (int i = 0; i <= OSD_OP_MAX; i++)
-        {
-            if (op_stat_count[i] != 0)
-            {
-                printf("avg latency for op %d (%s): %ld us\n", i, osd_op_names[i], op_stat_sum[i]/op_stat_count[i]);
-                op_stat_count[i] = 0;
-                op_stat_sum[i] = 0;
-            }
-        }
-        for (int i = 0; i <= OSD_OP_MAX; i++)
-        {
-            if (subop_stat_count[i] != 0)
-            {
-                printf("avg latency for subop %d (%s): %ld us\n", i, osd_op_names[i], subop_stat_sum[i]/subop_stat_count[i]);
-                subop_stat_count[i] = 0;
-                subop_stat_sum[i] = 0;
-            }
-        }
-        if (send_stat_count != 0)
-        {
-            printf("avg latency to send stabilize subop: %ld us\n", send_stat_sum/send_stat_count);
-            send_stat_count = 0;
-            send_stat_sum = 0;
-        }
-        if (incomplete_objects > 0)
-        {
-            printf("%lu object(s) incomplete\n", incomplete_objects);
-        }
-        if (degraded_objects > 0)
-        {
-            printf("%lu object(s) degraded\n", degraded_objects);
-        }
-        if (misplaced_objects > 0)
-        {
-            printf("%lu object(s) misplaced\n", misplaced_objects);
-        }
-    });
+
     this->bs_block_size = bs->get_block_size();
     // FIXME: use bitmap granularity instead
     this->bs_disk_alignment = bs->get_disk_alignment();
 
+    parse_config(config);
+
+    bind_socket();
+
+    this->stats_tfd = new timerfd_interval(ringloop, 3, [this]()
+    {
+        print_stats();
+    });
+
+    if (run_primary)
+        init_primary();
+
+    consumer.loop = [this]() { loop(); };
+    ringloop->register_consumer(&consumer);
+}
+
+osd_t::~osd_t()
+{
+    delete stats_tfd;
+    if (sync_tfd)
+    {
+        delete sync_tfd;
+        sync_tfd = NULL;
+    }
+    ringloop->unregister_consumer(&consumer);
+    close(epoll_fd);
+    close(listen_fd);
+}
+
+osd_op_t::~osd_op_t()
+{
+    if (bs_op)
+    {
+        delete bs_op;
+    }
+    if (op_data)
+    {
+        free(op_data);
+    }
+    if (rmw_buf)
+    {
+        free(rmw_buf);
+    }
+    if (buf)
+    {
+        // Note: reusing osd_op_t WILL currently lead to memory leaks
+        // So we don't reuse it, but free it every time
+        free(buf);
+    }
+}
+
+void osd_t::parse_config(blockstore_config_t & config)
+{
     bind_address = config["bind_address"];
     if (bind_address == "")
         bind_address = "0.0.0.0";
@@ -85,9 +100,13 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
     else if (config["immediate_commit"] == "small")
         immediate_commit = IMMEDIATE_SMALL;
     run_primary = config["run_primary"] == "true" || config["run_primary"] == "1" || config["run_primary"] == "yes";
-    if (run_primary)
-        init_primary();
+    autosync_interval = strtoull(config["autosync_interval"].c_str(), NULL, 10);
+    if (autosync_interval < 0 || autosync_interval > MAX_AUTOSYNC_INTERVAL)
+        autosync_interval = DEFAULT_AUTOSYNC_INTERVAL;
+}
 
+void osd_t::bind_socket()
+{
     listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd < 0)
     {
@@ -135,39 +154,6 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
         close(listen_fd);
         close(epoll_fd);
         throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
-    }
-
-    consumer.loop = [this]() { loop(); };
-    ringloop->register_consumer(&consumer);
-}
-
-osd_t::~osd_t()
-{
-    delete tick_tfd;
-    ringloop->unregister_consumer(&consumer);
-    close(epoll_fd);
-    close(listen_fd);
-}
-
-osd_op_t::~osd_op_t()
-{
-    if (bs_op)
-    {
-        delete bs_op;
-    }
-    if (op_data)
-    {
-        free(op_data);
-    }
-    if (rmw_buf)
-    {
-        free(rmw_buf);
-    }
-    if (buf)
-    {
-        // Note: reusing osd_op_t WILL currently lead to memory leaks
-        // So we don't reuse it, but free it every time
-        free(buf);
     }
 }
 
@@ -421,5 +407,45 @@ void osd_t::exec_op(osd_op_t *cur_op)
     else
     {
         exec_secondary(cur_op);
+    }
+}
+
+void osd_t::print_stats()
+{
+    for (int i = 0; i <= OSD_OP_MAX; i++)
+    {
+        if (op_stat_count[i] != 0)
+        {
+            printf("avg latency for op %d (%s): %ld us\n", i, osd_op_names[i], op_stat_sum[i]/op_stat_count[i]);
+            op_stat_count[i] = 0;
+            op_stat_sum[i] = 0;
+        }
+    }
+    for (int i = 0; i <= OSD_OP_MAX; i++)
+    {
+        if (subop_stat_count[i] != 0)
+        {
+            printf("avg latency for subop %d (%s): %ld us\n", i, osd_op_names[i], subop_stat_sum[i]/subop_stat_count[i]);
+            subop_stat_count[i] = 0;
+            subop_stat_sum[i] = 0;
+        }
+    }
+    if (send_stat_count != 0)
+    {
+        printf("avg latency to send stabilize subop: %ld us\n", send_stat_sum/send_stat_count);
+        send_stat_count = 0;
+        send_stat_sum = 0;
+    }
+    if (incomplete_objects > 0)
+    {
+        printf("%lu object(s) incomplete\n", incomplete_objects);
+    }
+    if (degraded_objects > 0)
+    {
+        printf("%lu object(s) degraded\n", degraded_objects);
+    }
+    if (misplaced_objects > 0)
+    {
+        printf("%lu object(s) misplaced\n", misplaced_objects);
     }
 }

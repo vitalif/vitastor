@@ -31,6 +31,13 @@ void osd_t::init_primary()
     pgs[1].print_state();
     pg_count = 1;
     peering_state = OSD_CONNECTING_PEERS;
+    if (autosync_interval > 0)
+    {
+        this->sync_tfd = new timerfd_interval(ringloop, 3, [this]()
+        {
+            autosync();
+        });
+    }
 }
 
 osd_peer_def_t osd_t::parse_peer(std::string peer)
