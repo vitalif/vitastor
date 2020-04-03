@@ -44,6 +44,8 @@
 
 #define MAX_AUTOSYNC_INTERVAL 3600
 #define DEFAULT_AUTOSYNC_INTERVAL 5
+#define MAX_RECOVERY_QUEUE 2048
+#define DEFAULT_RECOVERY_QUEUE 4
 
 //#define OSD_STUB
 
@@ -172,12 +174,13 @@ struct osd_object_id_t
     object_id oid;
 };
 
-struct osd_recovery_state_t
+struct osd_recovery_op_t
 {
     int st = 0;
+    bool degraded = false;
     pg_num_t pg_num = 0;
     object_id oid = { 0 };
-    osd_op_t *op = NULL;
+    osd_op_t *osd_op = NULL;
 };
 
 class osd_t
@@ -195,6 +198,7 @@ class osd_t
     int receive_buffer_size = 9000;
     int immediate_commit = IMMEDIATE_NONE;
     int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // sync every 5 seconds
+    int recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
 
     // peer OSDs
 
@@ -205,7 +209,7 @@ class osd_t
     int peering_state = 0;
     unsigned pg_count = 0;
     uint64_t next_subop_id = 1;
-    osd_recovery_state_t recovery_state;
+    std::map<object_id, osd_recovery_op_t> recovery_ops;
     osd_op_t *autosync_op = NULL;
 
     // Unstable writes
@@ -273,7 +277,10 @@ class osd_t
     void submit_pg_flush_ops(pg_num_t pg_num);
     void handle_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t osd_num, bool ok);
     void submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t osd_num, int count, obj_ver_id *data);
+    bool pick_next_recovery(osd_recovery_op_t &op);
+    void submit_recovery_op(osd_recovery_op_t *op);
     bool continue_recovery();
+    pg_osd_set_state_t* change_osd_set(pg_osd_set_state_t *st, pg_t *pg);
 
     // op execution
     void exec_op(osd_op_t *cur_op);

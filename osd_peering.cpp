@@ -185,6 +185,7 @@ void osd_t::handle_peers()
                     p.second.calc_object_states();
                     incomplete_objects += p.second.incomplete_objects.size();
                     misplaced_objects += p.second.misplaced_objects.size();
+                    // FIXME: degraded objects may currently include misplaced, too! Report them separately?
                     degraded_objects += p.second.degraded_objects.size();
                     if (p.second.state & PG_HAS_UNCLEAN)
                         peering_state = peering_state | OSD_FLUSHING_PGS;
