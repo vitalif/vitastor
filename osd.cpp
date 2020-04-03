@@ -370,6 +370,7 @@ void osd_t::exec_op(osd_op_t *cur_op)
         delete cur_op;
         return;
     }
+    inflight_ops++;
     cur_op->send_list.push_back(cur_op->reply.buf, OSD_PACKET_SIZE);
     if (cur_op->req.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
         cur_op->req.hdr.opcode < OSD_OP_MIN || cur_op->req.hdr.opcode > OSD_OP_MAX ||
@@ -382,7 +383,6 @@ void osd_t::exec_op(osd_op_t *cur_op)
         finish_op(cur_op, -EINVAL);
         return;
     }
-    inflight_ops++;
     if (cur_op->req.hdr.opcode == OSD_OP_TEST_SYNC_STAB_ALL)
     {
         exec_sync_stab_all(cur_op);

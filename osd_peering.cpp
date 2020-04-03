@@ -265,6 +265,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     auto & pg = pgs[pg_num];
     pg.state = PG_PEERING;
     pg.print_state();
+    // Reset PG state
     pg.state_dict.clear();
     incomplete_objects -= pg.incomplete_objects.size();
     misplaced_objects -= pg.misplaced_objects.size();
@@ -284,15 +285,18 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
         cancel_op(p.second);
     }
     pg.write_queue.clear();
-    // Forget this PG's unstable writes
     for (auto it = unstable_writes.begin(); it != unstable_writes.end(); )
     {
+        // Forget this PG's unstable writes
         pg_num_t n = (it->first.oid.inode + it->first.oid.stripe / pg_stripe_size) % pg_count + 1;
         if (n == pg.pg_num)
             unstable_writes.erase(it++);
         else
             it++;
     }
+    pg.inflight = 0;
+    dirty_pgs.erase(pg.pg_num);
+    // Start peering
     pg.pg_cursize = 0;
     for (int role = 0; role < pg.cur_set.size(); role++)
     {
@@ -471,4 +475,29 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
         }
     }
     ringloop->wakeup();
+}
+
+bool osd_t::stop_pg(pg_num_t pg_num)
+{
+    auto pg_it = pgs.find(pg_num);
+    if (pg_it == pgs.end())
+    {
+        return false;
+    }
+    auto & pg = pg_it->second;
+    if (!(pg.state & PG_ACTIVE))
+    {
+        return false;
+    }
+    pg.state = pg.state & ~PG_ACTIVE | PG_STOPPING;
+    if (pg.inflight == 0)
+    {
+        finish_stop_pg(pg);
+    }
+    return true;
+}
+
+void osd_t::finish_stop_pg(pg_t & pg)
+{
+    pg.state = PG_OFFLINE;
 }

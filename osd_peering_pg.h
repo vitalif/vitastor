@@ -92,7 +92,7 @@ struct pg_flush_batch_t
 
 struct pg_t
 {
-    int state;
+    int state = PG_OFFLINE;
     uint64_t pg_cursize = 3, pg_size = 3, pg_minsize = 2;
     pg_num_t pg_num;
     uint64_t clean_count = 0, total_count = 0;
@@ -112,6 +112,7 @@ struct pg_t
     pg_peering_state_t *peering_state = NULL;
     pg_flush_batch_t *flush_batch = NULL;
 
+    int inflight = 0; // including write_queue
     std::multimap<object_id, osd_op_t*> write_queue;
 
     void calc_object_states();

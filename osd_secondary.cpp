@@ -4,7 +4,6 @@
 
 void osd_t::secondary_op_callback(osd_op_t *op)
 {
-    inflight_ops--;
     if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
         op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
     {

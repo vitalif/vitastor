@@ -200,6 +200,7 @@ class osd_t
 
     std::map<uint64_t, int> osd_peer_fds;
     std::map<pg_num_t, pg_t> pgs;
+    std::set<pg_num_t> dirty_pgs;
     uint64_t misplaced_objects = 0, degraded_objects = 0, incomplete_objects = 0;
     int peering_state = 0;
     unsigned pg_count = 0;
@@ -265,6 +266,8 @@ class osd_t
     void handle_peers();
     void repeer_pgs(osd_num_t osd_num, bool is_connected);
     void start_pg_peering(pg_num_t pg_num);
+    bool stop_pg(pg_num_t pg_num);
+    void finish_stop_pg(pg_t & pg);
 
     // flushing, recovery and backfill
     void submit_pg_flush_ops(pg_num_t pg_num);
