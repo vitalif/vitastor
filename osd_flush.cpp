@@ -204,6 +204,22 @@ bool osd_t::pick_next_recovery(osd_recovery_op_t &op)
             }
         }
     }
+    for (auto pg_it = pgs.begin(); pg_it != pgs.end(); pg_it++)
+    {
+        if ((pg_it->second.state & (PG_ACTIVE | PG_HAS_MISPLACED)) == (PG_ACTIVE | PG_HAS_MISPLACED))
+        {
+            for (auto obj_it = pg_it->second.misplaced_objects.begin(); obj_it != pg_it->second.misplaced_objects.end(); obj_it++)
+            {
+                if (recovery_ops.find(obj_it->first) == recovery_ops.end())
+                {
+                    op.degraded = false;
+                    op.pg_num = pg_it->first;
+                    op.oid = obj_it->first;
+                    return true;
+                }
+            }
+        }
+    }
     return false;
 }
 
@@ -266,15 +282,7 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
                     pg->print_state();
                 }
             }
-            if (st->state == OBJ_DEGRADED)
-            {
-                pg->clean_count++;
-            }
-            else
-            {
-                assert(st->state == (OBJ_DEGRADED|OBJ_MISPLACED));
-                pg->misplaced_objects[op->oid] = change_osd_set(st, pg);
-            }
+            pg->clean_count++;
             st->object_count--;
             if (!st->object_count)
             {
@@ -304,59 +312,4 @@ bool osd_t::continue_recovery()
             return false;
     }
     return true;
-}
-
-// This is likely not needed at all, because we'll always recover objects to the clean state
-pg_osd_set_state_t* osd_t::change_osd_set(pg_osd_set_state_t *st, pg_t *pg)
-{
-    pg_osd_set_state_t *new_st;
-    pg_osd_set_t new_set(st->osd_set);
-    for (uint64_t role = 0; role < pg->pg_size; role++)
-    {
-        if (pg->cur_set[role] != 0)
-        {
-            // Maintain order (outdated -> role -> osd_num)
-            int added = 0;
-            for (int j = 0; j < new_set.size(); j++)
-            {
-                if (new_set[j].role == role && new_set[j].osd_num == pg->cur_set[role])
-                {
-                    if (new_set[j].outdated)
-                    {
-                        if (!added)
-                            new_set[j].outdated = false;
-                        else
-                        {
-                            new_set.erase(new_set.begin()+j);
-                            j--;
-                        }
-                    }
-                    break;
-                }
-                else if (!added && (new_set[j].outdated || new_set[j].role > role ||
-                    new_set[j].role == role && new_set[j].osd_num > pg->cur_set[role]))
-                {
-                    new_set.insert(new_set.begin()+j, (pg_obj_loc_t){
-                        .role = role,
-                        .osd_num = pg->cur_set[role],
-                        .outdated = false,
-                    });
-                    added = 1;
-                }
-            }
-        }
-    }
-    auto st_it = pg->state_dict.find(new_set);
-    if (st_it != pg->state_dict.end())
-    {
-        st_it = pg->state_dict.emplace(new_set, (pg_osd_set_state_t){
-            .read_target = pg->cur_set,
-            .osd_set = new_set,
-            .state = OBJ_MISPLACED,
-            .object_count = 0,
-        }).first;
-    }
-    new_st = &st_it->second;
-    new_st->object_count++;
-    return new_st;
 }
