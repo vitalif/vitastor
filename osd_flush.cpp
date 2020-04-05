@@ -254,41 +254,6 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
                 throw std::runtime_error("Failed to recover an object");
             }
         }
-        else
-        {
-            pg_t *pg = &pgs[op->pg_num];
-            pg_osd_set_state_t *st;
-            if (op->degraded)
-            {
-                auto st_it = pg->degraded_objects.find(op->oid);
-                st = st_it->second;
-                pg->degraded_objects.erase(st_it);
-                degraded_objects--;
-                if (!pg->degraded_objects.size())
-                {
-                    pg->state = pg->state & ~PG_HAS_DEGRADED;
-                    pg->print_state();
-                }
-            }
-            else
-            {
-                auto st_it = pg->misplaced_objects.find(op->oid);
-                st = st_it->second;
-                pg->misplaced_objects.erase(st_it);
-                misplaced_objects--;
-                if (!pg->misplaced_objects.size())
-                {
-                    pg->state = pg->state & ~PG_HAS_MISPLACED;
-                    pg->print_state();
-                }
-            }
-            pg->clean_count++;
-            st->object_count--;
-            if (!st->object_count)
-            {
-                pg->state_dict.erase(st->osd_set);
-            }
-        }
         recovery_ops.erase(op->oid);
         delete osd_op;
         op->osd_op = NULL;
