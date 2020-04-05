@@ -450,6 +450,7 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
 resume_1:
     // Determine blocks to read and write
     // Missing chunks are allowed to be overwritten even in incomplete objects
+    // FIXME: Allow to do small writes to the old (degraded/misplaced) OSD set for the lower performance impact
     op_data->prev_set = get_object_osd_set(pg, op_data->oid, pg.cur_set.data(), &op_data->object_state);
     cur_op->rmw_buf = calc_rmw(cur_op->buf, op_data->stripes, op_data->prev_set,
         pg.pg_size, pg.pg_minsize, pg.pg_cursize, pg.cur_set.data(), bs_block_size);

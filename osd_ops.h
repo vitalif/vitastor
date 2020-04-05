@@ -142,6 +142,7 @@ struct __attribute__((__packed__)) osd_reply_secondary_list_t
 };
 
 // read or write to the primary OSD (must be within individual stripe)
+// FIXME: allow to return used block bitmap (required for snaphots)
 struct __attribute__((__packed__)) osd_op_rw_t
 {
     osd_op_header_t header;
