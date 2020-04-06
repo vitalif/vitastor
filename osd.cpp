@@ -245,27 +245,36 @@ restart:
         }
         else
         {
-            auto & cl = clients[events[i].data.fd];
-            if (cl.peer_state == PEER_CONNECTING)
+            auto cl_it = clients.find(events[i].data.fd);
+            if (cl_it != clients.end())
             {
-                // Either OUT (connected) or HUP
-                handle_connect_result(cl.peer_fd);
-            }
-            else if (events[i].events & EPOLLRDHUP)
-            {
-                // Stop client
-                printf("osd: client %d disconnected\n", cl.peer_fd);
-                stop_client(cl.peer_fd);
+                auto & cl = cl_it->second;
+                if (cl.peer_state == PEER_CONNECTING)
+                {
+                    // Either OUT (connected) or HUP
+                    handle_connect_result(cl.peer_fd);
+                }
+                else if (events[i].events & EPOLLRDHUP)
+                {
+                    // Stop client
+                    printf("osd: client %d disconnected\n", cl.peer_fd);
+                    stop_client(cl.peer_fd);
+                }
+                else
+                {
+                    // Mark client as ready (i.e. some data is available)
+                    cl.read_ready++;
+                    if (cl.read_ready == 1)
+                    {
+                        read_ready_clients.push_back(cl.peer_fd);
+                        ringloop->wakeup();
+                    }
+                }
             }
             else
             {
-                // Mark client as ready (i.e. some data is available)
-                cl.read_ready++;
-                if (cl.read_ready == 1)
-                {
-                    read_ready_clients.push_back(cl.peer_fd);
-                    ringloop->wakeup();
-                }
+                auto & cb = epoll_handlers[events[i].data.fd];
+                cb(events[i].events, events[i].data.fd);
             }
         }
     }

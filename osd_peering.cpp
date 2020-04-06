@@ -22,7 +22,7 @@ void osd_t::init_primary()
     if (peers.size() < 2)
         throw std::runtime_error("run_primary requires at least 2 peers");
     pgs[1] = (pg_t){
-        .state = PG_OFFLINE,
+        .state = PG_PEERING,
         .pg_cursize = 0,
         .pg_num = 1,
         .target_set = { 1, 2, 3 },
@@ -240,22 +240,25 @@ void osd_t::repeer_pgs(osd_num_t osd_num, bool is_connected)
     for (auto & p: pgs)
     {
         bool repeer = false;
-        for (int r = 0; r < p.second.target_set.size(); r++)
+        if (p.second.state != PG_OFFLINE)
         {
-            if (p.second.target_set[r] == osd_num &&
-                p.second.cur_set[r] != real_osd)
+            for (int r = 0; r < p.second.target_set.size(); r++)
             {
-                p.second.cur_set[r] = real_osd;
-                repeer = true;
-                break;
+                if (p.second.target_set[r] == osd_num &&
+                    p.second.cur_set[r] != real_osd)
+                {
+                    p.second.cur_set[r] = real_osd;
+                    repeer = true;
+                    break;
+                }
             }
-        }
-        if (repeer)
-        {
-            // Repeer this pg
-            printf("Repeer PG %d because of OSD %lu\n", p.second.pg_num, osd_num);
-            start_pg_peering(p.second.pg_num);
-            peering_state |= OSD_PEERING_PGS;
+            if (repeer)
+            {
+                // Repeer this pg
+                printf("Repeer PG %d because of OSD %lu\n", p.second.pg_num, osd_num);
+                start_pg_peering(p.second.pg_num);
+                peering_state |= OSD_PEERING_PGS;
+            }
         }
     }
 }

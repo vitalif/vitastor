@@ -185,8 +185,11 @@ struct osd_recovery_op_t
 
 class osd_t
 {
+    friend struct http_co_t;
+
     // config
 
+    std::string consul_address;
     osd_num_t osd_num = 1; // OSD numbers start with 1
     bool run_primary = false;
     std::vector<osd_peer_def_t> peers;
@@ -230,6 +233,7 @@ class osd_t
     int epoll_fd = 0;
     int listen_fd = 0;
     ring_consumer_t consumer;
+    std::map<int, std::function<void(int, int)>> epoll_handlers;
 
     std::unordered_map<int,osd_client_t> clients;
     std::vector<int> read_ready_clients;
@@ -258,6 +262,7 @@ class osd_t
     void send_replies();
     void handle_send(ring_data_t *data, int peer_fd);
     void outbox_push(osd_client_t & cl, osd_op_t *op);
+    void http_request(std::string host, std::string request, std::function<void(int, std::string)> callback);
 
     // peer handling (primary OSD logic)
     void connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(osd_num_t, int)> callback);
@@ -309,6 +314,7 @@ class osd_t
     {
         return (oid.inode + oid.stripe / pg_stripe_size) % pg_count + 1;
     }
+
 public:
     osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);
     ~osd_t();

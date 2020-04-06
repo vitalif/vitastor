@@ -480,6 +480,11 @@ resume_5:
         pg_cancel_write_queue(pg, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
         return;
     }
+    if (op_data->fact_ver == 1)
+    {
+        // Object is created
+        pg.clean_count++;
+    }
     if (op_data->object_state)
     {
         if (op_data->object_state->state & OBJ_MISPLACED)
@@ -534,7 +539,6 @@ resume_8:
         {
             throw std::runtime_error("Invalid object state during recovery: "+std::to_string(op_data->object_state->state));
         }
-        // FIXME: Track object count during normal writes, too
         pg.clean_count++;
         op_data->object_state->object_count--;
         if (!op_data->object_state->object_count)

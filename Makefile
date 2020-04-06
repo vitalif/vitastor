@@ -27,7 +27,7 @@ libblockstore.so: $(BLOCKSTORE_OBJS)
 libfio_blockstore.so: ./libblockstore.so fio_engine.cpp json11.o
 	g++ $(CXXFLAGS) -shared -o libfio_blockstore.so fio_engine.cpp json11.o ./libblockstore.so -ltcmalloc_minimal -luring
 
-OSD_OBJS := osd.o osd_secondary.o osd_receive.o osd_send.o osd_peering.o osd_flush.o osd_peering_pg.o osd_primary.o osd_rmw.o json11.o timerfd_interval.o
+OSD_OBJS := osd.o osd_secondary.o osd_receive.o osd_send.o osd_peering.o osd_flush.o osd_peering_pg.o osd_primary.o osd_cluster.o osd_rmw.o json11.o timerfd_interval.o
 osd_secondary.o: osd_secondary.cpp osd.h osd_ops.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_receive.o: osd_receive.cpp osd.h osd_ops.h ringloop.h
@@ -35,6 +35,8 @@ osd_receive.o: osd_receive.cpp osd.h osd_ops.h ringloop.h
 osd_send.o: osd_send.cpp osd.h osd_ops.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_peering.o: osd_peering.cpp osd.h osd_ops.h osd_peering_pg.h ringloop.h
+	g++ $(CXXFLAGS) -c -o $@ $<
+osd_cluster.o: osd_cluster.cpp osd.h osd_ops.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_flush.o: osd_flush.cpp osd.h osd_ops.h osd_peering_pg.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
