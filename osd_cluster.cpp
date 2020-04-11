@@ -80,6 +80,7 @@ void http_co_t::resume()
         int r;
         if ((r = inet_pton(AF_INET, host.c_str(), &addr.sin_addr)) != 1)
         {
+            code = ENXIO;
             delete this;
             return;
         }
@@ -88,6 +89,7 @@ void http_co_t::resume()
         peer_fd = socket(AF_INET, SOCK_STREAM, 0);
         if (peer_fd < 0)
         {
+            code = errno;
             delete this;
             return;
         }
@@ -95,6 +97,7 @@ void http_co_t::resume()
         r = connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
         if (r < 0 && errno != EINPROGRESS)
         {
+            code = errno;
             delete this;
             return;
         }
@@ -105,14 +108,17 @@ void http_co_t::resume()
         ev.events = EPOLLOUT | EPOLLIN | EPOLLRDHUP | EPOLLET;
         if (epoll_ctl(osd->epoll_fd, EPOLL_CTL_ADD, peer_fd, &ev) < 0)
         {
-            throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
+            code = errno;
+            delete this;
+            return;
         }
+        epoll_events = 0;
         st = 1;
         return;
     }
     if (st == 1)
     {
-        if (epoll_events & EPOLLOUT)
+        if (epoll_events & (EPOLLOUT | EPOLLERR))
         {
             int result = 0;
             socklen_t result_len = sizeof(result);
@@ -122,6 +128,7 @@ void http_co_t::resume()
             }
             if (result != 0)
             {
+                code = result;
                 delete this;
                 return;
             }
@@ -133,7 +140,9 @@ void http_co_t::resume()
             ev.events = EPOLLIN | EPOLLRDHUP | EPOLLET;
             if (epoll_ctl(osd->epoll_fd, EPOLL_CTL_MOD, peer_fd, &ev) < 0)
             {
-                throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
+                code = errno;
+                delete this;
+                return;
             }
             st = 2;
             epoll_events = 0;
@@ -192,7 +201,12 @@ void http_co_t::resume()
     // Read response
     if (st == 5)
     {
-        if (epoll_events & EPOLLIN)
+        if (epoll_events & (EPOLLRDHUP|EPOLLERR))
+        {
+            delete this;
+            return;
+        }
+        else if (epoll_events & EPOLLIN)
         {
             response.resize(received + 9000);
             io_uring_sqe *sqe = osd->ringloop->get_sqe();
@@ -211,11 +225,6 @@ void http_co_t::resume()
             my_uring_prep_recvmsg(sqe, peer_fd, &msg, 0);
             st = 6;
             epoll_events = 0;
-        }
-        else if (epoll_events & EPOLLRDHUP)
-        {
-            delete this;
-            return;
         }
     }
     if (st == 6)

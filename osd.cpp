@@ -276,7 +276,7 @@ restart:
             else
             {
                 auto & cb = epoll_handlers[events[i].data.fd];
-                cb(events[i].events, events[i].data.fd);
+                cb(events[i].data.fd, events[i].events);
             }
         }
     }
