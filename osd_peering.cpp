@@ -204,7 +204,7 @@ void osd_t::handle_peers()
             peering_state = peering_state & ~OSD_PEERING_PGS;
         }
     }
-    if (peering_state & OSD_FLUSHING_PGS)
+    if ((peering_state & OSD_FLUSHING_PGS) && !readonly)
     {
         bool still = false;
         for (auto & p: pgs)
@@ -223,7 +223,7 @@ void osd_t::handle_peers()
             peering_state = peering_state & ~OSD_FLUSHING_PGS | OSD_RECOVERING;
         }
     }
-    if (peering_state & OSD_RECOVERING)
+    if ((peering_state & OSD_RECOVERING) && !readonly)
     {
         if (!continue_recovery())
         {

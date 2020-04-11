@@ -189,6 +189,7 @@ class osd_t
 
     // config
 
+    bool readonly = false;
     std::string consul_address;
     osd_num_t osd_num = 1; // OSD numbers start with 1
     bool run_primary = false;
