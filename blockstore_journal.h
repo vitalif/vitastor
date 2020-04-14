@@ -137,7 +137,7 @@ struct journal_t
     bool inmemory = false;
     void *buffer = NULL;
 
-    uint64_t block_size = 512;
+    uint64_t block_size;
     uint64_t offset, len;
     // Next free block offset
     uint64_t next_free = 0;

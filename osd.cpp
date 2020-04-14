@@ -408,9 +408,9 @@ void osd_t::exec_op(osd_op_t *cur_op)
     if (cur_op->req.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
         cur_op->req.hdr.opcode < OSD_OP_MIN || cur_op->req.hdr.opcode > OSD_OP_MAX ||
         (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ || cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE) &&
-        (cur_op->req.sec_rw.len > OSD_RW_MAX || cur_op->req.sec_rw.len % OSD_RW_ALIGN || cur_op->req.sec_rw.offset % OSD_RW_ALIGN) ||
+        (cur_op->req.sec_rw.len > OSD_RW_MAX || cur_op->req.sec_rw.len % bs_disk_alignment || cur_op->req.sec_rw.offset % bs_disk_alignment) ||
         (cur_op->req.hdr.opcode == OSD_OP_READ || cur_op->req.hdr.opcode == OSD_OP_WRITE) &&
-        (cur_op->req.rw.len > OSD_RW_MAX || cur_op->req.rw.len % OSD_RW_ALIGN || cur_op->req.rw.offset % OSD_RW_ALIGN))
+        (cur_op->req.rw.len > OSD_RW_MAX || cur_op->req.rw.len % bs_disk_alignment || cur_op->req.rw.offset % bs_disk_alignment))
     {
         // Bad command
         finish_op(cur_op, -EINVAL);

@@ -181,7 +181,7 @@ uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ve
     op.sec_rw.version = version;
     op.sec_rw.offset = 0;
     op.sec_rw.len = 128*1024;
-    void *data = memalign(512, op.sec_rw.len);
+    void *data = memalign(MEM_ALIGNMENT, op.sec_rw.len);
     for (int i = 0; i < (op.sec_rw.len)/sizeof(uint64_t); i++)
         ((uint64_t*)data)[i] = pattern;
     write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
@@ -216,7 +216,7 @@ void* test_primary_read(int connect_fd, uint64_t inode, uint64_t offset, uint64_
     op.rw.inode = inode;
     op.rw.offset = offset;
     op.rw.len = len;
-    void *data = memalign(512, len);
+    void *data = memalign(MEM_ALIGNMENT, len);
     write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
     int r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
     if (!check_reply(r, op, reply, len))
@@ -244,7 +244,7 @@ void test_primary_write(int connect_fd, uint64_t inode, uint64_t offset, uint64_
     op.rw.inode = inode;
     op.rw.offset = offset;
     op.rw.len = len;
-    void *data = memalign(512, len);
+    void *data = memalign(MEM_ALIGNMENT, len);
     set_pattern(data, len, pattern);
     write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
     write_blocking(connect_fd, data, len);

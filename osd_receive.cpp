@@ -158,32 +158,32 @@ void osd_t::handle_op_hdr(osd_client_t *cl)
     if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ)
     {
         if (cur_op->req.sec_rw.len > 0)
-            cur_op->buf = memalign(512, cur_op->req.sec_rw.len);
+            cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
         cl->read_remaining = 0;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
     {
         if (cur_op->req.sec_rw.len > 0)
-            cur_op->buf = memalign(512, cur_op->req.sec_rw.len);
+            cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
         cl->read_remaining = cur_op->req.sec_rw.len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
         cur_op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
     {
         if (cur_op->req.sec_stab.len > 0)
-            cur_op->buf = memalign(512, cur_op->req.sec_stab.len);
+            cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.sec_stab.len);
         cl->read_remaining = cur_op->req.sec_stab.len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_READ)
     {
         if (cur_op->req.rw.len > 0)
-            cur_op->buf = memalign(512, cur_op->req.rw.len);
+            cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.rw.len);
         cl->read_remaining = 0;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_WRITE)
     {
         if (cur_op->req.rw.len > 0)
-            cur_op->buf = memalign(512, cur_op->req.rw.len);
+            cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.rw.len);
         cl->read_remaining = cur_op->req.rw.len;
     }
     if (cl->read_remaining > 0)
@@ -227,7 +227,7 @@ void osd_t::handle_reply_hdr(osd_client_t *cl)
     else if (op->reply.hdr.opcode == OSD_OP_SECONDARY_LIST &&
         op->reply.hdr.retval > 0)
     {
-        op->buf = memalign(512, sizeof(obj_ver_id) * op->reply.hdr.retval);
+        op->buf = memalign(MEM_ALIGNMENT, sizeof(obj_ver_id) * op->reply.hdr.retval);
         cl->read_state = CL_READ_REPLY_DATA;
         cl->read_reply_id = op->req.hdr.id;
         cl->read_buf = op->buf;

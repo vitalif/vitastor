@@ -15,7 +15,9 @@
 
 // Memory alignment for direct I/O (usually 512 bytes)
 // All other alignments must be a multiple of this one
+#ifndef MEM_ALIGNMENT
 #define MEM_ALIGNMENT 512
+#endif
 
 // Default block size is 128 KB, current allowed range is 4K - 128M
 #define DEFAULT_ORDER 17

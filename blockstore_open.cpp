@@ -75,7 +75,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     }
     if (!disk_alignment)
     {
-        disk_alignment = 512;
+        disk_alignment = 4096;
     }
     else if (disk_alignment % MEM_ALIGNMENT)
     {
@@ -83,7 +83,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     }
     if (!journal_block_size)
     {
-        journal_block_size = 512;
+        journal_block_size = 4096;
     }
     else if (journal_block_size % MEM_ALIGNMENT)
     {
@@ -91,7 +91,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     }
     if (!meta_block_size)
     {
-        meta_block_size = 512;
+        meta_block_size = 4096;
     }
     else if (meta_block_size % MEM_ALIGNMENT)
     {

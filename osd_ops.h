@@ -24,7 +24,9 @@
 #define OSD_OP_SYNC                 12
 #define OSD_OP_MAX                  12
 // Alignment & limit for read/write operations
-#define OSD_RW_ALIGN                512
+#ifndef MEM_ALIGNMENT
+#define MEM_ALIGNMENT               512
+#endif
 #define OSD_RW_MAX                  64*1024*1024
 
 // common request and reply headers

@@ -186,11 +186,11 @@ class blockstore_impl_t
     uint64_t data_offset;
     uint64_t cfg_journal_size, cfg_data_size;
     // Required write alignment and journal/metadata/data areas' location alignment
-    uint32_t disk_alignment = 512;
+    uint32_t disk_alignment = 4096;
     // Journal block size - minimum_io_size of the journal device is the best choice
-    uint64_t journal_block_size = 512;
+    uint64_t journal_block_size = 4096;
     // Metadata block size - minimum_io_size of the metadata device is the best choice
-    uint64_t meta_block_size = 512;
+    uint64_t meta_block_size = 4096;
     // Sparse write tracking granularity. 4 KB is a good choice. Must be a multiple of disk_alignment
     uint64_t bitmap_granularity = 4096;
     bool readonly = false;
