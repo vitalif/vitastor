@@ -37,7 +37,7 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
 
     bind_socket();
 
-    this->stats_tfd = new timerfd_interval(ringloop, 3, [this]()
+    this->stats_tfd = new timerfd_interval(ringloop, print_stats_interval, [this]()
     {
         print_stats();
     });
@@ -51,11 +51,20 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
 
 osd_t::~osd_t()
 {
-    delete stats_tfd;
+    if (stats_tfd)
+    {
+        delete stats_tfd;
+        stats_tfd = NULL;
+    }
     if (sync_tfd)
     {
         delete sync_tfd;
         sync_tfd = NULL;
+    }
+    if (consul_tfd)
+    {
+        delete consul_tfd;
+        consul_tfd = NULL;
     }
     ringloop->unregister_consumer(&consumer);
     close(epoll_fd);
@@ -86,6 +95,13 @@ osd_op_t::~osd_op_t()
 
 void osd_t::parse_config(blockstore_config_t & config)
 {
+    consul_address = config["consul_address"];
+    consul_prefix = config["consul_prefix"];
+    if (consul_prefix == "")
+        consul_prefix = "microceph";
+    consul_report_interval = strtoull(config["consul_report_interval"].c_str(), NULL, 10);
+    if (consul_report_interval <= 0)
+        consul_report_interval = 30;
     bind_address = config["bind_address"];
     if (bind_address == "")
         bind_address = "0.0.0.0";
@@ -108,6 +124,9 @@ void osd_t::parse_config(blockstore_config_t & config)
         recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
     if (config["readonly"] == "true" || config["readonly"] == "1" || config["readonly"] == "yes")
         readonly = true;
+    print_stats_interval = strtoull(config["print_stats_interval"].c_str(), NULL, 10);
+    if (!print_stats_interval)
+        print_stats_interval = 3;
 }
 
 void osd_t::bind_socket()
@@ -424,31 +443,48 @@ void osd_t::exec_op(osd_op_t *cur_op)
     }
 }
 
+void osd_t::reset_stats()
+{
+    for (int p = 0; p < 2; p++)
+    {
+        for (int i = 0; i <= OSD_OP_MAX; i++)
+        {
+            if (op_stat_count[p][i] != 0)
+            {
+                op_stat_count[p][i] = 0;
+                op_stat_sum[p][i] = 0;
+            }
+        }
+        for (int i = 0; i <= OSD_OP_MAX; i++)
+        {
+            if (subop_stat_count[p][i] != 0)
+            {
+                subop_stat_count[p][i] = 0;
+                subop_stat_sum[p][i] = 0;
+            }
+        }
+    }
+}
+
 void osd_t::print_stats()
 {
     for (int i = 0; i <= OSD_OP_MAX; i++)
     {
-        if (op_stat_count[i] != 0)
+        if (op_stat_count[0][i] != op_stat_count[1][i])
         {
-            printf("avg latency for op %d (%s): %ld us\n", i, osd_op_names[i], op_stat_sum[i]/op_stat_count[i]);
-            op_stat_count[i] = 0;
-            op_stat_sum[i] = 0;
+            uint64_t avg = (op_stat_sum[0][i] - op_stat_sum[1][i])/(op_stat_count[0][i] - op_stat_count[1][i]);
+            printf("avg latency for op %d (%s): %ld us\n", i, osd_op_names[i], avg);
+            op_stat_count[1][i] = op_stat_count[0][i];
+            op_stat_sum[1][i] = op_stat_sum[0][i];
         }
     }
     for (int i = 0; i <= OSD_OP_MAX; i++)
     {
-        if (subop_stat_count[i] != 0)
+        if (subop_stat_count[0][i] != subop_stat_count[1][i])
         {
-            printf("avg latency for subop %d (%s): %ld us\n", i, osd_op_names[i], subop_stat_sum[i]/subop_stat_count[i]);
-            subop_stat_count[i] = 0;
-            subop_stat_sum[i] = 0;
+            uint64_t avg = (subop_stat_sum[0][i] - subop_stat_sum[1][i])/(subop_stat_count[0][i] - subop_stat_count[1][i]);
+            printf("avg latency for subop %d (%s): %ld us\n", i, osd_op_names[i], avg);
         }
-    }
-    if (send_stat_count != 0)
-    {
-        printf("avg latency to send stabilize subop: %ld us\n", send_stat_sum/send_stat_count);
-        send_stat_count = 0;
-        send_stat_sum = 0;
     }
     if (incomplete_objects > 0)
     {

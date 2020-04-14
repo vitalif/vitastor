@@ -33,6 +33,10 @@
 #define OBJ_NEEDS_ROLLBACK 0x20000
 #define OBJ_BUGGY 0x80000
 
+extern const int pg_state_bits[10];
+extern const char *pg_state_names[10];
+extern const int pg_state_bit_count;
+
 struct pg_obj_loc_t
 {
     uint64_t role;

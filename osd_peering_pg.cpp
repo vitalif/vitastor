@@ -372,3 +372,29 @@ void pg_t::print_state()
         total_count
     );
 }
+
+const int pg_state_bit_count = 10;
+
+const int pg_state_bits[10] = {
+    PG_OFFLINE,
+    PG_PEERING,
+    PG_INCOMPLETE,
+    PG_ACTIVE,
+    PG_DEGRADED,
+    PG_HAS_INCOMPLETE,
+    PG_HAS_DEGRADED,
+    PG_HAS_MISPLACED,
+    PG_HAS_UNCLEAN,
+};
+
+const char *pg_state_names[10] = {
+    "offline",
+    "peering",
+    "incomplete",
+    "active",
+    "degraded",
+    "has_incomplete",
+    "has_degraded",
+    "has_misplaced",
+    "has_unclean",
+};

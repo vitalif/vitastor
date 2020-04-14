@@ -18,6 +18,7 @@
 #include "timerfd_interval.h"
 #include "osd_ops.h"
 #include "osd_peering_pg.h"
+#include "json11/json11.hpp"
 
 #define OSD_OP_IN 0
 #define OSD_OP_OUT 1
@@ -190,7 +191,7 @@ class osd_t
     // config
 
     bool readonly = false;
-    std::string consul_address;
+    std::string consul_address, consul_host, consul_prefix = "microceph";
     osd_num_t osd_num = 1; // OSD numbers start with 1
     bool run_primary = false;
     std::vector<osd_peer_def_t> peers;
@@ -200,12 +201,15 @@ class osd_t
     int client_queue_depth = 128;
     bool allow_test_ops = true;
     int receive_buffer_size = 9000;
+    int print_stats_interval = 3;
+    int consul_report_interval = 30;
     int immediate_commit = IMMEDIATE_NONE;
     int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // sync every 5 seconds
     int recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
 
     // peer OSDs
 
+    std::vector<std::string> bind_addresses;
     std::map<uint64_t, int> osd_peer_fds;
     std::map<pg_num_t, pg_t> pgs;
     std::set<pg_num_t> dirty_pgs;
@@ -228,7 +232,7 @@ class osd_t
     uint32_t bs_block_size, bs_disk_alignment;
     uint64_t pg_stripe_size = 4*1024*1024; // 4 MB by default
     ring_loop_t *ringloop;
-    timerfd_interval *stats_tfd = NULL, *sync_tfd = NULL;
+    timerfd_interval *stats_tfd = NULL, *sync_tfd = NULL, *consul_tfd = NULL;
 
     int wait_state = 0;
     int epoll_fd = 0;
@@ -239,17 +243,20 @@ class osd_t
     std::unordered_map<int,osd_client_t> clients;
     std::vector<int> read_ready_clients;
     std::vector<int> write_ready_clients;
-    uint64_t op_stat_sum[OSD_OP_MAX+1] = { 0 };
-    uint64_t op_stat_count[OSD_OP_MAX+1] = { 0 };
-    uint64_t subop_stat_sum[OSD_OP_MAX+1] = { 0 };
-    uint64_t subop_stat_count[OSD_OP_MAX+1] = { 0 };
-    uint64_t send_stat_sum = 0;
-    uint64_t send_stat_count = 0;
+
+    // op statistics
+    uint64_t op_stat_sum[2][OSD_OP_MAX+1] = { 0 };
+    uint64_t op_stat_count[2][OSD_OP_MAX+1] = { 0 };
+    uint64_t subop_stat_sum[2][OSD_OP_MAX+1] = { 0 };
+    uint64_t subop_stat_count[2][OSD_OP_MAX+1] = { 0 };
 
     // methods
     void parse_config(blockstore_config_t & config);
     void bind_socket();
     void print_stats();
+    void reset_stats();
+    json11::Json get_status();
+    void report_status();
 
     // event loop, socket read/write
     void loop();

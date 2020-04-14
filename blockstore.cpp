@@ -55,6 +55,11 @@ uint64_t blockstore_t::get_block_count()
     return impl->get_block_count();
 }
 
+uint64_t blockstore_t::get_free_block_count()
+{
+    return impl->get_free_block_count();
+}
+
 uint32_t blockstore_t::get_disk_alignment()
 {
     return impl->get_disk_alignment();

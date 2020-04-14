@@ -39,8 +39,8 @@ bool osd_t::try_send(osd_client_t & cl)
         {
             // Measure execution latency
             timespec tv_end = cl.write_op->tv_send;
-            op_stat_count[cl.write_op->req.hdr.opcode]++;
-            op_stat_sum[cl.write_op->req.hdr.opcode] += (
+            op_stat_count[0][cl.write_op->req.hdr.opcode]++;
+            op_stat_sum[0][cl.write_op->req.hdr.opcode] += (
                 (tv_end.tv_sec - cl.write_op->tv_begin.tv_sec)*1000000 +
                 (tv_end.tv_nsec - cl.write_op->tv_begin.tv_nsec)/1000
             );
@@ -101,16 +101,6 @@ void osd_t::handle_send(ring_data_t *data, int peer_fd)
             if (cur_op->send_list.sent >= cur_op->send_list.count)
             {
                 // Done
-                if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE)
-                {
-                    timespec tv_end;
-                    clock_gettime(CLOCK_REALTIME, &tv_end);
-                    send_stat_count++;
-                    send_stat_sum += (
-                        (tv_end.tv_sec - cl.write_op->tv_send.tv_sec)*1000000 +
-                        (tv_end.tv_nsec - cl.write_op->tv_send.tv_nsec)/1000
-                    );
-                }
                 if (cur_op->op_type == OSD_OP_IN)
                 {
                     delete cur_op;

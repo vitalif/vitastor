@@ -325,5 +325,6 @@ public:
 
     inline uint32_t get_block_size() { return block_size; }
     inline uint64_t get_block_count() { return block_count; }
+    inline uint64_t get_free_block_count() { return data_alloc->get_free_count(); }
     inline uint32_t get_disk_alignment() { return disk_alignment; }
 };

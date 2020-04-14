@@ -484,6 +484,7 @@ resume_5:
     {
         // Object is created
         pg.clean_count++;
+        pg.total_count++;
     }
     if (op_data->object_state)
     {

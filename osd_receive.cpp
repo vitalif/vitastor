@@ -139,8 +139,8 @@ void osd_t::handle_finished_read(osd_client_t & cl)
         // Measure subop latency
         timespec tv_end;
         clock_gettime(CLOCK_REALTIME, &tv_end);
-        subop_stat_count[request->req.hdr.opcode]++;
-        subop_stat_sum[request->req.hdr.opcode] += (
+        subop_stat_count[0][request->req.hdr.opcode]++;
+        subop_stat_sum[0][request->req.hdr.opcode] += (
             (tv_end.tv_sec - request->tv_begin.tv_sec)*1000000 +
             (tv_end.tv_nsec - request->tv_begin.tv_nsec)/1000
         );
@@ -242,8 +242,8 @@ void osd_t::handle_reply_hdr(osd_client_t *cl)
         // Measure subop latency
         timespec tv_end;
         clock_gettime(CLOCK_REALTIME, &tv_end);
-        subop_stat_count[op->req.hdr.opcode]++;
-        subop_stat_sum[op->req.hdr.opcode] += (
+        subop_stat_count[0][op->req.hdr.opcode]++;
+        subop_stat_sum[0][op->req.hdr.opcode] += (
             (tv_end.tv_sec - op->tv_begin.tv_sec)*1000000 +
             (tv_end.tv_nsec - op->tv_begin.tv_nsec)/1000
         );

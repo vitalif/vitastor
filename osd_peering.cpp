@@ -31,6 +31,13 @@ void osd_t::init_primary()
     pgs[1].print_state();
     pg_count = 1;
     peering_state = OSD_CONNECTING_PEERS;
+    if (consul_address != "")
+    {
+        this->consul_tfd = new timerfd_interval(ringloop, consul_report_interval, [this]()
+        {
+            report_status();
+        });
+    }
     if (autosync_interval > 0)
     {
         this->sync_tfd = new timerfd_interval(ringloop, 3, [this]()
