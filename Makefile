@@ -16,6 +16,8 @@ ringloop.o: ringloop.cpp ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 timerfd_interval.o: timerfd_interval.cpp timerfd_interval.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
+timerfd_manager.o: timerfd_manager.cpp timerfd_manager.h ringloop.h
+	g++ $(CXXFLAGS) -c -o $@ $<
 
 %.o: %.cpp allocator.h blockstore_flush.h blockstore.h blockstore_impl.h blockstore_init.h blockstore_journal.h crc32c.h ringloop.h timerfd_interval.h object_id.h
 	g++ $(CXXFLAGS) -c -o $@ $<
