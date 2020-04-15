@@ -42,6 +42,8 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
         print_stats();
     });
 
+    this->tfd = new timerfd_manager_t(ringloop);
+
     if (run_primary)
         init_primary();
 
@@ -51,6 +53,11 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
 
 osd_t::~osd_t()
 {
+    if (tfd)
+    {
+        delete tfd;
+        tfd = NULL;
+    }
     if (stats_tfd)
     {
         delete stats_tfd;

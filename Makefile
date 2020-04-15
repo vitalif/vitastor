@@ -30,7 +30,7 @@ libfio_blockstore.so: ./libblockstore.so fio_engine.cpp json11.o
 	g++ $(CXXFLAGS) -shared -o libfio_blockstore.so fio_engine.cpp json11.o ./libblockstore.so -ltcmalloc_minimal -luring
 
 OSD_OBJS := osd.o osd_secondary.o osd_receive.o osd_send.o osd_peering.o osd_flush.o osd_peering_pg.o \
-	osd_primary.o osd_cluster.o osd_rmw.o json11.o timerfd_interval.o base64.o
+	osd_primary.o osd_cluster.o osd_rmw.o json11.o timerfd_interval.o base64.o timerfd_manager.o
 base64.o: base64.cpp base64.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_secondary.o: osd_secondary.cpp osd.h osd_ops.h ringloop.h

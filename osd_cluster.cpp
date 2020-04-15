@@ -132,9 +132,27 @@ void osd_t::report_status()
     {
         int pos = res.find("\r\n\r\n");
         if (pos >= 0)
+        {
             res = res.substr(pos+4);
+        }
         if (err != 0 || res != "true")
+        {
+            consul_failed_attempts++;
             printf("Error reporting state to Consul: code %d (%s), response text: %s\n", err, strerror(err), res.c_str());
+            if (consul_failed_attempts > MAX_CONSUL_ATTEMPTS)
+            {
+                throw std::runtime_error("Cluster connection failed");
+            }
+            // Retry
+            tfd->set_timer(CONSUL_RETRY_INTERVAL, false, [this](int timer_id)
+            {
+                report_status();
+            });
+        }
+        else
+        {
+            consul_failed_attempts = 0;
+        }
     });
 }
 

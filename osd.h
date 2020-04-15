@@ -16,6 +16,7 @@
 #include "blockstore.h"
 #include "ringloop.h"
 #include "timerfd_interval.h"
+#include "timerfd_manager.h"
 #include "osd_ops.h"
 #include "osd_peering_pg.h"
 #include "json11/json11.hpp"
@@ -47,6 +48,9 @@
 #define DEFAULT_AUTOSYNC_INTERVAL 5
 #define MAX_RECOVERY_QUEUE 2048
 #define DEFAULT_RECOVERY_QUEUE 4
+
+#define MAX_CONSUL_ATTEMPTS 5
+#define CONSUL_RETRY_INTERVAL 1000
 
 //#define OSD_STUB
 
@@ -210,6 +214,8 @@ class osd_t
     // peer OSDs
 
     std::vector<std::string> bind_addresses;
+    int consul_failed_attempts = 0;
+
     std::map<uint64_t, int> osd_peer_fds;
     std::map<pg_num_t, pg_t> pgs;
     std::set<pg_num_t> dirty_pgs;
@@ -233,6 +239,7 @@ class osd_t
     uint64_t pg_stripe_size = 4*1024*1024; // 4 MB by default
     ring_loop_t *ringloop;
     timerfd_interval *stats_tfd = NULL, *sync_tfd = NULL, *consul_tfd = NULL;
+    timerfd_manager_t *tfd = NULL;
 
     int wait_state = 0;
     int epoll_fd = 0;
