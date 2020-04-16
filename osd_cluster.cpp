@@ -159,30 +159,25 @@ void osd_t::parse_pgs(json11::Json data)
             throw std::runtime_error("Bad key in PG hash: "+pg_item.first);
         }
         auto & pg_json = pg_item.second;
-        osd_num_t primary_osd = 0;
-        std::vector<osd_num_t> target_set;
-        for (auto pg_osd_num: pg_json["osd_set"].array_items())
-        {
-            osd_num_t pg_osd = pg_osd_num.uint64_value();
-            target_set.push_back(pg_osd);
-            if (pg_osd != 0 && primary_osd == 0)
-            {
-                primary_osd = pg_osd;
-            }
-        }
-        if (target_set.size() != 3)
-        {
-            throw std::runtime_error("Bad PG "+std::to_string(pg_num)+" config format: incorrect osd_set");
-        }
+        osd_num_t primary_osd = pg_json["primary"].uint64_value();
         if (primary_osd == this->osd_num)
         {
             // Take this PG
+            std::vector<osd_num_t> target_set;
+            for (auto pg_osd_num: pg_json["osd_set"].array_items())
+            {
+                osd_num_t pg_osd = pg_osd_num.uint64_value();
+                target_set.push_back(pg_osd);
+            }
+            if (target_set.size() != 3)
+            {
+                throw std::runtime_error("Bad PG "+std::to_string(pg_num)+" config format: incorrect osd_set");
+            }
             this->pgs[pg_num] = (pg_t){
                 .state = PG_PEERING,
                 .pg_cursize = 0,
                 .pg_num = pg_num,
                 .target_set = target_set,
-                .cur_set = target_set,
             };
             this->pgs[pg_num].print_state();
             // Add peers
@@ -216,10 +211,9 @@ void osd_t::load_and_connect_peers()
                 peering_state = peering_state & ~OSD_CONNECTING_PEERS;
             }
         }
-        else if (peer_states.find(osd_num) == peer_states.end() &&
-            time(NULL) - wp_it->second.last_load_attempt >= peer_connect_interval)
+        else if (peer_states.find(osd_num) == peer_states.end())
         {
-            if (!loading_peer_config)
+            if (!loading_peer_config && (time(NULL) - wp_it->second.last_load_attempt >= peer_connect_interval))
             {
                 // (Re)load OSD state from Consul
                 wp_it->second.last_load_attempt = time(NULL);
@@ -237,7 +231,7 @@ void osd_t::load_and_connect_peers()
         {
             // Try to connect
             wp_it->second.connecting = true;
-            const std::string & addr = peer_states[osd_num]["addresses"][wp_it->second.address_index].string_value();
+            const std::string addr = peer_states[osd_num]["addresses"][wp_it->second.address_index].string_value();
             int64_t port = peer_states[osd_num]["port"].int64_value();
             wp_it++;
             connect_peer(osd_num, addr.c_str(), port, [this](osd_num_t osd_num, int peer_fd)
@@ -266,6 +260,7 @@ void osd_t::load_and_connect_peers()
                 if (!wanted_peers.size())
                 {
                     // Connected to all peers
+                    printf("Connected to all peers\n");
                     peering_state = peering_state & ~OSD_CONNECTING_PEERS;
                 }
                 repeer_pgs(osd_num, true);
@@ -292,20 +287,24 @@ void osd_t::load_and_connect_peers()
             loading_peer_config = false;
             if (err != "")
             {
-                printf("Failed to load peer configuration from Consul");
+                printf("Failed to load peer configuration from Consul: %s\n", err.c_str());
                 return;
             }
             for (auto & res: data["Results"].array_items())
             {
                 std::string key = res["KV"]["Key"].string_value();
                 // <consul_prefix>/osd/state/<osd_num>.
-                osd_num_t osd_num = std::stoull(key.substr(consul_prefix.length()+11, key.length()-consul_prefix.length()-12));
+                osd_num_t peer_osd = std::stoull(key.substr(consul_prefix.length()+11, key.length()-consul_prefix.length()-12));
                 std::string json_err;
-                json11::Json data = json11::Json::parse(base64_decode(res["KV"]["Value"].string_value()), json_err);
-                if (osd_num > 0 && data.is_object() && data["state"] == "up" &&
-                    data["addresses"].is_array() && data["port"].is_number())
+                json11::Json st = json11::Json::parse(base64_decode(res["KV"]["Value"].string_value()), json_err);
+                if (json_err != "")
                 {
-                    peer_states[osd_num] = data;
+                    printf("Bad JSON in Consul key %s: %s\n", key.c_str(), json_err.c_str());
+                }
+                if (peer_osd > 0 && st.is_object() && st["state"] == "up" &&
+                    st["addresses"].is_array() && st["port"].is_number())
+                {
+                    peer_states[peer_osd] = st;
                 }
             }
         });

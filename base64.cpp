@@ -3,10 +3,11 @@
 std::string base64_encode(const std::string &in)
 {
     std::string out;
-    unsigned val = 0, valb = -6;
+    unsigned val = 0;
+    int valb = -6;
     for (unsigned char c: in)
     {
-        val = (val<<8) + c;
+        val = (val << 8) + c;
         valb += 8;
         while (valb >= 0)
         {
@@ -33,16 +34,17 @@ std::string base64_decode(const std::string &in)
         for (int i = 0; i < 64; i++)
             T[(unsigned char)("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[i])] = i;
     }
-    unsigned val = 0, valb = -8;
+    unsigned val = 0;
+    int valb = -8;
     for (unsigned char c: in)
     {
         if (T[c] == -1)
             break;
         val = (val<<6) + T[c];
         valb += 6;
-        if (valb>=0)
+        if (valb >= 0)
         {
-            out.push_back(char((val>>valb)&0xFF));
+            out.push_back(char((val >> valb) & 0xFF));
             valb -= 8;
         }
     }

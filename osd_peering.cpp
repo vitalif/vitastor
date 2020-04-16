@@ -230,9 +230,8 @@ void osd_t::repeer_pgs(osd_num_t osd_num, bool is_connected)
             for (int r = 0; r < p.second.target_set.size(); r++)
             {
                 if (p.second.target_set[r] == osd_num &&
-                    p.second.cur_set[r] != real_osd)
+                    (p.second.cur_set.size() < r || p.second.cur_set[r] != real_osd))
                 {
-                    p.second.cur_set[r] = real_osd;
                     repeer = true;
                     break;
                 }
@@ -287,8 +286,11 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     dirty_pgs.erase(pg.pg_num);
     // Start peering
     pg.pg_cursize = 0;
-    for (int role = 0; role < pg.cur_set.size(); role++)
+    pg.cur_set.resize(pg.target_set.size());
+    for (int role = 0; role < pg.target_set.size(); role++)
     {
+        pg.cur_set[role] = pg.target_set[role] == this->osd_num ||
+            osd_peer_fds.find(pg.target_set[role]) != osd_peer_fds.end() ? pg.target_set[role] : 0;
         if (pg.cur_set[role] != 0)
         {
             pg.pg_cursize++;
@@ -308,7 +310,9 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
             for (role = 0; role < pg.cur_set.size(); role++)
             {
                 if (pg.cur_set[role] == it->first)
+                {
                     break;
+                }
             }
             if (pg.state == PG_INCOMPLETE || role >= pg.cur_set.size())
             {
@@ -342,7 +346,9 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
             for (role = 0; role < pg.cur_set.size(); role++)
             {
                 if (pg.cur_set[role] == it->first)
+                {
                     break;
+                }
             }
             if (pg.state == PG_INCOMPLETE || role >= pg.cur_set.size())
             {

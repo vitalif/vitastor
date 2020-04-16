@@ -119,7 +119,7 @@ void osd_t::http_request_json(std::string host, std::string request,
         json11::Json data = json11::Json::parse(res->body, json_err);
         if (json_err != "")
         {
-            callback("Bad JSON: "+json_err+" (response: "+res->body+")", json11::Json());
+            callback("Bad JSON: "+json_err+" (response: "+(res->body == "" ? txt : res->body)+")", json11::Json());
             return;
         }
         callback(std::string(), data);
@@ -142,14 +142,27 @@ http_response_t *parse_http_response(std::string res)
         status_text = NULL;
     }
     int prev = pos;
-    while ((pos = res.find("\r\n", prev)) > prev)
+    while ((pos = res.find("\r\n", prev)) >= prev)
     {
-        if (pos == prev+2)
+        if (pos == prev)
         {
-            parsed->body = res.substr(pos+2);
+            if (parsed->headers["transfer-encoding"] == "chunked")
+            {
+                prev = pos+2;
+                while ((pos = res.find("\r\n", prev)) >= prev)
+                {
+                    uint64_t len = strtoull(res.c_str()+prev, NULL, 16);
+                    parsed->body += res.substr(pos+2, len);
+                    prev = pos+2+len+2;
+                }
+            }
+            else
+            {
+                parsed->body = res.substr(pos+2);
+            }
             break;
         }
-        std::string header = res.substr(prev, pos);
+        std::string header = res.substr(prev, pos-prev);
         int p2 = header.find(":");
         if (p2 >= 0)
         {
