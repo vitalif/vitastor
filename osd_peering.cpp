@@ -38,10 +38,6 @@ void osd_t::init_primary()
     {
         peering_state = OSD_LOADING_PGS;
         load_pgs();
-        this->consul_tfd = new timerfd_interval(ringloop, consul_report_interval, [this]()
-        {
-            report_status();
-        });
     }
     if (autosync_interval > 0)
     {

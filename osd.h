@@ -267,6 +267,7 @@ class osd_t
     void print_stats();
     void reset_stats();
     json11::Json get_status();
+    void init_cluster();
     void report_status();
     void load_pgs();
     void parse_pgs(json11::Json data);

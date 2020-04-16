@@ -98,10 +98,19 @@ void timerfd_manager_t::set_nearest()
                 nearest = i;
             }
         }
+        timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
         itimerspec exp = {
             .it_interval = { 0 },
             .it_value = timers[nearest].next,
         };
+        exp.it_value.tv_sec -= now.tv_sec;
+        exp.it_value.tv_nsec -= now.tv_nsec;
+        if (exp.it_value.tv_nsec < 0)
+        {
+            exp.it_value.tv_sec--;
+            exp.it_value.tv_nsec += 1000000000;
+        }
         if (timerfd_settime(timerfd, 0, &exp, NULL))
         {
             throw std::runtime_error(std::string("timerfd_settime: ") + strerror(errno));
@@ -130,7 +139,7 @@ void timerfd_manager_t::set_wait()
         }
         ring_data_t *data = ((ring_data_t*)sqe->user_data);
         my_uring_prep_poll_add(sqe, timerfd, POLLIN);
-        data->callback = [&](ring_data_t *data)
+        data->callback = [this](ring_data_t *data)
         {
             if (data->res < 0)
             {

@@ -2,6 +2,19 @@
 #include "osd_http.h"
 #include "base64.h"
 
+void osd_t::init_cluster()
+{
+    if (consul_address != "")
+    {
+        printf("OSD %lu reporting to Consul at %s each %d seconds\n", osd_num, consul_address.c_str(), consul_report_interval);
+        report_status();
+        this->consul_tfd = new timerfd_interval(ringloop, consul_report_interval, [this]()
+        {
+            report_status();
+        });
+    }
+}
+
 json11::Json osd_t::get_status()
 {
     json11::Json::object st;
@@ -18,6 +31,8 @@ json11::Json osd_t::get_status()
         st["addresses"] = bind_addresses;
     }
     st["port"] = bind_port;
+    st["primary_enabled"] = run_primary;
+    st["blockstore_ready"] = bs->is_started();
     st["blockstore_enabled"] = bs ? true : false;
     if (bs)
     {
@@ -69,9 +84,9 @@ json11::Json osd_t::get_status()
 void osd_t::report_status()
 {
     std::string st = get_status().dump();
-    // (!) Keys end with / to allow "select /osd/state/123/ by prefix"
+    // (!) Keys end with . to allow "select /osd/state/123. by prefix"
     // because Consul transactions fail if you try to read non-existing keys
-    std::string req = "PUT /v1/kv/"+consul_prefix+"/osd/state/"+std::to_string(osd_num)+"/ HTTP/1.1\r\n"+
+    std::string req = "PUT /v1/kv/"+consul_prefix+"/osd/state/"+std::to_string(osd_num)+". HTTP/1.1\r\n"+
         "Host: "+consul_host+"\r\n"+
         "Content-Length: "+std::to_string(st.size())+"\r\n"+
         "Connection: close\r\n"+
@@ -211,7 +226,7 @@ void osd_t::load_and_connect_peers()
                 consul_txn.push_back(json11::Json::object {
                     { "KV", json11::Json::object {
                         { "Verb", "get-tree" },
-                        { "Key", consul_prefix+"/osd/state/"+std::to_string(osd_num)+"/" },
+                        { "Key", consul_prefix+"/osd/state/"+std::to_string(osd_num)+"." },
                     } }
                 });
             }
@@ -283,7 +298,7 @@ void osd_t::load_and_connect_peers()
             for (auto & res: data["Results"].array_items())
             {
                 std::string key = res["KV"]["Key"].string_value();
-                // <consul_prefix>/osd/state/<osd_num>/
+                // <consul_prefix>/osd/state/<osd_num>.
                 osd_num_t osd_num = std::stoull(key.substr(consul_prefix.length()+11, key.length()-consul_prefix.length()-12));
                 std::string json_err;
                 json11::Json data = json11::Json::parse(base64_decode(res["KV"]["Value"].string_value()), json_err);

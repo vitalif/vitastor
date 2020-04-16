@@ -308,12 +308,7 @@ void http_co_t::resume()
     // Read response
     if (st == 5)
     {
-        if (epoll_events & (EPOLLRDHUP|EPOLLERR))
-        {
-            delete this;
-            return;
-        }
-        else if (epoll_events & EPOLLIN)
+        if (epoll_events & EPOLLIN)
         {
             if (rbuf.size() != 9000)
                 rbuf.resize(9000);
@@ -332,7 +327,12 @@ void http_co_t::resume()
             };
             my_uring_prep_recvmsg(sqe, peer_fd, &msg, 0);
             st = 6;
-            epoll_events = 0;
+            epoll_events = epoll_events & ~EPOLLIN;
+        }
+        else if (epoll_events & (EPOLLRDHUP|EPOLLERR))
+        {
+            delete this;
+            return;
         }
     }
     if (st == 6)
