@@ -103,6 +103,7 @@ osd_op_t::~osd_op_t()
 void osd_t::parse_config(blockstore_config_t & config)
 {
     consul_address = config["consul_address"];
+    consul_host = consul_address.find(':') >= 0 ? consul_address.substr(0, consul_address.find(':')) : consul_address;
     consul_prefix = config["consul_prefix"];
     if (consul_prefix == "")
         consul_prefix = "microceph";
@@ -112,6 +113,7 @@ void osd_t::parse_config(blockstore_config_t & config)
     bind_address = config["bind_address"];
     if (bind_address == "")
         bind_address = "0.0.0.0";
+    // FIXME: select port automatically from range
     bind_port = strtoull(config["bind_port"].c_str(), NULL, 10);
     if (!bind_port || bind_port > 65535)
         bind_port = 11203;
@@ -134,6 +136,9 @@ void osd_t::parse_config(blockstore_config_t & config)
     print_stats_interval = strtoull(config["print_stats_interval"].c_str(), NULL, 10);
     if (!print_stats_interval)
         print_stats_interval = 3;
+    peer_connect_interval = strtoull(config["peer_connect_interval"].c_str(), NULL, 10);
+    if (!peer_connect_interval)
+        peer_connect_interval = 5;
 }
 
 void osd_t::bind_socket()

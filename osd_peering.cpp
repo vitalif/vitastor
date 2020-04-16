@@ -3,36 +3,41 @@
 
 #include <algorithm>
 
+#include "base64.h"
 #include "osd.h"
 
 void osd_t::init_primary()
 {
-    // Initial test version of clustering code requires exactly 2 peers
-    // FIXME Hardcode
-    std::string peerstr = config["peers"];
-    while (peerstr.size())
+    if (consul_address == "")
     {
-        int pos = peerstr.find(',');
-        peers.push_back(parse_peer(pos < 0 ? peerstr : peerstr.substr(0, pos)));
-        peerstr = pos < 0 ? std::string("") : peerstr.substr(pos+1);
-        for (int i = 0; i < peers.size()-1; i++)
-            if (peers[i].osd_num == peers[peers.size()-1].osd_num)
-                throw std::runtime_error("same osd number "+std::to_string(peers[i].osd_num)+" specified twice in peers");
+        // Test version of clustering code with 1 PG and 2 peers
+        // Example: peers = 2:127.0.0.1:11204,3:127.0.0.1:11205
+        std::string peerstr = config["peers"];
+        while (peerstr.size())
+        {
+            int pos = peerstr.find(',');
+            parse_test_peer(pos < 0 ? peerstr : peerstr.substr(0, pos));
+            peerstr = pos < 0 ? std::string("") : peerstr.substr(pos+1);
+        }
+        if (peer_states.size() < 2)
+        {
+            throw std::runtime_error("run_primary requires at least 2 peers");
+        }
+        pgs[1] = (pg_t){
+            .state = PG_PEERING,
+            .pg_cursize = 0,
+            .pg_num = 1,
+            .target_set = { 1, 2, 3 },
+            .cur_set = { 0, 0, 0 },
+        };
+        pgs[1].print_state();
+        pg_count = 1;
+        peering_state = OSD_CONNECTING_PEERS;
     }
-    if (peers.size() < 2)
-        throw std::runtime_error("run_primary requires at least 2 peers");
-    pgs[1] = (pg_t){
-        .state = PG_PEERING,
-        .pg_cursize = 0,
-        .pg_num = 1,
-        .target_set = { 1, 2, 3 },
-        .cur_set = { 1, 0, 0 },
-    };
-    pgs[1].print_state();
-    pg_count = 1;
-    peering_state = OSD_CONNECTING_PEERS;
-    if (consul_address != "")
+    else
     {
+        peering_state = OSD_LOADING_PGS;
+        load_pgs();
         this->consul_tfd = new timerfd_interval(ringloop, consul_report_interval, [this]()
         {
             report_status();
@@ -47,24 +52,30 @@ void osd_t::init_primary()
     }
 }
 
-osd_peer_def_t osd_t::parse_peer(std::string peer)
+void osd_t::parse_test_peer(std::string peer)
 {
     // OSD_NUM:IP:PORT
     int pos1 = peer.find(':');
     int pos2 = peer.find(':', pos1+1);
     if (pos1 < 0 || pos2 < 0)
         throw new std::runtime_error("OSD peer string must be in the form OSD_NUM:IP:PORT");
-    osd_peer_def_t r;
-    r.addr = peer.substr(pos1+1, pos2-pos1-1);
+    std::string addr = peer.substr(pos1+1, pos2-pos1-1);
     std::string osd_num_str = peer.substr(0, pos1);
     std::string port_str = peer.substr(pos2+1);
-    r.osd_num = strtoull(osd_num_str.c_str(), NULL, 10);
-    if (!r.osd_num)
+    osd_num_t osd_num = strtoull(osd_num_str.c_str(), NULL, 10);
+    if (!osd_num)
         throw new std::runtime_error("Could not parse OSD peer osd_num");
-    r.port = strtoull(port_str.c_str(), NULL, 10);
-    if (!r.port)
+    else if (peer_states.find(osd_num) != peer_states.end())
+        throw std::runtime_error("Same osd number "+std::to_string(osd_num)+" specified twice in peers");
+    int port = strtoull(port_str.c_str(), NULL, 10);
+    if (!port)
         throw new std::runtime_error("Could not parse OSD peer port");
-    return r;
+    peer_states[osd_num] = json11::Json::object {
+        { "state", "up" },
+        { "addresses", json11::Json::array { addr } },
+        { "port", port },
+    };
+    wanted_peers[osd_num] = { 0 };
 }
 
 void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(osd_num_t, int)> callback)
@@ -149,36 +160,7 @@ void osd_t::handle_peers()
 {
     if (peering_state & OSD_CONNECTING_PEERS)
     {
-        for (int i = 0; i < peers.size(); i++)
-        {
-            if (osd_peer_fds.find(peers[i].osd_num) == osd_peer_fds.end() &&
-                time(NULL) - peers[i].last_connect_attempt > 5) // FIXME hardcode 5
-            {
-                peers[i].last_connect_attempt = time(NULL);
-                connect_peer(peers[i].osd_num, peers[i].addr.c_str(), peers[i].port, [this](osd_num_t osd_num, int peer_fd)
-                {
-                    // FIXME: Check peer config after connecting
-                    if (peer_fd < 0)
-                    {
-                        printf("Failed to connect to peer OSD %lu: %s\n", osd_num, strerror(-peer_fd));
-                        return;
-                    }
-                    printf("Connected with peer OSD %lu (fd %d)\n", clients[peer_fd].osd_num, peer_fd);
-                    int i;
-                    for (i = 0; i < peers.size(); i++)
-                    {
-                        if (osd_peer_fds.find(peers[i].osd_num) == osd_peer_fds.end())
-                            break;
-                    }
-                    if (i >= peers.size())
-                    {
-                        // Connected to all peers
-                        peering_state = peering_state & ~OSD_CONNECTING_PEERS;
-                    }
-                    repeer_pgs(osd_num, true);
-                });
-            }
-        }
+        load_and_connect_peers();
     }
     if (peering_state & OSD_PEERING_PGS)
     {

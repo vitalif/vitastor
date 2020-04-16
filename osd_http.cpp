@@ -4,10 +4,12 @@
 #include <net/if.h>
 #include <ifaddrs.h>
 
+#include <ctype.h>
+
 #include "osd_http.h"
 #include "osd.h"
 
-int extract_port(std::string & host)
+static int extract_port(std::string & host)
 {
     int port = 0;
     int pos = 0;
@@ -95,6 +97,73 @@ void osd_t::http_request(std::string host, std::string request, std::function<vo
         handler->resume();
     };
     handler->resume();
+}
+
+void osd_t::http_request_json(std::string host, std::string request,
+    std::function<void(std::string, json11::Json r)> callback)
+{
+    http_request(host, request, [this, callback](int err, std::string txt)
+    {
+        if (err != 0)
+        {
+            callback("Error code: "+std::to_string(err)+" ("+std::string(strerror(err))+")", json11::Json());
+            return;
+        }
+        std::unique_ptr<http_response_t> res(parse_http_response(txt));
+        if (res->status_code != 200)
+        {
+            callback("HTTP "+std::to_string(res->status_code)+" "+res->status_line+" body: "+res->body, json11::Json());
+            return;
+        }
+        std::string json_err;
+        json11::Json data = json11::Json::parse(res->body, json_err);
+        if (json_err != "")
+        {
+            callback("Bad JSON: "+json_err+" (response: "+res->body+")", json11::Json());
+            return;
+        }
+        callback(std::string(), data);
+    });
+}
+
+http_response_t *parse_http_response(std::string res)
+{
+    http_response_t *parsed = new http_response_t();
+    int pos = res.find("\r\n");
+    pos = pos < 0 ? res.length() : pos+2;
+    std::string status_line = res.substr(0, pos);
+    int http_version;
+    char *status_text = NULL;
+    sscanf(status_line.c_str(), "HTTP/1.%d %d %ms", &http_version, &parsed->status_code, &status_text);
+    if (status_text)
+    {
+        parsed->status_line = status_text;
+        free(status_text);
+        status_text = NULL;
+    }
+    int prev = pos;
+    while ((pos = res.find("\r\n", prev)) > prev)
+    {
+        if (pos == prev+2)
+        {
+            parsed->body = res.substr(pos+2);
+            break;
+        }
+        std::string header = res.substr(prev, pos);
+        int p2 = header.find(":");
+        if (p2 >= 0)
+        {
+            std::string key = header.substr(0, p2);
+            for (int i = 0; i < key.length(); i++)
+                key[i] = tolower(key[i]);
+            int p3 = p2+1;
+            while (p3 < header.length() && isblank(header[p3]))
+                p3++;
+            parsed->headers[key] = header.substr(p3);
+        }
+        prev = pos+2;
+    }
+    return parsed;
 }
 
 http_co_t::~http_co_t()

@@ -35,10 +35,11 @@
 #define PEER_CONNECTING 1
 #define PEER_CONNECTED 2
 
-#define OSD_CONNECTING_PEERS 1
-#define OSD_PEERING_PGS 2
-#define OSD_FLUSHING_PGS 4
-#define OSD_RECOVERING 8
+#define OSD_LOADING_PGS 0x01
+#define OSD_CONNECTING_PEERS 0x02
+#define OSD_PEERING_PGS 0x04
+#define OSD_FLUSHING_PGS 0x08
+#define OSD_RECOVERING 0x10
 
 #define IMMEDIATE_NONE 0
 #define IMMEDIATE_SMALL 1
@@ -50,6 +51,7 @@
 #define DEFAULT_RECOVERY_QUEUE 4
 
 #define MAX_CONSUL_ATTEMPTS 5
+#define CONSUL_START_INTERVAL 5000
 #define CONSUL_RETRY_INTERVAL 1000
 
 //#define OSD_STUB
@@ -127,14 +129,6 @@ struct osd_op_t
     ~osd_op_t();
 };
 
-struct osd_peer_def_t
-{
-    osd_num_t osd_num = 0;
-    std::string addr;
-    int port = 0;
-    time_t last_connect_attempt = 0;
-};
-
 struct osd_client_t
 {
     sockaddr_in peer_addr;
@@ -188,6 +182,13 @@ struct osd_recovery_op_t
     osd_op_t *osd_op = NULL;
 };
 
+struct osd_wanted_peer_t
+{
+    bool connecting;
+    time_t last_connect_attempt, last_load_attempt;
+    int address_index;
+};
+
 class osd_t
 {
     friend struct http_co_t;
@@ -198,7 +199,6 @@ class osd_t
     std::string consul_address, consul_host, consul_prefix = "microceph";
     osd_num_t osd_num = 1; // OSD numbers start with 1
     bool run_primary = false;
-    std::vector<osd_peer_def_t> peers;
     blockstore_config_t config;
     std::string bind_address;
     int bind_port, listen_backlog;
@@ -210,9 +210,13 @@ class osd_t
     int immediate_commit = IMMEDIATE_NONE;
     int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // sync every 5 seconds
     int recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
+    int peer_connect_interval = 5;
 
     // peer OSDs
 
+    std::map<osd_num_t, json11::Json> peer_states;
+    std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
+    bool loading_peer_config = false;
     std::vector<std::string> bind_addresses;
     int consul_failed_attempts = 0;
 
@@ -264,6 +268,9 @@ class osd_t
     void reset_stats();
     json11::Json get_status();
     void report_status();
+    void load_pgs();
+    void parse_pgs(json11::Json data);
+    void load_and_connect_peers();
 
     // event loop, socket read/write
     void loop();
@@ -278,6 +285,7 @@ class osd_t
     void handle_send(ring_data_t *data, int peer_fd);
     void outbox_push(osd_client_t & cl, osd_op_t *op);
     void http_request(std::string host, std::string request, std::function<void(int, std::string)> callback);
+    void http_request_json(std::string host, std::string request, std::function<void(std::string, json11::Json data)> callback);
 
     // peer handling (primary OSD logic)
     void connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(osd_num_t, int)> callback);
@@ -285,7 +293,7 @@ class osd_t
     void cancel_osd_ops(osd_client_t & cl);
     void cancel_op(osd_op_t *op);
     void stop_client(int peer_fd);
-    osd_peer_def_t parse_peer(std::string peer);
+    void parse_test_peer(std::string peer);
     void init_primary();
     void handle_peers();
     void repeer_pgs(osd_num_t osd_num, bool is_connected);
