@@ -267,10 +267,11 @@ class osd_t
     void print_stats();
     void reset_stats();
     json11::Json get_status();
+    void consul_txn(json11::Json txn, std::function<void(std::string, json11::Json)> callback);
     void init_cluster();
     void report_status();
     void load_pgs();
-    void parse_pgs(json11::Json data);
+    void parse_pgs(const json11::Json & pg_config, const std::map<pg_num_t, json11::Json> & pg_history);
     void load_and_connect_peers();
 
     // event loop, socket read/write
@@ -297,8 +298,9 @@ class osd_t
     void parse_test_peer(std::string peer);
     void init_primary();
     void handle_peers();
-    void repeer_pgs(osd_num_t osd_num, bool is_connected);
+    void repeer_pgs(osd_num_t osd_num);
     void start_pg_peering(pg_num_t pg_num);
+    void submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps);
     bool stop_pg(pg_num_t pg_num);
     void finish_stop_pg(pg_t & pg);
 

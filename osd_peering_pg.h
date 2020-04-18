@@ -70,7 +70,7 @@ struct pg_peering_state_t
     // osd_num -> list result
     std::unordered_map<osd_num_t, osd_op_t*> list_ops;
     std::unordered_map<osd_num_t, pg_list_result_t> list_results;
-    int list_done = 0;
+    pg_num_t pg_num = 0;
 };
 
 struct obj_piece_id_t
@@ -100,6 +100,9 @@ struct pg_t
     uint64_t pg_cursize = 3, pg_size = 3, pg_minsize = 2;
     pg_num_t pg_num;
     uint64_t clean_count = 0, total_count = 0;
+    // all possible peers
+    std::vector<osd_num_t> all_peers;
+    std::vector<std::vector<osd_num_t>> target_history;
     // target_set is the "correct" peer OSD set for this PG
     std::vector<osd_num_t> target_set;
     // cur_set is the current set of connected peer OSDs for this PG

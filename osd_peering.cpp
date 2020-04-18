@@ -217,20 +217,17 @@ void osd_t::handle_peers()
     }
 }
 
-void osd_t::repeer_pgs(osd_num_t osd_num, bool is_connected)
+void osd_t::repeer_pgs(osd_num_t osd_num)
 {
     // Re-peer affected PGs
-    // FIXME: We shouldn't rely just on target_set. Other OSDs may also contain PG data.
-    osd_num_t real_osd = (is_connected ? osd_num : 0);
     for (auto & p: pgs)
     {
         bool repeer = false;
         if (p.second.state != PG_OFFLINE)
         {
-            for (int r = 0; r < p.second.target_set.size(); r++)
+            for (osd_num_t pg_osd: p.second.all_peers)
             {
-                if (p.second.target_set[r] == osd_num &&
-                    (p.second.cur_set.size() < r || p.second.cur_set[r] != real_osd))
+                if (pg_osd == osd_num)
                 {
                     repeer = true;
                     break;
@@ -284,7 +281,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     }
     pg.inflight = 0;
     dirty_pgs.erase(pg.pg_num);
-    // Start peering
+    // Calculate current write OSD set
     pg.pg_cursize = 0;
     pg.cur_set.resize(pg.target_set.size());
     for (int role = 0; role < pg.target_set.size(); role++)
@@ -296,25 +293,47 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
             pg.pg_cursize++;
         }
     }
+    if (pg.target_history.size())
+    {
+        // Refuse to start PG if no peers are available from any of the historical OSD sets
+        // (PG history is kept up to the latest active+clean state)
+        for (auto & history_set: pg.target_history)
+        {
+            bool found = false;
+            for (auto history_osd: history_set)
+            {
+                if (history_osd != 0 && osd_peer_fds.find(history_osd) != osd_peer_fds.end())
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                pg.state = PG_INCOMPLETE;
+                pg.print_state();
+            }
+        }
+    }
     if (pg.pg_cursize < pg.pg_minsize)
     {
         pg.state = PG_INCOMPLETE;
         pg.print_state();
     }
+    std::set<osd_num_t> cur_peers;
+    for (auto peer_osd: pg.all_peers)
+    {
+        if (osd_peer_fds.find(peer_osd) != osd_peer_fds.end())
+        {
+            cur_peers.insert(peer_osd);
+        }
+    }
     if (pg.peering_state)
     {
-        // Adjust the peering operation that's still in progress
+        // Adjust the peering operation that's still in progress - discard unneeded results
         for (auto it = pg.peering_state->list_ops.begin(); it != pg.peering_state->list_ops.end(); it++)
         {
-            int role;
-            for (role = 0; role < pg.cur_set.size(); role++)
-            {
-                if (pg.cur_set[role] == it->first)
-                {
-                    break;
-                }
-            }
-            if (pg.state == PG_INCOMPLETE || role >= pg.cur_set.size())
+            if (pg.state == PG_INCOMPLETE || cur_peers.find(it->first) == cur_peers.end())
             {
                 // Discard the result after completion, which, chances are, will be unsuccessful
                 auto list_op = it->second;
@@ -342,15 +361,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
         }
         for (auto it = pg.peering_state->list_results.begin(); it != pg.peering_state->list_results.end(); it++)
         {
-            int role;
-            for (role = 0; role < pg.cur_set.size(); role++)
-            {
-                if (pg.cur_set[role] == it->first)
-                {
-                    break;
-                }
-            }
-            if (pg.state == PG_INCOMPLETE || role >= pg.cur_set.size())
+            if (pg.state == PG_INCOMPLETE || cur_peers.find(it->first) == cur_peers.end())
             {
                 if (it->second.buf)
                 {
@@ -373,103 +384,101 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     if (!pg.peering_state)
     {
         pg.peering_state = new pg_peering_state_t();
+        pg.peering_state->pg_num = pg.pg_num;
     }
-    auto ps = pg.peering_state;
-    for (int role = 0; role < pg.cur_set.size(); role++)
+    for (osd_num_t peer_osd: cur_peers)
     {
-        osd_num_t role_osd = pg.cur_set[role];
-        if (!role_osd)
+        if (pg.peering_state->list_ops.find(peer_osd) != pg.peering_state->list_ops.end() ||
+            pg.peering_state->list_results.find(peer_osd) != pg.peering_state->list_results.end())
         {
             continue;
         }
-        if (ps->list_ops.find(role_osd) != ps->list_ops.end() ||
-            ps->list_results.find(role_osd) != ps->list_results.end())
-        {
-            continue;
-        }
-        if (role_osd == this->osd_num)
-        {
-            // Self
-            osd_op_t *op = new osd_op_t();
-            op->op_type = 0;
-            op->peer_fd = 0;
-            op->bs_op = new blockstore_op_t();
-            op->bs_op->opcode = BS_OP_LIST;
-            op->bs_op->oid.stripe = pg_stripe_size;
-            op->bs_op->len = pg_count;
-            op->bs_op->offset = pg.pg_num-1;
-            op->bs_op->callback = [ps, op, role_osd](blockstore_op_t *bs_op)
-            {
-                if (op->bs_op->retval < 0)
-                {
-                    throw std::runtime_error("local OP_LIST failed");
-                }
-                printf(
-                    "Got object list from OSD %lu (local): %d object versions (%lu of them stable)\n",
-                    role_osd, bs_op->retval, bs_op->version
-                );
-                ps->list_results[role_osd] = {
-                    .buf = (obj_ver_id*)op->bs_op->buf,
-                    .total_count = (uint64_t)op->bs_op->retval,
-                    .stable_count = op->bs_op->version,
-                };
-                ps->list_done++;
-                ps->list_ops.erase(role_osd);
-                delete op;
-            };
-            bs->enqueue_op(op->bs_op);
-            ps->list_ops[role_osd] = op;
-        }
-        else
-        {
-            // Peer
-            auto & cl = clients[osd_peer_fds[role_osd]];
-            osd_op_t *op = new osd_op_t();
-            op->op_type = OSD_OP_OUT;
-            op->send_list.push_back(op->req.buf, OSD_PACKET_SIZE);
-            op->peer_fd = cl.peer_fd;
-            op->req = {
-                .sec_list = {
-                    .header = {
-                        .magic = SECONDARY_OSD_OP_MAGIC,
-                        .id = this->next_subop_id++,
-                        .opcode = OSD_OP_SECONDARY_LIST,
-                    },
-                    .list_pg = pg.pg_num,
-                    .pg_count = pg_count,
-                    .pg_stripe_size = pg_stripe_size,
-                },
-            };
-            op->callback = [this, ps, role_osd](osd_op_t *op)
-            {
-                if (op->reply.hdr.retval < 0)
-                {
-                    printf("Failed to get object list from OSD %lu (retval=%ld), disconnecting peer\n", role_osd, op->reply.hdr.retval);
-                    ps->list_ops.erase(role_osd);
-                    stop_client(op->peer_fd);
-                    delete op;
-                    return;
-                }
-                printf(
-                    "Got object list from OSD %lu: %ld object versions (%lu of them stable)\n",
-                    role_osd, op->reply.hdr.retval, op->reply.sec_list.stable_count
-                );
-                ps->list_results[role_osd] = {
-                    .buf = (obj_ver_id*)op->buf,
-                    .total_count = (uint64_t)op->reply.hdr.retval,
-                    .stable_count = op->reply.sec_list.stable_count,
-                };
-                // set op->buf to NULL so it doesn't get freed
-                op->buf = NULL;
-                ps->list_done++;
-                ps->list_ops.erase(role_osd);
-                delete op;
-            };
-            outbox_push(cl, op);
-            ps->list_ops[role_osd] = op;
-        }
+        submit_list_subop(peer_osd, pg.peering_state);
     }
     ringloop->wakeup();
+}
+
+void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
+{
+    if (role_osd == this->osd_num)
+    {
+        // Self
+        osd_op_t *op = new osd_op_t();
+        op->op_type = 0;
+        op->peer_fd = 0;
+        op->bs_op = new blockstore_op_t();
+        op->bs_op->opcode = BS_OP_LIST;
+        op->bs_op->oid.stripe = pg_stripe_size;
+        op->bs_op->len = pg_count;
+        op->bs_op->offset = ps->pg_num-1;
+        op->bs_op->callback = [ps, op, role_osd](blockstore_op_t *bs_op)
+        {
+            if (op->bs_op->retval < 0)
+            {
+                throw std::runtime_error("local OP_LIST failed");
+            }
+            printf(
+                "[PG %u] Got object list from OSD %lu (local): %d object versions (%lu of them stable)\n",
+                ps->pg_num, role_osd, bs_op->retval, bs_op->version
+            );
+            ps->list_results[role_osd] = {
+                .buf = (obj_ver_id*)op->bs_op->buf,
+                .total_count = (uint64_t)op->bs_op->retval,
+                .stable_count = op->bs_op->version,
+            };
+            ps->list_ops.erase(role_osd);
+            delete op;
+        };
+        bs->enqueue_op(op->bs_op);
+        ps->list_ops[role_osd] = op;
+    }
+    else
+    {
+        // Peer
+        auto & cl = clients[osd_peer_fds[role_osd]];
+        osd_op_t *op = new osd_op_t();
+        op->op_type = OSD_OP_OUT;
+        op->send_list.push_back(op->req.buf, OSD_PACKET_SIZE);
+        op->peer_fd = cl.peer_fd;
+        op->req = {
+            .sec_list = {
+                .header = {
+                    .magic = SECONDARY_OSD_OP_MAGIC,
+                    .id = this->next_subop_id++,
+                    .opcode = OSD_OP_SECONDARY_LIST,
+                },
+                .list_pg = ps->pg_num,
+                .pg_count = pg_count,
+                .pg_stripe_size = pg_stripe_size,
+            },
+        };
+        op->callback = [this, ps, role_osd](osd_op_t *op)
+        {
+            if (op->reply.hdr.retval < 0)
+            {
+                printf("Failed to get object list from OSD %lu (retval=%ld), disconnecting peer\n", role_osd, op->reply.hdr.retval);
+                ps->list_ops.erase(role_osd);
+                stop_client(op->peer_fd);
+                delete op;
+                return;
+            }
+            printf(
+                "[PG %u] Got object list from OSD %lu: %ld object versions (%lu of them stable)\n",
+                ps->pg_num, role_osd, op->reply.hdr.retval, op->reply.sec_list.stable_count
+            );
+            ps->list_results[role_osd] = {
+                .buf = (obj_ver_id*)op->buf,
+                .total_count = (uint64_t)op->reply.hdr.retval,
+                .stable_count = op->reply.sec_list.stable_count,
+            };
+            // set op->buf to NULL so it doesn't get freed
+            op->buf = NULL;
+            ps->list_ops.erase(role_osd);
+            delete op;
+        };
+        outbox_push(cl, op);
+        ps->list_ops[role_osd] = op;
+    }
 }
 
 bool osd_t::stop_pg(pg_num_t pg_num)
