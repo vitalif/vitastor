@@ -214,7 +214,6 @@ void osd_t::load_pgs()
             }
         }
         parse_pgs(pg_config, pg_history);
-        peering_state = OSD_CONNECTING_PEERS;
     });
 }
 
@@ -288,6 +287,10 @@ void osd_t::parse_pgs(const json11::Json & pg_config, const std::map<pg_num_t, j
         pg_count++;
     }
     this->pg_count = pg_count;
+    if (wanted_peers.size() > 0)
+    {
+        peering_state |= OSD_CONNECTING_PEERS;
+    }
 }
 
 void osd_t::load_and_connect_peers()

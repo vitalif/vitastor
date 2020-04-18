@@ -365,8 +365,12 @@ void osd_t::stop_client(int peer_fd)
     osd_client_t cl = it->second;
     if (cl.osd_num)
     {
-        // FIXME: Reload configuration from Consul when the connection is dropped
         printf("[%lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl.osd_num);
+        if (cl.peer_state == PEER_CONNECTED)
+        {
+            // Reload configuration from Consul when the connection is dropped
+            peer_states.erase(cl.osd_num);
+        }
     }
     else
     {

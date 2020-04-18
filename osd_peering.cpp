@@ -327,6 +327,11 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
         {
             cur_peers.insert(peer_osd);
         }
+        else if (wanted_peers.find(peer_osd) == wanted_peers.end())
+        {
+            wanted_peers[peer_osd] = { 0 };
+            peering_state |= OSD_CONNECTING_PEERS;
+        }
     }
     if (pg.peering_state)
     {
