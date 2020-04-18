@@ -59,8 +59,20 @@ json11::Json osd_t::get_status()
     return st;
 }
 
-/*
-    json11::Json::object pg_status;
+void osd_t::report_status()
+{
+    std::string st = get_status().dump();
+    // (!) Keys end with . to allow "select /osd/state/123. by prefix"
+    // because Consul transactions fail if you try to read non-existing keys
+    json11::Json::array txn = {
+        json11::Json::object {
+            { "KV", json11::Json::object {
+                { "Verb", "set" },
+                { "Key", consul_prefix+"/osd/state/"+std::to_string(osd_num)+"." },
+                { "Value", base64_encode(st) },
+            } }
+        },
+    };
     for (auto & p: pgs)
     {
         auto & pg = p.second;
@@ -76,32 +88,31 @@ json11::Json osd_t::get_status()
         pg_st["degraded_count"] = pg.degraded_objects.size();
         pg_st["incomplete_count"] = pg.incomplete_objects.size();
         pg_st["write_osd_set"] = pg.cur_set;
-        pg_status[std::to_string(pg.pg_num)] = pg_st;
-    }
-    st["pgs"] = pg_status;
-*/
-
-void osd_t::report_status()
-{
-    std::string st = get_status().dump();
-    // (!) Keys end with . to allow "select /osd/state/123. by prefix"
-    // because Consul transactions fail if you try to read non-existing keys
-    std::string req = "PUT /v1/kv/"+consul_prefix+"/osd/state/"+std::to_string(osd_num)+". HTTP/1.1\r\n"+
-        "Host: "+consul_host+"\r\n"+
-        "Content-Length: "+std::to_string(st.size())+"\r\n"+
-        "Connection: close\r\n"+
-        "\r\n"+st;
-    http_request(consul_address, req, [this](int err, std::string res)
-    {
-        int pos = res.find("\r\n\r\n");
-        if (pos >= 0)
+        txn.push_back(json11::Json::object {
+            { "KV", json11::Json::object {
+                { "Verb", "set" },
+                { "Key", consul_prefix+"/pg/state/"+std::to_string(pg.pg_num)+"." },
+                { "Value", base64_encode(json11::Json(pg_st).dump()) },
+            } }
+        });
+        if (pg.state == PG_ACTIVE && pg.target_history.size())
         {
-            res = res.substr(pos+4);
+            pg.target_history.clear();
+            pg.all_peers = pg.target_set;
+            txn.push_back(json11::Json::object {
+                { "KV", json11::Json::object {
+                    { "Verb", "delete" },
+                    { "Key", consul_prefix+"/pg/history/"+std::to_string(pg.pg_num)+"." },
+                } }
+            });
         }
-        if (err != 0 || res != "true")
+    }
+    consul_txn(txn, [this](std::string err, json11::Json res)
+    {
+        if (err != "")
         {
             consul_failed_attempts++;
-            printf("Error reporting state to Consul: code %d (%s), response text: %s\n", err, strerror(err), res.c_str());
+            printf("Error reporting state to Consul: %s\n", err.c_str());
             if (consul_failed_attempts > MAX_CONSUL_ATTEMPTS)
             {
                 throw std::runtime_error("Cluster connection failed");
