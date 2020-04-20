@@ -1,3 +1,4 @@
+#include <sys/file.h>
 #include "blockstore_impl.h"
 
 static uint32_t is_power_of_two(uint64_t value)
@@ -33,6 +34,10 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     if (config["disable_journal_fsync"] == "true" || config["disable_journal_fsync"] == "1" || config["disable_journal_fsync"] == "yes")
     {
         disable_journal_fsync = true;
+    }
+    if (config["disable_device_lock"] == "true" || config["disable_device_lock"] == "1" || config["disable_device_lock"] == "yes")
+    {
+        disable_flock = true;
     }
     if (config["immediate_commit"] == "all")
     {
@@ -286,6 +291,10 @@ void blockstore_impl_t::open_data()
     {
         throw std::runtime_error("data_offset exceeds device size = "+std::to_string(data_size));
     }
+    if (!disable_flock && flock(data_fd, LOCK_EX) != 0)
+    {
+        throw std::runtime_error(std::string("Failed to lock data device: ") + strerror(errno));
+    }
 }
 
 void blockstore_impl_t::open_meta()
@@ -302,6 +311,10 @@ void blockstore_impl_t::open_meta()
         if (meta_offset >= meta_size)
         {
             throw std::runtime_error("meta_offset exceeds device size = "+std::to_string(meta_size));
+        }
+        if (!disable_flock && flock(meta_fd, LOCK_EX) != 0)
+        {
+            throw std::runtime_error(std::string("Failed to lock metadata device: ") + strerror(errno));
         }
     }
     else
@@ -324,7 +337,11 @@ void blockstore_impl_t::open_journal()
         {
             throw std::runtime_error("Failed to open journal device");
         }
-        check_size(journal.fd, &journal.device_size, "metadata device");
+        check_size(journal.fd, &journal.device_size, "journal device");
+        if (!disable_flock && flock(journal.fd, LOCK_EX) != 0)
+        {
+            throw std::runtime_error(std::string("Failed to lock journal device: ") + strerror(errno));
+        }
     }
     else
     {

@@ -194,6 +194,8 @@ class blockstore_impl_t
     // Sparse write tracking granularity. 4 KB is a good choice. Must be a multiple of disk_alignment
     uint64_t bitmap_granularity = 4096;
     bool readonly = false;
+    // By default, Blockstore locks all opened devices exclusively. This option can be used to disable locking
+    bool disable_flock = false;
     // It is safe to disable fsync() if drive write cache is writethrough
     bool disable_data_fsync = false, disable_meta_fsync = false, disable_journal_fsync = false;
     // Enable if you want every operation to be executed with an "implicit fsync"

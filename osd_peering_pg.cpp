@@ -357,6 +357,7 @@ void pg_t::calc_object_states()
 
 void pg_t::print_state()
 {
+    // FIXME Immediately report state on each change
     printf(
         "[PG %u] is %s%s%s%s%s%s%s%s%s (%lu objects)\n", pg_num,
         (state & PG_OFFLINE) ? "offline" : "",
