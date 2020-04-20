@@ -126,10 +126,6 @@ void osd_t::parse_config(blockstore_config_t & config)
     bind_port = stoull_full(config["bind_port"]);
     if (bind_port <= 0 || bind_port > 65535)
         bind_port = 0;
-    if (config.find("bind_port_range_start") != config.end())
-        bind_port_range_start = stoull_full(config["bind_port_range_start"]);
-    if (config.find("bind_port_range_end") != config.end())
-        bind_port_range_end = stoull_full(config["bind_port_range_end"]);
     if (config["immediate_commit"] == "all")
         immediate_commit = IMMEDIATE_ALL;
     else if (config["immediate_commit"] == "small")
@@ -175,46 +171,25 @@ void osd_t::bind_socket()
     }
     addr.sin_family = AF_INET;
 
-    if (bind_port == 0 && bind_port_range_start > 0 &&
-        bind_port_range_end > bind_port_range_start && bind_port_range_end < 65535)
+    addr.sin_port = htons(bind_port);
+    if (bind(listen_fd, (sockaddr*)&addr, sizeof(addr)) < 0)
     {
-        for (listening_port = bind_port_range_start; listening_port != bind_port_range_end; listening_port++)
+        close(listen_fd);
+        throw std::runtime_error(std::string("bind: ") + strerror(errno));
+    }
+    if (bind_port == 0)
+    {
+        socklen_t len = sizeof(addr);
+        if (getsockname(listen_fd, (sockaddr *)&addr, &len) == -1)
         {
-            addr.sin_port = htons(listening_port);
-            if (bind(listen_fd, (sockaddr*)&addr, sizeof(addr)) == 0)
-            {
-                break;
-            }
-        }
-        if (listening_port == bind_port_range_end)
-        {
-            listening_port = 0;
             close(listen_fd);
-            throw std::runtime_error(std::string("bind: ") + strerror(errno));
+            throw std::runtime_error(std::string("getsockname: ") + strerror(errno));
         }
+        listening_port = ntohs(addr.sin_port);
     }
     else
     {
-        addr.sin_port = htons(bind_port);
-        if (bind(listen_fd, (sockaddr*)&addr, sizeof(addr)) < 0)
-        {
-            close(listen_fd);
-            throw std::runtime_error(std::string("bind: ") + strerror(errno));
-        }
-        if (bind_port == 0)
-        {
-            socklen_t len = sizeof(addr);
-            if (getsockname(listen_fd, (sockaddr *)&addr, &len) == -1)
-            {
-                close(listen_fd);
-                throw std::runtime_error(std::string("getsockname: ") + strerror(errno));
-            }
-            listening_port = ntohs(addr.sin_port);
-        }
-        else
-        {
-            listening_port = bind_port;
-        }
+        listening_port = bind_port;
     }
 
     if (listen(listen_fd, listen_backlog) < 0)

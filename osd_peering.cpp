@@ -237,7 +237,7 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
             if (repeer)
             {
                 // Repeer this pg
-                printf("Repeer PG %d because of OSD %lu\n", p.second.pg_num, peer_osd);
+                printf("[PG %u] Repeer because of OSD %lu\n", p.second.pg_num, peer_osd);
                 start_pg_peering(p.second.pg_num);
                 peering_state |= OSD_PEERING_PGS;
             }

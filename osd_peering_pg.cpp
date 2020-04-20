@@ -358,7 +358,7 @@ void pg_t::calc_object_states()
 void pg_t::print_state()
 {
     printf(
-        "PG %u is %s%s%s%s%s%s%s%s%s (%lu objects)\n", pg_num,
+        "[PG %u] is %s%s%s%s%s%s%s%s%s (%lu objects)\n", pg_num,
         (state & PG_OFFLINE) ? "offline" : "",
         (state & PG_PEERING) ? "peering" : "",
         (state & PG_INCOMPLETE) ? "incomplete" : "",

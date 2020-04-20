@@ -203,7 +203,6 @@ class osd_t
     bool run_primary = false;
     std::string bind_address;
     int bind_port, listen_backlog;
-    int bind_port_range_start = 11200, bind_port_range_end = 12000;
     int client_queue_depth = 128;
     bool allow_test_ops = true;
     int receive_buffer_size = 9000;
