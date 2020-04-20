@@ -110,7 +110,6 @@ void pg_obj_state_check_t::handle_version()
         n_copies++;
         if (replica >= pg->pg_size)
         {
-            // FIXME In the future, check it against the PG epoch number to handle replication factor/scheme changes
             n_buggy++;
         }
         else

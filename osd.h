@@ -136,6 +136,7 @@ struct osd_client_t
     int peer_fd;
     int peer_state;
     std::function<void(osd_num_t, int)> connect_callback;
+    int connect_timeout_id = -1;
     osd_num_t osd_num = 0;
 
     void *in_buf = NULL;
@@ -211,6 +212,8 @@ class osd_t
     int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // sync every 5 seconds
     int recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
     int peer_connect_interval = 5;
+    int http_request_timeout = 5;
+    int peer_connect_timeout = 5;
 
     // peer OSDs
 

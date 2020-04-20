@@ -44,9 +44,6 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
 
     this->tfd = new timerfd_manager_t(ringloop);
 
-    if (run_primary)
-        init_primary();
-
     init_cluster();
 
     consumer.loop = [this]() { loop(); };
@@ -141,6 +138,12 @@ void osd_t::parse_config(blockstore_config_t & config)
     peer_connect_interval = strtoull(config["peer_connect_interval"].c_str(), NULL, 10);
     if (!peer_connect_interval)
         peer_connect_interval = 5;
+    http_request_timeout = strtoull(config["http_request_timeout"].c_str(), NULL, 10);
+    if (!http_request_timeout)
+        http_request_timeout = 5;
+    peer_connect_timeout = strtoull(config["peer_connect_timeout"].c_str(), NULL, 10);
+    if (!peer_connect_timeout)
+        peer_connect_timeout = 5;
 }
 
 void osd_t::bind_socket()

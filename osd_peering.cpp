@@ -6,74 +6,6 @@
 #include "base64.h"
 #include "osd.h"
 
-void osd_t::init_primary()
-{
-    if (consul_address == "")
-    {
-        // Test version of clustering code with 1 PG and 2 peers
-        // Example: peers = 2:127.0.0.1:11204,3:127.0.0.1:11205
-        std::string peerstr = config["peers"];
-        while (peerstr.size())
-        {
-            int pos = peerstr.find(',');
-            parse_test_peer(pos < 0 ? peerstr : peerstr.substr(0, pos));
-            peerstr = pos < 0 ? std::string("") : peerstr.substr(pos+1);
-        }
-        if (peer_states.size() < 2)
-        {
-            throw std::runtime_error("run_primary requires at least 2 peers");
-        }
-        pgs[1] = (pg_t){
-            .state = PG_PEERING,
-            .pg_cursize = 0,
-            .pg_num = 1,
-            .target_set = { 1, 2, 3 },
-            .cur_set = { 0, 0, 0 },
-        };
-        pgs[1].print_state();
-        pg_count = 1;
-        peering_state = OSD_CONNECTING_PEERS;
-    }
-    else
-    {
-        peering_state = OSD_LOADING_PGS;
-        load_pgs();
-    }
-    if (autosync_interval > 0)
-    {
-        this->sync_tfd = new timerfd_interval(ringloop, 3, [this]()
-        {
-            autosync();
-        });
-    }
-}
-
-void osd_t::parse_test_peer(std::string peer)
-{
-    // OSD_NUM:IP:PORT
-    int pos1 = peer.find(':');
-    int pos2 = peer.find(':', pos1+1);
-    if (pos1 < 0 || pos2 < 0)
-        throw new std::runtime_error("OSD peer string must be in the form OSD_NUM:IP:PORT");
-    std::string addr = peer.substr(pos1+1, pos2-pos1-1);
-    std::string osd_num_str = peer.substr(0, pos1);
-    std::string port_str = peer.substr(pos2+1);
-    osd_num_t osd_num = strtoull(osd_num_str.c_str(), NULL, 10);
-    if (!osd_num)
-        throw new std::runtime_error("Could not parse OSD peer osd_num");
-    else if (peer_states.find(osd_num) != peer_states.end())
-        throw std::runtime_error("Same osd number "+std::to_string(osd_num)+" specified twice in peers");
-    int port = strtoull(port_str.c_str(), NULL, 10);
-    if (!port)
-        throw new std::runtime_error("Could not parse OSD peer port");
-    peer_states[osd_num] = json11::Json::object {
-        { "state", "up" },
-        { "addresses", json11::Json::array { addr } },
-        { "port", port },
-    };
-    wanted_peers[osd_num] = { 0 };
-}
-
 void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(osd_num_t, int)> callback)
 {
     struct sockaddr_in addr;
@@ -92,6 +24,18 @@ void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port
         return;
     }
     fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
+    int timeout_id = -1;
+    if (peer_connect_timeout > 0)
+    {
+        tfd->set_timer(1000*peer_connect_timeout, false, [this, peer_fd](int timer_id)
+        {
+            auto callback = clients[peer_fd].connect_callback;
+            osd_num_t osd_num = clients[peer_fd].osd_num;
+            stop_client(peer_fd);
+            callback(osd_num, -EIO);
+            return;
+        });
+    }
     r = connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
     if (r < 0 && errno != EINPROGRESS)
     {
@@ -105,6 +49,7 @@ void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port
         .peer_fd = peer_fd,
         .peer_state = PEER_CONNECTING,
         .connect_callback = callback,
+        .connect_timeout_id = timeout_id,
         .osd_num = osd_num,
         .in_buf = malloc(receive_buffer_size),
     };
@@ -122,6 +67,11 @@ void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port
 void osd_t::handle_connect_result(int peer_fd)
 {
     auto & cl = clients[peer_fd];
+    if (cl.connect_timeout_id >= 0)
+    {
+        tfd->clear_timer(cl.connect_timeout_id);
+        cl.connect_timeout_id = -1;
+    }
     osd_num_t osd_num = cl.osd_num;
     auto callback = cl.connect_callback;
     int result = 0;

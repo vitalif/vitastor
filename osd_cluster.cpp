@@ -4,15 +4,90 @@
 
 void osd_t::init_cluster()
 {
+    if (run_primary)
+    {
+        init_primary();
+    }
     if (consul_address != "")
     {
+        if (!run_primary)
+        {
+            report_status();
+        }
         printf("OSD %lu reporting to Consul at %s each %d seconds\n", osd_num, consul_address.c_str(), consul_report_interval);
-        report_status();
         this->consul_tfd = new timerfd_interval(ringloop, consul_report_interval, [this]()
         {
             report_status();
         });
     }
+}
+
+void osd_t::init_primary()
+{
+    if (consul_address == "")
+    {
+        // Test version of clustering code with 1 PG and 2 peers
+        // Example: peers = 2:127.0.0.1:11204,3:127.0.0.1:11205
+        std::string peerstr = config["peers"];
+        while (peerstr.size())
+        {
+            int pos = peerstr.find(',');
+            parse_test_peer(pos < 0 ? peerstr : peerstr.substr(0, pos));
+            peerstr = pos < 0 ? std::string("") : peerstr.substr(pos+1);
+        }
+        if (peer_states.size() < 2)
+        {
+            throw std::runtime_error("run_primary requires at least 2 peers");
+        }
+        pgs[1] = (pg_t){
+            .state = PG_PEERING,
+            .pg_cursize = 0,
+            .pg_num = 1,
+            .target_set = { 1, 2, 3 },
+            .cur_set = { 0, 0, 0 },
+        };
+        pgs[1].print_state();
+        pg_count = 1;
+        peering_state = OSD_CONNECTING_PEERS;
+    }
+    else
+    {
+        peering_state = OSD_LOADING_PGS;
+        load_pgs();
+    }
+    if (autosync_interval > 0)
+    {
+        this->sync_tfd = new timerfd_interval(ringloop, autosync_interval, [this]()
+        {
+            autosync();
+        });
+    }
+}
+
+void osd_t::parse_test_peer(std::string peer)
+{
+    // OSD_NUM:IP:PORT
+    int pos1 = peer.find(':');
+    int pos2 = peer.find(':', pos1+1);
+    if (pos1 < 0 || pos2 < 0)
+        throw new std::runtime_error("OSD peer string must be in the form OSD_NUM:IP:PORT");
+    std::string addr = peer.substr(pos1+1, pos2-pos1-1);
+    std::string osd_num_str = peer.substr(0, pos1);
+    std::string port_str = peer.substr(pos2+1);
+    osd_num_t osd_num = strtoull(osd_num_str.c_str(), NULL, 10);
+    if (!osd_num)
+        throw new std::runtime_error("Could not parse OSD peer osd_num");
+    else if (peer_states.find(osd_num) != peer_states.end())
+        throw std::runtime_error("Same osd number "+std::to_string(osd_num)+" specified twice in peers");
+    int port = strtoull(port_str.c_str(), NULL, 10);
+    if (!port)
+        throw new std::runtime_error("Could not parse OSD peer port");
+    peer_states[osd_num] = json11::Json::object {
+        { "state", "up" },
+        { "addresses", json11::Json::array { addr } },
+        { "port", port },
+    };
+    wanted_peers[osd_num] = { 0 };
 }
 
 json11::Json osd_t::get_status()
@@ -142,21 +217,6 @@ void osd_t::consul_txn(json11::Json txn, std::function<void(std::string, json11:
     http_request_json(consul_address, req, callback);
 }
 
-uint64_t stoull_full(std::string str, int base = 10)
-{
-    if (isspace(str[0]))
-    {
-        return 0;
-    }
-    size_t end = -1;
-    uint64_t r = std::stoull(str, &end, base);
-    if (end < str.length())
-    {
-        return 0;
-    }
-    return r;
-}
-
 // Start -> Load PGs -> Load peers -> Connect to peers -> Peer PGs
 // Wait for PG changes -> Start/Stop PGs when requested
 // Peer connection is lost -> Reload connection data -> Try to reconnect -> Repeat
@@ -164,6 +224,14 @@ void osd_t::load_pgs()
 {
     assert(this->pgs.size() == 0);
     json11::Json::array txn = {
+        // Update OSD state when loading PGs to allow "monitors" do CAS transactions when moving PGs
+        json11::Json::object {
+            { "KV", json11::Json::object {
+                { "Verb", "set" },
+                { "Key", consul_prefix+"/osd/state/"+std::to_string(osd_num)+"." },
+                { "Value", base64_encode(get_status().dump()) },
+            } }
+        },
         json11::Json::object {
             { "KV", json11::Json::object {
                 { "Verb", "get" },
@@ -188,6 +256,7 @@ void osd_t::load_pgs()
             });
             return;
         }
+        peering_state &= ~OSD_LOADING_PGS;
         json11::Json pg_config;
         std::map<pg_num_t, json11::Json> pg_history;
         for (auto & res: data["Results"].array_items())
@@ -203,10 +272,10 @@ void osd_t::load_pgs()
             {
                 pg_config = value;
             }
-            else
+            else if (key.substr(0, consul_prefix.length()+12) == consul_prefix+"/pg/history/")
             {
                 // <consul_prefix>/pg/history/%d.
-                pg_num_t pg_num = stoull_full(key.substr(consul_prefix.length()+13, key.length()-consul_prefix.length()-14));
+                pg_num_t pg_num = stoull_full(key.substr(consul_prefix.length()+12, key.length()-consul_prefix.length()-13));
                 if (pg_num)
                 {
                     pg_history[pg_num] = value;

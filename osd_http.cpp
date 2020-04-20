@@ -25,7 +25,7 @@ static int extract_port(std::string & host)
     return port;
 }
 
-std::vector<std::string> getifaddr_list()
+std::vector<std::string> getifaddr_list(bool include_v6)
 {
     std::vector<std::string> addresses;
     ifaddrs *list, *ifa;
@@ -40,7 +40,7 @@ std::vector<std::string> getifaddr_list()
             continue;
         }
         int family = ifa->ifa_addr->sa_family;
-        if ((family == AF_INET || family == AF_INET6) &&
+        if ((family == AF_INET || family == AF_INET6 && include_v6) &&
             (ifa->ifa_flags & (IFF_UP | IFF_RUNNING | IFF_LOOPBACK)) == (IFF_UP | IFF_RUNNING))
         {
             void *addr_ptr;
@@ -70,6 +70,7 @@ struct http_co_t
 
     int st = 0;
     int peer_fd = -1;
+    int timeout_id = -1;
     int epoll_events = 0;
     int code = 0;
     int sent = 0, received = 0;
@@ -181,6 +182,11 @@ http_response_t *parse_http_response(std::string res)
 
 http_co_t::~http_co_t()
 {
+    if (timeout_id >= 0)
+    {
+        osd->tfd->clear_timer(timeout_id);
+        timeout_id = -1;
+    }
     callback(code, response);
     if (peer_fd >= 0)
     {
@@ -214,6 +220,17 @@ void http_co_t::resume()
             return;
         }
         fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
+        if (osd->http_request_timeout > 0)
+        {
+            timeout_id = osd->tfd->set_timer(1000*osd->http_request_timeout, false, [this](int timer_id)
+            {
+                if (response.length() == 0)
+                {
+                    code = EIO;
+                }
+                delete this;
+            });
+        }
         r = connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
         if (r < 0 && errno != EINPROGRESS)
         {
@@ -365,4 +382,19 @@ void http_co_t::resume()
         resume();
         return;
     }
+}
+
+uint64_t stoull_full(std::string str, int base)
+{
+    if (isspace(str[0]))
+    {
+        return 0;
+    }
+    size_t end = -1;
+    uint64_t r = std::stoull(str, &end, base);
+    if (end < str.length())
+    {
+        return 0;
+    }
+    return r;
 }
