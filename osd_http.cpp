@@ -384,15 +384,15 @@ void http_co_t::resume()
     }
 }
 
-uint64_t stoull_full(std::string str, int base)
+uint64_t stoull_full(const std::string & str, int base)
 {
     if (isspace(str[0]))
     {
         return 0;
     }
-    size_t end = -1;
-    uint64_t r = std::stoull(str, &end, base);
-    if (end < str.length())
+    char *end = NULL;
+    uint64_t r = strtoull(str.c_str(), &end, base);
+    if (end != str.c_str()+str.length())
     {
         return 0;
     }

@@ -6,13 +6,13 @@
 #include "base64.h"
 #include "osd.h"
 
-void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(osd_num_t, int)> callback)
+void osd_t::connect_peer(osd_num_t peer_osd, const char *peer_host, int peer_port, std::function<void(osd_num_t, int)> callback)
 {
     struct sockaddr_in addr;
     int r;
     if ((r = inet_pton(AF_INET, peer_host, &addr.sin_addr)) != 1)
     {
-        callback(osd_num, -EINVAL);
+        callback(peer_osd, -EINVAL);
         return;
     }
     addr.sin_family = AF_INET;
@@ -20,19 +20,19 @@ void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port
     int peer_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (peer_fd < 0)
     {
-        callback(osd_num, -errno);
+        callback(peer_osd, -errno);
         return;
     }
     fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
     int timeout_id = -1;
     if (peer_connect_timeout > 0)
     {
-        tfd->set_timer(1000*peer_connect_timeout, false, [this, peer_fd](int timer_id)
+        timeout_id = tfd->set_timer(1000*peer_connect_timeout, false, [this, peer_fd](int timer_id)
         {
             auto callback = clients[peer_fd].connect_callback;
-            osd_num_t osd_num = clients[peer_fd].osd_num;
+            osd_num_t peer_osd = clients[peer_fd].osd_num;
             stop_client(peer_fd);
-            callback(osd_num, -EIO);
+            callback(peer_osd, -EIO);
             return;
         });
     }
@@ -40,9 +40,10 @@ void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port
     if (r < 0 && errno != EINPROGRESS)
     {
         close(peer_fd);
-        callback(osd_num, -errno);
+        callback(peer_osd, -errno);
         return;
     }
+    assert(peer_osd != osd_num);
     clients[peer_fd] = (osd_client_t){
         .peer_addr = addr,
         .peer_port = peer_port,
@@ -50,10 +51,10 @@ void osd_t::connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port
         .peer_state = PEER_CONNECTING,
         .connect_callback = callback,
         .connect_timeout_id = timeout_id,
-        .osd_num = osd_num,
+        .osd_num = peer_osd,
         .in_buf = malloc(receive_buffer_size),
     };
-    osd_peer_fds[osd_num] = peer_fd;
+    osd_peer_fds[peer_osd] = peer_fd;
     // Add FD to epoll (EPOLLOUT for tracking connect() result)
     epoll_event ev;
     ev.data.fd = peer_fd;
@@ -72,7 +73,7 @@ void osd_t::handle_connect_result(int peer_fd)
         tfd->clear_timer(cl.connect_timeout_id);
         cl.connect_timeout_id = -1;
     }
-    osd_num_t osd_num = cl.osd_num;
+    osd_num_t peer_osd = cl.osd_num;
     auto callback = cl.connect_callback;
     int result = 0;
     socklen_t result_len = sizeof(result);
@@ -83,7 +84,7 @@ void osd_t::handle_connect_result(int peer_fd)
     if (result != 0)
     {
         stop_client(peer_fd);
-        callback(osd_num, -result);
+        callback(peer_osd, -result);
         return;
     }
     int one = 1;
@@ -98,7 +99,7 @@ void osd_t::handle_connect_result(int peer_fd)
     {
         throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
     }
-    callback(osd_num, peer_fd);
+    callback(peer_osd, peer_fd);
 }
 
 // Peering loop
@@ -167,7 +168,7 @@ void osd_t::handle_peers()
     }
 }
 
-void osd_t::repeer_pgs(osd_num_t osd_num)
+void osd_t::repeer_pgs(osd_num_t peer_osd)
 {
     // Re-peer affected PGs
     for (auto & p: pgs)
@@ -177,7 +178,7 @@ void osd_t::repeer_pgs(osd_num_t osd_num)
         {
             for (osd_num_t pg_osd: p.second.all_peers)
             {
-                if (pg_osd == osd_num)
+                if (pg_osd == peer_osd)
                 {
                     repeer = true;
                     break;
@@ -186,7 +187,7 @@ void osd_t::repeer_pgs(osd_num_t osd_num)
             if (repeer)
             {
                 // Repeer this pg
-                printf("Repeer PG %d because of OSD %lu\n", p.second.pg_num, osd_num);
+                printf("Repeer PG %d because of OSD %lu\n", p.second.pg_num, peer_osd);
                 start_pg_peering(p.second.pg_num);
                 peering_state |= OSD_PEERING_PGS;
             }
@@ -273,7 +274,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     std::set<osd_num_t> cur_peers;
     for (auto peer_osd: pg.all_peers)
     {
-        if (osd_peer_fds.find(peer_osd) != osd_peer_fds.end())
+        if (peer_osd == this->osd_num || osd_peer_fds.find(peer_osd) != osd_peer_fds.end())
         {
             cur_peers.insert(peer_osd);
         }
@@ -286,7 +287,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     if (pg.peering_state)
     {
         // Adjust the peering operation that's still in progress - discard unneeded results
-        for (auto it = pg.peering_state->list_ops.begin(); it != pg.peering_state->list_ops.end(); it++)
+        for (auto it = pg.peering_state->list_ops.begin(); it != pg.peering_state->list_ops.end();)
         {
             if (pg.state == PG_INCOMPLETE || cur_peers.find(it->first) == cur_peers.end())
             {
@@ -313,8 +314,10 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
                 pg.peering_state->list_ops.erase(it);
                 it = pg.peering_state->list_ops.begin();
             }
+            else
+                it++;
         }
-        for (auto it = pg.peering_state->list_results.begin(); it != pg.peering_state->list_results.end(); it++)
+        for (auto it = pg.peering_state->list_results.begin(); it != pg.peering_state->list_results.end();)
         {
             if (pg.state == PG_INCOMPLETE || cur_peers.find(it->first) == cur_peers.end())
             {
@@ -325,6 +328,8 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
                 pg.peering_state->list_results.erase(it);
                 it = pg.peering_state->list_results.begin();
             }
+            else
+                it++;
         }
     }
     if (pg.state == PG_INCOMPLETE)

@@ -55,7 +55,7 @@ osd_rmw_test: osd_rmw_test.cpp osd_rmw.cpp osd_rmw.h xor.h
 	g++ $(CXXFLAGS) -o $@ $<
 osd_primary.o: osd_primary.cpp osd.h osd_ops.h osd_peering_pg.h xor.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd.o: osd.cpp osd.h osd_ops.h osd_peering_pg.h ringloop.h
+osd.o: osd.cpp osd.h osd_http.h osd_ops.h osd_peering_pg.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h $(OSD_OBJS)
 	g++ $(CXXFLAGS) -o osd osd_main.cpp $(OSD_OBJS) ./libblockstore.so -ltcmalloc_minimal -luring

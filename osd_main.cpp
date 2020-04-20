@@ -26,6 +26,8 @@ int main(int narg, char *args[])
     }
     signal(SIGINT, handle_sigint);
     ring_loop_t *ringloop = new ring_loop_t(512);
+    // FIXME: Create Blockstore from on-disk superblock config and check it against the OSD cluster config
+    // FIXME: Prevent two OSD starting with same number
     blockstore_t *bs = new blockstore_t(config, ringloop);
     osd_t *osd = new osd_t(config, bs, ringloop);
     while (1)

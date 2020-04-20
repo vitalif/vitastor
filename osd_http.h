@@ -14,4 +14,4 @@ struct http_response_t
 
 http_response_t *parse_http_response(std::string res);
 std::vector<std::string> getifaddr_list(bool include_v6 = false);
-uint64_t stoull_full(std::string str, int base = 10);
+uint64_t stoull_full(const std::string & str, int base = 10);

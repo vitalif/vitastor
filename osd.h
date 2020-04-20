@@ -196,13 +196,14 @@ class osd_t
 
     // config
 
+    blockstore_config_t config;
     bool readonly = false;
     std::string consul_address, consul_host, consul_prefix = "microceph";
     osd_num_t osd_num = 1; // OSD numbers start with 1
     bool run_primary = false;
-    blockstore_config_t config;
     std::string bind_address;
     int bind_port, listen_backlog;
+    int bind_port_range_start = 11200, bind_port_range_end = 12000;
     int client_queue_depth = 128;
     bool allow_test_ops = true;
     int receive_buffer_size = 9000;
@@ -250,6 +251,7 @@ class osd_t
 
     int wait_state = 0;
     int epoll_fd = 0;
+    int listening_port = 0;
     int listen_fd = 0;
     ring_consumer_t consumer;
     std::map<int, std::function<void(int, int)>> epoll_handlers;

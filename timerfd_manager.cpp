@@ -35,10 +35,11 @@ void timerfd_manager_t::inc_timer(timerfd_timer_t & t)
 
 int timerfd_manager_t::set_timer(uint64_t millis, bool repeat, std::function<void(int)> callback)
 {
+    int timer_id = id++;
     timespec start;
     clock_gettime(CLOCK_MONOTONIC, &start);
     timers.push_back({
-        .id = id++,
+        .id = timer_id,
         .millis = millis,
         .start = start,
         .next = start,
@@ -48,7 +49,7 @@ int timerfd_manager_t::set_timer(uint64_t millis, bool repeat, std::function<voi
     inc_timer(timers[timers.size()-1]);
     set_nearest();
     set_wait();
-    return id;
+    return timer_id;
 }
 
 void timerfd_manager_t::clear_timer(int timer_id)

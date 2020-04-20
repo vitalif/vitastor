@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 
 #include "osd.h"
+#include "osd_http.h"
 
 const char* osd_op_names[] = {
     "",
@@ -35,7 +36,11 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
 
     parse_config(config);
 
-    bind_socket();
+    epoll_fd = epoll_create(1);
+    if (epoll_fd < 0)
+    {
+        throw std::runtime_error(std::string("epoll_create: ") + strerror(errno));
+    }
 
     this->stats_tfd = new timerfd_interval(ringloop, print_stats_interval, [this]()
     {
@@ -101,6 +106,7 @@ osd_op_t::~osd_op_t()
 
 void osd_t::parse_config(blockstore_config_t & config)
 {
+    // Initial startup configuration
     consul_address = config["consul_address"];
     consul_host = consul_address.find(':') >= 0 ? consul_address.substr(0, consul_address.find(':')) : consul_address;
     consul_prefix = config["consul_prefix"];
@@ -109,21 +115,25 @@ void osd_t::parse_config(blockstore_config_t & config)
     consul_report_interval = strtoull(config["consul_report_interval"].c_str(), NULL, 10);
     if (consul_report_interval <= 0)
         consul_report_interval = 30;
-    bind_address = config["bind_address"];
-    if (bind_address == "")
-        bind_address = "0.0.0.0";
-    // FIXME: select port automatically from range
-    bind_port = strtoull(config["bind_port"].c_str(), NULL, 10);
-    if (!bind_port || bind_port > 65535)
-        bind_port = 11203;
     osd_num = strtoull(config["osd_num"].c_str(), NULL, 10);
     if (!osd_num)
         throw std::runtime_error("osd_num is required in the configuration");
+    run_primary = config["run_primary"] != "false" && config["run_primary"] != "0" && config["run_primary"] != "no";
+    // Cluster configuration
+    bind_address = config["bind_address"];
+    if (bind_address == "")
+        bind_address = "0.0.0.0";
+    bind_port = stoull_full(config["bind_port"]);
+    if (bind_port <= 0 || bind_port > 65535)
+        bind_port = 0;
+    if (config.find("bind_port_range_start") != config.end())
+        bind_port_range_start = stoull_full(config["bind_port_range_start"]);
+    if (config.find("bind_port_range_end") != config.end())
+        bind_port_range_end = stoull_full(config["bind_port_range_end"]);
     if (config["immediate_commit"] == "all")
         immediate_commit = IMMEDIATE_ALL;
     else if (config["immediate_commit"] == "small")
         immediate_commit = IMMEDIATE_SMALL;
-    run_primary = config["run_primary"] == "true" || config["run_primary"] == "1" || config["run_primary"] == "yes";
     autosync_interval = strtoull(config["autosync_interval"].c_str(), NULL, 10);
     if (autosync_interval < 0 || autosync_interval > MAX_AUTOSYNC_INTERVAL)
         autosync_interval = DEFAULT_AUTOSYNC_INTERVAL;
@@ -164,12 +174,47 @@ void osd_t::bind_socket()
         throw std::runtime_error("bind address "+bind_address+(r == 0 ? " is not valid" : ": no ipv4 support"));
     }
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(bind_port);
 
-    if (bind(listen_fd, (sockaddr*)&addr, sizeof(addr)) < 0)
+    if (bind_port == 0 && bind_port_range_start > 0 &&
+        bind_port_range_end > bind_port_range_start && bind_port_range_end < 65535)
     {
-        close(listen_fd);
-        throw std::runtime_error(std::string("bind: ") + strerror(errno));
+        for (listening_port = bind_port_range_start; listening_port != bind_port_range_end; listening_port++)
+        {
+            addr.sin_port = htons(listening_port);
+            if (bind(listen_fd, (sockaddr*)&addr, sizeof(addr)) == 0)
+            {
+                break;
+            }
+        }
+        if (listening_port == bind_port_range_end)
+        {
+            listening_port = 0;
+            close(listen_fd);
+            throw std::runtime_error(std::string("bind: ") + strerror(errno));
+        }
+    }
+    else
+    {
+        addr.sin_port = htons(bind_port);
+        if (bind(listen_fd, (sockaddr*)&addr, sizeof(addr)) < 0)
+        {
+            close(listen_fd);
+            throw std::runtime_error(std::string("bind: ") + strerror(errno));
+        }
+        if (bind_port == 0)
+        {
+            socklen_t len = sizeof(addr);
+            if (getsockname(listen_fd, (sockaddr *)&addr, &len) == -1)
+            {
+                close(listen_fd);
+                throw std::runtime_error(std::string("getsockname: ") + strerror(errno));
+            }
+            listening_port = ntohs(addr.sin_port);
+        }
+        else
+        {
+            listening_port = bind_port;
+        }
     }
 
     if (listen(listen_fd, listen_backlog) < 0)
@@ -179,13 +224,6 @@ void osd_t::bind_socket()
     }
 
     fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
-
-    epoll_fd = epoll_create(1);
-    if (epoll_fd < 0)
-    {
-        close(listen_fd);
-        throw std::runtime_error(std::string("epoll_create: ") + strerror(errno));
-    }
 
     epoll_event ev;
     ev.data.fd = listen_fd;
@@ -366,18 +404,19 @@ void osd_t::stop_client(int peer_fd)
         return;
     }
     osd_client_t cl = it->second;
-    if (cl.osd_num)
+    if (cl.peer_state == PEER_CONNECTED)
     {
-        printf("[%lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl.osd_num);
-        if (cl.peer_state == PEER_CONNECTED)
+        if (cl.osd_num)
         {
             // Reload configuration from Consul when the connection is dropped
+            printf("[%lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl.osd_num);
             peer_states.erase(cl.osd_num);
+            repeer_pgs(cl.osd_num);
         }
-    }
-    else
-    {
-        printf("[%lu] Stopping client %d (regular client)\n", osd_num, peer_fd);
+        else
+        {
+            printf("[%lu] Stopping client %d (regular client)\n", osd_num, peer_fd);
+        }
     }
     clients.erase(it);
     if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) < 0)
@@ -389,7 +428,6 @@ void osd_t::stop_client(int peer_fd)
         // Cancel outbound operations
         cancel_osd_ops(cl);
         osd_peer_fds.erase(cl.osd_num);
-        repeer_pgs(cl.osd_num);
         peering_state |= OSD_CONNECTING_PEERS;
     }
     if (cl.read_op)
@@ -506,6 +544,8 @@ void osd_t::print_stats()
         {
             uint64_t avg = (subop_stat_sum[0][i] - subop_stat_sum[1][i])/(subop_stat_count[0][i] - subop_stat_count[1][i]);
             printf("avg latency for subop %d (%s): %ld us\n", i, osd_op_names[i], avg);
+            subop_stat_count[1][i] = subop_stat_count[0][i];
+            subop_stat_sum[1][i] = subop_stat_sum[0][i];
         }
     }
     if (incomplete_objects > 0)
