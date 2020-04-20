@@ -371,7 +371,6 @@ void osd_t::parse_pgs(const json11::Json & pg_config, const std::map<pg_num_t, j
                 .target_history = target_history,
                 .target_set = target_set,
             };
-            this->pgs[pg_num].print_state();
             // Add peers
             for (auto pg_osd: all_peers)
             {
@@ -380,6 +379,7 @@ void osd_t::parse_pgs(const json11::Json & pg_config, const std::map<pg_num_t, j
                     wanted_peers[pg_osd] = { 0 };
                 }
             }
+            start_pg_peering(pg_num);
         }
         pg_count++;
     }
