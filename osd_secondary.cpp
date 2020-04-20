@@ -102,7 +102,7 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
     std::string cfg_str = json11::Json(config).dump();
     cur_op->buf = malloc(cfg_str.size()+1);
     memcpy(cur_op->buf, cfg_str.c_str(), cfg_str.size()+1);
-    cur_op->send_list.push_back(cur_op->buf, cur_op->reply.hdr.retval);
+    cur_op->send_list.push_back(cur_op->buf, cfg_str.size()+1);
     finish_op(cur_op, cfg_str.size()+1);
 }
 

@@ -292,7 +292,8 @@ restart:
             while ((peer_fd = accept(listen_fd, (sockaddr*)&addr, &peer_addr_size)) >= 0)
             {
                 char peer_str[256];
-                printf("osd: new client %d: connection from %s port %d\n", peer_fd, inet_ntop(AF_INET, &addr.sin_addr, peer_str, 256), ntohs(addr.sin_port));
+                printf("[OSD %lu] new client %d: connection from %s port %d\n", this->osd_num, peer_fd,
+                    inet_ntop(AF_INET, &addr.sin_addr, peer_str, 256), ntohs(addr.sin_port));
                 fcntl(peer_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
                 int one = 1;
                 setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
@@ -333,7 +334,7 @@ restart:
                 else if (events[i].events & EPOLLRDHUP)
                 {
                     // Stop client
-                    printf("osd: client %d disconnected\n", cl.peer_fd);
+                    printf("[OSD %lu] client %d disconnected\n", this->osd_num, cl.peer_fd);
                     stop_client(cl.peer_fd);
                 }
                 else

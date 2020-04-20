@@ -233,6 +233,15 @@ void osd_t::handle_reply_hdr(osd_client_t *cl)
         cl->read_buf = op->buf;
         cl->read_remaining = sizeof(obj_ver_id) * op->reply.hdr.retval;
     }
+    else if (op->reply.hdr.opcode == OSD_OP_SHOW_CONFIG &&
+        op->reply.hdr.retval > 0)
+    {
+        op->buf = malloc(op->reply.hdr.retval);
+        cl->read_state = CL_READ_REPLY_DATA;
+        cl->read_reply_id = op->req.hdr.id;
+        cl->read_buf = op->buf;
+        cl->read_remaining = op->reply.hdr.retval;
+    }
     else
     {
         delete cl->read_op;

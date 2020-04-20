@@ -54,7 +54,6 @@ void osd_t::connect_peer(osd_num_t peer_osd, const char *peer_host, int peer_por
         .osd_num = peer_osd,
         .in_buf = malloc(receive_buffer_size),
     };
-    osd_peer_fds[peer_osd] = peer_fd;
     // Add FD to epoll (EPOLLOUT for tracking connect() result)
     epoll_event ev;
     ev.data.fd = peer_fd;
@@ -74,7 +73,6 @@ void osd_t::handle_connect_result(int peer_fd)
         cl.connect_timeout_id = -1;
     }
     osd_num_t peer_osd = cl.osd_num;
-    auto callback = cl.connect_callback;
     int result = 0;
     socklen_t result_len = sizeof(result);
     if (getsockopt(peer_fd, SOL_SOCKET, SO_ERROR, &result, &result_len) < 0)
@@ -83,6 +81,7 @@ void osd_t::handle_connect_result(int peer_fd)
     }
     if (result != 0)
     {
+        auto callback = cl.connect_callback;
         stop_client(peer_fd);
         callback(peer_osd, -result);
         return;
@@ -90,7 +89,6 @@ void osd_t::handle_connect_result(int peer_fd)
     int one = 1;
     setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
     // Disable EPOLLOUT on this fd
-    cl.connect_callback = NULL;
     cl.peer_state = PEER_CONNECTED;
     epoll_event ev;
     ev.data.fd = peer_fd;
@@ -99,7 +97,59 @@ void osd_t::handle_connect_result(int peer_fd)
     {
         throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
     }
-    callback(peer_osd, peer_fd);
+    // Check OSD number
+    check_peer_config(cl);
+}
+
+void osd_t::check_peer_config(osd_client_t & cl)
+{
+    osd_op_t *op = new osd_op_t();
+    op->op_type = OSD_OP_OUT;
+    op->send_list.push_back(op->req.buf, OSD_PACKET_SIZE);
+    op->peer_fd = cl.peer_fd;
+    op->req = {
+        .show_conf = {
+            .header = {
+                .magic = SECONDARY_OSD_OP_MAGIC,
+                .id = this->next_subop_id++,
+                .opcode = OSD_OP_SHOW_CONFIG,
+            },
+        },
+    };
+    op->callback = [this](osd_op_t *op)
+    {
+        std::string json_err;
+        json11::Json config = json11::Json::parse(std::string((char*)op->buf), json_err);
+        osd_client_t & cl = clients[op->peer_fd];
+        bool err = false;
+        if (op->reply.hdr.retval < 0)
+        {
+            err = true;
+            printf("Failed to get config from OSD %lu (retval=%ld), disconnecting peer\n", cl.osd_num, op->reply.hdr.retval);
+        }
+        else if (json_err != "")
+        {
+            err = true;
+            printf("Failed to get config from OSD %lu: bad JSON: %s, disconnecting peer\n", cl.osd_num, json_err.c_str());
+        }
+        else if (config["osd_num"].uint64_value() != cl.osd_num)
+        {
+            err = true;
+            printf("Connected to OSD %lu instead of OSD %lu, peer state is outdated, disconnecting peer\n", config["osd_num"].uint64_value(), cl.osd_num);
+        }
+        if (err)
+        {
+            stop_client(op->peer_fd);
+            delete op;
+            return;
+        }
+        osd_peer_fds[cl.osd_num] = cl.peer_fd;
+        auto callback = cl.connect_callback;
+        cl.connect_callback = NULL;
+        callback(cl.osd_num, cl.peer_fd);
+        delete op;
+    };
+    outbox_push(cl, op);
 }
 
 // Peering loop

@@ -14,7 +14,7 @@ void osd_t::init_cluster()
         {
             report_status();
         }
-        printf("OSD %lu reporting to Consul at %s each %d seconds\n", osd_num, consul_address.c_str(), consul_report_interval);
+        printf("[OSD %lu] reporting to Consul at %s each %d seconds\n", osd_num, consul_address.c_str(), consul_report_interval);
         this->consul_tfd = new timerfd_interval(ringloop, consul_report_interval, [this]()
         {
             report_status();
