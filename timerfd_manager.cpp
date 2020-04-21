@@ -150,7 +150,6 @@ void timerfd_manager_t::set_wait()
             read(timerfd, &n, 8);
             if (nearest >= 0)
             {
-                timers[nearest].callback(timers[nearest].id);
                 if (!timers[nearest].repeat)
                 {
                     timers.erase(timers.begin()+nearest, timers.begin()+nearest+1);
@@ -159,6 +158,7 @@ void timerfd_manager_t::set_wait()
                 {
                     inc_timer(timers[nearest]);
                 }
+                timers[nearest].callback(timers[nearest].id);
                 nearest = -1;
             }
             wait_state = 0;
