@@ -144,7 +144,7 @@ void osd_t::report_status()
     // (!) Keys end with . to allow "select /osd/state/123. by prefix"
     // because etcd transactions fail if you try to read non-existing keys
     json11::Json::array txn = { json11::Json::object {
-        { "requestPut", json11::Json::object {
+        { "request_put", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/osd/state/"+std::to_string(osd_num)) },
             { "value", base64_encode(st) },
         } }
@@ -165,7 +165,7 @@ void osd_t::report_status()
         pg_st["incomplete_count"] = pg.incomplete_objects.size();
         pg_st["write_osd_set"] = pg.cur_set;
         txn.push_back(json11::Json::object {
-            { "requestPut", json11::Json::object {
+            { "request_put", json11::Json::object {
                 { "key", base64_encode(etcd_prefix+"/pg/state/"+std::to_string(pg.pg_num)) },
                 { "value", base64_encode(json11::Json(pg_st).dump()) },
             } }
@@ -175,7 +175,7 @@ void osd_t::report_status()
             pg.target_history.clear();
             pg.all_peers = pg.target_set;
             txn.push_back(json11::Json::object {
-                { "requestDeleteRange", json11::Json::object {
+                { "request_delete_range", json11::Json::object {
                     { "key", base64_encode(etcd_prefix+"/pg/history/"+std::to_string(pg.pg_num)) },
                 } }
             });
@@ -225,23 +225,23 @@ void osd_t::load_pgs()
     json11::Json::array txn = {
         // Update OSD state when loading PGs to allow "monitors" do CAS transactions when moving PGs
         json11::Json::object {
-            { "requestPut", json11::Json::object {
+            { "request_put", json11::Json::object {
                 { "key", base64_encode(etcd_prefix+"/osd/state/"+std::to_string(osd_num)) },
                 { "value", base64_encode(get_status().dump()) },
             } }
         },
         json11::Json::object {
-            { "requestRange", json11::Json::object {
+            { "request_range", json11::Json::object {
                 { "key", base64_encode(etcd_prefix+"/config/osd/all") },
             } }
         },
         json11::Json::object {
-            { "requestRange", json11::Json::object {
+            { "request_range", json11::Json::object {
                 { "key", base64_encode(etcd_prefix+"/config/pgs") },
             } }
         },
         json11::Json::object {
-            { "requestRange", json11::Json::object {
+            { "request_range", json11::Json::object {
                 { "key", base64_encode(etcd_prefix+"/pg/history/") },
                 { "range_end", base64_encode(etcd_prefix+"/pg/history0") },
             } }
@@ -408,7 +408,7 @@ void osd_t::load_and_connect_peers()
                 // (Re)load OSD state from etcd
                 wp_it->second.last_load_attempt = time(NULL);
                 load_peer_txn.push_back(json11::Json::object {
-                    { "requestRange", json11::Json::object {
+                    { "request_range", json11::Json::object {
                         { "key", base64_encode(etcd_prefix+"/osd/state/"+std::to_string(peer_osd)) },
                     } }
                 });
