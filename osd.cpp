@@ -72,11 +72,6 @@ osd_t::~osd_t()
         delete sync_tfd;
         sync_tfd = NULL;
     }
-    if (consul_tfd)
-    {
-        delete consul_tfd;
-        consul_tfd = NULL;
-    }
     ringloop->unregister_consumer(&consumer);
     close(epoll_fd);
     close(listen_fd);
@@ -106,15 +101,40 @@ osd_op_t::~osd_op_t()
 
 void osd_t::parse_config(blockstore_config_t & config)
 {
+    int pos;
     // Initial startup configuration
-    consul_address = config["consul_address"];
-    consul_host = consul_address.find(':') >= 0 ? consul_address.substr(0, consul_address.find(':')) : consul_address;
-    consul_prefix = config["consul_prefix"];
-    if (consul_prefix == "")
-        consul_prefix = "microceph";
-    consul_report_interval = strtoull(config["consul_report_interval"].c_str(), NULL, 10);
-    if (consul_report_interval <= 0)
-        consul_report_interval = 30;
+    etcd_address = config["etcd_address"];
+    etcd_prefix = config["etcd_prefix"];
+    if (etcd_prefix == "")
+        etcd_prefix = "/microceph";
+    if ((pos = etcd_address.find('/')) >= 0)
+    {
+        etcd_api_path = etcd_address.substr(pos);
+        etcd_address = etcd_address.substr(0, pos);
+    }
+    else if (config.find("etcd_version") != config.end())
+    {
+        int major, minor;
+        if (sscanf(config["etcd_version"].c_str(), "%d.%d", &major, &minor) < 2)
+            throw std::runtime_error("etcd_version should be in the form MAJOR.MINOR (for example, 3.2)");
+        if (major < 3 || major == 3 && minor < 2)
+            throw std::runtime_error("Your etcd is too old, minimum required version is 3.2");
+        else if (major == 3 && minor == 2)
+            etcd_api_path = "/v3alpha";
+        else if (major == 3 && minor == 3)
+            etcd_api_path = "/v3beta";
+        else
+            etcd_api_path = "/v3";
+    }
+    else
+        etcd_api_path = "/v3";
+    if ((pos = etcd_address.find(':')) >= 0)
+        etcd_host = etcd_address.substr(0, pos);
+    else
+        etcd_host = etcd_address;
+    etcd_report_interval = strtoull(config["etcd_report_interval"].c_str(), NULL, 10);
+    if (etcd_report_interval <= 0)
+        etcd_report_interval = 30;
     osd_num = strtoull(config["osd_num"].c_str(), NULL, 10);
     if (!osd_num)
         throw std::runtime_error("osd_num is required in the configuration");
@@ -384,7 +404,7 @@ void osd_t::stop_client(int peer_fd)
     {
         if (cl.osd_num)
         {
-            // Reload configuration from Consul when the connection is dropped
+            // Reload configuration from etcd when the connection is dropped
             printf("[%lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl.osd_num);
             peer_states.erase(cl.osd_num);
             repeer_pgs(cl.osd_num);

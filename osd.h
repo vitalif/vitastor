@@ -50,9 +50,9 @@
 #define MAX_RECOVERY_QUEUE 2048
 #define DEFAULT_RECOVERY_QUEUE 4
 
-#define MAX_CONSUL_ATTEMPTS 5
-#define CONSUL_START_INTERVAL 5000
-#define CONSUL_RETRY_INTERVAL 1000
+#define MAX_ETCD_ATTEMPTS 5
+#define ETCD_START_INTERVAL 5000
+#define ETCD_RETRY_INTERVAL 1000
 
 //#define OSD_STUB
 
@@ -197,8 +197,10 @@ class osd_t
     // config
 
     blockstore_config_t config;
+    std::string etcd_address, etcd_host, etcd_prefix, etcd_api_path;
+    int etcd_report_interval = 30;
+
     bool readonly = false;
-    std::string consul_address, consul_host, consul_prefix = "microceph";
     osd_num_t osd_num = 1; // OSD numbers start with 1
     bool run_primary = false;
     std::string bind_address;
@@ -207,7 +209,6 @@ class osd_t
     bool allow_test_ops = true;
     int receive_buffer_size = 9000;
     int print_stats_interval = 3;
-    int consul_report_interval = 30;
     int immediate_commit = IMMEDIATE_NONE;
     int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // sync every 5 seconds
     int recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
@@ -221,7 +222,7 @@ class osd_t
     std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
     bool loading_peer_config = false;
     std::vector<std::string> bind_addresses;
-    int consul_failed_attempts = 0;
+    int etcd_failed_attempts = 0;
 
     std::map<uint64_t, int> osd_peer_fds;
     std::map<pg_num_t, pg_t> pgs;
@@ -245,7 +246,7 @@ class osd_t
     uint32_t bs_block_size, bs_disk_alignment;
     uint64_t pg_stripe_size = 4*1024*1024; // 4 MB by default
     ring_loop_t *ringloop;
-    timerfd_interval *stats_tfd = NULL, *sync_tfd = NULL, *consul_tfd = NULL;
+    timerfd_interval *stats_tfd = NULL, *sync_tfd = NULL;
     timerfd_manager_t *tfd = NULL;
 
     int wait_state = 0;
@@ -271,7 +272,7 @@ class osd_t
     void print_stats();
     void reset_stats();
     json11::Json get_status();
-    void consul_txn(json11::Json txn, std::function<void(std::string, json11::Json)> callback);
+    void etcd_txn(json11::Json txn, std::function<void(std::string, json11::Json)> callback);
     void init_cluster();
     void report_status();
     void load_pgs();
