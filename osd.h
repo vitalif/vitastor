@@ -15,7 +15,6 @@
 
 #include "blockstore.h"
 #include "ringloop.h"
-#include "timerfd_interval.h"
 #include "timerfd_manager.h"
 #include "osd_ops.h"
 #include "osd_peering_pg.h"
@@ -246,7 +245,6 @@ class osd_t
     uint32_t bs_block_size, bs_disk_alignment;
     uint64_t pg_stripe_size = 4*1024*1024; // 4 MB by default
     ring_loop_t *ringloop;
-    timerfd_interval *stats_tfd = NULL, *sync_tfd = NULL;
     timerfd_manager_t *tfd = NULL;
 
     int wait_state = 0;

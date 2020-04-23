@@ -42,12 +42,11 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
         throw std::runtime_error(std::string("epoll_create: ") + strerror(errno));
     }
 
-    this->stats_tfd = new timerfd_interval(ringloop, print_stats_interval, [this]()
+    this->tfd = new timerfd_manager_t(ringloop);
+    this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
     {
         print_stats();
     });
-
-    this->tfd = new timerfd_manager_t(ringloop);
 
     init_cluster();
 
@@ -61,16 +60,6 @@ osd_t::~osd_t()
     {
         delete tfd;
         tfd = NULL;
-    }
-    if (stats_tfd)
-    {
-        delete stats_tfd;
-        stats_tfd = NULL;
-    }
-    if (sync_tfd)
-    {
-        delete sync_tfd;
-        sync_tfd = NULL;
     }
     ringloop->unregister_consumer(&consumer);
     close(epoll_fd);

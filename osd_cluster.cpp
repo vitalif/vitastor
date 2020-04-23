@@ -61,7 +61,7 @@ void osd_t::init_primary()
     }
     if (autosync_interval > 0)
     {
-        this->sync_tfd = new timerfd_interval(ringloop, autosync_interval, [this]()
+        this->tfd->set_timer(autosync_interval*1000, true, [this](int timer_id)
         {
             autosync();
         });
