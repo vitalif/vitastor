@@ -2,8 +2,15 @@
 
 #include <signal.h>
 
-void handle_sigint(int sig)
+static osd_t *osd = NULL;
+
+static void handle_sigint(int sig)
 {
+    if (osd)
+    {
+        osd->force_stop();
+        return;
+    }
     exit(0);
 }
 
@@ -25,11 +32,11 @@ int main(int narg, char *args[])
         }
     }
     signal(SIGINT, handle_sigint);
+    signal(SIGTERM, handle_sigint);
     ring_loop_t *ringloop = new ring_loop_t(512);
     // FIXME: Create Blockstore from on-disk superblock config and check it against the OSD cluster config
-    // FIXME: Prevent two OSD starting with same number
     blockstore_t *bs = new blockstore_t(config, ringloop);
-    osd_t *osd = new osd_t(config, bs, ringloop);
+    osd = new osd_t(config, bs, ringloop);
     while (1)
     {
         ringloop->loop();

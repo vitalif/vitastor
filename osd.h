@@ -217,10 +217,10 @@ class osd_t
 
     // peer OSDs
 
+    std::string etcd_lease_id;
     std::map<osd_num_t, json11::Json> peer_states;
     std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
     bool loading_peer_config = false;
-    std::vector<std::string> bind_addresses;
     int etcd_failed_attempts = 0;
 
     std::map<uint64_t, int> osd_peer_fds;
@@ -264,15 +264,21 @@ class osd_t
     uint64_t subop_stat_sum[2][OSD_OP_MAX+1] = { 0 };
     uint64_t subop_stat_count[2][OSD_OP_MAX+1] = { 0 };
 
-    // methods
+    // cluster connection
+    void etcd_call(std::string api, json11::Json payload, std::function<void(std::string, json11::Json)> callback);
+    void etcd_txn(json11::Json txn, std::function<void(std::string, json11::Json)> callback);
     void parse_config(blockstore_config_t & config);
+    void init_cluster();
+    void load_global_config();
     void bind_socket();
+    void acquire_lease();
+    void create_state();
+    void renew_lease();
     void print_stats();
     void reset_stats();
     json11::Json get_status();
-    void etcd_txn(json11::Json txn, std::function<void(std::string, json11::Json)> callback);
-    void init_cluster();
-    void report_status();
+    json11::Json get_statistics();
+    void report_statistics();
     void load_pgs();
     void parse_pgs(const json11::Json & pg_config, const std::map<pg_num_t, json11::Json> & pg_history);
     void load_and_connect_peers();
@@ -300,7 +306,6 @@ class osd_t
     void cancel_op(osd_op_t *op);
     void stop_client(int peer_fd);
     void parse_test_peer(std::string peer);
-    void init_primary();
     void handle_peers();
     void repeer_pgs(osd_num_t osd_num);
     void start_pg_peering(pg_num_t pg_num);
@@ -348,6 +353,7 @@ class osd_t
 public:
     osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);
     ~osd_t();
+    void force_stop();
     bool shutdown();
 };
 
