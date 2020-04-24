@@ -189,6 +189,8 @@ struct osd_wanted_peer_t
     int address_index;
 };
 
+struct http_response_t;
+
 class osd_t
 {
     friend struct http_co_t;
@@ -295,7 +297,7 @@ class osd_t
     void send_replies();
     void handle_send(ring_data_t *data, int peer_fd);
     void outbox_push(osd_client_t & cl, osd_op_t *op);
-    void http_request(std::string host, std::string request, std::function<void(int, std::string)> callback);
+    void http_request(std::string host, std::string request, bool streaming, std::function<void(const http_response_t *response)> callback);
     void http_request_json(std::string host, std::string request, std::function<void(std::string, json11::Json data)> callback);
 
     // peer handling (primary OSD logic)
