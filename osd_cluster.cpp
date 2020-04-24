@@ -149,7 +149,6 @@ void osd_t::report_statistics()
         { "request_put", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/osd/stats/"+std::to_string(osd_num)) },
             { "value", base64_encode(get_statistics().dump()) },
-            { "lease", etcd_lease_id },
         } }
     } };
     for (auto & p: pgs)
@@ -209,9 +208,10 @@ void osd_t::report_statistics()
                 report_statistics();
             });
         }
-        else if (res["error"] != "")
+        else if (res["error"].string_value() != "")
         {
-            throw std::runtime_error("Error reporting state to etcd: ");
+            printf("[OSD %lu] Error reporting state to etcd: %s\n", this->osd_num, res["error"].string_value().c_str());
+            exit(1);
         }
         else
         {
@@ -388,7 +388,7 @@ void osd_t::force_stop()
 {
     if (etcd_lease_id != "")
     {
-        etcd_call("/lease/revoke", json11::Json::object {
+        etcd_call("/kv/lease/revoke", json11::Json::object {
             { "ID", etcd_lease_id }
         }, [this](std::string err, json11::Json data)
         {
@@ -405,14 +405,12 @@ void osd_t::force_stop()
 void osd_t::load_pgs()
 {
     assert(this->pgs.size() == 0);
-    json11::Json::array checks = {
-        json11::Json::object {
-            { "target", "LEASE" },
-            { "lease", etcd_lease_id },
-            { "key", base64_encode(etcd_prefix+"/osd/state/"+std::to_string(osd_num)) },
-        }
-    };
     json11::Json::array txn = {
+        json11::Json::object {
+            { "request_range", json11::Json::object {
+                { "key", base64_encode(etcd_prefix+"/osd/state/"+std::to_string(osd_num)) },
+            } }
+        },
         json11::Json::object {
             { "request_range", json11::Json::object {
                 { "key", base64_encode(etcd_prefix+"/config/pgs") },
@@ -425,7 +423,7 @@ void osd_t::load_pgs()
             } }
         },
     };
-    etcd_txn(json11::Json::object { { "compare", checks }, { "success", txn } }, [this](std::string err, json11::Json data)
+    etcd_txn(json11::Json::object { { "success", txn } }, [this](std::string err, json11::Json data)
     {
         if (err != "")
         {
@@ -444,6 +442,7 @@ void osd_t::load_pgs()
         peering_state &= ~OSD_LOADING_PGS;
         json11::Json pg_config;
         std::map<pg_num_t, json11::Json> pg_history;
+        bool lease_valid = false;
         for (auto & res: data["responses"].array_items())
         {
             for (auto & kvs: res["response_range"]["kvs"].array_items())
@@ -454,6 +453,10 @@ void osd_t::load_pgs()
                 if (json_err != "")
                 {
                     printf("Bad JSON in etcd key %s: %s (value: %s)\n", key.c_str(), json_err.c_str(), json_text.c_str());
+                }
+                else if (key == etcd_prefix+"/osd/state/"+std::to_string(osd_num))
+                {
+                    lease_valid = kvs["lease"].string_value() == etcd_lease_id;
                 }
                 else if (key == etcd_prefix+"/config/pgs")
                 {
@@ -469,6 +472,11 @@ void osd_t::load_pgs()
                     }
                 }
             }
+        }
+        if (!lease_valid)
+        {
+            printf("Error loading PGs from etcd: lease expired\n");
+            exit(1);
         }
         parse_pgs(pg_config, pg_history);
         report_statistics();
