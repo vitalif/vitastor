@@ -3,11 +3,13 @@
 #include <signal.h>
 
 static osd_t *osd = NULL;
+static bool force_stopping = false;
 
 static void handle_sigint(int sig)
 {
-    if (osd)
+    if (osd && !force_stopping)
     {
+        force_stopping = true;
         osd->force_stop();
         return;
     }

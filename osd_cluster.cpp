@@ -401,6 +401,11 @@ void osd_t::force_stop()
             exit(0);
         });
     }
+    else
+    {
+        printf("[OSD %lu] Force stopping\n", this->osd_num);
+        exit(0);
+    }
 }
 
 void osd_t::load_pgs()

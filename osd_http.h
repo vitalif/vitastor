@@ -27,6 +27,7 @@ struct websocket_t
 {
     http_co_t *co;
     void post_message(int type, const std::string & msg);
+    void close();
 };
 
 void parse_http_headers(std::string & res, http_response_t *parsed);
