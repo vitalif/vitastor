@@ -235,10 +235,11 @@ void osd_t::load_global_config()
             });
             return;
         }
-        if (data["responses"][0]["response_range"]["kvs"].array_items().size() > 0)
+        etcd_watch_revision = data["header"]["revision"].string_value();
+        if (data["kvs"].array_items().size() > 0)
         {
-            std::string key = base64_decode(data["responses"][0]["response_range"]["kvs"][0]["key"].string_value());
-            std::string json_text = base64_decode(data["responses"][0]["response_range"]["kvs"][0]["value"].string_value());
+            std::string key = base64_decode(data["kvs"][0]["key"].string_value());
+            std::string json_text = base64_decode(data["kvs"][0]["value"].string_value());
             std::string json_err;
             json11::Json value = json11::Json::parse(json_text, json_err);
             if (json_err != "")
@@ -282,7 +283,7 @@ void osd_t::acquire_lease()
         etcd_lease_id = data["ID"].string_value();
         create_state();
     });
-    printf("[OSD %lu] reporting to etcd at %s each %d seconds\n", this->osd_num, etcd_address.c_str(), etcd_report_interval);
+    printf("[OSD %lu] reporting to etcd at %s every %d seconds\n", this->osd_num, etcd_address.c_str(), etcd_report_interval);
     tfd->set_timer(etcd_report_interval*1000, true, [this](int timer_id)
     {
         renew_lease();

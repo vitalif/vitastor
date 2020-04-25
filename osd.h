@@ -191,10 +191,10 @@ struct osd_wanted_peer_t
 
 struct http_response_t;
 
+struct websocket_t;
+
 class osd_t
 {
-    friend struct http_co_t;
-
     // config
 
     blockstore_config_t config;
@@ -219,7 +219,7 @@ class osd_t
 
     // peer OSDs
 
-    std::string etcd_lease_id;
+    std::string etcd_lease_id, etcd_watch_revision;
     std::map<osd_num_t, json11::Json> peer_states;
     std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
     bool loading_peer_config = false;
@@ -267,6 +267,9 @@ class osd_t
     uint64_t subop_stat_count[2][OSD_OP_MAX+1] = { 0 };
 
     // cluster connection
+    void http_request(std::string host, std::string request, bool streaming, std::function<void(const http_response_t *response)> callback);
+    void http_request_json(std::string host, std::string request, std::function<void(std::string, json11::Json data)> callback);
+    websocket_t* open_websocket(std::string host, std::string path, std::function<void(const http_response_t *msg)> callback);
     void etcd_call(std::string api, json11::Json payload, std::function<void(std::string, json11::Json)> callback);
     void etcd_txn(json11::Json txn, std::function<void(std::string, json11::Json)> callback);
     void parse_config(blockstore_config_t & config);
@@ -297,8 +300,6 @@ class osd_t
     void send_replies();
     void handle_send(ring_data_t *data, int peer_fd);
     void outbox_push(osd_client_t & cl, osd_op_t *op);
-    void http_request(std::string host, std::string request, bool streaming, std::function<void(const http_response_t *response)> callback);
-    void http_request_json(std::string host, std::string request, std::function<void(std::string, json11::Json data)> callback);
 
     // peer handling (primary OSD logic)
     void connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(osd_num_t, int)> callback);
