@@ -1,6 +1,7 @@
 #define _LARGEFILE64_SOURCE
 
 #include "osd_peering_pg.h"
+#define STRIPE_SHIFT 12
 
 /**
  * TODO tests for object & pg state calculation.
@@ -43,7 +44,7 @@ int main(int argc, char *argv[])
         }
         pg.peering_state->list_results[osd_num] = r;
     }
-    pg.calc_object_states();
+    pg.calc_object_states(0);
     printf("deviation variants=%ld clean=%lu\n", pg.state_dict.size(), pg.clean_count);
     for (auto it: pg.state_dict)
     {

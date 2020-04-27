@@ -106,10 +106,8 @@ void osd_t::parse_config(blockstore_config_t & config)
         int major, minor;
         if (sscanf(config["etcd_version"].c_str(), "%d.%d", &major, &minor) < 2)
             throw std::runtime_error("etcd_version should be in the form MAJOR.MINOR (for example, 3.2)");
-        if (major < 3 || major == 3 && minor < 2)
-            throw std::runtime_error("Your etcd is too old, minimum required version is 3.2");
-        else if (major == 3 && minor == 2)
-            etcd_api_path = "/v3alpha";
+        if (major < 3 || major == 3 && minor < 3)
+            throw std::runtime_error("Your etcd is too old, minimum required version is 3.3");
         else if (major == 3 && minor == 3)
             etcd_api_path = "/v3beta";
         else
@@ -117,10 +115,6 @@ void osd_t::parse_config(blockstore_config_t & config)
     }
     else
         etcd_api_path = "/v3";
-    if ((pos = etcd_address.find(':')) >= 0)
-        etcd_host = etcd_address.substr(0, pos);
-    else
-        etcd_host = etcd_address;
     etcd_report_interval = strtoull(config["etcd_report_interval"].c_str(), NULL, 10);
     if (etcd_report_interval <= 0)
         etcd_report_interval = 30;
@@ -153,12 +147,10 @@ void osd_t::parse_config(blockstore_config_t & config)
     peer_connect_interval = strtoull(config["peer_connect_interval"].c_str(), NULL, 10);
     if (!peer_connect_interval)
         peer_connect_interval = 5;
-    http_request_timeout = strtoull(config["http_request_timeout"].c_str(), NULL, 10);
-    if (!http_request_timeout)
-        http_request_timeout = 5;
     peer_connect_timeout = strtoull(config["peer_connect_timeout"].c_str(), NULL, 10);
     if (!peer_connect_timeout)
         peer_connect_timeout = 5;
+    log_level = strtoull(config["log_level"].c_str(), NULL, 10);
 }
 
 void osd_t::bind_socket()
@@ -394,13 +386,13 @@ void osd_t::stop_client(int peer_fd)
         if (cl.osd_num)
         {
             // Reload configuration from etcd when the connection is dropped
-            printf("[%lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl.osd_num);
+            printf("[OSD %lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl.osd_num);
             peer_states.erase(cl.osd_num);
             repeer_pgs(cl.osd_num);
         }
         else
         {
-            printf("[%lu] Stopping client %d (regular client)\n", osd_num, peer_fd);
+            printf("[OSD %lu] Stopping client %d (regular client)\n", osd_num, peer_fd);
         }
     }
     clients.erase(it);

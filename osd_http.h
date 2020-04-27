@@ -10,6 +10,12 @@
 #define WS_PING 9
 #define WS_PONG 10
 
+struct http_options_t
+{
+    int timeout;
+    bool want_streaming;
+};
+
 struct http_response_t
 {
     bool eof = false;

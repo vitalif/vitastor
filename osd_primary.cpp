@@ -51,7 +51,7 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
         auto & pg = pgs[cur_op->op_data->pg_num];
         int n = --pg.inflight;
         assert(n >= 0);
-        if (n == 0 && (pg.state & PG_STOPPING))
+        if ((pg.state & PG_STOPPING) && n == 0 && !pg.flush_batch)
         {
             finish_stop_pg(pg);
         }
@@ -513,7 +513,7 @@ resume_8:
             if (!pg.incomplete_objects.size())
             {
                 pg.state = pg.state & ~PG_HAS_INCOMPLETE;
-                pg.print_state();
+                report_pg_state(pg);
             }
         }
         else if (op_data->object_state->state & OBJ_DEGRADED)
@@ -523,7 +523,7 @@ resume_8:
             if (!pg.degraded_objects.size())
             {
                 pg.state = pg.state & ~PG_HAS_DEGRADED;
-                pg.print_state();
+                report_pg_state(pg);
             }
         }
         else if (op_data->object_state->state & OBJ_MISPLACED)
@@ -533,7 +533,7 @@ resume_8:
             if (!pg.misplaced_objects.size())
             {
                 pg.state = pg.state & ~PG_HAS_MISPLACED;
-                pg.print_state();
+                report_pg_state(pg);
             }
         }
         else

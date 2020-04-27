@@ -10,7 +10,7 @@ static void handle_sigint(int sig)
     if (osd && !force_stopping)
     {
         force_stopping = true;
-        osd->force_stop();
+        osd->force_stop(0);
         return;
     }
     exit(0);

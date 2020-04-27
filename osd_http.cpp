@@ -18,6 +18,7 @@ static std::string trim(const std::string & in);
 static std::string ws_format_frame(int type, uint64_t size);
 static bool ws_parse_frame(std::string & buf, int & type, std::string & res);
 
+// FIXME: Use keepalive
 struct http_co_t
 {
     ring_loop_t *ringloop;
@@ -66,15 +67,19 @@ struct http_co_t
 #define HTTP_CO_WEBSOCKET 5
 #define HTTP_CO_CHUNKED 6
 
-void osd_t::http_request(std::string host, std::string request, bool streaming, std::function<void(const http_response_t *response)> callback)
+#define DEFAULT_TIMEOUT 5000
+
+// FIXME: Remove osd_t dependency from here
+void osd_t::http_request(const std::string & host, const std::string & request,
+    const http_options_t & options, std::function<void(const http_response_t *response)> callback)
 {
     http_co_t *handler = new http_co_t();
     handler->ringloop = ringloop;
     handler->epoll_fd = epoll_fd;
     handler->epoll_handlers = &epoll_handlers;
-    handler->request_timeout = http_request_timeout;
+    handler->request_timeout = options.timeout < 0 ? 0 : (options.timeout == 0 ? DEFAULT_TIMEOUT : options.timeout);
+    handler->want_streaming = options.want_streaming;
     handler->tfd = tfd;
-    handler->want_streaming = streaming;
     handler->host = host;
     handler->request = request;
     handler->callback = callback;
@@ -82,10 +87,10 @@ void osd_t::http_request(std::string host, std::string request, bool streaming, 
     handler->start_connection();
 }
 
-void osd_t::http_request_json(std::string host, std::string request,
-    std::function<void(std::string, json11::Json r)> callback)
+void osd_t::http_request_json(const std::string & host, const std::string & request,
+    int timeout, std::function<void(std::string, json11::Json r)> callback)
 {
-    http_request(host, request, false, [this, callback](const http_response_t* res)
+    http_request(host, request, { .timeout = timeout }, [this, callback](const http_response_t* res)
     {
         if (res->error_code != 0)
         {
@@ -108,7 +113,8 @@ void osd_t::http_request_json(std::string host, std::string request,
     });
 }
 
-websocket_t* osd_t::open_websocket(std::string host, std::string path, std::function<void(const http_response_t *msg)> callback)
+websocket_t* osd_t::open_websocket(const std::string & host, const std::string & path,
+    int timeout, std::function<void(const http_response_t *msg)> callback)
 {
     std::string request = "GET "+path+" HTTP/1.1\r\n"
         "Host: "+host+"\r\n"
@@ -121,9 +127,9 @@ websocket_t* osd_t::open_websocket(std::string host, std::string path, std::func
     handler->ringloop = ringloop;
     handler->epoll_fd = epoll_fd;
     handler->epoll_handlers = &epoll_handlers;
-    handler->request_timeout = http_request_timeout;
-    handler->tfd = tfd;
+    handler->request_timeout = timeout < 0 ? -1 : (timeout == 0 ? DEFAULT_TIMEOUT : timeout);
     handler->want_streaming = false;
+    handler->tfd = tfd;
     handler->host = host;
     handler->request = request;
     handler->callback = callback;
@@ -215,11 +221,11 @@ void http_co_t::start_connection()
     fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
     if (request_timeout > 0)
     {
-        timeout_id = tfd->set_timer(1000*request_timeout, false, [this](int timer_id)
+        timeout_id = tfd->set_timer(request_timeout, false, [this](int timer_id)
         {
             if (response.length() == 0)
             {
-                parsed.error_code = EIO;
+                parsed.error_code = ETIME;
             }
             delete this;
         });
@@ -440,8 +446,8 @@ void http_co_t::handle_read()
             if (!len)
             {
                 // Zero length chunk indicates EOF
-                delete this;
-                return;
+                parsed.eof = true;
+                break;
             }
             if (response.size() < pos+2+len+2)
             {
@@ -453,6 +459,11 @@ void http_co_t::handle_read()
         if (prev > 0)
         {
             response = response.substr(prev);
+        }
+        if (parsed.eof)
+        {
+            delete this;
+            return;
         }
         if (want_streaming && parsed.body.size() > 0)
         {

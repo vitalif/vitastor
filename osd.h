@@ -18,6 +18,7 @@
 #include "timerfd_manager.h"
 #include "osd_ops.h"
 #include "osd_peering_pg.h"
+#include "osd_http.h"
 #include "json11/json11.hpp"
 
 #define OSD_OP_IN 0
@@ -48,10 +49,6 @@
 #define DEFAULT_AUTOSYNC_INTERVAL 5
 #define MAX_RECOVERY_QUEUE 2048
 #define DEFAULT_RECOVERY_QUEUE 4
-
-#define MAX_ETCD_ATTEMPTS 5
-#define ETCD_START_INTERVAL 5000
-#define ETCD_RETRY_INTERVAL 1000
 
 //#define OSD_STUB
 
@@ -189,16 +186,30 @@ struct osd_wanted_peer_t
     int address_index;
 };
 
-struct http_response_t;
+struct pg_config_t
+{
+    bool exists;
+    osd_num_t primary;
+    std::vector<osd_num_t> target_set;
+    std::vector<std::vector<osd_num_t>> target_history;
+    bool pause;
+    osd_num_t cur_primary;
+    int cur_state;
+};
 
-struct websocket_t;
+struct json_kv_t
+{
+    std::string key;
+    json11::Json value;
+};
 
 class osd_t
 {
     // config
 
     blockstore_config_t config;
-    std::string etcd_address, etcd_host, etcd_prefix, etcd_api_path;
+    // FIXME Allow multiple etcd addresses and select random address
+    std::string etcd_address, etcd_prefix, etcd_api_path;
     int etcd_report_interval = 30;
 
     bool readonly = false;
@@ -214,16 +225,26 @@ class osd_t
     int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // sync every 5 seconds
     int recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
     int peer_connect_interval = 5;
-    int http_request_timeout = 5;
     int peer_connect_timeout = 5;
+    int log_level = 0;
 
-    // peer OSDs
+    // cluster state
 
-    std::string etcd_lease_id, etcd_watch_revision;
+    std::string etcd_lease_id;
+    int etcd_watches_initialised = 0;
+    uint64_t etcd_watch_revision = 0;
+    websocket_t *etcd_watch_ws = NULL;
     std::map<osd_num_t, json11::Json> peer_states;
     std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
     bool loading_peer_config = false;
     int etcd_failed_attempts = 0;
+    std::map<pg_num_t, pg_config_t> pg_config;
+    std::set<pg_num_t> pg_state_dirty;
+    bool pg_config_applied = false;
+    bool etcd_reporting_pg_state = false;
+    bool etcd_reporting_stats = false;
+
+    // peers and PGs
 
     std::map<uint64_t, int> osd_peer_fds;
     std::map<pg_num_t, pg_t> pgs;
@@ -267,26 +288,36 @@ class osd_t
     uint64_t subop_stat_count[2][OSD_OP_MAX+1] = { 0 };
 
     // cluster connection
-    void http_request(std::string host, std::string request, bool streaming, std::function<void(const http_response_t *response)> callback);
-    void http_request_json(std::string host, std::string request, std::function<void(std::string, json11::Json data)> callback);
-    websocket_t* open_websocket(std::string host, std::string path, std::function<void(const http_response_t *msg)> callback);
-    void etcd_call(std::string api, json11::Json payload, std::function<void(std::string, json11::Json)> callback);
-    void etcd_txn(json11::Json txn, std::function<void(std::string, json11::Json)> callback);
+    void http_request(const std::string & host, const std::string & request,
+        const http_options_t & options, std::function<void(const http_response_t *response)> callback);
+    void http_request_json(const std::string & host, const std::string & request, int timeout,
+        std::function<void(std::string, json11::Json data)> callback);
+    websocket_t* open_websocket(const std::string & host, const std::string & path, int timeout,
+        std::function<void(const http_response_t *msg)> callback);
+    void etcd_call(std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback);
+    void etcd_txn(json11::Json txn, int timeout, std::function<void(std::string, json11::Json)> callback);
+    json_kv_t parse_etcd_kv(const json11::Json & kv_json);
     void parse_config(blockstore_config_t & config);
     void init_cluster();
+    void start_etcd_watcher();
     void load_global_config();
     void bind_socket();
     void acquire_lease();
-    void create_state();
+    json11::Json get_osd_state();
+    void create_osd_state();
     void renew_lease();
     void print_stats();
     void reset_stats();
-    json11::Json get_status();
     json11::Json get_statistics();
     void report_statistics();
+    void report_pg_state(pg_t & pg);
+    void report_pg_states();
     void load_pgs();
-    void parse_pgs(const json11::Json & pg_config, const std::map<pg_num_t, json11::Json> & pg_history);
+    void parse_pg_state(const std::string & key, const json11::Json & value);
+    void apply_pg_count();
+    void apply_pg_config();
     void load_and_connect_peers();
+    void parse_etcd_osd_state(const std::string & key, const json11::Json & value);
 
     // event loop, socket read/write
     void loop();
@@ -313,6 +344,7 @@ class osd_t
     void repeer_pgs(osd_num_t osd_num);
     void start_pg_peering(pg_num_t pg_num);
     void submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps);
+    void discard_list_subop(osd_op_t *list_op);
     bool stop_pg(pg_num_t pg_num);
     void finish_stop_pg(pg_t & pg);
 
@@ -356,7 +388,7 @@ class osd_t
 public:
     osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);
     ~osd_t();
-    void force_stop();
+    void force_stop(int exitcode);
     bool shutdown();
 };
 

@@ -2,26 +2,49 @@
 #include "osd_http.h"
 #include "base64.h"
 
-void osd_t::etcd_txn(json11::Json txn, std::function<void(std::string, json11::Json)> callback)
+#define ETCD_CONFIG_WATCH_ID 1
+#define ETCD_PG_STATE_WATCH_ID 2
+#define ETCD_PG_HISTORY_WATCH_ID 3
+#define ETCD_OSD_STATE_WATCH_ID 4
+
+#define MAX_ETCD_ATTEMPTS 5
+#define ETCD_SLOW_TIMEOUT 5000
+#define ETCD_QUICK_TIMEOUT 1000
+
+json_kv_t osd_t::parse_etcd_kv(const json11::Json & kv_json)
 {
-    etcd_call("/kv/txn", txn, callback);
+    json_kv_t kv;
+    kv.key = base64_decode(kv_json["key"].string_value());
+    std::string json_err, json_text = base64_decode(kv_json["value"].string_value());
+    kv.value = json_text == "" ? json11::Json() : json11::Json::parse(json_text, json_err);
+    if (json_err != "")
+    {
+        printf("Bad JSON in etcd key %s: %s (value: %s)\n", kv.key.c_str(), json_err.c_str(), json_text.c_str());
+        kv.key = "";
+    }
+    return kv;
 }
 
-void osd_t::etcd_call(std::string api, json11::Json payload, std::function<void(std::string, json11::Json)> callback)
+void osd_t::etcd_txn(json11::Json txn, int timeout, std::function<void(std::string, json11::Json)> callback)
+{
+    etcd_call("/kv/txn", txn, timeout, callback);
+}
+
+void osd_t::etcd_call(std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback)
 {
     std::string req = payload.dump();
     req = "POST "+etcd_api_path+api+" HTTP/1.1\r\n"
-        "Host: "+etcd_host+"\r\n"
+        "Host: "+etcd_address+"\r\n"
         "Content-Type: application/json\r\n"
         "Content-Length: "+std::to_string(req.size())+"\r\n"
         "Connection: close\r\n"
         "\r\n"+req;
-    http_request_json(etcd_address, req, callback);
+    http_request_json(etcd_address, req, timeout, callback);
 }
 
 // Startup sequence:
-//   Load global OSD configuration -> Bind socket -> Acquire lease -> Report state
-//   -> Load PGs -> Load peers -> Connect to peers -> Peer PGs
+//   Start etcd watcher -> Load global OSD configuration -> Bind socket -> Acquire lease -> Report&lock OSD state
+//   -> Load PG config -> Report&lock PG states -> Load peers -> Connect to peers -> Peer PGs
 // Event handling
 //   Wait for PG changes -> Start/Stop PGs when requested
 //   Peer connection is lost -> Reload connection data -> Try to reconnect
@@ -51,7 +74,7 @@ void osd_t::init_cluster()
                 .target_set = { 1, 2, 3 },
                 .cur_set = { 0, 0, 0 },
             };
-            pgs[1].print_state();
+            report_pg_state(pgs[1]);
             pg_count = 1;
             peering_state = OSD_CONNECTING_PEERS;
         }
@@ -97,7 +120,7 @@ void osd_t::parse_test_peer(std::string peer)
     wanted_peers[peer_osd] = { 0 };
 }
 
-json11::Json osd_t::get_status()
+json11::Json osd_t::get_osd_state()
 {
     json11::Json::object st;
     st["state"] = "up";
@@ -145,6 +168,11 @@ json11::Json osd_t::get_statistics()
 
 void osd_t::report_statistics()
 {
+    if (etcd_reporting_stats)
+    {
+        return;
+    }
+    etcd_reporting_stats = true;
     json11::Json::array txn = { json11::Json::object {
         { "request_put", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/osd/stats/"+std::to_string(osd_num)) },
@@ -154,10 +182,11 @@ void osd_t::report_statistics()
     for (auto & p: pgs)
     {
         auto & pg = p.second;
-        json11::Json::array pg_state;
-        for (int i = 0; i < pg_state_bit_count; i++)
-            if (pg.state & pg_state_bits[i])
-                pg_state.push_back(pg_state_names[i]);
+        if (pg.state & (PG_OFFLINE | PG_STARTING))
+        {
+            // Don't report statistics for offline PGs
+            continue;
+        }
         json11::Json::object pg_stats;
         pg_stats["object_count"] = pg.total_count;
         pg_stats["clean_count"] = pg.clean_count;
@@ -167,43 +196,19 @@ void osd_t::report_statistics()
         pg_stats["write_osd_set"] = pg.cur_set;
         txn.push_back(json11::Json::object {
             { "request_put", json11::Json::object {
-                { "key", base64_encode(etcd_prefix+"/pg/state/"+std::to_string(pg.pg_num)) },
-                { "value", base64_encode(json11::Json(json11::Json::object {
-                    { "primary", this->osd_num },
-                    { "state", pg_state },
-                }).dump()) },
-                { "lease", etcd_lease_id },
-            } }
-        });
-        txn.push_back(json11::Json::object {
-            { "request_put", json11::Json::object {
                 { "key", base64_encode(etcd_prefix+"/pg/stats/"+std::to_string(pg.pg_num)) },
                 { "value", base64_encode(json11::Json(pg_stats).dump()) },
             } }
         });
-        if (pg.state == PG_ACTIVE && pg.target_history.size())
-        {
-            pg.target_history.clear();
-            pg.all_peers = pg.target_set;
-            txn.push_back(json11::Json::object {
-                { "request_delete_range", json11::Json::object {
-                    { "key", base64_encode(etcd_prefix+"/pg/history/"+std::to_string(pg.pg_num)) },
-                } }
-            });
-        }
     }
-    etcd_txn(json11::Json::object { { "success", txn } }, [this](std::string err, json11::Json res)
+    etcd_txn(json11::Json::object { { "success", txn } }, ETCD_SLOW_TIMEOUT, [this](std::string err, json11::Json res)
     {
+        etcd_reporting_stats = false;
         if (err != "")
         {
-            etcd_failed_attempts++;
-            printf("Error reporting state to etcd: %s\n", err.c_str());
-            if (etcd_failed_attempts > MAX_ETCD_ATTEMPTS)
-            {
-                throw std::runtime_error("Cluster connection failed");
-            }
-            // Retry
-            tfd->set_timer(ETCD_RETRY_INTERVAL, false, [this](int timer_id)
+            printf("[OSD %lu] Error reporting state to etcd: %s\n", this->osd_num, err.c_str());
+            // Retry indefinitely
+            tfd->set_timer(ETCD_SLOW_TIMEOUT, false, [this](int timer_id)
             {
                 report_statistics();
             });
@@ -211,45 +216,141 @@ void osd_t::report_statistics()
         else if (res["error"].string_value() != "")
         {
             printf("[OSD %lu] Error reporting state to etcd: %s\n", this->osd_num, res["error"].string_value().c_str());
-            exit(1);
-        }
-        else
-        {
-            etcd_failed_attempts = 0;
+            force_stop(1);
         }
     });
+}
+
+void osd_t::start_etcd_watcher()
+{
+    etcd_watches_initialised = 0;
+    etcd_watch_ws = open_websocket(etcd_address, etcd_api_path+"/watch", ETCD_SLOW_TIMEOUT, [this](const http_response_t *msg)
+    {
+        if (msg->body.length())
+        {
+            std::string json_err;
+            json11::Json data = json11::Json::parse(msg->body, json_err);
+            if (json_err != "")
+            {
+                printf("Bad JSON in etcd event: %s, ignoring event\n", json_err.c_str());
+            }
+            else
+            {
+                if (data["result"]["created"].bool_value())
+                {
+                    etcd_watches_initialised++;
+                }
+                if (etcd_watches_initialised == 4)
+                {
+                    etcd_watch_revision = data["result"]["header"]["revision"].uint64_value();
+                }
+                // First gather all changes into a hash to remove multiple overwrites
+                json11::Json::object changes;
+                for (auto & ev: data["result"]["events"].array_items())
+                {
+                    auto kv = parse_etcd_kv(ev["kv"]);
+                    if (kv.key != "")
+                    {
+                        changes[kv.key] = kv.value;
+                    }
+                }
+                for (auto & kv: changes)
+                {
+                    if (this->log_level > 0)
+                    {
+                        printf("Incoming event: %s -> %s\n", kv.first.c_str(), kv.second.dump().c_str());
+                    }
+                    if (kv.first.substr(0, etcd_prefix.length()+11) == etcd_prefix+"/osd/state/")
+                    {
+                        parse_etcd_osd_state(kv.first, kv.second);
+                    }
+                    else
+                    {
+                        parse_pg_state(kv.first, kv.second);
+                    }
+                }
+                apply_pg_count();
+                apply_pg_config();
+            }
+        }
+        if (msg->eof)
+        {
+            etcd_watch_ws = NULL;
+            if (etcd_watches_initialised == 0)
+            {
+                // Connection not established, retry in <ETCD_SLOW_TIMEOUT>
+                tfd->set_timer(ETCD_SLOW_TIMEOUT, false, [this](int)
+                {
+                    start_etcd_watcher();
+                });
+            }
+            else
+            {
+                // Connection was live, retry immediately
+                start_etcd_watcher();
+            }
+        }
+    });
+    etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
+        { "create_request", json11::Json::object {
+            { "key", base64_encode(etcd_prefix+"/config/") },
+            { "range_end", base64_encode(etcd_prefix+"/config0") },
+            { "start_revision", etcd_watch_revision+1 },
+            { "watch_id", ETCD_CONFIG_WATCH_ID },
+        } }
+    }).dump());
+    etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
+        { "create_request", json11::Json::object {
+            { "key", base64_encode(etcd_prefix+"/osd/state/") },
+            { "range_end", base64_encode(etcd_prefix+"/osd/state0") },
+            { "start_revision", etcd_watch_revision+1 },
+            { "watch_id", ETCD_OSD_STATE_WATCH_ID },
+        } }
+    }).dump());
+    etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
+        { "create_request", json11::Json::object {
+            { "key", base64_encode(etcd_prefix+"/pg/state/") },
+            { "range_end", base64_encode(etcd_prefix+"/pg/state0") },
+            { "start_revision", etcd_watch_revision+1 },
+            { "watch_id", ETCD_PG_STATE_WATCH_ID },
+        } }
+    }).dump());
+    etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
+        { "create_request", json11::Json::object {
+            { "key", base64_encode(etcd_prefix+"/pg/history/") },
+            { "range_end", base64_encode(etcd_prefix+"/pg/history0") },
+            { "start_revision", etcd_watch_revision+1 },
+            { "watch_id", ETCD_PG_HISTORY_WATCH_ID },
+        } }
+    }).dump());
 }
 
 void osd_t::load_global_config()
 {
     etcd_call("/kv/range", json11::Json::object {
         { "key", base64_encode(etcd_prefix+"/config/osd/all") }
-    }, [this](std::string err, json11::Json data)
+    }, ETCD_SLOW_TIMEOUT, [this](std::string err, json11::Json data)
     {
         if (err != "")
         {
             printf("Error reading OSD configuration from etcd: %s\n", err.c_str());
-            tfd->set_timer(ETCD_START_INTERVAL, false, [this](int timer_id)
+            tfd->set_timer(ETCD_SLOW_TIMEOUT, false, [this](int timer_id)
             {
                 load_global_config();
             });
             return;
         }
-        etcd_watch_revision = data["header"]["revision"].string_value();
+        if (!etcd_watch_revision)
+        {
+            etcd_watch_revision = data["header"]["revision"].uint64_value();
+        }
         if (data["kvs"].array_items().size() > 0)
         {
-            std::string key = base64_decode(data["kvs"][0]["key"].string_value());
-            std::string json_text = base64_decode(data["kvs"][0]["value"].string_value());
-            std::string json_err;
-            json11::Json value = json11::Json::parse(json_text, json_err);
-            if (json_err != "")
-            {
-                printf("Bad JSON in etcd key %s: %s (value: %s)\n", key.c_str(), json_err.c_str(), json_text.c_str());
-            }
-            else
+            auto kv = parse_etcd_kv(data["kvs"][0]);
+            if (kv.value.is_object())
             {
                 blockstore_config_t osd_config = this->config;
-                for (auto & cfg_var: value.object_items())
+                for (auto & cfg_var: kv.value.object_items())
                 {
                     if (this->config.find(cfg_var.first) == this->config.end())
                     {
@@ -260,6 +361,7 @@ void osd_t::load_global_config()
             }
         }
         bind_socket();
+        start_etcd_watcher();
         acquire_lease();
     });
 }
@@ -267,21 +369,22 @@ void osd_t::load_global_config()
 // Acquire lease
 void osd_t::acquire_lease()
 {
+    // Maximum lease TTL is (report interval) + retries * (timeout + repeat interval)
     etcd_call("/lease/grant", json11::Json::object {
-        { "TTL", etcd_report_interval+(MAX_ETCD_ATTEMPTS*ETCD_RETRY_INTERVAL+999)/1000 }
-    }, [this](std::string err, json11::Json data)
+        { "TTL", etcd_report_interval+(MAX_ETCD_ATTEMPTS*(2*ETCD_QUICK_TIMEOUT)+999)/1000 }
+    }, ETCD_SLOW_TIMEOUT, [this](std::string err, json11::Json data)
     {
         if (err != "" || data["ID"].string_value() == "")
         {
             printf("Error acquiring a lease from etcd: %s\n", err.c_str());
-            tfd->set_timer(ETCD_START_INTERVAL, false, [this](int timer_id)
+            tfd->set_timer(ETCD_SLOW_TIMEOUT, false, [this](int timer_id)
             {
                 acquire_lease();
             });
             return;
         }
         etcd_lease_id = data["ID"].string_value();
-        create_state();
+        create_osd_state();
     });
     printf("[OSD %lu] reporting to etcd at %s every %d seconds\n", this->osd_num, etcd_address.c_str(), etcd_report_interval);
     tfd->set_timer(etcd_report_interval*1000, true, [this](int timer_id)
@@ -292,7 +395,7 @@ void osd_t::acquire_lease()
 
 // Report "up" state once, then keep it alive using the lease
 // Do it first to allow "monitors" check it when moving PGs
-void osd_t::create_state()
+void osd_t::create_osd_state()
 {
     std::string state_key = base64_encode(etcd_prefix+"/osd/state/"+std::to_string(osd_num));
     etcd_txn(json11::Json::object {
@@ -308,7 +411,7 @@ void osd_t::create_state()
             json11::Json::object {
                 { "request_put", json11::Json::object {
                     { "key", state_key },
-                    { "value", base64_encode(get_status().dump()) },
+                    { "value", base64_encode(get_osd_state().dump()) },
                     { "lease", etcd_lease_id },
                 } }
             },
@@ -320,28 +423,27 @@ void osd_t::create_state()
                 } }
             },
         } },
-    }, [this](std::string err, json11::Json data)
+    }, ETCD_QUICK_TIMEOUT, [this](std::string err, json11::Json data)
     {
         if (err != "")
         {
-            // FIXME Retry?
+            // FIXME Retry? But etcd should be already UP because we've just got the lease
             printf("Error reporting OSD state to etcd: %s\n", err.c_str());
-            exit(1);
+            force_stop(1);
+            return;
         }
-        if (data["responses"][0]["response_range"].is_object())
+        if (!data["succeeded"].bool_value())
         {
             // OSD is already up
-            auto & kv = data["responses"][0]["response_range"]["kvs"][0];
-            std::string key = base64_decode(kv["key"].string_value());
-            std::string json_err;
-            json11::Json state = json11::Json::parse(base64_decode(kv["value"].string_value()), json_err);
-            printf("Key %s already exists in etcd, OSD %lu is still up\n", key.c_str(), this->osd_num);
-            int64_t port = state["port"].int64_value();
-            for (auto & addr: state["addresses"].array_items())
+            auto kv = parse_etcd_kv(data["responses"][0]["response_range"]["kvs"][0]);
+            printf("Key %s already exists in etcd, OSD %lu is still up\n", kv.key.c_str(), this->osd_num);
+            int64_t port = kv.value["port"].int64_value();
+            for (auto & addr: kv.value["addresses"].array_items())
             {
                 printf("  listening at: %s:%ld\n", addr.string_value().c_str(), port);
             }
-            exit(0);
+            force_stop(0);
+            return;
         }
         if (run_primary)
         {
@@ -355,7 +457,7 @@ void osd_t::renew_lease()
 {
     etcd_call("/lease/keepalive", json11::Json::object {
         { "ID", etcd_lease_id }
-    }, [this](std::string err, json11::Json data)
+    }, ETCD_QUICK_TIMEOUT, [this](std::string err, json11::Json data)
     {
         if (err == "" && data["result"]["TTL"].string_value() == "")
         {
@@ -372,7 +474,7 @@ void osd_t::renew_lease()
                 throw std::runtime_error("Cluster connection failed");
             }
             // Retry
-            tfd->set_timer(ETCD_RETRY_INTERVAL, false, [this](int timer_id)
+            tfd->set_timer(ETCD_QUICK_TIMEOUT, false, [this](int timer_id)
             {
                 renew_lease();
             });
@@ -385,38 +487,40 @@ void osd_t::renew_lease()
     });
 }
 
-void osd_t::force_stop()
+void osd_t::force_stop(int exitcode)
 {
     if (etcd_lease_id != "")
     {
         etcd_call("/kv/lease/revoke", json11::Json::object {
             { "ID", etcd_lease_id }
-        }, [this](std::string err, json11::Json data)
+        }, ETCD_QUICK_TIMEOUT, [this, exitcode](std::string err, json11::Json data)
         {
             if (err != "")
             {
                 printf("Error revoking etcd lease: %s\n", err.c_str());
             }
             printf("[OSD %lu] Force stopping\n", this->osd_num);
-            exit(0);
+            exit(exitcode);
         });
     }
     else
     {
         printf("[OSD %lu] Force stopping\n", this->osd_num);
-        exit(0);
+        exit(exitcode);
     }
 }
 
 void osd_t::load_pgs()
 {
     assert(this->pgs.size() == 0);
-    json11::Json::array txn = {
+    json11::Json::array checks = {
         json11::Json::object {
-            { "request_range", json11::Json::object {
-                { "key", base64_encode(etcd_prefix+"/osd/state/"+std::to_string(osd_num)) },
-            } }
-        },
+            { "target", "LEASE" },
+            { "lease", etcd_lease_id },
+            { "key", base64_encode(etcd_prefix+"/osd/state/"+std::to_string(osd_num)) },
+        }
+    };
+    json11::Json::array txn = {
         json11::Json::object {
             { "request_range", json11::Json::object {
                 { "key", base64_encode(etcd_prefix+"/config/pgs") },
@@ -428,141 +532,436 @@ void osd_t::load_pgs()
                 { "range_end", base64_encode(etcd_prefix+"/pg/history0") },
             } }
         },
+        json11::Json::object {
+            { "request_range", json11::Json::object {
+                { "key", base64_encode(etcd_prefix+"/pg/state/") },
+                { "range_end", base64_encode(etcd_prefix+"/pg/state0") },
+            } }
+        },
     };
-    etcd_txn(json11::Json::object { { "success", txn } }, [this](std::string err, json11::Json data)
+    etcd_txn(json11::Json::object {
+        { "compare", checks }, { "success", txn }
+    }, ETCD_SLOW_TIMEOUT, [this](std::string err, json11::Json data)
     {
         if (err != "")
         {
             printf("Error loading PGs from etcd: %s\n", err.c_str());
-            tfd->set_timer(ETCD_START_INTERVAL, false, [this](int timer_id)
+            tfd->set_timer(ETCD_SLOW_TIMEOUT, false, [this](int timer_id)
             {
                 load_pgs();
             });
             return;
         }
-        if (!data["responses"].array_items().size())
+        if (!data["succeeded"].bool_value())
         {
             printf("Error loading PGs from etcd: lease expired\n");
-            exit(1);
+            force_stop(1);
+            return;
         }
         peering_state &= ~OSD_LOADING_PGS;
-        json11::Json pg_config;
-        std::map<pg_num_t, json11::Json> pg_history;
-        bool lease_valid = false;
         for (auto & res: data["responses"].array_items())
         {
-            for (auto & kvs: res["response_range"]["kvs"].array_items())
+            for (auto & kv_json: res["response_range"]["kvs"].array_items())
             {
-                std::string key = base64_decode(kvs["key"].string_value());
-                std::string json_err, json_text = base64_decode(kvs["value"].string_value());
-                json11::Json value = json11::Json::parse(json_text, json_err);
-                if (json_err != "")
-                {
-                    printf("Bad JSON in etcd key %s: %s (value: %s)\n", key.c_str(), json_err.c_str(), json_text.c_str());
-                }
-                else if (key == etcd_prefix+"/osd/state/"+std::to_string(osd_num))
-                {
-                    lease_valid = kvs["lease"].string_value() == etcd_lease_id;
-                }
-                else if (key == etcd_prefix+"/config/pgs")
-                {
-                    pg_config = value;
-                }
-                else if (key.substr(0, etcd_prefix.length()+12) == etcd_prefix+"/pg/history/")
-                {
-                    // <etcd_prefix>/pg/history/%d
-                    pg_num_t pg_num = stoull_full(key.substr(etcd_prefix.length()+12));
-                    if (pg_num)
-                    {
-                        pg_history[pg_num] = value;
-                    }
-                }
+                auto kv = parse_etcd_kv(kv_json);
+                parse_pg_state(kv.key, kv.value);
             }
         }
-        if (!lease_valid)
-        {
-            printf("Error loading PGs from etcd: lease expired\n");
-            exit(1);
-        }
-        parse_pgs(pg_config, pg_history);
-        report_statistics();
+        apply_pg_count();
+        apply_pg_config();
     });
 }
 
-void osd_t::parse_pgs(const json11::Json & pg_config, const std::map<pg_num_t, json11::Json> & pg_history)
+void osd_t::parse_pg_state(const std::string & key, const json11::Json & value)
 {
-    uint64_t pg_count = 0;
-    for (auto pg_item: pg_config.object_items())
+    if (key == etcd_prefix+"/config/pgs")
     {
-        pg_num_t pg_num = stoull_full(pg_item.first);
+        for (auto & pg_item: this->pg_config)
+        {
+            pg_item.second.exists = false;
+        }
+        for (auto & pg_item: value.object_items())
+        {
+            pg_num_t pg_num = stoull_full(pg_item.first);
+            if (!pg_num)
+            {
+                printf("Bad key in PG configuration: %s (must be a number), skipped\n", pg_item.first.c_str());
+                continue;
+            }
+            this->pg_config[pg_num].exists = true;
+            this->pg_config[pg_num].pause = pg_item.second["pause"].bool_value();
+            this->pg_config[pg_num].primary = pg_item.second["primary"].uint64_value();
+            this->pg_config[pg_num].target_set.clear();
+            for (auto pg_osd: pg_item.second["osd_set"].array_items())
+            {
+                this->pg_config[pg_num].target_set.push_back(pg_osd.uint64_value());
+            }
+            if (this->pg_config[pg_num].target_set.size() != 3)
+            {
+                printf("Bad PG %u config format: incorrect osd_set = %s\n", pg_num, pg_item.second["osd_set"].dump().c_str());
+                this->pg_config[pg_num].target_set.resize(3);
+                this->pg_config[pg_num].pause = true;
+            }
+        }
+    }
+    else if (key.substr(0, etcd_prefix.length()+12) == etcd_prefix+"/pg/history/")
+    {
+        // <etcd_prefix>/pg/history/%d
+        pg_num_t pg_num = stoull_full(key.substr(etcd_prefix.length()+12));
         if (!pg_num)
         {
-            throw std::runtime_error("Bad key in PG hash: "+pg_item.first);
+            printf("Bad etcd key %s, ignoring\n", key.c_str());
         }
-        auto & pg_json = pg_item.second;
-        osd_num_t primary_osd = pg_json["primary"].uint64_value();
-        if (primary_osd != 0 && primary_osd == this->osd_num)
+        else
+        {
+            this->pg_config[pg_num].target_history.clear();
+            for (auto hist_item: value.array_items())
+            {
+                std::vector<osd_num_t> history_set;
+                for (auto pg_osd: hist_item["osd_set"].array_items())
+                {
+                    history_set.push_back(pg_osd.uint64_value());
+                }
+                this->pg_config[pg_num].target_history.push_back(history_set);
+            }
+        }
+    }
+    else if (key.substr(0, etcd_prefix.length()+10) == etcd_prefix+"/pg/state/")
+    {
+        // <etcd_prefix>/pg/state/%d
+        pg_num_t pg_num = stoull_full(key.substr(etcd_prefix.length()+10));
+        if (!pg_num)
+        {
+            printf("Bad etcd key %s, ignoring\n", key.c_str());
+        }
+        else if (value.is_null())
+        {
+            this->pg_config[pg_num].cur_primary = 0;
+            this->pg_config[pg_num].cur_state = 0;
+        }
+        else
+        {
+            osd_num_t cur_primary = value["primary"].uint64_value();
+            int state = 0;
+            for (auto & e: value["state"].array_items())
+            {
+                int i;
+                for (i = 0; i < pg_state_bit_count; i++)
+                {
+                    if (e.string_value() == pg_state_names[i])
+                    {
+                        state = state | pg_state_bits[i];
+                        break;
+                    }
+                }
+                if (i >= pg_state_bit_count)
+                {
+                    printf("Unexpected PG %u state keyword in etcd: %s\n", pg_num, e.dump().c_str());
+                    force_stop(1);
+                    return;
+                }
+            }
+            if (!cur_primary || !value["state"].is_array() || !state ||
+                (state & PG_OFFLINE) && state != PG_OFFLINE ||
+                (state & PG_PEERING) && state != PG_PEERING ||
+                (state & PG_INCOMPLETE) && state != PG_INCOMPLETE)
+            {
+                printf("Unexpected PG %u state in etcd: primary=%lu, state=%s\n", pg_num, cur_primary, value["state"].dump().c_str());
+                force_stop(1);
+                return;
+            }
+            this->pg_config[pg_num].cur_primary = cur_primary;
+            this->pg_config[pg_num].cur_state = state;
+        }
+    }
+}
+
+void osd_t::apply_pg_count()
+{
+    pg_num_t pg_count = pg_config.size();
+    if (pg_count > 0 && (pg_config.begin()->first != 1 || std::prev(pg_config.end())->first != pg_count))
+    {
+        printf("Invalid PG configuration: PG numbers don't cover the whole 1..%d range\n", pg_count);
+        force_stop(1);
+        return;
+    }
+    if (this->pg_count != 0 && this->pg_count != pg_count)
+    {
+        // Check that all PGs are offline. It is not allowed to change PG count when any PGs are online
+        // The external tool must wait for all PGs to come down before changing PG count
+        // If it doesn't wait, a restarted OSD may apply the new count immediately which will lead to bugs
+        // So an OSD just dies if it detects PG count change while there are active PGs
+        int still_active = 0;
+        for (auto & kv: pgs)
+        {
+            if (kv.second.state & PG_ACTIVE)
+            {
+                still_active++;
+            }
+        }
+        if (still_active > 0)
+        {
+            printf("[OSD %lu] PG count change detected, but %d PG(s) are still active. This is not allowed. Exiting\n", this->osd_num, still_active);
+            force_stop(1);
+            return;
+        }
+    }
+    this->pg_count = pg_count;
+}
+
+void osd_t::apply_pg_config()
+{
+    bool all_applied = true;
+    for (auto & kv: pg_config)
+    {
+        pg_num_t pg_num = kv.first;
+        auto & pg_cfg = kv.second;
+        bool take = pg_cfg.exists && pg_cfg.primary == this->osd_num &&
+            !pg_cfg.pause && (!pg_cfg.cur_primary || pg_cfg.cur_primary == this->osd_num);
+        bool currently_taken = this->pgs.find(pg_num) != this->pgs.end() &&
+            this->pgs[pg_num].state != PG_OFFLINE;
+        if (currently_taken && !take)
+        {
+            // Stop this PG
+            stop_pg(pg_num);
+        }
+        else if (take)
         {
             // Take this PG
             std::set<osd_num_t> all_peers;
-            std::vector<osd_num_t> target_set;
-            for (auto pg_osd_num: pg_json["osd_set"].array_items())
+            for (osd_num_t pg_osd: pg_cfg.target_set)
             {
-                osd_num_t pg_osd = pg_osd_num.uint64_value();
-                target_set.push_back(pg_osd);
                 if (pg_osd != 0)
                 {
                     all_peers.insert(pg_osd);
                 }
             }
-            if (target_set.size() != 3)
+            for (auto & hist_item: pg_cfg.target_history)
             {
-                throw std::runtime_error("Bad PG "+std::to_string(pg_num)+" config format: incorrect osd_set");
-            }
-            std::vector<std::vector<osd_num_t>> target_history;
-            auto hist_it = pg_history.find(pg_num);
-            if (hist_it != pg_history.end())
-            {
-                for (auto hist_item: hist_it->second.array_items())
+                for (auto pg_osd: hist_item)
                 {
-                    std::vector<osd_num_t> history_set;
-                    for (auto pg_osd_num: hist_item["osd_set"].array_items())
+                    if (pg_osd != 0)
                     {
-                        osd_num_t pg_osd = pg_osd_num.uint64_value();
-                        history_set.push_back(pg_osd);
-                        if (pg_osd != 0)
-                        {
-                            all_peers.insert(pg_osd);
-                        }
+                        all_peers.insert(pg_osd);
                     }
-                    target_history.push_back(history_set);
+                }
+            }
+            if (currently_taken)
+            {
+                if (this->pgs[pg_num].state & (PG_ACTIVE | PG_INCOMPLETE | PG_PEERING))
+                {
+                    if (this->pgs[pg_num].target_set == pg_cfg.target_set)
+                    {
+                        // No change in osd_set; history changes are ignored
+                        continue;
+                    }
+                    else
+                    {
+                        // Stop PG, reapply change after stopping
+                        stop_pg(pg_num);
+                        all_applied = false;
+                        continue;
+                    }
+                }
+                else if (this->pgs[pg_num].state & PG_STOPPING)
+                {
+                    // Reapply change after stopping
+                    all_applied = false;
+                    continue;
+                }
+                else if (this->pgs[pg_num].state & PG_STARTING)
+                {
+                    if (pg_cfg.cur_primary == this->osd_num)
+                    {
+                        // PG locked, continue
+                    }
+                    else
+                    {
+                        // Reapply change after locking the PG
+                        all_applied = false;
+                        continue;
+                    }
+                }
+                else
+                {
+                    throw std::runtime_error("Unexpected PG "+std::to_string(pg_num)+" state: "+std::to_string(this->pgs[pg_num].state));
                 }
             }
             this->pgs[pg_num] = (pg_t){
-                .state = PG_PEERING,
+                .state = pg_cfg.cur_primary == this->osd_num ? PG_PEERING : PG_STARTING,
                 .pg_cursize = 0,
                 .pg_num = pg_num,
                 .all_peers = std::vector<osd_num_t>(all_peers.begin(), all_peers.end()),
-                .target_history = target_history,
-                .target_set = target_set,
+                .target_history = pg_cfg.target_history,
+                .target_set = pg_cfg.target_set,
             };
-            // Add peers
-            for (auto pg_osd: all_peers)
+            this->pg_state_dirty.insert(pg_num);
+            if (pg_cfg.cur_primary == this->osd_num)
             {
-                if (pg_osd != this->osd_num && osd_peer_fds.find(pg_osd) == osd_peer_fds.end())
+                // Add peers
+                for (auto pg_osd: all_peers)
                 {
-                    wanted_peers[pg_osd] = { 0 };
+                    if (pg_osd != this->osd_num && osd_peer_fds.find(pg_osd) == osd_peer_fds.end())
+                    {
+                        wanted_peers[pg_osd] = { 0 };
+                    }
                 }
+                start_pg_peering(pg_num);
             }
-            start_pg_peering(pg_num);
+            else
+            {
+                // Reapply change after locking the PG
+                all_applied = false;
+            }
         }
-        pg_count++;
     }
-    this->pg_count = pg_count;
     if (wanted_peers.size() > 0)
     {
         peering_state |= OSD_CONNECTING_PEERS;
     }
+    report_pg_states();
+    this->pg_config_applied = all_applied;
+}
+
+void osd_t::report_pg_states()
+{
+    if (etcd_reporting_pg_state || !this->pg_state_dirty.size() || !etcd_address.length())
+    {
+        return;
+    }
+    etcd_reporting_pg_state = true;
+    std::vector<pg_num_t> reporting_pgs(pg_state_dirty.begin(), pg_state_dirty.end());
+    pg_state_dirty.clear();
+    json11::Json::array checks;
+    json11::Json::array success;
+    json11::Json::array failure;
+    for (auto pg_num: reporting_pgs)
+    {
+        auto & pg = this->pgs[pg_num];
+        std::string state_key_base64 = base64_encode(etcd_prefix+"/pg/state/"+std::to_string(pg_num));
+        if (pg.state == PG_STARTING)
+        {
+            // Check that the PG key does not exist
+            // Failed check indicates an unsuccessful PG lock attempt in this case
+            checks.push_back(json11::Json::object {
+                { "target", "VERSION" },
+                { "version", 0 },
+                { "key", state_key_base64 },
+            });
+        }
+        else
+        {
+            // Check that the key is ours
+            // Failed check indicates success for OFFLINE pgs (PG lock is already deleted)
+            // and an unexpected race condition for started pgs (PG lock is held by someone else)
+            checks.push_back(json11::Json::object {
+                { "target", "LEASE" },
+                { "lease", etcd_lease_id },
+                { "key", state_key_base64 },
+            });
+        }
+        if (pg.state == PG_OFFLINE)
+        {
+            success.push_back(json11::Json::object {
+                { "request_delete_range", json11::Json::object {
+                    { "key", state_key_base64 },
+                } }
+            });
+        }
+        else
+        {
+            json11::Json::array pg_state_keywords;
+            for (int i = 0; i < pg_state_bit_count; i++)
+            {
+                if (pg.state & pg_state_bits[i])
+                {
+                    pg_state_keywords.push_back(pg_state_names[i]);
+                }
+            }
+            success.push_back(json11::Json::object {
+                { "request_put", json11::Json::object {
+                    { "key", base64_encode(etcd_prefix+"/pg/state/"+std::to_string(pg.pg_num)) },
+                    { "value", base64_encode(json11::Json(json11::Json::object {
+                        { "primary", this->osd_num },
+                        { "state", pg_state_keywords },
+                    }).dump()) },
+                    { "lease", etcd_lease_id },
+                } }
+            });
+            if (pg.state == PG_ACTIVE && pg.target_history.size() > 0)
+            {
+                // Clear history of active+clean PGs
+                success.push_back(json11::Json::object {
+                    { "request_delete_range", json11::Json::object {
+                        { "key", base64_encode(etcd_prefix+"/pg/history/"+std::to_string(pg.pg_num)) },
+                    } }
+                });
+            }
+        }
+        failure.push_back(json11::Json::object {
+            { "request_range", json11::Json::object {
+                { "key", state_key_base64 },
+            } }
+        });
+    }
+    etcd_txn(json11::Json::object {
+        { "compare", checks }, { "success", success }, { "failure", failure }
+    }, ETCD_QUICK_TIMEOUT, [this, reporting_pgs](std::string err, json11::Json data)
+    {
+        etcd_reporting_pg_state = false;
+        if (!data["succeeded"].bool_value())
+        {
+            // One of PG state updates failed
+            for (auto pg_num: reporting_pgs)
+            {
+                this->pg_state_dirty.insert(pg_num);
+            }
+            for (auto & res: data["responses"].array_items())
+            {
+                auto kv = parse_etcd_kv(res["kvs"][0]);
+                pg_num_t pg_num = stoull_full(kv.key.substr(etcd_prefix.length()+10));
+                auto pg_it = pgs.find(pg_num);
+                if (pg_it != pgs.end() && pg_it->second.state != PG_OFFLINE && pg_it->second.state != PG_STARTING)
+                {
+                    // Live PG state update failed
+                    printf("Failed to report state of PG %u which is live. Race condition detected, exiting\n", pg_num);
+                    force_stop(1);
+                    return;
+                }
+            }
+            // Retry after a short pause (hope we'll get some updates and update PG states accordingly)
+            tfd->set_timer(500, false, [this](int) { report_pg_states(); });
+        }
+        else
+        {
+            // Success. We'll get our changes back via the watcher and react to them
+            for (auto pg_num: reporting_pgs)
+            {
+                auto pg_it = this->pgs.find(pg_num);
+                if (pg_it != this->pgs.end())
+                {
+                    if (pg_it->second.state == PG_OFFLINE)
+                    {
+                        // Remove offline PGs after reporting their state
+                        this->pgs.erase(pg_it);
+                    }
+                    else if (pg_it->second.state == PG_ACTIVE && pg_it->second.target_history.size() > 0)
+                    {
+                        // Clear history of active+clean PGs
+                        pg_it->second.target_history.clear();
+                        pg_it->second.all_peers = pg_it->second.target_set;
+                    }
+                }
+            }
+            // Push other PG state updates, if any
+            report_pg_states();
+            if (!this->pg_state_dirty.size())
+            {
+                // Update statistics
+                report_statistics();
+            }
+        }
+    });
 }
 
 void osd_t::load_and_connect_peers()
@@ -643,7 +1042,7 @@ void osd_t::load_and_connect_peers()
     }
     if (load_peer_txn.size() > 0)
     {
-        etcd_txn(json11::Json::object { { "success", load_peer_txn } }, [this](std::string err, json11::Json data)
+        etcd_txn(json11::Json::object { { "success", load_peer_txn } }, ETCD_QUICK_TIMEOUT, [this](std::string err, json11::Json data)
         {
             // Ugly, but required to wake up the loop
             tfd->set_timer(peer_connect_interval*1000, false, [](int timer_id){});
@@ -657,23 +1056,22 @@ void osd_t::load_and_connect_peers()
             {
                 if (res["response_range"]["kvs"].array_items().size())
                 {
-                    std::string key = base64_decode(res["response_range"]["kvs"][0]["key"].string_value());
-                    // <etcd_prefix>/osd/state/<osd_num>
-                    osd_num_t peer_osd = std::stoull(key.substr(etcd_prefix.length()+11));
-                    std::string json_err;
-                    std::string json_text = base64_decode(res["response_range"]["kvs"][0]["value"].string_value());
-                    json11::Json st = json11::Json::parse(json_text, json_err);
-                    if (json_err != "")
-                    {
-                        printf("Bad JSON in etcd key %s: %s (value: %s)\n", key.c_str(), json_err.c_str(), json_text.c_str());
-                    }
-                    if (peer_osd > 0 && st.is_object() && st["state"] == "up" &&
-                        st["addresses"].is_array() && st["port"].int64_value() > 0 && st["port"].int64_value() < 65536)
-                    {
-                        peer_states[peer_osd] = st;
-                    }
+                    auto kv = parse_etcd_kv(res["response_range"]["kvs"][0]);
+                    parse_etcd_osd_state(kv.key, kv.value);
                 }
             }
         });
+    }
+}
+
+void osd_t::parse_etcd_osd_state(const std::string & key, const json11::Json & value)
+{
+    // <etcd_prefix>/osd/state/<osd_num>
+    osd_num_t peer_osd = std::stoull(key.substr(etcd_prefix.length()+11));
+    if (peer_osd > 0 && value.is_object() && value["state"] == "up" &&
+        value["addresses"].is_array() &&
+        value["port"].int64_value() > 0 && value["port"].int64_value() < 65536)
+    {
+        peer_states[peer_osd] = value;
     }
 }

@@ -43,6 +43,7 @@ struct pg_obj_state_check_t
     uint64_t n_copies = 0, has_roles = 0, n_roles = 0, n_stable = 0, n_mismatched = 0;
     uint64_t n_unstable = 0, n_buggy = 0;
     pg_osd_set_t osd_set;
+    int log_level;
 
     void walk();
     void start_object();
@@ -198,14 +199,16 @@ void pg_obj_state_check_t::finish_object()
     }
     if (n_roles < pg->pg_minsize)
     {
-        printf("Object is incomplete: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
-        for (int i = ver_start; i < ver_end; i++)
+        if (log_level > 1)
         {
-            printf("Present on: osd %lu, role %ld%s\n", list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
+            printf("Object is incomplete: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
+            for (int i = ver_start; i < ver_end; i++)
+            {
+                printf("Present on: osd %lu, role %ld%s\n", list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
+            }
         }
-        if (0)
+        if (log_level > 2)
         {
-            // For future debug level
             for (int i = obj_start; i < obj_end; i++)
             {
                 printf("v%lu present on: osd %lu, role %ld%s\n", list[i].version, list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
@@ -216,10 +219,13 @@ void pg_obj_state_check_t::finish_object()
     }
     else if (n_roles < pg->pg_cursize)
     {
-        printf("Object is degraded: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
-        for (int i = ver_start; i < ver_end; i++)
+        if (log_level > 1)
         {
-            printf("Present on: osd %lu, role %ld%s\n", list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
+            printf("Object is degraded: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
+            for (int i = ver_start; i < ver_end; i++)
+            {
+                printf("Present on: osd %lu, role %ld%s\n", list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
+            }
         }
         state = OBJ_DEGRADED;
         pg->state = pg->state | PG_HAS_DEGRADED;
@@ -321,10 +327,11 @@ void pg_obj_state_check_t::finish_object()
 }
 
 // FIXME: Write at least some tests for this function
-void pg_t::calc_object_states()
+void pg_t::calc_object_states(int log_level)
 {
     // Copy all object lists into one array
     pg_obj_state_check_t st;
+    st.log_level = log_level;
     st.pg = this;
     auto ps = peering_state;
     for (auto it: ps->list_results)
@@ -352,12 +359,10 @@ void pg_t::calc_object_states()
     std::sort(st.list.begin(), st.list.end());
     // Walk over it and check object states
     st.walk();
-    print_state();
 }
 
 void pg_t::print_state()
 {
-    // FIXME Immediately report state on each change
     printf(
         "[PG %u] is %s%s%s%s%s%s%s%s%s (%lu objects)\n", pg_num,
         (state & PG_OFFLINE) ? "offline" : "",
@@ -373,13 +378,15 @@ void pg_t::print_state()
     );
 }
 
-const int pg_state_bit_count = 10;
+const int pg_state_bit_count = 12;
 
-const int pg_state_bits[10] = {
-    PG_OFFLINE,
+const int pg_state_bits[12] = {
+    PG_STARTING,
     PG_PEERING,
     PG_INCOMPLETE,
     PG_ACTIVE,
+    PG_STOPPING,
+    PG_OFFLINE,
     PG_DEGRADED,
     PG_HAS_INCOMPLETE,
     PG_HAS_DEGRADED,
@@ -387,11 +394,13 @@ const int pg_state_bits[10] = {
     PG_HAS_UNCLEAN,
 };
 
-const char *pg_state_names[10] = {
-    "offline",
+const char *pg_state_names[12] = {
+    "starting",
     "peering",
     "incomplete",
     "active",
+    "stopping",
+    "offline",
     "degraded",
     "has_incomplete",
     "has_degraded",

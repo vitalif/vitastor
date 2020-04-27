@@ -168,12 +168,13 @@ void osd_t::handle_peers()
             {
                 if (!p.second.peering_state->list_ops.size())
                 {
-                    p.second.calc_object_states();
+                    p.second.calc_object_states(log_level);
+                    report_pg_state(p.second);
                     incomplete_objects += p.second.incomplete_objects.size();
                     misplaced_objects += p.second.misplaced_objects.size();
                     // FIXME: degraded objects may currently include misplaced, too! Report them separately?
                     degraded_objects += p.second.degraded_objects.size();
-                    if (p.second.state & PG_HAS_UNCLEAN)
+                    if (p.second.state & (PG_ACTIVE | PG_HAS_UNCLEAN) == (PG_ACTIVE | PG_HAS_UNCLEAN))
                         peering_state = peering_state | OSD_FLUSHING_PGS;
                     else
                         peering_state = peering_state | OSD_RECOVERING;
@@ -195,7 +196,7 @@ void osd_t::handle_peers()
         bool still = false;
         for (auto & p: pgs)
         {
-            if (p.second.state & PG_HAS_UNCLEAN)
+            if (p.second.state & (PG_ACTIVE | PG_HAS_UNCLEAN) == (PG_ACTIVE | PG_HAS_UNCLEAN))
             {
                 if (!p.second.flush_batch)
                 {
@@ -224,7 +225,7 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
     for (auto & p: pgs)
     {
         bool repeer = false;
-        if (p.second.state != PG_OFFLINE)
+        if (p.second.state & (PG_PEERING | PG_ACTIVE | PG_INCOMPLETE))
         {
             for (osd_num_t pg_osd: p.second.all_peers)
             {
@@ -239,7 +240,6 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
                 // Repeer this pg
                 printf("[PG %u] Repeer because of OSD %lu\n", p.second.pg_num, peer_osd);
                 start_pg_peering(p.second.pg_num);
-                peering_state |= OSD_PEERING_PGS;
             }
         }
     }
@@ -250,7 +250,8 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
 {
     auto & pg = pgs[pg_num];
     pg.state = PG_PEERING;
-    pg.print_state();
+    this->peering_state |= OSD_PEERING_PGS;
+    report_pg_state(pg);
     // Reset PG state
     pg.state_dict.clear();
     incomplete_objects -= pg.incomplete_objects.size();
@@ -312,14 +313,14 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
             if (!found)
             {
                 pg.state = PG_INCOMPLETE;
-                pg.print_state();
+                report_pg_state(pg);
             }
         }
     }
     if (pg.pg_cursize < pg.pg_minsize)
     {
         pg.state = PG_INCOMPLETE;
-        pg.print_state();
+        report_pg_state(pg);
     }
     std::set<osd_num_t> cur_peers;
     for (auto peer_osd: pg.all_peers)
@@ -342,25 +343,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
             if (pg.state == PG_INCOMPLETE || cur_peers.find(it->first) == cur_peers.end())
             {
                 // Discard the result after completion, which, chances are, will be unsuccessful
-                auto list_op = it->second;
-                if (list_op->peer_fd == 0)
-                {
-                    // Self
-                    list_op->bs_op->callback = [list_op](blockstore_op_t *bs_op)
-                    {
-                        if (list_op->bs_op->buf)
-                            free(list_op->bs_op->buf);
-                        delete list_op;
-                    };
-                }
-                else
-                {
-                    // Peer
-                    list_op->callback = [](osd_op_t *list_op)
-                    {
-                        delete list_op;
-                    };
-                }
+                discard_list_subop(it->second);
                 pg.peering_state->list_ops.erase(it);
                 it = pg.peering_state->list_ops.begin();
             }
@@ -491,6 +474,28 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
     }
 }
 
+void osd_t::discard_list_subop(osd_op_t *list_op)
+{
+    if (list_op->peer_fd == 0)
+    {
+        // Self
+        list_op->bs_op->callback = [list_op](blockstore_op_t *bs_op)
+        {
+            if (list_op->bs_op->buf)
+                free(list_op->bs_op->buf);
+            delete list_op;
+        };
+    }
+    else
+    {
+        // Peer
+        list_op->callback = [](osd_op_t *list_op)
+        {
+            delete list_op;
+        };
+    }
+}
+
 bool osd_t::stop_pg(pg_num_t pg_num)
 {
     auto pg_it = pgs.find(pg_num);
@@ -499,14 +504,35 @@ bool osd_t::stop_pg(pg_num_t pg_num)
         return false;
     }
     auto & pg = pg_it->second;
+    if (pg.peering_state)
+    {
+        // Stop peering
+        for (auto it = pg.peering_state->list_ops.begin(); it != pg.peering_state->list_ops.end();)
+        {
+            discard_list_subop(it->second);
+        }
+        for (auto it = pg.peering_state->list_results.begin(); it != pg.peering_state->list_results.end();)
+        {
+            if (it->second.buf)
+            {
+                free(it->second.buf);
+            }
+        }
+        delete pg.peering_state;
+        pg.peering_state = NULL;
+    }
     if (!(pg.state & PG_ACTIVE))
     {
         return false;
     }
     pg.state = pg.state & ~PG_ACTIVE | PG_STOPPING;
-    if (pg.inflight == 0)
+    if (pg.inflight == 0 && !pg.flush_batch)
     {
         finish_stop_pg(pg);
+    }
+    else
+    {
+        report_pg_state(pg);
     }
     return true;
 }
@@ -514,4 +540,16 @@ bool osd_t::stop_pg(pg_num_t pg_num)
 void osd_t::finish_stop_pg(pg_t & pg)
 {
     pg.state = PG_OFFLINE;
+    report_pg_state(pg);
+}
+
+void osd_t::report_pg_state(pg_t & pg)
+{
+    pg.print_state();
+    this->pg_state_dirty.insert(pg.pg_num);
+    if (pg.state == PG_OFFLINE && !this->pg_config_applied)
+    {
+        apply_pg_config();
+    }
+    report_pg_states();
 }

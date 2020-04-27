@@ -67,6 +67,8 @@ rw_blocking.o: rw_blocking.cpp rw_blocking.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_test: osd_test.cpp osd_ops.h rw_blocking.o
 	g++ $(CXXFLAGS) -o osd_test osd_test.cpp rw_blocking.o -ltcmalloc_minimal
+osd_peering_pg_test: osd_peering_pg_test.cpp osd_peering_pg.o
+	g++ $(CXXFLAGS) -o $@ $< osd_peering_pg.o -ltcmalloc_minimal
 
 libfio_sec_osd.so: fio_sec_osd.cpp osd_ops.h rw_blocking.o
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o libfio_sec_osd.so fio_sec_osd.cpp rw_blocking.o -luring

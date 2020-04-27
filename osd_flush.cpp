@@ -129,11 +129,15 @@ void osd_t::handle_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t osd
         if (!pg.flush_actions.size())
         {
             pg.state = pg.state & ~PG_HAS_UNCLEAN;
-            pg.print_state();
+            report_pg_state(pg);
         }
         for (osd_op_t *op: continue_ops)
         {
             continue_primary_write(op);
+        }
+        if (pg.inflight == 0 && (pg.state & PG_STOPPING))
+        {
+            finish_stop_pg(pg);
         }
     }
 }

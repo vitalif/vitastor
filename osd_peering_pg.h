@@ -9,18 +9,20 @@
 #include "osd_ops.h"
 
 // Placement group states
+// STARTING -> [acquire lock] -> PEERING -> INCOMPLETE|ACTIVE -> STOPPING -> OFFLINE -> [release lock]
 // Exactly one of these:
-#define PG_OFFLINE (1<<0)
+#define PG_STARTING (1<<0)
 #define PG_PEERING (1<<1)
 #define PG_INCOMPLETE (1<<2)
 #define PG_ACTIVE (1<<3)
 #define PG_STOPPING (1<<4)
+#define PG_OFFLINE (1<<5)
 // Plus any of these:
-#define PG_DEGRADED (1<<5)
-#define PG_HAS_INCOMPLETE (1<<6)
-#define PG_HAS_DEGRADED (1<<7)
-#define PG_HAS_MISPLACED (1<<8)
-#define PG_HAS_UNCLEAN (1<<9)
+#define PG_DEGRADED (1<<6)
+#define PG_HAS_INCOMPLETE (1<<7)
+#define PG_HAS_DEGRADED (1<<8)
+#define PG_HAS_MISPLACED (1<<9)
+#define PG_HAS_UNCLEAN (1<<10)
 
 // FIXME: Safe default that doesn't depend on pg_stripe_size or pg_block_size
 #define STRIPE_MASK ((uint64_t)4096 - 1)
@@ -33,8 +35,8 @@
 #define OBJ_NEEDS_ROLLBACK 0x20000
 #define OBJ_BUGGY 0x80000
 
-extern const int pg_state_bits[10];
-extern const char *pg_state_names[10];
+extern const int pg_state_bits[];
+extern const char *pg_state_names[];
 extern const int pg_state_bit_count;
 
 struct pg_obj_loc_t
@@ -96,7 +98,7 @@ struct pg_flush_batch_t
 
 struct pg_t
 {
-    int state = PG_OFFLINE;
+    int state = 0;
     uint64_t pg_cursize = 3, pg_size = 3, pg_minsize = 2;
     pg_num_t pg_num;
     uint64_t clean_count = 0, total_count = 0;
@@ -122,7 +124,7 @@ struct pg_t
     int inflight = 0; // including write_queue
     std::multimap<object_id, osd_op_t*> write_queue;
 
-    void calc_object_states();
+    void calc_object_states(int log_level);
     void print_state();
 };
 
