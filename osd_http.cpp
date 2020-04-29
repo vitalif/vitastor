@@ -56,7 +56,7 @@ struct http_co_t
     void handle_connect_result();
     void submit_read();
     void submit_send();
-    void handle_read();
+    bool handle_read();
     void post_message(int type, const std::string & msg);
 };
 
@@ -206,6 +206,7 @@ void http_co_t::start_connection()
     if ((r = inet_pton(AF_INET, host.c_str(), &addr.sin_addr)) != 1)
     {
         parsed.error_code = ENXIO;
+        // FIXME 'delete this' is ugly...
         delete this;
         return;
     }
@@ -334,7 +335,10 @@ void http_co_t::submit_read()
             {
                 submit_read();
             }
-            handle_read();
+            if (!handle_read())
+            {
+                return;
+            }
             if (data->res < READ_BUFFER_SIZE && (epoll_events & (EPOLLRDHUP|EPOLLERR)))
             {
                 delete this;
@@ -390,7 +394,7 @@ void http_co_t::submit_send()
     }
 }
 
-void http_co_t::handle_read()
+bool http_co_t::handle_read()
 {
     if (state == HTTP_CO_REQUEST_SENT)
     {
@@ -427,7 +431,7 @@ void http_co_t::handle_read()
                 {
                     // Sorry, unsupported response
                     delete this;
-                    return;
+                    return false;
                 }
             }
         }
@@ -435,7 +439,7 @@ void http_co_t::handle_read()
     if (state == HTTP_CO_HEADERS_RECEIVED && target_response_size > 0 && response.size() >= target_response_size)
     {
         delete this;
-        return;
+        return false;
     }
     if (state == HTTP_CO_CHUNKED && response.size() > 0)
     {
@@ -463,7 +467,7 @@ void http_co_t::handle_read()
         if (parsed.eof)
         {
             delete this;
-            return;
+            return false;
         }
         if (want_streaming && parsed.body.size() > 0)
         {
@@ -479,6 +483,7 @@ void http_co_t::handle_read()
             parsed.body = "";
         }
     }
+    return true;
 }
 
 void http_co_t::post_message(int type, const std::string & msg)
