@@ -453,6 +453,16 @@ void osd_t::exec_op(osd_op_t *cur_op)
         finish_op(cur_op, -EINVAL);
         return;
     }
+    if (readonly &&
+        cur_op->req.hdr.opcode != OSD_OP_SECONDARY_READ &&
+        cur_op->req.hdr.opcode != OSD_OP_SECONDARY_LIST &&
+        cur_op->req.hdr.opcode != OSD_OP_READ &&
+        cur_op->req.hdr.opcode != OSD_OP_SHOW_CONFIG)
+    {
+        // Readonly mode
+        finish_op(cur_op, -EROFS);
+        return;
+    }
     if (cur_op->req.hdr.opcode == OSD_OP_TEST_SYNC_STAB_ALL)
     {
         exec_sync_stab_all(cur_op);
