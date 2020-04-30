@@ -4,6 +4,7 @@
 
 void osd_t::submit_pg_flush_ops(pg_num_t pg_num)
 {
+    // FIXME: SYNC before flushing
     pg_t & pg = pgs[pg_num];
     pg_flush_batch_t *fb = new pg_flush_batch_t();
     pg.flush_batch = fb;
@@ -58,21 +59,22 @@ void osd_t::submit_pg_flush_ops(pg_num_t pg_num)
     }
 }
 
-void osd_t::handle_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t osd_num, bool ok)
+void osd_t::handle_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t peer_osd, int retval)
 {
     if (pgs.find(pg_num) == pgs.end() || pgs[pg_num].flush_batch != fb)
     {
         // Throw the result away
         return;
     }
-    if (!ok)
+    if (retval != 0)
     {
-        if (osd_num == this->osd_num)
-            throw std::runtime_error("Error while doing local flush operation");
+        if (peer_osd == this->osd_num)
+            throw std::runtime_error(std::string("Error while doing local flush operation: ") + strerror(-retval));
         else
         {
-            assert(osd_peer_fds.find(osd_num) != osd_peer_fds.end());
-            stop_client(osd_peer_fds[osd_num]);
+            printf("Error while doing flush on OSD %lu: %s\n", osd_num, strerror(-retval));
+            assert(osd_peer_fds.find(peer_osd) != osd_peer_fds.end());
+            stop_client(osd_peer_fds[peer_osd]);
             return;
         }
     }
@@ -142,20 +144,20 @@ void osd_t::handle_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t osd
     }
 }
 
-void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t osd_num, int count, obj_ver_id *data)
+void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t peer_osd, int count, obj_ver_id *data)
 {
     osd_op_t *op = new osd_op_t();
     // Copy buffer so it gets freed along with the operation
     op->buf = malloc(sizeof(obj_ver_id) * count);
     memcpy(op->buf, data, sizeof(obj_ver_id) * count);
-    if (osd_num == this->osd_num)
+    if (peer_osd == this->osd_num)
     {
         // local
         op->bs_op = new blockstore_op_t({
             .opcode = (uint64_t)(rollback ? BS_OP_ROLLBACK : BS_OP_STABLE),
             .callback = [this, op, pg_num, fb](blockstore_op_t *bs_op)
             {
-                handle_flush_op(pg_num, fb, this->osd_num, bs_op->retval == 0);
+                handle_flush_op(pg_num, fb, this->osd_num, bs_op->retval);
                 delete op;
             },
             .len = (uint32_t)count,
@@ -166,7 +168,7 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
     else
     {
         // Peer
-        int peer_fd = osd_peer_fds[osd_num];
+        int peer_fd = osd_peer_fds[peer_osd];
         op->op_type = OSD_OP_OUT;
         op->send_list.push_back(op->req.buf, OSD_PACKET_SIZE);
         op->send_list.push_back(op->buf, count * sizeof(obj_ver_id));
@@ -183,7 +185,7 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
         };
         op->callback = [this, pg_num, fb](osd_op_t *op)
         {
-            handle_flush_op(pg_num, fb, clients[op->peer_fd].osd_num, op->reply.hdr.retval == 0);
+            handle_flush_op(pg_num, fb, clients[op->peer_fd].osd_num, op->reply.hdr.retval);
             delete op;
         };
         outbox_push(clients[peer_fd], op);

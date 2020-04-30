@@ -350,8 +350,8 @@ class osd_t
 
     // flushing, recovery and backfill
     void submit_pg_flush_ops(pg_num_t pg_num);
-    void handle_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t osd_num, bool ok);
-    void submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t osd_num, int count, obj_ver_id *data);
+    void handle_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t peer_osd, int retval);
+    void submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t peer_osd, int count, obj_ver_id *data);
     bool pick_next_recovery(osd_recovery_op_t &op);
     void submit_recovery_op(osd_recovery_op_t *op);
     bool continue_recovery();

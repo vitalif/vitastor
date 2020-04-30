@@ -40,7 +40,9 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
                 if (!IS_SYNCED(dirty_it->second.state) ||
                     IS_STABLE(dirty_it->second.state))
                 {
-                    goto bad_op;
+                    op->retval = -EBUSY;
+                    FINISH_OP(op);
+                    return 1;
                 }
                 if (dirty_it == dirty_db.begin())
                 {
