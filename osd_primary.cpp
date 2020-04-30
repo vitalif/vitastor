@@ -49,9 +49,9 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     if (cur_op->op_data && cur_op->op_data->pg_num > 0)
     {
         auto & pg = pgs[cur_op->op_data->pg_num];
-        int n = --pg.inflight;
-        assert(n >= 0);
-        if ((pg.state & PG_STOPPING) && n == 0 && !pg.flush_batch)
+        pg.inflight--;
+        assert(pg.inflight >= 0);
+        if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch)
         {
             finish_stop_pg(pg);
         }
@@ -760,10 +760,6 @@ resume_5:
     op_data->st = 5;
     return;
 resume_6:
-    for (int i = 0; i < op_data->dirty_pg_count; i++)
-    {
-        pgs[op_data->dirty_pgs[i]].inflight--;
-    }
     if (op_data->errors > 0)
     {
         // Return objects back into the unstable write set
@@ -784,6 +780,15 @@ resume_6:
                     dirty_pgs.insert(wpg);
                 }
             }
+        }
+    }
+    for (int i = 0; i < op_data->dirty_pg_count; i++)
+    {
+        auto & pg = pgs.at(op_data->dirty_pgs[i]);
+        pg.inflight--;
+        if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch)
+        {
+            finish_stop_pg(pg);
         }
     }
     // FIXME: Free those in the destructor?

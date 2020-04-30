@@ -796,6 +796,7 @@ void osd_t::apply_pg_config()
                 .target_set = pg_cfg.target_set,
             };
             this->pg_state_dirty.insert(pg_num);
+            this->pgs[pg_num].print_state();
             if (pg_cfg.cur_primary == this->osd_num)
             {
                 // Add peers
@@ -830,15 +831,20 @@ void osd_t::report_pg_states()
         return;
     }
     etcd_reporting_pg_state = true;
-    std::vector<pg_num_t> reporting_pgs(pg_state_dirty.begin(), pg_state_dirty.end());
-    pg_state_dirty.clear();
+    std::vector<pg_num_t> reporting_pgs;
     json11::Json::array checks;
     json11::Json::array success;
     json11::Json::array failure;
-    for (auto pg_num: reporting_pgs)
+    for (auto it = pg_state_dirty.begin(); it != pg_state_dirty.end(); it++)
     {
-        auto & pg = this->pgs[pg_num];
-        std::string state_key_base64 = base64_encode(etcd_prefix+"/pg/state/"+std::to_string(pg_num));
+        auto pg_it = this->pgs.find(*it);
+        if (pg_it == this->pgs.end())
+        {
+            continue;
+        }
+        auto & pg = pg_it->second;
+        reporting_pgs.push_back(pg.pg_num);
+        std::string state_key_base64 = base64_encode(etcd_prefix+"/pg/state/"+std::to_string(pg.pg_num));
         if (pg.state == PG_STARTING)
         {
             // Check that the PG key does not exist
@@ -904,6 +910,7 @@ void osd_t::report_pg_states()
             } }
         });
     }
+    pg_state_dirty.clear();
     etcd_txn(json11::Json::object {
         { "compare", checks }, { "success", success }, { "failure", failure }
     }, ETCD_QUICK_TIMEOUT, [this, reporting_pgs](std::string err, json11::Json data)
