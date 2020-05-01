@@ -343,6 +343,7 @@ class osd_t
     void handle_peers();
     void repeer_pgs(osd_num_t osd_num);
     void start_pg_peering(pg_num_t pg_num);
+    void submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *ps);
     void submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps);
     void discard_list_subop(osd_op_t *list_op);
     bool stop_pg(pg_num_t pg_num);

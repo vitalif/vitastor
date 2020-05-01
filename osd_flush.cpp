@@ -4,7 +4,6 @@
 
 void osd_t::submit_pg_flush_ops(pg_num_t pg_num)
 {
-    // FIXME: SYNC before flushing
     pg_t & pg = pgs[pg_num];
     pg_flush_batch_t *fb = new pg_flush_batch_t();
     pg.flush_batch = fb;

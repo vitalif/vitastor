@@ -386,9 +386,76 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
         {
             continue;
         }
-        submit_list_subop(peer_osd, pg.peering_state);
+        submit_sync_and_list_subop(peer_osd, pg.peering_state);
     }
     ringloop->wakeup();
+}
+
+void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
+{
+    // Sync before listing, if not readonly
+    if (readonly)
+    {
+        submit_list_subop(role_osd, ps);
+    }
+    else if (role_osd == this->osd_num)
+    {
+        // Self
+        osd_op_t *op = new osd_op_t();
+        op->op_type = 0;
+        op->peer_fd = 0;
+        op->bs_op = new blockstore_op_t();
+        op->bs_op->opcode = BS_OP_SYNC;
+        op->bs_op->callback = [this, ps, op, role_osd](blockstore_op_t *bs_op)
+        {
+            if (bs_op->retval < 0)
+            {
+                printf("Local OP_SYNC failed: %d (%s)\n", bs_op->retval, strerror(-bs_op->retval));
+                force_stop(1);
+                return;
+            }
+            delete op;
+            ps->list_ops.erase(role_osd);
+            submit_list_subop(role_osd, ps);
+        };
+        bs->enqueue_op(op->bs_op);
+        ps->list_ops[role_osd] = op;
+    }
+    else
+    {
+        // Peer
+        auto & cl = clients[osd_peer_fds[role_osd]];
+        osd_op_t *op = new osd_op_t();
+        op->op_type = OSD_OP_OUT;
+        op->send_list.push_back(op->req.buf, OSD_PACKET_SIZE);
+        op->peer_fd = cl.peer_fd;
+        op->req = {
+            .sec_sync = {
+                .header = {
+                    .magic = SECONDARY_OSD_OP_MAGIC,
+                    .id = this->next_subop_id++,
+                    .opcode = OSD_OP_SECONDARY_SYNC,
+                },
+            },
+        };
+        op->callback = [this, ps, role_osd](osd_op_t *op)
+        {
+            if (op->reply.hdr.retval < 0)
+            {
+                // FIXME: Mark peer as failed and don't reconnect immediately after dropping the connection
+                printf("Failed to sync OSD %lu: %ld (%s), disconnecting peer\n", role_osd, op->reply.hdr.retval, strerror(-op->reply.hdr.retval));
+                ps->list_ops.erase(role_osd);
+                stop_client(op->peer_fd);
+                delete op;
+                return;
+            }
+            delete op;
+            ps->list_ops.erase(role_osd);
+            submit_list_subop(role_osd, ps);
+        };
+        outbox_push(cl, op);
+        ps->list_ops[role_osd] = op;
+    }
 }
 
 void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
