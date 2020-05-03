@@ -23,6 +23,7 @@
 #define PG_HAS_DEGRADED (1<<8)
 #define PG_HAS_MISPLACED (1<<9)
 #define PG_HAS_UNCLEAN (1<<10)
+#define PG_LEFT_ON_DEAD (1<<11)
 
 // FIXME: Safe default that doesn't depend on pg_stripe_size or pg_block_size
 #define STRIPE_MASK ((uint64_t)4096 - 1)
@@ -102,9 +103,12 @@ struct pg_t
     uint64_t pg_cursize = 3, pg_size = 3, pg_minsize = 2;
     pg_num_t pg_num;
     uint64_t clean_count = 0, total_count = 0;
-    // all possible peers
-    std::vector<osd_num_t> all_peers;
+    // target history and all potential peers
     std::vector<std::vector<osd_num_t>> target_history;
+    std::vector<osd_num_t> all_peers;
+    bool history_changed = false;
+    // peer list from the last peering event
+    std::vector<osd_num_t> cur_peers;
     // target_set is the "correct" peer OSD set for this PG
     std::vector<osd_num_t> target_set;
     // cur_set is the current set of connected peer OSDs for this PG

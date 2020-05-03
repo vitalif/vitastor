@@ -75,9 +75,13 @@ void pg_obj_state_check_t::walk()
     }
     if (pg->pg_cursize < pg->pg_size)
     {
-        pg->state = pg->state | PG_DEGRADED;
+        pg->state |= PG_DEGRADED;
     }
-    pg->state = pg->state | PG_ACTIVE;
+    pg->state |= PG_ACTIVE;
+    if (pg->state == PG_ACTIVE && pg->cur_peers.size() < pg->all_peers.size())
+    {
+        pg->state |= PG_LEFT_ON_DEAD;
+    }
 }
 
 void pg_obj_state_check_t::start_object()
@@ -380,9 +384,9 @@ void pg_t::print_state()
     );
 }
 
-const int pg_state_bit_count = 12;
+const int pg_state_bit_count = 13;
 
-const int pg_state_bits[12] = {
+const int pg_state_bits[13] = {
     PG_STARTING,
     PG_PEERING,
     PG_INCOMPLETE,
@@ -394,9 +398,10 @@ const int pg_state_bits[12] = {
     PG_HAS_DEGRADED,
     PG_HAS_MISPLACED,
     PG_HAS_UNCLEAN,
+    PG_LEFT_ON_DEAD,
 };
 
-const char *pg_state_names[12] = {
+const char *pg_state_names[13] = {
     "starting",
     "peering",
     "incomplete",
@@ -408,4 +413,5 @@ const char *pg_state_names[12] = {
     "has_degraded",
     "has_misplaced",
     "has_unclean",
+    "left_on_dead",
 };

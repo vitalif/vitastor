@@ -253,6 +253,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     this->peering_state |= OSD_PEERING_PGS;
     report_pg_state(pg);
     // Reset PG state
+    pg.cur_peers.clear();
     pg.state_dict.clear();
     incomplete_objects -= pg.incomplete_objects.size();
     misplaced_objects -= pg.misplaced_objects.size();
@@ -335,6 +336,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
             peering_state |= OSD_CONNECTING_PEERS;
         }
     }
+    pg.cur_peers.insert(pg.cur_peers.begin(), cur_peers.begin(), cur_peers.end());
     if (pg.peering_state)
     {
         // Adjust the peering operation that's still in progress - discard unneeded results
@@ -614,6 +616,46 @@ void osd_t::report_pg_state(pg_t & pg)
 {
     pg.print_state();
     this->pg_state_dirty.insert(pg.pg_num);
+    if (pg.state == PG_ACTIVE && (pg.target_history.size() > 0 || pg.all_peers.size() > pg.target_set.size()))
+    {
+        // Clear history of active+clean PGs
+        pg.history_changed = true;
+        pg.target_history.clear();
+        pg.all_peers = pg.target_set;
+        pg.cur_peers = pg.target_set;
+    }
+    else if (pg.state == (PG_ACTIVE|PG_LEFT_ON_DEAD))
+    {
+        // Clear history of active+left_on_dead PGs, but leave dead OSDs in all_peers
+        pg.history_changed = true;
+        pg.target_history.clear();
+        std::set<osd_num_t> dead_peers;
+        for (auto pg_osd: pg.all_peers)
+        {
+            dead_peers.insert(pg_osd);
+        }
+        for (auto pg_osd: pg.cur_peers)
+        {
+            dead_peers.erase(pg_osd);
+        }
+        for (auto pg_osd: pg.target_set)
+        {
+            if (pg_osd)
+            {
+                dead_peers.insert(pg_osd);
+            }
+        }
+        pg.all_peers.clear();
+        pg.all_peers.insert(pg.all_peers.begin(), dead_peers.begin(), dead_peers.end());
+        pg.cur_peers.clear();
+        for (auto pg_osd: pg.target_set)
+        {
+            if (pg_osd)
+            {
+                pg.cur_peers.push_back(pg_osd);
+            }
+        }
+    }
     if (pg.state == PG_OFFLINE && !this->pg_config_applied)
     {
         apply_pg_config();

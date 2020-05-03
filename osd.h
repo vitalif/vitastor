@@ -192,6 +192,7 @@ struct pg_config_t
     osd_num_t primary;
     std::vector<osd_num_t> target_set;
     std::vector<std::vector<osd_num_t>> target_history;
+    std::vector<osd_num_t> all_peers;
     bool pause;
     osd_num_t cur_primary;
     int cur_state;
