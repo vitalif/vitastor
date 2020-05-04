@@ -22,7 +22,8 @@
 #define OSD_OP_READ                 10
 #define OSD_OP_WRITE                11
 #define OSD_OP_SYNC                 12
-#define OSD_OP_MAX                  12
+#define OSD_OP_DELETE               13
+#define OSD_OP_MAX                  13
 // Alignment & limit for read/write operations
 #ifndef MEM_ALIGNMENT
 #define MEM_ALIGNMENT               512
@@ -59,6 +60,7 @@ struct __attribute__((__packed__)) osd_op_secondary_rw_t
     // object
     object_id oid;
     // read/write version (automatic or specific)
+    // FIXME deny values close to UINT64_MAX
     uint64_t version;
     // offset
     uint32_t offset;

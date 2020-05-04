@@ -114,6 +114,8 @@ struct pg_t
     // cur_set is the current set of connected peer OSDs for this PG
     // cur_set = (role => osd_num or UINT64_MAX if missing). role numbers begin with zero
     std::vector<osd_num_t> cur_set;
+    // same thing in state_dict-like format
+    pg_osd_set_t cur_loc_set;
     // moved object map. by default, each object is considered to reside on the cur_set.
     // this map stores all objects that differ.
     // it may consume up to ~ (raw storage / object size) * 24 bytes in the worst case scenario

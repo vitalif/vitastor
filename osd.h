@@ -361,6 +361,7 @@ class osd_t
 
     // op execution
     void exec_op(osd_op_t *cur_op);
+    void finish_op(osd_op_t *cur_op, int retval);
 
     // secondary ops
     void exec_sync_stab_all(osd_op_t *cur_op);
@@ -374,11 +375,14 @@ class osd_t
     void continue_primary_read(osd_op_t *cur_op);
     void continue_primary_write(osd_op_t *cur_op);
     void continue_primary_sync(osd_op_t *cur_op);
-    void finish_op(osd_op_t *cur_op, int retval);
+    void continue_primary_del(osd_op_t *cur_op);
+    bool check_write_queue(osd_op_t *cur_op, pg_t & pg);
+    void remove_object_from_state(object_id & oid, pg_osd_set_state_t *object_state, pg_t &pg);
+    bool finalize_primary_write(osd_op_t *cur_op, pg_t & pg, pg_osd_set_t & loc_set, int base_state);
     void handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int retval, int expected, uint64_t version);
     void pg_cancel_write_queue(pg_t & pg, object_id oid, int retval);
     void submit_primary_subops(int submit_type, int read_pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
-    void submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_osd_set_state_t *object_state);
+    void submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_osd_set_t & loc_set);
     void submit_primary_sync_subops(osd_op_t *cur_op);
     void submit_primary_stab_subops(osd_op_t *cur_op);
 

@@ -287,6 +287,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     // Calculate current write OSD set
     pg.pg_cursize = 0;
     pg.cur_set.resize(pg.target_set.size());
+    pg.cur_loc_set.clear();
     for (int role = 0; role < pg.target_set.size(); role++)
     {
         pg.cur_set[role] = pg.target_set[role] == this->osd_num ||
@@ -294,6 +295,11 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
         if (pg.cur_set[role] != 0)
         {
             pg.pg_cursize++;
+            pg.cur_loc_set.push_back({
+                .role = (uint64_t)role,
+                .osd_num = pg.cur_set[role],
+                .outdated = false,
+            });
         }
     }
     if (pg.target_history.size())

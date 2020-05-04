@@ -1,9 +1,5 @@
 #include "osd_primary.h"
 
-#define SUBMIT_READ 0
-#define SUBMIT_RMW_READ 1
-#define SUBMIT_WRITE 2
-
 void osd_t::autosync()
 {
     if (immediate_commit != IMMEDIATE_ALL && !autosync_op)
@@ -227,6 +223,10 @@ void osd_t::handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int retval, 
         {
             continue_primary_sync(cur_op);
         }
+        else if (cur_op->req.hdr.opcode == OSD_OP_DELETE)
+        {
+            continue_primary_del(cur_op);
+        }
         else
         {
             throw std::runtime_error("BUG: unknown opcode");
@@ -234,13 +234,13 @@ void osd_t::handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int retval, 
     }
 }
 
-void osd_t::submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_osd_set_state_t *object_state)
+void osd_t::submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_osd_set_t & loc_set)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     int extra_chunks = 0;
-    for (auto chunk: object_state->osd_set)
+    for (auto & chunk: loc_set)
     {
-        if (chunk.osd_num != cur_set[chunk.role])
+        if (!cur_set || chunk.osd_num != cur_set[chunk.role])
         {
             extra_chunks++;
         }
@@ -254,9 +254,9 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_os
     osd_op_t *subops = new osd_op_t[extra_chunks];
     op_data->subops = subops;
     int i = 0;
-    for (auto chunk: object_state->osd_set)
+    for (auto & chunk: loc_set)
     {
-        if (chunk.osd_num != cur_set[chunk.role])
+        if (!cur_set || chunk.osd_num != cur_set[chunk.role])
         {
             if (chunk.osd_num == this->osd_num)
             {
