@@ -147,29 +147,28 @@ sub optimize_change
     my $intersect = {};
     for my $pg_name (keys %$prev_weights)
     {
-        my @pg = split /_/, substr($pg_name, 'pg_');
-        $intersect->{$pg[0].'::'} = $intersect->{':'.$pg[1].':'} = $intersect->{'::'.$pg[2]} = 1;
-        $intersect->{$pg[0].'::'.$pg[2]} = $intersect->{':'.$pg[1].':'.$pg[2]} = $intersect->{$pg[0].':'.$pg[1].':'} = 2;
+        my @pg = split /_/, substr($pg_name, 3);
+        $intersect->{$pg[0].'::'} = $intersect->{':'.$pg[1].':'} = $intersect->{'::'.$pg[2]} = 2;
+        $intersect->{$pg[0].'::'.$pg[2]} = $intersect->{':'.$pg[1].':'.$pg[2]} = $intersect->{$pg[0].':'.$pg[1].':'} = 1;
     }
     my $move_weights = {};
     for my $pg (@$pgs)
     {
         $move_weights->{'pg_'.join('_', @$pg)} =
+            $intersect->{$pg->[0].'::'.$pg->[2]} || $intersect->{':'.$pg->[1].':'.$pg->[2]} || $intersect->{$pg->[0].':'.$pg->[1].':'} ||
             $intersect->{$pg->[0].'::'} || $intersect->{':'.$pg->[1].':'} || $intersect->{'::'.$pg->[2]} ||
-            $intersect->{$pg->[0].'::'.$pg->[2]} || $intersect->{':'.$pg->[1].':'.$pg->[2]} || $intersect->{$pg->[0].':'.$pg->[1].':'} || 3;
+            3;
     }
     # Calculate total weight - old PG weights
     my $pg_names = [ map { 'pg_'.join('_', @$_) } @$pgs ];
     my $all_weights = { map { %$_ } values %$osd_tree };
-    my $tw = 0;
-    $tw += $all_weights->{$_} for keys %$all_weights;
-    $tw = $tw/3;
+    my $total_weight = 0;
+    $total_weight += $all_weights->{$_} for keys %$all_weights;
     # Generate the LP problem
     my $lp = "min: ".join(" + ", map { $move_weights->{$_} . ' * ' . ($prev_weights->{$_} ? "add_$_" : "$_") } @$pg_names).";\n";
     $lp .= join(" + ", map { $prev_weights->{$_} ? "add_$_ - del_$_" : $_ } @$pg_names)." = 0;\n";
     for my $osd (keys %$pg_per_osd)
     {
-        my $w = $all_weights->{$osd};
         my @s;
         for my $pg (@{$pg_per_osd->{$osd}})
         {
@@ -182,7 +181,7 @@ sub optimize_change
                 push @s, $pg;
             }
         }
-        $lp .= join(" + ", @s)." <= ".int($all_weights->{$osd}/$tw*$pg_count - scalar(@{$prev_pg_per_osd->{$osd} || []})).";\n";
+        $lp .= join(" + ", @s)." <= ".int($all_weights->{$osd}*3/$total_weight*$pg_count - scalar(@{$prev_pg_per_osd->{$osd} || []})).";\n";
     }
     my @sec;
     for my $pg (@$pg_names)
@@ -225,8 +224,9 @@ sub optimize_change
     for my $k (keys %$weights)
     {
         delete $weights->{$k} if !$weights->{$k};
+        print "$k: ".$weights->{$k}."\n" if $weights->{$k};
     }
-    my $int_pgs = make_int_pgs($weights, scalar @$prev_int_pgs);
+    my $int_pgs = make_int_pgs($weights, $pg_count);
     # Align them with most similar previous PGs
     my $new_pgs = align_pgs($prev_int_pgs, $int_pgs);
     my $differs = 0;
@@ -245,9 +245,6 @@ sub optimize_change
             }
         }
     }
-    my $eff = pg_list_space_efficiency($new_pgs, $osd_tree);
-    my $total_weight = 0;
-    $total_weight += $all_weights->{$_} for keys %$all_weights;
     return {
         prev_pgs => $prev_int_pgs,
         score => $score,
@@ -255,7 +252,7 @@ sub optimize_change
         int_pgs => $new_pgs,
         differs => $differs,
         osd_differs => $osd_differs,
-        space => $eff,
+        space => pg_list_space_efficiency($new_pgs, $osd_tree),
         total_space => $total_weight,
     };
 }
