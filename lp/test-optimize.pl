@@ -24,12 +24,13 @@ my $osd_tree = {
     },
     500 => {
         4 => 3.58498,
-        9 => 3.63869,
 #        8 => 3.58589,
+        9 => 3.63869,
     },
 };
 
 my $prev = LPOptimizer::optimize_initial($osd_tree, 256);
-my $int = LPOptimizer::get_int_pg_weights($prev->{int_pgs}, $osd_tree);
+LPOptimizer::print_change_stats($prev);
 $osd_tree->{500}->{8} = 3.58589;
-LPOptimizer::optimize_change($prev->{int_pgs}, $osd_tree);
+my $next = LPOptimizer::optimize_change($prev->{int_pgs}, $osd_tree);
+LPOptimizer::print_change_stats($next);

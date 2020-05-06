@@ -25,6 +25,8 @@ sub optimize_initial
 {
     my ($osd_tree, $pg_count) = @_;
     my $all_weights = { map { %$_ } values %$osd_tree };
+    my $total_weight = 0;
+    $total_weight += $all_weights->{$_} for keys %$all_weights;
     my $pgs = all_combinations($osd_tree);
     my $pg_per_osd = {};
     for my $pg (@$pgs)
@@ -35,7 +37,7 @@ sub optimize_initial
     $lp .= "max: ".join(" + ", map { "pg_".join("_", @$_) } @$pgs).";\n";
     for my $osd (keys %$pg_per_osd)
     {
-        $lp .= join(" + ", @{$pg_per_osd->{$osd}})." <= ".$all_weights->{$osd}.";\n";
+        $lp .= join(" + ", @{$pg_per_osd->{$osd}})." <= ".int($all_weights->{$osd}/$total_weight*$pg_count + 0.5).";\n";
     }
     for my $pg (@$pgs)
     {
@@ -45,9 +47,7 @@ sub optimize_initial
     my ($score, $weights) = lp_solve($lp);
     my $int_pgs = make_int_pgs($weights, $pg_count);
     my $eff = pg_list_space_efficiency($int_pgs, $osd_tree);
-    my $total_weight = 0;
-    $total_weight += $all_weights->{$_} for keys %$all_weights;
-    return { score => $score, weights => $weights, int_pgs => $int_pgs, total_space => $eff * 3, space_eff => $eff * 3 / $total_weight };
+    return { score => $score, weights => $weights, int_pgs => $int_pgs, space => $eff, total_space => $total_weight };
 }
 
 sub make_int_pgs
@@ -224,7 +224,6 @@ sub optimize_change
     for my $k (keys %$weights)
     {
         delete $weights->{$k} if !$weights->{$k};
-        print "$k: ".$weights->{$k}."\n" if $weights->{$k};
     }
     my $int_pgs = make_int_pgs($weights, $pg_count);
     # Align them with most similar previous PGs
@@ -261,15 +260,18 @@ sub print_change_stats
 {
     my ($retval) = @_;
     my $new_pgs = $retval->{int_pgs};
-    my $prev_int_pgs = $retval->{prev_pgs};
-    for my $i (0..$#$new_pgs)
+    if ($retval->{prev_pgs})
     {
-        if (join('_', @{$new_pgs->[$i]}) ne join('_', @{$prev_int_pgs->[$i]}))
+        my $prev_int_pgs = $retval->{prev_pgs};
+        for my $i (0..$#$new_pgs)
         {
-            print "pg $i: ".join(' ', @{$prev_int_pgs->[$i]})." -> ".join(' ', @{$new_pgs->[$i]})."\n";
+            if (join('_', @{$new_pgs->[$i]}) ne join('_', @{$prev_int_pgs->[$i]}))
+            {
+                print "pg $i: ".join(' ', @{$prev_int_pgs->[$i]})." -> ".join(' ', @{$new_pgs->[$i]})."\n";
+            }
         }
+        printf("Data movement: ".$retval->{differs}." pgs, ".$retval->{osd_differs}." pg-osds = %.2f %%\n", $retval->{osd_differs} / @$prev_int_pgs / 3 * 100);
     }
-    printf("Data movement: ".$retval->{differs}." pgs, ".$retval->{osd_differs}." pg-osds = %.2f %%\n", $retval->{osd_differs} / @$prev_int_pgs / 3 * 100);
     printf("Total space: %.2f TB, space efficiency: %.2f %%\n", $retval->{space} * 3, $retval->{space} * 3 / $retval->{total_space} * 100);
 }
 
