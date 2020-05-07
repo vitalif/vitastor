@@ -15,6 +15,10 @@ async function lp_solve(text)
     {
         await new Promise(ok => finish_cb = ok);
     }
+    if (!stdout.trim())
+    {
+        return null;
+    }
     let score = 0;
     let vars = {};
     for (const line of stdout.split(/\n/))
@@ -28,7 +32,7 @@ async function lp_solve(text)
             }
             continue;
         }
-        else if (/This problem is infeasible/.exec(line))
+        else if (/This problem is (infeasible|unbounded)/.exec(line))
         {
             return null;
         }
@@ -58,11 +62,17 @@ function make_single(osd_tree)
     ];
 }
 
-async function optimize_initial(osd_tree, pg_count)
+async function optimize_initial(osd_tree, pg_count, max_combinations)
 {
+    max_combinations = max_combinations || 10000;
     const all_weights = Object.assign({}, ...Object.values(osd_tree));
     const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c));
-    const all_pgs = all_combinations(osd_tree, null, true);
+    let all_pgs = all_combinations(osd_tree, null, true);
+    if (all_pgs.length > max_combinations)
+    {
+        const prob = max_combinations/all_pgs.length;
+        all_pgs = all_pgs.filter(pg => Math.random() < prob);
+    }
     const pg_per_osd = {};
     for (const pg of all_pgs)
     {
@@ -76,14 +86,14 @@ async function optimize_initial(osd_tree, pg_count)
     lp += "max: "+all_pgs.map(pg => 'pg_'+pg.join('_')).join(' + ')+";\n";
     for (const osd in pg_per_osd)
     {
-        const osd_pg_count = all_weights[osd]*3/total_weight*pg_count;
-        lp += pg_per_osd[osd].join(' + ')+' <= '+Math.round(osd_pg_count)+';\n';
+        let osd_pg_count = all_weights[osd]*3/total_weight*pg_count;
+        lp += pg_per_osd[osd].join(' + ')+' <= '+osd_pg_count+';\n';
     }
     for (const pg of all_pgs)
     {
         lp += 'pg_'+pg.join('_')+" >= 0;\n";
     }
-    lp += "int "+all_pgs.map(pg => 'pg_'+pg.join('_')).join(', ')+";\n";
+    lp += "sec "+all_pgs.map(pg => 'pg_'+pg.join('_')).join(', ')+";\n";
     const lp_result = await lp_solve(lp);
     const int_pgs = make_int_pgs(lp_result.vars, pg_count);
     const eff = pg_list_space_efficiency(int_pgs, all_weights);
@@ -129,8 +139,9 @@ function get_int_pg_weights(prev_int_pgs, osd_tree)
 }
 
 // Try to minimize data movement
-async function optimize_change(prev_int_pgs, osd_tree)
+async function optimize_change(prev_int_pgs, osd_tree, max_combinations)
 {
+    max_combinations = max_combinations || 10000;
     const pg_count = prev_int_pgs.length;
     const prev_weights = {};
     const prev_pg_per_osd = {};
@@ -145,7 +156,21 @@ async function optimize_change(prev_int_pgs, osd_tree)
         }
     }
     // Get all combinations
-    const all_pgs = all_combinations(osd_tree);
+    let all_pgs = all_combinations(osd_tree, null, true);
+    if (all_pgs.length > max_combinations)
+    {
+        const intersecting = all_pgs.filter(pg => prev_weights['pg_'+pg.join('_')]);
+        if (intersecting.length > max_combinations)
+        {
+            const prob = max_combinations/intersecting.length;
+            all_pgs = intersecting.filter(pg => Math.random() < prob);
+        }
+        else
+        {
+            const prob = (max_combinations-intersecting.length)/all_pgs.length;
+            all_pgs = all_pgs.filter(pg => Math.random() < prob || prev_weights['pg_'+pg.join('_')]);
+        }
+    }
     const pg_per_osd = {};
     for (const pg of all_pgs)
     {
@@ -178,13 +203,15 @@ async function optimize_change(prev_int_pgs, osd_tree)
     const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c));
     // Generate the LP problem
     let lp = '';
-    lp += 'min: '+all_pg_names.map(pg_name => move_weights[pg_name] + ' * ' + (prev_weights[pg_name] ? 'add_' : '') + pg_name).join(' + ')+';\n';
-    lp += all_pg_names.map(pg_name => prev_weights[pg_name] ? `add_${pg_name} - del_${pg_name}` : pg_name).join(' + ')+' = 0;\n';
+    lp += 'max: '+all_pg_names.map(pg_name => (
+        prev_weights[pg_name] ? `${4-move_weights[pg_name]}*add_${pg_name} - 4*del_${pg_name}` : `${4-move_weights[pg_name]}*${pg_name}`
+    )).join(' + ')+';\n';
     for (const osd in pg_per_osd)
     {
         const osd_sum = (pg_per_osd[osd]||[]).map(pg_name => prev_weights[pg_name] ? `add_${pg_name} - del_${pg_name}` : pg_name).join(' + ');
-        const osd_pg_count = all_weights[osd]*3/total_weight*pg_count - (prev_pg_per_osd[osd]||[]).length;
-        lp += osd_sum + ' <= ' + Math.round(osd_pg_count) + ';\n';
+        const rm_osd_pg_count = (prev_pg_per_osd[osd]||[]).filter(old_pg_name => move_weights[old_pg_name]).length;
+        let osd_pg_count = all_weights[osd]*3/total_weight*pg_count - rm_osd_pg_count;
+        lp += osd_sum + ' <= ' + osd_pg_count + ';\n';
     }
     let pg_vars = [];
     for (const pg_name of all_pg_names)
@@ -204,16 +231,23 @@ async function optimize_change(prev_int_pgs, osd_tree)
             lp += `${pg_name} >= 0;\n`;
         }
     }
-    lp += 'int '+pg_vars.join(', ')+';\n';
+    lp += 'sec '+pg_vars.join(', ')+';\n';
     // Solve it
     const lp_result = await lp_solve(lp);
     if (!lp_result)
     {
         console.log(lp);
-        throw new Error('Problem is infeasible - is it a bug?');
+        throw new Error('Problem is infeasible or unbounded - is it a bug?');
     }
     // Generate the new distribution
     const weights = { ...prev_weights };
+    for (const k in prev_weights)
+    {
+        if (!move_weights[k])
+        {
+            delete weights[k];
+        }
+    }
     for (const k in lp_result.vars)
     {
         if (k.substr(0, 4) === 'add_')
@@ -266,17 +300,20 @@ async function optimize_change(prev_int_pgs, osd_tree)
     };
 }
 
-function print_change_stats(retval)
+function print_change_stats(retval, detailed)
 {
     const new_pgs = retval.int_pgs;
     const prev_int_pgs = retval.prev_pgs;
     if (prev_int_pgs)
     {
-        for (let i = 0; i < new_pgs.length; i++)
+        if (detailed)
         {
-            if (new_pgs[i].join('_') != prev_int_pgs[i].join('_'))
+            for (let i = 0; i < new_pgs.length; i++)
             {
-                console.log("pg "+i+": "+prev_int_pgs[i].join(' ')+" -> "+new_pgs[i].join(' '));
+                if (new_pgs[i].join('_') != prev_int_pgs[i].join('_'))
+                {
+                    console.log("pg "+i+": "+prev_int_pgs[i].join(' ')+" -> "+new_pgs[i].join(' '));
+                }
             }
         }
         console.log(
@@ -285,7 +322,7 @@ function print_change_stats(retval)
         );
     }
     console.log(
-        "Total space: "+Math.round(retval.space*3*100)/100+" TB, space efficiency: "+
+        "Total space (raw): "+Math.round(retval.space*3*100)/100+" TB, space efficiency: "+
         Math.round(retval.space*3/retval.total_space*10000)/100+" %"
     );
 }
