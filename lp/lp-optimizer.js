@@ -376,6 +376,40 @@ function put_aligned_pgs(aligned_pgs, int_pgs, prev_int_pgs, keygen)
     }
 }
 
+// Convert multi-level osd_tree = { level: number, id?: string, size?: number, children?: osd_tree }[]
+// to a two-level osd_tree suitable for all_combinations()
+function flatten_tree(osd_tree, failure_domain_level, osd_level, domains = {}, i = { i: 1 })
+{
+    for (const node of osd_tree)
+    {
+        if (node.level < failure_domain_level)
+        {
+            flatten_tree(node.children||[], failure_domain_level, osd_level, domains, i);
+        }
+        else
+        {
+            domains['dom'+(i.i++)] = extract_osds([ node ], osd_level);
+        }
+    }
+    return domains;
+}
+
+function extract_osds(osd_tree, osd_level, osds = {})
+{
+    for (const node of osd_tree)
+    {
+        if (node.level >= osd_level)
+        {
+            osds[node.id] = node.size;
+        }
+        else
+        {
+            extract_osds(node.children||[], osd_level, osds);
+        }
+    }
+    return osds;
+}
+
 function all_combinations(osd_tree, count, ordered)
 {
     const hosts = Object.keys(osd_tree).sort();
@@ -485,6 +519,7 @@ module.exports = {
     pg_weights_space_efficiency,
     pg_list_space_efficiency,
     pg_per_osd_space_efficiency,
+    flatten_tree,
 
     lp_solve,
     make_single,

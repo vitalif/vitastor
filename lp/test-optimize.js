@@ -40,20 +40,55 @@ const osd_tree = {
     },*/
 };
 
+const crush_tree = [
+    { level: 1, children: [
+        { level: 2, children: [
+            { level: 3, id: 1, size: 3 },
+            { level: 3, id: 2, size: 2 },
+        ] },
+        { level: 2, children: [
+            { level: 3, id: 3, size: 4 },
+            { level: 3, id: 4, size: 4 },
+        ] },
+    ] },
+    { level: 1, children: [
+        { level: 2, children: [
+            { level: 3, id: 5, size: 4 },
+            { level: 3, id: 6, size: 1 },
+        ] },
+        { level: 2, children: [
+            { level: 3, id: 7, size: 3 },
+            { level: 3, id: 8, size: 5 },
+        ] },
+    ] },
+    { level: 1, children: [
+        { level: 2, children: [
+            { level: 3, id: 9, size: 5 },
+            { level: 3, id: 10, size: 2 },
+        ] },
+        { level: 2, children: [
+            { level: 3, id: 11, size: 3 },
+            { level: 3, id: 12, size: 3 },
+        ] },
+    ] },
+];
+
 async function run()
 {
     // Test: add 1 OSD of almost the same size. Ideal data movement could be 1/12 = 8.33%. Actual is ~13%
     // Space efficiency is ~99.5% in both cases.
-    let prev = await LPOptimizer.optimize_initial(osd_tree, 256);
-    LPOptimizer.print_change_stats(prev, false);
+    let res = await LPOptimizer.optimize_initial(osd_tree, 256);
+    LPOptimizer.print_change_stats(res, false);
     console.log('adding osd.8');
     osd_tree[500][8] = 3.58589;
-    let next = await LPOptimizer.optimize_change(prev.int_pgs, osd_tree);
-    LPOptimizer.print_change_stats(next, false);
+    res = await LPOptimizer.optimize_change(res.int_pgs, osd_tree);
+    LPOptimizer.print_change_stats(res, false);
     console.log('removing osd.8');
     delete osd_tree[500][8];
-    next = await LPOptimizer.optimize_change(next.int_pgs, osd_tree);
-    LPOptimizer.print_change_stats(next, false);
+    res = await LPOptimizer.optimize_change(res.int_pgs, osd_tree);
+    LPOptimizer.print_change_stats(res, false);
+    res = await LPOptimizer.optimize_initial(LPOptimizer.flatten_tree(crush_tree, 1, 3), 256);
+    LPOptimizer.print_change_stats(res, false);
 }
 
 run().catch(console.error);
