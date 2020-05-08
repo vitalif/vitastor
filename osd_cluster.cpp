@@ -122,12 +122,18 @@ void osd_t::parse_test_peer(std::string peer)
 
 json11::Json osd_t::get_osd_state()
 {
+    std::vector<char> hostname;
+    hostname.resize(1024);
+    while (gethostname(hostname.data(), hostname.size()) < 0 && errno == ENAMETOOLONG)
+        hostname.resize(hostname.size()+1024);
+    hostname.resize(strnlen(hostname.data(), hostname.size()));
     json11::Json::object st;
     st["state"] = "up";
     if (bind_address != "0.0.0.0")
         st["addresses"] = { bind_address };
     else
         st["addresses"] = getifaddr_list();
+    st["host"] = std::string(hostname.data(), hostname.size());
     st["port"] = listening_port;
     st["primary_enabled"] = run_primary;
     st["blockstore_enabled"] = bs ? true : false;
