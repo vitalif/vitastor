@@ -45,23 +45,6 @@ async function lp_solve(text)
     return { score, vars };
 }
 
-function make_single(osd_tree)
-{
-    const initial = all_combinations(osd_tree, 1)[0];
-    const all_weights = Object.assign({}, ...Object.values(osd_tree));
-    let weight;
-    for (const osd of initial)
-    {
-        if (weight == null || all_weights[osd] < weight)
-        {
-            weight = all_weights[osd];
-        }
-    }
-    return [
-        { set: initial, weight: weight },
-    ];
-}
-
 async function optimize_initial(osd_tree, pg_count, max_combinations)
 {
     max_combinations = max_combinations || 10000;
@@ -117,25 +100,6 @@ function make_int_pgs(weights, pg_count)
         pg_left -= n;
     }
     return int_pgs;
-}
-
-function get_int_pg_weights(prev_int_pgs, osd_tree)
-{
-    const all_weights = Object.assign({}, ...Object.values(osd_tree));
-    const space = pg_list_space_efficiency(prev_int_pgs, all_weights);
-    const prev_weights = {};
-    let count = 0;
-    for (const pg of prev_int_pgs)
-    {
-        const pg_name = 'pg_'+pg.join('_');
-        prev_weights[pg_name] = (prev_weights[pg_name]||0) + 1;
-        count++;
-    }
-    for (const pg_name in prev_weights)
-    {
-        prev_weights[pg_name] *= space / count;
-    }
-    return prev_weights;
 }
 
 // Try to minimize data movement
@@ -522,9 +486,7 @@ module.exports = {
     flatten_tree,
 
     lp_solve,
-    make_single,
     make_int_pgs,
-    get_int_pg_weights,
     align_pgs,
     all_combinations,
 };
