@@ -285,6 +285,7 @@ class osd_t
     // op statistics
     uint64_t op_stat_sum[2][OSD_OP_MAX+1] = { 0 };
     uint64_t op_stat_count[2][OSD_OP_MAX+1] = { 0 };
+    uint64_t op_stat_bytes[2][OSD_OP_MAX+1] = { 0 };
     uint64_t subop_stat_sum[2][OSD_OP_MAX+1] = { 0 };
     uint64_t subop_stat_count[2][OSD_OP_MAX+1] = { 0 };
 
@@ -380,6 +381,8 @@ class osd_t
     void remove_object_from_state(object_id & oid, pg_osd_set_state_t *object_state, pg_t &pg);
     bool finalize_primary_write(osd_op_t *cur_op, pg_t & pg, pg_osd_set_t & loc_set, int base_state);
     void handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int retval, int expected, uint64_t version);
+    void handle_primary_bs_subop(osd_op_t *subop);
+    void add_bs_subop_stats(osd_op_t *subop);
     void pg_cancel_write_queue(pg_t & pg, object_id oid, int retval);
     void submit_primary_subops(int submit_type, int read_pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
     void submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_osd_set_t & loc_set);

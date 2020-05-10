@@ -44,6 +44,16 @@ bool osd_t::try_send(osd_client_t & cl)
                 (tv_end.tv_sec - cl.write_op->tv_begin.tv_sec)*1000000 +
                 (tv_end.tv_nsec - cl.write_op->tv_begin.tv_nsec)/1000
             );
+            if (cl.write_op->req.hdr.opcode == OSD_OP_READ ||
+                cl.write_op->req.hdr.opcode == OSD_OP_WRITE)
+            {
+                op_stat_bytes[0][cl.write_op->req.hdr.opcode] += cl.write_op->req.rw.len;
+            }
+            else if (cl.write_op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
+                cl.write_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
+            {
+                op_stat_bytes[0][cl.write_op->req.hdr.opcode] += cl.write_op->req.sec_rw.len;
+            }
         }
     }
     cl.write_msg.msg_iov = cl.write_op->send_list.get_iovec();

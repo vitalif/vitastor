@@ -152,12 +152,15 @@ json11::Json osd_t::get_statistics()
         st["size"] = bs->get_block_count() * bs->get_block_size();
         st["free"] = bs->get_free_block_count() * bs->get_block_size();
     }
+    // FIXME: report recovery ops and bandwidth
+    // FIXME: handle integer overflow
     json11::Json::object op_stats, subop_stats;
     for (int i = 0; i <= OSD_OP_MAX; i++)
     {
         op_stats[osd_op_names[i]] = json11::Json::object {
             { "count", op_stat_count[0][i] },
             { "sum", op_stat_sum[0][i] },
+            { "bytes", op_stat_bytes[0][i] },
         };
     }
     for (int i = 0; i <= OSD_OP_MAX; i++)
@@ -297,6 +300,7 @@ void osd_t::start_etcd_watcher()
             }
         }
     });
+    // FIXME apply config changes in runtime
     etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
         { "create_request", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/config/") },
@@ -334,7 +338,7 @@ void osd_t::start_etcd_watcher()
 void osd_t::load_global_config()
 {
     etcd_call("/kv/range", json11::Json::object {
-        { "key", base64_encode(etcd_prefix+"/config/osd/all") }
+        { "key", base64_encode(etcd_prefix+"/config/global") }
     }, ETCD_SLOW_TIMEOUT, [this](std::string err, json11::Json data)
     {
         if (err != "")

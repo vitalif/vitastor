@@ -152,10 +152,12 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
     if (peer_osd == this->osd_num)
     {
         // local
+        clock_gettime(CLOCK_REALTIME, &op->tv_begin);
         op->bs_op = new blockstore_op_t({
             .opcode = (uint64_t)(rollback ? BS_OP_ROLLBACK : BS_OP_STABLE),
             .callback = [this, op, pg_num, fb](blockstore_op_t *bs_op)
             {
+                add_bs_subop_stats(op);
                 handle_flush_op(pg_num, fb, this->osd_num, bs_op->retval);
                 delete op;
             },

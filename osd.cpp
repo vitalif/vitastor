@@ -525,9 +525,15 @@ void osd_t::print_stats()
         if (op_stat_count[0][i] != op_stat_count[1][i])
         {
             uint64_t avg = (op_stat_sum[0][i] - op_stat_sum[1][i])/(op_stat_count[0][i] - op_stat_count[1][i]);
-            printf("avg latency for op %d (%s): %ld us\n", i, osd_op_names[i], avg);
+            uint64_t bw = (op_stat_bytes[0][i] - op_stat_bytes[1][i]) / print_stats_interval;
+            printf(
+                "avg latency for op %d (%s): %lu us, B/W: %.2f %s\n", i, osd_op_names[i], avg,
+                (bw > 1024*1024*1024 ? bw/1024.0/1024/1024 : (bw > 1024*1024 ? bw/1024.0/1024 : bw/1024.0)),
+                (bw > 1024*1024*1024 ? "GB/s" : (bw > 1024*1024 ? "MB/s" : "KB/s"))
+            );
             op_stat_count[1][i] = op_stat_count[0][i];
             op_stat_sum[1][i] = op_stat_sum[0][i];
+            op_stat_bytes[1][i] = op_stat_bytes[0][i];
         }
     }
     for (int i = 0; i <= OSD_OP_MAX; i++)

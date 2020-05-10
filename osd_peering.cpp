@@ -412,6 +412,7 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
         osd_op_t *op = new osd_op_t();
         op->op_type = 0;
         op->peer_fd = 0;
+        clock_gettime(CLOCK_REALTIME, &op->tv_begin);
         op->bs_op = new blockstore_op_t();
         op->bs_op->opcode = BS_OP_SYNC;
         op->bs_op->callback = [this, ps, op, role_osd](blockstore_op_t *bs_op)
@@ -422,6 +423,7 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
                 force_stop(1);
                 return;
             }
+            add_bs_subop_stats(op);
             delete op;
             ps->list_ops.erase(role_osd);
             submit_list_subop(role_osd, ps);
@@ -474,17 +476,19 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         osd_op_t *op = new osd_op_t();
         op->op_type = 0;
         op->peer_fd = 0;
+        clock_gettime(CLOCK_REALTIME, &op->tv_begin);
         op->bs_op = new blockstore_op_t();
         op->bs_op->opcode = BS_OP_LIST;
         op->bs_op->oid.stripe = pg_stripe_size;
         op->bs_op->len = pg_count;
         op->bs_op->offset = ps->pg_num-1;
-        op->bs_op->callback = [ps, op, role_osd](blockstore_op_t *bs_op)
+        op->bs_op->callback = [this, ps, op, role_osd](blockstore_op_t *bs_op)
         {
             if (op->bs_op->retval < 0)
             {
                 throw std::runtime_error("local OP_LIST failed");
             }
+            add_bs_subop_stats(op);
             printf(
                 "[PG %u] Got object list from OSD %lu (local): %d object versions (%lu of them stable)\n",
                 ps->pg_num, role_osd, bs_op->retval, bs_op->version

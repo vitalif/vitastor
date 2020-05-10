@@ -97,7 +97,7 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
     op_data->done = op_data->errors = 0;
     op_data->n_subops = n_subops;
     op_data->subops = subops;
-    int subop = 0;
+    int i = 0;
     for (int role = 0; role < pg_size; role++)
     {
         // We always submit zero-length writes to all replicas, even if the stripe is not modified
@@ -110,19 +110,13 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
         {
             if (role_osd_num == this->osd_num)
             {
-                subops[subop].bs_op = new blockstore_op_t({
+                clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
+                subops[i].op_type = (long)cur_op;
+                subops[i].bs_op = new blockstore_op_t({
                     .opcode = (uint64_t)(w ? BS_OP_WRITE : BS_OP_READ),
-                    .callback = [cur_op, this](blockstore_op_t *subop)
+                    .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
                     {
-                        if (subop->opcode == BS_OP_WRITE && subop->retval != subop->len)
-                        {
-                            // die
-                            throw std::runtime_error("local write operation failed (retval = "+std::to_string(subop->retval)+")");
-                        }
-                        handle_primary_subop(
-                            subop->opcode == BS_OP_WRITE ? OSD_OP_SECONDARY_WRITE : OSD_OP_SECONDARY_READ,
-                            cur_op, subop->retval, subop->len, subop->version
-                        );
+                        handle_primary_bs_subop(subop);
                     },
                     .oid = {
                         .inode = op_data->oid.inode,
@@ -133,14 +127,14 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                     .len = w ? stripes[role].write_end - stripes[role].write_start : stripes[role].read_end - stripes[role].read_start,
                     .buf = w ? stripes[role].write_buf : stripes[role].read_buf,
                 });
-                bs->enqueue_op(subops[subop].bs_op);
+                bs->enqueue_op(subops[i].bs_op);
             }
             else
             {
-                subops[subop].op_type = OSD_OP_OUT;
-                subops[subop].send_list.push_back(subops[subop].req.buf, OSD_PACKET_SIZE);
-                subops[subop].peer_fd = this->osd_peer_fds.at(role_osd_num);
-                subops[subop].req.sec_rw = {
+                subops[i].op_type = OSD_OP_OUT;
+                subops[i].send_list.push_back(subops[i].req.buf, OSD_PACKET_SIZE);
+                subops[i].peer_fd = this->osd_peer_fds.at(role_osd_num);
+                subops[i].req.sec_rw = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
                         .id = this->next_subop_id++,
@@ -154,12 +148,12 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                     .offset = w ? stripes[role].write_start : stripes[role].read_start,
                     .len = w ? stripes[role].write_end - stripes[role].write_start : stripes[role].read_end - stripes[role].read_start,
                 };
-                subops[subop].buf = w ? stripes[role].write_buf : stripes[role].read_buf;
+                subops[i].buf = w ? stripes[role].write_buf : stripes[role].read_buf;
                 if (w && stripes[role].write_end > 0)
                 {
-                    subops[subop].send_list.push_back(stripes[role].write_buf, stripes[role].write_end - stripes[role].write_start);
+                    subops[i].send_list.push_back(stripes[role].write_buf, stripes[role].write_end - stripes[role].write_start);
                 }
-                subops[subop].callback = [cur_op, this](osd_op_t *subop)
+                subops[i].callback = [cur_op, this](osd_op_t *subop)
                 {
                     int fail_fd = subop->req.hdr.opcode == OSD_OP_SECONDARY_WRITE &&
                         subop->reply.hdr.retval != subop->req.sec_rw.len ? subop->peer_fd : -1;
@@ -175,10 +169,56 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                         stop_client(fail_fd);
                     }
                 };
-                outbox_push(clients[subops[subop].peer_fd], &subops[subop]);
+                outbox_push(clients[subops[i].peer_fd], &subops[i]);
             }
-            subop++;
+            i++;
         }
+    }
+}
+
+static uint64_t bs_op_to_osd_op[] = {
+    0,
+    OSD_OP_SECONDARY_READ,      // BS_OP_READ
+    OSD_OP_SECONDARY_WRITE,     // BS_OP_WRITE
+    OSD_OP_SECONDARY_SYNC,      // BS_OP_SYNC
+    OSD_OP_SECONDARY_STABILIZE, // BS_OP_STABLE
+    OSD_OP_SECONDARY_DELETE,    // BS_OP_DELETE
+    OSD_OP_SECONDARY_LIST,      // BS_OP_LIST
+    OSD_OP_SECONDARY_ROLLBACK,  // BS_OP_ROLLBACK
+    OSD_OP_TEST_SYNC_STAB_ALL,  // BS_OP_SYNC_STAB_ALL
+};
+
+void osd_t::handle_primary_bs_subop(osd_op_t *subop)
+{
+    osd_op_t *cur_op = (osd_op_t*)(long)subop->op_type;
+    blockstore_op_t *bs_op = subop->bs_op;
+    int expected = bs_op->opcode == BS_OP_READ || bs_op->opcode == BS_OP_WRITE ? bs_op->len : 0;
+    if (bs_op->retval != expected && bs_op->opcode != BS_OP_READ)
+    {
+        // die
+        throw std::runtime_error(
+            "local blockstore modification failed (opcode = "+std::to_string(bs_op->opcode)+
+            " retval = "+std::to_string(bs_op->retval)+")"
+        );
+    }
+    add_bs_subop_stats(subop);
+    handle_primary_subop(bs_op_to_osd_op[bs_op->opcode], cur_op, bs_op->retval, expected, bs_op->version);
+}
+
+void osd_t::add_bs_subop_stats(osd_op_t *subop)
+{
+    // Include local blockstore ops in statistics
+    uint64_t opcode = bs_op_to_osd_op[subop->bs_op->opcode];
+    timespec tv_end;
+    clock_gettime(CLOCK_REALTIME, &tv_end);
+    op_stat_count[0][opcode]++;
+    op_stat_sum[0][opcode] += (
+        (tv_end.tv_sec - subop->tv_begin.tv_sec)*1000000 +
+        (tv_end.tv_nsec - subop->tv_begin.tv_nsec)/1000
+    );
+    if (opcode == OSD_OP_SECONDARY_READ || opcode == OSD_OP_SECONDARY_WRITE)
+    {
+        op_stat_bytes[0][opcode] += subop->bs_op->len;
     }
 }
 
@@ -260,16 +300,13 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_os
         {
             if (chunk.osd_num == this->osd_num)
             {
+                clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
+                subops[i].op_type = (long)cur_op;
                 subops[i].bs_op = new blockstore_op_t({
                     .opcode = BS_OP_DELETE,
-                    .callback = [cur_op, this](blockstore_op_t *subop)
+                    .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
                     {
-                        if (subop->retval != 0)
-                        {
-                            // die
-                            throw std::runtime_error("local delete operation failed");
-                        }
-                        handle_primary_subop(OSD_OP_SECONDARY_DELETE, cur_op, subop->retval, 0, 0);
+                        handle_primary_bs_subop(subop);
                     },
                     .oid = {
                         .inode = op_data->oid.inode,
@@ -328,16 +365,13 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
         osd_num_t sync_osd = (*(op_data->unstable_write_osds))[i].osd_num;
         if (sync_osd == this->osd_num)
         {
+            clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
+            subops[i].op_type = (long)cur_op;
             subops[i].bs_op = new blockstore_op_t({
                 .opcode = BS_OP_SYNC,
-                .callback = [cur_op, this](blockstore_op_t *subop)
+                .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
                 {
-                    if (subop->retval != 0)
-                    {
-                        // die
-                        throw std::runtime_error("local sync operation failed");
-                    }
-                    handle_primary_subop(OSD_OP_SECONDARY_SYNC, cur_op, subop->retval, 0, 0);
+                    handle_primary_bs_subop(subop);
                 },
             });
             bs->enqueue_op(subops[i].bs_op);
@@ -382,16 +416,13 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
         auto & stab_osd = (*(op_data->unstable_write_osds))[i];
         if (stab_osd.osd_num == this->osd_num)
         {
+            clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
+            subops[i].op_type = (long)cur_op;
             subops[i].bs_op = new blockstore_op_t({
                 .opcode = BS_OP_STABLE,
-                .callback = [cur_op, this](blockstore_op_t *subop)
+                .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
                 {
-                    if (subop->retval != 0)
-                    {
-                        // die
-                        throw std::runtime_error("local stabilize operation failed");
-                    }
-                    handle_primary_subop(OSD_OP_SECONDARY_STABILIZE, cur_op, subop->retval, 0, 0);
+                    handle_primary_bs_subop(subop);
                 },
                 .len = (uint32_t)stab_osd.len,
                 .buf = (void*)(op_data->unstable_writes + stab_osd.start),
