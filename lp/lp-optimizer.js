@@ -340,35 +340,38 @@ function put_aligned_pgs(aligned_pgs, int_pgs, prev_int_pgs, keygen)
     }
 }
 
-// Convert multi-level osd_tree = { level: number, id?: string, size?: number, children?: osd_tree }[]
+// Convert multi-level osd_tree = { level: number|string, id?: string, size?: number, children?: osd_tree }[]
+// levels = { string: number }
 // to a two-level osd_tree suitable for all_combinations()
-function flatten_tree(osd_tree, failure_domain_level, osd_level, domains = {}, i = { i: 1 })
+function flatten_tree(osd_tree, levels, failure_domain_level, osd_level, domains = {}, i = { i: 1 })
 {
+    osd_level = levels[osd_level] || osd_level;
+    failure_domain_level = levels[failure_domain_level] || failure_domain_level;
     for (const node of osd_tree)
     {
-        if (node.level < failure_domain_level)
+        if ((levels[node.level] || node.level) < failure_domain_level)
         {
-            flatten_tree(node.children||[], failure_domain_level, osd_level, domains, i);
+            flatten_tree(node.children||[], levels, failure_domain_level, osd_level, domains, i);
         }
         else
         {
-            domains['dom'+(i.i++)] = extract_osds([ node ], osd_level);
+            domains['dom'+(i.i++)] = extract_osds([ node ], levels, osd_level);
         }
     }
     return domains;
 }
 
-function extract_osds(osd_tree, osd_level, osds = {})
+function extract_osds(osd_tree, levels, osd_level, osds = {})
 {
     for (const node of osd_tree)
     {
-        if (node.level >= osd_level)
+        if ((levels[node.level] || node.level) >= osd_level)
         {
             osds[node.id] = node.size;
         }
         else
         {
-            extract_osds(node.children||[], osd_level, osds);
+            extract_osds(node.children||[], levels, osd_level, osds);
         }
     }
     return osds;

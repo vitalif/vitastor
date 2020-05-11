@@ -87,7 +87,7 @@ async function run()
     delete osd_tree[500][8];
     res = await LPOptimizer.optimize_change(res.int_pgs, osd_tree);
     LPOptimizer.print_change_stats(res, false);
-    res = await LPOptimizer.optimize_initial(LPOptimizer.flatten_tree(crush_tree, 1, 3), 256);
+    res = await LPOptimizer.optimize_initial(LPOptimizer.flatten_tree(crush_tree, {}, 1, 3), 256);
     LPOptimizer.print_change_stats(res, false);
 }
 
