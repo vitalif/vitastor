@@ -546,6 +546,21 @@ void osd_t::print_stats()
             subop_stat_sum[1][i] = subop_stat_sum[0][i];
         }
     }
+    for (int i = 0; i < 2; i++)
+    {
+        if (recovery_stat_count[0][i] != recovery_stat_count[1][i])
+        {
+            uint64_t bw = (recovery_stat_bytes[0][i] - recovery_stat_bytes[1][i]) / print_stats_interval;
+            printf(
+                "%s recovery: %.1f op/s, B/W: %.2f %s\n", recovery_stat_names[i],
+                (recovery_stat_count[0][i] - recovery_stat_count[1][i]) * 1.0 / print_stats_interval,
+                (bw > 1024*1024*1024 ? bw/1024.0/1024/1024 : (bw > 1024*1024 ? bw/1024.0/1024 : bw/1024.0)),
+                (bw > 1024*1024*1024 ? "GB/s" : (bw > 1024*1024 ? "MB/s" : "KB/s"))
+            );
+            recovery_stat_count[1][i] = recovery_stat_count[0][i];
+            recovery_stat_bytes[1][i] = recovery_stat_bytes[0][i];
+        }
+    }
     if (incomplete_objects > 0)
     {
         printf("%lu object(s) incomplete\n", incomplete_objects);

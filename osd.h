@@ -288,6 +288,9 @@ class osd_t
     uint64_t op_stat_bytes[2][OSD_OP_MAX+1] = { 0 };
     uint64_t subop_stat_sum[2][OSD_OP_MAX+1] = { 0 };
     uint64_t subop_stat_count[2][OSD_OP_MAX+1] = { 0 };
+    const char* recovery_stat_names[2] = { "degraded", "misplaced" };
+    uint64_t recovery_stat_count[2][2] = { 0 };
+    uint64_t recovery_stat_bytes[2][2] = { 0 };
 
     // cluster connection
     void http_request(const std::string & host, const std::string & request,

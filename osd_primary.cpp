@@ -244,6 +244,14 @@ resume_5:
     }
     if (op_data->object_state)
     {
+        {
+            int recovery_type = op_data->object_state->state & (OBJ_DEGRADED|OBJ_INCOMPLETE) ? 0 : 1;
+            recovery_stat_count[0][recovery_type]++;
+            for (int role = 0; role < pg.pg_size; role++)
+            {
+                recovery_stat_bytes[0][recovery_type] += op_data->stripes[role].write_end - op_data->stripes[role].write_start;
+            }
+        }
         if (op_data->object_state->state & OBJ_MISPLACED)
         {
             // Remove extra chunks
