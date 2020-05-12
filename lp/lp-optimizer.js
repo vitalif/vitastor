@@ -2,6 +2,8 @@
 
 const child_process = require('child_process');
 
+const NO_OSD = 'Z';
+
 async function lp_solve(text)
 {
     const cp = child_process.spawn('lp_solve');
@@ -49,7 +51,7 @@ async function optimize_initial(osd_tree, pg_count, max_combinations)
 {
     max_combinations = max_combinations || 10000;
     const all_weights = Object.assign({}, ...Object.values(osd_tree));
-    const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c));
+    const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c), 0);
     let all_pgs = all_combinations(osd_tree, null, true);
     if (all_pgs.length > max_combinations)
     {
@@ -65,12 +67,16 @@ async function optimize_initial(osd_tree, pg_count, max_combinations)
             pg_per_osd[osd].push("pg_"+pg.join("_"));
         }
     }
+    const pg_size = Math.min(Object.keys(osd_tree).length, 3);
     let lp = '';
     lp += "max: "+all_pgs.map(pg => 'pg_'+pg.join('_')).join(' + ')+";\n";
     for (const osd in pg_per_osd)
     {
-        let osd_pg_count = all_weights[osd]*3/total_weight*pg_count;
-        lp += pg_per_osd[osd].join(' + ')+' <= '+osd_pg_count+';\n';
+        if (osd !== NO_OSD)
+        {
+            let osd_pg_count = all_weights[osd]/total_weight*pg_size*pg_count;
+            lp += pg_per_osd[osd].join(' + ')+' <= '+osd_pg_count+';\n';
+        }
     }
     for (const pg of all_pgs)
     {
@@ -78,14 +84,18 @@ async function optimize_initial(osd_tree, pg_count, max_combinations)
     }
     lp += "sec "+all_pgs.map(pg => 'pg_'+pg.join('_')).join(', ')+";\n";
     const lp_result = await lp_solve(lp);
+    if (!lp_result)
+    {
+        throw new Error('Problem is infeasible or unbounded - is it a bug?');
+    }
     const int_pgs = make_int_pgs(lp_result.vars, pg_count);
     const eff = pg_list_space_efficiency(int_pgs, all_weights);
-    return { score: lp_result.score, weights: lp_result.vars, int_pgs, space: eff, total_space: total_weight };
+    return { score: lp_result.score, weights: lp_result.vars, int_pgs, space: eff*pg_size, total_space: total_weight };
 }
 
 function make_int_pgs(weights, pg_count)
 {
-    const total_weight = Object.values(weights).reduce((a, c) => Number(a) + Number(c));
+    const total_weight = Object.values(weights).reduce((a, c) => Number(a) + Number(c), 0);
     let int_pgs = [];
     let pg_left = pg_count;
     let weight_left = total_weight;
@@ -106,6 +116,7 @@ function make_int_pgs(weights, pg_count)
 async function optimize_change(prev_int_pgs, osd_tree, max_combinations)
 {
     max_combinations = max_combinations || 10000;
+    const pg_size = Math.min(Object.keys(osd_tree).length, 3);
     const pg_count = prev_int_pgs.length;
     const prev_weights = {};
     const prev_pg_per_osd = {};
@@ -164,7 +175,7 @@ async function optimize_change(prev_int_pgs, osd_tree, max_combinations)
     // Calculate total weight - old PG weights
     const all_pg_names = all_pgs.map(pg => 'pg_'+pg.join('_'));
     const all_weights = Object.assign({}, ...Object.values(osd_tree));
-    const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c));
+    const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c), 0);
     // Generate the LP problem
     let lp = '';
     lp += 'max: '+all_pg_names.map(pg_name => (
@@ -172,10 +183,13 @@ async function optimize_change(prev_int_pgs, osd_tree, max_combinations)
     )).join(' + ')+';\n';
     for (const osd in pg_per_osd)
     {
-        const osd_sum = (pg_per_osd[osd]||[]).map(pg_name => prev_weights[pg_name] ? `add_${pg_name} - del_${pg_name}` : pg_name).join(' + ');
-        const rm_osd_pg_count = (prev_pg_per_osd[osd]||[]).filter(old_pg_name => move_weights[old_pg_name]).length;
-        let osd_pg_count = all_weights[osd]*3/total_weight*pg_count - rm_osd_pg_count;
-        lp += osd_sum + ' <= ' + osd_pg_count + ';\n';
+        if (osd !== NO_OSD)
+        {
+            const osd_sum = (pg_per_osd[osd]||[]).map(pg_name => prev_weights[pg_name] ? `add_${pg_name} - del_${pg_name}` : pg_name).join(' + ');
+            const rm_osd_pg_count = (prev_pg_per_osd[osd]||[]).filter(old_pg_name => move_weights[old_pg_name]).length;
+            let osd_pg_count = all_weights[osd]*3/total_weight*pg_count - rm_osd_pg_count;
+            lp += osd_sum + ' <= ' + osd_pg_count + ';\n';
+        }
     }
     let pg_vars = [];
     for (const pg_name of all_pg_names)
@@ -259,7 +273,7 @@ async function optimize_change(prev_int_pgs, osd_tree, max_combinations)
         int_pgs: new_pgs,
         differs,
         osd_differs,
-        space: pg_list_space_efficiency(new_pgs, all_weights),
+        space: pg_size * pg_list_space_efficiency(new_pgs, all_weights),
         total_space: total_weight,
     };
 }
@@ -286,8 +300,8 @@ function print_change_stats(retval, detailed)
         );
     }
     console.log(
-        "Total space (raw): "+Math.round(retval.space*3*100)/100+" TB, space efficiency: "+
-        Math.round(retval.space*3/retval.total_space*10000)/100+" %"
+        "Total space (raw): "+Math.round(retval.space*100)/100+" TB, space efficiency: "+
+        Math.round(retval.space/(retval.total_space||1)*10000)/100+" %"
     );
 }
 
@@ -377,10 +391,17 @@ function extract_osds(osd_tree, levels, osd_level, osds = {})
     return osds;
 }
 
+// FIXME: support different pg_sizes, not just 3
+// osd_tree = { failure_domain1: { osd1: size1, ... }, ... }
 function all_combinations(osd_tree, count, ordered)
 {
     const hosts = Object.keys(osd_tree).sort();
     const osds = Object.keys(osd_tree).reduce((a, c) => { a[c] = Object.keys(osd_tree[c]).sort(); return a; }, {});
+    while (hosts.length < 3)
+    {
+        osds[NO_OSD] = [ NO_OSD ];
+        hosts.push(NO_OSD);
+    }
     let host_idx = [ 0, 1, 2 ];
     let osd_idx = [ 0, 0, 0 ];
     const r = [];
@@ -470,16 +491,21 @@ function pg_per_osd_space_efficiency(per_osd, pg_count, osd_sizes)
     let space;
     for (let osd in per_osd)
     {
-        const space_estimate = osd_sizes[osd] * pg_count / per_osd[osd];
-        if (space == null || space > space_estimate)
+        if (osd in osd_sizes)
         {
-            space = space_estimate;
+            const space_estimate = osd_sizes[osd] * pg_count / per_osd[osd];
+            if (space == null || space > space_estimate)
+            {
+                space = space_estimate;
+            }
         }
     }
-    return space;
+    return space == null ? 0 : space;
 }
 
 module.exports = {
+    NO_OSD,
+
     optimize_initial,
     optimize_change,
     print_change_stats,
