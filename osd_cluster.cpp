@@ -154,6 +154,7 @@ json11::Json osd_t::get_statistics()
         st["size"] = bs->get_block_count() * bs->get_block_size();
         st["free"] = bs->get_free_block_count() * bs->get_block_size();
     }
+    st["host"] = self_state["host"];
     // FIXME: handle integer overflow
     json11::Json::object op_stats, subop_stats;
     for (int i = 0; i <= OSD_OP_MAX; i++)
@@ -419,6 +420,7 @@ void osd_t::acquire_lease()
 void osd_t::create_osd_state()
 {
     std::string state_key = base64_encode(etcd_prefix+"/osd/state/"+std::to_string(osd_num));
+    self_state = get_osd_state();
     etcd_txn(json11::Json::object {
         // Check that the state key does not exist
         { "compare", json11::Json::array {
@@ -432,7 +434,7 @@ void osd_t::create_osd_state()
             json11::Json::object {
                 { "request_put", json11::Json::object {
                     { "key", state_key },
-                    { "value", base64_encode(get_osd_state().dump()) },
+                    { "value", base64_encode(self_state.dump()) },
                     { "lease", etcd_lease_id },
                 } }
             },
@@ -601,7 +603,7 @@ void osd_t::parse_pg_state(const std::string & key, const json11::Json & value)
         {
             pg_item.second.exists = false;
         }
-        for (auto & pg_item: value.object_items())
+        for (auto & pg_item: value["items"].object_items())
         {
             pg_num_t pg_num = stoull_full(pg_item.first);
             if (!pg_num)

@@ -235,6 +235,7 @@ class osd_t
     int etcd_watches_initialised = 0;
     uint64_t etcd_watch_revision = 0;
     websocket_t *etcd_watch_ws = NULL;
+    json11::Json self_state;
     std::map<osd_num_t, json11::Json> peer_states;
     std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
     bool loading_peer_config = false;
