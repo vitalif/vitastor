@@ -1,0 +1,14 @@
+{
+  "name": "rage-mon",
+  "version": "1.0.0",
+  "description": "RAGE storage monitor service",
+  "main": "mon.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Vitaliy Filippov",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "ws": "^7.2.5"
+  }
+}
