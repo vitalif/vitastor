@@ -40,6 +40,12 @@ bool osd_t::try_send(osd_client_t & cl)
             // Measure execution latency
             timespec tv_end = cl.write_op->tv_send;
             op_stat_count[0][cl.write_op->req.hdr.opcode]++;
+            if (!op_stat_count[0][cl.write_op->req.hdr.opcode])
+            {
+                op_stat_count[0][cl.write_op->req.hdr.opcode]++;
+                op_stat_sum[0][cl.write_op->req.hdr.opcode] = 0;
+                op_stat_bytes[0][cl.write_op->req.hdr.opcode] = 0;
+            }
             op_stat_sum[0][cl.write_op->req.hdr.opcode] += (
                 (tv_end.tv_sec - cl.write_op->tv_begin.tv_sec)*1000000 +
                 (tv_end.tv_nsec - cl.write_op->tv_begin.tv_nsec)/1000

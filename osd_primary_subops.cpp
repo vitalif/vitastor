@@ -212,6 +212,12 @@ void osd_t::add_bs_subop_stats(osd_op_t *subop)
     timespec tv_end;
     clock_gettime(CLOCK_REALTIME, &tv_end);
     op_stat_count[0][opcode]++;
+    if (!op_stat_count[0][opcode])
+    {
+        op_stat_count[0][opcode] = 1;
+        op_stat_sum[0][opcode] = 0;
+        op_stat_bytes[0][opcode] = 0;
+    }
     op_stat_sum[0][opcode] += (
         (tv_end.tv_sec - subop->tv_begin.tv_sec)*1000000 +
         (tv_end.tv_nsec - subop->tv_begin.tv_nsec)/1000

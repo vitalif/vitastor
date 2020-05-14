@@ -155,7 +155,6 @@ json11::Json osd_t::get_statistics()
         st["free"] = bs->get_free_block_count() * bs->get_block_size();
     }
     st["host"] = self_state["host"];
-    // FIXME: handle integer overflow
     json11::Json::object op_stats, subop_stats;
     for (int i = 0; i <= OSD_OP_MAX; i++)
     {
