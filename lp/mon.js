@@ -87,6 +87,11 @@ class Mon
         {
             this.config.mon_change_timeout = 100;
         }
+        this.config.mon_stats_timeout = Number(this.config.mon_stats_timeout) || 1000;
+        if (this.config.mon_stats_timeout < 100)
+        {
+            this.config.mon_stats_timeout = 100;
+        }
         // After this number of seconds, a dead OSD will be removed from PG distribution
         this.config.osd_out_time = Number(this.config.osd_out_time) || 0;
         if (!this.config.osd_out_time)
@@ -159,17 +164,25 @@ class Mon
             }
             else
             {
-                let changed = false;
+                let stats_changed = false, changed = false;
                 console.log('Revision '+data.result.header.revision+' events: ');
                 for (const e of data.result.events)
                 {
                     this.parse_kv(e.kv);
                     const key = e.kv.key.substr(this.etcd_prefix.length);
-                    if (key.substr(0, 11) != '/osd/stats/' && key.substr(0, 10) != '/pg/stats/')
+                    if (key.substr(0, 11) == '/osd/stats/' || key.substr(0, 10) == '/pg/stats/')
+                    {
+                        stats_changed = true;
+                    }
+                    else if (key != '/stats')
                     {
                         changed = true;
                     }
                     console.log(e);
+                }
+                if (stats_changed)
+                {
+                    this.schedule_update_stats();
                 }
                 if (changed)
                 {
@@ -549,16 +562,149 @@ class Mon
 
     schedule_recheck()
     {
-        if (this.changeTimer)
+        if (this.recheck_timer)
         {
-            clearTimeout(this.changeTimer);
-            this.changeTimer = null;
+            clearTimeout(this.recheck_timer);
+            this.recheck_timer = null;
         }
-        this.changeTimer = setTimeout(() =>
+        this.recheck_timer = setTimeout(() =>
         {
-            this.changeTimer = null;
+            this.recheck_timer = null;
             this.recheck_pgs().catch(console.error);
         }, this.config.mon_change_timeout || 1000);
+    }
+
+    sum_stats()
+    {
+        let overflow = false;
+        this.prev_stats = this.prev_stats || { op_stats: {}, subop_stats: {}, recovery_stats: {} };
+        const op_stats = {}, subop_stats = {}, recovery_stats = {};
+        for (const osd in this.state.osd.stats)
+        {
+            const st = this.state.osd.stats[osd];
+            for (const op in st.op_stats||{})
+            {
+                op_stats[op] = op_stats[op] || { count: 0n, usec: 0n, bytes: 0n };
+                op_stats[op].count += BigInt(st.op_stats.count||0);
+                op_stats[op].usec += BigInt(st.op_stats.usec||0);
+                op_stats[op].bytes += BigInt(st.op_stats.bytes||0);
+            }
+            for (const op in st.subop_stats||{})
+            {
+                subop_stats[op] = subop_stats[op] || { count: 0n, usec: 0n };
+                subop_stats[op].count += BigInt(st.subop_stats.count||0);
+                subop_stats[op].usec += BigInt(st.subop_stats.usec||0);
+            }
+            for (const op in st.recovery_stats||{})
+            {
+                recovery_stats[op] = recovery_stats[op] || { count: 0n, bytes: 0n };
+                recovery_stats[op].count += BigInt(st.recovery_stats.count||0);
+                recovery_stats[op].bytes += BigInt(st.recovery_stats.bytes||0);
+            }
+        }
+        for (const op in op_stats)
+        {
+            if (op_stats[op].count >= 0x10000000000000000n)
+            {
+                if (!this.prev_stats.op_stats[op])
+                {
+                    overflow = true;
+                }
+                else
+                {
+                    op_stats[op].count -= this.prev_stats.op_stats[op].count;
+                    op_stats[op].usec -= this.prev_stats.op_stats[op].usec;
+                    op_stats[op].bytes -= this.prev_stats.op_stats[op].bytes;
+                }
+            }
+        }
+        for (const op in subop_stats)
+        {
+            if (subop_stats[op].count >= 0x10000000000000000n)
+            {
+                if (!this.prev_stats.subop_stats[op])
+                {
+                    overflow = true;
+                }
+                else
+                {
+                    subop_stats[op].count -= this.prev_stats.subop_stats[op].count;
+                    subop_stats[op].usec -= this.prev_stats.subop_stats[op].usec;
+                }
+            }
+        }
+        for (const op in recovery_stats)
+        {
+            if (recovery_stats[op].count >= 0x10000000000000000n)
+            {
+                if (!this.prev_stats.recovery_stats[op])
+                {
+                    overflow = true;
+                }
+                else
+                {
+                    recovery_stats[op].count -= this.prev_stats.recovery_stats[op].count;
+                    recovery_stats[op].bytes -= this.prev_stats.recovery_stats[op].bytes;
+                }
+            }
+        }
+        const object_counts = { object: 0n, clean: 0n, misplaced: 0n, degraded: 0n, incomplete: 0n };
+        for (const pg_num in this.state.pg.stats)
+        {
+            const st = this.state.pg.stats[pg_num];
+            for (const k in object_counts)
+            {
+                if (st[k+'_count'])
+                {
+                    object_counts[k] += BigInt(st[k+'_count']);
+                }
+            }
+        }
+        return (this.prev_stats = { overflow, op_stats, subop_stats, recovery_stats, object_counts });
+    }
+
+    async update_total_stats()
+    {
+        const stats = this.sum_stats();
+        if (!stats.overflow)
+        {
+            // Convert to strings, serialize and save
+            const ser = {};
+            for (const st of [ 'op_stats', 'subop_stats', 'recovery_stats' ])
+            {
+                ser[st] = {};
+                for (const op in stats[st])
+                {
+                    ser[st][op] = {};
+                    for (const k in stats[st][op])
+                    {
+                        ser[st][op][k] = ''+stats[st][op][k];
+                    }
+                }
+            }
+            ser.object_counts = {};
+            for (const k in stats.object_counts)
+            {
+                ser.object_counts[k] = ''+stats.object_counts[k];
+            }
+            await this.etcd_call('/txn', {
+                success: [ { requestPut: { key: b64(this.etcd_prefix+'/stats'), value: b64(JSON.stringify(ser)) } } ],
+            }, this.config.etcd_mon_timeout, 0);
+        }
+    }
+
+    schedule_update_stats()
+    {
+        if (this.stats_timer)
+        {
+            clearTimeout(this.stats_timer);
+            this.stats_timer = null;
+        }
+        this.stats_timer = setTimeout(() =>
+        {
+            this.stats_timer = null;
+            this.update_total_stats().catch(console.error);
+        }, this.config.mon_stats_timeout || 1000);
     }
 
     parse_kv(kv)
