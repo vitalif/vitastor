@@ -21,10 +21,7 @@ static bool ws_parse_frame(std::string & buf, int & type, std::string & res);
 // FIXME: Use keepalive
 struct http_co_t
 {
-    ring_loop_t *ringloop;
     timerfd_manager_t *tfd;
-    int epoll_fd;
-    std::map<int, std::function<void(int, int)>> *epoll_handlers;
 
     int request_timeout = 0;
     std::string host;
@@ -40,12 +37,10 @@ struct http_co_t
     int peer_fd = -1;
     int timeout_id = -1;
     int epoll_events = 0;
-    ring_data_t *send_data = NULL, *read_data = NULL;
     int sent = 0;
     std::vector<char> rbuf;
     iovec read_iov, send_iov;
     msghdr read_msg = { 0 }, send_msg = { 0 };
-    int waiting_read_sqe = 0, waiting_send_sqe = 0;
 
     std::function<void(const http_response_t*)> callback;
 
@@ -74,9 +69,6 @@ void osd_t::http_request(const std::string & host, const std::string & request,
     const http_options_t & options, std::function<void(const http_response_t *response)> callback)
 {
     http_co_t *handler = new http_co_t();
-    handler->ringloop = ringloop;
-    handler->epoll_fd = epoll_fd;
-    handler->epoll_handlers = &epoll_handlers;
     handler->request_timeout = options.timeout < 0 ? 0 : (options.timeout == 0 ? DEFAULT_TIMEOUT : options.timeout);
     handler->want_streaming = options.want_streaming;
     handler->tfd = tfd;
@@ -124,9 +116,6 @@ websocket_t* osd_t::open_websocket(const std::string & host, const std::string &
         "Sec-WebSocket-Version: 13\r\n"
         "\r\n";
     http_co_t *handler = new http_co_t();
-    handler->ringloop = ringloop;
-    handler->epoll_fd = epoll_fd;
-    handler->epoll_handlers = &epoll_handlers;
     handler->request_timeout = timeout < 0 ? -1 : (timeout == 0 ? DEFAULT_TIMEOUT : timeout);
     handler->want_streaming = false;
     handler->tfd = tfd;
@@ -155,28 +144,9 @@ http_co_t::~http_co_t()
         tfd->clear_timer(timeout_id);
         timeout_id = -1;
     }
-    if (read_data)
-    {
-        // Ignore CQE result
-        read_data->callback = [](ring_data_t *data) {};
-    }
-    else if (waiting_read_sqe)
-    {
-        ringloop->cancel_wait_sqe(waiting_read_sqe);
-    }
-    if (send_data)
-    {
-        // Ignore CQE result
-        send_data->callback = [](ring_data_t *data) {};
-    }
-    else if (waiting_send_sqe)
-    {
-        ringloop->cancel_wait_sqe(waiting_send_sqe);
-    }
     if (peer_fd >= 0)
     {
-        epoll_handlers->erase(peer_fd);
-        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL);
+        tfd->set_fd_handler(peer_fd, NULL);
         close(peer_fd);
         peer_fd = -1;
     }
@@ -231,7 +201,7 @@ void http_co_t::start_connection()
             delete this;
         });
     }
-    (*epoll_handlers)[peer_fd] = [this](int peer_fd, int epoll_events)
+    tfd->set_fd_handler(peer_fd, [this](int peer_fd, int epoll_events)
     {
         this->epoll_events |= epoll_events;
         if (state == HTTP_CO_CONNECTING)
@@ -249,17 +219,7 @@ void http_co_t::start_connection()
                 delete this;
             }
         }
-    };
-    // Add FD to epoll (EPOLLOUT for tracking connect() result)
-    epoll_event ev;
-    ev.data.fd = peer_fd;
-    ev.events = EPOLLOUT | EPOLLIN | EPOLLRDHUP | EPOLLET;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, peer_fd, &ev) < 0)
-    {
-        parsed.error_code = errno;
-        delete this;
-        return;
-    }
+    });
     epoll_events = 0;
     // Finally call connect
     r = ::connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
@@ -301,96 +261,83 @@ void http_co_t::handle_connect_result()
 
 void http_co_t::submit_read()
 {
-    if (!read_data && !waiting_read_sqe)
+    int res;
+again:
+    if (rbuf.size() != READ_BUFFER_SIZE)
     {
-        if (rbuf.size() != READ_BUFFER_SIZE)
-        {
-            rbuf.resize(READ_BUFFER_SIZE);
-        }
-        io_uring_sqe *sqe = ringloop->get_sqe();
-        if (!sqe)
-        {
-            waiting_read_sqe = ringloop->wait_sqe([this]() { waiting_read_sqe = 0; submit_read(); });
-            return;
-        }
-        read_data = ((ring_data_t*)sqe->user_data);
-        read_iov = { .iov_base = rbuf.data(), .iov_len = READ_BUFFER_SIZE };
-        read_msg.msg_iov = &read_iov;
-        read_msg.msg_iovlen = 1;
-        epoll_events = epoll_events & ~EPOLLIN;
-        read_data->callback = [this](ring_data_t *data)
-        {
-            read_data = NULL;
-            if (data->res == -EAGAIN)
-            {
-                data->res = 0;
-            }
-            if (data->res < 0)
-            {
-                delete this;
-                return;
-            }
-            response += std::string(rbuf.data(), data->res);
-            if (data->res == READ_BUFFER_SIZE)
-            {
-                submit_read();
-            }
-            if (!handle_read())
-            {
-                return;
-            }
-            if (data->res < READ_BUFFER_SIZE && (epoll_events & (EPOLLRDHUP|EPOLLERR)))
-            {
-                delete this;
-                return;
-            }
-        };
-        my_uring_prep_recvmsg(sqe, peer_fd, &read_msg, 0);
+        rbuf.resize(READ_BUFFER_SIZE);
+    }
+    read_iov = { .iov_base = rbuf.data(), .iov_len = READ_BUFFER_SIZE };
+    read_msg.msg_iov = &read_iov;
+    read_msg.msg_iovlen = 1;
+    epoll_events = epoll_events & ~EPOLLIN;
+    res = recvmsg(peer_fd, &read_msg, 0);
+    if (res < 0)
+    {
+        res = -errno;
+    }
+    if (res == -EAGAIN)
+    {
+        res = 0;
+    }
+    if (res < 0)
+    {
+        delete this;
+        return;
+    }
+    response += std::string(rbuf.data(), res);
+    if (res == READ_BUFFER_SIZE)
+    {
+        goto again;
+    }
+    if (!handle_read())
+    {
+        return;
+    }
+    if (res < READ_BUFFER_SIZE && (epoll_events & (EPOLLRDHUP|EPOLLERR)))
+    {
+        delete this;
+        return;
     }
 }
 
 void http_co_t::submit_send()
 {
-    if (sent < request.size() && !send_data && !waiting_send_sqe)
+    int res;
+again:
+    if (sent < request.size())
     {
-        io_uring_sqe *sqe = ringloop->get_sqe();
-        if (!sqe)
-        {
-            waiting_send_sqe = ringloop->wait_sqe([this]() { waiting_send_sqe = 0; submit_send(); });
-            return;
-        }
-        send_data = ((ring_data_t*)sqe->user_data);
         send_iov = (iovec){ .iov_base = (void*)(request.c_str()+sent), .iov_len = request.size()-sent };
         send_msg.msg_iov = &send_iov;
         send_msg.msg_iovlen = 1;
-        send_data->callback = [this](ring_data_t *data)
+        res = sendmsg(peer_fd, &send_msg, 0);
+        if (res < 0)
         {
-            send_data = NULL;
-            if (data->res == -EAGAIN)
-            {
-                data->res = 0;
-            }
-            else if (data->res < 0)
-            {
-                delete this;
-                return;
-            }
-            sent += data->res;
-            if (state == HTTP_CO_SENDING_REQUEST)
-            {
-                if (sent >= request.size())
-                    state = HTTP_CO_REQUEST_SENT;
-                else
-                    submit_send();
-            }
-            else if (state == HTTP_CO_WEBSOCKET)
-            {
-                request = request.substr(sent);
-                sent = 0;
-                submit_send();
-            }
-        };
-        my_uring_prep_sendmsg(sqe, peer_fd, &send_msg, 0);
+            res = -errno;
+        }
+        if (res == -EAGAIN)
+        {
+            res = 0;
+        }
+        else if (res < 0)
+        {
+            delete this;
+            return;
+        }
+        sent += res;
+        if (state == HTTP_CO_SENDING_REQUEST)
+        {
+            if (sent >= request.size())
+                state = HTTP_CO_REQUEST_SENT;
+            else
+                goto again;
+        }
+        else if (state == HTTP_CO_WEBSOCKET)
+        {
+            request = request.substr(sent);
+            sent = 0;
+            goto again;
+        }
     }
 }
 

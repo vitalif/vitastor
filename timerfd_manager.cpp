@@ -1,24 +1,29 @@
 #include <sys/timerfd.h>
 #include <sys/poll.h>
+#include <sys/epoll.h>
 #include <unistd.h>
+#include <errno.h>
+#include <string.h>
 #include "timerfd_manager.h"
 
-timerfd_manager_t::timerfd_manager_t(ring_loop_t *ringloop)
+timerfd_manager_t::timerfd_manager_t(std::function<void(int, std::function<void(int, int)>)> set_fd_handler)
 {
+    this->set_fd_handler = set_fd_handler;
     wait_state = 0;
     timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
     if (timerfd < 0)
     {
         throw std::runtime_error(std::string("timerfd_create: ") + strerror(errno));
     }
-    consumer.loop = [this]() { loop(); };
-    ringloop->register_consumer(&consumer);
-    this->ringloop = ringloop;
+    set_fd_handler(timerfd, [this](int fd, int events)
+    {
+        handle_readable();
+    });
 }
 
 timerfd_manager_t::~timerfd_manager_t()
 {
-    ringloop->unregister_consumer(&consumer);
+    set_fd_handler(timerfd, NULL);
     close(timerfd);
 }
 
@@ -48,7 +53,6 @@ int timerfd_manager_t::set_timer(uint64_t millis, bool repeat, std::function<voi
     });
     inc_timer(timers[timers.size()-1]);
     set_nearest();
-    set_wait();
     return timer_id;
 }
 
@@ -69,7 +73,6 @@ void timerfd_manager_t::clear_timer(int timer_id)
                 nearest--;
             }
             set_nearest();
-            set_wait();
             break;
         }
     }
@@ -120,53 +123,25 @@ void timerfd_manager_t::set_nearest()
     }
 }
 
-void timerfd_manager_t::loop()
+void timerfd_manager_t::handle_readable()
 {
-    if (!(wait_state & 1) && timers.size())
+    uint64_t n;
+    size_t res = read(timerfd, &n, 8);
+    if (res == 8 && nearest >= 0)
     {
-        set_nearest();
-    }
-    set_wait();
-}
-
-void timerfd_manager_t::set_wait()
-{
-    if ((wait_state & 3) == 1)
-    {
-        io_uring_sqe *sqe = ringloop->get_sqe();
-        if (!sqe)
+        int nearest_id = timers[nearest].id;
+        auto cb = timers[nearest].callback;
+        if (timers[nearest].repeat)
         {
-            return;
+            inc_timer(timers[nearest]);
         }
-        ring_data_t *data = ((ring_data_t*)sqe->user_data);
-        my_uring_prep_poll_add(sqe, timerfd, POLLIN);
-        data->callback = [this](ring_data_t *data)
+        else
         {
-            if (data->res < 0)
-            {
-                throw std::runtime_error(std::string("waiting for timer failed: ") + strerror(-data->res));
-            }
-            uint64_t n;
-            read(timerfd, &n, 8);
-            if (nearest >= 0)
-            {
-                int nearest_id = timers[nearest].id;
-                auto cb = timers[nearest].callback;
-                if (timers[nearest].repeat)
-                {
-                    inc_timer(timers[nearest]);
-                }
-                else
-                {
-                    timers.erase(timers.begin()+nearest, timers.begin()+nearest+1);
-                }
-                cb(nearest_id);
-                nearest = -1;
-            }
-            wait_state = 0;
-            set_nearest();
-            set_wait();
-        };
-        wait_state = 3;
+            timers.erase(timers.begin()+nearest, timers.begin()+nearest+1);
+        }
+        cb(nearest_id);
+        nearest = -1;
     }
+    wait_state = 0;
+    set_nearest();
 }

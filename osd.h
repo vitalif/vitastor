@@ -327,6 +327,7 @@ class osd_t
 
     // event loop, socket read/write
     void loop();
+    void set_fd_handler(int fd, std::function<void(int, int)> handler);
     void handle_epoll_events();
     void read_requests();
     void handle_read(ring_data_t *data, int peer_fd);

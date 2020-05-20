@@ -43,7 +43,7 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
         throw std::runtime_error(std::string("epoll_create: ") + strerror(errno));
     }
 
-    this->tfd = new timerfd_manager_t(ringloop);
+    this->tfd = new timerfd_manager_t([this](int fd, std::function<void(int, int)> handler) { set_fd_handler(fd, handler); });
     this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
     {
         print_stats();
@@ -234,6 +234,26 @@ void osd_t::loop()
     read_requests();
     send_replies();
     ringloop->submit();
+}
+
+void osd_t::set_fd_handler(int fd, std::function<void(int, int)> handler)
+{
+    if (handler != NULL)
+    {
+        epoll_event ev;
+        ev.data.fd = fd;
+        ev.events = EPOLLOUT | EPOLLIN | EPOLLRDHUP | EPOLLET;
+        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0)
+        {
+            throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
+        }
+        epoll_handlers[fd] = handler;
+    }
+    else
+    {
+        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+        epoll_handlers.erase(fd);
+    }
 }
 
 void osd_t::handle_epoll_events()

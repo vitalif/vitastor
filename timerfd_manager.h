@@ -1,7 +1,8 @@
 #pragma once
 
 #include <time.h>
-#include "ringloop.h"
+#include <vector>
+#include <functional>
 
 struct timerfd_timer_t
 {
@@ -19,16 +20,15 @@ class timerfd_manager_t
     int nearest = -1;
     int id = 1;
     std::vector<timerfd_timer_t> timers;
-    ring_loop_t *ringloop;
-    ring_consumer_t consumer;
 
     void inc_timer(timerfd_timer_t & t);
     void set_nearest();
-    void set_wait();
-    void loop();
 public:
-    timerfd_manager_t(ring_loop_t *ringloop);
+    std::function<void(int, std::function<void(int, int)>)> set_fd_handler;
+
+    timerfd_manager_t(std::function<void(int, std::function<void(int, int)>)> set_fd_handler);
     ~timerfd_manager_t();
     int set_timer(uint64_t millis, bool repeat, std::function<void(int)> callback);
     void clear_timer(int timer_id);
+    void handle_readable();
 };
