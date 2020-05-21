@@ -30,7 +30,8 @@ libfio_blockstore.so: ./libblockstore.so fio_engine.cpp json11.o
 	g++ $(CXXFLAGS) -shared -o libfio_blockstore.so fio_engine.cpp json11.o ./libblockstore.so -ltcmalloc_minimal -luring
 
 OSD_OBJS := osd.o osd_secondary.o osd_receive.o osd_send.o osd_peering.o osd_flush.o osd_peering_pg.o \
-	osd_primary.o osd_primary_subops.o osd_cluster.o http_client.o osd_rmw.o json11.o timerfd_interval.o base64.o timerfd_manager.o
+	osd_primary.o osd_primary_subops.o etcd_state_client.o osd_cluster.o http_client.o pg_states.o \
+	osd_rmw.o json11.o timerfd_interval.o base64.o timerfd_manager.o
 base64.o: base64.cpp base64.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_secondary.o: osd_secondary.cpp osd.h osd_ops.h ringloop.h
@@ -43,11 +44,15 @@ osd_peering.o: osd_peering.cpp osd.h osd_ops.h osd_peering_pg.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_cluster.o: osd_cluster.cpp osd.h osd_ops.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-http_client.o: http_client.cpp http_client.h osd.h osd_ops.h ringloop.h
+http_client.o: http_client.cpp http_client.h osd.h osd_ops.h
+	g++ $(CXXFLAGS) -c -o $@ $<
+etcd_state_client.o: etcd_state_client.cpp etcd_state_client.h http_client.h pg_states.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_flush.o: osd_flush.cpp osd.h osd_ops.h osd_peering_pg.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_peering_pg.o: osd_peering_pg.cpp object_id.h osd_peering_pg.h
+osd_peering_pg.o: osd_peering_pg.cpp object_id.h osd_peering_pg.h pg_states.h
+	g++ $(CXXFLAGS) -c -o $@ $<
+pg_states.o: pg_states.cpp pg_states.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_rmw.o: osd_rmw.cpp osd_rmw.h xor.h
 	g++ $(CXXFLAGS) -c -o $@ $<

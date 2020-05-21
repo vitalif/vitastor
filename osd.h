@@ -18,8 +18,7 @@
 #include "timerfd_manager.h"
 #include "osd_ops.h"
 #include "osd_peering_pg.h"
-#include "http_client.h"
-#include "json11/json11.hpp"
+#include "etcd_state_client.h"
 
 #define OSD_OP_IN 0
 #define OSD_OP_OUT 1
@@ -186,24 +185,6 @@ struct osd_wanted_peer_t
     int address_index;
 };
 
-struct pg_config_t
-{
-    bool exists;
-    osd_num_t primary;
-    std::vector<osd_num_t> target_set;
-    std::vector<std::vector<osd_num_t>> target_history;
-    std::vector<osd_num_t> all_peers;
-    bool pause;
-    osd_num_t cur_primary;
-    int cur_state;
-};
-
-struct json_kv_t
-{
-    std::string key;
-    json11::Json value;
-};
-
 class osd_t
 {
     // config
@@ -231,16 +212,12 @@ class osd_t
 
     // cluster state
 
+    etcd_state_client_t st_cli;
+    int etcd_failed_attempts = 0;
     std::string etcd_lease_id;
-    int etcd_watches_initialised = 0;
-    uint64_t etcd_watch_revision = 0;
-    websocket_t *etcd_watch_ws = NULL;
     json11::Json self_state;
-    std::map<osd_num_t, json11::Json> peer_states;
     std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
     bool loading_peer_config = false;
-    int etcd_failed_attempts = 0;
-    std::map<pg_num_t, pg_config_t> pg_config;
     std::set<pg_num_t> pg_state_dirty;
     bool pg_config_applied = false;
     bool etcd_reporting_pg_state = false;
@@ -294,13 +271,12 @@ class osd_t
     uint64_t recovery_stat_bytes[2][2] = { 0 };
 
     // cluster connection
-    void etcd_call(std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback);
-    void etcd_txn(json11::Json txn, int timeout, std::function<void(std::string, json11::Json)> callback);
-    json_kv_t parse_etcd_kv(const json11::Json & kv_json);
     void parse_config(blockstore_config_t & config);
     void init_cluster();
-    void start_etcd_watcher();
-    void load_global_config();
+    void on_change_etcd_state_hook(json11::Json::object & changes);
+    void on_load_config_hook(json11::Json::object & changes);
+    json11::Json on_load_pgs_checks_hook();
+    void on_load_pgs_hook(bool success);
     void bind_socket();
     void acquire_lease();
     json11::Json get_osd_state();
@@ -312,12 +288,9 @@ class osd_t
     void report_statistics();
     void report_pg_state(pg_t & pg);
     void report_pg_states();
-    void load_pgs();
-    void parse_pg_state(const std::string & key, const json11::Json & value);
     void apply_pg_count();
     void apply_pg_config();
     void load_and_connect_peers();
-    void parse_etcd_osd_state(const std::string & key, const json11::Json & value);
 
     // event loop, socket read/write
     void loop();

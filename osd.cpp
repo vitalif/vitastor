@@ -407,7 +407,7 @@ void osd_t::stop_client(int peer_fd)
         {
             // Reload configuration from etcd when the connection is dropped
             printf("[OSD %lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl.osd_num);
-            peer_states.erase(cl.osd_num);
+            st_cli.peer_states.erase(cl.osd_num);
             repeer_pgs(cl.osd_num);
         }
         else
