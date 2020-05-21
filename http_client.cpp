@@ -2,13 +2,17 @@
 #include <sys/epoll.h>
 
 #include <net/if.h>
+#include <arpa/inet.h>
 #include <ifaddrs.h>
 
 #include <ctype.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <string.h>
 
-#include "osd.h"
 #include "json11/json11.hpp"
-#include "osd_http.h"
+#include "http_client.h"
+#include "timerfd_manager.h"
 
 #define READ_BUFFER_SIZE 9000
 
@@ -64,8 +68,7 @@ struct http_co_t
 
 #define DEFAULT_TIMEOUT 5000
 
-// FIXME: Remove osd_t dependency from here
-void osd_t::http_request(const std::string & host, const std::string & request,
+void http_request(timerfd_manager_t *tfd, const std::string & host, const std::string & request,
     const http_options_t & options, std::function<void(const http_response_t *response)> callback)
 {
     http_co_t *handler = new http_co_t();
@@ -79,10 +82,10 @@ void osd_t::http_request(const std::string & host, const std::string & request,
     handler->start_connection();
 }
 
-void osd_t::http_request_json(const std::string & host, const std::string & request,
+void http_request_json(timerfd_manager_t *tfd, const std::string & host, const std::string & request,
     int timeout, std::function<void(std::string, json11::Json r)> callback)
 {
-    http_request(host, request, { .timeout = timeout }, [this, callback](const http_response_t* res)
+    http_request(tfd, host, request, { .timeout = timeout }, [callback](const http_response_t* res)
     {
         if (res->error_code != 0)
         {
@@ -105,7 +108,7 @@ void osd_t::http_request_json(const std::string & host, const std::string & requ
     });
 }
 
-websocket_t* osd_t::open_websocket(const std::string & host, const std::string & path,
+websocket_t* open_websocket(timerfd_manager_t *tfd, const std::string & host, const std::string & path,
     int timeout, std::function<void(const http_response_t *msg)> callback)
 {
     std::string request = "GET "+path+" HTTP/1.1\r\n"

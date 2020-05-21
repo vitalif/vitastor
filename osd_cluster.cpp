@@ -1,5 +1,4 @@
 #include "osd.h"
-#include "osd_http.h"
 #include "base64.h"
 
 #define ETCD_CONFIG_WATCH_ID 1
@@ -39,7 +38,7 @@ void osd_t::etcd_call(std::string api, json11::Json payload, int timeout, std::f
         "Content-Length: "+std::to_string(req.size())+"\r\n"
         "Connection: close\r\n"
         "\r\n"+req;
-    http_request_json(etcd_address, req, timeout, callback);
+    http_request_json(tfd, etcd_address, req, timeout, callback);
 }
 
 // Startup sequence:
@@ -244,7 +243,7 @@ void osd_t::report_statistics()
 void osd_t::start_etcd_watcher()
 {
     etcd_watches_initialised = 0;
-    etcd_watch_ws = open_websocket(etcd_address, etcd_api_path+"/watch", ETCD_SLOW_TIMEOUT, [this](const http_response_t *msg)
+    etcd_watch_ws = open_websocket(tfd, etcd_address, etcd_api_path+"/watch", ETCD_SLOW_TIMEOUT, [this](const http_response_t *msg)
     {
         if (msg->body.length())
         {

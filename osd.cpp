@@ -6,7 +6,6 @@
 #include <arpa/inet.h>
 
 #include "osd.h"
-#include "osd_http.h"
 
 const char* osd_op_names[] = {
     "",

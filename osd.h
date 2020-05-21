@@ -18,7 +18,7 @@
 #include "timerfd_manager.h"
 #include "osd_ops.h"
 #include "osd_peering_pg.h"
-#include "osd_http.h"
+#include "http_client.h"
 #include "json11/json11.hpp"
 
 #define OSD_OP_IN 0
@@ -294,12 +294,6 @@ class osd_t
     uint64_t recovery_stat_bytes[2][2] = { 0 };
 
     // cluster connection
-    void http_request(const std::string & host, const std::string & request,
-        const http_options_t & options, std::function<void(const http_response_t *response)> callback);
-    void http_request_json(const std::string & host, const std::string & request, int timeout,
-        std::function<void(std::string, json11::Json data)> callback);
-    websocket_t* open_websocket(const std::string & host, const std::string & path, int timeout,
-        std::function<void(const http_response_t *msg)> callback);
     void etcd_call(std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback);
     void etcd_txn(json11::Json txn, int timeout, std::function<void(std::string, json11::Json)> callback);
     json_kv_t parse_etcd_kv(const json11::Json & kv_json);
