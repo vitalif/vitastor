@@ -6,13 +6,13 @@
 #include "base64.h"
 #include "osd.h"
 
-void osd_t::connect_peer(osd_num_t peer_osd, const char *peer_host, int peer_port, std::function<void(osd_num_t, int)> callback)
+void osd_t::connect_peer(osd_num_t peer_osd, const char *peer_host, int peer_port)
 {
     struct sockaddr_in addr;
     int r;
     if ((r = inet_pton(AF_INET, peer_host, &addr.sin_addr)) != 1)
     {
-        callback(peer_osd, -EINVAL);
+        on_connect_peer(peer_osd, -EINVAL);
         return;
     }
     addr.sin_family = AF_INET;
@@ -20,7 +20,7 @@ void osd_t::connect_peer(osd_num_t peer_osd, const char *peer_host, int peer_por
     int peer_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (peer_fd < 0)
     {
-        callback(peer_osd, -errno);
+        on_connect_peer(peer_osd, -errno);
         return;
     }
     fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
@@ -29,10 +29,9 @@ void osd_t::connect_peer(osd_num_t peer_osd, const char *peer_host, int peer_por
     {
         timeout_id = tfd->set_timer(1000*peer_connect_timeout, false, [this, peer_fd](int timer_id)
         {
-            auto callback = clients[peer_fd].connect_callback;
             osd_num_t peer_osd = clients[peer_fd].osd_num;
             stop_client(peer_fd);
-            callback(peer_osd, -EIO);
+            on_connect_peer(peer_osd, -EIO);
             return;
         });
     }
@@ -40,7 +39,7 @@ void osd_t::connect_peer(osd_num_t peer_osd, const char *peer_host, int peer_por
     if (r < 0 && errno != EINPROGRESS)
     {
         close(peer_fd);
-        callback(peer_osd, -errno);
+        on_connect_peer(peer_osd, -errno);
         return;
     }
     assert(peer_osd != osd_num);
@@ -49,7 +48,6 @@ void osd_t::connect_peer(osd_num_t peer_osd, const char *peer_host, int peer_por
         .peer_port = peer_port,
         .peer_fd = peer_fd,
         .peer_state = PEER_CONNECTING,
-        .connect_callback = callback,
         .connect_timeout_id = timeout_id,
         .osd_num = peer_osd,
         .in_buf = malloc(receive_buffer_size),
@@ -81,9 +79,8 @@ void osd_t::handle_connect_result(int peer_fd)
     }
     if (result != 0)
     {
-        auto callback = cl.connect_callback;
         stop_client(peer_fd);
-        callback(peer_osd, -result);
+        on_connect_peer(peer_osd, -result);
         return;
     }
     int one = 1;
@@ -144,9 +141,7 @@ void osd_t::check_peer_config(osd_client_t & cl)
             return;
         }
         osd_peer_fds[cl.osd_num] = cl.peer_fd;
-        auto callback = cl.connect_callback;
-        cl.connect_callback = NULL;
-        callback(cl.osd_num, cl.peer_fd);
+        on_connect_peer(cl.osd_num, cl.peer_fd);
         delete op;
     };
     outbox_push(cl, op);

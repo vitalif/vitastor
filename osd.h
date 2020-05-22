@@ -130,7 +130,6 @@ struct osd_client_t
     int peer_port;
     int peer_fd;
     int peer_state;
-    std::function<void(osd_num_t, int)> connect_callback;
     int connect_timeout_id = -1;
     osd_num_t osd_num = 0;
 
@@ -290,6 +289,7 @@ class osd_t
     void report_pg_states();
     void apply_pg_count();
     void apply_pg_config();
+    void on_connect_peer(osd_num_t peer_osd, int peer_fd);
     void load_and_connect_peers();
 
     // event loop, socket read/write
@@ -307,7 +307,7 @@ class osd_t
     void outbox_push(osd_client_t & cl, osd_op_t *op);
 
     // peer handling (primary OSD logic)
-    void connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port, std::function<void(osd_num_t, int)> callback);
+    void connect_peer(osd_num_t osd_num, const char *peer_host, int peer_port);
     void handle_connect_result(int peer_fd);
     void check_peer_config(osd_client_t & cl);
     void cancel_osd_ops(osd_client_t & cl);

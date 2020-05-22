@@ -729,6 +729,38 @@ void osd_t::report_pg_states()
     });
 }
 
+void osd_t::on_connect_peer(osd_num_t peer_osd, int peer_fd)
+{
+    wanted_peers[peer_osd].connecting = false;
+    if (peer_fd < 0)
+    {
+        int64_t peer_port = st_cli.peer_states[peer_osd]["port"].int64_value();
+        auto & addrs = st_cli.peer_states[peer_osd]["addresses"].array_items();
+        const char *addr = addrs[wanted_peers[peer_osd].address_index].string_value().c_str();
+        printf("Failed to connect to peer OSD %lu address %s port %ld: %s\n", peer_osd, addr, peer_port, strerror(-peer_fd));
+        if (wanted_peers[peer_osd].address_index < addrs.size()-1)
+        {
+            // Try all addresses
+            wanted_peers[peer_osd].address_index++;
+        }
+        else
+        {
+            wanted_peers[peer_osd].last_connect_attempt = time(NULL);
+            st_cli.peer_states.erase(peer_osd);
+        }
+        return;
+    }
+    printf("Connected with peer OSD %lu (fd %d)\n", clients[peer_fd].osd_num, peer_fd);
+    wanted_peers.erase(peer_osd);
+    if (!wanted_peers.size())
+    {
+        // Connected to all peers
+        printf("Connected to all peers\n");
+        peering_state = peering_state & ~OSD_CONNECTING_PEERS;
+    }
+    repeer_pgs(peer_osd);
+}
+
 void osd_t::load_and_connect_peers()
 {
     json11::Json::array load_peer_txn;
@@ -767,37 +799,7 @@ void osd_t::load_and_connect_peers()
             const std::string addr = st_cli.peer_states[peer_osd]["addresses"][wp_it->second.address_index].string_value();
             int64_t peer_port = st_cli.peer_states[peer_osd]["port"].int64_value();
             wp_it++;
-            connect_peer(peer_osd, addr.c_str(), peer_port, [this](osd_num_t peer_osd, int peer_fd)
-            {
-                wanted_peers[peer_osd].connecting = false;
-                if (peer_fd < 0)
-                {
-                    int64_t peer_port = st_cli.peer_states[peer_osd]["port"].int64_value();
-                    auto & addrs = st_cli.peer_states[peer_osd]["addresses"].array_items();
-                    const char *addr = addrs[wanted_peers[peer_osd].address_index].string_value().c_str();
-                    printf("Failed to connect to peer OSD %lu address %s port %ld: %s\n", peer_osd, addr, peer_port, strerror(-peer_fd));
-                    if (wanted_peers[peer_osd].address_index < addrs.size()-1)
-                    {
-                        // Try all addresses
-                        wanted_peers[peer_osd].address_index++;
-                    }
-                    else
-                    {
-                        wanted_peers[peer_osd].last_connect_attempt = time(NULL);
-                        st_cli.peer_states.erase(peer_osd);
-                    }
-                    return;
-                }
-                printf("Connected with peer OSD %lu (fd %d)\n", clients[peer_fd].osd_num, peer_fd);
-                wanted_peers.erase(peer_osd);
-                if (!wanted_peers.size())
-                {
-                    // Connected to all peers
-                    printf("Connected to all peers\n");
-                    peering_state = peering_state & ~OSD_CONNECTING_PEERS;
-                }
-                repeer_pgs(peer_osd);
-            });
+            connect_peer(peer_osd, addr.c_str(), peer_port);
         }
         else
         {
