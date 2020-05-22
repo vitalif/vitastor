@@ -1,8 +1,8 @@
 BLOCKSTORE_OBJS := allocator.o blockstore.o blockstore_impl.o blockstore_init.o blockstore_open.o blockstore_journal.o blockstore_read.o \
-	blockstore_write.o blockstore_sync.o blockstore_stable.o blockstore_rollback.o blockstore_flush.o crc32c.o ringloop.o timerfd_interval.o
+	blockstore_write.o blockstore_sync.o blockstore_stable.o blockstore_rollback.o blockstore_flush.o crc32c.o ringloop.o
 # -fsanitize=address
 CXXFLAGS := -g -O3 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fPIC -fdiagnostics-color=always
-all: $(BLOCKSTORE_OBJS) libfio_blockstore.so osd libfio_sec_osd.so test_blockstore stub_osd stub_bench osd_test dump_journal
+all: $(BLOCKSTORE_OBJS) libfio_blockstore.so osd libfio_sec_osd.so stub_osd stub_bench osd_test dump_journal
 clean:
 	rm -f *.o
 
@@ -19,7 +19,7 @@ timerfd_interval.o: timerfd_interval.cpp timerfd_interval.h ringloop.h
 timerfd_manager.o: timerfd_manager.cpp timerfd_manager.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 
-%.o: %.cpp allocator.h blockstore_flush.h blockstore.h blockstore_impl.h blockstore_init.h blockstore_journal.h crc32c.h ringloop.h timerfd_interval.h object_id.h
+%.o: %.cpp allocator.h blockstore_flush.h blockstore.h blockstore_impl.h blockstore_init.h blockstore_journal.h crc32c.h ringloop.h object_id.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 dump_journal: dump_journal.cpp crc32c.o blockstore_journal.h
 	g++ $(CXXFLAGS) -o $@ $< crc32c.o
@@ -31,7 +31,7 @@ libfio_blockstore.so: ./libblockstore.so fio_engine.cpp json11.o
 
 OSD_OBJS := osd.o osd_secondary.o osd_receive.o osd_send.o osd_peering.o osd_flush.o osd_peering_pg.o \
 	osd_primary.o osd_primary_subops.o etcd_state_client.o osd_cluster.o http_client.o pg_states.o \
-	osd_rmw.o json11.o timerfd_interval.o base64.o timerfd_manager.o
+	osd_rmw.o json11.o base64.o timerfd_manager.o
 base64.o: base64.cpp base64.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_secondary.o: osd_secondary.cpp osd.h osd_ops.h ringloop.h
@@ -80,8 +80,8 @@ osd_peering_pg_test: osd_peering_pg_test.cpp osd_peering_pg.o
 libfio_sec_osd.so: fio_sec_osd.cpp osd_ops.h rw_blocking.o
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o libfio_sec_osd.so fio_sec_osd.cpp rw_blocking.o -luring
 
-test_blockstore: ./libblockstore.so test_blockstore.cpp
-	g++ $(CXXFLAGS) -o test_blockstore test_blockstore.cpp ./libblockstore.so -ltcmalloc_minimal -luring
+test_blockstore: ./libblockstore.so test_blockstore.cpp timerfd_interval.o
+	g++ $(CXXFLAGS) -o test_blockstore test_blockstore.cpp timerfd_interval.o ./libblockstore.so -ltcmalloc_minimal -luring
 test: test.cpp osd_peering_pg.o
 	g++ $(CXXFLAGS) -o test test.cpp osd_peering_pg.o -luring -lm
 test_allocator: test_allocator.cpp allocator.o

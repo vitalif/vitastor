@@ -34,11 +34,11 @@ bool osd_t::try_send(osd_client_t & cl)
         cl.write_op = cl.outbox.front();
         cl.outbox.pop_front();
         cl.write_state = CL_WRITE_REPLY;
-        clock_gettime(CLOCK_REALTIME, &cl.write_op->tv_send);
         if (cl.write_op->op_type == OSD_OP_IN)
         {
             // Measure execution latency
-            timespec tv_end = cl.write_op->tv_send;
+            timespec tv_end;
+            clock_gettime(CLOCK_REALTIME, &tv_end);
             op_stat_count[0][cl.write_op->req.hdr.opcode]++;
             if (!op_stat_count[0][cl.write_op->req.hdr.opcode])
             {
