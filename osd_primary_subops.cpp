@@ -111,7 +111,7 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
             if (role_osd_num == this->osd_num)
             {
                 clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
-                subops[i].op_type = (long)cur_op;
+                subops[i].op_type = (uint64_t)cur_op;
                 subops[i].bs_op = new blockstore_op_t({
                     .opcode = (uint64_t)(w ? BS_OP_WRITE : BS_OP_READ),
                     .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
@@ -190,7 +190,7 @@ static uint64_t bs_op_to_osd_op[] = {
 
 void osd_t::handle_primary_bs_subop(osd_op_t *subop)
 {
-    osd_op_t *cur_op = (osd_op_t*)(long)subop->op_type;
+    osd_op_t *cur_op = (osd_op_t*)subop->op_type;
     blockstore_op_t *bs_op = subop->bs_op;
     int expected = bs_op->opcode == BS_OP_READ || bs_op->opcode == BS_OP_WRITE ? bs_op->len : 0;
     if (bs_op->retval != expected && bs_op->opcode != BS_OP_READ)
@@ -307,7 +307,7 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_os
             if (chunk.osd_num == this->osd_num)
             {
                 clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
-                subops[i].op_type = (long)cur_op;
+                subops[i].op_type = (uint64_t)cur_op;
                 subops[i].bs_op = new blockstore_op_t({
                     .opcode = BS_OP_DELETE,
                     .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
@@ -372,7 +372,7 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
         if (sync_osd == this->osd_num)
         {
             clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
-            subops[i].op_type = (long)cur_op;
+            subops[i].op_type = (uint64_t)cur_op;
             subops[i].bs_op = new blockstore_op_t({
                 .opcode = BS_OP_SYNC,
                 .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
@@ -423,7 +423,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
         if (stab_osd.osd_num == this->osd_num)
         {
             clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
-            subops[i].op_type = (long)cur_op;
+            subops[i].op_type = (uint64_t)cur_op;
             subops[i].bs_op = new blockstore_op_t({
                 .opcode = BS_OP_STABLE,
                 .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)

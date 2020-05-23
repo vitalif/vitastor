@@ -231,6 +231,13 @@ void pg_obj_state_check_t::finish_object()
                 printf("Present on: osd %lu, role %ld%s\n", list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
             }
         }
+        if (log_level > 2)
+        {
+            for (int i = obj_start; i < obj_end; i++)
+            {
+                printf("v%lu present on: osd %lu, role %ld%s\n", list[i].version, list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
+            }
+        }
         state = OBJ_DEGRADED;
         pg->state = pg->state | PG_HAS_DEGRADED;
     }

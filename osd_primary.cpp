@@ -211,7 +211,7 @@ resume_1:
     cur_op->rmw_buf = calc_rmw(cur_op->buf, op_data->stripes, op_data->prev_set,
         pg.pg_size, pg.pg_minsize, pg.pg_cursize, pg.cur_set.data(), bs_block_size);
     // Read required blocks
-    submit_primary_subops(SUBMIT_RMW_READ, pg.pg_size, pg.cur_set.data(), cur_op);
+    submit_primary_subops(SUBMIT_RMW_READ, pg.pg_size, op_data->prev_set, cur_op);
 resume_2:
     op_data->st = 2;
     return;
