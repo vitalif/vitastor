@@ -401,12 +401,12 @@ void osd_t::cancel_op(osd_op_t *op)
 
 void osd_t::stop_client(int peer_fd)
 {
-    // FIXME Fix the bug where sometimes a dead peer is undetected which leads to PG DEGRADED|HAS_INCOMPLETE!
     auto it = clients.find(peer_fd);
     if (it == clients.end())
     {
         return;
     }
+    uint64_t repeer_osd = 0;
     osd_client_t cl = it->second;
     if (cl.peer_state == PEER_CONNECTED)
     {
@@ -415,7 +415,8 @@ void osd_t::stop_client(int peer_fd)
             // Reload configuration from etcd when the connection is dropped
             printf("[OSD %lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl.osd_num);
             st_cli.peer_states.erase(cl.osd_num);
-            repeer_pgs(cl.osd_num);
+            repeer_osd = cl.osd_num;
+            peering_state |= OSD_CONNECTING_PEERS;
         }
         else
         {
@@ -429,10 +430,9 @@ void osd_t::stop_client(int peer_fd)
     }
     if (cl.osd_num)
     {
+        osd_peer_fds.erase(cl.osd_num);
         // Cancel outbound operations
         cancel_osd_ops(cl);
-        osd_peer_fds.erase(cl.osd_num);
-        peering_state |= OSD_CONNECTING_PEERS;
     }
     if (cl.read_op)
     {
@@ -456,6 +456,10 @@ void osd_t::stop_client(int peer_fd)
     }
     free(cl.in_buf);
     close(peer_fd);
+    if (repeer_osd)
+    {
+        repeer_pgs(repeer_osd);
+    }
 }
 
 void osd_t::exec_op(osd_op_t *cur_op)
