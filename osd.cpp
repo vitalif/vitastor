@@ -551,11 +551,18 @@ void osd_t::print_stats()
         {
             uint64_t avg = (op_stat_sum[0][i] - op_stat_sum[1][i])/(op_stat_count[0][i] - op_stat_count[1][i]);
             uint64_t bw = (op_stat_bytes[0][i] - op_stat_bytes[1][i]) / print_stats_interval;
-            printf(
-                "avg latency for op %d (%s): %lu us, B/W: %.2f %s\n", i, osd_op_names[i], avg,
-                (bw > 1024*1024*1024 ? bw/1024.0/1024/1024 : (bw > 1024*1024 ? bw/1024.0/1024 : bw/1024.0)),
-                (bw > 1024*1024*1024 ? "GB/s" : (bw > 1024*1024 ? "MB/s" : "KB/s"))
-            );
+            if (op_stat_bytes[0][i] != 0)
+            {
+                printf(
+                    "[OSD %lu] avg latency for op %d (%s): %lu us, B/W: %.2f %s\n", osd_num, i, osd_op_names[i], avg,
+                    (bw > 1024*1024*1024 ? bw/1024.0/1024/1024 : (bw > 1024*1024 ? bw/1024.0/1024 : bw/1024.0)),
+                    (bw > 1024*1024*1024 ? "GB/s" : (bw > 1024*1024 ? "MB/s" : "KB/s"))
+                );
+            }
+            else
+            {
+                printf("[OSD %lu] avg latency for op %d (%s): %lu us\n", osd_num, i, osd_op_names[i], avg);
+            }
             op_stat_count[1][i] = op_stat_count[0][i];
             op_stat_sum[1][i] = op_stat_sum[0][i];
             op_stat_bytes[1][i] = op_stat_bytes[0][i];
@@ -566,7 +573,7 @@ void osd_t::print_stats()
         if (subop_stat_count[0][i] != subop_stat_count[1][i])
         {
             uint64_t avg = (subop_stat_sum[0][i] - subop_stat_sum[1][i])/(subop_stat_count[0][i] - subop_stat_count[1][i]);
-            printf("avg latency for subop %d (%s): %ld us\n", i, osd_op_names[i], avg);
+            printf("[OSD %lu] avg latency for subop %d (%s): %ld us\n", osd_num, i, osd_op_names[i], avg);
             subop_stat_count[1][i] = subop_stat_count[0][i];
             subop_stat_sum[1][i] = subop_stat_sum[0][i];
         }
@@ -577,7 +584,7 @@ void osd_t::print_stats()
         {
             uint64_t bw = (recovery_stat_bytes[0][i] - recovery_stat_bytes[1][i]) / print_stats_interval;
             printf(
-                "%s recovery: %.1f op/s, B/W: %.2f %s\n", recovery_stat_names[i],
+                "[OSD %lu] %s recovery: %.1f op/s, B/W: %.2f %s\n", osd_num, recovery_stat_names[i],
                 (recovery_stat_count[0][i] - recovery_stat_count[1][i]) * 1.0 / print_stats_interval,
                 (bw > 1024*1024*1024 ? bw/1024.0/1024/1024 : (bw > 1024*1024 ? bw/1024.0/1024 : bw/1024.0)),
                 (bw > 1024*1024*1024 ? "GB/s" : (bw > 1024*1024 ? "MB/s" : "KB/s"))
@@ -588,14 +595,14 @@ void osd_t::print_stats()
     }
     if (incomplete_objects > 0)
     {
-        printf("%lu object(s) incomplete\n", incomplete_objects);
+        printf("[OSD %lu] %lu object(s) incomplete\n", osd_num, incomplete_objects);
     }
     if (degraded_objects > 0)
     {
-        printf("%lu object(s) degraded\n", degraded_objects);
+        printf("[OSD %lu] %lu object(s) degraded\n", osd_num, degraded_objects);
     }
     if (misplaced_objects > 0)
     {
-        printf("%lu object(s) misplaced\n", misplaced_objects);
+        printf("[OSD %lu] %lu object(s) misplaced\n", osd_num, misplaced_objects);
     }
 }
