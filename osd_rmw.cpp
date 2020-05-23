@@ -56,6 +56,11 @@ static inline void cover_read(uint32_t start, uint32_t end, osd_rmw_stripe_t & s
 
 void split_stripes(uint64_t pg_minsize, uint32_t bs_block_size, uint32_t start, uint32_t end, osd_rmw_stripe_t *stripes)
 {
+    if (end == 0)
+    {
+        // Zero length request - offset doesn't matter
+        return;
+    }
     end = start+end;
     for (int role = 0; role < pg_minsize; role++)
     {
@@ -198,11 +203,13 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
     }
     if (write_osd_set != read_osd_set)
     {
+        pg_cursize = 0;
         // Object is degraded/misplaced and will be moved to <write_osd_set>
         for (int role = 0; role < pg_size; role++)
         {
             if (write_osd_set[role] != read_osd_set[role])
             {
+                // FIXME: For EC more than 2+1: handle case when write_osd_set == 0 and read_osd_set != 0
                 // We need to get data for any moved / recovered chunk
                 // And we need a continuous write buffer so we'll only optimize
                 // for the case when the whole chunk is ovewritten in the request
@@ -211,7 +218,12 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
                 {
                     stripes[role].read_start = 0;
                     stripes[role].read_end = chunk_size;
+                    // Warning: We don't modify write_start/write_end here, we do it in calc_rmw_parity()
                 }
+            }
+            if (read_osd_set[role] != 0)
+            {
+                pg_cursize++;
             }
         }
     }
@@ -235,7 +247,8 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
                 }
                 if (found < pg_minsize)
                 {
-                    // Incomplete object (FIXME)
+                    // FIXME Object is incomplete - refuse partial overwrite
+                    assert(0);
                 }
             }
         }
@@ -251,7 +264,7 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
             stripes[role].write_buf = request_buf + in_pos;
             in_pos += stripes[role].req_end - stripes[role].req_start;
         }
-        else if (role >= pg_minsize && read_osd_set[role] != 0)
+        else if (role >= pg_minsize && write_osd_set[role] != 0 && end != 0)
         {
             stripes[role].write_buf = rmw_buf + buf_pos;
             buf_pos += end - start;
@@ -372,6 +385,7 @@ void calc_rmw_parity(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_osd_
             if (write_osd_set[role] != read_osd_set[role] &&
                 (stripes[role].req_start != 0 || stripes[role].req_end != chunk_size))
             {
+                // FIXME again, handle case when write_osd_set[role] is 0
                 // Copy modified chunk into the read buffer to write it back
                 memcpy(
                     stripes[role].read_buf + stripes[role].req_start,
@@ -384,7 +398,7 @@ void calc_rmw_parity(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_osd_
             }
         }
     }
-    if (!stripes[pg_minsize].missing)
+    if (!stripes[pg_minsize].missing && end != 0)
     {
         // Calculate new parity (EC k+1)
         int parity = pg_minsize, prev = -2;
