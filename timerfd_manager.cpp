@@ -80,6 +80,7 @@ void timerfd_manager_t::clear_timer(int timer_id)
 
 void timerfd_manager_t::set_nearest()
 {
+again:
     if (!timers.size())
     {
         nearest = -1;
@@ -115,6 +116,12 @@ void timerfd_manager_t::set_nearest()
             exp.it_value.tv_sec--;
             exp.it_value.tv_nsec += 1000000000;
         }
+        if (exp.it_value.tv_sec < 0 || !exp.it_value.tv_sec && !exp.it_value.tv_nsec)
+        {
+            // It already happened
+            trigger_nearest();
+            goto again;
+        }
         if (timerfd_settime(timerfd, 0, &exp, NULL))
         {
             throw std::runtime_error(std::string("timerfd_settime: ") + strerror(errno));
@@ -129,19 +136,24 @@ void timerfd_manager_t::handle_readable()
     size_t res = read(timerfd, &n, 8);
     if (res == 8 && nearest >= 0)
     {
-        int nearest_id = timers[nearest].id;
-        auto cb = timers[nearest].callback;
-        if (timers[nearest].repeat)
-        {
-            inc_timer(timers[nearest]);
-        }
-        else
-        {
-            timers.erase(timers.begin()+nearest, timers.begin()+nearest+1);
-        }
-        cb(nearest_id);
-        nearest = -1;
+        trigger_nearest();
     }
     wait_state = 0;
     set_nearest();
+}
+
+void timerfd_manager_t::trigger_nearest()
+{
+    int nearest_id = timers[nearest].id;
+    auto cb = timers[nearest].callback;
+    if (timers[nearest].repeat)
+    {
+        inc_timer(timers[nearest]);
+    }
+    else
+    {
+        timers.erase(timers.begin()+nearest, timers.begin()+nearest+1);
+    }
+    cb(nearest_id);
+    nearest = -1;
 }

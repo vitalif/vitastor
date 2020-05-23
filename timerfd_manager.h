@@ -23,6 +23,8 @@ class timerfd_manager_t
 
     void inc_timer(timerfd_timer_t & t);
     void set_nearest();
+    void trigger_nearest();
+    void handle_readable();
 public:
     std::function<void(int, std::function<void(int, int)>)> set_fd_handler;
 
@@ -30,5 +32,4 @@ public:
     ~timerfd_manager_t();
     int set_timer(uint64_t millis, bool repeat, std::function<void(int)> callback);
     void clear_timer(int timer_id);
-    void handle_readable();
 };
