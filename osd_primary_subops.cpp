@@ -346,7 +346,7 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_os
                 };
                 subops[i].callback = [cur_op, this](osd_op_t *subop)
                 {
-                    int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : 0;
+                    int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
                     handle_primary_subop(OSD_OP_SECONDARY_DELETE, cur_op, subop->reply.hdr.retval, 0, 0);
                     if (fail_fd >= 0)
                     {
@@ -399,7 +399,7 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
             };
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
-                int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : 0;
+                int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
                 handle_primary_subop(OSD_OP_SECONDARY_SYNC, cur_op, subop->reply.hdr.retval, 0, 0);
                 if (fail_fd >= 0)
                 {
@@ -454,7 +454,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
             subops[i].send_list.push_back(op_data->unstable_writes + stab_osd.start, stab_osd.len * sizeof(obj_ver_id));
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
-                int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : 0;
+                int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
                 handle_primary_subop(OSD_OP_SECONDARY_STABILIZE, cur_op, subop->reply.hdr.retval, 0, 0);
                 if (fail_fd >= 0)
                 {

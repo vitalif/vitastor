@@ -291,7 +291,7 @@ void blockstore_impl_t::open_data()
     {
         throw std::runtime_error("data_offset exceeds device size = "+std::to_string(data_size));
     }
-    if (!disable_flock && flock(data_fd, LOCK_EX) != 0)
+    if (!disable_flock && flock(data_fd, LOCK_EX|LOCK_NB) != 0)
     {
         throw std::runtime_error(std::string("Failed to lock data device: ") + strerror(errno));
     }
@@ -312,7 +312,7 @@ void blockstore_impl_t::open_meta()
         {
             throw std::runtime_error("meta_offset exceeds device size = "+std::to_string(meta_size));
         }
-        if (!disable_flock && flock(meta_fd, LOCK_EX) != 0)
+        if (!disable_flock && flock(meta_fd, LOCK_EX|LOCK_NB) != 0)
         {
             throw std::runtime_error(std::string("Failed to lock metadata device: ") + strerror(errno));
         }
@@ -338,7 +338,7 @@ void blockstore_impl_t::open_journal()
             throw std::runtime_error("Failed to open journal device");
         }
         check_size(journal.fd, &journal.device_size, "journal device");
-        if (!disable_flock && flock(journal.fd, LOCK_EX) != 0)
+        if (!disable_flock && flock(journal.fd, LOCK_EX|LOCK_NB) != 0)
         {
             throw std::runtime_error(std::string("Failed to lock journal device: ") + strerror(errno));
         }

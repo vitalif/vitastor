@@ -247,7 +247,7 @@ resume_5:
         {
             int recovery_type = op_data->object_state->state & (OBJ_DEGRADED|OBJ_INCOMPLETE) ? 0 : 1;
             recovery_stat_count[0][recovery_type]++;
-            if (recovery_stat_count[0][recovery_type])
+            if (!recovery_stat_count[0][recovery_type])
             {
                 recovery_stat_count[0][recovery_type]++;
                 recovery_stat_bytes[0][recovery_type] = 0;

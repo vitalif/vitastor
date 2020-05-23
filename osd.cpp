@@ -293,6 +293,7 @@ restart:
             int peer_fd;
             while ((peer_fd = accept(listen_fd, (sockaddr*)&addr, &peer_addr_size)) >= 0)
             {
+                assert(peer_fd != 0);
                 char peer_str[256];
                 printf("[OSD %lu] new client %d: connection from %s port %d\n", this->osd_num, peer_fd,
                     inet_ntop(AF_INET, &addr.sin_addr, peer_str, 256), ntohs(addr.sin_port));
@@ -401,6 +402,7 @@ void osd_t::cancel_op(osd_op_t *op)
 
 void osd_t::stop_client(int peer_fd)
 {
+    assert(peer_fd != 0);
     auto it = clients.find(peer_fd);
     if (it == clients.end())
     {
@@ -437,6 +439,7 @@ void osd_t::stop_client(int peer_fd)
     if (cl.read_op)
     {
         delete cl.read_op;
+        cl.read_op = NULL;
     }
     for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
     {
@@ -455,6 +458,7 @@ void osd_t::stop_client(int peer_fd)
         }
     }
     free(cl.in_buf);
+    assert(peer_fd != 0);
     close(peer_fd);
     if (repeer_osd)
     {

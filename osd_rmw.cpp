@@ -232,23 +232,26 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
         // Some stripe(s) are missing, so we need to read parity
         for (int role = 0; role < pg_size; role++)
         {
-            if (read_osd_set[role] == 0 && stripes[role].read_end != 0)
+            if (read_osd_set[role] == 0)
             {
                 stripes[role].missing = true;
-                int found = 0;
-                for (int r2 = 0; r2 < pg_size && found < pg_minsize; r2++)
+                if (stripes[role].read_end != 0)
                 {
-                    // Read the non-covered range of <role> from at least <minsize> other stripes to reconstruct it
-                    if (read_osd_set[r2] != 0)
+                    int found = 0;
+                    for (int r2 = 0; r2 < pg_size && found < pg_minsize; r2++)
                     {
-                        extend_read(stripes[role].read_start, stripes[role].read_end, stripes[r2]);
-                        found++;
+                        // Read the non-covered range of <role> from at least <minsize> other stripes to reconstruct it
+                        if (read_osd_set[r2] != 0)
+                        {
+                            extend_read(stripes[role].read_start, stripes[role].read_end, stripes[r2]);
+                            found++;
+                        }
                     }
-                }
-                if (found < pg_minsize)
-                {
-                    // FIXME Object is incomplete - refuse partial overwrite
-                    assert(0);
+                    if (found < pg_minsize)
+                    {
+                        // FIXME Object is incomplete - refuse partial overwrite
+                        assert(0);
+                    }
                 }
             }
         }
