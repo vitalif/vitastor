@@ -247,7 +247,6 @@ void osd_t::handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int retval, 
         {
             if (op_data->fact_ver != 0 && op_data->fact_ver != version)
             {
-                // FIXME There is still a bug that leads to this exception sometimes :-((
                 throw std::runtime_error(
                     "different fact_versions returned from "+std::string(osd_op_names[opcode])+
                     " subops: "+std::to_string(version)+" vs "+std::to_string(op_data->fact_ver)

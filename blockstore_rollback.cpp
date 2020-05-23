@@ -171,16 +171,16 @@ resume_5:
         rm_start--;
         while (1)
         {
-            if (rm_start->first.oid != v->oid)
+            if (rm_start->first.oid != v->oid || rm_start->first.version <= v->version)
+            {
+                rm_start++;
                 break;
-            else if (rm_start->first.version <= v->version)
-                break;
+            }
             if (rm_start == dirty_db.begin())
                 break;
             rm_start--;
         }
-        if (rm_end != rm_start)
-            erase_dirty(rm_start, rm_end, UINT64_MAX);
+        erase_dirty(rm_start, rm_end, UINT64_MAX);
     }
     journal.trim();
     inflight_writes--;
