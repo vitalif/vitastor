@@ -133,9 +133,12 @@ void osd_t::parse_config(blockstore_config_t & config)
         immediate_commit = IMMEDIATE_ALL;
     else if (config["immediate_commit"] == "small")
         immediate_commit = IMMEDIATE_SMALL;
-    autosync_interval = strtoull(config["autosync_interval"].c_str(), NULL, 10);
-    if (autosync_interval < 0 || autosync_interval > MAX_AUTOSYNC_INTERVAL)
-        autosync_interval = DEFAULT_AUTOSYNC_INTERVAL;
+    if (config.find("autosync_interval") != config.end())
+    {
+        autosync_interval = strtoull(config["autosync_interval"].c_str(), NULL, 10);
+        if (autosync_interval > MAX_AUTOSYNC_INTERVAL)
+            autosync_interval = DEFAULT_AUTOSYNC_INTERVAL;
+    }
     recovery_queue_depth = strtoull(config["recovery_queue_depth"].c_str(), NULL, 10);
     if (recovery_queue_depth < 1 || recovery_queue_depth > MAX_RECOVERY_QUEUE)
         recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
