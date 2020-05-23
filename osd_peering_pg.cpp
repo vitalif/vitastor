@@ -172,7 +172,7 @@ void pg_obj_state_check_t::finish_object()
             {
                 pcs.stable_ver = list[i].version;
             }
-            if (list[i].version <= target_ver)
+            if (list[i].version <= target_ver && !pcs.max_target)
             {
                 pcs.max_target = list[i].version;
             }

@@ -44,7 +44,7 @@ osd_peering.o: osd_peering.cpp osd.h osd_ops.h osd_peering_pg.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_cluster.o: osd_cluster.cpp osd.h osd_ops.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-http_client.o: http_client.cpp http_client.h osd.h osd_ops.h
+http_client.o: http_client.cpp http_client.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 etcd_state_client.o: etcd_state_client.cpp etcd_state_client.h http_client.h pg_states.h
 	g++ $(CXXFLAGS) -c -o $@ $<

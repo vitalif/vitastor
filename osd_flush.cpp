@@ -58,7 +58,7 @@ void osd_t::submit_pg_flush_ops(pg_num_t pg_num)
     }
 }
 
-void osd_t::handle_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t peer_osd, int retval)
+void osd_t::handle_flush_op(bool rollback, pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t peer_osd, int retval)
 {
     if (pgs.find(pg_num) == pgs.end() || pgs[pg_num].flush_batch != fb)
     {
@@ -68,7 +68,14 @@ void osd_t::handle_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t pee
     if (retval != 0)
     {
         if (peer_osd == this->osd_num)
-            throw std::runtime_error(std::string("Error while doing local flush operation: ") + strerror(-retval));
+        {
+            throw std::runtime_error(
+                std::string(rollback
+                    ? "Error while doing local rollback operation: "
+                    : "Error while doing local stabilize operation: "
+                ) + strerror(-retval)
+            );
+        }
         else
         {
             printf("Error while doing flush on OSD %lu: %s\n", osd_num, strerror(-retval));
@@ -158,7 +165,7 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
             .callback = [this, op, pg_num, fb](blockstore_op_t *bs_op)
             {
                 add_bs_subop_stats(op);
-                handle_flush_op(pg_num, fb, this->osd_num, bs_op->retval);
+                handle_flush_op(bs_op->opcode == BS_OP_ROLLBACK, pg_num, fb, this->osd_num, bs_op->retval);
                 delete op;
             },
             .len = (uint32_t)count,
@@ -186,7 +193,7 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
         };
         op->callback = [this, pg_num, fb](osd_op_t *op)
         {
-            handle_flush_op(pg_num, fb, clients[op->peer_fd].osd_num, op->reply.hdr.retval);
+            handle_flush_op(op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK, pg_num, fb, clients[op->peer_fd].osd_num, op->reply.hdr.retval);
             delete op;
         };
         outbox_push(clients[peer_fd], op);

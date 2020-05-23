@@ -250,7 +250,10 @@ void osd_t::set_fd_handler(int fd, std::function<void(int, int)> handler)
     }
     else
     {
-        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+        if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL) < 0 && errno != ENOENT)
+        {
+            throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
+        }
         epoll_handlers.erase(fd);
     }
 }
@@ -416,7 +419,7 @@ void osd_t::stop_client(int peer_fd)
         }
     }
     clients.erase(it);
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) < 0)
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) < 0 && errno != ENOENT)
     {
         throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
     }
