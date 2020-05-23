@@ -401,6 +401,7 @@ void osd_t::cancel_op(osd_op_t *op)
 
 void osd_t::stop_client(int peer_fd)
 {
+    // FIXME Fix the bug where sometimes a dead peer is undetected which leads to PG DEGRADED|HAS_INCOMPLETE!
     auto it = clients.find(peer_fd);
     if (it == clients.end())
     {
