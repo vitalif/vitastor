@@ -47,10 +47,26 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int require
             bs->journal.sector_info[next_sector].dirty)
         {
             // No memory buffer available. Wait for it.
-#ifdef BLOCKSTORE_DEBUG
-            printf("next journal buffer %d is still dirty=%d used=%d\n", next_sector,
-                bs->journal.sector_info[next_sector].dirty, bs->journal.sector_info[next_sector].usage_count);
-#endif
+            int used = 0, dirty = 0;
+            for (int i = 0; i < bs->journal.sector_count; i++)
+            {
+                if (bs->journal.sector_info[i].dirty)
+                {
+                    dirty++;
+                    used++;
+                }
+                if (bs->journal.sector_info[i].usage_count > 0)
+                {
+                    used++;
+                }
+            }
+            // In fact, it's even more rare than "ran out of journal space", so print a warning
+            printf(
+                "Ran out of journal sector buffers: %d/%lu buffers used (%d dirty), next buffer (%ld) is %s and flushed %lu times\n",
+                used, bs->journal.sector_count, dirty, next_sector,
+                bs->journal.sector_info[next_sector].dirty ? "dirty" : "not dirty",
+                bs->journal.sector_info[next_sector].usage_count
+            );
             PRIV(op)->wait_for = WAIT_JOURNAL_BUFFER;
             return 0;
         }
