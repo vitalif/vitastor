@@ -6,18 +6,24 @@ blockstore_journal_check_t::blockstore_journal_check_t(blockstore_impl_t *bs)
     sectors_required = 0;
     next_pos = bs->journal.next_free;
     next_sector = bs->journal.cur_sector;
+    first_sector = -1;
     next_in_pos = bs->journal.in_sector_pos;
     right_dir = next_pos >= bs->journal.used_start;
 }
 
 // Check if we can write <required> entries of <size> bytes and <data_after> data bytes after them to the journal
-int blockstore_journal_check_t::check_available(blockstore_op_t *op, int required, int size, int data_after)
+int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries_required, int size, int data_after)
 {
+    int required = entries_required;
     while (1)
     {
         int fits = (bs->journal.block_size - next_in_pos) / size;
         if (fits > 0)
         {
+            if (first_sector == -1)
+            {
+                first_sector = next_sector;
+            }
             required -= fits;
             next_in_pos += fits * size;
             sectors_required++;
@@ -38,10 +44,15 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int require
             right_dir = false;
         }
         next_in_pos = 0;
-        if (bs->journal.sector_info[next_sector].usage_count > 0 ||
-            bs->journal.sector_info[next_sector].dirty)
+        next_sector = ((next_sector + 1) % bs->journal.sector_count);
+        if (next_sector == first_sector)
         {
-            next_sector = ((next_sector + 1) % bs->journal.sector_count);
+            // next_sector may wrap when all sectors are flushed and the incoming batch is too big
+            // This is an error condition, we can't wait for anything in this case
+            throw std::runtime_error(
+                "Blockstore journal_sector_buffer_count="+std::to_string(bs->journal.sector_count)+
+                " is too small for a batch of "+std::to_string(entries_required)+" entries of "+std::to_string(size)+" bytes"
+            );
         }
         if (bs->journal.sector_info[next_sector].usage_count > 0 ||
             bs->journal.sector_info[next_sector].dirty)
@@ -107,6 +118,7 @@ journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, 
         {
             // Also select next sector buffer in memory
             journal.cur_sector = ((journal.cur_sector + 1) % journal.sector_count);
+            assert(!journal.sector_info[journal.cur_sector].usage_count);
         }
         else
         {
