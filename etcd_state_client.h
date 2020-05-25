@@ -32,8 +32,8 @@ struct json_kv_t
 
 struct etcd_state_client_t
 {
-    // FIXME Allow multiple etcd addresses and select random address
-    std::string etcd_address, etcd_prefix, etcd_api_path;
+    std::vector<std::string> etcd_addresses;
+    std::string etcd_prefix;
     int log_level = 0;
     timerfd_manager_t *tfd = NULL;
 

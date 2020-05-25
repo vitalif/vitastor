@@ -18,8 +18,21 @@ json_kv_t etcd_state_client_t::parse_etcd_kv(const json11::Json & kv_json)
     return kv;
 }
 
+void etcd_state_client_t::etcd_txn(json11::Json txn, int timeout, std::function<void(std::string, json11::Json)> callback)
+{
+    etcd_call("/kv/txn", txn, timeout, callback);
+}
+
 void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback)
 {
+    std::string etcd_address = etcd_addresses[rand() % etcd_addresses.size()];
+    std::string etcd_api_path;
+    int pos = etcd_address.find('/');
+    if (pos >= 0)
+    {
+        etcd_api_path = etcd_address.substr(pos);
+        etcd_address = etcd_address.substr(0, pos);
+    }
     std::string req = payload.dump();
     req = "POST "+etcd_api_path+api+" HTTP/1.1\r\n"
         "Host: "+etcd_address+"\r\n"
@@ -30,13 +43,16 @@ void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int t
     http_request_json(tfd, etcd_address, req, timeout, callback);
 }
 
-void etcd_state_client_t::etcd_txn(json11::Json txn, int timeout, std::function<void(std::string, json11::Json)> callback)
-{
-    etcd_call("/kv/txn", txn, timeout, callback);
-}
-
 void etcd_state_client_t::start_etcd_watcher()
 {
+    std::string etcd_address = etcd_addresses[rand() % etcd_addresses.size()];
+    std::string etcd_api_path;
+    int pos = etcd_address.find('/');
+    if (pos >= 0)
+    {
+        etcd_api_path = etcd_address.substr(pos);
+        etcd_address = etcd_address.substr(0, pos);
+    }
     etcd_watches_initialised = 0;
     etcd_watch_ws = open_websocket(tfd, etcd_address, etcd_api_path+"/watch", ETCD_SLOW_TIMEOUT, [this](const http_response_t *msg)
     {

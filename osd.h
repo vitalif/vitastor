@@ -189,8 +189,6 @@ class osd_t
     // config
 
     blockstore_config_t config;
-    // FIXME Allow multiple etcd addresses and select random address
-    std::string etcd_address, etcd_prefix, etcd_api_path;
     int etcd_report_interval = 30;
 
     bool readonly = false;

@@ -89,29 +89,27 @@ void osd_t::parse_config(blockstore_config_t & config)
 {
     int pos;
     // Initial startup configuration
-    etcd_address = config["etcd_address"];
-    etcd_prefix = config["etcd_prefix"];
-    if (etcd_prefix == "")
-        etcd_prefix = "/microceph";
-    if ((pos = etcd_address.find('/')) >= 0)
     {
-        etcd_api_path = etcd_address.substr(pos);
-        etcd_address = etcd_address.substr(0, pos);
+        std::string ea = config["etcd_address"];
+        while (1)
+        {
+            pos = ea.find(',');
+            std::string addr = pos >= 0 ? ea.substr(0, pos) : ea;
+            if (addr.length() > 0)
+            {
+                if (addr.find('/') < 0)
+                    addr += "/v3";
+                st_cli.etcd_addresses.push_back(addr);
+            }
+            if (pos >= 0)
+                ea = ea.substr(pos+1);
+            else
+                break;
+        }
     }
-    else if (config.find("etcd_version") != config.end())
-    {
-        int major, minor;
-        if (sscanf(config["etcd_version"].c_str(), "%d.%d", &major, &minor) < 2)
-            throw std::runtime_error("etcd_version should be in the form MAJOR.MINOR (for example, 3.2)");
-        if (major < 3 || major == 3 && minor < 3)
-            throw std::runtime_error("Your etcd is too old, minimum required version is 3.3");
-        else if (major == 3 && minor == 3)
-            etcd_api_path = "/v3beta";
-        else
-            etcd_api_path = "/v3";
-    }
-    else
-        etcd_api_path = "/v3";
+    st_cli.etcd_prefix = config["etcd_prefix"];
+    if (st_cli.etcd_prefix == "")
+        st_cli.etcd_prefix = "/microceph";
     etcd_report_interval = strtoull(config["etcd_report_interval"].c_str(), NULL, 10);
     if (etcd_report_interval <= 0)
         etcd_report_interval = 30;
