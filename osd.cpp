@@ -68,10 +68,7 @@ osd_t::~osd_t()
 
 osd_op_t::~osd_op_t()
 {
-    if (bs_op)
-    {
-        delete bs_op;
-    }
+    assert(!bs_op);
     if (op_data)
     {
         free(op_data);

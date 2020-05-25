@@ -204,7 +204,12 @@ void osd_t::handle_primary_bs_subop(osd_op_t *subop)
         );
     }
     add_bs_subop_stats(subop);
-    handle_primary_subop(bs_op_to_osd_op[bs_op->opcode], cur_op, bs_op->retval, expected, bs_op->version);
+    uint64_t opcode = bs_op_to_osd_op[bs_op->opcode];
+    int retval = bs_op->retval;
+    uint64_t version = bs_op->version;
+    delete bs_op;
+    subop->bs_op = NULL;
+    handle_primary_subop(opcode, cur_op, retval, expected, version);
 }
 
 void osd_t::add_bs_subop_stats(osd_op_t *subop)

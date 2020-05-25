@@ -419,6 +419,8 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
                 return;
             }
             add_bs_subop_stats(op);
+            delete op->bs_op;
+            op->bs_op = NULL;
             delete op;
             ps->list_ops.erase(role_osd);
             submit_list_subop(role_osd, ps);
@@ -494,6 +496,8 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
                 .stable_count = op->bs_op->version,
             };
             ps->list_ops.erase(role_osd);
+            delete op->bs_op;
+            op->bs_op = NULL;
             delete op;
         };
         bs->enqueue_op(op->bs_op);
@@ -557,6 +561,8 @@ void osd_t::discard_list_subop(osd_op_t *list_op)
         {
             if (list_op->bs_op->buf)
                 free(list_op->bs_op->buf);
+            delete list_op->bs_op;
+            list_op->bs_op = NULL;
             delete list_op;
         };
     }

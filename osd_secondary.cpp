@@ -28,7 +28,10 @@ void osd_t::secondary_op_callback(osd_op_t *op)
         }
         op->reply.sec_list.stable_count = op->bs_op->version;
     }
-    finish_op(op, op->bs_op->retval);
+    int retval = op->bs_op->retval;
+    delete op->bs_op;
+    op->bs_op = NULL;
+    finish_op(op, retval);
 }
 
 void osd_t::exec_secondary(osd_op_t *cur_op)

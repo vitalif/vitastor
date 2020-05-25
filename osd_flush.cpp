@@ -166,6 +166,8 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
             {
                 add_bs_subop_stats(op);
                 handle_flush_op(bs_op->opcode == BS_OP_ROLLBACK, pg_num, fb, this->osd_num, bs_op->retval);
+                delete op->bs_op;
+                op->bs_op = NULL;
                 delete op;
             },
             .len = (uint32_t)count,
