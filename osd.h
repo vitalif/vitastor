@@ -48,6 +48,7 @@
 #define DEFAULT_AUTOSYNC_INTERVAL 5
 #define MAX_RECOVERY_QUEUE 2048
 #define DEFAULT_RECOVERY_QUEUE 4
+#define DEFAULT_PG_STRIPE_SIZE 4*1024*1024 // 4 MB by default
 
 //#define OSD_STUB
 
@@ -197,6 +198,7 @@ class osd_t
     bool run_primary = false;
     std::string bind_address;
     int bind_port, listen_backlog;
+    // FIXME: Implement client queue depth limit
     int client_queue_depth = 128;
     bool allow_test_ops = true;
     int receive_buffer_size = 9000;
@@ -243,7 +245,7 @@ class osd_t
     int inflight_ops = 0;
     blockstore_t *bs;
     uint32_t bs_block_size, bs_disk_alignment;
-    uint64_t pg_stripe_size = 4*1024*1024; // 4 MB by default
+    uint64_t pg_stripe_size = DEFAULT_PG_STRIPE_SIZE;
     ring_loop_t *ringloop;
     timerfd_manager_t *tfd = NULL;
 

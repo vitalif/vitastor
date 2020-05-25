@@ -139,6 +139,18 @@ void osd_t::parse_config(blockstore_config_t & config)
         if (autosync_interval > MAX_AUTOSYNC_INTERVAL)
             autosync_interval = DEFAULT_AUTOSYNC_INTERVAL;
     }
+    if (config.find("client_queue_depth") != config.end())
+    {
+        client_queue_depth = strtoull(config["client_queue_depth"].c_str(), NULL, 10);
+        if (client_queue_depth < 128)
+            client_queue_depth = 128;
+    }
+    if (config.find("pg_stripe_size") != config.end())
+    {
+        pg_stripe_size = strtoull(config["pg_stripe_size"].c_str(), NULL, 10);
+        if (!pg_stripe_size || !bs_block_size || pg_stripe_size < bs_block_size || (pg_stripe_size % bs_block_size) != 0)
+            pg_stripe_size = DEFAULT_PG_STRIPE_SIZE;
+    }
     recovery_queue_depth = strtoull(config["recovery_queue_depth"].c_str(), NULL, 10);
     if (recovery_queue_depth < 1 || recovery_queue_depth > MAX_RECOVERY_QUEUE)
         recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
@@ -506,7 +518,6 @@ void osd_t::exec_op(osd_op_t *cur_op)
     {
         exec_show_config(cur_op);
     }
-    // FIXME: Do not handle operations immediately, manage some sort of a queue instead
     else if (cur_op->req.hdr.opcode == OSD_OP_READ)
     {
         continue_primary_read(cur_op);
