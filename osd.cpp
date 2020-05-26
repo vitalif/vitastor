@@ -48,6 +48,11 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
         print_stats();
     });
 
+    c_cli.tfd = this->tfd;
+    c_cli.ringloop = this->ringloop;
+    c_cli.exec_op = [this](osd_op_t *op) { exec_op(op); };
+    c_cli.repeer_pgs = [this](osd_num_t peer_osd) { repeer_pgs(peer_osd); };
+
     init_cluster();
 
     consumer.loop = [this]() { loop(); };
@@ -64,25 +69,6 @@ osd_t::~osd_t()
     ringloop->unregister_consumer(&consumer);
     close(epoll_fd);
     close(listen_fd);
-}
-
-osd_op_t::~osd_op_t()
-{
-    assert(!bs_op);
-    if (op_data)
-    {
-        free(op_data);
-    }
-    if (rmw_buf)
-    {
-        free(rmw_buf);
-    }
-    if (buf)
-    {
-        // Note: reusing osd_op_t WILL currently lead to memory leaks
-        // So we don't reuse it, but free it every time
-        free(buf);
-    }
 }
 
 void osd_t::parse_config(blockstore_config_t & config)
@@ -116,6 +102,7 @@ void osd_t::parse_config(blockstore_config_t & config)
     osd_num = strtoull(config["osd_num"].c_str(), NULL, 10);
     if (!osd_num)
         throw std::runtime_error("osd_num is required in the configuration");
+    c_cli.osd_num = osd_num;
     run_primary = config["run_primary"] != "false" && config["run_primary"] != "0" && config["run_primary"] != "no";
     // Cluster configuration
     bind_address = config["bind_address"];
@@ -154,13 +141,15 @@ void osd_t::parse_config(blockstore_config_t & config)
     print_stats_interval = strtoull(config["print_stats_interval"].c_str(), NULL, 10);
     if (!print_stats_interval)
         print_stats_interval = 3;
-    peer_connect_interval = strtoull(config["peer_connect_interval"].c_str(), NULL, 10);
-    if (!peer_connect_interval)
-        peer_connect_interval = 5;
-    peer_connect_timeout = strtoull(config["peer_connect_timeout"].c_str(), NULL, 10);
-    if (!peer_connect_timeout)
-        peer_connect_timeout = 5;
+    c_cli.peer_connect_interval = strtoull(config["peer_connect_interval"].c_str(), NULL, 10);
+    if (!c_cli.peer_connect_interval)
+        c_cli.peer_connect_interval = 5;
+    c_cli.peer_connect_timeout = strtoull(config["peer_connect_timeout"].c_str(), NULL, 10);
+    if (!c_cli.peer_connect_timeout)
+        c_cli.peer_connect_timeout = 5;
     log_level = strtoull(config["log_level"].c_str(), NULL, 10);
+    st_cli.log_level = log_level;
+    c_cli.log_level = log_level;
 }
 
 void osd_t::bind_socket()
@@ -240,8 +229,8 @@ void osd_t::loop()
         wait_state = 1;
     }
     handle_peers();
-    read_requests();
-    send_replies();
+    c_cli.read_requests();
+    c_cli.send_replies();
     ringloop->submit();
 }
 
@@ -249,10 +238,11 @@ void osd_t::set_fd_handler(int fd, std::function<void(int, int)> handler)
 {
     if (handler != NULL)
     {
+        bool exists = epoll_handlers.find(fd) != epoll_handlers.end();
         epoll_event ev;
         ev.data.fd = fd;
         ev.events = EPOLLOUT | EPOLLIN | EPOLLRDHUP | EPOLLET;
-        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0)
+        if (epoll_ctl(epoll_fd, exists ? EPOLL_CTL_MOD : EPOLL_CTL_ADD, fd, &ev) < 0)
         {
             throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
         }
@@ -307,21 +297,18 @@ restart:
                 fcntl(peer_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
                 int one = 1;
                 setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
-                clients[peer_fd] = {
+                c_cli.clients[peer_fd] = {
                     .peer_addr = addr,
                     .peer_port = ntohs(addr.sin_port),
                     .peer_fd = peer_fd,
                     .peer_state = PEER_CONNECTED,
-                    .in_buf = malloc(receive_buffer_size),
+                    .in_buf = malloc(c_cli.receive_buffer_size),
                 };
                 // Add FD to epoll
-                epoll_event ev;
-                ev.data.fd = peer_fd;
-                ev.events = EPOLLIN | EPOLLET | EPOLLRDHUP;
-                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, peer_fd, &ev) < 0)
+                set_fd_handler(peer_fd, [this](int peer_fd, int epoll_events)
                 {
-                    throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
-                }
+                    c_cli.handle_peer_epoll(peer_fd, epoll_events);
+                });
                 // Try to accept next connection
                 peer_addr_size = sizeof(addr);
             }
@@ -332,144 +319,13 @@ restart:
         }
         else
         {
-            auto cl_it = clients.find(events[i].data.fd);
-            if (cl_it != clients.end())
-            {
-                auto & cl = cl_it->second;
-                if (cl.peer_state == PEER_CONNECTING)
-                {
-                    // Either OUT (connected) or HUP
-                    handle_connect_result(cl.peer_fd);
-                }
-                else if (events[i].events & EPOLLRDHUP)
-                {
-                    // Stop client
-                    printf("[OSD %lu] client %d disconnected\n", this->osd_num, cl.peer_fd);
-                    stop_client(cl.peer_fd);
-                }
-                else
-                {
-                    // Mark client as ready (i.e. some data is available)
-                    cl.read_ready++;
-                    if (cl.read_ready == 1)
-                    {
-                        read_ready_clients.push_back(cl.peer_fd);
-                        ringloop->wakeup();
-                    }
-                }
-            }
-            else
-            {
-                auto & cb = epoll_handlers[events[i].data.fd];
-                cb(events[i].data.fd, events[i].events);
-            }
+            auto & cb = epoll_handlers[events[i].data.fd];
+            cb(events[i].data.fd, events[i].events);
         }
     }
     if (nfds == MAX_EPOLL_EVENTS)
     {
         goto restart;
-    }
-}
-
-void osd_t::cancel_osd_ops(osd_client_t & cl)
-{
-    for (auto p: cl.sent_ops)
-    {
-        cancel_op(p.second);
-    }
-    cl.sent_ops.clear();
-    for (auto op: cl.outbox)
-    {
-        cancel_op(op);
-    }
-    cl.outbox.clear();
-    if (cl.write_op)
-    {
-        cancel_op(cl.write_op);
-        cl.write_op = NULL;
-    }
-}
-
-void osd_t::cancel_op(osd_op_t *op)
-{
-    if (op->op_type == OSD_OP_OUT)
-    {
-        op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
-        op->reply.hdr.id = op->req.hdr.id;
-        op->reply.hdr.opcode = op->req.hdr.opcode;
-        op->reply.hdr.retval = -EPIPE;
-        // Copy lambda to be unaffected by `delete op`
-        std::function<void(osd_op_t*)>(op->callback)(op);
-    }
-    else
-    {
-        finish_op(op, -EPIPE);
-    }
-}
-
-void osd_t::stop_client(int peer_fd)
-{
-    assert(peer_fd != 0);
-    auto it = clients.find(peer_fd);
-    if (it == clients.end())
-    {
-        return;
-    }
-    uint64_t repeer_osd = 0;
-    osd_client_t cl = it->second;
-    if (cl.peer_state == PEER_CONNECTED)
-    {
-        if (cl.osd_num)
-        {
-            // Reload configuration from etcd when the connection is dropped
-            printf("[OSD %lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl.osd_num);
-            st_cli.peer_states.erase(cl.osd_num);
-            repeer_osd = cl.osd_num;
-            peering_state |= OSD_CONNECTING_PEERS;
-        }
-        else
-        {
-            printf("[OSD %lu] Stopping client %d (regular client)\n", osd_num, peer_fd);
-        }
-    }
-    clients.erase(it);
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, peer_fd, NULL) < 0 && errno != ENOENT)
-    {
-        throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
-    }
-    if (cl.osd_num)
-    {
-        osd_peer_fds.erase(cl.osd_num);
-        // Cancel outbound operations
-        cancel_osd_ops(cl);
-    }
-    if (cl.read_op)
-    {
-        delete cl.read_op;
-        cl.read_op = NULL;
-    }
-    for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
-    {
-        if (*rit == peer_fd)
-        {
-            read_ready_clients.erase(rit);
-            break;
-        }
-    }
-    for (auto wit = write_ready_clients.begin(); wit != write_ready_clients.end(); wit++)
-    {
-        if (*wit == peer_fd)
-        {
-            write_ready_clients.erase(wit);
-            break;
-        }
-    }
-    free(cl.in_buf);
-    assert(peer_fd != 0);
-    close(peer_fd);
-    if (repeer_osd)
-    {
-        repeer_pgs(repeer_osd);
     }
 }
 
@@ -537,36 +393,21 @@ void osd_t::exec_op(osd_op_t *cur_op)
 
 void osd_t::reset_stats()
 {
-    for (int p = 0; p < 2; p++)
-    {
-        for (int i = 0; i <= OSD_OP_MAX; i++)
-        {
-            if (op_stat_count[p][i] != 0)
-            {
-                op_stat_count[p][i] = 0;
-                op_stat_sum[p][i] = 0;
-            }
-        }
-        for (int i = 0; i <= OSD_OP_MAX; i++)
-        {
-            if (subop_stat_count[p][i] != 0)
-            {
-                subop_stat_count[p][i] = 0;
-                subop_stat_sum[p][i] = 0;
-            }
-        }
-    }
+    c_cli.stats = { 0 };
+    prev_stats = { 0 };
+    memset(recovery_stat_count, 0, sizeof(recovery_stat_count));
+    memset(recovery_stat_bytes, 0, sizeof(recovery_stat_bytes));
 }
 
 void osd_t::print_stats()
 {
     for (int i = 0; i <= OSD_OP_MAX; i++)
     {
-        if (op_stat_count[0][i] != op_stat_count[1][i])
+        if (c_cli.stats.op_stat_count[i] != prev_stats.op_stat_count[i])
         {
-            uint64_t avg = (op_stat_sum[0][i] - op_stat_sum[1][i])/(op_stat_count[0][i] - op_stat_count[1][i]);
-            uint64_t bw = (op_stat_bytes[0][i] - op_stat_bytes[1][i]) / print_stats_interval;
-            if (op_stat_bytes[0][i] != 0)
+            uint64_t avg = (c_cli.stats.op_stat_sum[i] - prev_stats.op_stat_sum[i])/(c_cli.stats.op_stat_count[i] - prev_stats.op_stat_count[i]);
+            uint64_t bw = (c_cli.stats.op_stat_bytes[i] - prev_stats.op_stat_bytes[i]) / print_stats_interval;
+            if (c_cli.stats.op_stat_bytes[i] != 0)
             {
                 printf(
                     "[OSD %lu] avg latency for op %d (%s): %lu us, B/W: %.2f %s\n", osd_num, i, osd_op_names[i], avg,
@@ -578,19 +419,19 @@ void osd_t::print_stats()
             {
                 printf("[OSD %lu] avg latency for op %d (%s): %lu us\n", osd_num, i, osd_op_names[i], avg);
             }
-            op_stat_count[1][i] = op_stat_count[0][i];
-            op_stat_sum[1][i] = op_stat_sum[0][i];
-            op_stat_bytes[1][i] = op_stat_bytes[0][i];
+            prev_stats.op_stat_count[i] = c_cli.stats.op_stat_count[i];
+            prev_stats.op_stat_sum[i] = c_cli.stats.op_stat_sum[i];
+            prev_stats.op_stat_bytes[i] = c_cli.stats.op_stat_bytes[i];
         }
     }
     for (int i = 0; i <= OSD_OP_MAX; i++)
     {
-        if (subop_stat_count[0][i] != subop_stat_count[1][i])
+        if (c_cli.stats.subop_stat_count[i] != prev_stats.subop_stat_count[i])
         {
-            uint64_t avg = (subop_stat_sum[0][i] - subop_stat_sum[1][i])/(subop_stat_count[0][i] - subop_stat_count[1][i]);
+            uint64_t avg = (c_cli.stats.subop_stat_sum[i] - prev_stats.subop_stat_sum[i])/(c_cli.stats.subop_stat_count[i] - prev_stats.subop_stat_count[i]);
             printf("[OSD %lu] avg latency for subop %d (%s): %ld us\n", osd_num, i, osd_op_names[i], avg);
-            subop_stat_count[1][i] = subop_stat_count[0][i];
-            subop_stat_sum[1][i] = subop_stat_sum[0][i];
+            prev_stats.subop_stat_count[i] = c_cli.stats.subop_stat_count[i];
+            prev_stats.subop_stat_sum[i] = c_cli.stats.subop_stat_sum[i];
         }
     }
     for (int i = 0; i < 2; i++)

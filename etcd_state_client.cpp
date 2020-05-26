@@ -365,6 +365,10 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
             {
                 this->peer_states.erase(peer_osd);
             }
+            if (on_change_osd_state_hook != NULL)
+            {
+                on_change_osd_state_hook(peer_osd);
+            }
         }
     }
 }

@@ -79,8 +79,8 @@ void osd_t::handle_flush_op(bool rollback, pg_num_t pg_num, pg_flush_batch_t *fb
         else
         {
             printf("Error while doing flush on OSD %lu: %s\n", osd_num, strerror(-retval));
-            assert(osd_peer_fds.find(peer_osd) != osd_peer_fds.end());
-            stop_client(osd_peer_fds[peer_osd]);
+            assert(c_cli.osd_peer_fds.find(peer_osd) != c_cli.osd_peer_fds.end());
+            c_cli.stop_client(c_cli.osd_peer_fds[peer_osd]);
             return;
         }
     }
@@ -178,7 +178,7 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
     else
     {
         // Peer
-        int peer_fd = osd_peer_fds[peer_osd];
+        int peer_fd = c_cli.osd_peer_fds[peer_osd];
         op->op_type = OSD_OP_OUT;
         op->send_list.push_back(op->req.buf, OSD_PACKET_SIZE);
         op->send_list.push_back(op->buf, count * sizeof(obj_ver_id));
@@ -187,18 +187,18 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
             .sec_stab = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = this->next_subop_id++,
+                    .id = c_cli.next_subop_id++,
                     .opcode = (uint64_t)(rollback ? OSD_OP_SECONDARY_ROLLBACK : OSD_OP_SECONDARY_STABILIZE),
                 },
                 .len = count * sizeof(obj_ver_id),
             },
         };
-        op->callback = [this, pg_num, fb](osd_op_t *op)
+        op->callback = [this, pg_num, fb, peer_osd](osd_op_t *op)
         {
-            handle_flush_op(op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK, pg_num, fb, clients[op->peer_fd].osd_num, op->reply.hdr.retval);
+            handle_flush_op(op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK, pg_num, fb, peer_osd, op->reply.hdr.retval);
             delete op;
         };
-        outbox_push(clients[peer_fd], op);
+        c_cli.outbox_push(op);
     }
 }
 

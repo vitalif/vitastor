@@ -47,6 +47,7 @@ struct etcd_state_client_t
     std::function<void(json11::Json::object &)> on_load_config_hook;
     std::function<json11::Json()> load_pgs_checks_hook;
     std::function<void(bool)> on_load_pgs_hook;
+    std::function<void(uint64_t)> on_change_osd_state_hook;
 
     json_kv_t parse_etcd_kv(const json11::Json & kv_json);
     void etcd_call(std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback);

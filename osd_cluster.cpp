@@ -36,7 +36,6 @@ void osd_t::init_cluster()
             };
             report_pg_state(pgs[1]);
             pg_count = 1;
-            peering_state = OSD_CONNECTING_PEERS;
         }
         bind_socket();
     }
@@ -44,6 +43,7 @@ void osd_t::init_cluster()
     {
         st_cli.tfd = tfd;
         st_cli.log_level = log_level;
+        st_cli.on_change_osd_state_hook = [this](uint64_t peer_osd) { on_change_osd_state_hook(peer_osd); };
         st_cli.on_change_hook = [this](json11::Json::object & changes) { on_change_etcd_state_hook(changes); };
         st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
         st_cli.load_pgs_checks_hook = [this]() { return on_load_pgs_checks_hook(); };
@@ -83,7 +83,7 @@ void osd_t::parse_test_peer(std::string peer)
         { "addresses", json11::Json::array { addr } },
         { "port", port },
     };
-    wanted_peers[peer_osd] = { 0 };
+    c_cli.connect_peer(peer_osd, json11::Json::array { addr }, port);
 }
 
 json11::Json osd_t::get_osd_state()
@@ -125,16 +125,16 @@ json11::Json osd_t::get_statistics()
     for (int i = 0; i <= OSD_OP_MAX; i++)
     {
         op_stats[osd_op_names[i]] = json11::Json::object {
-            { "count", op_stat_count[0][i] },
-            { "usec", op_stat_sum[0][i] },
-            { "bytes", op_stat_bytes[0][i] },
+            { "count", c_cli.stats.op_stat_count[i] },
+            { "usec", c_cli.stats.op_stat_sum[i] },
+            { "bytes", c_cli.stats.op_stat_bytes[i] },
         };
     }
     for (int i = 0; i <= OSD_OP_MAX; i++)
     {
         subop_stats[osd_op_names[i]] = json11::Json::object {
-            { "count", subop_stat_count[0][i] },
-            { "usec", subop_stat_sum[0][i] },
+            { "count", c_cli.stats.subop_stat_count[i] },
+            { "usec", c_cli.stats.subop_stat_sum[i] },
         };
     }
     st["op_stats"] = op_stats;
@@ -205,6 +205,14 @@ void osd_t::report_statistics()
             force_stop(1);
         }
     });
+}
+
+void osd_t::on_change_osd_state_hook(uint64_t peer_osd)
+{
+    if (c_cli.wanted_peers.find(peer_osd) != c_cli.wanted_peers.end())
+    {
+        c_cli.connect_peer(peer_osd, st_cli.peer_states[peer_osd]["addresses"], st_cli.peer_states[peer_osd]["port"].int64_value());
+    }
 }
 
 void osd_t::on_change_etcd_state_hook(json11::Json::object & changes)
@@ -546,9 +554,9 @@ void osd_t::apply_pg_config()
                 // Add peers
                 for (auto pg_osd: all_peers)
                 {
-                    if (pg_osd != this->osd_num && osd_peer_fds.find(pg_osd) == osd_peer_fds.end())
+                    if (pg_osd != this->osd_num && c_cli.osd_peer_fds.find(pg_osd) == c_cli.osd_peer_fds.end())
                     {
-                        wanted_peers[pg_osd] = { 0 };
+                        c_cli.connect_peer(pg_osd, st_cli.peer_states[pg_osd]["addresses"], st_cli.peer_states[pg_osd]["port"].int64_value());
                     }
                 }
                 start_pg_peering(pg_num);
@@ -559,10 +567,6 @@ void osd_t::apply_pg_config()
                 all_applied = false;
             }
         }
-    }
-    if (wanted_peers.size() > 0)
-    {
-        peering_state |= OSD_CONNECTING_PEERS;
     }
     report_pg_states();
     this->pg_config_applied = all_applied;
@@ -733,106 +737,4 @@ void osd_t::report_pg_states()
             }
         }
     });
-}
-
-void osd_t::on_connect_peer(osd_num_t peer_osd, int peer_fd)
-{
-    wanted_peers[peer_osd].connecting = false;
-    if (peer_fd < 0)
-    {
-        int64_t peer_port = st_cli.peer_states[peer_osd]["port"].int64_value();
-        auto & addrs = st_cli.peer_states[peer_osd]["addresses"].array_items();
-        const char *addr = addrs[wanted_peers[peer_osd].address_index].string_value().c_str();
-        printf("Failed to connect to peer OSD %lu address %s port %ld: %s\n", peer_osd, addr, peer_port, strerror(-peer_fd));
-        if (wanted_peers[peer_osd].address_index < addrs.size()-1)
-        {
-            // Try all addresses
-            wanted_peers[peer_osd].address_index++;
-        }
-        else
-        {
-            wanted_peers[peer_osd].last_connect_attempt = time(NULL);
-            st_cli.peer_states.erase(peer_osd);
-        }
-        return;
-    }
-    printf("Connected with peer OSD %lu (fd %d)\n", clients[peer_fd].osd_num, peer_fd);
-    wanted_peers.erase(peer_osd);
-    if (!wanted_peers.size())
-    {
-        // Connected to all peers
-        printf("Connected to all peers\n");
-        peering_state = peering_state & ~OSD_CONNECTING_PEERS;
-    }
-    repeer_pgs(peer_osd);
-}
-
-void osd_t::load_and_connect_peers()
-{
-    json11::Json::array load_peer_txn;
-    for (auto wp_it = wanted_peers.begin(); wp_it != wanted_peers.end();)
-    {
-        osd_num_t peer_osd = wp_it->first;
-        if (osd_peer_fds.find(peer_osd) != osd_peer_fds.end())
-        {
-            // Peer is already connected, it shouldn't be in wanted_peers
-            wanted_peers.erase(wp_it++);
-            if (!wanted_peers.size())
-            {
-                // Connected to all peers
-                peering_state = peering_state & ~OSD_CONNECTING_PEERS;
-            }
-        }
-        else if (st_cli.peer_states.find(peer_osd) == st_cli.peer_states.end())
-        {
-            if (!loading_peer_config && (time(NULL) - wp_it->second.last_load_attempt >= peer_connect_interval))
-            {
-                // (Re)load OSD state from etcd
-                wp_it->second.last_load_attempt = time(NULL);
-                load_peer_txn.push_back(json11::Json::object {
-                    { "request_range", json11::Json::object {
-                        { "key", base64_encode(st_cli.etcd_prefix+"/osd/state/"+std::to_string(peer_osd)) },
-                    } }
-                });
-            }
-            wp_it++;
-        }
-        else if (!wp_it->second.connecting &&
-            time(NULL) - wp_it->second.last_connect_attempt >= peer_connect_interval)
-        {
-            // Try to connect
-            wp_it->second.connecting = true;
-            const std::string addr = st_cli.peer_states[peer_osd]["addresses"][wp_it->second.address_index].string_value();
-            int64_t peer_port = st_cli.peer_states[peer_osd]["port"].int64_value();
-            wp_it++;
-            connect_peer(peer_osd, addr.c_str(), peer_port);
-        }
-        else
-        {
-            // Skip
-            wp_it++;
-        }
-    }
-    if (load_peer_txn.size() > 0)
-    {
-        st_cli.etcd_txn(json11::Json::object { { "success", load_peer_txn } }, ETCD_QUICK_TIMEOUT, [this](std::string err, json11::Json data)
-        {
-            // Ugly, but required to wake up the loop and retry connecting after <peer_connect_interval> seconds
-            tfd->set_timer(peer_connect_interval*1000, false, [](int timer_id){});
-            loading_peer_config = false;
-            if (err != "")
-            {
-                printf("Failed to load peer states from etcd: %s\n", err.c_str());
-                return;
-            }
-            for (auto & res: data["responses"].array_items())
-            {
-                if (res["response_range"]["kvs"].array_items().size())
-                {
-                    auto kv = st_cli.parse_etcd_kv(res["response_range"]["kvs"][0]);
-                    st_cli.parse_state(kv.key, kv.value);
-                }
-            }
-        });
-    }
 }

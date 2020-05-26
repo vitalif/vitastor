@@ -366,7 +366,7 @@ resume_7:
         }
         // Remember PG as dirty to drop the connection when PG goes offline
         // (this is required because of the "lazy sync")
-        this->clients[cur_op->peer_fd].dirty_pgs.insert(op_data->pg_num);
+        c_cli.clients[cur_op->peer_fd].dirty_pgs.insert(op_data->pg_num);
         dirty_pgs.insert(op_data->pg_num);
     }
     return true;
@@ -519,8 +519,8 @@ resume_6:
 finish:
         if (cur_op->peer_fd)
         {
-            auto it = clients.find(cur_op->peer_fd);
-            if (it != clients.end())
+            auto it = c_cli.clients.find(cur_op->peer_fd);
+            if (it != c_cli.clients.end())
                 it->second.dirty_pgs.clear();
         }
         finish_op(cur_op, 0);

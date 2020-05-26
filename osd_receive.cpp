@@ -1,6 +1,6 @@
-#include "osd.h"
+#include "cluster_client.h"
 
-void osd_t::read_requests()
+void cluster_client_t::read_requests()
 {
     for (int i = 0; i < read_ready_clients.size(); i++)
     {
@@ -31,7 +31,7 @@ void osd_t::read_requests()
     read_ready_clients.clear();
 }
 
-void osd_t::handle_read(ring_data_t *data, int peer_fd)
+void cluster_client_t::handle_read(ring_data_t *data, int peer_fd)
 {
     auto cl_it = clients.find(peer_fd);
     if (cl_it != clients.end())
@@ -110,7 +110,7 @@ void osd_t::handle_read(ring_data_t *data, int peer_fd)
     }
 }
 
-void osd_t::handle_finished_read(osd_client_t & cl)
+void cluster_client_t::handle_finished_read(osd_client_t & cl)
 {
     if (cl.read_state == CL_READ_HDR)
     {
@@ -139,13 +139,13 @@ void osd_t::handle_finished_read(osd_client_t & cl)
         // Measure subop latency
         timespec tv_end;
         clock_gettime(CLOCK_REALTIME, &tv_end);
-        subop_stat_count[0][request->req.hdr.opcode]++;
-        if (!subop_stat_count[0][request->req.hdr.opcode])
+        stats.subop_stat_count[request->req.hdr.opcode]++;
+        if (!stats.subop_stat_count[request->req.hdr.opcode])
         {
-            subop_stat_count[0][request->req.hdr.opcode]++;
-            subop_stat_sum[0][request->req.hdr.opcode] = 0;
+            stats.subop_stat_count[request->req.hdr.opcode]++;
+            stats.subop_stat_sum[request->req.hdr.opcode] = 0;
         }
-        subop_stat_sum[0][request->req.hdr.opcode] += (
+        stats.subop_stat_sum[request->req.hdr.opcode] += (
             (tv_end.tv_sec - request->tv_begin.tv_sec)*1000000 +
             (tv_end.tv_nsec - request->tv_begin.tv_nsec)/1000
         );
@@ -157,7 +157,7 @@ void osd_t::handle_finished_read(osd_client_t & cl)
     }
 }
 
-void osd_t::handle_op_hdr(osd_client_t *cl)
+void cluster_client_t::handle_op_hdr(osd_client_t *cl)
 {
     osd_op_t *cur_op = cl->read_op;
     if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ)
@@ -206,7 +206,7 @@ void osd_t::handle_op_hdr(osd_client_t *cl)
     }
 }
 
-void osd_t::handle_reply_hdr(osd_client_t *cl)
+void cluster_client_t::handle_reply_hdr(osd_client_t *cl)
 {
     osd_op_t *cur_op = cl->read_op;
     auto req_it = cl->sent_ops.find(cur_op->req.hdr.id);
@@ -256,13 +256,13 @@ void osd_t::handle_reply_hdr(osd_client_t *cl)
         // Measure subop latency
         timespec tv_end;
         clock_gettime(CLOCK_REALTIME, &tv_end);
-        subop_stat_count[0][op->req.hdr.opcode]++;
-        if (!subop_stat_count[0][op->req.hdr.opcode])
+        stats.subop_stat_count[op->req.hdr.opcode]++;
+        if (!stats.subop_stat_count[op->req.hdr.opcode])
         {
-            subop_stat_count[0][op->req.hdr.opcode]++;
-            subop_stat_sum[0][op->req.hdr.opcode] = 0;
+            stats.subop_stat_count[op->req.hdr.opcode]++;
+            stats.subop_stat_sum[op->req.hdr.opcode] = 0;
         }
-        subop_stat_sum[0][op->req.hdr.opcode] += (
+        stats.subop_stat_sum[op->req.hdr.opcode] += (
             (tv_end.tv_sec - op->tv_begin.tv_sec)*1000000 +
             (tv_end.tv_nsec - op->tv_begin.tv_nsec)/1000
         );

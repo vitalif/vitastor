@@ -6,154 +6,9 @@
 #include "base64.h"
 #include "osd.h"
 
-void osd_t::connect_peer(osd_num_t peer_osd, const char *peer_host, int peer_port)
-{
-    struct sockaddr_in addr;
-    int r;
-    if ((r = inet_pton(AF_INET, peer_host, &addr.sin_addr)) != 1)
-    {
-        on_connect_peer(peer_osd, -EINVAL);
-        return;
-    }
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(peer_port ? peer_port : 11203);
-    int peer_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (peer_fd < 0)
-    {
-        on_connect_peer(peer_osd, -errno);
-        return;
-    }
-    fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
-    int timeout_id = -1;
-    if (peer_connect_timeout > 0)
-    {
-        timeout_id = tfd->set_timer(1000*peer_connect_timeout, false, [this, peer_fd](int timer_id)
-        {
-            osd_num_t peer_osd = clients[peer_fd].osd_num;
-            stop_client(peer_fd);
-            on_connect_peer(peer_osd, -EIO);
-            return;
-        });
-    }
-    r = connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
-    if (r < 0 && errno != EINPROGRESS)
-    {
-        close(peer_fd);
-        on_connect_peer(peer_osd, -errno);
-        return;
-    }
-    assert(peer_osd != osd_num);
-    clients[peer_fd] = (osd_client_t){
-        .peer_addr = addr,
-        .peer_port = peer_port,
-        .peer_fd = peer_fd,
-        .peer_state = PEER_CONNECTING,
-        .connect_timeout_id = timeout_id,
-        .osd_num = peer_osd,
-        .in_buf = malloc(receive_buffer_size),
-    };
-    // Add FD to epoll (EPOLLOUT for tracking connect() result)
-    epoll_event ev;
-    ev.data.fd = peer_fd;
-    ev.events = EPOLLOUT | EPOLLIN | EPOLLRDHUP | EPOLLET;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, peer_fd, &ev) < 0)
-    {
-        throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
-    }
-}
-
-void osd_t::handle_connect_result(int peer_fd)
-{
-    auto & cl = clients[peer_fd];
-    if (cl.connect_timeout_id >= 0)
-    {
-        tfd->clear_timer(cl.connect_timeout_id);
-        cl.connect_timeout_id = -1;
-    }
-    osd_num_t peer_osd = cl.osd_num;
-    int result = 0;
-    socklen_t result_len = sizeof(result);
-    if (getsockopt(peer_fd, SOL_SOCKET, SO_ERROR, &result, &result_len) < 0)
-    {
-        result = errno;
-    }
-    if (result != 0)
-    {
-        stop_client(peer_fd);
-        on_connect_peer(peer_osd, -result);
-        return;
-    }
-    int one = 1;
-    setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
-    // Disable EPOLLOUT on this fd
-    cl.peer_state = PEER_CONNECTED;
-    epoll_event ev;
-    ev.data.fd = peer_fd;
-    ev.events = EPOLLIN | EPOLLRDHUP | EPOLLET;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_MOD, peer_fd, &ev) < 0)
-    {
-        throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
-    }
-    // Check OSD number
-    check_peer_config(cl);
-}
-
-void osd_t::check_peer_config(osd_client_t & cl)
-{
-    osd_op_t *op = new osd_op_t();
-    op->op_type = OSD_OP_OUT;
-    op->send_list.push_back(op->req.buf, OSD_PACKET_SIZE);
-    op->peer_fd = cl.peer_fd;
-    op->req = {
-        .show_conf = {
-            .header = {
-                .magic = SECONDARY_OSD_OP_MAGIC,
-                .id = this->next_subop_id++,
-                .opcode = OSD_OP_SHOW_CONFIG,
-            },
-        },
-    };
-    op->callback = [this](osd_op_t *op)
-    {
-        std::string json_err;
-        json11::Json config = json11::Json::parse(std::string((char*)op->buf), json_err);
-        osd_client_t & cl = clients[op->peer_fd];
-        bool err = false;
-        if (op->reply.hdr.retval < 0)
-        {
-            err = true;
-            printf("Failed to get config from OSD %lu (retval=%ld), disconnecting peer\n", cl.osd_num, op->reply.hdr.retval);
-        }
-        else if (json_err != "")
-        {
-            err = true;
-            printf("Failed to get config from OSD %lu: bad JSON: %s, disconnecting peer\n", cl.osd_num, json_err.c_str());
-        }
-        else if (config["osd_num"].uint64_value() != cl.osd_num)
-        {
-            err = true;
-            printf("Connected to OSD %lu instead of OSD %lu, peer state is outdated, disconnecting peer\n", config["osd_num"].uint64_value(), cl.osd_num);
-        }
-        if (err)
-        {
-            stop_client(op->peer_fd);
-            delete op;
-            return;
-        }
-        osd_peer_fds[cl.osd_num] = cl.peer_fd;
-        on_connect_peer(cl.osd_num, cl.peer_fd);
-        delete op;
-    };
-    outbox_push(cl, op);
-}
-
 // Peering loop
 void osd_t::handle_peers()
 {
-    if (peering_state & OSD_CONNECTING_PEERS)
-    {
-        load_and_connect_peers();
-    }
     if (peering_state & OSD_PEERING_PGS)
     {
         bool still = false;
@@ -265,7 +120,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     pg.flush_batch = NULL;
     for (auto p: pg.write_queue)
     {
-        cancel_op(p.second);
+        finish_op(p.second, -EPIPE);
     }
     pg.write_queue.clear();
     for (auto it = unstable_writes.begin(); it != unstable_writes.end(); )
@@ -286,7 +141,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     for (int role = 0; role < pg.target_set.size(); role++)
     {
         pg.cur_set[role] = pg.target_set[role] == this->osd_num ||
-            osd_peer_fds.find(pg.target_set[role]) != osd_peer_fds.end() ? pg.target_set[role] : 0;
+            c_cli.osd_peer_fds.find(pg.target_set[role]) != c_cli.osd_peer_fds.end() ? pg.target_set[role] : 0;
         if (pg.cur_set[role] != 0)
         {
             pg.pg_cursize++;
@@ -306,7 +161,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
             bool found = false;
             for (auto history_osd: history_set)
             {
-                if (history_osd != 0 && osd_peer_fds.find(history_osd) != osd_peer_fds.end())
+                if (history_osd != 0 && c_cli.osd_peer_fds.find(history_osd) != c_cli.osd_peer_fds.end())
                 {
                     found = true;
                     break;
@@ -325,16 +180,15 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
         report_pg_state(pg);
     }
     std::set<osd_num_t> cur_peers;
-    for (auto peer_osd: pg.all_peers)
+    for (auto pg_osd: pg.all_peers)
     {
-        if (peer_osd == this->osd_num || osd_peer_fds.find(peer_osd) != osd_peer_fds.end())
+        if (pg_osd == this->osd_num || c_cli.osd_peer_fds.find(pg_osd) != c_cli.osd_peer_fds.end())
         {
-            cur_peers.insert(peer_osd);
+            cur_peers.insert(pg_osd);
         }
-        else if (wanted_peers.find(peer_osd) == wanted_peers.end())
+        else if (c_cli.wanted_peers.find(pg_osd) == c_cli.wanted_peers.end())
         {
-            wanted_peers[peer_osd] = { 0 };
-            peering_state |= OSD_CONNECTING_PEERS;
+            c_cli.connect_peer(pg_osd, st_cli.peer_states[pg_osd]["addresses"], st_cli.peer_states[pg_osd]["port"].int64_value());
         }
     }
     pg.cur_peers.insert(pg.cur_peers.begin(), cur_peers.begin(), cur_peers.end());
@@ -431,7 +285,7 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
     else
     {
         // Peer
-        auto & cl = clients[osd_peer_fds[role_osd]];
+        auto & cl = c_cli.clients.at(c_cli.osd_peer_fds[role_osd]);
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
         op->send_list.push_back(op->req.buf, OSD_PACKET_SIZE);
@@ -440,7 +294,7 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
             .sec_sync = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = this->next_subop_id++,
+                    .id = c_cli.next_subop_id++,
                     .opcode = OSD_OP_SECONDARY_SYNC,
                 },
             },
@@ -452,7 +306,7 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
                 // FIXME: Mark peer as failed and don't reconnect immediately after dropping the connection
                 printf("Failed to sync OSD %lu: %ld (%s), disconnecting peer\n", role_osd, op->reply.hdr.retval, strerror(-op->reply.hdr.retval));
                 ps->list_ops.erase(role_osd);
-                stop_client(op->peer_fd);
+                c_cli.stop_client(op->peer_fd);
                 delete op;
                 return;
             }
@@ -460,7 +314,7 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
             ps->list_ops.erase(role_osd);
             submit_list_subop(role_osd, ps);
         };
-        outbox_push(cl, op);
+        c_cli.outbox_push(op);
         ps->list_ops[role_osd] = op;
     }
 }
@@ -506,16 +360,15 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
     else
     {
         // Peer
-        auto & cl = clients[osd_peer_fds[role_osd]];
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
         op->send_list.push_back(op->req.buf, OSD_PACKET_SIZE);
-        op->peer_fd = cl.peer_fd;
+        op->peer_fd = c_cli.osd_peer_fds[role_osd];
         op->req = {
             .sec_list = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = this->next_subop_id++,
+                    .id = c_cli.next_subop_id++,
                     .opcode = OSD_OP_SECONDARY_LIST,
                 },
                 .list_pg = ps->pg_num,
@@ -529,7 +382,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
             {
                 printf("Failed to get object list from OSD %lu (retval=%ld), disconnecting peer\n", role_osd, op->reply.hdr.retval);
                 ps->list_ops.erase(role_osd);
-                stop_client(op->peer_fd);
+                c_cli.stop_client(op->peer_fd);
                 delete op;
                 return;
             }
@@ -547,7 +400,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
             ps->list_ops.erase(role_osd);
             delete op;
         };
-        outbox_push(cl, op);
+        c_cli.outbox_push(op);
         ps->list_ops[role_osd] = op;
     }
 }

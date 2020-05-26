@@ -51,14 +51,14 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     else
     {
         // FIXME add separate magic number
-        auto cl_it = clients.find(cur_op->peer_fd);
-        if (cl_it != clients.end())
+        auto cl_it = c_cli.clients.find(cur_op->peer_fd);
+        if (cl_it != c_cli.clients.end())
         {
             cur_op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
             cur_op->reply.hdr.id = cur_op->req.hdr.id;
             cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
             cur_op->reply.hdr.retval = retval;
-            outbox_push(cl_it->second, cur_op);
+            c_cli.outbox_push(cur_op);
         }
         else
         {
@@ -135,11 +135,11 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
             {
                 subops[i].op_type = OSD_OP_OUT;
                 subops[i].send_list.push_back(subops[i].req.buf, OSD_PACKET_SIZE);
-                subops[i].peer_fd = this->osd_peer_fds.at(role_osd_num);
+                subops[i].peer_fd = c_cli.osd_peer_fds.at(role_osd_num);
                 subops[i].req.sec_rw = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
-                        .id = this->next_subop_id++,
+                        .id = c_cli.next_subop_id++,
                         .opcode = (uint64_t)(w ? OSD_OP_SECONDARY_WRITE : OSD_OP_SECONDARY_READ),
                     },
                     .oid = {
@@ -168,10 +168,10 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                     if (fail_fd >= 0)
                     {
                         // write operation failed, drop the connection
-                        stop_client(fail_fd);
+                        c_cli.stop_client(fail_fd);
                     }
                 };
-                outbox_push(clients[subops[i].peer_fd], &subops[i]);
+                c_cli.outbox_push(&subops[i]);
             }
             i++;
         }
@@ -218,20 +218,20 @@ void osd_t::add_bs_subop_stats(osd_op_t *subop)
     uint64_t opcode = bs_op_to_osd_op[subop->bs_op->opcode];
     timespec tv_end;
     clock_gettime(CLOCK_REALTIME, &tv_end);
-    op_stat_count[0][opcode]++;
-    if (!op_stat_count[0][opcode])
+    c_cli.stats.op_stat_count[opcode]++;
+    if (!c_cli.stats.op_stat_count[opcode])
     {
-        op_stat_count[0][opcode] = 1;
-        op_stat_sum[0][opcode] = 0;
-        op_stat_bytes[0][opcode] = 0;
+        c_cli.stats.op_stat_count[opcode] = 1;
+        c_cli.stats.op_stat_sum[opcode] = 0;
+        c_cli.stats.op_stat_bytes[opcode] = 0;
     }
-    op_stat_sum[0][opcode] += (
+    c_cli.stats.op_stat_sum[opcode] += (
         (tv_end.tv_sec - subop->tv_begin.tv_sec)*1000000 +
         (tv_end.tv_nsec - subop->tv_begin.tv_nsec)/1000
     );
     if (opcode == OSD_OP_SECONDARY_READ || opcode == OSD_OP_SECONDARY_WRITE)
     {
-        op_stat_bytes[0][opcode] += subop->bs_op->len;
+        c_cli.stats.op_stat_bytes[opcode] += subop->bs_op->len;
     }
 }
 
@@ -337,11 +337,11 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_os
             {
                 subops[i].op_type = OSD_OP_OUT;
                 subops[i].send_list.push_back(subops[i].req.buf, OSD_PACKET_SIZE);
-                subops[i].peer_fd = osd_peer_fds.at(chunk.osd_num);
+                subops[i].peer_fd = c_cli.osd_peer_fds.at(chunk.osd_num);
                 subops[i].req.sec_del = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
-                        .id = this->next_subop_id++,
+                        .id = c_cli.next_subop_id++,
                         .opcode = OSD_OP_SECONDARY_DELETE,
                     },
                     .oid = {
@@ -358,10 +358,10 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_os
                     if (fail_fd >= 0)
                     {
                         // delete operation failed, drop the connection
-                        stop_client(fail_fd);
+                        c_cli.stop_client(fail_fd);
                     }
                 };
-                outbox_push(clients[subops[i].peer_fd], &subops[i]);
+                c_cli.outbox_push(&subops[i]);
             }
             i++;
         }
@@ -396,11 +396,11 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
         {
             subops[i].op_type = OSD_OP_OUT;
             subops[i].send_list.push_back(subops[i].req.buf, OSD_PACKET_SIZE);
-            subops[i].peer_fd = osd_peer_fds.at(sync_osd);
+            subops[i].peer_fd = c_cli.osd_peer_fds.at(sync_osd);
             subops[i].req.sec_sync = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = this->next_subop_id++,
+                    .id = c_cli.next_subop_id++,
                     .opcode = OSD_OP_SECONDARY_SYNC,
                 },
             };
@@ -411,10 +411,10 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
                 if (fail_fd >= 0)
                 {
                     // sync operation failed, drop the connection
-                    stop_client(fail_fd);
+                    c_cli.stop_client(fail_fd);
                 }
             };
-            outbox_push(clients[subops[i].peer_fd], &subops[i]);
+            c_cli.outbox_push(&subops[i]);
         }
     }
 }
@@ -449,11 +449,11 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
         {
             subops[i].op_type = OSD_OP_OUT;
             subops[i].send_list.push_back(subops[i].req.buf, OSD_PACKET_SIZE);
-            subops[i].peer_fd = osd_peer_fds.at(stab_osd.osd_num);
+            subops[i].peer_fd = c_cli.osd_peer_fds.at(stab_osd.osd_num);
             subops[i].req.sec_stab = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = this->next_subop_id++,
+                    .id = c_cli.next_subop_id++,
                     .opcode = OSD_OP_SECONDARY_STABILIZE,
                 },
                 .len = (uint64_t)(stab_osd.len * sizeof(obj_ver_id)),
@@ -466,10 +466,10 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
                 if (fail_fd >= 0)
                 {
                     // sync operation failed, drop the connection
-                    stop_client(fail_fd);
+                    c_cli.stop_client(fail_fd);
                 }
             };
-            outbox_push(clients[subops[i].peer_fd], &subops[i]);
+            c_cli.outbox_push(&subops[i]);
         }
     }
 }

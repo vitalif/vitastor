@@ -1,8 +1,9 @@
-#include "osd.h"
+#include "cluster_client.h"
 
-void osd_t::outbox_push(osd_client_t & cl, osd_op_t *cur_op)
+void cluster_client_t::outbox_push(osd_op_t *cur_op)
 {
     assert(cur_op->peer_fd);
+    auto & cl = clients.at(cur_op->peer_fd);
     if (cur_op->op_type == OSD_OP_OUT)
     {
         clock_gettime(CLOCK_REALTIME, &cur_op->tv_begin);
@@ -19,7 +20,7 @@ void osd_t::outbox_push(osd_client_t & cl, osd_op_t *cur_op)
     }
 }
 
-bool osd_t::try_send(osd_client_t & cl)
+bool cluster_client_t::try_send(osd_client_t & cl)
 {
     int peer_fd = cl.peer_fd;
     io_uring_sqe* sqe = ringloop->get_sqe();
@@ -39,26 +40,26 @@ bool osd_t::try_send(osd_client_t & cl)
             // Measure execution latency
             timespec tv_end;
             clock_gettime(CLOCK_REALTIME, &tv_end);
-            op_stat_count[0][cl.write_op->req.hdr.opcode]++;
-            if (!op_stat_count[0][cl.write_op->req.hdr.opcode])
+            stats.op_stat_count[cl.write_op->req.hdr.opcode]++;
+            if (!stats.op_stat_count[cl.write_op->req.hdr.opcode])
             {
-                op_stat_count[0][cl.write_op->req.hdr.opcode]++;
-                op_stat_sum[0][cl.write_op->req.hdr.opcode] = 0;
-                op_stat_bytes[0][cl.write_op->req.hdr.opcode] = 0;
+                stats.op_stat_count[cl.write_op->req.hdr.opcode]++;
+                stats.op_stat_sum[cl.write_op->req.hdr.opcode] = 0;
+                stats.op_stat_bytes[cl.write_op->req.hdr.opcode] = 0;
             }
-            op_stat_sum[0][cl.write_op->req.hdr.opcode] += (
+            stats.op_stat_sum[cl.write_op->req.hdr.opcode] += (
                 (tv_end.tv_sec - cl.write_op->tv_begin.tv_sec)*1000000 +
                 (tv_end.tv_nsec - cl.write_op->tv_begin.tv_nsec)/1000
             );
             if (cl.write_op->req.hdr.opcode == OSD_OP_READ ||
                 cl.write_op->req.hdr.opcode == OSD_OP_WRITE)
             {
-                op_stat_bytes[0][cl.write_op->req.hdr.opcode] += cl.write_op->req.rw.len;
+                stats.op_stat_bytes[cl.write_op->req.hdr.opcode] += cl.write_op->req.rw.len;
             }
             else if (cl.write_op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
                 cl.write_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
             {
-                op_stat_bytes[0][cl.write_op->req.hdr.opcode] += cl.write_op->req.sec_rw.len;
+                stats.op_stat_bytes[cl.write_op->req.hdr.opcode] += cl.write_op->req.sec_rw.len;
             }
         }
     }
@@ -69,7 +70,7 @@ bool osd_t::try_send(osd_client_t & cl)
     return true;
 }
 
-void osd_t::send_replies()
+void cluster_client_t::send_replies()
 {
     for (int i = 0; i < write_ready_clients.size(); i++)
     {
@@ -83,7 +84,7 @@ void osd_t::send_replies()
     write_ready_clients.clear();
 }
 
-void osd_t::handle_send(ring_data_t *data, int peer_fd)
+void cluster_client_t::handle_send(ring_data_t *data, int peer_fd)
 {
     auto cl_it = clients.find(peer_fd);
     if (cl_it != clients.end())
