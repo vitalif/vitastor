@@ -530,6 +530,7 @@ finish:
     if (syncs_in_progress.size() > 0)
     {
         cur_op = syncs_in_progress.front();
+        op_data = cur_op->op_data;
         op_data->st++;
         goto resume_2;
     }
