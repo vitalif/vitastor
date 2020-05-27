@@ -96,7 +96,7 @@ json11::Json osd_t::get_osd_state()
     json11::Json::object st;
     st["state"] = "up";
     if (bind_address != "0.0.0.0")
-        st["addresses"] = { bind_address };
+        st["addresses"] = json11::Json::array { bind_address };
     else
         st["addresses"] = getifaddr_list();
     st["host"] = std::string(hostname.data(), hostname.size());
