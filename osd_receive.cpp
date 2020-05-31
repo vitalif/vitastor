@@ -25,26 +25,26 @@ void cluster_client_t::read_requests()
         }
         cl.read_msg.msg_iov = &cl.read_iov;
         cl.read_msg.msg_iovlen = 1;
-        data->callback = [this, peer_fd](ring_data_t *data) { handle_read(data, peer_fd); };
+        data->callback = [this, peer_fd](ring_data_t *data) { handle_read(data->res, peer_fd); };
         my_uring_prep_recvmsg(sqe, peer_fd, &cl.read_msg, 0);
     }
     read_ready_clients.clear();
 }
 
-void cluster_client_t::handle_read(ring_data_t *data, int peer_fd)
+bool cluster_client_t::handle_read(int result, int peer_fd)
 {
     auto cl_it = clients.find(peer_fd);
     if (cl_it != clients.end())
     {
         auto & cl = cl_it->second;
-        if (data->res < 0 && data->res != -EAGAIN)
+        if (result < 0 && result != -EAGAIN)
         {
             // this is a client socket, so don't panic. just disconnect it
-            printf("Client %d socket read error: %d (%s). Disconnecting client\n", peer_fd, -data->res, strerror(-data->res));
+            printf("Client %d socket read error: %d (%s). Disconnecting client\n", peer_fd, -result, strerror(-result));
             stop_client(peer_fd);
-            return;
+            return false;
         }
-        if (data->res == -EAGAIN || cl.read_iov.iov_base == cl.in_buf && data->res < receive_buffer_size)
+        if (result == -EAGAIN || result < cl.read_iov.iov_len)
         {
             cl.read_ready--;
             if (cl.read_ready > 0)
@@ -54,16 +54,12 @@ void cluster_client_t::handle_read(ring_data_t *data, int peer_fd)
         {
             read_ready_clients.push_back(peer_fd);
         }
-        if (data->res == -EAGAIN)
-        {
-            return;
-        }
-        if (data->res > 0)
+        if (result > 0)
         {
             if (cl.read_iov.iov_base == cl.in_buf)
             {
                 // Compose operation(s) from the buffer
-                int remain = data->res;
+                int remain = result;
                 void *curbuf = cl.in_buf;
                 while (remain > 0)
                 {
@@ -99,15 +95,20 @@ void cluster_client_t::handle_read(ring_data_t *data, int peer_fd)
             else
             {
                 // Long data
-                cl.read_remaining -= data->res;
-                cl.read_buf += data->res;
+                cl.read_remaining -= result;
+                cl.read_buf += result;
                 if (cl.read_remaining <= 0)
                 {
                     handle_finished_read(cl);
                 }
             }
+            if (result >= cl.read_iov.iov_len)
+            {
+                return true;
+            }
         }
     }
+    return false;
 }
 
 void cluster_client_t::handle_finished_read(osd_client_t & cl)

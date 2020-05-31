@@ -284,38 +284,7 @@ restart:
     {
         if (events[i].data.fd == listen_fd)
         {
-            // Accept new connections
-            sockaddr_in addr;
-            socklen_t peer_addr_size = sizeof(addr);
-            int peer_fd;
-            while ((peer_fd = accept(listen_fd, (sockaddr*)&addr, &peer_addr_size)) >= 0)
-            {
-                assert(peer_fd != 0);
-                char peer_str[256];
-                printf("[OSD %lu] new client %d: connection from %s port %d\n", this->osd_num, peer_fd,
-                    inet_ntop(AF_INET, &addr.sin_addr, peer_str, 256), ntohs(addr.sin_port));
-                fcntl(peer_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
-                int one = 1;
-                setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
-                c_cli.clients[peer_fd] = {
-                    .peer_addr = addr,
-                    .peer_port = ntohs(addr.sin_port),
-                    .peer_fd = peer_fd,
-                    .peer_state = PEER_CONNECTED,
-                    .in_buf = malloc(c_cli.receive_buffer_size),
-                };
-                // Add FD to epoll
-                set_fd_handler(peer_fd, [this](int peer_fd, int epoll_events)
-                {
-                    c_cli.handle_peer_epoll(peer_fd, epoll_events);
-                });
-                // Try to accept next connection
-                peer_addr_size = sizeof(addr);
-            }
-            if (peer_fd == -1 && errno != EAGAIN)
-            {
-                throw std::runtime_error(std::string("accept: ") + strerror(errno));
-            }
+            accept_connections();
         }
         else
         {
@@ -326,6 +295,42 @@ restart:
     if (nfds == MAX_EPOLL_EVENTS)
     {
         goto restart;
+    }
+}
+
+void osd_t::accept_connections()
+{
+    // Accept new connections
+    sockaddr_in addr;
+    socklen_t peer_addr_size = sizeof(addr);
+    int peer_fd;
+    while ((peer_fd = accept(listen_fd, (sockaddr*)&addr, &peer_addr_size)) >= 0)
+    {
+        assert(peer_fd != 0);
+        char peer_str[256];
+        printf("[OSD %lu] new client %d: connection from %s port %d\n", this->osd_num, peer_fd,
+            inet_ntop(AF_INET, &addr.sin_addr, peer_str, 256), ntohs(addr.sin_port));
+        fcntl(peer_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
+        int one = 1;
+        setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
+        c_cli.clients[peer_fd] = {
+            .peer_addr = addr,
+            .peer_port = ntohs(addr.sin_port),
+            .peer_fd = peer_fd,
+            .peer_state = PEER_CONNECTED,
+            .in_buf = malloc(c_cli.receive_buffer_size),
+        };
+        // Add FD to epoll
+        set_fd_handler(peer_fd, [this](int peer_fd, int epoll_events)
+        {
+            c_cli.handle_peer_epoll(peer_fd, epoll_events);
+        });
+        // Try to accept next connection
+        peer_addr_size = sizeof(addr);
+    }
+    if (peer_fd == -1 && errno != EAGAIN)
+    {
+        throw std::runtime_error(std::string("accept: ") + strerror(errno));
     }
 }
 

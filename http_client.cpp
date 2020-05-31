@@ -52,6 +52,7 @@ struct http_co_t
 
     ~http_co_t();
     void start_connection();
+    void handle_events();
     void handle_connect_result();
     void submit_read();
     void submit_send();
@@ -142,6 +143,7 @@ void websocket_t::close()
 
 http_co_t::~http_co_t()
 {
+    epoll_events = 0;
     if (timeout_id >= 0)
     {
         tfd->clear_timer(timeout_id);
@@ -204,25 +206,6 @@ void http_co_t::start_connection()
             delete this;
         });
     }
-    tfd->set_fd_handler(peer_fd, [this](int peer_fd, int epoll_events)
-    {
-        this->epoll_events |= epoll_events;
-        if (state == HTTP_CO_CONNECTING)
-        {
-            handle_connect_result();
-        }
-        else
-        {
-            if (this->epoll_events & EPOLLIN)
-            {
-                submit_read();
-            }
-            else if (this->epoll_events & (EPOLLRDHUP|EPOLLERR))
-            {
-                delete this;
-            }
-        }
-    });
     epoll_events = 0;
     // Finally call connect
     r = ::connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
@@ -232,40 +215,61 @@ void http_co_t::start_connection()
         delete this;
         return;
     }
+    tfd->set_fd_handler(peer_fd, [this](int peer_fd, int epoll_events)
+    {
+        this->epoll_events |= epoll_events;
+        handle_events();
+    });
     state = HTTP_CO_CONNECTING;
+}
+
+void http_co_t::handle_events()
+{
+    while (epoll_events)
+    {
+        if (state == HTTP_CO_CONNECTING)
+        {
+            handle_connect_result();
+        }
+        else
+        {
+            epoll_events &= ~EPOLLOUT;
+            if (epoll_events & EPOLLIN)
+            {
+                submit_read();
+            }
+            else if (epoll_events & (EPOLLRDHUP|EPOLLERR))
+            {
+                delete this;
+                return;
+            }
+        }
+    }
 }
 
 void http_co_t::handle_connect_result()
 {
-    if (epoll_events & (EPOLLOUT | EPOLLERR))
+    int result = 0;
+    socklen_t result_len = sizeof(result);
+    if (getsockopt(peer_fd, SOL_SOCKET, SO_ERROR, &result, &result_len) < 0)
     {
-        int result = 0;
-        socklen_t result_len = sizeof(result);
-        if (getsockopt(peer_fd, SOL_SOCKET, SO_ERROR, &result, &result_len) < 0)
-        {
-            result = errno;
-        }
-        if (result != 0)
-        {
-            parsed.error_code = result;
-            delete this;
-            return;
-        }
-        int one = 1;
-        setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
-        state = HTTP_CO_SENDING_REQUEST;
-        submit_send();
+        result = errno;
     }
-    else
+    if (result != 0)
     {
+        parsed.error_code = result;
         delete this;
+        return;
     }
+    int one = 1;
+    setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
+    state = HTTP_CO_SENDING_REQUEST;
+    submit_send();
 }
 
 void http_co_t::submit_read()
 {
     int res;
-again:
     if (rbuf.size() != READ_BUFFER_SIZE)
     {
         rbuf.resize(READ_BUFFER_SIZE);
@@ -273,34 +277,24 @@ again:
     read_iov = { .iov_base = rbuf.data(), .iov_len = READ_BUFFER_SIZE };
     read_msg.msg_iov = &read_iov;
     read_msg.msg_iovlen = 1;
-    epoll_events = epoll_events & ~EPOLLIN;
     res = recvmsg(peer_fd, &read_msg, 0);
     if (res < 0)
     {
         res = -errno;
     }
-    if (res == -EAGAIN)
+    if (res == -EAGAIN || res == 0)
     {
-        res = 0;
+        epoll_events = epoll_events & ~EPOLLIN;
     }
-    if (res < 0)
+    else if (res < 0)
     {
         delete this;
         return;
     }
-    response += std::string(rbuf.data(), res);
-    if (res == READ_BUFFER_SIZE)
+    else if (res > 0)
     {
-        goto again;
-    }
-    if (!handle_read())
-    {
-        return;
-    }
-    if (res < READ_BUFFER_SIZE && (epoll_events & (EPOLLRDHUP|EPOLLERR)))
-    {
-        delete this;
-        return;
+        response += std::string(rbuf.data(), res);
+        handle_read();
     }
 }
 
@@ -331,7 +325,9 @@ again:
         if (state == HTTP_CO_SENDING_REQUEST)
         {
             if (sent >= request.size())
+            {
                 state = HTTP_CO_REQUEST_SENT;
+            }
             else
                 goto again;
         }

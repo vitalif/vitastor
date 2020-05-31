@@ -199,10 +199,10 @@ struct cluster_client_t
 
     bool try_send(osd_client_t & cl);
     void send_replies();
-    void handle_send(ring_data_t *data, int peer_fd);
+    void handle_send(int result, int peer_fd);
 
     void read_requests();
-    void handle_read(ring_data_t *data, int peer_fd);
+    bool handle_read(int result, int peer_fd);
     void handle_finished_read(osd_client_t & cl);
     void handle_op_hdr(osd_client_t *cl);
     void handle_reply_hdr(osd_client_t *cl);

@@ -65,7 +65,7 @@ bool cluster_client_t::try_send(osd_client_t & cl)
     }
     cl.write_msg.msg_iov = cl.write_op->send_list.get_iovec();
     cl.write_msg.msg_iovlen = cl.write_op->send_list.get_size();
-    data->callback = [this, peer_fd](ring_data_t *data) { handle_send(data, peer_fd); };
+    data->callback = [this, peer_fd](ring_data_t *data) { handle_send(data->res, peer_fd); };
     my_uring_prep_sendmsg(sqe, peer_fd, &cl.write_msg, 0);
     return true;
 }
@@ -84,34 +84,34 @@ void cluster_client_t::send_replies()
     write_ready_clients.clear();
 }
 
-void cluster_client_t::handle_send(ring_data_t *data, int peer_fd)
+void cluster_client_t::handle_send(int result, int peer_fd)
 {
     auto cl_it = clients.find(peer_fd);
     if (cl_it != clients.end())
     {
         auto & cl = cl_it->second;
-        if (data->res < 0 && data->res != -EAGAIN)
+        if (result < 0 && result != -EAGAIN)
         {
             // this is a client socket, so don't panic. just disconnect it
-            printf("Client %d socket write error: %d (%s). Disconnecting client\n", peer_fd, -data->res, strerror(-data->res));
+            printf("Client %d socket write error: %d (%s). Disconnecting client\n", peer_fd, -result, strerror(-result));
             stop_client(peer_fd);
             return;
         }
-        if (data->res >= 0)
+        if (result >= 0)
         {
             osd_op_t *cur_op = cl.write_op;
-            while (data->res > 0 && cur_op->send_list.sent < cur_op->send_list.count)
+            while (result > 0 && cur_op->send_list.sent < cur_op->send_list.count)
             {
                 iovec & iov = cur_op->send_list.buf[cur_op->send_list.sent];
-                if (iov.iov_len <= data->res)
+                if (iov.iov_len <= result)
                 {
-                    data->res -= iov.iov_len;
+                    result -= iov.iov_len;
                     cur_op->send_list.sent++;
                 }
                 else
                 {
-                    iov.iov_len -= data->res;
-                    iov.iov_base += data->res;
+                    iov.iov_len -= result;
+                    iov.iov_base += result;
                     break;
                 }
             }
