@@ -218,7 +218,7 @@ resume_2:
 resume_3:
     if (op_data->errors > 0)
     {
-        pg_cancel_write_queue(pg, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
         return;
     }
     // Save version override for parallel reads
@@ -233,7 +233,7 @@ resume_4:
 resume_5:
     if (op_data->errors > 0)
     {
-        pg_cancel_write_queue(pg, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
         return;
     }
     if (op_data->fact_ver == 1)
@@ -268,7 +268,7 @@ resume_5:
 resume_8:
                 if (op_data->errors > 0)
                 {
-                    pg_cancel_write_queue(pg, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+                    pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
                     return;
                 }
             }
@@ -291,6 +291,7 @@ resume_7:
     // Continue other write operations to the same object
     auto next_it = pg.write_queue.find(oid);
     auto this_it = next_it;
+    assert(this_it->second == cur_op);
     next_it++;
     pg.write_queue.erase(this_it);
     if (next_it != pg.write_queue.end() &&
@@ -347,7 +348,7 @@ resume_7:
         op_data->unstable_write_osds = NULL;
         if (op_data->errors > 0)
         {
-            pg_cancel_write_queue(pg, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+            pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
             return false;
         }
     }
@@ -618,7 +619,7 @@ resume_2:
 resume_3:
     if (op_data->errors > 0)
     {
-        pg_cancel_write_queue(pg, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
         return;
     }
     // Save version override for parallel reads
@@ -632,7 +633,7 @@ resume_4:
 resume_5:
     if (op_data->errors > 0)
     {
-        pg_cancel_write_queue(pg, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
         return;
     }
     // Remove version override

@@ -120,7 +120,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     pg.flush_batch = NULL;
     for (auto p: pg.write_queue)
     {
-        finish_op(p.second, -EPIPE);
+        cancel_primary_write(p.second);
     }
     pg.write_queue.clear();
     for (auto it = unstable_writes.begin(); it != unstable_writes.end(); )
@@ -132,7 +132,6 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
         else
             it++;
     }
-    pg.inflight = 0;
     dirty_pgs.erase(pg.pg_num);
     // Calculate current write OSD set
     pg.pg_cursize = 0;

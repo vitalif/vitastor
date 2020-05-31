@@ -122,11 +122,12 @@ struct osd_client_t
     int read_remaining = 0;
     int read_state = 0;
 
-    // Outbound operations sent to this peer
-    std::map<int, osd_op_t*> sent_ops;
+    // Incoming operations
+    std::vector<osd_op_t*> received_ops;
 
-    // Outbound messages (replies or requests)
+    // Outbound operations
     std::deque<osd_op_t*> outbox;
+    std::map<int, osd_op_t*> sent_ops;
 
     // PGs dirtied by this client's primary-writes (FIXME to drop the connection)
     std::set<pg_num_t> dirty_pgs;
@@ -180,28 +181,28 @@ struct cluster_client_t
     // op statistics
     osd_op_stats_t stats;
 
-    // public
+public:
     void connect_peer(uint64_t osd_num, json11::Json address_list, int port);
     void stop_client(int peer_fd);
     void outbox_push(osd_op_t *cur_op);
     std::function<void(osd_op_t*)> exec_op;
     std::function<void(osd_num_t)> repeer_pgs;
+    void handle_peer_epoll(int peer_fd, int epoll_events);
+    void read_requests();
+    void send_replies();
 
-    // private
+protected:
     void try_connect_peer(uint64_t osd_num);
     void try_connect_peer_addr(osd_num_t peer_osd, const char *peer_host, int peer_port);
     void handle_connect_epoll(int peer_fd);
-    void handle_peer_epoll(int peer_fd, int epoll_events);
     void on_connect_peer(osd_num_t peer_osd, int peer_fd);
     void check_peer_config(osd_client_t & cl);
     void cancel_osd_ops(osd_client_t & cl);
-    void cancel_out_op(osd_op_t *op);
+    void cancel_op(osd_op_t *op);
 
     bool try_send(osd_client_t & cl);
-    void send_replies();
     void handle_send(int result, int peer_fd);
 
-    void read_requests();
     bool handle_read(int result, int peer_fd);
     void handle_finished_read(osd_client_t & cl);
     void handle_op_hdr(osd_client_t *cl);

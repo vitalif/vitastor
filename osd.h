@@ -188,6 +188,7 @@ class osd_t
     bool prepare_primary_rw(osd_op_t *cur_op);
     void continue_primary_read(osd_op_t *cur_op);
     void continue_primary_write(osd_op_t *cur_op);
+    void cancel_primary_write(osd_op_t *cur_op);
     void continue_primary_sync(osd_op_t *cur_op);
     void continue_primary_del(osd_op_t *cur_op);
     bool check_write_queue(osd_op_t *cur_op, pg_t & pg);
@@ -196,7 +197,7 @@ class osd_t
     void handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int retval, int expected, uint64_t version);
     void handle_primary_bs_subop(osd_op_t *subop);
     void add_bs_subop_stats(osd_op_t *subop);
-    void pg_cancel_write_queue(pg_t & pg, object_id oid, int retval);
+    void pg_cancel_write_queue(pg_t & pg, osd_op_t *first_op, object_id oid, int retval);
     void submit_primary_subops(int submit_type, int read_pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
     void submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_osd_set_t & loc_set);
     void submit_primary_sync_subops(osd_op_t *cur_op);

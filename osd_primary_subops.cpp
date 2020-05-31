@@ -33,15 +33,24 @@ void osd_t::autosync()
 void osd_t::finish_op(osd_op_t *cur_op, int retval)
 {
     inflight_ops--;
-    if (cur_op->op_data && cur_op->op_data->pg_num > 0)
+    if (cur_op->op_data)
     {
-        auto & pg = pgs[cur_op->op_data->pg_num];
-        pg.inflight--;
-        assert(pg.inflight >= 0);
-        if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch)
+        if (cur_op->op_data->pg_num > 0)
         {
-            finish_stop_pg(pg);
+            auto & pg = pgs[cur_op->op_data->pg_num];
+            pg.inflight--;
+            assert(pg.inflight >= 0);
+            if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch)
+            {
+                finish_stop_pg(pg);
+            }
         }
+        assert(!cur_op->op_data->subops);
+        assert(!cur_op->op_data->unstable_write_osds);
+        assert(!cur_op->op_data->unstable_writes);
+        assert(!cur_op->op_data->dirty_pgs);
+        free(cur_op->op_data);
+        cur_op->op_data = NULL;
     }
     if (!cur_op->peer_fd)
     {
@@ -290,6 +299,23 @@ void osd_t::handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int retval, 
     }
 }
 
+void osd_t::cancel_primary_write(osd_op_t *cur_op)
+{
+    if (cur_op->op_data && cur_op->op_data->subops)
+    {
+        // Primary-write operation is waiting for subops, subops
+        // are sent to peer OSDs, so we can't just throw them away.
+        // Mark them with an extra EPIPE.
+        cur_op->op_data->errors++;
+        cur_op->op_data->epipe++;
+        cur_op->op_data->done--; // Caution: `done` must be signed because may become -1 here
+    }
+    else
+    {
+        finish_op(cur_op, -EPIPE);
+    }
+}
+
 void osd_t::submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_osd_set_t & loc_set)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
@@ -474,9 +500,20 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
     }
 }
 
-void osd_t::pg_cancel_write_queue(pg_t & pg, object_id oid, int retval)
+void osd_t::pg_cancel_write_queue(pg_t & pg, osd_op_t *first_op, object_id oid, int retval)
 {
     auto st_it = pg.write_queue.find(oid), it = st_it;
+    finish_op(first_op, retval);
+    if (it != pg.write_queue.end() && it->second == first_op)
+    {
+        it++;
+    }
+    else
+    {
+        // Write queue doesn't match the first operation.
+        // first_op is a leftover operation from the previous peering of the same PG.
+        return;
+    }
     while (it != pg.write_queue.end() && it->first == oid)
     {
         finish_op(it->second, retval);

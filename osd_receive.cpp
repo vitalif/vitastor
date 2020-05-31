@@ -123,6 +123,7 @@ void cluster_client_t::handle_finished_read(osd_client_t & cl)
     else if (cl.read_state == CL_READ_DATA)
     {
         // Operation is ready
+        cl.received_ops.push_back(cl.read_op);
         exec_op(cl.read_op);
         cl.read_op = NULL;
         cl.read_state = 0;
@@ -203,6 +204,7 @@ void cluster_client_t::handle_op_hdr(osd_client_t *cl)
         // Operation is ready
         cl->read_op = NULL;
         cl->read_state = 0;
+        cl->received_ops.push_back(cur_op);
         exec_op(cur_op);
     }
 }

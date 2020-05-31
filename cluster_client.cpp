@@ -9,10 +9,7 @@
 osd_op_t::~osd_op_t()
 {
     assert(!bs_op);
-    if (op_data)
-    {
-        free(op_data);
-    }
+    assert(!op_data);
     if (rmw_buf)
     {
         free(rmw_buf);
@@ -271,29 +268,37 @@ void cluster_client_t::cancel_osd_ops(osd_client_t & cl)
 {
     for (auto p: cl.sent_ops)
     {
-        cancel_out_op(p.second);
+        cancel_op(p.second);
     }
     cl.sent_ops.clear();
     for (auto op: cl.outbox)
     {
-        cancel_out_op(op);
+        cancel_op(op);
     }
     cl.outbox.clear();
     if (cl.write_op)
     {
-        cancel_out_op(cl.write_op);
+        cancel_op(cl.write_op);
         cl.write_op = NULL;
     }
 }
 
-void cluster_client_t::cancel_out_op(osd_op_t *op)
+void cluster_client_t::cancel_op(osd_op_t *op)
 {
-    op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
-    op->reply.hdr.id = op->req.hdr.id;
-    op->reply.hdr.opcode = op->req.hdr.opcode;
-    op->reply.hdr.retval = -EPIPE;
-    // Copy lambda to be unaffected by `delete op`
-    std::function<void(osd_op_t*)>(op->callback)(op);
+    if (op->op_type == OSD_OP_OUT)
+    {
+        op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
+        op->reply.hdr.id = op->req.hdr.id;
+        op->reply.hdr.opcode = op->req.hdr.opcode;
+        op->reply.hdr.retval = -EPIPE;
+        // Copy lambda to be unaffected by `delete op`
+        std::function<void(osd_op_t*)>(op->callback)(op);
+    }
+    else
+    {
+        // This function is only called in stop_client(), so it's fine to destroy the operation
+        delete op;
+    }
 }
 
 void cluster_client_t::stop_client(int peer_fd)
@@ -349,7 +354,6 @@ void cluster_client_t::stop_client(int peer_fd)
         }
     }
     free(cl.in_buf);
-    assert(peer_fd != 0);
     close(peer_fd);
     if (repeer_osd)
     {

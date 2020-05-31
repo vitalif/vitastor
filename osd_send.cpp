@@ -8,6 +8,25 @@ void cluster_client_t::outbox_push(osd_op_t *cur_op)
     {
         clock_gettime(CLOCK_REALTIME, &cur_op->tv_begin);
     }
+    else
+    {
+        // Check that operation actually belongs to this client
+        bool found = false;
+        for (auto it = cl.received_ops.begin(); it != cl.received_ops.end(); it++)
+        {
+            if (*it == cur_op)
+            {
+                found = true;
+                cl.received_ops.erase(it, it+1);
+                break;
+            }
+        }
+        if (!found)
+        {
+            delete cur_op;
+            return;
+        }
+    }
     cl.outbox.push_back(cur_op);
     if (cl.write_op || cl.outbox.size() > 1 || !try_send(cl))
     {
