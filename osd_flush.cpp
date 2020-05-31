@@ -270,9 +270,10 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
                 throw std::runtime_error("Failed to recover an object");
             }
         }
+        // CAREFUL! op = &recovery_ops[op->oid]. Don't access op->* after recovery_ops.erase()
+        op->osd_op = NULL;
         recovery_ops.erase(op->oid);
         delete osd_op;
-        op->osd_op = NULL;
         continue_recovery();
     };
     exec_op(op->osd_op);
