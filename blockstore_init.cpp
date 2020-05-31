@@ -404,7 +404,7 @@ resume_1:
     bs->journal.trim();
     bs->journal.dirty_start = bs->journal.next_free;
     printf(
-        "Journal entries loaded: %lu, free journal space: %lu bytes (%lu..%lu is used), free blocks: %lu / %lu\n",
+        "Journal entries loaded: %lu, free journal space: %lu bytes (%08lx..%08lx is used), free blocks: %lu / %lu\n",
         entries_loaded,
         (bs->journal.next_free >= bs->journal.used_start
             ? bs->journal.len-bs->journal.block_size - (bs->journal.next_free-bs->journal.used_start)
@@ -475,7 +475,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                 if (location != je->small_write.data_offset)
                 {
                     char err[1024];
-                    snprintf(err, 1024, "BUG: calculated journal data offset (%lu) != stored journal data offset (%lu)", location, je->small_write.data_offset);
+                    snprintf(err, 1024, "BUG: calculated journal data offset (%08lx) != stored journal data offset (%08lx)", location, je->small_write.data_offset);
                     throw std::runtime_error(err);
                 }
                 uint32_t data_crc32 = 0;
@@ -537,7 +537,10 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     });
                     bs->journal.used_sectors[proc_pos]++;
 #ifdef BLOCKSTORE_DEBUG
-                    printf("journal offset %lu is used by %lu:%lu v%lu\n", proc_pos, ov.oid.inode, ov.oid.stripe, ov.version);
+                    printf(
+                        "journal offset %08lx is used by %lu:%lu v%lu (%lu refs)\n",
+                        proc_pos, ov.oid.inode, ov.oid.stripe, ov.version, bs->journal.used_sectors[proc_pos]
+                    );
 #endif
                     auto & unstab = bs->unstable_writes[ov.oid];
                     unstab = unstab < ov.version ? ov.version : unstab;

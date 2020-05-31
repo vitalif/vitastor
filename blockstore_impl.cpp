@@ -124,12 +124,6 @@ void blockstore_impl_t::loop()
             if (PRIV(op)->wait_for)
             {
                 check_wait(op);
-#ifdef BLOCKSTORE_DEBUG
-                if (PRIV(op)->wait_for)
-                {
-                    printf("still waiting for %d\n", PRIV(op)->wait_for);
-                }
-#endif
                 if (PRIV(op)->wait_for == WAIT_SQE)
                 {
                     break;
@@ -271,6 +265,9 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
         if (ringloop->space_left() < PRIV(op)->wait_detail)
         {
             // stop submission if there's still no free space
+#ifdef BLOCKSTORE_DEBUG
+            printf("Still waiting for %lu SQE(s)\n", PRIV(op)->wait_detail);
+#endif
             return;
         }
         PRIV(op)->wait_for = 0;
@@ -280,6 +277,9 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
         if (journal.used_start == PRIV(op)->wait_detail)
         {
             // do not submit
+#ifdef BLOCKSTORE_DEBUG
+            printf("Still waiting to flush journal offset %08lx\n", PRIV(op)->wait_detail);
+#endif
             return;
         }
         PRIV(op)->wait_for = 0;
@@ -291,6 +291,9 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
             journal.sector_info[next].dirty)
         {
             // do not submit
+#ifdef BLOCKSTORE_DEBUG
+            printf("Still waiting for a journal buffer\n");
+#endif
             return;
         }
         PRIV(op)->wait_for = 0;
@@ -299,6 +302,9 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
     {
         if (!data_alloc->get_free_count() && !flusher->is_active())
         {
+#ifdef BLOCKSTORE_DEBUG
+            printf("Still waiting for free space on the data device\n");
+#endif
             return;
         }
         PRIV(op)->wait_for = 0;

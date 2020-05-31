@@ -225,11 +225,13 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
 #endif
             data_alloc->set(dirty_it->second.location >> block_order, false);
         }
-#ifdef BLOCKSTORE_DEBUG
-        printf("remove usage of journal offset %lu by %lu:%lu v%lu\n", dirty_it->second.journal_sector,
-            dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
-#endif
         int used = --journal.used_sectors[dirty_it->second.journal_sector];
+#ifdef BLOCKSTORE_DEBUG
+        printf(
+            "remove usage of journal offset %08lx by %lu:%lu v%lu (%d refs)\n", dirty_it->second.journal_sector,
+            dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version, used
+        );
+#endif
         if (used == 0)
         {
             journal.used_sectors.erase(dirty_it->second.journal_sector);

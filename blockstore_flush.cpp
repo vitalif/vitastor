@@ -182,6 +182,9 @@ resume_0:
             dirty_end->second.journal_sector < bs->journal.used_start))
         {
             // We can't flush journal sectors that are still written to
+#ifdef BLOCKSTORE_DEBUG
+            printf("Flusher overran writers - stopping\n");
+#endif
             flusher->enqueue_flush(cur);
             flusher->dequeuing = false;
             wait_state = 0;
@@ -436,7 +439,7 @@ resume_1:
         }
         // All done
 #ifdef BLOCKSTORE_DEBUG
-        printf("Flushed %lu:%lu v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
+        printf("Flushed %lu:%lu v%lu (%ld left)\n", cur.oid.inode, cur.oid.stripe, cur.version, flusher->flush_queue.size());
 #endif
         flusher->active_flushers--;
         repeat_it = flusher->sync_to_repeat.find(cur.oid);

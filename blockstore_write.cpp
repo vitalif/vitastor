@@ -213,7 +213,11 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
-        printf("journal offset %lu is used by %lu:%lu v%lu\n", dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
+        printf(
+            "journal offset %08lx is used by %lu:%lu v%lu (%lu refs)\n",
+            dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version,
+            journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
+        );
 #endif
         // Figure out where data will be
         journal.next_free = (journal.next_free + op->len) <= journal.len ? journal.next_free : journal_block_size;
@@ -306,7 +310,11 @@ resume_2:
     journal.sector_info[journal.cur_sector].dirty = false;
     journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
-    printf("journal offset %lu is used by %lu:%lu v%lu\n", journal.sector_info[journal.cur_sector].offset, op->oid.inode, op->oid.stripe, op->version);
+    printf(
+        "journal offset %08lx is used by %lu:%lu v%lu (%lu refs)\n",
+        journal.sector_info[journal.cur_sector].offset, op->oid.inode, op->oid.stripe, op->version,
+        journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
+    );
 #endif
     je->oid = op->oid;
     je->version = op->version;
@@ -457,7 +465,11 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
     journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
-    printf("journal offset %lu is used by %lu:%lu v%lu\n", dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
+    printf(
+        "journal offset %08lx is used by %lu:%lu v%lu (%lu refs)\n",
+        dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version,
+        journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
+    );
 #endif
     je->oid = op->oid;
     je->version = op->version;

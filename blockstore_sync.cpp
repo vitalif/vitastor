@@ -133,7 +133,11 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             journal.sector_info[journal.cur_sector].dirty = false;
             journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
-            printf("journal offset %lu is used by %lu:%lu v%lu\n", dirty_db[*it].journal_sector, it->oid.inode, it->oid.stripe, it->version);
+            printf(
+                "journal offset %08lx is used by %lu:%lu v%lu (%lu refs)\n",
+                dirty_db[*it].journal_sector, it->oid.inode, it->oid.stripe, it->version,
+                journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
+            );
 #endif
             je->oid = it->oid;
             je->version = it->version;
