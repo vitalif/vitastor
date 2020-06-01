@@ -78,9 +78,12 @@ void osd_t::handle_flush_op(bool rollback, pg_num_t pg_num, pg_flush_batch_t *fb
         }
         else
         {
-            printf("Error while doing flush on OSD %lu: %s\n", osd_num, strerror(-retval));
-            assert(c_cli.osd_peer_fds.find(peer_osd) != c_cli.osd_peer_fds.end());
-            c_cli.stop_client(c_cli.osd_peer_fds[peer_osd]);
+            printf("Error while doing flush on OSD %lu: %d (%s)\n", osd_num, retval, strerror(-retval));
+            auto fd_it = c_cli.osd_peer_fds.find(peer_osd);
+            if (fd_it != c_cli.osd_peer_fds.end())
+            {
+                c_cli.stop_client(fd_it->second);
+            }
             return;
         }
     }
