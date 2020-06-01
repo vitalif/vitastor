@@ -198,6 +198,7 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
     else if (op_data->st == 6) goto resume_6;
     else if (op_data->st == 7) goto resume_7;
     else if (op_data->st == 8) goto resume_8;
+    else if (op_data->st == 9) goto resume_9;
     assert(op_data->st == 0);
     if (!check_write_queue(cur_op, pg))
     {
@@ -263,9 +264,10 @@ resume_5:
             submit_primary_del_subops(cur_op, pg.cur_set.data(), op_data->object_state->osd_set);
             if (op_data->n_subops > 0)
             {
+resume_8:
                 op_data->st = 8;
                 return;
-resume_8:
+resume_9:
                 if (op_data->errors > 0)
                 {
                     pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
