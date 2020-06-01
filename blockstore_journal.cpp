@@ -101,7 +101,7 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
                 : bs->journal.used_start - bs->journal.next_free)
         );
         PRIV(op)->wait_for = WAIT_JOURNAL;
-        bs->flusher->force_start();
+        bs->flusher->request_trim();
         PRIV(op)->wait_detail = bs->journal.used_start;
         return 0;
     }

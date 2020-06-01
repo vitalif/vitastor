@@ -282,6 +282,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
 #endif
             return;
         }
+        flusher->release_trim();
         PRIV(op)->wait_for = 0;
     }
     else if (PRIV(op)->wait_for == WAIT_JOURNAL_BUFFER)

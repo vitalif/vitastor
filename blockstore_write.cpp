@@ -411,6 +411,10 @@ void blockstore_impl_t::release_journal_sectors(blockstore_op_t *op)
             {
                 // We know for sure that we won't write into this sector anymore
                 uint64_t new_ds = journal.sector_info[s-1].offset + journal.block_size;
+                if (new_ds >= journal.len)
+                {
+                    new_ds = journal.block_size;
+                }
                 if ((journal.dirty_start + (journal.dirty_start >= journal.used_start ? 0 : journal.len)) <
                     (new_ds + (new_ds >= journal.used_start ? 0 : journal.len)))
                 {

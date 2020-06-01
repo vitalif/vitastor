@@ -73,9 +73,10 @@ public:
 // Journal flusher itself
 class journal_flusher_t
 {
+    int trim_wanted = 0;
     bool dequeuing;
     int flusher_count;
-    int sync_threshold;
+    int flusher_start_threshold;
     journal_flusher_co *co;
     blockstore_impl_t *bs;
     friend class journal_flusher_co;
@@ -96,7 +97,8 @@ public:
     ~journal_flusher_t();
     void loop();
     bool is_active();
-    void force_start();
+    void request_trim();
+    void release_trim();
     void enqueue_flush(obj_ver_id oid);
     void unshift_flush(obj_ver_id oid);
 };
