@@ -323,7 +323,7 @@ again:
         send_iov = (iovec){ .iov_base = (void*)(request.c_str()+sent), .iov_len = request.size()-sent };
         send_msg.msg_iov = &send_iov;
         send_msg.msg_iovlen = 1;
-        res = sendmsg(peer_fd, &send_msg, 0);
+        res = sendmsg(peer_fd, &send_msg, MSG_NOSIGNAL);
         if (res < 0)
         {
             res = -errno;
