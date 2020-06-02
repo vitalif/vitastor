@@ -293,14 +293,15 @@ resume_7:
     // Continue other write operations to the same object
     auto next_it = pg.write_queue.find(oid);
     auto this_it = next_it;
-    assert(this_it->second == cur_op);
-    next_it++;
-    pg.write_queue.erase(this_it);
-    if (next_it != pg.write_queue.end() &&
-        next_it->first == oid)
+    if (this_it != pg.write_queue.end() && this_it->second == cur_op)
     {
-        osd_op_t *next_op = next_it->second;
-        continue_primary_write(next_op);
+        next_it++;
+        pg.write_queue.erase(this_it);
+        if (next_it != pg.write_queue.end() && next_it->first == oid)
+        {
+            osd_op_t *next_op = next_it->second;
+            continue_primary_write(next_op);
+        }
     }
 }
 
@@ -661,12 +662,15 @@ resume_7:
     // Continue other write operations to the same object
     auto next_it = pg.write_queue.find(oid);
     auto this_it = next_it;
-    next_it++;
-    pg.write_queue.erase(this_it);
-    if (next_it != pg.write_queue.end() &&
-        next_it->first == oid)
+    if (this_it != pg.write_queue.end() && this_it->second == cur_op)
     {
-        osd_op_t *next_op = next_it->second;
-        continue_primary_write(next_op);
+        next_it++;
+        pg.write_queue.erase(this_it);
+        if (next_it != pg.write_queue.end() &&
+            next_it->first == oid)
+        {
+            osd_op_t *next_op = next_it->second;
+            continue_primary_write(next_op);
+        }
     }
 }
