@@ -624,6 +624,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .journal_sector = proc_pos,
                     });
                     bs->journal.used_sectors[proc_pos]++;
+                    // Deletions are treated as immediately stable, because
+                    // "2-phase commit" (write->stabilize) isn't sufficient for them anyway
+                    bs->mark_stable(ov);
                 }
             }
             started = true;

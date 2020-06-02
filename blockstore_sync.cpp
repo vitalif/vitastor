@@ -275,7 +275,16 @@ void blockstore_impl_t::ack_one_sync(blockstore_op_t *op)
 #endif
         auto & unstab = unstable_writes[it->oid];
         unstab = unstab < it->version ? it->version : unstab;
-        dirty_db[*it].state = dirty_db[*it].state == ST_DEL_WRITTEN ? ST_DEL_SYNCED : ST_J_SYNCED;
+        if (dirty_db[*it].state == ST_DEL_WRITTEN)
+        {
+            dirty_db[*it].state = ST_DEL_SYNCED;
+            // Deletions are treated as immediately stable
+            mark_stable(*it);
+        }
+        else /* == ST_J_WRITTEN */
+        {
+            dirty_db[*it].state = ST_J_SYNCED;
+        }
     }
     in_progress_syncs.erase(PRIV(op)->in_progress_ptr);
     op->retval = 0;

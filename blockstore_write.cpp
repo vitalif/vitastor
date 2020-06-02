@@ -355,6 +355,11 @@ resume_4:
     else if (dirty_it->second.state == ST_DEL_SUBMITTED)
     {
         dirty_it->second.state = imm ? ST_DEL_SYNCED : ST_DEL_WRITTEN;
+        if (imm)
+        {
+            // Deletions are treated as immediately stable
+            mark_stable(dirty_it->first);
+        }
     }
     if (immediate_commit == IMMEDIATE_ALL)
     {

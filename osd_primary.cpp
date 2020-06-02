@@ -284,7 +284,7 @@ resume_9:
     // FIXME: Check for immediate_commit == IMMEDIATE_SMALL
 resume_6:
 resume_7:
-    if (!finalize_primary_write(cur_op, pg, pg.cur_loc_set, 6))
+    if (!remember_unstable_write(cur_op, pg, pg.cur_loc_set, 6))
     {
         return;
     }
@@ -305,7 +305,7 @@ resume_7:
     }
 }
 
-bool osd_t::finalize_primary_write(osd_op_t *cur_op, pg_t & pg, pg_osd_set_t & loc_set, int base_state)
+bool osd_t::remember_unstable_write(osd_op_t *cur_op, pg_t & pg, pg_osd_set_t & loc_set, int base_state)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     if (op_data->st == base_state)
@@ -598,8 +598,6 @@ void osd_t::continue_primary_del(osd_op_t *cur_op)
     else if (op_data->st == 3) goto resume_3;
     else if (op_data->st == 4) goto resume_4;
     else if (op_data->st == 5) goto resume_5;
-    else if (op_data->st == 6) goto resume_6;
-    else if (op_data->st == 7) goto resume_7;
     assert(op_data->st == 0);
     // Delete is forbidden even in active PGs if they're also degraded or have previous dead OSDs
     if (pg.state & (PG_DEGRADED | PG_LEFT_ON_DEAD))
@@ -641,12 +639,6 @@ resume_5:
     }
     // Remove version override
     pg.ver_override.erase(op_data->oid);
-resume_6:
-resume_7:
-    if (!finalize_primary_write(cur_op, pg, op_data->object_state ? op_data->object_state->osd_set : pg.cur_loc_set, 6))
-    {
-        return;
-    }
     // Adjust PG stats after "instant stabilize", because we need object_state above
     if (!op_data->object_state)
     {
