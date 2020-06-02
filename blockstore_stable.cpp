@@ -109,12 +109,6 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
     {
         // FIXME: Only stabilize versions that aren't stable yet
-        auto unstab_it = unstable_writes.find(v->oid);
-        if (unstab_it != unstable_writes.end() &&
-            unstab_it->second <= v->version)
-        {
-            unstable_writes.erase(unstab_it);
-        }
         journal_entry_stable *je = (journal_entry_stable*)
             prefill_single_journal_entry(journal, JE_STABLE, sizeof(journal_entry_stable));
         journal.sector_info[journal.cur_sector].dirty = false;
@@ -174,48 +168,59 @@ resume_5:
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
     {
         // Mark all dirty_db entries up to op->version as stable
-        auto dirty_it = dirty_db.find(*v);
-        if (dirty_it != dirty_db.end())
-        {
-            while (1)
-            {
-                if (dirty_it->second.state == ST_J_SYNCED)
-                {
-                    dirty_it->second.state = ST_J_STABLE;
-                }
-                else if (dirty_it->second.state == ST_D_SYNCED)
-                {
-                    dirty_it->second.state = ST_D_STABLE;
-                }
-                else if (dirty_it->second.state == ST_DEL_SYNCED)
-                {
-                    dirty_it->second.state = ST_DEL_STABLE;
-                }
-                else if (IS_STABLE(dirty_it->second.state))
-                {
-                    break;
-                }
-                if (dirty_it == dirty_db.begin())
-                {
-                    break;
-                }
-                dirty_it--;
-                if (dirty_it->first.oid != v->oid)
-                {
-                    break;
-                }
-            }
-#ifdef BLOCKSTORE_DEBUG
-            printf("enqueue_flush %lu:%lu v%lu\n", v->oid.inode, v->oid.stripe, v->version);
-#endif
-            flusher->enqueue_flush(*v);
-        }
+        mark_stable(*v);
     }
     inflight_writes--;
     // Acknowledge op
     op->retval = 0;
     FINISH_OP(op);
     return 1;
+}
+
+void blockstore_impl_t::mark_stable(const obj_ver_id & v)
+{
+    auto dirty_it = dirty_db.find(v);
+    if (dirty_it != dirty_db.end())
+    {
+        while (1)
+        {
+            if (dirty_it->second.state == ST_J_SYNCED)
+            {
+                dirty_it->second.state = ST_J_STABLE;
+            }
+            else if (dirty_it->second.state == ST_D_SYNCED)
+            {
+                dirty_it->second.state = ST_D_STABLE;
+            }
+            else if (dirty_it->second.state == ST_DEL_SYNCED)
+            {
+                dirty_it->second.state = ST_DEL_STABLE;
+            }
+            else if (IS_STABLE(dirty_it->second.state))
+            {
+                break;
+            }
+            if (dirty_it == dirty_db.begin())
+            {
+                break;
+            }
+            dirty_it--;
+            if (dirty_it->first.oid != v.oid)
+            {
+                break;
+            }
+        }
+#ifdef BLOCKSTORE_DEBUG
+        printf("enqueue_flush %lu:%lu v%lu\n", v.oid.inode, v.oid.stripe, v.version);
+#endif
+        flusher->enqueue_flush(v);
+    }
+    auto unstab_it = unstable_writes.find(v.oid);
+    if (unstab_it != unstable_writes.end() &&
+        unstab_it->second <= v.version)
+    {
+        unstable_writes.erase(unstab_it);
+    }
 }
 
 void blockstore_impl_t::handle_stable_event(ring_data_t *data, blockstore_op_t *op)

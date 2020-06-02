@@ -587,33 +587,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     .oid = je->stable.oid,
                     .version = je->stable.version,
                 };
-                auto it = bs->dirty_db.find(ov);
-                if (it == bs->dirty_db.end())
-                {
-                    // journal contains a legitimate STABLE entry for a non-existing dirty write
-                    // this probably means that journal was trimmed between WRITE and STABLE entries
-                    // skip it
-                }
-                else
-                {
-                    while (1)
-                    {
-                        it->second.state = (it->second.state == ST_D_SYNCED
-                            ? ST_D_STABLE
-                            : (it->second.state == ST_DEL_SYNCED ? ST_DEL_STABLE : ST_J_STABLE));
-                        if (it == bs->dirty_db.begin())
-                            break;
-                        it--;
-                        if (it->first.oid != ov.oid || IS_STABLE(it->second.state))
-                            break;
-                    }
-                    bs->flusher->enqueue_flush(ov);
-                }
-                auto unstab_it = bs->unstable_writes.find(ov.oid);
-                if (unstab_it != bs->unstable_writes.end() && unstab_it->second <= ov.version)
-                {
-                    bs->unstable_writes.erase(unstab_it);
-                }
+                bs->mark_stable(ov);
             }
             else if (je->type == JE_ROLLBACK)
             {
@@ -621,50 +595,11 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                 printf("je_rollback oid=%lu:%lu ver=%lu\n", je->rollback.oid.inode, je->rollback.oid.stripe, je->rollback.version);
 #endif
                 // rollback dirty writes of <oid> up to <version>
-                auto it = bs->dirty_db.lower_bound((obj_ver_id){
+                obj_ver_id ov = {
                     .oid = je->rollback.oid,
-                    .version = UINT64_MAX,
-                });
-                if (it != bs->dirty_db.begin())
-                {
-                    uint64_t max_unstable = 0;
-                    auto rm_start = it;
-                    auto rm_end = it;
-                    it--;
-                    while (it->first.oid == je->rollback.oid &&
-                        it->first.version > je->rollback.version &&
-                        !IS_IN_FLIGHT(it->second.state) &&
-                        !IS_STABLE(it->second.state))
-                    {
-                        if (it->first.oid != je->rollback.oid)
-                            break;
-                        else if (it->first.version <= je->rollback.version)
-                        {
-                            if (!IS_STABLE(it->second.state))
-                                max_unstable = it->first.version;
-                            break;
-                        }
-                        else if (IS_STABLE(it->second.state))
-                            break;
-                        // Remove entry
-                        rm_start = it;
-                        if (it == bs->dirty_db.begin())
-                            break;
-                        it--;
-                    }
-                    if (rm_start != rm_end)
-                    {
-                        bs->erase_dirty(rm_start, rm_end, UINT64_MAX);
-                    }
-                    auto unstab_it = bs->unstable_writes.find(je->rollback.oid);
-                    if (unstab_it != bs->unstable_writes.end())
-                    {
-                        if (max_unstable == 0)
-                            bs->unstable_writes.erase(unstab_it);
-                        else
-                            unstab_it->second = max_unstable;
-                    }
-                }
+                    .version = je->rollback.version,
+                };
+                bs->mark_rolled_back(ov);
             }
             else if (je->type == JE_DELETE)
             {

@@ -77,33 +77,6 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
     }
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
     {
-        // FIXME This is here only for the purpose of tracking unstable_writes. Remove if not required
-        // FIXME ...aaaand this is similar to blockstore_init.cpp - maybe dedup it?
-        auto dirty_it = dirty_db.lower_bound((obj_ver_id){
-            .oid = v->oid,
-            .version = UINT64_MAX,
-        });
-        uint64_t max_unstable = 0;
-        while (dirty_it != dirty_db.begin())
-        {
-            dirty_it--;
-            if (dirty_it->first.oid != v->oid)
-                break;
-            else if (dirty_it->first.version <= v->version)
-            {
-                if (!IS_STABLE(dirty_it->second.state))
-                    max_unstable = dirty_it->first.version;
-                break;
-            }
-        }
-        auto unstab_it = unstable_writes.find(v->oid);
-        if (unstab_it != unstable_writes.end())
-        {
-            if (max_unstable == 0)
-                unstable_writes.erase(unstab_it);
-            else
-                unstab_it->second = max_unstable;
-        }
         journal_entry_rollback *je = (journal_entry_rollback*)
             prefill_single_journal_entry(journal, JE_ROLLBACK, sizeof(journal_entry_rollback));
         journal.sector_info[journal.cur_sector].dirty = false;
@@ -161,26 +134,7 @@ resume_5:
     int i;
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
     {
-        // Erase dirty_db entries
-        auto rm_end = dirty_db.lower_bound((obj_ver_id){
-            .oid = v->oid,
-            .version = UINT64_MAX,
-        });
-        auto rm_start = rm_end;
-        assert(rm_start != dirty_db.begin());
-        rm_start--;
-        while (1)
-        {
-            if (rm_start->first.oid != v->oid || rm_start->first.version <= v->version)
-            {
-                rm_start++;
-                break;
-            }
-            if (rm_start == dirty_db.begin())
-                break;
-            rm_start--;
-        }
-        erase_dirty(rm_start, rm_end, UINT64_MAX);
+        mark_rolled_back(*v);
     }
     journal.trim();
     inflight_writes--;
@@ -188,6 +142,54 @@ resume_5:
     op->retval = 0;
     FINISH_OP(op);
     return 1;
+}
+
+void blockstore_impl_t::mark_rolled_back(const obj_ver_id & ov)
+{
+    auto it = dirty_db.lower_bound((obj_ver_id){
+        .oid = ov.oid,
+        .version = UINT64_MAX,
+    });
+    if (it != dirty_db.begin())
+    {
+        uint64_t max_unstable = 0;
+        auto rm_start = it;
+        auto rm_end = it;
+        it--;
+        while (it->first.oid == ov.oid &&
+            it->first.version > ov.version &&
+            !IS_IN_FLIGHT(it->second.state) &&
+            !IS_STABLE(it->second.state))
+        {
+            if (it->first.oid != ov.oid)
+                break;
+            else if (it->first.version <= ov.version)
+            {
+                if (!IS_STABLE(it->second.state))
+                    max_unstable = it->first.version;
+                break;
+            }
+            else if (IS_STABLE(it->second.state))
+                break;
+            // Remove entry
+            rm_start = it;
+            if (it == dirty_db.begin())
+                break;
+            it--;
+        }
+        if (rm_start != rm_end)
+        {
+            erase_dirty(rm_start, rm_end, UINT64_MAX);
+        }
+        auto unstab_it = unstable_writes.find(ov.oid);
+        if (unstab_it != unstable_writes.end())
+        {
+            if (max_unstable == 0)
+                unstable_writes.erase(unstab_it);
+            else
+                unstab_it->second = max_unstable;
+        }
+    }
 }
 
 void blockstore_impl_t::handle_rollback_event(ring_data_t *data, blockstore_op_t *op)

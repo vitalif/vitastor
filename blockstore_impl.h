@@ -286,12 +286,14 @@ class blockstore_impl_t
     // Stabilize
     int dequeue_stable(blockstore_op_t *op);
     int continue_stable(blockstore_op_t *op);
+    void mark_stable(const obj_ver_id & ov);
     void handle_stable_event(ring_data_t *data, blockstore_op_t *op);
     void stabilize_object(object_id oid, uint64_t max_ver);
 
     // Rollback
     int dequeue_rollback(blockstore_op_t *op);
     int continue_rollback(blockstore_op_t *op);
+    void mark_rolled_back(const obj_ver_id & ov);
     void handle_rollback_event(ring_data_t *data, blockstore_op_t *op);
     void erase_dirty(blockstore_dirty_db_t::iterator dirty_start, blockstore_dirty_db_t::iterator dirty_end, uint64_t clean_loc);
 
