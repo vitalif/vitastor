@@ -19,6 +19,8 @@
 
 int connect_osd(const char *osd_address, int osd_port);
 
+uint64_t test_read(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t version, uint64_t offset, uint64_t len);
+
 uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t version, uint64_t pattern);
 
 void* test_primary_read(int connect_fd, uint64_t inode, uint64_t offset, uint64_t len);
@@ -105,7 +107,7 @@ int main3(int narg, char *args[])
     return 0;
 }
 
-int main(int narg, char *args[])
+int main4(int narg, char *args[])
 {
     int connect_fd;
     // Cluster write (sync not implemented yet)
@@ -113,6 +115,15 @@ int main(int narg, char *args[])
     test_primary_write(connect_fd, 2, 0, 128*1024, PATTERN0);
     test_primary_write(connect_fd, 2, 128*1024, 128*1024, PATTERN1);
     test_primary_sync(connect_fd);
+    close(connect_fd);
+    return 0;
+}
+
+int main(int narg, char *args[])
+{
+    int connect_fd;
+    connect_fd = connect_osd("192.168.7.2", 43051);
+    test_read(connect_fd, 1, 1039663104, UINT64_MAX, 0, 128*1024);
     close(connect_fd);
     return 0;
 }
@@ -165,6 +176,66 @@ bool check_reply(int r, osd_any_op_t & op, osd_any_reply_t & reply, int expected
         return false;
     }
     return true;
+}
+
+uint64_t test_read(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t version, uint64_t offset, uint64_t len)
+{
+    osd_any_op_t op;
+    osd_any_reply_t reply;
+    op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    op.hdr.id = 1;
+    op.hdr.opcode = OSD_OP_SECONDARY_READ;
+    op.sec_rw.oid = {
+        .inode = inode,
+        .stripe = stripe,
+    };
+    op.sec_rw.version = version;
+    op.sec_rw.offset = offset;
+    op.sec_rw.len = len;
+    void *data = memalign(MEM_ALIGNMENT, op.sec_rw.len);
+    write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
+    int r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
+    if (!check_reply(r, op, reply, op.sec_rw.len))
+    {
+        free(data);
+        return 0;
+    }
+    r = read_blocking(connect_fd, data, len);
+    if (r != len)
+    {
+        free(data);
+        perror("read data");
+        return 0;
+    }
+    free(data);
+    printf("Read %lu:%lu v%lu = v%lu\n", inode, stripe, version, reply.sec_rw.version);
+    op.hdr.opcode = OSD_OP_SECONDARY_LIST;
+    op.sec_list.list_pg = 1;
+    op.sec_list.pg_count = 1;
+    op.sec_list.pg_stripe_size = 4*1024*1024;
+    write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
+    r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
+    if (reply.hdr.retval < 0 || !check_reply(r, op, reply, reply.hdr.retval))
+    {
+        return 0;
+    }
+    data = memalign(MEM_ALIGNMENT, sizeof(obj_ver_id)*reply.hdr.retval);
+    r = read_blocking(connect_fd, data, sizeof(obj_ver_id)*reply.hdr.retval);
+    if (r != sizeof(obj_ver_id)*reply.hdr.retval)
+    {
+        free(data);
+        perror("read data");
+        return 0;
+    }
+    obj_ver_id *ov = (obj_ver_id*)data;
+    for (int i = 0; i < reply.hdr.retval; i++)
+    {
+        if (ov[i].oid.inode == inode && (ov[i].oid.stripe & ~(4096-1)) == (stripe & ~(4096-1)))
+        {
+            printf("list: %lu:%lu v%lu stable=%d\n", ov[i].oid.inode, ov[i].oid.stripe, ov[i].version, i < reply.sec_list.stable_count ? 1 : 0);
+        }
+    }
+    return 0;
 }
 
 uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t version, uint64_t pattern)

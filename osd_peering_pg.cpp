@@ -206,17 +206,6 @@ void pg_obj_state_check_t::finish_object()
         if (log_level > 1)
         {
             printf("Object is incomplete: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
-            for (int i = ver_start; i < ver_end; i++)
-            {
-                printf("Present on: osd %lu, role %ld%s\n", list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
-            }
-        }
-        if (log_level > 2)
-        {
-            for (int i = obj_start; i < obj_end; i++)
-            {
-                printf("v%lu present on: osd %lu, role %ld%s\n", list[i].version, list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
-            }
         }
         state = OBJ_INCOMPLETE;
         pg->state = pg->state | PG_HAS_INCOMPLETE;
@@ -226,11 +215,21 @@ void pg_obj_state_check_t::finish_object()
         if (log_level > 1)
         {
             printf("Object is degraded: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
-            for (int i = ver_start; i < ver_end; i++)
-            {
-                printf("Present on: osd %lu, role %ld%s\n", list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
-            }
         }
+        state = OBJ_DEGRADED;
+        pg->state = pg->state | PG_HAS_DEGRADED;
+    }
+    if (n_mismatched > 0)
+    {
+        if (n_roles >= pg->pg_cursize && log_level > 1)
+        {
+            printf("Object is misplaced: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
+        }
+        state |= OBJ_MISPLACED;
+        pg->state = pg->state | PG_HAS_MISPLACED;
+    }
+    if (log_level > 1 && (n_roles < pg->pg_cursize || n_mismatched > 0))
+    {
         if (log_level > 2)
         {
             for (int i = obj_start; i < obj_end; i++)
@@ -238,13 +237,13 @@ void pg_obj_state_check_t::finish_object()
                 printf("v%lu present on: osd %lu, role %ld%s\n", list[i].version, list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
             }
         }
-        state = OBJ_DEGRADED;
-        pg->state = pg->state | PG_HAS_DEGRADED;
-    }
-    if (n_mismatched > 0)
-    {
-        state |= OBJ_MISPLACED;
-        pg->state = pg->state | PG_HAS_MISPLACED;
+        else
+        {
+            for (int i = ver_start; i < ver_end; i++)
+            {
+                printf("Target version present on: osd %lu, role %ld%s\n", list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
+            }
+        }
     }
     pg->total_count++;
     if (state != 0 || ver_end < obj_end)

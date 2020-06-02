@@ -138,6 +138,13 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                     .len = w ? stripes[role].write_end - stripes[role].write_start : stripes[role].read_end - stripes[role].read_start,
                     .buf = w ? stripes[role].write_buf : stripes[role].read_buf,
                 });
+#ifdef OSD_DEBUG
+                printf(
+                    "Submit %s to local: %lu:%lu v%lu %u-%u\n", w ? "write" : "read",
+                    op_data->oid.inode, op_data->oid.stripe | role, op_version,
+                    subops[i].bs_op->offset, subops[i].bs_op->len
+                );
+#endif
                 bs->enqueue_op(subops[i].bs_op);
             }
             else
@@ -159,6 +166,13 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                     .offset = w ? stripes[role].write_start : stripes[role].read_start,
                     .len = w ? stripes[role].write_end - stripes[role].write_start : stripes[role].read_end - stripes[role].read_start,
                 };
+#ifdef OSD_DEBUG
+                printf(
+                    "Submit %s to osd %lu: %lu:%lu v%lu %u-%u\n", w ? "write" : "read", role_osd_num,
+                    op_data->oid.inode, op_data->oid.stripe | role, op_version,
+                    subops[i].req.sec_rw.offset, subops[i].req.sec_rw.len
+                );
+#endif
                 subops[i].buf = w ? stripes[role].write_buf : stripes[role].read_buf;
                 if (w && stripes[role].write_end > 0)
                 {
@@ -170,10 +184,7 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                         subop->reply.hdr.retval != subop->req.sec_rw.len ? subop->peer_fd : -1;
                     // so it doesn't get freed
                     subop->buf = NULL;
-                    handle_primary_subop(
-                        subop->req.hdr.opcode, cur_op, subop->reply.hdr.retval,
-                        subop->req.sec_rw.len, subop->reply.sec_rw.version
-                    );
+                    handle_primary_subop(subop, cur_op);
                     if (fail_fd >= 0)
                     {
                         // write operation failed, drop the connection
@@ -213,12 +224,16 @@ void osd_t::handle_primary_bs_subop(osd_op_t *subop)
         );
     }
     add_bs_subop_stats(subop);
-    uint64_t opcode = bs_op_to_osd_op[bs_op->opcode];
-    int retval = bs_op->retval;
-    uint64_t version = bs_op->version;
+    subop->req.hdr.opcode = bs_op_to_osd_op[bs_op->opcode];
+    subop->reply.hdr.retval = bs_op->retval;
+    if (bs_op->opcode == BS_OP_READ || bs_op->opcode == BS_OP_WRITE)
+    {
+        subop->req.sec_rw.len = bs_op->len;
+        subop->reply.sec_rw.version = bs_op->version;
+    }
     delete bs_op;
     subop->bs_op = NULL;
-    handle_primary_subop(opcode, cur_op, retval, expected, version);
+    handle_primary_subop(subop, cur_op);
 }
 
 void osd_t::add_bs_subop_stats(osd_op_t *subop)
@@ -244,8 +259,12 @@ void osd_t::add_bs_subop_stats(osd_op_t *subop)
     }
 }
 
-void osd_t::handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int retval, int expected, uint64_t version)
+void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
 {
+    uint64_t opcode = subop->req.hdr.opcode;
+    int retval = subop->reply.hdr.retval;
+    int expected = opcode == OSD_OP_SECONDARY_READ || opcode == OSD_OP_SECONDARY_WRITE
+        ? subop->req.sec_rw.len : 0;
     osd_primary_op_data_t *op_data = cur_op->op_data;
     if (retval != expected)
     {
@@ -261,6 +280,12 @@ void osd_t::handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int retval, 
         op_data->done++;
         if (opcode == OSD_OP_SECONDARY_READ || opcode == OSD_OP_SECONDARY_WRITE)
         {
+            uint64_t version = subop->reply.sec_rw.version;
+#ifdef OSD_DEBUG
+            uint64_t peer_osd = c_cli.clients.find(subop->peer_fd) != c_cli.clients.end()
+                ? c_cli.clients[subop->peer_fd].osd_num : osd_num;
+            printf("subop %lu from osd %lu: version = %lu\n", opcode, peer_osd, version);
+#endif
             if (op_data->fact_ver != 0 && op_data->fact_ver != version)
             {
                 throw std::runtime_error(
@@ -380,7 +405,7 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_os
                 subops[i].callback = [cur_op, this](osd_op_t *subop)
                 {
                     int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
-                    handle_primary_subop(OSD_OP_SECONDARY_DELETE, cur_op, subop->reply.hdr.retval, 0, 0);
+                    handle_primary_subop(subop, cur_op);
                     if (fail_fd >= 0)
                     {
                         // delete operation failed, drop the connection
@@ -433,7 +458,7 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
                 int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
-                handle_primary_subop(OSD_OP_SECONDARY_SYNC, cur_op, subop->reply.hdr.retval, 0, 0);
+                handle_primary_subop(subop, cur_op);
                 if (fail_fd >= 0)
                 {
                     // sync operation failed, drop the connection
@@ -488,7 +513,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
                 int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
-                handle_primary_subop(OSD_OP_SECONDARY_STABILIZE, cur_op, subop->reply.hdr.retval, 0, 0);
+                handle_primary_subop(subop, cur_op);
                 if (fail_fd >= 0)
                 {
                     // sync operation failed, drop the connection

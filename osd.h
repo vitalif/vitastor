@@ -194,7 +194,7 @@ class osd_t
     bool check_write_queue(osd_op_t *cur_op, pg_t & pg);
     void remove_object_from_state(object_id & oid, pg_osd_set_state_t *object_state, pg_t &pg);
     bool finalize_primary_write(osd_op_t *cur_op, pg_t & pg, pg_osd_set_t & loc_set, int base_state);
-    void handle_primary_subop(uint64_t opcode, osd_op_t *cur_op, int retval, int expected, uint64_t version);
+    void handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op);
     void handle_primary_bs_subop(osd_op_t *subop);
     void add_bs_subop_stats(osd_op_t *subop);
     void pg_cancel_write_queue(pg_t & pg, osd_op_t *first_op, object_id oid, int retval);
