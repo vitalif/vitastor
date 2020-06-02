@@ -671,20 +671,25 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
 #ifdef BLOCKSTORE_DEBUG
                 printf("je_delete oid=%lu:%lu ver=%lu\n", je->del.oid.inode, je->del.oid.stripe, je->del.version);
 #endif
-                // oid, version
-                obj_ver_id ov = {
-                    .oid = je->del.oid,
-                    .version = je->del.version,
-                };
-                bs->dirty_db.emplace(ov, (dirty_entry){
-                    .state = ST_DEL_SYNCED,
-                    .flags = 0,
-                    .location = 0,
-                    .offset = 0,
-                    .len = 0,
-                    .journal_sector = proc_pos,
-                });
-                bs->journal.used_sectors[proc_pos]++;
+                auto clean_it = bs->clean_db.find(je->del.oid);
+                if (clean_it == bs->clean_db.end() ||
+                    clean_it->second.version < je->del.version)
+                {
+                    // oid, version
+                    obj_ver_id ov = {
+                        .oid = je->del.oid,
+                        .version = je->del.version,
+                    };
+                    bs->dirty_db.emplace(ov, (dirty_entry){
+                        .state = ST_DEL_SYNCED,
+                        .flags = 0,
+                        .location = 0,
+                        .offset = 0,
+                        .len = 0,
+                        .journal_sector = proc_pos,
+                    });
+                    bs->journal.used_sectors[proc_pos]++;
+                }
             }
             started = true;
             pos += je->size;

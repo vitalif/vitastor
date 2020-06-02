@@ -45,7 +45,7 @@ class journal_flusher_co
     std::map<object_id, uint64_t>::iterator repeat_it;
     std::function<void(ring_data_t*)> simple_callback_r, simple_callback_w;
 
-    bool skip_copy, has_delete, has_empty;
+    bool skip_copy, has_delete, has_writes;
     blockstore_clean_db_t::iterator clean_it;
     std::vector<copy_buffer_t> v;
     std::vector<copy_buffer_t>::iterator it;

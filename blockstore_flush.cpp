@@ -275,32 +275,26 @@ resume_0:
 #endif
         flusher->active_flushers++;
 resume_1:
+        // Find it in clean_db
+        clean_it = bs->clean_db.find(cur.oid);
+        old_clean_loc = (clean_it != bs->clean_db.end() ? clean_it->second.location : UINT64_MAX);
         // Scan dirty versions of the object
         if (!scan_dirty(1))
         {
             wait_state += 1;
             return false;
         }
-        if (copy_count == 0 && clean_loc == UINT64_MAX && !has_delete && !has_empty)
+        // Writes and deletes shouldn't happen at the same time
+        assert(!(copy_count > 0 || has_writes) || !has_delete);
+        if (copy_count == 0 && !has_writes && !has_delete || has_delete && old_clean_loc == UINT64_MAX)
         {
             // Nothing to flush
-            flusher->active_flushers--;
-            repeat_it = flusher->sync_to_repeat.find(cur.oid);
-            if (repeat_it != flusher->sync_to_repeat.end() && repeat_it->second > cur.version)
-            {
-                // Requeue version
-                flusher->unshift_flush({ .oid = cur.oid, .version = repeat_it->second });
-            }
-            flusher->sync_to_repeat.erase(repeat_it);
-            wait_state = 0;
-            goto resume_0;
+            bs->erase_dirty(dirty_start, std::next(dirty_end), clean_loc);
+            goto trim_journal;
         }
-        // Find it in clean_db
-        clean_it = bs->clean_db.find(cur.oid);
-        old_clean_loc = (clean_it != bs->clean_db.end() ? clean_it->second.location : UINT64_MAX);
         if (clean_loc == UINT64_MAX)
         {
-            if (copy_count > 0 && has_delete || old_clean_loc == UINT64_MAX)
+            if (old_clean_loc == UINT64_MAX)
             {
                 // Object not allocated. This is a bug.
                 char err[1024];
@@ -471,6 +465,7 @@ resume_1:
         }
         // Update clean_db and dirty_db, free old data locations
         update_clean_db();
+    trim_journal:
         // Clear unused part of the journal every <journal_trim_interval> flushes
         if (!((++flusher->journal_trim_counter) % flusher->journal_trim_interval) || flusher->trim_wanted > 0)
         {
@@ -530,7 +525,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
     copy_count = 0;
     clean_loc = UINT64_MAX;
     has_delete = false;
-    has_empty = false;
+    has_writes = false;
     skip_copy = false;
     clean_init_bitmap = false;
     while (1)
@@ -538,11 +533,8 @@ bool journal_flusher_co::scan_dirty(int wait_base)
         if (dirty_it->second.state == ST_J_STABLE && !skip_copy)
         {
             // First we submit all reads
-            if (dirty_it->second.len == 0)
-            {
-                has_empty = true;
-            }
-            else
+            has_writes = true;
+            if (dirty_it->second.len != 0)
             {
                 offset = dirty_it->second.offset;
                 end_offset = dirty_it->second.offset + dirty_it->second.len;
@@ -584,6 +576,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
         else if (dirty_it->second.state == ST_D_STABLE && !skip_copy)
         {
             // There is an unflushed big write. Copy small writes in its position
+            has_writes = true;
             clean_loc = dirty_it->second.location;
             clean_init_bitmap = true;
             clean_bitmap_offset = dirty_it->second.offset;

@@ -100,6 +100,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         .oid = op->oid,
         .version = op->version,
     });
+    assert(dirty_it != dirty_db.end());
     if (dirty_it->second.state == ST_J_WAIT_BIG)
     {
         return 0;
@@ -292,6 +293,7 @@ int blockstore_impl_t::continue_write(blockstore_op_t *op)
         .oid = op->oid,
         .version = op->version,
     });
+    assert(dirty_it != dirty_db.end());
     if (PRIV(op)->op_state == 2)
         goto resume_2;
     else if (PRIV(op)->op_state == 4)
@@ -435,6 +437,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
         .oid = op->oid,
         .version = op->version,
     });
+    assert(dirty_it != dirty_db.end());
     blockstore_journal_check_t space_check(this);
     if (!space_check.check_available(op, 1, sizeof(journal_entry_del), 0))
     {

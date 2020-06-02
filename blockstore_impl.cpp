@@ -144,7 +144,7 @@ void blockstore_impl_t::loop()
             {
                 dequeue_op = dequeue_read(op);
             }
-            else if (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_DELETE)
+            else if (op->opcode == BS_OP_WRITE)
             {
                 if (has_writes == 2)
                 {
@@ -152,6 +152,16 @@ void blockstore_impl_t::loop()
                     break;
                 }
                 dequeue_op = dequeue_write(op);
+                has_writes = dequeue_op ? 1 : 2;
+            }
+            else if (op->opcode == BS_OP_DELETE)
+            {
+                if (has_writes == 2)
+                {
+                    // Some writes could not be submitted
+                    break;
+                }
+                dequeue_op = dequeue_del(op);
                 has_writes = dequeue_op ? 1 : 2;
             }
             else if (op->opcode == BS_OP_SYNC)
@@ -370,7 +380,7 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
             }
         };
     }
-    if (op->opcode == BS_OP_WRITE && !enqueue_write(op))
+    if ((op->opcode == BS_OP_WRITE || op->opcode == BS_OP_DELETE) && !enqueue_write(op))
     {
         std::function<void (blockstore_op_t*)>(op->callback)(op);
         return;
