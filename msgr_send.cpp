@@ -1,6 +1,6 @@
-#include "cluster_client.h"
+#include "messenger.h"
 
-void cluster_client_t::outbox_push(osd_op_t *cur_op)
+void osd_messenger_t::outbox_push(osd_op_t *cur_op)
 {
     assert(cur_op->peer_fd);
     auto & cl = clients.at(cur_op->peer_fd);
@@ -39,7 +39,7 @@ void cluster_client_t::outbox_push(osd_op_t *cur_op)
     }
 }
 
-bool cluster_client_t::try_send(osd_client_t & cl)
+bool osd_messenger_t::try_send(osd_client_t & cl)
 {
     int peer_fd = cl.peer_fd;
     io_uring_sqe* sqe = ringloop->get_sqe();
@@ -89,7 +89,7 @@ bool cluster_client_t::try_send(osd_client_t & cl)
     return true;
 }
 
-void cluster_client_t::send_replies()
+void osd_messenger_t::send_replies()
 {
     for (int i = 0; i < write_ready_clients.size(); i++)
     {
@@ -103,7 +103,7 @@ void cluster_client_t::send_replies()
     write_ready_clients.clear();
 }
 
-void cluster_client_t::handle_send(int result, int peer_fd)
+void osd_messenger_t::handle_send(int result, int peer_fd)
 {
     auto cl_it = clients.find(peer_fd);
     if (cl_it != clients.end())

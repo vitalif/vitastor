@@ -4,7 +4,7 @@
 #include <sys/epoll.h>
 #include <netinet/tcp.h>
 
-#include "cluster_client.h"
+#include "messenger.h"
 
 osd_op_t::~osd_op_t()
 {
@@ -22,7 +22,7 @@ osd_op_t::~osd_op_t()
     }
 }
 
-void cluster_client_t::connect_peer(uint64_t peer_osd, json11::Json address_list, int port)
+void osd_messenger_t::connect_peer(uint64_t peer_osd, json11::Json address_list, int port)
 {
     if (wanted_peers.find(peer_osd) == wanted_peers.end())
     {
@@ -44,7 +44,7 @@ void cluster_client_t::connect_peer(uint64_t peer_osd, json11::Json address_list
     }
 }
 
-void cluster_client_t::try_connect_peer(uint64_t peer_osd)
+void osd_messenger_t::try_connect_peer(uint64_t peer_osd)
 {
     auto wp_it = wanted_peers.find(peer_osd);
     if (wp_it == wanted_peers.end())
@@ -66,7 +66,7 @@ void cluster_client_t::try_connect_peer(uint64_t peer_osd)
     try_connect_peer_addr(peer_osd, wp.cur_addr.c_str(), wp.cur_port);
 }
 
-void cluster_client_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer_host, int peer_port)
+void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer_host, int peer_port)
 {
     struct sockaddr_in addr;
     int r;
@@ -119,7 +119,7 @@ void cluster_client_t::try_connect_peer_addr(osd_num_t peer_osd, const char *pee
     });
 }
 
-void cluster_client_t::handle_connect_epoll(int peer_fd)
+void osd_messenger_t::handle_connect_epoll(int peer_fd)
 {
     auto & cl = clients[peer_fd];
     if (cl.connect_timeout_id >= 0)
@@ -152,7 +152,7 @@ void cluster_client_t::handle_connect_epoll(int peer_fd)
     check_peer_config(cl);
 }
 
-void cluster_client_t::handle_peer_epoll(int peer_fd, int epoll_events)
+void osd_messenger_t::handle_peer_epoll(int peer_fd, int epoll_events)
 {
     // Mark client as ready (i.e. some data is available)
     if (epoll_events & EPOLLRDHUP)
@@ -174,7 +174,7 @@ void cluster_client_t::handle_peer_epoll(int peer_fd, int epoll_events)
     }
 }
 
-void cluster_client_t::on_connect_peer(osd_num_t peer_osd, int peer_fd)
+void osd_messenger_t::on_connect_peer(osd_num_t peer_osd, int peer_fd)
 {
     auto & wp = wanted_peers.at(peer_osd);
     wp.connecting = false;
@@ -210,7 +210,7 @@ void cluster_client_t::on_connect_peer(osd_num_t peer_osd, int peer_fd)
     repeer_pgs(peer_osd);
 }
 
-void cluster_client_t::check_peer_config(osd_client_t & cl)
+void osd_messenger_t::check_peer_config(osd_client_t & cl)
 {
     osd_op_t *op = new osd_op_t();
     op->op_type = OSD_OP_OUT;
@@ -264,7 +264,7 @@ void cluster_client_t::check_peer_config(osd_client_t & cl)
     outbox_push(op);
 }
 
-void cluster_client_t::cancel_osd_ops(osd_client_t & cl)
+void osd_messenger_t::cancel_osd_ops(osd_client_t & cl)
 {
     for (auto p: cl.sent_ops)
     {
@@ -283,7 +283,7 @@ void cluster_client_t::cancel_osd_ops(osd_client_t & cl)
     }
 }
 
-void cluster_client_t::cancel_op(osd_op_t *op)
+void osd_messenger_t::cancel_op(osd_op_t *op)
 {
     if (op->op_type == OSD_OP_OUT)
     {
@@ -301,7 +301,7 @@ void cluster_client_t::cancel_op(osd_op_t *op)
     }
 }
 
-void cluster_client_t::stop_client(int peer_fd)
+void osd_messenger_t::stop_client(int peer_fd)
 {
     assert(peer_fd != 0);
     auto it = clients.find(peer_fd);

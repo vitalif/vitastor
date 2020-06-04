@@ -17,7 +17,7 @@
 #include "ringloop.h"
 #include "timerfd_manager.h"
 #include "osd_peering_pg.h"
-#include "cluster_client.h"
+#include "messenger.h"
 #include "etcd_state_client.h"
 
 #define OSD_LOADING_PGS 0x01
@@ -78,7 +78,7 @@ class osd_t
     // cluster state
 
     etcd_state_client_t st_cli;
-    cluster_client_t c_cli;
+    osd_messenger_t c_cli;
     int etcd_failed_attempts = 0;
     std::string etcd_lease_id;
     json11::Json self_state;

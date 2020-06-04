@@ -1,6 +1,6 @@
-#include "cluster_client.h"
+#include "messenger.h"
 
-void cluster_client_t::read_requests()
+void osd_messenger_t::read_requests()
 {
     for (int i = 0; i < read_ready_clients.size(); i++)
     {
@@ -31,7 +31,7 @@ void cluster_client_t::read_requests()
     read_ready_clients.clear();
 }
 
-bool cluster_client_t::handle_read(int result, int peer_fd)
+bool osd_messenger_t::handle_read(int result, int peer_fd)
 {
     auto cl_it = clients.find(peer_fd);
     if (cl_it != clients.end())
@@ -111,7 +111,7 @@ bool cluster_client_t::handle_read(int result, int peer_fd)
     return false;
 }
 
-void cluster_client_t::handle_finished_read(osd_client_t & cl)
+void osd_messenger_t::handle_finished_read(osd_client_t & cl)
 {
     if (cl.read_state == CL_READ_HDR)
     {
@@ -159,7 +159,7 @@ void cluster_client_t::handle_finished_read(osd_client_t & cl)
     }
 }
 
-void cluster_client_t::handle_op_hdr(osd_client_t *cl)
+void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
 {
     osd_op_t *cur_op = cl->read_op;
     if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ)
@@ -209,7 +209,7 @@ void cluster_client_t::handle_op_hdr(osd_client_t *cl)
     }
 }
 
-void cluster_client_t::handle_reply_hdr(osd_client_t *cl)
+void osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
 {
     osd_op_t *cur_op = cl->read_op;
     auto req_it = cl->sent_ops.find(cur_op->req.hdr.id);

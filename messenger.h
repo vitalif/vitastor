@@ -158,7 +158,7 @@ struct osd_op_stats_t
     uint64_t subop_stat_count[OSD_OP_MAX+1] = { 0 };
 };
 
-struct cluster_client_t
+struct osd_messenger_t
 {
     timerfd_manager_t *tfd;
     ring_loop_t *ringloop;
