@@ -29,6 +29,9 @@
 #define PEER_CONNECTING 1
 #define PEER_CONNECTED 2
 
+#define DEFAULT_PEER_CONNECT_INTERVAL 5
+#define DEFAULT_PEER_CONNECT_TIMEOUT 5
+
 struct osd_op_buf_list_t
 {
     int count = 0, alloc = 0, sent = 0;
@@ -166,8 +169,8 @@ struct osd_messenger_t
     // osd_num_t is only for logging and asserts
     osd_num_t osd_num;
     int receive_buffer_size = 9000;
-    int peer_connect_interval = 5;
-    int peer_connect_timeout = 5;
+    int peer_connect_interval = DEFAULT_PEER_CONNECT_INTERVAL;
+    int peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
     int log_level = 0;
 
     std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
@@ -182,7 +185,7 @@ struct osd_messenger_t
     osd_op_stats_t stats;
 
 public:
-    void connect_peer(uint64_t osd_num, json11::Json address_list, int port);
+    void connect_peer(uint64_t osd_num, json11::Json peer_state);
     void stop_client(int peer_fd);
     void outbox_push(osd_op_t *cur_op);
     std::function<void(osd_op_t*)> exec_op;

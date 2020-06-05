@@ -72,7 +72,7 @@ blockstore_sync.o: blockstore_sync.cpp allocator.h blockstore.h blockstore_flush
 	g++ $(CXXFLAGS) -c -o $@ $<
 blockstore_write.o: blockstore_write.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-messenger.o: messenger.cpp messenger.h json11/json11.hpp object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
+cluster_client.o: cluster_client.cpp cluster_client.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 dump_journal.o: dump_journal.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
@@ -84,33 +84,35 @@ fio_sec_osd.o: fio_sec_osd.cpp fio/fio.h fio/optgroup.h object_id.h osd_id.h osd
 	g++ $(CXXFLAGS) -c -o $@ $<
 http_client.o: http_client.cpp http_client.h json11/json11.hpp timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd.o: osd.cpp blockstore.h messenger.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+messenger.o: messenger.cpp json11/json11.hpp messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_cluster.o: osd_cluster.cpp base64.h blockstore.h messenger.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+msgr_receive.o: msgr_receive.cpp json11/json11.hpp messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_flush.o: osd_flush.cpp blockstore.h messenger.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+msgr_send.o: msgr_send.cpp json11/json11.hpp messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_main.o: osd_main.cpp blockstore.h messenger.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+osd.o: osd.cpp blockstore.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_peering.o: osd_peering.cpp base64.h blockstore.h messenger.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+osd_cluster.o: osd_cluster.cpp base64.h blockstore.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+	g++ $(CXXFLAGS) -c -o $@ $<
+osd_flush.o: osd_flush.cpp blockstore.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+	g++ $(CXXFLAGS) -c -o $@ $<
+osd_main.o: osd_main.cpp blockstore.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+	g++ $(CXXFLAGS) -c -o $@ $<
+osd_peering.o: osd_peering.cpp base64.h blockstore.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_peering_pg.o: osd_peering_pg.cpp cpp-btree/btree_map.h object_id.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_peering_pg_test.o: osd_peering_pg_test.cpp cpp-btree/btree_map.h object_id.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_primary.o: osd_primary.cpp blockstore.h messenger.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h osd_primary.h osd_rmw.h pg_states.h ringloop.h timerfd_manager.h
+osd_primary.o: osd_primary.cpp blockstore.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h osd_primary.h osd_rmw.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_primary_subops.o: osd_primary_subops.cpp blockstore.h messenger.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h osd_primary.h osd_rmw.h pg_states.h ringloop.h timerfd_manager.h
-	g++ $(CXXFLAGS) -c -o $@ $<
-msgr_receive.o: msgr_receive.cpp messenger.h json11/json11.hpp object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
+osd_primary_subops.o: osd_primary_subops.cpp blockstore.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h osd_primary.h osd_rmw.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_rmw.o: osd_rmw.cpp object_id.h osd_id.h osd_rmw.h xor.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_rmw_test.o: osd_rmw_test.cpp object_id.h osd_id.h osd_rmw.cpp osd_rmw.h test_pattern.h xor.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_secondary.o: osd_secondary.cpp blockstore.h messenger.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
-	g++ $(CXXFLAGS) -c -o $@ $<
-msgr_send.o: msgr_send.cpp messenger.h json11/json11.hpp object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
+osd_secondary.o: osd_secondary.cpp blockstore.h cpp-btree/btree_map.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_test.o: osd_test.cpp object_id.h osd_id.h osd_ops.h rw_blocking.h test_pattern.h
 	g++ $(CXXFLAGS) -c -o $@ $<
@@ -129,8 +131,6 @@ test.o: test.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h b
 test_allocator.o: test_allocator.cpp allocator.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 test_blockstore.o: test_blockstore.cpp blockstore.h object_id.h ringloop.h timerfd_interval.h
-	g++ $(CXXFLAGS) -c -o $@ $<
-test_crc.o: test_crc.cpp crc32c.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 timerfd_interval.o: timerfd_interval.cpp ringloop.h timerfd_interval.h
 	g++ $(CXXFLAGS) -c -o $@ $<

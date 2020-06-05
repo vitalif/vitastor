@@ -1,5 +1,6 @@
 #pragma once
 
+#include "osd_id.h"
 #include "http_client.h"
 #include "timerfd_manager.h"
 

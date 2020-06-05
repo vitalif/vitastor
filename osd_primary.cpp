@@ -13,9 +13,14 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
 {
     // PG number is calculated from the offset
     // Our EC scheme stores data in fixed chunks equal to (K*block size)
-    // But we must not use K in the process of calculating the PG number
-    // So we calculate the PG number using a separate setting which should be per-inode (FIXME)
-    pg_num_t pg_num = (cur_op->req.rw.inode + cur_op->req.rw.offset / pg_stripe_size) % pg_count + 1;
+    // K = pg_minsize and will be a property of the inode. Not it's hardcoded (FIXME)
+    uint64_t pg_block_size = bs_block_size * 2;
+    object_id oid = {
+        .inode = cur_op->req.rw.inode,
+        // oid.stripe = starting offset of the parity stripe
+        .stripe = (cur_op->req.rw.offset/pg_block_size)*pg_block_size,
+    };
+    pg_num_t pg_num = (cur_op->req.rw.inode + oid.stripe/pg_stripe_size) % pg_count + 1;
     auto pg_it = pgs.find(pg_num);
     if (pg_it == pgs.end() || !(pg_it->second.state & PG_ACTIVE))
     {
@@ -23,13 +28,6 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         finish_op(cur_op, -EPIPE);
         return false;
     }
-    uint64_t pg_block_size = bs_block_size * pg_it->second.pg_minsize;
-    object_id oid = {
-        .inode = cur_op->req.rw.inode,
-        // oid.stripe = starting offset of the parity stripe, so it can be mapped back to the PG
-        .stripe = (cur_op->req.rw.offset / pg_stripe_size) * pg_stripe_size +
-            ((cur_op->req.rw.offset % pg_stripe_size) / pg_block_size) * pg_block_size
-    };
     if ((cur_op->req.rw.offset + cur_op->req.rw.len) > (oid.stripe + pg_block_size) ||
         (cur_op->req.rw.offset % bs_disk_alignment) != 0 ||
         (cur_op->req.rw.len % bs_disk_alignment) != 0)

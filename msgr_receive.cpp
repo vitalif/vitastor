@@ -222,7 +222,7 @@ void osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
     }
     osd_op_t *op = req_it->second;
     memcpy(op->reply.buf, cur_op->req.buf, OSD_PACKET_SIZE);
-    if (op->reply.hdr.opcode == OSD_OP_SECONDARY_READ &&
+    if ((op->reply.hdr.opcode == OSD_OP_SECONDARY_READ || op->reply.hdr.opcode == OSD_OP_READ) &&
         op->reply.hdr.retval > 0)
     {
         // Read data. In this case we assume that the buffer is preallocated by the caller (!)
@@ -232,8 +232,7 @@ void osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         cl->read_buf = op->buf;
         cl->read_remaining = op->reply.hdr.retval;
     }
-    else if (op->reply.hdr.opcode == OSD_OP_SECONDARY_LIST &&
-        op->reply.hdr.retval > 0)
+    else if (op->reply.hdr.opcode == OSD_OP_SECONDARY_LIST && op->reply.hdr.retval > 0)
     {
         op->buf = memalign(MEM_ALIGNMENT, sizeof(obj_ver_id) * op->reply.hdr.retval);
         cl->read_state = CL_READ_REPLY_DATA;
@@ -241,8 +240,7 @@ void osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         cl->read_buf = op->buf;
         cl->read_remaining = sizeof(obj_ver_id) * op->reply.hdr.retval;
     }
-    else if (op->reply.hdr.opcode == OSD_OP_SHOW_CONFIG &&
-        op->reply.hdr.retval > 0)
+    else if (op->reply.hdr.opcode == OSD_OP_SHOW_CONFIG && op->reply.hdr.retval > 0)
     {
         op->buf = malloc(op->reply.hdr.retval);
         cl->read_state = CL_READ_REPLY_DATA;

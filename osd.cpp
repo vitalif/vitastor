@@ -143,10 +143,10 @@ void osd_t::parse_config(blockstore_config_t & config)
         print_stats_interval = 3;
     c_cli.peer_connect_interval = strtoull(config["peer_connect_interval"].c_str(), NULL, 10);
     if (!c_cli.peer_connect_interval)
-        c_cli.peer_connect_interval = 5;
+        c_cli.peer_connect_interval = DEFAULT_PEER_CONNECT_INTERVAL;
     c_cli.peer_connect_timeout = strtoull(config["peer_connect_timeout"].c_str(), NULL, 10);
     if (!c_cli.peer_connect_timeout)
-        c_cli.peer_connect_timeout = 5;
+        c_cli.peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
     log_level = strtoull(config["log_level"].c_str(), NULL, 10);
     st_cli.log_level = log_level;
     c_cli.log_level = log_level;

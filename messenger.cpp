@@ -22,19 +22,19 @@ osd_op_t::~osd_op_t()
     }
 }
 
-void osd_messenger_t::connect_peer(uint64_t peer_osd, json11::Json address_list, int port)
+void osd_messenger_t::connect_peer(uint64_t peer_osd, json11::Json peer_state)
 {
     if (wanted_peers.find(peer_osd) == wanted_peers.end())
     {
         wanted_peers[peer_osd] = (osd_wanted_peer_t){
-            .address_list = address_list,
-            .port = port,
+            .address_list = peer_state["addresses"],
+            .port = (int)peer_state["port"].int64_value(),
         };
     }
     else
     {
-        wanted_peers[peer_osd].address_list = address_list;
-        wanted_peers[peer_osd].port = port;
+        wanted_peers[peer_osd].address_list = peer_state["addresses"];
+        wanted_peers[peer_osd].port = (int)peer_state["port"].int64_value();
     }
     wanted_peers[peer_osd].address_changed = true;
     if (!wanted_peers[peer_osd].connecting &&

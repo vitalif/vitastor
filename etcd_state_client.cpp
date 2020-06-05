@@ -93,7 +93,10 @@ void etcd_state_client_t::start_etcd_watcher()
                     parse_state(kv.first, kv.second);
                 }
                 // React to changes
-                on_change_hook(changes);
+                if (on_change_hook != NULL)
+                {
+                    on_change_hook(changes);
+                }
             }
         }
         if (msg->eof)
@@ -208,7 +211,7 @@ void etcd_state_client_t::load_pgs()
         },
     };
     json11::Json::object req = { { "success", txn } };
-    json11::Json checks = load_pgs_checks_hook();
+    json11::Json checks = load_pgs_checks_hook != NULL ? load_pgs_checks_hook() : json11::Json();
     if (checks.array_items().size() > 0)
     {
         req["compare"] = checks;

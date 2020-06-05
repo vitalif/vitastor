@@ -83,7 +83,7 @@ void osd_t::parse_test_peer(std::string peer)
         { "addresses", json11::Json::array { addr } },
         { "port", port },
     };
-    c_cli.connect_peer(peer_osd, json11::Json::array { addr }, port);
+    c_cli.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
 }
 
 json11::Json osd_t::get_osd_state()
@@ -211,7 +211,7 @@ void osd_t::on_change_osd_state_hook(uint64_t peer_osd)
 {
     if (c_cli.wanted_peers.find(peer_osd) != c_cli.wanted_peers.end())
     {
-        c_cli.connect_peer(peer_osd, st_cli.peer_states[peer_osd]["addresses"], st_cli.peer_states[peer_osd]["port"].int64_value());
+        c_cli.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
     }
 }
 
@@ -556,7 +556,7 @@ void osd_t::apply_pg_config()
                 {
                     if (pg_osd != this->osd_num && c_cli.osd_peer_fds.find(pg_osd) == c_cli.osd_peer_fds.end())
                     {
-                        c_cli.connect_peer(pg_osd, st_cli.peer_states[pg_osd]["addresses"], st_cli.peer_states[pg_osd]["port"].int64_value());
+                        c_cli.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
                     }
                 }
                 start_pg_peering(pg_num);

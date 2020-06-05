@@ -187,7 +187,7 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
         }
         else if (c_cli.wanted_peers.find(pg_osd) == c_cli.wanted_peers.end())
         {
-            c_cli.connect_peer(pg_osd, st_cli.peer_states[pg_osd]["addresses"], st_cli.peer_states[pg_osd]["port"].int64_value());
+            c_cli.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
         }
     }
     pg.cur_peers.insert(pg.cur_peers.begin(), cur_peers.begin(), cur_peers.end());
