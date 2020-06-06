@@ -7,6 +7,8 @@
 
 #include "osd.h"
 
+#define MAX_EPOLL_EVENTS 64
+
 const char* osd_op_names[] = {
     "",
     "read",

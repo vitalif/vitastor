@@ -104,6 +104,11 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & config)
         if (!pg_stripe_size)
             pg_stripe_size = DEFAULT_PG_STRIPE_SIZE;
     }
+    if (config["immediate_commit"] == "all")
+    {
+        // Cluster-wide immediate_commit mode
+        immediate_commit = true;
+    }
     msgr.peer_connect_interval = config["peer_connect_interval"].uint64_value();
     if (!msgr.peer_connect_interval)
         msgr.peer_connect_interval = DEFAULT_PEER_CONNECT_INTERVAL;
@@ -148,8 +153,16 @@ void cluster_client_t::on_change_osd_state_hook(uint64_t peer_osd)
     }
 }
 
+// FIXME: Implement OSD_OP_SYNC for immediate_commit == false
 void cluster_client_t::execute(cluster_op_t *op)
 {
+    if (op->opcode == OSD_OP_SYNC && immediate_commit)
+    {
+        // Syncs are not required in the immediate_commit mode
+        op->retval = 0;
+        std::function<void(cluster_op_t*)>(op->callback)(op);
+        return;
+    }
     if (op->opcode != OSD_OP_READ && op->opcode != OSD_OP_OUT || !op->inode || !op->len ||
         op->offset % bs_disk_alignment || op->len % bs_disk_alignment)
     {
@@ -162,6 +175,30 @@ void cluster_client_t::execute(cluster_op_t *op)
         // Config is not loaded yet
         unsent_ops.insert(op);
         return;
+    }
+    if (op->opcode == OSD_OP_WRITE && !immediate_commit)
+    {
+        // Copy operation
+        cluster_op_t *op_copy = new cluster_op_t();
+        op_copy->opcode = op->opcode;
+        op_copy->inode = op->inode;
+        op_copy->offset = op->offset;
+        op_copy->len = op->len;
+        op_copy->buf = malloc(op->len);
+        memcpy(op_copy->buf, op->buf, op->len);
+        unsynced_ops.push_back(op_copy);
+        unsynced_bytes += op->len;
+        if (inmemory_commit)
+        {
+            // Immediately acknowledge write and continue with the copy
+            op->retval = op->len;
+            std::function<void(cluster_op_t*)>(op->callback)(op);
+            op = op_copy;
+        }
+        if (unsynced_bytes >= inmemory_dirty_limit)
+        {
+            // Push an extra SYNC operation
+        }
     }
     // Slice the request into individual object stripe requests
     // Primary OSDs still operate individual stripes, but their size is multiplied by PG minsize in case of EC
@@ -304,6 +341,7 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
         if (op->done_count >= op->parts.size())
         {
             // Finished!
+            sent_ops.erase(op);
             op->retval = op->len;
             std::function<void(cluster_op_t*)>(op->callback)(op);
         }

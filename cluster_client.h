@@ -27,7 +27,7 @@ struct cluster_op_part_t
 
 struct cluster_op_t
 {
-    uint64_t opcode; // OSD_OP_READ, OSD_OP_WRITE
+    uint64_t opcode; // OSD_OP_READ, OSD_OP_WRITE, OSD_OP_SYNC
     uint64_t inode;
     uint64_t offset;
     uint64_t len;
@@ -52,12 +52,18 @@ class cluster_client_t
     uint64_t bs_disk_alignment = 0;
     uint64_t bs_bitmap_granularity = 0;
     uint64_t pg_count = 0;
+    bool immediate_commit = false;
+    bool inmemory_commit = false;
+    uint64_t inmemory_dirty_limit = 32*1024*1024;
     int log_level;
 
     uint64_t op_id = 1;
     etcd_state_client_t st_cli;
     osd_messenger_t msgr;
     std::set<cluster_op_t*> sent_ops, unsent_ops;
+    // unsynced operations are copied in memory to allow replay when cluster isn't in the immediate_commit mode
+    std::vector<cluster_op_t*> unsynced_ops;
+    uint64_t unsynced_bytes = 0;
 
 public:
     cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config);
