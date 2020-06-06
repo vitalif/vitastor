@@ -5,7 +5,7 @@
 // Random write:
 //
 // fio -thread -ioengine=./libfio_sec_osd.so -name=test -bs=4k -direct=1 -fsync=16 -iodepth=16 -rw=randwrite \
-//     -host=127.0.0.1 -port=11203 [-single_primary=1] -size=1000M
+//     -host=127.0.0.1 -port=11203 [-block_size_order=17] [-single_primary=1] -size=1000M
 //
 // Linear write:
 //
@@ -53,6 +53,7 @@ struct sec_options
     int port = 0;
     int single_primary = 0;
     int trace = 0;
+    int block_order = 17;
 };
 
 static struct fio_option options[] = {
@@ -71,6 +72,15 @@ static struct fio_option options[] = {
         .type   = FIO_OPT_INT,
         .off1   = offsetof(struct sec_options, port),
         .help   = "Test Secondary OSD port",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "block_size_order",
+        .lname  = "Blockstore block size order",
+        .type   = FIO_OPT_INT,
+        .off1   = offsetof(struct sec_options, block_order),
+        .help   = "Blockstore block size order (size = 2^order)",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
     },
@@ -140,6 +150,8 @@ static int sec_init(struct thread_data *td)
 {
     sec_options *o = (sec_options*)td->eo;
     sec_data *bsd = (sec_data*)td->io_ops_data;
+    bsd->block_order = o->block_order;
+    bsd->block_size = 1 << o->block_order;
 
     struct sockaddr_in addr;
     int r;
