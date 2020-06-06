@@ -229,8 +229,14 @@ void osd_t::on_load_config_hook(json11::Json::object & global_config)
     {
         if (this->config.find(cfg_var.first) == this->config.end())
         {
-            // FIXME Convert int to str
-            osd_config[cfg_var.first] = cfg_var.second.string_value();
+            if (cfg_var.second.is_string())
+            {
+                osd_config[cfg_var.first] = cfg_var.second.string_value();
+            }
+            else
+            {
+                osd_config[cfg_var.first] = cfg_var.second.dump();
+            }
         }
     }
     parse_config(osd_config);

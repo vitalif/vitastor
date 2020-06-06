@@ -73,29 +73,9 @@ osd_t::~osd_t()
 
 void osd_t::parse_config(blockstore_config_t & config)
 {
-    int pos;
     // Initial startup configuration
-    {
-        std::string ea = config["etcd_address"];
-        while (1)
-        {
-            pos = ea.find(',');
-            std::string addr = pos >= 0 ? ea.substr(0, pos) : ea;
-            if (addr.length() > 0)
-            {
-                if (addr.find('/') < 0)
-                    addr += "/v3";
-                st_cli.etcd_addresses.push_back(addr);
-            }
-            if (pos >= 0)
-                ea = ea.substr(pos+1);
-            else
-                break;
-        }
-    }
-    st_cli.etcd_prefix = config["etcd_prefix"];
-    if (st_cli.etcd_prefix == "")
-        st_cli.etcd_prefix = "/microceph";
+    json11::Json json_config = json11::Json(config);
+    st_cli.parse_config(json_config);
     etcd_report_interval = strtoull(config["etcd_report_interval"].c_str(), NULL, 10);
     if (etcd_report_interval <= 0)
         etcd_report_interval = 30;
@@ -148,7 +128,6 @@ void osd_t::parse_config(blockstore_config_t & config)
     if (!c_cli.peer_connect_timeout)
         c_cli.peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
     log_level = strtoull(config["log_level"].c_str(), NULL, 10);
-    st_cli.log_level = log_level;
     c_cli.log_level = log_level;
 }
 

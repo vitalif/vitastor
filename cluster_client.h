@@ -60,7 +60,7 @@ class cluster_client_t
     std::set<cluster_op_t*> sent_ops, unsent_ops;
 
 public:
-    cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd);
+    cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config);
     void execute(cluster_op_t *op);
 
 protected:

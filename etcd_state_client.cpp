@@ -43,6 +43,53 @@ void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int t
     http_request_json(tfd, etcd_address, req, timeout, callback);
 }
 
+void etcd_state_client_t::parse_config(json11::Json & config)
+{
+    this->etcd_addresses.clear();
+    if (config["etcd_address"].is_string())
+    {
+        std::string ea = config["etcd_address"].string_value();
+        while (1)
+        {
+            int pos = ea.find(',');
+            std::string addr = pos >= 0 ? ea.substr(0, pos) : ea;
+            if (addr.length() > 0)
+            {
+                if (addr.find('/') < 0)
+                    addr += "/v3";
+                this->etcd_addresses.push_back(addr);
+            }
+            if (pos >= 0)
+                ea = ea.substr(pos+1);
+            else
+                break;
+        }
+    }
+    else if (config["etcd_address"].array_items().size())
+    {
+        for (auto & ea: config["etcd_address"].array_items())
+        {
+            std::string addr = ea.string_value();
+            if (addr != "")
+            {
+                if (addr.find('/') < 0)
+                    addr += "/v3";
+                this->etcd_addresses.push_back(addr);
+            }
+        }
+    }
+    this->etcd_prefix = config["etcd_prefix"].string_value();
+    if (this->etcd_prefix == "")
+    {
+        this->etcd_prefix = "/microceph";
+    }
+    else if (this->etcd_prefix[0] != '/')
+    {
+        this->etcd_prefix = "/"+this->etcd_prefix;
+    }
+    this->log_level = config["log_level"].int64_value();
+}
+
 void etcd_state_client_t::start_etcd_watcher()
 {
     std::string etcd_address = etcd_addresses[rand() % etcd_addresses.size()];
