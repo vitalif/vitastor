@@ -25,11 +25,13 @@ int connect_stub(const char *server_address, int server_port);
 
 void run_bench(int peer_fd);
 
+static uint64_t read_sum = 0, read_count = 0;
 static uint64_t write_sum = 0, write_count = 0;
 static uint64_t sync_sum = 0, sync_count = 0;
 
 void handle_sigint(int sig)
 {
+    printf("4k randread: %lu us avg\n", read_count ? read_sum/read_count : 0);
     printf("4k randwrite: %lu us avg\n", write_count ? write_sum/write_count : 0);
     printf("sync: %lu us avg\n", sync_count ? sync_sum/sync_count : 0);
     exit(0);
@@ -113,10 +115,37 @@ void run_bench(int peer_fd)
     osd_any_reply_t reply;
     void *buf = NULL;
     int r;
+    iovec iov[2];
     timespec tv_begin, tv_end;
     clock_gettime(CLOCK_REALTIME, &tv_begin);
     while (1)
     {
+        // read
+        op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+        op.hdr.id = 1;
+        op.hdr.opcode = OSD_OP_SECONDARY_READ;
+        op.sec_rw.oid.inode = 3;
+        op.sec_rw.oid.stripe = (rand() << 17) % (1 << 29); // 512 MB
+        op.sec_rw.version = 0;
+        op.sec_rw.len = 4096;
+        op.sec_rw.offset = (rand() * op.sec_rw.len) % (1 << 17);
+        r = write_blocking(peer_fd, op.buf, OSD_PACKET_SIZE) == OSD_PACKET_SIZE;
+        if (!r)
+            break;
+        buf = malloc(op.sec_rw.len);
+        iov[0] = { reply.buf, OSD_PACKET_SIZE };
+        iov[1] = { buf, op.sec_rw.len };
+        r = readv_blocking(peer_fd, iov, 2) == (OSD_PACKET_SIZE + op.sec_rw.len);
+        free(buf);
+        if (!r || !check_reply(OSD_PACKET_SIZE, op, reply, op.sec_rw.len))
+            break;
+        clock_gettime(CLOCK_REALTIME, &tv_end);
+        read_count++;
+        read_sum += (
+            (tv_end.tv_sec - tv_begin.tv_sec)*1000000 +
+            tv_end.tv_nsec/1000 - tv_begin.tv_nsec/1000
+        );
+        tv_begin = tv_end;
         // write
         op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
         op.hdr.id = 1;
@@ -128,9 +157,9 @@ void run_bench(int peer_fd)
         op.sec_rw.offset = (rand() * op.sec_rw.len) % (1 << 17);
         buf = malloc(op.sec_rw.len);
         memset(buf, rand() % 255, op.sec_rw.len);
-        r = write_blocking(peer_fd, op.buf, OSD_PACKET_SIZE) == OSD_PACKET_SIZE;
-        if (r)
-            r = write_blocking(peer_fd, buf, op.sec_rw.len) == op.sec_rw.len;
+        iov[0] = { op.buf, OSD_PACKET_SIZE };
+        iov[1] = { buf, op.sec_rw.len };
+        r = writev_blocking(peer_fd, iov, 2) == (OSD_PACKET_SIZE + op.sec_rw.len);
         free(buf);
         if (!r)
             break;
@@ -143,6 +172,7 @@ void run_bench(int peer_fd)
             (tv_end.tv_sec - tv_begin.tv_sec)*1000000 +
             tv_end.tv_nsec/1000 - tv_begin.tv_nsec/1000
         );
+        tv_begin = tv_end;
         // sync/stab
         op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
         op.hdr.id = 1;
@@ -153,11 +183,12 @@ void run_bench(int peer_fd)
         r = read_blocking(peer_fd, reply.buf, OSD_PACKET_SIZE);
         if (!check_reply(r, op, reply, 0))
             break;
-        clock_gettime(CLOCK_REALTIME, &tv_begin);
+        clock_gettime(CLOCK_REALTIME, &tv_end);
         sync_count++;
         sync_sum += (
-            (tv_begin.tv_sec - tv_end.tv_sec)*1000000 +
-            tv_begin.tv_nsec/1000 - tv_end.tv_nsec/1000
+            (tv_end.tv_sec - tv_begin.tv_sec)*1000000 +
+            tv_end.tv_nsec/1000 - tv_begin.tv_nsec/1000
         );
+        tv_begin = tv_end;
     }
 }
