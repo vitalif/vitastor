@@ -75,15 +75,13 @@ void epoll_manager_t::handle_epoll_events()
     ringloop->submit();
     int nfds;
     epoll_event events[MAX_EPOLL_EVENTS];
-restart:
-    nfds = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, 0);
-    for (int i = 0; i < nfds; i++)
+    do
     {
-        auto & cb = epoll_handlers[events[i].data.fd];
-        cb(events[i].data.fd, events[i].events);
-    }
-    if (nfds == MAX_EPOLL_EVENTS)
-    {
-        goto restart;
-    }
+        nfds = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, 0);
+        for (int i = 0; i < nfds; i++)
+        {
+            auto & cb = epoll_handlers[events[i].data.fd];
+            cb(events[i].data.fd, events[i].events);
+        }
+    } while (nfds == MAX_EPOLL_EVENTS);
 }

@@ -192,6 +192,7 @@ public:
     void handle_peer_epoll(int peer_fd, int epoll_events);
     void read_requests();
     void send_replies();
+    void accept_connections(int listen_fd);
 
 protected:
     void try_connect_peer(uint64_t osd_num);

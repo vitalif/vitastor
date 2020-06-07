@@ -2,7 +2,7 @@ BLOCKSTORE_OBJS := allocator.o blockstore.o blockstore_impl.o blockstore_init.o 
 	blockstore_write.o blockstore_sync.o blockstore_stable.o blockstore_rollback.o blockstore_flush.o crc32c.o ringloop.o
 # -fsanitize=address
 CXXFLAGS := -g -O3 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fPIC -fdiagnostics-color=always
-all: libfio_blockstore.so osd libfio_sec_osd.so libfio_cluster.so stub_osd stub_bench osd_test dump_journal
+all: libfio_blockstore.so osd libfio_sec_osd.so libfio_cluster.so stub_osd stub_uring_osd stub_bench osd_test dump_journal
 clean:
 	rm -f *.o
 
@@ -17,15 +17,19 @@ libfio_blockstore.so: ./libblockstore.so fio_engine.o json11.o
 OSD_OBJS := osd.o osd_secondary.o msgr_receive.o msgr_send.o osd_peering.o osd_flush.o osd_peering_pg.o \
 	osd_primary.o osd_primary_subops.o etcd_state_client.o messenger.o osd_cluster.o http_client.o pg_states.o \
 	osd_rmw.o json11.o base64.o timerfd_manager.o
-
 osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h $(OSD_OBJS)
-	g++ $(CXXFLAGS) -o osd osd_main.cpp $(OSD_OBJS) ./libblockstore.so -ltcmalloc_minimal -luring
-stub_osd: stub_osd.cpp osd_ops.h rw_blocking.o
-	g++ $(CXXFLAGS) -o stub_osd stub_osd.cpp rw_blocking.o -ltcmalloc_minimal
+	g++ $(CXXFLAGS) -o $@ osd_main.cpp $(OSD_OBJS) ./libblockstore.so -ltcmalloc_minimal -luring
+
+stub_osd: stub_osd.o rw_blocking.o
+	g++ $(CXXFLAGS) -o $@ stub_osd.o rw_blocking.o -ltcmalloc_minimal
+
+STUB_URING_OSD_OBJS := stub_uring_osd.o epoll_manager.o messenger.o msgr_send.o msgr_receive.o ringloop.o timerfd_manager.o json11.o
+stub_uring_osd: $(STUB_URING_OSD_OBJS)
+	g++ $(CXXFLAGS) -o $@ -ltcmalloc_minimal $(STUB_URING_OSD_OBJS) -luring
 stub_bench: stub_bench.cpp osd_ops.h rw_blocking.o
-	g++ $(CXXFLAGS) -o stub_bench stub_bench.cpp rw_blocking.o -ltcmalloc_minimal
+	g++ $(CXXFLAGS) -o $@ stub_bench.cpp rw_blocking.o -ltcmalloc_minimal
 osd_test: osd_test.cpp osd_ops.h rw_blocking.o
-	g++ $(CXXFLAGS) -o osd_test osd_test.cpp rw_blocking.o -ltcmalloc_minimal
+	g++ $(CXXFLAGS) -o $@ osd_test.cpp rw_blocking.o -ltcmalloc_minimal
 osd_peering_pg_test: osd_peering_pg_test.cpp osd_peering_pg.o
 	g++ $(CXXFLAGS) -o $@ $< osd_peering_pg.o -ltcmalloc_minimal
 
@@ -134,6 +138,8 @@ rw_blocking.o: rw_blocking.cpp rw_blocking.h
 stub_bench.o: stub_bench.cpp object_id.h osd_id.h osd_ops.h rw_blocking.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 stub_osd.o: stub_osd.cpp object_id.h osd_id.h osd_ops.h rw_blocking.h
+	g++ $(CXXFLAGS) -c -o $@ $<
+stub_uring_osd.o: stub_uring_osd.cpp epoll_manager.h json11/json11.hpp messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 test.o: test.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<

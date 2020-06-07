@@ -149,7 +149,6 @@ class osd_t
 
     // event loop, socket read/write
     void loop();
-    void accept_connections();
     void set_fd_handler(int fd, std::function<void(int, int)> handler);
     void handle_epoll_events();
 

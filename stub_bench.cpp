@@ -30,15 +30,30 @@ static uint64_t sync_sum = 0, sync_count = 0;
 
 void handle_sigint(int sig)
 {
-    printf("4k randwrite: %lu us avg\n", write_sum/write_count);
-    printf("sync: %lu us avg\n", sync_sum/sync_count);
+    printf("4k randwrite: %lu us avg\n", write_count ? write_sum/write_count : 0);
+    printf("sync: %lu us avg\n", sync_count ? sync_sum/sync_count : 0);
     exit(0);
 }
 
 int main(int narg, char *args[])
 {
+    if (narg < 2)
+    {
+        printf("USAGE: %s SERVER_IP [PORT]\n", args[0]);
+        return 1;
+    }
+    int port = 11203;
+    if (narg >= 3)
+    {
+        port = atoi(args[2]);
+        if (port <= 0 || port >= 65536)
+        {
+            printf("Bad port number\n");
+            return 1;
+        }
+    }
     signal(SIGINT, handle_sigint);
-    int peer_fd = connect_stub("127.0.0.1", 11203);
+    int peer_fd = connect_stub(args[1], port);
     run_bench(peer_fd);
     close(peer_fd);
     return 0;
