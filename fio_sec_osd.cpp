@@ -150,7 +150,7 @@ static int sec_init(struct thread_data *td)
 {
     sec_options *o = (sec_options*)td->eo;
     sec_data *bsd = (sec_data*)td->io_ops_data;
-    bsd->block_order = o->block_order;
+    bsd->block_order = o->block_order == 0 ? 17 : o->block_order;
     bsd->block_size = 1 << o->block_order;
 
     struct sockaddr_in addr;
