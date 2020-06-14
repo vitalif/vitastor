@@ -9,6 +9,7 @@
 #define DEFAULT_PG_STRIPE_SIZE 4*1024*1024
 #define DEFAULT_DISK_ALIGNMENT 4096
 #define DEFAULT_BITMAP_GRANULARITY 4096
+#define DEFAULT_CLIENT_DIRTY_LIMIT 32*1024*1024
 
 struct cluster_op_t;
 
@@ -35,6 +36,8 @@ struct cluster_op_t
     void *buf;
     std::function<void(cluster_op_t*)> callback;
 protected:
+    cluster_op_t *orig_op = NULL;
+    bool is_internal = false;
     bool needs_reslice = false;
     int sent_count = 0, done_count = 0;
     std::vector<cluster_op_part_t> parts;
@@ -53,17 +56,24 @@ class cluster_client_t
     uint64_t bs_bitmap_granularity = 0;
     uint64_t pg_count = 0;
     bool immediate_commit = false;
-    bool inmemory_commit = false;
-    uint64_t inmemory_dirty_limit = 32*1024*1024;
+    // FIXME: Implement inmemory_commit mode. Note that it requires to return overlapping reads from memory.
+    uint64_t client_dirty_limit = 0;
     int log_level;
+    int up_wait_retry_interval = 500; // ms
 
     uint64_t op_id = 1;
     etcd_state_client_t st_cli;
     osd_messenger_t msgr;
-    std::set<cluster_op_t*> sent_ops, unsent_ops;
+    // operations currently in progress
+    std::set<cluster_op_t*> cur_ops;
+    int retry_timeout_id = 0;
     // unsynced operations are copied in memory to allow replay when cluster isn't in the immediate_commit mode
-    std::vector<cluster_op_t*> unsynced_ops;
-    uint64_t unsynced_bytes = 0;
+    // unsynced_writes are replayed in any order (because only the SYNC operation guarantees ordering)
+    std::vector<cluster_op_t*> unsynced_writes;
+    cluster_op_t* cur_sync = NULL;
+    std::vector<cluster_op_t*> next_writes;
+    std::vector<cluster_op_t*> offline_ops;
+    uint64_t queued_bytes = 0;
 
 public:
     cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config);
@@ -71,10 +81,16 @@ public:
 
 protected:
     void continue_ops();
-    void on_load_config_hook(json11::Json::object & cfg);
+    void on_load_config_hook(json11::Json::object & config);
     void on_load_pgs_hook(bool success);
     void on_change_hook(json11::Json::object & changes);
     void on_change_osd_state_hook(uint64_t peer_osd);
+    void continue_rw(cluster_op_t *op);
+    void slice_rw(cluster_op_t *op);
     bool try_send(cluster_op_t *op, cluster_op_part_t *part);
+    void execute_sync(cluster_op_t *op);
+    void continue_sync();
+    void finish_sync();
+    void send_sync(cluster_op_t *op, cluster_op_part_t *part);
     void handle_op_part(cluster_op_part_t *part);
 };

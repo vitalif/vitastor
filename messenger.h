@@ -131,7 +131,7 @@ struct osd_client_t
     std::deque<osd_op_t*> outbox;
     std::map<int, osd_op_t*> sent_ops;
 
-    // PGs dirtied by this client's primary-writes (FIXME to drop the connection)
+    // PGs dirtied by this client's primary-writes
     std::set<pg_num_t> dirty_pgs;
 
     // Write state

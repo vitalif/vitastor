@@ -133,6 +133,22 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
             it++;
     }
     dirty_pgs.erase(pg.pg_num);
+    // Drop connections of clients who have this PG in dirty_pgs
+    if (immediate_commit != IMMEDIATE_ALL)
+    {
+        std::vector<int> to_stop;
+        for (auto & cp: c_cli.clients)
+        {
+            if (cp.second.dirty_pgs.find(pg_num) != cp.second.dirty_pgs.end())
+            {
+                to_stop.push_back(cp.first);
+            }
+        }
+        for (auto peer_fd: to_stop)
+        {
+            c_cli.stop_client(peer_fd);
+        }
+    }
     // Calculate current write OSD set
     pg.pg_cursize = 0;
     pg.cur_set.resize(pg.target_set.size());
