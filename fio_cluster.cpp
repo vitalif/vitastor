@@ -211,8 +211,16 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
 
     if (opt->trace)
     {
-        printf("+++ %s # %d\n", io->ddir == DDIR_READ ? "READ" :
-            (io->ddir == DDIR_WRITE ? "WRITE" : "SYNC"), n);
+        if (io->ddir == DDIR_SYNC)
+        {
+            printf("+++ SYNC # %d\n", n);
+        }
+        else
+        {
+            printf("+++ %s # %d 0x%llx+%llx\n",
+                io->ddir == DDIR_READ ? "READ" : "WRITE",
+                n, io->offset, io->xfer_buflen);
+        }
     }
 
     io->error = 0;

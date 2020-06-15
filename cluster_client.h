@@ -64,6 +64,7 @@ class cluster_client_t
     uint64_t op_id = 1;
     etcd_state_client_t st_cli;
     osd_messenger_t msgr;
+    ring_consumer_t consumer;
     // operations currently in progress
     std::set<cluster_op_t*> cur_ops;
     int retry_timeout_id = 0;
