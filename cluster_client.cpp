@@ -39,6 +39,13 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
             continue_ops();
         }
     };
+    msgr.exec_op = [this](osd_op_t *op)
+    {
+        // Garbage in
+        printf("Incoming garbage from peer %d\n", op->peer_fd);
+        msgr.stop_client(op->peer_fd);
+        delete op;
+    };
 
     st_cli.tfd = tfd;
     st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };

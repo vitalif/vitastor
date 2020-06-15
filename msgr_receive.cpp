@@ -33,6 +33,7 @@ void osd_messenger_t::read_requests()
 
 bool osd_messenger_t::handle_read(int result, int peer_fd)
 {
+    bool ret = false;
     auto cl_it = clients.find(peer_fd);
     if (cl_it != clients.end())
     {
@@ -79,7 +80,12 @@ bool osd_messenger_t::handle_read(int result, int peer_fd)
                         cl.read_buf += remain;
                         remain = 0;
                         if (cl.read_remaining <= 0)
-                            handle_finished_read(cl);
+                        {
+                            if (!handle_finished_read(cl))
+                            {
+                                goto fin;
+                            }
+                        }
                     }
                     else
                     {
@@ -88,7 +94,10 @@ bool osd_messenger_t::handle_read(int result, int peer_fd)
                         remain -= cl.read_remaining;
                         cl.read_remaining = 0;
                         cl.read_buf = NULL;
-                        handle_finished_read(cl);
+                        if (!handle_finished_read(cl))
+                        {
+                            goto fin;
+                        }
                     }
                 }
             }
@@ -104,19 +113,25 @@ bool osd_messenger_t::handle_read(int result, int peer_fd)
             }
             if (result >= cl.read_iov.iov_len)
             {
-                return true;
+                ret = true;
             }
         }
     }
-    return false;
+fin:
+    for (auto cb: set_immediate)
+    {
+        cb();
+    }
+    set_immediate.clear();
+    return ret;
 }
 
-void osd_messenger_t::handle_finished_read(osd_client_t & cl)
+bool osd_messenger_t::handle_finished_read(osd_client_t & cl)
 {
     if (cl.read_state == CL_READ_HDR)
     {
         if (cl.read_op->req.hdr.magic == SECONDARY_OSD_REPLY_MAGIC)
-            handle_reply_hdr(&cl);
+            return handle_reply_hdr(&cl);
         else
             handle_op_hdr(&cl);
     }
@@ -124,7 +139,7 @@ void osd_messenger_t::handle_finished_read(osd_client_t & cl)
     {
         // Operation is ready
         cl.received_ops.push_back(cl.read_op);
-        exec_op(cl.read_op);
+        set_immediate.push_back([this, op = cl.read_op]() { exec_op(op); });
         cl.read_op = NULL;
         cl.read_state = 0;
     }
@@ -151,12 +166,16 @@ void osd_messenger_t::handle_finished_read(osd_client_t & cl)
             (tv_end.tv_sec - request->tv_begin.tv_sec)*1000000 +
             (tv_end.tv_nsec - request->tv_begin.tv_nsec)/1000
         );
-        request->callback(request);
+        set_immediate.push_back([this, request]()
+        {
+            std::function<void(osd_op_t*)>(request->callback)(request);
+        });
     }
     else
     {
         assert(0);
     }
+    return true;
 }
 
 void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
@@ -205,11 +224,11 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
         cl->read_op = NULL;
         cl->read_state = 0;
         cl->received_ops.push_back(cur_op);
-        exec_op(cur_op);
+        set_immediate.push_back([this, cur_op]() { exec_op(cur_op); });
     }
 }
 
-void osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
+bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
 {
     osd_op_t *cur_op = cl->read_op;
     auto req_it = cl->sent_ops.find(cur_op->req.hdr.id);
@@ -218,7 +237,7 @@ void osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         // Command out of sync. Drop connection
         printf("Client %d command out of sync: id %lu\n", cl->peer_fd, cur_op->req.hdr.id);
         stop_client(cl->peer_fd);
-        return;
+        return false;
     }
     osd_op_t *op = req_it->second;
     memcpy(op->reply.buf, cur_op->req.buf, OSD_PACKET_SIZE);
@@ -267,7 +286,11 @@ void osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
             (tv_end.tv_sec - op->tv_begin.tv_sec)*1000000 +
             (tv_end.tv_nsec - op->tv_begin.tv_nsec)/1000
         );
-        // Copy lambda to be unaffected by `delete op`
-        std::function<void(osd_op_t*)>(op->callback)(op);
+        set_immediate.push_back([this, op]()
+        {
+            // Copy lambda to be unaffected by `delete op`
+            std::function<void(osd_op_t*)>(op->callback)(op);
+        });
     }
+    return true;
 }

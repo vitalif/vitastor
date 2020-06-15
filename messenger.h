@@ -179,6 +179,7 @@ struct osd_messenger_t
     std::map<int, osd_client_t> clients;
     std::vector<int> read_ready_clients;
     std::vector<int> write_ready_clients;
+    std::vector<std::function<void()>> set_immediate;
 
     // op statistics
     osd_op_stats_t stats;
@@ -207,7 +208,7 @@ protected:
     void handle_send(int result, int peer_fd);
 
     bool handle_read(int result, int peer_fd);
-    void handle_finished_read(osd_client_t & cl);
+    bool handle_finished_read(osd_client_t & cl);
     void handle_op_hdr(osd_client_t *cl);
-    void handle_reply_hdr(osd_client_t *cl);
+    bool handle_reply_hdr(osd_client_t *cl);
 };

@@ -100,7 +100,6 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
             // Fast happy-path
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_minsize, 0);
             submit_primary_subops(SUBMIT_READ, pg.pg_minsize, pg.cur_set.data(), cur_op);
-            cur_op->send_list.push_back(cur_op->buf, cur_op->req.rw.len);
             op_data->st = 1;
         }
         else
@@ -149,6 +148,10 @@ resume_2:
                 );
             }
         }
+    }
+    else
+    {
+        cur_op->send_list.push_back(cur_op->buf, cur_op->req.rw.len);
     }
     finish_op(cur_op, cur_op->req.rw.len);
 }
