@@ -183,8 +183,7 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
         // Peer
         int peer_fd = c_cli.osd_peer_fds[peer_osd];
         op->op_type = OSD_OP_OUT;
-        op->send_list.push_back(op->req.buf, OSD_PACKET_SIZE);
-        op->send_list.push_back(op->buf, count * sizeof(obj_ver_id));
+        op->iov.push_back(op->buf, count * sizeof(obj_ver_id));
         op->peer_fd = peer_fd;
         op->req = {
             .sec_stab = {

@@ -16,7 +16,7 @@ void osd_t::secondary_op_callback(osd_op_t *op)
     if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ &&
         op->bs_op->retval > 0)
     {
-        op->send_list.push_back(op->buf, op->bs_op->retval);
+        op->iov.push_back(op->buf, op->bs_op->retval);
     }
     else if (op->req.hdr.opcode == OSD_OP_SECONDARY_LIST)
     {
@@ -24,7 +24,7 @@ void osd_t::secondary_op_callback(osd_op_t *op)
         op->buf = op->bs_op->buf;
         if (op->bs_op->retval > 0)
         {
-            op->send_list.push_back(op->buf, op->bs_op->retval * sizeof(obj_ver_id));
+            op->iov.push_back(op->buf, op->bs_op->retval * sizeof(obj_ver_id));
         }
         op->reply.sec_list.stable_count = op->bs_op->version;
     }
@@ -105,7 +105,7 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
     std::string cfg_str = json11::Json(config).dump();
     cur_op->buf = malloc(cfg_str.size()+1);
     memcpy(cur_op->buf, cfg_str.c_str(), cfg_str.size()+1);
-    cur_op->send_list.push_back(cur_op->buf, cfg_str.size()+1);
+    cur_op->iov.push_back(cur_op->buf, cfg_str.size()+1);
     finish_op(cur_op, cfg_str.size()+1);
 }
 

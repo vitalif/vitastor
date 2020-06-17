@@ -446,15 +446,7 @@ bool cluster_client_t::try_send(cluster_op_t *op, cluster_op_part_t *part)
                     handle_op_part(part);
                 },
             };
-            part->op.send_list.push_back(part->op.req.buf, OSD_PACKET_SIZE);
-            if (op->opcode == OSD_OP_WRITE)
-            {
-                part->op.send_list.push_back(part->buf, part->len);
-            }
-            else /* if (op->opcode == OSD_OP_READ) */
-            {
-                part->op.buf = part->buf;
-            }
+            part->op.iov.push_back(part->buf, part->len);
             msgr.outbox_push(&part->op);
             return true;
         }
@@ -606,7 +598,6 @@ void cluster_client_t::send_sync(cluster_op_t *op, cluster_op_part_t *part)
             handle_op_part(part);
         },
     };
-    part->op.send_list.push_back(part->op.req.buf, OSD_PACKET_SIZE);
     msgr.outbox_push(&part->op);
 }
 

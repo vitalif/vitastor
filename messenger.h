@@ -31,13 +31,32 @@
 #define DEFAULT_PEER_CONNECT_INTERVAL 5
 #define DEFAULT_PEER_CONNECT_TIMEOUT 5
 
+// Kind of a vector with small-list-optimisation
 struct osd_op_buf_list_t
 {
-    int count = 0, alloc = 0, sent = 0;
+    int count = 0, alloc = OSD_OP_INLINE_BUF_COUNT, done = 0;
     iovec *buf = NULL;
     iovec inline_buf[OSD_OP_INLINE_BUF_COUNT];
 
-    ~osd_op_buf_list_t()
+    inline osd_op_buf_list_t()
+    {
+        buf = inline_buf;
+    }
+
+    inline osd_op_buf_list_t(const osd_op_buf_list_t & other)
+    {
+        buf = inline_buf;
+        append(other);
+    }
+
+    inline osd_op_buf_list_t & operator = (const osd_op_buf_list_t & other)
+    {
+        reset();
+        append(other);
+        return *this;
+    }
+
+    inline ~osd_op_buf_list_t()
     {
         if (buf && buf != inline_buf)
         {
@@ -45,26 +64,50 @@ struct osd_op_buf_list_t
         }
     }
 
+    inline void reset()
+    {
+        count = 0;
+        done = 0;
+    }
+
     inline iovec* get_iovec()
     {
-        return (buf ? buf : inline_buf) + sent;
+        return buf + done;
     }
 
     inline int get_size()
     {
-        return count - sent;
+        return count - done;
+    }
+
+    inline void append(const osd_op_buf_list_t & other)
+    {
+        if (count+other.count > alloc)
+        {
+            if (buf == inline_buf)
+            {
+                int old = alloc;
+                alloc = (((count+other.count+15)/16)*16);
+                buf = (iovec*)malloc(sizeof(iovec) * alloc);
+                memcpy(buf, inline_buf, sizeof(iovec) * old);
+            }
+            else
+            {
+                alloc = (((count+other.count+15)/16)*16);
+                buf = (iovec*)realloc(buf, sizeof(iovec) * alloc);
+            }
+        }
+        for (int i = 0; i < other.count; i++)
+        {
+            buf[count++] = other.buf[i];
+        }
     }
 
     inline void push_back(void *nbuf, size_t len)
     {
         if (count >= alloc)
         {
-            if (!alloc)
-            {
-                alloc = OSD_OP_INLINE_BUF_COUNT;
-                buf = inline_buf;
-            }
-            else if (buf == inline_buf)
+            if (buf == inline_buf)
             {
                 int old = alloc;
                 alloc = ((alloc/16)*16 + 1);
@@ -78,6 +121,25 @@ struct osd_op_buf_list_t
             }
         }
         buf[count++] = { .iov_base = nbuf, .iov_len = len };
+    }
+
+    inline void eat(int result)
+    {
+        while (result > 0 && done < count)
+        {
+            iovec & iov = buf[done];
+            if (iov.iov_len <= result)
+            {
+                result -= iov.iov_len;
+                done++;
+            }
+            else
+            {
+                iov.iov_len -= result;
+                iov.iov_base += result;
+                break;
+            }
+        }
     }
 };
 
@@ -98,7 +160,7 @@ struct osd_op_t
     osd_primary_op_data_t* op_data = NULL;
     std::function<void(osd_op_t*)> callback;
 
-    osd_op_buf_list_t send_list;
+    osd_op_buf_list_t iov;
 
     ~osd_op_t();
 };
@@ -117,12 +179,11 @@ struct osd_client_t
     // Read state
     int read_ready = 0;
     osd_op_t *read_op = NULL;
-    int read_reply_id = 0;
     iovec read_iov;
     msghdr read_msg;
-    void *read_buf = NULL;
     int read_remaining = 0;
     int read_state = 0;
+    osd_op_buf_list_t recv_list;
 
     // Incoming operations
     std::vector<osd_op_t*> received_ops;
@@ -138,6 +199,7 @@ struct osd_client_t
     osd_op_t *write_op = NULL;
     msghdr write_msg;
     int write_state = 0;
+    osd_op_buf_list_t send_list;
 };
 
 struct osd_wanted_peer_t
@@ -211,4 +273,5 @@ protected:
     bool handle_finished_read(osd_client_t & cl);
     void handle_op_hdr(osd_client_t *cl);
     bool handle_reply_hdr(osd_client_t *cl);
+    void handle_reply_ready(osd_op_t *op);
 };

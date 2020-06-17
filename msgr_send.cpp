@@ -80,10 +80,29 @@ bool osd_messenger_t::try_send(osd_client_t & cl)
             {
                 stats.op_stat_bytes[cl.write_op->req.hdr.opcode] += cl.write_op->req.sec_rw.len;
             }
+            cl.send_list.push_back(cl.write_op->reply.buf, OSD_PACKET_SIZE);
+            if (cl.write_op->req.hdr.opcode == OSD_OP_READ ||
+                cl.write_op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
+                cl.write_op->req.hdr.opcode == OSD_OP_SECONDARY_LIST ||
+                cl.write_op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)
+            {
+                cl.send_list.append(cl.write_op->iov);
+            }
+        }
+        else
+        {
+            cl.send_list.push_back(cl.write_op->req.buf, OSD_PACKET_SIZE);
+            if (cl.write_op->req.hdr.opcode == OSD_OP_WRITE ||
+                cl.write_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE ||
+                cl.write_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
+                cl.write_op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
+            {
+                cl.send_list.append(cl.write_op->iov);
+            }
         }
     }
-    cl.write_msg.msg_iov = cl.write_op->send_list.get_iovec();
-    cl.write_msg.msg_iovlen = cl.write_op->send_list.get_size();
+    cl.write_msg.msg_iov = cl.send_list.get_iovec();
+    cl.write_msg.msg_iovlen = cl.send_list.get_size();
     data->callback = [this, peer_fd](ring_data_t *data) { handle_send(data->res, peer_fd); };
     my_uring_prep_sendmsg(sqe, peer_fd, &cl.write_msg, 0);
     return true;
@@ -118,28 +137,14 @@ void osd_messenger_t::handle_send(int result, int peer_fd)
         }
         if (result >= 0)
         {
-            osd_op_t *cur_op = cl.write_op;
-            while (result > 0 && cur_op->send_list.sent < cur_op->send_list.count)
-            {
-                iovec & iov = cur_op->send_list.buf[cur_op->send_list.sent];
-                if (iov.iov_len <= result)
-                {
-                    result -= iov.iov_len;
-                    cur_op->send_list.sent++;
-                }
-                else
-                {
-                    iov.iov_len -= result;
-                    iov.iov_base += result;
-                    break;
-                }
-            }
-            if (cur_op->send_list.sent >= cur_op->send_list.count)
+            cl.send_list.eat(result);
+            if (cl.send_list.done >= cl.send_list.count)
             {
                 // Done
-                if (cur_op->op_type == OSD_OP_IN)
+                cl.send_list.reset();
+                if (cl.write_op->op_type == OSD_OP_IN)
                 {
-                    delete cur_op;
+                    delete cl.write_op;
                 }
                 else
                 {

@@ -105,12 +105,11 @@ void stub_exec_op(osd_messenger_t *msgr, osd_op_t *op)
     op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
     op->reply.hdr.id = op->req.hdr.id;
     op->reply.hdr.opcode = op->req.hdr.opcode;
-    op->send_list.push_back(op->reply.buf, OSD_PACKET_SIZE);
     if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ)
     {
         op->reply.hdr.retval = op->req.sec_rw.len;
         op->buf = malloc(op->req.sec_rw.len);
-        op->send_list.push_back(op->buf, op->req.sec_rw.len);
+        op->iov.push_back(op->buf, op->req.sec_rw.len);
     }
     else if (op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
     {

@@ -289,7 +289,6 @@ void osd_t::exec_op(osd_op_t *cur_op)
         return;
     }
     inflight_ops++;
-    cur_op->send_list.push_back(cur_op->reply.buf, OSD_PACKET_SIZE);
     if (cur_op->req.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
         cur_op->req.hdr.opcode < OSD_OP_MIN || cur_op->req.hdr.opcode > OSD_OP_MAX ||
         (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ || cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE) &&

@@ -214,7 +214,6 @@ void osd_messenger_t::check_peer_config(osd_client_t & cl)
 {
     osd_op_t *op = new osd_op_t();
     op->op_type = OSD_OP_OUT;
-    op->send_list.push_back(op->req.buf, OSD_PACKET_SIZE);
     op->peer_fd = cl.peer_fd;
     op->req = {
         .show_conf = {

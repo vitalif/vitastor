@@ -142,7 +142,7 @@ resume_2:
             if (stripes[role].req_end != 0)
             {
                 // Send buffer in parts to avoid copying
-                cur_op->send_list.push_back(
+                cur_op->iov.push_back(
                     stripes[role].read_buf + (stripes[role].req_start - stripes[role].read_start),
                     stripes[role].req_end - stripes[role].req_start
                 );
@@ -151,7 +151,7 @@ resume_2:
     }
     else
     {
-        cur_op->send_list.push_back(cur_op->buf, cur_op->req.rw.len);
+        cur_op->iov.push_back(cur_op->buf, cur_op->req.rw.len);
     }
     finish_op(cur_op, cur_op->req.rw.len);
 }

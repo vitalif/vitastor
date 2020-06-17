@@ -13,18 +13,20 @@ void osd_messenger_t::read_requests()
             return;
         }
         ring_data_t* data = ((ring_data_t*)sqe->user_data);
-        if (!cl.read_op || cl.read_remaining < receive_buffer_size)
+        if (cl.read_remaining < receive_buffer_size)
         {
             cl.read_iov.iov_base = cl.in_buf;
             cl.read_iov.iov_len = receive_buffer_size;
+            cl.read_msg.msg_iov = &cl.read_iov;
+            cl.read_msg.msg_iovlen = 1;
         }
         else
         {
-            cl.read_iov.iov_base = cl.read_buf;
+            cl.read_iov.iov_base = 0;
             cl.read_iov.iov_len = cl.read_remaining;
+            cl.read_msg.msg_iov = cl.recv_list.get_iovec();
+            cl.read_msg.msg_iovlen = cl.recv_list.get_size();
         }
-        cl.read_msg.msg_iov = &cl.read_iov;
-        cl.read_msg.msg_iovlen = 1;
         data->callback = [this, peer_fd](ring_data_t *data) { handle_read(data->res, peer_fd); };
         my_uring_prep_recvmsg(sqe, peer_fd, &cl.read_msg, 0);
     }
@@ -69,31 +71,33 @@ bool osd_messenger_t::handle_read(int result, int peer_fd)
                         cl.read_op = new osd_op_t;
                         cl.read_op->peer_fd = peer_fd;
                         cl.read_op->op_type = OSD_OP_IN;
-                        cl.read_buf = cl.read_op->req.buf;
+                        cl.recv_list.push_back(cl.read_op->req.buf, OSD_PACKET_SIZE);
                         cl.read_remaining = OSD_PACKET_SIZE;
                         cl.read_state = CL_READ_HDR;
                     }
-                    if (cl.read_remaining > remain)
+                    while (cl.recv_list.done < cl.recv_list.count && remain > 0)
                     {
-                        memcpy(cl.read_buf, curbuf, remain);
-                        cl.read_remaining -= remain;
-                        cl.read_buf += remain;
-                        remain = 0;
-                        if (cl.read_remaining <= 0)
+                        iovec* cur = cl.recv_list.get_iovec();
+                        if (cur->iov_len > remain)
                         {
-                            if (!handle_finished_read(cl))
-                            {
-                                goto fin;
-                            }
+                            memcpy(cur->iov_base, curbuf, remain);
+                            cl.read_remaining -= remain;
+                            cur->iov_len -= remain;
+                            cur->iov_base += remain;
+                            remain = 0;
+                        }
+                        else
+                        {
+                            memcpy(cur->iov_base, curbuf, cur->iov_len);
+                            curbuf += cur->iov_len;
+                            cl.read_remaining -= cur->iov_len;
+                            remain -= cur->iov_len;
+                            cur->iov_len = 0;
+                            cl.recv_list.done++;
                         }
                     }
-                    else
+                    if (cl.recv_list.done >= cl.recv_list.count)
                     {
-                        memcpy(cl.read_buf, curbuf, cl.read_remaining);
-                        curbuf += cl.read_remaining;
-                        remain -= cl.read_remaining;
-                        cl.read_remaining = 0;
-                        cl.read_buf = NULL;
                         if (!handle_finished_read(cl))
                         {
                             goto fin;
@@ -105,8 +109,8 @@ bool osd_messenger_t::handle_read(int result, int peer_fd)
             {
                 // Long data
                 cl.read_remaining -= result;
-                cl.read_buf += result;
-                if (cl.read_remaining <= 0)
+                cl.recv_list.eat(result);
+                if (cl.recv_list.done >= cl.recv_list.count)
                 {
                     handle_finished_read(cl);
                 }
@@ -128,6 +132,7 @@ fin:
 
 bool osd_messenger_t::handle_finished_read(osd_client_t & cl)
 {
+    cl.recv_list.reset();
     if (cl.read_state == CL_READ_HDR)
     {
         if (cl.read_op->req.hdr.magic == SECONDARY_OSD_REPLY_MAGIC)
@@ -146,30 +151,9 @@ bool osd_messenger_t::handle_finished_read(osd_client_t & cl)
     else if (cl.read_state == CL_READ_REPLY_DATA)
     {
         // Reply is ready
-        auto req_it = cl.sent_ops.find(cl.read_reply_id);
-        osd_op_t *request = req_it->second;
-        cl.sent_ops.erase(req_it);
-        cl.read_reply_id = 0;
-        delete cl.read_op;
+        handle_reply_ready(cl.read_op);
         cl.read_op = NULL;
         cl.read_state = 0;
-        // Measure subop latency
-        timespec tv_end;
-        clock_gettime(CLOCK_REALTIME, &tv_end);
-        stats.subop_stat_count[request->req.hdr.opcode]++;
-        if (!stats.subop_stat_count[request->req.hdr.opcode])
-        {
-            stats.subop_stat_count[request->req.hdr.opcode]++;
-            stats.subop_stat_sum[request->req.hdr.opcode] = 0;
-        }
-        stats.subop_stat_sum[request->req.hdr.opcode] += (
-            (tv_end.tv_sec - request->tv_begin.tv_sec)*1000000 +
-            (tv_end.tv_nsec - request->tv_begin.tv_nsec)/1000
-        );
-        set_immediate.push_back([this, request]()
-        {
-            std::function<void(osd_op_t*)>(request->callback)(request);
-        });
     }
     else
     {
@@ -215,82 +199,92 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
     if (cl->read_remaining > 0)
     {
         // Read data
-        cl->read_buf = cur_op->buf;
+        cl->recv_list.push_back(cur_op->buf, cl->read_remaining);
         cl->read_state = CL_READ_DATA;
     }
     else
     {
         // Operation is ready
-        cl->read_op = NULL;
-        cl->read_state = 0;
         cl->received_ops.push_back(cur_op);
         set_immediate.push_back([this, cur_op]() { exec_op(cur_op); });
+        cl->read_op = NULL;
+        cl->read_state = 0;
     }
 }
 
 bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
 {
-    osd_op_t *cur_op = cl->read_op;
-    auto req_it = cl->sent_ops.find(cur_op->req.hdr.id);
+    auto req_it = cl->sent_ops.find(cl->read_op->req.hdr.id);
     if (req_it == cl->sent_ops.end())
     {
         // Command out of sync. Drop connection
-        printf("Client %d command out of sync: id %lu\n", cl->peer_fd, cur_op->req.hdr.id);
+        printf("Client %d command out of sync: id %lu\n", cl->peer_fd, cl->read_op->req.hdr.id);
         stop_client(cl->peer_fd);
         return false;
     }
     osd_op_t *op = req_it->second;
-    memcpy(op->reply.buf, cur_op->req.buf, OSD_PACKET_SIZE);
+    memcpy(op->reply.buf, cl->read_op->req.buf, OSD_PACKET_SIZE);
+    cl->sent_ops.erase(req_it);
     if ((op->reply.hdr.opcode == OSD_OP_SECONDARY_READ || op->reply.hdr.opcode == OSD_OP_READ) &&
         op->reply.hdr.retval > 0)
     {
         // Read data. In this case we assume that the buffer is preallocated by the caller (!)
-        assert(op->buf);
+        assert(op->iov.count > 0);
+        cl->recv_list.append(op->iov);
+        delete cl->read_op;
+        cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
-        cl->read_reply_id = op->req.hdr.id;
-        cl->read_buf = op->buf;
         cl->read_remaining = op->reply.hdr.retval;
     }
     else if (op->reply.hdr.opcode == OSD_OP_SECONDARY_LIST && op->reply.hdr.retval > 0)
     {
-        op->buf = memalign(MEM_ALIGNMENT, sizeof(obj_ver_id) * op->reply.hdr.retval);
+        assert(!op->iov.count);
+        delete cl->read_op;
+        cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
-        cl->read_reply_id = op->req.hdr.id;
-        cl->read_buf = op->buf;
         cl->read_remaining = sizeof(obj_ver_id) * op->reply.hdr.retval;
+        op->buf = memalign(MEM_ALIGNMENT, cl->read_remaining);
+        cl->recv_list.push_back(op->buf, cl->read_remaining);
     }
     else if (op->reply.hdr.opcode == OSD_OP_SHOW_CONFIG && op->reply.hdr.retval > 0)
     {
-        op->buf = malloc(op->reply.hdr.retval);
+        assert(!op->iov.count);
+        delete cl->read_op;
+        cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
-        cl->read_reply_id = op->req.hdr.id;
-        cl->read_buf = op->buf;
         cl->read_remaining = op->reply.hdr.retval;
+        op->buf = malloc(op->reply.hdr.retval);
+        cl->recv_list.push_back(op->buf, op->reply.hdr.retval);
     }
     else
     {
-        delete cl->read_op;
-        cl->read_state = 0;
-        cl->read_op = NULL;
-        cl->sent_ops.erase(req_it);
-        // Measure subop latency
-        timespec tv_end;
-        clock_gettime(CLOCK_REALTIME, &tv_end);
-        stats.subop_stat_count[op->req.hdr.opcode]++;
-        if (!stats.subop_stat_count[op->req.hdr.opcode])
-        {
-            stats.subop_stat_count[op->req.hdr.opcode]++;
-            stats.subop_stat_sum[op->req.hdr.opcode] = 0;
-        }
-        stats.subop_stat_sum[op->req.hdr.opcode] += (
-            (tv_end.tv_sec - op->tv_begin.tv_sec)*1000000 +
-            (tv_end.tv_nsec - op->tv_begin.tv_nsec)/1000
-        );
-        set_immediate.push_back([this, op]()
-        {
-            // Copy lambda to be unaffected by `delete op`
-            std::function<void(osd_op_t*)>(op->callback)(op);
-        });
+        // It's fine to reuse cl->read_op for the next reply
+        handle_reply_ready(op);
+        cl->recv_list.push_back(cl->read_op->req.buf, OSD_PACKET_SIZE);
+        cl->read_remaining = OSD_PACKET_SIZE;
+        cl->read_state = CL_READ_HDR;
     }
     return true;
+}
+
+void osd_messenger_t::handle_reply_ready(osd_op_t *op)
+{
+    // Measure subop latency
+    timespec tv_end;
+    clock_gettime(CLOCK_REALTIME, &tv_end);
+    stats.subop_stat_count[op->req.hdr.opcode]++;
+    if (!stats.subop_stat_count[op->req.hdr.opcode])
+    {
+        stats.subop_stat_count[op->req.hdr.opcode]++;
+        stats.subop_stat_sum[op->req.hdr.opcode] = 0;
+    }
+    stats.subop_stat_sum[op->req.hdr.opcode] += (
+        (tv_end.tv_sec - op->tv_begin.tv_sec)*1000000 +
+        (tv_end.tv_nsec - op->tv_begin.tv_nsec)/1000
+    );
+    set_immediate.push_back([this, op]()
+    {
+        // Copy lambda to be unaffected by `delete op`
+        std::function<void(osd_op_t*)>(op->callback)(op);
+    });
 }

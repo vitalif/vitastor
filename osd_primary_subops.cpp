@@ -150,7 +150,6 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
             else
             {
                 subops[i].op_type = OSD_OP_OUT;
-                subops[i].send_list.push_back(subops[i].req.buf, OSD_PACKET_SIZE);
                 subops[i].peer_fd = c_cli.osd_peer_fds.at(role_osd_num);
                 subops[i].req.sec_rw = {
                     .header = {
@@ -173,17 +172,24 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
                     subops[i].req.sec_rw.offset, subops[i].req.sec_rw.len
                 );
 #endif
-                subops[i].buf = w ? stripes[role].write_buf : stripes[role].read_buf;
-                if (w && stripes[role].write_end > 0)
+                if (w)
                 {
-                    subops[i].send_list.push_back(stripes[role].write_buf, stripes[role].write_end - stripes[role].write_start);
+                    if (stripes[role].write_end > stripes[role].write_start)
+                    {
+                        subops[i].iov.push_back(stripes[role].write_buf, stripes[role].write_end - stripes[role].write_start);
+                    }
+                }
+                else
+                {
+                    if (stripes[role].read_end > stripes[role].read_start)
+                    {
+                        subops[i].iov.push_back(stripes[role].read_buf, stripes[role].read_end - stripes[role].read_start);
+                    }
                 }
                 subops[i].callback = [cur_op, this](osd_op_t *subop)
                 {
                     int fail_fd = subop->req.hdr.opcode == OSD_OP_SECONDARY_WRITE &&
                         subop->reply.hdr.retval != subop->req.sec_rw.len ? subop->peer_fd : -1;
-                    // so it doesn't get freed
-                    subop->buf = NULL;
                     handle_primary_subop(subop, cur_op);
                     if (fail_fd >= 0)
                     {
@@ -387,7 +393,6 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_os
             else
             {
                 subops[i].op_type = OSD_OP_OUT;
-                subops[i].send_list.push_back(subops[i].req.buf, OSD_PACKET_SIZE);
                 subops[i].peer_fd = c_cli.osd_peer_fds.at(chunk.osd_num);
                 subops[i].req.sec_del = {
                     .header = {
@@ -446,7 +451,6 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
         else
         {
             subops[i].op_type = OSD_OP_OUT;
-            subops[i].send_list.push_back(subops[i].req.buf, OSD_PACKET_SIZE);
             subops[i].peer_fd = c_cli.osd_peer_fds.at(sync_osd);
             subops[i].req.sec_sync = {
                 .header = {
@@ -499,7 +503,6 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
         else
         {
             subops[i].op_type = OSD_OP_OUT;
-            subops[i].send_list.push_back(subops[i].req.buf, OSD_PACKET_SIZE);
             subops[i].peer_fd = c_cli.osd_peer_fds.at(stab_osd.osd_num);
             subops[i].req.sec_stab = {
                 .header = {
@@ -509,7 +512,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
                 },
                 .len = (uint64_t)(stab_osd.len * sizeof(obj_ver_id)),
             };
-            subops[i].send_list.push_back(op_data->unstable_writes + stab_osd.start, stab_osd.len * sizeof(obj_ver_id));
+            subops[i].iov.push_back(op_data->unstable_writes + stab_osd.start, stab_osd.len * sizeof(obj_ver_id));
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
                 int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
