@@ -1,13 +1,10 @@
 #include <sys/socket.h>
-#include <sys/epoll.h>
 #include <sys/poll.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
 #include "osd.h"
-
-#define MAX_EPOLL_EVENTS 64
 
 const char* osd_op_names[] = {
     "",
@@ -38,13 +35,9 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
 
     parse_config(config);
 
-    epoll_fd = epoll_create(1);
-    if (epoll_fd < 0)
-    {
-        throw std::runtime_error(std::string("epoll_create: ") + strerror(errno));
-    }
+    epmgr = new epoll_manager_t(ringloop);
+    this->tfd = epmgr->tfd;
 
-    this->tfd = new timerfd_manager_t([this](int fd, std::function<void(int, int)> handler) { set_fd_handler(fd, handler); });
     this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
     {
         print_stats();
@@ -63,13 +56,8 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
 
 osd_t::~osd_t()
 {
-    if (tfd)
-    {
-        delete tfd;
-        tfd = NULL;
-    }
     ringloop->unregister_consumer(&consumer);
-    close(epoll_fd);
+    delete epmgr;
     close(listen_fd);
 }
 
@@ -181,15 +169,10 @@ void osd_t::bind_socket()
 
     fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
 
-    epoll_event ev;
-    ev.data.fd = listen_fd;
-    ev.events = EPOLLIN | EPOLLET;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &ev) < 0)
+    epmgr->set_fd_handler(listen_fd, [this](int fd, int events)
     {
-        close(listen_fd);
-        close(epoll_fd);
-        throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
-    }
+        c_cli.accept_connections(listen_fd);
+    });
 }
 
 bool osd_t::shutdown()
@@ -204,79 +187,10 @@ bool osd_t::shutdown()
 
 void osd_t::loop()
 {
-    if (!wait_state)
-    {
-        handle_epoll_events();
-        wait_state = 1;
-    }
     handle_peers();
     c_cli.read_requests();
     c_cli.send_replies();
     ringloop->submit();
-}
-
-void osd_t::set_fd_handler(int fd, std::function<void(int, int)> handler)
-{
-    if (handler != NULL)
-    {
-        bool exists = epoll_handlers.find(fd) != epoll_handlers.end();
-        epoll_event ev;
-        ev.data.fd = fd;
-        ev.events = EPOLLOUT | EPOLLIN | EPOLLRDHUP | EPOLLET;
-        if (epoll_ctl(epoll_fd, exists ? EPOLL_CTL_MOD : EPOLL_CTL_ADD, fd, &ev) < 0)
-        {
-            throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
-        }
-        epoll_handlers[fd] = handler;
-    }
-    else
-    {
-        if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL) < 0 && errno != ENOENT)
-        {
-            throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
-        }
-        epoll_handlers.erase(fd);
-    }
-}
-
-void osd_t::handle_epoll_events()
-{
-    io_uring_sqe *sqe = ringloop->get_sqe();
-    if (!sqe)
-    {
-        throw std::runtime_error("can't get SQE, will fall out of sync with EPOLLET");
-    }
-    ring_data_t *data = ((ring_data_t*)sqe->user_data);
-    my_uring_prep_poll_add(sqe, epoll_fd, POLLIN);
-    data->callback = [this](ring_data_t *data)
-    {
-        if (data->res < 0)
-        {
-            throw std::runtime_error(std::string("epoll failed: ") + strerror(-data->res));
-        }
-        handle_epoll_events();
-    };
-    ringloop->submit();
-    int nfds;
-    epoll_event events[MAX_EPOLL_EVENTS];
-restart:
-    nfds = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, 0);
-    for (int i = 0; i < nfds; i++)
-    {
-        if (events[i].data.fd == listen_fd)
-        {
-            c_cli.accept_connections(listen_fd);
-        }
-        else
-        {
-            auto & cb = epoll_handlers[events[i].data.fd];
-            cb(events[i].data.fd, events[i].events);
-        }
-    }
-    if (nfds == MAX_EPOLL_EVENTS)
-    {
-        goto restart;
-    }
 }
 
 void osd_t::exec_op(osd_op_t *cur_op)

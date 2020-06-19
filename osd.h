@@ -16,6 +16,7 @@
 #include "blockstore.h"
 #include "ringloop.h"
 #include "timerfd_manager.h"
+#include "epoll_manager.h"
 #include "osd_peering_pg.h"
 #include "messenger.h"
 #include "etcd_state_client.h"
@@ -111,13 +112,11 @@ class osd_t
     uint64_t pg_stripe_size = DEFAULT_PG_STRIPE_SIZE;
     ring_loop_t *ringloop;
     timerfd_manager_t *tfd = NULL;
+    epoll_manager_t *epmgr = NULL;
 
-    int wait_state = 0;
-    int epoll_fd = 0;
     int listening_port = 0;
     int listen_fd = 0;
     ring_consumer_t consumer;
-    std::map<int, std::function<void(int, int)>> epoll_handlers;
 
     // op statistics
     osd_op_stats_t prev_stats;
@@ -149,8 +148,6 @@ class osd_t
 
     // event loop, socket read/write
     void loop();
-    void set_fd_handler(int fd, std::function<void(int, int)> handler);
-    void handle_epoll_events();
 
     // peer handling (primary OSD logic)
     void parse_test_peer(std::string peer);
