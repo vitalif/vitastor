@@ -42,12 +42,6 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
 bool osd_messenger_t::try_send(osd_client_t & cl)
 {
     int peer_fd = cl.peer_fd;
-    io_uring_sqe* sqe = ringloop->get_sqe();
-    if (!sqe)
-    {
-        return false;
-    }
-    ring_data_t* data = ((ring_data_t*)sqe->user_data);
     if (!cl.write_op)
     {
         // pick next command
@@ -103,8 +97,26 @@ bool osd_messenger_t::try_send(osd_client_t & cl)
     }
     cl.write_msg.msg_iov = cl.send_list.get_iovec();
     cl.write_msg.msg_iovlen = cl.send_list.get_size();
-    data->callback = [this, peer_fd](ring_data_t *data) { handle_send(data->res, peer_fd); };
-    my_uring_prep_sendmsg(sqe, peer_fd, &cl.write_msg, 0);
+    if (ringloop && !use_sync_send_recv)
+    {
+        io_uring_sqe* sqe = ringloop->get_sqe();
+        if (!sqe)
+        {
+            return false;
+        }
+        ring_data_t* data = ((ring_data_t*)sqe->user_data);
+        data->callback = [this, peer_fd](ring_data_t *data) { handle_send(data->res, peer_fd); };
+        my_uring_prep_sendmsg(sqe, peer_fd, &cl.write_msg, 0);
+    }
+    else
+    {
+        int result = sendmsg(peer_fd, &cl.write_msg, MSG_NOSIGNAL);
+        if (result < 0)
+        {
+            result = -errno;
+        }
+        handle_send(result, peer_fd);
+    }
     return true;
 }
 

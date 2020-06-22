@@ -169,7 +169,10 @@ void osd_messenger_t::handle_peer_epoll(int peer_fd, int epoll_events)
         if (cl.read_ready == 1)
         {
             read_ready_clients.push_back(cl.peer_fd);
-            ringloop->wakeup();
+            if (ringloop)
+                ringloop->wakeup();
+            else
+                read_requests();
         }
     }
 }

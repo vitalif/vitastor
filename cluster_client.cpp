@@ -46,6 +46,8 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         msgr.stop_client(op->peer_fd);
         delete op;
     };
+    msgr.use_sync_send_recv = config["use_sync_send_recv"].bool_value() ||
+        config["use_sync_send_recv"].uint64_value();
 
     st_cli.tfd = tfd;
     st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };

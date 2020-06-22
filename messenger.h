@@ -233,6 +233,7 @@ struct osd_messenger_t
     int peer_connect_interval = DEFAULT_PEER_CONNECT_INTERVAL;
     int peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
     int log_level = 0;
+    bool use_sync_send_recv = false;
 
     std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
     std::map<uint64_t, int> osd_peer_fds;
