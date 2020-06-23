@@ -38,7 +38,7 @@ int main(int narg, char *args[])
     msgr->exec_op = [msgr](osd_op_t *op) { stub_exec_op(msgr, op); };
     // Accept new connections
     int listen_fd = bind_stub("0.0.0.0", 11203);
-    epmgr->set_fd_handler(listen_fd, [listen_fd, msgr](int fd, int events)
+    epmgr->set_fd_handler(listen_fd, false, [listen_fd, msgr](int fd, int events)
     {
         msgr->accept_connections(listen_fd);
     });

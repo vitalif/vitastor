@@ -26,9 +26,9 @@ class timerfd_manager_t
     void trigger_nearest();
     void handle_readable();
 public:
-    std::function<void(int, std::function<void(int, int)>)> set_fd_handler;
+    std::function<void(int, bool, std::function<void(int, int)>)> set_fd_handler;
 
-    timerfd_manager_t(std::function<void(int, std::function<void(int, int)>)> set_fd_handler);
+    timerfd_manager_t(std::function<void(int, bool, std::function<void(int, int)>)> set_fd_handler);
     ~timerfd_manager_t();
     int set_timer(uint64_t millis, bool repeat, std::function<void(int)> callback);
     void clear_timer(int timer_id);

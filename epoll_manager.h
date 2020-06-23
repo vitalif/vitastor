@@ -13,7 +13,7 @@ class epoll_manager_t
 public:
     epoll_manager_t(ring_loop_t *ringloop);
     ~epoll_manager_t();
-    void set_fd_handler(int fd, std::function<void(int, int)> handler);
+    void set_fd_handler(int fd, bool wr, std::function<void(int, int)> handler);
     void handle_epoll_events();
 
     timerfd_manager_t *tfd;

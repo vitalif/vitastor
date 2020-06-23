@@ -16,7 +16,7 @@ epoll_manager_t::epoll_manager_t(ring_loop_t *ringloop)
         throw std::runtime_error(std::string("epoll_create: ") + strerror(errno));
     }
 
-    tfd = new timerfd_manager_t([this](int fd, std::function<void(int, int)> handler) { set_fd_handler(fd, handler); });
+    tfd = new timerfd_manager_t([this](int fd, bool wr, std::function<void(int, int)> handler) { set_fd_handler(fd, wr, handler); });
 
     handle_epoll_events();
 }
@@ -31,14 +31,14 @@ epoll_manager_t::~epoll_manager_t()
     close(epoll_fd);
 }
 
-void epoll_manager_t::set_fd_handler(int fd, std::function<void(int, int)> handler)
+void epoll_manager_t::set_fd_handler(int fd, bool wr, std::function<void(int, int)> handler)
 {
     if (handler != NULL)
     {
         bool exists = epoll_handlers.find(fd) != epoll_handlers.end();
         epoll_event ev;
         ev.data.fd = fd;
-        ev.events = EPOLLOUT | EPOLLIN | EPOLLRDHUP | EPOLLET;
+        ev.events = (wr ? EPOLLOUT : 0) | EPOLLIN | EPOLLRDHUP | EPOLLET;
         if (epoll_ctl(epoll_fd, exists ? EPOLL_CTL_MOD : EPOLL_CTL_ADD, fd, &ev) < 0)
         {
             throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));

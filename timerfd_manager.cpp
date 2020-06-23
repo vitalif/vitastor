@@ -6,7 +6,7 @@
 #include <string.h>
 #include "timerfd_manager.h"
 
-timerfd_manager_t::timerfd_manager_t(std::function<void(int, std::function<void(int, int)>)> set_fd_handler)
+timerfd_manager_t::timerfd_manager_t(std::function<void(int, bool, std::function<void(int, int)>)> set_fd_handler)
 {
     this->set_fd_handler = set_fd_handler;
     wait_state = 0;
@@ -15,7 +15,7 @@ timerfd_manager_t::timerfd_manager_t(std::function<void(int, std::function<void(
     {
         throw std::runtime_error(std::string("timerfd_create: ") + strerror(errno));
     }
-    set_fd_handler(timerfd, [this](int fd, int events)
+    set_fd_handler(timerfd, false, [this](int fd, int events)
     {
         handle_readable();
     });
@@ -23,7 +23,7 @@ timerfd_manager_t::timerfd_manager_t(std::function<void(int, std::function<void(
 
 timerfd_manager_t::~timerfd_manager_t()
 {
-    set_fd_handler(timerfd, NULL);
+    set_fd_handler(timerfd, false, NULL);
     close(timerfd);
 }
 

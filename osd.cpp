@@ -169,7 +169,7 @@ void osd_t::bind_socket()
 
     fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
 
-    epmgr->set_fd_handler(listen_fd, [this](int fd, int events)
+    epmgr->set_fd_handler(listen_fd, false, [this](int fd, int events)
     {
         c_cli.accept_connections(listen_fd);
     });

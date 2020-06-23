@@ -156,7 +156,7 @@ http_co_t::~http_co_t()
     }
     if (peer_fd >= 0)
     {
-        tfd->set_fd_handler(peer_fd, NULL);
+        tfd->set_fd_handler(peer_fd, false, NULL);
         close(peer_fd);
         peer_fd = -1;
     }
@@ -223,7 +223,7 @@ void http_co_t::start_connection()
         end();
         return;
     }
-    tfd->set_fd_handler(peer_fd, [this](int peer_fd, int epoll_events)
+    tfd->set_fd_handler(peer_fd, true, [this](int peer_fd, int epoll_events)
     {
         this->epoll_events |= epoll_events;
         handle_events();
@@ -276,6 +276,11 @@ void http_co_t::handle_connect_result()
     }
     int one = 1;
     setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
+    tfd->set_fd_handler(peer_fd, false, [this](int peer_fd, int epoll_events)
+    {
+        this->epoll_events |= epoll_events;
+        handle_events();
+    });
     state = HTTP_CO_SENDING_REQUEST;
     submit_send();
     stackout();
