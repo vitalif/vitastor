@@ -59,13 +59,24 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     st_cli.parse_config(config);
     st_cli.load_global_config();
 
-    consumer.loop = [this]()
+    if (ringloop)
     {
-        msgr.read_requests();
-        msgr.send_replies();
-        this->ringloop->submit();
-    };
-    ringloop->register_consumer(&consumer);
+        consumer.loop = [this]()
+        {
+            msgr.read_requests();
+            msgr.send_replies();
+            this->ringloop->submit();
+        };
+        ringloop->register_consumer(&consumer);
+    }
+}
+
+cluster_client_t::~cluster_client_t()
+{
+    if (ringloop)
+    {
+        ringloop->unregister_consumer(&consumer);
+    }
 }
 
 void cluster_client_t::continue_ops()

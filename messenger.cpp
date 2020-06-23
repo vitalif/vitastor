@@ -22,6 +22,14 @@ osd_op_t::~osd_op_t()
     }
 }
 
+osd_messenger_t::~osd_messenger_t()
+{
+    while (clients.size() > 0)
+    {
+        stop_client(clients.begin()->first);
+    }
+}
+
 void osd_messenger_t::connect_peer(uint64_t peer_osd, json11::Json peer_state)
 {
     if (wanted_peers.find(peer_osd) == wanted_peers.end())

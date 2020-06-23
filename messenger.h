@@ -257,6 +257,7 @@ public:
     void read_requests();
     void send_replies();
     void accept_connections(int listen_fd);
+    ~osd_messenger_t();
 
 protected:
     void try_connect_peer(uint64_t osd_num);
