@@ -52,10 +52,13 @@ bool osd_messenger_t::handle_read(int result, int peer_fd)
     if (cl_it != clients.end())
     {
         auto & cl = cl_it->second;
-        if (result < 0 && result != -EAGAIN)
+        if (result <= 0 && result != -EAGAIN)
         {
-            // this is a client socket, so don't panic. just disconnect it
-            printf("Client %d socket read error: %d (%s). Disconnecting client\n", peer_fd, -result, strerror(-result));
+            // this is a client socket, so don't panic on error. just disconnect it
+            if (result != 0)
+            {
+                printf("Client %d socket read error: %d (%s). Disconnecting client\n", peer_fd, -result, strerror(-result));
+            }
             stop_client(peer_fd);
             return false;
         }
