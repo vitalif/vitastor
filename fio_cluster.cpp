@@ -175,7 +175,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
         op->inode = opt->inode;
         op->offset = io->offset;
         op->len = io->xfer_buflen;
-        op->buf = io->xfer_buf;
+        op->iov.push_back(io->xfer_buf, io->xfer_buflen);
         bsd->last_sync = false;
         break;
     case DDIR_WRITE:
@@ -183,7 +183,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
         op->inode = opt->inode;
         op->offset = io->offset;
         op->len = io->xfer_buflen;
-        op->buf = io->xfer_buf;
+        op->iov.push_back(io->xfer_buf, io->xfer_buflen);
         bsd->last_sync = false;
         break;
     case DDIR_SYNC:

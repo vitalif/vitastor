@@ -20,7 +20,7 @@ struct cluster_op_part_t
     uint32_t len;
     pg_num_t pg_num;
     osd_num_t osd_num;
-    void *buf;
+    osd_op_buf_list_t iov;
     bool sent;
     bool done;
     osd_op_t op;
@@ -33,9 +33,10 @@ struct cluster_op_t
     uint64_t offset;
     uint64_t len;
     int retval;
-    void *buf;
+    osd_op_buf_list_t iov;
     std::function<void(cluster_op_t*)> callback;
 protected:
+    void *buf = NULL;
     cluster_op_t *orig_op = NULL;
     bool is_internal = false;
     bool needs_reslice = false;
