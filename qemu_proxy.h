@@ -10,7 +10,7 @@ extern "C" {
 
 // Our exports
 typedef void FalconIOHandler(int retval, void *opaque);
-void* falcon_proxy_create(const char *etcd_host, const char *etcd_prefix);
+void* falcon_proxy_create(AioContext *ctx, const char *etcd_host, const char *etcd_prefix);
 void falcon_proxy_destroy(void *client);
 void falcon_proxy_rw(int write, void *client, uint64_t inode, uint64_t offset, uint64_t len,
     struct iovec *iov, int iovcnt, FalconIOHandler cb, void *opaque);

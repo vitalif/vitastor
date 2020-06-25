@@ -4,13 +4,15 @@
 #include <sys/epoll.h>
 
 #include "cluster_client.h"
+
+typedef void* AioContext;
 #include "qemu_proxy.h"
 
 extern "C"
 {
     // QEMU
     typedef void IOHandler(void *opaque);
-    void qemu_set_fd_handler(int fd, IOHandler *fd_read, IOHandler *fd_write, void *opaque);
+    void aio_set_fd_handler(AioContext *ctx, int fd, int is_external, IOHandler *fd_read, IOHandler *fd_write, void *poll_fn, void *opaque);
 }
 
 struct QemuProxyData
@@ -27,9 +29,11 @@ public:
 
     timerfd_manager_t *tfd;
     cluster_client_t *cli;
+    AioContext *ctx;
 
-    QemuProxy(const char *etcd_host, const char *etcd_prefix)
+    QemuProxy(AioContext *ctx, const char *etcd_host, const char *etcd_prefix)
     {
+        this->ctx = ctx;
         json11::Json cfg = json11::Json::object {
             { "etcd_address", std::string(etcd_host) },
             { "etcd_prefix", std::string(etcd_prefix ? etcd_prefix : "/microceph") },
@@ -40,6 +44,7 @@ public:
 
     ~QemuProxy()
     {
+        cli->stop();
         delete cli;
         delete tfd;
     }
@@ -49,12 +54,12 @@ public:
         if (callback != NULL)
         {
             handlers[fd] = { .fd = fd, .callback = callback };
-            qemu_set_fd_handler(fd, &QemuProxy::read_handler, wr ? &QemuProxy::write_handler : NULL, &handlers[fd]);
+            aio_set_fd_handler(ctx, fd, false, &QemuProxy::read_handler, wr ? &QemuProxy::write_handler : NULL, NULL, &handlers[fd]);
         }
         else
         {
             handlers.erase(fd);
-            qemu_set_fd_handler(fd, NULL, NULL, NULL);
+            aio_set_fd_handler(ctx, fd, false, NULL, NULL, NULL, NULL);
         }
     }
 
@@ -73,9 +78,9 @@ public:
 
 extern "C" {
 
-void* falcon_proxy_create(const char *etcd_host, const char *etcd_prefix)
+void* falcon_proxy_create(AioContext *ctx, const char *etcd_host, const char *etcd_prefix)
 {
-    QemuProxy *p = new QemuProxy(etcd_host, etcd_prefix);
+    QemuProxy *p = new QemuProxy(ctx, etcd_host, etcd_prefix);
     return p;
 }
 

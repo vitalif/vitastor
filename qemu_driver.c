@@ -19,8 +19,8 @@
 typedef struct FalconClient
 {
     void *proxy;
-    const char *etcd_host;
-    const char *etcd_prefix;
+    char *etcd_host;
+    char *etcd_prefix;
     uint64_t inode;
     uint64_t size;
     int readonly;
@@ -111,17 +111,17 @@ static void falcon_parse_filename(const char *filename, QDict *options, Error **
             qdict_put_str(options, name, value);
         }
     }
-    if (!qdict_get_int(options, "inode"))
+    if (!qdict_get_try_int(options, "inode", 0))
     {
         error_setg(errp, "inode is missing");
         goto out;
     }
-    if (!qdict_get_int(options, "size"))
+    if (!qdict_get_try_int(options, "size", 0))
     {
         error_setg(errp, "size is missing");
         goto out;
     }
-    if (!qdict_get_int(options, "etcd_host"))
+    if (!qdict_get_str(options, "etcd_host"))
     {
         error_setg(errp, "etcd_host is missing");
         goto out;
@@ -136,14 +136,19 @@ static int falcon_file_open(BlockDriverState *bs, QDict *options, int flags, Err
 {
     FalconClient *client = bs->opaque;
     int64_t ret = 0;
-    client->etcd_host = qdict_get_try_str(options, "etcd_host");
-    client->etcd_prefix = qdict_get_try_str(options, "etcd_prefix");
+    client->etcd_host = g_strdup(qdict_get_try_str(options, "etcd_host"));
+    client->etcd_prefix = g_strdup(qdict_get_try_str(options, "etcd_prefix"));
     client->inode = qdict_get_int(options, "inode");
     client->size = qdict_get_int(options, "size");
     client->readonly = (flags & BDRV_O_RDWR) ? 1 : 0;
-    client->proxy = falcon_proxy_create(client->etcd_host, client->etcd_prefix);
+    client->proxy = falcon_proxy_create(bdrv_get_aio_context(bs), client->etcd_host, client->etcd_prefix);
     //client->aio_context = bdrv_get_aio_context(bs);
     bs->total_sectors = client->size / BDRV_SECTOR_SIZE;
+    qdict_del(options, "etcd_host");
+    qdict_del(options, "etcd_prefix");
+    qdict_del(options, "inode");
+    qdict_del(options, "size");
+    qemu_mutex_init(&client->mutex);
     return ret;
 }
 
@@ -151,6 +156,10 @@ static void falcon_close(BlockDriverState *bs)
 {
     FalconClient *client = bs->opaque;
     falcon_proxy_destroy(client->proxy);
+    qemu_mutex_destroy(&client->mutex);
+    g_free(client->etcd_host);
+    if (client->etcd_prefix)
+        g_free(client->etcd_prefix);
 }
 
 static int falcon_probe_blocksizes(BlockDriverState *bs, BlockSizes *bsz)
@@ -167,7 +176,7 @@ static int coroutine_fn falcon_co_create_opts(BlockDriver *drv, const char *url,
 
     options = qdict_new();
     falcon_parse_filename(url, options, errp);
-    if (errp)
+    if (*errp)
     {
         ret = -1;
         goto out;
@@ -209,6 +218,13 @@ static int64_t falcon_getlength(BlockDriverState *bs)
     return client->size;
 }
 
+static void falcon_refresh_limits(BlockDriverState *bs, Error **errp)
+{
+    bs->bl.request_alignment = 4096;
+    bs->bl.min_mem_alignment = 4096;
+    bs->bl.opt_mem_alignment = 4096;
+}
+
 static int64_t falcon_get_allocated_file_size(BlockDriverState *bs)
 {
     return 0;
@@ -227,7 +243,10 @@ static void falcon_co_generic_bh_cb(int retval, void *opaque)
     FalconRPC *task = opaque;
     task->ret = retval;
     task->complete = 1;
-    aio_co_wake(task->co);
+    if (qemu_coroutine_self() != task->co)
+    {
+        aio_co_wake(task->co);
+    }
 }
 
 static int coroutine_fn falcon_co_preadv(BlockDriverState *bs, uint64_t offset, uint64_t bytes, QEMUIOVector *iov, int flags)
@@ -300,8 +319,9 @@ static QemuOptsList falcon_create_opts = {
 };
 
 static const char *falcon_strong_runtime_opts[] = {
-    "image",
-    "server.",
+    "inode",
+    "etcd_host",
+    "etcd_prefix",
 
     NULL
 };
@@ -318,6 +338,7 @@ static BlockDriver bdrv_falcon = {
     .bdrv_get_info                  = falcon_get_info,
     .bdrv_getlength                 = falcon_getlength,
     .bdrv_probe_blocksizes          = falcon_probe_blocksizes,
+    .bdrv_refresh_limits            = falcon_refresh_limits,
 
     // FIXME: Implement it along with per-inode statistics
     //.bdrv_get_allocated_file_size   = falcon_get_allocated_file_size,

@@ -116,7 +116,7 @@ struct osd_op_buf_list_t
             }
             else
             {
-                alloc = ((alloc/16)*16 + 1);
+                alloc = alloc < 16 ? 16 : (alloc+16);
                 buf = (iovec*)realloc(buf, sizeof(iovec) * alloc);
             }
         }

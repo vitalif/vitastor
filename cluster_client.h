@@ -81,6 +81,7 @@ public:
     cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config);
     ~cluster_client_t();
     void execute(cluster_op_t *op);
+    void stop();
 
 protected:
     void continue_ops();

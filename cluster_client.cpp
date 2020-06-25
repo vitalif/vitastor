@@ -79,6 +79,14 @@ cluster_client_t::~cluster_client_t()
     }
 }
 
+void cluster_client_t::stop()
+{
+    while (msgr.clients.size() > 0)
+    {
+        msgr.stop_client(msgr.clients.begin()->first);
+    }
+}
+
 void cluster_client_t::continue_ops()
 {
     if (retry_timeout_id)
@@ -433,7 +441,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
         int left = end-begin;
         while (left > 0 && iov_idx < op->iov.count)
         {
-            if (op->iov.buf[iov_idx].iov_len - iov_pos > left)
+            if (op->iov.buf[iov_idx].iov_len - iov_pos < left)
             {
                 op->parts[i].iov.push_back(op->iov.buf[iov_idx].iov_base + iov_pos, op->iov.buf[iov_idx].iov_len - iov_pos);
                 left -= (op->iov.buf[iov_idx].iov_len - iov_pos);
@@ -575,7 +583,8 @@ void cluster_client_t::continue_sync()
 
 void cluster_client_t::finish_sync()
 {
-    if (cur_sync->retval == -EPIPE)
+    int retval = cur_sync->retval;
+    if (retval == -EPIPE)
     {
         // Retry later
         cur_sync->parts.clear();
@@ -585,7 +594,7 @@ void cluster_client_t::finish_sync()
         return;
     }
     std::function<void(cluster_op_t*)>(cur_sync->callback)(cur_sync);
-    if (!cur_sync->retval)
+    if (!retval)
     {
         for (auto op: unsynced_writes)
         {
@@ -599,20 +608,22 @@ void cluster_client_t::finish_sync()
         unsynced_writes.clear();
     }
     cur_sync = NULL;
-    int i;
-    for (i = 0; i < next_writes.size() && !cur_sync; i++)
+    while (next_writes.size() > 0)
     {
-        if (next_writes[i]->opcode == OSD_OP_SYNC)
+        if (next_writes[0]->opcode == OSD_OP_SYNC)
         {
-            execute_sync(next_writes[i]);
+            cur_sync = next_writes[0];
+            next_writes.erase(next_writes.begin(), next_writes.begin()+1);
+            continue_sync();
         }
         else
         {
-            cur_ops.insert(next_writes[i]);
-            continue_rw(next_writes[i]);
+            auto wr = next_writes[0];
+            cur_ops.insert(wr);
+            next_writes.erase(next_writes.begin(), next_writes.begin()+1);
+            continue_rw(wr);
         }
     }
-    next_writes.erase(next_writes.begin(), next_writes.begin()+i);
 }
 
 void cluster_client_t::send_sync(cluster_op_t *op, cluster_op_part_t *part)

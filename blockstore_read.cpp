@@ -37,6 +37,7 @@ int blockstore_impl_t::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_
     return 1;
 }
 
+// FIXME I've seen a bug here so I want some tests
 int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
     uint32_t item_state, uint64_t item_version, uint64_t item_location)
 {
@@ -49,8 +50,20 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op, uint64_t &fulfille
         while (1)
         {
             for (; it != PRIV(read_op)->read_vec.end(); it++)
+            {
                 if (it->offset >= cur_start)
+                {
                     break;
+                }
+                else if (it->offset + it->len > cur_start)
+                {
+                    cur_start = it->offset + it->len;
+                    if (cur_start >= item_end)
+                    {
+                        goto endwhile;
+                    }
+                }
+            }
             if (it == PRIV(read_op)->read_vec.end() || it->offset > cur_start)
             {
                 fulfill_read_t el = {
@@ -69,9 +82,12 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op, uint64_t &fulfille
             }
             cur_start = it->offset + it->len;
             if (it == PRIV(read_op)->read_vec.end() || cur_start >= item_end)
+            {
                 break;
+            }
         }
     }
+endwhile:
     return 1;
 }
 

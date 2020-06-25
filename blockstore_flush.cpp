@@ -553,13 +553,13 @@ bool journal_flusher_co::scan_dirty(int wait_base)
                         if (bs->journal.inmemory)
                         {
                             // Take it from memory
-                            memcpy(v.back().buf, bs->journal.buffer + submit_offset, submit_len);
+                            memcpy(it->buf, bs->journal.buffer + submit_offset, submit_len);
                         }
                         else
                         {
                             // Read it from disk
                             await_sqe(0);
-                            data->iov = (struct iovec){ v.back().buf, (size_t)submit_len };
+                            data->iov = (struct iovec){ it->buf, (size_t)submit_len };
                             data->callback = simple_callback_r;
                             my_uring_prep_readv(
                                 sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + submit_offset

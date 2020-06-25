@@ -302,15 +302,18 @@ void http_co_t::submit_read()
     {
         res = -errno;
     }
-    if (res == -EAGAIN || res == 0)
+    if (res == -EAGAIN)
     {
         epoll_events = epoll_events & ~EPOLLIN;
     }
-    else if (res < 0)
+    else if (res <= 0)
     {
+        // < 0 means error, 0 means EOF
+        if (!res)
+            epoll_events = epoll_events & ~EPOLLIN;
         end();
     }
-    else if (res > 0)
+    else
     {
         response += std::string(rbuf.data(), res);
         handle_read();

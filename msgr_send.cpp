@@ -28,7 +28,14 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
         }
     }
     cl.outbox.push_back(cur_op);
-    if (cl.write_op || cl.outbox.size() > 1 || !try_send(cl))
+    if (!ringloop)
+    {
+        while (cl.write_op || cl.outbox.size())
+        {
+            try_send(cl);
+        }
+    }
+    else if (cl.write_op || cl.outbox.size() > 1 || !try_send(cl))
     {
         if (cl.write_state == 0)
         {
