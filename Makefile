@@ -2,7 +2,7 @@ BLOCKSTORE_OBJS := allocator.o blockstore.o blockstore_impl.o blockstore_init.o 
 	blockstore_write.o blockstore_sync.o blockstore_stable.o blockstore_rollback.o blockstore_flush.o crc32c.o ringloop.o
 # -fsanitize=address
 CXXFLAGS := -g -O3 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fPIC -fdiagnostics-color=always
-all: libfio_blockstore.so osd libfio_sec_osd.so libfio_cluster.so stub_osd stub_uring_osd stub_bench osd_test dump_journal
+all: libfio_blockstore.so osd libfio_sec_osd.so libfio_cluster.so stub_osd stub_uring_osd stub_bench osd_test dump_journal qemu_driver.so
 clean:
 	rm -f *.o
 
@@ -36,10 +36,14 @@ osd_peering_pg_test: osd_peering_pg_test.cpp osd_peering_pg.o
 libfio_sec_osd.so: fio_sec_osd.o rw_blocking.o
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ fio_sec_osd.o rw_blocking.o
 
-FIO_CLUSTER_OBJS := fio_cluster.o cluster_client.o epoll_manager.o etcd_state_client.o \
+FIO_CLUSTER_OBJS := cluster_client.o epoll_manager.o etcd_state_client.o \
 	messenger.o msgr_send.o msgr_receive.o ringloop.o json11.o http_client.o pg_states.o timerfd_manager.o base64.o
-libfio_cluster.so: $(FIO_CLUSTER_OBJS)
-	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $(FIO_CLUSTER_OBJS) -luring
+libfio_cluster.so: fio_cluster.o $(FIO_CLUSTER_OBJS)
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $< $(FIO_CLUSTER_OBJS) -luring
+
+qemu_driver.so: qemu_driver.c qemu_proxy.o $(FIO_CLUSTER_OBJS)
+	gcc -I qemu/b/qemu `pkg-config glib-2.0 --cflags` `pkg-config glib-2.0 --libs` \
+		-I qemu/include $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $< $(FIO_CLUSTER_OBJS) qemu_proxy.o -luring
 
 test_blockstore: ./libblockstore.so test_blockstore.cpp timerfd_interval.o
 	g++ $(CXXFLAGS) -o test_blockstore test_blockstore.cpp timerfd_interval.o ./libblockstore.so -ltcmalloc_minimal -luring
@@ -130,6 +134,8 @@ osd_secondary.o: osd_secondary.cpp blockstore.h cpp-btree/btree_map.h epoll_mana
 osd_test.o: osd_test.cpp object_id.h osd_id.h osd_ops.h rw_blocking.h test_pattern.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 pg_states.o: pg_states.cpp pg_states.h
+	g++ $(CXXFLAGS) -c -o $@ $<
+qemu_proxy.o: qemu_proxy.cpp cluster_client.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd_id.h osd_ops.h qemu_proxy.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 ringloop.o: ringloop.cpp ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
