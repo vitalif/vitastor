@@ -72,6 +72,7 @@ class cluster_client_t
     // unsynced operations are copied in memory to allow replay when cluster isn't in the immediate_commit mode
     // unsynced_writes are replayed in any order (because only the SYNC operation guarantees ordering)
     std::vector<cluster_op_t*> unsynced_writes;
+    std::vector<cluster_op_t*> syncing_writes;
     cluster_op_t* cur_sync = NULL;
     std::vector<cluster_op_t*> next_writes;
     std::vector<cluster_op_t*> offline_ops;
