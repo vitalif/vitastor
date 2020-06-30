@@ -137,7 +137,7 @@ resume_2:
         {
             if (stripes[role].read_end != 0 && stripes[role].missing)
             {
-                reconstruct_stripe(stripes, op_data->pg_size, role);
+                reconstruct_stripe_xor(stripes, op_data->pg_size, role);
             }
             if (stripes[role].req_end != 0)
             {
@@ -226,7 +226,7 @@ resume_3:
     // Save version override for parallel reads
     pg.ver_override[op_data->oid] = op_data->fact_ver;
     // Recover missing stripes, calculate parity
-    calc_rmw_parity(op_data->stripes, pg.pg_size, op_data->prev_set, pg.cur_set.data(), bs_block_size);
+    calc_rmw_parity_xor(op_data->stripes, pg.pg_size, op_data->prev_set, pg.cur_set.data(), bs_block_size);
     // Send writes
     submit_primary_subops(SUBMIT_WRITE, pg.pg_size, pg.cur_set.data(), cur_op);
 resume_4:
