@@ -76,7 +76,7 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     }
 }
 
-void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* osd_set, osd_op_t *cur_op)
+void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_size, const uint64_t* osd_set, osd_op_t *cur_op)
 {
     bool w = submit_type == SUBMIT_WRITE;
     osd_primary_op_data_t *op_data = cur_op->op_data;
@@ -102,7 +102,6 @@ void osd_t::submit_primary_subops(int submit_type, int pg_size, const uint64_t* 
     {
         zero_read = -1;
     }
-    uint64_t op_version = w ? op_data->fact_ver+1 : (submit_type == SUBMIT_RMW_READ ? UINT64_MAX : op_data->target_ver);
     osd_op_t *subops = new osd_op_t[n_subops];
     op_data->fact_ver = 0;
     op_data->done = op_data->errors = 0;

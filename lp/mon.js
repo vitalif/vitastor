@@ -371,6 +371,7 @@ class Mon
                 pg_history[i] = {
                     osd_sets: [],
                     all_peers: [],
+                    epoch: 0,
                 };
                 for (let j = 0; j < mul; j++)
                 {
@@ -384,6 +385,10 @@ class Mon
                     {
                         Array.prototype.push.apply(pg_history[i].all_peers, hist.all_peers);
                     }
+                    if (hist && hist.epoch)
+                    {
+                        pg_history[i].epoch = pg_history[i].epoch < hist.epoch ? hist.epoch : pg_history[i].epoch;
+                    }
                 }
             }
         }
@@ -393,6 +398,7 @@ class Mon
             // So, merge ALL PGs history
             let all_sets = {};
             let all_peers = {};
+            let max_epoch = 0;
             for (const pg of prev_pgs)
             {
                 all_sets[pg.join(' ')] = pg;
@@ -414,12 +420,16 @@ class Mon
                         all_peers[osd_num] = Number(osd_num);
                     }
                 }
+                if (hist && hist.epoch)
+                {
+                    max_epoch = max_epoch < hist.epoch ? hist.epoch : max_epoch;
+                }
             }
             all_sets = Object.values(all_sets);
             all_peers = Object.values(all_peers);
             for (let i = 0; i < new_pg_count; i++)
             {
-                pg_history[i] = { osd_sets: all_sets, all_peers };
+                pg_history[i] = { osd_sets: all_sets, all_peers, epoch: max_epoch };
             }
         }
         // Mark history keys for removed PGs as removed

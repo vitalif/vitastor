@@ -43,7 +43,8 @@ void osd_t::init_cluster()
     {
         st_cli.tfd = tfd;
         st_cli.log_level = log_level;
-        st_cli.on_change_osd_state_hook = [this](uint64_t peer_osd) { on_change_osd_state_hook(peer_osd); };
+        st_cli.on_change_osd_state_hook = [this](osd_num_t peer_osd) { on_change_osd_state_hook(peer_osd); };
+        st_cli.on_change_pg_history_hook = [this](pg_num_t pg_num) { on_change_pg_history_hook(pg_num); };
         st_cli.on_change_hook = [this](json11::Json::object & changes) { on_change_etcd_state_hook(changes); };
         st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
         st_cli.load_pgs_checks_hook = [this]() { return on_load_pgs_checks_hook(); };
@@ -207,7 +208,7 @@ void osd_t::report_statistics()
     });
 }
 
-void osd_t::on_change_osd_state_hook(uint64_t peer_osd)
+void osd_t::on_change_osd_state_hook(osd_num_t peer_osd)
 {
     if (c_cli.wanted_peers.find(peer_osd) != c_cli.wanted_peers.end())
     {
@@ -220,6 +221,27 @@ void osd_t::on_change_etcd_state_hook(json11::Json::object & changes)
     // FIXME apply config changes in runtime (maybe, some)
     apply_pg_count();
     apply_pg_config();
+}
+
+void osd_t::on_change_pg_history_hook(pg_num_t pg_num)
+{
+    auto pg_it = pgs.find(pg_num);
+    if (pg_it != pgs.end() && pg_it->second.epoch > pg_it->second.reported_epoch &&
+        st_cli.pg_config[pg_num].epoch >= pg_it->second.epoch)
+    {
+        pg_it->second.reported_epoch = st_cli.pg_config[pg_num].epoch;
+        object_id oid = { 0 };
+        bool first = true;
+        for (auto op: pg_it->second.write_queue)
+        {
+            if (first || oid != op.first)
+            {
+                oid = op.first;
+                first = false;
+                continue_primary_write(op.second);
+            }
+        }
+    }
 }
 
 void osd_t::on_load_config_hook(json11::Json::object & global_config)
@@ -549,6 +571,7 @@ void osd_t::apply_pg_config()
                 .state = pg_cfg.cur_primary == this->osd_num ? PG_PEERING : PG_STARTING,
                 .pg_cursize = 0,
                 .pg_num = pg_num,
+                .reported_epoch = pg_cfg.epoch,
                 .target_history = pg_cfg.target_history,
                 .all_peers = std::vector<osd_num_t>(all_peers.begin(), all_peers.end()),
                 .target_set = pg_cfg.target_set,
@@ -584,7 +607,6 @@ void osd_t::report_pg_states()
     {
         return;
     }
-    etcd_reporting_pg_state = true;
     std::vector<std::pair<pg_num_t,bool>> reporting_pgs;
     json11::Json::array checks;
     json11::Json::array success;
@@ -651,26 +673,26 @@ void osd_t::report_pg_states()
             });
             if (pg.history_changed)
             {
+                // Prevent race conditions (for the case when the monitor is updating this key at the same time)
                 pg.history_changed = false;
-                if (pg.state == PG_ACTIVE)
-                {
-                    success.push_back(json11::Json::object {
-                        { "request_delete_range", json11::Json::object {
-                            { "key", base64_encode(st_cli.etcd_prefix+"/pg/history/"+std::to_string(pg.pg_num)) },
-                        } }
-                    });
-                }
-                else if (pg.state == (PG_ACTIVE|PG_LEFT_ON_DEAD))
-                {
-                    success.push_back(json11::Json::object {
-                        { "request_put", json11::Json::object {
-                            { "key", base64_encode(st_cli.etcd_prefix+"/pg/history/"+std::to_string(pg.pg_num)) },
-                            { "value", base64_encode(json11::Json(json11::Json::object {
-                                { "all_peers", pg.all_peers },
-                            }).dump()) },
-                        } }
-                    });
-                }
+                std::string history_key = base64_encode(st_cli.etcd_prefix+"/pg/history/"+std::to_string(pg.pg_num));
+                json11::Json::object history_value = {
+                    { "epoch", pg.epoch },
+                    { "all_peers", pg.all_peers },
+                    { "osd_sets", pg.target_history },
+                };
+                checks.push_back(json11::Json::object {
+                    { "target", "MOD" },
+                    { "key", history_key },
+                    { "result", "LESS" },
+                    { "mod_revision", st_cli.etcd_watch_revision+1 },
+                });
+                success.push_back(json11::Json::object {
+                    { "request_put", json11::Json::object {
+                        { "key", history_key },
+                        { "value", base64_encode(json11::Json(history_value).dump()) },
+                    } }
+                });
             }
         }
         failure.push_back(json11::Json::object {
@@ -680,6 +702,7 @@ void osd_t::report_pg_states()
         });
     }
     pg_state_dirty.clear();
+    etcd_reporting_pg_state = true;
     st_cli.etcd_txn(json11::Json::object {
         { "compare", checks }, { "success", success }, { "failure", failure }
     }, ETCD_QUICK_TIMEOUT, [this, reporting_pgs](std::string err, json11::Json data)
@@ -705,14 +728,17 @@ void osd_t::report_pg_states()
                 if (res["kvs"].array_items().size())
                 {
                     auto kv = st_cli.parse_etcd_kv(res["kvs"][0]);
-                    pg_num_t pg_num = stoull_full(kv.key.substr(st_cli.etcd_prefix.length()+10));
-                    auto pg_it = pgs.find(pg_num);
-                    if (pg_it != pgs.end() && pg_it->second.state != PG_OFFLINE && pg_it->second.state != PG_STARTING)
+                    if (kv.key.substr(st_cli.etcd_prefix.length()+10) == st_cli.etcd_prefix+"/pg/state/")
                     {
-                        // Live PG state update failed
-                        printf("Failed to report state of PG %u which is live. Race condition detected, exiting\n", pg_num);
-                        force_stop(1);
-                        return;
+                        pg_num_t pg_num = stoull_full(kv.key.substr(st_cli.etcd_prefix.length()+10));
+                        auto pg_it = pgs.find(pg_num);
+                        if (pg_it != pgs.end() && pg_it->second.state != PG_OFFLINE && pg_it->second.state != PG_STARTING)
+                        {
+                            // Live PG state update failed
+                            printf("Failed to report state of PG %u which is live. Race condition detected, exiting\n", pg_num);
+                            force_stop(1);
+                            return;
+                        }
                     }
                 }
             }

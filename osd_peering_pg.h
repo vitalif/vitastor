@@ -9,6 +9,8 @@
 #include "osd_ops.h"
 #include "pg_states.h"
 
+#define PG_EPOCH_BITS 48
+
 struct pg_obj_loc_t
 {
     uint64_t role;
@@ -72,6 +74,8 @@ struct pg_t
     uint64_t pg_cursize = 3, pg_size = 3, pg_minsize = 2;
     pg_num_t pg_num;
     uint64_t clean_count = 0, total_count = 0;
+    // epoch number - should increase with each non-clean activation of the PG
+    uint64_t epoch = 0, reported_epoch = 0;
     // target history and all potential peers
     std::vector<std::vector<osd_num_t>> target_history;
     std::vector<osd_num_t> all_peers;

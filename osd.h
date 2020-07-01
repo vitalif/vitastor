@@ -127,7 +127,8 @@ class osd_t
     // cluster connection
     void parse_config(blockstore_config_t & config);
     void init_cluster();
-    void on_change_osd_state_hook(uint64_t osd_num);
+    void on_change_osd_state_hook(osd_num_t peer_osd);
+    void on_change_pg_history_hook(pg_num_t pg_num);
     void on_change_etcd_state_hook(json11::Json::object & changes);
     void on_load_config_hook(json11::Json::object & changes);
     json11::Json on_load_pgs_checks_hook();
@@ -194,7 +195,7 @@ class osd_t
     void handle_primary_bs_subop(osd_op_t *subop);
     void add_bs_subop_stats(osd_op_t *subop);
     void pg_cancel_write_queue(pg_t & pg, osd_op_t *first_op, object_id oid, int retval);
-    void submit_primary_subops(int submit_type, int read_pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
+    void submit_primary_subops(int submit_type, uint64_t op_version, int pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
     void submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_osd_set_t & loc_set);
     void submit_primary_sync_subops(osd_op_t *cur_op);
     void submit_primary_stab_subops(osd_op_t *cur_op);

@@ -351,6 +351,12 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
             {
                 pg_cfg.all_peers.push_back(pg_osd.uint64_value());
             }
+            // Read epoch
+            pg_cfg.epoch = value["epoch"].uint64_value();
+            if (on_change_pg_history_hook != NULL)
+            {
+                on_change_pg_history_hook(pg_num);
+            }
         }
     }
     else if (key.substr(0, etcd_prefix.length()+10) == etcd_prefix+"/pg/state/")

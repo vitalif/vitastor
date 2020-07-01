@@ -99,7 +99,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         {
             // Fast happy-path
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_minsize, 0);
-            submit_primary_subops(SUBMIT_READ, pg.pg_minsize, pg.cur_set.data(), cur_op);
+            submit_primary_subops(SUBMIT_READ, op_data->target_ver, pg.pg_minsize, pg.cur_set.data(), cur_op);
             op_data->st = 1;
         }
         else
@@ -116,7 +116,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
             op_data->pg_size = pg.pg_size;
             op_data->degraded = 1;
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0);
-            submit_primary_subops(SUBMIT_READ, pg.pg_size, cur_set, cur_op);
+            submit_primary_subops(SUBMIT_READ, op_data->target_ver, pg.pg_size, cur_set, cur_op);
             op_data->st = 1;
         }
     }
@@ -200,6 +200,7 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
     else if (op_data->st == 7) goto resume_7;
     else if (op_data->st == 8) goto resume_8;
     else if (op_data->st == 9) goto resume_9;
+    else if (op_data->st == 10) goto resume_10;
     assert(op_data->st == 0);
     if (!check_write_queue(cur_op, pg))
     {
@@ -213,7 +214,7 @@ resume_1:
     cur_op->rmw_buf = calc_rmw(cur_op->buf, op_data->stripes, op_data->prev_set,
         pg.pg_size, pg.pg_minsize, pg.pg_cursize, pg.cur_set.data(), bs_block_size);
     // Read required blocks
-    submit_primary_subops(SUBMIT_RMW_READ, pg.pg_size, op_data->prev_set, cur_op);
+    submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, pg.pg_size, op_data->prev_set, cur_op);
 resume_2:
     op_data->st = 2;
     return;
@@ -228,7 +229,34 @@ resume_3:
     // Recover missing stripes, calculate parity
     calc_rmw_parity_xor(op_data->stripes, pg.pg_size, op_data->prev_set, pg.cur_set.data(), bs_block_size);
     // Send writes
-    submit_primary_subops(SUBMIT_WRITE, pg.pg_size, pg.cur_set.data(), cur_op);
+    if ((op_data->fact_ver >> (64-PG_EPOCH_BITS)) < pg.epoch)
+    {
+        op_data->target_ver = ((uint64_t)pg.epoch << (64-PG_EPOCH_BITS)) | 1;
+    }
+    else
+    {
+        if ((op_data->fact_ver & (1ul<<(64-PG_EPOCH_BITS) - 1)) == (1ul<<(64-PG_EPOCH_BITS) - 1))
+        {
+            assert(pg.epoch != ((1ul << PG_EPOCH_BITS)-1));
+            pg.epoch++;
+        }
+        op_data->target_ver = op_data->fact_ver + 1;
+    }
+    if (pg.epoch > pg.reported_epoch)
+    {
+        // Report newer epoch before writing
+        // FIXME: We may report only one PG state here...
+        this->pg_state_dirty.insert(pg.pg_num);
+        pg.history_changed = true;
+        report_pg_states();
+resume_10:
+        if (pg.epoch > pg.reported_epoch)
+        {
+            op_data->st = 10;
+            return;
+        }
+    }
+    submit_primary_subops(SUBMIT_WRITE, op_data->target_ver, pg.pg_size, pg.cur_set.data(), cur_op);
 resume_4:
     op_data->st = 4;
     return;
@@ -614,7 +642,7 @@ resume_1:
     // Determine which OSDs contain this object and delete it
     op_data->prev_set = get_object_osd_set(pg, op_data->oid, pg.cur_set.data(), &op_data->object_state);
     // Submit 1 read to determine the actual version number
-    submit_primary_subops(SUBMIT_RMW_READ, pg.pg_size, op_data->prev_set, cur_op);
+    submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, pg.pg_size, op_data->prev_set, cur_op);
 resume_2:
     op_data->st = 2;
     return;

@@ -344,6 +344,7 @@ void pg_t::calc_object_states(int log_level)
     st.log_level = log_level;
     st.pg = this;
     auto ps = peering_state;
+    epoch = 0;
     for (auto it: ps->list_results)
     {
         auto nstab = it.second.stable_count;
@@ -354,6 +355,10 @@ void pg_t::calc_object_states(int log_level)
         obj_ver_id *ov = it.second.buf;
         for (uint64_t i = 0; i < n; i++, ov++)
         {
+            if ((ov->version >> (64-PG_EPOCH_BITS)) > epoch)
+            {
+                epoch = (ov->version >> (64-PG_EPOCH_BITS));
+            }
             st.list[start+i] = {
                 .oid = ov->oid,
                 .version = ov->version,
@@ -369,6 +374,11 @@ void pg_t::calc_object_states(int log_level)
     std::sort(st.list.begin(), st.list.end());
     // Walk over it and check object states
     st.walk();
+    if (this->state & (PG_DEGRADED|PG_LEFT_ON_DEAD))
+    {
+        assert(epoch != ((1ul << PG_EPOCH_BITS)-1));
+        epoch++;
+    }
 }
 
 void pg_t::print_state()
