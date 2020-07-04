@@ -34,6 +34,8 @@
 #define BS_ST_SYNCED 0x50
 #define BS_ST_STABLE 0x60
 
+#define BS_ST_INSTANT 0x100
+
 #define IMMEDIATE_NONE 0
 #define IMMEDIATE_SMALL 1
 #define IMMEDIATE_ALL 2

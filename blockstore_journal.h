@@ -19,7 +19,9 @@
 #define JE_STABLE      0x04
 #define JE_DELETE      0x05
 #define JE_ROLLBACK    0x06
-#define JE_MAX         0x06
+#define JE_SMALL_WRITE_INSTANT 0x07
+#define JE_BIG_WRITE_INSTANT   0x08
+#define JE_MAX         0x08
 
 // crc32c comes first to ease calculation and is equal to crc32()
 struct __attribute__((__packed__)) journal_entry_start

@@ -78,7 +78,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         .state = (uint32_t)(
             is_del
                 ? (BS_ST_DELETE | BS_ST_IN_FLIGHT)
-                : (op->len == block_size || deleted
+                : (op->opcode == BS_OP_WRITE_STABLE ? BS_ST_INSTANT : 0) | (op->len == block_size || deleted
                     ? (BS_ST_BIG_WRITE | BS_ST_IN_FLIGHT)
                     : (is_inflight_big ? (BS_ST_SMALL_WRITE | BS_ST_WAIT_BIG) : (BS_ST_SMALL_WRITE | BS_ST_IN_FLIGHT)))
         ),
@@ -212,8 +212,10 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             }
         }
         // Then pre-fill journal entry
-        journal_entry_small_write *je = (journal_entry_small_write*)
-            prefill_single_journal_entry(journal, JE_SMALL_WRITE, sizeof(journal_entry_small_write));
+        journal_entry_small_write *je = (journal_entry_small_write*)prefill_single_journal_entry(
+            journal, op->opcode == BS_OP_WRITE_STABLE ? JE_SMALL_WRITE_INSTANT : JE_SMALL_WRITE,
+            sizeof(journal_entry_small_write)
+        );
         dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
@@ -310,7 +312,10 @@ resume_2:
     {
         return 0;
     }
-    je = (journal_entry_big_write*)prefill_single_journal_entry(journal, JE_BIG_WRITE, sizeof(journal_entry_big_write));
+    je = (journal_entry_big_write*)prefill_single_journal_entry(
+        journal, op->opcode == BS_OP_WRITE_STABLE ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
+        sizeof(journal_entry_big_write)
+    );
     dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
     journal.sector_info[journal.cur_sector].dirty = false;
     journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
@@ -349,7 +354,7 @@ resume_4:
     }
     dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK)
         | (imm ? BS_ST_SYNCED : BS_ST_WRITTEN);
-    if (imm && (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_DELETE)
+    if (imm && ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_DELETE || (dirty_it->second.state & BS_ST_INSTANT)))
     {
         // Deletions are treated as immediately stable
         mark_stable(dirty_it->first);
@@ -465,8 +470,9 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
         }
     }
     // Pre-fill journal entry
-    journal_entry_del *je = (journal_entry_del*)
-        prefill_single_journal_entry(journal, JE_DELETE, sizeof(struct journal_entry_del));
+    journal_entry_del *je = (journal_entry_del*)prefill_single_journal_entry(
+        journal, JE_DELETE, sizeof(struct journal_entry_del)
+    );
     dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
     journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG

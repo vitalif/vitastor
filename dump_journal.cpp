@@ -104,10 +104,11 @@ void journal_dump_t::dump_block(void *buf)
         {
             printf("je_start start=%08lx\n", je->start.journal_start);
         }
-        else if (je->type == JE_SMALL_WRITE)
+        else if (je->type == JE_SMALL_WRITE || je->type == JE_SMALL_WRITE_INSTANT)
         {
             printf(
-                "je_small_write oid=%lu:%lu ver=%lu offset=%u len=%u loc=%08lx",
+                "je_small_write%s oid=%lu:%lu ver=%lu offset=%u len=%u loc=%08lx",
+                je->type == JE_SMALL_WRITE_INSTANT ? "_instant" : "",
                 je->small_write.oid.inode, je->small_write.oid.stripe,
                 je->small_write.version, je->small_write.offset, je->small_write.len,
                 je->small_write.data_offset
@@ -139,9 +140,13 @@ void journal_dump_t::dump_block(void *buf)
             );
             printf("\n");
         }
-        else if (je->type == JE_BIG_WRITE)
+        else if (je->type == JE_BIG_WRITE || je->type == JE_BIG_WRITE_INSTANT)
         {
-            printf("je_big_write oid=%lu:%lu ver=%lu loc=%08lx\n", je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location);
+            printf(
+                "je_big_write%s oid=%lu:%lu ver=%lu loc=%08lx\n",
+                je->type == JE_BIG_WRITE_INSTANT ? "_instant" : "",
+                je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location
+            );
         }
         else if (je->type == JE_STABLE)
         {

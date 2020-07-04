@@ -454,10 +454,15 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     break;
                 }
             }
-            if (je->type == JE_SMALL_WRITE)
+            if (je->type == JE_SMALL_WRITE || je->type == JE_SMALL_WRITE_INSTANT)
             {
 #ifdef BLOCKSTORE_DEBUG
-                printf("je_small_write oid=%lu:%lu ver=%lu offset=%u len=%u\n", je->small_write.oid.inode, je->small_write.oid.stripe, je->small_write.version, je->small_write.offset, je->small_write.len);
+                printf(
+                    "je_small_write%s oid=%lu:%lu ver=%lu offset=%u len=%u\n",
+                    je->type == JE_SMALL_WRITE_INSTANT ? "_instant" : "",
+                    je->small_write.oid.inode, je->small_write.oid.stripe, je->small_write.version,
+                    je->small_write.offset, je->small_write.len
+                );
 #endif
                 // oid, version, offset, len
                 uint64_t prev_free = next_free;
@@ -544,12 +549,20 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
 #endif
                     auto & unstab = bs->unstable_writes[ov.oid];
                     unstab = unstab < ov.version ? ov.version : unstab;
+                    if (je->type == JE_SMALL_WRITE_INSTANT)
+                    {
+                        bs->mark_stable(ov);
+                    }
                 }
             }
-            else if (je->type == JE_BIG_WRITE)
+            else if (je->type == JE_BIG_WRITE || je->type == JE_BIG_WRITE_INSTANT)
             {
 #ifdef BLOCKSTORE_DEBUG
-                printf("je_big_write oid=%lu:%lu ver=%lu loc=%lu\n", je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location);
+                printf(
+                    "je_big_write%s oid=%lu:%lu ver=%lu loc=%lu\n",
+                    je->type == JE_BIG_WRITE_INSTANT ? "_instant" : "",
+                    je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location
+                );
 #endif
                 auto clean_it = bs->clean_db.find(je->big_write.oid);
                 if (clean_it == bs->clean_db.end() ||
@@ -575,6 +588,10 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     bs->journal.used_sectors[proc_pos]++;
                     auto & unstab = bs->unstable_writes[ov.oid];
                     unstab = unstab < ov.version ? ov.version : unstab;
+                    if (je->type == JE_BIG_WRITE_INSTANT)
+                    {
+                        bs->mark_stable(ov);
+                    }
                 }
             }
             else if (je->type == JE_STABLE)

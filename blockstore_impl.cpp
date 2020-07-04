@@ -130,7 +130,7 @@ void blockstore_impl_t::loop()
                 }
                 else if (PRIV(op)->wait_for)
                 {
-                    if (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_DELETE)
+                    if (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE || op->opcode == BS_OP_DELETE)
                     {
                         has_writes = 2;
                     }
@@ -144,7 +144,7 @@ void blockstore_impl_t::loop()
             {
                 dequeue_op = dequeue_read(op);
             }
-            else if (op->opcode == BS_OP_WRITE)
+            else if (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE)
             {
                 if (has_writes == 2)
                 {
@@ -329,13 +329,13 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
 void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
 {
     if (op->opcode < BS_OP_MIN || op->opcode > BS_OP_MAX ||
-        ((op->opcode == BS_OP_READ || op->opcode == BS_OP_WRITE) && (
+        ((op->opcode == BS_OP_READ || op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE) && (
             op->offset >= block_size ||
             op->len > block_size-op->offset ||
             (op->len % disk_alignment)
         )) ||
         readonly && op->opcode != BS_OP_READ && op->opcode != BS_OP_LIST ||
-        first && op->opcode == BS_OP_WRITE)
+        first && (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE))
     {
         // Basic verification not passed
         op->retval = -EINVAL;
@@ -380,7 +380,7 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
             }
         };
     }
-    if ((op->opcode == BS_OP_WRITE || op->opcode == BS_OP_DELETE) && !enqueue_write(op))
+    if ((op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE || op->opcode == BS_OP_DELETE) && !enqueue_write(op))
     {
         std::function<void (blockstore_op_t*)>(op->callback)(op);
         return;

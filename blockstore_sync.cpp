@@ -127,8 +127,10 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         }
         while (it != PRIV(op)->sync_big_writes.end())
         {
-            journal_entry_big_write *je = (journal_entry_big_write*)
-                prefill_single_journal_entry(journal, JE_BIG_WRITE, sizeof(journal_entry_big_write));
+            journal_entry_big_write *je = (journal_entry_big_write*)prefill_single_journal_entry(
+                journal, (dirty_db[*it].state & BS_ST_INSTANT) ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
+                sizeof(journal_entry_big_write)
+            );
             dirty_db[*it].journal_sector = journal.sector_info[journal.cur_sector].offset;
             journal.sector_info[journal.cur_sector].dirty = false;
             journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
@@ -257,7 +259,11 @@ void blockstore_impl_t::ack_one_sync(blockstore_op_t *op)
         auto & unstab = unstable_writes[it->oid];
         unstab = unstab < it->version ? it->version : unstab;
         auto dirty_it = dirty_db.find(*it);
-        dirty_it->second.state = (BS_ST_BIG_WRITE | BS_ST_SYNCED);
+        dirty_it->second.state = ((dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_SYNCED);
+        if (dirty_it->second.state & BS_ST_INSTANT)
+        {
+            mark_stable(dirty_it->first);
+        }
         dirty_it++;
         while (dirty_it != dirty_db.end() && dirty_it->first.oid == it->oid)
         {
@@ -281,9 +287,13 @@ void blockstore_impl_t::ack_one_sync(blockstore_op_t *op)
             // Deletions are treated as immediately stable
             mark_stable(*it);
         }
-        else /* BS_ST_SMALL_WRITE | BS_ST_WRITTEN */
+        else /* (BS_ST_INSTANT?) | BS_ST_SMALL_WRITE | BS_ST_WRITTEN */
         {
-            dirty_db[*it].state = (BS_ST_SMALL_WRITE | BS_ST_SYNCED);
+            dirty_db[*it].state = (dirty_db[*it].state & ~BS_ST_WORKFLOW_MASK) | BS_ST_SYNCED;
+            if (dirty_db[*it].state & BS_ST_INSTANT)
+            {
+                mark_stable(*it);
+            }
         }
     }
     in_progress_syncs.erase(PRIV(op)->in_progress_ptr);

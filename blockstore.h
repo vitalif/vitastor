@@ -27,13 +27,14 @@
 #define BS_OP_MIN 1
 #define BS_OP_READ 1
 #define BS_OP_WRITE 2
-#define BS_OP_SYNC 3
-#define BS_OP_STABLE 4
-#define BS_OP_DELETE 5
-#define BS_OP_LIST 6
-#define BS_OP_ROLLBACK 7
-#define BS_OP_SYNC_STAB_ALL 8
-#define BS_OP_MAX 8
+#define BS_OP_WRITE_STABLE 3
+#define BS_OP_SYNC 4
+#define BS_OP_STABLE 5
+#define BS_OP_DELETE 6
+#define BS_OP_LIST 7
+#define BS_OP_ROLLBACK 8
+#define BS_OP_SYNC_STAB_ALL 9
+#define BS_OP_MAX 9
 
 #define BS_OP_PRIVATE_DATA_SIZE 256
 
@@ -41,9 +42,9 @@
 
 Blockstore opcode documentation:
 
-## BS_OP_READ / BS_OP_WRITE
+## BS_OP_READ / BS_OP_WRITE / BS_OP_WRITE_STABLE
 
-Read or write object data.
+Read or write object data. WRITE_STABLE writes a version that doesn't require marking as stable.
 
 Input:
 - oid = requested object
