@@ -530,7 +530,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
     clean_init_bitmap = false;
     while (1)
     {
-        if (dirty_it->second.state == ST_J_STABLE && !skip_copy)
+        if (dirty_it->second.state == (BS_ST_SMALL_WRITE | BS_ST_STABLE) && !skip_copy)
         {
             // First we submit all reads
             has_writes = true;
@@ -573,7 +573,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
                 }
             }
         }
-        else if (dirty_it->second.state == ST_D_STABLE && !skip_copy)
+        else if (dirty_it->second.state == (BS_ST_BIG_WRITE | BS_ST_STABLE) && !skip_copy)
         {
             // There is an unflushed big write. Copy small writes in its position
             has_writes = true;
@@ -583,7 +583,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
             clean_bitmap_len = dirty_it->second.len;
             skip_copy = true;
         }
-        else if (dirty_it->second.state == ST_DEL_STABLE && !skip_copy)
+        else if (dirty_it->second.state == (BS_ST_DELETE | BS_ST_STABLE) && !skip_copy)
         {
             // There is an unflushed delete
             has_delete = true;

@@ -64,7 +64,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
                 // Already stable
             }
         }
-        else if (IS_UNSYNCED(dirty_it->second.state))
+        else if (!IS_SYNCED(dirty_it->second.state))
         {
             // Object not synced yet. Caller must sync it first
             op->retval = -EBUSY;
@@ -184,17 +184,9 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v)
     {
         while (1)
         {
-            if (dirty_it->second.state == ST_J_SYNCED)
+            if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_SYNCED)
             {
-                dirty_it->second.state = ST_J_STABLE;
-            }
-            else if (dirty_it->second.state == ST_D_SYNCED)
-            {
-                dirty_it->second.state = ST_D_STABLE;
-            }
-            else if (dirty_it->second.state == ST_DEL_SYNCED)
-            {
-                dirty_it->second.state = ST_DEL_STABLE;
+                dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_STABLE;
             }
             else if (IS_STABLE(dirty_it->second.state))
             {

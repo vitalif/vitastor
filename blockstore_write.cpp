@@ -18,9 +18,9 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             found = true;
             version = dirty_it->first.version + 1;
             deleted = IS_DELETE(dirty_it->second.state);
-            is_inflight_big = dirty_it->second.state >= ST_D_IN_FLIGHT &&
-                dirty_it->second.state < ST_D_SYNCED ||
-                dirty_it->second.state == ST_J_WAIT_BIG;
+            is_inflight_big = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE
+                ? !IS_SYNCED(dirty_it->second.state)
+                : ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG);
         }
     }
     if (!found)
@@ -77,8 +77,10 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     }, (dirty_entry){
         .state = (uint32_t)(
             is_del
-                ? ST_DEL_IN_FLIGHT
-                : (op->len == block_size || deleted ? ST_D_IN_FLIGHT : (is_inflight_big ? ST_J_WAIT_BIG : ST_J_IN_FLIGHT))
+                ? (BS_ST_DELETE | BS_ST_IN_FLIGHT)
+                : (op->len == block_size || deleted
+                    ? (BS_ST_BIG_WRITE | BS_ST_IN_FLIGHT)
+                    : (is_inflight_big ? (BS_ST_SMALL_WRITE | BS_ST_WAIT_BIG) : (BS_ST_SMALL_WRITE | BS_ST_IN_FLIGHT)))
         ),
         .flags = 0,
         .location = 0,
@@ -101,11 +103,12 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         .version = op->version,
     });
     assert(dirty_it != dirty_db.end());
-    if (dirty_it->second.state == ST_J_WAIT_BIG)
+    if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG)
     {
+        // Don't dequeue
         return 0;
     }
-    else if (dirty_it->second.state == ST_D_IN_FLIGHT)
+    else if ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE)
     {
         blockstore_journal_check_t space_check(this);
         if (!space_check.check_available(op, unsynced_big_writes.size() + 1, sizeof(journal_entry_big_write), JOURNAL_STABILIZE_RESERVATION))
@@ -129,7 +132,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         }
         BS_SUBMIT_GET_SQE(sqe, data);
         dirty_it->second.location = loc << block_order;
-        dirty_it->second.state = ST_D_SUBMITTED;
+        dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_SUBMITTED;
 #ifdef BLOCKSTORE_DEBUG
         printf("Allocate block %lu\n", loc);
 #endif
@@ -169,7 +172,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             PRIV(op)->op_state = 1;
         }
     }
-    else
+    else /* if ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_SMALL_WRITE) */
     {
         // Small (journaled) write
         // First check if the journal has sufficient space
@@ -257,7 +260,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             // Zero-length overwrite. Allowed to bump object version in EC placement groups without actually writing data
         }
         dirty_it->second.location = journal.next_free;
-        dirty_it->second.state = ST_J_SUBMITTED;
+        dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_SUBMITTED;
         journal.next_free += op->len;
         if (journal.next_free >= journal.len)
         {
@@ -336,7 +339,7 @@ resume_4:
 #ifdef BLOCKSTORE_DEBUG
     printf("Ack write %lu:%lu v%lu = %d\n", op->oid.inode, op->oid.stripe, op->version, dirty_it->second.state);
 #endif
-    bool imm = dirty_it->second.state == ST_D_SUBMITTED
+    bool imm = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE
         ? (immediate_commit == IMMEDIATE_ALL)
         : (immediate_commit != IMMEDIATE_NONE);
     if (imm)
@@ -344,31 +347,21 @@ resume_4:
         auto & unstab = unstable_writes[op->oid];
         unstab = unstab < op->version ? op->version : unstab;
     }
-    if (dirty_it->second.state == ST_J_SUBMITTED)
+    dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK)
+        | (imm ? BS_ST_SYNCED : BS_ST_WRITTEN);
+    if (imm && (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_DELETE)
     {
-        dirty_it->second.state = imm ? ST_J_SYNCED : ST_J_WRITTEN;
-    }
-    else if (dirty_it->second.state == ST_D_SUBMITTED)
-    {
-        dirty_it->second.state = imm ? ST_D_SYNCED : ST_D_WRITTEN;
-    }
-    else if (dirty_it->second.state == ST_DEL_SUBMITTED)
-    {
-        dirty_it->second.state = imm ? ST_DEL_SYNCED : ST_DEL_WRITTEN;
-        if (imm)
-        {
-            // Deletions are treated as immediately stable
-            mark_stable(dirty_it->first);
-        }
+        // Deletions are treated as immediately stable
+        mark_stable(dirty_it->first);
     }
     if (immediate_commit == IMMEDIATE_ALL)
     {
         dirty_it++;
         while (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
         {
-            if (dirty_it->second.state == ST_J_WAIT_BIG)
+            if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG)
             {
-                dirty_it->second.state = ST_J_IN_FLIGHT;
+                dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_IN_FLIGHT;
             }
             dirty_it++;
         }
@@ -487,7 +480,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     je->version = op->version;
     je->crc32 = je_crc32((journal_entry*)je);
     journal.crc32_last = je->crc32;
-    dirty_it->second.state = ST_DEL_SUBMITTED;
+    dirty_it->second.state = BS_ST_DELETE | BS_ST_SUBMITTED;
     if (immediate_commit != IMMEDIATE_NONE)
     {
         prepare_journal_sector_write(journal, journal.cur_sector, sqe, cb);

@@ -22,40 +22,30 @@
 //#define BLOCKSTORE_DEBUG
 
 // States are not stored on disk. Instead, they're deduced from the journal
-// FIXME: Rename to BS_ST_*
 
-#define ST_J_WAIT_BIG 1
-#define ST_J_IN_FLIGHT 2
-#define ST_J_SUBMITTED 3
-#define ST_J_WRITTEN 4
-#define ST_J_SYNCED 5
-#define ST_J_STABLE 6
+#define BS_ST_SMALL_WRITE 0x01
+#define BS_ST_BIG_WRITE 0x02
+#define BS_ST_DELETE 0x03
 
-#define ST_D_IN_FLIGHT 15
-#define ST_D_SUBMITTED 16
-#define ST_D_WRITTEN 17
-#define ST_D_SYNCED 20
-#define ST_D_STABLE 21
-
-#define ST_DEL_IN_FLIGHT 31
-#define ST_DEL_SUBMITTED 32
-#define ST_DEL_WRITTEN 33
-#define ST_DEL_SYNCED 34
-#define ST_DEL_STABLE 35
-
-#define ST_CURRENT 48
+#define BS_ST_WAIT_BIG 0x10
+#define BS_ST_IN_FLIGHT 0x20
+#define BS_ST_SUBMITTED 0x30
+#define BS_ST_WRITTEN 0x40
+#define BS_ST_SYNCED 0x50
+#define BS_ST_STABLE 0x60
 
 #define IMMEDIATE_NONE 0
 #define IMMEDIATE_SMALL 1
 #define IMMEDIATE_ALL 2
 
-#define IS_IN_FLIGHT(st) (st == ST_J_WAIT_BIG || st == ST_J_IN_FLIGHT || st == ST_D_IN_FLIGHT || st == ST_DEL_IN_FLIGHT || st == ST_J_SUBMITTED || st == ST_D_SUBMITTED || st == ST_DEL_SUBMITTED)
-#define IS_STABLE(st) (st == ST_J_STABLE || st == ST_D_STABLE || st == ST_DEL_STABLE || st == ST_CURRENT)
-#define IS_SYNCED(st) (IS_STABLE(st) || st == ST_J_SYNCED || st == ST_D_SYNCED || st == ST_DEL_SYNCED)
-#define IS_JOURNAL(st) (st >= ST_J_WAIT_BIG && st <= ST_J_STABLE)
-#define IS_BIG_WRITE(st) (st >= ST_D_IN_FLIGHT && st <= ST_D_STABLE)
-#define IS_DELETE(st) (st >= ST_DEL_IN_FLIGHT && st <= ST_DEL_STABLE)
-#define IS_UNSYNCED(st) (st >= ST_J_WAIT_BIG && st <= ST_J_WRITTEN || st >= ST_D_IN_FLIGHT && st <= ST_D_WRITTEN|| st >= ST_DEL_IN_FLIGHT && st <= ST_DEL_WRITTEN)
+#define BS_ST_TYPE_MASK 0x0F
+#define BS_ST_WORKFLOW_MASK 0xF0
+#define IS_IN_FLIGHT(st) (((st) & 0xF0) <= BS_ST_SUBMITTED)
+#define IS_STABLE(st) (((st) & 0xF0) == BS_ST_STABLE)
+#define IS_SYNCED(st) (((st) & 0xF0) >= BS_ST_SYNCED)
+#define IS_JOURNAL(st) (((st) & 0x0F) == BS_ST_SMALL_WRITE)
+#define IS_BIG_WRITE(st) (((st) & 0x0F) == BS_ST_BIG_WRITE)
+#define IS_DELETE(st) (((st) & 0x0F) == BS_ST_DELETE)
 
 #define BS_SUBMIT_GET_SQE(sqe, data) \
     BS_SUBMIT_GET_ONLY_SQE(sqe); \

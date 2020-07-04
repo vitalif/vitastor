@@ -257,13 +257,13 @@ void blockstore_impl_t::ack_one_sync(blockstore_op_t *op)
         auto & unstab = unstable_writes[it->oid];
         unstab = unstab < it->version ? it->version : unstab;
         auto dirty_it = dirty_db.find(*it);
-        dirty_it->second.state = ST_D_SYNCED;
+        dirty_it->second.state = (BS_ST_BIG_WRITE | BS_ST_SYNCED);
         dirty_it++;
         while (dirty_it != dirty_db.end() && dirty_it->first.oid == it->oid)
         {
-            if (dirty_it->second.state == ST_J_WAIT_BIG)
+            if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG)
             {
-                dirty_it->second.state = ST_J_IN_FLIGHT;
+                dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_IN_FLIGHT;
             }
             dirty_it++;
         }
@@ -275,15 +275,15 @@ void blockstore_impl_t::ack_one_sync(blockstore_op_t *op)
 #endif
         auto & unstab = unstable_writes[it->oid];
         unstab = unstab < it->version ? it->version : unstab;
-        if (dirty_db[*it].state == ST_DEL_WRITTEN)
+        if (dirty_db[*it].state == (BS_ST_DELETE | BS_ST_WRITTEN))
         {
-            dirty_db[*it].state = ST_DEL_SYNCED;
+            dirty_db[*it].state = (BS_ST_DELETE | BS_ST_SYNCED);
             // Deletions are treated as immediately stable
             mark_stable(*it);
         }
-        else /* == ST_J_WRITTEN */
+        else /* BS_ST_SMALL_WRITE | BS_ST_WRITTEN */
         {
-            dirty_db[*it].state = ST_J_SYNCED;
+            dirty_db[*it].state = (BS_ST_SMALL_WRITE | BS_ST_SYNCED);
         }
     }
     in_progress_syncs.erase(PRIV(op)->in_progress_ptr);
