@@ -75,19 +75,36 @@ const crush_tree = [
 
 async function run()
 {
+    let res;
+
     // Test: add 1 OSD of almost the same size. Ideal data movement could be 1/12 = 8.33%. Actual is ~13%
-    // Space efficiency is ~99.5% in both cases.
-    let res = await LPOptimizer.optimize_initial(osd_tree, 256);
+    // Space efficiency is ~99% in all cases.
+
+    console.log('256 PGs, size=2');
+    res = await LPOptimizer.optimize_initial(osd_tree, 2, 256);
     LPOptimizer.print_change_stats(res, false);
-    console.log('adding osd.8');
+    console.log('\nAdding osd.8');
     osd_tree[500][8] = 3.58589;
-    res = await LPOptimizer.optimize_change(res.int_pgs, osd_tree);
+    res = await LPOptimizer.optimize_change(res.int_pgs, osd_tree, 2);
     LPOptimizer.print_change_stats(res, false);
-    console.log('removing osd.8');
+    console.log('\nRemoving osd.8');
     delete osd_tree[500][8];
-    res = await LPOptimizer.optimize_change(res.int_pgs, osd_tree);
+    res = await LPOptimizer.optimize_change(res.int_pgs, osd_tree, 2);
     LPOptimizer.print_change_stats(res, false);
-    res = await LPOptimizer.optimize_initial(LPOptimizer.flatten_tree(crush_tree, {}, 1, 3), 256);
+
+    console.log('\n256 PGs, size=3');
+    res = await LPOptimizer.optimize_initial(osd_tree, 3, 256);
+    LPOptimizer.print_change_stats(res, false);
+    console.log('\nAdding osd.8');
+    osd_tree[500][8] = 3.58589;
+    res = await LPOptimizer.optimize_change(res.int_pgs, osd_tree, 3);
+    LPOptimizer.print_change_stats(res, false);
+    console.log('\nRemoving osd.8');
+    delete osd_tree[500][8];
+    res = await LPOptimizer.optimize_change(res.int_pgs, osd_tree, 3);
+    LPOptimizer.print_change_stats(res, false);
+    console.log('\n256 PGs, size=3, failure domain=rack');
+    res = await LPOptimizer.optimize_initial(LPOptimizer.flatten_tree(crush_tree, {}, 1, 3), 3, 256);
     LPOptimizer.print_change_stats(res, false);
 }
 

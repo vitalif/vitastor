@@ -47,12 +47,12 @@ async function lp_solve(text)
     return { score, vars };
 }
 
-async function optimize_initial(osd_tree, pg_count, max_combinations)
+async function optimize_initial(osd_tree, pg_size, pg_count, max_combinations)
 {
     max_combinations = max_combinations || 10000;
     const all_weights = Object.assign({}, ...Object.values(osd_tree));
     const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c), 0);
-    let all_pgs = all_combinations(osd_tree, null, true);
+    let all_pgs = all_combinations(osd_tree, pg_size, true);
     if (all_pgs.length > max_combinations)
     {
         const prob = max_combinations/all_pgs.length;
@@ -67,14 +67,14 @@ async function optimize_initial(osd_tree, pg_count, max_combinations)
             pg_per_osd[osd].push("pg_"+pg.join("_"));
         }
     }
-    const pg_size = Math.min(Object.keys(osd_tree).length, 3);
+    const pg_effsize = Math.min(Object.keys(osd_tree).length, pg_size);
     let lp = '';
     lp += "max: "+all_pgs.map(pg => 'pg_'+pg.join('_')).join(' + ')+";\n";
     for (const osd in pg_per_osd)
     {
         if (osd !== NO_OSD)
         {
-            let osd_pg_count = all_weights[osd]/total_weight*pg_size*pg_count;
+            let osd_pg_count = all_weights[osd]/total_weight*pg_effsize*pg_count;
             lp += pg_per_osd[osd].join(' + ')+' <= '+osd_pg_count+';\n';
         }
     }
@@ -90,7 +90,7 @@ async function optimize_initial(osd_tree, pg_count, max_combinations)
     }
     const int_pgs = make_int_pgs(lp_result.vars, pg_count);
     const eff = pg_list_space_efficiency(int_pgs, all_weights);
-    return { score: lp_result.score, weights: lp_result.vars, int_pgs, space: eff*pg_size, total_space: total_weight };
+    return { score: lp_result.score, weights: lp_result.vars, int_pgs, space: eff*pg_effsize, total_space: total_weight };
 }
 
 function make_int_pgs(weights, pg_count)
@@ -112,11 +112,82 @@ function make_int_pgs(weights, pg_count)
     return int_pgs;
 }
 
+function calc_intersect_weights(pg_size, pg_count, prev_weights, all_pgs)
+{
+    const move_weights = {};
+    if ((1 << pg_size) < pg_count)
+    {
+        const intersect = {};
+        for (const pg_name in prev_weights)
+        {
+            const pg = pg_name.substr(3).split(/_/);
+            for (let omit = 1; omit < (1 << pg_size); omit++)
+            {
+                let pg_omit = [ ...pg ];
+                let intersect_count = pg_size;
+                for (let i = 0; i < pg_size; i++)
+                {
+                    if (omit & (1 << i))
+                    {
+                        pg_omit[i] = '';
+                        intersect_count--;
+                    }
+                }
+                pg_omit = pg_omit.join(':');
+                intersect[pg_omit] = Math.max(intersect[pg_omit] || 0, intersect_count);
+            }
+        }
+        for (const pg of all_pgs)
+        {
+            let max_int = 0;
+            for (let omit = 1; omit < (1 << pg_size); omit++)
+            {
+                let pg_omit = [ ...pg ];
+                for (let i = 0; i < pg_size; i++)
+                {
+                    if (omit & (1 << i))
+                    {
+                        pg_omit[i] = '';
+                    }
+                }
+                pg_omit = pg_omit.join(':');
+                max_int = Math.max(max_int, intersect[pg_omit] || 0);
+            }
+            move_weights['pg_'+pg.join('_')] = pg_size-max_int;
+        }
+    }
+    else
+    {
+        const prev_pg_hashed = Object.keys(prev_weights).map(pg_name => pg_name.substr(3).split(/_/).reduce((a, c) => { a[c] = 1; return a; }, {}));
+        for (const pg of all_pgs)
+        {
+            if (!prev_weights['pg_'+pg.join('_')])
+            {
+                let max_int = 0;
+                for (const prev_hash in prev_pg_hashed)
+                {
+                    const intersect_count = pg.reduce((a, osd) => a + (prev_hash[osd] ? 1 : 0), 0);
+                    if (max_int < intersect_count)
+                    {
+                        max_int = intersect_count;
+                        if (max_int >= pg_size)
+                        {
+                            break;
+                        }
+                    }
+                }
+                move_weights['pg_'+pg.join('_')] = pg_size-max_int;
+            }
+        }
+    }
+    return move_weights;
+}
+
 // Try to minimize data movement
-async function optimize_change(prev_int_pgs, osd_tree, max_combinations)
+async function optimize_change(prev_int_pgs, osd_tree, pg_size, max_combinations)
 {
     max_combinations = max_combinations || 10000;
-    const pg_size = Math.min(Object.keys(osd_tree).length, 3);
+    const pg_effsize = Math.min(Object.keys(osd_tree).length, pg_size);
     const pg_count = prev_int_pgs.length;
     const prev_weights = {};
     const prev_pg_per_osd = {};
@@ -131,7 +202,7 @@ async function optimize_change(prev_int_pgs, osd_tree, max_combinations)
         }
     }
     // Get all combinations
-    let all_pgs = all_combinations(osd_tree, null, true);
+    let all_pgs = all_combinations(osd_tree, pg_size, true);
     if (all_pgs.length > max_combinations)
     {
         const intersecting = all_pgs.filter(pg => prev_weights['pg_'+pg.join('_')]);
@@ -157,37 +228,24 @@ async function optimize_change(prev_int_pgs, osd_tree, max_combinations)
         }
     }
     // Penalize PGs based on their similarity to old PGs
-    const intersect = {};
-    for (const pg_name in prev_weights)
-    {
-        const pg = pg_name.substr(3).split(/_/);
-        intersect[pg[0]+'::'] = intersect[':'+pg[1]+':'] = intersect['::'+pg[2]] = 2;
-        intersect[pg[0]+'::'+pg[2]] = intersect[':'+pg[1]+':'+pg[2]] = intersect[pg[0]+':'+pg[1]+':'] = 1;
-    }
-    const move_weights = {};
-    for (const pg of all_pgs)
-    {
-        move_weights['pg_'+pg.join('_')] =
-            intersect[pg[0]+'::'+pg[2]] || intersect[':'+pg[1]+':'+pg[2]] || intersect[pg[0]+':'+pg[1]+':'] ||
-            intersect[pg[0]+'::'] || intersect[':'+pg[1]+':'] || intersect['::'+pg[2]] ||
-            3;
-    }
+    const move_weights = calc_intersect_weights(pg_size, pg_count, prev_weights, all_pgs);
     // Calculate total weight - old PG weights
     const all_pg_names = all_pgs.map(pg => 'pg_'+pg.join('_'));
+    const all_pgs_hash = all_pg_names.reduce((a, c) => { a[c] = true; return a; }, {});
     const all_weights = Object.assign({}, ...Object.values(osd_tree));
     const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c), 0);
     // Generate the LP problem
     let lp = '';
     lp += 'max: '+all_pg_names.map(pg_name => (
-        prev_weights[pg_name] ? `${4-move_weights[pg_name]}*add_${pg_name} - 4*del_${pg_name}` : `${4-move_weights[pg_name]}*${pg_name}`
+        prev_weights[pg_name] ? `${pg_size+1}*add_${pg_name} - ${pg_size+1}*del_${pg_name}` : `${pg_size+1-move_weights[pg_name]}*${pg_name}`
     )).join(' + ')+';\n';
     for (const osd in pg_per_osd)
     {
         if (osd !== NO_OSD)
         {
             const osd_sum = (pg_per_osd[osd]||[]).map(pg_name => prev_weights[pg_name] ? `add_${pg_name} - del_${pg_name}` : pg_name).join(' + ');
-            const rm_osd_pg_count = (prev_pg_per_osd[osd]||[]).filter(old_pg_name => move_weights[old_pg_name]).length;
-            let osd_pg_count = all_weights[osd]*3/total_weight*pg_count - rm_osd_pg_count;
+            const rm_osd_pg_count = (prev_pg_per_osd[osd]||[]).filter(old_pg_name => all_pgs_hash[old_pg_name]).length;
+            let osd_pg_count = all_weights[osd]*pg_size/total_weight*pg_count - rm_osd_pg_count;
             lp += osd_sum + ' <= ' + osd_pg_count + ';\n';
         }
     }
@@ -221,7 +279,7 @@ async function optimize_change(prev_int_pgs, osd_tree, max_combinations)
     const weights = { ...prev_weights };
     for (const k in prev_weights)
     {
-        if (!move_weights[k])
+        if (!all_pgs_hash[k])
         {
             delete weights[k];
         }
@@ -258,7 +316,7 @@ async function optimize_change(prev_int_pgs, osd_tree, max_combinations)
         {
             differs++;
         }
-        for (let j = 0; j < 3; j++)
+        for (let j = 0; j < pg_size; j++)
         {
             if (new_pgs[i][j] != prev_int_pgs[i][j])
             {
@@ -273,7 +331,7 @@ async function optimize_change(prev_int_pgs, osd_tree, max_combinations)
         int_pgs: new_pgs,
         differs,
         osd_differs,
-        space: pg_size * pg_list_space_efficiency(new_pgs, all_weights),
+        space: pg_effsize * pg_list_space_efficiency(new_pgs, all_weights),
         total_space: total_weight,
     };
 }
@@ -391,64 +449,73 @@ function extract_osds(osd_tree, levels, osd_level, osds = {})
     return osds;
 }
 
-// FIXME: support different pg_sizes, not just 3
+// Super-stupid algorithm. Given the current OSD tree, generate all possible OSD combinations
 // osd_tree = { failure_domain1: { osd1: size1, ... }, ... }
-function all_combinations(osd_tree, count, ordered)
+// ordered = return combinations without duplicates having different order
+function all_combinations(osd_tree, pg_size, ordered, count)
 {
     const hosts = Object.keys(osd_tree).sort();
     const osds = Object.keys(osd_tree).reduce((a, c) => { a[c] = Object.keys(osd_tree[c]).sort(); return a; }, {});
-    while (hosts.length < 3)
+    while (hosts.length < pg_size)
     {
         osds[NO_OSD] = [ NO_OSD ];
         hosts.push(NO_OSD);
     }
-    let host_idx = [ 0, 1, 2 ];
-    let osd_idx = [ 0, 0, 0 ];
+    let host_idx = [];
+    let osd_idx = [];
+    for (let i = 0; i < pg_size; i++)
+    {
+        host_idx.push(i);
+        osd_idx.push(0);
+    }
     const r = [];
     while (!count || count < 0 || r.length < count)
     {
-        let inc;
-        if (host_idx[2] != host_idx[1] && host_idx[2] != host_idx[0] && host_idx[1] != host_idx[0])
+        r.push(host_idx.map((hi, i) => osds[hosts[hi]][osd_idx[i]]));
+        let inc = pg_size-1;
+        while (inc >= 0)
         {
-            r.push(host_idx.map((hi, i) => osds[hosts[hi]][osd_idx[i]]));
-            inc = 2;
-            while (inc >= 0)
+            osd_idx[inc]++;
+            if (osd_idx[inc] >= osds[hosts[host_idx[inc]]].length)
             {
-                osd_idx[inc]++;
-                if (osd_idx[inc] >= osds[hosts[host_idx[inc]]].length)
-                {
-                    osd_idx[inc] = 0;
-                    inc--;
-                }
-                else
-                {
-                    break;
-                }
+                osd_idx[inc] = 0;
+                inc--;
             }
-        }
-        else
-        {
-            inc = -1;
+            else
+            {
+                break;
+            }
         }
         if (inc < 0)
         {
-            // no osds left in current host combination, select the next one
-            osd_idx = [ 0, 0, 0 ];
-            host_idx[2]++;
-            if (host_idx[2] >= hosts.length)
+            // no osds left in the current host combination, select the next one
+            inc = pg_size-1;
+            same_again: while (inc >= 0)
             {
-                host_idx[1]++;
-                host_idx[2] = ordered ? host_idx[1]+1 : 0;
-                if ((ordered ? host_idx[2] : host_idx[1]) >= hosts.length)
+                host_idx[inc]++;
+                for (let prev_host = 0; prev_host < inc; prev_host++)
                 {
-                    host_idx[0]++;
-                    host_idx[1] = ordered ? host_idx[0]+1 : 0;
-                    host_idx[2] = ordered ? host_idx[1]+1 : 0;
-                    if ((ordered ? host_idx[2] : host_idx[0]) >= hosts.length)
+                    if (host_idx[prev_host] == host_idx[inc])
                     {
-                        break;
+                        continue same_again;
                     }
                 }
+                if (host_idx[inc] < (ordered ? hosts.length-(pg_size-1-inc) : hosts.length))
+                {
+                    while ((++inc) < pg_size)
+                    {
+                        host_idx[inc] = (ordered ? host_idx[inc-1]+1 : 0);
+                    }
+                    break;
+                }
+                else
+                {
+                    inc--;
+                }
+            }
+            if (inc < 0)
+            {
+                break;
             }
         }
     }
