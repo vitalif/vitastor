@@ -45,7 +45,7 @@ class Mon
                 url += '/v3';
             this.etcd_urls.push(scheme+'://'+url);
         }
-        this.etcd_prefix = config.etcd_prefix || '/rage';
+        this.etcd_prefix = config.etcd_prefix || '/microceph';
         this.etcd_prefix = this.etcd_prefix.replace(/\/\/+/g, '/').replace(/^\/?(.*[^\/])\/?$/, '/$1');
         this.etcd_start_timeout = (config.etcd_start_timeout || 5) * 1000;
         this.state = JSON.parse(JSON.stringify(Mon.etcd_tree));

@@ -103,6 +103,7 @@ async function run()
     delete osd_tree[500][8];
     res = await LPOptimizer.optimize_change(res.int_pgs, osd_tree, 3);
     LPOptimizer.print_change_stats(res, false);
+
     console.log('\n256 PGs, size=3, failure domain=rack');
     res = await LPOptimizer.optimize_initial(LPOptimizer.flatten_tree(crush_tree, {}, 1, 3), 3, 256);
     LPOptimizer.print_change_stats(res, false);

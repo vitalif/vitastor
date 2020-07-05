@@ -52,12 +52,7 @@ async function optimize_initial(osd_tree, pg_size, pg_count, max_combinations)
     max_combinations = max_combinations || 10000;
     const all_weights = Object.assign({}, ...Object.values(osd_tree));
     const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c), 0);
-    let all_pgs = all_combinations(osd_tree, pg_size, true);
-    if (all_pgs.length > max_combinations)
-    {
-        const prob = max_combinations/all_pgs.length;
-        all_pgs = all_pgs.filter(pg => Math.random() < prob);
-    }
+    all_pgs = Object.values(random_combinations(osd_tree, pg_size, max_combinations));
     const pg_per_osd = {};
     for (const pg of all_pgs)
     {
@@ -183,6 +178,37 @@ function calc_intersect_weights(pg_size, pg_count, prev_weights, all_pgs)
     return move_weights;
 }
 
+function add_valid_previous(osd_tree, prev_weights, all_pgs)
+{
+    // Add previous combinations that are still valid
+    const hosts = Object.keys(osd_tree).sort();
+    const host_per_osd = {};
+    for (const host in osd_tree)
+    {
+        for (const osd in osd_tree[host])
+        {
+            host_per_osd[osd] = host;
+        }
+    }
+    skip_pg: for (const pg_name in prev_weights)
+    {
+        const seen_hosts = {};
+        const pg = pg_name.substr(3).split(/_/);
+        for (const osd of pg)
+        {
+            if (!host_per_osd[osd] || seen_hosts[host_per_osd[osd]])
+            {
+                continue skip_pg;
+            }
+            seen_hosts[host_per_osd[osd]] = true;
+        }
+        if (!all_pgs[pg_name])
+        {
+            all_pgs[pg_name] = pg;
+        }
+    }
+}
+
 // Try to minimize data movement
 async function optimize_change(prev_int_pgs, osd_tree, pg_size, max_combinations)
 {
@@ -202,21 +228,9 @@ async function optimize_change(prev_int_pgs, osd_tree, pg_size, max_combinations
         }
     }
     // Get all combinations
-    let all_pgs = all_combinations(osd_tree, pg_size, true);
-    if (all_pgs.length > max_combinations)
-    {
-        const intersecting = all_pgs.filter(pg => prev_weights['pg_'+pg.join('_')]);
-        if (intersecting.length > max_combinations)
-        {
-            const prob = max_combinations/intersecting.length;
-            all_pgs = intersecting.filter(pg => Math.random() < prob);
-        }
-        else
-        {
-            const prob = (max_combinations-intersecting.length)/all_pgs.length;
-            all_pgs = all_pgs.filter(pg => Math.random() < prob || prev_weights['pg_'+pg.join('_')]);
-        }
-    }
+    all_pgs = random_combinations(osd_tree, pg_size, max_combinations);
+    add_valid_previous(osd_tree, prev_weights, all_pgs);
+    all_pgs = Object.values(all_pgs);
     const pg_per_osd = {};
     for (const pg of all_pgs)
     {
@@ -449,6 +463,65 @@ function extract_osds(osd_tree, levels, osd_level, osds = {})
     return osds;
 }
 
+function random_combinations(osd_tree, pg_size, count)
+{
+    let seed = 0x5f020e43;
+    let rng = () =>
+    {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        return seed + 2147483648;
+    };
+    const hosts = Object.keys(osd_tree).sort();
+    const osds = Object.keys(osd_tree).reduce((a, c) => { a[c] = Object.keys(osd_tree[c]).sort(); return a; }, {});
+    const r = {};
+    // Generate random combinations including each OSD at least once
+    for (let h = 0; h < hosts.length; h++)
+    {
+        for (let o = 0; o < osds[hosts[h]].length; o++)
+        {
+            const pg = [ osds[hosts[h]][o] ];
+            const cur_hosts = [ ...hosts ];
+            cur_hosts.splice(h, 1);
+            for (let i = 1; i < pg_size && i < hosts.length; i++)
+            {
+                const next_host = rng() % cur_hosts.length;
+                const next_osd = rng() % osds[cur_hosts[next_host]].length;
+                pg.push(osds[cur_hosts[next_host]][next_osd]);
+                cur_hosts.splice(next_host, 1);
+            }
+            while (pg.length < pg_size)
+            {
+                pg.push(NO_OSD);
+            }
+            r['pg_'+pg.join('_')] = pg;
+        }
+    }
+    // Generate purely random combinations
+    restart: while (count > 0)
+    {
+        let host_idx = [];
+        for (let i = 0; i < pg_size && i < hosts.length; i++)
+        {
+            let start = i > 0 ? host_idx[i-1]+1 : 0;
+            if (start >= hosts.length)
+            {
+                continue restart;
+            }
+            host_idx[i] = start + rng() % (hosts.length-start);
+        }
+        let pg = host_idx.map(h => osds[hosts[h]][rng() % osds[hosts[h]].length]);
+        while (pg.length < pg_size)
+        {
+            pg.push(NO_OSD);
+        }
+        r['pg_'+pg.join('_')] = pg;
+        count--;
+    }
+    return r;
+}
+
 // Super-stupid algorithm. Given the current OSD tree, generate all possible OSD combinations
 // osd_tree = { failure_domain1: { osd1: size1, ... }, ... }
 // ordered = return combinations without duplicates having different order
@@ -584,5 +657,6 @@ module.exports = {
     lp_solve,
     make_int_pgs,
     align_pgs,
+    random_combinations,
     all_combinations,
 };
