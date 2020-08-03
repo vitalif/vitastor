@@ -381,7 +381,7 @@ static int sec_invalidate(struct thread_data *td, struct fio_file *f)
 }
 
 struct ioengine_ops ioengine = {
-    .name               = "microceph_secondary_osd",
+    .name               = "vitastor_secondary_osd",
     .version            = FIO_IOOPS_VERSION,
     .flags              = FIO_MEMALIGN | FIO_DISKLESSIO | FIO_NOEXTEND,
     .setup              = sec_setup,

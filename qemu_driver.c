@@ -16,7 +16,7 @@
 
 #include "qemu_proxy.h"
 
-typedef struct FalconClient
+typedef struct VitastorClient
 {
     void *proxy;
     char *etcd_host;
@@ -25,16 +25,16 @@ typedef struct FalconClient
     uint64_t size;
     int readonly;
     QemuMutex mutex;
-} FalconClient;
+} VitastorClient;
 
-typedef struct FalconRPC
+typedef struct VitastorRPC
 {
     BlockDriverState *bs;
     Coroutine *co;
     QEMUIOVector *iov;
     int ret;
     int complete;
-} FalconRPC;
+} VitastorRPC;
 
 static char *qemu_rbd_next_tok(char *src, char delim, char **p)
 {
@@ -67,16 +67,16 @@ static void qemu_rbd_unescape(char *src)
     *p = '\0';
 }
 
-// falcon[:key=value]*
-// falcon:etcd_host=127.0.0.1:inode=1
-static void falcon_parse_filename(const char *filename, QDict *options, Error **errp)
+// vitastor[:key=value]*
+// vitastor:etcd_host=127.0.0.1:inode=1
+static void vitastor_parse_filename(const char *filename, QDict *options, Error **errp)
 {
     const char *start;
     char *p, *buf;
 
-    if (!strstart(filename, "falcon:", &start))
+    if (!strstart(filename, "vitastor:", &start))
     {
-        error_setg(errp, "File name must start with 'falcon:'");
+        error_setg(errp, "File name must start with 'vitastor:'");
         return;
     }
 
@@ -132,16 +132,16 @@ out:
     return;
 }
 
-static int falcon_file_open(BlockDriverState *bs, QDict *options, int flags, Error **errp)
+static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, Error **errp)
 {
-    FalconClient *client = bs->opaque;
+    VitastorClient *client = bs->opaque;
     int64_t ret = 0;
     client->etcd_host = g_strdup(qdict_get_try_str(options, "etcd_host"));
     client->etcd_prefix = g_strdup(qdict_get_try_str(options, "etcd_prefix"));
     client->inode = qdict_get_int(options, "inode");
     client->size = qdict_get_int(options, "size");
     client->readonly = (flags & BDRV_O_RDWR) ? 1 : 0;
-    client->proxy = falcon_proxy_create(bdrv_get_aio_context(bs), client->etcd_host, client->etcd_prefix);
+    client->proxy = vitastor_proxy_create(bdrv_get_aio_context(bs), client->etcd_host, client->etcd_prefix);
     //client->aio_context = bdrv_get_aio_context(bs);
     bs->total_sectors = client->size / BDRV_SECTOR_SIZE;
     qdict_del(options, "etcd_host");
@@ -152,37 +152,37 @@ static int falcon_file_open(BlockDriverState *bs, QDict *options, int flags, Err
     return ret;
 }
 
-static void falcon_close(BlockDriverState *bs)
+static void vitastor_close(BlockDriverState *bs)
 {
-    FalconClient *client = bs->opaque;
-    falcon_proxy_destroy(client->proxy);
+    VitastorClient *client = bs->opaque;
+    vitastor_proxy_destroy(client->proxy);
     qemu_mutex_destroy(&client->mutex);
     g_free(client->etcd_host);
     if (client->etcd_prefix)
         g_free(client->etcd_prefix);
 }
 
-static int falcon_probe_blocksizes(BlockDriverState *bs, BlockSizes *bsz)
+static int vitastor_probe_blocksizes(BlockDriverState *bs, BlockSizes *bsz)
 {
     bsz->phys = 4096;
     bsz->log = 4096;
     return 0;
 }
 
-static int coroutine_fn falcon_co_create_opts(BlockDriver *drv, const char *url, QemuOpts *opts, Error **errp)
+static int coroutine_fn vitastor_co_create_opts(BlockDriver *drv, const char *url, QemuOpts *opts, Error **errp)
 {
     QDict *options;
     int ret;
 
     options = qdict_new();
-    falcon_parse_filename(url, options, errp);
+    vitastor_parse_filename(url, options, errp);
     if (*errp)
     {
         ret = -1;
         goto out;
     }
 
-    // inodes don't require creation in Falcon. FIXME: They will when there will be some metadata
+    // inodes don't require creation in Vitastor. FIXME: They will when there will be some metadata
 
     ret = 0;
 out:
@@ -190,9 +190,9 @@ out:
     return ret;
 }
 
-static int coroutine_fn falcon_co_truncate(BlockDriverState *bs, int64_t offset, bool exact, PreallocMode prealloc, Error **errp)
+static int coroutine_fn vitastor_co_truncate(BlockDriverState *bs, int64_t offset, bool exact, PreallocMode prealloc, Error **errp)
 {
-    FalconClient *client = bs->opaque;
+    VitastorClient *client = bs->opaque;
 
     if (prealloc != PREALLOC_MODE_OFF)
     {
@@ -206,41 +206,41 @@ static int coroutine_fn falcon_co_truncate(BlockDriverState *bs, int64_t offset,
     return 0;
 }
 
-static int falcon_get_info(BlockDriverState *bs, BlockDriverInfo *bdi)
+static int vitastor_get_info(BlockDriverState *bs, BlockDriverInfo *bdi)
 {
     bdi->cluster_size = 4096;
     return 0;
 }
 
-static int64_t falcon_getlength(BlockDriverState *bs)
+static int64_t vitastor_getlength(BlockDriverState *bs)
 {
-    FalconClient *client = bs->opaque;
+    VitastorClient *client = bs->opaque;
     return client->size;
 }
 
-static void falcon_refresh_limits(BlockDriverState *bs, Error **errp)
+static void vitastor_refresh_limits(BlockDriverState *bs, Error **errp)
 {
     bs->bl.request_alignment = 4096;
     bs->bl.min_mem_alignment = 4096;
     bs->bl.opt_mem_alignment = 4096;
 }
 
-static int64_t falcon_get_allocated_file_size(BlockDriverState *bs)
+static int64_t vitastor_get_allocated_file_size(BlockDriverState *bs)
 {
     return 0;
 }
 
-static void falcon_co_init_task(BlockDriverState *bs, FalconRPC *task)
+static void vitastor_co_init_task(BlockDriverState *bs, VitastorRPC *task)
 {
-    *task = (FalconRPC) {
+    *task = (VitastorRPC) {
         .co     = qemu_coroutine_self(),
         .bs     = bs,
     };
 }
 
-static void falcon_co_generic_bh_cb(int retval, void *opaque)
+static void vitastor_co_generic_bh_cb(int retval, void *opaque)
 {
-    FalconRPC *task = opaque;
+    VitastorRPC *task = opaque;
     task->ret = retval;
     task->complete = 1;
     if (qemu_coroutine_self() != task->co)
@@ -249,15 +249,15 @@ static void falcon_co_generic_bh_cb(int retval, void *opaque)
     }
 }
 
-static int coroutine_fn falcon_co_preadv(BlockDriverState *bs, uint64_t offset, uint64_t bytes, QEMUIOVector *iov, int flags)
+static int coroutine_fn vitastor_co_preadv(BlockDriverState *bs, uint64_t offset, uint64_t bytes, QEMUIOVector *iov, int flags)
 {
-    FalconClient *client = bs->opaque;
-    FalconRPC task;
-    falcon_co_init_task(bs, &task);
+    VitastorClient *client = bs->opaque;
+    VitastorRPC task;
+    vitastor_co_init_task(bs, &task);
     task.iov = iov;
 
     qemu_mutex_lock(&client->mutex);
-    falcon_proxy_rw(0, client->proxy, client->inode, offset, bytes, iov->iov, iov->niov, falcon_co_generic_bh_cb, &task);
+    vitastor_proxy_rw(0, client->proxy, client->inode, offset, bytes, iov->iov, iov->niov, vitastor_co_generic_bh_cb, &task);
     qemu_mutex_unlock(&client->mutex);
 
     while (!task.complete)
@@ -268,15 +268,15 @@ static int coroutine_fn falcon_co_preadv(BlockDriverState *bs, uint64_t offset, 
     return task.ret;
 }
 
-static int coroutine_fn falcon_co_pwritev(BlockDriverState *bs, uint64_t offset, uint64_t bytes, QEMUIOVector *iov, int flags)
+static int coroutine_fn vitastor_co_pwritev(BlockDriverState *bs, uint64_t offset, uint64_t bytes, QEMUIOVector *iov, int flags)
 {
-    FalconClient *client = bs->opaque;
-    FalconRPC task;
-    falcon_co_init_task(bs, &task);
+    VitastorClient *client = bs->opaque;
+    VitastorRPC task;
+    vitastor_co_init_task(bs, &task);
     task.iov = iov;
 
     qemu_mutex_lock(&client->mutex);
-    falcon_proxy_rw(1, client->proxy, client->inode, offset, bytes, iov->iov, iov->niov, falcon_co_generic_bh_cb, &task);
+    vitastor_proxy_rw(1, client->proxy, client->inode, offset, bytes, iov->iov, iov->niov, vitastor_co_generic_bh_cb, &task);
     qemu_mutex_unlock(&client->mutex);
 
     while (!task.complete)
@@ -287,14 +287,14 @@ static int coroutine_fn falcon_co_pwritev(BlockDriverState *bs, uint64_t offset,
     return task.ret;
 }
 
-static int coroutine_fn falcon_co_flush(BlockDriverState *bs)
+static int coroutine_fn vitastor_co_flush(BlockDriverState *bs)
 {
-    FalconClient *client = bs->opaque;
-    FalconRPC task;
-    falcon_co_init_task(bs, &task);
+    VitastorClient *client = bs->opaque;
+    VitastorRPC task;
+    vitastor_co_init_task(bs, &task);
 
     qemu_mutex_lock(&client->mutex);
-    falcon_proxy_sync(client->proxy, falcon_co_generic_bh_cb, &task);
+    vitastor_proxy_sync(client->proxy, vitastor_co_generic_bh_cb, &task);
     qemu_mutex_unlock(&client->mutex);
 
     while (!task.complete)
@@ -305,9 +305,9 @@ static int coroutine_fn falcon_co_flush(BlockDriverState *bs)
     return task.ret;
 }
 
-static QemuOptsList falcon_create_opts = {
-    .name = "falcon-create-opts",
-    .head = QTAILQ_HEAD_INITIALIZER(falcon_create_opts.head),
+static QemuOptsList vitastor_create_opts = {
+    .name = "vitastor-create-opts",
+    .head = QTAILQ_HEAD_INITIALIZER(vitastor_create_opts.head),
     .desc = {
         {
             .name = BLOCK_OPT_SIZE,
@@ -318,7 +318,7 @@ static QemuOptsList falcon_create_opts = {
     }
 };
 
-static const char *falcon_strong_runtime_opts[] = {
+static const char *vitastor_strong_runtime_opts[] = {
     "inode",
     "etcd_host",
     "etcd_prefix",
@@ -326,48 +326,48 @@ static const char *falcon_strong_runtime_opts[] = {
     NULL
 };
 
-static BlockDriver bdrv_falcon = {
-    .format_name                    = "falcon",
-    .protocol_name                  = "falcon",
+static BlockDriver bdrv_vitastor = {
+    .format_name                    = "vitastor",
+    .protocol_name                  = "vitastor",
 
-    .instance_size                  = sizeof(FalconClient),
-    .bdrv_parse_filename            = falcon_parse_filename,
+    .instance_size                  = sizeof(VitastorClient),
+    .bdrv_parse_filename            = vitastor_parse_filename,
 
     .bdrv_has_zero_init             = bdrv_has_zero_init_1,
     .bdrv_has_zero_init_truncate    = bdrv_has_zero_init_1,
-    .bdrv_get_info                  = falcon_get_info,
-    .bdrv_getlength                 = falcon_getlength,
-    .bdrv_probe_blocksizes          = falcon_probe_blocksizes,
-    .bdrv_refresh_limits            = falcon_refresh_limits,
+    .bdrv_get_info                  = vitastor_get_info,
+    .bdrv_getlength                 = vitastor_getlength,
+    .bdrv_probe_blocksizes          = vitastor_probe_blocksizes,
+    .bdrv_refresh_limits            = vitastor_refresh_limits,
 
     // FIXME: Implement it along with per-inode statistics
-    //.bdrv_get_allocated_file_size   = falcon_get_allocated_file_size,
+    //.bdrv_get_allocated_file_size   = vitastor_get_allocated_file_size,
 
-    .bdrv_file_open                 = falcon_file_open,
-    .bdrv_close                     = falcon_close,
+    .bdrv_file_open                 = vitastor_file_open,
+    .bdrv_close                     = vitastor_close,
 
     // Option list for the create operation
-    .create_opts                    = &falcon_create_opts,
+    .create_opts                    = &vitastor_create_opts,
 
     // For qmp_blockdev_create(), used by the qemu monitor / QAPI
     // Requires patching QAPI IDL, thus unimplemented
-    //.bdrv_co_create                 = falcon_co_create,
+    //.bdrv_co_create                 = vitastor_co_create,
 
     // For bdrv_create(), used by qemu-img
-    .bdrv_co_create_opts            = falcon_co_create_opts,
+    .bdrv_co_create_opts            = vitastor_co_create_opts,
 
-    .bdrv_co_truncate               = falcon_co_truncate,
+    .bdrv_co_truncate               = vitastor_co_truncate,
 
-    .bdrv_co_preadv                 = falcon_co_preadv,
-    .bdrv_co_pwritev                = falcon_co_pwritev,
-    .bdrv_co_flush_to_disk          = falcon_co_flush,
+    .bdrv_co_preadv                 = vitastor_co_preadv,
+    .bdrv_co_pwritev                = vitastor_co_pwritev,
+    .bdrv_co_flush_to_disk          = vitastor_co_flush,
 
-    .strong_runtime_opts            = falcon_strong_runtime_opts,
+    .strong_runtime_opts            = vitastor_strong_runtime_opts,
 };
 
-static void falcon_block_init(void)
+static void vitastor_block_init(void)
 {
-    bdrv_register(&bdrv_falcon);
+    bdrv_register(&bdrv_vitastor);
 }
 
-block_init(falcon_block_init);
+block_init(vitastor_block_init);

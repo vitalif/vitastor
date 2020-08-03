@@ -36,7 +36,7 @@ public:
         this->ctx = ctx;
         json11::Json cfg = json11::Json::object {
             { "etcd_address", std::string(etcd_host) },
-            { "etcd_prefix", std::string(etcd_prefix ? etcd_prefix : "/microceph") },
+            { "etcd_prefix", std::string(etcd_prefix ? etcd_prefix : "/vitastor") },
         };
         tfd = new timerfd_manager_t([this](int fd, bool wr, std::function<void(int, int)> callback) { set_fd_handler(fd, wr, callback); });
         cli = new cluster_client_t(NULL, tfd, cfg);
@@ -78,20 +78,20 @@ public:
 
 extern "C" {
 
-void* falcon_proxy_create(AioContext *ctx, const char *etcd_host, const char *etcd_prefix)
+void* vitastor_proxy_create(AioContext *ctx, const char *etcd_host, const char *etcd_prefix)
 {
     QemuProxy *p = new QemuProxy(ctx, etcd_host, etcd_prefix);
     return p;
 }
 
-void falcon_proxy_destroy(void *client)
+void vitastor_proxy_destroy(void *client)
 {
     QemuProxy *p = (QemuProxy*)client;
     delete p;
 }
 
-void falcon_proxy_rw(int write, void *client, uint64_t inode, uint64_t offset, uint64_t len,
-    iovec *iov, int iovcnt, FalconIOHandler cb, void *opaque)
+void vitastor_proxy_rw(int write, void *client, uint64_t inode, uint64_t offset, uint64_t len,
+    iovec *iov, int iovcnt, VitastorIOHandler cb, void *opaque)
 {
     QemuProxy *p = (QemuProxy*)client;
     cluster_op_t *op = new cluster_op_t;
@@ -111,7 +111,7 @@ void falcon_proxy_rw(int write, void *client, uint64_t inode, uint64_t offset, u
     p->cli->execute(op);
 }
 
-void falcon_proxy_sync(void *client, FalconIOHandler cb, void *opaque)
+void vitastor_proxy_sync(void *client, VitastorIOHandler cb, void *opaque)
 {
     QemuProxy *p = (QemuProxy*)client;
     cluster_op_t *op = new cluster_op_t;

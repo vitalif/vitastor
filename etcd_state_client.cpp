@@ -81,7 +81,7 @@ void etcd_state_client_t::parse_config(json11::Json & config)
     this->etcd_prefix = config["etcd_prefix"].string_value();
     if (this->etcd_prefix == "")
     {
-        this->etcd_prefix = "/microceph";
+        this->etcd_prefix = "/vitastor";
     }
     else if (this->etcd_prefix[0] != '/')
     {

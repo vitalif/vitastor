@@ -290,7 +290,7 @@ static int bs_invalidate(struct thread_data *td, struct fio_file *f)
 }
 
 struct ioengine_ops ioengine = {
-    .name               = "microceph_blockstore",
+    .name               = "vitastor_blockstore",
     .version            = FIO_IOOPS_VERSION,
     .flags              = FIO_MEMALIGN | FIO_DISKLESSIO | FIO_NOEXTEND,
     .setup              = bs_setup,

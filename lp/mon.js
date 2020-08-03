@@ -45,7 +45,7 @@ class Mon
                 url += '/v3';
             this.etcd_urls.push(scheme+'://'+url);
         }
-        this.etcd_prefix = config.etcd_prefix || '/microceph';
+        this.etcd_prefix = config.etcd_prefix || '/vitastor';
         this.etcd_prefix = this.etcd_prefix.replace(/\/\/+/g, '/').replace(/^\/?(.*[^\/])\/?$/, '/$1');
         this.etcd_start_timeout = (config.etcd_start_timeout || 5) * 1000;
         this.state = JSON.parse(JSON.stringify(Mon.etcd_tree));
@@ -763,6 +763,11 @@ class Mon
         {
             const base = this.etcd_urls[Math.floor(Math.random()*this.etcd_urls.length)];
             const res = await POST(base+path, body, timeout);
+            if (res.error)
+            {
+                console.log('etcd returned error: '+res.error);
+                break;
+            }
             if (res.json)
             {
                 if (res.json.error)
@@ -816,7 +821,7 @@ function POST(url, body, timeout)
         }, timeout) : null;
         let req = http.request(url, { method: 'POST', headers: {
             'Content-Type': 'application/json',
-            'Content-Length': body_text,
+            'Content-Length': body_text.length,
         } }, (res) =>
         {
             if (!req)
@@ -824,16 +829,16 @@ function POST(url, body, timeout)
                 return;
             }
             clearTimeout(timer_id);
-            if (res.statusCode != 200)
-            {
-                ok({ error: res.statusCode, response: res });
-                return;
-            }
             let res_body = '';
             res.setEncoding('utf8');
             res.on('data', chunk => { res_body += chunk });
             res.on('end', () =>
             {
+                if (res.statusCode != 200)
+                {
+                    ok({ error: res_body, code: res.statusCode });
+                    return;
+                }
                 try
                 {
                     res_body = JSON.parse(res_body);

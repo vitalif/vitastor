@@ -3,17 +3,17 @@
 // Random write:
 //
 // fio -thread -ioengine=./libfio_cluster.so -name=test -bs=4k -direct=1 -fsync=16 -iodepth=16 -rw=randwrite \
-//     -etcd=127.0.0.1:2379 [-etcd_prefix=/microceph] -inode=1 -size=1000M
+//     -etcd=127.0.0.1:2379 [-etcd_prefix=/vitastor] -inode=1 -size=1000M
 //
 // Linear write:
 //
 // fio -thread -ioengine=./libfio_cluster.so -name=test -bs=128k -direct=1 -fsync=32 -iodepth=32 -rw=write \
-//     -etcd=127.0.0.1:2379 [-etcd_prefix=/microceph] -inode=1 -size=1000M
+//     -etcd=127.0.0.1:2379 [-etcd_prefix=/vitastor] -inode=1 -size=1000M
 //
 // Random read (run with -iodepth=32 or -iodepth=1):
 //
 // fio -thread -ioengine=./libfio_cluster.so -name=test -bs=4k -direct=1 -iodepth=32 -rw=randread \
-//     -etcd=127.0.0.1:2379 [-etcd_prefix=/microceph] -inode=1 -size=1000M
+//     -etcd=127.0.0.1:2379 [-etcd_prefix=/vitastor] -inode=1 -size=1000M
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -68,7 +68,7 @@ static struct fio_option options[] = {
         .lname  = "etcd key prefix",
         .type   = FIO_OPT_STR_STORE,
         .off1   = offsetof(struct sec_options, etcd_prefix),
-        .help   = "etcd key prefix, by default /microceph",
+        .help   = "etcd key prefix, by default /vitastor",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
     },
@@ -140,7 +140,7 @@ static int sec_init(struct thread_data *td)
 
     json11::Json cfg = json11::Json::object {
         { "etcd_address", std::string(o->etcd_host) },
-        { "etcd_prefix", std::string(o->etcd_prefix ? o->etcd_prefix : "/microceph") },
+        { "etcd_prefix", std::string(o->etcd_prefix ? o->etcd_prefix : "/vitastor") },
     };
 
     bsd->ringloop = new ring_loop_t(512);
@@ -278,7 +278,7 @@ static int sec_invalidate(struct thread_data *td, struct fio_file *f)
 }
 
 struct ioengine_ops ioengine = {
-    .name               = "microceph_cluster",
+    .name               = "vitastor_cluster",
     .version            = FIO_IOOPS_VERSION,
     .flags              = FIO_MEMALIGN | FIO_DISKLESSIO | FIO_NOEXTEND,
     .setup              = sec_setup,
