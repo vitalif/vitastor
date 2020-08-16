@@ -25,7 +25,7 @@ async function lp_solve(text)
     let vars = {};
     for (const line of stdout.split(/\n/))
     {
-        let m = /^(^Value of objective function: ([\d\.]+)|Actual values of the variables:)\s*$/.exec(line);
+        let m = /^(^Value of objective function: (-?[\d\.]+)|Actual values of the variables:)\s*$/.exec(line);
         if (m)
         {
             if (m[2])
@@ -47,22 +47,27 @@ async function lp_solve(text)
     return { score, vars };
 }
 
-async function optimize_initial(osd_tree, pg_size, pg_count, max_combinations)
+async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 2, max_combinations = 10000, parity_space = 1 })
 {
-    max_combinations = max_combinations || 10000;
+    if (!pg_count || !osd_tree)
+    {
+        return null;
+    }
     const all_weights = Object.assign({}, ...Object.values(osd_tree));
     const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c), 0);
     all_pgs = Object.values(random_combinations(osd_tree, pg_size, max_combinations));
     const pg_per_osd = {};
     for (const pg of all_pgs)
     {
-        for (const osd of pg)
+        for (let i = 0; i < pg.length; i++)
         {
+            const osd = pg[i];
             pg_per_osd[osd] = pg_per_osd[osd] || [];
-            pg_per_osd[osd].push("pg_"+pg.join("_"));
+            pg_per_osd[osd].push((i >= pg_minsize ? parity_space+'*' : '')+"pg_"+pg.join("_"));
         }
     }
-    const pg_effsize = Math.min(Object.keys(osd_tree).length, pg_size);
+    const pg_effsize = Math.min(pg_minsize, Object.keys(osd_tree).length)
+        + Math.max(0, Math.min(pg_size, Object.keys(osd_tree).length) - pg_minsize) * parity_space;
     let lp = '';
     lp += "max: "+all_pgs.map(pg => 'pg_'+pg.join('_')).join(' + ')+";\n";
     for (const osd in pg_per_osd)
@@ -81,11 +86,19 @@ async function optimize_initial(osd_tree, pg_size, pg_count, max_combinations)
     const lp_result = await lp_solve(lp);
     if (!lp_result)
     {
+        console.log(lp);
         throw new Error('Problem is infeasible or unbounded - is it a bug?');
     }
     const int_pgs = make_int_pgs(lp_result.vars, pg_count);
-    const eff = pg_list_space_efficiency(int_pgs, all_weights);
-    return { score: lp_result.score, weights: lp_result.vars, int_pgs, space: eff*pg_effsize, total_space: total_weight };
+    const eff = pg_list_space_efficiency(int_pgs, all_weights, pg_minsize, parity_space);
+    const res = {
+        score: lp_result.score,
+        weights: lp_result.vars,
+        int_pgs,
+        space: eff * pg_effsize,
+        total_space: total_weight,
+    };
+    return res;
 }
 
 function make_int_pgs(weights, pg_count)
@@ -210,10 +223,14 @@ function add_valid_previous(osd_tree, prev_weights, all_pgs)
 }
 
 // Try to minimize data movement
-async function optimize_change(prev_int_pgs, osd_tree, pg_size, max_combinations)
+async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, pg_minsize = 2, max_combinations = 10000, parity_space = 1 })
 {
-    max_combinations = max_combinations || 10000;
-    const pg_effsize = Math.min(Object.keys(osd_tree).length, pg_size);
+    if (!osd_tree)
+    {
+        return null;
+    }
+    const pg_effsize = Math.min(pg_minsize, Object.keys(osd_tree).length)
+        + Math.max(0, Math.min(pg_size, Object.keys(osd_tree).length) - pg_minsize) * parity_space;
     const pg_count = prev_int_pgs.length;
     const prev_weights = {};
     const prev_pg_per_osd = {};
@@ -221,10 +238,11 @@ async function optimize_change(prev_int_pgs, osd_tree, pg_size, max_combinations
     {
         const pg_name = 'pg_'+pg.join('_');
         prev_weights[pg_name] = (prev_weights[pg_name]||0) + 1;
-        for (const osd of pg)
+        for (let i = 0; i < pg.length; i++)
         {
+            const osd = pg[i];
             prev_pg_per_osd[osd] = prev_pg_per_osd[osd] || [];
-            prev_pg_per_osd[osd].push(pg_name);
+            prev_pg_per_osd[osd].push([ pg_name, (i >= pg_minsize ? parity_space : 1) ]);
         }
     }
     // Get all combinations
@@ -235,10 +253,11 @@ async function optimize_change(prev_int_pgs, osd_tree, pg_size, max_combinations
     for (const pg of all_pgs)
     {
         const pg_name = 'pg_'+pg.join('_');
-        for (const osd of pg)
+        for (let i = 0; i < pg.length; i++)
         {
+            const osd = pg[i];
             pg_per_osd[osd] = pg_per_osd[osd] || [];
-            pg_per_osd[osd].push(pg_name);
+            pg_per_osd[osd].push([ pg_name, (i >= pg_minsize ? parity_space : 1) ]);
         }
     }
     // Penalize PGs based on their similarity to old PGs
@@ -257,9 +276,12 @@ async function optimize_change(prev_int_pgs, osd_tree, pg_size, max_combinations
     {
         if (osd !== NO_OSD)
         {
-            const osd_sum = (pg_per_osd[osd]||[]).map(pg_name => prev_weights[pg_name] ? `add_${pg_name} - del_${pg_name}` : pg_name).join(' + ');
-            const rm_osd_pg_count = (prev_pg_per_osd[osd]||[]).filter(old_pg_name => all_pgs_hash[old_pg_name]).length;
-            let osd_pg_count = all_weights[osd]*pg_size/total_weight*pg_count - rm_osd_pg_count;
+            const osd_sum = (pg_per_osd[osd]||[]).map(([ pg_name, space ]) => (
+                prev_weights[pg_name] ? `${space} * add_${pg_name} - ${space} * del_${pg_name}` : `${space} * ${pg_name}`
+            )).join(' + ');
+            const rm_osd_pg_count = (prev_pg_per_osd[osd]||[])
+                .reduce((a, [ old_pg_name, space ]) => (a + (all_pgs_hash[old_pg_name] ? space : 0)), 0);
+            const osd_pg_count = all_weights[osd]*pg_effsize/total_weight*pg_count - rm_osd_pg_count;
             lp += osd_sum + ' <= ' + osd_pg_count + ';\n';
         }
     }
@@ -308,7 +330,7 @@ async function optimize_change(prev_int_pgs, osd_tree, pg_size, max_combinations
         {
             weights[k.substr(4)] = (weights[k.substr(4)] || 0) - Number(lp_result.vars[k]);
         }
-        else
+        else if (k.substr(0, 3) === 'pg_')
         {
             weights[k] = Number(lp_result.vars[k]);
         }
@@ -345,7 +367,7 @@ async function optimize_change(prev_int_pgs, osd_tree, pg_size, max_combinations
         int_pgs: new_pgs,
         differs,
         osd_differs,
-        space: pg_effsize * pg_list_space_efficiency(new_pgs, all_weights),
+        space: pg_effsize * pg_list_space_efficiency(new_pgs, all_weights, pg_minsize, parity_space),
         total_space: total_weight,
     };
 }
@@ -608,14 +630,15 @@ function pg_weights_space_efficiency(weights, pg_count, osd_sizes)
     return pg_per_osd_space_efficiency(per_osd, pg_count, osd_sizes);
 }
 
-function pg_list_space_efficiency(pgs, osd_sizes)
+function pg_list_space_efficiency(pgs, osd_sizes, pg_minsize, parity_space)
 {
     const per_osd = {};
     for (const pg of pgs)
     {
-        for (const osd of pg)
+        for (let i = 0; i < pg.length; i++)
         {
-            per_osd[osd] = (per_osd[osd]||0) + 1;
+            const osd = pg[i];
+            per_osd[osd] = (per_osd[osd]||0) + (i >= pg_minsize ? (parity_space||1) : 1);
         }
     }
     return pg_per_osd_space_efficiency(per_osd, pgs.length, osd_sizes);

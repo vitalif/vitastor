@@ -40,31 +40,31 @@ async function run()
 {
     const cur_tree = {};
     console.log('Empty tree:');
-    let res = await LPOptimizer.optimize_initial(cur_tree, 3, 256);
+    let res = await LPOptimizer.optimize_initial({ osd_tree: cur_tree, pg_size: 3, pg_count: 256 });
     LPOptimizer.print_change_stats(res, false);
     console.log('\nAdding 1st failure domain:');
     cur_tree['dom1'] = osd_tree['dom1'];
-    res = await LPOptimizer.optimize_change(res.int_pgs, cur_tree, 3);
+    res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree: cur_tree, pg_size: 3 });
     LPOptimizer.print_change_stats(res, false);
     console.log('\nAdding 2nd failure domain:');
     cur_tree['dom2'] = osd_tree['dom2'];
-    res = await LPOptimizer.optimize_change(res.int_pgs, cur_tree, 3);
+    res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree: cur_tree, pg_size: 3 });
     LPOptimizer.print_change_stats(res, false);
     console.log('\nAdding 3rd failure domain:');
     cur_tree['dom3'] = osd_tree['dom3'];
-    res = await LPOptimizer.optimize_change(res.int_pgs, cur_tree, 3);
+    res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree: cur_tree, pg_size: 3 });
     LPOptimizer.print_change_stats(res, false);
     console.log('\nRemoving 3rd failure domain:');
     delete cur_tree['dom3'];
-    res = await LPOptimizer.optimize_change(res.int_pgs, cur_tree, 3);
+    res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree: cur_tree, pg_size: 3 });
     LPOptimizer.print_change_stats(res, false);
     console.log('\nRemoving 2nd failure domain:');
     delete cur_tree['dom2'];
-    res = await LPOptimizer.optimize_change(res.int_pgs, cur_tree, 3);
+    res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree: cur_tree, pg_size: 3 });
     LPOptimizer.print_change_stats(res, false);
     console.log('\nRemoving 1st failure domain:');
     delete cur_tree['dom1'];
-    res = await LPOptimizer.optimize_change(res.int_pgs, cur_tree, 3);
+    res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree: cur_tree, pg_size: 3 });
     LPOptimizer.print_change_stats(res, false);
 }
 

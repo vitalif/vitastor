@@ -550,11 +550,21 @@ class Mon
                     }
                     this.scale_pg_count(prev_pgs, pg_history, new_pg_count);
                 }
-                optimize_result = await LPOptimizer.optimize_change(prev_pgs, tree_cfg.osd_tree, 3, tree_cfg.max_osd_combinations);
+                optimize_result = await LPOptimizer.optimize_change({
+                    prev_pgs,
+                    osd_tree: tree_cfg.osd_tree,
+                    pg_size: 3,
+                    max_combinations: tree_cfg.max_osd_combinations,
+                });
             }
             else
             {
-                optimize_result = await LPOptimizer.optimize_initial(tree_cfg.osd_tree, 3, tree_cfg.pg_count, tree_cfg.max_osd_combinations);
+                optimize_result = await LPOptimizer.optimize_initial({
+                    osd_tree: tree_cfg.osd_tree,
+                    pg_size: 3,
+                    pg_count: tree_cfg.pg_count,
+                    max_combinations: tree_cfg.max_osd_combinations,
+                });
             }
             if (!await this.save_new_pgs(prev_pgs, optimize_result.int_pgs, pg_history, tree_hash))
             {
