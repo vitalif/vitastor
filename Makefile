@@ -15,7 +15,7 @@ libfio_blockstore.so: ./libblockstore.so fio_engine.o json11.o
 	g++ $(CXXFLAGS) -shared -o $@ fio_engine.o json11.o ./libblockstore.so -ltcmalloc_minimal -luring
 
 OSD_OBJS := osd.o osd_secondary.o msgr_receive.o msgr_send.o osd_peering.o osd_flush.o osd_peering_pg.o \
-	osd_primary.o osd_primary_subops.o etcd_state_client.o messenger.o osd_cluster.o http_client.o pg_states.o \
+	osd_primary.o osd_primary_subops.o etcd_state_client.o messenger.o osd_cluster.o http_client.o osd_ops.o pg_states.o \
 	osd_rmw.o json11.o base64.o timerfd_manager.o epoll_manager.o
 osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h $(OSD_OBJS)
 	g++ $(CXXFLAGS) -o $@ osd_main.cpp $(OSD_OBJS) ./libblockstore.so -ltcmalloc_minimal -luring
@@ -37,7 +37,7 @@ libfio_sec_osd.so: fio_sec_osd.o rw_blocking.o
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ fio_sec_osd.o rw_blocking.o
 
 FIO_CLUSTER_OBJS := cluster_client.o epoll_manager.o etcd_state_client.o \
-	messenger.o msgr_send.o msgr_receive.o ringloop.o json11.o http_client.o pg_states.o timerfd_manager.o base64.o
+	messenger.o msgr_send.o msgr_receive.o ringloop.o json11.o http_client.o osd_ops.o pg_states.o timerfd_manager.o base64.o
 libfio_cluster.so: fio_cluster.o $(FIO_CLUSTER_OBJS)
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $< $(FIO_CLUSTER_OBJS) -luring
 
@@ -117,6 +117,8 @@ osd_cluster.o: osd_cluster.cpp base64.h blockstore.h cpp-btree/btree_map.h epoll
 osd_flush.o: osd_flush.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_main.o: osd_main.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+	g++ $(CXXFLAGS) -c -o $@ $<
+osd_ops.o: osd_ops.cpp object_id.h osd_id.h osd_ops.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_peering.o: osd_peering.cpp base64.h blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<

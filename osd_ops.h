@@ -12,18 +12,19 @@
 #define OSD_OP_MIN                  1
 #define OSD_OP_SEC_READ             1
 #define OSD_OP_SEC_WRITE            2
-#define OSD_OP_SEC_SYNC             3
-#define OSD_OP_SEC_STABILIZE        4
-#define OSD_OP_SEC_ROLLBACK         5
-#define OSD_OP_SEC_DELETE           6
-#define OSD_OP_TEST_SYNC_STAB_ALL   7
-#define OSD_OP_SEC_LIST             8
-#define OSD_OP_SHOW_CONFIG          9
-#define OSD_OP_READ                 10
-#define OSD_OP_WRITE                11
-#define OSD_OP_SYNC                 12
-#define OSD_OP_DELETE               13
-#define OSD_OP_MAX                  13
+#define OSD_OP_SEC_WRITE_STABLE     3
+#define OSD_OP_SEC_SYNC             4
+#define OSD_OP_SEC_STABILIZE        5
+#define OSD_OP_SEC_ROLLBACK         6
+#define OSD_OP_SEC_DELETE           7
+#define OSD_OP_TEST_SYNC_STAB_ALL   8
+#define OSD_OP_SEC_LIST             9
+#define OSD_OP_SHOW_CONFIG          10
+#define OSD_OP_READ                 11
+#define OSD_OP_WRITE                12
+#define OSD_OP_SYNC                 13
+#define OSD_OP_DELETE               14
+#define OSD_OP_MAX                  14
 // Alignment & limit for read/write operations
 #ifndef MEM_ALIGNMENT
 #define MEM_ALIGNMENT               512
@@ -202,3 +203,5 @@ union osd_any_reply_t
     osd_reply_sync_t sync;
     uint8_t buf[OSD_PACKET_SIZE];
 };
+
+extern const char* osd_op_names[];

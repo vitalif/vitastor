@@ -186,7 +186,8 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
             cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
         cl->read_remaining = 0;
     }
-    else if (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE)
+    else if (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
+        cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
     {
         if (cur_op->req.sec_rw.len > 0)
             cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.sec_rw.len);

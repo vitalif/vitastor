@@ -77,7 +77,8 @@ bool osd_messenger_t::try_send(osd_client_t & cl)
                 stats.op_stat_bytes[cl.write_op->req.hdr.opcode] += cl.write_op->req.rw.len;
             }
             else if (cl.write_op->req.hdr.opcode == OSD_OP_SEC_READ ||
-                cl.write_op->req.hdr.opcode == OSD_OP_SEC_WRITE)
+                cl.write_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
+                cl.write_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
             {
                 stats.op_stat_bytes[cl.write_op->req.hdr.opcode] += cl.write_op->req.sec_rw.len;
             }
@@ -95,6 +96,7 @@ bool osd_messenger_t::try_send(osd_client_t & cl)
             cl.send_list.push_back(cl.write_op->req.buf, OSD_PACKET_SIZE);
             if (cl.write_op->req.hdr.opcode == OSD_OP_WRITE ||
                 cl.write_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
+                cl.write_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE ||
                 cl.write_op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
                 cl.write_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
             {

@@ -6,23 +6,6 @@
 
 #include "osd.h"
 
-const char* osd_op_names[] = {
-    "",
-    "read",
-    "write",
-    "sync",
-    "stabilize",
-    "rollback",
-    "delete",
-    "sync_stab_all",
-    "list",
-    "show_config",
-    "primary_read",
-    "primary_write",
-    "primary_sync",
-    "primary_delete",
-};
-
 osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop)
 {
     this->config = config;
@@ -205,10 +188,18 @@ void osd_t::exec_op(osd_op_t *cur_op)
     inflight_ops++;
     if (cur_op->req.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
         cur_op->req.hdr.opcode < OSD_OP_MIN || cur_op->req.hdr.opcode > OSD_OP_MAX ||
-        (cur_op->req.hdr.opcode == OSD_OP_SEC_READ || cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE) &&
-        (cur_op->req.sec_rw.len > OSD_RW_MAX || cur_op->req.sec_rw.len % bs_disk_alignment || cur_op->req.sec_rw.offset % bs_disk_alignment) ||
-        (cur_op->req.hdr.opcode == OSD_OP_READ || cur_op->req.hdr.opcode == OSD_OP_WRITE || cur_op->req.hdr.opcode == OSD_OP_DELETE) &&
-        (cur_op->req.rw.len > OSD_RW_MAX || cur_op->req.rw.len % bs_disk_alignment || cur_op->req.rw.offset % bs_disk_alignment))
+        ((cur_op->req.hdr.opcode == OSD_OP_SEC_READ ||
+            cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
+            cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE) &&
+            (cur_op->req.sec_rw.len > OSD_RW_MAX ||
+            cur_op->req.sec_rw.len % bs_disk_alignment ||
+            cur_op->req.sec_rw.offset % bs_disk_alignment)) ||
+        ((cur_op->req.hdr.opcode == OSD_OP_READ ||
+            cur_op->req.hdr.opcode == OSD_OP_WRITE ||
+            cur_op->req.hdr.opcode == OSD_OP_DELETE) &&
+            (cur_op->req.rw.len > OSD_RW_MAX ||
+            cur_op->req.rw.len % bs_disk_alignment ||
+            cur_op->req.rw.offset % bs_disk_alignment)))
     {
         // Bad command
         finish_op(cur_op, -EINVAL);

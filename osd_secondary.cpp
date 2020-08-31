@@ -5,7 +5,8 @@
 void osd_t::secondary_op_callback(osd_op_t *op)
 {
     if (op->req.hdr.opcode == OSD_OP_SEC_READ ||
-        op->req.hdr.opcode == OSD_OP_SEC_WRITE)
+        op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
+        op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
     {
         op->reply.sec_rw.version = op->bs_op->version;
     }
@@ -40,14 +41,16 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
     cur_op->bs_op->callback = [this, cur_op](blockstore_op_t* bs_op) { secondary_op_callback(cur_op); };
     cur_op->bs_op->opcode = (cur_op->req.hdr.opcode == OSD_OP_SEC_READ ? BS_OP_READ
         : (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ? BS_OP_WRITE
+        : (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE ? BS_OP_WRITE_STABLE
         : (cur_op->req.hdr.opcode == OSD_OP_SEC_SYNC ? BS_OP_SYNC
         : (cur_op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ? BS_OP_STABLE
         : (cur_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK ? BS_OP_ROLLBACK
         : (cur_op->req.hdr.opcode == OSD_OP_SEC_DELETE ? BS_OP_DELETE
         : (cur_op->req.hdr.opcode == OSD_OP_SEC_LIST ? BS_OP_LIST
-        : -1)))))));
+        : -1))))))));
     if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ ||
-        cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE)
+        cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
+        cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
     {
         cur_op->bs_op->oid = cur_op->req.sec_rw.oid;
         cur_op->bs_op->version = cur_op->req.sec_rw.version;

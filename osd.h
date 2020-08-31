@@ -38,8 +38,6 @@
 
 //#define OSD_STUB
 
-extern const char* osd_op_names[];
-
 struct osd_object_id_t
 {
     osd_num_t osd_num;
