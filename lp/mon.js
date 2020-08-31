@@ -4,18 +4,32 @@ const WebSocket = require('ws');
 const LPOptimizer = require('./lp-optimizer.js');
 const stableStringify = require('./stable-stringify.js');
 
+// FIXME Split into several files
 class Mon
 {
+    // FIXME document all etcd keys and config variables
     static etcd_tree = {
         config: {
+            /* global: {
+                etcd_report_interval: 30, // osd, min: 10
+                etcd_mon_ttl: 30, // min: 10
+                etcd_mon_timeout: 1000, // min: 0
+                etcd_mon_retries: 5, // min: 0
+                mon_change_timeout: 1000, // min: 100
+                mon_stats_timeout: 1000, // min: 100
+                osd_out_time: 1800, // min: 0
+                max_osd_combinations: 10000, // min: 100
+                placement_levels: { datacenter: 1, rack: 2, host: 3, osd: 4, ... },
+            }, */
             global: null,
-            /* placement_tree = {
-                levels: { datacenter: 1, rack: 2, host: 3, osd: 4, ... },
-                nodes: { host1: { level: 'host', parent: 'rack1' }, ... },
-                failure_domain: 'host',
-            } */
-            placement_tree: null,
-            osd: {},
+            /* node_placement: {
+                host1: { level: 'host', parent: 'rack1' },
+                ...
+            }, */
+            node_placement: null,
+            osd: {
+                /* <id>: { reweight: 1 }, ... */
+            },
             pgs: {},
         },
         osd: {
@@ -72,6 +86,11 @@ class Mon
 
     check_config()
     {
+        this.config.etcd_mon_ttl = Number(this.config.etcd_mon_ttl) || 30;
+        if (this.config.etcd_mon_ttl < 10)
+        {
+            this.config.etcd_mon_ttl = 10;
+        }
         this.config.etcd_mon_timeout = Number(this.config.etcd_mon_timeout) || 0;
         if (this.config.etcd_mon_timeout <= 0)
         {
@@ -247,14 +266,13 @@ class Mon
 
     get_osd_tree()
     {
-        this.state.config.placement_tree = this.state.config.placement_tree||{};
-        const levels = this.state.config.placement_tree.levels||{};
+        const levels = this.config.placement_levels||{};
         levels.host = levels.host || 100;
         levels.osd = levels.osd || 101;
         const tree = { '': { children: [] } };
-        for (const node_id in this.state.config.placement_tree.nodes||{})
+        for (const node_id in this.state.config.node_placement||{})
         {
-            const node_cfg = this.state.config.placement_tree.nodes[node_id];
+            const node_cfg = this.state.config.node_placement[node_id];
             if (!node_id || /^\d/.exec(node_id) ||
                 !node_cfg.level || !levels[node_cfg.level])
             {
@@ -294,7 +312,7 @@ class Mon
             tree[parent].children.push(tree[node_id]);
             delete node_cfg.parent;
         }
-        return LPOptimizer.flatten_tree(tree[''].children, levels, this.state.config.failure_domain, 'osd');
+        return LPOptimizer.flatten_tree(tree[''].children, levels, this.config.failure_domain, 'osd');
     }
 
     async stop_all_pgs()
