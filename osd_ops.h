@@ -10,14 +10,14 @@
 #define OSD_PACKET_SIZE             0x80
 // Opcodes
 #define OSD_OP_MIN                  1
-#define OSD_OP_SECONDARY_READ       1
-#define OSD_OP_SECONDARY_WRITE      2
-#define OSD_OP_SECONDARY_SYNC       3
-#define OSD_OP_SECONDARY_STABILIZE  4
-#define OSD_OP_SECONDARY_ROLLBACK   5
-#define OSD_OP_SECONDARY_DELETE     6
+#define OSD_OP_SEC_READ             1
+#define OSD_OP_SEC_WRITE            2
+#define OSD_OP_SEC_SYNC             3
+#define OSD_OP_SEC_STABILIZE        4
+#define OSD_OP_SEC_ROLLBACK         5
+#define OSD_OP_SEC_DELETE           6
 #define OSD_OP_TEST_SYNC_STAB_ALL   7
-#define OSD_OP_SECONDARY_LIST       8
+#define OSD_OP_SEC_LIST             8
 #define OSD_OP_SHOW_CONFIG          9
 #define OSD_OP_READ                 10
 #define OSD_OP_WRITE                11

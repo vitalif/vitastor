@@ -4,21 +4,21 @@
 
 void osd_t::secondary_op_callback(osd_op_t *op)
 {
-    if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
-        op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
+    if (op->req.hdr.opcode == OSD_OP_SEC_READ ||
+        op->req.hdr.opcode == OSD_OP_SEC_WRITE)
     {
         op->reply.sec_rw.version = op->bs_op->version;
     }
-    else if (op->req.hdr.opcode == OSD_OP_SECONDARY_DELETE)
+    else if (op->req.hdr.opcode == OSD_OP_SEC_DELETE)
     {
         op->reply.sec_del.version = op->bs_op->version;
     }
-    if (op->req.hdr.opcode == OSD_OP_SECONDARY_READ &&
+    if (op->req.hdr.opcode == OSD_OP_SEC_READ &&
         op->bs_op->retval > 0)
     {
         op->iov.push_back(op->buf, op->bs_op->retval);
     }
-    else if (op->req.hdr.opcode == OSD_OP_SECONDARY_LIST)
+    else if (op->req.hdr.opcode == OSD_OP_SEC_LIST)
     {
         // allocated by blockstore
         op->buf = op->bs_op->buf;
@@ -38,16 +38,16 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
 {
     cur_op->bs_op = new blockstore_op_t();
     cur_op->bs_op->callback = [this, cur_op](blockstore_op_t* bs_op) { secondary_op_callback(cur_op); };
-    cur_op->bs_op->opcode = (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ ? BS_OP_READ
-        : (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE ? BS_OP_WRITE
-        : (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_SYNC ? BS_OP_SYNC
-        : (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ? BS_OP_STABLE
-        : (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK ? BS_OP_ROLLBACK
-        : (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_DELETE ? BS_OP_DELETE
-        : (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_LIST ? BS_OP_LIST
+    cur_op->bs_op->opcode = (cur_op->req.hdr.opcode == OSD_OP_SEC_READ ? BS_OP_READ
+        : (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ? BS_OP_WRITE
+        : (cur_op->req.hdr.opcode == OSD_OP_SEC_SYNC ? BS_OP_SYNC
+        : (cur_op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ? BS_OP_STABLE
+        : (cur_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK ? BS_OP_ROLLBACK
+        : (cur_op->req.hdr.opcode == OSD_OP_SEC_DELETE ? BS_OP_DELETE
+        : (cur_op->req.hdr.opcode == OSD_OP_SEC_LIST ? BS_OP_LIST
         : -1)))))));
-    if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ ||
-        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
+    if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ ||
+        cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE)
     {
         cur_op->bs_op->oid = cur_op->req.sec_rw.oid;
         cur_op->bs_op->version = cur_op->req.sec_rw.version;
@@ -58,7 +58,7 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
         cur_op->bs_op->retval = cur_op->bs_op->len;
 #endif
     }
-    else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_DELETE)
+    else if (cur_op->req.hdr.opcode == OSD_OP_SEC_DELETE)
     {
         cur_op->bs_op->oid = cur_op->req.sec_del.oid;
         cur_op->bs_op->version = cur_op->req.sec_del.version;
@@ -66,8 +66,8 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
         cur_op->bs_op->retval = 0;
 #endif
     }
-    else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
-        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
+    else if (cur_op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
+        cur_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
     {
         cur_op->bs_op->len = cur_op->req.sec_stab.len/sizeof(obj_ver_id);
         cur_op->bs_op->buf = cur_op->buf;
@@ -75,7 +75,7 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
         cur_op->bs_op->retval = 0;
 #endif
     }
-    else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_LIST)
+    else if (cur_op->req.hdr.opcode == OSD_OP_SEC_LIST)
     {
         if (cur_op->req.sec_list.pg_count < cur_op->req.sec_list.list_pg)
         {

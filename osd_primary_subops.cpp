@@ -154,7 +154,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
                         .id = c_cli.next_subop_id++,
-                        .opcode = (uint64_t)(w ? OSD_OP_SECONDARY_WRITE : OSD_OP_SECONDARY_READ),
+                        .opcode = (uint64_t)(w ? OSD_OP_SEC_WRITE : OSD_OP_SEC_READ),
                     },
                     .oid = {
                         .inode = op_data->oid.inode,
@@ -187,7 +187,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
                 }
                 subops[i].callback = [cur_op, this](osd_op_t *subop)
                 {
-                    int fail_fd = subop->req.hdr.opcode == OSD_OP_SECONDARY_WRITE &&
+                    int fail_fd = subop->req.hdr.opcode == OSD_OP_SEC_WRITE &&
                         subop->reply.hdr.retval != subop->req.sec_rw.len ? subop->peer_fd : -1;
                     handle_primary_subop(subop, cur_op);
                     if (fail_fd >= 0)
@@ -205,13 +205,13 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
 
 static uint64_t bs_op_to_osd_op[] = {
     0,
-    OSD_OP_SECONDARY_READ,      // BS_OP_READ
-    OSD_OP_SECONDARY_WRITE,     // BS_OP_WRITE
-    OSD_OP_SECONDARY_SYNC,      // BS_OP_SYNC
-    OSD_OP_SECONDARY_STABILIZE, // BS_OP_STABLE
-    OSD_OP_SECONDARY_DELETE,    // BS_OP_DELETE
-    OSD_OP_SECONDARY_LIST,      // BS_OP_LIST
-    OSD_OP_SECONDARY_ROLLBACK,  // BS_OP_ROLLBACK
+    OSD_OP_SEC_READ,      // BS_OP_READ
+    OSD_OP_SEC_WRITE,     // BS_OP_WRITE
+    OSD_OP_SEC_SYNC,      // BS_OP_SYNC
+    OSD_OP_SEC_STABILIZE, // BS_OP_STABLE
+    OSD_OP_SEC_DELETE,    // BS_OP_DELETE
+    OSD_OP_SEC_LIST,      // BS_OP_LIST
+    OSD_OP_SEC_ROLLBACK,  // BS_OP_ROLLBACK
     OSD_OP_TEST_SYNC_STAB_ALL,  // BS_OP_SYNC_STAB_ALL
 };
 
@@ -258,7 +258,7 @@ void osd_t::add_bs_subop_stats(osd_op_t *subop)
         (tv_end.tv_sec - subop->tv_begin.tv_sec)*1000000 +
         (tv_end.tv_nsec - subop->tv_begin.tv_nsec)/1000
     );
-    if (opcode == OSD_OP_SECONDARY_READ || opcode == OSD_OP_SECONDARY_WRITE)
+    if (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE)
     {
         c_cli.stats.op_stat_bytes[opcode] += subop->bs_op->len;
     }
@@ -268,7 +268,7 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
 {
     uint64_t opcode = subop->req.hdr.opcode;
     int retval = subop->reply.hdr.retval;
-    int expected = opcode == OSD_OP_SECONDARY_READ || opcode == OSD_OP_SECONDARY_WRITE
+    int expected = opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE
         ? subop->req.sec_rw.len : 0;
     osd_primary_op_data_t *op_data = cur_op->op_data;
     if (retval != expected)
@@ -283,7 +283,7 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
     else
     {
         op_data->done++;
-        if (opcode == OSD_OP_SECONDARY_READ || opcode == OSD_OP_SECONDARY_WRITE)
+        if (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE)
         {
             uint64_t version = subop->reply.sec_rw.version;
 #ifdef OSD_DEBUG
@@ -397,7 +397,7 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, pg_os
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
                         .id = c_cli.next_subop_id++,
-                        .opcode = OSD_OP_SECONDARY_DELETE,
+                        .opcode = OSD_OP_SEC_DELETE,
                     },
                     .oid = {
                         .inode = op_data->oid.inode,
@@ -455,7 +455,7 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
                     .id = c_cli.next_subop_id++,
-                    .opcode = OSD_OP_SECONDARY_SYNC,
+                    .opcode = OSD_OP_SEC_SYNC,
                 },
             };
             subops[i].callback = [cur_op, this](osd_op_t *subop)
@@ -507,7 +507,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
                     .id = c_cli.next_subop_id++,
-                    .opcode = OSD_OP_SECONDARY_STABILIZE,
+                    .opcode = OSD_OP_SEC_STABILIZE,
                 },
                 .len = (uint64_t)(stab_osd.len * sizeof(obj_ver_id)),
             };

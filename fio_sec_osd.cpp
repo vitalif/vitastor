@@ -205,7 +205,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     case DDIR_READ:
         if (!opt->single_primary)
         {
-            op.hdr.opcode = OSD_OP_SECONDARY_READ;
+            op.hdr.opcode = OSD_OP_SEC_READ;
             op.sec_rw.oid = {
                 .inode = 1,
                 .stripe = io->offset >> bsd->block_order,
@@ -226,7 +226,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     case DDIR_WRITE:
         if (!opt->single_primary)
         {
-            op.hdr.opcode = OSD_OP_SECONDARY_WRITE;
+            op.hdr.opcode = OSD_OP_SEC_WRITE;
             op.sec_rw.oid = {
                 .inode = 1,
                 .stripe = io->offset >> bsd->block_order,

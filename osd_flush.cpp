@@ -190,14 +190,14 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
                     .id = c_cli.next_subop_id++,
-                    .opcode = (uint64_t)(rollback ? OSD_OP_SECONDARY_ROLLBACK : OSD_OP_SECONDARY_STABILIZE),
+                    .opcode = (uint64_t)(rollback ? OSD_OP_SEC_ROLLBACK : OSD_OP_SEC_STABILIZE),
                 },
                 .len = count * sizeof(obj_ver_id),
             },
         };
         op->callback = [this, pg_num, fb, peer_osd](osd_op_t *op)
         {
-            handle_flush_op(op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK, pg_num, fb, peer_osd, op->reply.hdr.retval);
+            handle_flush_op(op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK, pg_num, fb, peer_osd, op->reply.hdr.retval);
             delete op;
         };
         c_cli.outbox_push(op);

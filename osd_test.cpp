@@ -184,7 +184,7 @@ uint64_t test_read(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ver
     osd_any_reply_t reply;
     op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
     op.hdr.id = 1;
-    op.hdr.opcode = OSD_OP_SECONDARY_READ;
+    op.hdr.opcode = OSD_OP_SEC_READ;
     op.sec_rw.oid = {
         .inode = inode,
         .stripe = stripe,
@@ -209,7 +209,7 @@ uint64_t test_read(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ver
     }
     free(data);
     printf("Read %lu:%lu v%lu = v%lu\n", inode, stripe, version, reply.sec_rw.version);
-    op.hdr.opcode = OSD_OP_SECONDARY_LIST;
+    op.hdr.opcode = OSD_OP_SEC_LIST;
     op.sec_list.list_pg = 1;
     op.sec_list.pg_count = 1;
     op.sec_list.pg_stripe_size = 4*1024*1024;
@@ -244,7 +244,7 @@ uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ve
     osd_any_reply_t reply;
     op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
     op.hdr.id = 1;
-    op.hdr.opcode = OSD_OP_SECONDARY_WRITE;
+    op.hdr.opcode = OSD_OP_SEC_WRITE;
     op.sec_rw.oid = {
         .inode = inode,
         .stripe = stripe,
@@ -354,7 +354,7 @@ void test_list_stab(int connect_fd)
     osd_any_reply_t reply;
     op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
     op.hdr.id = 1;
-    op.hdr.opcode = OSD_OP_SECONDARY_LIST;
+    op.hdr.opcode = OSD_OP_SEC_LIST;
     op.sec_list.pg_count = 0;
     assert(write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE) == OSD_PACKET_SIZE);
     int r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
@@ -370,7 +370,7 @@ void test_list_stab(int connect_fd)
         // Stabilize in portions of 32 entries
         if (i - last_start >= 32 || i == total_count)
         {
-            op.hdr.opcode = OSD_OP_SECONDARY_STABILIZE;
+            op.hdr.opcode = OSD_OP_SEC_STABILIZE;
             op.sec_stab.len = sizeof(obj_ver_id) * (i - last_start);
             assert(write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE) == OSD_PACKET_SIZE);
             assert(write_blocking(connect_fd, data + last_start, op.sec_stab.len) == op.sec_stab.len);

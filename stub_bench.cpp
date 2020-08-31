@@ -123,7 +123,7 @@ void run_bench(int peer_fd)
         // read
         op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
         op.hdr.id = 1;
-        op.hdr.opcode = OSD_OP_SECONDARY_READ;
+        op.hdr.opcode = OSD_OP_SEC_READ;
         op.sec_rw.oid.inode = 3;
         op.sec_rw.oid.stripe = (rand() << 17) % (1 << 29); // 512 MB
         op.sec_rw.version = 0;
@@ -149,7 +149,7 @@ void run_bench(int peer_fd)
         // write
         op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
         op.hdr.id = 1;
-        op.hdr.opcode = OSD_OP_SECONDARY_WRITE;
+        op.hdr.opcode = OSD_OP_SEC_WRITE;
         op.sec_rw.oid.inode = 3;
         op.sec_rw.oid.stripe = (rand() << 17) % (1 << 29); // 512 MB
         op.sec_rw.version = 0;

@@ -180,20 +180,20 @@ bool osd_messenger_t::handle_finished_read(osd_client_t & cl)
 void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
 {
     osd_op_t *cur_op = cl->read_op;
-    if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ)
+    if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ)
     {
         if (cur_op->req.sec_rw.len > 0)
             cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
         cl->read_remaining = 0;
     }
-    else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE)
+    else if (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE)
     {
         if (cur_op->req.sec_rw.len > 0)
             cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
         cl->read_remaining = cur_op->req.sec_rw.len;
     }
-    else if (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_STABILIZE ||
-        cur_op->req.hdr.opcode == OSD_OP_SECONDARY_ROLLBACK)
+    else if (cur_op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
+        cur_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
     {
         if (cur_op->req.sec_stab.len > 0)
             cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.sec_stab.len);
@@ -240,7 +240,7 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
     osd_op_t *op = req_it->second;
     memcpy(op->reply.buf, cl->read_op->req.buf, OSD_PACKET_SIZE);
     cl->sent_ops.erase(req_it);
-    if ((op->reply.hdr.opcode == OSD_OP_SECONDARY_READ || op->reply.hdr.opcode == OSD_OP_READ) &&
+    if ((op->reply.hdr.opcode == OSD_OP_SEC_READ || op->reply.hdr.opcode == OSD_OP_READ) &&
         op->reply.hdr.retval > 0)
     {
         // Read data. In this case we assume that the buffer is preallocated by the caller (!)
@@ -251,7 +251,7 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         cl->read_state = CL_READ_REPLY_DATA;
         cl->read_remaining = op->reply.hdr.retval;
     }
-    else if (op->reply.hdr.opcode == OSD_OP_SECONDARY_LIST && op->reply.hdr.retval > 0)
+    else if (op->reply.hdr.opcode == OSD_OP_SEC_LIST && op->reply.hdr.retval > 0)
     {
         assert(!op->iov.count);
         delete cl->read_op;

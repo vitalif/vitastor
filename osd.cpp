@@ -205,7 +205,7 @@ void osd_t::exec_op(osd_op_t *cur_op)
     inflight_ops++;
     if (cur_op->req.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
         cur_op->req.hdr.opcode < OSD_OP_MIN || cur_op->req.hdr.opcode > OSD_OP_MAX ||
-        (cur_op->req.hdr.opcode == OSD_OP_SECONDARY_READ || cur_op->req.hdr.opcode == OSD_OP_SECONDARY_WRITE) &&
+        (cur_op->req.hdr.opcode == OSD_OP_SEC_READ || cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE) &&
         (cur_op->req.sec_rw.len > OSD_RW_MAX || cur_op->req.sec_rw.len % bs_disk_alignment || cur_op->req.sec_rw.offset % bs_disk_alignment) ||
         (cur_op->req.hdr.opcode == OSD_OP_READ || cur_op->req.hdr.opcode == OSD_OP_WRITE || cur_op->req.hdr.opcode == OSD_OP_DELETE) &&
         (cur_op->req.rw.len > OSD_RW_MAX || cur_op->req.rw.len % bs_disk_alignment || cur_op->req.rw.offset % bs_disk_alignment))
@@ -215,8 +215,8 @@ void osd_t::exec_op(osd_op_t *cur_op)
         return;
     }
     if (readonly &&
-        cur_op->req.hdr.opcode != OSD_OP_SECONDARY_READ &&
-        cur_op->req.hdr.opcode != OSD_OP_SECONDARY_LIST &&
+        cur_op->req.hdr.opcode != OSD_OP_SEC_READ &&
+        cur_op->req.hdr.opcode != OSD_OP_SEC_LIST &&
         cur_op->req.hdr.opcode != OSD_OP_READ &&
         cur_op->req.hdr.opcode != OSD_OP_SHOW_CONFIG)
     {

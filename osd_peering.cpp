@@ -309,7 +309,7 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
                     .id = c_cli.next_subop_id++,
-                    .opcode = OSD_OP_SECONDARY_SYNC,
+                    .opcode = OSD_OP_SEC_SYNC,
                 },
             },
         };
@@ -382,7 +382,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
                     .id = c_cli.next_subop_id++,
-                    .opcode = OSD_OP_SECONDARY_LIST,
+                    .opcode = OSD_OP_SEC_LIST,
                 },
                 .list_pg = ps->pg_num,
                 .pg_count = pg_count,

@@ -130,7 +130,7 @@ void run_stub(int peer_fd)
         reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
         reply.hdr.id = op.hdr.id;
         reply.hdr.opcode = op.hdr.opcode;
-        if (op.hdr.opcode == OSD_OP_SECONDARY_READ)
+        if (op.hdr.opcode == OSD_OP_SEC_READ)
         {
             reply.hdr.retval = op.sec_rw.len;
             buf = malloc(op.sec_rw.len);
@@ -141,7 +141,7 @@ void run_stub(int peer_fd)
             if (r < op.sec_rw.len)
                 break;
         }
-        else if (op.hdr.opcode == OSD_OP_SECONDARY_WRITE)
+        else if (op.hdr.opcode == OSD_OP_SEC_WRITE)
         {
             buf = malloc(op.sec_rw.len);
             r = read_blocking(peer_fd, buf, op.sec_rw.len);
