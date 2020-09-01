@@ -9,6 +9,20 @@ const PGUtil = require('./PGUtil.js');
 class Mon
 {
     // FIXME document all etcd keys and config variables in the form of JSON schema or similar
+    static etcd_allow = new RegExp('^'+[
+        'config/global',
+        'config/node_placement',
+        'config/pools',
+        'config/osd/\d+',
+        'config/pgs',
+        'osd/state/\d+',
+        'osd/stats/\d+',
+        'mon/master',
+        'pg/state/\d+/\d+',
+        'pg/stats/\d+/\d+',
+        'pg/history/\d+/\d+',
+    ].join('$|^')+'$')
+
     static etcd_tree = {
         config: {
             /* global: {
@@ -43,12 +57,12 @@ class Mon
                 readonly: false,
                 print_stats_interval: 3,
             }, */
-            global: null,
+            global: {},
             /* node_placement: {
                 host1: { level: 'host', parent: 'rack1' },
                 ...
             }, */
-            node_placement: null,
+            node_placement: {},
             /* pools: {
                 <name>: {
                     id: 1,
@@ -57,7 +71,7 @@ class Mon
                 },
                 ...
             }, */
-            pools: null,
+            pools: {},
             osd: {
                 /* <id>: { reweight: 1 }, ... */
             },
@@ -70,7 +84,7 @@ class Mon
                     }
                 }
             }, */
-            pgs: null,
+            pgs: {},
         },
         osd: {
             state: {
@@ -104,7 +118,7 @@ class Mon
             },
         },
         mon: {
-            master: null,
+            master: {},
         },
         pg: {
             state: {
@@ -154,7 +168,7 @@ class Mon
         this.etcd_prefix = config.etcd_prefix || '/vitastor';
         this.etcd_prefix = this.etcd_prefix.replace(/\/\/+/g, '/').replace(/^\/?(.*[^\/])\/?$/, '/$1');
         this.etcd_start_timeout = (config.etcd_start_timeout || 5) * 1000;
-        this.state = JSON.parse(JSON.stringify(Mon.etcd_tree));
+        this.state = JSON.parse(JSON.stringify(this.constructor.etcd_tree));
     }
 
     async start()
@@ -340,7 +354,7 @@ class Mon
             { requestRange: { key: b64(this.etcd_prefix+'/'), range_end: b64(this.etcd_prefix+'0') } },
         ] }, this.etcd_start_timeout, -1);
         this.etcd_watch_revision = BigInt(res.header.revision)+BigInt(1);
-        const data = JSON.parse(JSON.stringify(Mon.etcd_tree));
+        const data = JSON.parse(JSON.stringify(this.constructor.etcd_tree));
         for (const response of res.responses)
         {
             for (const kv of response.response_range.kvs)
@@ -740,22 +754,17 @@ class Mon
         }
         kv.key = de64(kv.key);
         kv.value = kv.value ? JSON.parse(de64(kv.value)) : null;
-        const key = kv.key.substr(this.etcd_prefix.length).replace(/^\/+/, '').split('/');
-        const cur = this.state, orig = Mon.etcd_tree;
-        for (let i = 0; i < key.length-1; i++)
-        {
-            if (!orig[key[i]])
-            {
-                console.log('Bad key in etcd: '+kv.key+' = '+kv.value);
-                return;
-            }
-            orig = orig[key[i]];
-            cur = (cur[key[i]] = cur[key[i]] || {});
-        }
-        if (orig[key.length-1])
+        let key = kv.key.substr(this.etcd_prefix.length);
+        if (!this.constructor.etcd_allow.exec(key))
         {
             console.log('Bad key in etcd: '+kv.key+' = '+kv.value);
             return;
+        }
+        key = key.split('/');
+        const cur = this.state;
+        for (let i = 0; i < key.length-1; i++)
+        {
+            cur = (cur[key[i]] = cur[key[i]] || {});
         }
         cur[key[key.length-1]] = kv.value;
         if (key.join('/') === 'config/global')
