@@ -8,11 +8,11 @@ const PGUtil = require('./PGUtil.js');
 // FIXME Split into several files
 class Mon
 {
-    // FIXME document all etcd keys and config variables
+    // FIXME document all etcd keys and config variables in the form of JSON schema or similar
     static etcd_tree = {
         config: {
             /* global: {
-                etcd_report_interval: 30, // osd, min: 10
+                // mon
                 etcd_mon_ttl: 30, // min: 10
                 etcd_mon_timeout: 1000, // min: 0
                 etcd_mon_retries: 5, // min: 0
@@ -21,6 +21,27 @@ class Mon
                 osd_out_time: 1800, // min: 0
                 max_osd_combinations: 10000, // min: 100
                 placement_levels: { datacenter: 1, rack: 2, host: 3, osd: 4, ... },
+                // client and osd
+                use_sync_send_recv: false,
+                log_level: 0,
+                block_size: 131072,
+                disk_alignment: 4096,
+                bitmap_granularity: 4096,
+                pg_stripe_size: 4194304,
+                immediate_commit: false, // 'all' or 'small'
+                client_dirty_limit: 33554432,
+                peer_connect_interval: 5,
+                peer_connect_timeout: 5,
+                // osd
+                etcd_report_interval: 30, // min: 10
+                run_primary: true,
+                bind_address: "0.0.0.0",
+                bind_port: 0,
+                autosync_interval: 5,
+                client_queue_depth: 128, // unused
+                recovery_queue_depth: 4,
+                readonly: false,
+                print_stats_interval: 3,
             }, */
             global: null,
             /* node_placement: {
@@ -28,23 +49,93 @@ class Mon
                 ...
             }, */
             node_placement: null,
+            /* pools: {
+                <name>: {
+                    id: 1,
+                    pg_count: 100,
+                    failure_domain: 'host',
+                },
+                ...
+            }, */
+            pools: null,
             osd: {
                 /* <id>: { reweight: 1 }, ... */
             },
-            pgs: {},
+            /* pgs: {
+                <pool_id>: {
+                    <pg_id>: {
+                        osd_set: [ 1, 2, 3 ],
+                        primary: 1,
+                        pause: false,
+                    }
+                }
+            }, */
+            pgs: null,
         },
         osd: {
-            state: {},
-            stats: {},
+            state: {
+                /* <osd_num_t>: {
+                    state: "up",
+                    addresses: string[],
+                    host: string,
+                    port: uint16_t,
+                    primary_enabled: boolean,
+                    blockstore_enabled: boolean,
+                }, */
+            },
+            stats: {
+                /* <osd_num_t>: {
+                    time: number, // unix time
+                    blockstore_ready: boolean,
+                    size: uint64_t, // bytes
+                    free: uint64_t, // bytes
+                    host: string,
+                    op_stats: {
+                        <string>: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+                    },
+                    subop_stats: {
+                        <string>: { count: uint64_t, usec: uint64_t },
+                    },
+                    recovery_stats: {
+                        degraded: { count: uint64_t, bytes: uint64_t },
+                        misplaced: { count: uint64_t, bytes: uint64_t },
+                    },
+                }, */
+            },
         },
         mon: {
             master: null,
         },
         pg: {
-            change_stamp: null,
-            state: {},
-            stats: {},
-            history: {},
+            state: {
+                /* <pool_id>: {
+                    <pg_id>: {
+                        primary: osd_num_t,
+                        state: ("starting"|"peering"|"incomplete"|"active"|"stopping"|"offline"|"degraded"|"has_incomplete"|"has_degraded"|"has_misplaced"|"has_unclean"|"left_on_dead")[],
+                    }
+                }, */
+            },
+            stats: {
+                /* <pool_id>: {
+                    <pg_id>: {
+                        object_count: int,
+                        clean_count: int,
+                        misplaced_count: int,
+                        degraded_count: int,
+                        incomplete_count: int,
+                        write_osd_set: osd_num_t[],
+                    },
+                }, */
+            },
+            history: {
+                /* <pool_id>: {
+                    <pg_id>: {
+                        osd_sets: osd_num_t[][],
+                        all_peers: osd_num_t[],
+                        epoch: int,
+                    },
+                }, */
+            },
         },
     }
 
