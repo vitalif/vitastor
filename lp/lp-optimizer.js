@@ -55,7 +55,7 @@ async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 
     }
     const all_weights = Object.assign({}, ...Object.values(osd_tree));
     const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c), 0);
-    all_pgs = Object.values(random_combinations(osd_tree, pg_size, max_combinations));
+    const all_pgs = Object.values(random_combinations(osd_tree, pg_size, max_combinations));
     const pg_per_osd = {};
     for (const pg of all_pgs)
     {
@@ -246,7 +246,7 @@ async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, 
         }
     }
     // Get all combinations
-    all_pgs = random_combinations(osd_tree, pg_size, max_combinations);
+    let all_pgs = random_combinations(osd_tree, pg_size, max_combinations);
     add_valid_previous(osd_tree, prev_weights, all_pgs);
     all_pgs = Object.values(all_pgs);
     const pg_per_osd = {};
