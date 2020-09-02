@@ -431,10 +431,12 @@ static bool replace_stable(object_id oid, uint64_t version, int search_start, in
 
 void blockstore_impl_t::process_list(blockstore_op_t *op)
 {
-    // Check PG
     uint32_t list_pg = op->offset;
     uint32_t pg_count = op->len;
     uint64_t pg_stripe_size = op->oid.stripe;
+    uint64_t min_inode = op->oid.inode;
+    uint64_t max_inode = op->version;
+    // Check PG
     if (pg_count != 0 && (pg_stripe_size < MIN_BLOCK_SIZE || list_pg >= pg_count))
     {
         op->retval = -EINVAL;
@@ -450,88 +452,122 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
         FINISH_OP(op);
         return;
     }
-    for (auto it = clean_db.begin(); it != clean_db.end(); it++)
     {
-        if (!pg_count || ((it->first.inode + it->first.stripe / pg_stripe_size) % pg_count) == list_pg)
+        auto clean_it = clean_db.begin(), clean_end = clean_db.end();
+        if ((min_inode != 0 || max_inode != 0) && min_inode <= max_inode)
         {
-            if (stable_count >= stable_alloc)
+            clean_it = clean_db.lower_bound({
+                .inode = min_inode,
+                .stripe = 0,
+            });
+            clean_end = clean_db.upper_bound({
+                .inode = max_inode,
+                .stripe = UINT64_MAX,
+            });
+        }
+        for (; clean_it != clean_end; clean_it++)
+        {
+            if (!pg_count || ((clean_it->first.inode + clean_it->first.stripe / pg_stripe_size) % pg_count) == list_pg)
             {
-                stable_alloc += 32768;
-                stable = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
-                if (!stable)
+                if (stable_count >= stable_alloc)
                 {
-                    op->retval = -ENOMEM;
-                    FINISH_OP(op);
-                    return;
+                    stable_alloc += 32768;
+                    stable = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
+                    if (!stable)
+                    {
+                        op->retval = -ENOMEM;
+                        FINISH_OP(op);
+                        return;
+                    }
                 }
+                stable[stable_count++] = {
+                    .oid = clean_it->first,
+                    .version = clean_it->second.version,
+                };
             }
-            stable[stable_count++] = {
-                .oid = it->first,
-                .version = it->second.version,
-            };
         }
     }
     int clean_stable_count = stable_count;
     // Copy dirty_db entries (sorted, too)
     int unstable_count = 0, unstable_alloc = 0;
     obj_ver_id *unstable = NULL;
-    for (auto it = dirty_db.begin(); it != dirty_db.end(); it++)
     {
-        if (!pg_count || ((it->first.oid.inode + it->first.oid.stripe / pg_stripe_size) % pg_count) == list_pg)
+        auto dirty_it = dirty_db.begin(), dirty_end = dirty_db.end();
+        if ((min_inode != 0 || max_inode != 0) && min_inode <= max_inode)
         {
-            if (IS_DELETE(it->second.state))
+            dirty_it = dirty_db.lower_bound({
+                .oid = {
+                    .inode = min_inode,
+                    .stripe = 0,
+                },
+                .version = 0,
+            });
+            dirty_end = dirty_db.upper_bound({
+                .oid = {
+                    .inode = max_inode,
+                    .stripe = UINT64_MAX,
+                },
+                .version = UINT64_MAX,
+            });
+        }
+        for (; dirty_it != dirty_end; dirty_it++)
+        {
+            if (!pg_count || ((dirty_it->first.oid.inode + dirty_it->first.oid.stripe / pg_stripe_size) % pg_count) == list_pg)
             {
-                // Deletions are always stable, so try to zero out two possible entries
-                if (!replace_stable(it->first.oid, 0, 0, clean_stable_count, stable))
+                if (IS_DELETE(dirty_it->second.state))
                 {
-                    replace_stable(it->first.oid, 0, clean_stable_count, stable_count, stable);
-                }
-            }
-            else if (IS_STABLE(it->second.state))
-            {
-                // First try to replace a clean stable version in the first part of the list
-                if (!replace_stable(it->first.oid, it->first.version, 0, clean_stable_count, stable))
-                {
-                    // Then try to replace the last dirty stable version in the second part of the list
-                    if (stable[stable_count-1].oid == it->first.oid)
+                    // Deletions are always stable, so try to zero out two possible entries
+                    if (!replace_stable(dirty_it->first.oid, 0, 0, clean_stable_count, stable))
                     {
-                        stable[stable_count-1].version = it->first.version;
+                        replace_stable(dirty_it->first.oid, 0, clean_stable_count, stable_count, stable);
                     }
-                    else
+                }
+                else if (IS_STABLE(dirty_it->second.state))
+                {
+                    // First try to replace a clean stable version in the first part of the list
+                    if (!replace_stable(dirty_it->first.oid, dirty_it->first.version, 0, clean_stable_count, stable))
                     {
-                        if (stable_count >= stable_alloc)
+                        // Then try to replace the last dirty stable version in the second part of the list
+                        if (stable[stable_count-1].oid == dirty_it->first.oid)
                         {
-                            stable_alloc += 32768;
-                            stable = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
-                            if (!stable)
-                            {
-                                if (unstable)
-                                    free(unstable);
-                                op->retval = -ENOMEM;
-                                FINISH_OP(op);
-                                return;
-                            }
+                            stable[stable_count-1].version = dirty_it->first.version;
                         }
-                        stable[stable_count++] = it->first;
+                        else
+                        {
+                            if (stable_count >= stable_alloc)
+                            {
+                                stable_alloc += 32768;
+                                stable = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
+                                if (!stable)
+                                {
+                                    if (unstable)
+                                        free(unstable);
+                                    op->retval = -ENOMEM;
+                                    FINISH_OP(op);
+                                    return;
+                                }
+                            }
+                            stable[stable_count++] = dirty_it->first;
+                        }
                     }
                 }
-            }
-            else
-            {
-                if (unstable_count >= unstable_alloc)
+                else
                 {
-                    unstable_alloc += 32768;
-                    unstable = (obj_ver_id*)realloc(unstable, sizeof(obj_ver_id) * unstable_alloc);
-                    if (!unstable)
+                    if (unstable_count >= unstable_alloc)
                     {
-                        if (stable)
-                            free(stable);
-                        op->retval = -ENOMEM;
-                        FINISH_OP(op);
-                        return;
+                        unstable_alloc += 32768;
+                        unstable = (obj_ver_id*)realloc(unstable, sizeof(obj_ver_id) * unstable_alloc);
+                        if (!unstable)
+                        {
+                            if (stable)
+                                free(stable);
+                            op->retval = -ENOMEM;
+                            FINISH_OP(op);
+                            return;
+                        }
                     }
+                    unstable[unstable_count++] = dirty_it->first;
                 }
-                unstable[unstable_count++] = it->first;
             }
         }
     }

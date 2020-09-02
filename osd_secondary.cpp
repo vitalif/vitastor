@@ -90,6 +90,8 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
         cur_op->bs_op->oid.stripe = cur_op->req.sec_list.pg_stripe_size;
         cur_op->bs_op->len = cur_op->req.sec_list.pg_count;
         cur_op->bs_op->offset = cur_op->req.sec_list.list_pg - 1;
+        cur_op->bs_op->oid.inode = cur_op->req.sec_list.min_inode;
+        cur_op->bs_op->version = cur_op->req.sec_list.max_inode;
 #ifdef OSD_STUB
         cur_op->bs_op->retval = 0;
         cur_op->bs_op->buf = NULL;

@@ -114,6 +114,8 @@ Input:
 - oid.stripe = PG alignment
 - len = PG count or 0 to list all objects
 - offset = PG number
+- oid.inode = min inode number or 0 to list all inodes
+- version = max inode number or 0 to list all inodes
 
 Output:
 - retval = total obj_ver_id count
