@@ -17,6 +17,7 @@
 #define POOL_SCHEME_XOR 2
 #define POOL_ID_MAX 0x10000
 #define POOL_ID_BITS 16
+#define INODE_POOL(inode) ((inode) >> (64 - POOL_ID_BITS))
 
 struct json_kv_t
 {
@@ -47,6 +48,7 @@ struct pool_config_t
     uint64_t scheme;
     uint64_t pg_size, pg_minsize;
     uint64_t pg_count;
+    uint64_t real_pg_count;
     std::string failure_domain;
     uint64_t max_osd_combinations;
     std::map<pg_num_t, pg_config_t> pg_config;

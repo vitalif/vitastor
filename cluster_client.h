@@ -50,12 +50,11 @@ class cluster_client_t
     timerfd_manager_t *tfd;
     ring_loop_t *ringloop;
 
-    uint64_t pg_part_count = 2;
     uint64_t pg_stripe_size = 0;
     uint64_t bs_block_size = 0;
     uint64_t bs_disk_alignment = 0;
     uint64_t bs_bitmap_granularity = 0;
-    uint64_t pg_count = 0;
+    std::map<pool_id_t, uint64_t> pg_counts;
     bool immediate_commit = false;
     // FIXME: Implement inmemory_commit mode. Note that it requires to return overlapping reads from memory.
     uint64_t client_dirty_limit = 0;

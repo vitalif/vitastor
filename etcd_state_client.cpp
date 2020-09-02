@@ -346,18 +346,19 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
                 printf("Pool %lu has invalid max_osd_combinations (must be at least 100), skipping pool\n", pool_id);
                 continue;
             }
-            this->pool_config[pool_id].exists = true;
-            this->pool_config[pool_id].id = pool_id;
-            this->pool_config[pool_id].name = pool_item.second["name"].string_value();
-            this->pool_config[pool_id].scheme = pool_item.second["scheme"] == "replicated" ? POOL_SCHEME_REPLICATED : POOL_SCHEME_XOR;
-            this->pool_config[pool_id].pg_size = pool_item.second["pg_size"].uint64_value();
-            this->pool_config[pool_id].pg_minsize = pool_item.second["pg_minsize"].uint64_value();
-            this->pool_config[pool_id].pg_count = pool_item.second["pg_count"].uint64_value();
-            this->pool_config[pool_id].failure_domain = pool_item.second["failure_domain"].string_value();
-            this->pool_config[pool_id].max_osd_combinations = pool_item.second["max_osd_combinations"].uint64_value();
-            if (!this->pool_config[pool_id].max_osd_combinations)
+            auto & parsed_cfg = this->pool_config[pool_id];
+            parsed_cfg.exists = true;
+            parsed_cfg.id = pool_id;
+            parsed_cfg.name = pool_item.second["name"].string_value();
+            parsed_cfg.scheme = pool_item.second["scheme"] == "replicated" ? POOL_SCHEME_REPLICATED : POOL_SCHEME_XOR;
+            parsed_cfg.pg_size = pool_item.second["pg_size"].uint64_value();
+            parsed_cfg.pg_minsize = pool_item.second["pg_minsize"].uint64_value();
+            parsed_cfg.pg_count = pool_item.second["pg_count"].uint64_value();
+            parsed_cfg.failure_domain = pool_item.second["failure_domain"].string_value();
+            parsed_cfg.max_osd_combinations = pool_item.second["max_osd_combinations"].uint64_value();
+            if (!parsed_cfg.max_osd_combinations)
             {
-                this->pool_config[pool_id].max_osd_combinations = 10000;
+                parsed_cfg.max_osd_combinations = 10000;
             }
         }
     }
@@ -396,6 +397,27 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
                     parsed_cfg.target_set.push_back(pg_osd.uint64_value());
                 }
             }
+        }
+        for (auto & pool_item: this->pool_config)
+        {
+            int n = 0;
+            for (auto pg_it = pool_item.second.pg_config.begin(); pg_it != pool_item.second.pg_config.end(); pg_it++)
+            {
+                if (pg_it->second.exists && pg_it->first != ++n)
+                {
+                    printf(
+                        "Invalid pool %lu PG configuration: PG numbers don't cover whole 1..%lu range\n",
+                        pool_item.second.id, pool_item.second.pg_config.size()
+                    );
+                    for (pg_it = pool_item.second.pg_config.begin(); pg_it != pool_item.second.pg_config.end(); pg_it++)
+                    {
+                        pg_it->second.exists = false;
+                    }
+                    n = 0;
+                    break;
+                }
+            }
+            pool_item.second.real_pg_count = n;
         }
     }
     else if (key.substr(0, etcd_prefix.length()+12) == etcd_prefix+"/pg/history/")

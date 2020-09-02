@@ -452,12 +452,6 @@ void osd_t::on_load_pgs_hook(bool success)
 void osd_t::apply_pg_count()
 {
     pg_num_t pg_count = st_cli.pg_config.size();
-    if (pg_count > 0 && (st_cli.pg_config.begin()->first != 1 || std::prev(st_cli.pg_config.end())->first != pg_count))
-    {
-        printf("Invalid PG configuration: PG numbers don't cover the whole 1..%d range\n", pg_count);
-        force_stop(1);
-        return;
-    }
     if (this->pg_count != 0 && this->pg_count != pg_count)
     {
         // Check that all PGs are offline. It is not allowed to change PG count when any PGs are online
