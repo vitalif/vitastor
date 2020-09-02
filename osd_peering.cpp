@@ -102,6 +102,12 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     pg.state = PG_PEERING;
     this->peering_state |= OSD_PEERING_PGS;
     report_pg_state(pg);
+    if (parsed_cfg.target_set.size() != 3)
+    {
+        printf("Bad PG %u config format: incorrect osd_set = %s\n", pg_num, pg_item.second["osd_set"].dump().c_str());
+        parsed_cfg.target_set.resize(3);
+        parsed_cfg.pause = true;
+    }
     // Reset PG state
     pg.cur_peers.clear();
     pg.state_dict.clear();

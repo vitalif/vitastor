@@ -557,12 +557,14 @@ class Mon
             console.log('Pool ID '+pool_id+' is invalid');
             return false;
         }
-        if (!pool_cfg.pg_size || pool_cfg.pg_size < 1)
+        if (!pool_cfg.pg_size || pool_cfg.pg_size < 1 ||
+            pool_cfg.scheme === 'xor' && pool_cfg.pg_size < 3)
         {
             console.log('Pool '+pool_id+' has invalid pg_size');
             return false;
         }
-        if (!pool_cfg.pg_minsize || pool_cfg.pg_minsize < 1 || pool_cfg.pg_minsize > pool_cfg.pg_size)
+        if (!pool_cfg.pg_minsize || pool_cfg.pg_minsize < 1 || pool_cfg.pg_minsize > pool_cfg.pg_size ||
+            pool_cfg.scheme === 'xor' && pool_cfg.pg_minsize < (pool_cfg.pg_size - 1))
         {
             console.log('Pool '+pool_id+' has invalid pg_minsize');
             return false;
@@ -574,12 +576,17 @@ class Mon
         }
         if (!pool_cfg.name)
         {
-            console.log('Pool '+pool_id+' has invalid pg_count');
+            console.log('Pool '+pool_id+' has empty name');
+            return false;
+        }
+        if (pool_cfg.scheme !== 'xor' && pool_cfg.scheme !== 'replicated')
+        {
+            console.log('Pool '+pool_id+' has invalid coding scheme (only "xor" and "replicated" are allowed)');
             return false;
         }
         if (pool_cfg.max_osd_combinations < 100)
         {
-            console.log('Pool '+pool_id+' has invalid max_osd_combinations');
+            console.log('Pool '+pool_id+' has invalid max_osd_combinations (must be at least 100)');
             return false;
         }
         return true;

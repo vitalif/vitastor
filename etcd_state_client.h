@@ -13,6 +13,17 @@
 #define ETCD_SLOW_TIMEOUT 5000
 #define ETCD_QUICK_TIMEOUT 1000
 
+#define POOL_SCHEME_REPLICATED 1
+#define POOL_SCHEME_XOR 2
+#define POOL_ID_MAX 0x10000
+#define POOL_ID_BITS 16
+
+struct json_kv_t
+{
+    std::string key;
+    json11::Json value;
+};
+
 struct pg_config_t
 {
     bool exists;
@@ -26,10 +37,19 @@ struct pg_config_t
     uint64_t epoch;
 };
 
-struct json_kv_t
+typedef uint64_t pool_id_t;
+
+struct pool_config_t
 {
-    std::string key;
-    json11::Json value;
+    bool exists;
+    pool_id_t id;
+    std::string name;
+    uint64_t scheme;
+    uint64_t pg_size, pg_minsize;
+    uint64_t pg_count;
+    std::string failure_domain;
+    uint64_t max_osd_combinations;
+    std::map<pg_num_t, pg_config_t> pg_config;
 };
 
 struct etcd_state_client_t
@@ -42,14 +62,14 @@ struct etcd_state_client_t
     int etcd_watches_initialised = 0;
     uint64_t etcd_watch_revision = 0;
     websocket_t *etcd_watch_ws = NULL;
-    std::map<pg_num_t, pg_config_t> pg_config;
+    std::map<pool_id_t, pool_config_t> pool_config;
     std::map<osd_num_t, json11::Json> peer_states;
 
     std::function<void(json11::Json::object &)> on_change_hook;
     std::function<void(json11::Json::object &)> on_load_config_hook;
     std::function<json11::Json()> load_pgs_checks_hook;
     std::function<void(bool)> on_load_pgs_hook;
-    std::function<void(pg_num_t)> on_change_pg_history_hook;
+    std::function<void(pool_id_t, pg_num_t)> on_change_pg_history_hook;
     std::function<void(osd_num_t)> on_change_osd_state_hook;
 
     json_kv_t parse_etcd_kv(const json11::Json & kv_json);
