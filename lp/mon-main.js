@@ -19,4 +19,4 @@ if (!options.etcd_url)
     process.exit();
 }
 
-new Mon(options).start();
+new Mon(options).start().catch(e => { console.error(e); process.exit(); });
