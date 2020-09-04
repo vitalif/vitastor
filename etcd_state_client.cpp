@@ -315,35 +315,35 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
             if (pool_item.second["pg_size"].uint64_value() < 1 ||
                 pool_item.second["scheme"] == "xor" && pool_item.second["pg_size"].uint64_value() < 3)
             {
-                printf("Pool %lu has invalid pg_size, skipping pool\n", pool_id);
+                printf("Pool %u has invalid pg_size, skipping pool\n", pool_id);
                 continue;
             }
             if (pool_item.second["pg_minsize"].uint64_value() < 1 ||
                 pool_item.second["pg_minsize"].uint64_value() > pool_item.second["pg_size"].uint64_value() ||
                 pool_item.second["pg_minsize"].uint64_value() < (pool_item.second["pg_size"].uint64_value() - 1))
             {
-                printf("Pool %lu has invalid pg_minsize, skipping pool\n", pool_id);
+                printf("Pool %u has invalid pg_minsize, skipping pool\n", pool_id);
                 continue;
             }
             if (pool_item.second["pg_count"].uint64_value() < 1)
             {
-                printf("Pool %lu has invalid pg_count, skipping pool\n", pool_id);
+                printf("Pool %u has invalid pg_count, skipping pool\n", pool_id);
                 continue;
             }
             if (pool_item.second["name"].string_value() == "")
             {
-                printf("Pool %lu has empty name, skipping pool\n", pool_id);
+                printf("Pool %u has empty name, skipping pool\n", pool_id);
                 continue;
             }
             if (pool_item.second["scheme"] != "replicated" && pool_item.second["scheme"] != "xor")
             {
-                printf("Pool %lu has invalid coding scheme (only \"xor\" and \"replicated\" are allowed), skipping pool\n", pool_id);
+                printf("Pool %u has invalid coding scheme (only \"xor\" and \"replicated\" are allowed), skipping pool\n", pool_id);
                 continue;
             }
             if (pool_item.second["max_osd_combinations"].uint64_value() > 0 &&
                 pool_item.second["max_osd_combinations"].uint64_value() < 100)
             {
-                printf("Pool %lu has invalid max_osd_combinations (must be at least 100), skipping pool\n", pool_id);
+                printf("Pool %u has invalid max_osd_combinations (must be at least 100), skipping pool\n", pool_id);
                 continue;
             }
             auto & parsed_cfg = this->pool_config[pool_id];
@@ -359,6 +359,15 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
             if (!parsed_cfg.max_osd_combinations)
             {
                 parsed_cfg.max_osd_combinations = 10000;
+            }
+            for (auto & pg_item: parsed_cfg.pg_config)
+            {
+                if (pg_item.second.target_set.size() != parsed_cfg.pg_size)
+                {
+                    printf("Pool %u PG %u configuration is invalid: osd_set size %lu != pool pg_size %lu\n",
+                        pool_id, pg_item.first, pg_item.second.target_set.size(), parsed_cfg.pg_size);
+                    pg_item.second.pause = true;
+                }
             }
         }
     }
@@ -384,7 +393,7 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
                 pg_num_t pg_num = stoull_full(pg_item.first);
                 if (!pg_num)
                 {
-                    printf("Bad key in pool %lu PG configuration: %s (must be a number), skipped\n", pool_id, pg_item.first.c_str());
+                    printf("Bad key in pool %u PG configuration: %s (must be a number), skipped\n", pool_id, pg_item.first.c_str());
                     continue;
                 }
                 auto & parsed_cfg = this->pool_config[pool_id].pg_config[pg_num];
@@ -396,6 +405,12 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
                 {
                     parsed_cfg.target_set.push_back(pg_osd.uint64_value());
                 }
+                if (parsed_cfg.target_set.size() != pool_config[pool_id].pg_size)
+                {
+                    printf("Pool %u PG %u configuration is invalid: osd_set size %lu != pool pg_size %lu\n",
+                        pool_id, pg_num, parsed_cfg.target_set.size(), pool_config[pool_id].pg_size);
+                    parsed_cfg.pause = true;
+                }
             }
         }
         for (auto & pool_item: this->pool_config)
@@ -406,7 +421,7 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
                 if (pg_it->second.exists && pg_it->first != ++n)
                 {
                     printf(
-                        "Invalid pool %lu PG configuration: PG numbers don't cover whole 1..%lu range\n",
+                        "Invalid pool %u PG configuration: PG numbers don't cover whole 1..%lu range\n",
                         pool_item.second.id, pool_item.second.pg_config.size()
                     );
                     for (pg_it = pool_item.second.pg_config.begin(); pg_it != pool_item.second.pg_config.end(); pg_it++)
@@ -426,7 +441,7 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
         pool_id_t pool_id = 0;
         pg_num_t pg_num = 0;
         char null_byte = 0;
-        sscanf(key.c_str() + etcd_prefix.length()+12, "%lu/%u%c", &pool_id, &pg_num, &null_byte);
+        sscanf(key.c_str() + etcd_prefix.length()+12, "%u/%u%c", &pool_id, &pg_num, &null_byte);
         if (!pool_id || pool_id >= POOL_ID_MAX || !pg_num || null_byte != 0)
         {
             printf("Bad etcd key %s, ignoring\n", key.c_str());
@@ -465,7 +480,7 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
         pool_id_t pool_id = 0;
         pg_num_t pg_num = 0;
         char null_byte = 0;
-        sscanf(key.c_str() + etcd_prefix.length()+10, "%lu/%u%c", &pool_id, &pg_num, &null_byte);
+        sscanf(key.c_str() + etcd_prefix.length()+10, "%u/%u%c", &pool_id, &pg_num, &null_byte);
         if (!pool_id || pool_id >= POOL_ID_MAX || !pg_num || null_byte != 0)
         {
             printf("Bad etcd key %s, ignoring\n", key.c_str());
@@ -492,7 +507,7 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
                 }
                 if (i >= pg_state_bit_count)
                 {
-                    printf("Unexpected PG %u state keyword in etcd: %s\n", pg_num, e.dump().c_str());
+                    printf("Unexpected pool %u PG %u state keyword in etcd: %s\n", pool_id, pg_num, e.dump().c_str());
                     return;
                 }
             }
@@ -501,7 +516,7 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
                 (state & PG_PEERING) && state != PG_PEERING ||
                 (state & PG_INCOMPLETE) && state != PG_INCOMPLETE)
             {
-                printf("Unexpected PG %u state in etcd: primary=%lu, state=%s\n", pg_num, cur_primary, value["state"].dump().c_str());
+                printf("Unexpected pool %u PG %u state in etcd: primary=%lu, state=%s\n", pool_id, pg_num, cur_primary, value["state"].dump().c_str());
                 return;
             }
             this->pool_config[pool_id].pg_config[pg_num].cur_primary = cur_primary;

@@ -50,7 +50,7 @@ void osd_t::handle_peers()
             {
                 if (!p.second.flush_batch)
                 {
-                    submit_pg_flush_ops(p.first);
+                    submit_pg_flush_ops(p.second);
                 }
                 still = true;
             }
@@ -89,25 +89,18 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
             {
                 // Repeer this pg
                 printf("[PG %u] Repeer because of OSD %lu\n", p.second.pg_num, peer_osd);
-                start_pg_peering(p.second.pg_num);
+                start_pg_peering(p.second);
             }
         }
     }
 }
 
 // Repeer on each connect/disconnect peer event
-void osd_t::start_pg_peering(pg_num_t pg_num)
+void osd_t::start_pg_peering(pg_t & pg)
 {
-    auto & pg = pgs[pg_num];
     pg.state = PG_PEERING;
     this->peering_state |= OSD_PEERING_PGS;
     report_pg_state(pg);
-    if (parsed_cfg.target_set.size() != 3)
-    {
-        printf("Bad PG %u config format: incorrect osd_set = %s\n", pg_num, pg_item.second["osd_set"].dump().c_str());
-        parsed_cfg.target_set.resize(3);
-        parsed_cfg.pause = true;
-    }
     // Reset PG state
     pg.cur_peers.clear();
     pg.state_dict.clear();
@@ -132,20 +125,19 @@ void osd_t::start_pg_peering(pg_num_t pg_num)
     for (auto it = unstable_writes.begin(); it != unstable_writes.end(); )
     {
         // Forget this PG's unstable writes
-        pg_num_t n = (it->first.oid.inode + it->first.oid.stripe / pg_stripe_size) % pg_count + 1;
-        if (n == pg.pg_num)
+        if (INODE_POOL(it->first.oid.inode) == pg.pool_id && map_to_pg(it->first.oid) == pg.pg_num)
             unstable_writes.erase(it++);
         else
             it++;
     }
-    dirty_pgs.erase(pg.pg_num);
+    dirty_pgs.erase({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
     // Drop connections of clients who have this PG in dirty_pgs
     if (immediate_commit != IMMEDIATE_ALL)
     {
         std::vector<int> to_stop;
         for (auto & cp: c_cli.clients)
         {
-            if (cp.second.dirty_pgs.find(pg_num) != cp.second.dirty_pgs.end())
+            if (cp.second.dirty_pgs.find({ .pool_id = pg.pool_id, .pg_num = pg.pg_num }) != cp.second.dirty_pgs.end())
             {
                 to_stop.push_back(cp.first);
             }
@@ -351,7 +343,9 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         op->bs_op = new blockstore_op_t();
         op->bs_op->opcode = BS_OP_LIST;
         op->bs_op->oid.stripe = pg_stripe_size;
-        op->bs_op->len = pg_count;
+        op->bs_op->oid.inode = ((uint64_t)ps->pool_id << (64 - POOL_ID_BITS));
+        op->bs_op->version = ((uint64_t)(ps->pool_id+1) << (64 - POOL_ID_BITS)) - 1;
+        op->bs_op->len = pg_counts[ps->pool_id];
         op->bs_op->offset = ps->pg_num-1;
         op->bs_op->callback = [this, ps, op, role_osd](blockstore_op_t *bs_op)
         {
@@ -391,8 +385,10 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
                     .opcode = OSD_OP_SEC_LIST,
                 },
                 .list_pg = ps->pg_num,
-                .pg_count = pg_count,
+                .pg_count = pg_counts[ps->pool_id],
                 .pg_stripe_size = pg_stripe_size,
+                .min_inode = ((uint64_t)(ps->pool_id) << (64 - POOL_ID_BITS)),
+                .max_inode = ((uint64_t)(ps->pool_id+1) << (64 - POOL_ID_BITS)) - 1,
             },
         };
         op->callback = [this, ps, role_osd](osd_op_t *op)
@@ -448,14 +444,8 @@ void osd_t::discard_list_subop(osd_op_t *list_op)
     }
 }
 
-bool osd_t::stop_pg(pg_num_t pg_num)
+bool osd_t::stop_pg(pg_t & pg)
 {
-    auto pg_it = pgs.find(pg_num);
-    if (pg_it == pgs.end())
-    {
-        return false;
-    }
-    auto & pg = pg_it->second;
     if (pg.peering_state)
     {
         // Stop peering
@@ -498,7 +488,7 @@ void osd_t::finish_stop_pg(pg_t & pg)
 void osd_t::report_pg_state(pg_t & pg)
 {
     pg.print_state();
-    this->pg_state_dirty.insert(pg.pg_num);
+    this->pg_state_dirty.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
     if (pg.state == PG_ACTIVE && (pg.target_history.size() > 0 || pg.all_peers.size() > pg.target_set.size()))
     {
         // Clear history of active+clean PGs

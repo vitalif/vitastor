@@ -20,8 +20,9 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         // oid.stripe = starting offset of the parity stripe
         .stripe = (cur_op->req.rw.offset/pg_block_size)*pg_block_size,
     };
-    pg_num_t pg_num = (cur_op->req.rw.inode + oid.stripe/pg_stripe_size) % pg_count + 1;
-    auto pg_it = pgs.find(pg_num);
+    pool_id_t pool_id = INODE_POOL(oid.inode);
+    pg_num_t pg_num = (cur_op->req.rw.inode + oid.stripe/pg_stripe_size) % pg_counts[pool_id] + 1;
+    auto pg_it = pgs.find({ .pool_id = pool_id, .pg_num = pg_num });
     if (pg_it == pgs.end() || !(pg_it->second.state & PG_ACTIVE))
     {
         // This OSD is not primary for this PG or the PG is inactive
@@ -86,7 +87,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
     if (op_data->st == 1)      goto resume_1;
     else if (op_data->st == 2) goto resume_2;
     {
-        auto & pg = pgs[op_data->pg_num];
+        auto & pg = pgs[{ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num }];
         for (int role = 0; role < pg.pg_minsize; role++)
         {
             op_data->stripes[role].read_start = op_data->stripes[role].req_start;
@@ -190,7 +191,7 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
         return;
     }
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    auto & pg = pgs[op_data->pg_num];
+    auto & pg = pgs[{ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num }];
     if (op_data->st == 1)      goto resume_1;
     else if (op_data->st == 2) goto resume_2;
     else if (op_data->st == 3) goto resume_3;
@@ -246,7 +247,7 @@ resume_3:
     {
         // Report newer epoch before writing
         // FIXME: We may report only one PG state here...
-        this->pg_state_dirty.insert(pg.pg_num);
+        this->pg_state_dirty.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
         pg.history_changed = true;
         report_pg_states();
 resume_10:
@@ -399,8 +400,8 @@ resume_7:
         }
         // Remember PG as dirty to drop the connection when PG goes offline
         // (this is required because of the "lazy sync")
-        c_cli.clients[cur_op->peer_fd].dirty_pgs.insert(op_data->pg_num);
-        dirty_pgs.insert(op_data->pg_num);
+        c_cli.clients[cur_op->peer_fd].dirty_pgs.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
+        dirty_pgs.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
     }
     return true;
 }
@@ -445,7 +446,7 @@ resume_2:
     {
         op_data->unstable_write_osds = new std::vector<unstable_osd_num_t>();
         op_data->unstable_writes = new obj_ver_id[this->unstable_writes.size()];
-        op_data->dirty_pgs = new pg_num_t[dirty_pgs.size()];
+        op_data->dirty_pgs = new pool_pg_num_t[dirty_pgs.size()];
         op_data->dirty_pg_count = dirty_pgs.size();
         osd_num_t last_osd = 0;
         int last_start = 0, last_end = 0;
@@ -515,7 +516,7 @@ resume_6:
             {
                 // Except those from peered PGs
                 auto & w = op_data->unstable_writes[i];
-                pg_num_t wpg = map_to_pg(w.oid);
+                pool_pg_num_t wpg = { .pool_id = INODE_POOL(w.oid.inode), .pg_num = map_to_pg(w.oid) };
                 if (pgs[wpg].state & PG_ACTIVE)
                 {
                     uint64_t & dest = this->unstable_writes[(osd_object_id_t){
@@ -621,7 +622,7 @@ void osd_t::continue_primary_del(osd_op_t *cur_op)
         return;
     }
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    auto & pg = pgs[op_data->pg_num];
+    auto & pg = pgs[{ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num }];
     if (op_data->st == 1)      goto resume_1;
     else if (op_data->st == 2) goto resume_2;
     else if (op_data->st == 3) goto resume_3;

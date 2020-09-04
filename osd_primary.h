@@ -29,7 +29,7 @@ struct osd_primary_op_data_t
 
     // for sync. oops, requires freeing
     std::vector<unstable_osd_num_t> *unstable_write_osds = NULL;
-    pg_num_t *dirty_pgs = NULL;
+    pool_pg_num_t *dirty_pgs = NULL;
     int dirty_pg_count = 0;
     obj_ver_id *unstable_writes = NULL;
 };

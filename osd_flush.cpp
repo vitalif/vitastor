@@ -2,9 +2,8 @@
 
 #define FLUSH_BATCH 512
 
-void osd_t::submit_pg_flush_ops(pg_num_t pg_num)
+void osd_t::submit_pg_flush_ops(pg_t & pg)
 {
-    pg_t & pg = pgs[pg_num];
     pg_flush_batch_t *fb = new pg_flush_batch_t();
     pg.flush_batch = fb;
     auto it = pg.flush_actions.begin(), prev_it = pg.flush_actions.begin();
@@ -45,7 +44,7 @@ void osd_t::submit_pg_flush_ops(pg_num_t pg_num)
         if (l.second.size() > 0)
         {
             fb->flush_ops++;
-            submit_flush_op(pg.pg_num, fb, true, l.first, l.second.size(), l.second.data());
+            submit_flush_op(pg.pool_id, pg.pg_num, fb, true, l.first, l.second.size(), l.second.data());
         }
     }
     for (auto & l: fb->stable_lists)
@@ -53,14 +52,15 @@ void osd_t::submit_pg_flush_ops(pg_num_t pg_num)
         if (l.second.size() > 0)
         {
             fb->flush_ops++;
-            submit_flush_op(pg.pg_num, fb, false, l.first, l.second.size(), l.second.data());
+            submit_flush_op(pg.pool_id, pg.pg_num, fb, false, l.first, l.second.size(), l.second.data());
         }
     }
 }
 
-void osd_t::handle_flush_op(bool rollback, pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t peer_osd, int retval)
+void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t peer_osd, int retval)
 {
-    if (pgs.find(pg_num) == pgs.end() || pgs[pg_num].flush_batch != fb)
+    pool_pg_num_t pg_id = { .pool_id = pool_id, .pg_num = pg_num };
+    if (pgs.find(pg_id) == pgs.end() || pgs[pg_id].flush_batch != fb)
     {
         // Throw the result away
         return;
@@ -92,7 +92,7 @@ void osd_t::handle_flush_op(bool rollback, pg_num_t pg_num, pg_flush_batch_t *fb
     {
         // This flush batch is done
         std::vector<osd_op_t*> continue_ops;
-        auto & pg = pgs[pg_num];
+        auto & pg = pgs[pg_id];
         auto it = pg.flush_actions.begin(), prev_it = it;
         auto erase_start = it;
         while (1)
@@ -153,7 +153,7 @@ void osd_t::handle_flush_op(bool rollback, pg_num_t pg_num, pg_flush_batch_t *fb
     }
 }
 
-void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t peer_osd, int count, obj_ver_id *data)
+void osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t peer_osd, int count, obj_ver_id *data)
 {
     osd_op_t *op = new osd_op_t();
     // Copy buffer so it gets freed along with the operation
@@ -165,10 +165,10 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
         clock_gettime(CLOCK_REALTIME, &op->tv_begin);
         op->bs_op = new blockstore_op_t({
             .opcode = (uint64_t)(rollback ? BS_OP_ROLLBACK : BS_OP_STABLE),
-            .callback = [this, op, pg_num, fb](blockstore_op_t *bs_op)
+            .callback = [this, op, pool_id, pg_num, fb](blockstore_op_t *bs_op)
             {
                 add_bs_subop_stats(op);
-                handle_flush_op(bs_op->opcode == BS_OP_ROLLBACK, pg_num, fb, this->osd_num, bs_op->retval);
+                handle_flush_op(bs_op->opcode == BS_OP_ROLLBACK, pool_id, pg_num, fb, this->osd_num, bs_op->retval);
                 delete op->bs_op;
                 op->bs_op = NULL;
                 delete op;
@@ -195,9 +195,9 @@ void osd_t::submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback
                 .len = count * sizeof(obj_ver_id),
             },
         };
-        op->callback = [this, pg_num, fb, peer_osd](osd_op_t *op)
+        op->callback = [this, pool_id, pg_num, fb, peer_osd](osd_op_t *op)
         {
-            handle_flush_op(op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK, pg_num, fb, peer_osd, op->reply.hdr.retval);
+            handle_flush_op(op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK, pool_id, pg_num, fb, peer_osd, op->reply.hdr.retval);
             delete op;
         };
         c_cli.outbox_push(op);
@@ -215,7 +215,6 @@ bool osd_t::pick_next_recovery(osd_recovery_op_t &op)
                 if (recovery_ops.find(obj_it->first) == recovery_ops.end())
                 {
                     op.degraded = true;
-                    op.pg_num = pg_it->first;
                     op.oid = obj_it->first;
                     return true;
                 }
@@ -231,7 +230,6 @@ bool osd_t::pick_next_recovery(osd_recovery_op_t &op)
                 if (recovery_ops.find(obj_it->first) == recovery_ops.end())
                 {
                     op.degraded = false;
-                    op.pg_num = pg_it->first;
                     op.oid = obj_it->first;
                     return true;
                 }

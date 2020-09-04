@@ -37,7 +37,7 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     {
         if (cur_op->op_data->pg_num > 0)
         {
-            auto & pg = pgs[cur_op->op_data->pg_num];
+            auto & pg = pgs[{ .pool_id = INODE_POOL(cur_op->op_data->oid.inode), .pg_num = cur_op->op_data->pg_num }];
             pg.inflight--;
             assert(pg.inflight >= 0);
             if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch)

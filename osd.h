@@ -48,7 +48,6 @@ struct osd_recovery_op_t
 {
     int st = 0;
     bool degraded = false;
-    pg_num_t pg_num = 0;
     object_id oid = { 0 };
     osd_op_t *osd_op = NULL;
 };
@@ -82,18 +81,18 @@ class osd_t
     std::string etcd_lease_id;
     json11::Json self_state;
     bool loading_peer_config = false;
-    std::set<pg_num_t> pg_state_dirty;
+    std::set<pool_pg_num_t> pg_state_dirty;
     bool pg_config_applied = false;
     bool etcd_reporting_pg_state = false;
     bool etcd_reporting_stats = false;
 
     // peers and PGs
 
-    std::map<pg_num_t, pg_t> pgs;
-    std::set<pg_num_t> dirty_pgs;
+    std::map<pool_id_t, pg_num_t> pg_counts;
+    std::map<pool_pg_num_t, pg_t> pgs;
+    std::set<pool_pg_num_t> dirty_pgs;
     uint64_t misplaced_objects = 0, degraded_objects = 0, incomplete_objects = 0;
     int peering_state = 0;
-    unsigned pg_count = 0;
     std::map<object_id, osd_recovery_op_t> recovery_ops;
     osd_op_t *autosync_op = NULL;
 
@@ -126,7 +125,7 @@ class osd_t
     void parse_config(blockstore_config_t & config);
     void init_cluster();
     void on_change_osd_state_hook(osd_num_t peer_osd);
-    void on_change_pg_history_hook(pg_num_t pg_num);
+    void on_change_pg_history_hook(pool_id_t pool_id, pg_num_t pg_num);
     void on_change_etcd_state_hook(json11::Json::object & changes);
     void on_load_config_hook(json11::Json::object & changes);
     json11::Json on_load_pgs_checks_hook();
@@ -152,17 +151,17 @@ class osd_t
     void parse_test_peer(std::string peer);
     void handle_peers();
     void repeer_pgs(osd_num_t osd_num);
-    void start_pg_peering(pg_num_t pg_num);
+    void start_pg_peering(pg_t & pg);
     void submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *ps);
     void submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps);
     void discard_list_subop(osd_op_t *list_op);
-    bool stop_pg(pg_num_t pg_num);
+    bool stop_pg(pg_t & pg);
     void finish_stop_pg(pg_t & pg);
 
     // flushing, recovery and backfill
-    void submit_pg_flush_ops(pg_num_t pg_num);
-    void handle_flush_op(bool rollback, pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t peer_osd, int retval);
-    void submit_flush_op(pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t peer_osd, int count, obj_ver_id *data);
+    void submit_pg_flush_ops(pg_t & pg);
+    void handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t peer_osd, int retval);
+    void submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t peer_osd, int count, obj_ver_id *data);
     bool pick_next_recovery(osd_recovery_op_t &op);
     void submit_recovery_op(osd_recovery_op_t *op);
     bool continue_recovery();
@@ -200,6 +199,9 @@ class osd_t
 
     inline pg_num_t map_to_pg(object_id oid)
     {
+        uint64_t pg_count = pg_counts[INODE_POOL(oid.inode)];
+        if (!pg_count)
+            pg_count = 1;
         return (oid.inode + oid.stripe / pg_stripe_size) % pg_count + 1;
     }
 

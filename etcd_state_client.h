@@ -13,12 +13,6 @@
 #define ETCD_SLOW_TIMEOUT 5000
 #define ETCD_QUICK_TIMEOUT 1000
 
-#define POOL_SCHEME_REPLICATED 1
-#define POOL_SCHEME_XOR 2
-#define POOL_ID_MAX 0x10000
-#define POOL_ID_BITS 16
-#define INODE_POOL(inode) ((inode) >> (64 - POOL_ID_BITS))
-
 struct json_kv_t
 {
     std::string key;
@@ -37,8 +31,6 @@ struct pg_config_t
     int cur_state;
     uint64_t epoch;
 };
-
-typedef uint64_t pool_id_t;
 
 struct pool_config_t
 {

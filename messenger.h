@@ -193,7 +193,7 @@ struct osd_client_t
     std::map<int, osd_op_t*> sent_ops;
 
     // PGs dirtied by this client's primary-writes
-    std::set<pg_num_t> dirty_pgs;
+    std::set<pool_pg_num_t> dirty_pgs;
 
     // Write state
     osd_op_t *write_op = NULL;

@@ -14,7 +14,7 @@ void osd_t::init_cluster()
     {
         if (run_primary)
         {
-            // Test version of clustering code with 1 PG and 2 peers
+            // Test version of clustering code with 1 pool, 1 PG and 2 peers
             // Example: peers = 2:127.0.0.1:11204,3:127.0.0.1:11205
             std::string peerstr = config["peers"];
             while (peerstr.size())
@@ -27,15 +27,16 @@ void osd_t::init_cluster()
             {
                 throw std::runtime_error("run_primary requires at least 2 peers");
             }
-            pgs[1] = (pg_t){
+            pgs[{ 1, 1 }] = (pg_t){
                 .state = PG_PEERING,
                 .pg_cursize = 0,
+                .pool_id = 1,
                 .pg_num = 1,
                 .target_set = { 1, 2, 3 },
                 .cur_set = { 0, 0, 0 },
             };
-            report_pg_state(pgs[1]);
-            pg_count = 1;
+            report_pg_state(pgs[{ 1, 1 }]);
+            pg_counts[1] = 1;
         }
         bind_socket();
     }
@@ -44,7 +45,7 @@ void osd_t::init_cluster()
         st_cli.tfd = tfd;
         st_cli.log_level = log_level;
         st_cli.on_change_osd_state_hook = [this](osd_num_t peer_osd) { on_change_osd_state_hook(peer_osd); };
-        st_cli.on_change_pg_history_hook = [this](pg_num_t pg_num) { on_change_pg_history_hook(pg_num); };
+        st_cli.on_change_pg_history_hook = [this](pool_id_t pool_id, pg_num_t pg_num) { on_change_pg_history_hook(pool_id, pg_num); };
         st_cli.on_change_hook = [this](json11::Json::object & changes) { on_change_etcd_state_hook(changes); };
         st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
         st_cli.load_pgs_checks_hook = [this]() { return on_load_pgs_checks_hook(); };
@@ -223,13 +224,16 @@ void osd_t::on_change_etcd_state_hook(json11::Json::object & changes)
     apply_pg_config();
 }
 
-void osd_t::on_change_pg_history_hook(pg_num_t pg_num)
+void osd_t::on_change_pg_history_hook(pool_id_t pool_id, pg_num_t pg_num)
 {
-    auto pg_it = pgs.find(pg_num);
+    auto pg_it = pgs.find({
+        .pool_id = pool_id,
+        .pg_num = pg_num,
+    });
     if (pg_it != pgs.end() && pg_it->second.epoch > pg_it->second.reported_epoch &&
-        st_cli.pg_config[pg_num].epoch >= pg_it->second.epoch)
+        st_cli.pool_config[pool_id].pg_config[pg_num].epoch >= pg_it->second.epoch)
     {
-        pg_it->second.reported_epoch = st_cli.pg_config[pg_num].epoch;
+        pg_it->second.reported_epoch = st_cli.pool_config[pool_id].pg_config[pg_num].epoch;
         object_id oid = { 0 };
         bool first = true;
         for (auto op: pg_it->second.write_queue)
@@ -451,143 +455,155 @@ void osd_t::on_load_pgs_hook(bool success)
 
 void osd_t::apply_pg_count()
 {
-    pg_num_t pg_count = st_cli.pg_config.size();
-    if (this->pg_count != 0 && this->pg_count != pg_count)
+    for (auto & pool_item: st_cli.pool_config)
     {
-        // Check that all PGs are offline. It is not allowed to change PG count when any PGs are online
-        // The external tool must wait for all PGs to come down before changing PG count
-        // If it doesn't wait, a restarted OSD may apply the new count immediately which will lead to bugs
-        // So an OSD just dies if it detects PG count change while there are active PGs
-        int still_active = 0;
-        for (auto & kv: pgs)
+        if (pool_item.second.real_pg_count != 0 &&
+            pool_item.second.real_pg_count != pg_counts[pool_item.first])
         {
-            if (kv.second.state & PG_ACTIVE)
+            // Check that all pool PGs are offline. It is not allowed to change PG count when any PGs are online
+            // The external tool must wait for all PGs to come down before changing PG count
+            // If it doesn't wait, a restarted OSD may apply the new count immediately which will lead to bugs
+            // So an OSD just dies if it detects PG count change while there are active PGs
+            int still_active = 0;
+            for (auto & kv: pgs)
             {
-                still_active++;
+                if (kv.first.pool_id == pool_item.first && (kv.second.state & PG_ACTIVE))
+                {
+                    still_active++;
+                }
+            }
+            if (still_active > 0)
+            {
+                printf("[OSD %lu] PG count change detected, but %d PG(s) are still active. This is not allowed. Exiting\n", this->osd_num, still_active);
+                force_stop(1);
+                return;
             }
         }
-        if (still_active > 0)
-        {
-            printf("[OSD %lu] PG count change detected, but %d PG(s) are still active. This is not allowed. Exiting\n", this->osd_num, still_active);
-            force_stop(1);
-            return;
-        }
+        this->pg_counts[pool_item.first] = pool_item.second.real_pg_count;
     }
-    this->pg_count = pg_count;
 }
 
 void osd_t::apply_pg_config()
 {
     bool all_applied = true;
-    for (auto & kv: st_cli.pg_config)
+    for (auto & pool_item: st_cli.pool_config)
     {
-        pg_num_t pg_num = kv.first;
-        auto & pg_cfg = kv.second;
-        bool take = pg_cfg.exists && pg_cfg.primary == this->osd_num &&
-            !pg_cfg.pause && (!pg_cfg.cur_primary || pg_cfg.cur_primary == this->osd_num);
-        bool currently_taken = this->pgs.find(pg_num) != this->pgs.end() &&
-            this->pgs[pg_num].state != PG_OFFLINE;
-        if (currently_taken && !take)
+        auto pool_id = pool_item.first;
+        for (auto & kv: pool_item.second.pg_config)
         {
-            // Stop this PG
-            stop_pg(pg_num);
-        }
-        else if (take)
-        {
-            // Take this PG
-            std::set<osd_num_t> all_peers;
-            for (osd_num_t pg_osd: pg_cfg.target_set)
+            pg_num_t pg_num = kv.first;
+            auto & pg_cfg = kv.second;
+            bool take = pg_cfg.exists && pg_cfg.primary == this->osd_num &&
+                !pg_cfg.pause && (!pg_cfg.cur_primary || pg_cfg.cur_primary == this->osd_num);
+            auto pg_it = this->pgs.find({ .pool_id = pool_id, .pg_num = pg_num });
+            bool currently_taken = pg_it != this->pgs.end() && pg_it->second.state != PG_OFFLINE;
+            if (currently_taken && !take)
             {
-                if (pg_osd != 0)
-                {
-                    all_peers.insert(pg_osd);
-                }
+                // Stop this PG
+                stop_pg(pg_it->second);
             }
-            for (osd_num_t pg_osd: pg_cfg.all_peers)
+            else if (take)
             {
-                if (pg_osd != 0)
-                {
-                    all_peers.insert(pg_osd);
-                }
-            }
-            for (auto & hist_item: pg_cfg.target_history)
-            {
-                for (auto pg_osd: hist_item)
+                // Take this PG
+                std::set<osd_num_t> all_peers;
+                for (osd_num_t pg_osd: pg_cfg.target_set)
                 {
                     if (pg_osd != 0)
                     {
                         all_peers.insert(pg_osd);
                     }
                 }
-            }
-            if (currently_taken)
-            {
-                if (this->pgs[pg_num].state & (PG_ACTIVE | PG_INCOMPLETE | PG_PEERING))
+                for (osd_num_t pg_osd: pg_cfg.all_peers)
                 {
-                    if (this->pgs[pg_num].target_set == pg_cfg.target_set)
+                    if (pg_osd != 0)
                     {
-                        // No change in osd_set; history changes are ignored
-                        continue;
+                        all_peers.insert(pg_osd);
                     }
-                    else
+                }
+                for (auto & hist_item: pg_cfg.target_history)
+                {
+                    for (auto pg_osd: hist_item)
                     {
-                        // Stop PG, reapply change after stopping
-                        stop_pg(pg_num);
+                        if (pg_osd != 0)
+                        {
+                            all_peers.insert(pg_osd);
+                        }
+                    }
+                }
+                if (currently_taken)
+                {
+                    if (pg_it->second.state & (PG_ACTIVE | PG_INCOMPLETE | PG_PEERING))
+                    {
+                        if (pg_it->second.target_set == pg_cfg.target_set)
+                        {
+                            // No change in osd_set; history changes are ignored
+                            continue;
+                        }
+                        else
+                        {
+                            // Stop PG, reapply change after stopping
+                            stop_pg(pg_it->second);
+                            all_applied = false;
+                            continue;
+                        }
+                    }
+                    else if (pg_it->second.state & PG_STOPPING)
+                    {
+                        // Reapply change after stopping
                         all_applied = false;
                         continue;
                     }
-                }
-                else if (this->pgs[pg_num].state & PG_STOPPING)
-                {
-                    // Reapply change after stopping
-                    all_applied = false;
-                    continue;
-                }
-                else if (this->pgs[pg_num].state & PG_STARTING)
-                {
-                    if (pg_cfg.cur_primary == this->osd_num)
+                    else if (pg_it->second.state & PG_STARTING)
                     {
-                        // PG locked, continue
+                        if (pg_cfg.cur_primary == this->osd_num)
+                        {
+                            // PG locked, continue
+                        }
+                        else
+                        {
+                            // Reapply change after locking the PG
+                            all_applied = false;
+                            continue;
+                        }
                     }
                     else
                     {
-                        // Reapply change after locking the PG
-                        all_applied = false;
-                        continue;
+                        throw std::runtime_error("Unexpected PG "+std::to_string(pg_num)+" state: "+std::to_string(pg_it->second.state));
                     }
+                }
+                auto & pg = this->pgs[{ .pool_id = pool_id, .pg_num = pg_num }];
+                pg = (pg_t){
+                    .state = pg_cfg.cur_primary == this->osd_num ? PG_PEERING : PG_STARTING,
+                    .scheme = pool_item.second.scheme,
+                    .pg_cursize = 0,
+                    .pg_size = pool_item.second.pg_size,
+                    .pg_minsize = pool_item.second.pg_minsize,
+                    .pool_id = pool_id,
+                    .pg_num = pg_num,
+                    .reported_epoch = pg_cfg.epoch,
+                    .target_history = pg_cfg.target_history,
+                    .all_peers = std::vector<osd_num_t>(all_peers.begin(), all_peers.end()),
+                    .target_set = pg_cfg.target_set,
+                };
+                this->pg_state_dirty.insert({ .pool_id = pool_id, .pg_num = pg_num });
+                pg.print_state();
+                if (pg_cfg.cur_primary == this->osd_num)
+                {
+                    // Add peers
+                    for (auto pg_osd: all_peers)
+                    {
+                        if (pg_osd != this->osd_num && c_cli.osd_peer_fds.find(pg_osd) == c_cli.osd_peer_fds.end())
+                        {
+                            c_cli.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
+                        }
+                    }
+                    start_pg_peering(pg);
                 }
                 else
                 {
-                    throw std::runtime_error("Unexpected PG "+std::to_string(pg_num)+" state: "+std::to_string(this->pgs[pg_num].state));
+                    // Reapply change after locking the PG
+                    all_applied = false;
                 }
-            }
-            this->pgs[pg_num] = (pg_t){
-                .state = pg_cfg.cur_primary == this->osd_num ? PG_PEERING : PG_STARTING,
-                .pg_cursize = 0,
-                .pg_num = pg_num,
-                .reported_epoch = pg_cfg.epoch,
-                .target_history = pg_cfg.target_history,
-                .all_peers = std::vector<osd_num_t>(all_peers.begin(), all_peers.end()),
-                .target_set = pg_cfg.target_set,
-            };
-            this->pg_state_dirty.insert(pg_num);
-            this->pgs[pg_num].print_state();
-            if (pg_cfg.cur_primary == this->osd_num)
-            {
-                // Add peers
-                for (auto pg_osd: all_peers)
-                {
-                    if (pg_osd != this->osd_num && c_cli.osd_peer_fds.find(pg_osd) == c_cli.osd_peer_fds.end())
-                    {
-                        c_cli.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
-                    }
-                }
-                start_pg_peering(pg_num);
-            }
-            else
-            {
-                // Reapply change after locking the PG
-                all_applied = false;
             }
         }
     }
@@ -601,7 +617,7 @@ void osd_t::report_pg_states()
     {
         return;
     }
-    std::vector<std::pair<pg_num_t,bool>> reporting_pgs;
+    std::vector<std::pair<pool_pg_num_t,bool>> reporting_pgs;
     json11::Json::array checks;
     json11::Json::array success;
     json11::Json::array failure;
@@ -613,8 +629,8 @@ void osd_t::report_pg_states()
             continue;
         }
         auto & pg = pg_it->second;
-        reporting_pgs.push_back({ pg.pg_num, pg.history_changed });
-        std::string state_key_base64 = base64_encode(st_cli.etcd_prefix+"/pg/state/"+std::to_string(pg.pg_num));
+        reporting_pgs.push_back({ *it, pg.history_changed });
+        std::string state_key_base64 = base64_encode(st_cli.etcd_prefix+"/pg/state/"+std::to_string(pg.pool_id)+"/"+std::to_string(pg.pg_num));
         if (pg.state == PG_STARTING)
         {
             // Check that the PG key does not exist
@@ -656,7 +672,7 @@ void osd_t::report_pg_states()
             }
             success.push_back(json11::Json::object {
                 { "request_put", json11::Json::object {
-                    { "key", base64_encode(st_cli.etcd_prefix+"/pg/state/"+std::to_string(pg.pg_num)) },
+                    { "key", state_key_base64 },
                     { "value", base64_encode(json11::Json(json11::Json::object {
                         { "primary", this->osd_num },
                         { "state", pg_state_keywords },
@@ -669,7 +685,7 @@ void osd_t::report_pg_states()
             {
                 // Prevent race conditions (for the case when the monitor is updating this key at the same time)
                 pg.history_changed = false;
-                std::string history_key = base64_encode(st_cli.etcd_prefix+"/pg/history/"+std::to_string(pg.pg_num));
+                std::string history_key = base64_encode(st_cli.etcd_prefix+"/pg/history/"+std::to_string(pg.pool_id)+"/"+std::to_string(pg.pg_num));
                 json11::Json::object history_value = {
                     { "epoch", pg.epoch },
                     { "all_peers", pg.all_peers },
@@ -724,14 +740,20 @@ void osd_t::report_pg_states()
                     auto kv = st_cli.parse_etcd_kv(res["kvs"][0]);
                     if (kv.key.substr(st_cli.etcd_prefix.length()+10) == st_cli.etcd_prefix+"/pg/state/")
                     {
-                        pg_num_t pg_num = stoull_full(kv.key.substr(st_cli.etcd_prefix.length()+10));
-                        auto pg_it = pgs.find(pg_num);
-                        if (pg_it != pgs.end() && pg_it->second.state != PG_OFFLINE && pg_it->second.state != PG_STARTING)
+                        pool_id_t pool_id = 0;
+                        pg_num_t pg_num = 0;
+                        char null_byte = 0;
+                        sscanf(kv.key.c_str() + st_cli.etcd_prefix.length()+10, "%u/%u%c", &pool_id, &pg_num, &null_byte);
+                        if (null_byte == 0)
                         {
-                            // Live PG state update failed
-                            printf("Failed to report state of PG %u which is live. Race condition detected, exiting\n", pg_num);
-                            force_stop(1);
-                            return;
+                            auto pg_it = pgs.find({ .pool_id = pool_id, .pg_num = pg_num });
+                            if (pg_it != pgs.end() && pg_it->second.state != PG_OFFLINE && pg_it->second.state != PG_STARTING)
+                            {
+                                // Live PG state update failed
+                                printf("Failed to report state of pool %u PG %u which is live. Race condition detected, exiting\n", pool_id, pg_num);
+                                force_stop(1);
+                                return;
+                            }
                         }
                     }
                 }

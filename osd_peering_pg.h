@@ -44,6 +44,7 @@ struct pg_peering_state_t
     // osd_num -> list result
     std::unordered_map<osd_num_t, osd_op_t*> list_ops;
     std::unordered_map<osd_num_t, pg_list_result_t> list_results;
+    pool_id_t pool_id = 0;
     pg_num_t pg_num = 0;
 };
 
@@ -71,8 +72,10 @@ struct pg_flush_batch_t
 struct pg_t
 {
     int state = 0;
-    uint64_t pg_cursize = 3, pg_size = 3, pg_minsize = 2;
-    pg_num_t pg_num;
+    uint64_t scheme = 0;
+    uint64_t pg_cursize = 0, pg_size = 0, pg_minsize = 0;
+    pool_id_t pool_id = 0;
+    pg_num_t pg_num = 0;
     uint64_t clean_count = 0, total_count = 0;
     // epoch number - should increase with each non-clean activation of the PG
     uint64_t epoch = 0, reported_epoch = 0;
