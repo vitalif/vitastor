@@ -7,7 +7,7 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *
     ring_consumer.loop = [this]() { loop(); };
     ringloop->register_consumer(&ring_consumer);
     initialized = 0;
-    zero_object = (uint8_t*)memalign(MEM_ALIGNMENT, block_size);
+    zero_object = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, block_size);
     data_fd = meta_fd = journal.fd = -1;
     parse_config(config);
     try

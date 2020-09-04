@@ -157,7 +157,7 @@ void osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
 {
     osd_op_t *op = new osd_op_t();
     // Copy buffer so it gets freed along with the operation
-    op->buf = malloc(sizeof(obj_ver_id) * count);
+    op->buf = malloc_or_die(sizeof(obj_ver_id) * count);
     memcpy(op->buf, data, sizeof(obj_ver_id) * count);
     if (peer_osd == this->osd_num)
     {

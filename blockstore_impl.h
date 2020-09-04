@@ -7,7 +7,6 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <malloc.h>
 #include <linux/fs.h>
 
 #include <vector>
@@ -17,6 +16,7 @@
 
 #include "cpp-btree/btree_map.h"
 
+#include "malloc_or_die.h"
 #include "allocator.h"
 
 //#define BLOCKSTORE_DEBUG

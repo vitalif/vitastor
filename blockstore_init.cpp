@@ -202,11 +202,7 @@ int blockstore_init_journal::loop()
         goto resume_7;
     printf("Reading blockstore journal\n");
     if (!bs->journal.inmemory)
-    {
-        submitted_buf = memalign(MEM_ALIGNMENT, 2*bs->journal.block_size);
-        if (!submitted_buf)
-            throw std::bad_alloc();
-    }
+        submitted_buf = memalign_or_die(MEM_ALIGNMENT, 2*bs->journal.block_size);
     else
         submitted_buf = bs->journal.buffer;
     // Read first block of the journal
@@ -317,7 +313,7 @@ resume_1:
                 if (journal_pos < bs->journal.used_start)
                     end = bs->journal.used_start;
                 if (!bs->journal.inmemory)
-                    submitted_buf = memalign(MEM_ALIGNMENT, JOURNAL_BUFFER_SIZE);
+                    submitted_buf = memalign_or_die(MEM_ALIGNMENT, JOURNAL_BUFFER_SIZE);
                 else
                     submitted_buf = bs->journal.buffer + journal_pos;
                 data->iov = {

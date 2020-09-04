@@ -337,7 +337,7 @@ void cluster_client_t::continue_rw(cluster_op_t *op)
         op_copy->inode = op->inode;
         op_copy->offset = op->offset;
         op_copy->len = op->len;
-        op_copy->buf = malloc(op->len);
+        op_copy->buf = malloc_or_die(op->len);
         op_copy->iov.push_back(op_copy->buf, op->len);
         op_copy->callback = [](cluster_op_t* op_copy)
         {

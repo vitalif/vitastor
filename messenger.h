@@ -3,13 +3,13 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include <arpa/inet.h>
-#include <malloc.h>
 
 #include <set>
 #include <map>
 #include <deque>
 #include <vector>
 
+#include "malloc_or_die.h"
 #include "json11/json11.hpp"
 #include "osd_ops.h"
 #include "timerfd_manager.h"
@@ -89,12 +89,22 @@ struct osd_op_buf_list_t
                 int old = alloc;
                 alloc = (((count+other.count+15)/16)*16);
                 buf = (iovec*)malloc(sizeof(iovec) * alloc);
+                if (!buf)
+                {
+                    printf("Failed to allocate %lu bytes\n", sizeof(iovec) * alloc);
+                    exit(1);
+                }
                 memcpy(buf, inline_buf, sizeof(iovec) * old);
             }
             else
             {
                 alloc = (((count+other.count+15)/16)*16);
                 buf = (iovec*)realloc(buf, sizeof(iovec) * alloc);
+                if (!buf)
+                {
+                    printf("Failed to allocate %lu bytes\n", sizeof(iovec) * alloc);
+                    exit(1);
+                }
             }
         }
         for (int i = 0; i < other.count; i++)
@@ -112,12 +122,22 @@ struct osd_op_buf_list_t
                 int old = alloc;
                 alloc = ((alloc/16)*16 + 1);
                 buf = (iovec*)malloc(sizeof(iovec) * alloc);
+                if (!buf)
+                {
+                    printf("Failed to allocate %lu bytes\n", sizeof(iovec) * alloc);
+                    exit(1);
+                }
                 memcpy(buf, inline_buf, sizeof(iovec)*old);
             }
             else
             {
                 alloc = alloc < 16 ? 16 : (alloc+16);
                 buf = (iovec*)realloc(buf, sizeof(iovec) * alloc);
+                if (!buf)
+                {
+                    printf("Failed to allocate %lu bytes\n", sizeof(iovec) * alloc);
+                    exit(1);
+                }
             }
         }
         buf[count++] = { .iov_base = nbuf, .iov_len = len };

@@ -1,8 +1,8 @@
-#include <malloc.h>
 #include <string.h>
 #include <assert.h>
 #include "xor.h"
 #include "osd_rmw.h"
+#include "malloc_or_die.h"
 
 static inline void extend_read(uint32_t start, uint32_t end, osd_rmw_stripe_t & stripe)
 {
@@ -152,12 +152,7 @@ void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t ad
         }
     }
     // Allocate buffer
-    void *buf = memalign(MEM_ALIGNMENT, buf_size);
-    if (!buf)
-    {
-        printf("Failed to allocate %lu bytes\n", buf_size);
-        exit(1);
-    }
+    void *buf = memalign_or_die(MEM_ALIGNMENT, buf_size);
     uint64_t buf_pos = add_size;
     for (int role = 0; role < read_pg_size; role++)
     {

@@ -118,7 +118,7 @@ void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer
         .peer_state = PEER_CONNECTING,
         .connect_timeout_id = timeout_id,
         .osd_num = peer_osd,
-        .in_buf = malloc(receive_buffer_size),
+        .in_buf = malloc_or_die(receive_buffer_size),
     };
     tfd->set_fd_handler(peer_fd, true, [this](int peer_fd, int epoll_events)
     {
@@ -390,7 +390,7 @@ void osd_messenger_t::accept_connections(int listen_fd)
             .peer_port = ntohs(addr.sin_port),
             .peer_fd = peer_fd,
             .peer_state = PEER_CONNECTED,
-            .in_buf = malloc(receive_buffer_size),
+            .in_buf = malloc_or_die(receive_buffer_size),
         };
         // Add FD to epoll
         tfd->set_fd_handler(peer_fd, false, [this](int peer_fd, int epoll_events)

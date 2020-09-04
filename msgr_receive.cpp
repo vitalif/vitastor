@@ -183,33 +183,33 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
     if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ)
     {
         if (cur_op->req.sec_rw.len > 0)
-            cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
+            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
         cl->read_remaining = 0;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
     {
         if (cur_op->req.sec_rw.len > 0)
-            cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
+            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
         cl->read_remaining = cur_op->req.sec_rw.len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
     {
         if (cur_op->req.sec_stab.len > 0)
-            cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.sec_stab.len);
+            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_stab.len);
         cl->read_remaining = cur_op->req.sec_stab.len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_READ)
     {
         if (cur_op->req.rw.len > 0)
-            cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.rw.len);
+            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.rw.len);
         cl->read_remaining = 0;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_WRITE)
     {
         if (cur_op->req.rw.len > 0)
-            cur_op->buf = memalign(MEM_ALIGNMENT, cur_op->req.rw.len);
+            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.rw.len);
         cl->read_remaining = cur_op->req.rw.len;
     }
     if (cl->read_remaining > 0)
@@ -259,7 +259,7 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
         cl->read_remaining = sizeof(obj_ver_id) * op->reply.hdr.retval;
-        op->buf = memalign(MEM_ALIGNMENT, cl->read_remaining);
+        op->buf = memalign_or_die(MEM_ALIGNMENT, cl->read_remaining);
         cl->recv_list.push_back(op->buf, cl->read_remaining);
     }
     else if (op->reply.hdr.opcode == OSD_OP_SHOW_CONFIG && op->reply.hdr.retval > 0)
@@ -269,7 +269,7 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
         cl->read_remaining = op->reply.hdr.retval;
-        op->buf = malloc(op->reply.hdr.retval);
+        op->buf = malloc_or_die(op->reply.hdr.retval);
         cl->recv_list.push_back(op->buf, op->reply.hdr.retval);
     }
     else

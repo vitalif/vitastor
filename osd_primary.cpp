@@ -38,8 +38,8 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         finish_op(cur_op, -EINVAL);
         return false;
     }
-    osd_primary_op_data_t *op_data = (osd_primary_op_data_t*)calloc(
-        sizeof(osd_primary_op_data_t) + sizeof(osd_rmw_stripe_t) * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_size), 1
+    osd_primary_op_data_t *op_data = (osd_primary_op_data_t*)calloc_or_die(
+        1, sizeof(osd_primary_op_data_t) + sizeof(osd_rmw_stripe_t) * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_size)
     );
     op_data->pg_num = pg_num;
     op_data->oid = oid;
@@ -228,12 +228,7 @@ resume_1:
             // Object is degraded/misplaced and will be moved to <write_osd_set>
             op_data->stripes[0].read_start = 0;
             op_data->stripes[0].read_end = bs_block_size;
-            cur_op->rmw_buf = op_data->stripes[0].read_buf = memalign(MEM_ALIGNMENT, bs_block_size);
-            if (!cur_op->rmw_buf)
-            {
-                printf("Failed to allocate %u bytes\n", bs_block_size);
-                exit(1);
-            }
+            cur_op->rmw_buf = op_data->stripes[0].read_buf = memalign_or_die(MEM_ALIGNMENT, bs_block_size);
         }
     }
     else
@@ -459,7 +454,7 @@ void osd_t::continue_primary_sync(osd_op_t *cur_op)
 {
     if (!cur_op->op_data)
     {
-        cur_op->op_data = (osd_primary_op_data_t*)calloc(sizeof(osd_primary_op_data_t), 1);
+        cur_op->op_data = (osd_primary_op_data_t*)calloc_or_die(1, sizeof(osd_primary_op_data_t));
     }
     osd_primary_op_data_t *op_data = cur_op->op_data;
     if (op_data->st == 1)      goto resume_1;

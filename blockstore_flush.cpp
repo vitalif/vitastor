@@ -10,7 +10,7 @@ journal_flusher_t::journal_flusher_t(int flusher_count, blockstore_impl_t *bs)
     flusher_start_threshold = bs->journal_block_size / sizeof(journal_entry_stable);
     journal_trim_interval = flusher_start_threshold;
     journal_trim_counter = 0;
-    journal_superblock = bs->journal.inmemory ? bs->journal.buffer : memalign(MEM_ALIGNMENT, bs->journal_block_size);
+    journal_superblock = bs->journal.inmemory ? bs->journal.buffer : memalign_or_die(MEM_ALIGNMENT, bs->journal_block_size);
     co = new journal_flusher_co[flusher_count];
     for (int i = 0; i < flusher_count; i++)
     {
@@ -548,7 +548,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
                     {
                         submit_offset = dirty_it->second.location + offset - dirty_it->second.offset;
                         submit_len = it == v.end() || it->offset >= end_offset ? end_offset-offset : it->offset-offset;
-                        it = v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len, .buf = memalign(MEM_ALIGNMENT, submit_len) });
+                        it = v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len, .buf = memalign_or_die(MEM_ALIGNMENT, submit_len) });
                         copy_count++;
                         if (bs->journal.inmemory)
                         {
@@ -633,7 +633,7 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
     if (wr.it == flusher->meta_sectors.end())
     {
         // Not in memory yet, read it
-        wr.buf = memalign(MEM_ALIGNMENT, bs->meta_block_size);
+        wr.buf = memalign_or_die(MEM_ALIGNMENT, bs->meta_block_size);
         wr.it = flusher->meta_sectors.emplace(wr.sector, (meta_sector_t){
             .offset = wr.sector,
             .len = bs->meta_block_size,

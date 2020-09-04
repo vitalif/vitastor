@@ -28,7 +28,7 @@ int main(int argc, char *argv[])
     for (uint64_t osd_num = 1; osd_num <= 3; osd_num++)
     {
         pg_list_result_t r = {
-            .buf = (obj_ver_id*)malloc(sizeof(obj_ver_id) * 1024*1024*8),
+            .buf = (obj_ver_id*)malloc_or_die(sizeof(obj_ver_id) * 1024*1024*8),
             .total_count = 1024*1024*8,
             .stable_count = (uint64_t)(1024*1024*8 - (osd_num == 1 ? 10 : 0)),
         };

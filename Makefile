@@ -66,37 +66,37 @@ allocator.o: allocator.cpp allocator.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 base64.o: base64.cpp base64.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-blockstore.o: blockstore.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
+blockstore.o: blockstore.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-blockstore_flush.o: blockstore_flush.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
+blockstore_flush.o: blockstore_flush.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-blockstore_impl.o: blockstore_impl.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
+blockstore_impl.o: blockstore_impl.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-blockstore_init.o: blockstore_init.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
+blockstore_init.o: blockstore_init.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-blockstore_journal.o: blockstore_journal.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
+blockstore_journal.o: blockstore_journal.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-blockstore_open.o: blockstore_open.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
+blockstore_open.o: blockstore_open.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-blockstore_read.o: blockstore_read.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
+blockstore_read.o: blockstore_read.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-blockstore_rollback.o: blockstore_rollback.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
+blockstore_rollback.o: blockstore_rollback.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-blockstore_stable.o: blockstore_stable.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
+blockstore_stable.o: blockstore_stable.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-blockstore_sync.o: blockstore_sync.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
+blockstore_sync.o: blockstore_sync.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-blockstore_write.o: blockstore_write.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
+blockstore_write.o: blockstore_write.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-cluster_client.o: cluster_client.cpp cluster_client.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
+cluster_client.o: cluster_client.cpp cluster_client.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-dump_journal.o: dump_journal.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h ringloop.h
+dump_journal.o: dump_journal.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 epoll_manager.o: epoll_manager.cpp epoll_manager.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 etcd_state_client.o: etcd_state_client.cpp base64.h etcd_state_client.h http_client.h json11/json11.hpp object_id.h osd_id.h osd_ops.h pg_states.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-fio_cluster.o: fio_cluster.cpp cluster_client.h epoll_manager.h etcd_state_client.h fio/fio.h fio/optgroup.h http_client.h json11/json11.hpp messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
+fio_cluster.o: fio_cluster.cpp cluster_client.h epoll_manager.h etcd_state_client.h fio/fio.h fio/optgroup.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 fio_engine.o: fio_engine.cpp blockstore.h fio/fio.h fio/optgroup.h json11/json11.hpp object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
@@ -104,43 +104,43 @@ fio_sec_osd.o: fio_sec_osd.cpp fio/fio.h fio/optgroup.h object_id.h osd_id.h osd
 	g++ $(CXXFLAGS) -c -o $@ $<
 http_client.o: http_client.cpp http_client.h json11/json11.hpp timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-messenger.o: messenger.cpp json11/json11.hpp messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
+messenger.o: messenger.cpp json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-msgr_receive.o: msgr_receive.cpp json11/json11.hpp messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
+msgr_receive.o: msgr_receive.cpp json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-msgr_send.o: msgr_send.cpp json11/json11.hpp messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
+msgr_send.o: msgr_send.cpp json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd.o: osd.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+osd.o: osd.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_cluster.o: osd_cluster.cpp base64.h blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+osd_cluster.o: osd_cluster.cpp base64.h blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_flush.o: osd_flush.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+osd_flush.o: osd_flush.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_main.o: osd_main.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+osd_main.o: osd_main.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_ops.o: osd_ops.cpp object_id.h osd_id.h osd_ops.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_peering.o: osd_peering.cpp base64.h blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+osd_peering.o: osd_peering.cpp base64.h blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_peering_pg.o: osd_peering_pg.cpp cpp-btree/btree_map.h object_id.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_peering_pg_test.o: osd_peering_pg_test.cpp cpp-btree/btree_map.h object_id.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_primary.o: osd_primary.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h osd_primary.h osd_rmw.h pg_states.h ringloop.h timerfd_manager.h
+osd_primary.o: osd_primary.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h osd_primary.h osd_rmw.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_primary_subops.o: osd_primary_subops.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h osd_primary.h osd_rmw.h pg_states.h ringloop.h timerfd_manager.h
+osd_primary_subops.o: osd_primary_subops.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h osd_primary.h osd_rmw.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_rmw.o: osd_rmw.cpp object_id.h osd_id.h osd_rmw.h xor.h
+osd_rmw.o: osd_rmw.cpp malloc_or_die.h object_id.h osd_id.h osd_rmw.h xor.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_rmw_test.o: osd_rmw_test.cpp object_id.h osd_id.h osd_rmw.cpp osd_rmw.h test_pattern.h xor.h
+osd_rmw_test.o: osd_rmw_test.cpp malloc_or_die.h object_id.h osd_id.h osd_rmw.cpp osd_rmw.h test_pattern.h xor.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-osd_secondary.o: osd_secondary.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
+osd_secondary.o: osd_secondary.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd_test.o: osd_test.cpp object_id.h osd_id.h osd_ops.h rw_blocking.h test_pattern.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 pg_states.o: pg_states.cpp pg_states.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-qemu_proxy.o: qemu_proxy.cpp cluster_client.h etcd_state_client.h http_client.h json11/json11.hpp messenger.h object_id.h osd_id.h osd_ops.h qemu_proxy.h ringloop.h timerfd_manager.h
+qemu_proxy.o: qemu_proxy.cpp cluster_client.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h qemu_proxy.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 ringloop.o: ringloop.cpp ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
@@ -150,9 +150,9 @@ stub_bench.o: stub_bench.cpp object_id.h osd_id.h osd_ops.h rw_blocking.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 stub_osd.o: stub_osd.cpp object_id.h osd_id.h osd_ops.h rw_blocking.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-stub_uring_osd.o: stub_uring_osd.cpp epoll_manager.h json11/json11.hpp messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
+stub_uring_osd.o: stub_uring_osd.cpp epoll_manager.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-test.o: test.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h object_id.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h
+test.o: test.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 test_allocator.o: test_allocator.cpp allocator.h
 	g++ $(CXXFLAGS) -c -o $@ $<
