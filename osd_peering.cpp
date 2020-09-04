@@ -26,7 +26,7 @@ void osd_t::handle_peers()
                     degraded_objects += p.second.degraded_objects.size();
                     if ((p.second.state & (PG_ACTIVE | PG_HAS_UNCLEAN)) == (PG_ACTIVE | PG_HAS_UNCLEAN))
                         peering_state = peering_state | OSD_FLUSHING_PGS;
-                    else
+                    else if (p.second.state & PG_ACTIVE)
                         peering_state = peering_state | OSD_RECOVERING;
                 }
                 else
@@ -184,6 +184,7 @@ void osd_t::start_pg_peering(pg_t & pg)
             {
                 pg.state = PG_INCOMPLETE;
                 report_pg_state(pg);
+                return;
             }
         }
     }
@@ -191,6 +192,7 @@ void osd_t::start_pg_peering(pg_t & pg)
     {
         pg.state = PG_INCOMPLETE;
         report_pg_state(pg);
+        return;
     }
     std::set<osd_num_t> cur_peers;
     for (auto pg_osd: pg.all_peers)

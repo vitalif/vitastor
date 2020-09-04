@@ -153,6 +153,11 @@ void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t ad
     }
     // Allocate buffer
     void *buf = memalign(MEM_ALIGNMENT, buf_size);
+    if (!buf)
+    {
+        printf("Failed to allocate %lu bytes\n", buf_size);
+        exit(1);
+    }
     uint64_t buf_pos = add_size;
     for (int role = 0; role < read_pg_size; role++)
     {

@@ -15,7 +15,8 @@
 #define PG_HAS_DEGRADED (1<<8)
 #define PG_HAS_MISPLACED (1<<9)
 #define PG_HAS_UNCLEAN (1<<10)
-#define PG_LEFT_ON_DEAD (1<<11)
+#define PG_HAS_INVALID (1<<11)
+#define PG_LEFT_ON_DEAD (1<<12)
 
 // FIXME: Safe default that doesn't depend on pg_stripe_size or pg_block_size
 #define STRIPE_MASK ((uint64_t)4096 - 1)
@@ -26,7 +27,6 @@
 #define OBJ_MISPLACED 0x08
 #define OBJ_NEEDS_STABLE 0x10000
 #define OBJ_NEEDS_ROLLBACK 0x20000
-#define OBJ_BUGGY 0x80000
 
 extern const int pg_state_bits[];
 extern const char *pg_state_names[];

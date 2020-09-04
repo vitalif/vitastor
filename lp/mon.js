@@ -136,7 +136,9 @@ class Mon
                 /* <pool_id>: {
                     <pg_id>: {
                         primary: osd_num_t,
-                        state: ("starting"|"peering"|"incomplete"|"active"|"stopping"|"offline"|"degraded"|"has_incomplete"|"has_degraded"|"has_misplaced"|"has_unclean"|"left_on_dead")[],
+                        state: ("starting"|"peering"|"incomplete"|"active"|"stopping"|"offline"|
+                            "degraded"|"has_incomplete"|"has_degraded"|"has_misplaced"|"has_unclean"|
+                            "has_invalid"|"left_on_dead")[],
                     }
                 }, */
             },

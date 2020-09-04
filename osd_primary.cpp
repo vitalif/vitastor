@@ -13,14 +13,16 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
 {
     // PG number is calculated from the offset
     // Our EC scheme stores data in fixed chunks equal to (K*block size)
-    // K = pg_minsize and will be a property of the inode. Not it's hardcoded (FIXME)
-    uint64_t pg_block_size = bs_block_size * 2;
+    // K = pg_minsize in case of EC/XOR, or 1 for replicated pools
+    pool_id_t pool_id = INODE_POOL(cur_op->req.rw.inode);
+    auto & pool_cfg = st_cli.pool_config[pool_id];
+    uint64_t pg_block_size = bs_block_size * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_minsize);
     object_id oid = {
         .inode = cur_op->req.rw.inode,
         // oid.stripe = starting offset of the parity stripe
         .stripe = (cur_op->req.rw.offset/pg_block_size)*pg_block_size,
     };
-    pool_id_t pool_id = INODE_POOL(oid.inode);
+    // FIXME: pg_stripe_size may be a per-pool config
     pg_num_t pg_num = (cur_op->req.rw.inode + oid.stripe/pg_stripe_size) % pg_counts[pool_id] + 1;
     auto pg_it = pgs.find({ .pool_id = pool_id, .pg_num = pg_num });
     if (pg_it == pgs.end() || !(pg_it->second.state & PG_ACTIVE))
@@ -37,13 +39,15 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         return false;
     }
     osd_primary_op_data_t *op_data = (osd_primary_op_data_t*)calloc(
-        sizeof(osd_primary_op_data_t) + sizeof(osd_rmw_stripe_t) * pg_it->second.pg_size, 1
+        sizeof(osd_primary_op_data_t) + sizeof(osd_rmw_stripe_t) * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_size), 1
     );
     op_data->pg_num = pg_num;
     op_data->oid = oid;
-    op_data->stripes = ((osd_rmw_stripe_t*)(op_data+1));
+    op_data->stripes = pool_cfg.scheme == POOL_SCHEME_REPLICATED ? NULL : ((osd_rmw_stripe_t*)(op_data+1));
+    op_data->scheme = pool_cfg.scheme;
     cur_op->op_data = op_data;
-    split_stripes(pg_it->second.pg_minsize, bs_block_size, (uint32_t)(cur_op->req.rw.offset - oid.stripe), cur_op->req.rw.len, op_data->stripes);
+    split_stripes((pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_minsize),
+        bs_block_size, (uint32_t)(cur_op->req.rw.offset - oid.stripe), cur_op->req.rw.len, op_data->stripes);
     pg_it->second.inflight++;
     return true;
 }
@@ -88,7 +92,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
     else if (op_data->st == 2) goto resume_2;
     {
         auto & pg = pgs[{ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num }];
-        for (int role = 0; role < pg.pg_minsize; role++)
+        for (int role = 0; role < (op_data->scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_minsize); role++)
         {
             op_data->stripes[role].read_start = op_data->stripes[role].req_start;
             op_data->stripes[role].read_end = op_data->stripes[role].req_end;
@@ -96,7 +100,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         // Determine version
         auto vo_it = pg.ver_override.find(op_data->oid);
         op_data->target_ver = vo_it != pg.ver_override.end() ? vo_it->second : UINT64_MAX;
-        if (pg.state == PG_ACTIVE)
+        if (pg.state == PG_ACTIVE || op_data->scheme == POOL_SCHEME_REPLICATED)
         {
             // Fast happy-path
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_minsize, 0);
@@ -210,10 +214,33 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
 resume_1:
     // Determine blocks to read and write
     // Missing chunks are allowed to be overwritten even in incomplete objects
-    // FIXME: Allow to do small writes to the old (degraded/misplaced) OSD set for the lower performance impact
+    // FIXME: Allow to do small writes to the old (degraded/misplaced) OSD set for lower performance impact
     op_data->prev_set = get_object_osd_set(pg, op_data->oid, pg.cur_set.data(), &op_data->object_state);
-    cur_op->rmw_buf = calc_rmw(cur_op->buf, op_data->stripes, op_data->prev_set,
-        pg.pg_size, pg.pg_minsize, pg.pg_cursize, pg.cur_set.data(), bs_block_size);
+    if (op_data->scheme == POOL_SCHEME_REPLICATED)
+    {
+        // Simplified algorithm
+        op_data->stripes[0].write_start = op_data->stripes[0].req_start;
+        op_data->stripes[0].write_end = op_data->stripes[0].req_end;
+        op_data->stripes[0].write_buf = cur_op->buf;
+        if (pg.cur_set.data() != op_data->prev_set && (op_data->stripes[0].write_start != 0 ||
+            op_data->stripes[0].write_end != bs_block_size))
+        {
+            // Object is degraded/misplaced and will be moved to <write_osd_set>
+            op_data->stripes[0].read_start = 0;
+            op_data->stripes[0].read_end = bs_block_size;
+            cur_op->rmw_buf = op_data->stripes[0].read_buf = memalign(MEM_ALIGNMENT, bs_block_size);
+            if (!cur_op->rmw_buf)
+            {
+                printf("Failed to allocate %u bytes\n", bs_block_size);
+                exit(1);
+            }
+        }
+    }
+    else
+    {
+        cur_op->rmw_buf = calc_rmw(cur_op->buf, op_data->stripes, op_data->prev_set,
+            pg.pg_size, pg.pg_minsize, pg.pg_cursize, pg.cur_set.data(), bs_block_size);
+    }
     // Read required blocks
     submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, pg.pg_size, op_data->prev_set, cur_op);
 resume_2:
@@ -227,8 +254,27 @@ resume_3:
     }
     // Save version override for parallel reads
     pg.ver_override[op_data->oid] = op_data->fact_ver;
-    // Recover missing stripes, calculate parity
-    calc_rmw_parity_xor(op_data->stripes, pg.pg_size, op_data->prev_set, pg.cur_set.data(), bs_block_size);
+    if (op_data->scheme == POOL_SCHEME_REPLICATED)
+    {
+        // Only (possibly) copy new data from the request into the recovery buffer
+        if (pg.cur_set.data() != op_data->prev_set && (op_data->stripes[0].write_start != 0 ||
+            op_data->stripes[0].write_end != bs_block_size))
+        {
+            memcpy(
+                op_data->stripes[0].read_buf + op_data->stripes[0].req_start,
+                op_data->stripes[0].write_buf,
+                op_data->stripes[0].req_end - op_data->stripes[0].req_start
+            );
+            op_data->stripes[0].write_buf = op_data->stripes[0].read_buf;
+            op_data->stripes[0].write_start = 0;
+            op_data->stripes[0].write_end = bs_block_size;
+        }
+    }
+    else
+    {
+        // Recover missing stripes, calculate parity
+        calc_rmw_parity_xor(op_data->stripes, pg.pg_size, op_data->prev_set, pg.cur_set.data(), bs_block_size);
+    }
     // Send writes
     if ((op_data->fact_ver >> (64-PG_EPOCH_BITS)) < pg.epoch)
     {
@@ -291,7 +337,7 @@ resume_5:
         if (op_data->object_state->state & OBJ_MISPLACED)
         {
             // Remove extra chunks
-            submit_primary_del_subops(cur_op, pg.cur_set.data(), op_data->object_state->osd_set);
+            submit_primary_del_subops(cur_op, pg.cur_set.data(), pg.pg_size, op_data->object_state->osd_set);
             if (op_data->n_subops > 0)
             {
 resume_8:
@@ -314,7 +360,9 @@ resume_9:
     // FIXME: Check for immediate_commit == IMMEDIATE_SMALL
 resume_6:
 resume_7:
-    if (!remember_unstable_write(cur_op, pg, pg.cur_loc_set, 6))
+    // FIXME: Replicated writes are always "immediate"
+    if (op_data->scheme != POOL_SCHEME_REPLICATED &&
+        !remember_unstable_write(cur_op, pg, pg.cur_loc_set, 6))
     {
         return;
     }
@@ -657,7 +705,7 @@ resume_3:
     pg.ver_override[op_data->oid] = op_data->fact_ver;
     // Submit deletes
     op_data->fact_ver++;
-    submit_primary_del_subops(cur_op, NULL, op_data->object_state ? op_data->object_state->osd_set : pg.cur_loc_set);
+    submit_primary_del_subops(cur_op, NULL, 0, op_data->object_state ? op_data->object_state->osd_set : pg.cur_loc_set);
 resume_4:
     op_data->st = 4;
     return;

@@ -33,6 +33,7 @@ struct obj_piece_ver_t
 struct pg_obj_state_check_t
 {
     pg_t *pg;
+    bool replicated = false;
     std::vector<obj_ver_role> list;
     int list_pos;
     int obj_start = 0, obj_end = 0, ver_start = 0, ver_end = 0;
@@ -41,7 +42,7 @@ struct pg_obj_state_check_t
     uint64_t last_ver = 0;
     uint64_t target_ver = 0;
     uint64_t n_copies = 0, has_roles = 0, n_roles = 0, n_stable = 0, n_mismatched = 0;
-    uint64_t n_unstable = 0, n_buggy = 0;
+    uint64_t n_unstable = 0, n_invalid = 0;
     pg_osd_set_t osd_set;
     int log_level;
 
@@ -73,6 +74,12 @@ void pg_obj_state_check_t::walk()
     {
         finish_object();
     }
+    if (pg->state & PG_HAS_INVALID)
+    {
+        // Stop PGs with "invalid" objects
+        pg->state = PG_INCOMPLETE | PG_HAS_INVALID;
+        return;
+    }
     if (pg->pg_cursize < pg->pg_size)
     {
         pg->state |= PG_DEGRADED;
@@ -92,7 +99,7 @@ void pg_obj_state_check_t::start_object()
     target_ver = 0;
     ver_start = list_pos;
     has_roles = n_copies = n_roles = n_stable = n_mismatched = 0;
-    n_unstable = n_buggy = 0;
+    n_unstable = n_invalid = 0;
 }
 
 void pg_obj_state_check_t::handle_version()
@@ -111,11 +118,11 @@ void pg_obj_state_check_t::handle_version()
             has_roles = n_copies = n_roles = n_stable = n_mismatched = 0;
             last_ver = list[list_pos].version;
         }
-        int replica = (list[list_pos].oid.stripe & STRIPE_MASK);
+        unsigned replica = (list[list_pos].oid.stripe & STRIPE_MASK);
         n_copies++;
-        if (replica >= pg->pg_size)
+        if (replicated && replica > 0 || replica >= pg->pg_size)
         {
-            n_buggy++;
+            n_invalid++;
         }
         else
         {
@@ -123,14 +130,32 @@ void pg_obj_state_check_t::handle_version()
             {
                 n_stable++;
             }
-            if (pg->cur_set[replica] != list[list_pos].osd_num)
+            if (replicated)
             {
-                n_mismatched++;
+                int i;
+                for (i = 0; i < pg->cur_set.size(); i++)
+                {
+                    if (pg->cur_set[i] == list[list_pos].osd_num)
+                    {
+                        break;
+                    }
+                }
+                if (i == pg->cur_set.size())
+                {
+                    n_mismatched++;
+                }
             }
-            if (!(has_roles & (1 << replica)))
+            else
             {
-                has_roles = has_roles | (1 << replica);
-                n_roles++;
+                if (pg->cur_set[replica] != list[list_pos].osd_num)
+                {
+                    n_mismatched++;
+                }
+                if (!(has_roles & (1 << replica)))
+                {
+                    has_roles = has_roles | (1 << replica);
+                    n_roles++;
+                }
             }
         }
     }
@@ -151,11 +176,14 @@ void pg_obj_state_check_t::finish_object()
     obj_end = list_pos;
     // Remember the decision
     uint64_t state = 0;
-    if (n_buggy > 0)
+    if (n_invalid > 0)
     {
-        state = OBJ_BUGGY;
-        // FIXME: bring pg offline
-        throw std::runtime_error("buggy object state");
+        // It's not allowed to change the replication scheme for a pool other than by recreating it
+        // So we must bring the PG offline
+        state = OBJ_INCOMPLETE;
+        pg->state |= PG_HAS_INVALID;
+        pg->total_count++;
+        return;
     }
     if (n_unstable > 0)
     {
@@ -201,7 +229,7 @@ void pg_obj_state_check_t::finish_object()
     {
         return;
     }
-    if (n_roles < pg->pg_minsize)
+    if (!replicated && n_roles < pg->pg_minsize)
     {
         if (log_level > 1)
         {
@@ -221,7 +249,7 @@ void pg_obj_state_check_t::finish_object()
     }
     if (n_mismatched > 0)
     {
-        if (n_roles >= pg->pg_cursize && log_level > 1)
+        if (log_level > 1 && (replicated || n_roles >= pg->pg_cursize))
         {
             printf("Object is misplaced: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
         }
@@ -234,14 +262,16 @@ void pg_obj_state_check_t::finish_object()
         {
             for (int i = obj_start; i < obj_end; i++)
             {
-                printf("v%lu present on: osd %lu, role %ld%s\n", list[i].version, list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
+                printf("v%lu present on: osd %lu, role %ld%s\n", list[i].version, list[i].osd_num,
+                    (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
             }
         }
         else
         {
             for (int i = ver_start; i < ver_end; i++)
             {
-                printf("Target version present on: osd %lu, role %ld%s\n", list[i].osd_num, (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
+                printf("Target version present on: osd %lu, role %ld%s\n", list[i].osd_num,
+                    (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
             }
         }
     }
@@ -343,6 +373,7 @@ void pg_t::calc_object_states(int log_level)
     pg_obj_state_check_t st;
     st.log_level = log_level;
     st.pg = this;
+    st.replicated = (this->scheme == POOL_SCHEME_REPLICATED);
     auto ps = peering_state;
     epoch = 0;
     for (auto it: ps->list_results)
@@ -384,7 +415,7 @@ void pg_t::calc_object_states(int log_level)
 void pg_t::print_state()
 {
     printf(
-        "[PG %u] is %s%s%s%s%s%s%s%s%s%s%s (%lu objects)\n", pg_num,
+        "[PG %u] is %s%s%s%s%s%s%s%s%s%s%s%s%s (%lu objects)\n", pg_num,
         (state & PG_STARTING) ? "starting" : "",
         (state & PG_OFFLINE) ? "offline" : "",
         (state & PG_PEERING) ? "peering" : "",
@@ -396,6 +427,8 @@ void pg_t::print_state()
         (state & PG_HAS_DEGRADED) ? " + has_degraded" : "",
         (state & PG_HAS_MISPLACED) ? " + has_misplaced" : "",
         (state & PG_HAS_UNCLEAN) ? " + has_unclean" : "",
+        (state & PG_HAS_INVALID) ? " + has_invalid" : "",
+        (state & PG_LEFT_ON_DEAD) ? " + left_on_dead" : "",
         total_count
     );
 }
