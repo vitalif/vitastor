@@ -183,6 +183,23 @@ resume_0:
     dirty_end = bs->dirty_db.find(cur);
     if (dirty_end != bs->dirty_db.end())
     {
+        repeat_it = flusher->sync_to_repeat.find(cur.oid);
+        if (repeat_it != flusher->sync_to_repeat.end())
+        {
+#ifdef BLOCKSTORE_DEBUG
+            printf("Postpone %lx:%lx v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
+#endif
+            // We don't flush different parts of history of the same object in parallel
+            // So we check if someone is already flushing this object
+            // In that case we set sync_to_repeat and pick another object
+            // Another coroutine will see it and re-queue the object after it finishes
+            if (repeat_it->second < cur.version)
+                repeat_it->second = cur.version;
+            wait_state = 0;
+            goto resume_0;
+        }
+        else
+            flusher->sync_to_repeat[cur.oid] = 0;
         if (dirty_end->second.journal_sector >= bs->journal.dirty_start &&
             (bs->journal.dirty_start >= bs->journal.used_start ||
             dirty_end->second.journal_sector < bs->journal.used_start))
@@ -213,6 +230,7 @@ resume_0:
             if (!found)
             {
                 // Try other objects
+                flusher->sync_to_repeat.erase(cur.oid);
                 int search_left = flusher->flush_queue.size() - 1;
 #ifdef BLOCKSTORE_DEBUG
                 printf("Flusher overran writers (dirty_start=%08lx) - searching for older flushes (%d left)\n", bs->journal.dirty_start, search_left);
@@ -237,7 +255,12 @@ resume_0:
                         }
                         else
                         {
-                            break;
+                            repeat_it = flusher->sync_to_repeat.find(cur.oid);
+                            if (repeat_it == flusher->sync_to_repeat.end())
+                            {
+                                flusher->sync_to_repeat[cur.oid] = 0;
+                                break;
+                            }
                         }
                     }
                     search_left--;
@@ -253,23 +276,6 @@ resume_0:
                 }
             }
         }
-        repeat_it = flusher->sync_to_repeat.find(cur.oid);
-        if (repeat_it != flusher->sync_to_repeat.end())
-        {
-#ifdef BLOCKSTORE_DEBUG
-            printf("Postpone %lx:%lx v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
-#endif
-            // We don't flush different parts of history of the same object in parallel
-            // So we check if someone is already flushing this object
-            // In that case we set sync_to_repeat and pick another object
-            // Another coroutine will see it and re-queue the object after it finishes
-            if (repeat_it->second < cur.version)
-                repeat_it->second = cur.version;
-            wait_state = 0;
-            goto resume_0;
-        }
-        else
-            flusher->sync_to_repeat[cur.oid] = 0;
 #ifdef BLOCKSTORE_DEBUG
         printf("Flushing %lx:%lx v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
 #endif
