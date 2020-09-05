@@ -65,9 +65,9 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     }
 #ifdef BLOCKSTORE_DEBUG
     if (is_del)
-        printf("Delete %lu:%lu v%lu\n", op->oid.inode, op->oid.stripe, op->version);
+        printf("Delete %lx:%lx v%lu\n", op->oid.inode, op->oid.stripe, op->version);
     else
-        printf("Write %lu:%lu v%lu offset=%u len=%u\n", op->oid.inode, op->oid.stripe, op->version, op->offset, op->len);
+        printf("Write %lx:%lx v%lu offset=%u len=%u\n", op->oid.inode, op->oid.stripe, op->version, op->offset, op->len);
 #endif
     // No strict need to add it into dirty_db here, it's just left
     // from the previous implementation where reads waited for writes
@@ -220,7 +220,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
         printf(
-            "journal offset %08lx is used by %lu:%lu v%lu (%lu refs)\n",
+            "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
             dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version,
             journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
         );
@@ -321,7 +321,7 @@ resume_2:
     journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
     printf(
-        "journal offset %08lx is used by %lu:%lu v%lu (%lu refs)\n",
+        "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
         journal.sector_info[journal.cur_sector].offset, op->oid.inode, op->oid.stripe, op->version,
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
     );
@@ -342,7 +342,7 @@ resume_2:
 resume_4:
     // Switch object state
 #ifdef BLOCKSTORE_DEBUG
-    printf("Ack write %lu:%lu v%lu = %d\n", op->oid.inode, op->oid.stripe, op->version, dirty_it->second.state);
+    printf("Ack write %lx:%lx v%lu = %d\n", op->oid.inode, op->oid.stripe, op->version, dirty_it->second.state);
 #endif
     bool imm = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE
         ? (immediate_commit == IMMEDIATE_ALL)
@@ -477,7 +477,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
     printf(
-        "journal offset %08lx is used by %lu:%lu v%lu (%lu refs)\n",
+        "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
         dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version,
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
     );

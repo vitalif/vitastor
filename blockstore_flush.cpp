@@ -231,7 +231,7 @@ resume_0:
                             dirty_end->second.journal_sector < bs->journal.used_start))
                         {
 #ifdef BLOCKSTORE_DEBUG
-                            printf("Write %lu:%lu v%lu is too new: offset=%08lx\n", cur.oid.inode, cur.oid.stripe, cur.version, dirty_end->second.journal_sector);
+                            printf("Write %lx:%lx v%lu is too new: offset=%08lx\n", cur.oid.inode, cur.oid.stripe, cur.version, dirty_end->second.journal_sector);
 #endif
                             flusher->enqueue_flush(cur);
                         }
@@ -257,7 +257,7 @@ resume_0:
         if (repeat_it != flusher->sync_to_repeat.end())
         {
 #ifdef BLOCKSTORE_DEBUG
-            printf("Postpone %lu:%lu v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
+            printf("Postpone %lx:%lx v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
 #endif
             // We don't flush different parts of history of the same object in parallel
             // So we check if someone is already flushing this object
@@ -271,7 +271,7 @@ resume_0:
         else
             flusher->sync_to_repeat[cur.oid] = 0;
 #ifdef BLOCKSTORE_DEBUG
-        printf("Flushing %lu:%lu v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
+        printf("Flushing %lx:%lx v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
 #endif
         flusher->active_flushers++;
 resume_1:
@@ -299,7 +299,7 @@ resume_1:
                 // Object not allocated. This is a bug.
                 char err[1024];
                 snprintf(
-                    err, 1024, "BUG: Object %lu:%lu v%lu that we are trying to flush is not allocated on the data device",
+                    err, 1024, "BUG: Object %lx:%lx v%lu that we are trying to flush is not allocated on the data device",
                     cur.oid.inode, cur.oid.stripe, cur.version
                 );
                 throw std::runtime_error(err);
@@ -497,7 +497,7 @@ resume_1:
         }
         // All done
 #ifdef BLOCKSTORE_DEBUG
-        printf("Flushed %lu:%lu v%lu (%ld left)\n", cur.oid.inode, cur.oid.stripe, cur.version, flusher->flush_queue.size());
+        printf("Flushed %lx:%lx v%lu (%ld left)\n", cur.oid.inode, cur.oid.stripe, cur.version, flusher->flush_queue.size());
 #endif
         flusher->active_flushers--;
         repeat_it = flusher->sync_to_repeat.find(cur.oid);
@@ -593,7 +593,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
         {
             char err[1024];
             snprintf(
-                err, 1024, "BUG: Unexpected dirty_entry %lu:%lu v%lu state during flush: %d",
+                err, 1024, "BUG: Unexpected dirty_entry %lx:%lx v%lu state during flush: %d",
                 dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version, dirty_it->second.state
             );
             throw std::runtime_error(err);

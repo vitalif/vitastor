@@ -208,7 +208,7 @@ uint64_t test_read(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ver
         return 0;
     }
     free(data);
-    printf("Read %lu:%lu v%lu = v%lu\n", inode, stripe, version, reply.sec_rw.version);
+    printf("Read %lx:%lx v%lu = v%lu\n", inode, stripe, version, reply.sec_rw.version);
     op.hdr.opcode = OSD_OP_SEC_LIST;
     op.sec_list.list_pg = 1;
     op.sec_list.pg_count = 1;
@@ -232,7 +232,7 @@ uint64_t test_read(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ver
     {
         if (ov[i].oid.inode == inode && (ov[i].oid.stripe & ~(4096-1)) == (stripe & ~(4096-1)))
         {
-            printf("list: %lu:%lu v%lu stable=%d\n", ov[i].oid.inode, ov[i].oid.stripe, ov[i].version, i < reply.sec_list.stable_count ? 1 : 0);
+            printf("list: %lx:%lx v%lu stable=%d\n", ov[i].oid.inode, ov[i].oid.stripe, ov[i].version, i < reply.sec_list.stable_count ? 1 : 0);
         }
     }
     return 0;

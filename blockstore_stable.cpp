@@ -203,7 +203,7 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v)
             }
         }
 #ifdef BLOCKSTORE_DEBUG
-        printf("enqueue_flush %lu:%lu v%lu\n", v.oid.inode, v.oid.stripe, v.version);
+        printf("enqueue_flush %lx:%lx v%lu\n", v.oid.inode, v.oid.stripe, v.version);
 #endif
         flusher->enqueue_flush(v);
     }

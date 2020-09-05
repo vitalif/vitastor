@@ -141,7 +141,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
                 });
 #ifdef OSD_DEBUG
                 printf(
-                    "Submit %s to local: %lu:%lu v%lu %u-%u\n", wr ? "write" : "read",
+                    "Submit %s to local: %lx:%lx v%lu %u-%u\n", wr ? "write" : "read",
                     op_data->oid.inode, op_data->oid.stripe | stripe_num, op_version,
                     subops[i].bs_op->offset, subops[i].bs_op->len
                 );
@@ -168,7 +168,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
                 };
 #ifdef OSD_DEBUG
                 printf(
-                    "Submit %s to osd %lu: %lu:%lu v%lu %u-%u\n", wr ? "write" : "read", role_osd_num,
+                    "Submit %s to osd %lu: %lx:%lx v%lu %u-%u\n", wr ? "write" : "read", role_osd_num,
                     op_data->oid.inode, op_data->oid.stripe | stripe_num, op_version,
                     subops[i].req.sec_rw.offset, subops[i].req.sec_rw.len
                 );

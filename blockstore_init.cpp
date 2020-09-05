@@ -114,7 +114,7 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
                 }
                 entries_loaded++;
 #ifdef BLOCKSTORE_DEBUG
-                printf("Allocate block (clean entry) %lu: %lu:%lu v%lu\n", done_cnt+i, entry->oid.inode, entry->oid.stripe, entry->version);
+                printf("Allocate block (clean entry) %lu: %lx:%lx v%lu\n", done_cnt+i, entry->oid.inode, entry->oid.stripe, entry->version);
 #endif
                 bs->data_alloc->set(done_cnt+i, true);
                 bs->clean_db[entry->oid] = (struct clean_entry){
@@ -125,7 +125,7 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
             else
             {
 #ifdef BLOCKSTORE_DEBUG
-                printf("Old clean entry %lu: %lu:%lu v%lu\n", done_cnt+i, entry->oid.inode, entry->oid.stripe, entry->version);
+                printf("Old clean entry %lu: %lx:%lx v%lu\n", done_cnt+i, entry->oid.inode, entry->oid.stripe, entry->version);
 #endif
             }
         }
@@ -454,7 +454,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
             {
 #ifdef BLOCKSTORE_DEBUG
                 printf(
-                    "je_small_write%s oid=%lu:%lu ver=%lu offset=%u len=%u\n",
+                    "je_small_write%s oid=%lx:%lx ver=%lu offset=%u len=%u\n",
                     je->type == JE_SMALL_WRITE_INSTANT ? "_instant" : "",
                     je->small_write.oid.inode, je->small_write.oid.stripe, je->small_write.version,
                     je->small_write.offset, je->small_write.len
@@ -539,7 +539,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     bs->journal.used_sectors[proc_pos]++;
 #ifdef BLOCKSTORE_DEBUG
                     printf(
-                        "journal offset %08lx is used by %lu:%lu v%lu (%lu refs)\n",
+                        "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
                         proc_pos, ov.oid.inode, ov.oid.stripe, ov.version, bs->journal.used_sectors[proc_pos]
                     );
 #endif
@@ -555,7 +555,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
             {
 #ifdef BLOCKSTORE_DEBUG
                 printf(
-                    "je_big_write%s oid=%lu:%lu ver=%lu loc=%lu\n",
+                    "je_big_write%s oid=%lx:%lx ver=%lu loc=%lu\n",
                     je->type == JE_BIG_WRITE_INSTANT ? "_instant" : "",
                     je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location
                 );
@@ -593,7 +593,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
             else if (je->type == JE_STABLE)
             {
 #ifdef BLOCKSTORE_DEBUG
-                printf("je_stable oid=%lu:%lu ver=%lu\n", je->stable.oid.inode, je->stable.oid.stripe, je->stable.version);
+                printf("je_stable oid=%lx:%lx ver=%lu\n", je->stable.oid.inode, je->stable.oid.stripe, je->stable.version);
 #endif
                 // oid, version
                 obj_ver_id ov = {
@@ -605,7 +605,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
             else if (je->type == JE_ROLLBACK)
             {
 #ifdef BLOCKSTORE_DEBUG
-                printf("je_rollback oid=%lu:%lu ver=%lu\n", je->rollback.oid.inode, je->rollback.oid.stripe, je->rollback.version);
+                printf("je_rollback oid=%lx:%lx ver=%lu\n", je->rollback.oid.inode, je->rollback.oid.stripe, je->rollback.version);
 #endif
                 // rollback dirty writes of <oid> up to <version>
                 obj_ver_id ov = {
@@ -617,7 +617,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
             else if (je->type == JE_DELETE)
             {
 #ifdef BLOCKSTORE_DEBUG
-                printf("je_delete oid=%lu:%lu ver=%lu\n", je->del.oid.inode, je->del.oid.stripe, je->del.version);
+                printf("je_delete oid=%lx:%lx ver=%lu\n", je->del.oid.inode, je->del.oid.stripe, je->del.version);
 #endif
                 auto clean_it = bs->clean_db.find(je->del.oid);
                 if (clean_it == bs->clean_db.end() ||
