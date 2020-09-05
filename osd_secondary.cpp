@@ -83,6 +83,7 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
         if (cur_op->req.sec_list.pg_count < cur_op->req.sec_list.list_pg)
         {
             // requested pg number is greater than total pg count
+            printf("Invalid LIST request: pg count %u < pg number %u\n", cur_op->req.sec_list.pg_count, cur_op->req.sec_list.list_pg);
             cur_op->bs_op->retval = -EINVAL;
             secondary_op_callback(cur_op);
             return;

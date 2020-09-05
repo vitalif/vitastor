@@ -59,6 +59,7 @@ class cluster_client_t
     // FIXME: Implement inmemory_commit mode. Note that it requires to return overlapping reads from memory.
     uint64_t client_dirty_limit = 0;
     int log_level;
+    // FIXME: Put up_wait_retry_interval into config and fix it so it could actually work
     int up_wait_retry_interval = 500; // ms
 
     uint64_t op_id = 1;

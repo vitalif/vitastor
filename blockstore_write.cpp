@@ -51,6 +51,13 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         op->retval = 0;
         return false;
     }
+    if (op->opcode == BS_OP_WRITE_STABLE && immediate_commit != IMMEDIATE_ALL &&
+        (op->len == block_size || deleted || immediate_commit != IMMEDIATE_SMALL))
+    {
+        // WRITE_STABLE only works with immediate commit by now
+        op->retval = -EINVAL;
+        return false;
+    }
     if (is_inflight_big && !is_del && !deleted && op->len < block_size &&
         immediate_commit != IMMEDIATE_ALL)
     {

@@ -362,7 +362,7 @@ static bool contains_osd(osd_num_t *osd_set, uint64_t size, osd_num_t osd_num)
     return false;
 }
 
-void osd_t::submit_primary_del_subops(osd_op_t *cur_op, osd_num_t *cur_set, uint64_t pg_size, pg_osd_set_t & loc_set)
+void osd_t::submit_primary_del_subops(osd_op_t *cur_op, osd_num_t *cur_set, uint64_t set_size, pg_osd_set_t & loc_set)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     bool rep = op_data->scheme == POOL_SCHEME_REPLICATED;
@@ -370,7 +370,7 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, osd_num_t *cur_set, uint
     // ordered comparison for EC/XOR, unordered for replicated pools
     for (auto & chunk: loc_set)
     {
-        if (!cur_set || (rep ? contains_osd(cur_set, pg_size, chunk.osd_num) : chunk.osd_num != cur_set[chunk.role]))
+        if (!cur_set || (rep ? !contains_osd(cur_set, set_size, chunk.osd_num) : chunk.osd_num != cur_set[chunk.role]))
         {
             extra_chunks++;
         }
@@ -386,7 +386,7 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, osd_num_t *cur_set, uint
     int i = 0;
     for (auto & chunk: loc_set)
     {
-        if (!cur_set || (rep ? contains_osd(cur_set, pg_size, chunk.osd_num) : chunk.osd_num != cur_set[chunk.role]))
+        if (!cur_set || (rep ? !contains_osd(cur_set, set_size, chunk.osd_num) : chunk.osd_num != cur_set[chunk.role]))
         {
             int stripe_num = op_data->scheme == POOL_SCHEME_REPLICATED ? 0 : chunk.role;
             if (chunk.osd_num == this->osd_num)

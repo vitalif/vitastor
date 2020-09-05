@@ -43,7 +43,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     );
     op_data->pg_num = pg_num;
     op_data->oid = oid;
-    op_data->stripes = pool_cfg.scheme == POOL_SCHEME_REPLICATED ? NULL : ((osd_rmw_stripe_t*)(op_data+1));
+    op_data->stripes = ((osd_rmw_stripe_t*)(op_data+1));
     op_data->scheme = pool_cfg.scheme;
     cur_op->op_data = op_data;
     split_stripes((pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_minsize),
@@ -324,7 +324,7 @@ resume_5:
                 recovery_stat_count[0][recovery_type]++;
                 recovery_stat_bytes[0][recovery_type] = 0;
             }
-            for (int role = 0; role < pg.pg_size; role++)
+            for (int role = 0; role < (op_data->scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_size); role++)
             {
                 recovery_stat_bytes[0][recovery_type] += op_data->stripes[role].write_end - op_data->stripes[role].write_start;
             }

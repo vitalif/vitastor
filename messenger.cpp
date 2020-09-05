@@ -257,12 +257,13 @@ void osd_messenger_t::check_peer_config(osd_client_t & cl)
             {
                 err = true;
                 printf("Connected to OSD %lu instead of OSD %lu, peer state is outdated, disconnecting peer\n", config["osd_num"].uint64_value(), cl.osd_num);
-                on_connect_peer(cl.osd_num, -1);
             }
         }
         if (err)
         {
+            osd_num_t osd_num = cl.osd_num;
             stop_client(op->peer_fd);
+            on_connect_peer(osd_num, -1);
             delete op;
             return;
         }

@@ -94,7 +94,7 @@ void journal_dump_t::dump_block(void *buf)
     while (pos < journal_block)
     {
         journal_entry *je = (journal_entry*)(buf + pos);
-        if (je->magic != JOURNAL_MAGIC || je->type < JE_START || je->type > JE_DELETE)
+        if (je->magic != JOURNAL_MAGIC || je->type < JE_MIN || je->type > JE_MAX)
         {
             break;
         }

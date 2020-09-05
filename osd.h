@@ -193,7 +193,7 @@ class osd_t
     void add_bs_subop_stats(osd_op_t *subop);
     void pg_cancel_write_queue(pg_t & pg, osd_op_t *first_op, object_id oid, int retval);
     void submit_primary_subops(int submit_type, uint64_t op_version, int pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
-    void submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, uint64_t pg_size, pg_osd_set_t & loc_set);
+    void submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, uint64_t set_size, pg_osd_set_t & loc_set);
     void submit_primary_sync_subops(osd_op_t *cur_op);
     void submit_primary_stab_subops(osd_op_t *cur_op);
 

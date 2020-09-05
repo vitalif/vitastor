@@ -249,6 +249,7 @@ void osd_t::start_pg_peering(pg_t & pg)
     if (!pg.peering_state)
     {
         pg.peering_state = new pg_peering_state_t();
+        pg.peering_state->pool_id = pg.pool_id;
         pg.peering_state->pg_num = pg.pg_num;
     }
     for (osd_num_t peer_osd: cur_peers)

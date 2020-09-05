@@ -497,7 +497,8 @@ resume_1:
         }
         // All done
 #ifdef BLOCKSTORE_DEBUG
-        printf("Flushed %lx:%lx v%lu (%ld left)\n", cur.oid.inode, cur.oid.stripe, cur.version, flusher->flush_queue.size());
+        printf("Flushed %lx:%lx v%lu (%d copies, wr:%d, del:%d), %ld left\n", cur.oid.inode, cur.oid.stripe, cur.version,
+            copy_count, has_writes, has_delete, flusher->flush_queue.size());
 #endif
         flusher->active_flushers--;
         repeat_it = flusher->sync_to_repeat.find(cur.oid);
@@ -530,7 +531,16 @@ bool journal_flusher_co::scan_dirty(int wait_base)
     clean_init_bitmap = false;
     while (1)
     {
-        if (dirty_it->second.state == (BS_ST_SMALL_WRITE | BS_ST_STABLE) && !skip_copy)
+        if (!IS_STABLE(dirty_it->second.state))
+        {
+            char err[1024];
+            snprintf(
+                err, 1024, "BUG: Unexpected dirty_entry %lx:%lx v%lu state during flush: %d",
+                dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version, dirty_it->second.state
+            );
+            throw std::runtime_error(err);
+        }
+        else if (IS_JOURNAL(dirty_it->second.state) && !skip_copy)
         {
             // First we submit all reads
             has_writes = true;
@@ -573,7 +583,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
                 }
             }
         }
-        else if (dirty_it->second.state == (BS_ST_BIG_WRITE | BS_ST_STABLE) && !skip_copy)
+        else if (IS_BIG_WRITE(dirty_it->second.state) && !skip_copy)
         {
             // There is an unflushed big write. Copy small writes in its position
             has_writes = true;
@@ -583,20 +593,11 @@ bool journal_flusher_co::scan_dirty(int wait_base)
             clean_bitmap_len = dirty_it->second.len;
             skip_copy = true;
         }
-        else if (dirty_it->second.state == (BS_ST_DELETE | BS_ST_STABLE) && !skip_copy)
+        else if (IS_DELETE(dirty_it->second.state) && !skip_copy)
         {
             // There is an unflushed delete
             has_delete = true;
             skip_copy = true;
-        }
-        else if (!IS_STABLE(dirty_it->second.state))
-        {
-            char err[1024];
-            snprintf(
-                err, 1024, "BUG: Unexpected dirty_entry %lx:%lx v%lu state during flush: %d",
-                dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version, dirty_it->second.state
-            );
-            throw std::runtime_error(err);
         }
         dirty_start = dirty_it;
         if (dirty_it == bs->dirty_db.begin())
@@ -663,7 +664,7 @@ void journal_flusher_co::update_clean_db()
     if (old_clean_loc != UINT64_MAX && old_clean_loc != clean_loc)
     {
 #ifdef BLOCKSTORE_DEBUG
-        printf("Free block %lu\n", old_clean_loc >> bs->block_order);
+        printf("Free block %lu (new location is %lu)\n", old_clean_loc >> bs->block_order, clean_loc >> bs->block_order);
 #endif
         bs->data_alloc->set(old_clean_loc >> bs->block_order, false);
     }

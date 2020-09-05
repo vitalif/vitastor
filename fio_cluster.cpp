@@ -51,6 +51,7 @@ struct sec_options
     char *etcd_prefix = NULL;
     uint64_t pool = 0;
     uint64_t inode = 0;
+    int cluster_log = 0;
     int trace = 0;
 };
 
@@ -88,6 +89,16 @@ static struct fio_option options[] = {
         .type   = FIO_OPT_INT,
         .off1   = offsetof(struct sec_options, inode),
         .help   = "inode to run tests on (1 by default)",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "cluster_log_level",
+        .lname  = "cluster log level",
+        .type   = FIO_OPT_BOOL,
+        .off1   = offsetof(struct sec_options, cluster_log),
+        .help   = "Set log level for the Vitastor client",
+        .def    = "0",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
     },
@@ -151,6 +162,7 @@ static int sec_init(struct thread_data *td)
     json11::Json cfg = json11::Json::object {
         { "etcd_address", std::string(o->etcd_host) },
         { "etcd_prefix", std::string(o->etcd_prefix ? o->etcd_prefix : "/vitastor") },
+        { "log_level", o->cluster_log },
     };
 
     if (o->pool)

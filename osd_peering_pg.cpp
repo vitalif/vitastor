@@ -238,7 +238,7 @@ void pg_obj_state_check_t::finish_object()
         state = OBJ_INCOMPLETE;
         pg->state = pg->state | PG_HAS_INCOMPLETE;
     }
-    else if (n_roles < pg->pg_cursize)
+    else if ((replicated ? n_copies : n_roles) < pg->pg_cursize)
     {
         if (log_level > 1)
         {
@@ -247,7 +247,7 @@ void pg_obj_state_check_t::finish_object()
         state = OBJ_DEGRADED;
         pg->state = pg->state | PG_HAS_DEGRADED;
     }
-    if (n_mismatched > 0)
+    else if (n_mismatched > 0)
     {
         if (log_level > 1 && (replicated || n_roles >= pg->pg_cursize))
         {
@@ -256,7 +256,7 @@ void pg_obj_state_check_t::finish_object()
         state |= OBJ_MISPLACED;
         pg->state = pg->state | PG_HAS_MISPLACED;
     }
-    if (log_level > 1 && (n_roles < pg->pg_cursize || n_mismatched > 0))
+    if (log_level > 1 && ((replicated ? n_copies : n_roles) < pg->pg_cursize || n_mismatched > 0))
     {
         if (log_level > 2)
         {
@@ -308,8 +308,11 @@ void pg_obj_state_check_t::finish_object()
                     .osd_num = list[i].osd_num,
                     .outdated = true,
                 });
-                state |= OBJ_MISPLACED;
-                pg->state = pg->state | PG_HAS_MISPLACED;
+                if (!(state & (OBJ_INCOMPLETE | OBJ_DEGRADED)))
+                {
+                    state |= OBJ_MISPLACED;
+                    pg->state = pg->state | PG_HAS_MISPLACED;
+                }
             }
         }
     }
@@ -327,16 +330,34 @@ void pg_obj_state_check_t::finish_object()
         if (it == pg->state_dict.end())
         {
             std::vector<uint64_t> read_target;
-            read_target.resize(pg->pg_size);
-            for (int i = 0; i < pg->pg_size; i++)
+            if (replicated)
             {
-                read_target[i] = 0;
-            }
-            for (auto & o: osd_set)
-            {
-                if (!o.outdated)
+                for (auto & o: osd_set)
                 {
-                    read_target[o.role] = o.osd_num;
+                    if (!o.outdated)
+                    {
+                        read_target.push_back(o.osd_num);
+                    }
+                }
+                while (read_target.size() < pg->pg_size)
+                {
+                    // FIXME: This is because we then use .data() and assume it's at least <pg_size> long
+                    read_target.push_back(0);
+                }
+            }
+            else
+            {
+                read_target.resize(pg->pg_size);
+                for (int i = 0; i < pg->pg_size; i++)
+                {
+                    read_target[i] = 0;
+                }
+                for (auto & o: osd_set)
+                {
+                    if (!o.outdated)
+                    {
+                        read_target[o.role] = o.osd_num;
+                    }
                 }
             }
             pg->state_dict[osd_set] = {
