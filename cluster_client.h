@@ -40,6 +40,7 @@ protected:
     cluster_op_t *orig_op = NULL;
     bool is_internal = false;
     bool needs_reslice = false;
+    bool up_wait = false;
     int sent_count = 0, done_count = 0;
     std::vector<cluster_op_part_t> parts;
     friend class cluster_client_t;
@@ -59,7 +60,6 @@ class cluster_client_t
     // FIXME: Implement inmemory_commit mode. Note that it requires to return overlapping reads from memory.
     uint64_t client_dirty_limit = 0;
     int log_level;
-    // FIXME: Put up_wait_retry_interval into config and fix it so it could actually work
     int up_wait_retry_interval = 500; // ms
 
     uint64_t op_id = 1;
@@ -85,7 +85,7 @@ public:
     void stop();
 
 protected:
-    void continue_ops();
+    void continue_ops(bool up_retry = false);
     void on_load_config_hook(json11::Json::object & config);
     void on_load_pgs_hook(bool success);
     void on_change_hook(json11::Json::object & changes);

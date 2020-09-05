@@ -101,16 +101,22 @@ void cluster_client_t::stop()
     }
 }
 
-void cluster_client_t::continue_ops()
+void cluster_client_t::continue_ops(bool up_retry)
 {
-    if (retry_timeout_id)
-    {
-        tfd->clear_timer(retry_timeout_id);
-        retry_timeout_id = 0;
-    }
     for (auto op_it = cur_ops.begin(); op_it != cur_ops.end(); )
     {
-        continue_rw(*op_it++);
+        if ((*op_it)->up_wait)
+        {
+            if (up_retry)
+            {
+                (*op_it)->up_wait = false;
+                continue_rw(*op_it++);
+            }
+            else
+                op_it++;
+        }
+        else
+            continue_rw(*op_it++);
     }
 }
 
@@ -172,6 +178,15 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & config)
     if (!client_dirty_limit)
     {
         client_dirty_limit = DEFAULT_CLIENT_DIRTY_LIMIT;
+    }
+    up_wait_retry_interval = config["up_wait_retry_interval"].uint64_value();
+    if (!up_wait_retry_interval)
+    {
+        up_wait_retry_interval = 500;
+    }
+    else if (up_wait_retry_interval < 50)
+    {
+        up_wait_retry_interval = 50;
     }
     msgr.peer_connect_interval = config["peer_connect_interval"].uint64_value();
     if (!msgr.peer_connect_interval)
@@ -696,9 +711,17 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             part->osd_num, part->op.reply.hdr.retval, expected
         );
         msgr.stop_client(part->op.peer_fd);
-        if (part->op.reply.hdr.retval && !retry_timeout_id)
+        if (part->op.reply.hdr.retval == -EPIPE)
         {
-            retry_timeout_id = tfd->set_timer(up_wait_retry_interval, false, [this](int) { retry_timeout_id = 0; continue_ops(); });
+            op->up_wait = true;
+            if (!retry_timeout_id)
+            {
+                retry_timeout_id = tfd->set_timer(up_wait_retry_interval, false, [this](int)
+                {
+                    retry_timeout_id = 0;
+                    continue_ops(true);
+                });
+            }
         }
         if (!op->retval || op->retval == -EPIPE)
         {

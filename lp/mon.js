@@ -30,11 +30,11 @@ class Mon
             /* global: {
                 // mon
                 etcd_mon_ttl: 30, // min: 10
-                etcd_mon_timeout: 1000, // min: 0
+                etcd_mon_timeout: 1000, // ms. min: 0
                 etcd_mon_retries: 5, // min: 0
-                mon_change_timeout: 1000, // min: 100
-                mon_stats_timeout: 1000, // min: 100
-                osd_out_time: 1800, // min: 0
+                mon_change_timeout: 1000, // ms. min: 100
+                mon_stats_timeout: 1000, // ms. min: 100
+                osd_out_time: 1800, // seconds. min: 0
                 placement_levels: { datacenter: 1, rack: 2, host: 3, osd: 4, ... },
                 // client and osd
                 use_sync_send_recv: false,
@@ -45,8 +45,9 @@ class Mon
                 pg_stripe_size: 4194304,
                 immediate_commit: false, // 'all' or 'small'
                 client_dirty_limit: 33554432,
-                peer_connect_interval: 5,
-                peer_connect_timeout: 5,
+                peer_connect_interval: 5, // seconds. min: 1
+                peer_connect_timeout: 5, // seconds. min: 1
+                up_wait_retry_interval: 500, // ms. min: 50
                 // osd
                 etcd_report_interval: 30, // min: 10
                 run_primary: true,
