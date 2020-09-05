@@ -3,17 +3,17 @@
 // Random write:
 //
 // fio -thread -ioengine=./libfio_cluster.so -name=test -bs=4k -direct=1 -fsync=16 -iodepth=16 -rw=randwrite \
-//     -etcd=127.0.0.1:2379 [-etcd_prefix=/vitastor] -inode=1 -size=1000M
+//     -etcd=127.0.0.1:2379 [-etcd_prefix=/vitastor] -pool=1 -inode=1 -size=1000M
 //
 // Linear write:
 //
 // fio -thread -ioengine=./libfio_cluster.so -name=test -bs=128k -direct=1 -fsync=32 -iodepth=32 -rw=write \
-//     -etcd=127.0.0.1:2379 [-etcd_prefix=/vitastor] -inode=1 -size=1000M
+//     -etcd=127.0.0.1:2379 [-etcd_prefix=/vitastor] -pool=1 -inode=1 -size=1000M
 //
 // Random read (run with -iodepth=32 or -iodepth=1):
 //
 // fio -thread -ioengine=./libfio_cluster.so -name=test -bs=4k -direct=1 -iodepth=32 -rw=randread \
-//     -etcd=127.0.0.1:2379 [-etcd_prefix=/vitastor] -inode=1 -size=1000M
+//     -etcd=127.0.0.1:2379 [-etcd_prefix=/vitastor] -pool=1 -inode=1 -size=1000M
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -49,7 +49,8 @@ struct sec_options
     int __pad;
     char *etcd_host = NULL;
     char *etcd_prefix = NULL;
-    int inode = 0;
+    uint64_t pool = 0;
+    uint64_t inode = 0;
     int trace = 0;
 };
 
@@ -69,6 +70,15 @@ static struct fio_option options[] = {
         .type   = FIO_OPT_STR_STORE,
         .off1   = offsetof(struct sec_options, etcd_prefix),
         .help   = "etcd key prefix, by default /vitastor",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "pool",
+        .lname  = "pool number for the inode",
+        .type   = FIO_OPT_INT,
+        .off1   = offsetof(struct sec_options, pool),
+        .help   = "pool number for the inode to run tests on",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
     },
@@ -143,6 +153,13 @@ static int sec_init(struct thread_data *td)
         { "etcd_prefix", std::string(o->etcd_prefix ? o->etcd_prefix : "/vitastor") },
     };
 
+    if (o->pool)
+        o->inode = (o->inode & ((1l << (64-POOL_ID_BITS)) - 1)) | (o->pool << (64-POOL_ID_BITS));
+    if (!(o->inode >> (64-POOL_ID_BITS)))
+    {
+        td_verror(td, EINVAL, "pool is missing");
+        return 1;
+    }
     bsd->ringloop = new ring_loop_t(512);
     bsd->epmgr = new epoll_manager_t(bsd->ringloop);
     bsd->cli = new cluster_client_t(bsd->ringloop, bsd->epmgr->tfd, cfg);

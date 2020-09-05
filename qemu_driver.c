@@ -22,6 +22,7 @@ typedef struct VitastorClient
     char *etcd_host;
     char *etcd_prefix;
     uint64_t inode;
+    uint64_t pool;
     uint64_t size;
     int readonly;
     QemuMutex mutex;
@@ -68,7 +69,7 @@ static void qemu_rbd_unescape(char *src)
 }
 
 // vitastor[:key=value]*
-// vitastor:etcd_host=127.0.0.1:inode=1
+// vitastor:etcd_host=127.0.0.1:inode=1:pool=1
 static void vitastor_parse_filename(const char *filename, QDict *options, Error **errp)
 {
     const char *start;
@@ -96,7 +97,7 @@ static void vitastor_parse_filename(const char *filename, QDict *options, Error 
         qemu_rbd_unescape(name);
         value = qemu_rbd_next_tok(p, ':', &p);
         qemu_rbd_unescape(value);
-        if (!strcmp(name, "inode") || !strcmp(name, "size"))
+        if (!strcmp(name, "inode") || !strcmp(name, "pool") || !strcmp(name, "size"))
         {
             unsigned long long num_val;
             if (parse_uint_full(value, &num_val, 0))
@@ -114,6 +115,12 @@ static void vitastor_parse_filename(const char *filename, QDict *options, Error 
     if (!qdict_get_try_int(options, "inode", 0))
     {
         error_setg(errp, "inode is missing");
+        goto out;
+    }
+    if (!(qdict_get_try_int(options, "inode", 0) >> (64-POOL_ID_BITS)) &&
+        !qdict_get_try_int(options, "pool", 0))
+    {
+        error_setg(errp, "pool number is missing");
         goto out;
     }
     if (!qdict_get_try_int(options, "size", 0))
@@ -139,6 +146,9 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     client->etcd_host = g_strdup(qdict_get_try_str(options, "etcd_host"));
     client->etcd_prefix = g_strdup(qdict_get_try_str(options, "etcd_prefix"));
     client->inode = qdict_get_int(options, "inode");
+    client->pool = qdict_get_int(options, "pool");
+    if (client->pool)
+        client->inode = (client->inode & ((1l << (64-POOL_ID_BITS)) - 1)) | (client->pool << (64-POOL_ID_BITS));
     client->size = qdict_get_int(options, "size");
     client->readonly = (flags & BDRV_O_RDWR) ? 1 : 0;
     client->proxy = vitastor_proxy_create(bdrv_get_aio_context(bs), client->etcd_host, client->etcd_prefix);
@@ -147,6 +157,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     qdict_del(options, "etcd_host");
     qdict_del(options, "etcd_prefix");
     qdict_del(options, "inode");
+    qdict_del(options, "pool");
     qdict_del(options, "size");
     qemu_mutex_init(&client->mutex);
     return ret;
@@ -320,6 +331,7 @@ static QemuOptsList vitastor_create_opts = {
 
 static const char *vitastor_strong_runtime_opts[] = {
     "inode",
+    "pool",
     "etcd_host",
     "etcd_prefix",
 

@@ -320,6 +320,12 @@ void cluster_client_t::execute(cluster_op_t *op)
 void cluster_client_t::continue_rw(cluster_op_t *op)
 {
     pool_id_t pool_id = INODE_POOL(op->inode);
+    if (!pool_id)
+    {
+        op->retval = -EINVAL;
+        std::function<void(cluster_op_t*)>(op->callback)(op);
+        return;
+    }
     if (st_cli.pool_config.find(pool_id) == st_cli.pool_config.end() ||
         st_cli.pool_config[pool_id].real_pg_count == 0)
     {

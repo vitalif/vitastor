@@ -1,6 +1,9 @@
 #ifndef VITASTOR_QEMU_PROXY_H
 #define VITASTOR_QEMU_PROXY_H
 
+#ifndef POOL_ID_BITS
+#define POOL_ID_BITS 16
+#endif
 #include <stdint.h>
 #include <sys/uio.h>
 
