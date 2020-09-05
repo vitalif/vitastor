@@ -103,8 +103,10 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         if (pg.state == PG_ACTIVE || op_data->scheme == POOL_SCHEME_REPLICATED)
         {
             // Fast happy-path
-            cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_minsize, 0);
-            submit_primary_subops(SUBMIT_READ, op_data->target_ver, pg.pg_minsize, pg.cur_set.data(), cur_op);
+            cur_op->buf = alloc_read_buffer(op_data->stripes,
+                (op_data->scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_minsize), 0);
+            submit_primary_subops(SUBMIT_READ, op_data->target_ver,
+                (op_data->scheme == POOL_SCHEME_REPLICATED ? pg.pg_size : pg.pg_minsize), pg.cur_set.data(), cur_op);
             op_data->st = 1;
         }
         else
