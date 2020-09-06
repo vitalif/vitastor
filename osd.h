@@ -91,6 +91,7 @@ class osd_t
     std::map<pool_id_t, pg_num_t> pg_counts;
     std::map<pool_pg_num_t, pg_t> pgs;
     std::set<pool_pg_num_t> dirty_pgs;
+    std::set<osd_num_t> dirty_osds;
     uint64_t misplaced_objects = 0, degraded_objects = 0, incomplete_objects = 0;
     int peering_state = 0;
     std::map<object_id, osd_recovery_op_t> recovery_ops;

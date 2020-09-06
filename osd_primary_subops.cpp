@@ -445,14 +445,14 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, osd_num_t *cur_set, uint
 void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    int n_osds = op_data->unstable_write_osds->size();
+    int n_osds = op_data->dirty_osd_count;
     osd_op_t *subops = new osd_op_t[n_osds];
     op_data->done = op_data->errors = 0;
     op_data->n_subops = n_osds;
     op_data->subops = subops;
     for (int i = 0; i < n_osds; i++)
     {
-        osd_num_t sync_osd = (*(op_data->unstable_write_osds))[i].osd_num;
+        osd_num_t sync_osd = op_data->dirty_osds[i];
         if (sync_osd == this->osd_num)
         {
             clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
