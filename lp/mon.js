@@ -222,6 +222,7 @@ class Mon
             this.etcd_urls.push(scheme+'://'+url);
         }
         this.verbose = config.verbose || 0;
+        this.config = {};
         this.etcd_prefix = config.etcd_prefix || '/vitastor';
         this.etcd_prefix = this.etcd_prefix.replace(/\/\/+/g, '/').replace(/^\/?(.*[^\/])\/?$/, '/$1');
         this.etcd_start_timeout = (config.etcd_start_timeout || 5) * 1000;
@@ -892,7 +893,15 @@ class Mon
             console.log('Bad key in etcd: '+kv.key+' = '+kv.value);
             return;
         }
-        kv.value = kv.value ? JSON.parse(kv.value) : null;
+        try
+        {
+            kv.value = kv.value ? JSON.parse(kv.value) : null;
+        }
+        catch (e)
+        {
+            console.log('Bad key in etcd: '+kv.key+' = '+kv.value);
+            return;
+        }
         key = key.split('/');
         let cur = this.state;
         for (let i = 0; i < key.length-1; i++)
