@@ -461,7 +461,9 @@ class Mon
             if (stat.size && (this.state.osd.state[osd_num] || Number(stat.time) >= down_time))
             {
                 // Numeric IDs are reserved for OSDs
-                const reweight = this.state.config.osd[osd_num] && Number(this.state.config.osd[osd_num].reweight) || 1;
+                let reweight = this.state.config.osd[osd_num] && Number(this.state.config.osd[osd_num].reweight);
+                if (reweight < 0 || isNaN(reweight))
+                    reweight = 1;
                 tree[osd_num] = tree[osd_num] || { id: osd_num, parent: stat.host };
                 tree[osd_num].level = 'osd';
                 tree[osd_num].size = reweight * stat.size / 1024 / 1024 / 1024 / 1024; // terabytes
@@ -663,7 +665,7 @@ class Mon
                     continue;
                 }
                 const prev_pgs = [];
-                for (const pg in ((this.state.config.pgs.items||{})[pool_id]||{}).items||{})
+                for (const pg in ((this.state.config.pgs.items||{})[pool_id]||{})||{})
                 {
                     prev_pgs[pg-1] = this.state.config.pgs.items[pool_id][pg].osd_set;
                 }
