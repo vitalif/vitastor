@@ -71,6 +71,7 @@ void osd_messenger_t::try_connect_peer(uint64_t peer_osd)
     }
     wp.cur_addr = wp.address_list[wp.address_index].string_value();
     wp.cur_port = wp.port;
+    wp.connecting = true;
     try_connect_peer_addr(peer_osd, wp.cur_addr.c_str(), wp.cur_port);
 }
 
