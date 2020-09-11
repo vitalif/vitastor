@@ -221,6 +221,7 @@ class Mon
                 url += '/v3';
             this.etcd_urls.push(scheme+'://'+url);
         }
+        this.verbose = config.verbose || 0;
         this.etcd_prefix = config.etcd_prefix || '/vitastor';
         this.etcd_prefix = this.etcd_prefix.replace(/\/\/+/g, '/').replace(/^\/?(.*[^\/])\/?$/, '/$1');
         this.etcd_start_timeout = (config.etcd_start_timeout || 5) * 1000;
@@ -345,7 +346,10 @@ class Mon
             else
             {
                 let stats_changed = false, changed = false;
-                console.log('Revision '+data.result.header.revision+' events: ');
+                if (this.verbose)
+                {
+                    console.log('Revision '+data.result.header.revision+' events: ');
+                }
                 this.etcd_watch_revision = BigInt(data.result.header.revision)+BigInt(1);
                 for (const e of data.result.events)
                 {
@@ -359,7 +363,10 @@ class Mon
                     {
                         changed = true;
                     }
-                    console.log(e);
+                    if (this.verbose)
+                    {
+                        console.log(e);
+                    }
                 }
                 if (stats_changed)
                 {

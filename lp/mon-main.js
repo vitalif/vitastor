@@ -15,7 +15,7 @@ for (let i = 2; i < process.argv.length; i++)
 
 if (!options.etcd_url)
 {
-    console.error('USAGE: '+process.argv[0]+' '+process.argv[1]+' --etcd_url "http://127.0.0.1:2379,..." --etcd_prefix "/vitastor" --etcd_start_timeout 5');
+    console.error('USAGE: '+process.argv[0]+' '+process.argv[1]+' --etcd_url "http://127.0.0.1:2379,..." --etcd_prefix "/vitastor" --etcd_start_timeout 5 [--verbose 1]');
     process.exit();
 }
 
