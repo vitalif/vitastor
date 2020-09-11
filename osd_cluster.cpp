@@ -184,7 +184,7 @@ void osd_t::report_statistics()
         pg_stats["write_osd_set"] = pg.cur_set;
         txn.push_back(json11::Json::object {
             { "request_put", json11::Json::object {
-                { "key", base64_encode(st_cli.etcd_prefix+"/pg/stats/"+std::to_string(pg.pg_num)) },
+                { "key", base64_encode(st_cli.etcd_prefix+"/pg/stats/"+std::to_string(pg.pool_id)+"/"+std::to_string(pg.pg_num)) },
                 { "value", base64_encode(json11::Json(pg_stats).dump()) },
             } }
         });
