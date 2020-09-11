@@ -18,6 +18,8 @@ static void handle_sigint(int sig)
 
 int main(int narg, char *args[])
 {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
     if (sizeof(osd_any_op_t) > OSD_PACKET_SIZE ||
         sizeof(osd_any_reply_t) > OSD_PACKET_SIZE)
     {
