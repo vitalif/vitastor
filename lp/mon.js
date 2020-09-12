@@ -81,6 +81,7 @@ class Mon
                 inmemory_metadata,
                 inmemory_journal,
                 journal_sector_buffer_count,
+                journal_no_same_sector_overwrites,
             }, */
             global: {},
             /* node_placement: {

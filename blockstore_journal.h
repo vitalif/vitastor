@@ -129,6 +129,7 @@ struct journal_sector_info_t
 {
     uint64_t offset;
     uint64_t usage_count;
+    bool written;
     bool dirty;
 };
 
@@ -153,6 +154,7 @@ struct journal_t
     void *sector_buf = NULL;
     journal_sector_info_t *sector_info = NULL;
     uint64_t sector_count;
+    bool no_same_sector_overwrites = false;
     int cur_sector = 0;
     int in_sector_pos = 0;
 

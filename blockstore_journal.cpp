@@ -17,7 +17,9 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
     int required = entries_required;
     while (1)
     {
-        int fits = (bs->journal.block_size - next_in_pos) / size;
+        int fits = bs->journal.no_same_sector_overwrites && bs->journal.sector_info[next_sector].written
+            ? 0
+            : (bs->journal.block_size - next_in_pos) / size;
         if (fits > 0)
         {
             if (first_sector == -1)
@@ -110,10 +112,12 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
 
 journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, uint32_t size)
 {
-    if (journal.block_size - journal.in_sector_pos < size)
+    if (journal.block_size - journal.in_sector_pos < size ||
+        journal.no_same_sector_overwrites && journal.sector_info[journal.cur_sector].written)
     {
         assert(!journal.sector_info[journal.cur_sector].dirty);
         // Move to the next journal sector
+        journal.sector_info[journal.cur_sector].written = false;
         if (journal.sector_info[journal.cur_sector].usage_count > 0)
         {
             // Also select next sector buffer in memory
@@ -148,6 +152,7 @@ journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, 
 void prepare_journal_sector_write(journal_t & journal, int cur_sector, io_uring_sqe *sqe, std::function<void(ring_data_t*)> cb)
 {
     journal.sector_info[cur_sector].dirty = false;
+    journal.sector_info[cur_sector].written = true;
     journal.sector_info[cur_sector].usage_count++;
     ring_data_t *data = ((ring_data_t*)sqe->user_data);
     data->iov = (struct iovec){

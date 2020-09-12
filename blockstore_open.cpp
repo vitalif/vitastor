@@ -59,6 +59,8 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     journal_device = config["journal_device"];
     journal.offset = strtoull(config["journal_offset"].c_str(), NULL, 10);
     journal.sector_count = strtoull(config["journal_sector_buffer_count"].c_str(), NULL, 10);
+    journal.no_same_sector_overwrites = config["journal_no_same_sector_overwrites"] == "true" ||
+        config["journal_no_same_sector_overwrites"] == "1" || config["journal_no_same_sector_overwrites"] == "yes";
     journal.inmemory = config["inmemory_journal"] != "false";
     disk_alignment = strtoull(config["disk_alignment"].c_str(), NULL, 10);
     journal_block_size = strtoull(config["journal_block_size"].c_str(), NULL, 10);
