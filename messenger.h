@@ -249,7 +249,8 @@ struct osd_messenger_t
 
     // osd_num_t is only for logging and asserts
     osd_num_t osd_num;
-    int receive_buffer_size = 9000;
+    // FIXME: make receive_buffer_size configurable
+    int receive_buffer_size = 64*1024;
     int peer_connect_interval = DEFAULT_PEER_CONNECT_INTERVAL;
     int peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
     int log_level = 0;
