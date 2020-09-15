@@ -548,13 +548,24 @@ class Mon
         return !has_online;
     }
 
-    save_new_pgs_txn(request, pool_id, prev_pgs, new_pgs, pg_history)
+    save_new_pgs_txn(request, pool_id, up_osds, prev_pgs, new_pgs, pg_history)
     {
+        const replicated = this.state.config.pools[pool_id].scheme === 'replicated';
+        const pg_minsize = this.state.config.pools[pool_id].pg_minsize;
         const pg_items = {};
         new_pgs.map((osd_set, i) =>
         {
             osd_set = osd_set.map(osd_num => osd_num === LPOptimizer.NO_OSD ? 0 : osd_num);
-            const alive_set = osd_set.filter(osd_num => osd_num);
+            let alive_set;
+            if (replicated)
+                alive_set = osd_set.filter(osd_num => osd_num && up_osds[osd_num]);
+            else
+            {
+                // Prefer data OSDs for EC because they can actually read something without an additional network hop
+                alive_set = osd_set.slice(0, pg_minsize).filter(osd_num => osd_num && up_osds[osd_num]);
+                if (!alive_set.length)
+                    alive_set = osd_set.filter(osd_num => osd_num && up_osds[osd_num]);
+            }
             pg_items[i+1] = {
                 osd_set,
                 primary: alive_set.length ? alive_set[Math.floor(Math.random()*alive_set.length)] : 0,
@@ -720,7 +731,7 @@ class Mon
                     );
                 }
                 LPOptimizer.print_change_stats(optimize_result);
-                this.save_new_pgs_txn(etcd_request, pool_id, prev_pgs, optimize_result.int_pgs, pg_history);
+                this.save_new_pgs_txn(etcd_request, pool_id, up_osds, prev_pgs, optimize_result.int_pgs, pg_history);
             }
             this.state.config.pgs.hash = tree_hash;
             await this.save_pg_config();
@@ -736,12 +747,22 @@ class Mon
                 {
                     continue;
                 }
+                const replicated = pool_cfg.scheme === 'replicated';
                 for (const pg_num in ((this.state.config.pgs.items||{})[pool_id]||{})||{})
                 {
                     const pg_cfg = this.state.config.pgs.items[pool_id][pg];
                     if (!Number(pg_cfg.primary) || !up_osds[pg_cfg.primary])
                     {
-                        const alive_set = pg_cfg.osd_set.filter(osd_num => up_osds[osd_num]);
+                        let alive_set;
+                        if (replicated)
+                            alive_set = pg_cfg.osd_set.filter(osd_num => osd_num && up_osds[osd_num]);
+                        else
+                        {
+                            // Prefer data OSDs for EC because they can actually read something without an additional network hop
+                            alive_set = pg_cfg.osd_set.slice(0, pool_cfg.pg_minsize).filter(osd_num => osd_num && up_osds[osd_num]);
+                            if (!alive_set.length)
+                                alive_set = pg_cfg.osd_set.filter(osd_num => osd_num && up_osds[osd_num]);
+                        }
                         const new_primary = alive_set.length ? alive_set[Math.floor(Math.random()*alive_set.length)] : 0;
                         if (pg_cfg.primary != new_primary)
                         {
