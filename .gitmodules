@@ -1,0 +1,6 @@
+[submodule "cpp-btree"]
+	path = cpp-btree
+	url = ../cpp-btree.git
+[submodule "json11"]
+	path = json11
+	url = ../json11.git
