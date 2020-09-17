@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.0 (see README.md for details)
+
 #include "blockstore_impl.h"
 
 journal_flusher_t::journal_flusher_t(int flusher_count, blockstore_impl_t *bs)

@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.0 (see README.md for details)
+
 // Data distribution optimizer using linear programming (lp_solve)
 
 const child_process = require('child_process');

@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.0 or GNU GPL-2.0+ (see README.md for details)
+
 /**
  * Stub "OSD" implemented on top of osd_messenger to test & compare
  * network performance with sync read/write and io_uring

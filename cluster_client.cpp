@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.0 or GNU GPL-2.0+ (see README.md for details)
+
 #include "cluster_client.h"
 
 cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config)

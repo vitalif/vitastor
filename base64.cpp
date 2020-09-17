@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.0 (see README.md for details)
+
 #include "base64.h"
 
 std::string base64_encode(const std::string &in)

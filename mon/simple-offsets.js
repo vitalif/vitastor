@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: MIT
+
 // Simple tool to calculate journal and metadata offsets for a single device
 // Will be replaced by smarter tools in the future
 

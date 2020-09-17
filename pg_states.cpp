@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.0 or GNU GPL-2.0+ (see README.md for details)
+
 #include "pg_states.h"
 
 const int pg_state_bit_count = 14;

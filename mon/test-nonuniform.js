@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.0 (see README.md for details)
+
 // Interesting real-world example coming from Ceph with EC and compression enabled.
 // EC parity chunks can't be compressed as efficiently as data chunks,
 // thus they occupy more space (2.26x more space) in OSD object stores.

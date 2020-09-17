@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.0 (see README.md for details)
+
 const LPOptimizer = require('./lp-optimizer.js');
 
 const crush_tree = [

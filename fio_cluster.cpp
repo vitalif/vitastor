@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.0 or GNU GPL-2.0+ (see README.md for details)
+
 // FIO engine to test cluster I/O
 //
 // Random write:

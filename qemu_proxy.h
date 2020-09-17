@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.0 or GNU GPL-2.0+ (see README.md for details)
+
 #ifndef VITASTOR_QEMU_PROXY_H
 #define VITASTOR_QEMU_PROXY_H
 

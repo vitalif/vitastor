@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: MIT
+
 function stableStringify(obj, opts)
 {
     if (!opts)

@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.0 or GNU GPL-2.0+ (see README.md for details)
+
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>

@@ -1,6 +1,8 @@
 #!/bin/bash
 # Example startup script generator
 # Of course this isn't a production solution yet, this is just for tests
+# Copyright (c) Vitaliy Filippov, 2019+
+# License: MIT
 
 IP=`ip -json a s | jq -r '.[].addr_info[] | select(.broadcast == "10.115.0.255") | .local'`
 
