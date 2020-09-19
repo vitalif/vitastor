@@ -216,6 +216,7 @@ void cluster_client_t::on_load_pgs_hook(bool success)
         execute(op);
     }
     offline_ops.clear();
+    continue_ops();
 }
 
 void cluster_client_t::on_change_hook(json11::Json::object & changes)
