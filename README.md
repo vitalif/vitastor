@@ -11,7 +11,7 @@ with configurable redundancy (replication or erasure codes/XOR).
 
 ## Features
 
-Vitastor is currently a pre-release, a lot of features is missing and you can still expect
+Vitastor is currently a pre-release, a lot of features are missing and you can still expect
 breaking changes in the future. However, the following is implemented:
 
 - Basic part: highly-available block storage with symmetric clustering and no SPOF
@@ -74,14 +74,14 @@ Some basic terms for people not familiar with Ceph:
 
 Architectural differences from Ceph:
 
-- Vitastor primary focus is on SSDs. Proper SSD+HDD optimizations may be added in the future, though.
+- Vitastor's primary focus is on SSDs. Proper SSD+HDD optimizations may be added in the future, though.
 - Vitastor OSD is (and will always be) single-threaded. If you want to dedicate more than 1 core
   per drive you should run multiple OSDs each on a different partition of the drive.
   Vitastor isn't CPU-hungry though (as opposed to Ceph), so 1 core is sufficient in a lot of cases.
 - Metadata and journal are always kept in memory. Metadata size depends linearly on drive capacity
   and data store block size which is 128 KB by default. With 128 KB blocks, metadata should occupy
   around 512 MB per 1 TB (which is still less than Ceph wants). Journal doesn't have to be big,
-  the example test below was conducted with only 16 MB journal. Big journal is probably even
+  the example test below was conducted with only 16 MB journal. A big journal is probably even
   harmful as dirty write metadata also take some memory.
 - Vitastor storage layer doesn't have internal copy-on-write or redirect-write. I know that maybe
   it's possible to create a good copy-on-write storage, but it's much harder and makes performance
@@ -97,12 +97,14 @@ Architectural differences from Ceph:
 - Recovery process is per-object (per-block), not per-PG. Also there are no PGLOGs.
 - Monitors don't store data. Cluster configuration and state is stored in etcd in simple human-readable
   JSON structures. Monitors only watch cluster state and handle data movement.
+  Thus Vitastor's Monitor isn't a critical component of the system and is more similar to Ceph's Manager.
+  Vitastor's Monitor is implemented in node.js.
 - PG distribution isn't based on consistent hashes. All PG mappings are stored in etcd.
   Rebalancing PGs between OSDs is done by mathematical optimization - data distribution problem
   is reduced to a linear programming problem and solved by lp_solve. This allows for almost
-  perfect (96-99% uniformity compared to Ceph's 80-90%) data distribution is most cases, ability
+  perfect (96-99% uniformity compared to Ceph's 80-90%) data distribution in most cases, ability
   to map PGs by hand without breaking rebalancing logic, reduced OSD peer-to-peer communication
-  (on average, OSDs have less peers) and less data movement. It also probably has a drawback -
+  (on average, OSDs have fewer peers) and less data movement. It also probably has a drawback -
   this method may fail in very large clusters, but up to several hundreds of OSDs it's perfectly fine.
   It's also easy to add consistent hashes in the future if something proves their necessity.
 - There's no separate CRUSH layer. You select pool redundancy scheme, placement root, failure domain
@@ -112,7 +114,7 @@ Architectural differences from Ceph:
 
 The most important thing for fast storage is latency, not parallel iops.
 
-Best possible latency is achieved with one thread and queue depth of 1 which basically means
+The best possible latency is achieved with one thread and queue depth of 1 which basically means
 "client load as low as possible". In this case IOPS = 1/latency, and this number doesn't
 scale with number of servers, drives, server processes or threads and so on.
 Single-threaded IOPS and latency numbers only depend on *how fast a single daemon is*.
@@ -121,7 +123,7 @@ Why is it important? It's important because some of the applications *can't* use
 queue depth greater than 1 because their task isn't parallelizable. A notable example
 is any ACID DBMS because all of them write their WALs sequentially with fsync()s.
 
-fsync, by the way, is another important thing often missing in benchmarks. Point is
+fsync, by the way, is another important thing often missing in benchmarks. The point is
 that drives have cache buffers and don't guarantee that your data is actually persisted
 until you call fsync() which is translated to a FLUSH CACHE command by the OS.
 
@@ -132,9 +134,9 @@ number is around 1000-2000 iops with fsync.
 
 Server SSDs often have supercapacitors that act as a built-in UPS and allow the drive
 to flush its DRAM cache to the persistent flash storage when a power loss occurs.
-This makes them perform with and without fsync equally well. This feature is called
+This makes them perform equally well with and without fsync. This feature is called
 "Advanced Power Loss Protection" by Intel; other vendors either call it similarly
-or just describe it like "Full Capacitor-Based Power Loss Protection".
+or directly as "Full Capacitor-Based Power Loss Protection".
 
 All software-defined storages that I currently know are slow in terms of latency.
 Notable examples are Ceph and internal SDSes used by cloud providers like Amazon, Google,
@@ -234,7 +236,8 @@ T8Q64 read test was conducted over 1 larger inode (3.2T) from all hosts (every h
 Vitastor has no performance penalties related to running multiple clients over a single inode.
 If conducted from one node with all primary OSDs moved to other nodes the result was slightly lower (689000 iops),
 this is because all operations resulted in network roundtrips between the client and the primary OSD.
-When fio is colocated with OSDs (like in Ceph benchmarks), 1/4 of the read workload actually uses the loopback network.
+When fio was colocated with OSDs (like in Ceph benchmarks above), 1/4 of the read workload actually
+used the loopback network.
 
 Vitastor was configured with: `--disable_data_fsync true --immediate_commit all --flusher_count 8
   --disk_alignment 4096 --journal_block_size 4096 --meta_block_size 4096
@@ -248,13 +251,17 @@ Vitastor was configured with: `--disable_data_fsync true --immediate_commit all 
 - Install lp_solve.
 - Install etcd.
 - Install node.js 12 or newer.
+- Install gcc and g++ 9.x.
 - Clone https://yourcmc.ru/git/vitalif/vitastor/ with submodules.
 - Install QEMU 4.x or 5.x, get its source, begin to build it, stop the build and copy headers:
    - `<qemu>/include` &rarr; `<vitastor>/qemu/include`
    - Debian:
+      * Use qemu packages from the main repository
       * `<qemu>/b/qemu/config-host.h` &rarr; `<vitastor>/qemu/b/qemu/config-host.h`
       * `<qemu>/b/qemu/qapi` &rarr; `<vitastor>/qemu/b/qemu/qapi`
-   - CentOS:
+   - CentOS 8:
+      * Use qemu packages from the Advanced-Virtualization repository. To enable it, run
+        `yum install centos-release-advanced-virtualization.noarch` and then `yum install qemu`
       * `<qemu>/config-host.h` &rarr; `<vitastor>/qemu/b/qemu/config-host.h`
       * `<qemu>/qapi` &rarr; `<vitastor>/qemu/b/qemu/qapi`
    - `config-host.h` and `qapi` are required because they contain generated headers
@@ -295,9 +302,14 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
     which is the number of dirty journal sectors that may be written to at the same time.
 - `systemctl start vitastor.target` everywhere.
 - Start any number of monitors: `cd mon; node mon-main.js --etcd_url 'http://10.115.0.10:2379,http://10.115.0.11:2379,http://10.115.0.12:2379,http://10.115.0.13:2379' --etcd_prefix '/vitastor' --etcd_start_timeout 5`.
-- At this point, one the monitors will configure PGs and OSDs will start them.
+- At this point, one of the monitors will configure PGs and OSDs will start them.
 - You can check PG states with `etcdctl get --prefix /vitastor/pg/state`. All PGs should become 'active'.
 - Run tests with (for example): `fio -thread -ioengine=./libfio_cluster.so -name=test -bs=4M -direct=1 -iodepth=16 -rw=write -etcd=10.115.0.10:2379/v3 -pool=1 -inode=1 -size=400G`.
+- Upload VM disk image with qemu-img (for example):
+  ```
+  LD_PRELOAD=./qemu_driver.so qemu-img convert -f qcow2 debian10.qcow2 -p
+    -O raw 'vitastor:etcd_host=10.115.0.10\:2379/v3:pool=1:inode=1:size=2147483648'
+  ```
 - Run QEMU with (for example):
   ```
   LD_PRELOAD=./qemu_driver.so qemu-system-x86_64 -enable-kvm -m 1024
@@ -313,7 +325,7 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
   and OSDs don't check if it fills up.
 - Object deletion requests may currently lead to unfound objects on crashes because
   proper handling of deletions in a cluster requires a "three-phase cleanup process"
-  and it's not currently implemented. In fact, even though deletion requests are
+  and it's currently not implemented. In fact, even though deletion requests are
   implemented, there's no user tool to delete anything from the cluster yet :).
   Of course I'll create such tool, but its first implementation will be vulnerable to this issue.
   It's not a big deal though, because you'll be able to just repeat the deletion request
@@ -328,6 +340,9 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
 - I don't care about C++ "best practices" like RAII or proper inheritance or usage of
   smart pointers or whatever and I don't intend to change my mind, so if you're here
   looking for ideal reference C++ code, this probably isn't the right place.
+- I like node.js better than any other dynamically-typed language interpreter
+  because it's faster than any other interpreter in the world, has neutral C-like
+  syntax and built-in event loop. That's why Monitor is implemented in node.js.
 
 ## Author and License
 
