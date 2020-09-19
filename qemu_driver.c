@@ -183,7 +183,11 @@ static int vitastor_probe_blocksizes(BlockDriverState *bs, BlockSizes *bsz)
     return 0;
 }
 
-static int coroutine_fn vitastor_co_create_opts(BlockDriver *drv, const char *url, QemuOpts *opts, Error **errp)
+static int coroutine_fn vitastor_co_create_opts(
+#if QEMU_VERSION_MAJOR >= 4
+    BlockDriver *drv,
+#endif
+    const char *url, QemuOpts *opts, Error **errp)
 {
     QDict *options;
     int ret;
@@ -204,7 +208,11 @@ out:
     return ret;
 }
 
-static int coroutine_fn vitastor_co_truncate(BlockDriverState *bs, int64_t offset, bool exact, PreallocMode prealloc, Error **errp)
+static int coroutine_fn vitastor_co_truncate(BlockDriverState *bs, int64_t offset,
+#if QEMU_VERSION_MAJOR >= 4
+    bool exact,
+#endif
+    PreallocMode prealloc, Error **errp)
 {
     VitastorClient *client = bs->opaque;
 
@@ -349,7 +357,9 @@ static BlockDriver bdrv_vitastor = {
     .bdrv_parse_filename            = vitastor_parse_filename,
 
     .bdrv_has_zero_init             = bdrv_has_zero_init_1,
+#if QEMU_VERSION_MAJOR >= 4
     .bdrv_has_zero_init_truncate    = bdrv_has_zero_init_1,
+#endif
     .bdrv_get_info                  = vitastor_get_info,
     .bdrv_getlength                 = vitastor_getlength,
     .bdrv_probe_blocksizes          = vitastor_probe_blocksizes,
@@ -377,7 +387,9 @@ static BlockDriver bdrv_vitastor = {
     .bdrv_co_pwritev                = vitastor_co_pwritev,
     .bdrv_co_flush_to_disk          = vitastor_co_flush,
 
+#if QEMU_VERSION_MAJOR >= 4
     .strong_runtime_opts            = vitastor_strong_runtime_opts,
+#endif
 };
 
 static void vitastor_block_init(void)
