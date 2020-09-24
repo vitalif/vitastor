@@ -200,7 +200,7 @@ Hardware configuration: 4 nodes, each with:
 - 6x SATA SSD Intel D3-4510 3.84 TB
 - 2x Xeon Gold 6242 (16 cores @ 2.8 GHz)
 - 384 GB RAM
-- 1x 25 GbE network interface (Mellanox ConnectX-4 LX)
+- 1x 25 GbE network interface (Mellanox ConnectX-4 LX), connected to a Juniper QFX5200 switch
 
 CPU powersaving was disabled. Both Vitastor and Ceph were configured with 2 OSDs per 1 SSD.
 
