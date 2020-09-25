@@ -2,7 +2,7 @@ BLOCKSTORE_OBJS := allocator.o blockstore.o blockstore_impl.o blockstore_init.o 
 	blockstore_write.o blockstore_sync.o blockstore_stable.o blockstore_rollback.o blockstore_flush.o crc32c.o ringloop.o
 # -fsanitize=address
 CXXFLAGS := -g -O3 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fPIC -fdiagnostics-color=always
-all: libfio_blockstore.so osd libfio_sec_osd.so libfio_cluster.so stub_osd stub_uring_osd stub_bench osd_test dump_journal qemu_driver.so
+all: libfio_blockstore.so osd libfio_sec_osd.so libfio_cluster.so stub_osd stub_uring_osd stub_bench osd_test dump_journal qemu_driver.so nbd_proxy
 clean:
 	rm -f *.o
 
@@ -40,6 +40,9 @@ FIO_CLUSTER_OBJS := cluster_client.o epoll_manager.o etcd_state_client.o \
 	messenger.o msgr_send.o msgr_receive.o ringloop.o json11.o http_client.o osd_ops.o pg_states.o timerfd_manager.o base64.o
 libfio_cluster.so: fio_cluster.o $(FIO_CLUSTER_OBJS)
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $< $(FIO_CLUSTER_OBJS) -luring
+
+nbd_proxy: nbd_proxy.o $(FIO_CLUSTER_OBJS)
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -o $@ $< $(FIO_CLUSTER_OBJS) -luring
 
 qemu_driver.o: qemu_driver.c qemu_proxy.h
 	gcc -I qemu/b/qemu `pkg-config glib-2.0 --cflags` \
@@ -109,6 +112,8 @@ messenger.o: messenger.cpp json11/json11.hpp malloc_or_die.h messenger.h object_
 msgr_receive.o: msgr_receive.cpp json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 msgr_send.o: msgr_send.cpp json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
+	g++ $(CXXFLAGS) -c -o $@ $<
+nbd_proxy.o: nbd_proxy.cpp cluster_client.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 osd.o: osd.cpp blockstore.h cpp-btree/btree_map.h epoll_manager.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
