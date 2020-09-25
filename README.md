@@ -244,6 +244,20 @@ Vitastor was configured with: `--disable_data_fsync true --immediate_commit all 
   --journal_no_same_sector_overwrites true --journal_sector_buffer_count 1024
   --journal_size 16777216`.
 
+### NBD
+
+NBD is currently required to mount Vitastor via kernel, but it imposes additional overhead
+due to additional copying between the kernel and userspace. This mostly hurts linear
+bandwidth, not iops.
+
+Vitastor with single-thread NBD on the same hardware:
+- T1Q1 write: 6000 iops (0.166ms latency)
+- T1Q1 read: 5518 iops (0.18ms latency)
+- T1Q128 write: 94400 iops
+- T1Q128 read: 103000 iops
+- Linear write (4M T1Q128): 1266 MB/s (compared to 2600 MB/s via fio)
+- Linear read (4M T1Q128): 975 MB/s (compared to 1400 MB/s via fio)
+
 ## Building
 
 - Install Linux kernel 5.4 or newer for io_uring support.
