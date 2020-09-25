@@ -75,7 +75,7 @@ public:
         }
         fcntl(sockfd[0], F_SETFL, fcntl(sockfd[0], F_GETFL, 0) | O_NONBLOCK);
         nbd_fd = sockfd[0];
-        if (run_nbd(sockfd, cfg["nbd_device"].string_value().c_str(), cfg["size"].uint64_value(), NBD_FLAG_SEND_FLUSH, 30) < 0)
+        if (run_nbd(sockfd, cfg["dev_num"].int64_value(), cfg["size"].uint64_value(), NBD_FLAG_SEND_FLUSH, 30) < 0)
         {
             perror("run_nbd");
             exit(1);
@@ -110,14 +110,21 @@ public:
     }
 
 protected:
-    int run_nbd(int sockfd[2], const char *dev, uint64_t size, uint64_t flags, unsigned timeout)
+    int run_nbd(int sockfd[2], int dev_num, uint64_t size, uint64_t flags, unsigned timeout)
     {
         // Check handle size
         assert(sizeof(cur_req.handle) == 8);
-        int r, nbd = open(dev, O_RDWR);
+        char path[64] = { 0 };
+        sprintf(path, "/dev/nbd%d", dev_num);
+        int r, nbd = open(path, O_RDWR), qd_fd;
         if (nbd < 0)
         {
             return -1;
+        }
+        r = ioctl(nbd, NBD_CLEAR_SOCK);
+        if (r < 0)
+        {
+            goto end_close;
         }
         r = ioctl(nbd, NBD_SET_SOCK, sockfd[1]);
         if (r < 0)
@@ -143,6 +150,15 @@ protected:
                 goto end_close;
             }
         }
+        // Configure request size
+        sprintf(path, "/sys/block/nbd%d/queue/max_sectors_kb", dev_num);
+        qd_fd = open(path, O_WRONLY);
+        if (qd_fd < 0)
+        {
+            goto end_close;
+        }
+        write(qd_fd, "32768", 5);
+        close(qd_fd);
         if (!fork())
         {
             // Run in child
@@ -184,7 +200,7 @@ protected:
         data->callback = [this](ring_data_t *data) { handle_send(data->res); };
         send_msg.msg_iov = send_list.data();
         send_msg.msg_iovlen = send_list.size();
-        my_uring_prep_sendmsg(sqe, nbd_fd, &send_msg, 0);
+        my_uring_prep_sendmsg(sqe, nbd_fd, &send_msg, MSG_ZEROCOPY);
     }
 
     void handle_send(int result)
