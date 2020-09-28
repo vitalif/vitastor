@@ -30,6 +30,7 @@ breaking changes in the future. However, the following is implemented:
 - Generic user-space client library
 - QEMU driver (built out-of-tree)
 - Loadable fio engine for benchmarks (also built out-of-tree)
+- NBD proxy for kernel mounts
 
 ## Roadmap
 
@@ -41,7 +42,7 @@ breaking changes in the future. However, the following is implemented:
 - jerasure EC support with any number of data and parity drives in a group
 - Parallel usage of multiple network interfaces
 - Proxmox and OpenNebula plugins
-- NBD and iSCSI proxies
+- iSCSI proxy
 - Inode metadata storage in etcd
 - Snapshots and copy-on-write image clones
 - Operation timeouts and better failure detection

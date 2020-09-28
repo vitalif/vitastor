@@ -17,6 +17,8 @@
 #include "epoll_manager.h"
 #include "cluster_client.h"
 
+const char *exe_name = NULL;
+
 class nbd_proxy
 {
 protected:
@@ -42,9 +44,101 @@ protected:
     iovec read_iov = { 0 };
 
 public:
-    int start(json11::Json cfg)
+    static json11::Json::object parse_args(int narg, const char *args[])
     {
-        // Parse options
+        json11::Json::object cfg;
+        int pos = 0;
+        for (int i = 1; i < narg; i++)
+        {
+            if (!strcmp(args[i], "-h") || !strcmp(args[i], "--help"))
+            {
+                help();
+            }
+            else if (args[i][0] == '-' && args[i][1] == '-')
+            {
+                const char *opt = args[i]+2;
+                cfg[opt] = !strcmp(opt, "json") || i == narg-1 ? "1" : args[++i];
+            }
+            else if (pos == 0)
+            {
+                cfg["command"] = args[i];
+                pos++;
+            }
+            else if (pos == 1 && (cfg["command"] == "map" || cfg["command"] == "unmap"))
+            {
+                int n = 0;
+                if (sscanf(args[i], "/dev/nbd%d", &n) > 0)
+                    cfg["dev_num"] = n;
+                else
+                    cfg["dev_num"] = args[i];
+                pos++;
+            }
+        }
+        return cfg;
+    }
+
+    void exec(json11::Json cfg)
+    {
+        if (cfg["command"] == "map")
+        {
+            start(cfg);
+        }
+        else if (cfg["command"] == "unmap")
+        {
+            if (cfg["dev_num"].is_null())
+            {
+                fprintf(stderr, "device name or number is missing\n");
+                exit(1);
+            }
+            unmap(cfg["dev_num"].uint64_value());
+        }
+        else if (cfg["command"] == "list" || cfg["command"] == "list-mapped")
+        {
+            auto mapped = list_mapped();
+            print_mapped(mapped, !cfg["json"].is_null());
+        }
+        else
+        {
+            help();
+        }
+    }
+
+    static void help()
+    {
+        printf(
+            "Vitastor NBD proxy\n"
+            "(c) Vitaliy Filippov, 2020 (VNPL-1.0 or GNU GPL 2.0+)\n\n"
+            "USAGE:\n"
+            "  %s map --etcd_address <etcd_address> --pool <pool> --inode <inode> --size <size in bytes>\n"
+            "  %s unmap /dev/nbd0\n"
+            "  %s list [--json]\n",
+            exe_name, exe_name, exe_name
+        );
+        exit(0);
+    }
+
+    void unmap(int dev_num)
+    {
+        char path[64] = { 0 };
+        sprintf(path, "/dev/nbd%d", dev_num);
+        int r, nbd = open(path, O_RDWR);
+        if (nbd < 0)
+        {
+            perror("open");
+            exit(1);
+        }
+        r = ioctl(nbd, NBD_DISCONNECT);
+        if (r < 0)
+        {
+            perror("NBD_DISCONNECT");
+            exit(1);
+        }
+        close(nbd);
+    }
+
+    void start(json11::Json cfg)
+    {
+        // Check options
         if (cfg["etcd_address"].string_value() == "")
         {
             fprintf(stderr, "etcd_address is missing\n");
@@ -75,10 +169,47 @@ public:
         }
         fcntl(sockfd[0], F_SETFL, fcntl(sockfd[0], F_GETFL, 0) | O_NONBLOCK);
         nbd_fd = sockfd[0];
-        if (run_nbd(sockfd, cfg["dev_num"].int64_value(), cfg["size"].uint64_value(), NBD_FLAG_SEND_FLUSH, 30) < 0)
+        load_module();
+        if (!cfg["dev_num"].is_null())
         {
-            perror("run_nbd");
-            exit(1);
+            if (run_nbd(sockfd, cfg["dev_num"].int64_value(), cfg["size"].uint64_value(), NBD_FLAG_SEND_FLUSH, 30) < 0)
+            {
+                perror("run_nbd");
+                exit(1);
+            }
+        }
+        else
+        {
+            // Find an unused device
+            int i = 0;
+            while (true)
+            {
+                int r = run_nbd(sockfd, i, cfg["size"].uint64_value(), NBD_FLAG_SEND_FLUSH, 30);
+                if (r == 0)
+                {
+                    printf("/dev/nbd%d\n", i);
+                    break;
+                }
+                else if (r == -1 && errno == ENOENT)
+                {
+                    fprintf(stderr, "No free NBD devices found\n");
+                    exit(1);
+                }
+                else if (r == -2 && errno == EBUSY)
+                {
+                    i++;
+                }
+                else
+                {
+                    printf("%d %d\n", r, errno);
+                    perror("run_nbd");
+                    exit(1);
+                }
+            }
+        }
+        if (cfg["foreground"].is_null())
+        {
+            daemonize();
         }
         // Create client
         ringloop = new ring_loop_t(512);
@@ -109,6 +240,149 @@ public:
         }
     }
 
+    void load_module()
+    {
+        if (access("/sys/module/nbd", F_OK))
+        {
+            return;
+        }
+        int r;
+        if ((r = system("modprobe nbd")) != 0)
+        {
+            if (r < 0)
+                perror("Failed to load NBD kernel module");
+            else
+                fprintf(stderr, "Failed to load NBD kernel module\n");
+            exit(1);
+        }
+    }
+
+    void daemonize()
+    {
+        if (fork())
+            exit(0);
+        setsid();
+        if (fork())
+            exit(0);
+        chdir("/");
+        close(0);
+        close(1);
+        close(2);
+        open("/dev/null", O_RDONLY);
+        open("/dev/null", O_WRONLY);
+        open("/dev/null", O_WRONLY);
+    }
+
+    json11::Json::object list_mapped()
+    {
+        const char *self_filename = exe_name;
+        for (int i = 0; exe_name[i] != 0; i++)
+        {
+            if (exe_name[i] == '/')
+                self_filename = exe_name+i+1;
+        }
+        char path[64] = { 0 };
+        json11::Json::object mapped;
+        int dev_num = -1;
+        int pid;
+        while (true)
+        {
+            dev_num++;
+            sprintf(path, "/sys/block/nbd%d", dev_num);
+            if (access(path, F_OK) != 0)
+                break;
+            sprintf(path, "/sys/block/nbd%d/pid", dev_num);
+            std::string pid_str = read_file(path);
+            if (pid_str == "")
+                continue;
+            if (sscanf(pid_str.c_str(), "%d", &pid) < 1)
+            {
+                printf("Failed to read pid from /sys/block/nbd%d/pid\n", dev_num);
+                continue;
+            }
+            sprintf(path, "/proc/%d/cmdline", pid);
+            std::string cmdline = read_file(path);
+            std::vector<const char*> argv;
+            int last = 0;
+            for (int i = 0; i < cmdline.size(); i++)
+            {
+                if (cmdline[i] == 0)
+                {
+                    argv.push_back(cmdline.c_str()+last);
+                    last = i+1;
+                }
+            }
+            if (argv.size() > 0)
+            {
+                const char *pid_filename = argv[0];
+                for (int i = 0; argv[0][i] != 0; i++)
+                {
+                    if (argv[0][i] == '/')
+                        pid_filename = argv[0]+i+1;
+                }
+                if (!strcmp(pid_filename, self_filename))
+                {
+                    json11::Json::object cfg = nbd_proxy::parse_args(argv.size(), argv.data());
+                    if (cfg["command"] == "map")
+                    {
+                        cfg.erase("command");
+                        cfg["pid"] = pid;
+                        mapped["/dev/nbd"+std::to_string(dev_num)] = cfg;
+                    }
+                }
+            }
+        }
+        return mapped;
+    }
+
+    void print_mapped(json11::Json mapped, bool json)
+    {
+        if (json)
+        {
+            printf("%s\n", mapped.dump().c_str());
+        }
+        else
+        {
+            for (auto & dev: mapped.object_items())
+            {
+                printf("%s\n", dev.first.c_str());
+                for (auto & k: dev.second.object_items())
+                {
+                    printf("%s: %s\n", k.first.c_str(), k.second.string_value().c_str());
+                }
+                printf("\n");
+            }
+        }
+    }
+
+    std::string read_file(char *path)
+    {
+        int fd = open(path, O_RDONLY);
+        if (fd < 0)
+        {
+            if (errno == ENOENT)
+                return "";
+            auto err = "open "+std::string(path);
+            perror(err.c_str());
+            exit(1);
+        }
+        std::string r;
+        while (true)
+        {
+            int l = r.size();
+            r.resize(l + 1024);
+            int rd = read(fd, (void*)(r.c_str() + l), 1024);
+            if (rd <= 0)
+            {
+                r.resize(l);
+                break;
+            }
+            r.resize(l + rd);
+        }
+        close(fd);
+        return r;
+    }
+
 protected:
     int run_nbd(int sockfd[2], int dev_num, uint64_t size, uint64_t flags, unsigned timeout)
     {
@@ -121,11 +395,6 @@ protected:
         {
             return -1;
         }
-        r = ioctl(nbd, NBD_CLEAR_SOCK);
-        if (r < 0)
-        {
-            goto end_close;
-        }
         r = ioctl(nbd, NBD_SET_SOCK, sockfd[1]);
         if (r < 0)
         {
@@ -134,12 +403,12 @@ protected:
         r = ioctl(nbd, NBD_SET_BLKSIZE, 4096);
         if (r < 0)
         {
-            goto end_close;
+            goto end_unmap;
         }
         r = ioctl(nbd, NBD_SET_SIZE, size);
         if (r < 0)
         {
-            goto end_close;
+            goto end_unmap;
         }
         ioctl(nbd, NBD_SET_FLAGS, flags);
         if (timeout >= 0)
@@ -147,7 +416,7 @@ protected:
             r = ioctl(nbd, NBD_SET_TIMEOUT, (unsigned long)timeout);
             if (r < 0)
             {
-                goto end_close;
+                goto end_unmap;
             }
         }
         // Configure request size
@@ -155,7 +424,7 @@ protected:
         qd_fd = open(path, O_WRONLY);
         if (qd_fd < 0)
         {
-            goto end_close;
+            goto end_unmap;
         }
         write(qd_fd, "32768", 5);
         close(qd_fd);
@@ -178,11 +447,16 @@ protected:
         close(nbd);
         return 0;
     end_close:
-        int err = errno;
+        r = errno;
+        close(nbd);
+        errno = r;
+        return -2;
+    end_unmap:
+        r = errno;
         ioctl(nbd, NBD_CLEAR_SOCK);
         close(nbd);
-        errno = err;
-        return -1;
+        errno = r;
+        return -3;
     }
 
     void submit_send()
@@ -388,20 +662,12 @@ protected:
     }
 };
 
-int main(int narg, char *args[])
+int main(int narg, const char *args[])
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
-    json11::Json::object cfg;
-    for (int i = 1; i < narg; i++)
-    {
-        if (args[i][0] == '-' && args[i][1] == '-' && i < narg-1)
-        {
-            char *opt = args[i]+2;
-            cfg[opt] = args[++i];
-        }
-    }
+    exe_name = args[0];
     nbd_proxy *p = new nbd_proxy();
-    p->start(cfg);
+    p->exec(nbd_proxy::parse_args(narg, args));
     return 0;
 }
