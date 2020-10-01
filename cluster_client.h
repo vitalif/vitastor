@@ -9,7 +9,6 @@
 #define MIN_BLOCK_SIZE 4*1024
 #define MAX_BLOCK_SIZE 128*1024*1024
 #define DEFAULT_BLOCK_SIZE 128*1024
-#define DEFAULT_PG_STRIPE_SIZE 4*1024*1024
 #define DEFAULT_DISK_ALIGNMENT 4096
 #define DEFAULT_BITMAP_GRANULARITY 4096
 #define DEFAULT_CLIENT_DIRTY_LIMIT 32*1024*1024
@@ -54,7 +53,6 @@ class cluster_client_t
     timerfd_manager_t *tfd;
     ring_loop_t *ringloop;
 
-    uint64_t pg_stripe_size = 0;
     uint64_t bs_block_size = 0;
     uint64_t bs_disk_alignment = 0;
     uint64_t bs_bitmap_granularity = 0;

@@ -125,10 +125,11 @@ void osd_t::start_pg_peering(pg_t & pg)
         cancel_primary_write(p.second);
     }
     pg.write_queue.clear();
+    uint64_t pg_stripe_size = st_cli.pool_config[pg.pool_id].pg_stripe_size;
     for (auto it = unstable_writes.begin(); it != unstable_writes.end(); )
     {
         // Forget this PG's unstable writes
-        if (INODE_POOL(it->first.oid.inode) == pg.pool_id && map_to_pg(it->first.oid) == pg.pg_num)
+        if (INODE_POOL(it->first.oid.inode) == pg.pool_id && map_to_pg(it->first.oid, pg_stripe_size) == pg.pg_num)
             unstable_writes.erase(it++);
         else
             it++;
@@ -348,7 +349,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         clock_gettime(CLOCK_REALTIME, &op->tv_begin);
         op->bs_op = new blockstore_op_t();
         op->bs_op->opcode = BS_OP_LIST;
-        op->bs_op->oid.stripe = pg_stripe_size;
+        op->bs_op->oid.stripe = st_cli.pool_config[ps->pool_id].pg_stripe_size;
         op->bs_op->oid.inode = ((uint64_t)ps->pool_id << (64 - POOL_ID_BITS));
         op->bs_op->version = ((uint64_t)(ps->pool_id+1) << (64 - POOL_ID_BITS)) - 1;
         op->bs_op->len = pg_counts[ps->pool_id];
@@ -392,7 +393,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
                 },
                 .list_pg = ps->pg_num,
                 .pg_count = pg_counts[ps->pool_id],
-                .pg_stripe_size = pg_stripe_size,
+                .pg_stripe_size = st_cli.pool_config[ps->pool_id].pg_stripe_size,
                 .min_inode = ((uint64_t)(ps->pool_id) << (64 - POOL_ID_BITS)),
                 .max_inode = ((uint64_t)(ps->pool_id+1) << (64 - POOL_ID_BITS)) - 1,
             },

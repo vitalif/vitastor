@@ -45,7 +45,6 @@ class Mon
                 block_size: 131072,
                 disk_alignment: 4096,
                 bitmap_granularity: 4096,
-                pg_stripe_size: 4194304,
                 immediate_commit: false, // 'all' or 'small'
                 client_dirty_limit: 33554432,
                 peer_connect_interval: 5, // seconds. min: 1
@@ -101,6 +100,7 @@ class Mon
                     pg_count: 100,
                     failure_domain: 'host',
                     max_osd_combinations: 10000,
+                    pg_stripe_size: 4194304,
                     // FIXME add device classes/tags
                 },
                 ...

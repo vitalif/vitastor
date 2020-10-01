@@ -83,12 +83,6 @@ void osd_t::parse_config(blockstore_config_t & config)
         if (client_queue_depth < 128)
             client_queue_depth = 128;
     }
-    if (config.find("pg_stripe_size") != config.end())
-    {
-        pg_stripe_size = strtoull(config["pg_stripe_size"].c_str(), NULL, 10);
-        if (!pg_stripe_size || !bs_block_size || pg_stripe_size < bs_block_size || (pg_stripe_size % bs_block_size) != 0)
-            pg_stripe_size = DEFAULT_PG_STRIPE_SIZE;
-    }
     recovery_queue_depth = strtoull(config["recovery_queue_depth"].c_str(), NULL, 10);
     if (recovery_queue_depth < 1 || recovery_queue_depth > MAX_RECOVERY_QUEUE)
         recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;

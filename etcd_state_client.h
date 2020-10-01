@@ -16,6 +16,8 @@
 #define ETCD_SLOW_TIMEOUT 5000
 #define ETCD_QUICK_TIMEOUT 1000
 
+#define DEFAULT_PG_STRIPE_SIZE 4*1024*1024
+
 struct json_kv_t
 {
     std::string key;
@@ -46,6 +48,7 @@ struct pool_config_t
     uint64_t real_pg_count;
     std::string failure_domain;
     uint64_t max_osd_combinations;
+    uint64_t pg_stripe_size;
     std::map<pg_num_t, pg_config_t> pg_config;
 };
 

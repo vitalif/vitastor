@@ -21,7 +21,8 @@
 #define PG_HAS_INVALID (1<<11)
 #define PG_LEFT_ON_DEAD (1<<12)
 
-// FIXME: Safe default that doesn't depend on pg_stripe_size or pg_block_size
+// Lower bits that represent object role (EC 0/1/2... or always 0 with replication)
+// 12 bits is a safe default that doesn't depend on pg_stripe_size or pg_block_size
 #define STRIPE_MASK ((uint64_t)4096 - 1)
 
 // OSD object states

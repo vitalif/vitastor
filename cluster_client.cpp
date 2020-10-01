@@ -160,15 +160,6 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & config)
     {
         throw std::runtime_error("Bad block size");
     }
-    // FIXME: pg_stripe_size may be a per-pool config
-    if (config.find("pg_stripe_size") != config.end())
-    {
-        pg_stripe_size = config["pg_stripe_size"].uint64_value();
-    }
-    if (!pg_stripe_size)
-    {
-        pg_stripe_size = DEFAULT_PG_STRIPE_SIZE;
-    }
     if (config["immediate_commit"] == "all")
     {
         // Cluster-wide immediate_commit mode
@@ -473,7 +464,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
     int i = 0;
     for (uint64_t stripe = first_stripe; stripe <= last_stripe; stripe += pg_block_size)
     {
-        pg_num_t pg_num = (op->inode + stripe/pg_stripe_size) % pool_cfg.real_pg_count + 1;
+        pg_num_t pg_num = (op->inode + stripe/pool_cfg.pg_stripe_size) % pool_cfg.real_pg_count + 1;
         uint64_t begin = (op->offset < stripe ? stripe : op->offset);
         uint64_t end = (op->offset + op->len) > (stripe + pg_block_size)
             ? (stripe + pg_block_size) : (op->offset + op->len);

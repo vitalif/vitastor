@@ -25,8 +25,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         // oid.stripe = starting offset of the parity stripe
         .stripe = (cur_op->req.rw.offset/pg_block_size)*pg_block_size,
     };
-    // FIXME: pg_stripe_size may be a per-pool config
-    pg_num_t pg_num = (cur_op->req.rw.inode + oid.stripe/pg_stripe_size) % pg_counts[pool_id] + 1;
+    pg_num_t pg_num = (cur_op->req.rw.inode + oid.stripe/pool_cfg.pg_stripe_size) % pg_counts[pool_id] + 1;
     auto pg_it = pgs.find({ .pool_id = pool_id, .pg_num = pg_num });
     if (pg_it == pgs.end() || !(pg_it->second.state & PG_ACTIVE))
     {
@@ -604,7 +603,10 @@ resume_6:
                 {
                     // Except those from peered PGs
                     auto & w = op_data->unstable_writes[i];
-                    pool_pg_num_t wpg = { .pool_id = INODE_POOL(w.oid.inode), .pg_num = map_to_pg(w.oid) };
+                    pool_pg_num_t wpg = {
+                        .pool_id = INODE_POOL(w.oid.inode),
+                        .pg_num = map_to_pg(w.oid, st_cli.pool_config.at(INODE_POOL(w.oid.inode)).pg_stripe_size),
+                    };
                     if (pgs[wpg].state & PG_ACTIVE)
                     {
                         uint64_t & dest = this->unstable_writes[(osd_object_id_t){
