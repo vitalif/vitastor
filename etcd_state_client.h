@@ -16,7 +16,7 @@
 #define ETCD_SLOW_TIMEOUT 5000
 #define ETCD_QUICK_TIMEOUT 1000
 
-#define DEFAULT_PG_STRIPE_SIZE 4*1024*1024
+#define DEFAULT_BLOCK_SIZE 128*1024
 
 struct json_kv_t
 {
@@ -62,6 +62,7 @@ struct etcd_state_client_t
     int etcd_watches_initialised = 0;
     uint64_t etcd_watch_revision = 0;
     websocket_t *etcd_watch_ws = NULL;
+    uint64_t bs_block_size = 0;
     std::map<pool_id_t, pool_config_t> pool_config;
     std::map<osd_num_t, json11::Json> peer_states;
 

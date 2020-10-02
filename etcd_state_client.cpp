@@ -229,6 +229,11 @@ void etcd_state_client_t::load_global_config()
                 global_config = kv.value.object_items();
             }
         }
+        bs_block_size = global_config["block_size"].uint64_value();
+        if (!bs_block_size)
+        {
+            bs_block_size = DEFAULT_BLOCK_SIZE;
+        }
         on_load_config_hook(global_config);
     });
 }
@@ -359,9 +364,11 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
             parsed_cfg.pg_count = pool_item.second["pg_count"].uint64_value();
             parsed_cfg.failure_domain = pool_item.second["failure_domain"].string_value();
             parsed_cfg.pg_stripe_size = pool_item.second["pg_stripe_size"].uint64_value();
-            if (!parsed_cfg.pg_stripe_size)
+            uint64_t min_stripe_size = bs_block_size *
+                (parsed_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : parsed_cfg.pg_minsize);
+            if (parsed_cfg.pg_stripe_size < min_stripe_size)
             {
-                parsed_cfg.pg_stripe_size = DEFAULT_PG_STRIPE_SIZE;
+                parsed_cfg.pg_stripe_size = min_stripe_size;
             }
             parsed_cfg.max_osd_combinations = pool_item.second["max_osd_combinations"].uint64_value();
             if (!parsed_cfg.max_osd_combinations)
