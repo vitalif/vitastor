@@ -101,13 +101,15 @@ class Mon
                     failure_domain: 'host',
                     max_osd_combinations: 10000,
                     pg_stripe_size: 4194304,
-                    // FIXME add device classes/tags
+                    root_node?: 'rack1',
+                    // restrict pool to OSDs having all of these tags
+                    osd_tags?: 'nvme' | [ 'nvme', ... ],
                 },
                 ...
             }, */
             pools: {},
             osd: {
-                /* <id>: { reweight: 1 }, ... */
+                /* <id>: { reweight?: 1, tags?: [ 'nvme', ... ] }, ... */
             },
             /* pgs: {
                 hash: string,
@@ -466,7 +468,8 @@ class Mon
             if (stat.size && (this.state.osd.state[osd_num] || Number(stat.time) >= down_time))
             {
                 // Numeric IDs are reserved for OSDs
-                let reweight = this.state.config.osd[osd_num] && Number(this.state.config.osd[osd_num].reweight);
+                const osd_cfg = this.state.config.osd[osd_num];
+                let reweight = osd_cfg && Number(osd_cfg.reweight);
                 if (reweight < 0 || isNaN(reweight))
                     reweight = 1;
                 if (this.state.osd.state[osd_num] && reweight > 0)
@@ -477,6 +480,11 @@ class Mon
                 tree[osd_num] = tree[osd_num] || { id: osd_num, parent: stat.host };
                 tree[osd_num].level = 'osd';
                 tree[osd_num].size = reweight * stat.size / 1024 / 1024 / 1024 / 1024; // terabytes
+                if (osd_cfg && osd_cfg.tags)
+                {
+                    tree[osd_num].tags = (osd_cfg.tags instanceof Array ? [ ...osd_cfg.tags ] : [ osd_cfg.tags ])
+                        .reduce((a, c) => { a[c] = true; return a; }, {});
+                }
                 delete tree[osd_num].children;
             }
         }
@@ -496,7 +504,7 @@ class Mon
             tree[parent].children.push(tree[node_id]);
             delete node_cfg.parent;
         }
-        return { up_osds, osd_tree: LPOptimizer.flatten_tree(tree[''].children, levels, this.config.failure_domain, 'osd') };
+        return { up_osds, levels, osd_tree: tree };
     }
 
     async stop_all_pgs(pool_id)
@@ -663,7 +671,46 @@ class Mon
                 console.log('Pool '+pool_id+' has invalid max_osd_combinations (must be at least 100)');
             return false;
         }
+        if (pool_cfg.root_node && typeof(pool_cfg.root_node) != 'string')
+        {
+            if (warn)
+                console.log('Pool '+pool_id+' has invalid root_node (must be a string)');
+            return false;
+        }
+        if (pool_cfg.osd_tags && typeof(pool_cfg.osd_tags) != 'string' &&
+            (!(pool_cfg.osd_tags instanceof Array) || pool_cfg.osd_tags.filter(t => typeof t != 'string').length > 0))
+        {
+            if (warn)
+                console.log('Pool '+pool_id+' has invalid osd_tags (must be a string or array of strings)');
+            return false;
+        }
         return true;
+    }
+
+    filter_osds_by_tags(orig_tree, flat_tree, tags)
+    {
+        if (!tags)
+        {
+            return false;
+        }
+        for (const tag of (tags instanceof Array ? tags : [ tags ]))
+        {
+            for (const host in flat_tree)
+            {
+                let found = 0;
+                for (const osd in flat_tree[host])
+                {
+                    if (!orig_tree[osd].tags || !orig_tree[osd].tags[tag])
+                        delete flat_tree[host][osd];
+                    else
+                        found++;
+                }
+                if (!found)
+                {
+                    delete flat_tree[host];
+                }
+            }
+        }
     }
 
     async recheck_pgs()
@@ -671,7 +718,7 @@ class Mon
         // Take configuration and state, check it against the stored configuration hash
         // Recalculate PGs and save them to etcd if the configuration is changed
         // FIXME: Also do not change anything if the distribution is good enough and no PGs are degraded
-        const { up_osds, osd_tree } = this.get_osd_tree();
+        const { up_osds, levels, osd_tree } = this.get_osd_tree();
         const tree_cfg = {
             osd_tree,
             pools: this.state.config.pools,
@@ -688,6 +735,10 @@ class Mon
                 {
                     continue;
                 }
+                let pool_tree = osd_tree[pool_cfg.root_node || ''];
+                pool_tree = pool_tree ? pool_tree.children : [];
+                pool_tree = LPOptimizer.flatten_tree(pool_tree, levels, pool_cfg.failure_domain, 'osd');
+                pool_tree = this.filter_osds_by_tags(osd_tree, pool_tree, pool_cfg.osd_tags);
                 const prev_pgs = [];
                 for (const pg in ((this.state.config.pgs.items||{})[pool_id]||{})||{})
                 {
@@ -710,7 +761,7 @@ class Mon
                     }
                     optimize_result = await LPOptimizer.optimize_change({
                         prev_pgs,
-                        osd_tree: tree_cfg.osd_tree,
+                        osd_tree: pool_tree,
                         pg_size: pool_cfg.pg_size,
                         pg_minsize: pool_cfg.pg_minsize,
                         max_combinations: pool_cfg.max_osd_combinations,
@@ -719,7 +770,7 @@ class Mon
                 else
                 {
                     optimize_result = await LPOptimizer.optimize_initial({
-                        osd_tree: tree_cfg.osd_tree,
+                        osd_tree: pool_tree,
                         pg_count: pool_cfg.pg_count,
                         pg_size: pool_cfg.pg_size,
                         pg_minsize: pool_cfg.pg_minsize,

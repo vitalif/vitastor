@@ -21,7 +21,7 @@ breaking changes in the future. However, the following is implemented:
 - Automatic data distribution over OSDs, with support for:
   - Mathematical optimization for better uniformity and less data movement
   - Multiple pools
-  - Placement tree
+  - Placement tree, OSD selection by tags (device classes) and placement root
   - Configurable failure domains
 - Recovery of degraded blocks
 - Rebalancing (data movement between OSDs)
@@ -46,6 +46,7 @@ breaking changes in the future. However, the following is implemented:
 - Inode metadata storage in etcd
 - Snapshots and copy-on-write image clones
 - Operation timeouts and better failure detection
+- Scrubbing without checksums (verification of replicas)
 - Checksums
 - SSD+HDD optimizations, possibly including tiered storage and soft journal flushes
 - RDMA and NVDIMM support
@@ -80,7 +81,7 @@ Architectural differences from Ceph:
   per drive you should run multiple OSDs each on a different partition of the drive.
   Vitastor isn't CPU-hungry though (as opposed to Ceph), so 1 core is sufficient in a lot of cases.
 - Metadata and journal are always kept in memory. Metadata size depends linearly on drive capacity
-  and data store block size which is 128 KB by default. With 128 KB blocks, metadata should occupy
+  and data store block size which is 128 KB by default. With 128 KB blocks metadata should occupy
   around 512 MB per 1 TB (which is still less than Ceph wants). Journal doesn't have to be big,
   the example test below was conducted with only 16 MB journal. A big journal is probably even
   harmful as dirty write metadata also take some memory.
