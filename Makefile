@@ -99,11 +99,11 @@ epoll_manager.o: epoll_manager.cpp epoll_manager.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 etcd_state_client.o: etcd_state_client.cpp base64.h etcd_state_client.h http_client.h json11/json11.hpp object_id.h osd_id.h osd_ops.h pg_states.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-fio_cluster.o: fio_cluster.cpp cluster_client.h epoll_manager.h etcd_state_client.h fio/fio.h fio/optgroup.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
+fio_cluster.o: fio_cluster.cpp cluster_client.h epoll_manager.h etcd_state_client.h fio/arch/arch.h fio/fio.h fio/optgroup.h fio_headers.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-fio_engine.o: fio_engine.cpp blockstore.h fio/fio.h fio/optgroup.h json11/json11.hpp object_id.h ringloop.h
+fio_engine.o: fio_engine.cpp blockstore.h fio/arch/arch.h fio/fio.h fio/optgroup.h fio_headers.h json11/json11.hpp object_id.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-fio_sec_osd.o: fio_sec_osd.cpp fio/fio.h fio/optgroup.h object_id.h osd_id.h osd_ops.h rw_blocking.h
+fio_sec_osd.o: fio_sec_osd.cpp fio/arch/arch.h fio/fio.h fio/optgroup.h fio_headers.h object_id.h osd_id.h osd_ops.h rw_blocking.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 http_client.o: http_client.cpp http_client.h json11/json11.hpp timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<

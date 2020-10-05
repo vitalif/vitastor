@@ -212,7 +212,11 @@ static int coroutine_fn vitastor_co_truncate(BlockDriverState *bs, int64_t offse
 #if QEMU_VERSION_MAJOR >= 4
     bool exact,
 #endif
-    PreallocMode prealloc, Error **errp)
+    PreallocMode prealloc,
+#if QEMU_VERSION_MAJOR >= 5 && QEMU_VERSION_MINOR >= 1 || QEMU_VERSION_MAJOR > 5
+    BdrvRequestFlags flags,
+#endif
+    Error **errp)
 {
     VitastorClient *client = bs->opaque;
 
@@ -357,9 +361,6 @@ static BlockDriver bdrv_vitastor = {
     .bdrv_parse_filename            = vitastor_parse_filename,
 
     .bdrv_has_zero_init             = bdrv_has_zero_init_1,
-#if QEMU_VERSION_MAJOR >= 4
-    .bdrv_has_zero_init_truncate    = bdrv_has_zero_init_1,
-#endif
     .bdrv_get_info                  = vitastor_get_info,
     .bdrv_getlength                 = vitastor_getlength,
     .bdrv_probe_blocksizes          = vitastor_probe_blocksizes,

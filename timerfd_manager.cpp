@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <string>
+#include <stdexcept>
 #include "timerfd_manager.h"
 
 timerfd_manager_t::timerfd_manager_t(std::function<void(int, bool, std::function<void(int, int)>)> set_fd_handler)

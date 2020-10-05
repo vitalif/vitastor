@@ -13,6 +13,8 @@
 #include <fcntl.h>
 #include <string.h>
 
+#include <stdexcept>
+
 #include "json11/json11.hpp"
 #include "http_client.h"
 #include "timerfd_manager.h"

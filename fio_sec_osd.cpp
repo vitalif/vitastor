@@ -30,12 +30,7 @@
 
 #include "rw_blocking.h"
 #include "osd_ops.h"
-extern "C" {
-#define CONFIG_HAVE_GETTID
-#define CONFIG_PWRITEV2
-#include "fio/fio.h"
-#include "fio/optgroup.h"
-}
+#include "fio_headers.h"
 
 struct sec_data
 {

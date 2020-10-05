@@ -11,6 +11,7 @@
 #include <assert.h>
 #include <liburing.h>
 
+#include <string>
 #include <functional>
 #include <vector>
 

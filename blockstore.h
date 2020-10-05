@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 
+#include <string>
 #include <map>
 #include <unordered_map>
 #include <functional>

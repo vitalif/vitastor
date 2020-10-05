@@ -4,6 +4,7 @@
 #pragma once
 
 #include <malloc.h>
+#include <stdlib.h>
 
 inline void* memalign_or_die(size_t alignment, size_t size)
 {

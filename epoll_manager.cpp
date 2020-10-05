@@ -4,6 +4,7 @@
 #include <sys/epoll.h>
 #include <sys/poll.h>
 #include <unistd.h>
+#include <stdexcept>
 
 #include "epoll_manager.h"
 

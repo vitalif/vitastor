@@ -25,12 +25,7 @@
 //     -bs_config='{"data_device":"./test_data.bin"}' -size=1000M
 
 #include "blockstore.h"
-extern "C" {
-#define CONFIG_HAVE_GETTID
-#define CONFIG_PWRITEV2
-#include "fio/fio.h"
-#include "fio/optgroup.h"
-}
+#include "fio_headers.h"
 
 #include "json11/json11.hpp"
 

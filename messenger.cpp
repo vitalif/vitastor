@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <sys/epoll.h>
 #include <netinet/tcp.h>
+#include <stdexcept>
 
 #include "messenger.h"
 
