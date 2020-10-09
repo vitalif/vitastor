@@ -63,8 +63,6 @@ class cluster_client_t
     int up_wait_retry_interval = 500; // ms
 
     uint64_t op_id = 1;
-    etcd_state_client_t st_cli;
-    osd_messenger_t msgr;
     ring_consumer_t consumer;
     // operations currently in progress
     std::set<cluster_op_t*> cur_ops;
@@ -78,10 +76,17 @@ class cluster_client_t
     std::vector<cluster_op_t*> offline_ops;
     uint64_t queued_bytes = 0;
 
+    bool pgs_loaded = false;
+    std::vector<std::function<void(void)>> on_ready_hooks;
+
 public:
+    etcd_state_client_t st_cli;
+    osd_messenger_t msgr;
+
     cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config);
     ~cluster_client_t();
     void execute(cluster_op_t *op);
+    void on_ready(std::function<void(void)> fn);
     void stop();
 
 protected:

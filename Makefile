@@ -2,7 +2,7 @@ BLOCKSTORE_OBJS := allocator.o blockstore.o blockstore_impl.o blockstore_init.o 
 	blockstore_write.o blockstore_sync.o blockstore_stable.o blockstore_rollback.o blockstore_flush.o crc32c.o ringloop.o
 # -fsanitize=address
 CXXFLAGS := -g -O3 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fPIC -fdiagnostics-color=always
-all: libfio_blockstore.so osd libfio_sec_osd.so libfio_cluster.so stub_osd stub_uring_osd stub_bench osd_test dump_journal qemu_driver.so nbd_proxy
+all: libfio_blockstore.so osd libfio_sec_osd.so libfio_cluster.so stub_osd stub_uring_osd stub_bench osd_test dump_journal qemu_driver.so nbd_proxy rm_inode
 clean:
 	rm -f *.o
 
@@ -42,6 +42,9 @@ libfio_cluster.so: fio_cluster.o $(FIO_CLUSTER_OBJS)
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $< $(FIO_CLUSTER_OBJS) -luring
 
 nbd_proxy: nbd_proxy.o $(FIO_CLUSTER_OBJS)
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -o $@ $< $(FIO_CLUSTER_OBJS) -luring
+
+rm_inode: rm_inode.o $(FIO_CLUSTER_OBJS)
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -o $@ $< $(FIO_CLUSTER_OBJS) -luring
 
 qemu_driver.o: qemu_driver.c qemu_proxy.h
@@ -148,6 +151,8 @@ pg_states.o: pg_states.cpp pg_states.h
 qemu_proxy.o: qemu_proxy.cpp cluster_client.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h qemu_proxy.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 ringloop.o: ringloop.cpp ringloop.h
+	g++ $(CXXFLAGS) -c -o $@ $<
+rm_inode.o: rm_inode.cpp cluster_client.h etcd_state_client.h http_client.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 rw_blocking.o: rw_blocking.cpp rw_blocking.h
 	g++ $(CXXFLAGS) -c -o $@ $<

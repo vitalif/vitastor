@@ -203,6 +203,12 @@ void cluster_client_t::on_load_pgs_hook(bool success)
     {
         pg_counts[pool_item.first] = pool_item.second.real_pg_count;
     }
+    pgs_loaded = true;
+    for (auto fn: on_ready_hooks)
+    {
+        fn();
+    }
+    on_ready_hooks.clear();
     for (auto op: offline_ops)
     {
         execute(op);
@@ -254,6 +260,18 @@ void cluster_client_t::on_change_osd_state_hook(uint64_t peer_osd)
     }
 }
 
+void cluster_client_t::on_ready(std::function<void(void)> fn)
+{
+    if (pgs_loaded)
+    {
+        fn();
+    }
+    else
+    {
+        on_ready_hooks.push_back(fn);
+    }
+}
+
 /**
  * How writes are synced when immediate_commit is false
  *
@@ -284,7 +302,7 @@ void cluster_client_t::on_change_osd_state_hook(uint64_t peer_osd)
 
 void cluster_client_t::execute(cluster_op_t *op)
 {
-    if (!bs_disk_alignment)
+    if (!pgs_loaded)
     {
         // We're offline
         offline_ops.push_back(op);

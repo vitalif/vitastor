@@ -31,12 +31,12 @@ breaking changes in the future. However, the following is implemented:
 - QEMU driver (built out-of-tree)
 - Loadable fio engine for benchmarks (also built out-of-tree)
 - NBD proxy for kernel mounts
+- Inode removal tool (./rm_inode)
 
 ## Roadmap
 
 - Packaging for Debian and, probably, CentOS too
 - OSD creation tool (OSDs currently have to be created by hand)
-- Inode deletion tool (currently you can't delete anything :))
 - Other administrative tools
 - Per-inode I/O and space usage statistics
 - jerasure EC support with any number of data and parity drives in a group
@@ -333,19 +333,22 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
     -device virtio-blk-pci,scsi=off,bus=pci.0,addr=0x5,drive=drive-virtio-disk0,id=virtio-disk0,bootindex=1,write-cache=off,physical_block_size=4096,logical_block_size=512
     -vnc 0.0.0.0:0
   ```
+- Remove inode with (for example):
+  ```
+  ./rm_inode --etcd_address 10.115.0.10:2379/v3 --pool 1 --inode 1 --parallel_osds 16 --iodepth 32
+  ```
 
 ## Known Problems
 
 - OSDs may currently crash with "can't get SQE, will fall out of sync with EPOLLET"
   if you try to load them with very long iodepths because io_uring queue (ring) is limited
   and OSDs don't check if it fills up.
-- Object deletion requests may currently lead to unfound objects on crashes because
-  proper handling of deletions in a cluster requires a "three-phase cleanup process"
-  and it's currently not implemented. In fact, even though deletion requests are
-  implemented, there's no user tool to delete anything from the cluster yet :).
-  Of course I'll create such tool, but its first implementation will be vulnerable to this issue.
-  It's not a big deal though, because you'll be able to just repeat the deletion request
-  in this case.
+- Object deletion requests may currently lead to 'incomplete' objects if your OSDs crash during
+  deletion because proper handling of object cleanup in a cluster should be "three-phase"
+  and it's currently not implemented. Inode removal tool currently can't handle unclean
+  objects, so incomplete objects become undeletable. This will be fixed in near future
+  by allowing the inode removal tool to delete unclean objects. With this problem fixed
+  you'll be able just to repeat the removal again.
 
 ## Implementation Principles
 

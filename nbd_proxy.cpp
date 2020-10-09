@@ -107,7 +107,7 @@ public:
     {
         printf(
             "Vitastor NBD proxy\n"
-            "(c) Vitaliy Filippov, 2020 (VNPL-1.0 or GNU GPL 2.0+)\n\n"
+            "(c) Vitaliy Filippov, 2020 (VNPL-1.0)\n\n"
             "USAGE:\n"
             "  %s map --etcd_address <etcd_address> --pool <pool> --inode <inode> --size <size in bytes>\n"
             "  %s unmap /dev/nbd0\n"
