@@ -136,7 +136,7 @@ void etcd_state_client_t::start_etcd_watcher()
                 }
                 for (auto & kv: changes)
                 {
-                    if (this->log_level > 0)
+                    if (this->log_level > 1)
                     {
                         printf("Incoming event: %s -> %s\n", kv.first.c_str(), kv.second.dump().c_str());
                     }

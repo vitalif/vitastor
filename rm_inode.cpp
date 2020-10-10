@@ -102,7 +102,7 @@ public:
         parallel_osds = cfg["parallel_osds"].uint64_value();
         if (!parallel_osds)
             parallel_osds = 4;
-        log_level = cfg["log_level"].uint64_value();
+        log_level = cfg["log_level"].int64_value();
         progress = cfg["progress"].uint64_value() ? true : false;
         // Create client
         ringloop = new ring_loop_t(512);

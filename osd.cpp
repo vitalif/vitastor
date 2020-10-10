@@ -98,6 +98,8 @@ void osd_t::parse_config(blockstore_config_t & config)
     if (!c_cli.peer_connect_timeout)
         c_cli.peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
     log_level = strtoull(config["log_level"].c_str(), NULL, 10);
+    if (config.find("log_level") == config.end())
+        log_level = 1;
     c_cli.log_level = log_level;
 }
 

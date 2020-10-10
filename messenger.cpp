@@ -220,7 +220,10 @@ void osd_messenger_t::on_connect_peer(osd_num_t peer_osd, int peer_fd)
         }
         return;
     }
-    printf("Connected with peer OSD %lu (fd %d)\n", peer_osd, peer_fd);
+    if (log_level > 0)
+    {
+        printf("Connected with peer OSD %lu (fd %d)\n", peer_osd, peer_fd);
+    }
     wanted_peers.erase(peer_osd);
     repeer_pgs(peer_osd);
 }
@@ -331,12 +334,14 @@ void osd_messenger_t::stop_client(int peer_fd)
         if (cl.osd_num)
         {
             // Reload configuration from etcd when the connection is dropped
-            printf("[OSD %lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl.osd_num);
+            if (log_level > 0)
+                printf("[OSD %lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl.osd_num);
             repeer_osd = cl.osd_num;
         }
         else
         {
-            printf("[OSD %lu] Stopping client %d (regular client)\n", osd_num, peer_fd);
+            if (log_level > 0)
+                printf("[OSD %lu] Stopping client %d (regular client)\n", osd_num, peer_fd);
         }
     }
     clients.erase(it);

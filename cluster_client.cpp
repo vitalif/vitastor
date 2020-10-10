@@ -9,9 +9,12 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     this->ringloop = ringloop;
     this->tfd = tfd;
 
+    log_level = config["log_level"].int64_value();
+
     msgr.osd_num = 0;
     msgr.tfd = tfd;
     msgr.ringloop = ringloop;
+    msgr.log_level = log_level;
     msgr.repeer_pgs = [this](osd_num_t peer_osd)
     {
         if (msgr.osd_peer_fds.find(peer_osd) != msgr.osd_peer_fds.end())
@@ -73,7 +76,6 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     st_cli.on_change_hook = [this](json11::Json::object & changes) { on_change_hook(changes); };
     st_cli.on_load_pgs_hook = [this](bool success) { on_load_pgs_hook(success); };
 
-    log_level = config["log_level"].int64_value();
     st_cli.parse_config(config);
     st_cli.load_global_config();
 
