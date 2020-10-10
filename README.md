@@ -267,7 +267,7 @@ Vitastor with single-thread NBD on the same hardware:
 - Install lp_solve.
 - Install etcd.
 - Install node.js 12 or newer.
-- Install gcc and g++ 9.x.
+- Install gcc and g++ 9.x or later.
 - Clone https://yourcmc.ru/git/vitalif/vitastor/ with submodules.
 - Install QEMU 4.x or 5.x, get its source, begin to build it, stop the build and copy headers:
    - `<qemu>/include` &rarr; `<vitastor>/qemu/include`
@@ -281,9 +281,7 @@ Vitastor with single-thread NBD on the same hardware:
       * `<qemu>/config-host.h` &rarr; `<vitastor>/qemu/b/qemu/config-host.h`
       * `<qemu>/qapi` &rarr; `<vitastor>/qemu/b/qemu/qapi`
    - `config-host.h` and `qapi` are required because they contain generated headers
-- Install fio 3.16, get its source and symlink it into `<vitastor>/fio`. It doesn't currently
-  build with fio 3.20 or newer due to the conflicts between g++ and gcc's atomics. This will
-  be fixed in the future.
+- Install fio 3.16 or later, get its source and symlink it into `<vitastor>/fio`.
 - Build Vitastor with `make -j8`.
 - Copy binaries somewhere.
 
@@ -313,9 +311,12 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
   - `disk_alignment`, `journal_block_size`, `meta_block_size` should be set to the internal
     block size of your SSDs which is 4096 on most drives.
   - `journal_no_same_sector_overwrites true` prevents multiple overwrites of the same journal sector.
-    Some SSDs (like Intel D3-4510) don't like such overwrites so they benefit from this setting.
-    When this setting is set, it is also required to raise `journal_sector_buffer_count` setting,
-    which is the number of dirty journal sectors that may be written to at the same time.
+    Most (99%) SSDs don't need this option. But Intel D3-4510 does because it doesn't like when you
+    overwrite the same sector twice in a short period of time. The setting forces Vitastor to never
+    overwrite the same journal sector twice in a row which makes D3-4510 almost happy. Not totally
+    happy, because overwrites of the same block can still happen in the metadata area... When this
+    setting is set, it is also required to raise `journal_sector_buffer_count` setting, which is the
+    number of dirty journal sectors that may be written to at the same time.
 - `systemctl start vitastor.target` everywhere.
 - Start any number of monitors: `cd mon; node mon-main.js --etcd_url 'http://10.115.0.10:2379,http://10.115.0.11:2379,http://10.115.0.12:2379,http://10.115.0.13:2379' --etcd_prefix '/vitastor' --etcd_start_timeout 5`.
 - At this point, one of the monitors will configure PGs and OSDs will start them.
