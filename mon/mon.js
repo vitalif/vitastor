@@ -691,7 +691,7 @@ class Mon
     {
         if (!tags)
         {
-            return false;
+            return;
         }
         for (const tag of (tags instanceof Array ? tags : [ tags ]))
         {
@@ -738,7 +738,7 @@ class Mon
                 let pool_tree = osd_tree[pool_cfg.root_node || ''];
                 pool_tree = pool_tree ? pool_tree.children : [];
                 pool_tree = LPOptimizer.flatten_tree(pool_tree, levels, pool_cfg.failure_domain, 'osd');
-                pool_tree = this.filter_osds_by_tags(osd_tree, pool_tree, pool_cfg.osd_tags);
+                this.filter_osds_by_tags(osd_tree, pool_tree, pool_cfg.osd_tags);
                 const prev_pgs = [];
                 for (const pg in ((this.state.config.pgs.items||{})[pool_id]||{})||{})
                 {
@@ -804,7 +804,7 @@ class Mon
                 const replicated = pool_cfg.scheme === 'replicated';
                 for (const pg_num in ((this.state.config.pgs.items||{})[pool_id]||{})||{})
                 {
-                    const pg_cfg = this.state.config.pgs.items[pool_id][pg];
+                    const pg_cfg = this.state.config.pgs.items[pool_id][pg_num];
                     if (!Number(pg_cfg.primary) || !up_osds[pg_cfg.primary])
                     {
                         let alive_set;
