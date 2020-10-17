@@ -418,7 +418,12 @@ resume_1:
         else
         {
             clean_disk_entry *new_entry = (clean_disk_entry*)(meta_new.buf + meta_new.pos*bs->clean_entry_size);
-            assert(new_entry->oid.inode == 0 || new_entry->oid == cur.oid);
+            if (new_entry->oid.inode != 0 && new_entry->oid != cur.oid)
+            {
+                printf("Fatal error (metadata corruption or bug): tried to overwrite non-zero metadata entry %lx (%lx:%lx) with %lx:%lx\n",
+                    clean_loc, new_entry->oid.inode, new_entry->oid.stripe, cur.oid.inode, cur.oid.stripe);
+                exit(1);
+            }
             new_entry->oid = cur.oid;
             new_entry->version = cur.version;
             if (!bs->inmemory_meta)
