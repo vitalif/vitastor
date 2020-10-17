@@ -30,6 +30,7 @@
 
 #define PEER_CONNECTING 1
 #define PEER_CONNECTED 2
+#define PEER_STOPPED 3
 
 #define DEFAULT_PEER_CONNECT_INTERVAL 5
 #define DEFAULT_PEER_CONNECT_TIMEOUT 5
@@ -190,6 +191,8 @@ struct osd_op_t
 
 struct osd_client_t
 {
+    int refs = 0;
+
     sockaddr_in peer_addr;
     int peer_port;
     int peer_fd;
@@ -263,7 +266,7 @@ struct osd_messenger_t
     std::map<uint64_t, int> osd_peer_fds;
     uint64_t next_subop_id = 1;
 
-    std::map<int, osd_client_t> clients;
+    std::map<int, osd_client_t*> clients;
     std::vector<int> read_ready_clients;
     std::vector<int> write_ready_clients;
     std::vector<std::function<void()>> set_immediate;
@@ -288,15 +291,15 @@ protected:
     void try_connect_peer_addr(osd_num_t peer_osd, const char *peer_host, int peer_port);
     void handle_connect_epoll(int peer_fd);
     void on_connect_peer(osd_num_t peer_osd, int peer_fd);
-    void check_peer_config(osd_client_t & cl);
-    void cancel_osd_ops(osd_client_t & cl);
+    void check_peer_config(osd_client_t *cl);
+    void cancel_osd_ops(osd_client_t *cl);
     void cancel_op(osd_op_t *op);
 
-    bool try_send(osd_client_t & cl);
-    void handle_send(int result, int peer_fd);
+    bool try_send(osd_client_t *cl);
+    void handle_send(int result, osd_client_t *cl);
 
-    bool handle_read(int result, int peer_fd);
-    bool handle_finished_read(osd_client_t & cl);
+    bool handle_read(int result, osd_client_t *cl);
+    bool handle_finished_read(osd_client_t *cl);
     void handle_op_hdr(osd_client_t *cl);
     bool handle_reply_hdr(osd_client_t *cl);
     void handle_reply_ready(osd_op_t *op);

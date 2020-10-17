@@ -141,7 +141,7 @@ void osd_t::start_pg_peering(pg_t & pg)
         std::vector<int> to_stop;
         for (auto & cp: c_cli.clients)
         {
-            if (cp.second.dirty_pgs.find({ .pool_id = pg.pool_id, .pg_num = pg.pg_num }) != cp.second.dirty_pgs.end())
+            if (cp.second->dirty_pgs.find({ .pool_id = pg.pool_id, .pg_num = pg.pg_num }) != cp.second->dirty_pgs.end())
             {
                 to_stop.push_back(cp.first);
             }
@@ -308,7 +308,7 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
         auto & cl = c_cli.clients.at(c_cli.osd_peer_fds[role_osd]);
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
-        op->peer_fd = cl.peer_fd;
+        op->peer_fd = cl->peer_fd;
         op->req = {
             .sec_sync = {
                 .header = {
