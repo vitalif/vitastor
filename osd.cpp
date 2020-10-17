@@ -49,6 +49,8 @@ osd_t::~osd_t()
 
 void osd_t::parse_config(blockstore_config_t & config)
 {
+    if (config.find("log_level") == config.end())
+        config["log_level"] = "1";
     // Initial startup configuration
     json11::Json json_config = json11::Json(config);
     st_cli.parse_config(json_config);
@@ -98,8 +100,6 @@ void osd_t::parse_config(blockstore_config_t & config)
     if (!c_cli.peer_connect_timeout)
         c_cli.peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
     log_level = strtoull(config["log_level"].c_str(), NULL, 10);
-    if (config.find("log_level") == config.end())
-        log_level = 1;
     c_cli.log_level = log_level;
 }
 

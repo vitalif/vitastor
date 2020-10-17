@@ -222,7 +222,7 @@ void osd_messenger_t::on_connect_peer(osd_num_t peer_osd, int peer_fd)
     }
     if (log_level > 0)
     {
-        printf("Connected with peer OSD %lu (fd %d)\n", peer_osd, peer_fd);
+        printf("[OSD %lu] Connected with peer OSD %lu (fd %d)\n", osd_num, peer_osd, peer_fd);
     }
     wanted_peers.erase(peer_osd);
     repeer_pgs(peer_osd);

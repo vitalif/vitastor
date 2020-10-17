@@ -91,7 +91,7 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
             if (repeer)
             {
                 // Repeer this pg
-                printf("[PG %u] Repeer because of OSD %lu\n", p.second.pg_num, peer_osd);
+                printf("[PG %u/%u] Repeer because of OSD %lu\n", p.second.pool_id, p.second.pg_num, peer_osd);
                 start_pg_peering(p.second);
             }
         }
@@ -360,8 +360,8 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
             }
             add_bs_subop_stats(op);
             printf(
-                "[PG %u] Got object list from OSD %lu (local): %d object versions (%lu of them stable)\n",
-                ps->pg_num, role_osd, bs_op->retval, bs_op->version
+                "[PG %u/%u] Got object list from OSD %lu (local): %d object versions (%lu of them stable)\n",
+                ps->pool_id, ps->pg_num, role_osd, bs_op->retval, bs_op->version
             );
             ps->list_results[role_osd] = {
                 .buf = (obj_ver_id*)op->bs_op->buf,
@@ -407,8 +407,8 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
                 return;
             }
             printf(
-                "[PG %u] Got object list from OSD %lu: %ld object versions (%lu of them stable)\n",
-                ps->pg_num, role_osd, op->reply.hdr.retval, op->reply.sec_list.stable_count
+                "[PG %u/%u] Got object list from OSD %lu: %ld object versions (%lu of them stable)\n",
+                ps->pool_id, ps->pg_num, role_osd, op->reply.hdr.retval, op->reply.sec_list.stable_count
             );
             ps->list_results[role_osd] = {
                 .buf = (obj_ver_id*)op->buf,

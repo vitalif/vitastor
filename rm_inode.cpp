@@ -32,7 +32,8 @@ struct rm_pg_osd_t
 class rm_inode_t
 {
 protected:
-    uint64_t inode = 0, pool_id = 0;
+    uint64_t inode = 0;
+    pool_id_t pool_id = 0;
     uint64_t iodepth = 0, parallel_osds = 0;
 
     ring_loop_t *ringloop = NULL;
@@ -89,7 +90,7 @@ public:
         inode = cfg["inode"].uint64_value();
         pool_id = cfg["pool"].uint64_value();
         if (pool_id)
-            inode = (inode & ((1l << (64-POOL_ID_BITS)) - 1)) | (pool_id << (64-POOL_ID_BITS));
+            inode = (inode & ((1l << (64-POOL_ID_BITS)) - 1)) | (((uint64_t)pool_id) << (64-POOL_ID_BITS));
         pool_id = INODE_POOL(inode);
         if (!pool_id)
         {
@@ -129,7 +130,7 @@ public:
     {
         if (cli->st_cli.pool_config.find(pool_id) == cli->st_cli.pool_config.end())
         {
-            fprintf(stderr, "Pool %lu does not exist\n", pool_id);
+            fprintf(stderr, "Pool %u does not exist\n", pool_id);
             exit(1);
         }
         auto pool_cfg = cli->st_cli.pool_config[pool_id];
@@ -199,8 +200,8 @@ public:
             if (log_level > 0)
             {
                 printf(
-                    "[PG %u] Got inode object list from OSD %lu: %ld object versions\n",
-                    cur_list->pg_num, cur_list->osd_num, op->reply.hdr.retval
+                    "[PG %u/%u] Got inode object list from OSD %lu: %ld object versions\n",
+                    pool_id, cur_list->pg_num, cur_list->osd_num, op->reply.hdr.retval
                 );
             }
             cur_list->obj_list = (obj_ver_id*)op->buf;
@@ -308,7 +309,7 @@ public:
         }
         if (!lists.size())
         {
-            printf("Done, inode %lu in pool %lu removed\n", (inode & ((1l << (64-POOL_ID_BITS)) - 1)), pool_id);
+            printf("Done, inode %lu in pool %u removed\n", (inode & ((1l << (64-POOL_ID_BITS)) - 1)), pool_id);
             exit(0);
         }
     }

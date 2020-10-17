@@ -440,7 +440,7 @@ void pg_t::calc_object_states(int log_level)
 void pg_t::print_state()
 {
     printf(
-        "[PG %u] is %s%s%s%s%s%s%s%s%s%s%s%s%s (%lu objects)\n", pg_num,
+        "[PG %u/%u] is %s%s%s%s%s%s%s%s%s%s%s%s%s (%lu objects)\n", pool_id, pg_num,
         (state & PG_STARTING) ? "starting" : "",
         (state & PG_OFFLINE) ? "offline" : "",
         (state & PG_PEERING) ? "peering" : "",
