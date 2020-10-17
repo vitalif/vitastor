@@ -2,7 +2,6 @@
 // License: VNPL-1.0 (see README.md for details)
 
 #include <map>
-#include <unordered_map>
 #include <vector>
 #include <algorithm>
 
@@ -45,8 +44,8 @@ struct osd_op_t;
 struct pg_peering_state_t
 {
     // osd_num -> list result
-    std::unordered_map<osd_num_t, osd_op_t*> list_ops;
-    std::unordered_map<osd_num_t, pg_list_result_t> list_results;
+    std::map<osd_num_t, osd_op_t*> list_ops;
+    std::map<osd_num_t, pg_list_result_t> list_results;
     pool_id_t pool_id = 0;
     pg_num_t pg_num = 0;
 };

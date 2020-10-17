@@ -220,8 +220,7 @@ void osd_t::start_pg_peering(pg_t & pg)
             {
                 // Discard the result after completion, which, chances are, will be unsuccessful
                 discard_list_subop(it->second);
-                pg.peering_state->list_ops.erase(it);
-                it = pg.peering_state->list_ops.begin();
+                pg.peering_state->list_ops.erase(it++);
             }
             else
                 it++;
@@ -234,8 +233,7 @@ void osd_t::start_pg_peering(pg_t & pg)
                 {
                     free(it->second.buf);
                 }
-                pg.peering_state->list_results.erase(it);
-                it = pg.peering_state->list_results.begin();
+                pg.peering_state->list_results.erase(it++);
             }
             else
                 it++;
