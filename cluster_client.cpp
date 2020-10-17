@@ -758,7 +758,7 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             assert(op == cur_sync);
             finish_sync();
         }
-        else
+        else if (!op->up_wait)
         {
             continue_rw(op);
         }
