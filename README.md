@@ -233,6 +233,8 @@ Vitastor:
 - T1Q1 read: 6838 iops (0.145ms latency)
 - T2Q64 write: 162000 iops, total CPU usage by OSDs about 3 virtual cores on each node
 - T8Q64 read: 895000 iops, total CPU usage by OSDs about 4 virtual cores on each node
+- Linear write (4M T1Q32): 2800 MB/s
+- Linear read (4M T1Q32): 1500 MB/s
 
 T8Q64 read test was conducted over 1 larger inode (3.2T) from all hosts (every host was running 2 instances of fio).
 Vitastor has no performance penalties related to running multiple clients over a single inode.
@@ -246,6 +248,16 @@ Vitastor was configured with: `--disable_data_fsync true --immediate_commit all 
   --journal_no_same_sector_overwrites true --journal_sector_buffer_count 1024
   --journal_size 16777216`.
 
+### EC/XOR 2+1
+
+Vitastor:
+- T1Q1 write: 2808 iops (~0.355ms latency)
+- T1Q1 read: 6190 iops (~0.16ms latency)
+- T2Q64 write: 85500 iops, total CPU usage by OSDs about 3.4 virtual cores on each node
+- T8Q64 read: 812000 iops, total CPU usage by OSDs about 4.7 virtual cores on each node
+- Linear write (4M T1Q32): 3200 MB/s
+- Linear read (4M T1Q32): 1800 MB/s
+
 ### NBD
 
 NBD is currently required to mount Vitastor via kernel, but it imposes additional overhead
@@ -257,8 +269,8 @@ Vitastor with single-thread NBD on the same hardware:
 - T1Q1 read: 5518 iops (0.18ms latency)
 - T1Q128 write: 94400 iops
 - T1Q128 read: 103000 iops
-- Linear write (4M T1Q128): 1266 MB/s (compared to 2600 MB/s via fio)
-- Linear read (4M T1Q128): 975 MB/s (compared to 1400 MB/s via fio)
+- Linear write (4M T1Q128): 1266 MB/s (compared to 2800 MB/s via fio)
+- Linear read (4M T1Q128): 975 MB/s (compared to 1500 MB/s via fio)
 
 ## Building
 
