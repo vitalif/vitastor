@@ -121,12 +121,17 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
         journal.crc32_last = je->crc32;
         if (cur_sector != journal.cur_sector)
         {
-            if (cur_sector == -1)
+            // Write previous sector. We should write the sector only after filling it,
+            // because otherwise we'll write a lot more sectors in the "no_same_sector_overwrite" mode
+            if (cur_sector != -1)
+                prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
+            else
                 PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
             cur_sector = journal.cur_sector;
-            prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
         }
     }
+    if (cur_sector != -1)
+        prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
     PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
     PRIV(op)->pending_ops = s;
     PRIV(op)->op_state = 1;
