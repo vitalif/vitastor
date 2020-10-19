@@ -8,6 +8,43 @@ IP=`ip -json a s | jq -r '.[].addr_info[] | select(.broadcast == "10.115.0.255")
 
 [ "$IP" != "" ] || exit 1
 
+BASE=${IP/*./}
+BASE=$((BASE-10))
+
+useradd etcd
+
+mkdir -p /var/lib/etcd$BASE.etcd
+cat >/etc/systemd/system/etcd.service <<EOF
+[Unit]
+Description=etcd for vitastor
+After=network-online.target local-fs.target time-sync.target
+Wants=network-online.target local-fs.target time-sync.target
+
+[Service]
+Restart=always
+ExecStart=/usr/local/bin/etcd -name etcd$BASE --data-dir /var/lib/etcd$BASE.etcd \\
+    --advertise-client-urls http://$IP:2379 --listen-client-urls http://$IP:2379 \\
+    --initial-advertise-peer-urls http://$IP:2380 --listen-peer-urls http://$IP:2380 \\
+    --initial-cluster-token vitastor-etcd-1 --initial-cluster etcd0=http://10.115.0.10:2380,etcd1=http://10.115.0.11:2380,etcd2=http://10.115.0.12:2380,etcd3=http://10.115.0.13:2380 \\
+    --initial-cluster-state new --max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision
+WorkingDirectory=/var/lib/etcd$BASE.etcd
+ExecStartPre=+chown -R etcd /var/lib/etcd$BASE.etcd
+User=etcd
+PrivateTmp=false
+TasksMax=infinity
+Restart=always
+StartLimitInterval=0
+StartLimitIntervalSec=0
+RestartSec=10
+
+[Install]
+WantedBy=local.target
+EOF
+
+systemctl daemon-reload
+systemctl enable etcd
+systemctl start etcd
+
 useradd vitastor
 chmod 755 /root
 
