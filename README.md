@@ -277,7 +277,10 @@ Vitastor with single-thread NBD on the same hardware:
 - Install Linux kernel 5.4 or newer for io_uring support.
 - Install liburing 0.4 or newer and its headers.
 - Install lp_solve.
-- Install etcd.
+- Install etcd. Attention: you need a fixed version from here: https://github.com/vitalif/etcd/,
+  branch release-3.4, because there is a bug in upstream etcd which makes Vitastor OSDs fail to
+  move PGs out of "starting" state if you have at least around ~500 PGs or so. The custom build
+  will be unnecessary when etcd merges the fix: https://github.com/etcd-io/etcd/pull/12402.
 - Install node.js 12 or newer.
 - Install gcc and g++ 9.x or later.
 - Clone https://yourcmc.ru/git/vitalif/vitastor/ with submodules.
@@ -306,11 +309,11 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
   with lazy fsync, but prepare for inferior single-thread latency.
 - Get a fast network (at least 10 Gbit/s).
 - Disable CPU powersaving: `cpupower idle-set -D 0 && cpupower frequency-set -g performance`.
-- Install etcd with `--max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision` options.
+- Start etcd with `--max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision` options.
 - Create global configuration in etcd: `etcdctl put /vitastor/config/global '{"immediate_commit":"all"}'`
   (if all your drives have capacitors).
 - Create pool configuration in etcd: `etcdctl put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":256,"failure_domain":"host"}}'`.
-- Calculate offsets for your drives with `node ./mon/simple-offsets.js /dev/sdX`.
+- Calculate offsets for your drives with `node ./mon/simple-offsets.js --device /dev/sdX`.
 - Make systemd units for your OSDs. Look at `./mon/make-units.sh` for example.
   Notable configuration variables from the example:
   - `disable_data_fsync 1` - only safe with server-grade drives with capacitors.
