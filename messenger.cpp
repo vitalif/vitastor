@@ -288,16 +288,7 @@ void osd_messenger_t::cancel_osd_ops(osd_client_t *cl)
         cancel_op(p.second);
     }
     cl->sent_ops.clear();
-    for (auto op: cl->outbox)
-    {
-        cancel_op(op);
-    }
     cl->outbox.clear();
-    if (cl->write_op)
-    {
-        cancel_op(cl->write_op);
-        cl->write_op = NULL;
-    }
 }
 
 void osd_messenger_t::cancel_op(osd_op_t *op)

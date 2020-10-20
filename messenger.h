@@ -205,8 +205,8 @@ struct osd_client_t
     // Read state
     int read_ready = 0;
     osd_op_t *read_op = NULL;
-    iovec read_iov;
-    msghdr read_msg;
+    iovec read_iov = { 0 };
+    msghdr read_msg = { 0 };
     int read_remaining = 0;
     int read_state = 0;
     osd_op_buf_list_t recv_list;
@@ -215,17 +215,16 @@ struct osd_client_t
     std::vector<osd_op_t*> received_ops;
 
     // Outbound operations
-    std::deque<osd_op_t*> outbox;
-    std::map<int, osd_op_t*> sent_ops;
+    std::map<uint64_t, osd_op_t*> sent_ops;
 
     // PGs dirtied by this client's primary-writes
     std::set<pool_pg_num_t> dirty_pgs;
 
     // Write state
-    osd_op_t *write_op = NULL;
-    msghdr write_msg;
+    msghdr write_msg = { 0 };
     int write_state = 0;
-    osd_op_buf_list_t send_list;
+    std::vector<iovec> send_list, next_send_list;
+    std::vector<osd_op_t*> outbox, next_outbox;
 };
 
 struct osd_wanted_peer_t
@@ -296,6 +295,7 @@ protected:
     void cancel_op(osd_op_t *op);
 
     bool try_send(osd_client_t *cl);
+    void measure_exec(osd_op_t *cur_op);
     void handle_send(int result, osd_client_t *cl);
 
     bool handle_read(int result, osd_client_t *cl);

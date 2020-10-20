@@ -252,6 +252,14 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
     {
         // Read data. In this case we assume that the buffer is preallocated by the caller (!)
         assert(op->iov.count > 0);
+        if (op->reply.hdr.retval != (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->req.sec_rw.len : op->req.rw.len))
+        {
+            // Check reply length to not overflow the buffer
+            printf("Client %d read reply of different length\n", cl->peer_fd);
+            cl->sent_ops[op->req.hdr.id] = op;
+            stop_client(cl->peer_fd);
+            return false;
+        }
         cl->recv_list.append(op->iov);
         delete cl->read_op;
         cl->read_op = op;
