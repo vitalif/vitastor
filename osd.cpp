@@ -28,6 +28,10 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
     {
         print_stats();
     });
+    this->tfd->set_timer(slow_log_interval*1000, true, [this](int timer_id)
+    {
+        print_slow();
+    });
 
     c_cli.tfd = this->tfd;
     c_cli.ringloop = this->ringloop;
@@ -93,6 +97,9 @@ void osd_t::parse_config(blockstore_config_t & config)
     print_stats_interval = strtoull(config["print_stats_interval"].c_str(), NULL, 10);
     if (!print_stats_interval)
         print_stats_interval = 3;
+    slow_log_interval = strtoull(config["slow_log_interval"].c_str(), NULL, 10);
+    if (!slow_log_interval)
+        slow_log_interval = 3;
     c_cli.peer_connect_interval = strtoull(config["peer_connect_interval"].c_str(), NULL, 10);
     if (!c_cli.peer_connect_interval)
         c_cli.peer_connect_interval = DEFAULT_PEER_CONNECT_INTERVAL;
@@ -313,5 +320,71 @@ void osd_t::print_stats()
     if (misplaced_objects > 0)
     {
         printf("[OSD %lu] %lu object(s) misplaced\n", osd_num, misplaced_objects);
+    }
+}
+
+void osd_t::print_slow()
+{
+    char alloc[1024];
+    timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    for (auto & kv: c_cli.clients)
+    {
+        for (auto op: kv.second->received_ops)
+        {
+            if (now.tv_sec - op->tv_begin.tv_sec >= slow_log_interval)
+            {
+                int l = sizeof(alloc), n;
+                char *buf = alloc;
+#define bufprintf(s, ...) { n = snprintf(buf, l, s, __VA_ARGS__); n = n < 0 ? 0 : n; buf += n; l -= n; }
+                bufprintf("[OSD %lu] Slow op", osd_num);
+                if (kv.second->osd_num)
+                {
+                    bufprintf(" from peer OSD %lu (client %d)", kv.second->osd_num, kv.second->peer_fd);
+                }
+                else
+                {
+                    bufprintf(" from client %d", kv.second->peer_fd);
+                }
+                bufprintf(": %s id=%lu", osd_op_names[op->req.hdr.opcode], op->req.hdr.id);
+                if (op->req.hdr.opcode == OSD_OP_SEC_READ || op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
+                    op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE || op->req.hdr.opcode == OSD_OP_SEC_DELETE)
+                {
+                    bufprintf(" %lx:%lx v", op->req.sec_rw.oid.inode, op->req.sec_rw.oid.stripe);
+                    if (op->req.sec_rw.version == UINT64_MAX)
+                    {
+                        bufprintf("%s", "max");
+                    }
+                    else
+                    {
+                        bufprintf("%lu", op->req.sec_rw.version);
+                    }
+                    if (op->req.hdr.opcode != OSD_OP_SEC_DELETE)
+                    {
+                        bufprintf(" offset=%x len=%x", op->req.sec_rw.offset, op->req.sec_rw.len);
+                    }
+                }
+                else if (op->req.hdr.opcode == OSD_OP_SEC_STABILIZE || op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
+                {
+                    bufprintf(" %lu object versions", op->req.sec_stab.len / sizeof(obj_ver_id));
+                }
+                else if (op->req.hdr.opcode == OSD_OP_SEC_LIST)
+                {
+                    bufprintf(
+                        " inode=%lx-%lx pg=%u/%u, stripe=%lu",
+                        op->req.sec_list.min_inode, op->req.sec_list.max_inode,
+                        op->req.sec_list.list_pg, op->req.sec_list.pg_count,
+                        op->req.sec_list.pg_stripe_size
+                    );
+                }
+                else if (op->req.hdr.opcode == OSD_OP_READ || op->req.hdr.opcode == OSD_OP_WRITE ||
+                    op->req.hdr.opcode == OSD_OP_DELETE)
+                {
+                    bufprintf(" inode=%lx offset=%lx len=%x", op->req.rw.inode, op->req.rw.offset, op->req.rw.len);
+                }
+#undef bufprintf
+                printf("%s\n", alloc);
+            }
+        }
     }
 }

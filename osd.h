@@ -70,6 +70,7 @@ class osd_t
     int client_queue_depth = 128;
     bool allow_test_ops = true;
     int print_stats_interval = 3;
+    int slow_log_interval = 30;
     int immediate_commit = IMMEDIATE_NONE;
     int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // sync every 5 seconds
     int recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
@@ -138,6 +139,7 @@ class osd_t
     void create_osd_state();
     void renew_lease();
     void print_stats();
+    void print_slow();
     void reset_stats();
     json11::Json get_statistics();
     void report_statistics();
