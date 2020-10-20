@@ -477,7 +477,9 @@ class Mon
                     // React to down OSDs immediately
                     up_osds[osd_num] = true;
                 }
-                tree[osd_num] = tree[osd_num] || { id: osd_num, parent: stat.host };
+                tree[osd_num] = tree[osd_num] || {};
+                tree[osd_num].id = osd_num;
+                tree[osd_num].parent = tree[osd_num].parent || stat.host;
                 tree[osd_num].level = 'osd';
                 tree[osd_num].size = reweight * stat.size / 1024 / 1024 / 1024 / 1024; // terabytes
                 if (osd_cfg && osd_cfg.tags)
@@ -486,6 +488,15 @@ class Mon
                         .reduce((a, c) => { a[c] = true; return a; }, {});
                 }
                 delete tree[osd_num].children;
+                if (!tree[tree[osd_num].parent])
+                {
+                    tree[tree[osd_num].parent] = {
+                        id: tree[osd_num].parent,
+                        level: 'host',
+                        parent: null,
+                        children: [],
+                    };
+                }
             }
         }
         for (const node_id in tree)
@@ -500,7 +511,7 @@ class Mon
                 && tree[node_cfg.parent].level;
             parent_level = parent_level ? (levels[parent_level] || parent_level) : null;
             // Parent's level must be less than child's; OSDs must be leaves
-            const parent = parent_level && parent_level < node_level ? tree[node_cfg.parent] : '';
+            const parent = parent_level && parent_level < node_level ? node_cfg.parent : '';
             tree[parent].children.push(tree[node_id]);
             delete node_cfg.parent;
         }
