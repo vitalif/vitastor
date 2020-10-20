@@ -258,6 +258,10 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
             .len = 0,
         },
     };
+    if (log_level > 2)
+    {
+        printf("Submitting recovery operation for %lx:%lx\n", op->oid.inode, op->oid.stripe);
+    }
     op->osd_op->callback = [this, op](osd_op_t *osd_op)
     {
         // Don't sync the write, it will be synced by our regular sync coroutine
@@ -267,6 +271,11 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
             if (osd_op->reply.hdr.retval == -EPIPE)
             {
                 // PG is stopped or one of the OSDs is gone, error is harmless
+                printf(
+                    "Recovery operation failed with object %lx:%lx (PG %u/%u)\n",
+                    op->oid.inode, op->oid.stripe, INODE_POOL(op->oid.inode),
+                    map_to_pg(op->oid, st_cli.pool_config.at(INODE_POOL(op->oid.inode)).pg_stripe_size)
+                );
             }
             else
             {

@@ -552,24 +552,28 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
 void osd_t::pg_cancel_write_queue(pg_t & pg, osd_op_t *first_op, object_id oid, int retval)
 {
     auto st_it = pg.write_queue.find(oid), it = st_it;
-    finish_op(first_op, retval);
-    if (it != pg.write_queue.end() && it->second == first_op)
-    {
-        it++;
-    }
-    else
+    if (it == pg.write_queue.end() || it->second != first_op)
     {
         // Write queue doesn't match the first operation.
         // first_op is a leftover operation from the previous peering of the same PG.
+        finish_op(first_op, retval);
         return;
     }
-    while (it != pg.write_queue.end() && it->first == oid)
+    std::vector<osd_op_t*> cancel_ops;
+    while (it != pg.write_queue.end())
     {
-        finish_op(it->second, retval);
+        cancel_ops.push_back(it->second);
         it++;
     }
     if (st_it != it)
     {
+        // First erase them and then run finish_op() for the sake of reenterability
+        // Calling finish_op() on a live iterator previously triggered a bug where some
+        // of the OSDs were looping infinitely if you stopped all of them with kill -INT during recovery
         pg.write_queue.erase(st_it, it);
+        for (auto op: cancel_ops)
+        {
+            finish_op(op, retval);
+        }
     }
 }
