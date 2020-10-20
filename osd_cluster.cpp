@@ -223,7 +223,7 @@ void osd_t::on_change_osd_state_hook(osd_num_t peer_osd)
 void osd_t::on_change_etcd_state_hook(json11::Json::object & changes)
 {
     // FIXME apply config changes in runtime (maybe, some)
-    if (run_primary && !(peering_state & OSD_LOADING_PGS))
+    if (run_primary)
     {
         apply_pg_count();
         apply_pg_config();
@@ -273,7 +273,6 @@ void osd_t::on_load_config_hook(json11::Json::object & global_config)
     }
     parse_config(osd_config);
     bind_socket();
-    st_cli.start_etcd_watcher();
     acquire_lease();
 }
 

@@ -195,7 +195,6 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & config)
     {
         msgr.peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
     }
-    st_cli.start_etcd_watcher();
     st_cli.load_pgs();
 }
 

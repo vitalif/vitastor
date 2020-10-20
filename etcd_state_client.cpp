@@ -216,10 +216,6 @@ void etcd_state_client_t::load_global_config()
             });
             return;
         }
-        if (!etcd_watch_revision)
-        {
-            etcd_watch_revision = data["header"]["revision"].uint64_value();
-        }
         json11::Json::object global_config;
         if (data["kvs"].array_items().size() > 0)
         {
@@ -292,6 +288,10 @@ void etcd_state_client_t::load_pgs()
             on_load_pgs_hook(false);
             return;
         }
+        if (!etcd_watch_revision)
+        {
+            etcd_watch_revision = data["header"]["revision"].uint64_value();
+        }
         for (auto & res: data["responses"].array_items())
         {
             for (auto & kv_json: res["response_range"]["kvs"].array_items())
@@ -301,6 +301,7 @@ void etcd_state_client_t::load_pgs()
             }
         }
         on_load_pgs_hook(true);
+        start_etcd_watcher();
     });
 }
 
