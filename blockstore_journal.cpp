@@ -100,10 +100,11 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
     {
         // No space in the journal. Wait until used_start changes.
         printf(
-            "Ran out of journal space (free space: %lu bytes)\n",
+            "Ran out of journal space (free space: %lu bytes, sectors to write: %d)\n",
             (bs->journal.next_free >= bs->journal.used_start
                 ? bs->journal.len-bs->journal.block_size - (bs->journal.next_free-bs->journal.used_start)
-                : bs->journal.used_start - bs->journal.next_free)
+                : bs->journal.used_start - bs->journal.next_free),
+            sectors_required
         );
         PRIV(op)->wait_for = WAIT_JOURNAL;
         bs->flusher->request_trim();

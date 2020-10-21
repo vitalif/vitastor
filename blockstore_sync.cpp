@@ -107,7 +107,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         // 2nd step: Data device is synced, prepare & write journal entries
         // Check space in the journal and journal memory buffers
         blockstore_journal_check_t space_check(this);
-        if (!space_check.check_available(op, PRIV(op)->sync_big_writes.size(), sizeof(journal_entry_big_write), 0))
+        if (!space_check.check_available(op, PRIV(op)->sync_big_writes.size(), sizeof(journal_entry_big_write), JOURNAL_STABILIZE_RESERVATION))
         {
             return 0;
         }

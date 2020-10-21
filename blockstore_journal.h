@@ -10,6 +10,8 @@
 #define JOURNAL_BUFFER_SIZE 4*1024*1024
 
 // We reserve some extra space for future stabilize requests during writes
+// FIXME: This value should be dynamic i.e. Blockstore ideally shouldn't allow
+// writing more than can be stabilized afterwards
 #define JOURNAL_STABILIZE_RESERVATION 65536
 
 // Journal entries

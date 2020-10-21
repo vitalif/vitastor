@@ -67,6 +67,11 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
                 // Already stable
             }
         }
+        else if (IS_IN_FLIGHT(dirty_it->second.state))
+        {
+            // Object write is still in progress. Wait until the write request completes
+            return 0;
+        }
         else if (!IS_SYNCED(dirty_it->second.state))
         {
             // Object not synced yet. Caller must sync it first
@@ -135,7 +140,6 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
     PRIV(op)->pending_ops = s;
     PRIV(op)->op_state = 1;
-    inflight_writes++;
     return 1;
 }
 
@@ -178,7 +182,6 @@ resume_5:
         // Mark all dirty_db entries up to op->version as stable
         mark_stable(*v);
     }
-    inflight_writes--;
     // Acknowledge op
     op->retval = 0;
     FINISH_OP(op);
@@ -228,7 +231,6 @@ void blockstore_impl_t::handle_stable_event(ring_data_t *data, blockstore_op_t *
     live = true;
     if (data->res != data->iov.iov_len)
     {
-        inflight_writes--;
         throw std::runtime_error(
             "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
             "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"

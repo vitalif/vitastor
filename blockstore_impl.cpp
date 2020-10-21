@@ -151,8 +151,8 @@ void blockstore_impl_t::loop()
             {
                 if (has_writes == 2)
                 {
-                    // Some writes could not be submitted
-                    break;
+                    // Some writes already could not be submitted
+                    continue;
                 }
                 dequeue_op = dequeue_write(op);
                 has_writes = dequeue_op ? 1 : 2;
@@ -161,8 +161,8 @@ void blockstore_impl_t::loop()
             {
                 if (has_writes == 2)
                 {
-                    // Some writes could not be submitted
-                    break;
+                    // Some writes already could not be submitted
+                    continue;
                 }
                 dequeue_op = dequeue_del(op);
                 has_writes = dequeue_op ? 1 : 2;
@@ -182,33 +182,19 @@ void blockstore_impl_t::loop()
             }
             else if (op->opcode == BS_OP_STABLE)
             {
-                if (has_writes == 2)
-                {
-                    // Don't submit additional flushes before completing previous LISTs
-                    break;
-                }
                 dequeue_op = dequeue_stable(op);
             }
             else if (op->opcode == BS_OP_ROLLBACK)
             {
-                if (has_writes == 2)
-                {
-                    // Don't submit additional flushes before completing previous LISTs
-                    break;
-                }
                 dequeue_op = dequeue_rollback(op);
             }
             else if (op->opcode == BS_OP_LIST)
             {
-                // Block LIST operation by previous modifications,
-                // so it always returns a consistent state snapshot
-                if (has_writes == 2 || inflight_writes > 0)
-                    has_writes = 2;
-                else
-                {
-                    process_list(op);
-                    dequeue_op = true;
-                }
+                // LIST doesn't need to be blocked by previous modifications,
+                // it only needs to include all in-progress writes as they're guaranteed
+                // to be readable and stabilizable/rollbackable by subsequent operations
+                process_list(op);
+                dequeue_op = true;
             }
             if (dequeue_op)
             {

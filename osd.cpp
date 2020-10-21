@@ -99,7 +99,7 @@ void osd_t::parse_config(blockstore_config_t & config)
         print_stats_interval = 3;
     slow_log_interval = strtoull(config["slow_log_interval"].c_str(), NULL, 10);
     if (!slow_log_interval)
-        slow_log_interval = 3;
+        slow_log_interval = 10;
     c_cli.peer_connect_interval = strtoull(config["peer_connect_interval"].c_str(), NULL, 10);
     if (!c_cli.peer_connect_interval)
         c_cli.peer_connect_interval = DEFAULT_PEER_CONNECT_INTERVAL;
@@ -332,7 +332,7 @@ void osd_t::print_slow()
     {
         for (auto op: kv.second->received_ops)
         {
-            if (now.tv_sec - op->tv_begin.tv_sec >= slow_log_interval)
+            if ((now.tv_sec - op->tv_begin.tv_sec) >= slow_log_interval)
             {
                 int l = sizeof(alloc), n;
                 char *buf = alloc;
@@ -366,7 +366,11 @@ void osd_t::print_slow()
                 }
                 else if (op->req.hdr.opcode == OSD_OP_SEC_STABILIZE || op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
                 {
-                    bufprintf(" %lu object versions", op->req.sec_stab.len / sizeof(obj_ver_id));
+                    for (uint64_t i = 0; i < op->req.sec_stab.len; i += sizeof(obj_ver_id))
+                    {
+                        obj_ver_id *ov = (obj_ver_id*)(op->buf + i);
+                        bufprintf(i == 0 ? " %lx:%lx v%lu" : ", %lx:%lx v%lu", ov->oid.inode, ov->oid.stripe, ov->version);
+                    }
                 }
                 else if (op->req.hdr.opcode == OSD_OP_SEC_LIST)
                 {

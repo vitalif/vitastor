@@ -70,7 +70,7 @@ class osd_t
     int client_queue_depth = 128;
     bool allow_test_ops = true;
     int print_stats_interval = 3;
-    int slow_log_interval = 30;
+    int slow_log_interval = 10;
     int immediate_commit = IMMEDIATE_NONE;
     int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // sync every 5 seconds
     int recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
