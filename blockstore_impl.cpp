@@ -517,7 +517,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
                     if (!replace_stable(dirty_it->first.oid, dirty_it->first.version, 0, clean_stable_count, stable))
                     {
                         // Then try to replace the last dirty stable version in the second part of the list
-                        if (stable[stable_count-1].oid == dirty_it->first.oid)
+                        if (stable_count > 0 && stable[stable_count-1].oid == dirty_it->first.oid)
                         {
                             stable[stable_count-1].version = dirty_it->first.version;
                         }
