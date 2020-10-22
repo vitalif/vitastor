@@ -340,8 +340,6 @@ void osd_messenger_t::stop_client(int peer_fd)
     if (cl->osd_num)
     {
         osd_peer_fds.erase(cl->osd_num);
-        // Cancel outbound operations
-        cancel_osd_ops(cl);
     }
     if (cl->read_op)
     {
@@ -367,13 +365,20 @@ void osd_messenger_t::stop_client(int peer_fd)
     free(cl->in_buf);
     cl->in_buf = NULL;
     close(peer_fd);
+    if (repeer_osd)
+    {
+        // First repeer PGs as canceling OSD ops may push new operations
+        // and we need correct PG states when we do that
+        repeer_pgs(repeer_osd);
+    }
+    if (cl->osd_num)
+    {
+        // Cancel outbound operations
+        cancel_osd_ops(cl);
+    }
     if (cl->refs <= 0)
     {
         delete cl;
-    }
-    if (repeer_osd)
-    {
-        repeer_pgs(repeer_osd);
     }
 }
 

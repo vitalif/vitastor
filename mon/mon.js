@@ -1067,7 +1067,7 @@ class Mon
         }
         catch (e)
         {
-            console.log('Bad key in etcd: '+kv.key+' = '+kv.value);
+            console.log('Bad value in etcd: '+kv.key+' = '+kv.value);
             return;
         }
         key = key.split('/');
