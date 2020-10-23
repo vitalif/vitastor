@@ -208,7 +208,7 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
     {
         pg_cursize = 0;
         // Object is degraded/misplaced and will be moved to <write_osd_set>
-        for (int role = 0; role < pg_size; role++)
+        for (int role = 0; role < pg_minsize; role++)
         {
             if (write_osd_set[role] != read_osd_set[role] && write_osd_set[role] != 0)
             {
@@ -221,6 +221,20 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
                     stripes[role].read_start = 0;
                     stripes[role].read_end = chunk_size;
                     // Warning: We don't modify write_start/write_end here, we do it in calc_rmw_parity()
+                }
+            }
+            if (read_osd_set[role] != 0)
+            {
+                pg_cursize++;
+            }
+        }
+        for (int role = pg_minsize; role < pg_size; role++)
+        {
+            if (write_osd_set[role] != read_osd_set[role] && write_osd_set[role] != 0)
+            {
+                for (int r2 = 0; r2 < pg_minsize; r2++)
+                {
+                    cover_read(0, chunk_size, stripes[r2]);
                 }
             }
             if (read_osd_set[role] != 0)
@@ -251,8 +265,8 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
                     }
                     if (found < pg_minsize)
                     {
-                        // FIXME Object is incomplete - refuse partial overwrite
-                        assert(0);
+                        // Object is incomplete - refuse partial overwrite
+                        return NULL;
                     }
                 }
             }

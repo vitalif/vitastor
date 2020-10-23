@@ -23,6 +23,9 @@ osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h $(OSD_OBJS)
 stub_osd: stub_osd.o rw_blocking.o
 	g++ $(CXXFLAGS) -o $@ stub_osd.o rw_blocking.o -ltcmalloc_minimal
 
+osd_rmw_test: osd_rmw_test.o
+	g++ $(CXXFLAGS) -o $@ osd_rmw_test.o
+
 STUB_URING_OSD_OBJS := stub_uring_osd.o epoll_manager.o messenger.o msgr_send.o msgr_receive.o ringloop.o timerfd_manager.o json11.o
 stub_uring_osd: $(STUB_URING_OSD_OBJS)
 	g++ $(CXXFLAGS) -o $@ -ltcmalloc_minimal $(STUB_URING_OSD_OBJS) -luring

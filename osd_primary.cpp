@@ -239,6 +239,12 @@ resume_1:
     {
         cur_op->rmw_buf = calc_rmw(cur_op->buf, op_data->stripes, op_data->prev_set,
             pg.pg_size, pg.pg_minsize, pg.pg_cursize, pg.cur_set.data(), bs_block_size);
+        if (!cur_op->rmw_buf)
+        {
+            // Refuse partial overwrite of an incomplete object
+            cur_op->reply.hdr.retval = -EINVAL;
+            goto continue_others;
+        }
     }
     // Read required blocks
     submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, pg.pg_size, op_data->prev_set, cur_op);
@@ -361,10 +367,12 @@ resume_9:
         remove_object_from_state(op_data->oid, op_data->object_state, pg);
         pg.clean_count++;
     }
+    cur_op->reply.hdr.retval = cur_op->req.rw.len;
+continue_others:
     // Remove version override
     pg.ver_override.erase(op_data->oid);
     object_id oid = op_data->oid;
-    finish_op(cur_op, cur_op->req.rw.len);
+    finish_op(cur_op, cur_op->reply.hdr.retval);
     // Continue other write operations to the same object
     auto next_it = pg.write_queue.find(oid);
     auto this_it = next_it;
