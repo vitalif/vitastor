@@ -237,7 +237,7 @@ void pg_obj_state_check_t::finish_object()
     {
         if (log_level > 1)
         {
-            printf("Object is incomplete: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
+            printf("Object is incomplete: %lx:%lx version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
         }
         state = OBJ_INCOMPLETE;
         pg->state = pg->state | PG_HAS_INCOMPLETE;
@@ -246,37 +246,27 @@ void pg_obj_state_check_t::finish_object()
     {
         if (log_level > 1)
         {
-            printf("Object is degraded: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
+            printf("Object is degraded: %lx:%lx version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
         }
         state = OBJ_DEGRADED;
         pg->state = pg->state | PG_HAS_DEGRADED;
     }
     else if (n_mismatched > 0)
     {
-        if (log_level > 1 && (replicated || n_roles >= pg->pg_cursize))
+        if (log_level > 2 && (replicated || n_roles >= pg->pg_cursize))
         {
-            printf("Object is misplaced: inode=%lu stripe=%lu version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
+            printf("Object is misplaced: %lx:%lx version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
         }
         state |= OBJ_MISPLACED;
         pg->state = pg->state | PG_HAS_MISPLACED;
     }
-    if (log_level > 1 && ((replicated ? n_copies : n_roles) < pg->pg_cursize || n_mismatched > 0))
+    if (log_level > 1 && (state & (OBJ_INCOMPLETE | OBJ_DEGRADED)) ||
+        log_level > 2 && (state & OBJ_MISPLACED))
     {
-        if (log_level > 2)
+        for (int i = obj_start; i < obj_end; i++)
         {
-            for (int i = obj_start; i < obj_end; i++)
-            {
-                printf("v%lu present on: osd %lu, role %ld%s\n", list[i].version, list[i].osd_num,
-                    (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
-            }
-        }
-        else
-        {
-            for (int i = ver_start; i < ver_end; i++)
-            {
-                printf("Target version present on: osd %lu, role %ld%s\n", list[i].osd_num,
-                    (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
-            }
+            printf("v%lu present on: osd %lu, role %ld%s\n", list[i].version, list[i].osd_num,
+                (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
         }
     }
     pg->total_count++;
