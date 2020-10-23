@@ -312,6 +312,13 @@ resume_5:
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
         return;
     }
+resume_6:
+resume_7:
+    if (!remember_unstable_write(cur_op, pg, pg.cur_loc_set, 6))
+    {
+        // FIXME: Check for immediate_commit == IMMEDIATE_SMALL
+        return;
+    }
     if (op_data->fact_ver == 1)
     {
         // Object is created
@@ -356,13 +363,6 @@ resume_9:
     }
     // Remove version override
     pg.ver_override.erase(op_data->oid);
-    // FIXME: Check for immediate_commit == IMMEDIATE_SMALL
-resume_6:
-resume_7:
-    if (!remember_unstable_write(cur_op, pg, pg.cur_loc_set, 6))
-    {
-        return;
-    }
     object_id oid = op_data->oid;
     finish_op(cur_op, cur_op->req.rw.len);
     // Continue other write operations to the same object
@@ -391,6 +391,7 @@ bool osd_t::remember_unstable_write(osd_op_t *cur_op, pg_t & pg, pg_osd_set_t & 
     {
         goto resume_7;
     }
+    // FIXME: Check for immediate_commit == IMMEDIATE_SMALL
     if (immediate_commit == IMMEDIATE_ALL)
     {
         if (op_data->scheme != POOL_SCHEME_REPLICATED)
