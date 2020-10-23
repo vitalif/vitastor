@@ -148,6 +148,7 @@ resume_5:
     {
         mark_rolled_back(*v);
     }
+    flusher->mark_trim_possible();
     // Acknowledge op
     op->retval = 0;
     FINISH_OP(op);

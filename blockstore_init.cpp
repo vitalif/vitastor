@@ -399,6 +399,7 @@ resume_1:
             }
         }
     }
+    bs->flusher->mark_trim_possible();
     bs->journal.dirty_start = bs->journal.next_free;
     printf(
         "Journal entries loaded: %lu, free journal space: %lu bytes (%08lx..%08lx is used), free blocks: %lu / %lu\n",

@@ -103,6 +103,7 @@ public:
     ~journal_flusher_t();
     void loop();
     bool is_active();
+    void mark_trim_possible();
     void request_trim();
     void release_trim();
     void enqueue_flush(obj_ver_id oid);
