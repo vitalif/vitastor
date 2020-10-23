@@ -558,7 +558,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
             {
 #ifdef BLOCKSTORE_DEBUG
                 printf(
-                    "je_big_write%s oid=%lx:%lx ver=%lu loc=%lu\n",
+                    "je_big_write%s oid=%lx:%lx ver=%lu loc=%08lx\n",
                     je->type == JE_BIG_WRITE_INSTANT ? "_instant" : "",
                     je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location
                 );
@@ -585,6 +585,12 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
 #endif
                     bs->data_alloc->set(je->big_write.location >> bs->block_order, true);
                     bs->journal.used_sectors[proc_pos]++;
+#ifdef BLOCKSTORE_DEBUG
+                    printf(
+                        "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
+                        proc_pos, ov.oid.inode, ov.oid.stripe, ov.version, bs->journal.used_sectors[proc_pos]
+                    );
+#endif
                     auto & unstab = bs->unstable_writes[ov.oid];
                     unstab = unstab < ov.version ? ov.version : unstab;
                     if (je->type == JE_BIG_WRITE_INSTANT)
