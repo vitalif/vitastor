@@ -169,6 +169,7 @@ struct journal_t
 
     ~journal_t();
     bool trim();
+    uint64_t get_trim_pos();
 };
 
 struct blockstore_journal_check_t

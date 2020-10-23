@@ -59,6 +59,8 @@ class journal_flusher_co
     uint64_t clean_bitmap_offset, clean_bitmap_len;
     void *new_clean_bitmap;
 
+    uint64_t new_trim_pos;
+
     // local: scan_dirty()
     uint64_t offset, end_offset, submit_offset, submit_len;
 
@@ -85,6 +87,7 @@ class journal_flusher_t
     friend class journal_flusher_co;
 
     int journal_trim_counter, journal_trim_interval;
+    bool trimming;
     void* journal_superblock;
 
     int active_flushers;

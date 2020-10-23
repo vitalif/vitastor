@@ -399,8 +399,6 @@ resume_1:
             }
         }
     }
-    // Trim journal on start so we don't stall when all entries are older
-    bs->journal.trim();
     bs->journal.dirty_start = bs->journal.next_free;
     printf(
         "Journal entries loaded: %lu, free journal space: %lu bytes (%08lx..%08lx is used), free blocks: %lu / %lu\n",

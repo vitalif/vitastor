@@ -184,7 +184,7 @@ journal_t::~journal_t()
     buffer = NULL;
 }
 
-bool journal_t::trim()
+uint64_t journal_t::get_trim_pos()
 {
     auto journal_used_it = used_sectors.lower_bound(used_start);
 #ifdef BLOCKSTORE_DEBUG
@@ -202,26 +202,19 @@ bool journal_t::trim()
         if (journal_used_it == used_sectors.end())
         {
             // Journal is empty
-            used_start = next_free;
+            return next_free;
         }
         else
         {
-            used_start = journal_used_it->first;
-            // next_free does not need updating here
+            // next_free does not need updating during trim
+            return journal_used_it->first;
         }
     }
     else if (journal_used_it->first > used_start)
     {
         // Journal is cleared up to <journal_used_it>
-        used_start = journal_used_it->first;
+        return journal_used_it->first;
     }
-    else
-    {
-        // Can't trim journal
-        return false;
-    }
-#ifdef BLOCKSTORE_DEBUG
-    printf("Journal trimmed to %08lx (next_free=%08lx)\n", used_start, next_free);
-#endif
-    return true;
+    // Can't trim journal
+    return used_start;
 }

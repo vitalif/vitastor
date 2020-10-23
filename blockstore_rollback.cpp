@@ -148,7 +148,6 @@ resume_5:
     {
         mark_rolled_back(*v);
     }
-    journal.trim();
     // Acknowledge op
     op->retval = 0;
     FINISH_OP(op);
