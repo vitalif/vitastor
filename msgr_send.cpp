@@ -58,6 +58,7 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
         to_outbox.push_back(NULL);
         for (int i = 0; i < cur_op->iov.count; i++)
         {
+            assert(cur_op->iov.buf[i].iov_base);
             to_send_list.push_back(cur_op->iov.buf[i]);
             to_outbox.push_back(i == cur_op->iov.count-1 ? cur_op : NULL);
         }

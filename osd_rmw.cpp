@@ -193,6 +193,16 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
         if (write_osd_set[role] != 0)
         {
             write_parity = 1;
+            if (write_osd_set[role] != read_osd_set[role])
+            {
+                start = 0;
+                end = chunk_size;
+                for (int r2 = pg_minsize; r2 < role; r2++)
+                {
+                    stripes[r2].write_start = start;
+                    stripes[r2].write_end = end;
+                }
+            }
             stripes[role].write_start = start;
             stripes[role].write_end = end;
         }
@@ -208,9 +218,9 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
     {
         pg_cursize = 0;
         // Object is degraded/misplaced and will be moved to <write_osd_set>
-        for (int role = 0; role < pg_minsize; role++)
+        for (int role = 0; role < pg_size; role++)
         {
-            if (write_osd_set[role] != read_osd_set[role] && write_osd_set[role] != 0)
+            if (role < pg_minsize && write_osd_set[role] != read_osd_set[role] && write_osd_set[role] != 0)
             {
                 // We need to get data for any moved / recovered chunk
                 // And we need a continuous write buffer so we'll only optimize
@@ -221,20 +231,6 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
                     stripes[role].read_start = 0;
                     stripes[role].read_end = chunk_size;
                     // Warning: We don't modify write_start/write_end here, we do it in calc_rmw_parity()
-                }
-            }
-            if (read_osd_set[role] != 0)
-            {
-                pg_cursize++;
-            }
-        }
-        for (int role = pg_minsize; role < pg_size; role++)
-        {
-            if (write_osd_set[role] != read_osd_set[role] && write_osd_set[role] != 0)
-            {
-                for (int r2 = 0; r2 < pg_minsize; r2++)
-                {
-                    cover_read(0, chunk_size, stripes[r2]);
                 }
             }
             if (read_osd_set[role] != 0)
@@ -397,6 +393,14 @@ void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_
                 end = std::max(stripes[role].req_end, end);
             }
         }
+        for (int role = pg_minsize; role < pg_size; role++)
+        {
+            if (write_osd_set[role] != 0 && write_osd_set[role] != read_osd_set[role])
+            {
+                start = 0;
+                end = chunk_size;
+            }
+        }
     }
     if (write_osd_set != read_osd_set)
     {
@@ -463,4 +467,20 @@ void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_
             }
         }
     }
+#ifdef RMW_DEBUG
+    printf("calc_rmw_xor:\n");
+    for (int role = 0; role < pg_size; role++)
+    {
+        auto & s = stripes[role];
+        printf(
+            "Tr=%lu Tw=%lu Q=%x-%x R=%x-%x W=%x-%x Rb=%lx Wb=%lx\n",
+            read_osd_set[role], write_osd_set[role],
+            s.req_start, s.req_end,
+            s.read_start, s.read_end,
+            s.write_start, s.write_end,
+            (uint64_t)s.read_buf,
+            (uint64_t)s.write_buf
+        );
+    }
+#endif
 }

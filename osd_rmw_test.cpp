@@ -1,6 +1,8 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.0 (see README.md for details)
 
+#define RMW_DEBUG
+
 #include <string.h>
 #include "osd_rmw.cpp"
 #include "test_pattern.h"
@@ -15,6 +17,7 @@ void test8();
 void test9();
 void test10();
 void test11();
+void test12();
 
 /***
 
@@ -137,6 +140,8 @@ int main(int narg, char *args[])
     test10();
     // Test 11
     test11();
+    // Test 12
+    test12();
     // End
     printf("all ok\n");
     return 0;
@@ -470,4 +475,43 @@ void test11()
     check_pattern(stripes[2].write_buf, 128*1024, PATTERN1^PATTERN2);
     free(rmw_buf);
     free(write_buf);
+}
+
+void test12()
+{
+    osd_num_t osd_set[3] = { 1, 2, 0 };
+    osd_num_t write_osd_set[3] = { 1, 2, 3 };
+    osd_rmw_stripe_t stripes[3] = { 0 };
+    // Test 11.0
+    split_stripes(2, 128*1024, 0, 0, stripes);
+    assert(stripes[0].req_start == 0 && stripes[0].req_end == 0);
+    assert(stripes[1].req_start == 0 && stripes[1].req_end == 0);
+    assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
+    // Test 11.1
+    void *rmw_buf = calc_rmw(NULL, stripes, osd_set, 3, 2, 3, write_osd_set, 128*1024);
+    assert(rmw_buf);
+    assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
+    assert(stripes[1].read_start == 0 && stripes[1].read_end == 128*1024);
+    assert(stripes[2].read_start == 0 && stripes[2].read_end == 0);
+    assert(stripes[0].write_start == 0 && stripes[0].write_end == 0);
+    assert(stripes[1].write_start == 0 && stripes[1].write_end == 0);
+    assert(stripes[2].write_start == 0 && stripes[2].write_end == 128*1024);
+    assert(stripes[0].read_buf == rmw_buf+128*1024);
+    assert(stripes[1].read_buf == rmw_buf+2*128*1024);
+    assert(stripes[2].read_buf == NULL);
+    assert(stripes[0].write_buf == NULL);
+    assert(stripes[1].write_buf == NULL);
+    assert(stripes[2].write_buf == rmw_buf);
+    // Test 11.2
+    set_pattern(stripes[0].read_buf, 128*1024, PATTERN1);
+    set_pattern(stripes[1].read_buf, 128*1024, PATTERN2);
+    calc_rmw_parity_xor(stripes, 3, osd_set, write_osd_set, 128*1024);
+    assert(stripes[0].write_start == 0 && stripes[0].write_end == 0);
+    assert(stripes[1].write_start == 0 && stripes[1].write_end == 0);
+    assert(stripes[2].write_start == 0 && stripes[2].write_end == 128*1024);
+    assert(stripes[0].write_buf == NULL);
+    assert(stripes[1].write_buf == NULL);
+    assert(stripes[2].write_buf == rmw_buf);
+    check_pattern(stripes[2].write_buf, 128*1024, PATTERN1^PATTERN2);
+    free(rmw_buf);
 }
