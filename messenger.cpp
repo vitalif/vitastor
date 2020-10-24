@@ -81,6 +81,7 @@ void osd_messenger_t::try_connect_peer(uint64_t peer_osd)
 
 void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer_host, int peer_port)
 {
+    assert(peer_osd != this->osd_num);
     struct sockaddr_in addr;
     int r;
     if ((r = inet_pton(AF_INET, peer_host, &addr.sin_addr)) != 1)
@@ -97,17 +98,6 @@ void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer
         return;
     }
     fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
-    int timeout_id = -1;
-    if (peer_connect_timeout > 0)
-    {
-        timeout_id = tfd->set_timer(1000*peer_connect_timeout, false, [this, peer_fd](int timer_id)
-        {
-            osd_num_t peer_osd = clients[peer_fd]->osd_num;
-            stop_client(peer_fd);
-            on_connect_peer(peer_osd, -EIO);
-            return;
-        });
-    }
     r = connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
     if (r < 0 && errno != EINPROGRESS)
     {
@@ -115,7 +105,17 @@ void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer
         on_connect_peer(peer_osd, -errno);
         return;
     }
-    assert(peer_osd != this->osd_num);
+    int timeout_id = -1;
+    if (peer_connect_timeout > 0)
+    {
+        timeout_id = tfd->set_timer(1000*peer_connect_timeout, false, [this, peer_fd](int timer_id)
+        {
+            osd_num_t peer_osd = clients.at(peer_fd)->osd_num;
+            stop_client(peer_fd);
+            on_connect_peer(peer_osd, -EIO);
+            return;
+        });
+    }
     clients[peer_fd] = new osd_client_t({
         .peer_addr = addr,
         .peer_port = peer_port,
@@ -337,6 +337,11 @@ void osd_messenger_t::stop_client(int peer_fd)
     cl->peer_state = PEER_STOPPED;
     clients.erase(it);
     tfd->set_fd_handler(peer_fd, false, NULL);
+    if (cl->connect_timeout_id >= 0)
+    {
+        tfd->clear_timer(cl->connect_timeout_id);
+        cl->connect_timeout_id = -1;
+    }
     if (cl->osd_num)
     {
         osd_peer_fds.erase(cl->osd_num);
