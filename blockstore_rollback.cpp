@@ -9,10 +9,14 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
     {
         return continue_rollback(op);
     }
-    obj_ver_id* v;
+    obj_ver_id *v, *nv;
     int i, todo = op->len;
-    for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
+    for (i = 0, v = (obj_ver_id*)op->buf, nv = (obj_ver_id*)op->buf; i < op->len; i++, v++, nv++)
     {
+        if (nv != v)
+        {
+            *nv = *v;
+        }
         // Check that there are some versions greater than v->version (which may be zero),
         // check that they're unstable, synced, and not currently written to
         auto dirty_it = dirty_db.lower_bound((obj_ver_id){
@@ -21,22 +25,18 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
         });
         if (dirty_it == dirty_db.begin())
         {
-            if (v->version == 0)
-            {
-                // Already rolled back
-                // FIXME Skip this object version
-            }
-        bad_op:
-            op->retval = -ENOENT;
-            FINISH_OP(op);
-            return 1;
+skip_ov:
+            // Already rolled back, skip this object version
+            todo--;
+            nv--;
+            continue;
         }
         else
         {
             dirty_it--;
             if (dirty_it->first.oid != v->oid || dirty_it->first.version < v->version)
             {
-                goto bad_op;
+                goto skip_ov;
             }
             while (dirty_it->first.oid == v->oid && dirty_it->first.version > v->version)
             {
@@ -59,6 +59,14 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
                 dirty_it--;
             }
         }
+    }
+    op->len = todo;
+    if (!todo)
+    {
+        // Already rolled back
+        op->retval = 0;
+        FINISH_OP(op);
+        return 1;
     }
     // Check journal space
     blockstore_journal_check_t space_check(this);
