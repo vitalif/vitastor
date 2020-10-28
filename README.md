@@ -274,7 +274,8 @@ Vitastor with single-thread NBD on the same hardware:
 
 ## Building
 
-- Install Linux kernel 5.4 or newer for io_uring support.
+- Install Linux kernel 5.4 or newer, for io_uring support. 5.8 or later is highly recommended because
+  there is at least one known io_uring hang with 5.4 and an HP SmartArray controller.
 - Install liburing 0.4 or newer and its headers.
 - Install lp_solve.
 - Install etcd. Attention: you need a fixed version from here: https://github.com/vitalif/etcd/,
@@ -310,9 +311,9 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
 - Get a fast network (at least 10 Gbit/s).
 - Disable CPU powersaving: `cpupower idle-set -D 0 && cpupower frequency-set -g performance`.
 - Start etcd with `--max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision` options.
-- Create global configuration in etcd: `etcdctl put /vitastor/config/global '{"immediate_commit":"all"}'`
+- Create global configuration in etcd: `etcdctl --endpoints=... put /vitastor/config/global '{"immediate_commit":"all"}'`
   (if all your drives have capacitors).
-- Create pool configuration in etcd: `etcdctl put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":256,"failure_domain":"host"}}'`.
+- Create pool configuration in etcd: `etcdctl --endpoints=... put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":256,"failure_domain":"host"}}'`.
 - Calculate offsets for your drives with `node ./mon/simple-offsets.js --device /dev/sdX`.
 - Make systemd units for your OSDs. Look at `./mon/make-units.sh` for example.
   Notable configuration variables from the example:
@@ -335,7 +336,7 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
 - `systemctl start vitastor.target` everywhere.
 - Start any number of monitors: `cd mon; node mon-main.js --etcd_url 'http://10.115.0.10:2379,http://10.115.0.11:2379,http://10.115.0.12:2379,http://10.115.0.13:2379' --etcd_prefix '/vitastor' --etcd_start_timeout 5`.
 - At this point, one of the monitors will configure PGs and OSDs will start them.
-- You can check PG states with `etcdctl get --prefix /vitastor/pg/state`. All PGs should become 'active'.
+- You can check PG states with `etcdctl --endpoints=... get --prefix /vitastor/pg/state`. All PGs should become 'active'.
 - Run tests with (for example): `fio -thread -ioengine=./libfio_cluster.so -name=test -bs=4M -direct=1 -iodepth=16 -rw=write -etcd=10.115.0.10:2379/v3 -pool=1 -inode=1 -size=400G`.
 - Upload VM disk image with qemu-img (for example):
   ```
