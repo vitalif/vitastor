@@ -1,6 +1,9 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.0 or GNU GPL-2.0+ (see README.md for details)
 
+#define _XOPEN_SOURCE
+#include <limits.h>
+
 #include "messenger.h"
 
 void osd_messenger_t::outbox_push(osd_op_t *cur_op)
@@ -130,7 +133,7 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
             return false;
         }
         cl->write_msg.msg_iov = cl->send_list.data();
-        cl->write_msg.msg_iovlen = cl->send_list.size();
+        cl->write_msg.msg_iovlen = cl->send_list.size() < IOV_MAX ? cl->send_list.size() : IOV_MAX;
         cl->refs++;
         ring_data_t* data = ((ring_data_t*)sqe->user_data);
         data->callback = [this, cl](ring_data_t *data) { handle_send(data->res, cl); };
@@ -139,7 +142,7 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
     else
     {
         cl->write_msg.msg_iov = cl->send_list.data();
-        cl->write_msg.msg_iovlen = cl->send_list.size();
+        cl->write_msg.msg_iovlen = cl->send_list.size() < IOV_MAX ? cl->send_list.size() : IOV_MAX;
         cl->refs++;
         int result = sendmsg(peer_fd, &cl->write_msg, MSG_NOSIGNAL);
         if (result < 0)
