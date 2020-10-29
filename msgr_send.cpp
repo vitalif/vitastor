@@ -122,9 +122,6 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
     {
         return true;
     }
-    cl->write_msg.msg_iov = cl->send_list.data();
-    cl->write_msg.msg_iovlen = cl->send_list.size();
-    cl->refs++;
     if (ringloop && !use_sync_send_recv)
     {
         io_uring_sqe* sqe = ringloop->get_sqe();
@@ -132,12 +129,18 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
         {
             return false;
         }
+        cl->write_msg.msg_iov = cl->send_list.data();
+        cl->write_msg.msg_iovlen = cl->send_list.size();
+        cl->refs++;
         ring_data_t* data = ((ring_data_t*)sqe->user_data);
         data->callback = [this, cl](ring_data_t *data) { handle_send(data->res, cl); };
         my_uring_prep_sendmsg(sqe, peer_fd, &cl->write_msg, 0);
     }
     else
     {
+        cl->write_msg.msg_iov = cl->send_list.data();
+        cl->write_msg.msg_iovlen = cl->send_list.size();
+        cl->refs++;
         int result = sendmsg(peer_fd, &cl->write_msg, MSG_NOSIGNAL);
         if (result < 0)
         {

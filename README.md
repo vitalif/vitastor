@@ -357,9 +357,6 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
 
 ## Known Problems
 
-- OSDs may currently crash with "can't get SQE, will fall out of sync with EPOLLET"
-  if you try to load them with very long iodepths because io_uring queue (ring) is limited
-  and OSDs don't check if it fills up.
 - Object deletion requests may currently lead to 'incomplete' objects if your OSDs crash during
   deletion because proper handling of object cleanup in a cluster should be "three-phase"
   and it's currently not implemented. Inode removal tool currently can't handle unclean

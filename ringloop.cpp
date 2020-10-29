@@ -66,10 +66,18 @@ void ring_loop_t::loop()
         struct ring_data_t *d = (struct ring_data_t*)cqe->user_data;
         if (d->callback)
         {
-            d->res = cqe->res;
-            d->callback(d);
+            // First free ring_data item, then call the callback
+            // so it has at least 1 free slot for the next event
+            // which is required for EPOLLET to function properly
+            struct ring_data_t dl;
+            dl.iov = d->iov;
+            dl.res = cqe->res;
+            dl.callback.swap(d->callback);
+            free_ring_data[free_ring_data_ptr++] = d - ring_datas;
+            dl.callback(&dl);
         }
-        free_ring_data[free_ring_data_ptr++] = d - ring_datas;
+        else
+            free_ring_data[free_ring_data_ptr++] = d - ring_datas;
         io_uring_cqe_seen(&ring, cqe);
     }
     while (get_sqe_queue.size() > 0)
