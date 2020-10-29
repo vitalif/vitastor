@@ -153,7 +153,8 @@ void osd_messenger_t::send_replies()
     for (int i = 0; i < write_ready_clients.size(); i++)
     {
         int peer_fd = write_ready_clients[i];
-        if (!try_send(clients[peer_fd]))
+        auto cl_it = clients.find(peer_fd);
+        if (cl_it != clients.end() && !try_send(cl_it->second))
         {
             write_ready_clients.erase(write_ready_clients.begin(), write_ready_clients.begin() + i);
             return;
