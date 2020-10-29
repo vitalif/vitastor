@@ -18,7 +18,14 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     // Our EC scheme stores data in fixed chunks equal to (K*block size)
     // K = pg_minsize in case of EC/XOR, or 1 for replicated pools
     pool_id_t pool_id = INODE_POOL(cur_op->req.rw.inode);
-    auto & pool_cfg = st_cli.pool_config[pool_id];
+    auto pool_cfg_it = st_cli.pool_config.find(pool_id);
+    if (pool_cfg_it == st_cli.pool_config.end())
+    {
+        // Pool config is not loaded yet
+        finish_op(cur_op, -EPIPE);
+        return false;
+    }
+    auto & pool_cfg = pool_cfg_it->second;
     uint64_t pg_block_size = bs_block_size * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_minsize);
     object_id oid = {
         .inode = cur_op->req.rw.inode,
