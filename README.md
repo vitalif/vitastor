@@ -153,9 +153,9 @@ I use the following 6 commands with small variations to benchmark any storage:
   `fio -ioengine=libaio -direct=1 -invalidate=1 -name=test -bs=4M -iodepth=32 -rw=write -runtime=60 -filename=/dev/sdX`
 - Linear read:
   `fio -ioengine=libaio -direct=1 -invalidate=1 -name=test -bs=4M -iodepth=32 -rw=read -runtime=60 -filename=/dev/sdX`
-- Random write latency (this hurts storages the most):
+- Random write latency (T1Q1, this hurts storages the most):
   `fio -ioengine=libaio -direct=1 -invalidate=1 -name=test -bs=4k -iodepth=1 -fsync=1 -rw=randwrite -runtime=60 -filename=/dev/sdX`
-- Random read latency:
+- Random read latency (T1Q1):
   `fio -ioengine=libaio -direct=1 -invalidate=1 -name=test -bs=4k -iodepth=1 -rw=randread -runtime=60 -filename=/dev/sdX`
 - Parallel write iops (use numjobs if a single CPU core is insufficient to saturate the load):
   `fio -ioengine=libaio -direct=1 -invalidate=1 -name=test -bs=4k -iodepth=128 [-numjobs=4 -group_reporting] -rw=randwrite -runtime=60 -filename=/dev/sdX`
@@ -206,7 +206,7 @@ Hardware configuration: 4 nodes, each with:
 
 CPU powersaving was disabled. Both Vitastor and Ceph were configured with 2 OSDs per 1 SSD.
 
-All of the results below apply to 4 KB blocks.
+All of the results below apply to 4 KB blocks and random access (unless indicated otherwise).
 
 Raw drive performance:
 - T1Q1 write ~27000 iops (~0.037ms latency)
@@ -257,6 +257,14 @@ Vitastor:
 - T8Q64 read: 812000 iops, total CPU usage by OSDs about 4.7 virtual cores on each node
 - Linear write (4M T1Q32): 3200 MB/s
 - Linear read (4M T1Q32): 1800 MB/s
+
+Ceph:
+- T1Q1 write: 730 iops (~1.37ms latency)
+- T1Q1 read: 1500 iops with cold cache (~0.66ms latency), 2300 iops after 2 minute metadata cache warmup (~0.435ms latency)
+- T4Q128 write (4 RBD images): 45300 iops, total CPU usage by OSDs about 30 virtual cores on each node
+- T8Q64 read (4 RBD images): 278600 iops, total CPU usage by OSDs about 40 virtual cores on each node
+- Linear write (4M T1Q32): 1950 MB/s before preallocation, 2500 MB/s after preallocation
+- Linear read (4M T1Q32): 2400 MB/s
 
 ### NBD
 
