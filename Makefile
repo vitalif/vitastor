@@ -55,7 +55,7 @@ qemu_driver.o: qemu_driver.c qemu_proxy.h
 		-I qemu/include $(CXXFLAGS) -c -o $@ $<
 
 qemu_driver.so: qemu_driver.o qemu_proxy.o $(FIO_CLUSTER_OBJS)
-	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $< $(FIO_CLUSTER_OBJS) qemu_driver.o qemu_proxy.o -luring
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $(FIO_CLUSTER_OBJS) qemu_driver.o qemu_proxy.o -luring
 
 test_blockstore: ./libblockstore.so test_blockstore.cpp timerfd_interval.o
 	g++ $(CXXFLAGS) -o test_blockstore test_blockstore.cpp timerfd_interval.o ./libblockstore.so -ltcmalloc_minimal -luring

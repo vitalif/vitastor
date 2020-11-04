@@ -3,6 +3,7 @@
 
 // QEMU block driver
 
+#define BUILD_DSO
 #define _GNU_SOURCE
 #include "qemu/osdep.h"
 #include "qemu/units.h"
@@ -18,6 +19,14 @@
 #include "qemu/cutils.h"
 
 #include "qemu_proxy.h"
+
+void qemu_module_dummy(void)
+{
+}
+
+void DSO_STAMP_FUN(void)
+{
+}
 
 typedef struct VitastorClient
 {
