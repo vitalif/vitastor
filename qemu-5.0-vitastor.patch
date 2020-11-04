@@ -1,0 +1,84 @@
+Index: qemu/qapi/block-core.json
+===================================================================
+--- qemu.orig/qapi/block-core.json
++++ qemu/qapi/block-core.json
+@@ -2798,7 +2798,7 @@
+             'luks', 'nbd', 'nfs', 'null-aio', 'null-co', 'nvme', 'parallels',
+             'qcow', 'qcow2', 'qed', 'quorum', 'raw', 'rbd',
+             { 'name': 'replication', 'if': 'defined(CONFIG_REPLICATION)' },
+-            'sheepdog',
++            'sheepdog', 'vitastor',
+             'ssh', 'throttle', 'vdi', 'vhdx', 'vmdk', 'vpc', 'vvfat', 'vxhs' ] }
+ 
+ ##
+@@ -3635,6 +3635,24 @@
+             '*tag': 'str' } }
+ 
+ ##
++# @BlockdevOptionsVitastor:
++#
++# Driver specific block device options for vitastor
++#
++# @inode:       Inode number
++# @pool:        Pool ID
++# @size:        Desired image size in bytes
++# @etcd_host:   etcd connection address
++# @etcd_prefix: etcd key/value prefix
++##
++{ 'struct': 'BlockdevOptionsVitastor',
++  'data': { 'inode': 'uint64',
++            'pool': 'uint64',
++            'size': 'uint64',
++            'etcd_host': 'str',
++            '*etcd_prefix': 'str' } }
++
++##
+ # @ReplicationMode:
+ #
+ # An enumeration of replication modes.
+@@ -3995,6 +4013,7 @@
+       'replication': { 'type': 'BlockdevOptionsReplication',
+                        'if': 'defined(CONFIG_REPLICATION)' },
+       'sheepdog':   'BlockdevOptionsSheepdog',
++      'vitastor':   'BlockdevOptionsVitastor',
+       'ssh':        'BlockdevOptionsSsh',
+       'throttle':   'BlockdevOptionsThrottle',
+       'vdi':        'BlockdevOptionsGenericFormat',
+@@ -4365,6 +4384,17 @@
+             '*cluster-size' :   'size' } }
+ 
+ ##
++# @BlockdevCreateOptionsVitastor:
++#
++# Driver specific image creation options for Vitastor.
++#
++# @size: Size of the virtual disk in bytes
++##
++{ 'struct': 'BlockdevCreateOptionsVitastor',
++  'data': { 'location':         'BlockdevOptionsVitastor',
++            'size':             'size' } }
++
++##
+ # @BlockdevVmdkSubformat:
+ #
+ # Subformat options for VMDK images
+@@ -4626,6 +4656,7 @@
+       'qed':            'BlockdevCreateOptionsQed',
+       'rbd':            'BlockdevCreateOptionsRbd',
+       'sheepdog':       'BlockdevCreateOptionsSheepdog',
++      'vitastor':       'BlockdevCreateOptionsVitastor',
+       'ssh':            'BlockdevCreateOptionsSsh',
+       'vdi':            'BlockdevCreateOptionsVdi',
+       'vhdx':           'BlockdevCreateOptionsVhdx',
+Index: qemu/scripts/modules/module_block.py
+===================================================================
+--- qemu.orig/scripts/modules/module_block.py
++++ qemu/scripts/modules/module_block.py
+@@ -85,6 +85,7 @@ def print_bottom(fheader):
+ output_file = sys.argv[1]
+ with open(output_file, 'w') as fheader:
+     print_top(fheader)
++    add_module(fheader, "vitastor", "vitastor", "vitastor")
+ 
+     for filename in sys.argv[2:]:
+         if os.path.isfile(filename):

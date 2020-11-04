@@ -1,0 +1,84 @@
+Index: qemu-3.1+dfsg/qapi/block-core.json
+===================================================================
+--- qemu-3.1+dfsg.orig/qapi/block-core.json
++++ qemu-3.1+dfsg/qapi/block-core.json
+@@ -2617,7 +2617,7 @@
+ ##
+ { 'enum': 'BlockdevDriver',
+   'data': [ 'blkdebug', 'blklogwrites', 'blkverify', 'bochs', 'cloop',
+-            'copy-on-read', 'dmg', 'file', 'ftp', 'ftps', 'gluster',
++            'copy-on-read', 'dmg', 'file', 'ftp', 'ftps', 'gluster', 'vitastor',
+             'host_cdrom', 'host_device', 'http', 'https', 'iscsi', 'luks',
+             'nbd', 'nfs', 'null-aio', 'null-co', 'nvme', 'parallels', 'qcow',
+             'qcow2', 'qed', 'quorum', 'raw', 'rbd', 'replication', 'sheepdog',
+@@ -3367,6 +3367,24 @@
+             '*tag': 'str' } }
+ 
+ ##
++# @BlockdevOptionsVitastor:
++#
++# Driver specific block device options for vitastor
++#
++# @inode:       Inode number
++# @pool:        Pool ID
++# @size:        Desired image size in bytes
++# @etcd_host:   etcd connection address
++# @etcd_prefix: etcd key/value prefix
++##
++{ 'struct': 'BlockdevOptionsVitastor',
++  'data': { 'inode': 'uint64',
++            'pool': 'uint64',
++            'size': 'uint64',
++            'etcd_host': 'str',
++            '*etcd_prefix': 'str' } }
++
++##
+ # @ReplicationMode:
+ #
+ # An enumeration of replication modes.
+@@ -3713,6 +3731,7 @@
+       'rbd':        'BlockdevOptionsRbd',
+       'replication':'BlockdevOptionsReplication',
+       'sheepdog':   'BlockdevOptionsSheepdog',
++      'vitastor':   'BlockdevOptionsVitastor',
+       'ssh':        'BlockdevOptionsSsh',
+       'throttle':   'BlockdevOptionsThrottle',
+       'vdi':        'BlockdevOptionsGenericFormat',
+@@ -4158,6 +4177,17 @@
+             '*block-state-zero':    'bool' } }
+ 
+ ##
++# @BlockdevCreateOptionsVitastor:
++#
++# Driver specific image creation options for Vitastor.
++#
++# @size: Size of the virtual disk in bytes
++##
++{ 'struct': 'BlockdevCreateOptionsVitastor',
++  'data': { 'location':         'BlockdevOptionsVitastor',
++            'size':             'size' } }
++
++##
+ # @BlockdevVpcSubformat:
+ #
+ # @dynamic: Growing image file
+@@ -4212,6 +4242,7 @@
+       'qed':            'BlockdevCreateOptionsQed',
+       'rbd':            'BlockdevCreateOptionsRbd',
+       'sheepdog':       'BlockdevCreateOptionsSheepdog',
++      'vitastor':       'BlockdevCreateOptionsVitastor',
+       'ssh':            'BlockdevCreateOptionsSsh',
+       'vdi':            'BlockdevCreateOptionsVdi',
+       'vhdx':           'BlockdevCreateOptionsVhdx',
+Index: qemu-3.1+dfsg/scripts/modules/module_block.py
+===================================================================
+--- qemu-3.1+dfsg.orig/scripts/modules/module_block.py
++++ qemu-3.1+dfsg/scripts/modules/module_block.py
+@@ -88,6 +88,7 @@ def print_bottom(fheader):
+ output_file = sys.argv[1]
+ with open(output_file, 'w') as fheader:
+     print_top(fheader)
++    add_module(fheader, "vitastor", "vitastor", "vitastor")
+ 
+     for filename in sys.argv[2:]:
+         if os.path.isfile(filename):
