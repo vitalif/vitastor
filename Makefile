@@ -1,10 +1,28 @@
+BINDIR ?= /usr/bin
+LIBDIR ?= /usr/lib/x86_64-linux-gnu
+QEMU_PLUGINDIR ?= /usr/lib/x86_64-linux-gnu/qemu
+
 BLOCKSTORE_OBJS := allocator.o blockstore.o blockstore_impl.o blockstore_init.o blockstore_open.o blockstore_journal.o blockstore_read.o \
 	blockstore_write.o blockstore_sync.o blockstore_stable.o blockstore_rollback.o blockstore_flush.o crc32c.o ringloop.o
 # -fsanitize=address
 CXXFLAGS := -g -O3 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fPIC -fdiagnostics-color=always
 all: libfio_blockstore.so osd libfio_sec_osd.so libfio_cluster.so stub_osd stub_uring_osd stub_bench osd_test dump_journal qemu_driver.so nbd_proxy rm_inode
 clean:
-	rm -f *.o
+	rm -f *.o libblockstore.so libfio_blockstore.so osd libfio_sec_osd.so libfio_cluster.so stub_osd stub_uring_osd stub_bench osd_test dump_journal qemu_driver.so nbd_proxy rm_inode
+
+install: all
+	mkdir -p $(DESTDIR)$(LIBDIR)/vitastor
+	install -m 0755 libfio_sec_osd.so $(DESTDIR)$(LIBDIR)/vitastor/
+	install -m 0755 libfio_cluster.so $(DESTDIR)$(LIBDIR)/vitastor/
+	install -m 0755 libfio_blockstore.so $(DESTDIR)$(LIBDIR)/vitastor/
+	install -m 0755 libblockstore.so $(DESTDIR)$(LIBDIR)/vitastor/
+	mkdir -p $(DESTDIR)$(BINDIR)
+	install -m 0755 osd $(DESTDIR)$(BINDIR)/vitastor-osd
+	install -m 0755 dump_journal $(DESTDIR)$(BINDIR)/vitastor-dump-journal
+	install -m 0755 nbd_proxy $(DESTDIR)$(BINDIR)/vitastor-nbd
+	install -m 0755 rm_inode $(DESTDIR)$(BINDIR)/vitastor-rm
+	mkdir -p $(DESTDIR)$(QEMU_PLUGINDIR)
+	install -m 0755 qemu_driver.so $(DESTDIR)$(QEMU_PLUGINDIR)/block-vitastor.so
 
 dump_journal: dump_journal.cpp crc32c.o blockstore_journal.h
 	g++ $(CXXFLAGS) -o $@ $< crc32c.o
@@ -12,13 +30,13 @@ dump_journal: dump_journal.cpp crc32c.o blockstore_journal.h
 libblockstore.so: $(BLOCKSTORE_OBJS)
 	g++ $(CXXFLAGS) -o $@ -shared $(BLOCKSTORE_OBJS) -ltcmalloc_minimal -luring
 libfio_blockstore.so: ./libblockstore.so fio_engine.o json11.o
-	g++ $(CXXFLAGS) -shared -o $@ fio_engine.o json11.o ./libblockstore.so -ltcmalloc_minimal -luring
+	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor' -shared -o $@ fio_engine.o json11.o ./libblockstore.so -ltcmalloc_minimal -luring
 
 OSD_OBJS := osd.o osd_secondary.o msgr_receive.o msgr_send.o osd_peering.o osd_flush.o osd_peering_pg.o \
 	osd_primary.o osd_primary_subops.o etcd_state_client.o messenger.o osd_cluster.o http_client.o osd_ops.o pg_states.o \
 	osd_rmw.o json11.o base64.o timerfd_manager.o epoll_manager.o
 osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h $(OSD_OBJS)
-	g++ $(CXXFLAGS) -o $@ osd_main.cpp $(OSD_OBJS) ./libblockstore.so -ltcmalloc_minimal -luring
+	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor' -o $@ osd_main.cpp $(OSD_OBJS) ./libblockstore.so -ltcmalloc_minimal -luring
 
 stub_osd: stub_osd.o rw_blocking.o
 	g++ $(CXXFLAGS) -o $@ stub_osd.o rw_blocking.o -ltcmalloc_minimal
@@ -58,7 +76,7 @@ qemu_driver.so: qemu_driver.o qemu_proxy.o $(FIO_CLUSTER_OBJS)
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $(FIO_CLUSTER_OBJS) qemu_driver.o qemu_proxy.o -luring
 
 test_blockstore: ./libblockstore.so test_blockstore.cpp timerfd_interval.o
-	g++ $(CXXFLAGS) -o test_blockstore test_blockstore.cpp timerfd_interval.o ./libblockstore.so -ltcmalloc_minimal -luring
+	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor' -o test_blockstore test_blockstore.cpp timerfd_interval.o ./libblockstore.so -ltcmalloc_minimal -luring
 test_shit: test_shit.cpp osd_peering_pg.o
 	g++ $(CXXFLAGS) -o test_shit test_shit.cpp -luring -lm
 test_allocator: test_allocator.cpp allocator.o
