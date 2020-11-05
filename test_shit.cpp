@@ -30,7 +30,7 @@
 
 #include "blockstore.h"
 #include "blockstore_impl.h"
-#include "osd_peering_pg.h"
+#include "osd_peering_pg.cpp"
 //#include "cpp-btree/btree_map.h"
 
 static int setup_context(unsigned entries, struct io_uring *ring)
@@ -168,7 +168,7 @@ int main0(int argc, char *argv[])
             },
             .version = 1,
         }] = (dirty_entry){
-            .state = ST_D_SYNCED,
+            .state = BS_ST_SYNCED | BS_ST_BIG_WRITE,
             .flags = 0,
             .location = (uint64_t)i << 17,
             .offset = 0,

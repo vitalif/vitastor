@@ -59,8 +59,8 @@ qemu_driver.so: qemu_driver.o qemu_proxy.o $(FIO_CLUSTER_OBJS)
 
 test_blockstore: ./libblockstore.so test_blockstore.cpp timerfd_interval.o
 	g++ $(CXXFLAGS) -o test_blockstore test_blockstore.cpp timerfd_interval.o ./libblockstore.so -ltcmalloc_minimal -luring
-test: test.cpp osd_peering_pg.o
-	g++ $(CXXFLAGS) -o test test.cpp osd_peering_pg.o -luring -lm
+test_shit: test_shit.cpp osd_peering_pg.o
+	g++ $(CXXFLAGS) -o test_shit test_shit.cpp -luring -lm
 test_allocator: test_allocator.cpp allocator.o
 	g++ $(CXXFLAGS) -o test_allocator test_allocator.cpp allocator.o
 
@@ -165,11 +165,11 @@ stub_osd.o: stub_osd.cpp object_id.h osd_id.h osd_ops.h rw_blocking.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 stub_uring_osd.o: stub_uring_osd.cpp epoll_manager.h json11/json11.hpp malloc_or_die.h messenger.h object_id.h osd_id.h osd_ops.h ringloop.h timerfd_manager.h
 	g++ $(CXXFLAGS) -c -o $@ $<
-test.o: test.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h
-	g++ $(CXXFLAGS) -c -o $@ $<
 test_allocator.o: test_allocator.cpp allocator.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 test_blockstore.o: test_blockstore.cpp blockstore.h object_id.h ringloop.h timerfd_interval.h
+	g++ $(CXXFLAGS) -c -o $@ $<
+test_shit.o: test_shit.cpp allocator.h blockstore.h blockstore_flush.h blockstore_impl.h blockstore_init.h blockstore_journal.h cpp-btree/btree_map.h crc32c.h malloc_or_die.h object_id.h osd_id.h osd_ops.h osd_peering_pg.h pg_states.h ringloop.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 timerfd_interval.o: timerfd_interval.cpp ringloop.h timerfd_interval.h
 	g++ $(CXXFLAGS) -c -o $@ $<
