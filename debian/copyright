@@ -1,0 +1,20 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: vitastor
+Upstream-Contact: Vitaliy Filippov <vitalif@yourcmc.ru>
+Source: https://vitastor.io
+
+Files: *
+Copyright: 2019+ Vitaliy Filippov <vitalif@yourcmc.ru>
+License: Multiple licenses VNPL-1.0 and/or GPL-2.0+
+ All server-side code (OSD, Monitor and so on) is licensed under the terms of
+ Vitastor Network Public License 1.0 (VNPL 1.0), a copyleft license based on
+ GNU GPLv3.0 with the additional "Network Interaction" clause which requires
+ opensourcing all programs directly or indirectly interacting with Vitastor
+ through a computer network ("Proxy Programs"). Proxy Programs may be made public
+ not only under the terms of the same license, but also under the terms of any
+ GPL-Compatible Free Software License, as listed by the Free Software Foundation.
+ This is a stricter copyleft license than the Affero GPL.
+ .
+ Client libraries (cluster_client and so on) are dual-licensed under the same
+ VNPL 1.0 and also GNU GPL 2.0 or later to allow for compatibility with GPLed
+ software like QEMU and fio.

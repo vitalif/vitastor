@@ -1,0 +1,17 @@
+Source: vitastor
+Section: admin
+Priority: optional
+Maintainer: Vitaliy Filippov <vitalif@yourcmc.ru>
+Build-Depends: debhelper-compat (= 13), liburing-dev (>= 0.6), g++ (>= 9), libstdc++6 (>= 9), linux-libc-dev, libgoogle-perftools-dev
+Standards-Version: 4.5.0
+Homepage: https://vitastor.io/
+Rules-Requires-Root: no
+
+Package: vitastor
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, fio (= ${dep:fio}), qemu (= ${dep:qemu}), nodejs (>= 12), node-sprintf-js, node-ws (>= 7)
+Description: Vitastor, a fast software-defined clustered block storage
+ Vitastor is a small, simple and fast clustered block storage (storage for VM drives),
+ architecturally similar to Ceph which means strong consistency, primary-replication,
+ symmetric clustering and automatic data distribution over any number of drives of any
+ size with configurable redundancy (replication or erasure codes/XOR).

@@ -1,0 +1,2 @@
+dep:fio=3.16-1
+dep:qemu=1:5.1+dfsg-4+vitastor1

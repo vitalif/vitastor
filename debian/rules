@@ -1,0 +1,9 @@
+#!/usr/bin/make -f
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+override_dh_installdeb:
+	cat debian/substvars >> debian/vitastor.substvars
+	dh_installdeb

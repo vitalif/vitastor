@@ -1,0 +1,5 @@
+vitastor (0.5-1) unstable; urgency=medium
+
+  * First packaging for Debian
+
+ -- Vitaliy Filippov <vitalif@yourcmc.ru>  Thu, 05 Nov 2020 02:20:59 +0300
