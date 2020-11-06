@@ -17,6 +17,10 @@
 #include "epoll_manager.h"
 #include "cluster_client.h"
 
+#ifndef MSG_ZEROCOPY
+#define MSG_ZEROCOPY 0
+#endif
+
 const char *exe_name = NULL;
 
 class nbd_proxy

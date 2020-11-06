@@ -293,7 +293,7 @@ Vitastor with single-thread NBD on the same hardware:
 - Install node.js 12 or newer.
 - Install gcc and g++ 9.x or later.
 - Clone https://yourcmc.ru/git/vitalif/vitastor/ with submodules.
-- Install QEMU 4.x or 5.x, get its source, begin to build it, stop the build and copy headers:
+- Install QEMU 2.0+, get its source, begin to build it, stop the build and copy headers:
    - `<qemu>/include` &rarr; `<vitastor>/qemu/include`
    - Debian:
       * Use qemu packages from the main repository
@@ -303,9 +303,10 @@ Vitastor with single-thread NBD on the same hardware:
       * Use qemu packages from the Advanced-Virtualization repository. To enable it, run
         `yum install centos-release-advanced-virtualization.noarch` and then `yum install qemu`
       * `<qemu>/config-host.h` &rarr; `<vitastor>/qemu/b/qemu/config-host.h`
-      * `<qemu>/qapi` &rarr; `<vitastor>/qemu/b/qemu/qapi`
+      * For QEMU 3.0+: `<qemu>/qapi` &rarr; `<vitastor>/qemu/b/qemu/qapi`
+      * For QEMU 2.0+: `<qemu>/qapi-types.h` &rarr; `<vitastor>/qemu/b/qemu/qapi-types.h`
    - `config-host.h` and `qapi` are required because they contain generated headers
-- Install fio 3.16 or later, get its source and symlink it into `<vitastor>/fio`.
+- Install fio 3.7 or later, get its source and symlink it into `<vitastor>/fio`.
 - Build Vitastor with `make -j8`.
 - Copy binaries somewhere.
 
