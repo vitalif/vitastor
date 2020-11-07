@@ -1,0 +1,20 @@
+--- qemu-kvm.spec	2020-11-07 22:48:46.312124920 +0000
++++ qemu-kvm.spec	2020-11-07 23:04:06.246772766 +0000
+@@ -67,7 +67,7 @@ Obsoletes: %1-rhev
+ Summary: QEMU is a machine emulator and virtualizer
+ Name: qemu-kvm
+ Version: 4.2.0
+-Release: 29%{?dist}.6
++Release: 29.vitastor%{?dist}.6
+ # Epoch because we pushed a qemu-1.0 package. AIUI this can't ever be dropped
+ Epoch: 15
+ License: GPLv2 and GPLv2+ and CC-BY
+@@ -825,6 +825,8 @@ Patch331: kvm-Drop-bogus-IPv6-messages.p
+ Patch333: kvm-virtiofsd-Whitelist-fchmod.patch
+ # For bz#1883869 - virtiofsd core dump in KATA Container [rhel-8.2.1.z]
+ Patch334: kvm-virtiofsd-avoid-proc-self-fd-tempdir.patch
++# Vitastor
++Patch335: qemu-4.2-vitastor.patch
+ 
+ BuildRequires: wget
+ BuildRequires: rpm-build
