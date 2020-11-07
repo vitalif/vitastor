@@ -9,212 +9,212 @@ const LPOptimizer = require('./lp-optimizer.js');
 const stableStringify = require('./stable-stringify.js');
 const PGUtil = require('./PGUtil.js');
 
+// FIXME document all etcd keys and config variables in the form of JSON schema or similar
+const etcd_allow = new RegExp('^'+[
+    'config/global',
+    'config/node_placement',
+    'config/pools',
+    'config/osd/[1-9]\\d*',
+    'config/pgs',
+    'osd/state/[1-9]\\d*',
+    'osd/stats/[1-9]\\d*',
+    'mon/master',
+    'pg/state/[1-9]\\d*/[1-9]\\d*',
+    'pg/stats/[1-9]\\d*/[1-9]\\d*',
+    'pg/history/[1-9]\\d*/[1-9]\\d*',
+    'stats',
+].join('$|^')+'$');
+
+const etcd_tree = {
+    config: {
+        /* global: {
+            // mon
+            etcd_mon_ttl: 30, // min: 10
+            etcd_mon_timeout: 1000, // ms. min: 0
+            etcd_mon_retries: 5, // min: 0
+            mon_change_timeout: 1000, // ms. min: 100
+            mon_stats_timeout: 1000, // ms. min: 100
+            osd_out_time: 1800, // seconds. min: 0
+            placement_levels: { datacenter: 1, rack: 2, host: 3, osd: 4, ... },
+            // client and osd
+            use_sync_send_recv: false,
+            log_level: 0,
+            block_size: 131072,
+            disk_alignment: 4096,
+            bitmap_granularity: 4096,
+            immediate_commit: false, // 'all' or 'small'
+            client_dirty_limit: 33554432,
+            peer_connect_interval: 5, // seconds. min: 1
+            peer_connect_timeout: 5, // seconds. min: 1
+            up_wait_retry_interval: 500, // ms. min: 50
+            // osd
+            etcd_report_interval: 30, // min: 10
+            run_primary: true,
+            bind_address: "0.0.0.0",
+            bind_port: 0,
+            autosync_interval: 5,
+            client_queue_depth: 128, // unused
+            recovery_queue_depth: 4,
+            readonly: false,
+            print_stats_interval: 3,
+            // blockstore - fixed in superblock
+            block_size,
+            disk_alignment,
+            journal_block_size,
+            meta_block_size,
+            bitmap_granularity,
+            journal_device,
+            journal_offset,
+            journal_size,
+            disable_journal_fsync,
+            data_device,
+            data_offset,
+            data_size,
+            disable_data_fsync,
+            meta_device,
+            meta_offset,
+            disable_meta_fsync,
+            disable_device_lock,
+            // blockstore - configurable
+            flusher_count,
+            inmemory_metadata,
+            inmemory_journal,
+            journal_sector_buffer_count,
+            journal_no_same_sector_overwrites,
+        }, */
+        global: {},
+        /* node_placement: {
+            host1: { level: 'host', parent: 'rack1' },
+            ...
+        }, */
+        node_placement: {},
+        /* pools: {
+            <id>: {
+                name: 'testpool',
+                scheme: 'xor',
+                pg_size: 3,
+                pg_minsize: 2,
+                pg_count: 100,
+                failure_domain: 'host',
+                max_osd_combinations: 10000,
+                pg_stripe_size: 4194304,
+                root_node?: 'rack1',
+                // restrict pool to OSDs having all of these tags
+                osd_tags?: 'nvme' | [ 'nvme', ... ],
+            },
+            ...
+        }, */
+        pools: {},
+        osd: {
+            /* <id>: { reweight?: 1, tags?: [ 'nvme', ... ] }, ... */
+        },
+        /* pgs: {
+            hash: string,
+            items: {
+                <pool_id>: {
+                    <pg_id>: {
+                        osd_set: [ 1, 2, 3 ],
+                        primary: 1,
+                        pause: false,
+                    }
+                }
+            }
+        }, */
+        pgs: {},
+    },
+    osd: {
+        state: {
+            /* <osd_num_t>: {
+                state: "up",
+                addresses: string[],
+                host: string,
+                port: uint16_t,
+                primary_enabled: boolean,
+                blockstore_enabled: boolean,
+            }, */
+        },
+        stats: {
+            /* <osd_num_t>: {
+                time: number, // unix time
+                blockstore_ready: boolean,
+                size: uint64_t, // bytes
+                free: uint64_t, // bytes
+                host: string,
+                op_stats: {
+                    <string>: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+                },
+                subop_stats: {
+                    <string>: { count: uint64_t, usec: uint64_t },
+                },
+                recovery_stats: {
+                    degraded: { count: uint64_t, bytes: uint64_t },
+                    misplaced: { count: uint64_t, bytes: uint64_t },
+                },
+            }, */
+        },
+    },
+    mon: {
+        master: {
+            /* ip: [ string ], */
+        },
+    },
+    pg: {
+        state: {
+            /* <pool_id>: {
+                <pg_id>: {
+                    primary: osd_num_t,
+                    state: ("starting"|"peering"|"incomplete"|"active"|"stopping"|"offline"|
+                        "degraded"|"has_incomplete"|"has_degraded"|"has_misplaced"|"has_unclean"|
+                        "has_invalid"|"left_on_dead")[],
+                }
+            }, */
+        },
+        stats: {
+            /* <pool_id>: {
+                <pg_id>: {
+                    object_count: uint64_t,
+                    clean_count: uint64_t,
+                    misplaced_count: uint64_t,
+                    degraded_count: uint64_t,
+                    incomplete_count: uint64_t,
+                    write_osd_set: osd_num_t[],
+                },
+            }, */
+        },
+        history: {
+            /* <pool_id>: {
+                <pg_id>: {
+                    osd_sets: osd_num_t[][],
+                    all_peers: osd_num_t[],
+                    epoch: uint32_t,
+                },
+            }, */
+        },
+    },
+    stats: {
+        /* op_stats: {
+            <string>: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+        },
+        subop_stats: {
+            <string>: { count: uint64_t, usec: uint64_t },
+        },
+        recovery_stats: {
+            degraded: { count: uint64_t, bytes: uint64_t },
+            misplaced: { count: uint64_t, bytes: uint64_t },
+        },
+        object_counts: {
+            object: uint64_t,
+            clean: uint64_t,
+            misplaced: uint64_t,
+            degraded: uint64_t,
+            incomplete: uint64_t,
+        }, */
+    },
+};
+
 // FIXME Split into several files
 class Mon
 {
-    // FIXME document all etcd keys and config variables in the form of JSON schema or similar
-    static etcd_allow = new RegExp('^'+[
-        'config/global',
-        'config/node_placement',
-        'config/pools',
-        'config/osd/[1-9]\\d*',
-        'config/pgs',
-        'osd/state/[1-9]\\d*',
-        'osd/stats/[1-9]\\d*',
-        'mon/master',
-        'pg/state/[1-9]\\d*/[1-9]\\d*',
-        'pg/stats/[1-9]\\d*/[1-9]\\d*',
-        'pg/history/[1-9]\\d*/[1-9]\\d*',
-        'stats',
-    ].join('$|^')+'$')
-
-    static etcd_tree = {
-        config: {
-            /* global: {
-                // mon
-                etcd_mon_ttl: 30, // min: 10
-                etcd_mon_timeout: 1000, // ms. min: 0
-                etcd_mon_retries: 5, // min: 0
-                mon_change_timeout: 1000, // ms. min: 100
-                mon_stats_timeout: 1000, // ms. min: 100
-                osd_out_time: 1800, // seconds. min: 0
-                placement_levels: { datacenter: 1, rack: 2, host: 3, osd: 4, ... },
-                // client and osd
-                use_sync_send_recv: false,
-                log_level: 0,
-                block_size: 131072,
-                disk_alignment: 4096,
-                bitmap_granularity: 4096,
-                immediate_commit: false, // 'all' or 'small'
-                client_dirty_limit: 33554432,
-                peer_connect_interval: 5, // seconds. min: 1
-                peer_connect_timeout: 5, // seconds. min: 1
-                up_wait_retry_interval: 500, // ms. min: 50
-                // osd
-                etcd_report_interval: 30, // min: 10
-                run_primary: true,
-                bind_address: "0.0.0.0",
-                bind_port: 0,
-                autosync_interval: 5,
-                client_queue_depth: 128, // unused
-                recovery_queue_depth: 4,
-                readonly: false,
-                print_stats_interval: 3,
-                // blockstore - fixed in superblock
-                block_size,
-                disk_alignment,
-                journal_block_size,
-                meta_block_size,
-                bitmap_granularity,
-                journal_device,
-                journal_offset,
-                journal_size,
-                disable_journal_fsync,
-                data_device,
-                data_offset,
-                data_size,
-                disable_data_fsync,
-                meta_device,
-                meta_offset,
-                disable_meta_fsync,
-                disable_device_lock,
-                // blockstore - configurable
-                flusher_count,
-                inmemory_metadata,
-                inmemory_journal,
-                journal_sector_buffer_count,
-                journal_no_same_sector_overwrites,
-            }, */
-            global: {},
-            /* node_placement: {
-                host1: { level: 'host', parent: 'rack1' },
-                ...
-            }, */
-            node_placement: {},
-            /* pools: {
-                <id>: {
-                    name: 'testpool',
-                    scheme: 'xor',
-                    pg_size: 3,
-                    pg_minsize: 2,
-                    pg_count: 100,
-                    failure_domain: 'host',
-                    max_osd_combinations: 10000,
-                    pg_stripe_size: 4194304,
-                    root_node?: 'rack1',
-                    // restrict pool to OSDs having all of these tags
-                    osd_tags?: 'nvme' | [ 'nvme', ... ],
-                },
-                ...
-            }, */
-            pools: {},
-            osd: {
-                /* <id>: { reweight?: 1, tags?: [ 'nvme', ... ] }, ... */
-            },
-            /* pgs: {
-                hash: string,
-                items: {
-                    <pool_id>: {
-                        <pg_id>: {
-                            osd_set: [ 1, 2, 3 ],
-                            primary: 1,
-                            pause: false,
-                        }
-                    }
-                }
-            }, */
-            pgs: {},
-        },
-        osd: {
-            state: {
-                /* <osd_num_t>: {
-                    state: "up",
-                    addresses: string[],
-                    host: string,
-                    port: uint16_t,
-                    primary_enabled: boolean,
-                    blockstore_enabled: boolean,
-                }, */
-            },
-            stats: {
-                /* <osd_num_t>: {
-                    time: number, // unix time
-                    blockstore_ready: boolean,
-                    size: uint64_t, // bytes
-                    free: uint64_t, // bytes
-                    host: string,
-                    op_stats: {
-                        <string>: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
-                    },
-                    subop_stats: {
-                        <string>: { count: uint64_t, usec: uint64_t },
-                    },
-                    recovery_stats: {
-                        degraded: { count: uint64_t, bytes: uint64_t },
-                        misplaced: { count: uint64_t, bytes: uint64_t },
-                    },
-                }, */
-            },
-        },
-        mon: {
-            master: {
-                /* ip: [ string ], */
-            },
-        },
-        pg: {
-            state: {
-                /* <pool_id>: {
-                    <pg_id>: {
-                        primary: osd_num_t,
-                        state: ("starting"|"peering"|"incomplete"|"active"|"stopping"|"offline"|
-                            "degraded"|"has_incomplete"|"has_degraded"|"has_misplaced"|"has_unclean"|
-                            "has_invalid"|"left_on_dead")[],
-                    }
-                }, */
-            },
-            stats: {
-                /* <pool_id>: {
-                    <pg_id>: {
-                        object_count: uint64_t,
-                        clean_count: uint64_t,
-                        misplaced_count: uint64_t,
-                        degraded_count: uint64_t,
-                        incomplete_count: uint64_t,
-                        write_osd_set: osd_num_t[],
-                    },
-                }, */
-            },
-            history: {
-                /* <pool_id>: {
-                    <pg_id>: {
-                        osd_sets: osd_num_t[][],
-                        all_peers: osd_num_t[],
-                        epoch: uint32_t,
-                    },
-                }, */
-            },
-        },
-        stats: {
-            /* op_stats: {
-                <string>: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
-            },
-            subop_stats: {
-                <string>: { count: uint64_t, usec: uint64_t },
-            },
-            recovery_stats: {
-                degraded: { count: uint64_t, bytes: uint64_t },
-                misplaced: { count: uint64_t, bytes: uint64_t },
-            },
-            object_counts: {
-                object: uint64_t,
-                clean: uint64_t,
-                misplaced: uint64_t,
-                degraded: uint64_t,
-                incomplete: uint64_t,
-            }, */
-        },
-    }
-
     constructor(config)
     {
         // FIXME: Maybe prefer local etcd
@@ -1227,5 +1227,8 @@ function sha1hex(str)
     hash.update(str);
     return hash.digest('hex');
 }
+
+Mon.etcd_allow = etcd_allow;
+Mon.etcd_tree = etcd_tree;
 
 module.exports = Mon;
