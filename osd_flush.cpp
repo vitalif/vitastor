@@ -166,7 +166,7 @@ void osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
     {
         // local
         clock_gettime(CLOCK_REALTIME, &op->tv_begin);
-        op->bs_op = new blockstore_op_t({
+        op->bs_op = new blockstore_op_t((blockstore_op_t){
             .opcode = (uint64_t)(rollback ? BS_OP_ROLLBACK : BS_OP_STABLE),
             .callback = [this, op, pool_id, pg_num, fb](blockstore_op_t *bs_op)
             {
@@ -188,7 +188,7 @@ void osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
         op->op_type = OSD_OP_OUT;
         op->iov.push_back(op->buf, count * sizeof(obj_ver_id));
         op->peer_fd = peer_fd;
-        op->req = {
+        op->req = (osd_any_op_t){
             .sec_stab = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
@@ -246,7 +246,7 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
 {
     op->osd_op = new osd_op_t();
     op->osd_op->op_type = OSD_OP_OUT;
-    op->osd_op->req = {
+    op->osd_op->req = (osd_any_op_t){
         .rw = {
             .header = {
                 .magic = SECONDARY_OSD_OP_MAGIC,

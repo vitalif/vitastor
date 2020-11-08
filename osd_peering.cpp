@@ -307,7 +307,7 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
         op->peer_fd = cl->peer_fd;
-        op->req = {
+        op->req = (osd_any_op_t){
             .sec_sync = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
@@ -382,7 +382,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
         op->peer_fd = c_cli.osd_peer_fds[role_osd];
-        op->req = {
+        op->req = (osd_any_op_t){
             .sec_list = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,

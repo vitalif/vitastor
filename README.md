@@ -291,7 +291,7 @@ Vitastor with single-thread NBD on the same hardware:
   move PGs out of "starting" state if you have at least around ~500 PGs or so. The custom build
   will be unnecessary when etcd merges the fix: https://github.com/etcd-io/etcd/pull/12402.
 - Install node.js 10 or newer.
-- Install gcc and g++ 9.x or later.
+- Install gcc and g++ 8.x or later.
 - Clone https://yourcmc.ru/git/vitalif/vitastor/ with submodules.
 - Install QEMU 2.0+, get its source, begin to build it, stop the build and copy headers:
    - `<qemu>/include` &rarr; `<vitastor>/qemu/include`

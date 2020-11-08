@@ -116,7 +116,7 @@ void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer
             return;
         });
     }
-    clients[peer_fd] = new osd_client_t({
+    clients[peer_fd] = new osd_client_t((osd_client_t){
         .peer_addr = addr,
         .peer_port = peer_port,
         .peer_fd = peer_fd,
@@ -233,7 +233,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
     osd_op_t *op = new osd_op_t();
     op->op_type = OSD_OP_OUT;
     op->peer_fd = cl->peer_fd;
-    op->req = {
+    op->req = (osd_any_op_t){
         .show_conf = {
             .header = {
                 .magic = SECONDARY_OSD_OP_MAGIC,
@@ -402,7 +402,7 @@ void osd_messenger_t::accept_connections(int listen_fd)
         fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
         int one = 1;
         setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
-        clients[peer_fd] = new osd_client_t({
+        clients[peer_fd] = new osd_client_t((osd_client_t){
             .peer_addr = addr,
             .peer_port = ntohs(addr.sin_port),
             .peer_fd = peer_fd,

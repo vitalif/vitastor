@@ -11,7 +11,7 @@ void osd_t::autosync()
     {
         autosync_op = new osd_op_t();
         autosync_op->op_type = OSD_OP_IN;
-        autosync_op->req = {
+        autosync_op->req = (osd_any_op_t){
             .sync = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
@@ -510,7 +510,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
         {
             clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
             subops[i].op_type = (uint64_t)cur_op;
-            subops[i].bs_op = new blockstore_op_t({
+            subops[i].bs_op = new blockstore_op_t((blockstore_op_t){
                 .opcode = BS_OP_STABLE,
                 .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
                 {

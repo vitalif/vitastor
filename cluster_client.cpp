@@ -488,7 +488,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
         uint64_t begin = (op->offset < stripe ? stripe : op->offset);
         uint64_t end = (op->offset + op->len) > (stripe + pg_block_size)
             ? (stripe + pg_block_size) : (op->offset + op->len);
-        op->parts[i] = {
+        op->parts[i] = (cluster_op_part_t){
             .parent = op,
             .offset = begin,
             .len = (uint32_t)(end - begin),
@@ -533,7 +533,7 @@ bool cluster_client_t::try_send(cluster_op_t *op, cluster_op_part_t *part)
             part->osd_num = primary_osd;
             part->sent = true;
             op->sent_count++;
-            part->op = {
+            part->op = (osd_op_t){
                 .op_type = OSD_OP_OUT,
                 .peer_fd = peer_fd,
                 .req = { .rw = {
@@ -694,7 +694,7 @@ void cluster_client_t::send_sync(cluster_op_t *op, cluster_op_part_t *part)
     assert(peer_it != msgr.osd_peer_fds.end());
     part->sent = true;
     op->sent_count++;
-    part->op = {
+    part->op = (osd_op_t){
         .op_type = OSD_OP_OUT,
         .peer_fd = peer_it->second,
         .req = {

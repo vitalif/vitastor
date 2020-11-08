@@ -170,7 +170,7 @@ public:
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
         op->peer_fd = cli->msgr.osd_peer_fds[cur_list->osd_num];
-        op->req = {
+        op->req = (osd_any_op_t){
             .sec_list = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
@@ -233,7 +233,7 @@ public:
             osd_op_t *op = new osd_op_t();
             op->op_type = OSD_OP_OUT;
             op->peer_fd = cli->msgr.osd_peer_fds[cur_list->osd_num];
-            op->req = {
+            op->req = (osd_any_op_t){
                 .rw = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
