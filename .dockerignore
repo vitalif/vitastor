@@ -1,0 +1,15 @@
+.git
+build
+mon/node_modules
+*.o
+*.so
+osd
+stub_osd
+stub_uring_osd
+stub_bench
+osd_test
+dump_journal
+nbd_proxy
+rm_inode
+fio
+qemu
