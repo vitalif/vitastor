@@ -30,7 +30,7 @@ RUN set -e; \
         echo qemu-5.1-vitastor.patch >> /root/build/qemu-buster/qemu-*/debian/patches/series; \
     fi; \
     cd /root/build/qemu-buster/qemu-*/; \
-    V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)(~bpo[\d\+]*)\).*$/$1/')~vitastor1; \
+    V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)(~bpo[\d\+]*)\).*$/$1/')+vitastor1; \
     DEBFULLNAME="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D buster -v $V 'Plug Vitastor block driver'; \
     DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto; \
     rm -rf /root/build/qemu-buster/qemu-*/
