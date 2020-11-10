@@ -44,8 +44,8 @@ ln -s ~/rpmbuild/BUILD/fio*/ fio
 sh copy-fio-includes.sh
 rm fio
 mv fio-copy fio
-FIO=`rpm -qa fio | perl -pe 's/^fio-(.*)$/$1/'`
-QEMU=`rpm -qa qemu qemu-kvm | perl -pe 's/^qemu-(?:kvm-)?(.*)$/$1/'`
+FIO=`rpm -qi fio | perl -e 'while(<>) { /^Epoch[\s:]+(\S+)/ && print "$1:"; /^Version[\s:]+(\S+)/ && print $1; /^Release[\s:]+(\S+)/ && print "-$1"; }'`
+QEMU=`rpm -qi qemu qemu-kvm | perl -e 'while(<>) { /^Epoch[\s:]+(\S+)/ && print "$1:"; /^Version[\s:]+(\S+)/ && print $1; /^Release[\s:]+(\S+)/ && print "-$1"; }'`
 perl -i -pe 's/(Requires:\s*fio)([^\n]+)?/$1 = '$FIO'/' $VITASTOR/rpm/vitastor-el$EL.spec
-perl -i -pe 's/(Requires:\s*qemu)([^\n]+)?/$1 = '$QEMU'/' $VITASTOR/rpm/vitastor-el$EL.spec
+perl -i -pe 's/(Requires:\s*qemu(?:-kvm)?)([^\n]+)?/$1 = '$QEMU'/' $VITASTOR/rpm/vitastor-el$EL.spec
 tar --transform 's#^#vitastor-0.5/#' --exclude 'rpm/*.rpm' -czf $VITASTOR/../vitastor-0.5$(rpm --eval '%dist').tar.gz *

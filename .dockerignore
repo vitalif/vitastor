@@ -13,3 +13,5 @@ nbd_proxy
 rm_inode
 fio
 qemu
+rpm/*.Dockerfile
+debian/*.Dockerfile

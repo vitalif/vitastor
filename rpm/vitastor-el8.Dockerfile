@@ -29,7 +29,7 @@ RUN set -e; \
 
 RUN rpm -i `ls /root/build/liburing-el7/liburing-*.x86_64.rpm | grep -v debug`
 
-ADD . /root/vitastor
+ADD qemu-*-vitastor.patch /root/vitastor/
 
 RUN set -e; \
     mkdir -p /root/build/qemu-el8; \
@@ -47,6 +47,10 @@ RUN set -e; \
     rpmbuild --nocheck -ba qemu-kvm.spec; \
     cp ~/rpmbuild/RPMS/*/*qemu* /root/build/qemu-el8/; \
     cp ~/rpmbuild/SRPMS/*qemu* /root/build/qemu-el8/
+
+RUN cd /root/build/qemu-el8; dnf -y install `ls qemu*.rpm | grep -vP 'debug|guest|tests|src'`
+
+ADD . /root/vitastor
 
 RUN set -e; \
     cd /root/vitastor/rpm; \

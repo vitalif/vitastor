@@ -31,11 +31,11 @@ breaking changes in the future. However, the following is implemented:
 - QEMU driver (built out-of-tree)
 - Loadable fio engine for benchmarks (also built out-of-tree)
 - NBD proxy for kernel mounts
-- Inode removal tool (./rm_inode)
+- Inode removal tool (vitastor-rm)
+- Packaging for Debian and CentOS
 
 ## Roadmap
 
-- Packaging for Debian and, probably, CentOS too
 - OSD creation tool (OSDs currently have to be created by hand)
 - Other administrative tools
 - Per-inode I/O and space usage statistics
@@ -280,7 +280,31 @@ Vitastor with single-thread NBD on the same hardware:
 - Linear write (4M T1Q128): 1266 MB/s (compared to 2800 MB/s via fio)
 - Linear read (4M T1Q128): 975 MB/s (compared to 1500 MB/s via fio)
 
-## Building
+## Installation
+
+### Debian
+
+- Trust Vitastor package signing key:
+  `wget -q -O - https://vitastor.io/debian/pubkey | sudo apt-key add -`
+- Add Vitastor package repository to your /etc/apt/sources.list:
+  - Debian 11 (Bullseye/Sid): `deb https://vitastor.io/debian bullseye main`
+  - Debian 10 (Buster): `deb https://vitastor.io/debian buster main`
+- For Debian 10 (Buster) also enable backports repository:
+  `deb http://deb.debian.org/debian buster-backports main`
+- Install packages: `apt update; apt install vitastor lp-solve etcd linux-image-amd64`
+
+### CentOS
+
+- Add Vitastor package repository:
+  - CentOS 7: `yum install https://vitastor.io/rpms/centos/7/vitastor-release-1.0-1.el7.noarch.rpm`
+  - CentOS 8: `dnf install https://vitastor.io/rpms/centos/8/vitastor-release-1.0-1.el8.noarch.rpm`
+- Enable EPEL: `yum/dnf install epel-release`
+- Enable elrepo-kernel:
+  - CentOS 7: `yum install https://www.elrepo.org/elrepo-release-7.el7.elrepo.noarch.rpm`
+  - CentOS 8: `dnf install https://www.elrepo.org/elrepo-release-8.el8.elrepo.noarch.rpm`
+- Install packages: `yum/dnf install vitastor lpsolve etcd kernel-ml`
+
+### Building from Source
 
 - Install Linux kernel 5.4 or newer, for io_uring support. 5.8 or later is highly recommended because
   there is at least one known io_uring hang with 5.4 and an HP SmartArray controller.
@@ -291,7 +315,7 @@ Vitastor with single-thread NBD on the same hardware:
   move PGs out of "starting" state if you have at least around ~500 PGs or so. The custom build
   will be unnecessary when etcd merges the fix: https://github.com/etcd-io/etcd/pull/12402.
 - Install node.js 10 or newer.
-- Install gcc and g++ 8.x or later.
+- Install gcc and g++ 8.x or newer.
 - Clone https://yourcmc.ru/git/vitalif/vitastor/ with submodules.
 - Install QEMU 2.0+, get its source, begin to build it, stop the build and copy headers:
    - `<qemu>/include` &rarr; `<vitastor>/qemu/include`
@@ -306,9 +330,12 @@ Vitastor with single-thread NBD on the same hardware:
       * For QEMU 3.0+: `<qemu>/qapi` &rarr; `<vitastor>/qemu/b/qemu/qapi`
       * For QEMU 2.0+: `<qemu>/qapi-types.h` &rarr; `<vitastor>/qemu/b/qemu/qapi-types.h`
    - `config-host.h` and `qapi` are required because they contain generated headers
+- You can also rebuild QEMU with a patch that makes LD_PRELOAD unnecessary to load vitastor driver.
+  See `qemu-*.*-vitastor.patch`.
 - Install fio 3.7 or later, get its source and symlink it into `<vitastor>/fio`.
 - Build Vitastor with `make -j8`.
-- Copy binaries somewhere.
+- Run `make install` (optionally with `LIBDIR=/usr/lib64 QEMU_PLUGINDIR=/usr/lib64/qemu-kvm`
+  if you're using an RPM-based distro).
 
 ## Running
 
@@ -323,8 +350,8 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
 - Create global configuration in etcd: `etcdctl --endpoints=... put /vitastor/config/global '{"immediate_commit":"all"}'`
   (if all your drives have capacitors).
 - Create pool configuration in etcd: `etcdctl --endpoints=... put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":256,"failure_domain":"host"}}'`.
-- Calculate offsets for your drives with `node ./mon/simple-offsets.js --device /dev/sdX`.
-- Make systemd units for your OSDs. Look at `./mon/make-units.sh` for example.
+- Calculate offsets for your drives with `node /usr/lib/vitastor/mon/simple-offsets.js --device /dev/sdX`.
+- Make systemd units for your OSDs. Look at `/usr/lib/vitastor/mon/make-units.sh` for example.
   Notable configuration variables from the example:
   - `disable_data_fsync 1` - only safe with server-grade drives with capacitors.
   - `immediate_commit all` - use this if all your drives are server-grade.
@@ -343,25 +370,25 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
     setting is set, it is also required to raise `journal_sector_buffer_count` setting, which is the
     number of dirty journal sectors that may be written to at the same time.
 - `systemctl start vitastor.target` everywhere.
-- Start any number of monitors: `cd mon; node mon-main.js --etcd_url 'http://10.115.0.10:2379,http://10.115.0.11:2379,http://10.115.0.12:2379,http://10.115.0.13:2379' --etcd_prefix '/vitastor' --etcd_start_timeout 5`.
+- Start any number of monitors: `node /usr/lib/vitastor/mon/mon-main.js --etcd_url 'http://10.115.0.10:2379,http://10.115.0.11:2379,http://10.115.0.12:2379,http://10.115.0.13:2379' --etcd_prefix '/vitastor' --etcd_start_timeout 5`.
 - At this point, one of the monitors will configure PGs and OSDs will start them.
 - You can check PG states with `etcdctl --endpoints=... get --prefix /vitastor/pg/state`. All PGs should become 'active'.
-- Run tests with (for example): `fio -thread -ioengine=./libfio_cluster.so -name=test -bs=4M -direct=1 -iodepth=16 -rw=write -etcd=10.115.0.10:2379/v3 -pool=1 -inode=1 -size=400G`.
+- Run tests with (for example): `fio -thread -ioengine=/usr/lib/x86_64-linux-gnu/vitastor/libfio_cluster.so -name=test -bs=4M -direct=1 -iodepth=16 -rw=write -etcd=10.115.0.10:2379/v3 -pool=1 -inode=1 -size=400G`.
 - Upload VM disk image with qemu-img (for example):
   ```
-  LD_PRELOAD=./qemu_driver.so qemu-img convert -f qcow2 debian10.qcow2 -p
+  LD_PRELOAD=/usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so qemu-img convert -f qcow2 debian10.qcow2 -p
     -O raw 'vitastor:etcd_host=10.115.0.10\:2379/v3:pool=1:inode=1:size=2147483648'
   ```
 - Run QEMU with (for example):
   ```
-  LD_PRELOAD=./qemu_driver.so qemu-system-x86_64 -enable-kvm -m 1024
+  LD_PRELOAD=/usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so qemu-system-x86_64 -enable-kvm -m 1024
     -drive 'file=vitastor:etcd_host=10.115.0.10\:2379/v3:pool=1:inode=1:size=2147483648',format=raw,if=none,id=drive-virtio-disk0,cache=none
     -device virtio-blk-pci,scsi=off,bus=pci.0,addr=0x5,drive=drive-virtio-disk0,id=virtio-disk0,bootindex=1,write-cache=off,physical_block_size=4096,logical_block_size=512
     -vnc 0.0.0.0:0
   ```
 - Remove inode with (for example):
   ```
-  ./rm_inode --etcd_address 10.115.0.10:2379/v3 --pool 1 --inode 1 --parallel_osds 16 --iodepth 32
+  vitastor-rm --etcd_address 10.115.0.10:2379/v3 --pool 1 --inode 1 --parallel_osds 16 --iodepth 32
   ```
 
 ## Known Problems

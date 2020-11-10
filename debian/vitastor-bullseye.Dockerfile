@@ -38,13 +38,13 @@ RUN set -e; \
     V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)(~bpo[\d\+]*)?\).*$/$1/')+vitastor1; \
     echo ">>> VERSION: $V"; \
     DEBFULLNAME="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v $V 'Plug Vitastor block driver'; \
-    DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto; \
+    DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto -sa; \
     rm -rf /root/build/qemu-$REL/qemu-*/
 
 RUN cd /root/build/qemu-$REL && apt-get -y install ./qemu-system-data*.deb ./qemu-system-common_*.deb ./qemu-system-x86_*.deb ./qemu_*.deb
 
 ADD . /root/vitastor
-RUN set -e; \
+RUN set -e -x; \
     mkdir -p /root/fio-build/; \
     cd /root/fio-build/; \
     rm -rf /root/fio-build/*; \
@@ -63,15 +63,24 @@ RUN set -e; \
     ln -s /root/build/qemu-$REL/qemu-*/ vitastor-0.5/qemu; \
     ln -s /root/fio-build/fio-*/ vitastor-0.5/fio; \
     cd vitastor-0.5; \
+    FIO=$(head -n1 fio/debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
+    QEMU=$(head -n1 qemu/debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
     sh copy-qemu-includes.sh; \
     sh copy-fio-includes.sh; \
     rm qemu fio; \
-    mv qemu-copy qemu; \
-    mv fio-copy fio; \
+    mkdir -p a b debian/patches; \
+    mv qemu-copy b/qemu; \
+    mv fio-copy b/fio; \
+    diff -NaurpbB a b > debian/patches/qemu-fio-headers.patch || true; \
+    echo qemu-fio-headers.patch >> debian/patches/series; \
+    rm -rf a b; \
     rm -rf /root/build/qemu-$REL/qemu*/; \
+    echo "dep:fio=$FIO" > debian/substvars; \
+    echo "dep:qemu=$QEMU" >> debian/substvars; \
     cd /root/build/vitastor-$REL; \
-    tar -czf vitastor_0.5.orig.tar.gz vitastor-0.5; \
+    tar --sort=name --mtime='2020-01-01' --owner=0 --group=0 --exclude=debian -cJf vitastor_0.5.orig.tar.xz vitastor-0.5; \
     cd vitastor-0.5; \
-    ls -l; \
-    DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto; \
+    V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
+    DEBFULLNAME="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v "$V""$REL" "Rebuild for $REL"; \
+    DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto -sa; \
     rm -rf /root/build/vitastor-$REL/vitastor-*/

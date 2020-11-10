@@ -41,7 +41,8 @@ rm -rf $RPM_BUILD_ROOT
 cd mon
 npm install
 cd ..
-cp -r mon %buildroot%_libdir/vitastor/mon
+mkdir -p %buildroot/usr/lib/vitastor
+cp -r mon %buildroot/usr/lib/vitastor/mon
 
 
 %files
@@ -52,6 +53,7 @@ cp -r mon %buildroot%_libdir/vitastor/mon
 %_bindir/vitastor-rm
 %_libdir/qemu-kvm/block-vitastor.so
 %_libdir/vitastor
+/usr/lib/vitastor
 
 
 %changelog
