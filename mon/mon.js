@@ -331,6 +331,7 @@ class Mon
                 range_end: b64(this.etcd_prefix+'0'),
                 start_revision: ''+this.etcd_watch_revision,
                 watch_id: 1,
+                progress_notify: true,
             },
         }));
         this.ws.on('message', (msg) =>

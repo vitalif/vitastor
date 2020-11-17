@@ -173,6 +173,7 @@ void etcd_state_client_t::start_etcd_watcher()
             { "range_end", base64_encode(etcd_prefix+"/config0") },
             { "start_revision", etcd_watch_revision+1 },
             { "watch_id", ETCD_CONFIG_WATCH_ID },
+            { "progress_notify", true },
         } }
     }).dump());
     etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
@@ -181,6 +182,7 @@ void etcd_state_client_t::start_etcd_watcher()
             { "range_end", base64_encode(etcd_prefix+"/osd/state0") },
             { "start_revision", etcd_watch_revision+1 },
             { "watch_id", ETCD_OSD_STATE_WATCH_ID },
+            { "progress_notify", true },
         } }
     }).dump());
     etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
@@ -189,6 +191,7 @@ void etcd_state_client_t::start_etcd_watcher()
             { "range_end", base64_encode(etcd_prefix+"/pg/state0") },
             { "start_revision", etcd_watch_revision+1 },
             { "watch_id", ETCD_PG_STATE_WATCH_ID },
+            { "progress_notify", true },
         } }
     }).dump());
     etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
@@ -197,6 +200,7 @@ void etcd_state_client_t::start_etcd_watcher()
             { "range_end", base64_encode(etcd_prefix+"/pg/history0") },
             { "start_revision", etcd_watch_revision+1 },
             { "watch_id", ETCD_PG_HISTORY_WATCH_ID },
+            { "progress_notify", true },
         } }
     }).dump());
 }
