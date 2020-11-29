@@ -75,7 +75,7 @@ struct pg_t
 {
     int state = 0;
     uint64_t scheme = 0;
-    uint64_t pg_cursize = 0, pg_size = 0, pg_minsize = 0;
+    uint64_t pg_cursize = 0, pg_size = 0, pg_minsize = 0, parity_chunks = 0;
     pool_id_t pool_id = 0;
     pg_num_t pg_num = 0;
     uint64_t clean_count = 0, total_count = 0;

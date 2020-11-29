@@ -16,8 +16,9 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
 {
     // PG number is calculated from the offset
     // Our EC scheme stores data in fixed chunks equal to (K*block size)
-    // K = pg_minsize in case of EC/XOR, or 1 for replicated pools
+    // K = (pg_size-parity_chunks) in case of EC/XOR, or 1 for replicated pools
     pool_id_t pool_id = INODE_POOL(cur_op->req.rw.inode);
+    // FIXME: We have to access pool config here, so make sure that it doesn't change while its PGs are active...
     auto pool_cfg_it = st_cli.pool_config.find(pool_id);
     if (pool_cfg_it == st_cli.pool_config.end())
     {
@@ -26,7 +27,8 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         return false;
     }
     auto & pool_cfg = pool_cfg_it->second;
-    uint64_t pg_block_size = bs_block_size * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_minsize);
+    uint64_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+    uint64_t pg_block_size = bs_block_size * pg_data_size;
     object_id oid = {
         .inode = cur_op->req.rw.inode,
         // oid.stripe = starting offset of the parity stripe
@@ -37,6 +39,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     if (pg_it == pgs.end() || !(pg_it->second.state & PG_ACTIVE))
     {
         // This OSD is not primary for this PG or the PG is inactive
+        // FIXME: Allow reads from PGs degraded under pg_minsize, but don't allow writes
         finish_op(cur_op, -EPIPE);
         return false;
     }
@@ -54,9 +57,9 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     op_data->oid = oid;
     op_data->stripes = ((osd_rmw_stripe_t*)(op_data+1));
     op_data->scheme = pool_cfg.scheme;
+    op_data->pg_data_size = pg_data_size;
     cur_op->op_data = op_data;
-    split_stripes((pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_minsize),
-        bs_block_size, (uint32_t)(cur_op->req.rw.offset - oid.stripe), cur_op->req.rw.len, op_data->stripes);
+    split_stripes(pg_data_size, bs_block_size, (uint32_t)(cur_op->req.rw.offset - oid.stripe), cur_op->req.rw.len, op_data->stripes);
     pg_it->second.inflight++;
     return true;
 }
@@ -101,7 +104,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
     else if (op_data->st == 2) goto resume_2;
     {
         auto & pg = pgs[{ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num }];
-        for (int role = 0; role < (op_data->scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_minsize); role++)
+        for (int role = 0; role < op_data->pg_data_size; role++)
         {
             op_data->stripes[role].read_start = op_data->stripes[role].req_start;
             op_data->stripes[role].read_end = op_data->stripes[role].req_end;
@@ -112,24 +115,23 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         if (pg.state == PG_ACTIVE || op_data->scheme == POOL_SCHEME_REPLICATED)
         {
             // Fast happy-path
-            cur_op->buf = alloc_read_buffer(op_data->stripes,
-                (op_data->scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_minsize), 0);
+            cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->pg_data_size, 0);
             submit_primary_subops(SUBMIT_READ, op_data->target_ver,
-                (op_data->scheme == POOL_SCHEME_REPLICATED ? pg.pg_size : pg.pg_minsize), pg.cur_set.data(), cur_op);
+                (op_data->scheme == POOL_SCHEME_REPLICATED ? pg.pg_size : op_data->pg_data_size), pg.cur_set.data(), cur_op);
             op_data->st = 1;
         }
         else
         {
             // PG may be degraded or have misplaced objects
             uint64_t* cur_set = get_object_osd_set(pg, op_data->oid, pg.cur_set.data(), &op_data->object_state);
-            if (extend_missing_stripes(op_data->stripes, cur_set, pg.pg_minsize, pg.pg_size) < 0)
+            if (extend_missing_stripes(op_data->stripes, cur_set, op_data->pg_data_size, pg.pg_size) < 0)
             {
                 finish_op(cur_op, -EIO);
                 return;
             }
             // Submit reads
-            op_data->pg_minsize = pg.pg_minsize;
             op_data->pg_size = pg.pg_size;
+            op_data->scheme = pg.scheme;
             op_data->degraded = 1;
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0);
             submit_primary_subops(SUBMIT_READ, op_data->target_ver, pg.pg_size, cur_set, cur_op);
@@ -147,14 +149,17 @@ resume_2:
     if (op_data->degraded)
     {
         // Reconstruct missing stripes
-        // FIXME: Always EC(k+1) by now. Add different coding schemes
         osd_rmw_stripe_t *stripes = op_data->stripes;
-        for (int role = 0; role < op_data->pg_minsize; role++)
+        if (op_data->scheme == POOL_SCHEME_XOR)
         {
-            if (stripes[role].read_end != 0 && stripes[role].missing)
-            {
-                reconstruct_stripe_xor(stripes, op_data->pg_size, role);
-            }
+            reconstruct_stripes_xor(stripes, op_data->pg_size);
+        }
+        else if (op_data->scheme == POOL_SCHEME_JERASURE)
+        {
+            reconstruct_stripes_jerasure(stripes, op_data->pg_size, op_data->pg_data_size);
+        }
+        for (int role = 0; role < op_data->pg_size; role++)
+        {
             if (stripes[role].req_end != 0)
             {
                 // Send buffer in parts to avoid copying
@@ -245,7 +250,7 @@ resume_1:
     else
     {
         cur_op->rmw_buf = calc_rmw(cur_op->buf, op_data->stripes, op_data->prev_set,
-            pg.pg_size, pg.pg_minsize, pg.pg_cursize, pg.cur_set.data(), bs_block_size);
+            pg.pg_size, op_data->pg_data_size, pg.pg_cursize, pg.cur_set.data(), bs_block_size);
         if (!cur_op->rmw_buf)
         {
             // Refuse partial overwrite of an incomplete object
@@ -285,7 +290,14 @@ resume_3:
     else
     {
         // Recover missing stripes, calculate parity
-        calc_rmw_parity_xor(op_data->stripes, pg.pg_size, op_data->prev_set, pg.cur_set.data(), bs_block_size);
+        if (pg.scheme == POOL_SCHEME_XOR)
+        {
+            calc_rmw_parity_xor(op_data->stripes, pg.pg_size, op_data->prev_set, pg.cur_set.data(), bs_block_size);
+        }
+        else if (pg.scheme == POOL_SCHEME_JERASURE)
+        {
+            calc_rmw_parity_jerasure(op_data->stripes, pg.pg_size, op_data->pg_data_size, op_data->prev_set, pg.cur_set.data(), bs_block_size);
+        }
     }
     // Send writes
     if ((op_data->fact_ver >> (64-PG_EPOCH_BITS)) < pg.epoch)

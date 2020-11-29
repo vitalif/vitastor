@@ -319,67 +319,98 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
         }
         for (auto & pool_item: value.object_items())
         {
+            pool_config_t pc;
+            // ID
             pool_id_t pool_id = stoull_full(pool_item.first);
             if (!pool_id || pool_id >= POOL_ID_MAX)
             {
                 printf("Pool ID %s is invalid (must be a number less than 0x%x), skipping pool\n", pool_item.first.c_str(), POOL_ID_MAX);
                 continue;
             }
-            if (pool_item.second["pg_size"].uint64_value() < 1 ||
-                pool_item.second["scheme"] == "xor" && pool_item.second["pg_size"].uint64_value() < 3)
-            {
-                printf("Pool %u has invalid pg_size, skipping pool\n", pool_id);
-                continue;
-            }
-            if (pool_item.second["pg_minsize"].uint64_value() < 1 ||
-                pool_item.second["pg_minsize"].uint64_value() > pool_item.second["pg_size"].uint64_value() ||
-                pool_item.second["pg_minsize"].uint64_value() < (pool_item.second["pg_size"].uint64_value() - 1))
-            {
-                printf("Pool %u has invalid pg_minsize, skipping pool\n", pool_id);
-                continue;
-            }
-            if (pool_item.second["pg_count"].uint64_value() < 1)
-            {
-                printf("Pool %u has invalid pg_count, skipping pool\n", pool_id);
-                continue;
-            }
-            if (pool_item.second["name"].string_value() == "")
+            pc.id = pool_id;
+            // Pool Name
+            pc.name = pool_item.second["name"].string_value();
+            if (pc.name == "")
             {
                 printf("Pool %u has empty name, skipping pool\n", pool_id);
                 continue;
             }
-            if (pool_item.second["scheme"] != "replicated" && pool_item.second["scheme"] != "xor")
+            // Failure Domain
+            pc.failure_domain = pool_item.second["failure_domain"].string_value();
+            // Coding Scheme
+            if (pool_item.second["scheme"] == "replicated")
+                pc.scheme = POOL_SCHEME_REPLICATED;
+            else if (pool_item.second["scheme"] == "xor")
+                pc.scheme = POOL_SCHEME_XOR;
+            else if (pool_item.second["scheme"] == "jerasure")
+                pc.scheme = POOL_SCHEME_JERASURE;
+            else
             {
-                printf("Pool %u has invalid coding scheme (only \"xor\" and \"replicated\" are allowed), skipping pool\n", pool_id);
+                printf("Pool %u has invalid coding scheme (one of \"xor\", \"replicated\" or \"jerasure\" required), skipping pool\n", pool_id);
                 continue;
             }
-            if (pool_item.second["max_osd_combinations"].uint64_value() > 0 &&
-                pool_item.second["max_osd_combinations"].uint64_value() < 100)
+            // PG Size
+            pc.pg_size = pool_item.second["pg_size"].uint64_value();
+            if (pc.pg_size < 1 ||
+                pool_item.second["pg_size"].uint64_value() < 3 &&
+                (pc.scheme == POOL_SCHEME_XOR || pc.scheme == POOL_SCHEME_JERASURE) ||
+                pool_item.second["pg_size"].uint64_value() > 256)
+            {
+                printf("Pool %u has invalid pg_size, skipping pool\n", pool_id);
+                continue;
+            }
+            // Parity Chunks
+            pc.parity_chunks = pool_item.second["parity_chunks"].uint64_value();
+            if (pc.scheme == POOL_SCHEME_XOR)
+            {
+                if (pc.parity_chunks > 1)
+                {
+                    printf("Pool %u has invalid parity_chunks (must be 1), skipping pool\n", pool_id);
+                    continue;
+                }
+                pc.parity_chunks = 1;
+            }
+            if (pc.scheme == POOL_SCHEME_JERASURE &&
+                (pc.parity_chunks < 1 || pc.parity_chunks > pc.pg_size-2))
+            {
+                printf("Pool %u has invalid parity_chunks (must be between 1 and pg_size-2), skipping pool\n", pool_id);
+                continue;
+            }
+            // PG MinSize
+            pc.pg_minsize = pool_item.second["pg_minsize"].uint64_value();
+            if (pc.pg_minsize < 1 || pc.pg_minsize > pc.pg_size ||
+                (pc.scheme == POOL_SCHEME_XOR || pc.scheme == POOL_SCHEME_JERASURE) &&
+                pc.pg_minsize < (pc.pg_size-pc.parity_chunks))
+            {
+                printf("Pool %u has invalid pg_minsize, skipping pool\n", pool_id);
+                continue;
+            }
+            // PG Count
+            pc.pg_count = pool_item.second["pg_count"].uint64_value();
+            if (pc.pg_count < 1)
+            {
+                printf("Pool %u has invalid pg_count, skipping pool\n", pool_id);
+                continue;
+            }
+            // Max OSD Combinations
+            pc.max_osd_combinations = pool_item.second["max_osd_combinations"].uint64_value();
+            if (!pc.max_osd_combinations)
+                pc.max_osd_combinations = 10000;
+            if (pc.max_osd_combinations > 0 && pc.max_osd_combinations < 100)
             {
                 printf("Pool %u has invalid max_osd_combinations (must be at least 100), skipping pool\n", pool_id);
                 continue;
             }
+            // PG Stripe Size
+            pc.pg_stripe_size = pool_item.second["pg_stripe_size"].uint64_value();
+            uint64_t min_stripe_size = bs_block_size * (pc.scheme == POOL_SCHEME_REPLICATED ? 1 : (pc.pg_size-pc.parity_chunks));
+            if (pc.pg_stripe_size < min_stripe_size)
+                pc.pg_stripe_size = min_stripe_size;
+            // Save
+            std::swap(pc.pg_config, this->pool_config[pool_id].pg_config);
+            std::swap(this->pool_config[pool_id], pc);
             auto & parsed_cfg = this->pool_config[pool_id];
             parsed_cfg.exists = true;
-            parsed_cfg.id = pool_id;
-            parsed_cfg.name = pool_item.second["name"].string_value();
-            parsed_cfg.scheme = pool_item.second["scheme"] == "replicated" ? POOL_SCHEME_REPLICATED : POOL_SCHEME_XOR;
-            parsed_cfg.pg_size = pool_item.second["pg_size"].uint64_value();
-            parsed_cfg.pg_minsize = pool_item.second["pg_minsize"].uint64_value();
-            parsed_cfg.pg_count = pool_item.second["pg_count"].uint64_value();
-            parsed_cfg.failure_domain = pool_item.second["failure_domain"].string_value();
-            parsed_cfg.pg_stripe_size = pool_item.second["pg_stripe_size"].uint64_value();
-            uint64_t min_stripe_size = bs_block_size *
-                (parsed_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : parsed_cfg.pg_minsize);
-            if (parsed_cfg.pg_stripe_size < min_stripe_size)
-            {
-                parsed_cfg.pg_stripe_size = min_stripe_size;
-            }
-            parsed_cfg.max_osd_combinations = pool_item.second["max_osd_combinations"].uint64_value();
-            if (!parsed_cfg.max_osd_combinations)
-            {
-                parsed_cfg.max_osd_combinations = 10000;
-            }
             for (auto & pg_item: parsed_cfg.pg_config)
             {
                 if (pg_item.second.target_set.size() != parsed_cfg.pg_size)

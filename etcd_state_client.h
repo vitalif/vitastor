@@ -43,7 +43,7 @@ struct pool_config_t
     pool_id_t id;
     std::string name;
     uint64_t scheme;
-    uint64_t pg_size, pg_minsize;
+    uint64_t pg_size, pg_minsize, parity_chunks;
     uint64_t pg_count;
     uint64_t real_pg_count;
     std::string failure_domain;

@@ -3,6 +3,9 @@
 
 #include <string.h>
 #include <assert.h>
+#include <jerasure/reed_sol.h>
+#include <jerasure.h>
+#include <map>
 #include "xor.h"
 #include "osd_rmw.h"
 #include "malloc_or_die.h"
@@ -75,44 +78,151 @@ void split_stripes(uint64_t pg_minsize, uint32_t bs_block_size, uint32_t start, 
     }
 }
 
-void reconstruct_stripe_xor(osd_rmw_stripe_t *stripes, int pg_size, int role)
+void reconstruct_stripes_xor(osd_rmw_stripe_t *stripes, int pg_size)
 {
-    int prev = -2;
-    for (int other = 0; other < pg_size; other++)
+    for (int role = 0; role < pg_size; role++)
     {
-        if (other != role)
+        if (stripes[role].read_end != 0 && stripes[role].missing)
         {
-            if (prev == -2)
+            // Reconstruct missing stripe (XOR k+1)
+            int prev = -2;
+            for (int other = 0; other < pg_size; other++)
             {
-                prev = other;
-            }
-            else if (prev >= 0)
-            {
-                assert(stripes[role].read_start >= stripes[prev].read_start &&
-                    stripes[role].read_start >= stripes[other].read_start);
-                memxor(
-                    stripes[prev].read_buf + (stripes[role].read_start - stripes[prev].read_start),
-                    stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
-                    stripes[role].read_buf, stripes[role].read_end - stripes[role].read_start
-                );
-                prev = -1;
-            }
-            else
-            {
-                assert(stripes[role].read_start >= stripes[other].read_start);
-                memxor(
-                    stripes[role].read_buf,
-                    stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
-                    stripes[role].read_buf, stripes[role].read_end - stripes[role].read_start
-                );
+                if (other != role)
+                {
+                    if (prev == -2)
+                    {
+                        prev = other;
+                    }
+                    else if (prev >= 0)
+                    {
+                        assert(stripes[role].read_start >= stripes[prev].read_start &&
+                            stripes[role].read_start >= stripes[other].read_start);
+                        memxor(
+                            stripes[prev].read_buf + (stripes[role].read_start - stripes[prev].read_start),
+                            stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
+                            stripes[role].read_buf, stripes[role].read_end - stripes[role].read_start
+                        );
+                        prev = -1;
+                    }
+                    else
+                    {
+                        assert(stripes[role].read_start >= stripes[other].read_start);
+                        memxor(
+                            stripes[role].read_buf,
+                            stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
+                            stripes[role].read_buf, stripes[role].read_end - stripes[role].read_start
+                        );
+                    }
+                }
             }
         }
     }
 }
 
-int extend_missing_stripes(osd_rmw_stripe_t *stripes, osd_num_t *osd_set, int minsize, int size)
+struct reed_sol_matrix_t
 {
-    for (int role = 0; role < minsize; role++)
+    int *data;
+    int refs = 0;
+};
+
+std::map<uint64_t, reed_sol_matrix_t> matrices;
+
+void use_jerasure(int pg_size, int pg_minsize, bool use)
+{
+    uint64_t key = (uint64_t)pg_size | ((uint64_t)pg_minsize) << 32;
+    auto rs_it = matrices.find(key);
+    if (rs_it == matrices.end())
+    {
+        if (!use)
+        {
+            return;
+        }
+        int *matrix = reed_sol_vandermonde_coding_matrix(pg_minsize, pg_size-pg_minsize, 32);
+        matrices[key] = (reed_sol_matrix_t){
+            .data = matrix,
+            .refs = 0,
+        };
+        rs_it = matrices.find(key);
+    }
+    rs_it->second.refs += (!use ? -1 : 1);
+    if (rs_it->second.refs <= 0)
+    {
+        free(rs_it->second.data);
+        matrices.erase(rs_it);
+    }
+}
+
+int* get_jerasure_matrix(int pg_size, int pg_minsize)
+{
+    uint64_t key = (uint64_t)pg_size | ((uint64_t)pg_minsize) << 32;
+    auto rs_it = matrices.find(key);
+    if (rs_it == matrices.end())
+    {
+        throw std::runtime_error("jerasure matrix not initialized");
+    }
+    return rs_it->second.data;
+}
+
+void reconstruct_stripes_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize)
+{
+    int *matrix = get_jerasure_matrix(pg_size, pg_minsize);
+    int erasures[pg_size];
+    char *data_ptrs[pg_size] = { 0 };
+    int erasure_count = 0;
+    int res = 0;
+    for (int role = 0; role < pg_minsize; role++)
+    {
+        if (stripes[role].read_end != 0 && stripes[role].missing)
+        {
+            erasures[erasure_count++] = role;
+        }
+    }
+    if (erasure_count > 0)
+    {
+        for (int role = erasure_count; role < pg_size; role++)
+        {
+            erasures[role] = -1;
+        }
+        for (int role = 0; role < pg_minsize; role++)
+        {
+            if (stripes[role].read_end != 0 && stripes[role].missing)
+            {
+                for (int other = 0; other < role; other++)
+                {
+                    if (stripes[other].missing &&
+                        stripes[role].read_start == stripes[other].read_start &&
+                        stripes[role].read_end == stripes[other].read_end)
+                    {
+                        // We reconstruct multiple ranges
+                        // Skip if the same range was already reconstructed
+                        goto next_missing;
+                    }
+                }
+                for (int other = 0; other < pg_size; other++)
+                {
+                    data_ptrs[other] = (char*)(stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start));
+                }
+                // FIXME jerasure has slightly dumb API and performs extra allocations internally
+                // also it creates a decoding matrix on every call which could be cached
+                // sooo :-) we have some room for improvements here :-)
+                res = jerasure_matrix_decode(
+                    pg_minsize, pg_size-pg_minsize, 32, matrix, 1, erasures,
+                    data_ptrs, data_ptrs+pg_minsize, stripes[role].read_end - stripes[role].read_start
+                );
+                if (res < 0)
+                {
+                    throw std::runtime_error("jerasure_matrix_decode() failed");
+                }
+            }
+            next_missing:;
+        }
+    }
+}
+
+int extend_missing_stripes(osd_rmw_stripe_t *stripes, osd_num_t *osd_set, int pg_minsize, int pg_size)
+{
+    for (int role = 0; role < pg_minsize; role++)
     {
         if (stripes[role].read_end != 0 && osd_set[role] == 0)
         {
@@ -121,21 +231,21 @@ int extend_missing_stripes(osd_rmw_stripe_t *stripes, osd_num_t *osd_set, int mi
             // We need at least pg_minsize stripes to recover the lost part.
             // FIXME: LRC EC and similar don't require to read all other stripes.
             int exist = 0;
-            for (int j = 0; j < size; j++)
+            for (int j = 0; j < pg_size; j++)
             {
                 if (osd_set[j] != 0)
                 {
                     extend_read(stripes[role].read_start, stripes[role].read_end, stripes[j]);
                     exist++;
-                    if (exist >= minsize)
+                    if (exist >= pg_minsize)
                     {
                         break;
                     }
                 }
             }
-            if (exist < minsize)
+            if (exist < pg_minsize)
             {
-                // Less than minsize stripes are available for this object
+                // Less than pg_minsize stripes are available for this object
                 return -1;
             }
         }
@@ -369,19 +479,9 @@ static void xor_multiple_buffers(buf_len_t *xor1, int n1, buf_len_t *xor2, int n
     }
 }
 
-void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size)
+static void calc_rmw_parity_copy_mod(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
+    uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t &start, uint32_t &end)
 {
-    int pg_minsize = pg_size-1;
-    for (int role = 0; role < pg_size; role++)
-    {
-        if (stripes[role].read_end != 0 && stripes[role].missing)
-        {
-            // Reconstruct missing stripe (XOR k+1)
-            reconstruct_stripe_xor(stripes, pg_size, role);
-            break;
-        }
-    }
-    uint32_t start = 0, end = 0;
     if (write_osd_set[pg_minsize] != 0 || write_osd_set != read_osd_set)
     {
         // Required for the next two if()s
@@ -421,6 +521,53 @@ void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_
             }
         }
     }
+}
+
+static void calc_rmw_parity_copy_parity(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
+    uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t start, uint32_t end)
+{
+    if (write_osd_set != read_osd_set)
+    {
+        for (int role = pg_minsize; role < pg_size; role++)
+        {
+            if (write_osd_set[role] != read_osd_set[role] && (start != 0 || end != chunk_size))
+            {
+                // Copy new parity into the read buffer to write it back
+                memcpy(
+                    stripes[role].read_buf + start,
+                    stripes[role].write_buf,
+                    end - start
+                );
+                stripes[role].write_buf = stripes[role].read_buf;
+                stripes[role].write_start = 0;
+                stripes[role].write_end = chunk_size;
+            }
+        }
+    }
+#ifdef RMW_DEBUG
+    printf("calc_rmw_parity:\n");
+    for (int role = 0; role < pg_size; role++)
+    {
+        auto & s = stripes[role];
+        printf(
+            "Tr=%lu Tw=%lu Q=%x-%x R=%x-%x W=%x-%x Rb=%lx Wb=%lx\n",
+            read_osd_set[role], write_osd_set[role],
+            s.req_start, s.req_end,
+            s.read_start, s.read_end,
+            s.write_start, s.write_end,
+            (uint64_t)s.read_buf,
+            (uint64_t)s.write_buf
+        );
+    }
+#endif
+}
+
+void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size)
+{
+    int pg_minsize = pg_size-1;
+    reconstruct_stripes_xor(stripes, pg_size);
+    uint32_t start = 0, end = 0;
+    calc_rmw_parity_copy_mod(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, start, end);
     if (write_osd_set[pg_minsize] != 0 && end != 0)
     {
         // Calculate new parity (XOR k+1)
@@ -449,38 +596,67 @@ void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_
             }
         }
     }
-    if (write_osd_set != read_osd_set)
+    calc_rmw_parity_copy_parity(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, start, end);
+}
+
+void calc_rmw_parity_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
+    uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size)
+{
+    int *matrix = get_jerasure_matrix(pg_size, pg_minsize);
+    reconstruct_stripes_jerasure(stripes, pg_size, pg_minsize);
+    uint32_t start = 0, end = 0;
+    calc_rmw_parity_copy_mod(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, start, end);
+    if (end != 0)
     {
-        for (int role = pg_minsize; role < pg_size; role++)
+        int i;
+        for (i = pg_minsize; i < pg_size; i++)
         {
-            if (write_osd_set[role] != read_osd_set[role] && (start != 0 || end != chunk_size))
+            if (write_osd_set[i] != 0)
+                break;
+        }
+        if (i < pg_size)
+        {
+            // Calculate new coding chunks
+            buf_len_t bufs[pg_size][3];
+            int nbuf[pg_size] = { 0 }, curbuf[pg_size] = { 0 };
+            uint32_t positions[pg_size];
+            void *data_ptrs[pg_size] = { 0 };
+            for (int i = 0; i < pg_minsize; i++)
             {
-                // Copy new parity into the read buffer to write it back
-                memcpy(
-                    stripes[role].read_buf + start,
-                    stripes[role].write_buf,
-                    end - start
-                );
-                stripes[role].write_buf = stripes[role].read_buf;
-                stripes[role].write_start = 0;
-                stripes[role].write_end = chunk_size;
+                get_old_new_buffers(stripes[i], start, end, bufs[i], nbuf[i]);
+                positions[i] = start;
+            }
+            for (int i = pg_minsize; i < pg_size; i++)
+            {
+                bufs[i][nbuf[i]++] = { .buf = stripes[i].write_buf, .len = end-start };
+                positions[i] = start;
+            }
+            uint32_t pos = start;
+            while (pos < end)
+            {
+                uint32_t next_end = end;
+                for (int i = 0; i < pg_size; i++)
+                {
+                    assert(curbuf[i] < nbuf[i]);
+                    data_ptrs[i] = bufs[i][curbuf[i]].buf + pos-positions[i];
+                    uint32_t this_end = bufs[i][curbuf[i]].len + positions[i];
+                    if (next_end > this_end)
+                        next_end = this_end;
+                }
+                assert(next_end > pos);
+                for (int i = 0; i < pg_size; i++)
+                {
+                    uint32_t this_end = bufs[i][curbuf[i]].len + positions[i];
+                    if (next_end >= this_end)
+                    {
+                        positions[i] += bufs[i][curbuf[i]].len;
+                        curbuf[i]++;
+                    }
+                }
+                jerasure_matrix_encode(pg_minsize, pg_size-pg_minsize, 32, matrix, (char**)data_ptrs, (char**)data_ptrs+pg_minsize, next_end-pos);
+                pos = next_end;
             }
         }
     }
-#ifdef RMW_DEBUG
-    printf("calc_rmw_xor:\n");
-    for (int role = 0; role < pg_size; role++)
-    {
-        auto & s = stripes[role];
-        printf(
-            "Tr=%lu Tw=%lu Q=%x-%x R=%x-%x W=%x-%x Rb=%lx Wb=%lx\n",
-            read_osd_set[role], write_osd_set[role],
-            s.req_start, s.req_end,
-            s.read_start, s.read_end,
-            s.write_start, s.write_end,
-            (uint64_t)s.read_buf,
-            (uint64_t)s.write_buf
-        );
-    }
-#endif
+    calc_rmw_parity_copy_parity(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, start, end);
 }

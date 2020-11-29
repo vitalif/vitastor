@@ -4,6 +4,7 @@
 #include "osd.h"
 #include "base64.h"
 #include "etcd_state_client.h"
+#include "osd_rmw.h"
 
 // Startup sequence:
 //   Start etcd watcher -> Load global OSD configuration -> Bind socket -> Acquire lease -> Report&lock OSD state
@@ -32,11 +33,25 @@ void osd_t::init_cluster()
             }
             pgs[{ 1, 1 }] = (pg_t){
                 .state = PG_PEERING,
+                .scheme = POOL_SCHEME_XOR,
                 .pg_cursize = 0,
+                .pg_size = 3,
+                .pg_minsize = 2,
+                .parity_chunks = 1,
                 .pool_id = 1,
                 .pg_num = 1,
                 .target_set = { 1, 2, 3 },
                 .cur_set = { 0, 0, 0 },
+            };
+            st_cli.pool_config[1] = (pool_config_t){
+                .exists = true,
+                .id = 1,
+                .name = "testpool",
+                .scheme = POOL_SCHEME_XOR,
+                .pg_size = 3,
+                .pg_minsize = 2,
+                .pg_count = 1,
+                .real_pg_count = 1,
             };
             report_pg_state(pgs[{ 1, 1 }]);
             pg_counts[1] = 1;
@@ -583,6 +598,7 @@ void osd_t::apply_pg_config()
                     .pg_cursize = 0,
                     .pg_size = pool_item.second.pg_size,
                     .pg_minsize = pool_item.second.pg_minsize,
+                    .parity_chunks = pool_item.second.parity_chunks,
                     .pool_id = pool_id,
                     .pg_num = pg_num,
                     .reported_epoch = pg_cfg.epoch,
@@ -590,6 +606,10 @@ void osd_t::apply_pg_config()
                     .all_peers = std::vector<osd_num_t>(all_peers.begin(), all_peers.end()),
                     .target_set = pg_cfg.target_set,
                 };
+                if (pg.scheme == POOL_SCHEME_JERASURE)
+                {
+                    use_jerasure(pg.pg_size, pg.pg_size-pg.parity_chunks, true);
+                }
                 this->pg_state_dirty.insert({ .pool_id = pool_id, .pg_num = pg_num });
                 pg.print_state();
                 if (pg_cfg.cur_primary == this->osd_num)
@@ -778,6 +798,10 @@ void osd_t::report_pg_states()
                     {
                         // Remove offline PGs after reporting their state
                         this->pgs.erase(pg_it);
+                        if (pg_it->second.scheme == POOL_SCHEME_JERASURE)
+                        {
+                            use_jerasure(pg_it->second.pg_size, pg_it->second.pg_size-pg_it->second.parity_chunks, false);
+                        }
                     }
                 }
             }

@@ -5,7 +5,7 @@ QEMU_PLUGINDIR ?= /usr/lib/x86_64-linux-gnu/qemu
 BLOCKSTORE_OBJS := allocator.o blockstore.o blockstore_impl.o blockstore_init.o blockstore_open.o blockstore_journal.o blockstore_read.o \
 	blockstore_write.o blockstore_sync.o blockstore_stable.o blockstore_rollback.o blockstore_flush.o crc32c.o ringloop.o
 # -fsanitize=address
-CXXFLAGS := -g -O3 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fPIC -fdiagnostics-color=always
+CXXFLAGS := -g -O3 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fPIC -fdiagnostics-color=always -I/usr/include/jerasure
 all: libfio_blockstore.so osd libfio_sec_osd.so libfio_cluster.so stub_osd stub_uring_osd stub_bench osd_test dump_journal qemu_driver.so nbd_proxy rm_inode
 clean:
 	rm -f *.o libblockstore.so libfio_blockstore.so osd libfio_sec_osd.so libfio_cluster.so stub_osd stub_uring_osd stub_bench osd_test dump_journal qemu_driver.so nbd_proxy rm_inode
@@ -36,13 +36,13 @@ OSD_OBJS := osd.o osd_secondary.o msgr_receive.o msgr_send.o osd_peering.o osd_f
 	osd_primary.o osd_primary_subops.o etcd_state_client.o messenger.o osd_cluster.o http_client.o osd_ops.o pg_states.o \
 	osd_rmw.o json11.o base64.o timerfd_manager.o epoll_manager.o
 osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h $(OSD_OBJS)
-	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor' -o $@ osd_main.cpp $(OSD_OBJS) ./libblockstore.so -ltcmalloc_minimal -luring
+	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor' -o $@ osd_main.cpp $(OSD_OBJS) ./libblockstore.so -ltcmalloc_minimal -luring -lJerasure
 
 stub_osd: stub_osd.o rw_blocking.o
 	g++ $(CXXFLAGS) -o $@ stub_osd.o rw_blocking.o -ltcmalloc_minimal
 
 osd_rmw_test: osd_rmw_test.o
-	g++ $(CXXFLAGS) -o $@ osd_rmw_test.o
+	g++ $(CXXFLAGS) -o $@ osd_rmw_test.o -lJerasure -fsanitize=address
 
 STUB_URING_OSD_OBJS := stub_uring_osd.o epoll_manager.o messenger.o msgr_send.o msgr_receive.o ringloop.o timerfd_manager.o json11.o
 stub_uring_osd: $(STUB_URING_OSD_OBJS)
