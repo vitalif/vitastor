@@ -565,19 +565,15 @@ class Mon
                     { requestPut: { key: b64(this.etcd_prefix+'/config/pgs'), value: b64(JSON.stringify(new_cfg)) } },
                 ],
             }, this.config.etcd_mon_timeout, 0);
-            if (!res.succeeded)
-            {
-                return false;
-            }
-            this.state.config.pgs = new_cfg;
+            return false;
         }
         return !has_online;
     }
 
     save_new_pgs_txn(request, pool_id, up_osds, prev_pgs, new_pgs, pg_history)
     {
-        const replicated = this.state.config.pools[pool_id].scheme === 'replicated';
-        const pg_minsize = this.state.config.pools[pool_id].pg_minsize;
+        const replicated = new_pgs.length && this.state.config.pools[pool_id].scheme === 'replicated';
+        const pg_minsize = new_pgs.length && this.state.config.pools[pool_id].pg_minsize;
         const pg_items = {};
         new_pgs.map((osd_set, i) =>
         {
@@ -632,7 +628,14 @@ class Mon
             }
         }
         this.state.config.pgs.items = this.state.config.pgs.items || {};
-        this.state.config.pgs.items[pool_id] = pg_items;
+        if (!new_pgs.length)
+        {
+            delete this.state.config.pgs.items[pool_id];
+        }
+        else
+        {
+            this.state.config.pgs.items[pool_id] = pg_items;
+        }
     }
 
     validate_pool_cfg(pool_id, pool_cfg, warn)
@@ -756,6 +759,24 @@ class Mon
         {
             // Something has changed
             const etcd_request = { compare: [], success: [] };
+            for (const pool_id in (this.state.config.pgs||{}).items||{})
+            {
+                if (!this.state.config.pools[pool_id])
+                {
+                    // Pool deleted. Delete all PGs, but first stop them.
+                    if (!await this.stop_all_pgs(pool_id))
+                    {
+                        this.schedule_recheck();
+                        return;
+                    }
+                    const prev_pgs = [];
+                    for (const pg in this.state.config.pgs.items[pool_id]||{})
+                    {
+                        prev_pgs[pg-1] = this.state.config.pgs.items[pool_id][pg].osd_set;
+                    }
+                    this.save_new_pgs_txn(etcd_request, pool_id, up_osds, prev_pgs, [], []);
+                }
+            }
             for (const pool_id in this.state.config.pools)
             {
                 const pool_cfg = this.state.config.pools[pool_id];
