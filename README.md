@@ -295,9 +295,6 @@ Vitastor with single-thread NBD on the same hardware:
 
 ### CentOS
 
-- CentOS 7 build is broken because QEMU 2.0 doesn't support dynamic module loading at all.
-  A decision on this issue will be made soon - CentOS 7 build will either be removed or
-  a newer QEMU version will be packaged.
 - Add Vitastor package repository:
   - CentOS 7: `yum install https://vitastor.io/rpms/centos/7/vitastor-release-1.0-1.el7.noarch.rpm`
   - CentOS 8: `dnf install https://vitastor.io/rpms/centos/8/vitastor-release-1.0-1.el8.noarch.rpm`
@@ -308,7 +305,7 @@ Vitastor with single-thread NBD on the same hardware:
 - Enable elrepo-kernel:
   - CentOS 7: `yum install https://www.elrepo.org/elrepo-release-7.el7.elrepo.noarch.rpm`
   - CentOS 8: `dnf install https://www.elrepo.org/elrepo-release-8.el8.elrepo.noarch.rpm`
-- Install packages: `yum/dnf install vitastor lpsolve etcd kernel-ml`
+- Install packages: `yum/dnf install vitastor lpsolve etcd kernel-ml qemu-kvm`
 
 ### Building from Source
 
@@ -323,7 +320,7 @@ Vitastor with single-thread NBD on the same hardware:
 - Install node.js 10 or newer.
 - Install gcc and g++ 8.x or newer.
 - Clone https://yourcmc.ru/git/vitalif/vitastor/ with submodules.
-- Install QEMU 2.0+, get its source, begin to build it, stop the build and copy headers:
+- Install QEMU 3.0+, get its source, begin to build it, stop the build and copy headers:
    - `<qemu>/include` &rarr; `<vitastor>/qemu/include`
    - Debian:
       * Use qemu packages from the main repository

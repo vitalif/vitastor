@@ -13,7 +13,7 @@ BuildRequires:  devtoolset-9-gcc-c++
 BuildRequires:  rh-nodejs12
 BuildRequires:  rh-nodejs12-npm
 Requires:       fio = 3.7-1.el7
-Requires:       qemu = 2.0.0-1.el7.6
+Requires:       qemu-kvm = 2.0.0-1.el7.6
 Requires:       rh-nodejs12
 Requires:       rh-nodejs12-npm
 Requires:       liburing >= 0.6

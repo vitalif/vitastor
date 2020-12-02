@@ -1,18 +1,20 @@
 # Build packages for CentOS 7 inside a container
 # cd ..; podman build -t vitastor-el7 -v `pwd`/build:/root/build -f rpm/vitastor-el7.Dockerfile .
+# localedef -i ru_RU -f UTF-8 ru_RU.UTF-8
 
 FROM centos:7
 
 WORKDIR /root
 
 RUN yum -y --enablerepo=extras install centos-release-scl epel-release yum-utils rpm-build
-RUN yum -y install devtoolset-9-gcc-c++ devtoolset-9-libatomic-devel gperftools-devel qemu fio rh-nodejs12
-RUN yumdownloader --disablerepo=centos-sclo-rh --source qemu
+RUN yum -y install https://vitastor.io/rpms/centos/7/vitastor-release-1.0-1.el7.noarch.rpm
+RUN yum -y install devtoolset-9-gcc-c++ devtoolset-9-libatomic-devel gperftools-devel qemu-kvm fio rh-nodejs12
+RUN yumdownloader --disablerepo=centos-sclo-rh --source qemu-kvm
 RUN yumdownloader --disablerepo=centos-sclo-rh --source fio
 RUN rpm --nomd5 -i qemu*.src.rpm
 RUN rpm --nomd5 -i fio*.src.rpm
 RUN rm -f /etc/yum.repos.d/CentOS-Media.repo
-RUN cd ~/rpmbuild/SPECS && yum-builddep -y --enablerepo='*' --disablerepo=centos-sclo-rh --disablerepo=centos-sclo-rh-source --disablerepo=centos-sclo-sclo-testing qemu.spec
+RUN cd ~/rpmbuild/SPECS && yum-builddep -y --enablerepo='*' --disablerepo=centos-sclo-rh --disablerepo=centos-sclo-rh-source --disablerepo=centos-sclo-sclo-testing qemu-kvm.spec
 RUN cd ~/rpmbuild/SPECS && yum-builddep -y --enablerepo='*' --disablerepo=centos-sclo-rh --disablerepo=centos-sclo-rh-source --disablerepo=centos-sclo-sclo-testing fio.spec
 
 ADD https://vitastor.io/rpms/liburing-el7/liburing-0.7-2.el7.src.rpm /root
