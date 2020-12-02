@@ -1,6 +1,6 @@
 Name:           vitastor
 Version:        0.5
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Vitastor, a fast software-defined clustered block storage
 
 License:        Vitastor Network Public License 1.0
@@ -29,7 +29,7 @@ size with configurable redundancy (replication or erasure codes/XOR).
 
 %build
 . /opt/rh/gcc-toolset-9/enable
-make %{?_smp_mflags}
+make %{?_smp_mflags} BINDIR=%_bindir LIBDIR=%_libdir QEMU_PLUGINDIR=%_libdir/qemu-kvm
 
 
 %install
