@@ -562,6 +562,45 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location
                 );
 #endif
+                auto dirty_it = bs->dirty_db.upper_bound((obj_ver_id){
+                    .oid = je->big_write.oid,
+                    .version = UINT64_MAX,
+                });
+                if (dirty_it != bs->dirty_db.begin() && bs->dirty_db.size() > 0)
+                {
+                    dirty_it--;
+                    if (dirty_it->first.oid == je->big_write.oid &&
+                        (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_DELETE)
+                    {
+                        // It is allowed to overwrite a deleted object with a
+                        // version number less than deletion version number,
+                        // because the presence of a BIG_WRITE entry means that
+                        // the data for it is already on disk.
+                        // Purge all dirty and clean entries for this object.
+                        auto dirty_end = dirty_it;
+                        dirty_end++;
+                        while (1)
+                        {
+                            if (dirty_it == bs->dirty_db.begin())
+                            {
+                                break;
+                            }
+                            dirty_it--;
+                            if (dirty_it->first.oid != je->big_write.oid)
+                            {
+                                dirty_it++;
+                                break;
+                            }
+                        }
+                        bs->erase_dirty(dirty_it, dirty_end, UINT64_MAX);
+                        auto clean_it = bs->clean_db.find(je->big_write.oid);
+                        if (clean_it != bs->clean_db.end())
+                        {
+                            bs->data_alloc->set(clean_it->second.location >> bs->block_order, false);
+                            bs->clean_db.erase(clean_it);
+                        }
+                    }
+                }
                 auto clean_it = bs->clean_db.find(je->big_write.oid);
                 if (clean_it == bs->clean_db.end() ||
                     clean_it->second.version < je->big_write.version)

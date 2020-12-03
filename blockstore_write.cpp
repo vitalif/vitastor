@@ -492,7 +492,10 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
         prepare_journal_sector_write(journal, journal.cur_sector, sqe, cb);
         PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
         PRIV(op)->pending_ops++;
-        // Remember small write as unsynced
+    }
+    else
+    {
+        // Remember delete as unsynced
         unsynced_small_writes.push_back((obj_ver_id){
             .oid = op->oid,
             .version = op->version,
