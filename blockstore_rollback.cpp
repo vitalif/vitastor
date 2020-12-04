@@ -234,10 +234,35 @@ void blockstore_impl_t::handle_rollback_event(ring_data_t *data, blockstore_op_t
 
 void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start, blockstore_dirty_db_t::iterator dirty_end, uint64_t clean_loc)
 {
-    auto dirty_it = dirty_end;
-    while (dirty_it != dirty_start)
+    if (dirty_end == dirty_start)
     {
+        return;
+    }
+    auto dirty_it = dirty_end;
+    dirty_it--;
+    if (IS_DELETE(dirty_it->second.state))
+    {
+        object_id oid = dirty_it->first.oid;
+        dirty_it = dirty_end;
+        // Unblock operations blocked by delete flushing
+        uint32_t next_state = BS_ST_IN_FLIGHT;
+        while (dirty_it != dirty_db.end() && dirty_it->first.oid == oid)
+        {
+            if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_DEL)
+            {
+                dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | next_state;
+                if (IS_BIG_WRITE(dirty_it->second.state))
+                {
+                    next_state = BS_ST_WAIT_BIG;
+                }
+            }
+            dirty_it++;
+        }
+        dirty_it = dirty_end;
         dirty_it--;
+    }
+    while (1)
+    {
         if (IS_BIG_WRITE(dirty_it->second.state) && dirty_it->second.location != clean_loc)
         {
 #ifdef BLOCKSTORE_DEBUG
@@ -256,6 +281,11 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
         {
             journal.used_sectors.erase(dirty_it->second.journal_sector);
         }
+        if (dirty_it == dirty_start)
+        {
+            break;
+        }
+        dirty_it--;
     }
     dirty_db.erase(dirty_start, dirty_end);
 }

@@ -105,8 +105,8 @@ void journal_flusher_t::unshift_flush(obj_ver_id ov)
     else
     {
         flush_versions[ov.oid] = ov.version;
-        flush_queue.push_front(ov.oid);
     }
+    flush_queue.push_front(ov.oid);
     if (!dequeuing && (flush_queue.size() >= flusher_start_threshold || trim_wanted > 0))
     {
         dequeuing = true;

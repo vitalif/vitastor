@@ -7,7 +7,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 {
     // Check or assign version number
     bool found = false, deleted = false, is_del = (op->opcode == BS_OP_DELETE);
-    bool is_inflight_big = false;
+    bool wait_big = false, wait_del = false;
     uint64_t version = 1;
     if (dirty_db.size() > 0)
     {
@@ -21,7 +21,8 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             found = true;
             version = dirty_it->first.version + 1;
             deleted = IS_DELETE(dirty_it->second.state);
-            is_inflight_big = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE
+            wait_del = ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_DEL);
+            wait_big = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE
                 ? !IS_SYNCED(dirty_it->second.state)
                 : ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG);
         }
@@ -38,23 +39,40 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             deleted = true;
         }
     }
-    if (op->version == 0)
-    {
-        op->version = version;
-    }
-    else if (op->version < version)
-    {
-        // Invalid version requested
-        op->retval = -EEXIST;
-        return false;
-    }
     if (deleted && is_del)
     {
         // Already deleted
         op->retval = 0;
         return false;
     }
-    if (is_inflight_big && !is_del && !deleted && op->len < block_size &&
+    PRIV(op)->real_version = 0;
+    if (op->version == 0)
+    {
+        op->version = version;
+    }
+    else if (op->version < version)
+    {
+        // Implicit operations must be added like that: DEL [FLUSH] BIG [SYNC] SMALL SMALL
+        if (deleted || wait_del)
+        {
+            // It's allowed to write versions with low numbers over deletes
+            // However, we have to flush those deletes first as we use version number for ordering
+            wait_del = true;
+            PRIV(op)->real_version = op->version;
+            op->version = version;
+            flusher->unshift_flush((obj_ver_id){
+                .oid = op->oid,
+                .version = version-1,
+            });
+        }
+        else
+        {
+            // Invalid version requested
+            op->retval = -EEXIST;
+            return false;
+        }
+    }
+    if (wait_big && !is_del && !deleted && op->len < block_size &&
         immediate_commit != IMMEDIATE_ALL)
     {
         // Issue an additional sync so that the previous big write can reach the journal
@@ -72,19 +90,28 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     else
         printf("Write %lx:%lx v%lu offset=%u len=%u\n", op->oid.inode, op->oid.stripe, op->version, op->offset, op->len);
 #endif
-    // No strict need to add it into dirty_db here, it's just left
+    // FIXME No strict need to add it into dirty_db here, it's just left
     // from the previous implementation where reads waited for writes
+    uint32_t state;
+    if (is_del)
+        state = BS_ST_DELETE | BS_ST_IN_FLIGHT;
+    else
+    {
+        state = (op->len == block_size || deleted ? BS_ST_BIG_WRITE : BS_ST_SMALL_WRITE);
+        if (wait_del)
+            state |= BS_ST_WAIT_DEL;
+        else if (state == BS_ST_SMALL_WRITE && wait_big)
+            state |= BS_ST_WAIT_BIG;
+        else
+            state |= BS_ST_IN_FLIGHT;
+        if (op->opcode == BS_OP_WRITE_STABLE)
+            state |= BS_ST_INSTANT;
+    }
     dirty_db.emplace((obj_ver_id){
         .oid = op->oid,
         .version = op->version,
     }, (dirty_entry){
-        .state = (uint32_t)(
-            is_del
-                ? (BS_ST_DELETE | BS_ST_IN_FLIGHT)
-                : (op->opcode == BS_OP_WRITE_STABLE ? BS_ST_INSTANT : 0) | (op->len == block_size || deleted
-                    ? (BS_ST_BIG_WRITE | BS_ST_IN_FLIGHT)
-                    : (is_inflight_big ? (BS_ST_SMALL_WRITE | BS_ST_WAIT_BIG) : (BS_ST_SMALL_WRITE | BS_ST_IN_FLIGHT)))
-        ),
+        .state = state,
         .flags = 0,
         .location = 0,
         .offset = is_del ? 0 : op->offset,
@@ -106,12 +133,35 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         .version = op->version,
     });
     assert(dirty_it != dirty_db.end());
-    if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG)
+    if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) < BS_ST_IN_FLIGHT)
     {
         // Don't dequeue
         return 0;
     }
-    else if ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE)
+    if (PRIV(op)->real_version != 0)
+    {
+        // Restore original low version number for unblocked operations
+        auto prev_it = dirty_it;
+        prev_it--;
+        if (prev_it->first.oid == op->oid && prev_it->first.version >= PRIV(op)->real_version)
+        {
+            // Original version is still invalid
+            // FIXME Oops. Successive small writes will currently break in an unexpected way. Fix it
+            dirty_db.erase(dirty_it);
+            op->retval = -EEXIST;
+            FINISH_OP(op);
+            return 1;
+        }
+        op->version = PRIV(op)->real_version;
+        PRIV(op)->real_version = 0;
+        dirty_entry e = dirty_it->second;
+        dirty_db.erase(dirty_it);
+        dirty_it = dirty_db.emplace((obj_ver_id){
+            .oid = op->oid,
+            .version = op->version,
+        }, e).first;
+    }
+    if ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE)
     {
         blockstore_journal_check_t space_check(this);
         if (!space_check.check_available(op, unsynced_big_writes.size() + 1, sizeof(journal_entry_big_write), JOURNAL_STABILIZE_RESERVATION))
@@ -129,6 +179,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 PRIV(op)->wait_for = WAIT_FREE;
                 return 0;
             }
+            // FIXME Oops. Successive small writes will currently break in an unexpected way. Fix it
+            dirty_db.erase(dirty_it);
             op->retval = -ENOSPC;
             FINISH_OP(op);
             return 1;

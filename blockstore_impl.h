@@ -30,12 +30,13 @@
 #define BS_ST_BIG_WRITE 0x02
 #define BS_ST_DELETE 0x03
 
-#define BS_ST_WAIT_BIG 0x10
-#define BS_ST_IN_FLIGHT 0x20
-#define BS_ST_SUBMITTED 0x30
-#define BS_ST_WRITTEN 0x40
-#define BS_ST_SYNCED 0x50
-#define BS_ST_STABLE 0x60
+#define BS_ST_WAIT_DEL 0x10
+#define BS_ST_WAIT_BIG 0x20
+#define BS_ST_IN_FLIGHT 0x30
+#define BS_ST_SUBMITTED 0x40
+#define BS_ST_WRITTEN 0x50
+#define BS_ST_SYNCED 0x60
+#define BS_ST_STABLE 0x70
 
 #define BS_ST_INSTANT 0x100
 
@@ -153,6 +154,8 @@ struct blockstore_op_private_t
 
     // Write
     struct iovec iov_zerofill[3];
+    // Warning: must not have a default value here because it's written to before calling constructor in blockstore_write.cpp O_o
+    uint64_t real_version;
 
     // Sync
     std::vector<obj_ver_id> sync_big_writes, sync_small_writes;
