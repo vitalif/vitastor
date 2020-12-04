@@ -407,6 +407,7 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
             if (pc.pg_stripe_size < min_stripe_size)
                 pc.pg_stripe_size = min_stripe_size;
             // Save
+            pc.real_pg_count = this->pool_config[pool_id].real_pg_count;
             std::swap(pc.pg_config, this->pool_config[pool_id].pg_config);
             std::swap(this->pool_config[pool_id], pc);
             auto & parsed_cfg = this->pool_config[pool_id];

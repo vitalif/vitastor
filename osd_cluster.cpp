@@ -494,7 +494,11 @@ void osd_t::apply_pg_count()
             }
             if (still_active > 0)
             {
-                printf("[OSD %lu] PG count change detected, but %d PG(s) are still active. This is not allowed. Exiting\n", this->osd_num, still_active);
+                printf(
+                    "[OSD %lu] PG count change detected for pool %u (new is %lu, old is %u),"
+                    " but %u PG(s) are still active. This is not allowed. Exiting\n",
+                    this->osd_num, pool_item.first, pool_item.second.real_pg_count, pg_counts[pool_item.first], still_active
+                );
                 force_stop(1);
                 return;
             }
