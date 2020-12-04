@@ -120,10 +120,29 @@ void reconstruct_stripes_xor(osd_rmw_stripe_t *stripes, int pg_size)
     }
 }
 
-struct reed_sol_matrix_t
+struct reed_sol_erased_t
 {
     int *data;
+    int size;
+};
+
+inline bool operator < (const reed_sol_erased_t &a, const reed_sol_erased_t &b)
+{
+    for (int i = 0; i < a.size && i < b.size; i++)
+    {
+        if (a.data[i] < b.data[i])
+            return -1;
+        else if (a.data[i] > b.data[i])
+            return 1;
+    }
+    return 0;
+}
+
+struct reed_sol_matrix_t
+{
     int refs = 0;
+    int *data;
+    std::map<reed_sol_erased_t, int*> decodings;
 };
 
 std::map<uint64_t, reed_sol_matrix_t> matrices;
@@ -140,8 +159,8 @@ void use_jerasure(int pg_size, int pg_minsize, bool use)
         }
         int *matrix = reed_sol_vandermonde_coding_matrix(pg_minsize, pg_size-pg_minsize, 32);
         matrices[key] = (reed_sol_matrix_t){
-            .data = matrix,
             .refs = 0,
+            .data = matrix,
         };
         rs_it = matrices.find(key);
     }
@@ -149,11 +168,17 @@ void use_jerasure(int pg_size, int pg_minsize, bool use)
     if (rs_it->second.refs <= 0)
     {
         free(rs_it->second.data);
+        for (auto dec_it = rs_it->second.decodings.begin(); dec_it != rs_it->second.decodings.end();)
+        {
+            int *data = dec_it->second;
+            rs_it->second.decodings.erase(dec_it++);
+            free(data);
+        }
         matrices.erase(rs_it);
     }
 }
 
-int* get_jerasure_matrix(int pg_size, int pg_minsize)
+reed_sol_matrix_t* get_jerasure_matrix(int pg_size, int pg_minsize)
 {
     uint64_t key = (uint64_t)pg_size | ((uint64_t)pg_minsize) << 32;
     auto rs_it = matrices.find(key);
@@ -161,61 +186,74 @@ int* get_jerasure_matrix(int pg_size, int pg_minsize)
     {
         throw std::runtime_error("jerasure matrix not initialized");
     }
-    return rs_it->second.data;
+    return &rs_it->second;
+}
+
+// jerasure_matrix_decode() decodes all chunks at once and tries to reencode all missing coding chunks.
+// we don't need it. also it makes an extra allocation of int *erased on every call and doesn't cache
+// the decoding matrix.
+// all these flaws are fixed in this function:
+int* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize)
+{
+    int edd = 0;
+    int erased[pg_size] = { 0 };
+    for (int i = 0; i < pg_size; i++)
+        if (stripes[i].read_end == 0 || stripes[i].missing)
+            erased[i] = 1;
+    for (int i = 0; i < pg_minsize; i++)
+        if (stripes[i].read_end != 0 && stripes[i].missing)
+            edd++;
+    if (edd == 0)
+        return NULL;
+    reed_sol_matrix_t *matrix = get_jerasure_matrix(pg_size, pg_minsize);
+    auto dec_it = matrix->decodings.find((reed_sol_erased_t){ .data = erased, .size = pg_size });
+    if (dec_it == matrix->decodings.end())
+    {
+        int *dm_ids = (int*)malloc(sizeof(int)*(pg_minsize + pg_minsize*pg_minsize + pg_size));
+        int *decoding_matrix = dm_ids + pg_minsize;
+        if (!dm_ids)
+            throw std::bad_alloc();
+        // we always use row_k_ones=1 and w=32
+        if (jerasure_make_decoding_matrix(pg_minsize, pg_size-pg_minsize, 32, matrix->data, erased, decoding_matrix, dm_ids) < 0)
+        {
+            free(dm_ids);
+            throw std::runtime_error("jerasure_make_decoding_matrix() failed");
+        }
+        int *erased_copy = dm_ids + pg_minsize + pg_minsize*pg_minsize;
+        memcpy(erased_copy, erased, pg_size*sizeof(int));
+        matrix->decodings.emplace((reed_sol_erased_t){ .data = erased_copy, .size = pg_size }, dm_ids);
+        return dm_ids;
+    }
+    return dec_it->second;
 }
 
 void reconstruct_stripes_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize)
 {
-    int *matrix = get_jerasure_matrix(pg_size, pg_minsize);
-    int erasures[pg_size];
+    int *dm_ids = get_jerasure_decoding_matrix(stripes, pg_size, pg_minsize);
+    if (!dm_ids)
+    {
+        return;
+    }
+    int *decoding_matrix = dm_ids + pg_minsize;
     char *data_ptrs[pg_size] = { 0 };
-    int erasure_count = 0;
-    int res = 0;
     for (int role = 0; role < pg_minsize; role++)
     {
         if (stripes[role].read_end != 0 && stripes[role].missing)
         {
-            erasures[erasure_count++] = role;
-        }
-    }
-    if (erasure_count > 0)
-    {
-        for (int role = erasure_count; role < pg_size; role++)
-        {
-            erasures[role] = -1;
-        }
-        for (int role = 0; role < pg_minsize; role++)
-        {
-            if (stripes[role].read_end != 0 && stripes[role].missing)
+            for (int other = 0; other < pg_size; other++)
             {
-                for (int other = 0; other < role; other++)
+                if (stripes[other].read_end != 0 && !stripes[other].missing)
                 {
-                    if (stripes[other].missing &&
-                        stripes[role].read_start == stripes[other].read_start &&
-                        stripes[role].read_end == stripes[other].read_end)
-                    {
-                        // We reconstruct multiple ranges
-                        // Skip if the same range was already reconstructed
-                        goto next_missing;
-                    }
-                }
-                for (int other = 0; other < pg_size; other++)
-                {
+                    assert(stripes[other].read_start <= stripes[role].read_start);
+                    assert(stripes[other].read_end >= stripes[role].read_end);
                     data_ptrs[other] = (char*)(stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start));
                 }
-                // FIXME jerasure has slightly dumb API and performs extra allocations internally
-                // also it creates a decoding matrix on every call which could be cached
-                // sooo :-) we have some room for improvements here :-)
-                res = jerasure_matrix_decode(
-                    pg_minsize, pg_size-pg_minsize, 32, matrix, 1, erasures,
-                    data_ptrs, data_ptrs+pg_minsize, stripes[role].read_end - stripes[role].read_start
-                );
-                if (res < 0)
-                {
-                    throw std::runtime_error("jerasure_matrix_decode() failed");
-                }
             }
-            next_missing:;
+            data_ptrs[role] = (char*)stripes[role].read_buf;
+            jerasure_matrix_dotprod(
+                pg_minsize, 32, decoding_matrix+(role*pg_minsize), dm_ids, role,
+                data_ptrs, data_ptrs+pg_minsize, stripes[role].read_end - stripes[role].read_start
+            );
         }
     }
 }
@@ -602,7 +640,7 @@ void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_
 void calc_rmw_parity_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
     uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size)
 {
-    int *matrix = get_jerasure_matrix(pg_size, pg_minsize);
+    reed_sol_matrix_t *matrix = get_jerasure_matrix(pg_size, pg_minsize);
     reconstruct_stripes_jerasure(stripes, pg_size, pg_minsize);
     uint32_t start = 0, end = 0;
     calc_rmw_parity_copy_mod(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, start, end);
@@ -638,6 +676,7 @@ void calc_rmw_parity_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_min
                 for (int i = 0; i < pg_size; i++)
                 {
                     assert(curbuf[i] < nbuf[i]);
+                    assert(bufs[i][curbuf[i]].buf);
                     data_ptrs[i] = bufs[i][curbuf[i]].buf + pos-positions[i];
                     uint32_t this_end = bufs[i][curbuf[i]].len + positions[i];
                     if (next_end > this_end)
@@ -653,7 +692,10 @@ void calc_rmw_parity_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_min
                         curbuf[i]++;
                     }
                 }
-                jerasure_matrix_encode(pg_minsize, pg_size-pg_minsize, 32, matrix, (char**)data_ptrs, (char**)data_ptrs+pg_minsize, next_end-pos);
+                jerasure_matrix_encode(
+                    pg_minsize, pg_size-pg_minsize, 32, matrix->data,
+                    (char**)data_ptrs, (char**)data_ptrs+pg_minsize, next_end-pos
+                );
                 pos = next_end;
             }
         }

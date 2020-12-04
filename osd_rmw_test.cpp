@@ -19,6 +19,7 @@ void test10();
 void test11();
 void test12();
 void test13();
+void test14();
 
 int main(int narg, char *args[])
 {
@@ -44,6 +45,8 @@ int main(int narg, char *args[])
     test12();
     // Test 13
     test13();
+    // Test 14
+    test14();
     // End
     printf("all ok\n");
     return 0;
@@ -103,7 +106,7 @@ void test1()
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
     assert(stripes[2].read_start == 0 && stripes[2].read_end == 4096);
     // Test 1.3
-    stripes[0] = { .req_start = 128*1024-4096, .req_end = 128*1024 };
+    stripes[0] = (osd_rmw_stripe_t){ .req_start = 128*1024-4096, .req_end = 128*1024 };
     cover_read(0, 128*1024, stripes[0]);
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024-4096);
 }
@@ -566,7 +569,7 @@ void test12()
 
 /***
 
-13. basic jerasure test
+13. basic jerasure 2+2 test
    calc_rmw(offset=128K-4K, len=8K, osd_set=[1,2,0,0], write_set=[1,2,3,4])
    = {
      read: [ [ 0, 128K ], [ 0, 128K ], [ 0, 0 ], [ 0, 0 ] ],
@@ -624,7 +627,7 @@ void test13()
     assert(stripes[1].write_buf == write_buf+4096);
     assert(stripes[2].write_buf == rmw_buf);
     assert(stripes[3].write_buf == rmw_buf+128*1024);
-    // Test 13.3 - decode and verify
+    // Test 13.3 - full decode and verify
     osd_num_t read_osd_set[4] = { 0, 0, 3, 4 };
     memset(stripes, 0, sizeof(stripes));
     split_stripes(2, 128*1024, 0, 256*1024, stripes);
@@ -632,7 +635,7 @@ void test13()
     assert(stripes[1].req_start == 0 && stripes[1].req_end == 128*1024);
     assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
     assert(stripes[3].req_start == 0 && stripes[3].req_end == 0);
-    for (int role = 0; role < 2; role++)
+    for (int role = 0; role < 4; role++)
     {
         stripes[role].read_start = stripes[role].req_start;
         stripes[role].read_end = stripes[role].req_end;
@@ -655,9 +658,125 @@ void test13()
     check_pattern(stripes[0].read_buf+128*1024-4096, 4096, PATTERN3);
     check_pattern(stripes[1].read_buf, 4096, PATTERN3);
     check_pattern(stripes[1].read_buf+4096, 128*1024-4096, PATTERN2);
-    // Huh done
     free(read_buf);
+    // Test 13.4 - partial decode (only 1st chunk) and verify
+    memset(stripes, 0, sizeof(stripes));
+    split_stripes(2, 128*1024, 0, 128*1024, stripes);
+    assert(stripes[0].req_start == 0 && stripes[0].req_end == 128*1024);
+    assert(stripes[1].req_start == 0 && stripes[1].req_end == 0);
+    assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
+    assert(stripes[3].req_start == 0 && stripes[3].req_end == 0);
+    for (int role = 0; role < 4; role++)
+    {
+        stripes[role].read_start = stripes[role].req_start;
+        stripes[role].read_end = stripes[role].req_end;
+    }
+    assert(extend_missing_stripes(stripes, read_osd_set, 2, 4) == 0);
+    assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
+    assert(stripes[1].read_start == 0 && stripes[1].read_end == 0);
+    assert(stripes[2].read_start == 0 && stripes[2].read_end == 128*1024);
+    assert(stripes[3].read_start == 0 && stripes[3].read_end == 128*1024);
+    read_buf = alloc_read_buffer(stripes, 4, 0);
+    assert(read_buf);
+    assert(stripes[0].read_buf == read_buf);
+    assert(stripes[1].read_buf == NULL);
+    assert(stripes[2].read_buf == read_buf+128*1024);
+    assert(stripes[3].read_buf == read_buf+2*128*1024);
+    memcpy(read_buf+128*1024, rmw_buf, 128*1024);
+    memcpy(read_buf+2*128*1024, rmw_buf+128*1024, 128*1024);
+    reconstruct_stripes_jerasure(stripes, 4, 2);
+    check_pattern(stripes[0].read_buf, 128*1024-4096, PATTERN1);
+    check_pattern(stripes[0].read_buf+128*1024-4096, 4096, PATTERN3);
+    free(read_buf);
+    // Huh done
     free(rmw_buf);
     free(write_buf);
     use_jerasure(4, 2, false);
+}
+
+/***
+
+13. basic jerasure 2+1 test
+   calc_rmw(offset=128K-4K, len=8K, osd_set=[1,2,0], write_set=[1,2,3])
+   = {
+     read: [ [ 0, 128K ], [ 0, 128K ], [ 0, 0 ] ],
+     write: [ [ 128K-4K, 128K ], [ 0, 4K ], [ 0, 128K ] ],
+     input buffer: [ write0, write1 ],
+     rmw buffer: [ write2, read0, read1 ],
+   }
+   then, after calc_rmw_parity_jerasure(): all the same
+   then simulate read with read_osd_set=[0,2,3] and check read0 buffer
+
+***/
+
+void test14()
+{
+    use_jerasure(3, 2, true);
+    osd_num_t osd_set[3] = { 1, 2, 0 };
+    osd_num_t write_osd_set[3] = { 1, 2, 3 };
+    osd_rmw_stripe_t stripes[3] = { 0 };
+    // Test 13.0
+    void *write_buf = malloc_or_die(8192);
+    split_stripes(2, 128*1024, 128*1024-4096, 8192, stripes);
+    assert(stripes[0].req_start == 128*1024-4096 && stripes[0].req_end == 128*1024);
+    assert(stripes[1].req_start == 0 && stripes[1].req_end == 4096);
+    assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
+    // Test 13.1
+    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 3, write_osd_set, 128*1024);
+    assert(rmw_buf);
+    assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024-4096);
+    assert(stripes[1].read_start == 4096 && stripes[1].read_end == 128*1024);
+    assert(stripes[2].read_start == 0 && stripes[2].read_end == 0);
+    assert(stripes[0].write_start == 128*1024-4096 && stripes[0].write_end == 128*1024);
+    assert(stripes[1].write_start == 0 && stripes[1].write_end == 4096);
+    assert(stripes[2].write_start == 0 && stripes[2].write_end == 128*1024);
+    assert(stripes[0].read_buf == rmw_buf+128*1024);
+    assert(stripes[1].read_buf == rmw_buf+2*128*1024-4096);
+    assert(stripes[2].read_buf == NULL);
+    assert(stripes[0].write_buf == write_buf);
+    assert(stripes[1].write_buf == write_buf+4096);
+    assert(stripes[2].write_buf == rmw_buf);
+    // Test 13.2 - encode
+    set_pattern(write_buf, 8192, PATTERN3);
+    set_pattern(stripes[0].read_buf, 128*1024-4096, PATTERN1);
+    set_pattern(stripes[1].read_buf, 128*1024-4096, PATTERN2);
+    calc_rmw_parity_jerasure(stripes, 3, 2, osd_set, write_osd_set, 128*1024);
+    assert(stripes[0].write_start == 128*1024-4096 && stripes[0].write_end == 128*1024);
+    assert(stripes[1].write_start == 0 && stripes[1].write_end == 4096);
+    assert(stripes[2].write_start == 0 && stripes[2].write_end == 128*1024);
+    assert(stripes[0].write_buf == write_buf);
+    assert(stripes[1].write_buf == write_buf+4096);
+    assert(stripes[2].write_buf == rmw_buf);
+    // Test 13.3 - decode and verify
+    osd_num_t read_osd_set[4] = { 0, 2, 3 };
+    memset(stripes, 0, sizeof(stripes));
+    split_stripes(2, 128*1024, 0, 128*1024, stripes);
+    assert(stripes[0].req_start == 0 && stripes[0].req_end == 128*1024);
+    assert(stripes[1].req_start == 0 && stripes[1].req_end == 0);
+    assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
+    for (int role = 0; role < 3; role++)
+    {
+        stripes[role].read_start = stripes[role].req_start;
+        stripes[role].read_end = stripes[role].req_end;
+    }
+    assert(extend_missing_stripes(stripes, read_osd_set, 2, 3) == 0);
+    assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
+    assert(stripes[1].read_start == 0 && stripes[1].read_end == 128*1024);
+    assert(stripes[2].read_start == 0 && stripes[2].read_end == 128*1024);
+    void *read_buf = alloc_read_buffer(stripes, 3, 0);
+    assert(read_buf);
+    assert(stripes[0].read_buf == read_buf);
+    assert(stripes[1].read_buf == read_buf+128*1024);
+    assert(stripes[2].read_buf == read_buf+2*128*1024);
+    set_pattern(stripes[1].read_buf, 4096, PATTERN3);
+    set_pattern(stripes[1].read_buf+4096, 128*1024-4096, PATTERN2);
+    memcpy(stripes[2].read_buf, rmw_buf, 128*1024);
+    reconstruct_stripes_jerasure(stripes, 3, 2);
+    check_pattern(stripes[0].read_buf, 128*1024-4096, PATTERN1);
+    check_pattern(stripes[0].read_buf+128*1024-4096, 4096, PATTERN3);
+    free(read_buf);
+    // Huh done
+    free(rmw_buf);
+    free(write_buf);
+    use_jerasure(3, 2, false);
 }
