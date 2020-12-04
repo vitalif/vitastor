@@ -243,6 +243,9 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
     if (IS_DELETE(dirty_it->second.state))
     {
         object_id oid = dirty_it->first.oid;
+#ifdef BLOCKSTORE_DEBUG
+        printf("Unblock writes-after-delete %lx:%lx v%lx\n", oid.inode, oid.stripe, dirty_it->first.version);
+#endif
         dirty_it = dirty_end;
         // Unblock operations blocked by delete flushing
         uint32_t next_state = BS_ST_IN_FLIGHT;

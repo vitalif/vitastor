@@ -107,5 +107,6 @@ public:
     void request_trim();
     void release_trim();
     void enqueue_flush(obj_ver_id oid);
-    void unshift_flush(obj_ver_id oid);
+    void unshift_flush(obj_ver_id oid, bool force);
+    void remove_flush(object_id oid);
 };

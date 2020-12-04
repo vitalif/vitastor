@@ -76,6 +76,9 @@ void journal_flusher_t::loop()
 
 void journal_flusher_t::enqueue_flush(obj_ver_id ov)
 {
+#ifdef BLOCKSTORE_DEBUG
+    printf("enqueue_flush %lx:%lx v%lu\n", ov.oid.inode, ov.oid.stripe, ov.version);
+#endif
     auto it = flush_versions.find(ov.oid);
     if (it != flush_versions.end())
     {
@@ -94,8 +97,11 @@ void journal_flusher_t::enqueue_flush(obj_ver_id ov)
     }
 }
 
-void journal_flusher_t::unshift_flush(obj_ver_id ov)
+void journal_flusher_t::unshift_flush(obj_ver_id ov, bool force)
 {
+#ifdef BLOCKSTORE_DEBUG
+    printf("unshift_flush %lx:%lx v%lu\n", ov.oid.inode, ov.oid.stripe, ov.version);
+#endif
     auto it = flush_versions.find(ov.oid);
     if (it != flush_versions.end())
     {
@@ -105,12 +111,35 @@ void journal_flusher_t::unshift_flush(obj_ver_id ov)
     else
     {
         flush_versions[ov.oid] = ov.version;
+        if (!force)
+            flush_queue.push_front(ov.oid);
     }
-    flush_queue.push_front(ov.oid);
-    if (!dequeuing && (flush_queue.size() >= flusher_start_threshold || trim_wanted > 0))
+    if (force)
+        flush_queue.push_front(ov.oid);
+    if (force || !dequeuing && (flush_queue.size() >= flusher_start_threshold || trim_wanted > 0))
     {
         dequeuing = true;
         bs->ringloop->wakeup();
+    }
+}
+
+void journal_flusher_t::remove_flush(object_id oid)
+{
+#ifdef BLOCKSTORE_DEBUG
+    printf("undo_flush %lx:%lx\n", oid.inode, oid.stripe);
+#endif
+    auto v_it = flush_versions.find(oid);
+    if (v_it != flush_versions.end())
+    {
+        flush_versions.erase(v_it);
+        for (auto q_it = flush_queue.begin(); q_it != flush_queue.end(); q_it++)
+        {
+            if (*q_it == oid)
+            {
+                flush_queue.erase(q_it);
+                break;
+            }
+        }
     }
 }
 
@@ -319,8 +348,8 @@ resume_1:
             return false;
         }
         // Writes and deletes shouldn't happen at the same time
-        assert(!(copy_count > 0 || has_writes) || !has_delete);
-        if (copy_count == 0 && !has_writes && !has_delete || has_delete && old_clean_loc == UINT64_MAX)
+        assert(!has_writes || !has_delete);
+        if (!has_writes && !has_delete || has_delete && old_clean_loc == UINT64_MAX)
         {
             // Nothing to flush
             bs->erase_dirty(dirty_start, std::next(dirty_end), clean_loc);
@@ -445,8 +474,8 @@ resume_1:
             clean_disk_entry *new_entry = (clean_disk_entry*)(meta_new.buf + meta_new.pos*bs->clean_entry_size);
             if (new_entry->oid.inode != 0 && new_entry->oid != cur.oid)
             {
-                printf("Fatal error (metadata corruption or bug): tried to overwrite non-zero metadata entry %lx (%lx:%lx) with %lx:%lx\n",
-                    clean_loc, new_entry->oid.inode, new_entry->oid.stripe, cur.oid.inode, cur.oid.stripe);
+                printf("Fatal error (metadata corruption or bug): tried to overwrite non-zero metadata entry %lu (%lx:%lx) with %lx:%lx\n",
+                    clean_loc >> bs->block_order, new_entry->oid.inode, new_entry->oid.stripe, cur.oid.inode, cur.oid.stripe);
                 exit(1);
             }
             new_entry->oid = cur.oid;
@@ -513,7 +542,7 @@ resume_1:
         if (repeat_it != flusher->sync_to_repeat.end() && repeat_it->second > cur.version)
         {
             // Requeue version
-            flusher->unshift_flush({ .oid = cur.oid, .version = repeat_it->second });
+            flusher->unshift_flush({ .oid = cur.oid, .version = repeat_it->second }, false);
         }
         flusher->sync_to_repeat.erase(repeat_it);
     trim_journal:
@@ -602,7 +631,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
         {
             char err[1024];
             snprintf(
-                err, 1024, "BUG: Unexpected dirty_entry %lx:%lx v%lu state during flush: %d",
+                err, 1024, "BUG: Unexpected dirty_entry %lx:%lx v%lu unstable state during flush: %d",
                 dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version, dirty_it->second.state
             );
             throw std::runtime_error(err);

@@ -57,13 +57,16 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         {
             // It's allowed to write versions with low numbers over deletes
             // However, we have to flush those deletes first as we use version number for ordering
+#ifdef BLOCKSTORE_DEBUG
+            printf("Write %lx:%lx v%lu over delete (real v%lu) offset=%u len=%u\n", op->oid.inode, op->oid.stripe, version, op->version, op->offset, op->len);
+#endif
             wait_del = true;
             PRIV(op)->real_version = op->version;
             op->version = version;
             flusher->unshift_flush((obj_ver_id){
                 .oid = op->oid,
                 .version = version-1,
-            });
+            }, true);
         }
         else
         {
@@ -87,7 +90,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 #ifdef BLOCKSTORE_DEBUG
     if (is_del)
         printf("Delete %lx:%lx v%lu\n", op->oid.inode, op->oid.stripe, op->version);
-    else
+    else if (!wait_del)
         printf("Write %lx:%lx v%lu offset=%u len=%u\n", op->oid.inode, op->oid.stripe, op->version, op->offset, op->len);
 #endif
     // FIXME No strict need to add it into dirty_db here, it's just left
@@ -141,6 +144,9 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     if (PRIV(op)->real_version != 0)
     {
         // Restore original low version number for unblocked operations
+#ifdef BLOCKSTORE_DEBUG
+        printf("Restoring %lx:%lx version: v%lu -> v%lu\n", op->oid.inode, op->oid.stripe, op->version, PRIV(op)->real_version);
+#endif
         auto prev_it = dirty_it;
         prev_it--;
         if (prev_it->first.oid == op->oid && prev_it->first.version >= PRIV(op)->real_version)
@@ -396,7 +402,7 @@ resume_2:
 resume_4:
     // Switch object state
 #ifdef BLOCKSTORE_DEBUG
-    printf("Ack write %lx:%lx v%lu = %d\n", op->oid.inode, op->oid.stripe, op->version, dirty_it->second.state);
+    printf("Ack write %lx:%lx v%lu = state %x\n", op->oid.inode, op->oid.stripe, op->version, dirty_it->second.state);
 #endif
     bool imm = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE
         ? (immediate_commit == IMMEDIATE_ALL)

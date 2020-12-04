@@ -111,7 +111,7 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
                 {
                     // free the previous block
 #ifdef BLOCKSTORE_DEBUG
-                    printf("Free block %lu (new location is %lu)\n", clean_it->second.location >> block_order, done_cnt+i >> block_order);
+                    printf("Free block %lu (new location is %lu)\n", clean_it->second.location >> block_order, done_cnt+i);
 #endif
                     bs->data_alloc->set(clean_it->second.location >> block_order, false);
                 }
@@ -557,9 +557,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
             {
 #ifdef BLOCKSTORE_DEBUG
                 printf(
-                    "je_big_write%s oid=%lx:%lx ver=%lu loc=%08lx\n",
+                    "je_big_write%s oid=%lx:%lx ver=%lu loc=%lu\n",
                     je->type == JE_BIG_WRITE_INSTANT ? "_instant" : "",
-                    je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location
+                    je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location >> bs->block_order
                 );
 #endif
                 auto dirty_it = bs->dirty_db.upper_bound((obj_ver_id){
@@ -570,13 +570,18 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                 {
                     dirty_it--;
                     if (dirty_it->first.oid == je->big_write.oid &&
+                        dirty_it->first.version >= je->big_write.version &&
                         (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_DELETE)
                     {
                         // It is allowed to overwrite a deleted object with a
-                        // version number less than deletion version number,
+                        // version number smaller than deletion version number,
                         // because the presence of a BIG_WRITE entry means that
-                        // the data for it is already on disk.
-                        // Purge all dirty and clean entries for this object.
+                        // its data and metadata are already flushed.
+                        // We don't know if newer versions are flushed, but
+                        // the previous delete definitely is.
+                        // So we flush previous dirty entries, but retain the clean one.
+                        // This feature is required for writes happening shortly
+                        // after deletes.
                         auto dirty_end = dirty_it;
                         dirty_end++;
                         while (1)
@@ -592,13 +597,14 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                                 break;
                             }
                         }
-                        bs->erase_dirty(dirty_it, dirty_end, UINT64_MAX);
                         auto clean_it = bs->clean_db.find(je->big_write.oid);
-                        if (clean_it != bs->clean_db.end())
-                        {
-                            bs->data_alloc->set(clean_it->second.location >> bs->block_order, false);
-                            bs->clean_db.erase(clean_it);
-                        }
+                        bs->erase_dirty(
+                            dirty_it, dirty_end,
+                            clean_it != bs->clean_db.end() ? clean_it->second.location : UINT64_MAX
+                        );
+                        // Remove it from the flusher's queue, too
+                        // Otherwise it may end up referring to a small unstable write after reading the rest of the journal
+                        bs->flusher->remove_flush(je->big_write.oid);
                     }
                 }
                 auto clean_it = bs->clean_db.find(je->big_write.oid);
