@@ -8,8 +8,8 @@ Homepage: https://vitastor.io/
 Rules-Requires-Root: no
 
 Package: vitastor
-Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, fio (= ${dep:fio}), qemu (= ${dep:qemu}), nodejs (>= 12), node-sprintf-js, node-ws (>= 7), libjerasure2
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, fio (= ${dep:fio}), qemu (= ${dep:qemu}), nodejs (>= 10), node-sprintf-js, node-ws (>= 7), libjerasure2
 Description: Vitastor, a fast software-defined clustered block storage
  Vitastor is a small, simple and fast clustered block storage (storage for VM drives),
  architecturally similar to Ceph which means strong consistency, primary-replication,

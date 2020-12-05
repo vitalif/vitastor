@@ -30,13 +30,13 @@ dump_journal: dump_journal.cpp crc32c.o blockstore_journal.h
 libblockstore.so: $(BLOCKSTORE_OBJS)
 	g++ $(CXXFLAGS) -o $@ -shared $(BLOCKSTORE_OBJS) -ltcmalloc_minimal -luring
 libfio_blockstore.so: ./libblockstore.so fio_engine.o json11.o
-	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor' -shared -o $@ fio_engine.o json11.o ./libblockstore.so -ltcmalloc_minimal -luring
+	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor',-rpath,'$$ORIGIN' -shared -o $@ fio_engine.o json11.o libblockstore.so -ltcmalloc_minimal -luring
 
 OSD_OBJS := osd.o osd_secondary.o msgr_receive.o msgr_send.o osd_peering.o osd_flush.o osd_peering_pg.o \
 	osd_primary.o osd_primary_subops.o etcd_state_client.o messenger.o osd_cluster.o http_client.o osd_ops.o pg_states.o \
 	osd_rmw.o json11.o base64.o timerfd_manager.o epoll_manager.o
 osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h $(OSD_OBJS)
-	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor' -o $@ osd_main.cpp $(OSD_OBJS) ./libblockstore.so -ltcmalloc_minimal -luring -lJerasure
+	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor',-rpath,'$$ORIGIN' -o $@ osd_main.cpp $(OSD_OBJS) libblockstore.so -ltcmalloc_minimal -luring -lJerasure
 
 stub_osd: stub_osd.o rw_blocking.o
 	g++ $(CXXFLAGS) -o $@ stub_osd.o rw_blocking.o -ltcmalloc_minimal
@@ -76,7 +76,7 @@ qemu_driver.so: qemu_driver.o qemu_proxy.o $(FIO_CLUSTER_OBJS)
 	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $(FIO_CLUSTER_OBJS) qemu_driver.o qemu_proxy.o -luring
 
 test_blockstore: ./libblockstore.so test_blockstore.cpp timerfd_interval.o
-	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor' -o test_blockstore test_blockstore.cpp timerfd_interval.o ./libblockstore.so -ltcmalloc_minimal -luring
+	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor',-rpath,'$$ORIGIN' -o test_blockstore test_blockstore.cpp timerfd_interval.o libblockstore.so -ltcmalloc_minimal -luring
 test_shit: test_shit.cpp osd_peering_pg.o
 	g++ $(CXXFLAGS) -o test_shit test_shit.cpp -luring -lm
 test_allocator: test_allocator.cpp allocator.o
