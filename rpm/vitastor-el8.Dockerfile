@@ -7,13 +7,14 @@ WORKDIR /root
 
 RUN rm -f /etc/yum.repos.d/CentOS-Media.repo
 RUN dnf -y install centos-release-advanced-virtualization epel-release dnf-plugins-core
-RUN dnf --enablerepo='centos-advanced-virtualization' -y install gcc-toolset-9 gcc-toolset-9-gcc-c++ gperftools-devel qemu-kvm fio nodejs rpm-build
-RUN rm -rf /var/lib/dnf/*; dnf download --disablerepo='*' --enablerepo='centos-advanced-virtualization-source' --source qemu-kvm
+RUN yum -y install https://vitastor.io/rpms/centos/8/vitastor-release-1.0-1.el8.noarch.rpm
+RUN dnf --enablerepo='centos-advanced-virtualization' -y install gcc-toolset-9 gcc-toolset-9-gcc-c++ gperftools-devel qemu-kvm fio nodejs rpm-build jerasure-devel gf-complete-devel
+RUN rm -rf /var/lib/dnf/*; dnf download --disablerepo='*' --enablerepo='vitastor' --source qemu-kvm
 RUN dnf download --source fio
 RUN rpm --nomd5 -i qemu*.src.rpm
 RUN rpm --nomd5 -i fio*.src.rpm
-RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo='*' --spec qemu-kvm.spec
-RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo='*' --spec fio.spec
+RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo=PowerTools --spec qemu-kvm.spec
+RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo=PowerTools --spec fio.spec
 
 ADD https://vitastor.io/rpms/liburing-el7/liburing-0.7-2.el7.src.rpm /root
 
@@ -29,33 +30,12 @@ RUN set -e; \
 
 RUN rpm -i `ls /root/build/liburing-el7/liburing-*.x86_64.rpm | grep -v debug`
 
-ADD qemu-*-vitastor.patch /root/vitastor/
-
-RUN set -e; \
-    mkdir -p /root/build/qemu-el8; \
-    rm -rf /root/build/qemu-el8/*; \
-    rpm --nomd5 -i /root/qemu*.src.rpm; \
-    cd ~/rpmbuild/SPECS; \
-    PN=$(grep ^Patch qemu-kvm.spec | tail -n1 | perl -pe 's/Patch(\d+).*/$1/'); \
-    csplit qemu-kvm.spec "/^Patch$PN/"; \
-    cat xx00 > qemu-kvm.spec; \
-    head -n 1 xx01 >> qemu-kvm.spec; \
-    echo "Patch$((PN+1)): qemu-4.2-vitastor.patch" >> qemu-kvm.spec; \
-    tail -n +2 xx01 >> qemu-kvm.spec; \
-    perl -i -pe 's/(^Release:\s*\d+)/$1.vitastor/' qemu-kvm.spec; \
-    cp /root/vitastor/qemu-4.2-vitastor.patch ~/rpmbuild/SOURCES; \
-    rpmbuild --nocheck -ba qemu-kvm.spec; \
-    cp ~/rpmbuild/RPMS/*/*qemu* /root/build/qemu-el8/; \
-    cp ~/rpmbuild/SRPMS/*qemu* /root/build/qemu-el8/
-
-RUN cd /root/build/qemu-el8; dnf -y install `ls qemu*.rpm | grep -vP 'debug|guest|tests|src'`
-
 ADD . /root/vitastor
 
 RUN set -e; \
     cd /root/vitastor/rpm; \
     sh build-tarball.sh; \
-    cp /root/vitastor-0.5.el8.tar.gz ~/rpmbuild/SOURCES; \
+    cp /root/vitastor-0.5.1.el8.tar.gz ~/rpmbuild/SOURCES; \
     cp vitastor-el8.spec ~/rpmbuild/SPECS/vitastor.spec; \
     cd ~/rpmbuild/SPECS/; \
     rpmbuild -ba vitastor.spec; \

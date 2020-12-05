@@ -1,5 +1,5 @@
---- qemu-kvm.spec	2020-11-07 22:48:46.312124920 +0000
-+++ qemu-kvm.spec	2020-11-07 23:04:06.246772766 +0000
+--- qemu-kvm.spec	2020-12-05 13:13:54.388623517 +0000
++++ qemu-kvm.spec	2020-12-05 13:13:58.728696598 +0000
 @@ -67,7 +67,7 @@ Obsoletes: %1-rhev
  Summary: QEMU is a machine emulator and virtualizer
  Name: qemu-kvm
@@ -9,12 +9,21 @@
  # Epoch because we pushed a qemu-1.0 package. AIUI this can't ever be dropped
  Epoch: 15
  License: GPLv2 and GPLv2+ and CC-BY
-@@ -825,6 +825,8 @@ Patch331: kvm-Drop-bogus-IPv6-messages.p
+@@ -825,6 +825,7 @@ Patch331: kvm-Drop-bogus-IPv6-messages.p
  Patch333: kvm-virtiofsd-Whitelist-fchmod.patch
  # For bz#1883869 - virtiofsd core dump in KATA Container [rhel-8.2.1.z]
  Patch334: kvm-virtiofsd-avoid-proc-self-fd-tempdir.patch
-+# Vitastor
 +Patch335: qemu-4.2-vitastor.patch
  
  BuildRequires: wget
  BuildRequires: rpm-build
+@@ -1192,9 +1193,7 @@ buildldflags="VL_LDFLAGS=-Wl,--build-id"
+ %endif
+   --python=%{__python3} \
+   --target-list="%{buildarch}" \
+-  --block-drv-rw-whitelist=%{block_drivers_list} \
+   --audio-drv-list= \
+-  --block-drv-ro-whitelist=vmdk,vhdx,vpc,https,ssh \
+   --with-coroutine=ucontext \
+   --tls-priority=NORMAL \
+   --disable-bluez \

@@ -1,6 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.0 (see README.md for details)
 
+#include <stdexcept>
 #include <string.h>
 #include <assert.h>
 #include <jerasure/reed_sol.h>

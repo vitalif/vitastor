@@ -1,20 +1,23 @@
 Name:           vitastor
-Version:        0.5
+Version:        0.5.1
 Release:        2%{?dist}
 Summary:        Vitastor, a fast software-defined clustered block storage
 
 License:        Vitastor Network Public License 1.0
 URL:            https://vitastor.io/
-Source0:        vitastor-0.5.el8.tar.gz
+Source0:        vitastor-0.5.1.el8.tar.gz
 
 BuildRequires:  liburing-devel >= 0.6
 BuildRequires:  gperftools-devel
 BuildRequires:  gcc-toolset-9-gcc-c++
 BuildRequires:  nodejs >= 10
+BuildRequires:  jerasure-devel
+BuildRequires:  gf-complete-devel
 Requires:       fio = 3.7-3.el8
 Requires:       qemu-kvm = 4.2.0-29.el8.6
 Requires:       nodejs >= 10
 Requires:       liburing >= 0.6
+Requires:       libJerasure2
 
 %description
 Vitastor is a small, simple and fast clustered block storage (storage for VM drives),

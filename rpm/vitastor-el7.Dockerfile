@@ -6,9 +6,10 @@ FROM centos:7
 
 WORKDIR /root
 
+RUN rm -f /etc/yum.repos.d/CentOS-Media.repo
 RUN yum -y --enablerepo=extras install centos-release-scl epel-release yum-utils rpm-build
 RUN yum -y install https://vitastor.io/rpms/centos/7/vitastor-release-1.0-1.el7.noarch.rpm
-RUN yum -y install devtoolset-9-gcc-c++ devtoolset-9-libatomic-devel gperftools-devel qemu-kvm fio rh-nodejs12
+RUN yum -y install devtoolset-9-gcc-c++ devtoolset-9-libatomic-devel gperftools-devel qemu-kvm fio rh-nodejs12 jerasure-devel gf-complete-devel
 RUN yumdownloader --disablerepo=centos-sclo-rh --source qemu-kvm
 RUN yumdownloader --disablerepo=centos-sclo-rh --source fio
 RUN rpm --nomd5 -i qemu*.src.rpm
@@ -36,7 +37,7 @@ ADD . /root/vitastor
 RUN set -e; \
     cd /root/vitastor/rpm; \
     sh build-tarball.sh; \
-    cp /root/vitastor-0.5.el7.tar.gz ~/rpmbuild/SOURCES; \
+    cp /root/vitastor-0.5.1.el7.tar.gz ~/rpmbuild/SOURCES; \
     cp vitastor-el7.spec ~/rpmbuild/SPECS/vitastor.spec; \
     cd ~/rpmbuild/SPECS/; \
     rpmbuild -ba vitastor.spec; \
