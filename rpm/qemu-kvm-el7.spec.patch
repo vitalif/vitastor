@@ -1,0 +1,257 @@
+--- qemu-kvm.spec.orig	2020-11-09 23:41:03.000000000 +0000
++++ qemu-kvm.spec	2020-12-06 10:44:24.207640963 +0000
+@@ -2,7 +2,7 @@
+ %global SLOF_gittagcommit 899d9883
+ 
+ %global have_usbredir 1
+-%global have_spice    1
++%global have_spice    0
+ %global have_opengl   1
+ %global have_fdt      0
+ %global have_gluster  1
+@@ -56,7 +56,7 @@ Requires: %{name}-block-curl = %{epoch}:
+ Requires: %{name}-block-gluster = %{epoch}:%{version}-%{release} \
+ %endif                                                           \
+ Requires: %{name}-block-iscsi = %{epoch}:%{version}-%{release}   \
+-Requires: %{name}-block-rbd = %{epoch}:%{version}-%{release}     \
++#Requires: %{name}-block-rbd = %{epoch}:%{version}-%{release}     \
+ Requires: %{name}-block-ssh = %{epoch}:%{version}-%{release}
+ 
+ # Macro to properly setup RHEL/RHEV conflict handling
+@@ -67,7 +67,7 @@ Obsoletes: %1-rhev
+ Summary: QEMU is a machine emulator and virtualizer
+ Name: qemu-kvm
+ Version: 4.2.0
+-Release: 29.vitastor%{?dist}.6
++Release: 30.vitastor%{?dist}.6
+ # Epoch because we pushed a qemu-1.0 package. AIUI this can't ever be dropped
+ Epoch: 15
+ License: GPLv2 and GPLv2+ and CC-BY
+@@ -99,8 +99,8 @@ Source30: kvm-s390x.conf
+ Source31: kvm-x86.conf
+ Source32: qemu-pr-helper.service
+ Source33: qemu-pr-helper.socket
+-Source34: 81-kvm-rhel.rules
+-Source35: udev-kvm-check.c
++#Source34: 81-kvm-rhel.rules
++#Source35: udev-kvm-check.c
+ Source36: README.tests
+ 
+ 
+@@ -825,7 +825,9 @@ Patch331: kvm-Drop-bogus-IPv6-messages.p
+ Patch333: kvm-virtiofsd-Whitelist-fchmod.patch
+ # For bz#1883869 - virtiofsd core dump in KATA Container [rhel-8.2.1.z]
+ Patch334: kvm-virtiofsd-avoid-proc-self-fd-tempdir.patch
+-Patch335: qemu-4.2-vitastor.patch
++Patch335: qemu-use-sphinx-1.2.patch
++Patch336: qemu-config-tcmalloc-warning.patch
++Patch337: qemu-4.2-vitastor.patch
+ 
+ BuildRequires: wget
+ BuildRequires: rpm-build
+@@ -842,7 +844,8 @@ BuildRequires: pciutils-devel
+ BuildRequires: libiscsi-devel
+ BuildRequires: ncurses-devel
+ BuildRequires: libattr-devel
+-BuildRequires: libusbx-devel >= 1.0.22
++BuildRequires: gperftools-devel
++BuildRequires: libusbx-devel >= 1.0.21
+ %if %{have_usbredir}
+ BuildRequires: usbredir-devel >= 0.7.1
+ %endif
+@@ -856,12 +859,12 @@ BuildRequires: virglrenderer-devel
+ # For smartcard NSS support
+ BuildRequires: nss-devel
+ %endif
+-BuildRequires: libseccomp-devel >= 2.4.0
++#Requires: libseccomp >= 2.4.0
+ # For network block driver
+ BuildRequires: libcurl-devel
+ BuildRequires: libssh-devel
+-BuildRequires: librados-devel
+-BuildRequires: librbd-devel
++#BuildRequires: librados-devel
++#BuildRequires: librbd-devel
+ %if %{have_gluster}
+ # For gluster block driver
+ BuildRequires: glusterfs-api-devel
+@@ -955,25 +958,25 @@ hardware for a full system such as a PC
+ 
+ %package -n qemu-kvm-core
+ Summary: qemu-kvm core components
++Requires: gperftools-libs
+ Requires: qemu-img = %{epoch}:%{version}-%{release}
+ %ifarch %{ix86} x86_64
+ Requires: seabios-bin >= 1.10.2-1
+ Requires: sgabios-bin
+-Requires: edk2-ovmf
+ %endif
+ %ifarch aarch64
+ Requires: edk2-aarch64
+ %endif
+ 
+ %ifnarch aarch64 s390x
+-Requires: seavgabios-bin >= 1.12.0-3
+-Requires: ipxe-roms-qemu >= 20170123-1
++Requires: seavgabios-bin >= 1.11.0-1
++Requires: ipxe-roms-qemu >= 20181214-1
++Requires: /usr/share/ipxe.efi
+ %endif
+ %ifarch %{power64}
+ Requires: SLOF >= %{SLOF_gittagdate}-1.git%{SLOF_gittagcommit}
+ %endif
+ Requires: %{name}-common = %{epoch}:%{version}-%{release}
+-Requires: libseccomp >= 2.4.0
+ # For compressed guest memory dumps
+ Requires: lzo snappy
+ %if %{have_kvm_setup}
+@@ -1085,15 +1088,15 @@ This package provides the additional iSC
+ Install this package if you want to access iSCSI volumes.
+ 
+ 
+-%package  block-rbd
+-Summary: QEMU Ceph/RBD block driver
+-Requires: %{name}-common%{?_isa} = %{epoch}:%{version}-%{release}
+-
+-%description block-rbd
+-This package provides the additional Ceph/RBD block driver for QEMU.
+-
+-Install this package if you want to access remote Ceph volumes
+-using the rbd protocol.
++#%package  block-rbd
++#Summary: QEMU Ceph/RBD block driver
++#Requires: %{name}-common%{?_isa} = %{epoch}:%{version}-%{release}
++#
++#%description block-rbd
++#This package provides the additional Ceph/RBD block driver for QEMU.
++#
++#Install this package if you want to access remote Ceph volumes
++#using the rbd protocol.
+ 
+ 
+ %package  block-ssh
+@@ -1117,12 +1120,14 @@ the Secure Shell (SSH) protocol.
+ # --build-id option is used for giving info to the debug packages.
+ buildldflags="VL_LDFLAGS=-Wl,--build-id"
+ 
+-%global block_drivers_list qcow2,raw,file,host_device,nbd,iscsi,rbd,blkdebug,luks,null-co,nvme,copy-on-read,throttle
++#%global block_drivers_list qcow2,raw,file,host_device,nbd,iscsi,rbd,blkdebug,luks,null-co,nvme,copy-on-read,throttle
++%global block_drivers_list qcow2,raw,file,host_device,nbd,iscsi,blkdebug,luks,null-co,nvme,copy-on-read,throttle
+ 
+ %if 0%{have_gluster}
+     %global block_drivers_list %{block_drivers_list},gluster
+ %endif
+ 
++[ -e /usr/bin/sphinx-build ] || ln -s sphinx-build-3 /usr/bin/sphinx-build
+ ./configure  \
+  --prefix="%{_prefix}" \
+  --libdir="%{_libdir}" \
+@@ -1152,15 +1157,15 @@ buildldflags="VL_LDFLAGS=-Wl,--build-id"
+ %else
+   --disable-numa \
+ %endif
+-  --enable-rbd \
++  --disable-rbd \
+ %if 0%{have_librdma}
+   --enable-rdma \
+ %else
+   --disable-rdma \
+ %endif
+   --disable-pvrdma \
+-  --enable-seccomp \
+-%if 0%{have_spice}
++  --disable-seccomp \
++%if %{have_spice}
+   --enable-spice \
+   --enable-smartcard \
+   --enable-virglrenderer \
+@@ -1179,7 +1184,7 @@ buildldflags="VL_LDFLAGS=-Wl,--build-id"
+ %else
+   --disable-usb-redir \
+ %endif
+-  --disable-tcmalloc \
++  --enable-tcmalloc \
+ %ifarch x86_64
+   --enable-libpmem \
+ %else
+@@ -1193,9 +1198,7 @@ buildldflags="VL_LDFLAGS=-Wl,--build-id"
+ %endif
+   --python=%{__python3} \
+   --target-list="%{buildarch}" \
+-  --block-drv-rw-whitelist=%{block_drivers_list} \
+   --audio-drv-list= \
+-  --block-drv-ro-whitelist=vmdk,vhdx,vpc,https,ssh \
+   --with-coroutine=ucontext \
+   --tls-priority=NORMAL \
+   --disable-bluez \
+@@ -1262,7 +1265,7 @@ buildldflags="VL_LDFLAGS=-Wl,--build-id"
+   --disable-sanitizers \
+   --disable-hvf \
+   --disable-whpx \
+-  --enable-malloc-trim \
++  --disable-malloc-trim \
+   --disable-membarrier \
+   --disable-vhost-crypto \
+   --disable-libxml2 \
+@@ -1308,7 +1311,7 @@ make V=1 %{?_smp_mflags} $buildldflags
+ cp -a %{kvm_target}-softmmu/qemu-system-%{kvm_target} qemu-kvm
+ 
+ gcc %{SOURCE6} $RPM_OPT_FLAGS $RPM_LD_FLAGS -o ksmctl
+-gcc %{SOURCE35} $RPM_OPT_FLAGS $RPM_LD_FLAGS -o udev-kvm-check
++#gcc %{SOURCE35} $RPM_OPT_FLAGS $RPM_LD_FLAGS -o udev-kvm-check
+ 
+ %install
+ %define _udevdir %(pkg-config --variable=udevdir udev)
+@@ -1343,8 +1346,8 @@ mkdir -p $RPM_BUILD_ROOT%{testsdir}/test
+ mkdir -p $RPM_BUILD_ROOT%{testsdir}/tests/qemu-iotests
+ mkdir -p $RPM_BUILD_ROOT%{testsdir}/scripts/qmp
+ 
+-install -p -m 0755 udev-kvm-check $RPM_BUILD_ROOT%{_udevdir}
+-install -p -m 0644 %{SOURCE34} $RPM_BUILD_ROOT%{_udevrulesdir}
++#install -p -m 0755 udev-kvm-check $RPM_BUILD_ROOT%{_udevdir}
++#install -p -m 0644 %{SOURCE34} $RPM_BUILD_ROOT%{_udevrulesdir}
+ 
+ install -m 0644 scripts/dump-guest-memory.py \
+                 $RPM_BUILD_ROOT%{_datadir}/%{name}
+@@ -1562,6 +1565,8 @@ rm -rf $RPM_BUILD_ROOT%{qemudocdir}/inte
+ # Remove spec
+ rm -rf $RPM_BUILD_ROOT%{qemudocdir}/specs
+ 
++%global __os_install_post %(echo '%{__os_install_post}' | sed -e 's!/usr/lib[^[:space:]]*/brp-python-bytecompile[[:space:]].*$!!g')
++
+ %check
+ export DIFF=diff; make check V=1
+ 
+@@ -1645,8 +1650,8 @@ useradd -r -u 107 -g qemu -G kvm -d / -s
+ %config(noreplace) %{_sysconfdir}/sysconfig/ksm
+ %{_unitdir}/ksmtuned.service
+ %{_sbindir}/ksmtuned
+-%{_udevdir}/udev-kvm-check
+-%{_udevrulesdir}/81-kvm-rhel.rules
++#%{_udevdir}/udev-kvm-check
++#%{_udevrulesdir}/81-kvm-rhel.rules
+ %ghost %{_sysconfdir}/kvm
+ %config(noreplace) %{_sysconfdir}/ksmtuned.conf
+ %dir %{_sysconfdir}/%{name}
+@@ -1711,8 +1716,8 @@ useradd -r -u 107 -g qemu -G kvm -d / -s
+ %{_libexecdir}/vhost-user-gpu
+ %{_datadir}/%{name}/vhost-user/50-qemu-gpu.json
+ %endif
+-%{_libexecdir}/virtiofsd
+-%{_datadir}/%{name}/vhost-user/50-qemu-virtiofsd.json
++#%{_libexecdir}/virtiofsd
++#%{_datadir}/%{name}/vhost-user/50-qemu-virtiofsd.json
+ 
+ %files -n qemu-img
+ %defattr(-,root,root)
+@@ -1748,8 +1753,8 @@ useradd -r -u 107 -g qemu -G kvm -d / -s
+ %files block-iscsi
+ %{_libdir}/qemu-kvm/block-iscsi.so
+ 
+-%files block-rbd
+-%{_libdir}/qemu-kvm/block-rbd.so
++#%files block-rbd
++#%{_libdir}/qemu-kvm/block-rbd.so
+ 
+ %files block-ssh
+ %{_libdir}/qemu-kvm/block-ssh.so
