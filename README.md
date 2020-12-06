@@ -16,7 +16,8 @@ breaking changes in the future. However, the following is implemented:
 
 - Basic part: highly-available block storage with symmetric clustering and no SPOF
 - Performance ;-D
-- Two redundancy schemes: Replication and XOR n+1 (simplest case of EC)
+- Multiple redundancy schemes: Replication, XOR n+1, Reed-Solomon erasure codes
+  based on jerasure library with any number of data and parity drives in a group
 - Configuration via simple JSON data structures in etcd
 - Automatic data distribution over OSDs, with support for:
   - Mathematical optimization for better uniformity and less data movement
@@ -39,7 +40,6 @@ breaking changes in the future. However, the following is implemented:
 - OSD creation tool (OSDs currently have to be created by hand)
 - Other administrative tools
 - Per-inode I/O and space usage statistics
-- jerasure EC support with any number of data and parity drives in a group
 - Parallel usage of multiple network interfaces
 - Proxmox and OpenNebula plugins
 - iSCSI proxy
@@ -353,6 +353,7 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
 - Create global configuration in etcd: `etcdctl --endpoints=... put /vitastor/config/global '{"immediate_commit":"all"}'`
   (if all your drives have capacitors).
 - Create pool configuration in etcd: `etcdctl --endpoints=... put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":256,"failure_domain":"host"}}'`.
+  For jerasure pools the configuration should look like the following: `2:{"name":"ecpool","scheme":"jerasure","pg_size":4,"parity_chunks":2,"pg_minsize":2,"pg_count":256,"failure_domain":"host"}`.
 - Calculate offsets for your drives with `node /usr/lib/vitastor/mon/simple-offsets.js --device /dev/sdX`.
 - Make systemd units for your OSDs. Look at `/usr/lib/vitastor/mon/make-units.sh` for example.
   Notable configuration variables from the example:
