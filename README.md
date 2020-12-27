@@ -399,10 +399,7 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
 
 - Object deletion requests may currently lead to 'incomplete' objects if your OSDs crash during
   deletion because proper handling of object cleanup in a cluster should be "three-phase"
-  and it's currently not implemented. Inode removal tool currently can't handle unclean
-  objects, so incomplete objects become undeletable. This will be fixed in near future
-  by allowing the inode removal tool to delete unclean objects. With this problem fixed
-  you'll be able just to repeat the removal again.
+  and it's currently not implemented. Just to repeat the removal again in this case.
 
 ## Implementation Principles
 
