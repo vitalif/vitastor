@@ -40,7 +40,6 @@ breaking changes in the future. However, the following is implemented:
 - OSD creation tool (OSDs currently have to be created by hand)
 - Other administrative tools
 - Per-inode I/O and space usage statistics
-- Parallel usage of multiple network interfaces
 - Proxmox and OpenNebula plugins
 - iSCSI proxy
 - Inode metadata storage in etcd
@@ -50,6 +49,7 @@ breaking changes in the future. However, the following is implemented:
 - Checksums
 - SSD+HDD optimizations, possibly including tiered storage and soft journal flushes
 - RDMA and NVDIMM support
+- Web GUI
 - Compression (possibly)
 - Read caching using system page cache (possibly)
 
