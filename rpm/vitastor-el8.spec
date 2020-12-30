@@ -18,6 +18,7 @@ Requires:       qemu-kvm = 4.2.0-29.el8.6
 Requires:       nodejs >= 10
 Requires:       liburing >= 0.6
 Requires:       libJerasure2
+Requires:       lpsolve
 
 %description
 Vitastor is a small, simple and fast clustered block storage (storage for VM drives),

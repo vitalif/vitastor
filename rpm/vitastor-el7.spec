@@ -20,6 +20,7 @@ Requires:       rh-nodejs12
 Requires:       rh-nodejs12-npm
 Requires:       liburing >= 0.6
 Requires:       libJerasure2
+Requires:       lpsolve
 
 %description
 Vitastor is a small, simple and fast clustered block storage (storage for VM drives),
