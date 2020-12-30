@@ -348,7 +348,14 @@ void osd_messenger_t::stop_client(int peer_fd)
     }
     if (cl->read_op)
     {
-        delete cl->read_op;
+        if (cl->read_op->callback)
+        {
+            cancel_op(cl->read_op);
+        }
+        else
+        {
+            delete cl->read_op;
+        }
         cl->read_op = NULL;
     }
     for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
