@@ -84,8 +84,12 @@ void epoll_manager_t::handle_epoll_events()
         nfds = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, 0);
         for (int i = 0; i < nfds; i++)
         {
-            auto & cb = epoll_handlers[events[i].data.fd];
-            cb(events[i].data.fd, events[i].events);
+            auto cb_it = epoll_handlers.find(events[i].data.fd);
+            if (cb_it != epoll_handlers.end())
+            {
+                auto & cb = cb_it->second;
+                cb(events[i].data.fd, events[i].events);
+            }
         }
     } while (nfds == MAX_EPOLL_EVENTS);
 }
