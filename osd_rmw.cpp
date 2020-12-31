@@ -11,6 +11,8 @@
 #include "osd_rmw.h"
 #include "malloc_or_die.h"
 
+#define OSD_JERASURE_W 32
+
 static inline void extend_read(uint32_t start, uint32_t end, osd_rmw_stripe_t & stripe)
 {
     if (stripe.read_end == 0)
@@ -158,7 +160,7 @@ void use_jerasure(int pg_size, int pg_minsize, bool use)
         {
             return;
         }
-        int *matrix = reed_sol_vandermonde_coding_matrix(pg_minsize, pg_size-pg_minsize, 32);
+        int *matrix = reed_sol_vandermonde_coding_matrix(pg_minsize, pg_size-pg_minsize, OSD_JERASURE_W);
         matrices[key] = (reed_sol_matrix_t){
             .refs = 0,
             .data = matrix,
@@ -214,8 +216,8 @@ int* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size, int pg
         int *decoding_matrix = dm_ids + pg_minsize;
         if (!dm_ids)
             throw std::bad_alloc();
-        // we always use row_k_ones=1 and w=32
-        if (jerasure_make_decoding_matrix(pg_minsize, pg_size-pg_minsize, 32, matrix->data, erased, decoding_matrix, dm_ids) < 0)
+        // we always use row_k_ones=1 and w=8 (OSD_JERASURE_W)
+        if (jerasure_make_decoding_matrix(pg_minsize, pg_size-pg_minsize, OSD_JERASURE_W, matrix->data, erased, decoding_matrix, dm_ids) < 0)
         {
             free(dm_ids);
             throw std::runtime_error("jerasure_make_decoding_matrix() failed");
@@ -252,7 +254,7 @@ void reconstruct_stripes_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg
             }
             data_ptrs[role] = (char*)stripes[role].read_buf;
             jerasure_matrix_dotprod(
-                pg_minsize, 32, decoding_matrix+(role*pg_minsize), dm_ids, role,
+                pg_minsize, OSD_JERASURE_W, decoding_matrix+(role*pg_minsize), dm_ids, role,
                 data_ptrs, data_ptrs+pg_minsize, stripes[role].read_end - stripes[role].read_start
             );
         }
@@ -694,7 +696,7 @@ void calc_rmw_parity_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_min
                     }
                 }
                 jerasure_matrix_encode(
-                    pg_minsize, pg_size-pg_minsize, 32, matrix->data,
+                    pg_minsize, pg_size-pg_minsize, OSD_JERASURE_W, matrix->data,
                     (char**)data_ptrs, (char**)data_ptrs+pg_minsize, next_end-pos
                 );
                 pos = next_end;
