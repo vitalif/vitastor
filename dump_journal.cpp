@@ -26,23 +26,32 @@ struct journal_dump_t
     uint64_t journal_offset;
     uint64_t journal_len;
     uint64_t journal_pos;
+    bool all;
+    bool started;
     int fd;
+    uint32_t crc32_last;
 
-    void dump_block(void *buf);
+    int dump_block(void *buf);
 };
 
 int main(int argc, char *argv[])
 {
-    if (argc < 5)
+    journal_dump_t self = { 0 };
+    int b = 1;
+    if (argc >= 2 && !strcmp(argv[1], "--all"))
     {
-        printf("USAGE: %s <journal_file> <journal_block_size> <offset> <size>\n", argv[0]);
+        self.all = true;
+        b = 2;
+    }
+    if (argc < b+4)
+    {
+        printf("USAGE: %s [--all] <journal_file> <journal_block_size> <offset> <size>\n", argv[0]);
         return 1;
     }
-    journal_dump_t self;
-    self.journal_device = argv[1];
-    self.journal_block = strtoul(argv[2], NULL, 10);
-    self.journal_offset = strtoull(argv[3], NULL, 10);
-    self.journal_len = strtoull(argv[4], NULL, 10);
+    self.journal_device = argv[b];
+    self.journal_block = strtoul(argv[b+1], NULL, 10);
+    self.journal_offset = strtoull(argv[b+2], NULL, 10);
+    self.journal_len = strtoull(argv[b+3], NULL, 10);
     if (self.journal_block < MEM_ALIGNMENT || (self.journal_block % MEM_ALIGNMENT) ||
         self.journal_block > 128*1024)
     {
@@ -57,30 +66,64 @@ int main(int argc, char *argv[])
     }
     void *data = memalign(MEM_ALIGNMENT, self.journal_block);
     self.journal_pos = 0;
-    while (self.journal_pos < self.journal_len)
+    if (self.all)
+    {
+        while (self.journal_pos < self.journal_len)
+        {
+            int r = pread(self.fd, data, self.journal_block, self.journal_offset+self.journal_pos);
+            assert(r == self.journal_block);
+            uint64_t s;
+            for (s = 0; s < self.journal_block; s += 8)
+            {
+                if (*((uint64_t*)(data+s)) != 0)
+                    break;
+            }
+            if (s == self.journal_block)
+            {
+                printf("offset %08lx: zeroes\n", self.journal_pos);
+                self.journal_pos += self.journal_block;
+            }
+            else if (((journal_entry*)data)->magic == JOURNAL_MAGIC)
+            {
+                printf("offset %08lx:\n", self.journal_pos);
+                self.dump_block(data);
+            }
+            else
+            {
+                printf("offset %08lx: no magic in the beginning, looks like random data (pattern=%lx)\n", self.journal_pos, *((uint64_t*)data));
+                self.journal_pos += self.journal_block;
+            }
+        }
+    }
+    else
     {
         int r = pread(self.fd, data, self.journal_block, self.journal_offset+self.journal_pos);
         assert(r == self.journal_block);
-        uint64_t s;
-        for (s = 0; s < self.journal_block; s += 8)
+        journal_entry *je = (journal_entry*)(data);
+        if (je->magic != JOURNAL_MAGIC || je->type != JE_START || je_crc32(je) != je->crc32)
         {
-            if (*((uint64_t*)(data+s)) != 0)
-                break;
-        }
-        if (s == self.journal_block)
-        {
-            printf("offset %08lx: zeroes\n", self.journal_pos);
-            self.journal_pos += self.journal_block;
-        }
-        else if (((journal_entry*)data)->magic == JOURNAL_MAGIC)
-        {
-            printf("offset %08lx:\n", self.journal_pos);
-            self.dump_block(data);
+            printf("offset %08lx: journal superblock is invalid\n", self.journal_pos);
         }
         else
         {
-            printf("offset %08lx: no magic in the beginning, looks like random data (pattern=%lx)\n", self.journal_pos, *((uint64_t*)data));
-            self.journal_pos += self.journal_block;
+            printf("offset %08lx:\n", self.journal_pos);
+            self.dump_block(data);
+            self.started = false;
+            self.journal_pos = je->start.journal_start;
+            while (1)
+            {
+                if (self.journal_pos >= self.journal_len)
+                    self.journal_pos = self.journal_block;
+                r = pread(self.fd, data, self.journal_block, self.journal_offset+self.journal_pos);
+                assert(r == self.journal_block);
+                printf("offset %08lx:\n", self.journal_pos);
+                r = self.dump_block(data);
+                if (r <= 0)
+                {
+                    printf("end of the journal\n");
+                    break;
+                }
+            }
         }
     }
     free(data);
@@ -88,7 +131,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-void journal_dump_t::dump_block(void *buf)
+int journal_dump_t::dump_block(void *buf)
 {
     uint32_t pos = 0;
     journal_pos += journal_block;
@@ -97,12 +140,19 @@ void journal_dump_t::dump_block(void *buf)
     while (pos < journal_block)
     {
         journal_entry *je = (journal_entry*)(buf + pos);
-        if (je->magic != JOURNAL_MAGIC || je->type < JE_MIN || je->type > JE_MAX)
+        if (je->magic != JOURNAL_MAGIC || je->type < JE_MIN || je->type > JE_MAX ||
+            !all && started && je->crc32_prev != crc32_last)
         {
             break;
         }
-        const char *crc32_valid = je_crc32(je) == je->crc32 ? "(valid)" : "(invalid)";
-        printf("entry % 3d: crc32=%08x %s prev=%08x ", entry, je->crc32, crc32_valid, je->crc32_prev);
+        bool crc32_valid = je_crc32(je) == je->crc32;
+        if (!all && !crc32_valid)
+        {
+            break;
+        }
+        started = true;
+        crc32_last = je->crc32;
+        printf("entry % 3d: crc32=%08x %s prev=%08x ", entry, je->crc32, (crc32_valid ? "(valid)" : "(invalid)"), je->crc32_prev);
         if (je->type == JE_START)
         {
             printf("je_start start=%08lx\n", je->start.journal_start);
@@ -170,4 +220,5 @@ void journal_dump_t::dump_block(void *buf)
     {
         journal_pos = journal_len;
     }
+    return entry;
 }
