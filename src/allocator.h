@@ -21,3 +21,5 @@ public:
     uint64_t find_free();
     uint64_t get_free_count();
 };
+
+void bitmap_set(void *bitmap, uint64_t start, uint64_t len, uint64_t bitmap_granularity);

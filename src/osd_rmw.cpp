@@ -7,6 +7,7 @@
 #include <jerasure/reed_sol.h>
 #include <jerasure.h>
 #include <map>
+#include "allocator.h"
 #include "xor.h"
 #include "osd_rmw.h"
 #include "malloc_or_die.h"
@@ -81,7 +82,7 @@ void split_stripes(uint64_t pg_minsize, uint32_t bs_block_size, uint32_t start, 
     }
 }
 
-void reconstruct_stripes_xor(osd_rmw_stripe_t *stripes, int pg_size)
+void reconstruct_stripes_xor(osd_rmw_stripe_t *stripes, int pg_size, uint32_t bitmap_size)
 {
     for (int role = 0; role < pg_size; role++)
     {
@@ -106,6 +107,7 @@ void reconstruct_stripes_xor(osd_rmw_stripe_t *stripes, int pg_size)
                             stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
                             stripes[role].read_buf, stripes[role].read_end - stripes[role].read_start
                         );
+                        memxor(stripes[prev].bmp_buf, stripes[other].bmp_buf, stripes[role].bmp_buf, bitmap_size);
                         prev = -1;
                     }
                     else
@@ -116,6 +118,7 @@ void reconstruct_stripes_xor(osd_rmw_stripe_t *stripes, int pg_size)
                             stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
                             stripes[role].read_buf, stripes[role].read_end - stripes[role].read_start
                         );
+                        memxor(stripes[role].bmp_buf, stripes[other].bmp_buf, stripes[role].bmp_buf, bitmap_size);
                     }
                 }
             }
@@ -230,7 +233,7 @@ int* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size, int pg
     return dec_it->second;
 }
 
-void reconstruct_stripes_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize)
+void reconstruct_stripes_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, uint32_t bitmap_size)
 {
     int *dm_ids = get_jerasure_decoding_matrix(stripes, pg_size, pg_minsize);
     if (!dm_ids)
@@ -256,6 +259,18 @@ void reconstruct_stripes_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg
             jerasure_matrix_dotprod(
                 pg_minsize, OSD_JERASURE_W, decoding_matrix+(role*pg_minsize), dm_ids, role,
                 data_ptrs, data_ptrs+pg_minsize, stripes[role].read_end - stripes[role].read_start
+            );
+            for (int other = 0; other < pg_size; other++)
+            {
+                if (stripes[other].read_end != 0 && !stripes[other].missing)
+                {
+                    data_ptrs[other] = (char*)(stripes[other].bmp_buf);
+                }
+            }
+            data_ptrs[role] = (char*)stripes[role].bmp_buf;
+            jerasure_matrix_dotprod(
+                pg_minsize, OSD_JERASURE_W, decoding_matrix+(role*pg_minsize), dm_ids, role,
+                data_ptrs, data_ptrs+pg_minsize, bitmap_size
             );
         }
     }
@@ -294,7 +309,7 @@ int extend_missing_stripes(osd_rmw_stripe_t *stripes, osd_num_t *osd_set, int pg
     return 0;
 }
 
-void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t add_size)
+void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t add_size, uint32_t bitmap_size)
 {
     // Calculate buffer size
     uint64_t buf_size = add_size;
@@ -306,7 +321,7 @@ void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t ad
         }
     }
     // Allocate buffer
-    void *buf = memalign_or_die(MEM_ALIGNMENT, buf_size);
+    void *buf = memalign_or_die(MEM_ALIGNMENT, buf_size + bitmap_size*read_pg_size);
     uint64_t buf_pos = add_size;
     for (int role = 0; role < read_pg_size; role++)
     {
@@ -316,11 +331,21 @@ void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t ad
             buf_pos += stripes[role].read_end - stripes[role].read_start;
         }
     }
+    // Bitmaps are allocated in the end so data buffers remain aligned
+    if (bitmap_size > 0)
+    {
+        for (int role = 0; role < read_pg_size; role++)
+        {
+            stripes[role].bmp_buf = buf + buf_pos;
+            buf_pos += bitmap_size;
+        }
+    }
     return buf;
 }
 
 void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_set,
-    uint64_t pg_size, uint64_t pg_minsize, uint64_t pg_cursize, uint64_t *write_osd_set, uint64_t chunk_size)
+    uint64_t pg_size, uint64_t pg_minsize, uint64_t pg_cursize, uint64_t *write_osd_set,
+    uint64_t chunk_size, uint32_t bitmap_size)
 {
     // Generic parity modification (read-modify-write) algorithm
     // Read -> Reconstruct missing chunks -> Calc parity chunks -> Write
@@ -420,7 +445,7 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
         }
     }
     // Allocate read buffers
-    void *rmw_buf = alloc_read_buffer(stripes, pg_size, (write_parity ? pg_size-pg_minsize : 0) * (end - start));
+    void *rmw_buf = alloc_read_buffer(stripes, pg_size, (write_parity ? pg_size-pg_minsize : 0) * (end - start), bitmap_size);
     // Position write buffers
     uint64_t buf_pos = 0, in_pos = 0;
     for (int role = 0; role < pg_size; role++)
@@ -521,11 +546,12 @@ static void xor_multiple_buffers(buf_len_t *xor1, int n1, buf_len_t *xor2, int n
 }
 
 static void calc_rmw_parity_copy_mod(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
-    uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t &start, uint32_t &end)
+    uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t bitmap_granularity,
+    uint32_t &start, uint32_t &end)
 {
     if (write_osd_set[pg_minsize] != 0 || write_osd_set != read_osd_set)
     {
-        // Required for the next two if()s
+        // start & end are required for calc_rmw_parity
         for (int role = 0; role < pg_minsize; role++)
         {
             if (stripes[role].req_end != 0)
@@ -540,6 +566,20 @@ static void calc_rmw_parity_copy_mod(osd_rmw_stripe_t *stripes, int pg_size, int
             {
                 start = 0;
                 end = chunk_size;
+            }
+        }
+    }
+    // Set bitmap bits accordingly
+    if (bitmap_granularity > 0)
+    {
+        for (int role = 0; role < pg_minsize; role++)
+        {
+            if (stripes[role].req_end != 0)
+            {
+                bitmap_set(
+                    stripes[role].bmp_buf, stripes[role].req_start,
+                    stripes[role].req_end-stripes[role].req_start, bitmap_granularity
+                );
             }
         }
     }
@@ -603,12 +643,14 @@ static void calc_rmw_parity_copy_parity(osd_rmw_stripe_t *stripes, int pg_size, 
 #endif
 }
 
-void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size)
+void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_osd_set, uint64_t *write_osd_set,
+    uint32_t chunk_size, uint32_t bitmap_size)
 {
+    uint32_t bitmap_granularity = bitmap_size > 0 ? chunk_size / bitmap_size / 8 : 0;
     int pg_minsize = pg_size-1;
-    reconstruct_stripes_xor(stripes, pg_size);
+    reconstruct_stripes_xor(stripes, pg_size, bitmap_size);
     uint32_t start = 0, end = 0;
-    calc_rmw_parity_copy_mod(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, start, end);
+    calc_rmw_parity_copy_mod(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, bitmap_granularity, start, end);
     if (write_osd_set[pg_minsize] != 0 && end != 0)
     {
         // Calculate new parity (XOR k+1)
@@ -626,9 +668,11 @@ void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_
                 if (prev == -1)
                 {
                     xor1[n1++] = { .buf = stripes[parity].write_buf, .len = end-start };
+                    memxor(stripes[parity].bmp_buf, stripes[other].bmp_buf, stripes[parity].bmp_buf, bitmap_size);
                 }
                 else
                 {
+                    memxor(stripes[prev].bmp_buf, stripes[other].bmp_buf, stripes[parity].bmp_buf, bitmap_size);
                     get_old_new_buffers(stripes[prev], start, end, xor1, n1);
                     prev = -1;
                 }
@@ -641,12 +685,13 @@ void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_
 }
 
 void calc_rmw_parity_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
-    uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size)
+    uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t bitmap_size)
 {
+    uint32_t bitmap_granularity = bitmap_size > 0 ? chunk_size / bitmap_size / 8 : 0;
     reed_sol_matrix_t *matrix = get_jerasure_matrix(pg_size, pg_minsize);
-    reconstruct_stripes_jerasure(stripes, pg_size, pg_minsize);
+    reconstruct_stripes_jerasure(stripes, pg_size, pg_minsize, bitmap_size);
     uint32_t start = 0, end = 0;
-    calc_rmw_parity_copy_mod(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, start, end);
+    calc_rmw_parity_copy_mod(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, bitmap_granularity, start, end);
     if (end != 0)
     {
         int i;
@@ -701,6 +746,14 @@ void calc_rmw_parity_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_min
                 );
                 pos = next_end;
             }
+            for (int i = 0; i < pg_size; i++)
+            {
+                data_ptrs[i] = stripes[i].bmp_buf;
+            }
+            jerasure_matrix_encode(
+                pg_minsize, pg_size-pg_minsize, OSD_JERASURE_W, matrix->data,
+                (char**)data_ptrs, (char**)data_ptrs+pg_minsize, bitmap_size
+            );
         }
     }
     calc_rmw_parity_copy_parity(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, start, end);

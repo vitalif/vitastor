@@ -77,7 +77,7 @@ resume_1:
     else
     {
         cur_op->rmw_buf = calc_rmw(cur_op->buf, op_data->stripes, op_data->prev_set,
-            pg.pg_size, op_data->pg_data_size, pg.pg_cursize, pg.cur_set.data(), bs_block_size);
+            pg.pg_size, op_data->pg_data_size, pg.pg_cursize, pg.cur_set.data(), bs_block_size, 0);
         if (!cur_op->rmw_buf)
         {
             // Refuse partial overwrite of an incomplete object
@@ -120,11 +120,11 @@ resume_3:
         // Recover missing stripes, calculate parity
         if (pg.scheme == POOL_SCHEME_XOR)
         {
-            calc_rmw_parity_xor(op_data->stripes, pg.pg_size, op_data->prev_set, pg.cur_set.data(), bs_block_size);
+            calc_rmw_parity_xor(op_data->stripes, pg.pg_size, op_data->prev_set, pg.cur_set.data(), bs_block_size, 0);
         }
         else if (pg.scheme == POOL_SCHEME_JERASURE)
         {
-            calc_rmw_parity_jerasure(op_data->stripes, pg.pg_size, op_data->pg_data_size, op_data->prev_set, pg.cur_set.data(), bs_block_size);
+            calc_rmw_parity_jerasure(op_data->stripes, pg.pg_size, op_data->pg_data_size, op_data->prev_set, pg.cur_set.data(), bs_block_size, 0);
         }
     }
     // Send writes

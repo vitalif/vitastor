@@ -126,12 +126,13 @@ void test1()
 
 void test4()
 {
+    const uint32_t bmp = 4;
     osd_num_t osd_set[3] = { 1, 0, 3 };
     osd_rmw_stripe_t stripes[3] = { 0 };
     // Test 4.1
     split_stripes(2, 128*1024, 128*1024-4096, 8192, stripes);
     void* write_buf = malloc(8192);
-    void* rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 2, osd_set, 128*1024);
+    void* rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 2, osd_set, 128*1024, bmp);
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
     assert(stripes[1].read_start == 4096 && stripes[1].read_end == 128*1024);
     assert(stripes[2].read_start == 4096 && stripes[2].read_end == 128*1024);
@@ -149,7 +150,13 @@ void test4()
     set_pattern(stripes[0].read_buf, 128*1024, PATTERN1); // old data
     set_pattern(stripes[1].read_buf, 128*1024-4096, UINT64_MAX); // didn't read it, it's missing
     set_pattern(stripes[2].read_buf, 128*1024-4096, 0); // old parity = 0
-    calc_rmw_parity_xor(stripes, 3, osd_set, osd_set, 128*1024);
+    memset(stripes[0].bmp_buf, 0, bmp);
+    memset(stripes[1].bmp_buf, 0, bmp);
+    memset(stripes[2].bmp_buf, 0, bmp);
+    calc_rmw_parity_xor(stripes, 3, osd_set, osd_set, 128*1024, bmp);
+    assert(*(uint32_t*)stripes[0].bmp_buf == 0x80000000);
+    assert(*(uint32_t*)stripes[1].bmp_buf == 0x00000001);
+    assert(*(uint32_t*)stripes[2].bmp_buf == 0x80000001); // XOR
     check_pattern(stripes[2].write_buf, 4096, PATTERN0^PATTERN1); // new parity
     check_pattern(stripes[2].write_buf+4096, 128*1024-4096*2, 0); // new parity
     check_pattern(stripes[2].write_buf+128*1024-4096, 4096, PATTERN0^PATTERN1); // new parity
@@ -181,7 +188,7 @@ void test5()
     assert(stripes[2].req_end == 0);
     // Test 5.2
     void *write_buf = malloc(64*1024*3);
-    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 2, osd_set, 128*1024);
+    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 2, osd_set, 128*1024, 0);
     assert(stripes[0].read_start == 64*1024 && stripes[0].read_end == 128*1024);
     assert(stripes[1].read_start == 64*1024 && stripes[1].read_end == 128*1024);
     assert(stripes[2].read_start == 64*1024 && stripes[2].read_end == 128*1024);
@@ -218,7 +225,7 @@ void test6()
     // Test 6.1
     split_stripes(2, 128*1024, 0, 64*1024*3, stripes);
     void *write_buf = malloc(64*1024*3);
-    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 3, osd_set, 128*1024);
+    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 3, osd_set, 128*1024, 0);
     assert(stripes[0].read_end == 0);
     assert(stripes[1].read_start == 64*1024 && stripes[1].read_end == 128*1024);
     assert(stripes[2].read_end == 0);
@@ -261,7 +268,7 @@ void test7()
     // Test 7.1
     split_stripes(2, 128*1024, 128*1024-4096, 8192, stripes);
     void *write_buf = malloc(8192);
-    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 2, write_osd_set, 128*1024);
+    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 2, write_osd_set, 128*1024, 0);
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
     assert(stripes[1].read_start == 0 && stripes[1].read_end == 128*1024);
     assert(stripes[2].read_start == 0 && stripes[2].read_end == 128*1024);
@@ -279,7 +286,7 @@ void test7()
     set_pattern(stripes[0].read_buf, 128*1024, PATTERN1); // old data
     set_pattern(stripes[1].read_buf, 128*1024, UINT64_MAX); // didn't read it, it's missing
     set_pattern(stripes[2].read_buf, 128*1024, 0); // old parity = 0
-    calc_rmw_parity_xor(stripes, 3, osd_set, write_osd_set, 128*1024);
+    calc_rmw_parity_xor(stripes, 3, osd_set, write_osd_set, 128*1024, 0);
     assert(stripes[0].write_start == 128*1024-4096 && stripes[0].write_end == 128*1024);
     assert(stripes[1].write_start == 0 && stripes[1].write_end == 128*1024);
     assert(stripes[2].write_start == 0 && stripes[2].write_end == 128*1024);
@@ -314,7 +321,7 @@ void test8()
     // Test 8.1
     split_stripes(2, 128*1024, 0, 128*1024+4096, stripes);
     void *write_buf = malloc(128*1024+4096);
-    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 2, write_osd_set, 128*1024);
+    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 2, write_osd_set, 128*1024, 0);
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 0);
     assert(stripes[1].read_start == 4096 && stripes[1].read_end == 128*1024);
     assert(stripes[2].read_start == 0 && stripes[2].read_end == 0);
@@ -330,7 +337,7 @@ void test8()
     // Test 8.2
     set_pattern(write_buf, 128*1024+4096, PATTERN0);
     set_pattern(stripes[1].read_buf, 128*1024-4096, PATTERN1);
-    calc_rmw_parity_xor(stripes, 3, osd_set, write_osd_set, 128*1024);
+    calc_rmw_parity_xor(stripes, 3, osd_set, write_osd_set, 128*1024, 0);
     assert(stripes[0].write_start == 0 && stripes[0].write_end == 128*1024); // recheck again
     assert(stripes[1].write_start == 0 && stripes[1].write_end == 4096);     // recheck again
     assert(stripes[2].write_start == 0 && stripes[2].write_end == 128*1024); // recheck again
@@ -373,7 +380,7 @@ void test9()
     assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
     // Test 9.1
     void *write_buf = NULL;
-    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 3, write_osd_set, 128*1024);
+    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 3, write_osd_set, 128*1024, 0);
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
     assert(stripes[1].read_start == 0 && stripes[1].read_end == 128*1024);
     assert(stripes[2].read_start == 0 && stripes[2].read_end == 128*1024);
@@ -389,7 +396,7 @@ void test9()
     // Test 9.2
     set_pattern(stripes[1].read_buf, 128*1024, 0);
     set_pattern(stripes[2].read_buf, 128*1024, PATTERN1);
-    calc_rmw_parity_xor(stripes, 3, osd_set, write_osd_set, 128*1024);
+    calc_rmw_parity_xor(stripes, 3, osd_set, write_osd_set, 128*1024, 0);
     assert(stripes[0].write_start == 0 && stripes[0].write_end == 128*1024);
     assert(stripes[1].write_start == 0 && stripes[1].write_end == 0);
     assert(stripes[2].write_start == 0 && stripes[2].write_end == 0);
@@ -428,7 +435,7 @@ void test10()
     assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
     // Test 10.1
     void *write_buf = malloc(256*1024);
-    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 3, write_osd_set, 128*1024);
+    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 3, write_osd_set, 128*1024, 0);
     assert(rmw_buf);
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 0);
     assert(stripes[1].read_start == 0 && stripes[1].read_end == 0);
@@ -445,7 +452,7 @@ void test10()
     // Test 10.2
     set_pattern(stripes[0].write_buf, 128*1024, PATTERN1);
     set_pattern(stripes[1].write_buf, 128*1024, PATTERN2);
-    calc_rmw_parity_xor(stripes, 3, osd_set, write_osd_set, 128*1024);
+    calc_rmw_parity_xor(stripes, 3, osd_set, write_osd_set, 128*1024, 0);
     assert(stripes[0].write_start == 0 && stripes[0].write_end == 128*1024);
     assert(stripes[1].write_start == 0 && stripes[1].write_end == 128*1024);
     assert(stripes[2].write_start == 0 && stripes[2].write_end == 128*1024);
@@ -484,7 +491,7 @@ void test11()
     assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
     // Test 11.1
     void *write_buf = malloc(256*1024);
-    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 3, write_osd_set, 128*1024);
+    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 3, write_osd_set, 128*1024, 0);
     assert(rmw_buf);
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
     assert(stripes[1].read_start == 0 && stripes[1].read_end == 0);
@@ -501,7 +508,7 @@ void test11()
     // Test 11.2
     set_pattern(stripes[0].read_buf, 128*1024, PATTERN1);
     set_pattern(stripes[1].write_buf, 128*1024, PATTERN2);
-    calc_rmw_parity_xor(stripes, 3, osd_set, write_osd_set, 128*1024);
+    calc_rmw_parity_xor(stripes, 3, osd_set, write_osd_set, 128*1024, 0);
     assert(stripes[0].write_start == 0 && stripes[0].write_end == 0);
     assert(stripes[1].write_start == 0 && stripes[1].write_end == 128*1024);
     assert(stripes[2].write_start == 0 && stripes[2].write_end == 128*1024);
@@ -539,7 +546,7 @@ void test12()
     assert(stripes[1].req_start == 0 && stripes[1].req_end == 0);
     assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
     // Test 12.1
-    void *rmw_buf = calc_rmw(NULL, stripes, osd_set, 3, 2, 3, write_osd_set, 128*1024);
+    void *rmw_buf = calc_rmw(NULL, stripes, osd_set, 3, 2, 3, write_osd_set, 128*1024, 0);
     assert(rmw_buf);
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
     assert(stripes[1].read_start == 0 && stripes[1].read_end == 128*1024);
@@ -556,7 +563,7 @@ void test12()
     // Test 12.2
     set_pattern(stripes[0].read_buf, 128*1024, PATTERN1);
     set_pattern(stripes[1].read_buf, 128*1024, PATTERN2);
-    calc_rmw_parity_xor(stripes, 3, osd_set, write_osd_set, 128*1024);
+    calc_rmw_parity_xor(stripes, 3, osd_set, write_osd_set, 128*1024, 0);
     assert(stripes[0].write_start == 0 && stripes[0].write_end == 0);
     assert(stripes[1].write_start == 0 && stripes[1].write_end == 0);
     assert(stripes[2].write_start == 0 && stripes[2].write_end == 128*1024);
@@ -596,7 +603,7 @@ void test13()
     assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
     assert(stripes[3].req_start == 0 && stripes[3].req_end == 0);
     // Test 13.1
-    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 4, 2, 4, write_osd_set, 128*1024);
+    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 4, 2, 4, write_osd_set, 128*1024, 0);
     assert(rmw_buf);
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024-4096);
     assert(stripes[1].read_start == 4096 && stripes[1].read_end == 128*1024);
@@ -618,7 +625,7 @@ void test13()
     set_pattern(write_buf, 8192, PATTERN3);
     set_pattern(stripes[0].read_buf, 128*1024-4096, PATTERN1);
     set_pattern(stripes[1].read_buf, 128*1024-4096, PATTERN2);
-    calc_rmw_parity_jerasure(stripes, 4, 2, osd_set, write_osd_set, 128*1024);
+    calc_rmw_parity_jerasure(stripes, 4, 2, osd_set, write_osd_set, 128*1024, 0);
     assert(stripes[0].write_start == 128*1024-4096 && stripes[0].write_end == 128*1024);
     assert(stripes[1].write_start == 0 && stripes[1].write_end == 4096);
     assert(stripes[2].write_start == 0 && stripes[2].write_end == 128*1024);
@@ -645,7 +652,7 @@ void test13()
     assert(stripes[1].read_start == 0 && stripes[1].read_end == 128*1024);
     assert(stripes[2].read_start == 0 && stripes[2].read_end == 128*1024);
     assert(stripes[3].read_start == 0 && stripes[3].read_end == 128*1024);
-    void *read_buf = alloc_read_buffer(stripes, 4, 0);
+    void *read_buf = alloc_read_buffer(stripes, 4, 0, 0);
     assert(read_buf);
     assert(stripes[0].read_buf == read_buf);
     assert(stripes[1].read_buf == read_buf+128*1024);
@@ -653,7 +660,7 @@ void test13()
     assert(stripes[3].read_buf == read_buf+3*128*1024);
     memcpy(read_buf+2*128*1024, rmw_buf, 128*1024);
     memcpy(read_buf+3*128*1024, rmw_buf+128*1024, 128*1024);
-    reconstruct_stripes_jerasure(stripes, 4, 2);
+    reconstruct_stripes_jerasure(stripes, 4, 2, 0);
     check_pattern(stripes[0].read_buf, 128*1024-4096, PATTERN1);
     check_pattern(stripes[0].read_buf+128*1024-4096, 4096, PATTERN3);
     check_pattern(stripes[1].read_buf, 4096, PATTERN3);
@@ -676,7 +683,7 @@ void test13()
     assert(stripes[1].read_start == 0 && stripes[1].read_end == 0);
     assert(stripes[2].read_start == 0 && stripes[2].read_end == 128*1024);
     assert(stripes[3].read_start == 0 && stripes[3].read_end == 128*1024);
-    read_buf = alloc_read_buffer(stripes, 4, 0);
+    read_buf = alloc_read_buffer(stripes, 4, 0, 0);
     assert(read_buf);
     assert(stripes[0].read_buf == read_buf);
     assert(stripes[1].read_buf == NULL);
@@ -684,7 +691,7 @@ void test13()
     assert(stripes[3].read_buf == read_buf+2*128*1024);
     memcpy(read_buf+128*1024, rmw_buf, 128*1024);
     memcpy(read_buf+2*128*1024, rmw_buf+128*1024, 128*1024);
-    reconstruct_stripes_jerasure(stripes, 4, 2);
+    reconstruct_stripes_jerasure(stripes, 4, 2, 0);
     check_pattern(stripes[0].read_buf, 128*1024-4096, PATTERN1);
     check_pattern(stripes[0].read_buf+128*1024-4096, 4096, PATTERN3);
     free(read_buf);
@@ -711,6 +718,7 @@ void test13()
 
 void test14()
 {
+    const int bmp = 4;
     use_jerasure(3, 2, true);
     osd_num_t osd_set[3] = { 1, 2, 0 };
     osd_num_t write_osd_set[3] = { 1, 2, 3 };
@@ -722,7 +730,7 @@ void test14()
     assert(stripes[1].req_start == 0 && stripes[1].req_end == 4096);
     assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
     // Test 13.1
-    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 3, write_osd_set, 128*1024);
+    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 3, write_osd_set, 128*1024, bmp);
     assert(rmw_buf);
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024-4096);
     assert(stripes[1].read_start == 4096 && stripes[1].read_end == 128*1024);
@@ -740,7 +748,13 @@ void test14()
     set_pattern(write_buf, 8192, PATTERN3);
     set_pattern(stripes[0].read_buf, 128*1024-4096, PATTERN1);
     set_pattern(stripes[1].read_buf, 128*1024-4096, PATTERN2);
-    calc_rmw_parity_jerasure(stripes, 3, 2, osd_set, write_osd_set, 128*1024);
+    memset(stripes[0].bmp_buf, 0, bmp);
+    memset(stripes[1].bmp_buf, 0, bmp);
+    memset(stripes[2].bmp_buf, 0, bmp);
+    calc_rmw_parity_jerasure(stripes, 3, 2, osd_set, write_osd_set, 128*1024, bmp);
+    assert(*(uint32_t*)stripes[0].bmp_buf == 0x80000000);
+    assert(*(uint32_t*)stripes[1].bmp_buf == 0x00000001);
+    assert(*(uint32_t*)stripes[2].bmp_buf == 0x80000001); // jerasure 2+1 is still just XOR
     assert(stripes[0].write_start == 128*1024-4096 && stripes[0].write_end == 128*1024);
     assert(stripes[1].write_start == 0 && stripes[1].write_end == 4096);
     assert(stripes[2].write_start == 0 && stripes[2].write_end == 128*1024);
@@ -763,7 +777,7 @@ void test14()
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
     assert(stripes[1].read_start == 0 && stripes[1].read_end == 128*1024);
     assert(stripes[2].read_start == 0 && stripes[2].read_end == 128*1024);
-    void *read_buf = alloc_read_buffer(stripes, 3, 0);
+    void *read_buf = alloc_read_buffer(stripes, 3, 0, bmp);
     assert(read_buf);
     assert(stripes[0].read_buf == read_buf);
     assert(stripes[1].read_buf == read_buf+128*1024);
@@ -771,7 +785,7 @@ void test14()
     set_pattern(stripes[1].read_buf, 4096, PATTERN3);
     set_pattern(stripes[1].read_buf+4096, 128*1024-4096, PATTERN2);
     memcpy(stripes[2].read_buf, rmw_buf, 128*1024);
-    reconstruct_stripes_jerasure(stripes, 3, 2);
+    reconstruct_stripes_jerasure(stripes, 3, 2, bmp);
     check_pattern(stripes[0].read_buf, 128*1024-4096, PATTERN1);
     check_pattern(stripes[0].read_buf+128*1024-4096, 4096, PATTERN3);
     free(read_buf);

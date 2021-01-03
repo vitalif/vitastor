@@ -142,3 +142,35 @@ uint64_t allocator::get_free_count()
 {
     return free;
 }
+
+void bitmap_set(void *bitmap, uint64_t start, uint64_t len, uint64_t bitmap_granularity)
+{
+    if (start == 0)
+    {
+        if (len == 32*bitmap_granularity)
+        {
+            *((uint32_t*)bitmap) = UINT32_MAX;
+            return;
+        }
+        else if (len == 64*bitmap_granularity)
+        {
+            *((uint64_t*)bitmap) = UINT64_MAX;
+            return;
+        }
+    }
+    unsigned bit_start = start / bitmap_granularity;
+    unsigned bit_end = ((start + len) + bitmap_granularity - 1) / bitmap_granularity;
+    while (bit_start < bit_end)
+    {
+        if (!(bit_start & 7) && bit_end >= bit_start+8)
+        {
+            ((uint8_t*)bitmap)[bit_start / 8] = UINT8_MAX;
+            bit_start += 8;
+        }
+        else
+        {
+            ((uint8_t*)bitmap)[bit_start / 8] |= 1 << (bit_start % 8);
+            bit_start++;
+        }
+    }
+}

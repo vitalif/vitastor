@@ -115,7 +115,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         if (pg.state == PG_ACTIVE || op_data->scheme == POOL_SCHEME_REPLICATED)
         {
             // Fast happy-path
-            cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->pg_data_size, 0);
+            cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->pg_data_size, 0, 0);
             submit_primary_subops(SUBMIT_READ, op_data->target_ver,
                 (op_data->scheme == POOL_SCHEME_REPLICATED ? pg.pg_size : op_data->pg_data_size), pg.cur_set.data(), cur_op);
             op_data->st = 1;
@@ -133,7 +133,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
             op_data->pg_size = pg.pg_size;
             op_data->scheme = pg.scheme;
             op_data->degraded = 1;
-            cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0);
+            cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0, 0);
             submit_primary_subops(SUBMIT_READ, op_data->target_ver, pg.pg_size, cur_set, cur_op);
             op_data->st = 1;
         }
@@ -152,11 +152,11 @@ resume_2:
         osd_rmw_stripe_t *stripes = op_data->stripes;
         if (op_data->scheme == POOL_SCHEME_XOR)
         {
-            reconstruct_stripes_xor(stripes, op_data->pg_size);
+            reconstruct_stripes_xor(stripes, op_data->pg_size, 0);
         }
         else if (op_data->scheme == POOL_SCHEME_JERASURE)
         {
-            reconstruct_stripes_jerasure(stripes, op_data->pg_size, op_data->pg_data_size);
+            reconstruct_stripes_jerasure(stripes, op_data->pg_size, op_data->pg_data_size, 0);
         }
         for (int role = 0; role < op_data->pg_size; role++)
         {

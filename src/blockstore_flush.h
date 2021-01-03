@@ -69,7 +69,6 @@ class journal_flusher_co
     bool modify_meta_read(uint64_t meta_loc, flusher_meta_write_t &wr, int wait_base);
     void update_clean_db();
     bool fsync_batch(bool fsync_meta, int wait_base);
-    void bitmap_set(void *bitmap, uint64_t start, uint64_t len);
 public:
     journal_flusher_co();
     bool loop();

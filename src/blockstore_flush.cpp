@@ -432,14 +432,14 @@ resume_1:
             if (clean_init_bitmap)
             {
                 memset(new_clean_bitmap, 0, bs->clean_entry_bitmap_size);
-                bitmap_set(new_clean_bitmap, clean_bitmap_offset, clean_bitmap_len);
+                bitmap_set(new_clean_bitmap, clean_bitmap_offset, clean_bitmap_len, bs->bitmap_granularity);
             }
         }
         for (it = v.begin(); it != v.end(); it++)
         {
             if (new_clean_bitmap)
             {
-                bitmap_set(new_clean_bitmap, it->offset, it->len);
+                bitmap_set(new_clean_bitmap, it->offset, it->len, bs->bitmap_granularity);
             }
             await_sqe(4);
             data->iov = (struct iovec){ it->buf, (size_t)it->len };
@@ -884,36 +884,4 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
         }
     }
     return true;
-}
-
-void journal_flusher_co::bitmap_set(void *bitmap, uint64_t start, uint64_t len)
-{
-    if (start == 0)
-    {
-        if (len == 32*bs->bitmap_granularity)
-        {
-            *((uint32_t*)bitmap) = UINT32_MAX;
-            return;
-        }
-        else if (len == 64*bs->bitmap_granularity)
-        {
-            *((uint64_t*)bitmap) = UINT64_MAX;
-            return;
-        }
-    }
-    unsigned bit_start = start / bs->bitmap_granularity;
-    unsigned bit_end = ((start + len) + bs->bitmap_granularity - 1) / bs->bitmap_granularity;
-    while (bit_start < bit_end)
-    {
-        if (!(bit_start & 7) && bit_end >= bit_start+8)
-        {
-            ((uint8_t*)bitmap)[bit_start / 8] = UINT8_MAX;
-            bit_start += 8;
-        }
-        else
-        {
-            ((uint8_t*)bitmap)[bit_start / 8] |= 1 << (bit_start % 8);
-            bit_start++;
-        }
-    }
 }
