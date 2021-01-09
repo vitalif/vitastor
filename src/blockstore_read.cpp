@@ -94,6 +94,21 @@ endwhile:
     return 1;
 }
 
+uint8_t* blockstore_impl_t::get_clean_entry_bitmap(uint64_t block_loc, int offset)
+{
+    uint8_t *clean_entry_bitmap;
+    uint64_t meta_loc = block_loc >> block_order;
+    if (inmemory_meta)
+    {
+        uint64_t sector = (meta_loc / (meta_block_size / clean_entry_size)) * meta_block_size;
+        uint64_t pos = (meta_loc % (meta_block_size / clean_entry_size));
+        clean_entry_bitmap = (uint8_t*)(metadata_buffer + sector + pos*clean_entry_size + sizeof(clean_disk_entry) + offset);
+    }
+    else
+        clean_entry_bitmap = (uint8_t*)(clean_bitmap + meta_loc*(clean_entry_bitmap_size + entry_attr_size) + offset);
+    return clean_entry_bitmap;
+}
+
 int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
 {
     auto clean_it = clean_db.find(read_op->oid);
@@ -134,6 +149,10 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                 if (!result_version)
                 {
                     result_version = dirty_it->first.version;
+                    if (entry_attr_size <= sizeof(void*))
+                        read_op->bitmap = dirty_it->second.bitmap;
+                    else if (read_op->bitmap)
+                        memcpy(read_op->bitmap, dirty_it->second.bitmap, entry_attr_size);
                 }
                 if (!fulfill_read(read_op, fulfilled, dirty.offset, dirty.offset + dirty.len,
                     dirty.state, dirty_it->first.version, dirty.location + (IS_JOURNAL(dirty.state) ? 0 : dirty.offset)))
@@ -155,6 +174,11 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         if (!result_version)
         {
             result_version = clean_it->second.version;
+            void *clean_entry_bitmap = get_clean_entry_bitmap(clean_it->second.location, clean_entry_bitmap_size);
+            if (entry_attr_size <= sizeof(void*))
+                memcpy(&read_op->bitmap, clean_entry_bitmap, entry_attr_size);
+            else if (read_op->bitmap)
+                memcpy(read_op->bitmap, clean_entry_bitmap, entry_attr_size);
         }
         if (fulfilled < read_op->len)
         {
@@ -169,18 +193,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             }
             else
             {
-                uint64_t meta_loc = clean_it->second.location >> block_order;
-                uint8_t *clean_entry_bitmap;
-                if (inmemory_meta)
-                {
-                    uint64_t sector = (meta_loc / (meta_block_size / clean_entry_size)) * meta_block_size;
-                    uint64_t pos = (meta_loc % (meta_block_size / clean_entry_size));
-                    clean_entry_bitmap = (uint8_t*)(metadata_buffer + sector + pos*clean_entry_size + sizeof(clean_disk_entry));
-                }
-                else
-                {
-                    clean_entry_bitmap = (uint8_t*)(clean_bitmap + meta_loc*clean_entry_bitmap_size);
-                }
+                uint8_t *clean_entry_bitmap = get_clean_entry_bitmap(clean_it->second.location, 0);
                 uint64_t bmp_start = 0, bmp_end = 0, bmp_size = block_size/bitmap_granularity;
                 while (bmp_start < bmp_size)
                 {

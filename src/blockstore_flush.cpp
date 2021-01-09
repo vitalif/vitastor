@@ -428,7 +428,7 @@ resume_1:
         {
             new_clean_bitmap = (bs->inmemory_meta
                 ? meta_new.buf + meta_new.pos*bs->clean_entry_size + sizeof(clean_disk_entry)
-                : bs->clean_bitmap + (clean_loc >> bs->block_order)*bs->clean_entry_bitmap_size);
+                : bs->clean_bitmap + (clean_loc >> bs->block_order)*(bs->clean_entry_bitmap_size + bs->entry_attr_size));
             if (clean_init_bitmap)
             {
                 memset(new_clean_bitmap, 0, bs->clean_entry_bitmap_size);
@@ -473,6 +473,7 @@ resume_1:
                 wait_state = 5;
                 return false;
             }
+            // zero out old metadata entry
             memset(meta_old.buf + meta_old.pos*bs->clean_entry_size, 0, bs->clean_entry_size);
             await_sqe(15);
             data->iov = (struct iovec){ meta_old.buf, bs->meta_block_size };
@@ -508,6 +509,12 @@ resume_1:
             if (!bs->inmemory_meta)
             {
                 memcpy(&new_entry->bitmap, new_clean_bitmap, bs->clean_entry_bitmap_size);
+            }
+            if (bs->entry_attr_size)
+            {
+                // copy latest external bitmap/attributes
+                void *bmp_ptr = bs->entry_attr_size > sizeof(void*) ? dirty_end->second.bitmap : &dirty_end->second.bitmap;
+                memcpy((void*)(new_entry+1) + bs->clean_entry_bitmap_size, bmp_ptr, bs->entry_attr_size);
             }
         }
         await_sqe(6);

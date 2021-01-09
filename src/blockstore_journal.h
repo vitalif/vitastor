@@ -54,6 +54,9 @@ struct __attribute__((__packed__)) journal_entry_small_write
     // data_offset is its offset within journal
     uint64_t data_offset;
     uint32_t crc32_data;
+    // small_write and big_write entries are followed by the "external" bitmap
+    // its size is dynamic and included in journal entry's <size> field
+    uint8_t bitmap[];
 };
 
 struct __attribute__((__packed__)) journal_entry_big_write
@@ -68,6 +71,9 @@ struct __attribute__((__packed__)) journal_entry_big_write
     uint32_t offset;
     uint32_t len;
     uint64_t location;
+    // small_write and big_write entries are followed by the "external" bitmap
+    // its size is dynamic and included in journal entry's <size> field
+    uint8_t bitmap[];
 };
 
 struct __attribute__((__packed__)) journal_entry_stable

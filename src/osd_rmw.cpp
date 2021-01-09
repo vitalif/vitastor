@@ -215,7 +215,7 @@ int* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size, int pg
     auto dec_it = matrix->decodings.find((reed_sol_erased_t){ .data = erased, .size = pg_size });
     if (dec_it == matrix->decodings.end())
     {
-        int *dm_ids = (int*)malloc(sizeof(int)*(pg_minsize + pg_minsize*pg_minsize + pg_size));
+        int *dm_ids = (int*)malloc_or_die(sizeof(int)*(pg_minsize + pg_minsize*pg_minsize + pg_size));
         int *decoding_matrix = dm_ids + pg_minsize;
         if (!dm_ids)
             throw std::bad_alloc();

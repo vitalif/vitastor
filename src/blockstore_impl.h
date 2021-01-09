@@ -77,7 +77,8 @@
 
 #include "blockstore_journal.h"
 
-// 24 bytes + block bitmap per "clean" entry on disk with fixed metadata tables
+// 32 bytes = 24 bytes + block bitmap (4 bytes by default) + external attributes (also bitmap, 4 bytes by default)
+// per "clean" entry on disk with fixed metadata tables
 // FIXME: maybe add crc32's to metadata
 struct __attribute__((__packed__)) clean_disk_entry
 {
@@ -93,7 +94,7 @@ struct __attribute__((__packed__)) clean_entry
     uint64_t location;
 };
 
-// 56 = 24 + 32 bytes per dirty entry in memory (obj_ver_id => dirty_entry)
+// 64 = 24 + 40 bytes per dirty entry in memory (obj_ver_id => dirty_entry)
 struct __attribute__((__packed__)) dirty_entry
 {
     uint32_t state;
@@ -102,6 +103,7 @@ struct __attribute__((__packed__)) dirty_entry
     uint32_t offset;   // data offset within object (stripe)
     uint32_t len;      // data length
     uint64_t journal_sector; // journal sector used for this entry
+    void* bitmap;   // either external bitmap itself when it fits, or a pointer to it when it doesn't
 };
 
 // - Sync must be submitted after previous writes/deletes (not before!)
@@ -216,7 +218,7 @@ class blockstore_impl_t
 
     uint32_t block_order;
     uint64_t block_count;
-    uint32_t clean_entry_bitmap_size = 0, clean_entry_size = 0;
+    uint32_t clean_entry_bitmap_size = 0, clean_entry_size = 0, entry_attr_size = 0;
 
     int meta_fd;
     int data_fd;
@@ -250,6 +252,7 @@ class blockstore_impl_t
     void open_data();
     void open_meta();
     void open_journal();
+    uint8_t* get_clean_entry_bitmap(uint64_t block_loc, int offset);
 
     // Asynchronous init
     int initialized;

@@ -98,9 +98,9 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
     for (unsigned i = 0; i < count; i++)
     {
         clean_disk_entry *entry = (clean_disk_entry*)(entries + i*bs->clean_entry_size);
-        if (!bs->inmemory_meta && bs->clean_entry_bitmap_size)
+        if (!bs->inmemory_meta && (bs->clean_entry_bitmap_size || bs->entry_attr_size))
         {
-            memcpy(bs->clean_bitmap + (done_cnt+i)*bs->clean_entry_bitmap_size, &entry->bitmap, bs->clean_entry_bitmap_size);
+            memcpy(bs->clean_bitmap + (done_cnt+i)*(bs->clean_entry_bitmap_size + bs->entry_attr_size), &entry->bitmap, (bs->clean_entry_bitmap_size + bs->entry_attr_size));
         }
         if (entry->oid.inode > 0)
         {
@@ -545,6 +545,21 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .oid = je->small_write.oid,
                         .version = je->small_write.version,
                     };
+                    void *bmp = (void*)je + sizeof(journal_entry_small_write);
+                    if (bs->entry_attr_size <= sizeof(void*))
+                    {
+                        memcpy(&bmp, bmp, bs->entry_attr_size);
+                    }
+                    else if (!bs->journal.inmemory)
+                    {
+                        // FIXME Using large blockstore objects and not keeping journal in memory
+                        // will result in a lot of small allocations for entry bitmaps. This can
+                        // only be fixed by using a patched map with dynamic entry size, but not
+                        // the btree_map, because it doesn't keep iterators valid all the time.
+                        void *bmp_cp = malloc_or_die(bs->entry_attr_size);
+                        memcpy(bmp_cp, bmp, bs->entry_attr_size);
+                        bmp = bmp_cp;
+                    }
                     bs->dirty_db.emplace(ov, (dirty_entry){
                         .state = (BS_ST_SMALL_WRITE | BS_ST_SYNCED),
                         .flags = 0,
@@ -552,6 +567,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .offset = je->small_write.offset,
                         .len = je->small_write.len,
                         .journal_sector = proc_pos,
+                        .bitmap = bmp,
                     });
                     bs->journal.used_sectors[proc_pos]++;
 #ifdef BLOCKSTORE_DEBUG
@@ -609,6 +625,21 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .oid = je->big_write.oid,
                         .version = je->big_write.version,
                     };
+                    void *bmp = (void*)je + sizeof(journal_entry_big_write);
+                    if (bs->entry_attr_size <= sizeof(void*))
+                    {
+                        memcpy(&bmp, bmp, bs->entry_attr_size);
+                    }
+                    else if (!bs->journal.inmemory)
+                    {
+                        // FIXME Using large blockstore objects and not keeping journal in memory
+                        // will result in a lot of small allocations for entry bitmaps. This can
+                        // only be fixed by using a patched map with dynamic entry size, but not
+                        // the btree_map, because it doesn't keep iterators valid all the time.
+                        void *bmp_cp = malloc_or_die(bs->entry_attr_size);
+                        memcpy(bmp_cp, bmp, bs->entry_attr_size);
+                        bmp = bmp_cp;
+                    }
                     auto dirty_it = bs->dirty_db.emplace(ov, (dirty_entry){
                         .state = (BS_ST_BIG_WRITE | BS_ST_SYNCED),
                         .flags = 0,
@@ -616,6 +647,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .offset = je->big_write.offset,
                         .len = je->big_write.len,
                         .journal_sector = proc_pos,
+                        .bitmap = bmp,
                     }).first;
                     if (bs->data_alloc->get(je->big_write.location >> bs->block_order))
                     {
