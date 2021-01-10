@@ -133,15 +133,10 @@ static uint32_t is_power_of_two(uint64_t value)
 void cluster_client_t::on_load_config_hook(json11::Json::object & config)
 {
     bs_block_size = config["block_size"].uint64_value();
-    bs_disk_alignment = config["disk_alignment"].uint64_value();
     bs_bitmap_granularity = config["bitmap_granularity"].uint64_value();
     if (!bs_block_size)
     {
         bs_block_size = DEFAULT_BLOCK_SIZE;
-    }
-    if (!bs_disk_alignment)
-    {
-        bs_disk_alignment = DEFAULT_DISK_ALIGNMENT;
     }
     if (!bs_bitmap_granularity)
     {
@@ -298,7 +293,7 @@ void cluster_client_t::execute(cluster_op_t *op)
     op->retval = 0;
     if (op->opcode != OSD_OP_SYNC && op->opcode != OSD_OP_READ && op->opcode != OSD_OP_WRITE ||
         (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_WRITE) && (!op->inode || !op->len ||
-        op->offset % bs_disk_alignment || op->len % bs_disk_alignment))
+        op->offset % bs_bitmap_granularity || op->len % bs_bitmap_granularity))
     {
         op->retval = -EINVAL;
         std::function<void(cluster_op_t*)>(op->callback)(op);

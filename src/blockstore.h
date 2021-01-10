@@ -183,5 +183,5 @@ public:
     uint64_t get_block_count();
     uint64_t get_free_block_count();
 
-    uint32_t get_disk_alignment();
+    uint32_t get_bitmap_granularity();
 };

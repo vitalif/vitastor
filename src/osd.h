@@ -115,7 +115,7 @@ class osd_t
     bool stopping = false;
     int inflight_ops = 0;
     blockstore_t *bs;
-    uint32_t bs_block_size, bs_disk_alignment;
+    uint32_t bs_block_size, bs_bitmap_granularity;
     ring_loop_t *ringloop;
     timerfd_manager_t *tfd = NULL;
     epoll_manager_t *epmgr = NULL;
@@ -221,7 +221,7 @@ class osd_t
     }
 
 public:
-    osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop);
+    osd_t(blockstore_config_t & config, ring_loop_t *ringloop);
     ~osd_t();
     void force_stop(int exitcode);
     bool shutdown();

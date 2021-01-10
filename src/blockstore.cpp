@@ -58,7 +58,7 @@ uint64_t blockstore_t::get_free_block_count()
     return impl->get_free_block_count();
 }
 
-uint32_t blockstore_t::get_disk_alignment()
+uint32_t blockstore_t::get_bitmap_granularity()
 {
-    return impl->get_disk_alignment();
+    return impl->get_bitmap_granularity();
 }

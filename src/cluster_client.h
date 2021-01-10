@@ -53,7 +53,6 @@ class cluster_client_t
     ring_loop_t *ringloop;
 
     uint64_t bs_block_size = 0;
-    uint64_t bs_disk_alignment = 0;
     uint64_t bs_bitmap_granularity = 0;
     std::map<pool_id_t, uint64_t> pg_counts;
     bool immediate_commit = false;

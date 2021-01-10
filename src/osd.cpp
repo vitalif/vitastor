@@ -9,15 +9,18 @@
 
 #include "osd.h"
 
-osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringloop)
+osd_t::osd_t(blockstore_config_t & config, ring_loop_t *ringloop)
 {
+    config["entry_attr_size"] = "0";
+
     this->config = config;
-    this->bs = bs;
     this->ringloop = ringloop;
 
+    // FIXME: Create Blockstore from on-disk superblock config and check it against the OSD cluster config
+    this->bs = new blockstore_t(config, ringloop);
+
     this->bs_block_size = bs->get_block_size();
-    // FIXME: use bitmap granularity instead
-    this->bs_disk_alignment = bs->get_disk_alignment();
+    this->bs_bitmap_granularity = bs->get_bitmap_granularity();
 
     parse_config(config);
 
@@ -49,6 +52,7 @@ osd_t::~osd_t()
 {
     ringloop->unregister_consumer(&consumer);
     delete epmgr;
+    delete bs;
     close(listen_fd);
 }
 
@@ -171,7 +175,7 @@ bool osd_t::shutdown()
     {
         return false;
     }
-    return bs->is_safe_to_stop();
+    return !bs || bs->is_safe_to_stop();
 }
 
 void osd_t::loop()
@@ -200,14 +204,14 @@ void osd_t::exec_op(osd_op_t *cur_op)
             cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
             cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE) &&
             (cur_op->req.sec_rw.len > OSD_RW_MAX ||
-            cur_op->req.sec_rw.len % bs_disk_alignment ||
-            cur_op->req.sec_rw.offset % bs_disk_alignment)) ||
+            cur_op->req.sec_rw.len % bs_bitmap_granularity ||
+            cur_op->req.sec_rw.offset % bs_bitmap_granularity)) ||
         ((cur_op->req.hdr.opcode == OSD_OP_READ ||
             cur_op->req.hdr.opcode == OSD_OP_WRITE ||
             cur_op->req.hdr.opcode == OSD_OP_DELETE) &&
             (cur_op->req.rw.len > OSD_RW_MAX ||
-            cur_op->req.rw.len % bs_disk_alignment ||
-            cur_op->req.rw.offset % bs_disk_alignment)))
+            cur_op->req.rw.len % bs_bitmap_granularity ||
+            cur_op->req.rw.offset % bs_bitmap_granularity)))
     {
         // Bad command
         finish_op(cur_op, -EINVAL);

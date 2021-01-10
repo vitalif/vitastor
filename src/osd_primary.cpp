@@ -44,8 +44,8 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         return false;
     }
     if ((cur_op->req.rw.offset + cur_op->req.rw.len) > (oid.stripe + pg_block_size) ||
-        (cur_op->req.rw.offset % bs_disk_alignment) != 0 ||
-        (cur_op->req.rw.len % bs_disk_alignment) != 0)
+        (cur_op->req.rw.offset % bs_bitmap_granularity) != 0 ||
+        (cur_op->req.rw.len % bs_bitmap_granularity) != 0)
     {
         finish_op(cur_op, -EINVAL);
         return false;

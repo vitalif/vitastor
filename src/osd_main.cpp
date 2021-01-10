@@ -41,16 +41,13 @@ int main(int narg, char *args[])
     signal(SIGINT, handle_sigint);
     signal(SIGTERM, handle_sigint);
     ring_loop_t *ringloop = new ring_loop_t(512);
-    // FIXME: Create Blockstore from on-disk superblock config and check it against the OSD cluster config
-    blockstore_t *bs = new blockstore_t(config, ringloop);
-    osd = new osd_t(config, bs, ringloop);
+    osd = new osd_t(config, ringloop);
     while (1)
     {
         ringloop->loop();
         ringloop->wait();
     }
     delete osd;
-    delete bs;
     delete ringloop;
     return 0;
 }
