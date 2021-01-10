@@ -131,7 +131,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     }
     if (!bitmap_granularity)
     {
-        bitmap_granularity = 4096;
+        bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
     }
     else if (bitmap_granularity % disk_alignment)
     {

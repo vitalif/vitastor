@@ -161,6 +161,7 @@ struct osd_op_t
     osd_any_reply_t reply;
     blockstore_op_t *bs_op = NULL;
     void *buf = NULL;
+    void *bitmap = NULL;
     void *rmw_buf = NULL;
     osd_primary_op_data_t* op_data = NULL;
     std::function<void(osd_op_t*)> callback;

@@ -202,22 +202,36 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
     osd_op_t *cur_op = cl->read_op;
     if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ)
     {
-        if (cur_op->req.sec_rw.len > 0)
-            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
         cl->read_remaining = 0;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
     {
+        if (cur_op->req.sec_rw.attr_len > 0)
+        {
+            if (cur_op->req.sec_rw.attr_len > sizeof(void*))
+            {
+                cur_op->bitmap = cur_op->rmw_buf = malloc_or_die(cur_op->req.sec_rw.attr_len);
+                cl->recv_list.push_back(cur_op->bitmap, cur_op->req.sec_rw.attr_len);
+            }
+            else
+                cl->recv_list.push_back(&cur_op->bitmap, cur_op->req.sec_rw.attr_len);
+        }
         if (cur_op->req.sec_rw.len > 0)
+        {
             cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
-        cl->read_remaining = cur_op->req.sec_rw.len;
+            cl->recv_list.push_back(cur_op->buf, cur_op->req.sec_rw.len);
+        }
+        cl->read_remaining = cur_op->req.sec_rw.len + cur_op->req.sec_rw.attr_len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
     {
         if (cur_op->req.sec_stab.len > 0)
+        {
             cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_stab.len);
+            cl->recv_list.push_back(cur_op->buf, cur_op->req.sec_stab.len);
+        }
         cl->read_remaining = cur_op->req.sec_stab.len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_READ)
@@ -227,13 +241,15 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
     else if (cur_op->req.hdr.opcode == OSD_OP_WRITE)
     {
         if (cur_op->req.rw.len > 0)
+        {
             cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.rw.len);
+            cl->recv_list.push_back(cur_op->buf, cur_op->req.rw.len);
+        }
         cl->read_remaining = cur_op->req.rw.len;
     }
     if (cl->read_remaining > 0)
     {
         // Read data
-        cl->recv_list.push_back(cur_op->buf, cl->read_remaining);
         cl->read_state = CL_READ_DATA;
     }
     else

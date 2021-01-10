@@ -115,7 +115,7 @@ class osd_t
     bool stopping = false;
     int inflight_ops = 0;
     blockstore_t *bs;
-    uint32_t bs_block_size, bs_bitmap_granularity;
+    uint32_t bs_block_size, bs_bitmap_granularity, entry_attr_size;
     ring_loop_t *ringloop;
     timerfd_manager_t *tfd = NULL;
     epoll_manager_t *epmgr = NULL;

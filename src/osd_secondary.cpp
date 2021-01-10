@@ -17,10 +17,17 @@ void osd_t::secondary_op_callback(osd_op_t *op)
     {
         op->reply.sec_del.version = op->bs_op->version;
     }
-    if (op->req.hdr.opcode == OSD_OP_SEC_READ &&
-        op->bs_op->retval > 0)
+    if (op->req.hdr.opcode == OSD_OP_SEC_READ)
     {
-        op->iov.push_back(op->buf, op->bs_op->retval);
+        if (entry_attr_size > 0)
+        {
+            op->reply.sec_rw.attr_len = entry_attr_size;
+            op->iov.push_back((entry_attr_size > sizeof(void*) ? op->bitmap : &op->bs_op->bitmap), entry_attr_size);
+        }
+        if (op->bs_op->retval > 0)
+        {
+            op->iov.push_back(op->buf, op->bs_op->retval);
+        }
     }
     else if (op->req.hdr.opcode == OSD_OP_SEC_LIST)
     {
@@ -55,11 +62,20 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
     {
+        if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ)
+        {
+            // Allocate memory for the read operation
+            if (entry_attr_size > sizeof(void*))
+                cur_op->bitmap = cur_op->rmw_buf = malloc_or_die(entry_attr_size);
+            if (cur_op->req.sec_rw.len > 0)
+                cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
+        }
         cur_op->bs_op->oid = cur_op->req.sec_rw.oid;
         cur_op->bs_op->version = cur_op->req.sec_rw.version;
         cur_op->bs_op->offset = cur_op->req.sec_rw.offset;
         cur_op->bs_op->len = cur_op->req.sec_rw.len;
         cur_op->bs_op->buf = cur_op->buf;
+        cur_op->bs_op->bitmap = cur_op->bitmap;
 #ifdef OSD_STUB
         cur_op->bs_op->retval = cur_op->bs_op->len;
 #endif

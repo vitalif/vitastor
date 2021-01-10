@@ -71,6 +71,8 @@ struct __attribute__((__packed__)) osd_op_secondary_rw_t
     uint32_t offset;
     // length
     uint32_t len;
+    // bitmap/attribute length - bitmap comes after header, but before data
+    uint32_t attr_len;
 };
 
 struct __attribute__((__packed__)) osd_reply_secondary_rw_t
@@ -78,6 +80,8 @@ struct __attribute__((__packed__)) osd_reply_secondary_rw_t
     osd_reply_header_t header;
     // for reads and writes: assigned or read version number
     uint64_t version;
+    // for reads: bitmap/attribute length (just to double-check)
+    uint32_t attr_len;
 };
 
 // delete object on the secondary OSD

@@ -12,16 +12,22 @@
 
 osd_t::osd_t(blockstore_config_t & config, ring_loop_t *ringloop)
 {
-    config["entry_attr_size"] = "0";
+    bs_block_size = strtoull(config["block_size"].c_str(), NULL, 10);
+    bs_bitmap_granularity = strtoull(config["bitmap_granularity"].c_str(), NULL, 10);
+    if (!bs_block_size)
+        bs_block_size = DEFAULT_BLOCK_SIZE;
+    if (!bs_bitmap_granularity)
+        bs_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
+
+    // Force external bitmap size
+    entry_attr_size = bs_block_size / bs_bitmap_granularity / 8;
+    config["entry_attr_size"] = entry_attr_size;
 
     this->config = config;
     this->ringloop = ringloop;
 
     // FIXME: Create Blockstore from on-disk superblock config and check it against the OSD cluster config
     this->bs = new blockstore_t(config, ringloop);
-
-    this->bs_block_size = bs->get_block_size();
-    this->bs_bitmap_granularity = bs->get_bitmap_granularity();
 
     parse_config(config);
 
