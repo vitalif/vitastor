@@ -309,7 +309,7 @@ int extend_missing_stripes(osd_rmw_stripe_t *stripes, osd_num_t *osd_set, int pg
     return 0;
 }
 
-void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t add_size, uint32_t bitmap_size)
+void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t add_size)
 {
     // Calculate buffer size
     uint64_t buf_size = add_size;
@@ -321,7 +321,7 @@ void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t ad
         }
     }
     // Allocate buffer
-    void *buf = memalign_or_die(MEM_ALIGNMENT, buf_size + bitmap_size*read_pg_size);
+    void *buf = memalign_or_die(MEM_ALIGNMENT, buf_size);
     uint64_t buf_pos = add_size;
     for (int role = 0; role < read_pg_size; role++)
     {
@@ -329,16 +329,6 @@ void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t ad
         {
             stripes[role].read_buf = buf + buf_pos;
             buf_pos += stripes[role].read_end - stripes[role].read_start;
-        }
-    }
-    // Bitmaps are allocated in the end so data buffers remain aligned
-    // FIXME: Don't allocate bitmaps here because it probably increases memory fragmentation
-    if (bitmap_size > 0)
-    {
-        for (int role = 0; role < read_pg_size; role++)
-        {
-            stripes[role].bmp_buf = buf + buf_pos;
-            buf_pos += bitmap_size;
         }
     }
     return buf;
@@ -446,7 +436,7 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
         }
     }
     // Allocate read buffers
-    void *rmw_buf = alloc_read_buffer(stripes, pg_size, (write_parity ? pg_size-pg_minsize : 0) * (end - start), bitmap_size);
+    void *rmw_buf = alloc_read_buffer(stripes, pg_size, (write_parity ? pg_size-pg_minsize : 0) * (end - start));
     // Position write buffers
     uint64_t buf_pos = 0, in_pos = 0;
     for (int role = 0; role < pg_size; role++)

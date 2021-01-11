@@ -127,10 +127,13 @@ void test1()
 void test4()
 {
     const uint32_t bmp = 4;
+    unsigned bitmaps[3] = { 0 };
     osd_num_t osd_set[3] = { 1, 0, 3 };
     osd_rmw_stripe_t stripes[3] = { 0 };
     // Test 4.1
     split_stripes(2, 128*1024, 128*1024-4096, 8192, stripes);
+    for (int i = 0; i < 3; i++)
+        stripes[i].bmp_buf = bitmaps+i;
     void* write_buf = malloc(8192);
     void* rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 2, osd_set, 128*1024, bmp);
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
@@ -652,7 +655,7 @@ void test13()
     assert(stripes[1].read_start == 0 && stripes[1].read_end == 128*1024);
     assert(stripes[2].read_start == 0 && stripes[2].read_end == 128*1024);
     assert(stripes[3].read_start == 0 && stripes[3].read_end == 128*1024);
-    void *read_buf = alloc_read_buffer(stripes, 4, 0, 0);
+    void *read_buf = alloc_read_buffer(stripes, 4, 0);
     assert(read_buf);
     assert(stripes[0].read_buf == read_buf);
     assert(stripes[1].read_buf == read_buf+128*1024);
@@ -683,7 +686,7 @@ void test13()
     assert(stripes[1].read_start == 0 && stripes[1].read_end == 0);
     assert(stripes[2].read_start == 0 && stripes[2].read_end == 128*1024);
     assert(stripes[3].read_start == 0 && stripes[3].read_end == 128*1024);
-    read_buf = alloc_read_buffer(stripes, 4, 0, 0);
+    read_buf = alloc_read_buffer(stripes, 4, 0);
     assert(read_buf);
     assert(stripes[0].read_buf == read_buf);
     assert(stripes[1].read_buf == NULL);
@@ -723,6 +726,7 @@ void test14()
     osd_num_t osd_set[3] = { 1, 2, 0 };
     osd_num_t write_osd_set[3] = { 1, 2, 3 };
     osd_rmw_stripe_t stripes[3] = { 0 };
+    unsigned bitmaps[3] = { 0 };
     // Test 13.0
     void *write_buf = malloc_or_die(8192);
     split_stripes(2, 128*1024, 128*1024-4096, 8192, stripes);
@@ -731,6 +735,8 @@ void test14()
     assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
     // Test 13.1
     void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 3, 2, 3, write_osd_set, 128*1024, bmp);
+    for (int i = 0; i < 3; i++)
+        stripes[i].bmp_buf = bitmaps+i;
     assert(rmw_buf);
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024-4096);
     assert(stripes[1].read_start == 4096 && stripes[1].read_end == 128*1024);
@@ -777,7 +783,9 @@ void test14()
     assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
     assert(stripes[1].read_start == 0 && stripes[1].read_end == 128*1024);
     assert(stripes[2].read_start == 0 && stripes[2].read_end == 128*1024);
-    void *read_buf = alloc_read_buffer(stripes, 3, 0, bmp);
+    void *read_buf = alloc_read_buffer(stripes, 3, 0);
+    for (int i = 0; i < 3; i++)
+        stripes[i].bmp_buf = bitmaps+i;
     assert(read_buf);
     assert(stripes[0].read_buf == read_buf);
     assert(stripes[1].read_buf == read_buf+128*1024);
