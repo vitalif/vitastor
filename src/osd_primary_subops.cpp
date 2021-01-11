@@ -145,6 +145,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
                     .offset = wr ? stripes[stripe_num].write_start : stripes[stripe_num].read_start,
                     .len = wr ? stripes[stripe_num].write_end - stripes[stripe_num].write_start : stripes[stripe_num].read_end - stripes[stripe_num].read_start,
                     .buf = wr ? stripes[stripe_num].write_buf : stripes[stripe_num].read_buf,
+                    .bitmap = stripes[stripe_num].bmp_buf,
                 });
 #ifdef OSD_DEBUG
                 printf(
@@ -159,6 +160,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
             {
                 subops[i].op_type = OSD_OP_OUT;
                 subops[i].peer_fd = c_cli.osd_peer_fds.at(role_osd_num);
+                subops[i].bitmap = stripes[stripe_num].bmp_buf;
                 subops[i].req.sec_rw = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
@@ -172,6 +174,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
                     .version = op_version,
                     .offset = wr ? stripes[stripe_num].write_start : stripes[stripe_num].read_start,
                     .len = wr ? stripes[stripe_num].write_end - stripes[stripe_num].write_start : stripes[stripe_num].read_end - stripes[stripe_num].read_start,
+                    .attr_len = entry_attr_size,
                 };
 #ifdef OSD_DEBUG
                 printf(

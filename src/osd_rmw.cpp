@@ -332,6 +332,7 @@ void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t ad
         }
     }
     // Bitmaps are allocated in the end so data buffers remain aligned
+    // FIXME: Don't allocate bitmaps here because it probably increases memory fragmentation
     if (bitmap_size > 0)
     {
         for (int role = 0; role < read_pg_size; role++)

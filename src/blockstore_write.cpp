@@ -111,13 +111,9 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         if (op->opcode == BS_OP_WRITE_STABLE)
             state |= BS_ST_INSTANT;
         if (entry_attr_size > sizeof(void*))
-        {
             bmp = calloc_or_die(1, entry_attr_size);
-            if (op->bitmap)
-                memcpy(bmp, op->bitmap, entry_attr_size);
-        }
-        else
-            bmp = op->bitmap;
+        if (op->bitmap)
+            memcpy((entry_attr_size > sizeof(void*) ? bmp : &bmp), op->bitmap, entry_attr_size);
     }
     dirty_db.emplace((obj_ver_id){
         .oid = op->oid,

@@ -65,6 +65,7 @@ resume_1:
         op_data->stripes[0].write_start = op_data->stripes[0].req_start;
         op_data->stripes[0].write_end = op_data->stripes[0].req_end;
         op_data->stripes[0].write_buf = cur_op->buf;
+        op_data->stripes[0].bmp_buf = (void*)(op_data->stripes+1);
         if (pg.cur_set.data() != op_data->prev_set && (op_data->stripes[0].write_start != 0 ||
             op_data->stripes[0].write_end != bs_block_size))
         {
@@ -77,7 +78,7 @@ resume_1:
     else
     {
         cur_op->rmw_buf = calc_rmw(cur_op->buf, op_data->stripes, op_data->prev_set,
-            pg.pg_size, op_data->pg_data_size, pg.pg_cursize, pg.cur_set.data(), bs_block_size, 0);
+            pg.pg_size, op_data->pg_data_size, pg.pg_cursize, pg.cur_set.data(), bs_block_size, entry_attr_size);
         if (!cur_op->rmw_buf)
         {
             // Refuse partial overwrite of an incomplete object
@@ -98,7 +99,9 @@ resume_3:
     }
     if (op_data->scheme == POOL_SCHEME_REPLICATED)
     {
-        // Only (possibly) copy new data from the request into the recovery buffer
+        // Set bitmap bits
+        bitmap_set(op_data->stripes[0].bmp_buf, op_data->stripes[0].write_start, op_data->stripes[0].write_end, bs_bitmap_granularity);
+        // Possibly copy new data from the request into the recovery buffer
         if (pg.cur_set.data() != op_data->prev_set && (op_data->stripes[0].write_start != 0 ||
             op_data->stripes[0].write_end != bs_block_size))
         {
@@ -120,11 +123,11 @@ resume_3:
         // Recover missing stripes, calculate parity
         if (pg.scheme == POOL_SCHEME_XOR)
         {
-            calc_rmw_parity_xor(op_data->stripes, pg.pg_size, op_data->prev_set, pg.cur_set.data(), bs_block_size, 0);
+            calc_rmw_parity_xor(op_data->stripes, pg.pg_size, op_data->prev_set, pg.cur_set.data(), bs_block_size, entry_attr_size);
         }
         else if (pg.scheme == POOL_SCHEME_JERASURE)
         {
-            calc_rmw_parity_jerasure(op_data->stripes, pg.pg_size, op_data->pg_data_size, op_data->prev_set, pg.cur_set.data(), bs_block_size, 0);
+            calc_rmw_parity_jerasure(op_data->stripes, pg.pg_size, op_data->pg_data_size, op_data->prev_set, pg.cur_set.data(), bs_block_size, entry_attr_size);
         }
     }
     // Send writes

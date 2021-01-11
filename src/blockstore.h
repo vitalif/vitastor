@@ -65,10 +65,9 @@ Input:
 - offset, len = offset and length within object. length may be zero, in that case
   read operation only returns the version / write operation only bumps the version
 - buf = pre-allocated buffer for data (read) / with data (write). may be NULL if len == 0.
-- bitmap = <entry_attr_size> bytes long arbitrary data stored for each object in the metadata area.
-  when <entry_attr_size> fits into pointer size, it should be passed as this field's value.
-  when it doesn't fit, this field should be a pointer to that piece of data.
-  named "bitmap" because it's used for the "external bitmap" in Vitastor.
+- bitmap = pointer to <entry_attr_size> bytes long (usually very short) arbitrary data
+  stored for each object in the metadata area.
+  Called "bitmap" because it's used for the "external bitmap" in Vitastor.
 
 Output:
 - retval = number of bytes actually read/written or negative error number (-EINVAL or -ENOSPC)

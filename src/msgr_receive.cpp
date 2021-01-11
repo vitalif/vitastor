@@ -209,13 +209,11 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
     {
         if (cur_op->req.sec_rw.attr_len > 0)
         {
-            if (cur_op->req.sec_rw.attr_len > sizeof(void*))
-            {
+            if (cur_op->req.sec_rw.attr_len > sizeof(unsigned))
                 cur_op->bitmap = cur_op->rmw_buf = malloc_or_die(cur_op->req.sec_rw.attr_len);
-                cl->recv_list.push_back(cur_op->bitmap, cur_op->req.sec_rw.attr_len);
-            }
             else
-                cl->recv_list.push_back(&cur_op->bitmap, cur_op->req.sec_rw.attr_len);
+                cur_op->bitmap = &cur_op->bmp_data;
+            cl->recv_list.push_back(cur_op->bitmap, cur_op->req.sec_rw.attr_len);
         }
         if (cur_op->req.sec_rw.len > 0)
         {

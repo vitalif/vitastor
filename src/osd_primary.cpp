@@ -2,6 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include "osd_primary.h"
+#include "allocator.h"
 
 // read: read directly or read paired stripe(s), reconstruct, return
 // write: read paired stripe(s), reconstruct, modify, calculate parity, write
@@ -51,7 +52,8 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         return false;
     }
     osd_primary_op_data_t *op_data = (osd_primary_op_data_t*)calloc_or_die(
-        1, sizeof(osd_primary_op_data_t) + sizeof(osd_rmw_stripe_t) * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_size)
+        1, sizeof(osd_primary_op_data_t) + entry_attr_size +
+        sizeof(osd_rmw_stripe_t) * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_size)
     );
     op_data->pg_num = pg_num;
     op_data->oid = oid;
@@ -115,7 +117,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         if (pg.state == PG_ACTIVE || op_data->scheme == POOL_SCHEME_REPLICATED)
         {
             // Fast happy-path
-            cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->pg_data_size, 0, 0);
+            cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->pg_data_size, 0, entry_attr_size);
             submit_primary_subops(SUBMIT_READ, op_data->target_ver,
                 (op_data->scheme == POOL_SCHEME_REPLICATED ? pg.pg_size : op_data->pg_data_size), pg.cur_set.data(), cur_op);
             op_data->st = 1;
@@ -133,7 +135,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
             op_data->pg_size = pg.pg_size;
             op_data->scheme = pg.scheme;
             op_data->degraded = 1;
-            cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0, 0);
+            cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0, entry_attr_size);
             submit_primary_subops(SUBMIT_READ, op_data->target_ver, pg.pg_size, cur_set, cur_op);
             op_data->st = 1;
         }
@@ -152,11 +154,11 @@ resume_2:
         osd_rmw_stripe_t *stripes = op_data->stripes;
         if (op_data->scheme == POOL_SCHEME_XOR)
         {
-            reconstruct_stripes_xor(stripes, op_data->pg_size, 0);
+            reconstruct_stripes_xor(stripes, op_data->pg_size, entry_attr_size);
         }
         else if (op_data->scheme == POOL_SCHEME_JERASURE)
         {
-            reconstruct_stripes_jerasure(stripes, op_data->pg_size, op_data->pg_data_size, 0);
+            reconstruct_stripes_jerasure(stripes, op_data->pg_size, op_data->pg_data_size, entry_attr_size);
         }
         for (int role = 0; role < op_data->pg_size; role++)
         {

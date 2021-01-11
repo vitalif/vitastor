@@ -66,7 +66,7 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
             cur_op->req.sec_rw.attr_len > 0)
         {
             to_send_list.push_back((iovec){
-                .iov_base = (cur_op->reply.sec_rw.attr_len > sizeof(void*) ? cur_op->bitmap : &cur_op->bitmap),
+                .iov_base = cur_op->bitmap,
                 .iov_len = cur_op->reply.sec_rw.attr_len,
             });
             to_outbox.push_back(NULL);
