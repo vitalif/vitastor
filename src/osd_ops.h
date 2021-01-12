@@ -73,6 +73,7 @@ struct __attribute__((__packed__)) osd_op_secondary_rw_t
     uint32_t len;
     // bitmap/attribute length - bitmap comes after header, but before data
     uint32_t attr_len;
+    uint32_t pad0;
 };
 
 struct __attribute__((__packed__)) osd_reply_secondary_rw_t
@@ -82,6 +83,7 @@ struct __attribute__((__packed__)) osd_reply_secondary_rw_t
     uint64_t version;
     // for reads: bitmap/attribute length (just to double-check)
     uint32_t attr_len;
+    uint32_t pad0;
 };
 
 // delete object on the secondary OSD
@@ -158,7 +160,6 @@ struct __attribute__((__packed__)) osd_reply_secondary_list_t
 };
 
 // read or write to the primary OSD (must be within individual stripe)
-// FIXME: allow to return used block bitmap (required for snapshots)
 struct __attribute__((__packed__)) osd_op_rw_t
 {
     osd_op_header_t header;
@@ -173,6 +174,9 @@ struct __attribute__((__packed__)) osd_op_rw_t
 struct __attribute__((__packed__)) osd_reply_rw_t
 {
     osd_reply_header_t header;
+    // for reads: bitmap length
+    uint32_t bitmap_len;
+    uint32_t pad0;
 };
 
 // sync to the primary OSD

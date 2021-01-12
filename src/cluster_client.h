@@ -77,6 +77,9 @@ class cluster_client_t
     std::set<osd_num_t> dirty_osds;
     uint64_t dirty_bytes = 0, dirty_ops = 0;
 
+    void *scrap_bitmap = NULL;
+    unsigned scrap_bitmap_size = 0;
+
     bool pgs_loaded = false;
     ring_consumer_t consumer;
     std::vector<std::function<void(void)>> on_ready_hooks;

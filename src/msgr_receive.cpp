@@ -278,7 +278,9 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
     {
         // Read data. In this case we assume that the buffer is preallocated by the caller (!)
         assert(op->iov.count > 0);
-        if (op->reply.hdr.retval != (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->req.sec_rw.len : op->req.rw.len))
+        unsigned bmp_len = (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->reply.sec_rw.attr_len : op->reply.rw.bitmap_len);
+        if (op->reply.hdr.retval != (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->req.sec_rw.len : op->req.rw.len) ||
+            bmp_len > op->bitmap_len)
         {
             // Check reply length to not overflow the buffer
             printf("Client %d read reply of different length\n", cl->peer_fd);
@@ -286,11 +288,15 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
             stop_client(cl->peer_fd);
             return false;
         }
+        if (bmp_len > 0)
+        {
+            cl->recv_list.push_back(op->bitmap, bmp_len);
+        }
         cl->recv_list.append(op->iov);
         delete cl->read_op;
         cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
-        cl->read_remaining = op->reply.hdr.retval;
+        cl->read_remaining = op->reply.hdr.retval + (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->reply.sec_rw.attr_len : op->reply.rw.bitmap_len);
     }
     else if (op->reply.hdr.opcode == OSD_OP_SEC_LIST && op->reply.hdr.retval > 0)
     {

@@ -161,6 +161,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
                 subops[i].op_type = OSD_OP_OUT;
                 subops[i].peer_fd = c_cli.osd_peer_fds.at(role_osd_num);
                 subops[i].bitmap = stripes[stripe_num].bmp_buf;
+                subops[i].bitmap_len = entry_attr_size;
                 subops[i].req.sec_rw = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,

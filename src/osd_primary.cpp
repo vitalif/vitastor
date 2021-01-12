@@ -179,6 +179,8 @@ resume_2:
     }
     else
     {
+        cur_op->reply.rw.bitmap_len = op_data->pg_data_size * entry_attr_size;
+        cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
         cur_op->iov.push_back(cur_op->buf, cur_op->req.rw.len);
     }
     finish_op(cur_op, cur_op->req.rw.len);

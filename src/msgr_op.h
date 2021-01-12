@@ -162,6 +162,7 @@ struct osd_op_t
     blockstore_op_t *bs_op = NULL;
     void *buf = NULL;
     void *bitmap = NULL;
+    unsigned bitmap_len = 0;
     unsigned bmp_data = 0;
     void *rmw_buf = NULL;
     osd_primary_op_data_t* op_data = NULL;

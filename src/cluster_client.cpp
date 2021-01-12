@@ -63,6 +63,11 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     st_cli.parse_config(config);
     st_cli.load_global_config();
 
+    // Temporary implementation: discard all bitmaps
+    // It will be of course replaced by the implementation of snapshots
+    scrap_bitmap_size = 4096;
+    scrap_bitmap = malloc_or_die(scrap_bitmap_size);
+
     if (ringloop)
     {
         consumer.loop = [this]()
@@ -86,6 +91,7 @@ cluster_client_t::~cluster_client_t()
     {
         ringloop->unregister_consumer(&consumer);
     }
+    free(scrap_bitmap);
 }
 
 void cluster_client_t::continue_ops(bool up_retry)
@@ -681,6 +687,8 @@ bool cluster_client_t::try_send(cluster_op_t *op, int i)
                     .offset = part->offset,
                     .len = part->len,
                 } },
+                .bitmap = scrap_bitmap,
+                .bitmap_len = scrap_bitmap_size,
                 .callback = [this, part](osd_op_t *op_part)
                 {
                     handle_op_part(part);
