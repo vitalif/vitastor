@@ -473,7 +473,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
     // Primary OSDs still operate individual stripes, but their size is multiplied by PG minsize in case of EC
     auto & pool_cfg = st_cli.pool_config[INODE_POOL(op->inode)];
     uint64_t pg_block_size = bs_block_size * (
-        pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_minsize
+        pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks
     );
     uint64_t first_stripe = (op->offset / pg_block_size) * pg_block_size;
     uint64_t last_stripe = ((op->offset + op->len + pg_block_size - 1) / pg_block_size - 1) * pg_block_size;
