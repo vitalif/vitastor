@@ -190,6 +190,15 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
             if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_SYNCED)
             {
                 dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_STABLE;
+                // Allocations and deletions are counted when they're stabilized
+                if (IS_BIG_WRITE(dirty_it->second.state))
+                {
+                    inode_space_stats[dirty_it->first.oid.inode] += block_size;
+                }
+                else if (IS_DELETE(dirty_it->second.state))
+                {
+                    inode_space_stats[dirty_it->first.oid.inode] -= block_size;
+                }
             }
             if (forget_dirty && (IS_BIG_WRITE(dirty_it->second.state) ||
                 IS_DELETE(dirty_it->second.state)))

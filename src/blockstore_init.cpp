@@ -118,6 +118,10 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
 #endif
                     bs->data_alloc->set(clean_it->second.location >> block_order, false);
                 }
+                else
+                {
+                    bs->inode_space_stats[entry->oid.inode] += bs->block_size;
+                }
                 entries_loaded++;
 #ifdef BLOCKSTORE_DEBUG
                 printf("Allocate block (clean entry) %lu: %lx:%lx v%lu\n", done_cnt+i, entry->oid.inode, entry->oid.stripe, entry->version);

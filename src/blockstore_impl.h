@@ -327,6 +327,9 @@ public:
     // Unstable writes are added here (map of object_id -> version)
     std::unordered_map<object_id, uint64_t> unstable_writes;
 
+    // Space usage statistics
+    std::map<uint64_t, int64_t> inode_space_stats;
+
     inline uint32_t get_block_size() { return block_size; }
     inline uint64_t get_block_count() { return block_count; }
     inline uint64_t get_free_block_count() { return data_alloc->get_free_count(); }
