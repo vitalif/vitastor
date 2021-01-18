@@ -180,11 +180,22 @@ void osd_t::report_statistics()
         return;
     }
     etcd_reporting_stats = true;
+    // Report space usage statistics as a whole
+    // Maybe we'll report it using deltas if we tune for a lot of inodes at some point
+    json11::Json::object inode_space;
+    for (auto kv: bs->get_inode_space_stats())
+    {
+        inode_space[std::to_string(kv.first)] = kv.second;
+    }
     json11::Json::array txn = { json11::Json::object {
         { "request_put", json11::Json::object {
             { "key", base64_encode(st_cli.etcd_prefix+"/osd/stats/"+std::to_string(osd_num)) },
             { "value", base64_encode(get_statistics().dump()) },
-        } }
+        } },
+        { "request_put", json11::Json::object {
+            { "key", base64_encode(st_cli.etcd_prefix+"/osd/space/"+std::to_string(osd_num)) },
+            { "value", base64_encode(json11::Json(inode_space).dump()) },
+        } },
     } };
     for (auto & p: pgs)
     {

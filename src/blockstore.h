@@ -184,7 +184,7 @@ public:
     std::unordered_map<object_id, uint64_t> & get_unstable_writes();
 
     // Get per-inode space usage statistics
-    std::map<uint64_t, int64_t> & get_inode_space_stats();
+    std::map<uint64_t, uint64_t> & get_inode_space_stats();
 
     // FIXME rename to object_size
     uint32_t get_block_size();

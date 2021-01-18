@@ -26,11 +26,13 @@ const etcd_allow = new RegExp('^'+[
     'config/pgs',
     'osd/state/[1-9]\\d*',
     'osd/stats/[1-9]\\d*',
+    'osd/space/[1-9]\\d*',
     'mon/master',
     'pg/state/[1-9]\\d*/[1-9]\\d*',
     'pg/stats/[1-9]\\d*/[1-9]\\d*',
     'pg/history/[1-9]\\d*/[1-9]\\d*',
     'history/last_clean_pgs',
+    'inode/space/[1-9]\\d*',
     'stats',
 ].join('$|^')+'$');
 
@@ -172,6 +174,11 @@ const etcd_tree = {
                 },
             }, */
         },
+        space: {
+            /* <osd_num_t>: {
+                <inode_t>: uint64_t, // bytes
+            }, */
+        },
     },
     mon: {
         master: {
@@ -208,6 +215,13 @@ const etcd_tree = {
                     all_peers: osd_num_t[],
                     epoch: uint32_t,
                 },
+            }, */
+        },
+    },
+    inode: {
+        space: {
+            /* <inode_t>: {
+                raw: uint64_t, // raw bytes on OSDs
             }, */
         },
     },
@@ -403,7 +417,7 @@ class Mon
                     {
                         pg_states_changed = true;
                     }
-                    else if (key != '/stats')
+                    else if (key != '/stats' && key.substr(0, 13) != '/inode/space/')
                     {
                         changed = true;
                     }
@@ -1174,6 +1188,7 @@ class Mon
 
     async update_total_stats()
     {
+        const txn = [];
         const stats = this.sum_stats();
         if (!stats.overflow)
         {
@@ -1196,9 +1211,26 @@ class Mon
             {
                 ser.object_counts[k] = ''+stats.object_counts[k];
             }
-            await this.etcd_call('/kv/txn', {
-                success: [ { requestPut: { key: b64(this.etcd_prefix+'/stats'), value: b64(JSON.stringify(ser)) } } ],
-            }, this.config.etcd_mon_timeout, 0);
+            txn.push({ requestPut: { key: b64(this.etcd_prefix+'/stats'), value: b64(JSON.stringify(ser)) } });
+        }
+        const space_stats = {};
+        for (const osd_num in this.state.osd.space)
+        {
+            for (const inode_num in this.state.osd.space[osd_num])
+            {
+                space_stats[inode_num] = (space_stats[inode_num] || BigInt(0)) + BigInt(this.state.osd.space[osd_num][inode_num]||0);
+            }
+        }
+        for (const inode_num in space_stats)
+        {
+            txn.push({ requestPut: {
+                key: b64(this.etcd_prefix+'/inode/space/'+inode_num),
+                value: b64(JSON.stringify({ raw: ''+space_stats[inode_num] })),
+            } });
+        }
+        if (txn.length)
+        {
+            await this.etcd_call('/kv/txn', { success: txn }, this.config.etcd_mon_timeout, 0);
         }
     }
 

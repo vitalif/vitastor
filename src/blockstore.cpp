@@ -43,7 +43,7 @@ std::unordered_map<object_id, uint64_t> & blockstore_t::get_unstable_writes()
     return impl->unstable_writes;
 }
 
-std::map<uint64_t, int64_t> & blockstore_t::get_inode_space_stats()
+std::map<uint64_t, uint64_t> & blockstore_t::get_inode_space_stats()
 {
     return impl->inode_space_stats;
 }
