@@ -124,6 +124,29 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     return true;
 }
 
+void blockstore_impl_t::cancel_all_writes(blockstore_op_t *op, blockstore_dirty_db_t::iterator dirty_it, int retval)
+{
+    while (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
+    {
+        dirty_db.erase(dirty_it++);
+    }
+    bool found = false;
+    for (auto other_op: submit_queue)
+    {
+        if (!found && other_op == op)
+            found = true;
+        else if (found && other_op->oid == op->oid &&
+            (other_op->opcode == BS_OP_WRITE || other_op->opcode == BS_OP_WRITE_STABLE))
+        {
+            // Mark operations to cancel them
+            PRIV(other_op)->real_version = UINT64_MAX;
+            other_op->retval = retval;
+        }
+    }
+    op->retval = retval;
+    FINISH_OP(op);
+}
+
 // First step of the write algorithm: dequeue operation and submit initial write(s)
 int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
 {
@@ -143,6 +166,12 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     }
     if (PRIV(op)->real_version != 0)
     {
+        if (PRIV(op)->real_version == UINT64_MAX)
+        {
+            // This is the flag value used to cancel operations
+            FINISH_OP(op);
+            return 1;
+        }
         // Restore original low version number for unblocked operations
 #ifdef BLOCKSTORE_DEBUG
         printf("Restoring %lx:%lx version: v%lu -> v%lu\n", op->oid.inode, op->oid.stripe, op->version, PRIV(op)->real_version);
@@ -152,10 +181,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (prev_it->first.oid == op->oid && prev_it->first.version >= PRIV(op)->real_version)
         {
             // Original version is still invalid
-            // FIXME Oops. Successive small writes will currently break in an unexpected way. Fix it
-            dirty_db.erase(dirty_it);
-            op->retval = -EEXIST;
-            FINISH_OP(op);
+            // All subsequent writes to the same object must be canceled too
+            cancel_all_writes(op, dirty_it, -EEXIST);
             return 1;
         }
         op->version = PRIV(op)->real_version;
@@ -189,10 +216,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 PRIV(op)->wait_for = WAIT_FREE;
                 return 0;
             }
-            // FIXME Oops. Successive small writes will currently break in an unexpected way. Fix it
-            dirty_db.erase(dirty_it);
-            op->retval = -ENOSPC;
-            FINISH_OP(op);
+            cancel_all_writes(op, dirty_it, -ENOSPC);
             return 1;
         }
         write_iodepth++;
