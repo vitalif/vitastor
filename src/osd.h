@@ -55,6 +55,17 @@ struct osd_recovery_op_t
     osd_op_t *osd_op = NULL;
 };
 
+// Posted as /osd/inodestats/$osd, then accumulated by the monitor
+#define INODE_STATS_READ 0
+#define INODE_STATS_WRITE 1
+#define INODE_STATS_DELETE 2
+struct inode_stats_t
+{
+    uint64_t op_sum[3] = { 0 };
+    uint64_t op_count[3] = { 0 };
+    uint64_t op_bytes[3] = { 0 };
+};
+
 class osd_t
 {
     // config
@@ -126,6 +137,7 @@ class osd_t
 
     // op statistics
     osd_op_stats_t prev_stats;
+    std::map<uint64_t, inode_stats_t> inode_stats;
     const char* recovery_stat_names[2] = { "degraded", "misplaced" };
     uint64_t recovery_stat_count[2][2] = { 0 };
     uint64_t recovery_stat_bytes[2][2] = { 0 };

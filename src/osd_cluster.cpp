@@ -187,6 +187,27 @@ void osd_t::report_statistics()
     {
         inode_space[std::to_string(kv.first)] = kv.second;
     }
+    json11::Json::object inode_ops;
+    for (auto kv: inode_stats)
+    {
+        inode_ops[std::to_string(kv.first)] = json11::Json::object {
+            { "read", json11::Json::object {
+                { "count", kv.second.op_count[INODE_STATS_READ] },
+                { "usec", kv.second.op_sum[INODE_STATS_READ] },
+                { "bytes", kv.second.op_bytes[INODE_STATS_READ] },
+            } },
+            { "write", json11::Json::object {
+                { "count", kv.second.op_count[INODE_STATS_WRITE] },
+                { "usec", kv.second.op_sum[INODE_STATS_WRITE] },
+                { "bytes", kv.second.op_bytes[INODE_STATS_WRITE] },
+            } },
+            { "delete", json11::Json::object {
+                { "count", kv.second.op_count[INODE_STATS_DELETE] },
+                { "usec", kv.second.op_sum[INODE_STATS_DELETE] },
+                { "bytes", kv.second.op_bytes[INODE_STATS_DELETE] },
+            } },
+        };
+    }
     json11::Json::array txn = { json11::Json::object {
         { "request_put", json11::Json::object {
             { "key", base64_encode(st_cli.etcd_prefix+"/osd/stats/"+std::to_string(osd_num)) },
@@ -195,6 +216,10 @@ void osd_t::report_statistics()
         { "request_put", json11::Json::object {
             { "key", base64_encode(st_cli.etcd_prefix+"/osd/space/"+std::to_string(osd_num)) },
             { "value", base64_encode(json11::Json(inode_space).dump()) },
+        } },
+        { "request_put", json11::Json::object {
+            { "key", base64_encode(st_cli.etcd_prefix+"/osd/inodestats/"+std::to_string(osd_num)) },
+            { "value", base64_encode(json11::Json(inode_ops).dump()) },
         } },
     } };
     for (auto & p: pgs)

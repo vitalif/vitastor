@@ -36,6 +36,29 @@ void osd_t::autosync()
 void osd_t::finish_op(osd_op_t *cur_op, int retval)
 {
     inflight_ops--;
+    if (cur_op->req.hdr.opcode == OSD_OP_READ ||
+        cur_op->req.hdr.opcode == OSD_OP_WRITE ||
+        cur_op->req.hdr.opcode == OSD_OP_DELETE)
+    {
+        // Track inode statistics
+        if (!cur_op->tv_end.tv_sec)
+        {
+            clock_gettime(CLOCK_REALTIME, &cur_op->tv_end);
+        }
+        uint64_t usec = (
+            (cur_op->tv_end.tv_sec - cur_op->tv_begin.tv_sec)*1000000 +
+            (cur_op->tv_end.tv_nsec - cur_op->tv_begin.tv_nsec)/1000
+        );
+        int inode_st_op = cur_op->req.hdr.opcode == OSD_OP_DELETE
+            ? INODE_STATS_DELETE
+            : (cur_op->req.hdr.opcode == OSD_OP_READ ? INODE_STATS_READ : INODE_STATS_WRITE);
+        inode_stats[cur_op->req.rw.inode].op_count[inode_st_op]++;
+        inode_stats[cur_op->req.rw.inode].op_sum[inode_st_op] += usec;
+        if (cur_op->req.hdr.opcode == OSD_OP_DELETE)
+            inode_stats[cur_op->req.rw.inode].op_bytes[inode_st_op] += cur_op->op_data->pg_data_size * bs_block_size;
+        else
+            inode_stats[cur_op->req.rw.inode].op_bytes[inode_st_op] += cur_op->req.rw.len;
+    }
     if (cur_op->op_data)
     {
         if (cur_op->op_data->pg_num > 0)
@@ -66,7 +89,7 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     }
     else
     {
-        // FIXME add separate magic number
+        // FIXME add separate magic number for primary ops
         auto cl_it = c_cli.clients.find(cur_op->peer_fd);
         if (cl_it != c_cli.clients.end())
         {

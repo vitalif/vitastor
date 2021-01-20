@@ -109,8 +109,10 @@ void osd_messenger_t::measure_exec(osd_op_t *cur_op)
     {
         return;
     }
-    timespec tv_end;
-    clock_gettime(CLOCK_REALTIME, &tv_end);
+    if (!cur_op->tv_end.tv_sec)
+    {
+        clock_gettime(CLOCK_REALTIME, &cur_op->tv_end);
+    }
     stats.op_stat_count[cur_op->req.hdr.opcode]++;
     if (!stats.op_stat_count[cur_op->req.hdr.opcode])
     {
@@ -119,8 +121,8 @@ void osd_messenger_t::measure_exec(osd_op_t *cur_op)
         stats.op_stat_bytes[cur_op->req.hdr.opcode] = 0;
     }
     stats.op_stat_sum[cur_op->req.hdr.opcode] += (
-        (tv_end.tv_sec - cur_op->tv_begin.tv_sec)*1000000 +
-        (tv_end.tv_nsec - cur_op->tv_begin.tv_nsec)/1000
+        (cur_op->tv_end.tv_sec - cur_op->tv_begin.tv_sec)*1000000 +
+        (cur_op->tv_end.tv_nsec - cur_op->tv_begin.tv_nsec)/1000
     );
     if (cur_op->req.hdr.opcode == OSD_OP_READ ||
         cur_op->req.hdr.opcode == OSD_OP_WRITE)

@@ -26,13 +26,14 @@ const etcd_allow = new RegExp('^'+[
     'config/pgs',
     'osd/state/[1-9]\\d*',
     'osd/stats/[1-9]\\d*',
+    'osd/inodestats/[1-9]\\d*',
     'osd/space/[1-9]\\d*',
     'mon/master',
     'pg/state/[1-9]\\d*/[1-9]\\d*',
     'pg/stats/[1-9]\\d*/[1-9]\\d*',
     'pg/history/[1-9]\\d*/[1-9]\\d*',
     'history/last_clean_pgs',
-    'inode/space/[1-9]\\d*',
+    'inode/stats/[1-9]\\d*',
     'stats',
 ].join('$|^')+'$');
 
@@ -174,6 +175,13 @@ const etcd_tree = {
                 },
             }, */
         },
+        inodestats: {
+            /* <inode_t>: {
+                read: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+                write: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+                delete: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+            }, */
+        },
         space: {
             /* <osd_num_t>: {
                 <inode_t>: uint64_t, // bytes
@@ -219,9 +227,12 @@ const etcd_tree = {
         },
     },
     inode: {
-        space: {
+        stats: {
             /* <inode_t>: {
-                raw: uint64_t, // raw bytes on OSDs
+                raw_used: uint64_t, // raw used bytes on OSDs
+                read: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+                write: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+                delete: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
             }, */
         },
     },
@@ -409,7 +420,7 @@ class Mon
                 {
                     this.parse_kv(e.kv);
                     const key = e.kv.key.substr(this.etcd_prefix.length);
-                    if (key.substr(0, 11) == '/osd/stats/' || key.substr(0, 10) == '/pg/stats/')
+                    if (key.substr(0, 11) == '/osd/stats/' || key.substr(0, 10) == '/pg/stats/' || key.substr(0, 16) == '/osd/inodestats/')
                     {
                         stats_changed = true;
                     }
@@ -417,7 +428,7 @@ class Mon
                     {
                         pg_states_changed = true;
                     }
-                    else if (key != '/stats' && key.substr(0, 13) != '/inode/space/')
+                    else if (key != '/stats' && key.substr(0, 13) != '/inode/stats/')
                     {
                         changed = true;
                     }
@@ -1093,8 +1104,6 @@ class Mon
 
     sum_stats()
     {
-        let overflow = false;
-        this.prev_stats = this.prev_stats || { op_stats: {}, subop_stats: {}, recovery_stats: {} };
         const op_stats = {}, subop_stats = {}, recovery_stats = {};
         for (const osd in this.state.osd.stats)
         {
@@ -1119,52 +1128,11 @@ class Mon
                 recovery_stats[op].bytes += BigInt(st.recovery_stats[op].bytes||0);
             }
         }
-        for (const op in op_stats)
-        {
-            if (op_stats[op].count >= 0x10000000000000000n)
-            {
-                if (!this.prev_stats.op_stats[op])
-                {
-                    overflow = true;
-                }
-                else
-                {
-                    op_stats[op].count -= this.prev_stats.op_stats[op].count;
-                    op_stats[op].usec -= this.prev_stats.op_stats[op].usec;
-                    op_stats[op].bytes -= this.prev_stats.op_stats[op].bytes;
-                }
-            }
-        }
-        for (const op in subop_stats)
-        {
-            if (subop_stats[op].count >= 0x10000000000000000n)
-            {
-                if (!this.prev_stats.subop_stats[op])
-                {
-                    overflow = true;
-                }
-                else
-                {
-                    subop_stats[op].count -= this.prev_stats.subop_stats[op].count;
-                    subop_stats[op].usec -= this.prev_stats.subop_stats[op].usec;
-                }
-            }
-        }
-        for (const op in recovery_stats)
-        {
-            if (recovery_stats[op].count >= 0x10000000000000000n)
-            {
-                if (!this.prev_stats.recovery_stats[op])
-                {
-                    overflow = true;
-                }
-                else
-                {
-                    recovery_stats[op].count -= this.prev_stats.recovery_stats[op].count;
-                    recovery_stats[op].bytes -= this.prev_stats.recovery_stats[op].bytes;
-                }
-            }
-        }
+        return { op_stats, subop_stats, recovery_stats };
+    }
+
+    sum_object_counts()
+    {
         const object_counts = { object: 0n, clean: 0n, misplaced: 0n, degraded: 0n, incomplete: 0n };
         for (const pool_id in this.state.pg.stats)
         {
@@ -1183,49 +1151,107 @@ class Mon
                 }
             }
         }
-        return (this.prev_stats = { overflow, op_stats, subop_stats, recovery_stats, object_counts });
+        return object_counts;
+    }
+
+    sum_inode_stats()
+    {
+        const inode_stats = {};
+        const inode_stub = () => ({
+            raw_used: 0n,
+            read: { count: 0n, usec: 0n, bytes: 0n },
+            write: { count: 0n, usec: 0n, bytes: 0n },
+            delete: { count: 0n, usec: 0n, bytes: 0n },
+        });
+        for (const osd_num in this.state.osd.space)
+        {
+            for (const inode_num in this.state.osd.space[osd_num])
+            {
+                inode_stats[inode_num] = inode_stats[inode_num] || inode_stub();
+                inode_stats[inode_num].raw_used += BigInt(this.state.osd.space[osd_num][inode_num]||0);
+            }
+        }
+        for (const osd_num in this.state.osd.inodestats)
+        {
+            const ist = this.state.osd.inodestats[osd_num];
+            for (const inode_num in ist)
+            {
+                inode_stats[inode_num] = inode_stats[inode_num] || inode_stub();
+                for (const op of [ 'read', 'write', 'delete' ])
+                {
+                    inode_stats[inode_num][op].count += BigInt(ist[inode_num][op].count||0);
+                    inode_stats[inode_num][op].usec += BigInt(ist[inode_num][op].usec||0);
+                    inode_stats[inode_num][op].bytes += BigInt(ist[inode_num][op].bytes||0);
+                }
+            }
+        }
+        return inode_stats;
+    }
+
+    fix_stat_overflows(obj, scratch)
+    {
+        for (const k in obj)
+        {
+            if (typeof obj[k] == 'bigint')
+            {
+                if (obj[k] >= 0x10000000000000000n)
+                {
+                    if (scratch[k])
+                    {
+                        for (const k2 in scratch)
+                        {
+                            obj[k2] -= scratch[k2];
+                            scratch[k2] = 0n;
+                        }
+                    }
+                    else
+                    {
+                        for (const k2 in obj)
+                        {
+                            scratch[k2] = obj[k2];
+                        }
+                    }
+                }
+            }
+            else if (typeof obj[k] == 'object')
+            {
+                this.fix_stat_overflows(obj[k], scratch[k] = (scratch[k] || {}));
+            }
+        }
+    }
+
+    serialize_bigints(obj)
+    {
+        for (const k in obj)
+        {
+            if (typeof obj[k] == 'bigint')
+            {
+                obj[k] = ''+obj[k];
+            }
+            else if (typeof obj[k] == 'object')
+            {
+                this.serialize_bigints(obj[k]);
+            }
+        }
     }
 
     async update_total_stats()
     {
         const txn = [];
         const stats = this.sum_stats();
-        if (!stats.overflow)
-        {
-            // Convert to strings, serialize and save
-            const ser = {};
-            for (const st of [ 'op_stats', 'subop_stats', 'recovery_stats' ])
-            {
-                ser[st] = {};
-                for (const op in stats[st])
-                {
-                    ser[st][op] = {};
-                    for (const k in stats[st][op])
-                    {
-                        ser[st][op][k] = ''+stats[st][op][k];
-                    }
-                }
-            }
-            ser.object_counts = {};
-            for (const k in stats.object_counts)
-            {
-                ser.object_counts[k] = ''+stats.object_counts[k];
-            }
-            txn.push({ requestPut: { key: b64(this.etcd_prefix+'/stats'), value: b64(JSON.stringify(ser)) } });
-        }
-        const space_stats = {};
-        for (const osd_num in this.state.osd.space)
-        {
-            for (const inode_num in this.state.osd.space[osd_num])
-            {
-                space_stats[inode_num] = (space_stats[inode_num] || BigInt(0)) + BigInt(this.state.osd.space[osd_num][inode_num]||0);
-            }
-        }
-        for (const inode_num in space_stats)
+        const object_counts = this.sum_object_counts();
+        const inode_stats = this.sum_inode_stats();
+        this.fix_stat_overflows(stats, (this.prev_stats = this.prev_stats || {}));
+        this.fix_stat_overflows(inode_stats, (this.prev_inode_stats = this.prev_inode_stats || {}));
+        stats.object_counts = object_counts;
+        this.serialize_bigints(stats);
+        this.serialize_bigints(inode_stats);
+        txn.push({ requestPut: { key: b64(this.etcd_prefix+'/stats'), value: b64(JSON.stringify(stats)) } });
+        for (const inode_num in inode_stats)
         {
             txn.push({ requestPut: {
-                key: b64(this.etcd_prefix+'/inode/space/'+inode_num),
-                value: b64(JSON.stringify({ raw: ''+space_stats[inode_num] })),
+                key: b64(this.etcd_prefix+'/inode/stats/'+inode_num),
+                value: b64(JSON.stringify(inode_stats[inode_num])),
             } });
         }
         if (txn.length)

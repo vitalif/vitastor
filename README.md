@@ -34,12 +34,12 @@ breaking changes in the future. However, the following is implemented:
 - NBD proxy for kernel mounts
 - Inode removal tool (vitastor-rm)
 - Packaging for Debian and CentOS
+- Per-inode I/O and space usage statistics
 
 ## Roadmap
 
 - OSD creation tool (OSDs currently have to be created by hand)
 - Other administrative tools
-- Per-inode I/O and space usage statistics
 - Proxmox and OpenNebula plugins
 - iSCSI proxy
 - Inode metadata storage in etcd

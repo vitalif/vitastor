@@ -154,7 +154,7 @@ struct osd_primary_op_data_t;
 
 struct osd_op_t
 {
-    timespec tv_begin;
+    timespec tv_begin = { 0 }, tv_end = { 0 };
     uint64_t op_type = OSD_OP_IN;
     int peer_fd;
     osd_any_op_t req;
