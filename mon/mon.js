@@ -24,6 +24,7 @@ const etcd_allow = new RegExp('^'+[
     'config/pools',
     'config/osd/[1-9]\\d*',
     'config/pgs',
+    'config/inode/[1-9]\\d*/[1-9]\\d*',
     'osd/state/[1-9]\\d*',
     'osd/stats/[1-9]\\d*',
     'osd/inodestats/[1-9]\\d*',
@@ -144,6 +145,17 @@ const etcd_tree = {
             }
         }, */
         pgs: {},
+        /* inode: {
+            <pool_id>: {
+                <inode_t>: {
+                    name: string,
+                    parent_pool?: <pool_id>,
+                    parent_id?: <inode_t>,
+                    readonly?: boolean,
+                }
+            }
+        }, */
+        inode: {},
     },
     osd: {
         state: {

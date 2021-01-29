@@ -642,4 +642,47 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
             }
         }
     }
+    else if (key.substr(0, etcd_prefix.length()+14) == etcd_prefix+"/config/inode/")
+    {
+        // <etcd_prefix>/config/inode/%d/%d
+        uint64_t pool_id = 0;
+        uint64_t inode_num = 0;
+        char null_byte = 0;
+        sscanf(key.c_str() + etcd_prefix.length()+14, "%lu/%lu%c", &pool_id, &inode_num, &null_byte);
+        if (!pool_id || pool_id >= POOL_ID_MAX || !inode_num || (inode_num >> (64-POOL_ID_BITS)) || null_byte != 0)
+        {
+            printf("Bad etcd key %s, ignoring\n", key.c_str());
+        }
+        else
+        {
+            inode_num |= (pool_id << (64-POOL_ID_BITS));
+            if (!value.is_object())
+            {
+                this->inode_config.erase(inode_num);
+            }
+            else
+            {
+                inode_t parent_inode_num = value["parent_id"].uint64_value();
+                if (parent_inode_num && !(parent_inode_num >> (64-POOL_ID_BITS)))
+                {
+                    uint64_t parent_pool_id = value["parent_pool"].uint64_value();
+                    if (parent_pool_id >= POOL_ID_MAX)
+                    {
+                        printf(
+                            "Inode %lu/%lu parent_pool value is invalid, ignoring parent setting\n",
+                            inode_num >> (64-POOL_ID_BITS), inode_num & ((1l << (64-POOL_ID_BITS)) - 1)
+                        );
+                        parent_inode_num = 0;
+                    }
+                    else
+                        parent_inode_num |= parent_pool_id << (64-POOL_ID_BITS);
+                }
+                this->inode_config[inode_num] = (inode_config_t){
+                    .name = value["name"].string_value(),
+                    .parent_id = parent_inode_num,
+                    .readonly = value["readonly"].bool_value(),
+                };
+            }
+        }
+    }
 }

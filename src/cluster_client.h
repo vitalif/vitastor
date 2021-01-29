@@ -34,15 +34,19 @@ struct cluster_op_t
     int retval;
     osd_op_buf_list_t iov;
     std::function<void(cluster_op_t*)> callback;
+    ~cluster_op_t();
 protected:
     int flags = 0;
     int state = 0;
+    uint64_t cur_inode; // for snapshot reads
     void *buf = NULL;
     cluster_op_t *orig_op = NULL;
     bool needs_reslice = false;
     bool up_wait = false;
     int inflight_count = 0, done_count = 0;
     std::vector<cluster_op_part_t> parts;
+    void *bitmap_buf = NULL, *part_bitmaps = NULL;
+    unsigned bitmap_buf_size = 0;
     friend class cluster_client_t;
 };
 
@@ -60,7 +64,7 @@ class cluster_client_t
     ring_loop_t *ringloop;
 
     uint64_t bs_block_size = 0;
-    uint64_t bs_bitmap_granularity = 0;
+    uint32_t bs_bitmap_granularity = 0, bs_bitmap_size = 0;
     std::map<pool_id_t, uint64_t> pg_counts;
     bool immediate_commit = false;
     // FIXME: Implement inmemory_commit mode. Note that it requires to return overlapping reads from memory.
@@ -77,8 +81,8 @@ class cluster_client_t
     std::set<osd_num_t> dirty_osds;
     uint64_t dirty_bytes = 0, dirty_ops = 0;
 
-    void *scrap_bitmap = NULL;
-    unsigned scrap_bitmap_size = 0;
+    void *scrap_buffer = NULL;
+    unsigned scrap_buffer_size = 0;
 
     bool pgs_loaded = false;
     ring_consumer_t consumer;
@@ -112,4 +116,5 @@ protected:
     int continue_sync(cluster_op_t *op);
     void send_sync(cluster_op_t *op, cluster_op_part_t *part);
     void handle_op_part(cluster_op_part_t *part);
+    void copy_part_bitmap(cluster_op_t *op, cluster_op_part_t *part);
 };

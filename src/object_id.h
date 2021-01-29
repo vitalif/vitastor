@@ -6,12 +6,14 @@
 #include <stdint.h>
 #include <functional>
 
+typedef uint64_t inode_t;
+
 // 16 bytes per object/stripe id
 // stripe = (start of the parity stripe + peer role)
 // i.e. for example (256KB + one of 0,1,2)
 struct __attribute__((__packed__)) object_id
 {
-    uint64_t inode;
+    inode_t inode;
     uint64_t stripe;
 };
 

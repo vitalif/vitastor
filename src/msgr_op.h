@@ -161,6 +161,7 @@ struct osd_op_t
     osd_any_reply_t reply;
     blockstore_op_t *bs_op = NULL;
     void *buf = NULL;
+    // bitmap, bitmap_len, bmp_data are only meaningful for reads
     void *bitmap = NULL;
     unsigned bitmap_len = 0;
     unsigned bmp_data = 0;

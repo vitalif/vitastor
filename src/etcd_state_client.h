@@ -52,6 +52,13 @@ struct pool_config_t
     std::map<pg_num_t, pg_config_t> pg_config;
 };
 
+struct inode_config_t
+{
+    std::string name;
+    inode_t parent_id;
+    bool readonly;
+};
+
 struct websocket_t;
 
 struct etcd_state_client_t
@@ -70,6 +77,7 @@ public:
     uint64_t etcd_watch_revision = 0;
     std::map<pool_id_t, pool_config_t> pool_config;
     std::map<osd_num_t, json11::Json> peer_states;
+    std::map<inode_t, inode_config_t> inode_config;
 
     std::function<void(json11::Json::object &)> on_change_hook;
     std::function<void(json11::Json::object &)> on_load_config_hook;
