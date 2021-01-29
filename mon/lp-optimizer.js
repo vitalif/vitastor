@@ -58,7 +58,7 @@ async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 
     }
     const all_weights = Object.assign({}, ...Object.values(osd_tree));
     const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c), 0);
-    const all_pgs = Object.values(random_combinations(osd_tree, pg_size, max_combinations));
+    const all_pgs = Object.values(random_combinations(osd_tree, pg_size, max_combinations, parity_space > 1));
     const pg_per_osd = {};
     for (const pg of all_pgs)
     {
@@ -249,7 +249,7 @@ async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, 
         }
     }
     // Get all combinations
-    let all_pgs = random_combinations(osd_tree, pg_size, max_combinations);
+    let all_pgs = random_combinations(osd_tree, pg_size, max_combinations, parity_space > 1);
     add_valid_previous(osd_tree, prev_weights, all_pgs);
     all_pgs = Object.values(all_pgs);
     const pg_per_osd = {};
@@ -488,7 +488,8 @@ function extract_osds(osd_tree, levels, osd_level, osds = {})
     return osds;
 }
 
-function random_combinations(osd_tree, pg_size, count)
+// unordered = don't treat (x,y) and (y,x) as equal
+function random_combinations(osd_tree, pg_size, count, unordered)
 {
     let seed = 0x5f020e43;
     let rng = () =>
@@ -516,25 +517,47 @@ function random_combinations(osd_tree, pg_size, count)
                 pg.push(osds[cur_hosts[next_host]][next_osd]);
                 cur_hosts.splice(next_host, 1);
             }
-            while (pg.length < pg_size)
+            const cyclic_pgs = [ pg ];
+            if (unordered)
             {
-                pg.push(NO_OSD);
+                for (let i = 1; i < pg.size; i++)
+                {
+                    cyclic_pgs.push([ ...pg.slice(i), ...pg.slice(0, i) ]);
+                }
             }
-            r['pg_'+pg.join('_')] = pg;
+            for (const pg of cyclic_pgs)
+            {
+                while (pg.length < pg_size)
+                {
+                    pg.push(NO_OSD);
+                }
+                r['pg_'+pg.join('_')] = pg;
+            }
         }
     }
     // Generate purely random combinations
-    restart: while (count > 0)
+    while (count > 0)
     {
         let host_idx = [];
-        for (let i = 0; i < pg_size && i < hosts.length; i++)
+        const cur_hosts = [ ...hosts.map((h, i) => i) ];
+        const max_hosts = pg_size < hosts.length ? pg_size : hosts.length;
+        if (unordered)
         {
-            let start = i > 0 ? host_idx[i-1]+1 : 0;
-            if (start >= hosts.length)
+            for (let i = 0; i < max_hosts; i++)
             {
-                continue restart;
+                const r = rng() % cur_hosts.length;
+                host_idx[i] = cur_hosts[r];
+                cur_hosts.splice(r, 1);
             }
-            host_idx[i] = start + rng() % (hosts.length-start);
+        }
+        else
+        {
+            for (let i = 0; i < max_hosts; i++)
+            {
+                const r = rng() % (cur_hosts.length - (max_hosts - i - 1));
+                host_idx[i] = cur_hosts[r];
+                cur_hosts.splice(0, r+1);
+            }
         }
         let pg = host_idx.map(h => osds[hosts[h]][rng() % osds[hosts[h]].length]);
         while (pg.length < pg_size)
