@@ -109,10 +109,9 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     if ((journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_stable) &&
         journal.sector_info[journal.cur_sector].dirty)
     {
-        if (cur_sector == -1)
-            PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
-        cur_sector = journal.cur_sector;
-        prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
+        PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
+        prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], cb);
+        cur_sector = ((journal.cur_sector + 1) % journal.sector_count);
     }
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
     {
