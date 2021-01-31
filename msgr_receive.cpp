@@ -9,6 +9,10 @@ void osd_messenger_t::read_requests()
     {
         int peer_fd = read_ready_clients[i];
         osd_client_t *cl = clients[peer_fd];
+        if (cl->read_msg.msg_iovlen)
+        {
+            continue;
+        }
         if (cl->read_remaining < receive_buffer_size)
         {
             cl->read_iov.iov_base = cl->in_buf;
@@ -29,6 +33,7 @@ void osd_messenger_t::read_requests()
             io_uring_sqe* sqe = ringloop->get_sqe();
             if (!sqe)
             {
+                cl->read_msg.msg_iovlen = 0;
                 read_ready_clients.erase(read_ready_clients.begin(), read_ready_clients.begin() + i);
                 return;
             }
@@ -52,6 +57,7 @@ void osd_messenger_t::read_requests()
 bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
 {
     bool ret = false;
+    cl->read_msg.msg_iovlen = 0;
     cl->refs--;
     if (cl->peer_state == PEER_STOPPED)
     {
@@ -160,8 +166,14 @@ bool osd_messenger_t::handle_finished_read(osd_client_t *cl)
     {
         if (cl->read_op->req.hdr.magic == SECONDARY_OSD_REPLY_MAGIC)
             return handle_reply_hdr(cl);
-        else
+        else if (cl->read_op->req.hdr.magic == SECONDARY_OSD_OP_MAGIC)
             handle_op_hdr(cl);
+        else
+        {
+            printf("Received garbage: magic=%lx id=%lu opcode=%lx from %d\n", cl->read_op->req.hdr.magic, cl->read_op->req.hdr.id, cl->read_op->req.hdr.opcode, cl->peer_fd);
+            stop_client(cl->peer_fd);
+            return false;
+        }
     }
     else if (cl->read_state == CL_READ_DATA)
     {

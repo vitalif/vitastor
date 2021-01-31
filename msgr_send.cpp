@@ -46,7 +46,8 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
         to_send_list.push_back((iovec){ .iov_base = cur_op->req.buf, .iov_len = OSD_PACKET_SIZE });
         cl->sent_ops[cur_op->req.hdr.id] = cur_op;
     }
-    // Pre-defined send_lists
+    to_outbox.push_back(NULL);
+    // Operation data
     if ((cur_op->op_type == OSD_OP_IN
         ? (cur_op->req.hdr.opcode == OSD_OP_READ ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_READ ||
@@ -58,17 +59,17 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
         cur_op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)) && cur_op->iov.count > 0)
     {
-        to_outbox.push_back(NULL);
         for (int i = 0; i < cur_op->iov.count; i++)
         {
             assert(cur_op->iov.buf[i].iov_base);
             to_send_list.push_back(cur_op->iov.buf[i]);
-            to_outbox.push_back(i == cur_op->iov.count-1 ? cur_op : NULL);
+            to_outbox.push_back(NULL);
         }
     }
-    else
+    if (cur_op->op_type == OSD_OP_IN)
     {
-        to_outbox.push_back(cur_op);
+        // To free it later
+        to_outbox[to_outbox.size()-1] = cur_op;
     }
     if (!ringloop)
     {
@@ -92,6 +93,10 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
 void osd_messenger_t::measure_exec(osd_op_t *cur_op)
 {
     // Measure execution latency
+    if (cur_op->req.hdr.opcode > OSD_OP_MAX)
+    {
+        return;
+    }
     timespec tv_end;
     clock_gettime(CLOCK_REALTIME, &tv_end);
     stats.op_stat_count[cur_op->req.hdr.opcode]++;
@@ -198,11 +203,8 @@ void osd_messenger_t::handle_send(int result, osd_client_t *cl)
             {
                 if (cl->outbox[done])
                 {
-                    // Operation fully sent
-                    if (cl->outbox[done]->op_type == OSD_OP_IN)
-                    {
-                        delete cl->outbox[done];
-                    }
+                    // Reply fully sent
+                    delete cl->outbox[done];
                 }
                 result -= iov.iov_len;
                 done++;
