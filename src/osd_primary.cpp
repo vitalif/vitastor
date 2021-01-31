@@ -106,6 +106,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
     {
         return;
     }
+    cur_op->reply.rw.bitmap_len = 0;
     osd_primary_op_data_t *op_data = cur_op->op_data;
     if (op_data->st == 1)      goto resume_1;
     else if (op_data->st == 2) goto resume_2;
@@ -179,10 +180,10 @@ resume_2:
     }
     else
     {
-        cur_op->reply.rw.bitmap_len = op_data->pg_data_size * entry_attr_size;
-        cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
         cur_op->iov.push_back(cur_op->buf, cur_op->req.rw.len);
     }
+    cur_op->reply.rw.bitmap_len = op_data->pg_data_size * entry_attr_size;
+    cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
     finish_op(cur_op, cur_op->req.rw.len);
 }
 

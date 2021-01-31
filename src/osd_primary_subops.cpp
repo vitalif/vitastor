@@ -198,7 +198,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
                     .version = op_version,
                     .offset = wr ? stripes[stripe_num].write_start : stripes[stripe_num].read_start,
                     .len = wr ? stripes[stripe_num].write_end - stripes[stripe_num].write_start : stripes[stripe_num].read_end - stripes[stripe_num].read_start,
-                    .attr_len = entry_attr_size,
+                    .attr_len = wr ? entry_attr_size : 0,
                 };
 #ifdef OSD_DEBUG
                 printf(

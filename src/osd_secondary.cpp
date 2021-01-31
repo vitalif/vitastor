@@ -19,10 +19,12 @@ void osd_t::secondary_op_callback(osd_op_t *op)
     }
     if (op->req.hdr.opcode == OSD_OP_SEC_READ)
     {
+        if (op->bs_op->retval >= 0)
+            op->reply.sec_rw.attr_len = entry_attr_size;
+        else
+            op->reply.sec_rw.attr_len = 0;
         if (op->bs_op->retval > 0)
-        {
             op->iov.push_back(op->buf, op->bs_op->retval);
-        }
     }
     else if (op->req.hdr.opcode == OSD_OP_SEC_LIST)
     {

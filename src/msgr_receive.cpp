@@ -296,7 +296,7 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         delete cl->read_op;
         cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
-        cl->read_remaining = op->reply.hdr.retval + (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->reply.sec_rw.attr_len : op->reply.rw.bitmap_len);
+        cl->read_remaining = op->reply.hdr.retval + bmp_len;
     }
     else if (op->reply.hdr.opcode == OSD_OP_SEC_LIST && op->reply.hdr.retval > 0)
     {

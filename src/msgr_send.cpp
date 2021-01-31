@@ -47,6 +47,27 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
         cl->sent_ops[cur_op->req.hdr.id] = cur_op;
     }
     to_outbox.push_back(NULL);
+    // Bitmap
+    if (cur_op->op_type == OSD_OP_IN &&
+        cur_op->req.hdr.opcode == OSD_OP_SEC_READ &&
+        cur_op->reply.sec_rw.attr_len > 0)
+    {
+        to_send_list.push_back((iovec){
+            .iov_base = cur_op->bitmap,
+            .iov_len = cur_op->reply.sec_rw.attr_len,
+        });
+        to_outbox.push_back(NULL);
+    }
+    else if (cur_op->op_type == OSD_OP_OUT &&
+        (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE || cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE) &&
+        cur_op->req.sec_rw.attr_len > 0)
+    {
+        to_send_list.push_back((iovec){
+            .iov_base = cur_op->bitmap,
+            .iov_len = cur_op->req.sec_rw.attr_len,
+        });
+        to_outbox.push_back(NULL);
+    }
     // Operation data
     if ((cur_op->op_type == OSD_OP_IN
         ? (cur_op->req.hdr.opcode == OSD_OP_READ ||
@@ -59,18 +80,6 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
         cur_op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)) && cur_op->iov.count > 0)
     {
-        to_outbox.push_back(NULL);
-        // Bitmap
-        if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ && cur_op->reply.sec_rw.attr_len > 0 ||
-            (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE || cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE) &&
-            cur_op->req.sec_rw.attr_len > 0)
-        {
-            to_send_list.push_back((iovec){
-                .iov_base = cur_op->bitmap,
-                .iov_len = cur_op->reply.sec_rw.attr_len,
-            });
-            to_outbox.push_back(NULL);
-        }
         for (int i = 0; i < cur_op->iov.count; i++)
         {
             assert(cur_op->iov.buf[i].iov_base);
