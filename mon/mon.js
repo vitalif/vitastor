@@ -253,7 +253,10 @@ class Mon
         const res = await this.etcd_call('/kv/txn', { success: [
             { requestRange: { key: b64(this.etcd_prefix+'/config/global') } }
         ] }, this.etcd_start_timeout, -1);
-        this.parse_kv(res.responses[0].response_range.kvs[0]);
+        if (res.responses[0].response_range.kvs)
+        {
+            this.parse_kv(res.responses[0].response_range.kvs[0]);
+        }
         this.check_config();
     }
 

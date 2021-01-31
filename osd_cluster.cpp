@@ -384,6 +384,7 @@ void osd_t::create_osd_state()
         {
             st_cli.load_pgs();
         }
+        report_statistics();
     });
 }
 

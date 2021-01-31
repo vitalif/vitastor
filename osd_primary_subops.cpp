@@ -295,7 +295,7 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
             uint64_t version = subop->reply.sec_rw.version;
 #ifdef OSD_DEBUG
             uint64_t peer_osd = c_cli.clients.find(subop->peer_fd) != c_cli.clients.end()
-                ? c_cli.clients[subop->peer_fd].osd_num : osd_num;
+                ? c_cli.clients[subop->peer_fd]->osd_num : osd_num;
             printf("subop %lu from osd %lu: version = %lu\n", opcode, peer_osd, version);
 #endif
             if (op_data->fact_ver != 0 && op_data->fact_ver != version)
