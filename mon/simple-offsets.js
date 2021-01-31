@@ -4,6 +4,7 @@
 // Simple tool to calculate journal and metadata offsets for a single device
 // Will be replaced by smarter tools in the future
 
+const fs = require('fs').promises;
 const child_process = require('child_process');
 
 async function run()
@@ -15,6 +16,7 @@ async function run()
         device_block_size: 4096,
         journal_offset: 0,
         device_size: 0,
+        format: 'text',
     };
     for (let i = 2; i < process.argv.length; i++)
     {
@@ -24,7 +26,22 @@ async function run()
             i++;
         }
     }
-    const device_size = Number(options.device_size || await system("blockdev --getsize64 "+options.device));
+    if (!options.device)
+    {
+        process.stderr.write('USAGE: nodejs '+process.argv[1]+' --device /dev/sdXXX\n');
+        process.exit(1);
+    }
+    options.device_size = Number(options.device_size);
+    let device_size = options.device_size;
+    if (!device_size)
+    {
+        const st = await fs.stat(options.device);
+        options.device_block_size = st.blksize;
+        if (st.isBlockDevice())
+            device_size = Number(await system("/sbin/blockdev --getsize64 "+options.device))
+        else
+            device_size = st.size;
+    }
     if (!device_size)
     {
         process.stderr.write('Failed to get device size\n');
@@ -32,25 +49,45 @@ async function run()
     }
     options.journal_offset = Math.ceil(options.journal_offset/options.device_block_size)*options.device_block_size;
     const meta_offset = options.journal_offset + Math.ceil(options.journal_size/options.device_block_size)*options.device_block_size;
-    const entries_per_block = Math.floor(options.device_block_size / (24 + options.object_size/options.bitmap_granularity/8));
+    const entries_per_block = Math.floor(options.device_block_size / (24 + 2*options.object_size/options.bitmap_granularity/8));
     const object_count = Math.floor((device_size-meta_offset)/options.object_size);
     const meta_size = Math.ceil(object_count / entries_per_block) * options.device_block_size;
     const data_offset = meta_offset + meta_size;
     const meta_size_fmt = (meta_size > 1024*1024*1024 ? Math.round(meta_size/1024/1024/1024*100)/100+" GB"
         : Math.round(meta_size/1024/1024*100)/100+" MB");
-    process.stdout.write(
-        `Metadata size: ${meta_size_fmt}\n`+
-        `Options for the OSD:\n`+
-        `    --journal_offset ${options.journal_offset}\n`+
-        `    --meta_offset ${meta_offset}\n`+
-        `    --data_offset ${data_offset}\n`+
-        (options.device_size ? `    --data_size ${device_size-data_offset}\n` : '')
-    );
+    if (options.format == 'text' || options.format == 'options')
+    {
+        if (options.format == 'text')
+        {
+            process.stderr.write(
+                `Metadata size: ${meta_size_fmt}\n`+
+                `Options for the OSD:\n`
+            );
+        }
+        process.stdout.write(
+            `    --data_device ${options.device}\n`+
+            `    --journal_offset ${options.journal_offset}\n`+
+            `    --meta_offset ${meta_offset}\n`+
+            `    --data_offset ${data_offset}\n`+
+            (options.device_size ? `    --data_size ${device_size-data_offset}\n` : '')
+        );
+    }
+    else if (options.format == 'env')
+    {
+        process.stdout.write(
+            `journal_offset=${options.journal_offset}\n`+
+            `meta_offset=${meta_offset}\n`+
+            `data_offset=${data_offset}\n`+
+            `data_size=${device_size-data_offset}\n`
+        );
+    }
+    else
+        process.stdout.write('Unknown format: '+options.format);
 }
 
 function system(cmd)
 {
-    return new Promise((ok, no) => child_process.exec(cmd, { maxBuffer: 64*1024*1024 }, (err, stdout, stderr) => (err ? no(err) : ok(stdout))));
+    return new Promise((ok, no) => child_process.exec(cmd, { maxBuffer: 64*1024*1024 }, (err, stdout, stderr) => (err ? no(err.message) : ok(stdout))));
 }
 
-run().catch(console.error);
+run().catch(err => { console.error(err); process.exit(1); });
