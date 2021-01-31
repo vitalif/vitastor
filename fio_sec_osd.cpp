@@ -140,6 +140,7 @@ static void sec_cleanup(struct thread_data *td)
     if (bsd)
     {
         close(bsd->connect_fd);
+        delete bsd;
     }
 }
 
@@ -312,6 +313,7 @@ static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int 
             exit(1);
         }
         io_u* io = it->second;
+        bsd->queue.erase(it);
         if (io->ddir == DDIR_READ)
         {
             if (reply.hdr.retval != io->xfer_buflen)

@@ -93,7 +93,7 @@ static struct fio_option options[] = {
     {
         .name   = "cluster_log_level",
         .lname  = "cluster log level",
-        .type   = FIO_OPT_BOOL,
+        .type   = FIO_OPT_INT,
         .off1   = offsetof(struct sec_options, cluster_log),
         .help   = "Set log level for the Vitastor client",
         .def    = "0",
@@ -145,9 +145,7 @@ static void sec_cleanup(struct thread_data *td)
         delete bsd->cli;
         delete bsd->epmgr;
         delete bsd->ringloop;
-        bsd->cli = NULL;
-        bsd->epmgr = NULL;
-        bsd->ringloop = NULL;
+        delete bsd;
     }
 }
 
