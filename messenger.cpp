@@ -30,7 +30,7 @@ osd_messenger_t::~osd_messenger_t()
 {
     while (clients.size() > 0)
     {
-        stop_client(clients.begin()->first);
+        stop_client(clients.begin()->first, true);
     }
 }
 
@@ -111,7 +111,7 @@ void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer
         timeout_id = tfd->set_timer(1000*peer_connect_timeout, false, [this, peer_fd](int timer_id)
         {
             osd_num_t peer_osd = clients.at(peer_fd)->osd_num;
-            stop_client(peer_fd);
+            stop_client(peer_fd, true);
             on_connect_peer(peer_osd, -EIO);
             return;
         });
@@ -149,7 +149,7 @@ void osd_messenger_t::handle_connect_epoll(int peer_fd)
     }
     if (result != 0)
     {
-        stop_client(peer_fd);
+        stop_client(peer_fd, true);
         on_connect_peer(peer_osd, -result);
         return;
     }
@@ -171,7 +171,7 @@ void osd_messenger_t::handle_peer_epoll(int peer_fd, int epoll_events)
     {
         // Stop client
         printf("[OSD %lu] client %d disconnected\n", this->osd_num, peer_fd);
-        stop_client(peer_fd);
+        stop_client(peer_fd, true);
     }
     else if (epoll_events & EPOLLIN)
     {
@@ -309,7 +309,7 @@ void osd_messenger_t::cancel_op(osd_op_t *op)
     }
 }
 
-void osd_messenger_t::stop_client(int peer_fd)
+void osd_messenger_t::stop_client(int peer_fd, bool force)
 {
     assert(peer_fd != 0);
     auto it = clients.find(peer_fd);
@@ -333,6 +333,10 @@ void osd_messenger_t::stop_client(int peer_fd)
             if (log_level > 0)
                 printf("[OSD %lu] Stopping client %d (regular client)\n", osd_num, peer_fd);
         }
+    }
+    else if (!force)
+    {
+        return;
     }
     cl->peer_state = PEER_STOPPED;
     clients.erase(it);
