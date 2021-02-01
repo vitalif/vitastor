@@ -64,6 +64,10 @@ fi
 
 echo leak:fio >> testdata/lsan-suppress.txt
 echo leak:tcmalloc >> testdata/lsan-suppress.txt
+echo leak:ceph >> testdata/lsan-suppress.txt
+echo leak:librbd >> testdata/lsan-suppress.txt
+echo leak:_M_mutate >> testdata/lsan-suppress.txt
+echo leak:_M_assign >> testdata/lsan-suppress.txt
 #LSAN_OPTIONS=suppressions=`pwd`/testdata/lsan-suppress.txt LD_PRELOAD=libasan.so.5 \
 #    fio -thread -name=test -ioengine=./libfio_sec_osd.so -bs=4k -fsync=128 `$ETCDCTL get /vitastor/osd/state/1 --print-value-only | jq -r '"-host="+.addresses[0]+" -port="+(.port|tostring)'` -rw=write -size=32M
 
