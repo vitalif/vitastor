@@ -133,7 +133,7 @@ inline uint32_t je_crc32(journal_entry *je)
 struct journal_sector_info_t
 {
     uint64_t offset;
-    uint64_t usage_count;
+    uint64_t usage_count; // flusher_count!
     bool written;
     bool dirty;
 };
@@ -170,13 +170,18 @@ struct journal_t
     ~journal_t();
     bool trim();
     uint64_t get_trim_pos();
+    inline bool entry_fits(int size)
+    {
+        return !(block_size - in_sector_pos < size ||
+            no_same_sector_overwrites && sector_info[cur_sector].written);
+    }
 };
 
 struct blockstore_journal_check_t
 {
     blockstore_impl_t *bs;
     uint64_t next_pos, next_sector, next_in_pos;
-    int sectors_required, first_sector;
+    int sectors_required, first_sector; // "sectors to write"
     bool right_dir; // writing to the end or the beginning of the ring buffer
 
     blockstore_journal_check_t(blockstore_impl_t *bs);

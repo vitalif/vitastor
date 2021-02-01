@@ -25,6 +25,10 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
             : (bs->journal.block_size - next_in_pos) / size;
         if (fits > 0)
         {
+            if (fits > required)
+            {
+                fits = required;
+            }
             if (first_sector == -1)
             {
                 first_sector = next_sector;
@@ -116,12 +120,10 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
 
 journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, uint32_t size)
 {
-    if (journal.block_size - journal.in_sector_pos < size ||
-        journal.no_same_sector_overwrites && journal.sector_info[journal.cur_sector].written)
+    if (!journal.entry_fits(size))
     {
         assert(!journal.sector_info[journal.cur_sector].dirty);
         // Move to the next journal sector
-        journal.sector_info[journal.cur_sector].written = false;
         if (journal.sector_info[journal.cur_sector].usage_count > 0)
         {
             // Also select next sector buffer in memory
@@ -132,6 +134,7 @@ journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, 
         {
             journal.dirty_start = journal.next_free;
         }
+        journal.sector_info[journal.cur_sector].written = false;
         journal.sector_info[journal.cur_sector].offset = journal.next_free;
         journal.in_sector_pos = 0;
         journal.next_free = (journal.next_free+journal.block_size) < journal.len ? journal.next_free + journal.block_size : journal.block_size;

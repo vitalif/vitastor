@@ -83,35 +83,27 @@ skip_ov:
     // Prepare and submit journal entries
     auto cb = [this, op](ring_data_t *data) { handle_rollback_event(data, op); };
     int s = 0, cur_sector = -1;
-    if ((journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_rollback) &&
-        journal.sector_info[journal.cur_sector].dirty)
-    {
-        PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
-        prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], cb);
-        cur_sector = ((journal.cur_sector + 1) % journal.sector_count);
-    }
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
     {
+        if (!journal.entry_fits(sizeof(journal_entry_rollback)) &&
+            journal.sector_info[journal.cur_sector].dirty)
+        {
+            if (cur_sector == -1)
+                PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
+            prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], cb);
+            cur_sector = journal.cur_sector;
+        }
         journal_entry_rollback *je = (journal_entry_rollback*)
             prefill_single_journal_entry(journal, JE_ROLLBACK, sizeof(journal_entry_rollback));
-        journal.sector_info[journal.cur_sector].dirty = false;
         je->oid = v->oid;
         je->version = v->version;
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
-        if (cur_sector != journal.cur_sector)
-        {
-            // Write previous sector. We should write the sector only after filling it,
-            // because otherwise we'll write a lot more sectors in the "no_same_sector_overwrite" mode
-            if (cur_sector != -1)
-                prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
-            else
-                PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
-            cur_sector = journal.cur_sector;
-        }
     }
-    if (cur_sector != -1)
-        prepare_journal_sector_write(journal, cur_sector, sqe[s++], cb);
+    prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], cb);
+    assert(s == space_check.sectors_required);
+    if (cur_sector == -1)
+        PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
     PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
     PRIV(op)->pending_ops = s;
     PRIV(op)->op_state = 1;

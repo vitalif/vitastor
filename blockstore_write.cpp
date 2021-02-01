@@ -377,7 +377,6 @@ resume_2:
         sizeof(journal_entry_big_write)
     );
     dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
-    journal.sector_info[journal.cur_sector].dirty = false;
     journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
     printf(
