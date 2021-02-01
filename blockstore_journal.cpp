@@ -6,7 +6,7 @@
 blockstore_journal_check_t::blockstore_journal_check_t(blockstore_impl_t *bs)
 {
     this->bs = bs;
-    sectors_required = 0;
+    sectors_to_write = 0;
     next_pos = bs->journal.next_free;
     next_sector = bs->journal.cur_sector;
     first_sector = -1;
@@ -35,12 +35,11 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
             }
             required -= fits;
             next_in_pos += fits * size;
-            sectors_required++;
+            sectors_to_write++;
         }
         else if (bs->journal.sector_info[next_sector].dirty)
         {
-            // sectors_required is more like "sectors to write"
-            sectors_required++;
+            sectors_to_write++;
         }
         if (required <= 0)
         {
@@ -108,7 +107,7 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
             (bs->journal.next_free >= bs->journal.used_start
                 ? bs->journal.len-bs->journal.block_size - (bs->journal.next_free-bs->journal.used_start)
                 : bs->journal.used_start - bs->journal.next_free),
-            sectors_required
+            sectors_to_write
         );
         PRIV(op)->wait_for = WAIT_JOURNAL;
         bs->flusher->request_trim();

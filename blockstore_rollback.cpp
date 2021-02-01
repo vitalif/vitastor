@@ -75,8 +75,8 @@ skip_ov:
         return 0;
     }
     // There is sufficient space. Get SQEs
-    struct io_uring_sqe *sqe[space_check.sectors_required];
-    for (i = 0; i < space_check.sectors_required; i++)
+    struct io_uring_sqe *sqe[space_check.sectors_to_write];
+    for (i = 0; i < space_check.sectors_to_write; i++)
     {
         BS_SUBMIT_GET_SQE_DECL(sqe[i]);
     }
@@ -101,7 +101,7 @@ skip_ov:
         journal.crc32_last = je->crc32;
     }
     prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], cb);
-    assert(s == space_check.sectors_required);
+    assert(s == space_check.sectors_to_write);
     if (cur_sector == -1)
         PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
     PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
