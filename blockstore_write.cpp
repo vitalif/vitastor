@@ -468,8 +468,8 @@ void blockstore_impl_t::release_journal_sectors(blockstore_op_t *op)
         uint64_t s = PRIV(op)->min_flushed_journal_sector;
         while (1)
         {
-            journal.sector_info[s-1].usage_count--;
-            if (s != (1+journal.cur_sector) && journal.sector_info[s-1].usage_count == 0)
+            journal.sector_info[s-1].flush_count--;
+            if (s != (1+journal.cur_sector) && journal.sector_info[s-1].flush_count == 0)
             {
                 // We know for sure that we won't write into this sector anymore
                 uint64_t new_ds = journal.sector_info[s-1].offset + journal.block_size;

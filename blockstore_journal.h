@@ -133,7 +133,7 @@ inline uint32_t je_crc32(journal_entry *je)
 struct journal_sector_info_t
 {
     uint64_t offset;
-    uint64_t usage_count; // flusher_count!
+    uint64_t flush_count;
     bool written;
     bool dirty;
 };

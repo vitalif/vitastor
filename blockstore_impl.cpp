@@ -287,7 +287,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
     else if (PRIV(op)->wait_for == WAIT_JOURNAL_BUFFER)
     {
         int next = ((journal.cur_sector + 1) % journal.sector_count);
-        if (journal.sector_info[next].usage_count > 0 ||
+        if (journal.sector_info[next].flush_count > 0 ||
             journal.sector_info[next].dirty)
         {
             // do not submit

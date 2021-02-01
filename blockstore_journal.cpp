@@ -62,7 +62,7 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
                 " is too small for a batch of "+std::to_string(entries_required)+" entries of "+std::to_string(size)+" bytes"
             );
         }
-        if (bs->journal.sector_info[next_sector].usage_count > 0 ||
+        if (bs->journal.sector_info[next_sector].flush_count > 0 ||
             bs->journal.sector_info[next_sector].dirty)
         {
             // No memory buffer available. Wait for it.
@@ -74,7 +74,7 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
                     dirty++;
                     used++;
                 }
-                if (bs->journal.sector_info[i].usage_count > 0)
+                if (bs->journal.sector_info[i].flush_count > 0)
                 {
                     used++;
                 }
@@ -84,7 +84,7 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
                 "Ran out of journal sector buffers: %d/%lu buffers used (%d dirty), next buffer (%ld) is %s and flushed %lu times\n",
                 used, bs->journal.sector_count, dirty, next_sector,
                 bs->journal.sector_info[next_sector].dirty ? "dirty" : "not dirty",
-                bs->journal.sector_info[next_sector].usage_count
+                bs->journal.sector_info[next_sector].flush_count
             );
             PRIV(op)->wait_for = WAIT_JOURNAL_BUFFER;
             return 0;
@@ -123,11 +123,11 @@ journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, 
     {
         assert(!journal.sector_info[journal.cur_sector].dirty);
         // Move to the next journal sector
-        if (journal.sector_info[journal.cur_sector].usage_count > 0)
+        if (journal.sector_info[journal.cur_sector].flush_count > 0)
         {
             // Also select next sector buffer in memory
             journal.cur_sector = ((journal.cur_sector + 1) % journal.sector_count);
-            assert(!journal.sector_info[journal.cur_sector].usage_count);
+            assert(!journal.sector_info[journal.cur_sector].flush_count);
         }
         else
         {
@@ -159,7 +159,7 @@ void prepare_journal_sector_write(journal_t & journal, int cur_sector, io_uring_
 {
     journal.sector_info[cur_sector].dirty = false;
     journal.sector_info[cur_sector].written = true;
-    journal.sector_info[cur_sector].usage_count++;
+    journal.sector_info[cur_sector].flush_count++;
     ring_data_t *data = ((ring_data_t*)sqe->user_data);
     data->iov = (struct iovec){
         (journal.inmemory
