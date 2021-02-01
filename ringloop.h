@@ -142,7 +142,10 @@ public:
             return NULL;
         struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
         if (sqe)
+        {
+            *sqe = { 0 };
             io_uring_sqe_set_data(sqe, ring_datas + free_ring_data[--free_ring_data_ptr]);
+        }
         return sqe;
     }
     inline int wait_sqe(std::function<void()> cb)

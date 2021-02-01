@@ -77,7 +77,10 @@ void ring_loop_t::loop()
             dl.callback(&dl);
         }
         else
+        {
+            printf("Warning: empty callback in SQE\n");
             free_ring_data[free_ring_data_ptr++] = d - ring_datas;
+        }
         io_uring_cqe_seen(&ring, cqe);
     }
     while (get_sqe_queue.size() > 0)
