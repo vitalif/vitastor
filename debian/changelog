@@ -1,3 +1,9 @@
+vitastor (0.5.3-1) unstable; urgency=medium
+
+  * Bugfixes
+
+ -- Vitaliy Filippov <vitalif@yourcmc.ru>  Tue, 02 Feb 2021 23:01:24 +0300
+
 vitastor (0.5.1-1) unstable; urgency=medium
 
   * Add jerasure support
