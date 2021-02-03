@@ -81,4 +81,5 @@ struct etcd_state_client_t
     void load_pgs();
     void parse_state(const std::string & key, const json11::Json & value);
     void parse_config(json11::Json & config);
+    ~etcd_state_client_t();
 };

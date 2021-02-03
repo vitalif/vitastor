@@ -7,6 +7,16 @@
 #include "http_client.h"
 #include "base64.h"
 
+etcd_state_client_t::~etcd_state_client_t()
+{
+    etcd_watches_initialised = -1;
+    if (etcd_watch_ws)
+    {
+        etcd_watch_ws->close();
+        etcd_watch_ws = NULL;
+    }
+}
+
 json_kv_t etcd_state_client_t::parse_etcd_kv(const json11::Json & kv_json)
 {
     json_kv_t kv;
@@ -160,7 +170,7 @@ void etcd_state_client_t::start_etcd_watcher()
                     start_etcd_watcher();
                 });
             }
-            else
+            else if (etcd_watches_initialised > 0)
             {
                 // Connection was live, retry immediately
                 start_etcd_watcher();
