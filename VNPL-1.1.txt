@@ -1,7 +1,7 @@
                      VITASTOR NETWORK PUBLIC LICENSE
-                       Version 1, 17 September 2020
+                     Version 1.1,  6 February 2021
 
- Copyright (C) 2020 Vitaliy Filippov <vitalif@yourcmc.ru>
+ Copyright (C) 2021 Vitaliy Filippov <vitalif@yourcmc.ru>
  Everyone is permitted to copy and distribute verbatim copies
  of this license document, but changing it is not allowed.
 
@@ -540,12 +540,15 @@ License would be to refrain entirely from conveying the Program.
 
   13. Remote Network Interaction.
 
-  Notwithstanding any other provision of this License, if you provide
-any user an opportunity to interact with the covered work directly
-or indirectly through a computer network, an imitation of such network,
-or an additional program (hereinafter referred to as a "Proxy Program")
-that, in turn, interacts with the covered work through a computer network,
-an imitation of such network, or another Proxy Program itself,
+  A "Proxy Program" means a separate program which is specially designed to
+be used in conjunction with the covered work and interacts with it directly
+or indirectly through any kind of API (application programming interfaces),
+a computer network, an imitation of such network, or another Proxy Program
+itself.
+
+  Notwithstanding any other provision of this License, if you provide any user
+with an opportunity to interact with the covered work through a computer
+network, an imitation of such network, or any number of "Proxy Programs",
 you must prominently offer that user an opportunity to receive the
 Corresponding Source of the covered work and all Proxy Programs from a
 network server at no charge, through some standard or customary means of

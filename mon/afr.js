@@ -1,7 +1,7 @@
 // Functions to calculate Annualized Failure Rate of your cluster
 // if you know AFR of your drives, number of drives, expected rebalance time
 // and replication factor
-// License: VNPL-1.0 (see https://yourcmc.ru/git/vitalif/vitastor/src/branch/master/README.md for details) or AGPL-3.0
+// License: VNPL-1.1 (see https://yourcmc.ru/git/vitalif/vitastor/src/branch/master/README.md for details) or AGPL-3.0
 // Author: Vitaliy Filippov, 2020+
 
 module.exports = {

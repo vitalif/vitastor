@@ -1,5 +1,5 @@
 // Copyright (c) Vitaliy Filippov, 2019+
-// License: VNPL-1.0 or GNU GPL-2.0+ (see README.md for details)
+// License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
 #include <sys/timerfd.h>
 #include <sys/poll.h>

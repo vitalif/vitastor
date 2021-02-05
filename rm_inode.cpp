@@ -1,5 +1,5 @@
 // Copyright (c) Vitaliy Filippov, 2019+
-// License: VNPL-1.0 (see README.md for details)
+// License: VNPL-1.1 (see README.md for details)
 
 /**
  * Inode removal tool
@@ -85,7 +85,7 @@ public:
     {
         printf(
             "Vitastor inode removal tool\n"
-            "(c) Vitaliy Filippov, 2020 (VNPL-1.0)\n\n"
+            "(c) Vitaliy Filippov, 2020 (VNPL-1.1)\n\n"
             "USAGE:\n"
             "  %s --etcd_address <etcd_address> --pool <pool> --inode <inode> [--wait-list]\n",
             exe_name

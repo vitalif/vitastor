@@ -3,7 +3,7 @@ Version:        0.5.4
 Release:        2%{?dist}
 Summary:        Vitastor, a fast software-defined clustered block storage
 
-License:        Vitastor Network Public License 1.0
+License:        Vitastor Network Public License 1.1
 URL:            https://vitastor.io/
 Source0:        vitastor-0.5.4.el7.tar.gz
 
