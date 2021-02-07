@@ -1,41 +1,10 @@
-#!/bin/bash
+#!/bin/bash -ex
 
-if [ ! "$BASH_VERSION" ] ; then
-    echo "Use bash to run this script ($0)" 1>&2
-    exit 1
-fi
+. `dirname $0`/common.sh
 
-format_error()
-{
-    echo $(echo -n -e "\033[1;31m")$1$(echo -n -e "\033[m")
-    $ETCDCTL get --prefix /vitastor > ./testdata/etcd-dump.txt
-    exit 1
-}
-format_green()
-{
-    echo $(echo -n -e "\033[1;32m")$1$(echo -n -e "\033[m")
-}
-
-set -e -x
-
-trap 'kill -9 $(jobs -p)' EXIT
-
-ETCD=${ETCD:-etcd}
-ETCD_PORT=${ETCD_PORT:-12379}
-
-rm -rf ./testdata
-mkdir -p ./testdata
 dd if=/dev/zero of=./testdata/test_osd1.bin bs=1024 count=1 seek=$((1024*1024-1))
 dd if=/dev/zero of=./testdata/test_osd2.bin bs=1024 count=1 seek=$((1024*1024-1))
 dd if=/dev/zero of=./testdata/test_osd3.bin bs=1024 count=1 seek=$((1024*1024-1))
-
-$ETCD -name etcd_test --data-dir ./testdata/etcd \
-    --advertise-client-urls http://127.0.0.1:$ETCD_PORT --listen-client-urls http://127.0.0.1:$ETCD_PORT \
-    --initial-advertise-peer-urls http://127.0.0.1:$((ETCD_PORT+1)) --listen-peer-urls http://127.0.0.1:$((ETCD_PORT+1)) \
-    --max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision &>./testdata/etcd.log &
-ETCD_PID=$!
-ETCD_URL=127.0.0.1:$ETCD_PORT/v3
-ETCDCTL="${ETCD}ctl --endpoints=http://$ETCD_URL"
 
 ./osd --osd_num 1 --bind_address 127.0.0.1 --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd1.bin 2>/dev/null) &>./testdata/osd1.log &
 OSD1_PID=$!
