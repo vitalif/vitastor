@@ -8,7 +8,12 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     // Check or assign version number
     bool found = false, deleted = false, is_del = (op->opcode == BS_OP_DELETE);
     bool wait_big = false, wait_del = false;
+    void *bmp = NULL;
     uint64_t version = 1;
+    if (!is_del && entry_attr_size > sizeof(void*))
+    {
+        bmp = calloc_or_die(1, entry_attr_size);
+    }
     if (dirty_db.size() > 0)
     {
         auto dirty_it = dirty_db.upper_bound((obj_ver_id){
@@ -25,6 +30,10 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             wait_big = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE
                 ? !IS_SYNCED(dirty_it->second.state)
                 : ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG);
+            if (entry_attr_size > sizeof(void*))
+                memcpy(bmp, dirty_it->second.bitmap, entry_attr_size);
+            else
+                bmp = dirty_it->second.bitmap;
         }
     }
     if (!found)
@@ -33,6 +42,8 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         if (clean_it != clean_db.end())
         {
             version = clean_it->second.version + 1;
+            void *bmp_ptr = get_clean_entry_bitmap(clean_it->second.location, clean_entry_bitmap_size);
+            memcpy((entry_attr_size > sizeof(void*) ? bmp : &bmp), bmp_ptr, entry_attr_size);
         }
         else
         {
@@ -72,6 +83,10 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         {
             // Invalid version requested
             op->retval = -EEXIST;
+            if (!is_del && entry_attr_size > sizeof(void*))
+            {
+                free(bmp);
+            }
             return false;
         }
     }
@@ -95,7 +110,6 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 #endif
     // FIXME No strict need to add it into dirty_db here, it's just left
     // from the previous implementation where reads waited for writes
-    void *bmp = NULL;
     uint32_t state;
     if (is_del)
         state = BS_ST_DELETE | BS_ST_IN_FLIGHT;
@@ -110,10 +124,28 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             state |= BS_ST_IN_FLIGHT;
         if (op->opcode == BS_OP_WRITE_STABLE)
             state |= BS_ST_INSTANT;
-        if (entry_attr_size > sizeof(void*))
-            bmp = calloc_or_die(1, entry_attr_size);
         if (op->bitmap)
-            memcpy((entry_attr_size > sizeof(void*) ? bmp : &bmp), op->bitmap, entry_attr_size);
+        {
+            // Only allow to overwrite part of the object bitmap respective to the write's offset/len
+            uint8_t *bmp_ptr = (uint8_t*)(entry_attr_size > sizeof(void*) ? bmp : &bmp);
+            uint32_t bit = op->offset/bitmap_granularity;
+            uint32_t bits_left = op->len/bitmap_granularity;
+            while (!(bit % 8) && bits_left > 8)
+            {
+                // Copy bytes
+                bmp_ptr[bit/8] = ((uint8_t*)op->bitmap)[bit/8];
+                bit += 8;
+                bits_left -= 8;
+            }
+            while (bits_left > 0)
+            {
+                // Copy bits
+                bmp_ptr[bit/8] = (bmp_ptr[bit/8] & ~(1 << (bit%8)))
+                    | (((uint8_t*)op->bitmap)[bit/8] & (1 << bit%8));
+                bit++;
+                bits_left--;
+            }
+        }
     }
     dirty_db.emplace((obj_ver_id){
         .oid = op->oid,

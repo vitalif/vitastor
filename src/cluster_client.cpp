@@ -737,7 +737,11 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
             }
             assert(cur > prev);
             if (skip_prev)
+            {
+                // Just advance iov_idx & iov_pos
+                add_iov(end-prev, true, op, iov_idx, iov_pos, op->parts[i].iov, NULL, 0);
                 end = prev;
+            }
             else
                 add_iov(cur-prev, skip_prev, op, iov_idx, iov_pos, op->parts[i].iov, scrap_buffer, scrap_buffer_size);
             if (end == begin)

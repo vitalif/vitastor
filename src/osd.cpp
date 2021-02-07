@@ -21,7 +21,7 @@ osd_t::osd_t(blockstore_config_t & config, ring_loop_t *ringloop)
 
     // Force external bitmap size
     entry_attr_size = bs_block_size / bs_bitmap_granularity / 8;
-    config["entry_attr_size"] = entry_attr_size;
+    config["entry_attr_size"] = std::to_string(entry_attr_size);
 
     this->config = config;
     this->ringloop = ringloop;

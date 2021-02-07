@@ -154,6 +154,8 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
             {
                 clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
                 subops[i].op_type = (uint64_t)cur_op;
+                subops[i].bitmap = stripes[stripe_num].bmp_buf;
+                subops[i].bitmap_len = entry_attr_size;
                 subops[i].bs_op = new blockstore_op_t({
                     .opcode = (uint64_t)(wr ? (rep ? BS_OP_WRITE_STABLE : BS_OP_WRITE) : BS_OP_READ),
                     .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)

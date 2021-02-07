@@ -273,6 +273,12 @@ void etcd_state_client_t::load_pgs()
         },
         json11::Json::object {
             { "request_range", json11::Json::object {
+                { "key", base64_encode(etcd_prefix+"/config/inode/") },
+                { "range_end", base64_encode(etcd_prefix+"/config/inode0") },
+            } }
+        },
+        json11::Json::object {
+            { "request_range", json11::Json::object {
                 { "key", base64_encode(etcd_prefix+"/pg/history/") },
                 { "range_end", base64_encode(etcd_prefix+"/pg/history0") },
             } }
@@ -666,7 +672,9 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
                 if (parent_inode_num && !(parent_inode_num >> (64-POOL_ID_BITS)))
                 {
                     uint64_t parent_pool_id = value["parent_pool"].uint64_value();
-                    if (parent_pool_id >= POOL_ID_MAX)
+                    if (!parent_pool_id)
+                        parent_inode_num |= pool_id << (64-POOL_ID_BITS);
+                    else if (parent_pool_id >= POOL_ID_MAX)
                     {
                         printf(
                             "Inode %lu/%lu parent_pool value is invalid, ignoring parent setting\n",

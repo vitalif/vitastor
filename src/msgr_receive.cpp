@@ -273,11 +273,9 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
     osd_op_t *op = req_it->second;
     memcpy(op->reply.buf, cl->read_op->req.buf, OSD_PACKET_SIZE);
     cl->sent_ops.erase(req_it);
-    if ((op->reply.hdr.opcode == OSD_OP_SEC_READ || op->reply.hdr.opcode == OSD_OP_READ) &&
-        op->reply.hdr.retval > 0)
+    if (op->reply.hdr.opcode == OSD_OP_SEC_READ || op->reply.hdr.opcode == OSD_OP_READ)
     {
         // Read data. In this case we assume that the buffer is preallocated by the caller (!)
-        assert(op->iov.count > 0);
         unsigned bmp_len = (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->reply.sec_rw.attr_len : op->reply.rw.bitmap_len);
         if (op->reply.hdr.retval != (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->req.sec_rw.len : op->req.rw.len) ||
             bmp_len > op->bitmap_len)
@@ -292,11 +290,19 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         {
             cl->recv_list.push_back(op->bitmap, bmp_len);
         }
-        cl->recv_list.append(op->iov);
+        if (op->reply.hdr.retval > 0)
+        {
+            assert(op->iov.count > 0);
+            cl->recv_list.append(op->iov);
+        }
+        cl->read_remaining = op->reply.hdr.retval + bmp_len;
+        if (cl->read_remaining == 0)
+        {
+            goto reuse;
+        }
         delete cl->read_op;
         cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
-        cl->read_remaining = op->reply.hdr.retval + bmp_len;
     }
     else if (op->reply.hdr.opcode == OSD_OP_SEC_LIST && op->reply.hdr.retval > 0)
     {
@@ -320,6 +326,7 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
     }
     else
     {
+reuse:
         // It's fine to reuse cl->read_op for the next reply
         handle_reply_ready(op);
         cl->recv_list.push_back(cl->read_op->req.buf, OSD_PACKET_SIZE);

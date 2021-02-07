@@ -153,6 +153,11 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     {
         throw std::runtime_error("meta_offset must be a multiple of meta_block_size = "+std::to_string(meta_block_size));
     }
+    // FIXME: Due to the recent changes in entry_attr handling rename it back to bitmap
+    if (entry_attr_size > meta_block_size/2)
+    {
+        throw std::runtime_error("entry_attr_size is too big");
+    }
     if (journal.offset % journal_block_size)
     {
         throw std::runtime_error("journal_offset must be a multiple of journal_block_size = "+std::to_string(journal_block_size));

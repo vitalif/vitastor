@@ -154,6 +154,7 @@ resume_2:
         finish_op(cur_op, op_data->epipe > 0 ? -EPIPE : -EIO);
         return;
     }
+    cur_op->reply.rw.bitmap_len = op_data->pg_data_size * entry_attr_size;
     if (op_data->degraded)
     {
         // Reconstruct missing stripes
@@ -166,6 +167,7 @@ resume_2:
         {
             reconstruct_stripes_jerasure(stripes, op_data->pg_size, op_data->pg_data_size, entry_attr_size);
         }
+        cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
         for (int role = 0; role < op_data->pg_size; role++)
         {
             if (stripes[role].req_end != 0)
@@ -180,10 +182,9 @@ resume_2:
     }
     else
     {
+        cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
         cur_op->iov.push_back(cur_op->buf, cur_op->req.rw.len);
     }
-    cur_op->reply.rw.bitmap_len = op_data->pg_data_size * entry_attr_size;
-    cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
     finish_op(cur_op, cur_op->req.rw.len);
 }
 
