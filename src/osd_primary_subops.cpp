@@ -155,7 +155,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
                 clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
                 subops[i].op_type = (uint64_t)cur_op;
                 subops[i].bitmap = stripes[stripe_num].bmp_buf;
-                subops[i].bitmap_len = entry_attr_size;
+                subops[i].bitmap_len = clean_entry_bitmap_size;
                 subops[i].bs_op = new blockstore_op_t({
                     .opcode = (uint64_t)(wr ? (rep ? BS_OP_WRITE_STABLE : BS_OP_WRITE) : BS_OP_READ),
                     .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
@@ -186,7 +186,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
                 subops[i].op_type = OSD_OP_OUT;
                 subops[i].peer_fd = c_cli.osd_peer_fds.at(role_osd_num);
                 subops[i].bitmap = stripes[stripe_num].bmp_buf;
-                subops[i].bitmap_len = entry_attr_size;
+                subops[i].bitmap_len = clean_entry_bitmap_size;
                 subops[i].req.sec_rw = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
@@ -200,7 +200,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
                     .version = op_version,
                     .offset = wr ? stripes[stripe_num].write_start : stripes[stripe_num].read_start,
                     .len = wr ? stripes[stripe_num].write_end - stripes[stripe_num].write_start : stripes[stripe_num].read_end - stripes[stripe_num].read_start,
-                    .attr_len = wr ? entry_attr_size : 0,
+                    .attr_len = wr ? clean_entry_bitmap_size : 0,
                 };
 #ifdef OSD_DEBUG
                 printf(

@@ -218,7 +218,7 @@ class blockstore_impl_t
 
     uint32_t block_order;
     uint64_t block_count;
-    uint32_t clean_entry_bitmap_size = 0, clean_entry_size = 0, entry_attr_size = 0;
+    uint32_t clean_entry_bitmap_size = 0, clean_entry_size = 0;
 
     int meta_fd;
     int data_fd;

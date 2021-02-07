@@ -62,7 +62,6 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     cfg_data_size = strtoull(config["data_size"].c_str(), NULL, 10);
     meta_device = config["meta_device"];
     meta_offset = strtoull(config["meta_offset"].c_str(), NULL, 10);
-    entry_attr_size = strtoull(config["entry_attr_size"].c_str(), NULL, 10);
     block_size = strtoull(config["block_size"].c_str(), NULL, 10);
     inmemory_meta = config["inmemory_metadata"] != "false";
     journal_device = config["journal_device"];
@@ -153,11 +152,6 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     {
         throw std::runtime_error("meta_offset must be a multiple of meta_block_size = "+std::to_string(meta_block_size));
     }
-    // FIXME: Due to the recent changes in entry_attr handling rename it back to bitmap
-    if (entry_attr_size > meta_block_size/2)
-    {
-        throw std::runtime_error("entry_attr_size is too big");
-    }
     if (journal.offset % journal_block_size)
     {
         throw std::runtime_error("journal_offset must be a multiple of journal_block_size = "+std::to_string(journal_block_size));
@@ -188,7 +182,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     }
     // init some fields
     clean_entry_bitmap_size = block_size / bitmap_granularity / 8;
-    clean_entry_size = sizeof(clean_disk_entry) + clean_entry_bitmap_size + entry_attr_size;
+    clean_entry_size = sizeof(clean_disk_entry) + 2*clean_entry_bitmap_size;
     journal.block_size = journal_block_size;
     journal.next_free = journal_block_size;
     journal.used_start = journal_block_size;
@@ -253,9 +247,9 @@ void blockstore_impl_t::calc_lengths()
         if (!metadata_buffer)
             throw std::runtime_error("Failed to allocate memory for the metadata");
     }
-    else if (clean_entry_bitmap_size || entry_attr_size)
+    else if (clean_entry_bitmap_size)
     {
-        clean_bitmap = (uint8_t*)malloc(block_count * (clean_entry_bitmap_size + entry_attr_size));
+        clean_bitmap = (uint8_t*)malloc(block_count * 2*clean_entry_bitmap_size);
         if (!clean_bitmap)
             throw std::runtime_error("Failed to allocate memory for the metadata sparse write bitmap");
     }

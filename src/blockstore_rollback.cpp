@@ -268,7 +268,7 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
         {
             journal.used_sectors.erase(dirty_it->second.journal_sector);
         }
-        if (entry_attr_size > sizeof(void*))
+        if (clean_entry_bitmap_size > sizeof(void*))
         {
             free(dirty_it->second.bitmap);
             dirty_it->second.bitmap = NULL;

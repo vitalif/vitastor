@@ -428,7 +428,7 @@ resume_1:
         {
             new_clean_bitmap = (bs->inmemory_meta
                 ? meta_new.buf + meta_new.pos*bs->clean_entry_size + sizeof(clean_disk_entry)
-                : bs->clean_bitmap + (clean_loc >> bs->block_order)*(bs->clean_entry_bitmap_size + bs->entry_attr_size));
+                : bs->clean_bitmap + (clean_loc >> bs->block_order)*(2*bs->clean_entry_bitmap_size));
             if (clean_init_bitmap)
             {
                 memset(new_clean_bitmap, 0, bs->clean_entry_bitmap_size);
@@ -510,11 +510,11 @@ resume_1:
             {
                 memcpy(&new_entry->bitmap, new_clean_bitmap, bs->clean_entry_bitmap_size);
             }
-            if (bs->entry_attr_size)
+            // copy latest external bitmap/attributes
+            if (bs->clean_entry_bitmap_size)
             {
-                // copy latest external bitmap/attributes
-                void *bmp_ptr = bs->entry_attr_size > sizeof(void*) ? dirty_end->second.bitmap : &dirty_end->second.bitmap;
-                memcpy((void*)(new_entry+1) + bs->clean_entry_bitmap_size, bmp_ptr, bs->entry_attr_size);
+                void *bmp_ptr = bs->clean_entry_bitmap_size > sizeof(void*) ? dirty_end->second.bitmap : &dirty_end->second.bitmap;
+                memcpy((void*)(new_entry+1) + bs->clean_entry_bitmap_size, bmp_ptr, bs->clean_entry_bitmap_size);
             }
         }
         await_sqe(6);

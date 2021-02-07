@@ -53,7 +53,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     }
     int stripe_count = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_size);
     osd_primary_op_data_t *op_data = (osd_primary_op_data_t*)calloc_or_die(
-        1, sizeof(osd_primary_op_data_t) + (entry_attr_size + sizeof(osd_rmw_stripe_t)) * stripe_count
+        1, sizeof(osd_primary_op_data_t) + (clean_entry_bitmap_size + sizeof(osd_rmw_stripe_t)) * stripe_count
     );
     op_data->pg_num = pg_num;
     op_data->oid = oid;
@@ -65,7 +65,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     // Allocate bitmaps along with stripes to avoid extra allocations and fragmentation
     for (int i = 0; i < stripe_count; i++)
     {
-        op_data->stripes[i].bmp_buf = (void*)(op_data->stripes+stripe_count) + entry_attr_size*i;
+        op_data->stripes[i].bmp_buf = (void*)(op_data->stripes+stripe_count) + clean_entry_bitmap_size*i;
     }
     pg_it->second.inflight++;
     return true;
@@ -154,18 +154,18 @@ resume_2:
         finish_op(cur_op, op_data->epipe > 0 ? -EPIPE : -EIO);
         return;
     }
-    cur_op->reply.rw.bitmap_len = op_data->pg_data_size * entry_attr_size;
+    cur_op->reply.rw.bitmap_len = op_data->pg_data_size * clean_entry_bitmap_size;
     if (op_data->degraded)
     {
         // Reconstruct missing stripes
         osd_rmw_stripe_t *stripes = op_data->stripes;
         if (op_data->scheme == POOL_SCHEME_XOR)
         {
-            reconstruct_stripes_xor(stripes, op_data->pg_size, entry_attr_size);
+            reconstruct_stripes_xor(stripes, op_data->pg_size, clean_entry_bitmap_size);
         }
         else if (op_data->scheme == POOL_SCHEME_JERASURE)
         {
-            reconstruct_stripes_jerasure(stripes, op_data->pg_size, op_data->pg_data_size, entry_attr_size);
+            reconstruct_stripes_jerasure(stripes, op_data->pg_size, op_data->pg_data_size, clean_entry_bitmap_size);
         }
         cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
         for (int role = 0; role < op_data->pg_size; role++)

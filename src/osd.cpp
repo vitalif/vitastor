@@ -18,10 +18,7 @@ osd_t::osd_t(blockstore_config_t & config, ring_loop_t *ringloop)
         bs_block_size = DEFAULT_BLOCK_SIZE;
     if (!bs_bitmap_granularity)
         bs_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
-
-    // Force external bitmap size
-    entry_attr_size = bs_block_size / bs_bitmap_granularity / 8;
-    config["entry_attr_size"] = std::to_string(entry_attr_size);
+    clean_entry_bitmap_size = bs_block_size / bs_bitmap_granularity / 8;
 
     this->config = config;
     this->ringloop = ringloop;

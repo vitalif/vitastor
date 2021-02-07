@@ -105,7 +105,7 @@ uint8_t* blockstore_impl_t::get_clean_entry_bitmap(uint64_t block_loc, int offse
         clean_entry_bitmap = (uint8_t*)(metadata_buffer + sector + pos*clean_entry_size + sizeof(clean_disk_entry) + offset);
     }
     else
-        clean_entry_bitmap = (uint8_t*)(clean_bitmap + meta_loc*(clean_entry_bitmap_size + entry_attr_size) + offset);
+        clean_entry_bitmap = (uint8_t*)(clean_bitmap + meta_loc*2*clean_entry_bitmap_size + offset);
     return clean_entry_bitmap;
 }
 
@@ -151,8 +151,8 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                     result_version = dirty_it->first.version;
                     if (read_op->bitmap)
                     {
-                        void *bmp_ptr = (entry_attr_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap);
-                        memcpy(read_op->bitmap, bmp_ptr, entry_attr_size);
+                        void *bmp_ptr = (clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap);
+                        memcpy(read_op->bitmap, bmp_ptr, clean_entry_bitmap_size);
                     }
                 }
                 if (!fulfill_read(read_op, fulfilled, dirty.offset, dirty.offset + dirty.len,
@@ -178,7 +178,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             if (read_op->bitmap)
             {
                 void *bmp_ptr = get_clean_entry_bitmap(clean_it->second.location, clean_entry_bitmap_size);
-                memcpy(read_op->bitmap, bmp_ptr, entry_attr_size);
+                memcpy(read_op->bitmap, bmp_ptr, clean_entry_bitmap_size);
             }
         }
         if (fulfilled < read_op->len)

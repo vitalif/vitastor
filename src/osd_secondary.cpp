@@ -20,7 +20,7 @@ void osd_t::secondary_op_callback(osd_op_t *op)
     if (op->req.hdr.opcode == OSD_OP_SEC_READ)
     {
         if (op->bs_op->retval >= 0)
-            op->reply.sec_rw.attr_len = entry_attr_size;
+            op->reply.sec_rw.attr_len = clean_entry_bitmap_size;
         else
             op->reply.sec_rw.attr_len = 0;
         if (op->bs_op->retval > 0)
@@ -62,8 +62,8 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
         if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ)
         {
             // Allocate memory for the read operation
-            if (entry_attr_size > sizeof(unsigned))
-                cur_op->bitmap = cur_op->rmw_buf = malloc_or_die(entry_attr_size);
+            if (clean_entry_bitmap_size > sizeof(unsigned))
+                cur_op->bitmap = cur_op->rmw_buf = malloc_or_die(clean_entry_bitmap_size);
             else
                 cur_op->bitmap = &cur_op->bmp_data;
             if (cur_op->req.sec_rw.len > 0)
