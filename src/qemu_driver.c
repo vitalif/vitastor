@@ -39,12 +39,14 @@ void DSO_STAMP_FUN(void)
 typedef struct VitastorClient
 {
     void *proxy;
+    void *watch;
     char *etcd_host;
     char *etcd_prefix;
+    char *image;
     uint64_t inode;
     uint64_t pool;
     uint64_t size;
-    int readonly;
+    long readonly;
     QemuMutex mutex;
 } VitastorClient;
 
@@ -53,9 +55,13 @@ typedef struct VitastorRPC
     BlockDriverState *bs;
     Coroutine *co;
     QEMUIOVector *iov;
-    int ret;
+    long ret;
     int complete;
 } VitastorRPC;
+
+static void vitastor_co_init_task(BlockDriverState *bs, VitastorRPC *task);
+static void vitastor_co_generic_bh_cb(long retval, void *opaque);
+static void vitastor_close(BlockDriverState *bs);
 
 static char *qemu_rbd_next_tok(char *src, char delim, char **p)
 {
@@ -132,21 +138,24 @@ static void vitastor_parse_filename(const char *filename, QDict *options, Error 
             qdict_put_str(options, name, value);
         }
     }
-    if (!qdict_get_try_int(options, "inode", 0))
+    if (!qdict_get_try_str(options, "image"))
     {
-        error_setg(errp, "inode is missing");
-        goto out;
-    }
-    if (!(qdict_get_try_int(options, "inode", 0) >> (64-POOL_ID_BITS)) &&
-        !qdict_get_try_int(options, "pool", 0))
-    {
-        error_setg(errp, "pool number is missing");
-        goto out;
-    }
-    if (!qdict_get_try_int(options, "size", 0))
-    {
-        error_setg(errp, "size is missing");
-        goto out;
+        if (!qdict_get_try_int(options, "inode", 0))
+        {
+            error_setg(errp, "one of image (name) and inode (number) must be specified");
+            goto out;
+        }
+        if (!(qdict_get_try_int(options, "inode", 0) >> (64-POOL_ID_BITS)) &&
+            !qdict_get_try_int(options, "pool", 0))
+        {
+            error_setg(errp, "pool number must be specified or included in the inode number");
+            goto out;
+        }
+        if (!qdict_get_try_int(options, "size", 0))
+        {
+            error_setg(errp, "size must be specified when inode number is used instead of image name");
+            goto out;
+        }
     }
     if (!qdict_get_str(options, "etcd_host"))
     {
@@ -159,27 +168,86 @@ out:
     return;
 }
 
+static void coroutine_fn vitastor_co_get_metadata(VitastorRPC *task)
+{
+    BlockDriverState *bs = task->bs;
+    VitastorClient *client = bs->opaque;
+    task->co = qemu_coroutine_self();
+
+    qemu_mutex_lock(&client->mutex);
+    vitastor_proxy_watch_metadata(client->proxy, client->image, vitastor_co_generic_bh_cb, task);
+    qemu_mutex_unlock(&client->mutex);
+
+    while (!task->complete)
+    {
+        qemu_coroutine_yield();
+    }
+}
+
 static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, Error **errp)
 {
     VitastorClient *client = bs->opaque;
     int64_t ret = 0;
+    qemu_mutex_init(&client->mutex);
     client->etcd_host = g_strdup(qdict_get_try_str(options, "etcd_host"));
     client->etcd_prefix = g_strdup(qdict_get_try_str(options, "etcd_prefix"));
-    client->inode = qdict_get_int(options, "inode");
-    client->pool = qdict_get_int(options, "pool");
-    if (client->pool)
-        client->inode = (client->inode & ((1l << (64-POOL_ID_BITS)) - 1)) | (client->pool << (64-POOL_ID_BITS));
-    client->size = qdict_get_int(options, "size");
-    client->readonly = (flags & BDRV_O_RDWR) ? 1 : 0;
     client->proxy = vitastor_proxy_create(bdrv_get_aio_context(bs), client->etcd_host, client->etcd_prefix);
-    //client->aio_context = bdrv_get_aio_context(bs);
+    client->image = g_strdup(qdict_get_try_str(options, "image"));
+    client->readonly = (flags & BDRV_O_RDWR) ? 1 : 0;
+    if (client->image)
+    {
+        // Get image metadata (size and readonly flag)
+        VitastorRPC task;
+        task.complete = 0;
+        task.bs = bs;
+        if (qemu_in_coroutine())
+        {
+            vitastor_co_get_metadata(&task);
+        }
+        else
+        {
+            assert(qemu_get_current_aio_context() == qemu_get_aio_context());
+            qemu_coroutine_enter(qemu_coroutine_create((void(*)(void*))vitastor_co_get_metadata, &task));
+        }
+        BDRV_POLL_WHILE(bs, !task.complete);
+        client->watch = (void*)task.ret;
+        client->readonly = client->readonly || vitastor_proxy_get_readonly(client->watch);
+        client->size = vitastor_proxy_get_size(client->watch);
+        if (!vitastor_proxy_get_inode_num(client->watch))
+        {
+            error_setg(errp, "image does not exist");
+            vitastor_close(bs);
+        }
+        if (!client->size)
+        {
+            client->size = qdict_get_int(options, "size");
+        }
+    }
+    else
+    {
+        client->watch = NULL;
+        client->inode = qdict_get_int(options, "inode");
+        client->pool = qdict_get_int(options, "pool");
+        if (client->pool)
+        {
+            client->inode = (client->inode & ((1l << (64-POOL_ID_BITS)) - 1)) | (client->pool << (64-POOL_ID_BITS));
+        }
+        client->size = qdict_get_int(options, "size");
+    }
+    if (!client->size)
+    {
+        error_setg(errp, "image size not specified");
+        vitastor_close(bs);
+        return -1;
+    }
     bs->total_sectors = client->size / BDRV_SECTOR_SIZE;
+    //client->aio_context = bdrv_get_aio_context(bs);
     qdict_del(options, "etcd_host");
     qdict_del(options, "etcd_prefix");
+    qdict_del(options, "image");
     qdict_del(options, "inode");
     qdict_del(options, "pool");
     qdict_del(options, "size");
-    qemu_mutex_init(&client->mutex);
     return ret;
 }
 
@@ -191,6 +259,8 @@ static void vitastor_close(BlockDriverState *bs)
     g_free(client->etcd_host);
     if (client->etcd_prefix)
         g_free(client->etcd_prefix);
+    if (client->image)
+        g_free(client->image);
 }
 
 #if QEMU_VERSION_MAJOR >= 3
@@ -296,7 +366,7 @@ static void vitastor_co_init_task(BlockDriverState *bs, VitastorRPC *task)
     };
 }
 
-static void vitastor_co_generic_bh_cb(int retval, void *opaque)
+static void vitastor_co_generic_bh_cb(long retval, void *opaque)
 {
     VitastorRPC *task = opaque;
     task->ret = retval;
@@ -319,8 +389,9 @@ static int coroutine_fn vitastor_co_preadv(BlockDriverState *bs, uint64_t offset
     vitastor_co_init_task(bs, &task);
     task.iov = iov;
 
+    uint64_t inode = client->watch ? vitastor_proxy_get_inode_num(client->watch) : client->inode;
     qemu_mutex_lock(&client->mutex);
-    vitastor_proxy_rw(0, client->proxy, client->inode, offset, bytes, iov->iov, iov->niov, vitastor_co_generic_bh_cb, &task);
+    vitastor_proxy_rw(0, client->proxy, inode, offset, bytes, iov->iov, iov->niov, vitastor_co_generic_bh_cb, &task);
     qemu_mutex_unlock(&client->mutex);
 
     while (!task.complete)
@@ -338,8 +409,9 @@ static int coroutine_fn vitastor_co_pwritev(BlockDriverState *bs, uint64_t offse
     vitastor_co_init_task(bs, &task);
     task.iov = iov;
 
+    uint64_t inode = client->watch ? vitastor_proxy_get_inode_num(client->watch) : client->inode;
     qemu_mutex_lock(&client->mutex);
-    vitastor_proxy_rw(1, client->proxy, client->inode, offset, bytes, iov->iov, iov->niov, vitastor_co_generic_bh_cb, &task);
+    vitastor_proxy_rw(1, client->proxy, inode, offset, bytes, iov->iov, iov->niov, vitastor_co_generic_bh_cb, &task);
     qemu_mutex_unlock(&client->mutex);
 
     while (!task.complete)

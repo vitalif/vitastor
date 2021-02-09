@@ -54,9 +54,17 @@ struct pool_config_t
 
 struct inode_config_t
 {
+    uint64_t num;
     std::string name;
+    uint64_t size;
     inode_t parent_id;
     bool readonly;
+};
+
+struct inode_watch_t
+{
+    std::string name;
+    inode_config_t cfg;
 };
 
 struct websocket_t;
@@ -64,6 +72,7 @@ struct websocket_t;
 struct etcd_state_client_t
 {
 protected:
+    std::vector<inode_watch_t*> watches;
     websocket_t *etcd_watch_ws = NULL;
     uint64_t bs_block_size = DEFAULT_BLOCK_SIZE;
     void add_etcd_url(std::string);
@@ -78,6 +87,7 @@ public:
     std::map<pool_id_t, pool_config_t> pool_config;
     std::map<osd_num_t, json11::Json> peer_states;
     std::map<inode_t, inode_config_t> inode_config;
+    std::map<std::string, inode_t> inode_by_name;
 
     std::function<void(json11::Json::object &)> on_change_hook;
     std::function<void(json11::Json::object &)> on_load_config_hook;
@@ -95,5 +105,7 @@ public:
     void parse_state(const json_kv_t & kv);
     void parse_state(const std::string & key, const json11::Json & value);
     void parse_config(json11::Json & config);
+    inode_watch_t* watch_inode(std::string name);
+    void close_watch(inode_watch_t* watch);
     ~etcd_state_client_t();
 };

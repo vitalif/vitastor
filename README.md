@@ -35,6 +35,8 @@ breaking changes in the future. However, the following is implemented:
 - Inode removal tool (vitastor-rm)
 - Packaging for Debian and CentOS
 - Per-inode I/O and space usage statistics
+- Inode metadata storage in etcd
+- Snapshots and copy-on-write image clones
 
 ## Roadmap
 
@@ -42,8 +44,6 @@ breaking changes in the future. However, the following is implemented:
 - Other administrative tools
 - Proxmox and OpenNebula plugins
 - iSCSI proxy
-- Inode metadata storage in etcd
-- Snapshots and copy-on-write image clones
 - Operation timeouts and better failure detection
 - Scrubbing without checksums (verification of replicas)
 - Checksums

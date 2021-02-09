@@ -149,6 +149,7 @@ const etcd_tree = {
             <pool_id>: {
                 <inode_t>: {
                     name: string,
+                    size?: uint64_t, // bytes
                     parent_pool?: <pool_id>,
                     parent_id?: <inode_t>,
                     readonly?: boolean,

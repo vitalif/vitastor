@@ -126,4 +126,38 @@ void vitastor_proxy_sync(void *client, VitastorIOHandler cb, void *opaque)
     p->cli->execute(op);
 }
 
+void vitastor_proxy_watch_metadata(void *client, char *image, VitastorIOHandler cb, void *opaque)
+{
+    QemuProxy *p = (QemuProxy*)client;
+    p->cli->on_ready([&]()
+    {
+        auto watch = p->cli->st_cli.watch_inode(std::string(image));
+        cb((long)watch, opaque);
+    });
+}
+
+void vitastor_proxy_close_watch(void *client, void *watch)
+{
+    QemuProxy *p = (QemuProxy*)client;
+    p->cli->st_cli.close_watch((inode_watch_t*)watch);
+}
+
+uint64_t vitastor_proxy_get_size(void *watch_ptr)
+{
+    inode_watch_t *watch = (inode_watch_t*)watch_ptr;
+    return watch->cfg.size;
+}
+
+uint64_t vitastor_proxy_get_inode_num(void *watch_ptr)
+{
+    inode_watch_t *watch = (inode_watch_t*)watch_ptr;
+    return watch->cfg.num;
+}
+
+int vitastor_proxy_get_readonly(void *watch_ptr)
+{
+    inode_watch_t *watch = (inode_watch_t*)watch_ptr;
+    return watch->cfg.readonly;
+}
+
 }

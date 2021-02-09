@@ -11,6 +11,11 @@
 
 etcd_state_client_t::~etcd_state_client_t()
 {
+    for (auto watch: watches)
+    {
+        delete watch;
+    }
+    watches.clear();
     etcd_watches_initialised = -1;
 #ifndef __MOCK__
     if (etcd_watch_ws)
@@ -662,6 +667,22 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
         else
         {
             inode_num |= (pool_id << (64-POOL_ID_BITS));
+            auto it = this->inode_config.find(inode_num);
+            if (it != this->inode_config.end() && it->second.name != "")
+            {
+                auto n_it = this->inode_by_name.find(it->second.name);
+                if (n_it->second == inode_num)
+                {
+                    this->inode_by_name.erase(n_it);
+                    for (auto w: watches)
+                    {
+                        if (w->name == it->second.name)
+                        {
+                            w->cfg = { 0 };
+                        }
+                    }
+                }
+            }
             if (!value.is_object())
             {
                 this->inode_config.erase(inode_num);
@@ -685,12 +706,52 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
                     else
                         parent_inode_num |= parent_pool_id << (64-POOL_ID_BITS);
                 }
-                this->inode_config[inode_num] = (inode_config_t){
+                inode_config_t cfg = (inode_config_t){
+                    .num = inode_num,
                     .name = value["name"].string_value(),
+                    .size = value["size"].uint64_value(),
                     .parent_id = parent_inode_num,
                     .readonly = value["readonly"].bool_value(),
                 };
+                this->inode_config[inode_num] = cfg;
+                if (cfg.name != "")
+                {
+                    this->inode_by_name[cfg.name] = inode_num;
+                    for (auto w: watches)
+                    {
+                        if (w->name == value["name"].string_value())
+                        {
+                            w->cfg = cfg;
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+inode_watch_t* etcd_state_client_t::watch_inode(std::string name)
+{
+    inode_watch_t *watch = new inode_watch_t;
+    watch->name = name;
+    watches.push_back(watch);
+    auto it = inode_by_name.find(name);
+    if (it != inode_by_name.end())
+    {
+        watch->cfg = inode_config[it->second];
+    }
+    return watch;
+}
+
+void etcd_state_client_t::close_watch(inode_watch_t* watch)
+{
+    for (int i = 0; i < watches.size(); i++)
+    {
+        if (watches[i] == watch)
+        {
+            watches.erase(watches.begin()+i, watches.begin()+i+1);
+            break;
+        }
+    }
+    delete watch;
 }
