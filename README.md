@@ -1,5 +1,7 @@
 ## Vitastor
 
+[Читать на русском](README-ru.md)
+
 ## The Idea
 
 Make Software-Defined Block Storage Great Again.
@@ -42,7 +44,7 @@ breaking changes in the future. However, the following is implemented:
 
 - OSD creation tool (OSDs currently have to be created by hand)
 - Other administrative tools
-- Proxmox and OpenNebula plugins
+- Plugins for OpenStack, Kubernetes, OpenNebula, Proxmox and other cloud systems
 - iSCSI proxy
 - Operation timeouts and better failure detection
 - Scrubbing without checksums (verification of replicas)
@@ -291,7 +293,7 @@ Vitastor with single-thread NBD on the same hardware:
   - Debian 10 (Buster): `deb https://vitastor.io/debian buster main`
 - For Debian 10 (Buster) also enable backports repository:
   `deb http://deb.debian.org/debian buster-backports main`
-- Install packages: `apt update; apt install vitastor lp-solve etcd linux-image-amd64`
+- Install packages: `apt update; apt install vitastor lp-solve etcd linux-image-amd64 qemu`
 
 ### CentOS
 
@@ -395,13 +397,15 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
 
 ## Known Problems
 
-- Object deletion requests may currently lead to 'incomplete' objects if your OSDs crash during
-  deletion because proper handling of object cleanup in a cluster should be "three-phase"
-  and it's currently not implemented. Just to repeat the removal again in this case.
+- Object deletion requests may currently lead to 'incomplete' objects in EC pools
+  if your OSDs crash during deletion because proper handling of object cleanup
+  in a cluster should be "three-phase" and it's currently not implemented.
+  Just repeat the removal request again in this case.
 
 ## Implementation Principles
 
-- I like simple and stupid solutions, so expect Vitastor to stay simple.
+- I like architecturally simple solutions. Vitastor is and will always be designed
+  exactly like that.
 - I also like reinventing the wheel to some extent, like writing my own HTTP client
   for etcd interaction instead of using prebuilt libraries, because in this case
   I'm confident about what my code does and what it doesn't do.
