@@ -11,7 +11,7 @@
 #include "osd_rmw.h"
 #include "malloc_or_die.h"
 
-#define OSD_JERASURE_W 32
+#define OSD_JERASURE_W 8
 
 static inline void extend_read(uint32_t start, uint32_t end, osd_rmw_stripe_t & stripe)
 {
