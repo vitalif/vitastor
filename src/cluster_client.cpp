@@ -703,7 +703,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
     int i = 0;
     for (uint64_t stripe = first_stripe; stripe <= last_stripe; stripe += pg_block_size)
     {
-        pg_num_t pg_num = (op->cur_inode + stripe/pool_cfg.pg_stripe_size) % pool_cfg.real_pg_count + 1; // like map_to_pg()
+        pg_num_t pg_num = (stripe/pool_cfg.pg_stripe_size) % pool_cfg.real_pg_count + 1; // like map_to_pg()
         uint64_t begin = (op->offset < stripe ? stripe : op->offset);
         uint64_t end = (op->offset + op->len) > (stripe + pg_block_size)
             ? (stripe + pg_block_size) : (op->offset + op->len);

@@ -35,7 +35,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         // oid.stripe = starting offset of the parity stripe
         .stripe = (cur_op->req.rw.offset/pg_block_size)*pg_block_size,
     };
-    pg_num_t pg_num = (cur_op->req.rw.inode + oid.stripe/pool_cfg.pg_stripe_size) % pg_counts[pool_id] + 1;
+    pg_num_t pg_num = (oid.stripe/pool_cfg.pg_stripe_size) % pg_counts[pool_id] + 1; // like map_to_pg()
     auto pg_it = pgs.find({ .pool_id = pool_id, .pg_num = pg_num });
     if (pg_it == pgs.end() || !(pg_it->second.state & PG_ACTIVE))
     {

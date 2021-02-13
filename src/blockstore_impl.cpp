@@ -456,7 +456,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
         }
         for (; clean_it != clean_end; clean_it++)
         {
-            if (!pg_count || ((clean_it->first.inode + clean_it->first.stripe / pg_stripe_size) % pg_count) == list_pg)
+            if (!pg_count || ((clean_it->first.stripe / pg_stripe_size) % pg_count) == list_pg) // like map_to_pg()
             {
                 if (stable_count >= stable_alloc)
                 {
@@ -501,7 +501,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
         }
         for (; dirty_it != dirty_end; dirty_it++)
         {
-            if (!pg_count || ((dirty_it->first.oid.inode + dirty_it->first.oid.stripe / pg_stripe_size) % pg_count) == list_pg)
+            if (!pg_count || ((dirty_it->first.oid.stripe / pg_stripe_size) % pg_count) == list_pg) // like map_to_pg()
             {
                 if (IS_DELETE(dirty_it->second.state))
                 {

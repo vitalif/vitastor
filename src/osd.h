@@ -229,7 +229,7 @@ class osd_t
         uint64_t pg_count = pg_counts[INODE_POOL(oid.inode)];
         if (!pg_count)
             pg_count = 1;
-        return (oid.inode + oid.stripe / pg_stripe_size) % pg_count + 1;
+        return (oid.stripe / pg_stripe_size) % pg_count + 1;
     }
 
 public:
