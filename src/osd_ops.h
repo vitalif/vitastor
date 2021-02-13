@@ -59,7 +59,7 @@ struct __attribute__((__packed__)) osd_reply_header_t
 };
 
 // read or write to the secondary OSD
-struct __attribute__((__packed__)) osd_op_secondary_rw_t
+struct __attribute__((__packed__)) osd_op_sec_rw_t
 {
     osd_op_header_t header;
     // object
@@ -76,7 +76,7 @@ struct __attribute__((__packed__)) osd_op_secondary_rw_t
     uint32_t pad0;
 };
 
-struct __attribute__((__packed__)) osd_reply_secondary_rw_t
+struct __attribute__((__packed__)) osd_reply_sec_rw_t
 {
     osd_reply_header_t header;
     // for reads and writes: assigned or read version number
@@ -87,7 +87,7 @@ struct __attribute__((__packed__)) osd_reply_secondary_rw_t
 };
 
 // delete object on the secondary OSD
-struct __attribute__((__packed__)) osd_op_secondary_del_t
+struct __attribute__((__packed__)) osd_op_sec_del_t
 {
     osd_op_header_t header;
     // object
@@ -96,37 +96,37 @@ struct __attribute__((__packed__)) osd_op_secondary_del_t
     uint64_t version;
 };
 
-struct __attribute__((__packed__)) osd_reply_secondary_del_t
+struct __attribute__((__packed__)) osd_reply_sec_del_t
 {
     osd_reply_header_t header;
     uint64_t version;
 };
 
 // sync to the secondary OSD
-struct __attribute__((__packed__)) osd_op_secondary_sync_t
+struct __attribute__((__packed__)) osd_op_sec_sync_t
 {
     osd_op_header_t header;
 };
 
-struct __attribute__((__packed__)) osd_reply_secondary_sync_t
+struct __attribute__((__packed__)) osd_reply_sec_sync_t
 {
     osd_reply_header_t header;
 };
 
 // stabilize or rollback objects on the secondary OSD
-struct __attribute__((__packed__)) osd_op_secondary_stabilize_t
+struct __attribute__((__packed__)) osd_op_sec_stab_t
 {
     osd_op_header_t header;
     // obj_ver_id array length in bytes
     uint64_t len;
 };
-typedef osd_op_secondary_stabilize_t osd_op_secondary_rollback_t;
+typedef osd_op_sec_stab_t osd_op_sec_rollback_t;
 
-struct __attribute__((__packed__)) osd_reply_secondary_stabilize_t
+struct __attribute__((__packed__)) osd_reply_sec_stab_t
 {
     osd_reply_header_t header;
 };
-typedef osd_reply_secondary_stabilize_t osd_reply_secondary_rollback_t;
+typedef osd_reply_sec_stab_t osd_reply_sec_rollback_t;
 
 // show configuration
 struct __attribute__((__packed__)) osd_op_show_config_t
@@ -140,7 +140,7 @@ struct __attribute__((__packed__)) osd_reply_show_config_t
 };
 
 // list objects on replica
-struct __attribute__((__packed__)) osd_op_secondary_list_t
+struct __attribute__((__packed__)) osd_op_sec_list_t
 {
     osd_op_header_t header;
     // placement group total number and total count
@@ -151,7 +151,7 @@ struct __attribute__((__packed__)) osd_op_secondary_list_t
     uint64_t min_inode, max_inode;
 };
 
-struct __attribute__((__packed__)) osd_reply_secondary_list_t
+struct __attribute__((__packed__)) osd_reply_sec_list_t
 {
     osd_reply_header_t header;
     // stable object version count. header.retval = total object version count
@@ -194,11 +194,11 @@ struct __attribute__((__packed__)) osd_reply_sync_t
 union osd_any_op_t
 {
     osd_op_header_t hdr;
-    osd_op_secondary_rw_t sec_rw;
-    osd_op_secondary_del_t sec_del;
-    osd_op_secondary_sync_t sec_sync;
-    osd_op_secondary_stabilize_t sec_stab;
-    osd_op_secondary_list_t sec_list;
+    osd_op_sec_rw_t sec_rw;
+    osd_op_sec_del_t sec_del;
+    osd_op_sec_sync_t sec_sync;
+    osd_op_sec_stab_t sec_stab;
+    osd_op_sec_list_t sec_list;
     osd_op_show_config_t show_conf;
     osd_op_rw_t rw;
     osd_op_sync_t sync;
@@ -208,11 +208,11 @@ union osd_any_op_t
 union osd_any_reply_t
 {
     osd_reply_header_t hdr;
-    osd_reply_secondary_rw_t sec_rw;
-    osd_reply_secondary_del_t sec_del;
-    osd_reply_secondary_sync_t sec_sync;
-    osd_reply_secondary_stabilize_t sec_stab;
-    osd_reply_secondary_list_t sec_list;
+    osd_reply_sec_rw_t sec_rw;
+    osd_reply_sec_del_t sec_del;
+    osd_reply_sec_sync_t sec_sync;
+    osd_reply_sec_stab_t sec_stab;
+    osd_reply_sec_list_t sec_list;
     osd_reply_show_config_t show_conf;
     osd_reply_rw_t rw;
     osd_reply_sync_t sync;
