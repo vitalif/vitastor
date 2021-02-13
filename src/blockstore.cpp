@@ -38,6 +38,11 @@ void blockstore_t::enqueue_op(blockstore_op_t *op)
     impl->enqueue_op(op);
 }
 
+int blockstore_t::read_bitmap(object_id oid, uint64_t target_version, void *bitmap, uint64_t *result_version)
+{
+    return impl->read_bitmap(oid, target_version, bitmap, result_version);
+}
+
 std::unordered_map<object_id, uint64_t> & blockstore_t::get_unstable_writes()
 {
     return impl->unstable_writes;

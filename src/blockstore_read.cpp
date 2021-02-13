@@ -268,3 +268,50 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
         FINISH_OP(op);
     }
 }
+
+int blockstore_impl_t::read_bitmap(object_id oid, uint64_t target_version, void *bitmap, uint64_t *result_version)
+{
+    auto dirty_it = dirty_db.upper_bound((obj_ver_id){
+        .oid = oid,
+        .version = UINT64_MAX,
+    });
+    if (dirty_it != dirty_db.begin())
+        dirty_it--;
+    if (dirty_it != dirty_db.end())
+    {
+        while (dirty_it->first.oid == oid)
+        {
+            if (target_version >= dirty_it->first.version)
+            {
+                if (result_version)
+                    *result_version = dirty_it->first.version;
+                if (bitmap)
+                {
+                    void *bmp_ptr = (clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap);
+                    memcpy(bitmap, bmp_ptr, clean_entry_bitmap_size);
+                }
+                return 0;
+            }
+            if (dirty_it == dirty_db.begin())
+                break;
+            dirty_it--;
+        }
+    }
+    auto clean_it = clean_db.find(oid);
+    if (clean_it != clean_db.end())
+    {
+        if (result_version)
+            *result_version = clean_it->second.version;
+        if (bitmap)
+        {
+            void *bmp_ptr = get_clean_entry_bitmap(clean_it->second.location, clean_entry_bitmap_size);
+            memcpy(bitmap, bmp_ptr, clean_entry_bitmap_size);
+        }
+        return 0;
+    }
+    if (result_version)
+        *result_version = 0;
+    if (bitmap)
+        memset(bitmap, 0, clean_entry_bitmap_size);
+    return -ENOENT;
+}

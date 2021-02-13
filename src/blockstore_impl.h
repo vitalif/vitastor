@@ -324,6 +324,9 @@ public:
     // Submission
     void enqueue_op(blockstore_op_t *op);
 
+    // Simplified synchronous operation: get object bitmap & current version
+    int read_bitmap(object_id oid, uint64_t target_version, void *bitmap, uint64_t *result_version = NULL);
+
     // Unstable writes are added here (map of object_id -> version)
     std::unordered_map<object_id, uint64_t> unstable_writes;
 
