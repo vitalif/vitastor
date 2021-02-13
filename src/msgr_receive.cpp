@@ -232,6 +232,15 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
         }
         cl->read_remaining = cur_op->req.sec_stab.len;
     }
+    else if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
+    {
+        if (cur_op->req.sec_read_bmp.len > 0)
+        {
+            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_read_bmp.len);
+            cl->recv_list.push_back(cur_op->buf, cur_op->req.sec_read_bmp.len);
+        }
+        cl->read_remaining = cur_op->req.sec_read_bmp.len;
+    }
     else if (cur_op->req.hdr.opcode == OSD_OP_READ)
     {
         cl->read_remaining = 0;
@@ -277,17 +286,19 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
     {
         // Read data. In this case we assume that the buffer is preallocated by the caller (!)
         unsigned bmp_len = (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->reply.sec_rw.attr_len : op->reply.rw.bitmap_len);
-        if (op->reply.hdr.retval != (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->req.sec_rw.len : op->req.rw.len) ||
-            bmp_len > op->bitmap_len)
+        unsigned expected_size = (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->req.sec_rw.len : op->req.rw.len);
+        if (op->reply.hdr.retval >= 0 && (op->reply.hdr.retval != expected_size || bmp_len > op->bitmap_len))
         {
             // Check reply length to not overflow the buffer
-            printf("Client %d read reply of different length\n", cl->peer_fd);
+            printf("Client %d read reply of different length: expected %u+%u, got %ld+%u\n",
+                cl->peer_fd, expected_size, op->bitmap_len, op->reply.hdr.retval, bmp_len);
             cl->sent_ops[op->req.hdr.id] = op;
             stop_client(cl->peer_fd);
             return false;
         }
-        if (bmp_len > 0)
+        if (op->reply.hdr.retval >= 0 && bmp_len > 0)
         {
+            assert(op->bitmap);
             cl->recv_list.push_back(op->bitmap, bmp_len);
         }
         if (op->reply.hdr.retval > 0)
@@ -311,6 +322,16 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
         cl->read_remaining = sizeof(obj_ver_id) * op->reply.hdr.retval;
+        op->buf = memalign_or_die(MEM_ALIGNMENT, cl->read_remaining);
+        cl->recv_list.push_back(op->buf, cl->read_remaining);
+    }
+    else if (op->reply.hdr.opcode == OSD_OP_SEC_READ_BMP && op->reply.hdr.retval > 0)
+    {
+        assert(!op->iov.count);
+        delete cl->read_op;
+        cl->read_op = op;
+        cl->read_state = CL_READ_REPLY_DATA;
+        cl->read_remaining = op->reply.hdr.retval;
         op->buf = memalign_or_die(MEM_ALIGNMENT, cl->read_remaining);
         cl->recv_list.push_back(op->buf, cl->read_remaining);
     }

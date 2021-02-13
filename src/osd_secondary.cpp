@@ -44,6 +44,25 @@ void osd_t::secondary_op_callback(osd_op_t *op)
 
 void osd_t::exec_secondary(osd_op_t *cur_op)
 {
+    if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
+    {
+        int n = cur_op->req.sec_read_bmp.len / sizeof(obj_ver_id);
+        if (n > 0)
+        {
+            obj_ver_id *ov = (obj_ver_id*)cur_op->buf;
+            void *reply_buf = malloc_or_die(n * (8 + clean_entry_bitmap_size));
+            void *cur_buf = reply_buf;
+            for (int i = 0; i < n; i++)
+            {
+                bs->read_bitmap(ov[i].oid, ov[i].version, cur_buf + sizeof(uint64_t), (uint64_t*)cur_buf);
+                cur_buf += (8 + clean_entry_bitmap_size);
+            }
+            free(cur_op->buf);
+            cur_op->buf = reply_buf;
+        }
+        finish_op(cur_op, n * (8 + clean_entry_bitmap_size));
+        return;
+    }
     cur_op->bs_op = new blockstore_op_t();
     cur_op->bs_op->callback = [this, cur_op](blockstore_op_t* bs_op) { secondary_op_callback(cur_op); };
     cur_op->bs_op->opcode = (cur_op->req.hdr.opcode == OSD_OP_SEC_READ ? BS_OP_READ

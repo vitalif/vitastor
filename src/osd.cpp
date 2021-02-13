@@ -231,6 +231,7 @@ void osd_t::exec_op(osd_op_t *cur_op)
         cur_op->req.hdr.opcode != OSD_OP_SEC_READ &&
         cur_op->req.hdr.opcode != OSD_OP_SEC_LIST &&
         cur_op->req.hdr.opcode != OSD_OP_READ &&
+        cur_op->req.hdr.opcode != OSD_OP_SEC_READ_BMP &&
         cur_op->req.hdr.opcode != OSD_OP_SHOW_CONFIG)
     {
         // Readonly mode

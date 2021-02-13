@@ -28,7 +28,8 @@
 #define OSD_OP_SYNC                 13
 #define OSD_OP_DELETE               14
 #define OSD_OP_PING                 15
-#define OSD_OP_MAX                  15
+#define OSD_OP_SEC_READ_BMP         16
+#define OSD_OP_MAX                  16
 // Alignment & limit for read/write operations
 #ifndef MEM_ALIGNMENT
 #define MEM_ALIGNMENT               512
@@ -128,6 +129,20 @@ struct __attribute__((__packed__)) osd_reply_sec_stab_t
 };
 typedef osd_reply_sec_stab_t osd_reply_sec_rollback_t;
 
+// bulk read bitmaps from a secondary OSD
+struct __attribute__((__packed__)) osd_op_sec_read_bmp_t
+{
+    osd_op_header_t header;
+    // obj_ver_id array length in bytes
+    uint64_t len;
+};
+
+struct __attribute__((__packed__)) osd_reply_sec_read_bmp_t
+{
+    // retval is payload length in bytes. payload is {version,bitmap}[]
+    osd_reply_header_t header;
+};
+
 // show configuration
 struct __attribute__((__packed__)) osd_op_show_config_t
 {
@@ -198,6 +213,7 @@ union osd_any_op_t
     osd_op_sec_del_t sec_del;
     osd_op_sec_sync_t sec_sync;
     osd_op_sec_stab_t sec_stab;
+    osd_op_sec_read_bmp_t sec_read_bmp;
     osd_op_sec_list_t sec_list;
     osd_op_show_config_t show_conf;
     osd_op_rw_t rw;
@@ -212,6 +228,7 @@ union osd_any_reply_t
     osd_reply_sec_del_t sec_del;
     osd_reply_sec_sync_t sec_sync;
     osd_reply_sec_stab_t sec_stab;
+    osd_reply_sec_read_bmp_t sec_read_bmp;
     osd_reply_sec_list_t sec_list;
     osd_reply_show_config_t show_conf;
     osd_reply_rw_t rw;

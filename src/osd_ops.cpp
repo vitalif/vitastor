@@ -20,4 +20,5 @@ const char* osd_op_names[] = {
     "primary_sync",
     "primary_delete",
     "ping",
+    "sec_read_bmp",
 };

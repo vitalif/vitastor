@@ -87,6 +87,14 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
             to_outbox.push_back(NULL);
         }
     }
+    if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
+    {
+        if (cur_op->op_type == OSD_OP_IN && cur_op->reply.hdr.retval > 0)
+            to_send_list.push_back((iovec){ .iov_base = cur_op->buf, .iov_len = (size_t)cur_op->reply.hdr.retval });
+        else if (cur_op->op_type == OSD_OP_OUT && cur_op->req.sec_read_bmp.len > 0)
+            to_send_list.push_back((iovec){ .iov_base = cur_op->buf, .iov_len = (size_t)cur_op->req.sec_read_bmp.len });
+        to_outbox.push_back(NULL);
+    }
     if (cur_op->op_type == OSD_OP_IN)
     {
         // To free it later
