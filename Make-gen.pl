@@ -1,4 +1,5 @@
 #!/usr/bin/perl
+# FIXME: Use CMake :)
 
 use strict;
 

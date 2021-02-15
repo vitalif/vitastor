@@ -2,9 +2,7 @@ BINDIR ?= /usr/bin
 LIBDIR ?= /usr/lib/x86_64-linux-gnu
 QEMU_PLUGINDIR ?= /usr/lib/x86_64-linux-gnu/qemu
 
-BLOCKSTORE_OBJS := allocator.o blockstore.o blockstore_impl.o blockstore_init.o blockstore_open.o blockstore_journal.o blockstore_read.o \
-	blockstore_write.o blockstore_sync.o blockstore_stable.o blockstore_rollback.o blockstore_flush.o crc32c.o ringloop.o
-# -fsanitize=address
+# -fsanitize=address -fno-omit-frame-pointer
 CXXFLAGS := -g -O3 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fPIC -fdiagnostics-color=always -I/usr/include/jerasure
 ifeq "${ASAN}" "1"
 	CXXFLAGS := -fsanitize=address -fno-omit-frame-pointer ${CXXFLAGS}
@@ -27,68 +25,70 @@ install: all
 	mkdir -p $(DESTDIR)$(QEMU_PLUGINDIR)
 	install -m 0755 qemu_driver.so $(DESTDIR)$(QEMU_PLUGINDIR)/block-vitastor.so
 
-dump_journal: dump_journal.cpp crc32c.o blockstore_journal.h
-	g++ $(CXXFLAGS) -o $@ $< crc32c.o
+dump_journal: dump_journal.o crc32c.o
+	g++ $(CXXFLAGS) -o $@ $^
 
+BLOCKSTORE_OBJS := allocator.o blockstore.o blockstore_impl.o blockstore_init.o blockstore_open.o blockstore_journal.o blockstore_read.o\
+	 blockstore_write.o blockstore_sync.o blockstore_stable.o blockstore_rollback.o blockstore_flush.o crc32c.o ringloop.o
 libblockstore.so: $(BLOCKSTORE_OBJS)
-	g++ $(CXXFLAGS) -o $@ -shared $(BLOCKSTORE_OBJS) -ltcmalloc_minimal -luring
-libfio_blockstore.so: ./libblockstore.so fio_engine.o json11.o
-	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor',-rpath,'$$ORIGIN' -shared -o $@ fio_engine.o json11.o libblockstore.so -ltcmalloc_minimal -luring
+	g++ $(CXXFLAGS) -o $@ -shared $^ -ltcmalloc_minimal -luring
+libfio_blockstore.so: libblockstore.so fio_engine.o json11.o
+	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor',-rpath,'$$ORIGIN' -shared -o $@ $^ -ltcmalloc_minimal -luring
 
-OSD_OBJS := osd.o osd_secondary.o msgr_receive.o msgr_send.o osd_peering.o osd_flush.o osd_peering_pg.o \
+OSD_OBJS := osd_main.o osd.o osd_secondary.o msgr_receive.o msgr_send.o osd_peering.o osd_flush.o osd_peering_pg.o \
 	osd_primary.o osd_primary_subops.o etcd_state_client.o messenger.o osd_cluster.o http_client.o osd_ops.o pg_states.o \
 	osd_rmw.o json11.o base64.o timerfd_manager.o epoll_manager.o
-osd: ./libblockstore.so osd_main.cpp osd.h osd_ops.h $(OSD_OBJS)
-	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor',-rpath,'$$ORIGIN' -o $@ osd_main.cpp $(OSD_OBJS) libblockstore.so -ltcmalloc_minimal -luring -lJerasure
+osd: $(OSD_OBJS) libblockstore.so
+	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor',-rpath,'$$ORIGIN' -o $@ $^ -ltcmalloc_minimal -luring -lJerasure
 
 stub_osd: stub_osd.o rw_blocking.o
-	g++ $(CXXFLAGS) -o $@ stub_osd.o rw_blocking.o -ltcmalloc_minimal
+	g++ $(CXXFLAGS) -o $@ $^ -ltcmalloc_minimal
 
-osd_rmw_test: osd_rmw_test.o
-	g++ $(CXXFLAGS) -o $@ osd_rmw_test.o -lJerasure -fsanitize=address
+osd_rmw_test: osd_rmw_test.o allocator.o
+	g++ $(CXXFLAGS) -o $@ $^ -lJerasure -fsanitize=address
 
 STUB_URING_OSD_OBJS := stub_uring_osd.o epoll_manager.o messenger.o msgr_send.o msgr_receive.o ringloop.o timerfd_manager.o json11.o
 stub_uring_osd: $(STUB_URING_OSD_OBJS)
-	g++ $(CXXFLAGS) -o $@ -ltcmalloc_minimal $(STUB_URING_OSD_OBJS) -luring
-stub_bench: stub_bench.cpp osd_ops.h rw_blocking.o
-	g++ $(CXXFLAGS) -o $@ stub_bench.cpp rw_blocking.o -ltcmalloc_minimal
-osd_test: osd_test.cpp osd_ops.h rw_blocking.o
-	g++ $(CXXFLAGS) -o $@ osd_test.cpp rw_blocking.o -ltcmalloc_minimal
-osd_peering_pg_test: osd_peering_pg_test.cpp osd_peering_pg.o
-	g++ $(CXXFLAGS) -o $@ $< osd_peering_pg.o -ltcmalloc_minimal
+	g++ $(CXXFLAGS) -o $@ -ltcmalloc_minimal $^ -luring
+stub_bench: stub_bench.o rw_blocking.o
+	g++ $(CXXFLAGS) -o $@ $^ -ltcmalloc_minimal
+osd_test: osd_test.o rw_blocking.o
+	g++ $(CXXFLAGS) -o $@ $^ -ltcmalloc_minimal
+osd_peering_pg_test: osd_peering_pg_test.o osd_peering_pg.o
+	g++ $(CXXFLAGS) -o $@ $^ -ltcmalloc_minimal
 
 libfio_sec_osd.so: fio_sec_osd.o rw_blocking.o
-	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ fio_sec_osd.o rw_blocking.o
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $^
 
 FIO_CLUSTER_OBJS := cluster_client.o epoll_manager.o etcd_state_client.o \
 	messenger.o msgr_send.o msgr_receive.o ringloop.o json11.o http_client.o osd_ops.o pg_states.o timerfd_manager.o base64.o
 libfio_cluster.so: fio_cluster.o $(FIO_CLUSTER_OBJS)
-	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $< $(FIO_CLUSTER_OBJS) -luring
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $^ -luring
 
 nbd_proxy: nbd_proxy.o $(FIO_CLUSTER_OBJS)
-	g++ $(CXXFLAGS) -ltcmalloc_minimal -o $@ $< $(FIO_CLUSTER_OBJS) -luring
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -o $@ $^ -luring
 
 rm_inode: rm_inode.o $(FIO_CLUSTER_OBJS)
-	g++ $(CXXFLAGS) -ltcmalloc_minimal -o $@ $< $(FIO_CLUSTER_OBJS) -luring
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -o $@ $^ -luring
 
 qemu_driver.o: qemu_driver.c qemu_proxy.h
 	gcc -I qemu/b/qemu `pkg-config glib-2.0 --cflags` \
 		-I qemu/include $(CXXFLAGS) -c -o $@ $<
 
 qemu_driver.so: qemu_driver.o qemu_proxy.o $(FIO_CLUSTER_OBJS)
-	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $(FIO_CLUSTER_OBJS) qemu_driver.o qemu_proxy.o -luring
+	g++ $(CXXFLAGS) -ltcmalloc_minimal -shared -o $@ $^ -luring
 
-test_blockstore: ./libblockstore.so test_blockstore.cpp timerfd_interval.o
-	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor',-rpath,'$$ORIGIN' -o test_blockstore test_blockstore.cpp timerfd_interval.o libblockstore.so -ltcmalloc_minimal -luring
-test_shit: test_shit.cpp osd_peering_pg.o
-	g++ $(CXXFLAGS) -o test_shit test_shit.cpp -luring -lm
-test_allocator: test_allocator.cpp allocator.o
-	g++ $(CXXFLAGS) -o test_allocator test_allocator.cpp allocator.o
+test_blockstore: test_blockstore.o timerfd_interval.o ./libblockstore.so
+	g++ $(CXXFLAGS) -Wl,-rpath,'$(LIBDIR)/vitastor',-rpath,'$$ORIGIN' -o test_blockstore $^ -ltcmalloc_minimal -luring
+test_shit: test_shit.o osd_peering_pg.o
+	g++ $(CXXFLAGS) -o test_shit $^ -luring -lm
+test_allocator: test_allocator.o allocator.o
+	g++ $(CXXFLAGS) -o test_allocator $^
 
 crc32c.o: crc32c.c crc32c.h
 	g++ $(CXXFLAGS) -c -o $@ $<
 json11.o: json11/json11.cpp
-	g++ $(CXXFLAGS) -c -o json11.o json11/json11.cpp
+	g++ $(CXXFLAGS) -c -o json11.o $<
 
 # Autogenerated
 
