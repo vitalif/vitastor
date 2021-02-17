@@ -3,6 +3,7 @@
 
 #define _LARGEFILE64_SOURCE
 
+#include "malloc_or_die.h"
 #include "osd_peering_pg.h"
 #define STRIPE_SHIFT 12
 
