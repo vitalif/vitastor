@@ -5,7 +5,7 @@
 #cd b/qemu; make qapi
 
 gcc -I qemu/b/qemu `pkg-config glib-2.0 --cflags` \
-    -I qemu/include -E -o qemu_driver.i qemu_driver.c
+    -I qemu/include -E -o qemu_driver.i src/qemu_driver.c
 
 rm -rf qemu-copy
 for i in `grep -Po 'qemu/[^"]+' qemu_driver.i | sort | uniq`; do

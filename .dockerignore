@@ -1,5 +1,6 @@
 .git
 build
+packages
 mon/node_modules
 *.o
 *.so

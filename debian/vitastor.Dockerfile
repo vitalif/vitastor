@@ -1,12 +1,7 @@
 # Build Vitastor packages for Debian Buster or Bullseye/Sid inside a container
-# cd ..; podman build --build-arg REL=bullseye -v `pwd`/build:/root/build -f debian/vitastor.Dockerfile .
-
-ARG REL=bullseye
+# cd ..; podman build --build-arg REL=bullseye -v `pwd`/packages:/root/packages -f debian/vitastor.Dockerfile .
 
 FROM debian:$REL
-
-# again, it doesn't work otherwise
-ARG REL=bullseye
 
 WORKDIR /root
 
@@ -27,7 +22,7 @@ RUN apt-get -y build-dep qemu
 RUN apt-get -y build-dep fio
 RUN apt-get --download-only source qemu
 RUN apt-get --download-only source fio
-RUN apt-get -y install libjerasure-dev
+RUN apt-get -y install libjerasure-dev cmake
 
 ADD . /root/vitastor
 RUN set -e -x; \
@@ -35,18 +30,18 @@ RUN set -e -x; \
     cd /root/fio-build/; \
     rm -rf /root/fio-build/*; \
     dpkg-source -x /root/fio*.dsc; \
-    cd /root/build/qemu-$REL/; \
+    cd /root/packages/qemu-$REL/; \
     rm -rf qemu*/; \
     dpkg-source -x qemu*.dsc; \
-    cd /root/build/qemu-$REL/qemu*/; \
+    cd /root/packages/qemu-$REL/qemu*/; \
     debian/rules b/configure-stamp; \
     cd b/qemu; \
-    make -j8 qapi; \
-    mkdir -p /root/build/vitastor-$REL; \
-    rm -rf /root/build/vitastor-$REL/*; \
-    cd /root/build/vitastor-$REL; \
+    make -j8 qapi/qapi-builtin-types.h; \
+    mkdir -p /root/packages/vitastor-$REL; \
+    rm -rf /root/packages/vitastor-$REL/*; \
+    cd /root/packages/vitastor-$REL; \
     cp -r /root/vitastor vitastor-0.5.4; \
-    ln -s /root/build/qemu-$REL/qemu-*/ vitastor-0.5.4/qemu; \
+    ln -s /root/packages/qemu-$REL/qemu-*/ vitastor-0.5.4/qemu; \
     ln -s /root/fio-build/fio-*/ vitastor-0.5.4/fio; \
     cd vitastor-0.5.4; \
     FIO=$(head -n1 fio/debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
@@ -60,13 +55,13 @@ RUN set -e -x; \
     diff -NaurpbB a b > debian/patches/qemu-fio-headers.patch || true; \
     echo qemu-fio-headers.patch >> debian/patches/series; \
     rm -rf a b; \
-    rm -rf /root/build/qemu-$REL/qemu*/; \
+    rm -rf /root/packages/qemu-$REL/qemu*/; \
     echo "dep:fio=$FIO" > debian/substvars; \
     echo "dep:qemu=$QEMU" >> debian/substvars; \
-    cd /root/build/vitastor-$REL; \
+    cd /root/packages/vitastor-$REL; \
     tar --sort=name --mtime='2020-01-01' --owner=0 --group=0 --exclude=debian -cJf vitastor_0.5.4.orig.tar.xz vitastor-0.5.4; \
     cd vitastor-0.5.4; \
     V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
     DEBFULLNAME="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v "$V""$REL" "Rebuild for $REL"; \
     DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto -sa; \
-    rm -rf /root/build/vitastor-$REL/vitastor-*/
+    rm -rf /root/packages/vitastor-$REL/vitastor-*/
