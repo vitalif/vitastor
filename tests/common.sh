@@ -33,3 +33,12 @@ $ETCD -name etcd_test --data-dir ./testdata/etcd \
 ETCD_PID=$!
 ETCD_URL=127.0.0.1:$ETCD_PORT/v3
 ETCDCTL="${ETCD}ctl --endpoints=http://$ETCD_URL"
+
+echo leak:fio >> testdata/lsan-suppress.txt
+echo leak:tcmalloc >> testdata/lsan-suppress.txt
+echo leak:ceph >> testdata/lsan-suppress.txt
+echo leak:librbd >> testdata/lsan-suppress.txt
+echo leak:_M_mutate >> testdata/lsan-suppress.txt
+echo leak:_M_assign >> testdata/lsan-suppress.txt
+export LSAN_OPTIONS=report_objects=true:suppressions=`pwd`/testdata/lsan-suppress.txt
+export ASAN_OPTIONS=verify_asan_link_order=false
