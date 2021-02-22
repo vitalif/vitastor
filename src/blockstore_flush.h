@@ -80,7 +80,7 @@ class journal_flusher_t
 {
     int trim_wanted = 0;
     bool dequeuing;
-    int flusher_count;
+    int flusher_count, cur_flusher_count, target_flusher_count;
     int flusher_start_threshold;
     journal_flusher_co *co;
     blockstore_impl_t *bs;

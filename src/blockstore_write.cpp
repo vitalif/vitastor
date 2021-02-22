@@ -167,6 +167,10 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             .version = op->version,
         }, e).first;
     }
+    if (write_iodepth >= max_write_iodepth)
+    {
+        return 0;
+    }
     if ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE)
     {
         blockstore_journal_check_t space_check(this);
@@ -191,6 +195,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             FINISH_OP(op);
             return 1;
         }
+        write_iodepth++;
         BS_SUBMIT_GET_SQE(sqe, data);
         dirty_it->second.location = loc << block_order;
         dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_SUBMITTED;
@@ -243,6 +248,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         {
             return 0;
         }
+        write_iodepth++;
         // There is sufficient space. Get SQE(s)
         struct io_uring_sqe *sqe1 = NULL;
         if (immediate_commit != IMMEDIATE_NONE ||
@@ -432,6 +438,7 @@ resume_4:
     }
     // Acknowledge write
     op->retval = op->len;
+    write_iodepth--;
     FINISH_OP(op);
     return 1;
 }

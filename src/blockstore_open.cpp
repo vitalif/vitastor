@@ -70,6 +70,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     meta_block_size = strtoull(config["meta_block_size"].c_str(), NULL, 10);
     bitmap_granularity = strtoull(config["bitmap_granularity"].c_str(), NULL, 10);
     flusher_count = strtoull(config["flusher_count"].c_str(), NULL, 10);
+    max_write_iodepth = strtoull(config["max_write_iodepth"].c_str(), NULL, 10);
     // Validate
     if (!block_size)
     {
@@ -82,6 +83,10 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     if (!flusher_count)
     {
         flusher_count = 32;
+    }
+    if (!max_write_iodepth)
+    {
+        max_write_iodepth = 128;
     }
     if (!disk_alignment)
     {

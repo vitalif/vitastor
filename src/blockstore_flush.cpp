@@ -7,6 +7,8 @@ journal_flusher_t::journal_flusher_t(int flusher_count, blockstore_impl_t *bs)
 {
     this->bs = bs;
     this->flusher_count = flusher_count;
+    this->cur_flusher_count = 1;
+    this->target_flusher_count = 1;
     dequeuing = false;
     trimming = false;
     active_flushers = 0;
@@ -68,10 +70,24 @@ bool journal_flusher_t::is_active()
 
 void journal_flusher_t::loop()
 {
-    for (int i = 0; (active_flushers > 0 || dequeuing) && i < flusher_count; i++)
+    target_flusher_count = bs->write_iodepth*2;
+    if (target_flusher_count <= 0)
+        target_flusher_count = 1;
+    else if (target_flusher_count > flusher_count)
+        target_flusher_count = flusher_count;
+    if (target_flusher_count > cur_flusher_count)
+        cur_flusher_count = target_flusher_count;
+    else if (target_flusher_count < cur_flusher_count)
     {
-        co[i].loop();
+        while (target_flusher_count < cur_flusher_count)
+        {
+            if (co[cur_flusher_count-1].wait_state)
+                break;
+            cur_flusher_count--;
+        }
     }
+    for (int i = 0; (active_flushers > 0 || dequeuing) && i < cur_flusher_count; i++)
+        co[i].loop();
 }
 
 void journal_flusher_t::enqueue_flush(obj_ver_id ov)

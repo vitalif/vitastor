@@ -199,7 +199,10 @@ class blockstore_impl_t
     // Suitable only for server SSDs with capacitors, requires disabled data and journal fsyncs
     int immediate_commit = IMMEDIATE_NONE;
     bool inmemory_meta = false;
-    int flusher_count;
+    // Maximum flusher count
+    unsigned flusher_count;
+    // Maximum queue depth
+    unsigned max_write_iodepth = 128;
     /******* END OF OPTIONS *******/
 
     struct ring_consumer_t ring_consumer;
@@ -226,6 +229,7 @@ class blockstore_impl_t
 
     struct journal_t journal;
     journal_flusher_t *flusher;
+    int write_iodepth = 0;
 
     bool live = false, queue_stall = false;
     ring_loop_t *ringloop;
