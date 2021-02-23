@@ -81,7 +81,8 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
             }
             // In fact, it's even more rare than "ran out of journal space", so print a warning
             printf(
-                "Ran out of journal sector buffers: %d/%lu buffers used (%d dirty), next buffer (%ld) is %s and flushed %lu times\n",
+                "Ran out of journal sector buffers: %d/%lu buffers used (%d dirty), next buffer (%ld)"
+                " is %s and flushed %lu times. Consider increasing \'journal_sector_buffer_count\'\n",
                 used, bs->journal.sector_count, dirty, next_sector,
                 bs->journal.sector_info[next_sector].dirty ? "dirty" : "not dirty",
                 bs->journal.sector_info[next_sector].flush_count
@@ -103,11 +104,8 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
     {
         // No space in the journal. Wait until used_start changes.
         printf(
-            "Ran out of journal space (free space: %lu bytes, sectors to write: %d)\n",
-            (bs->journal.next_free >= bs->journal.used_start
-                ? bs->journal.len-bs->journal.block_size - (bs->journal.next_free-bs->journal.used_start)
-                : bs->journal.used_start - bs->journal.next_free),
-            sectors_to_write
+            "Ran out of journal space (used_start=%08lx, next_free=%08lx, dirty_start=%08lx)\n",
+            bs->journal.used_start, bs->journal.next_free, bs->journal.dirty_start
         );
         PRIV(op)->wait_for = WAIT_JOURNAL;
         bs->flusher->request_trim();

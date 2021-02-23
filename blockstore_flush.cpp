@@ -223,6 +223,7 @@ bool journal_flusher_co::loop()
 resume_0:
     if (!flusher->flush_queue.size() || !flusher->dequeuing)
     {
+stop_flusher:
         if (flusher->trim_wanted > 0 && flusher->journal_trim_counter > 0)
         {
             // Attempt forced trim
@@ -327,9 +328,7 @@ resume_0:
 #ifdef BLOCKSTORE_DEBUG
                     printf("No older flushes, stopping\n");
 #endif
-                    flusher->dequeuing = false;
-                    wait_state = 0;
-                    return true;
+                    goto stop_flusher;
                 }
             }
         }
