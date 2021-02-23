@@ -129,7 +129,7 @@ void vitastor_proxy_sync(void *client, VitastorIOHandler cb, void *opaque)
 void vitastor_proxy_watch_metadata(void *client, char *image, VitastorIOHandler cb, void *opaque)
 {
     QemuProxy *p = (QemuProxy*)client;
-    p->cli->on_ready([&]()
+    p->cli->on_ready([=]()
     {
         auto watch = p->cli->st_cli.watch_inode(std::string(image));
         cb((long)watch, opaque);
