@@ -811,6 +811,17 @@ class Mon
                         }
                         PGUtil.scale_pg_count(prev_pgs, this.state.pg.history[pool_id]||{}, pg_history, pool_cfg.pg_count);
                     }
+                    for (const pg of prev_pgs)
+                    {
+                        while (pg.length < pool_cfg.pg_size)
+                        {
+                            pg.push(0);
+                        }
+                        while (pg.length > pool_cfg.pg_size)
+                        {
+                            pg.pop();
+                        }
+                    }
                     optimize_result = await LPOptimizer.optimize_change({
                         prev_pgs,
                         osd_tree: pool_tree,
