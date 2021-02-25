@@ -1,5 +1,5 @@
 # Build packages for CentOS 8 inside a container
-# cd ..; podman build -t vitastor-el8 -v `pwd`/build:/root/build -f rpm/vitastor-el8.Dockerfile .
+# cd ..; podman build -t vitastor-el8 -v `pwd`/packages:/root/packages -f rpm/vitastor-el8.Dockerfile .
 
 FROM centos:8
 
@@ -13,8 +13,8 @@ RUN rm -rf /var/lib/dnf/*; dnf download --disablerepo='*' --enablerepo='vitastor
 RUN dnf download --source fio
 RUN rpm --nomd5 -i qemu*.src.rpm
 RUN rpm --nomd5 -i fio*.src.rpm
-RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo=PowerTools --spec qemu-kvm.spec
-RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo=PowerTools --spec fio.spec
+RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo=powertools --spec qemu-kvm.spec
+RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo=powertools --spec fio.spec && dnf install -y cmake
 
 ADD https://vitastor.io/rpms/liburing-el7/liburing-0.7-2.el7.src.rpm /root
 
@@ -23,12 +23,12 @@ RUN set -e; \
     cd ~/rpmbuild/SPECS/; \
     . /opt/rh/gcc-toolset-9/enable; \
     rpmbuild -ba liburing.spec; \
-    mkdir -p /root/build/liburing-el8; \
-    rm -rf /root/build/liburing-el8/*; \
-    cp ~/rpmbuild/RPMS/*/liburing* /root/build/liburing-el8/; \
-    cp ~/rpmbuild/SRPMS/liburing* /root/build/liburing-el8/
+    mkdir -p /root/packages/liburing-el8; \
+    rm -rf /root/packages/liburing-el8/*; \
+    cp ~/rpmbuild/RPMS/*/liburing* /root/packages/liburing-el8/; \
+    cp ~/rpmbuild/SRPMS/liburing* /root/packages/liburing-el8/
 
-RUN rpm -i `ls /root/build/liburing-el7/liburing-*.x86_64.rpm | grep -v debug`
+RUN rpm -i `ls /root/packages/liburing-el7/liburing-*.x86_64.rpm | grep -v debug`
 
 ADD . /root/vitastor
 
@@ -39,7 +39,7 @@ RUN set -e; \
     cp vitastor-el8.spec ~/rpmbuild/SPECS/vitastor.spec; \
     cd ~/rpmbuild/SPECS/; \
     rpmbuild -ba vitastor.spec; \
-    mkdir -p /root/build/vitastor-el8; \
-    rm -rf /root/build/vitastor-el8/*; \
-    cp ~/rpmbuild/RPMS/*/vitastor* /root/build/vitastor-el8/; \
-    cp ~/rpmbuild/SRPMS/vitastor* /root/build/vitastor-el8/
+    mkdir -p /root/packages/vitastor-el8; \
+    rm -rf /root/packages/vitastor-el8/*; \
+    cp ~/rpmbuild/RPMS/*/vitastor* /root/packages/vitastor-el8/; \
+    cp ~/rpmbuild/SRPMS/vitastor* /root/packages/vitastor-el8/

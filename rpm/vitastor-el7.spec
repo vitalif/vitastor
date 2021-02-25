@@ -14,6 +14,7 @@ BuildRequires:  rh-nodejs12
 BuildRequires:  rh-nodejs12-npm
 BuildRequires:  jerasure-devel
 BuildRequires:  gf-complete-devel
+BuildRequires:  cmake
 Requires:       fio = 3.7-1.el7
 Requires:       qemu-kvm = 2.0.0-1.el7.6
 Requires:       rh-nodejs12
@@ -35,12 +36,13 @@ size with configurable redundancy (replication or erasure codes/XOR).
 
 %build
 . /opt/rh/devtoolset-9/enable
-make %{?_smp_mflags} BINDIR=%_bindir LIBDIR=%_libdir QEMU_PLUGINDIR=%_libdir/qemu-kvm
+%cmake . -DQEMU_PLUGINDIR=qemu-kvm
+%make_build
 
 
 %install
 rm -rf $RPM_BUILD_ROOT
-%make_install BINDIR=%_bindir LIBDIR=%_libdir QEMU_PLUGINDIR=%_libdir/qemu-kvm
+%make_install
 . /opt/rh/rh-nodejs12/enable
 cd mon
 npm install
@@ -56,7 +58,11 @@ cp -r mon %buildroot/usr/lib/vitastor/mon
 %_bindir/vitastor-osd
 %_bindir/vitastor-rm
 %_libdir/qemu-kvm/block-vitastor.so
-%_libdir/vitastor
+%_libdir/libfio_vitastor.so
+%_libdir/libfio_vitastor_blk.so
+%_libdir/libfio_vitastor_sec.so
+%_libdir/libvitastor_blk.so
+%_libdir/libvitastor_client.so
 /usr/lib/vitastor
 
 

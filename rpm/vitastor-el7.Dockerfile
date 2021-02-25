@@ -1,5 +1,5 @@
 # Build packages for CentOS 7 inside a container
-# cd ..; podman build -t vitastor-el7 -v `pwd`/build:/root/build -f rpm/vitastor-el7.Dockerfile .
+# cd ..; podman build -t vitastor-el7 -v `pwd`/packages:/root/packages -f rpm/vitastor-el7.Dockerfile .
 # localedef -i ru_RU -f UTF-8 ru_RU.UTF-8
 
 FROM centos:7
@@ -25,12 +25,12 @@ RUN set -e; \
     cd ~/rpmbuild/SPECS/; \
     . /opt/rh/devtoolset-9/enable; \
     rpmbuild -ba liburing.spec; \
-    mkdir -p /root/build/liburing-el7; \
-    rm -rf /root/build/liburing-el7/*; \
-    cp ~/rpmbuild/RPMS/*/liburing* /root/build/liburing-el7/; \
-    cp ~/rpmbuild/SRPMS/liburing* /root/build/liburing-el7/
+    mkdir -p /root/packages/liburing-el7; \
+    rm -rf /root/packages/liburing-el7/*; \
+    cp ~/rpmbuild/RPMS/*/liburing* /root/packages/liburing-el7/; \
+    cp ~/rpmbuild/SRPMS/liburing* /root/packages/liburing-el7/
 
-RUN rpm -i `ls /root/build/liburing-el7/liburing-*.x86_64.rpm | grep -v debug`
+RUN rpm -i `ls /root/packages/liburing-el7/liburing-*.x86_64.rpm | grep -v debug`
 
 ADD . /root/vitastor
 
@@ -41,7 +41,7 @@ RUN set -e; \
     cp vitastor-el7.spec ~/rpmbuild/SPECS/vitastor.spec; \
     cd ~/rpmbuild/SPECS/; \
     rpmbuild -ba vitastor.spec; \
-    mkdir -p /root/build/vitastor-el7; \
-    rm -rf /root/build/vitastor-el7/*; \
-    cp ~/rpmbuild/RPMS/*/vitastor* /root/build/vitastor-el7/; \
-    cp ~/rpmbuild/SRPMS/vitastor* /root/build/vitastor-el7/
+    mkdir -p /root/packages/vitastor-el7; \
+    rm -rf /root/packages/vitastor-el7/*; \
+    cp ~/rpmbuild/RPMS/*/vitastor* /root/packages/vitastor-el7/; \
+    cp ~/rpmbuild/SRPMS/vitastor* /root/packages/vitastor-el7/

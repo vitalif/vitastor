@@ -13,6 +13,7 @@ BuildRequires:  gcc-toolset-9-gcc-c++
 BuildRequires:  nodejs >= 10
 BuildRequires:  jerasure-devel
 BuildRequires:  gf-complete-devel
+BuildRequires:  cmake
 Requires:       fio = 3.7-3.el8
 Requires:       qemu-kvm = 4.2.0-29.el8.6
 Requires:       nodejs >= 10
@@ -33,12 +34,13 @@ size with configurable redundancy (replication or erasure codes/XOR).
 
 %build
 . /opt/rh/gcc-toolset-9/enable
-make %{?_smp_mflags} BINDIR=%_bindir LIBDIR=%_libdir QEMU_PLUGINDIR=%_libdir/qemu-kvm
+%cmake . -DQEMU_PLUGINDIR=qemu-kvm
+%make_build
 
 
 %install
 rm -rf $RPM_BUILD_ROOT
-%make_install BINDIR=%_bindir LIBDIR=%_libdir QEMU_PLUGINDIR=%_libdir/qemu-kvm
+%make_install
 cd mon
 npm install
 cd ..
@@ -53,7 +55,11 @@ cp -r mon %buildroot/usr/lib/vitastor
 %_bindir/vitastor-osd
 %_bindir/vitastor-rm
 %_libdir/qemu-kvm/block-vitastor.so
-%_libdir/vitastor
+%_libdir/libfio_vitastor.so
+%_libdir/libfio_vitastor_blk.so
+%_libdir/libfio_vitastor_sec.so
+%_libdir/libvitastor_blk.so
+%_libdir/libvitastor_client.so
 /usr/lib/vitastor
 
 

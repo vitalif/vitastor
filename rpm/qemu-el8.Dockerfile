@@ -1,5 +1,5 @@
 # Build packages for CentOS 8 inside a container
-# cd ..; podman build -t qemu-el8 -v `pwd`/build:/root/build -f rpm/qemu-el8.Dockerfile .
+# cd ..; podman build -t qemu-el8 -v `pwd`/packages:/root/packages -f rpm/qemu-el8.Dockerfile .
 
 FROM centos:8
 
@@ -14,8 +14,8 @@ RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo=PowerTools --spec qemu-k
 ADD qemu-*-vitastor.patch /root/vitastor/
 
 RUN set -e; \
-    mkdir -p /root/build/qemu-el8; \
-    rm -rf /root/build/qemu-el8/*; \
+    mkdir -p /root/packages/qemu-el8; \
+    rm -rf /root/packages/qemu-el8/*; \
     rpm --nomd5 -i /root/qemu*.src.rpm; \
     cd ~/rpmbuild/SPECS; \
     PN=$(grep ^Patch qemu-kvm.spec | tail -n1 | perl -pe 's/Patch(\d+).*/$1/'); \
@@ -27,5 +27,5 @@ RUN set -e; \
     perl -i -pe 's/(^Release:\s*\d+)/$1.vitastor/' qemu-kvm.spec; \
     cp /root/vitastor/qemu-4.2-vitastor.patch ~/rpmbuild/SOURCES; \
     rpmbuild --nocheck -ba qemu-kvm.spec; \
-    cp ~/rpmbuild/RPMS/*/*qemu* /root/build/qemu-el8/; \
-    cp ~/rpmbuild/SRPMS/*qemu* /root/build/qemu-el8/
+    cp ~/rpmbuild/RPMS/*/*qemu* /root/packages/qemu-el8/; \
+    cp ~/rpmbuild/SRPMS/*qemu* /root/packages/qemu-el8/
