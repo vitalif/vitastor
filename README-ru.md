@@ -382,10 +382,8 @@ Vitastor с однопоточной NBD прокси на том же стен�
       * Для QEMU 2.0+: `<qemu>/qapi-types.h` &rarr; `<vitastor>/qemu/b/qemu/qapi-types.h`
    - `config-host.h` и `qapi` нужны, т.к. в них содержатся автогенерируемые заголовки
 - Установите fio 3.7 или новее, возьмите исходники пакета и сделайте на них симлинк с `<vitastor>/fio`.
-- Соберите Vitastor через `make -j8`.
-- Запустить `make install`. Обратите внимание на опции LIBDIR и QEMU_PLUGINDIR, по умолчанию они
-  прописаны для Debian. Если у вас RPM-дистрибутив - правильные значения, скорее всего,
-  `LIBDIR=/usr/lib64 QEMU_PLUGINDIR=/usr/lib64/qemu-kvm`.
+- Соберите и установите Vitastor командой `mkdir build && cd build && cmake .. && make -j8 && make install`.
+  Обратите внимание на переменную cmake `QEMU_PLUGINDIR` - под RHEL её нужно установить равной `qemu-kvm`.
 
 ## Запуск
 
@@ -397,14 +395,10 @@ Vitastor с однопоточной NBD прокси на том же стен�
   в этом случае пострадает.
 - Быстрая сеть, минимум 10 гбит/с
 - Для наилучшей производительности нужно отключить энергосбережение CPU: `cpupower idle-set -D 0 && cpupower frequency-set -g performance`.
-- Запустите etcd с параметрами `--max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision`.
-- Создайте глобальную конфигурацию в etcd: `etcdctl --endpoints=... put /vitastor/config/global '{"immediate_commit":"all"}'`
-  (если все ваши диски - серверные с конденсаторами).
-- Создайте пулы: `etcdctl --endpoints=... put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":256,"failure_domain":"host"}}'`.
-  Для jerasure EC-пулов конфигурация должна выглядеть так: `2:{"name":"ecpool","scheme":"jerasure","pg_size":4,"parity_chunks":2,"pg_minsize":2,"pg_count":256,"failure_domain":"host"}`.
-- Рассчитайте смещения для дисков с помощью утилиты `node /usr/lib/vitastor/mon/simple-offsets.js --device /dev/sdX`.
-- Создайте systemd unit-ы для сервисов OSD. Для примера рассмотрите `/usr/lib/vitastor/mon/make-units.sh`.
-  Смысл некоторых опций из этого файла:
+- Пропишите нужные вам значения вверху файлов `/usr/lib/vitastor/mon/make-units.sh` и `/usr/lib/vitastor/mon/make-osd.sh`.
+- Создайте юниты systemd для etcd и мониторов: `/usr/lib/vitastor/mon/make-units.sh`
+- Создайте юниты для OSD: `/usr/lib/vitastor/mon/make-osd.sh /dev/disk/by-partuuid/XXX [/dev/disk/by-partuuid/YYY ...]`
+- Вы можете поменять параметры OSD в юнитах systemd. Смысл некоторых параметров:
   - `disable_data_fsync 1` - отключает fsync, используется с SSD с конденсаторами.
   - `immediate_commit all` - используется с SSD с конденсаторами.
   - `disable_device_lock 1` - отключает блокировку файла устройства, нужно, только если вы запускаете
@@ -418,19 +412,23 @@ Vitastor с однопоточной NBD прокси на том же стен�
     диски, используемые на одном из тестовых стендов - Intel D3-S4510 - очень сильно не любят такую
     перезапись, и для них была добавлена эта опция. Когда данный режим включён, также нужно поднимать
     значение `journal_sector_buffer_count`, так как иначе Vitastor не хватит буферов для записи в журнал.
+- Запустите все etcd: `systemctl start etcd`
+- Создайте глобальную конфигурацию в etcd: `etcdctl --endpoints=... put /vitastor/config/global '{"immediate_commit":"all"}'`
+  (если все ваши диски - серверные с конденсаторами).
+- Создайте пулы: `etcdctl --endpoints=... put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":256,"failure_domain":"host"}}'`.
+  Для jerasure EC-пулов конфигурация должна выглядеть так: `2:{"name":"ecpool","scheme":"jerasure","pg_size":4,"parity_chunks":2,"pg_minsize":2,"pg_count":256,"failure_domain":"host"}`.
 - Запустите все OSD: `systemctl start vitastor.target`
-- Запустите мониторы (любое количество): `node /usr/lib/vitastor/mon/mon-main.js --etcd_url 'http://10.115.0.10:2379,http://10.115.0.11:2379,http://10.115.0.12:2379,http://10.115.0.13:2379' --etcd_prefix '/vitastor' --etcd_start_timeout 5`.
 - Ваш кластер должен быть готов - один из мониторов должен уже сконфигурировать PG, а OSD должны запустить их.
 - Вы можете проверить состояние PG прямо в etcd: `etcdctl --endpoints=... get --prefix /vitastor/pg/state`. Все PG должны быть 'active'.
-- Пример команды для запуска тестов: `fio -thread -ioengine=/usr/lib/x86_64-linux-gnu/vitastor/libfio_cluster.so -name=test -bs=4M -direct=1 -iodepth=16 -rw=write -etcd=10.115.0.10:2379/v3 -pool=1 -inode=1 -size=400G`.
+- Пример команды для запуска тестов: `fio -thread -ioengine=libfio_vitastor.so -name=test -bs=4M -direct=1 -iodepth=16 -rw=write -etcd=10.115.0.10:2379/v3 -pool=1 -inode=1 -size=400G`.
 - Пример команды для заливки образа ВМ в vitastor через qemu-img:
   ```
-  LD_PRELOAD=/usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so qemu-img convert -f qcow2 debian10.qcow2 -p
-    -O raw 'vitastor:etcd_host=10.115.0.10\:2379/v3:pool=1:inode=1:size=2147483648'
+  qemu-img convert -f qcow2 debian10.qcow2 -p -O raw 'vitastor:etcd_host=10.115.0.10\:2379/v3:pool=1:inode=1:size=2147483648'
   ```
+  Если вы используете немодифицированный QEMU, данной команде потребуется переменная окружения `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so`.
 - Пример команды запуска QEMU:
   ```
-  LD_PRELOAD=/usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so qemu-system-x86_64 -enable-kvm -m 1024
+  qemu-system-x86_64 -enable-kvm -m 1024
     -drive 'file=vitastor:etcd_host=10.115.0.10\:2379/v3:pool=1:inode=1:size=2147483648',format=raw,if=none,id=drive-virtio-disk0,cache=none
     -device virtio-blk-pci,scsi=off,bus=pci.0,addr=0x5,drive=drive-virtio-disk0,id=virtio-disk0,bootindex=1,write-cache=off,physical_block_size=4096,logical_block_size=512
     -vnc 0.0.0.0:0
