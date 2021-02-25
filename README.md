@@ -356,10 +356,8 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
   - `disable_data_fsync 1` - only safe with server-grade drives with capacitors.
   - `immediate_commit all` - use this if all your drives are server-grade.
   - `disable_device_lock 1` - only required if you run multiple OSDs on one block device.
-  - `flusher_count 16` - flusher is a micro-thread that removes old data from the journal.
-    More flushers mean more aggressive journal flushing which allows for more throughput
-    but slightly hurts latency under less load. Flushing will probably be improved in the future
-    because currently high queue depths sometimes lead to performance degradation.
+  - `flusher_count 256` - flusher is a micro-thread that removes old data from the journal.
+    You don't have to worry about this parameter anymore, 256 is enough.
   - `disk_alignment`, `journal_block_size`, `meta_block_size` should be set to the internal
     block size of your SSDs which is 4096 on most drives.
   - `journal_no_same_sector_overwrites true` prevents multiple overwrites of the same journal sector.
