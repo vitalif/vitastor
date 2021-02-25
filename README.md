@@ -336,9 +336,8 @@ Vitastor with single-thread NBD on the same hardware:
 - You can also rebuild QEMU with a patch that makes LD_PRELOAD unnecessary to load vitastor driver.
   See `qemu-*.*-vitastor.patch`.
 - Install fio 3.7 or later, get its source and symlink it into `<vitastor>/fio`.
-- Build Vitastor with `make -j8`.
-- Run `make install` (optionally with `LIBDIR=/usr/lib64 QEMU_PLUGINDIR=/usr/lib64/qemu-kvm`
-  if you're using an RPM-based distro).
+- Build & install Vitastor with `mkdir build && cd build && cmake .. && make -j8 && make install`.
+  Pay attention to the `QEMU_PLUGINDIR` cmake option - it must be set to `qemu-kvm` on RHEL.
 
 ## Running
 
@@ -349,14 +348,11 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
   with lazy fsync, but prepare for inferior single-thread latency.
 - Get a fast network (at least 10 Gbit/s).
 - Disable CPU powersaving: `cpupower idle-set -D 0 && cpupower frequency-set -g performance`.
-- Start etcd with `--max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision` options.
-- Create global configuration in etcd: `etcdctl --endpoints=... put /vitastor/config/global '{"immediate_commit":"all"}'`
-  (if all your drives have capacitors).
-- Create pool configuration in etcd: `etcdctl --endpoints=... put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":256,"failure_domain":"host"}}'`.
-  For jerasure pools the configuration should look like the following: `2:{"name":"ecpool","scheme":"jerasure","pg_size":4,"parity_chunks":2,"pg_minsize":2,"pg_count":256,"failure_domain":"host"}`.
-- Calculate offsets for your drives with `node /usr/lib/vitastor/mon/simple-offsets.js --device /dev/sdX`.
-- Make systemd units for your OSDs. Look at `/usr/lib/vitastor/mon/make-units.sh` for example.
-  Notable configuration variables from the example:
+- Check `/usr/lib/vitastor/mon/make-units.sh` and `/usr/lib/vitastor/mon/make-osd.sh` and
+  put desired values into the variables at the top of these files.
+- Create systemd units for the monitor and etcd: `/usr/lib/vitastor/mon/make-units.sh`
+- Create systemd units for your OSDs: `/usr/lib/vitastor/mon/make-osd.sh /dev/disk/by-partuuid/XXX [/dev/disk/by-partuuid/YYY ...]`
+- You can edit the units and change OSD configuration. Notable configuration variables:
   - `disable_data_fsync 1` - only safe with server-grade drives with capacitors.
   - `immediate_commit all` - use this if all your drives are server-grade.
   - `disable_device_lock 1` - only required if you run multiple OSDs on one block device.
@@ -374,18 +370,22 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
     setting is set, it is also required to raise `journal_sector_buffer_count` setting, which is the
     number of dirty journal sectors that may be written to at the same time.
 - `systemctl start vitastor.target` everywhere.
-- Start any number of monitors: `node /usr/lib/vitastor/mon/mon-main.js --etcd_url 'http://10.115.0.10:2379,http://10.115.0.11:2379,http://10.115.0.12:2379,http://10.115.0.13:2379' --etcd_prefix '/vitastor' --etcd_start_timeout 5`.
+- Create global configuration in etcd: `etcdctl --endpoints=... put /vitastor/config/global '{"immediate_commit":"all"}'`
+  (if all your drives have capacitors).
+- Create pool configuration in etcd: `etcdctl --endpoints=... put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":256,"failure_domain":"host"}}'`.
+  For jerasure pools the configuration should look like the following: `2:{"name":"ecpool","scheme":"jerasure","pg_size":4,"parity_chunks":2,"pg_minsize":2,"pg_count":256,"failure_domain":"host"}`.
 - At this point, one of the monitors will configure PGs and OSDs will start them.
 - You can check PG states with `etcdctl --endpoints=... get --prefix /vitastor/pg/state`. All PGs should become 'active'.
-- Run tests with (for example): `fio -thread -ioengine=/usr/lib/x86_64-linux-gnu/vitastor/libfio_cluster.so -name=test -bs=4M -direct=1 -iodepth=16 -rw=write -etcd=10.115.0.10:2379/v3 -pool=1 -inode=1 -size=400G`.
+- Run tests with (for example): `fio -thread -ioengine=libfio_vitastor.so -name=test -bs=4M -direct=1 -iodepth=16 -rw=write -etcd=10.115.0.10:2379/v3 -pool=1 -inode=1 -size=400G`.
 - Upload VM disk image with qemu-img (for example):
   ```
-  LD_PRELOAD=/usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so qemu-img convert -f qcow2 debian10.qcow2 -p
-    -O raw 'vitastor:etcd_host=10.115.0.10\:2379/v3:pool=1:inode=1:size=2147483648'
+  qemu-img convert -f qcow2 debian10.qcow2 -p -O raw 'vitastor:etcd_host=10.115.0.10\:2379/v3:pool=1:inode=1:size=2147483648'
   ```
+  Note that the command requires to be run with `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so qemu-img ...`
+  if you use unmodified QEMU.
 - Run QEMU with (for example):
   ```
-  LD_PRELOAD=/usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so qemu-system-x86_64 -enable-kvm -m 1024
+  qemu-system-x86_64 -enable-kvm -m 1024
     -drive 'file=vitastor:etcd_host=10.115.0.10\:2379/v3:pool=1:inode=1:size=2147483648',format=raw,if=none,id=drive-virtio-disk0,cache=none
     -device virtio-blk-pci,scsi=off,bus=pci.0,addr=0x5,drive=drive-virtio-disk0,id=virtio-disk0,bootindex=1,write-cache=off,physical_block_size=4096,logical_block_size=512
     -vnc 0.0.0.0:0
