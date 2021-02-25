@@ -16,3 +16,4 @@ fio
 qemu
 rpm/*.Dockerfile
 debian/*.Dockerfile
+Dockerfile
