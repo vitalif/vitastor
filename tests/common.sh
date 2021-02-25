@@ -7,13 +7,13 @@ fi
 
 format_error()
 {
-    echo $(echo -n -e "\033[1;31m")$1$(echo -n -e "\033[m")
+    echo $(echo -n -e "\033[1;31m")"$1"$(echo -n -e "\033[m")
     $ETCDCTL get --prefix /vitastor > ./testdata/etcd-dump.txt
     exit 1
 }
 format_green()
 {
-    echo $(echo -n -e "\033[1;32m")$1$(echo -n -e "\033[m")
+    echo $(echo -n -e "\033[1;32m")"$1"$(echo -n -e "\033[m")
 }
 
 cd `dirname $0`/..
