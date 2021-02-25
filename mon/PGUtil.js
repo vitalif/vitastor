@@ -8,7 +8,7 @@ module.exports = {
 function scale_pg_count(prev_pgs, prev_pg_history, new_pg_history, new_pg_count)
 {
     const old_pg_count = prev_pgs.length;
-    // Add all possibly intersecting PGs into the history of new PGs
+    // Add all possibly intersecting PGs to the history of new PGs
     if (!(new_pg_count % old_pg_count))
     {
         // New PG count is a multiple of the old PG count
@@ -16,7 +16,7 @@ function scale_pg_count(prev_pgs, prev_pg_history, new_pg_history, new_pg_count)
         for (let i = 0; i < new_pg_count; i++)
         {
             const old_i = Math.floor(new_pg_count / mul);
-            new_pg_history[i] = JSON.parse(JSON.stringify(prev_pg_history[1+old_i]));
+            new_pg_history[i] = prev_pg_history[old_i] ? JSON.parse(JSON.stringify(prev_pg_history[old_i])) : undefined;
         }
     }
     else if (!(old_pg_count % new_pg_count))

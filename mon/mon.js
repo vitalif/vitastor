@@ -840,7 +840,7 @@ class Mon
                 this.save_new_pgs_txn(etcd_request, pool_id, up_osds, prev_pgs, optimize_result.int_pgs, pg_history);
             }
             this.state.config.pgs.hash = tree_hash;
-            await this.save_pg_config();
+            await this.save_pg_config(etcd_request);
         }
         else
         {

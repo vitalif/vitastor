@@ -802,11 +802,11 @@ void osd_t::report_pg_states()
                     if (pg_it->second.state == PG_OFFLINE)
                     {
                         // Remove offline PGs after reporting their state
-                        this->pgs.erase(pg_it);
                         if (pg_it->second.scheme == POOL_SCHEME_JERASURE)
                         {
                             use_jerasure(pg_it->second.pg_size, pg_it->second.pg_size-pg_it->second.parity_chunks, false);
                         }
+                        this->pgs.erase(pg_it);
                     }
                 }
             }
