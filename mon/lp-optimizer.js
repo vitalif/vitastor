@@ -493,8 +493,8 @@ function extract_osds(osd_tree, levels, osd_level, osds = {})
     return osds;
 }
 
-// unordered = don't treat (x,y) and (y,x) as equal
-function random_combinations(osd_tree, pg_size, count, unordered)
+// ordered = don't treat (x,y) and (y,x) as equal
+function random_combinations(osd_tree, pg_size, count, ordered)
 {
     let seed = 0x5f020e43;
     let rng = () =>
@@ -523,7 +523,7 @@ function random_combinations(osd_tree, pg_size, count, unordered)
                 cur_hosts.splice(next_host, 1);
             }
             const cyclic_pgs = [ pg ];
-            if (unordered)
+            if (ordered)
             {
                 for (let i = 1; i < pg.size; i++)
                 {
@@ -546,7 +546,7 @@ function random_combinations(osd_tree, pg_size, count, unordered)
         let host_idx = [];
         const cur_hosts = [ ...hosts.map((h, i) => i) ];
         const max_hosts = pg_size < hosts.length ? pg_size : hosts.length;
-        if (unordered)
+        if (ordered)
         {
             for (let i = 0; i < max_hosts; i++)
             {
