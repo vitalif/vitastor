@@ -275,6 +275,11 @@ async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, 
     lp += 'max: '+all_pg_names.map(pg_name => (
         prev_weights[pg_name] ? `${pg_size+1}*add_${pg_name} - ${pg_size+1}*del_${pg_name}` : `${pg_size+1-move_weights[pg_name]}*${pg_name}`
     )).join(' + ')+';\n';
+    lp += all_pg_names
+        .map(pg_name => (prev_weights[pg_name] ? `add_${pg_name} - del_${pg_name}` : `${pg_name}`))
+        .join(' + ')+' = '+(pg_count
+            - Object.keys(prev_weights).reduce((a, old_pg_name) => (a + (all_pgs_hash[old_pg_name] ? prev_weights[old_pg_name] : 0)), 0)
+        )+';\n';
     for (const osd in pg_per_osd)
     {
         if (osd !== NO_OSD)
