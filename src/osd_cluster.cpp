@@ -593,7 +593,10 @@ void osd_t::apply_pg_config()
                     }
                     else
                     {
-                        throw std::runtime_error("Unexpected PG "+std::to_string(pg_num)+" state: "+std::to_string(pg_it->second.state));
+                        throw std::runtime_error(
+                            "Unexpected PG "+std::to_string(pool_id)+"/"+std::to_string(pg_num)+
+                            " state: "+std::to_string(pg_it->second.state)
+                        );
                     }
                 }
                 auto & pg = this->pgs[{ .pool_id = pool_id, .pg_num = pg_num }];

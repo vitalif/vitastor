@@ -95,7 +95,7 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
     {
         // This flush batch is done
         std::vector<osd_op_t*> continue_ops;
-        auto & pg = pgs[pg_id];
+        auto & pg = pgs.at(pg_id);
         auto it = pg.flush_actions.begin(), prev_it = it;
         auto erase_start = it;
         while (1)

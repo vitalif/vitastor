@@ -103,7 +103,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
     if (op_data->st == 1)      goto resume_1;
     else if (op_data->st == 2) goto resume_2;
     {
-        auto & pg = pgs[{ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num }];
+        auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
         for (int role = 0; role < op_data->pg_data_size; role++)
         {
             op_data->stripes[role].read_start = op_data->stripes[role].req_start;
@@ -211,7 +211,7 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
         return;
     }
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    auto & pg = pgs[{ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num }];
+    auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
     if (op_data->st == 1)      goto resume_1;
     else if (op_data->st == 2) goto resume_2;
     else if (op_data->st == 3) goto resume_3;
@@ -582,7 +582,7 @@ resume_2:
         int dpg = 0;
         for (auto dirty_pg_num: dirty_pgs)
         {
-            pgs[dirty_pg_num].inflight++;
+            pgs.at(dirty_pg_num).inflight++;
             op_data->dirty_pgs[dpg++] = dirty_pg_num;
         }
         dirty_pgs.clear();
@@ -639,7 +639,7 @@ resume_6:
                         .pool_id = INODE_POOL(w.oid.inode),
                         .pg_num = map_to_pg(w.oid, st_cli.pool_config.at(INODE_POOL(w.oid.inode)).pg_stripe_size),
                     };
-                    if (pgs[wpg].state & PG_ACTIVE)
+                    if (pgs.at(wpg).state & PG_ACTIVE)
                     {
                         uint64_t & dest = this->unstable_writes[(osd_object_id_t){
                             .osd_num = unstable_osd.osd_num,
@@ -750,7 +750,7 @@ void osd_t::continue_primary_del(osd_op_t *cur_op)
         return;
     }
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    auto & pg = pgs[{ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num }];
+    auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
     if (op_data->st == 1)      goto resume_1;
     else if (op_data->st == 2) goto resume_2;
     else if (op_data->st == 3) goto resume_3;
