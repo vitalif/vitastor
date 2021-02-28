@@ -25,7 +25,7 @@ OSD6_PID=$!
 cd mon
 npm install
 cd ..
-node mon/mon-main.js --etcd_url http://$ETCD_URL --etcd_prefix "/vitastor" &>./testdata/mon.log &
+node mon/mon-main.js --etcd_url http://$ETCD_URL --etcd_prefix "/vitastor" --verbose 1 &>./testdata/mon.log &
 MON_PID=$!
 
 $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":16,"failure_domain":"osd"}}'
@@ -97,9 +97,15 @@ try_change 17
 
 try_change 16
 
+# Monitor should report non-zero overall statistics at least once
+
+if ! (grep /vitastor/stats ./testdata/mon.log | jq -s -e '[ .[] | select((.kv.value.op_stats.primary_write.count | tonumber) > 0) ] | length > 0'); then
+    format_error "FAILED: monitor doesn't aggregate stats"
+fi
+
 # Changing pg count should never produce the 'has_degraded' object state
 
-if grep has_degraded testdata/osd*.log; then
+if grep has_degraded ./testdata/osd*.log; then
     format_error "FAILED: some objects were degraded during PG move"
 fi
 

@@ -379,7 +379,7 @@ class Mon
                     }
                     if (this.verbose)
                     {
-                        console.log(e);
+                        console.log(JSON.stringify(e));
                     }
                 }
                 if (stats_changed)
@@ -974,21 +974,21 @@ class Mon
             for (const op in st.op_stats||{})
             {
                 op_stats[op] = op_stats[op] || { count: 0n, usec: 0n, bytes: 0n };
-                op_stats[op].count += BigInt(st.op_stats.count||0);
-                op_stats[op].usec += BigInt(st.op_stats.usec||0);
-                op_stats[op].bytes += BigInt(st.op_stats.bytes||0);
+                op_stats[op].count += BigInt(st.op_stats[op].count||0);
+                op_stats[op].usec += BigInt(st.op_stats[op].usec||0);
+                op_stats[op].bytes += BigInt(st.op_stats[op].bytes||0);
             }
             for (const op in st.subop_stats||{})
             {
                 subop_stats[op] = subop_stats[op] || { count: 0n, usec: 0n };
-                subop_stats[op].count += BigInt(st.subop_stats.count||0);
-                subop_stats[op].usec += BigInt(st.subop_stats.usec||0);
+                subop_stats[op].count += BigInt(st.subop_stats[op].count||0);
+                subop_stats[op].usec += BigInt(st.subop_stats[op].usec||0);
             }
             for (const op in st.recovery_stats||{})
             {
                 recovery_stats[op] = recovery_stats[op] || { count: 0n, bytes: 0n };
-                recovery_stats[op].count += BigInt(st.recovery_stats.count||0);
-                recovery_stats[op].bytes += BigInt(st.recovery_stats.bytes||0);
+                recovery_stats[op].count += BigInt(st.recovery_stats[op].count||0);
+                recovery_stats[op].bytes += BigInt(st.recovery_stats[op].bytes||0);
             }
         }
         for (const op in op_stats)
