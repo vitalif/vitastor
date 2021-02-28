@@ -28,7 +28,9 @@ cd ..
 node mon/mon-main.js --etcd_url http://$ETCD_URL --etcd_prefix "/vitastor" --verbose 1 &>./testdata/mon.log &
 MON_PID=$!
 
-$ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":16,"failure_domain":"osd"}}'
+$ETCDCTL put /vitastor/config/global '{"immediate_commit":"all"}'
+
+$ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":2,"pg_count":16,"failure_domain":"osd"}}'
 
 sleep 2
 
@@ -51,7 +53,7 @@ try_change()
     $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":2,"pg_count":'$n',"failure_domain":"osd"}}'
 
     for i in {1..10}; do
-        ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(.[0].items["1"] | map((.osd_set | sort) == ["1","2","3"]) | length) == '$n) && \
+        ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(.[0].items["1"] | map((.osd_set | select(. > 0)) | length == 2) | length) == '$n) && \
             ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select(.state == ["active"] or .state == ["active", "has_misplaced"]) ] | length) == '$n'') && \
             break
         sleep 1
@@ -64,7 +66,7 @@ try_change()
         sleep 1
     done
 
-    if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(.[0].items["1"] | map((.osd_set | sort) == ["1","2","3"]) | length) == '$n); then
+    if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(.[0].items["1"] | map((.osd_set | select(. > 0)) | length == 2) | length) == '$n); then
         $ETCDCTL get /vitastor/config/pgs
         $ETCDCTL get --prefix /vitastor/pg/state/
         format_error "FAILED: $n PGS NOT CONFIGURED"
@@ -101,12 +103,6 @@ try_change 16
 
 if ! (grep /vitastor/stats ./testdata/mon.log | jq -s -e '[ .[] | select((.kv.value.op_stats.primary_write.count | tonumber) > 0) ] | length > 0'); then
     format_error "FAILED: monitor doesn't aggregate stats"
-fi
-
-# Changing pg count should never produce the 'has_degraded' object state
-
-if grep has_degraded ./testdata/osd*.log; then
-    format_error "FAILED: some objects were degraded during PG move"
 fi
 
 format_green OK
