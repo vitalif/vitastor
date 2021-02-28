@@ -142,7 +142,7 @@ json11::Json osd_t::get_statistics()
     }
     st["host"] = self_state["host"];
     json11::Json::object op_stats, subop_stats;
-    for (int i = 0; i <= OSD_OP_MAX; i++)
+    for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)
     {
         op_stats[osd_op_names[i]] = json11::Json::object {
             { "count", c_cli.stats.op_stat_count[i] },
@@ -150,7 +150,7 @@ json11::Json osd_t::get_statistics()
             { "bytes", c_cli.stats.op_stat_bytes[i] },
         };
     }
-    for (int i = 0; i <= OSD_OP_MAX; i++)
+    for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)
     {
         subop_stats[osd_op_names[i]] = json11::Json::object {
             { "count", c_cli.stats.subop_stat_count[i] },
