@@ -473,7 +473,9 @@ bool osd_t::stop_pg(pg_t & pg)
         return false;
     }
     pg.state = pg.state & ~PG_ACTIVE | PG_STOPPING;
-    if (pg.inflight == 0 && !pg.flush_batch)
+    if (pg.inflight == 0 && !pg.flush_batch &&
+        // We must either forget all PG's unstable writes or wait for it to become clean
+        dirty_pgs.find({ .pool_id = pg.pool_id, .pg_num = pg.pg_num }) == dirty_pgs.end())
     {
         finish_stop_pg(pg);
     }
