@@ -510,6 +510,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     {
         return 0;
     }
+    write_iodepth++;
     io_uring_sqe *sqe = NULL;
     if (immediate_commit != IMMEDIATE_NONE ||
         (journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_del) &&
