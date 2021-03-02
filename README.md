@@ -420,7 +420,7 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
 
 Copyright (c) Vitaliy Filippov (vitalif [at] yourcmc.ru), 2019+
 
-You can also find me in the Russian Telegram Ceph chat: https://t.me/ceph_ru
+Join Vitastor Telegram Chat: https://t.me/vitastor
 
 All server-side code (OSD, Monitor and so on) is licensed under the terms of
 Vitastor Network Public License 1.1 (VNPL 1.1), a copyleft license based on
