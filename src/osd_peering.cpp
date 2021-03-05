@@ -98,13 +98,9 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
     }
 }
 
-// Repeer on each connect/disconnect peer event
-void osd_t::start_pg_peering(pg_t & pg)
+// Reset PG state (when peering or stopping)
+void osd_t::reset_pg(pg_t & pg)
 {
-    pg.state = PG_PEERING;
-    this->peering_state |= OSD_PEERING_PGS;
-    report_pg_state(pg);
-    // Reset PG state
     pg.cur_peers.clear();
     pg.state_dict.clear();
     incomplete_objects -= pg.incomplete_objects.size();
@@ -135,6 +131,15 @@ void osd_t::start_pg_peering(pg_t & pg)
             it++;
     }
     dirty_pgs.erase({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
+}
+
+// Repeer on each connect/disconnect peer event
+void osd_t::start_pg_peering(pg_t & pg)
+{
+    pg.state = PG_PEERING;
+    this->peering_state |= OSD_PEERING_PGS;
+    reset_pg(pg);
+    report_pg_state(pg);
     // Drop connections of clients who have this PG in dirty_pgs
     if (immediate_commit != IMMEDIATE_ALL)
     {
@@ -494,6 +499,7 @@ bool osd_t::stop_pg(pg_t & pg)
 void osd_t::finish_stop_pg(pg_t & pg)
 {
     pg.state = PG_OFFLINE;
+    reset_pg(pg);
     report_pg_state(pg);
 }
 

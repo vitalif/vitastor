@@ -160,6 +160,7 @@ class osd_t
     void submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps);
     void discard_list_subop(osd_op_t *list_op);
     bool stop_pg(pg_t & pg);
+    void reset_pg(pg_t & pg);
     void finish_stop_pg(pg_t & pg);
 
     // flushing, recovery and backfill
