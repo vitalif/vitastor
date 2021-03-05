@@ -459,11 +459,11 @@ bool osd_t::stop_pg(pg_t & pg)
     if (pg.peering_state)
     {
         // Stop peering
-        for (auto it = pg.peering_state->list_ops.begin(); it != pg.peering_state->list_ops.end();)
+        for (auto it = pg.peering_state->list_ops.begin(); it != pg.peering_state->list_ops.end(); it++)
         {
             discard_list_subop(it->second);
         }
-        for (auto it = pg.peering_state->list_results.begin(); it != pg.peering_state->list_results.end();)
+        for (auto it = pg.peering_state->list_results.begin(); it != pg.peering_state->list_results.end(); it++)
         {
             if (it->second.buf)
             {
