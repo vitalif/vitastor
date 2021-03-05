@@ -468,9 +468,14 @@ bool osd_t::stop_pg(pg_t & pg)
         delete pg.peering_state;
         pg.peering_state = NULL;
     }
-    if (!(pg.state & PG_ACTIVE))
+    if (pg.state & PG_STOPPING)
     {
         return false;
+    }
+    if (!(pg.state & PG_ACTIVE))
+    {
+        finish_stop_pg(pg);
+        return true;
     }
     pg.state = pg.state & ~PG_ACTIVE | PG_STOPPING;
     if (pg.inflight == 0 && !pg.flush_batch &&
