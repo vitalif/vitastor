@@ -22,6 +22,7 @@ const etcd_allow = new RegExp('^'+[
     'pg/state/[1-9]\\d*/[1-9]\\d*',
     'pg/stats/[1-9]\\d*/[1-9]\\d*',
     'pg/history/[1-9]\\d*/[1-9]\\d*',
+    'history/last_clean_pgs',
     'stats',
 ].join('$|^')+'$');
 
@@ -213,6 +214,9 @@ const etcd_tree = {
             incomplete: uint64_t,
         }, */
     },
+    history: {
+        last_clean_pgs: {},
+    },
 };
 
 // FIXME Split into several files
@@ -359,7 +363,7 @@ class Mon
             }
             else
             {
-                let stats_changed = false, changed = false;
+                let stats_changed = false, changed = false, pg_states_changed = false;
                 if (this.verbose)
                 {
                     console.log('Revision '+data.result.header.revision+' events: ');
@@ -373,6 +377,10 @@ class Mon
                     {
                         stats_changed = true;
                     }
+                    else if (key.substr(0, 10) == '/pg/state/')
+                    {
+                        pg_states_changed = true;
+                    }
                     else if (key != '/stats')
                     {
                         changed = true;
@@ -381,6 +389,10 @@ class Mon
                     {
                         console.log(JSON.stringify(e));
                     }
+                }
+                if (pg_states_changed)
+                {
+                    this.save_last_clean().catch(console.error);
                 }
                 if (stats_changed)
                 {
@@ -392,6 +404,42 @@ class Mon
                 }
             }
         });
+    }
+
+    async save_last_clean()
+    {
+        // last_clean_pgs is used to avoid extra data move when observing a series of changes in the cluster
+        for (const pool_id in this.state.config.pools)
+        {
+            const pool_cfg = this.state.config.pools[pool_id];
+            if (!this.validate_pool_cfg(pool_id, pool_cfg, false))
+            {
+                continue;
+            }
+            for (let pg_num = 1; pg_num <= pool_cfg.pg_count; pg_num++)
+            {
+                if (!this.state.pg.state[pool_id] ||
+                    !this.state.pg.state[pool_id][pg_num] ||
+                    !(this.state.pg.state[pool_id][pg_num].state instanceof Array))
+                {
+                    // Unclean
+                    return;
+                }
+                let st = this.state.pg.state[pool_id][pg_num].state.join(',');
+                if (st != 'active' && st != 'active,left_on_dead' && st != 'left_on_dead,active')
+                {
+                    // Unclean
+                    return;
+                }
+            }
+        }
+        this.state.history.last_clean_pgs = JSON.parse(JSON.stringify(this.state.config.pgs));
+        await this.etcd_call('/kv/txn', {
+            success: [ { requestPut: {
+                key: b64(this.etcd_prefix+'/history/last_clean_pgs'),
+                value: b64(JSON.stringify(this.state.history.last_clean_pgs))
+            } } ],
+        }, this.etcd_start_timeout, 0);
     }
 
     async get_lease()
@@ -791,10 +839,12 @@ class Mon
                 pool_tree = pool_tree ? pool_tree.children : [];
                 pool_tree = LPOptimizer.flatten_tree(pool_tree, levels, pool_cfg.failure_domain, 'osd');
                 this.filter_osds_by_tags(osd_tree, pool_tree, pool_cfg.osd_tags);
+                const prev_pg_hash = (this.state.history.last_clean_pgs.items||{})[pool_id]
+                    || (this.state.config.pgs.items||{})[pool_id] || {};
                 const prev_pgs = [];
-                for (const pg in ((this.state.config.pgs.items||{})[pool_id]||{})||{})
+                for (const pg in prev_pg_hash)
                 {
-                    prev_pgs[pg-1] = this.state.config.pgs.items[pool_id][pg].osd_set;
+                    prev_pgs[pg-1] = prev_pg_hash[pg].osd_set;
                 }
                 const pg_history = [];
                 const old_pg_count = prev_pgs.length;
