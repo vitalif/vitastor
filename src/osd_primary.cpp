@@ -656,7 +656,9 @@ resume_6:
     {
         auto & pg = pgs.at(op_data->dirty_pgs[i]);
         pg.inflight--;
-        if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch)
+        if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch &&
+            // We must either forget all PG's unstable writes or wait for it to become clean
+            dirty_pgs.find({ .pool_id = pg.pool_id, .pg_num = pg.pg_num }) == dirty_pgs.end())
         {
             finish_stop_pg(pg);
         }
