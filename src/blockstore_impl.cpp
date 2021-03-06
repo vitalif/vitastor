@@ -101,21 +101,10 @@ void blockstore_impl_t::loop()
     {
         // try to submit ops
         unsigned initial_ring_space = ringloop->space_left();
-        // FIXME: rework this "sync polling"
-        auto cur_sync = in_progress_syncs.begin();
-        while (cur_sync != in_progress_syncs.end())
-        {
-            if (continue_sync(*cur_sync) != 2)
-            {
-                // List is unmodified
-                cur_sync++;
-            }
-            else
-            {
-                cur_sync = in_progress_syncs.begin();
-            }
-        }
         auto cur = submit_queue.begin();
+        // has_writes == 0 - no writes before the current queue item
+        // has_writes == 1 - some writes in progress
+        // has_writes == 2 - tried to submit some writes, but failed
         int has_writes = 0;
         while (cur != submit_queue.end())
         {
@@ -142,10 +131,12 @@ void blockstore_impl_t::loop()
             }
             unsigned ring_space = ringloop->space_left();
             unsigned prev_sqe_pos = ringloop->save();
-            bool dequeue_op = false;
+            bool dequeue_op = false, cancel_op = false;
+            bool has_in_progress_sync = false;
             if (op->opcode == BS_OP_READ)
             {
                 dequeue_op = dequeue_read(op);
+                cancel_op = !dequeue_op;
             }
             else if (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE)
             {
@@ -154,8 +145,13 @@ void blockstore_impl_t::loop()
                     // Some writes already could not be submitted
                     continue;
                 }
-                dequeue_op = dequeue_write(op);
-                has_writes = dequeue_op ? 1 : 2;
+                int wr_st = dequeue_write(op);
+                // 0 = can't submit
+                // 1 = in progress
+                // 2 = completed, remove from queue
+                dequeue_op = wr_st == 2;
+                cancel_op = wr_st == 0;
+                has_writes = wr_st > 0 ? 1 : 2;
             }
             else if (op->opcode == BS_OP_DELETE)
             {
@@ -164,8 +160,10 @@ void blockstore_impl_t::loop()
                     // Some writes already could not be submitted
                     continue;
                 }
-                dequeue_op = dequeue_del(op);
-                has_writes = dequeue_op ? 1 : 2;
+                int wr_st = dequeue_del(op);
+                dequeue_op = wr_st == 2;
+                cancel_op = wr_st == 0;
+                has_writes = wr_st > 0 ? 1 : 2;
             }
             else if (op->opcode == BS_OP_SYNC)
             {
@@ -178,29 +176,39 @@ void blockstore_impl_t::loop()
                     // Can't submit SYNC before previous writes
                     continue;
                 }
-                dequeue_op = dequeue_sync(op);
+                int wr_st = continue_sync(op, has_in_progress_sync);
+                dequeue_op = wr_st == 2;
+                cancel_op = wr_st == 0;
+                if (dequeue_op != 2)
+                {
+                    // Or we could just set has_writes=1...
+                    has_in_progress_sync = true;
+                }
             }
             else if (op->opcode == BS_OP_STABLE)
             {
-                dequeue_op = dequeue_stable(op);
+                int wr_st = dequeue_stable(op);
+                dequeue_op = wr_st == 2;
+                cancel_op = wr_st == 0;
             }
             else if (op->opcode == BS_OP_ROLLBACK)
             {
-                dequeue_op = dequeue_rollback(op);
+                int wr_st = dequeue_rollback(op);
+                dequeue_op = wr_st == 2;
+                cancel_op = wr_st == 0;
             }
             else if (op->opcode == BS_OP_LIST)
             {
-                // LIST doesn't need to be blocked by previous modifications,
-                // it only needs to include all in-progress writes as they're guaranteed
-                // to be readable and stabilizable/rollbackable by subsequent operations
+                // LIST doesn't need to be blocked by previous modifications
                 process_list(op);
                 dequeue_op = true;
+                cancel_op = false;
             }
             if (dequeue_op)
             {
                 submit_queue.erase(op_ptr);
             }
-            else
+            if (cancel_op)
             {
                 ringloop->restore(prev_sqe_pos);
                 if (PRIV(op)->wait_for == WAIT_SQE)
@@ -233,7 +241,7 @@ bool blockstore_impl_t::is_safe_to_stop()
 {
     // It's safe to stop blockstore when there are no in-flight operations,
     // no in-progress syncs and flusher isn't doing anything
-    if (submit_queue.size() > 0 || in_progress_syncs.size() > 0 || !readonly && flusher->is_active())
+    if (submit_queue.size() > 0 || !readonly && flusher->is_active())
     {
         return false;
     }
@@ -371,12 +379,6 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
     }
     if ((op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE || op->opcode == BS_OP_DELETE) && !enqueue_write(op))
     {
-        std::function<void (blockstore_op_t*)>(op->callback)(op);
-        return;
-    }
-    if (op->opcode == BS_OP_SYNC && immediate_commit == IMMEDIATE_ALL)
-    {
-        op->retval = 0;
         std::function<void (blockstore_op_t*)>(op->callback)(op);
         return;
     }

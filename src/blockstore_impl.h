@@ -160,8 +160,6 @@ struct blockstore_op_private_t
     // Sync
     std::vector<obj_ver_id> sync_big_writes, sync_small_writes;
     int sync_small_checked, sync_big_checked;
-    std::list<blockstore_op_t*>::iterator in_progress_ptr;
-    int prev_sync_count;
 };
 
 // https://github.com/algorithm-ninja/cpp-btree
@@ -212,7 +210,6 @@ class blockstore_impl_t
     blockstore_dirty_db_t dirty_db;
     std::list<blockstore_op_t*> submit_queue; // FIXME: funny thing is that vector is better here
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
-    std::list<blockstore_op_t*> in_progress_syncs; // ...and probably here, too
     allocator *data_alloc = NULL;
     uint8_t *zero_object;
 
@@ -279,11 +276,9 @@ class blockstore_impl_t
     void handle_write_event(ring_data_t *data, blockstore_op_t *op);
 
     // Sync
-    int dequeue_sync(blockstore_op_t *op);
+    int continue_sync(blockstore_op_t *op, bool queue_has_in_progress_sync);
     void handle_sync_event(ring_data_t *data, blockstore_op_t *op);
-    int continue_sync(blockstore_op_t *op);
-    void ack_one_sync(blockstore_op_t *op);
-    int ack_sync(blockstore_op_t *op);
+    void ack_sync(blockstore_op_t *op);
 
     // Stabilize
     int dequeue_stable(blockstore_op_t *op);

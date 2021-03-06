@@ -12,8 +12,15 @@
 #define SYNC_JOURNAL_SYNC_SENT 7
 #define SYNC_DONE 8
 
-int blockstore_impl_t::dequeue_sync(blockstore_op_t *op)
+int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_progress_sync)
 {
+    if (immediate_commit == IMMEDIATE_ALL)
+    {
+        // We can return immediately because sync is only dequeued after all previous writes
+        op->retval = 0;
+        FINISH_OP(op);
+        return 2;
+    }
     if (PRIV(op)->op_state == 0)
     {
         stop_sync_submitted = false;
@@ -29,34 +36,15 @@ int blockstore_impl_t::dequeue_sync(blockstore_op_t *op)
             PRIV(op)->op_state = SYNC_HAS_SMALL;
         else
             PRIV(op)->op_state = SYNC_DONE;
-        // Always add sync to in_progress_syncs because we clear unsynced_big_writes and unsynced_small_writes
-        PRIV(op)->prev_sync_count = in_progress_syncs.size();
-        PRIV(op)->in_progress_ptr = in_progress_syncs.insert(in_progress_syncs.end(), op);
     }
-    continue_sync(op);
-    // Always dequeue because we always add syncs to in_progress_syncs
-    return 1;
-}
-
-int blockstore_impl_t::continue_sync(blockstore_op_t *op)
-{
-    auto cb = [this, op](ring_data_t *data) { handle_sync_event(data, op); };
     if (PRIV(op)->op_state == SYNC_HAS_SMALL)
     {
         // No big writes, just fsync the journal
-        for (; PRIV(op)->sync_small_checked < PRIV(op)->sync_small_writes.size(); PRIV(op)->sync_small_checked++)
-        {
-            if (IS_IN_FLIGHT(dirty_db[PRIV(op)->sync_small_writes[PRIV(op)->sync_small_checked]].state))
-            {
-                // Wait for small inflight writes to complete
-                return 0;
-            }
-        }
         if (journal.sector_info[journal.cur_sector].dirty)
         {
             // Write out the last journal sector if it happens to be dirty
             BS_SUBMIT_GET_ONLY_SQE(sqe);
-            prepare_journal_sector_write(journal, journal.cur_sector, sqe, cb);
+            prepare_journal_sector_write(journal, journal.cur_sector, sqe, [this, op](ring_data_t *data) { handle_sync_event(data, op); });
             PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
             PRIV(op)->pending_ops = 1;
             PRIV(op)->op_state = SYNC_JOURNAL_WRITE_SENT;
@@ -69,21 +57,13 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
     }
     if (PRIV(op)->op_state == SYNC_HAS_BIG)
     {
-        for (; PRIV(op)->sync_big_checked < PRIV(op)->sync_big_writes.size(); PRIV(op)->sync_big_checked++)
-        {
-            if (IS_IN_FLIGHT(dirty_db[PRIV(op)->sync_big_writes[PRIV(op)->sync_big_checked]].state))
-            {
-                // Wait for big inflight writes to complete
-                return 0;
-            }
-        }
         // 1st step: fsync data
         if (!disable_data_fsync)
         {
             BS_SUBMIT_GET_SQE(sqe, data);
             my_uring_prep_fsync(sqe, data_fd, IORING_FSYNC_DATASYNC);
             data->iov = { 0 };
-            data->callback = cb;
+            data->callback = [this, op](ring_data_t *data) { handle_sync_event(data, op); };
             PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
             PRIV(op)->pending_ops = 1;
             PRIV(op)->op_state = SYNC_DATA_SYNC_SENT;
@@ -96,14 +76,6 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
     }
     if (PRIV(op)->op_state == SYNC_DATA_SYNC_DONE)
     {
-        for (; PRIV(op)->sync_small_checked < PRIV(op)->sync_small_writes.size(); PRIV(op)->sync_small_checked++)
-        {
-            if (IS_IN_FLIGHT(dirty_db[PRIV(op)->sync_small_writes[PRIV(op)->sync_small_checked]].state))
-            {
-                // Wait for small inflight writes to complete
-                return 0;
-            }
-        }
         // 2nd step: Data device is synced, prepare & write journal entries
         // Check space in the journal and journal memory buffers
         blockstore_journal_check_t space_check(this);
@@ -127,7 +99,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             {
                 if (cur_sector == -1)
                     PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
-                prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], cb);
+                prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], [this, op](ring_data_t *data) { handle_sync_event(data, op); });
                 cur_sector = journal.cur_sector;
             }
             journal_entry_big_write *je = (journal_entry_big_write*)prefill_single_journal_entry(
@@ -152,7 +124,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             journal.crc32_last = je->crc32;
             it++;
         }
-        prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], cb);
+        prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], [this, op](ring_data_t *data) { handle_sync_event(data, op); });
         assert(s == space_check.sectors_to_write);
         if (cur_sector == -1)
             PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
@@ -168,7 +140,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             BS_SUBMIT_GET_SQE(sqe, data);
             my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
             data->iov = { 0 };
-            data->callback = cb;
+            data->callback = [this, op](ring_data_t *data) { handle_sync_event(data, op); };
             PRIV(op)->pending_ops = 1;
             PRIV(op)->op_state = SYNC_JOURNAL_SYNC_SENT;
             return 1;
@@ -178,9 +150,10 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             PRIV(op)->op_state = SYNC_DONE;
         }
     }
-    if (PRIV(op)->op_state == SYNC_DONE)
+    if (PRIV(op)->op_state == SYNC_DONE && !queue_has_in_progress_sync)
     {
-        return ack_sync(op);
+        ack_sync(op);
+        return 2;
     }
     return 1;
 }
@@ -212,42 +185,16 @@ void blockstore_impl_t::handle_sync_event(ring_data_t *data, blockstore_op_t *op
         else if (PRIV(op)->op_state == SYNC_JOURNAL_SYNC_SENT)
         {
             PRIV(op)->op_state = SYNC_DONE;
-            ack_sync(op);
         }
         else
         {
             throw std::runtime_error("BUG: unexpected sync op state");
         }
+        ringloop->wakeup();
     }
 }
 
-int blockstore_impl_t::ack_sync(blockstore_op_t *op)
-{
-    if (PRIV(op)->op_state == SYNC_DONE && PRIV(op)->prev_sync_count == 0)
-    {
-        // Remove dependency of subsequent syncs
-        auto it = PRIV(op)->in_progress_ptr;
-        int done_syncs = 1;
-        ++it;
-        // Acknowledge sync
-        ack_one_sync(op);
-        while (it != in_progress_syncs.end())
-        {
-            auto & next_sync = *it++;
-            PRIV(next_sync)->prev_sync_count -= done_syncs;
-            if (PRIV(next_sync)->prev_sync_count == 0 && PRIV(next_sync)->op_state == SYNC_DONE)
-            {
-                done_syncs++;
-                // Acknowledge next_sync
-                ack_one_sync(next_sync);
-            }
-        }
-        return 2;
-    }
-    return 0;
-}
-
-void blockstore_impl_t::ack_one_sync(blockstore_op_t *op)
+void blockstore_impl_t::ack_sync(blockstore_op_t *op)
 {
     // Handle states
     for (auto it = PRIV(op)->sync_big_writes.begin(); it != PRIV(op)->sync_big_writes.end(); it++)
@@ -295,7 +242,6 @@ void blockstore_impl_t::ack_one_sync(blockstore_op_t *op)
             }
         }
     }
-    in_progress_syncs.erase(PRIV(op)->in_progress_ptr);
     op->retval = 0;
     FINISH_OP(op);
 }

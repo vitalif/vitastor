@@ -60,7 +60,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
                 // No such object version
                 op->retval = -ENOENT;
                 FINISH_OP(op);
-                return 1;
+                return 2;
             }
             else
             {
@@ -77,7 +77,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
             // Object not synced yet. Caller must sync it first
             op->retval = -EBUSY;
             FINISH_OP(op);
-            return 1;
+            return 2;
         }
         else if (!IS_STABLE(dirty_it->second.state))
         {
@@ -89,7 +89,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
         // Already stable
         op->retval = 0;
         FINISH_OP(op);
-        return 1;
+        return 2;
     }
     // Check journal space
     blockstore_journal_check_t space_check(this);
@@ -176,7 +176,7 @@ resume_5:
     // Acknowledge op
     op->retval = 0;
     FINISH_OP(op);
-    return 1;
+    return 2;
 }
 
 void blockstore_impl_t::mark_stable(const obj_ver_id & v)
@@ -228,9 +228,6 @@ void blockstore_impl_t::handle_stable_event(ring_data_t *data, blockstore_op_t *
     if (PRIV(op)->pending_ops == 0)
     {
         PRIV(op)->op_state++;
-        if (!continue_stable(op))
-        {
-            submit_queue.push_front(op);
-        }
+        ringloop->wakeup();
     }
 }

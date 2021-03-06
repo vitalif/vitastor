@@ -170,7 +170,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         {
             // This is the flag value used to cancel operations
             FINISH_OP(op);
-            return 1;
+            return 2;
         }
         // Restore original low version number for unblocked operations
 #ifdef BLOCKSTORE_DEBUG
@@ -183,7 +183,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             // Original version is still invalid
             // All subsequent writes to the same object must be canceled too
             cancel_all_writes(op, dirty_it, -EEXIST);
-            return 1;
+            return 2;
         }
         op->version = PRIV(op)->real_version;
         PRIV(op)->real_version = 0;
@@ -217,7 +217,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 return 0;
             }
             cancel_all_writes(op, dirty_it, -ENOSPC);
-            return 1;
+            return 2;
         }
         write_iodepth++;
         BS_SUBMIT_GET_SQE(sqe, data);
@@ -370,7 +370,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (!PRIV(op)->pending_ops)
         {
             PRIV(op)->op_state = 4;
-            continue_write(op);
+            return continue_write(op);
         }
         else
         {
@@ -384,17 +384,21 @@ int blockstore_impl_t::continue_write(blockstore_op_t *op)
 {
     io_uring_sqe *sqe = NULL;
     journal_entry_big_write *je;
+    int op_state = PRIV(op)->op_state;
+    if (op_state != 2 && op_state != 4)
+    {
+        // In progress
+        return 1;
+    }
     auto dirty_it = dirty_db.find((obj_ver_id){
         .oid = op->oid,
         .version = op->version,
     });
     assert(dirty_it != dirty_db.end());
-    if (PRIV(op)->op_state == 2)
+    if (op_state == 2)
         goto resume_2;
-    else if (PRIV(op)->op_state == 4)
+    else if (op_state == 4)
         goto resume_4;
-    else
-        return 1;
 resume_2:
     // Only for the immediate_commit mode: prepare and submit big_write journal entry
     sqe = get_sqe();
@@ -464,7 +468,7 @@ resume_4:
     op->retval = op->len;
     write_iodepth--;
     FINISH_OP(op);
-    return 1;
+    return 2;
 }
 
 void blockstore_impl_t::handle_write_event(ring_data_t *data, blockstore_op_t *op)
@@ -483,10 +487,7 @@ void blockstore_impl_t::handle_write_event(ring_data_t *data, blockstore_op_t *o
     {
         release_journal_sectors(op);
         PRIV(op)->op_state++;
-        if (!continue_write(op))
-        {
-            submit_queue.push_front(op);
-        }
+        ringloop->wakeup();
     }
 }
 
@@ -524,6 +525,10 @@ void blockstore_impl_t::release_journal_sectors(blockstore_op_t *op)
 
 int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
 {
+    if (PRIV(op)->op_state)
+    {
+        return continue_write(op);
+    }
     auto dirty_it = dirty_db.find((obj_ver_id){
         .oid = op->oid,
         .version = op->version,
@@ -593,7 +598,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     if (!PRIV(op)->pending_ops)
     {
         PRIV(op)->op_state = 4;
-        continue_write(op);
+        return continue_write(op);
     }
     else
     {

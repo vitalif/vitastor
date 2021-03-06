@@ -50,7 +50,7 @@ skip_ov:
                 {
                     op->retval = -EBUSY;
                     FINISH_OP(op);
-                    return 1;
+                    return 2;
                 }
                 if (dirty_it == dirty_db.begin())
                 {
@@ -66,7 +66,7 @@ skip_ov:
         // Already rolled back
         op->retval = 0;
         FINISH_OP(op);
-        return 1;
+        return 2;
     }
     // Check journal space
     blockstore_journal_check_t space_check(this);
@@ -151,7 +151,7 @@ resume_5:
     // Acknowledge op
     op->retval = 0;
     FINISH_OP(op);
-    return 1;
+    return 2;
 }
 
 void blockstore_impl_t::mark_rolled_back(const obj_ver_id & ov)
@@ -216,10 +216,7 @@ void blockstore_impl_t::handle_rollback_event(ring_data_t *data, blockstore_op_t
     if (PRIV(op)->pending_ops == 0)
     {
         PRIV(op)->op_state++;
-        if (!continue_rollback(op))
-        {
-            submit_queue.push_front(op);
-        }
+        ringloop->wakeup();
     }
 }
 
