@@ -208,7 +208,7 @@ class blockstore_impl_t
     blockstore_clean_db_t clean_db;
     uint8_t *clean_bitmap = NULL;
     blockstore_dirty_db_t dirty_db;
-    std::list<blockstore_op_t*> submit_queue; // FIXME: funny thing is that vector is better here
+    std::vector<blockstore_op_t*> submit_queue;
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
     allocator *data_alloc = NULL;
     uint8_t *zero_object;

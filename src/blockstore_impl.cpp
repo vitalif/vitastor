@@ -101,15 +101,14 @@ void blockstore_impl_t::loop()
     {
         // try to submit ops
         unsigned initial_ring_space = ringloop->space_left();
-        auto cur = submit_queue.begin();
         // has_writes == 0 - no writes before the current queue item
         // has_writes == 1 - some writes in progress
         // has_writes == 2 - tried to submit some writes, but failed
-        int has_writes = 0;
-        while (cur != submit_queue.end())
+        int has_writes = 0, op_idx = 0, new_idx = 0;
+        for (; op_idx < submit_queue.size(); op_idx++)
         {
-            auto op_ptr = cur;
-            auto op = *(cur++);
+            auto op = submit_queue[op_idx];
+            submit_queue[new_idx++] = op;
             // FIXME: This needs some simplification
             // Writes should not block reads if the ring is not full and reads don't depend on them
             // In all other cases we should stop submission
@@ -131,12 +130,13 @@ void blockstore_impl_t::loop()
             }
             unsigned ring_space = ringloop->space_left();
             unsigned prev_sqe_pos = ringloop->save();
-            bool dequeue_op = false, cancel_op = false;
-            bool has_in_progress_sync = false;
+            // 0 = can't submit
+            // 1 = in progress
+            // 2 = can be removed from queue
+            int wr_st = 0;
             if (op->opcode == BS_OP_READ)
             {
-                dequeue_op = dequeue_read(op);
-                cancel_op = !dequeue_op;
+                wr_st = dequeue_read(op);
             }
             else if (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE)
             {
@@ -145,12 +145,7 @@ void blockstore_impl_t::loop()
                     // Some writes already could not be submitted
                     continue;
                 }
-                int wr_st = dequeue_write(op);
-                // 0 = can't submit
-                // 1 = in progress
-                // 2 = completed, remove from queue
-                dequeue_op = wr_st == 2;
-                cancel_op = wr_st == 0;
+                wr_st = dequeue_write(op);
                 has_writes = wr_st > 0 ? 1 : 2;
             }
             else if (op->opcode == BS_OP_DELETE)
@@ -160,9 +155,7 @@ void blockstore_impl_t::loop()
                     // Some writes already could not be submitted
                     continue;
                 }
-                int wr_st = dequeue_del(op);
-                dequeue_op = wr_st == 2;
-                cancel_op = wr_st == 0;
+                wr_st = dequeue_del(op);
                 has_writes = wr_st > 0 ? 1 : 2;
             }
             else if (op->opcode == BS_OP_SYNC)
@@ -176,39 +169,31 @@ void blockstore_impl_t::loop()
                     // Can't submit SYNC before previous writes
                     continue;
                 }
-                int wr_st = continue_sync(op, has_in_progress_sync);
-                dequeue_op = wr_st == 2;
-                cancel_op = wr_st == 0;
-                if (dequeue_op != 2)
+                wr_st = continue_sync(op, false);
+                if (wr_st != 2)
                 {
-                    // Or we could just set has_writes=1...
-                    has_in_progress_sync = true;
+                    has_writes = wr_st > 0 ? 1 : 2;
                 }
             }
             else if (op->opcode == BS_OP_STABLE)
             {
-                int wr_st = dequeue_stable(op);
-                dequeue_op = wr_st == 2;
-                cancel_op = wr_st == 0;
+                wr_st = dequeue_stable(op);
             }
             else if (op->opcode == BS_OP_ROLLBACK)
             {
-                int wr_st = dequeue_rollback(op);
-                dequeue_op = wr_st == 2;
-                cancel_op = wr_st == 0;
+                wr_st = dequeue_rollback(op);
             }
             else if (op->opcode == BS_OP_LIST)
             {
                 // LIST doesn't need to be blocked by previous modifications
                 process_list(op);
-                dequeue_op = true;
-                cancel_op = false;
+                wr_st = 2;
             }
-            if (dequeue_op)
+            if (wr_st == 2)
             {
-                submit_queue.erase(op_ptr);
+                new_idx--;
             }
-            if (cancel_op)
+            if (wr_st == 0)
             {
                 ringloop->restore(prev_sqe_pos);
                 if (PRIV(op)->wait_for == WAIT_SQE)
@@ -218,6 +203,14 @@ void blockstore_impl_t::loop()
                     break;
                 }
             }
+        }
+        if (op_idx != new_idx)
+        {
+            while (op_idx < submit_queue.size())
+            {
+                submit_queue[new_idx++] = submit_queue[op_idx++];
+            }
+            submit_queue.resize(new_idx);
         }
         if (!readonly)
         {

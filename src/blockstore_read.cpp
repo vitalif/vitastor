@@ -112,7 +112,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         read_op->version = 0;
         read_op->retval = read_op->len;
         FINISH_OP(read_op);
-        return 1;
+        return 2;
     }
     uint64_t fulfilled = 0;
     PRIV(read_op)->pending_ops = 0;
@@ -232,10 +232,10 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         }
         read_op->retval = read_op->len;
         FINISH_OP(read_op);
-        return 1;
+        return 2;
     }
     read_op->retval = 0;
-    return 1;
+    return 2;
 }
 
 void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op)
