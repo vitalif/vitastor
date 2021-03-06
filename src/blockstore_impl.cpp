@@ -323,7 +323,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
     }
 }
 
-void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
+void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
 {
     if (op->opcode < BS_OP_MIN || op->opcode > BS_OP_MAX ||
         ((op->opcode == BS_OP_READ || op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE) && (
@@ -331,8 +331,7 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
             op->len > block_size-op->offset ||
             (op->len % disk_alignment)
         )) ||
-        readonly && op->opcode != BS_OP_READ && op->opcode != BS_OP_LIST ||
-        first && (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE))
+        readonly && op->opcode != BS_OP_READ && op->opcode != BS_OP_LIST)
     {
         // Basic verification not passed
         op->retval = -EINVAL;
@@ -387,14 +386,7 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op, bool first)
     PRIV(op)->wait_for = 0;
     PRIV(op)->op_state = 0;
     PRIV(op)->pending_ops = 0;
-    if (!first)
-    {
-        submit_queue.push_back(op);
-    }
-    else
-    {
-        submit_queue.push_front(op);
-    }
+    submit_queue.push_back(op);
     ringloop->wakeup();
 }
 

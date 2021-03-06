@@ -318,7 +318,7 @@ public:
     bool is_stalled();
 
     // Submission
-    void enqueue_op(blockstore_op_t *op, bool first = false);
+    void enqueue_op(blockstore_op_t *op);
 
     // Unstable writes are added here (map of object_id -> version)
     std::unordered_map<object_id, uint64_t> unstable_writes;
