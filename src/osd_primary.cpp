@@ -391,19 +391,19 @@ continue_others:
     // Remove version override
     pg.ver_override.erase(op_data->oid);
     object_id oid = op_data->oid;
+    // Remove the operation from queue before calling finish_op so it doesn't see the completed operation in queue
+    auto next_it = pg.write_queue.find(oid);
+    if (next_it != pg.write_queue.end() && next_it->second == cur_op)
+    {
+        pg.write_queue.erase(next_it++);
+    }
+    // finish_op would invalidate next_it if it cleared pg.write_queue, but it doesn't do that :)
     finish_op(cur_op, cur_op->reply.hdr.retval);
     // Continue other write operations to the same object
-    auto next_it = pg.write_queue.find(oid);
-    auto this_it = next_it;
-    if (this_it != pg.write_queue.end() && this_it->second == cur_op)
+    if (next_it != pg.write_queue.end() && next_it->first == oid)
     {
-        next_it++;
-        pg.write_queue.erase(this_it);
-        if (next_it != pg.write_queue.end() && next_it->first == oid)
-        {
-            osd_op_t *next_op = next_it->second;
-            continue_primary_write(next_op);
-        }
+        osd_op_t *next_op = next_it->second;
+        continue_primary_write(next_op);
     }
 }
 

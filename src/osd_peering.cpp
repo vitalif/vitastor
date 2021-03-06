@@ -473,7 +473,7 @@ bool osd_t::stop_pg(pg_t & pg)
         delete pg.peering_state;
         pg.peering_state = NULL;
     }
-    if (pg.state & PG_STOPPING)
+    if (pg.state & (PG_STOPPING | PG_OFFLINE))
     {
         return false;
     }
