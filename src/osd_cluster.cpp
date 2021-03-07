@@ -37,7 +37,7 @@ void osd_t::init_cluster()
                 .pg_cursize = 0,
                 .pg_size = 3,
                 .pg_minsize = 2,
-                .parity_chunks = 1,
+                .pg_data_size = 2,
                 .pool_id = 1,
                 .pg_num = 1,
                 .target_set = { 1, 2, 3 },
@@ -606,7 +606,8 @@ void osd_t::apply_pg_config()
                     .pg_cursize = 0,
                     .pg_size = pool_item.second.pg_size,
                     .pg_minsize = pool_item.second.pg_minsize,
-                    .parity_chunks = pool_item.second.parity_chunks,
+                    .pg_data_size = pg.scheme == POOL_SCHEME_REPLICATED
+                         ? 1 : pool_item.second.pg_size - pool_item.second.parity_chunks,
                     .pool_id = pool_id,
                     .pg_num = pg_num,
                     .reported_epoch = pg_cfg.epoch,
@@ -616,7 +617,7 @@ void osd_t::apply_pg_config()
                 };
                 if (pg.scheme == POOL_SCHEME_JERASURE)
                 {
-                    use_jerasure(pg.pg_size, pg.pg_size-pg.parity_chunks, true);
+                    use_jerasure(pg.pg_size, pg.pg_data_size, true);
                 }
                 this->pg_state_dirty.insert({ .pool_id = pool_id, .pg_num = pg_num });
                 pg.print_state();
@@ -807,7 +808,7 @@ void osd_t::report_pg_states()
                         // Remove offline PGs after reporting their state
                         if (pg_it->second.scheme == POOL_SCHEME_JERASURE)
                         {
-                            use_jerasure(pg_it->second.pg_size, pg_it->second.pg_size-pg_it->second.parity_chunks, false);
+                            use_jerasure(pg_it->second.pg_size, pg_it->second.pg_data_size, false);
                         }
                         this->pgs.erase(pg_it);
                     }

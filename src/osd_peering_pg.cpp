@@ -108,7 +108,7 @@ void pg_obj_state_check_t::start_object()
 
 void pg_obj_state_check_t::handle_version()
 {
-    if (!target_ver && last_ver != list[list_pos].version && (n_stable > 0 || n_roles >= pg->pg_minsize))
+    if (!target_ver && last_ver != list[list_pos].version && (n_stable > 0 || n_roles >= pg->pg_data_size))
     {
         // Version is either stable or recoverable
         target_ver = last_ver;
@@ -171,7 +171,7 @@ void pg_obj_state_check_t::handle_version()
 
 void pg_obj_state_check_t::finish_object()
 {
-    if (!target_ver && (n_stable > 0 || n_roles >= pg->pg_minsize))
+    if (!target_ver && (n_stable > 0 || n_roles >= pg->pg_data_size))
     {
         // Version is either stable or recoverable
         target_ver = last_ver;
@@ -233,7 +233,7 @@ void pg_obj_state_check_t::finish_object()
     {
         return;
     }
-    if (!replicated && n_roles < pg->pg_minsize)
+    if (!replicated && n_roles < pg->pg_data_size)
     {
         if (log_level > 1)
         {
