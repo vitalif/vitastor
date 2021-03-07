@@ -665,7 +665,21 @@ void osd_t::report_pg_states()
         auto & pg = pg_it->second;
         reporting_pgs.push_back({ *it, pg.history_changed });
         std::string state_key_base64 = base64_encode(st_cli.etcd_prefix+"/pg/state/"+std::to_string(pg.pool_id)+"/"+std::to_string(pg.pg_num));
-        if (pg.state == PG_STARTING)
+        bool pg_state_exists = false;
+        if (pg.state != PG_STARTING)
+        {
+            auto pool_it = st_cli.pool_config.find(pg.pool_id);
+            if (pool_it != st_cli.pool_config.end())
+            {
+                auto pg_it = pool_it->second.pg_config.find(pg.pg_num);
+                if (pg_it != pool_it->second.pg_config.end() &&
+                    pg_it->second.cur_state != 0)
+                {
+                    pg_state_exists = true;
+                }
+            }
+        }
+        if (!pg_state_exists)
         {
             // Check that the PG key does not exist
             // Failed check indicates an unsuccessful PG lock attempt in this case
@@ -677,9 +691,7 @@ void osd_t::report_pg_states()
         }
         else
         {
-            // Check that the key is ours
-            // Failed check indicates success for OFFLINE pgs (PG lock is already deleted)
-            // and an unexpected race condition for started pgs (PG lock is held by someone else)
+            // Check that the key is ours if it already exists
             checks.push_back(json11::Json::object {
                 { "target", "LEASE" },
                 { "lease", etcd_lease_id },
