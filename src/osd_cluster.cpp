@@ -813,17 +813,16 @@ void osd_t::report_pg_states()
             for (auto pp: reporting_pgs)
             {
                 auto pg_it = this->pgs.find(pp.first);
-                if (pg_it != this->pgs.end())
+                if (pg_it != this->pgs.end() &&
+                    pg_it->second.state == PG_OFFLINE &&
+                    pg_state_dirty.find(pp.first) == pg_state_dirty.end())
                 {
-                    if (pg_it->second.state == PG_OFFLINE)
+                    // Forget offline PGs after reporting their state
+                    if (pg_it->second.scheme == POOL_SCHEME_JERASURE)
                     {
-                        // Remove offline PGs after reporting their state
-                        if (pg_it->second.scheme == POOL_SCHEME_JERASURE)
-                        {
-                            use_jerasure(pg_it->second.pg_size, pg_it->second.pg_data_size, false);
-                        }
-                        this->pgs.erase(pg_it);
+                        use_jerasure(pg_it->second.pg_size, pg_it->second.pg_data_size, false);
                     }
+                    this->pgs.erase(pg_it);
                 }
             }
             // Push other PG state updates, if any
