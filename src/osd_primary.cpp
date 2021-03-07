@@ -365,21 +365,19 @@ resume_7:
                 recovery_stat_bytes[0][recovery_type] += op_data->stripes[role].write_end - op_data->stripes[role].write_start;
             }
         }
-        if (op_data->object_state->state & OBJ_MISPLACED)
+        // Any kind of a non-clean object can have extra chunks, because we don't record objects
+        // as degraded & misplaced or incomplete & misplaced at the same time. So try to remove extra chunks
+        submit_primary_del_subops(cur_op, pg.cur_set.data(), pg.pg_size, op_data->object_state->osd_set);
+        if (op_data->n_subops > 0)
         {
-            // Remove extra chunks
-            submit_primary_del_subops(cur_op, pg.cur_set.data(), pg.pg_size, op_data->object_state->osd_set);
-            if (op_data->n_subops > 0)
-            {
 resume_8:
-                op_data->st = 8;
-                return;
+            op_data->st = 8;
+            return;
 resume_9:
-                if (op_data->errors > 0)
-                {
-                    pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
-                    return;
-                }
+            if (op_data->errors > 0)
+            {
+                pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+                return;
             }
         }
         // Clear object state
