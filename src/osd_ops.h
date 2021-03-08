@@ -27,7 +27,8 @@
 #define OSD_OP_WRITE                12
 #define OSD_OP_SYNC                 13
 #define OSD_OP_DELETE               14
-#define OSD_OP_MAX                  14
+#define OSD_OP_PING                 15
+#define OSD_OP_MAX                  15
 // Alignment & limit for read/write operations
 #ifndef MEM_ALIGNMENT
 #define MEM_ALIGNMENT               512

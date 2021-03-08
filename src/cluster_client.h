@@ -82,6 +82,7 @@ class cluster_client_t
 public:
     etcd_state_client_t st_cli;
     osd_messenger_t msgr;
+    json11::Json config;
 
     cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config);
     ~cluster_client_t();

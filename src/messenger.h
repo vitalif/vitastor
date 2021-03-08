@@ -34,6 +34,7 @@
 
 #define DEFAULT_PEER_CONNECT_INTERVAL 5
 #define DEFAULT_PEER_CONNECT_TIMEOUT 5
+#define DEFAULT_OSD_PING_TIMEOUT 5
 
 // Kind of a vector with small-list-optimisation
 struct osd_op_buf_list_t
@@ -198,6 +199,8 @@ struct osd_client_t
     int peer_fd;
     int peer_state;
     int connect_timeout_id = -1;
+    int ping_time_remaining = 0;
+    int idle_time_remaining = 0;
     osd_num_t osd_num = 0;
 
     void *in_buf = NULL;
@@ -251,6 +254,7 @@ struct osd_messenger_t
 {
     timerfd_manager_t *tfd;
     ring_loop_t *ringloop;
+    int keepalive_timer_id = -1;
 
     // osd_num_t is only for logging and asserts
     osd_num_t osd_num;
@@ -258,6 +262,8 @@ struct osd_messenger_t
     int receive_buffer_size = 64*1024;
     int peer_connect_interval = DEFAULT_PEER_CONNECT_INTERVAL;
     int peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
+    int osd_idle_timeout = DEFAULT_OSD_PING_TIMEOUT;
+    int osd_ping_timeout = DEFAULT_OSD_PING_TIMEOUT;
     int log_level = 0;
     bool use_sync_send_recv = false;
 
@@ -274,6 +280,8 @@ struct osd_messenger_t
     osd_op_stats_t stats;
 
 public:
+    void init();
+    void parse_config(const json11::Json & config);
     void connect_peer(uint64_t osd_num, json11::Json peer_state);
     void stop_client(int peer_fd, bool force = false);
     void outbox_push(osd_op_t *cur_op);

@@ -37,6 +37,7 @@ osd_t::osd_t(blockstore_config_t & config, blockstore_t *bs, ring_loop_t *ringlo
     c_cli.ringloop = this->ringloop;
     c_cli.exec_op = [this](osd_op_t *op) { exec_op(op); };
     c_cli.repeer_pgs = [this](osd_num_t peer_osd) { repeer_pgs(peer_osd); };
+    c_cli.init();
 
     init_cluster();
 
@@ -100,14 +101,7 @@ void osd_t::parse_config(blockstore_config_t & config)
     slow_log_interval = strtoull(config["slow_log_interval"].c_str(), NULL, 10);
     if (!slow_log_interval)
         slow_log_interval = 10;
-    c_cli.peer_connect_interval = strtoull(config["peer_connect_interval"].c_str(), NULL, 10);
-    if (!c_cli.peer_connect_interval)
-        c_cli.peer_connect_interval = DEFAULT_PEER_CONNECT_INTERVAL;
-    c_cli.peer_connect_timeout = strtoull(config["peer_connect_timeout"].c_str(), NULL, 10);
-    if (!c_cli.peer_connect_timeout)
-        c_cli.peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
-    log_level = strtoull(config["log_level"].c_str(), NULL, 10);
-    c_cli.log_level = log_level;
+    c_cli.parse_config(json_config);
 }
 
 void osd_t::bind_socket()
@@ -209,6 +203,12 @@ void osd_t::exec_op(osd_op_t *cur_op)
     {
         // Bad command
         finish_op(cur_op, -EINVAL);
+        return;
+    }
+    if (cur_op->req.hdr.opcode == OSD_OP_PING)
+    {
+        // Pong
+        finish_op(cur_op, 0);
         return;
     }
     if (readonly &&

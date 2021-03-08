@@ -19,4 +19,5 @@ const char* osd_op_names[] = {
     "primary_write",
     "primary_sync",
     "primary_delete",
+    "ping",
 };

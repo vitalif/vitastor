@@ -8,13 +8,11 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
 {
     this->ringloop = ringloop;
     this->tfd = tfd;
-
-    log_level = config["log_level"].int64_value();
+    this->config = config;
 
     msgr.osd_num = 0;
     msgr.tfd = tfd;
     msgr.ringloop = ringloop;
-    msgr.log_level = log_level;
     msgr.repeer_pgs = [this](osd_num_t peer_osd)
     {
         if (msgr.osd_peer_fds.find(peer_osd) != msgr.osd_peer_fds.end())
@@ -67,8 +65,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         msgr.stop_client(op->peer_fd);
         delete op;
     };
-    msgr.use_sync_send_recv = config["use_sync_send_recv"].bool_value() ||
-        config["use_sync_send_recv"].uint64_value();
+    msgr.init();
 
     st_cli.tfd = tfd;
     st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
@@ -185,16 +182,8 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & config)
     {
         up_wait_retry_interval = 50;
     }
-    msgr.peer_connect_interval = config["peer_connect_interval"].uint64_value();
-    if (!msgr.peer_connect_interval)
-    {
-        msgr.peer_connect_interval = DEFAULT_PEER_CONNECT_INTERVAL;
-    }
-    msgr.peer_connect_timeout = config["peer_connect_timeout"].uint64_value();
-    if (!msgr.peer_connect_timeout)
-    {
-        msgr.peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
-    }
+    msgr.parse_config(config);
+    msgr.parse_config(this->config);
     st_cli.load_pgs();
 }
 

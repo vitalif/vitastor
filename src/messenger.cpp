@@ -26,12 +26,104 @@ osd_op_t::~osd_op_t()
     }
 }
 
+void osd_messenger_t::init()
+{
+    keepalive_timer_id = tfd->set_timer(1000, true, [this](int)
+    {
+        for (auto cl_it = clients.begin(); cl_it != clients.end();)
+        {
+            auto cl = (cl_it++)->second;
+            if (!cl->osd_num)
+            {
+                // Do not run keepalive on regular clients
+                continue;
+            }
+            if (cl->ping_time_remaining > 0)
+            {
+                cl->ping_time_remaining--;
+                if (!cl->ping_time_remaining)
+                {
+                    // Ping timed out, stop the client
+                    stop_client(cl->peer_fd, true);
+                }
+            }
+            else if (cl->idle_time_remaining > 0)
+            {
+                cl->idle_time_remaining--;
+                if (!cl->idle_time_remaining)
+                {
+                    // Connection is idle for <osd_idle_time>, send ping
+                    osd_op_t *op = new osd_op_t();
+                    op->op_type = OSD_OP_OUT;
+                    op->peer_fd = cl->peer_fd;
+                    op->req = (osd_any_op_t){
+                        .hdr = {
+                            .magic = SECONDARY_OSD_OP_MAGIC,
+                            .id = this->next_subop_id++,
+                            .opcode = OSD_OP_PING,
+                        },
+                    };
+                    op->callback = [this, cl](osd_op_t *op)
+                    {
+                        int fail_fd = (op->reply.hdr.retval != 0 ? op->peer_fd : -1);
+                        cl->ping_time_remaining = 0;
+                        delete op;
+                        if (fail_fd >= 0)
+                        {
+                            stop_client(fail_fd, true);
+                        }
+                    };
+                    outbox_push(op);
+                    cl->ping_time_remaining = osd_ping_timeout;
+                    cl->idle_time_remaining = osd_idle_timeout;
+                }
+            }
+            else
+            {
+                cl->idle_time_remaining = osd_idle_timeout;
+            }
+        }
+    });
+}
+
 osd_messenger_t::~osd_messenger_t()
 {
+    if (keepalive_timer_id >= 0)
+    {
+        tfd->clear_timer(keepalive_timer_id);
+        keepalive_timer_id = -1;
+    }
     while (clients.size() > 0)
     {
         stop_client(clients.begin()->first, true);
     }
+}
+
+void osd_messenger_t::parse_config(const json11::Json & config)
+{
+    this->use_sync_send_recv = config["use_sync_send_recv"].bool_value() ||
+        config["use_sync_send_recv"].uint64_value();
+    this->peer_connect_interval = config["peer_connect_interval"].uint64_value();
+    if (!this->peer_connect_interval)
+    {
+        this->peer_connect_interval = DEFAULT_PEER_CONNECT_INTERVAL;
+    }
+    this->peer_connect_timeout = config["peer_connect_timeout"].uint64_value();
+    if (!this->peer_connect_timeout)
+    {
+        this->peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
+    }
+    this->osd_idle_timeout = config["osd_idle_timeout"].uint64_value();
+    if (!this->osd_idle_timeout)
+    {
+        this->osd_idle_timeout = DEFAULT_OSD_PING_TIMEOUT;
+    }
+    this->osd_ping_timeout = config["osd_ping_timeout"].uint64_value();
+    if (!this->osd_ping_timeout)
+    {
+        this->osd_ping_timeout = DEFAULT_OSD_PING_TIMEOUT;
+    }
+    this->log_level = config["log_level"].uint64_value();
 }
 
 void osd_messenger_t::connect_peer(uint64_t peer_osd, json11::Json peer_state)
