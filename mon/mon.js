@@ -35,7 +35,7 @@ const etcd_tree = {
             etcd_mon_retries: 5, // min: 0
             mon_change_timeout: 1000, // ms. min: 100
             mon_stats_timeout: 1000, // ms. min: 100
-            osd_out_time: 1800, // seconds. min: 0
+            osd_out_time: 600, // seconds. min: 0
             placement_levels: { datacenter: 1, rack: 2, host: 3, osd: 4, ... },
             // client and osd
             use_sync_send_recv: false,
@@ -295,7 +295,7 @@ class Mon
         this.config.osd_out_time = Number(this.config.osd_out_time) || 0;
         if (!this.config.osd_out_time)
         {
-            this.config.osd_out_time = 30*60; // 30 minutes by default
+            this.config.osd_out_time = 600; // 10 minutes by default
         }
     }
 
