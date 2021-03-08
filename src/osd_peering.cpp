@@ -183,7 +183,8 @@ void osd_t::start_pg_peering(pg_t & pg)
             bool found = false;
             for (auto history_osd: history_set)
             {
-                if (history_osd != 0 && c_cli.osd_peer_fds.find(history_osd) != c_cli.osd_peer_fds.end())
+                if (history_osd != 0 && (history_osd == this->osd_num ||
+                    c_cli.osd_peer_fds.find(history_osd) != c_cli.osd_peer_fds.end()))
                 {
                     found = true;
                     break;
