@@ -5,18 +5,55 @@ module.exports = {
     scale_pg_count,
 };
 
+function add_pg_history(new_pg_history, new_pg, prev_pgs, prev_pg_history, old_pg)
+{
+    if (!new_pg_history[new_pg])
+    {
+        new_pg_history[new_pg] = {
+            osd_sets: {},
+            all_peers: {},
+            epoch: 0,
+        };
+    }
+    const nh = new_pg_history[new_pg], oh = prev_pg_history[old_pg];
+    nh.osd_sets[prev_pgs[old_pg].join(' ')] = prev_pgs[old_pg];
+    if (oh && oh.osd_sets && oh.osd_sets.length)
+    {
+        for (const pg of oh.osd_sets)
+        {
+            nh.osd_sets[pg.join(' ')] = pg;
+        }
+    }
+    if (oh && oh.all_peers && oh.all_peers.length)
+    {
+        for (const osd_num of oh.all_peers)
+        {
+            nh.all_peers[osd_num] = Number(osd_num);
+        }
+    }
+    if (oh && oh.epoch)
+    {
+        nh.epoch = nh.epoch < oh.epoch ? oh.epoch : nh.epoch;
+    }
+}
+
+function finish_pg_history(merged_history)
+{
+    merged_history.osd_sets = Object.values(merged_history.osd_sets);
+    merged_history.all_peers = Object.values(merged_history.all_peers);
+}
+
 function scale_pg_count(prev_pgs, prev_pg_history, new_pg_history, new_pg_count)
 {
     const old_pg_count = prev_pgs.length;
     // Add all possibly intersecting PGs to the history of new PGs
     if (!(new_pg_count % old_pg_count))
     {
-        // New PG count is a multiple of the old PG count
-        const mul = (new_pg_count / old_pg_count);
+        // New PG count is a multiple of old PG count
         for (let i = 0; i < new_pg_count; i++)
         {
-            const old_i = Math.floor(new_pg_count / mul);
-            new_pg_history[i] = prev_pg_history[old_i] ? JSON.parse(JSON.stringify(prev_pg_history[old_i])) : undefined;
+            add_pg_history(new_pg_history, i, prev_pgs, prev_pg_history, i % old_pg_count);
+            finish_pg_history(new_pg_history[i]);
         }
     }
     else if (!(old_pg_count % new_pg_count))
@@ -25,68 +62,26 @@ function scale_pg_count(prev_pgs, prev_pg_history, new_pg_history, new_pg_count)
         const mul = (old_pg_count / new_pg_count);
         for (let i = 0; i < new_pg_count; i++)
         {
-            new_pg_history[i] = {
-                osd_sets: [],
-                all_peers: [],
-                epoch: 0,
-            };
             for (let j = 0; j < mul; j++)
             {
-                new_pg_history[i].osd_sets.push(prev_pgs[i*mul]);
-                const hist = prev_pg_history[1+i*mul+j];
-                if (hist && hist.osd_sets && hist.osd_sets.length)
-                {
-                    Array.prototype.push.apply(new_pg_history[i].osd_sets, hist.osd_sets);
-                }
-                if (hist && hist.all_peers && hist.all_peers.length)
-                {
-                    Array.prototype.push.apply(new_pg_history[i].all_peers, hist.all_peers);
-                }
-                if (hist && hist.epoch)
-                {
-                    new_pg_history[i].epoch = new_pg_history[i].epoch < hist.epoch ? hist.epoch : new_pg_history[i].epoch;
-                }
+                add_pg_history(new_pg_history, i, prev_pgs, prev_pg_history, i+j*new_pg_count);
             }
+            finish_pg_history(new_pg_history[i]);
         }
     }
     else
     {
         // Any PG may intersect with any PG after non-multiple PG count change
         // So, merge ALL PGs history
-        let all_sets = {};
-        let all_peers = {};
-        let max_epoch = 0;
-        for (const pg of prev_pgs)
+        let merged_history = {};
+        for (let i = 0; i < old_pg_count; i++)
         {
-            all_sets[pg.join(' ')] = pg;
+            add_pg_history(merged_history, 1, prev_pgs, prev_pg_history, i);
         }
-        for (const pg in prev_pg_history)
-        {
-            const hist = prev_pg_history[pg];
-            if (hist && hist.osd_sets)
-            {
-                for (const pg of hist.osd_sets)
-                {
-                    all_sets[pg.join(' ')] = pg;
-                }
-            }
-            if (hist && hist.all_peers)
-            {
-                for (const osd_num of hist.all_peers)
-                {
-                    all_peers[osd_num] = Number(osd_num);
-                }
-            }
-            if (hist && hist.epoch)
-            {
-                max_epoch = max_epoch < hist.epoch ? hist.epoch : max_epoch;
-            }
-        }
-        all_sets = Object.values(all_sets);
-        all_peers = Object.values(all_peers);
+        finish_pg_history(merged_history[1]);
         for (let i = 0; i < new_pg_count; i++)
         {
-            new_pg_history[i] = { osd_sets: all_sets, all_peers, epoch: max_epoch };
+            new_pg_history[i] = { ...merged_history[1] };
         }
     }
     // Mark history keys for removed PGs as removed
@@ -94,19 +89,16 @@ function scale_pg_count(prev_pgs, prev_pg_history, new_pg_history, new_pg_count)
     {
         new_pg_history[i] = null;
     }
+    // Just for the lp_solve optimizer - pick a "previous" PG for each "new" one
     if (old_pg_count < new_pg_count)
     {
-        for (let i = new_pg_count-1; i >= 0; i--)
+        for (let i = old_pg_count; i < new_pg_count; i++)
         {
-            prev_pgs[i] = prev_pgs[Math.floor(i/new_pg_count*old_pg_count)];
+            prev_pgs[i] = prev_pgs[i % old_pg_count];
         }
     }
     else if (old_pg_count > new_pg_count)
     {
-        for (let i = 0; i < new_pg_count; i++)
-        {
-            prev_pgs[i] = prev_pgs[Math.round(i/new_pg_count*old_pg_count)];
-        }
         prev_pgs.splice(new_pg_count, old_pg_count-new_pg_count);
     }
 }

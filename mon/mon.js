@@ -896,6 +896,11 @@ class Mon
                         `PG count for pool ${pool_id} (${pool_cfg.name || 'unnamed'})`+
                         ` changed from: ${old_pg_count} to ${optimize_result.int_pgs.length}`
                     );
+                    // Drop stats
+                    etcd_request.success.push({ requestDeleteRange: {
+                        key: b64(this.etcd_prefix+'/pg/stats/'+pool_id+'/'),
+                        range_end: b64(this.etcd_prefix+'/pg/stats/'+pool_id+'0'),
+                    } });
                 }
                 LPOptimizer.print_change_stats(optimize_result);
                 this.save_new_pgs_txn(etcd_request, pool_id, up_osds, prev_pgs, optimize_result.int_pgs, pg_history);
@@ -1093,11 +1098,14 @@ class Mon
             for (const pg_num in this.state.pg.stats[pool_id])
             {
                 const st = this.state.pg.stats[pool_id][pg_num];
-                for (const k in object_counts)
+                if (st)
                 {
-                    if (st[k+'_count'])
+                    for (const k in object_counts)
                     {
-                        object_counts[k] += BigInt(st[k+'_count']);
+                        if (st[k+'_count'])
+                        {
+                            object_counts[k] += BigInt(st[k+'_count']);
+                        }
                     }
                 }
             }
