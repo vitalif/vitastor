@@ -317,8 +317,14 @@ class Mon
                     ok(false);
                 }, this.config.etcd_mon_timeout);
                 this.ws = new WebSocket(base+'/watch');
+                const fail = () =>
+                {
+                    ok(false);
+                };
+                this.ws.on('error', fail);
                 this.ws.on('open', () =>
                 {
+                    this.ws.removeListener('error', fail);
                     if (timer_id)
                         clearTimeout(timer_id);
                     ok(true);
@@ -445,7 +451,7 @@ class Mon
     async get_lease()
     {
         const max_ttl = this.config.etcd_mon_ttl + this.config.etcd_mon_timeout/1000*this.config.etcd_mon_retries;
-        const res = await this.etcd_call('/lease/grant', { TTL: max_ttl }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
+        const res = await this.etcd_call('/lease/grant', { TTL: max_ttl }, this.config.etcd_mon_timeout, -1);
         this.etcd_lease_id = res.ID;
         setInterval(async () =>
         {
@@ -1240,6 +1246,11 @@ class Mon
                 {
                     console.error('etcd returned error: '+res.json.error);
                     break;
+                }
+                if (this.etcd_urls.length > 1)
+                {
+                    // Stick to the same etcd for the rest of calls
+                    this.etcd_urls = [ base ];
                 }
                 return res.json;
             }
