@@ -261,9 +261,9 @@ void osd_t::reset_stats()
 
 void osd_t::print_stats()
 {
-    for (int i = 0; i <= OSD_OP_MAX; i++)
+    for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)
     {
-        if (c_cli.stats.op_stat_count[i] != prev_stats.op_stat_count[i])
+        if (c_cli.stats.op_stat_count[i] != prev_stats.op_stat_count[i] && i != OSD_OP_PING)
         {
             uint64_t avg = (c_cli.stats.op_stat_sum[i] - prev_stats.op_stat_sum[i])/(c_cli.stats.op_stat_count[i] - prev_stats.op_stat_count[i]);
             uint64_t bw = (c_cli.stats.op_stat_bytes[i] - prev_stats.op_stat_bytes[i]) / print_stats_interval;
@@ -284,7 +284,7 @@ void osd_t::print_stats()
             prev_stats.op_stat_bytes[i] = c_cli.stats.op_stat_bytes[i];
         }
     }
-    for (int i = 0; i <= OSD_OP_MAX; i++)
+    for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)
     {
         if (c_cli.stats.subop_stat_count[i] != prev_stats.subop_stat_count[i])
         {
