@@ -42,7 +42,7 @@ breaking changes in the future. However, the following is implemented:
 
 ## Roadmap
 
-- OSD creation tool (OSDs currently have to be created by hand)
+- Better OSD creation and auto-start tools
 - Other administrative tools
 - Plugins for OpenStack, Kubernetes, OpenNebula, Proxmox and other cloud systems
 - iSCSI proxy
