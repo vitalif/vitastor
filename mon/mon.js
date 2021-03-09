@@ -845,13 +845,19 @@ class Mon
                 pool_tree = pool_tree ? pool_tree.children : [];
                 pool_tree = LPOptimizer.flatten_tree(pool_tree, levels, pool_cfg.failure_domain, 'osd');
                 this.filter_osds_by_tags(osd_tree, pool_tree, pool_cfg.osd_tags);
-                const prev_pg_hash = (this.state.history.last_clean_pgs.items||{})[pool_id]
-                    || (this.state.config.pgs.items||{})[pool_id] || {};
-                const prev_pgs = [];
-                for (const pg in prev_pg_hash)
+                // These are for the purpose of building history.osd_sets
+                const real_prev_pgs = [];
+                for (const pg in ((this.state.config.pgs.items||{})[pool_id]||{}))
                 {
-                    prev_pgs[pg-1] = prev_pg_hash[pg].osd_set;
+                    real_prev_pgs[pg-1] = this.state.config.pgs.items[pool_id][pg].osd_set;
                 }
+                // And these are for the purpose of minimizing data movement
+                let prev_pgs = [];
+                for (const pg in ((this.state.history.last_clean_pgs.items||{})[pool_id]||{}))
+                {
+                    prev_pgs[pg-1] = this.state.history.last_clean_pgs.items[pool_id][pg].osd_set;
+                }
+                prev_pgs = JSON.parse(JSON.stringify(prev_pgs.length ? prev_pgs : real_prev_pgs));
                 const pg_history = [];
                 const old_pg_count = prev_pgs.length;
                 let optimize_result;
@@ -909,7 +915,7 @@ class Mon
                     } });
                 }
                 LPOptimizer.print_change_stats(optimize_result);
-                this.save_new_pgs_txn(etcd_request, pool_id, up_osds, prev_pgs, optimize_result.int_pgs, pg_history);
+                this.save_new_pgs_txn(etcd_request, pool_id, up_osds, real_prev_pgs, optimize_result.int_pgs, pg_history);
             }
             this.state.config.pgs.hash = tree_hash;
             await this.save_pg_config(etcd_request);
