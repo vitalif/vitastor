@@ -47,6 +47,8 @@ const etcd_tree = {
             client_dirty_limit: 33554432,
             peer_connect_interval: 5, // seconds. min: 1
             peer_connect_timeout: 5, // seconds. min: 1
+            osd_idle_timeout: 5, // seconds. min: 1
+            osd_ping_timeout: 5, // seconds. min: 1
             up_wait_retry_interval: 500, // ms. min: 50
             // osd
             etcd_report_interval: 30, // min: 10
@@ -57,7 +59,10 @@ const etcd_tree = {
             client_queue_depth: 128, // unused
             recovery_queue_depth: 4,
             readonly: false,
+            no_recovery: false,
+            no_rebalance: false,
             print_stats_interval: 3,
+            slow_log_interval: 10,
             // blockstore - fixed in superblock
             block_size,
             disk_alignment,
@@ -77,6 +82,7 @@ const etcd_tree = {
             disable_meta_fsync,
             disable_device_lock,
             // blockstore - configurable
+            max_write_iodepth,
             flusher_count,
             inmemory_metadata,
             inmemory_journal,

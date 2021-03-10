@@ -209,32 +209,38 @@ void osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
 
 bool osd_t::pick_next_recovery(osd_recovery_op_t &op)
 {
-    for (auto pg_it = pgs.begin(); pg_it != pgs.end(); pg_it++)
+    if (!no_recovery)
     {
-        if ((pg_it->second.state & (PG_ACTIVE | PG_HAS_DEGRADED)) == (PG_ACTIVE | PG_HAS_DEGRADED))
+        for (auto pg_it = pgs.begin(); pg_it != pgs.end(); pg_it++)
         {
-            for (auto obj_it = pg_it->second.degraded_objects.begin(); obj_it != pg_it->second.degraded_objects.end(); obj_it++)
+            if ((pg_it->second.state & (PG_ACTIVE | PG_HAS_DEGRADED)) == (PG_ACTIVE | PG_HAS_DEGRADED))
             {
-                if (recovery_ops.find(obj_it->first) == recovery_ops.end())
+                for (auto obj_it = pg_it->second.degraded_objects.begin(); obj_it != pg_it->second.degraded_objects.end(); obj_it++)
                 {
-                    op.degraded = true;
-                    op.oid = obj_it->first;
-                    return true;
+                    if (recovery_ops.find(obj_it->first) == recovery_ops.end())
+                    {
+                        op.degraded = true;
+                        op.oid = obj_it->first;
+                        return true;
+                    }
                 }
             }
         }
     }
-    for (auto pg_it = pgs.begin(); pg_it != pgs.end(); pg_it++)
+    if (!no_rebalance)
     {
-        if ((pg_it->second.state & (PG_ACTIVE | PG_HAS_MISPLACED)) == (PG_ACTIVE | PG_HAS_MISPLACED))
+        for (auto pg_it = pgs.begin(); pg_it != pgs.end(); pg_it++)
         {
-            for (auto obj_it = pg_it->second.misplaced_objects.begin(); obj_it != pg_it->second.misplaced_objects.end(); obj_it++)
+            if ((pg_it->second.state & (PG_ACTIVE | PG_HAS_MISPLACED)) == (PG_ACTIVE | PG_HAS_MISPLACED))
             {
-                if (recovery_ops.find(obj_it->first) == recovery_ops.end())
+                for (auto obj_it = pg_it->second.misplaced_objects.begin(); obj_it != pg_it->second.misplaced_objects.end(); obj_it++)
                 {
-                    op.degraded = false;
-                    op.oid = obj_it->first;
-                    return true;
+                    if (recovery_ops.find(obj_it->first) == recovery_ops.end())
+                    {
+                        op.degraded = false;
+                        op.oid = obj_it->first;
+                        return true;
+                    }
                 }
             }
         }

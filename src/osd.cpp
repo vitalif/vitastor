@@ -54,11 +54,12 @@ osd_t::~osd_t()
 
 void osd_t::parse_config(blockstore_config_t & config)
 {
-    if (config.find("log_level") == config.end())
-        config["log_level"] = "1";
     // Initial startup configuration
     json11::Json json_config = json11::Json(config);
     st_cli.parse_config(json_config);
+    if (config.find("log_level") == config.end())
+        config["log_level"] = "1";
+    log_level = strtoull(config["log_level"].c_str(), NULL, 10);
     etcd_report_interval = strtoull(config["etcd_report_interval"].c_str(), NULL, 10);
     if (etcd_report_interval <= 0)
         etcd_report_interval = 30;
@@ -67,6 +68,8 @@ void osd_t::parse_config(blockstore_config_t & config)
         throw std::runtime_error("osd_num is required in the configuration");
     c_cli.osd_num = osd_num;
     run_primary = config["run_primary"] != "false" && config["run_primary"] != "0" && config["run_primary"] != "no";
+    no_rebalance = config["no_rebalance"] == "true" || config["no_rebalance"] == "1" || config["no_rebalance"] == "yes";
+    no_recovery = config["no_recovery"] == "true" || config["no_recovery"] == "1" || config["no_recovery"] == "yes";
     // Cluster configuration
     bind_address = config["bind_address"];
     if (bind_address == "")

@@ -64,6 +64,8 @@ class osd_t
     bool readonly = false;
     osd_num_t osd_num = 1; // OSD numbers start with 1
     bool run_primary = false;
+    bool no_rebalance = false;
+    bool no_recovery = false;
     std::string bind_address;
     int bind_port, listen_backlog;
     // FIXME: Implement client queue depth limit
