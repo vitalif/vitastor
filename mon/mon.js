@@ -847,9 +847,15 @@ class Mon
                 this.filter_osds_by_tags(osd_tree, pool_tree, pool_cfg.osd_tags);
                 // These are for the purpose of building history.osd_sets
                 const real_prev_pgs = [];
+                let pg_history = [];
                 for (const pg in ((this.state.config.pgs.items||{})[pool_id]||{}))
                 {
                     real_prev_pgs[pg-1] = this.state.config.pgs.items[pool_id][pg].osd_set;
+                    if (this.state.pg.history[pool_id] &&
+                        this.state.pg.history[pool_id][pg])
+                    {
+                        pg_history[pg-1] = this.state.pg.history[pool_id][pg];
+                    }
                 }
                 // And these are for the purpose of minimizing data movement
                 let prev_pgs = [];
@@ -858,7 +864,6 @@ class Mon
                     prev_pgs[pg-1] = this.state.history.last_clean_pgs.items[pool_id][pg].osd_set;
                 }
                 prev_pgs = JSON.parse(JSON.stringify(prev_pgs.length ? prev_pgs : real_prev_pgs));
-                const pg_history = [];
                 const old_pg_count = prev_pgs.length;
                 let optimize_result;
                 if (old_pg_count > 0)
@@ -871,7 +876,9 @@ class Mon
                             this.schedule_recheck();
                             return;
                         }
-                        PGUtil.scale_pg_count(prev_pgs, this.state.pg.history[pool_id]||{}, pg_history, pool_cfg.pg_count);
+                        const new_pg_history = [];
+                        PGUtil.scale_pg_count(prev_pgs, pg_history, new_pg_history, pool_cfg.pg_count);
+                        pg_history = new_pg_history;
                     }
                     for (const pg of prev_pgs)
                     {
