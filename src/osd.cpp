@@ -54,12 +54,12 @@ osd_t::~osd_t()
 
 void osd_t::parse_config(blockstore_config_t & config)
 {
-    // Initial startup configuration
-    json11::Json json_config = json11::Json(config);
-    st_cli.parse_config(json_config);
     if (config.find("log_level") == config.end())
         config["log_level"] = "1";
     log_level = strtoull(config["log_level"].c_str(), NULL, 10);
+    // Initial startup configuration
+    json11::Json json_config = json11::Json(config);
+    st_cli.parse_config(json_config);
     etcd_report_interval = strtoull(config["etcd_report_interval"].c_str(), NULL, 10);
     if (etcd_report_interval <= 0)
         etcd_report_interval = 30;
