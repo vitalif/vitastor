@@ -301,7 +301,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
     }
     else if (PRIV(op)->wait_for == WAIT_FREE)
     {
-        if (!data_alloc->get_free_count() && !flusher->is_active())
+        if (!data_alloc->get_free_count() && flusher->is_active())
         {
 #ifdef BLOCKSTORE_DEBUG
             printf("Still waiting for free space on the data device\n");
