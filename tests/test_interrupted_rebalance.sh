@@ -3,10 +3,10 @@
 . `dirname $0`/common.sh
 
 if [ "$IMMEDIATE_COMMIT" != "" ]; then
-    NO_SAME="--journal_no_same_sector_overwrites true --journal_sector_buffer_count 1024 --disable_data_fsync 1 --immediate_commit all"
+    NO_SAME="--journal_no_same_sector_overwrites true --journal_sector_buffer_count 1024 --disable_data_fsync 1 --immediate_commit all --log_level 1"
     $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"osd_out_time":5,"immediate_commit":"all"}'
 else
-    NO_SAME="--journal_sector_buffer_count 1024"
+    NO_SAME="--journal_sector_buffer_count 1024 --log_level 1"
     $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"osd_out_time":5}'
 fi
 
@@ -51,9 +51,11 @@ if ! ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '(
     format_error "FAILED: 32 PGS NOT UP"
 fi
 
+IMG_SIZE=960
+
 LD_PRELOAD=libasan.so.5 \
 fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4M -direct=1 -iodepth=16 -fsync=16 -rw=write \
-    -etcd=$ETCD_URL -pool=1 -inode=2 -size=1024M -cluster_log_level=10
+    -etcd=$ETCD_URL -pool=1 -inode=2 -size=${IMG_SIZE}M -cluster_log_level=10
 
 try_reweight()
 {
@@ -93,14 +95,14 @@ for i in {1..60}; do
     sleep 1
 done
 
-# Check that PGs never has degraded objects !
+# Check that PGs never had degraded objects !
 if grep has_degraded ./testdata/mon.log; then
     format_error "Some copies of objects were lost during interrupted rebalancings"
 fi
 
 # Check that no objects are lost !
 nobj=`$ETCDCTL get --prefix '/vitastor/pg/stats' --print-value-only | jq -s '[ .[].object_count ] | reduce .[] as $num (0; .+$num)'`
-if [ "$nobj" -ne 8192 ]; then
+if [ "$nobj" -ne $((IMG_SIZE*8)) ]; then
     format_error "Data lost after multiple interrupted rebalancings"
 fi
 
