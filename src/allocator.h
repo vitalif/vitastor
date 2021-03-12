@@ -8,6 +8,7 @@
 // Hierarchical bitmap allocator
 class allocator
 {
+    uint64_t total;
     uint64_t size;
     uint64_t free;
     uint64_t last_one_mask;
