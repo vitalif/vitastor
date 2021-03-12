@@ -150,11 +150,8 @@ resume_2:
 resume_3:
     if (!disable_journal_fsync)
     {
-        io_uring_sqe *sqe = get_sqe();
-        if (!sqe)
-        {
-            return 0;
-        }
+        io_uring_sqe *sqe;
+        BS_SUBMIT_GET_SQE_DECL(sqe);
         ring_data_t *data = ((ring_data_t*)sqe->user_data);
         my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
         data->iov = { 0 };

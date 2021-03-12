@@ -401,11 +401,7 @@ int blockstore_impl_t::continue_write(blockstore_op_t *op)
         goto resume_4;
 resume_2:
     // Only for the immediate_commit mode: prepare and submit big_write journal entry
-    sqe = get_sqe();
-    if (!sqe)
-    {
-        return 0;
-    }
+    BS_SUBMIT_GET_SQE_DECL(sqe);
     je = (journal_entry_big_write*)prefill_single_journal_entry(
         journal, op->opcode == BS_OP_WRITE_STABLE ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
         sizeof(journal_entry_big_write)
