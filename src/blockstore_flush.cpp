@@ -823,31 +823,34 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
     sync_found:
         cur_sync->ready_count++;
         flusher->syncing_flushers++;
-        if (flusher->syncing_flushers >= flusher->flusher_count || !flusher->flush_queue.size())
+    resume_1:
+        if (!cur_sync->state)
         {
-            // Sync batch is ready. Do it.
-            await_sqe(0);
-            data->iov = { 0 };
-            data->callback = simple_callback_w;
-            my_uring_prep_fsync(sqe, fsync_meta ? bs->meta_fd : bs->data_fd, IORING_FSYNC_DATASYNC);
-            cur_sync->state = 1;
-            wait_count++;
-        resume_1:
-            if (wait_count > 0)
+            if (flusher->syncing_flushers >= flusher->cur_flusher_count || !flusher->flush_queue.size())
             {
+                // Sync batch is ready. Do it.
+                await_sqe(0);
+                data->iov = { 0 };
+                data->callback = simple_callback_w;
+                my_uring_prep_fsync(sqe, fsync_meta ? bs->meta_fd : bs->data_fd, IORING_FSYNC_DATASYNC);
+                cur_sync->state = 1;
+                wait_count++;
+            resume_2:
+                if (wait_count > 0)
+                {
+                    wait_state = 2;
+                    return false;
+                }
+                // Sync completed. All previous coroutines waiting for it must be resumed
+                cur_sync->state = 2;
+                bs->ringloop->wakeup();
+            }
+            else
+            {
+                // Wait until someone else sends and completes a sync.
                 wait_state = 1;
                 return false;
             }
-            // Sync completed. All previous coroutines waiting for it must be resumed
-            cur_sync->state = 2;
-            bs->ringloop->wakeup();
-        }
-        // Wait until someone else sends and completes a sync.
-    resume_2:
-        if (!cur_sync->state)
-        {
-            wait_state = 2;
-            return false;
         }
         flusher->syncing_flushers--;
         cur_sync->ready_count--;
