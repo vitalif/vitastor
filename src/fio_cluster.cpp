@@ -117,7 +117,14 @@ static struct fio_option options[] = {
 
 static int sec_setup(struct thread_data *td)
 {
+    sec_options *o = (sec_options*)td->eo;
     sec_data *bsd;
+
+    if (!o->etcd_host)
+    {
+        td_verror(td, EINVAL, "etcd address is missing");
+        return 1;
+    }
 
     bsd = new sec_data;
     if (!bsd)

@@ -22,7 +22,6 @@
 #define READ_BUFFER_SIZE 9000
 
 static int extract_port(std::string & host);
-static std::string strtolower(const std::string & in);
 static std::string trim(const std::string & in);
 static std::string ws_format_frame(int type, uint64_t size);
 static bool ws_parse_frame(std::string & buf, int & type, std::string & res);
@@ -673,7 +672,7 @@ static int extract_port(std::string & host)
     return port;
 }
 
-static std::string strtolower(const std::string & in)
+std::string strtolower(const std::string & in)
 {
     std::string s = in;
     for (int i = 0; i < s.length(); i++)

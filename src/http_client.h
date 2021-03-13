@@ -49,6 +49,8 @@ std::vector<std::string> getifaddr_list(bool include_v6 = false);
 
 uint64_t stoull_full(const std::string & str, int base = 10);
 
+std::string strtolower(const std::string & in);
+
 void http_request(timerfd_manager_t *tfd, const std::string & host, const std::string & request,
     const http_options_t & options, std::function<void(const http_response_t *response)> callback);
 

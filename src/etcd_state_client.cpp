@@ -56,6 +56,23 @@ void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int t
     http_request_json(tfd, etcd_address, req, timeout, callback);
 }
 
+void etcd_state_client_t::add_etcd_url(std::string addr)
+{
+    if (addr.length() > 0)
+    {
+        if (strtolower(addr.substr(0, 7)) == "http://")
+            addr = addr.substr(7);
+        else if (strtolower(addr.substr(0, 8)) == "https://")
+        {
+            printf("HTTPS is unsupported for etcd. Either use plain HTTP or setup a local proxy for etcd interaction\n");
+            exit(1);
+        }
+        if (addr.find('/') < 0)
+            addr += "/v3";
+        this->etcd_addresses.push_back(addr);
+    }
+}
+
 void etcd_state_client_t::parse_config(json11::Json & config)
 {
     this->etcd_addresses.clear();
@@ -65,13 +82,7 @@ void etcd_state_client_t::parse_config(json11::Json & config)
         while (1)
         {
             int pos = ea.find(',');
-            std::string addr = pos >= 0 ? ea.substr(0, pos) : ea;
-            if (addr.length() > 0)
-            {
-                if (addr.find('/') < 0)
-                    addr += "/v3";
-                this->etcd_addresses.push_back(addr);
-            }
+            add_etcd_url(pos >= 0 ? ea.substr(0, pos) : ea);
             if (pos >= 0)
                 ea = ea.substr(pos+1);
             else
@@ -82,13 +93,7 @@ void etcd_state_client_t::parse_config(json11::Json & config)
     {
         for (auto & ea: config["etcd_address"].array_items())
         {
-            std::string addr = ea.string_value();
-            if (addr != "")
-            {
-                if (addr.find('/') < 0)
-                    addr += "/v3";
-                this->etcd_addresses.push_back(addr);
-            }
+            add_etcd_url(ea.string_value());
         }
     }
     this->etcd_prefix = config["etcd_prefix"].string_value();

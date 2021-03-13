@@ -54,6 +54,9 @@ struct pool_config_t
 
 struct etcd_state_client_t
 {
+protected:
+    void add_etcd_url(std::string);
+public:
     std::vector<std::string> etcd_addresses;
     std::string etcd_prefix;
     int log_level = 0;
