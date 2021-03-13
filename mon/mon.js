@@ -641,27 +641,48 @@ class Mon
         return !has_online;
     }
 
+    reset_rng()
+    {
+        this.seed = 0x5f020e43;
+    }
+
+    rng()
+    {
+        this.seed ^= this.seed << 13;
+        this.seed ^= this.seed >> 17;
+        this.seed ^= this.seed << 5;
+        return this.seed + 2147483648;
+    }
+
+    pick_primary(pool_id, osd_set, up_osds)
+    {
+        let alive_set;
+        if (this.state.config.pools[pool_id].scheme === 'replicated')
+            alive_set = osd_set.filter(osd_num => osd_num && up_osds[osd_num]);
+        else
+        {
+            // Prefer data OSDs for EC because they can actually read something without an additional network hop
+            const pg_data_size = (this.state.config.pools[pool_id].pg_size||0) -
+                (this.state.config.pools[pool_id].parity_chunks||0);
+            alive_set = osd_set.slice(0, pg_data_size).filter(osd_num => osd_num && up_osds[osd_num]);
+            if (!alive_set.length)
+                alive_set = osd_set.filter(osd_num => osd_num && up_osds[osd_num]);
+        }
+        if (!alive_set.length)
+            return 0;
+        return alive_set[this.rng() % alive_set.length];
+    }
+
     save_new_pgs_txn(request, pool_id, up_osds, prev_pgs, new_pgs, pg_history)
     {
-        const replicated = new_pgs.length && this.state.config.pools[pool_id].scheme === 'replicated';
-        const pg_minsize = new_pgs.length && this.state.config.pools[pool_id].pg_minsize;
         const pg_items = {};
+        this.reset_rng();
         new_pgs.map((osd_set, i) =>
         {
             osd_set = osd_set.map(osd_num => osd_num === LPOptimizer.NO_OSD ? 0 : osd_num);
-            let alive_set;
-            if (replicated)
-                alive_set = osd_set.filter(osd_num => osd_num && up_osds[osd_num]);
-            else
-            {
-                // Prefer data OSDs for EC because they can actually read something without an additional network hop
-                alive_set = osd_set.slice(0, pg_minsize).filter(osd_num => osd_num && up_osds[osd_num]);
-                if (!alive_set.length)
-                    alive_set = osd_set.filter(osd_num => osd_num && up_osds[osd_num]);
-            }
             pg_items[i+1] = {
                 osd_set,
-                primary: alive_set.length ? alive_set[Math.floor(Math.random()*alive_set.length)] : 0,
+                primary: this.pick_primary(pool_id, osd_set, up_osds),
             };
             if (prev_pgs[i] && prev_pgs[i].join(' ') != osd_set.join(' ') &&
                 prev_pgs[i].filter(osd_num => osd_num).length > 0)
@@ -944,7 +965,7 @@ class Mon
         }
         else
         {
-            // Nothing changed, but we still want to check for down OSDs
+            // Nothing changed, but we still want to recheck the distribution of primaries
             let changed = false;
             for (const pool_id in this.state.config.pools)
             {
@@ -954,22 +975,13 @@ class Mon
                     continue;
                 }
                 const replicated = pool_cfg.scheme === 'replicated';
-                for (const pg_num in ((this.state.config.pgs.items||{})[pool_id]||{})||{})
+                this.reset_rng();
+                for (let pg_num = 1; pg_num <= pool_cfg.pg_count; pg_num++)
                 {
                     const pg_cfg = this.state.config.pgs.items[pool_id][pg_num];
-                    if (!Number(pg_cfg.primary) || !up_osds[pg_cfg.primary])
+                    if (pg_cfg)
                     {
-                        let alive_set;
-                        if (replicated)
-                            alive_set = pg_cfg.osd_set.filter(osd_num => osd_num && up_osds[osd_num]);
-                        else
-                        {
-                            // Prefer data OSDs for EC because they can actually read something without an additional network hop
-                            alive_set = pg_cfg.osd_set.slice(0, pool_cfg.pg_minsize).filter(osd_num => osd_num && up_osds[osd_num]);
-                            if (!alive_set.length)
-                                alive_set = pg_cfg.osd_set.filter(osd_num => osd_num && up_osds[osd_num]);
-                        }
-                        const new_primary = alive_set.length ? alive_set[Math.floor(Math.random()*alive_set.length)] : 0;
+                        const new_primary = this.pick_primary(pool_id, pg_cfg.osd_set, up_osds);
                         if (pg_cfg.primary != new_primary)
                         {
                             console.log(
