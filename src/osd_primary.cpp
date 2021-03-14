@@ -367,17 +367,44 @@ resume_7:
         }
         // Any kind of a non-clean object can have extra chunks, because we don't record objects
         // as degraded & misplaced or incomplete & misplaced at the same time. So try to remove extra chunks
-        submit_primary_del_subops(cur_op, pg.cur_set.data(), pg.pg_size, op_data->object_state->osd_set);
-        if (op_data->n_subops > 0)
+        if (immediate_commit != IMMEDIATE_ALL)
         {
-resume_8:
-            op_data->st = 8;
-            return;
-resume_9:
-            if (op_data->errors > 0)
+            // We can't remove extra chunks yet if fsyncs are explicit, because
+            // new copies may not be committed to stable storage yet
+            // We can only remove extra chunks after a successful SYNC for this PG
+            for (auto & chunk: op_data->object_state->osd_set)
             {
-                pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+                // Check is the same as in submit_primary_del_subops()
+                if (op_data->scheme == POOL_SCHEME_REPLICATED
+                    ? !contains_osd(pg.cur_set.data(), pg.pg_size, chunk.osd_num)
+                    : (chunk.osd_num != pg.cur_set[chunk.role]))
+                {
+                    pg.copies_to_delete_after_sync.push_back((obj_ver_osd_t){
+                        .osd_num = chunk.osd_num,
+                        .oid = {
+                            .inode = op_data->oid.inode,
+                            .stripe = op_data->oid.stripe | (op_data->scheme == POOL_SCHEME_REPLICATED ? 0 : chunk.role),
+                        },
+                        .version = op_data->fact_ver,
+                    });
+                    copies_to_delete_after_sync_count++;
+                }
+            }
+        }
+        else
+        {
+            submit_primary_del_subops(cur_op, pg.cur_set.data(), pg.pg_size, op_data->object_state->osd_set);
+            if (op_data->n_subops > 0)
+            {
+resume_8:
+                op_data->st = 8;
                 return;
+resume_9:
+                if (op_data->errors > 0)
+                {
+                    pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+                    return;
+                }
             }
         }
         // Clear object state
@@ -511,6 +538,8 @@ void osd_t::continue_primary_sync(osd_op_t *cur_op)
     else if (op_data->st == 4) goto resume_4;
     else if (op_data->st == 5) goto resume_5;
     else if (op_data->st == 6) goto resume_6;
+    else if (op_data->st == 7) goto resume_7;
+    else if (op_data->st == 8) goto resume_8;
     assert(op_data->st == 0);
     if (syncs_in_progress.size() > 0)
     {
@@ -572,11 +601,34 @@ resume_2:
         this->unstable_writes.clear();
     }
     {
-        void *dirty_buf = malloc_or_die(sizeof(pool_pg_num_t)*dirty_pgs.size() + sizeof(osd_num_t)*dirty_osds.size());
+        void *dirty_buf = malloc_or_die(
+            sizeof(pool_pg_num_t)*dirty_pgs.size() +
+            sizeof(osd_num_t)*dirty_osds.size() +
+            sizeof(obj_ver_osd_t)*this->copies_to_delete_after_sync_count
+        );
         op_data->dirty_pgs = (pool_pg_num_t*)dirty_buf;
         op_data->dirty_osds = (osd_num_t*)(dirty_buf + sizeof(pool_pg_num_t)*dirty_pgs.size());
         op_data->dirty_pg_count = dirty_pgs.size();
         op_data->dirty_osd_count = dirty_osds.size();
+        if (this->copies_to_delete_after_sync_count)
+        {
+            op_data->copies_to_delete_count = 0;
+            op_data->copies_to_delete = (obj_ver_osd_t*)(op_data->dirty_osds + op_data->dirty_osd_count);
+            for (auto dirty_pg_num: dirty_pgs)
+            {
+                auto & pg = pgs.at(dirty_pg_num);
+                assert(pg.copies_to_delete_after_sync.size() <= this->copies_to_delete_after_sync_count);
+                memcpy(
+                    op_data->copies_to_delete + op_data->copies_to_delete_count,
+                    pg.copies_to_delete_after_sync.data(),
+                    sizeof(obj_ver_osd_t)*pg.copies_to_delete_after_sync.size()
+                );
+                op_data->copies_to_delete_count += pg.copies_to_delete_after_sync.size();
+                this->copies_to_delete_after_sync_count -= pg.copies_to_delete_after_sync.size();
+                pg.copies_to_delete_after_sync.clear();
+            }
+            assert(this->copies_to_delete_after_sync_count == 0);
+        }
         int dpg = 0;
         for (auto dirty_pg_num: dirty_pgs)
         {
@@ -648,6 +700,36 @@ resume_6:
                     }
                 }
             }
+        }
+        if (op_data->copies_to_delete)
+        {
+            // Return 'copies to delete' back into respective PGs
+            for (int i = 0; i < op_data->copies_to_delete_count; i++)
+            {
+                auto & w = op_data->copies_to_delete[i];
+                auto & pg = pgs.at((pool_pg_num_t){
+                    .pool_id = INODE_POOL(w.oid.inode),
+                    .pg_num = map_to_pg(w.oid, st_cli.pool_config.at(INODE_POOL(w.oid.inode)).pg_stripe_size),
+                });
+                if (pg.state & PG_ACTIVE)
+                {
+                    pg.copies_to_delete_after_sync.push_back(w);
+                    copies_to_delete_after_sync_count++;
+                }
+            }
+        }
+    }
+    else if (op_data->copies_to_delete)
+    {
+        // Actually delete copies which we wanted to delete
+        submit_primary_del_batch(cur_op, op_data->copies_to_delete, op_data->copies_to_delete_count);
+resume_7:
+        op_data->st = 7;
+        return;
+resume_8:
+        if (op_data->errors > 0)
+        {
+            goto resume_6;
         }
     }
     for (int i = 0; i < op_data->dirty_pg_count; i++)

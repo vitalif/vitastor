@@ -66,6 +66,7 @@ const etcd_tree = {
             autosync_interval: 5,
             client_queue_depth: 128, // unused
             recovery_queue_depth: 4,
+            recovery_sync_batch: 16,
             readonly: false,
             no_recovery: false,
             no_rebalance: false,

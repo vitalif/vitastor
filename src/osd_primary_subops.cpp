@@ -355,7 +355,7 @@ void osd_t::cancel_primary_write(osd_op_t *cur_op)
     }
 }
 
-static bool contains_osd(osd_num_t *osd_set, uint64_t size, osd_num_t osd_num)
+bool contains_osd(osd_num_t *osd_set, uint64_t size, osd_num_t osd_num)
 {
     for (uint64_t i = 0; i < size; i++)
     {
@@ -371,78 +371,82 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, osd_num_t *cur_set, uint
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     bool rep = op_data->scheme == POOL_SCHEME_REPLICATED;
-    int extra_chunks = 0;
-    // ordered comparison for EC/XOR, unordered for replicated pools
+    obj_ver_osd_t extra_chunks[loc_set.size()];
+    int chunks_to_del = 0;
     for (auto & chunk: loc_set)
     {
-        if (!cur_set || (rep ? !contains_osd(cur_set, set_size, chunk.osd_num) : chunk.osd_num != cur_set[chunk.role]))
+        // ordered comparison for EC/XOR, unordered for replicated pools
+        if (!cur_set || (rep
+            ? !contains_osd(cur_set, set_size, chunk.osd_num)
+            : (chunk.osd_num != cur_set[chunk.role])))
         {
-            extra_chunks++;
+            extra_chunks[chunks_to_del++] = (obj_ver_osd_t){
+                .osd_num = chunk.osd_num,
+                .oid = {
+                    .inode = op_data->oid.inode,
+                    .stripe = op_data->oid.stripe | (rep ? 0 : chunk.role),
+                },
+                // Same version as write
+                .version = op_data->fact_ver,
+            };
         }
     }
-    op_data->n_subops = extra_chunks;
+    submit_primary_del_batch(cur_op, extra_chunks, chunks_to_del);
+}
+
+void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_delete, int chunks_to_delete_count)
+{
+    osd_primary_op_data_t *op_data = cur_op->op_data;
+    op_data->n_subops = chunks_to_delete_count;
     op_data->done = op_data->errors = 0;
-    if (!extra_chunks)
+    if (!op_data->n_subops)
     {
         return;
     }
-    osd_op_t *subops = new osd_op_t[extra_chunks];
+    osd_op_t *subops = new osd_op_t[chunks_to_delete_count];
     op_data->subops = subops;
-    int i = 0;
-    for (auto & chunk: loc_set)
+    for (int i = 0; i < chunks_to_delete_count; i++)
     {
-        if (!cur_set || (rep ? !contains_osd(cur_set, set_size, chunk.osd_num) : chunk.osd_num != cur_set[chunk.role]))
+        auto & chunk = chunks_to_delete[i];
+        if (chunk.osd_num == this->osd_num)
         {
-            int stripe_num = op_data->scheme == POOL_SCHEME_REPLICATED ? 0 : chunk.role;
-            if (chunk.osd_num == this->osd_num)
-            {
-                clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
-                subops[i].op_type = (uint64_t)cur_op;
-                subops[i].bs_op = new blockstore_op_t({
-                    .opcode = BS_OP_DELETE,
-                    .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
-                    {
-                        handle_primary_bs_subop(subop);
-                    },
-                    .oid = {
-                        .inode = op_data->oid.inode,
-                        .stripe = op_data->oid.stripe | stripe_num,
-                    },
-                    // Same version as write
-                    .version = op_data->fact_ver,
-                });
-                bs->enqueue_op(subops[i].bs_op);
-            }
-            else
-            {
-                subops[i].op_type = OSD_OP_OUT;
-                subops[i].peer_fd = c_cli.osd_peer_fds.at(chunk.osd_num);
-                subops[i].req.sec_del = {
-                    .header = {
-                        .magic = SECONDARY_OSD_OP_MAGIC,
-                        .id = c_cli.next_subop_id++,
-                        .opcode = OSD_OP_SEC_DELETE,
-                    },
-                    .oid = {
-                        .inode = op_data->oid.inode,
-                        .stripe = op_data->oid.stripe | stripe_num,
-                    },
-                    // Same version as write
-                    .version = op_data->fact_ver,
-                };
-                subops[i].callback = [cur_op, this](osd_op_t *subop)
+            clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
+            subops[i].op_type = (uint64_t)cur_op;
+            subops[i].bs_op = new blockstore_op_t({
+                .opcode = BS_OP_DELETE,
+                .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
                 {
-                    int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
-                    handle_primary_subop(subop, cur_op);
-                    if (fail_fd >= 0)
-                    {
-                        // delete operation failed, drop the connection
-                        c_cli.stop_client(fail_fd);
-                    }
-                };
-                c_cli.outbox_push(&subops[i]);
-            }
-            i++;
+                    handle_primary_bs_subop(subop);
+                },
+                .oid = chunk.oid,
+                .version = chunk.version,
+            });
+            bs->enqueue_op(subops[i].bs_op);
+        }
+        else
+        {
+            subops[i].op_type = OSD_OP_OUT;
+            subops[i].peer_fd = c_cli.osd_peer_fds.at(chunk.osd_num);
+            subops[i].req.sec_del = {
+                .header = {
+                    .magic = SECONDARY_OSD_OP_MAGIC,
+                    .id = c_cli.next_subop_id++,
+                    .opcode = OSD_OP_SEC_DELETE,
+                },
+                .oid = chunk.oid,
+                .version = chunk.version,
+            };
+            subops[i].callback = [cur_op, this](osd_op_t *subop)
+            {
+                int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
+                handle_primary_subop(subop, cur_op);
+                if (fail_fd >= 0)
+                {
+                    // delete operation failed, drop the connection
+                    c_cli.stop_client(fail_fd);
+                }
+            };
+            c_cli.outbox_push(&subops[i]);
         }
     }
 }

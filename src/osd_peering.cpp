@@ -103,6 +103,8 @@ void osd_t::reset_pg(pg_t & pg)
 {
     pg.cur_peers.clear();
     pg.state_dict.clear();
+    copies_to_delete_after_sync_count -= pg.copies_to_delete_after_sync.size();
+    pg.copies_to_delete_after_sync.clear();
     incomplete_objects -= pg.incomplete_objects.size();
     misplaced_objects -= pg.misplaced_objects.size();
     degraded_objects -= pg.degraded_objects.size();

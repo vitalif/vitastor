@@ -270,7 +270,6 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
     }
     op->osd_op->callback = [this, op](osd_op_t *osd_op)
     {
-        // Don't sync the write, it will be synced by our regular sync coroutine
         if (osd_op->reply.hdr.retval < 0)
         {
             // Error recovering object
@@ -292,6 +291,17 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
         op->osd_op = NULL;
         recovery_ops.erase(op->oid);
         delete osd_op;
+        if (immediate_commit != IMMEDIATE_ALL)
+        {
+            recovery_done++;
+            if (recovery_done >= recovery_sync_batch)
+            {
+                // Force sync every <recovery_sync_batch> operations
+                // This is required not to pile up an excessive amount of delete operations
+                autosync();
+                recovery_done = 0;
+            }
+        }
         continue_recovery();
     };
     exec_op(op->osd_op);

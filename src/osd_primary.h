@@ -38,4 +38,8 @@ struct osd_primary_op_data_t
     osd_num_t *dirty_osds = NULL;
     int dirty_osd_count = 0;
     obj_ver_id *unstable_writes = NULL;
+    obj_ver_osd_t *copies_to_delete = NULL;
+    int copies_to_delete_count = 0;
 };
+
+bool contains_osd(osd_num_t *osd_set, uint64_t size, osd_num_t osd_num);

@@ -96,6 +96,9 @@ void osd_t::parse_config(blockstore_config_t & config)
     recovery_queue_depth = strtoull(config["recovery_queue_depth"].c_str(), NULL, 10);
     if (recovery_queue_depth < 1 || recovery_queue_depth > MAX_RECOVERY_QUEUE)
         recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
+    recovery_sync_batch = strtoull(config["recovery_sync_batch"].c_str(), NULL, 10);
+    if (recovery_sync_batch < 1 || recovery_sync_batch > MAX_RECOVERY_QUEUE)
+        recovery_sync_batch = DEFAULT_RECOVERY_BATCH;
     if (config["readonly"] == "true" || config["readonly"] == "1" || config["readonly"] == "yes")
         readonly = true;
     print_stats_interval = strtoull(config["print_stats_interval"].c_str(), NULL, 10);

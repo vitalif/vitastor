@@ -56,6 +56,13 @@ struct obj_piece_id_t
     uint64_t osd_num;
 };
 
+struct obj_ver_osd_t
+{
+    uint64_t osd_num;
+    object_id oid;
+    uint64_t version;
+};
+
 struct flush_action_t
 {
     bool rollback = false, make_stable = false;
@@ -101,6 +108,7 @@ struct pg_t
     std::map<pg_osd_set_t, pg_osd_set_state_t> state_dict;
     btree::btree_map<object_id, pg_osd_set_state_t*> incomplete_objects, misplaced_objects, degraded_objects;
     std::map<obj_piece_id_t, flush_action_t> flush_actions;
+    std::vector<obj_ver_osd_t> copies_to_delete_after_sync;
     btree::btree_map<object_id, uint64_t> ver_override;
     pg_peering_state_t *peering_state = NULL;
     pg_flush_batch_t *flush_batch = NULL;

@@ -37,6 +37,7 @@
 #define DEFAULT_AUTOSYNC_INTERVAL 5
 #define MAX_RECOVERY_QUEUE 2048
 #define DEFAULT_RECOVERY_QUEUE 4
+#define DEFAULT_RECOVERY_BATCH 16
 
 //#define OSD_STUB
 
@@ -76,6 +77,7 @@ class osd_t
     int immediate_commit = IMMEDIATE_NONE;
     int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // sync every 5 seconds
     int recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
+    int recovery_sync_batch = DEFAULT_RECOVERY_BATCH;
     int log_level = 0;
 
     // cluster state
@@ -97,9 +99,11 @@ class osd_t
     std::map<pool_pg_num_t, pg_t> pgs;
     std::set<pool_pg_num_t> dirty_pgs;
     std::set<osd_num_t> dirty_osds;
+    int copies_to_delete_after_sync_count = 0;
     uint64_t misplaced_objects = 0, degraded_objects = 0, incomplete_objects = 0;
     int peering_state = 0;
     std::map<object_id, osd_recovery_op_t> recovery_ops;
+    int recovery_done = 0;
     osd_op_t *autosync_op = NULL;
 
     // Unstable writes
@@ -201,6 +205,7 @@ class osd_t
     void pg_cancel_write_queue(pg_t & pg, osd_op_t *first_op, object_id oid, int retval);
     void submit_primary_subops(int submit_type, uint64_t op_version, int pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
     void submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, uint64_t set_size, pg_osd_set_t & loc_set);
+    void submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_delete, int chunks_to_delete_count);
     void submit_primary_sync_subops(osd_op_t *cur_op);
     void submit_primary_stab_subops(osd_op_t *cur_op);
 
