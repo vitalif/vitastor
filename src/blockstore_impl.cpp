@@ -105,10 +105,10 @@ void blockstore_impl_t::loop()
         // has_writes == 1 - some writes in progress
         // has_writes == 2 - tried to submit some writes, but failed
         int has_writes = 0, op_idx = 0, new_idx = 0;
-        for (; op_idx < submit_queue.size(); op_idx++)
+        for (; op_idx < submit_queue.size(); op_idx++, new_idx++)
         {
             auto op = submit_queue[op_idx];
-            submit_queue[new_idx++] = op;
+            submit_queue[new_idx] = op;
             // FIXME: This needs some simplification
             // Writes should not block reads if the ring is not full and reads don't depend on them
             // In all other cases we should stop submission

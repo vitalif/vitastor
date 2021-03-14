@@ -191,8 +191,8 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                     if (bmp_end > bmp_start)
                     {
                         // fill with zeroes
-                        fulfill_read(read_op, fulfilled, bmp_start * bitmap_granularity,
-                            bmp_end * bitmap_granularity, (BS_ST_DELETE | BS_ST_STABLE), 0, 0);
+                        assert(fulfill_read(read_op, fulfilled, bmp_start * bitmap_granularity,
+                            bmp_end * bitmap_granularity, (BS_ST_DELETE | BS_ST_STABLE), 0, 0));
                     }
                     bmp_start = bmp_end;
                     while (clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7)) && bmp_end < bmp_size)
@@ -218,7 +218,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
     else if (fulfilled < read_op->len)
     {
         // fill remaining parts with zeroes
-        fulfill_read(read_op, fulfilled, 0, block_size, (BS_ST_DELETE | BS_ST_STABLE), 0, 0);
+        assert(fulfill_read(read_op, fulfilled, 0, block_size, (BS_ST_DELETE | BS_ST_STABLE), 0, 0));
     }
     assert(fulfilled == read_op->len);
     read_op->version = result_version;
