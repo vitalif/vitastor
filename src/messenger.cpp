@@ -33,7 +33,7 @@ void osd_messenger_t::init()
         for (auto cl_it = clients.begin(); cl_it != clients.end();)
         {
             auto cl = (cl_it++)->second;
-            if (!cl->osd_num)
+            if (!cl->osd_num || cl->peer_state != PEER_CONNECTED)
             {
                 // Do not run keepalive on regular clients
                 continue;
