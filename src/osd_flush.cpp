@@ -231,7 +231,8 @@ bool osd_t::pick_next_recovery(osd_recovery_op_t &op)
     {
         for (auto pg_it = pgs.begin(); pg_it != pgs.end(); pg_it++)
         {
-            if ((pg_it->second.state & (PG_ACTIVE | PG_HAS_MISPLACED)) == (PG_ACTIVE | PG_HAS_MISPLACED))
+            // Don't try to "recover" misplaced objects if "recovery" would make them degraded
+            if ((pg_it->second.state & (PG_ACTIVE | PG_DEGRADED | PG_HAS_MISPLACED)) == (PG_ACTIVE | PG_HAS_MISPLACED))
             {
                 for (auto obj_it = pg_it->second.misplaced_objects.begin(); obj_it != pg_it->second.misplaced_objects.end(); obj_it++)
                 {
