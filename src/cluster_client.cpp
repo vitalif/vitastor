@@ -586,11 +586,16 @@ resume_3:
         {
             // Check parent inode
             auto ino_it = st_cli.inode_config.find(op->cur_inode);
+            while (ino_it != st_cli.inode_config.end() && ino_it->second.parent_id &&
+                INODE_POOL(ino_it->second.parent_id) == INODE_POOL(op->cur_inode))
+            {
+                // Skip parents from the same pool
+                ino_it = st_cli.inode_config.find(ino_it->second.parent_id);
+            }
             if (ino_it != st_cli.inode_config.end() &&
                 ino_it->second.parent_id)
             {
                 // Continue reading from the parent inode
-                // FIXME: This obviously requires optimizations for long snapshot chains
                 op->cur_inode = ino_it->second.parent_id;
                 op->parts.clear();
                 op->done_count = 0;
@@ -799,6 +804,10 @@ bool cluster_client_t::try_send(cluster_op_t *op, int i)
             uint64_t pg_bitmap_size = bs_bitmap_size * (
                 pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks
             );
+            uint64_t meta_rev = 0;
+            auto ino_it = st_cli.inode_config.find(op->inode);
+            if (ino_it != st_cli.inode_config.end())
+                meta_rev = ino_it->second.mod_revision;
             part->op = (osd_op_t){
                 .op_type = OSD_OP_OUT,
                 .peer_fd = peer_fd,
@@ -811,7 +820,7 @@ bool cluster_client_t::try_send(cluster_op_t *op, int i)
                     .inode = op->cur_inode,
                     .offset = part->offset,
                     .len = part->len,
-                    .meta_revision = 0,
+                    .meta_revision = meta_rev,
                 } },
                 .bitmap = op->opcode == OSD_OP_WRITE ? NULL : op->part_bitmaps + pg_bitmap_size*i,
                 .bitmap_len = (unsigned)(op->opcode == OSD_OP_WRITE ? 0 : pg_bitmap_size),
