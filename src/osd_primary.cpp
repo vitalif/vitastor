@@ -18,7 +18,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     // Our EC scheme stores data in fixed chunks equal to (K*block size)
     // K = (pg_size-parity_chunks) in case of EC/XOR, or 1 for replicated pools
     pool_id_t pool_id = INODE_POOL(cur_op->req.rw.inode);
-    // FIXME: We have to access pool config here, so make sure that it doesn't change while its PGs are active...
+    // Note: We read pool config here, so we must NOT change it when PGs are active
     auto pool_cfg_it = st_cli.pool_config.find(pool_id);
     if (pool_cfg_it == st_cli.pool_config.end())
     {
@@ -269,8 +269,6 @@ resume_3:
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
         return;
     }
-    // Save version override for parallel reads
-    pg.ver_override[op_data->oid] = op_data->fact_ver;
     if (op_data->scheme == POOL_SCHEME_REPLICATED)
     {
         // Only (possibly) copy new data from the request into the recovery buffer
@@ -289,6 +287,9 @@ resume_3:
     }
     else
     {
+        // For EC/XOR pools, save version override to make it impossible
+        // for parallel reads to read different versions of data and parity
+        pg.ver_override[op_data->oid] = op_data->fact_ver;
         // Recover missing stripes, calculate parity
         if (pg.scheme == POOL_SCHEME_XOR)
         {
@@ -332,8 +333,22 @@ resume_4:
     op_data->st = 4;
     return;
 resume_5:
+    if (op_data->scheme != POOL_SCHEME_REPLICATED)
+    {
+        // Remove version override just after the write, but before stabilizing
+        pg.ver_override.erase(op_data->oid);
+    }
+    if (op_data->object_state)
+    {
+        // We must forget the unclean state of the object before deleting it
+        // so the next reads don't accidentally read a deleted version
+        // And it should be done at the same time as the removal of the version override
+        remove_object_from_state(op_data->oid, op_data->object_state, pg);
+        pg.clean_count++;
+    }
     if (op_data->errors > 0)
     {
+        free_object_state(pg, &op_data->object_state);
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
         return;
     }
@@ -342,6 +357,7 @@ resume_7:
     if (!remember_unstable_write(cur_op, pg, pg.cur_loc_set, 6))
     {
         // FIXME: Check for immediate_commit == IMMEDIATE_SMALL
+        free_object_state(pg, &op_data->object_state);
         return;
     }
     if (op_data->fact_ver == 1)
@@ -390,10 +406,12 @@ resume_7:
                     copies_to_delete_after_sync_count++;
                 }
             }
+            free_object_state(pg, &op_data->object_state);
         }
         else
         {
             submit_primary_del_subops(cur_op, pg.cur_set.data(), pg.pg_size, op_data->object_state->osd_set);
+            free_object_state(pg, &op_data->object_state);
             if (op_data->n_subops > 0)
             {
 resume_8:
@@ -407,14 +425,9 @@ resume_9:
                 }
             }
         }
-        // Clear object state
-        remove_object_from_state(op_data->oid, op_data->object_state, pg);
-        pg.clean_count++;
     }
     cur_op->reply.hdr.retval = cur_op->req.rw.len;
 continue_others:
-    // Remove version override
-    pg.ver_override.erase(op_data->oid);
     object_id oid = op_data->oid;
     // Remove the operation from queue before calling finish_op so it doesn't see the completed operation in queue
     auto next_it = pg.write_queue.find(oid);
@@ -818,10 +831,14 @@ void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t *object
     {
         throw std::runtime_error("BUG: Invalid object state: "+std::to_string(object_state->state));
     }
-    object_state->object_count--;
-    if (!object_state->object_count)
+}
+
+void osd_t::free_object_state(pg_t & pg, pg_osd_set_state_t **object_state)
+{
+    if (*object_state && !(--(*object_state)->object_count))
     {
-        pg.state_dict.erase(object_state->osd_set);
+        pg.state_dict.erase((*object_state)->osd_set);
+        *object_state = NULL;
     }
 }
 
@@ -887,6 +904,7 @@ resume_5:
     else
     {
         remove_object_from_state(op_data->oid, op_data->object_state, pg);
+        free_object_state(pg, &op_data->object_state);
     }
     pg.total_count--;
     object_id oid = op_data->oid;

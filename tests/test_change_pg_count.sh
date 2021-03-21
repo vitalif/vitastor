@@ -2,6 +2,14 @@
 
 . `dirname $0`/common.sh
 
+if [ "$EC" != "" ]; then
+    POOLCFG='"scheme":"xor","pg_size":3,"pg_minsize":2,"parity_chunks":1'
+    NOBJ=512
+else
+    POOLCFG='"scheme":"replicated","pg_size":2,"pg_minsize":2'
+    NOBJ=1024
+fi
+
 dd if=/dev/zero of=./testdata/test_osd1.bin bs=1024 count=1 seek=$((1024*1024-1))
 dd if=/dev/zero of=./testdata/test_osd2.bin bs=1024 count=1 seek=$((1024*1024-1))
 dd if=/dev/zero of=./testdata/test_osd3.bin bs=1024 count=1 seek=$((1024*1024-1))
@@ -28,7 +36,7 @@ cd ..
 node mon/mon-main.js --etcd_url http://$ETCD_URL --etcd_prefix "/vitastor" --verbose 1 &>./testdata/mon.log &
 MON_PID=$!
 
-$ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":2,"pg_count":16,"failure_domain":"osd"}}'
+$ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool",'$POOLCFG',"pg_count":16,"failure_domain":"osd"}}'
 
 sleep 2
 
@@ -52,7 +60,7 @@ try_change()
         echo --- Change PG count to $n --- >>testdata/osd$i.log
     done
 
-    $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":2,"pg_count":'$n',"failure_domain":"osd"}}'
+    $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool",'$POOLCFG',"pg_count":'$n',"failure_domain":"osd"}}'
 
     for i in {1..10}; do
         ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(.[0].items["1"] | map((.osd_set | select(. > 0)) | length == 2) | length) == '$n) && \
@@ -82,8 +90,8 @@ try_change()
 
     # Check that no objects are lost !
     nobj=`$ETCDCTL get --prefix '/vitastor/pg/stats' --print-value-only | jq -s '[ .[].object_count ] | reduce .[] as $num (0; .+$num)'`
-    if [ "$nobj" -ne 1024 ]; then
-        format_error "Data lost after changing PG count to $n: 1024 objects expected, but got $nobj"
+    if [ "$nobj" -ne $NOBJ ]; then
+        format_error "Data lost after changing PG count to $n: $NOBJ objects expected, but got $nobj"
     fi
 }
 
