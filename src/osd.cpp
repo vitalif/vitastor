@@ -20,6 +20,10 @@ osd_t::osd_t(blockstore_config_t & config, ring_loop_t *ringloop)
         bs_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
     clean_entry_bitmap_size = bs_block_size / bs_bitmap_granularity / 8;
 
+    zero_buffer_size = 1<<20;
+    zero_buffer = malloc_or_die(zero_buffer_size);
+    memset(zero_buffer, 0, zero_buffer_size);
+
     this->config = config;
     this->ringloop = ringloop;
 
@@ -58,6 +62,7 @@ osd_t::~osd_t()
     delete epmgr;
     delete bs;
     close(listen_fd);
+    free(zero_buffer);
 }
 
 void osd_t::parse_config(blockstore_config_t & config)

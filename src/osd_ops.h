@@ -184,6 +184,10 @@ struct __attribute__((__packed__)) osd_op_rw_t
     uint64_t offset;
     // length
     uint32_t len;
+    // flags (for future)
+    uint32_t flags;
+    // inode metadata revision
+    uint64_t meta_revision;
 };
 
 struct __attribute__((__packed__)) osd_reply_rw_t

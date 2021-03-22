@@ -31,15 +31,31 @@ struct osd_primary_op_data_t
     uint64_t *prev_set = NULL;
     pg_osd_set_state_t *object_state = NULL;
 
-    // for sync. oops, requires freeing
-    std::vector<unstable_osd_num_t> *unstable_write_osds = NULL;
-    pool_pg_num_t *dirty_pgs = NULL;
-    int dirty_pg_count = 0;
-    osd_num_t *dirty_osds = NULL;
-    int dirty_osd_count = 0;
-    obj_ver_id *unstable_writes = NULL;
-    obj_ver_osd_t *copies_to_delete = NULL;
-    int copies_to_delete_count = 0;
+    union
+    {
+        struct
+        {
+            // for sync. oops, requires freeing
+            std::vector<unstable_osd_num_t> *unstable_write_osds;
+            pool_pg_num_t *dirty_pgs;
+            int dirty_pg_count;
+            osd_num_t *dirty_osds;
+            int dirty_osd_count;
+            obj_ver_id *unstable_writes;
+            obj_ver_osd_t *copies_to_delete;
+            int copies_to_delete_count;
+        };
+        struct
+        {
+            // for read_bitmaps
+            void *snapshot_bitmaps;
+            inode_t *read_chain;
+            uint8_t *missing_flags;
+            int chain_size;
+            osd_chain_read_t *chain_reads;
+            int chain_read_count;
+        };
+    };
 };
 
 bool contains_osd(osd_num_t *osd_set, uint64_t size, osd_num_t osd_num);

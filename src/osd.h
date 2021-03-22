@@ -66,6 +66,28 @@ struct inode_stats_t
     uint64_t op_bytes[3] = { 0 };
 };
 
+struct bitmap_request_t
+{
+    osd_num_t osd_num;
+    object_id oid;
+    uint64_t version;
+    void *bmp_buf;
+};
+
+inline bool operator < (const bitmap_request_t & a, const bitmap_request_t & b)
+{
+    return a.osd_num < b.osd_num || a.osd_num == b.osd_num && a.oid < b.oid;
+}
+
+struct osd_chain_read_t
+{
+    int chain_pos;
+    inode_t inode;
+    uint32_t offset, len;
+};
+
+struct osd_rmw_stripe_t;
+
 class osd_t
 {
     // config
@@ -126,6 +148,8 @@ class osd_t
     bool stopping = false;
     int inflight_ops = 0;
     blockstore_t *bs;
+    void *zero_buffer = NULL;
+    uint64_t zero_buffer_size = 0;
     uint32_t bs_block_size, bs_bitmap_granularity, clean_entry_bitmap_size;
     ring_loop_t *ringloop;
     timerfd_manager_t *tfd = NULL;
@@ -216,13 +240,24 @@ class osd_t
     void handle_primary_bs_subop(osd_op_t *subop);
     void add_bs_subop_stats(osd_op_t *subop);
     void pg_cancel_write_queue(pg_t & pg, osd_op_t *first_op, object_id oid, int retval);
-    void submit_primary_subops(int submit_type, uint64_t op_version, int pg_size, const uint64_t* osd_set, osd_op_t *cur_op);
+
+    void submit_primary_subops(int submit_type, uint64_t op_version, const uint64_t* osd_set, osd_op_t *cur_op);
+    int submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t op_version,
+        osd_rmw_stripe_t *stripes, const uint64_t* osd_set, osd_op_t *cur_op, int subop_idx, int zero_read);
     void submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, uint64_t set_size, pg_osd_set_t & loc_set);
     void submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_delete, int chunks_to_delete_count);
     int submit_primary_sync_subops(osd_op_t *cur_op);
     void submit_primary_stab_subops(osd_op_t *cur_op);
 
     uint64_t* get_object_osd_set(pg_t &pg, object_id &oid, uint64_t *def, pg_osd_set_state_t **object_state);
+
+    void continue_chained_read(osd_op_t *cur_op);
+    int submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op);
+    void send_chained_read_results(pg_t & pg, osd_op_t *cur_op);
+    std::vector<osd_chain_read_t> collect_chained_read_requests(osd_op_t *cur_op);
+    int collect_bitmap_requests(osd_op_t *cur_op, pg_t & pg, std::vector<bitmap_request_t> & bitmap_requests);
+    int submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg);
+    int read_bitmaps(osd_op_t *cur_op, pg_t & pg, int base_state);
 
     inline pg_num_t map_to_pg(object_id oid, uint64_t pg_stripe_size)
     {

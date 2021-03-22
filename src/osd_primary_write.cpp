@@ -87,7 +87,7 @@ resume_1:
         }
     }
     // Read required blocks
-    submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, pg.pg_size, op_data->prev_set, cur_op);
+    submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, op_data->prev_set, cur_op);
 resume_2:
     op_data->st = 2;
     return;
@@ -158,7 +158,7 @@ resume_10:
             return;
         }
     }
-    submit_primary_subops(SUBMIT_WRITE, op_data->target_ver, pg.pg_size, pg.cur_set.data(), cur_op);
+    submit_primary_subops(SUBMIT_WRITE, op_data->target_ver, pg.cur_set.data(), cur_op);
 resume_4:
     op_data->st = 4;
     return;

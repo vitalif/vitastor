@@ -76,9 +76,6 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
             }
         }
         assert(!cur_op->op_data->subops);
-        assert(!cur_op->op_data->unstable_write_osds);
-        assert(!cur_op->op_data->unstable_writes);
-        assert(!cur_op->op_data->dirty_pgs);
         free(cur_op->op_data);
         cur_op->op_data = NULL;
     }
@@ -106,7 +103,7 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     }
 }
 
-void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_size, const uint64_t* osd_set, osd_op_t *cur_op)
+void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, const uint64_t* osd_set, osd_op_t *cur_op)
 {
     bool wr = submit_type == SUBMIT_WRITE;
     osd_primary_op_data_t *op_data = cur_op->op_data;
@@ -114,32 +111,34 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
     bool rep = op_data->scheme == POOL_SCHEME_REPLICATED;
     // Allocate subops
     int n_subops = 0, zero_read = -1;
-    for (int role = 0; role < pg_size; role++)
+    for (int role = 0; role < op_data->pg_size; role++)
     {
         if (osd_set[role] == this->osd_num || osd_set[role] != 0 && zero_read == -1)
-        {
             zero_read = role;
-        }
         if (osd_set[role] != 0 && (wr || !rep && stripes[role].read_end != 0))
-        {
             n_subops++;
-        }
     }
     if (!n_subops && (submit_type == SUBMIT_RMW_READ || rep))
-    {
         n_subops = 1;
-    }
     else
-    {
         zero_read = -1;
-    }
     osd_op_t *subops = new osd_op_t[n_subops];
     op_data->fact_ver = 0;
     op_data->done = op_data->errors = 0;
     op_data->n_subops = n_subops;
     op_data->subops = subops;
-    int i = 0;
-    for (int role = 0; role < pg_size; role++)
+    int sent = submit_primary_subop_batch(submit_type, op_data->oid.inode, op_version, op_data->stripes, osd_set, cur_op, 0, zero_read);
+    assert(sent == n_subops);
+}
+
+int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t op_version,
+    osd_rmw_stripe_t *stripes, const uint64_t* osd_set, osd_op_t *cur_op, int subop_idx, int zero_read)
+{
+    bool wr = submit_type == SUBMIT_WRITE;
+    osd_primary_op_data_t *op_data = cur_op->op_data;
+    bool rep = op_data->scheme == POOL_SCHEME_REPLICATED;
+    int i = subop_idx;
+    for (int role = 0; role < op_data->pg_size; role++)
     {
         // We always submit zero-length writes to all replicas, even if the stripe is not modified
         if (!(wr || !rep && stripes[role].read_end != 0 || zero_read == role))
@@ -150,20 +149,21 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
         if (role_osd_num != 0)
         {
             int stripe_num = rep ? 0 : role;
+            osd_op_t *subop = op_data->subops + i;
             if (role_osd_num == this->osd_num)
             {
-                clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
-                subops[i].op_type = (uint64_t)cur_op;
-                subops[i].bitmap = stripes[stripe_num].bmp_buf;
-                subops[i].bitmap_len = clean_entry_bitmap_size;
-                subops[i].bs_op = new blockstore_op_t({
+                clock_gettime(CLOCK_REALTIME, &subop->tv_begin);
+                subop->op_type = (uint64_t)cur_op;
+                subop->bitmap = stripes[stripe_num].bmp_buf;
+                subop->bitmap_len = clean_entry_bitmap_size;
+                subop->bs_op = new blockstore_op_t({
                     .opcode = (uint64_t)(wr ? (rep ? BS_OP_WRITE_STABLE : BS_OP_WRITE) : BS_OP_READ),
-                    .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
+                    .callback = [subop, this](blockstore_op_t *bs_subop)
                     {
                         handle_primary_bs_subop(subop);
                     },
                     .oid = {
-                        .inode = op_data->oid.inode,
+                        .inode = inode,
                         .stripe = op_data->oid.stripe | stripe_num,
                     },
                     .version = op_version,
@@ -175,26 +175,26 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
 #ifdef OSD_DEBUG
                 printf(
                     "Submit %s to local: %lx:%lx v%lu %u-%u\n", wr ? "write" : "read",
-                    op_data->oid.inode, op_data->oid.stripe | stripe_num, op_version,
-                    subops[i].bs_op->offset, subops[i].bs_op->len
+                    inode, op_data->oid.stripe | stripe_num, op_version,
+                    subop->bs_op->offset, subop->bs_op->len
                 );
 #endif
-                bs->enqueue_op(subops[i].bs_op);
+                bs->enqueue_op(subop->bs_op);
             }
             else
             {
-                subops[i].op_type = OSD_OP_OUT;
-                subops[i].peer_fd = c_cli.osd_peer_fds.at(role_osd_num);
-                subops[i].bitmap = stripes[stripe_num].bmp_buf;
-                subops[i].bitmap_len = clean_entry_bitmap_size;
-                subops[i].req.sec_rw = {
+                subop->op_type = OSD_OP_OUT;
+                subop->peer_fd = c_cli.osd_peer_fds.at(role_osd_num);
+                subop->bitmap = stripes[stripe_num].bmp_buf;
+                subop->bitmap_len = clean_entry_bitmap_size;
+                subop->req.sec_rw = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
                         .id = c_cli.next_subop_id++,
                         .opcode = (uint64_t)(wr ? (rep ? OSD_OP_SEC_WRITE_STABLE : OSD_OP_SEC_WRITE) : OSD_OP_SEC_READ),
                     },
                     .oid = {
-                        .inode = op_data->oid.inode,
+                        .inode = inode,
                         .stripe = op_data->oid.stripe | stripe_num,
                     },
                     .version = op_version,
@@ -205,33 +205,34 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
 #ifdef OSD_DEBUG
                 printf(
                     "Submit %s to osd %lu: %lx:%lx v%lu %u-%u\n", wr ? "write" : "read", role_osd_num,
-                    op_data->oid.inode, op_data->oid.stripe | stripe_num, op_version,
-                    subops[i].req.sec_rw.offset, subops[i].req.sec_rw.len
+                    inode, op_data->oid.stripe | stripe_num, op_version,
+                    subop->req.sec_rw.offset, subop->req.sec_rw.len
                 );
 #endif
                 if (wr)
                 {
                     if (stripes[stripe_num].write_end > stripes[stripe_num].write_start)
                     {
-                        subops[i].iov.push_back(stripes[stripe_num].write_buf, stripes[stripe_num].write_end - stripes[stripe_num].write_start);
+                        subop->iov.push_back(stripes[stripe_num].write_buf, stripes[stripe_num].write_end - stripes[stripe_num].write_start);
                     }
                 }
                 else
                 {
                     if (stripes[stripe_num].read_end > stripes[stripe_num].read_start)
                     {
-                        subops[i].iov.push_back(stripes[stripe_num].read_buf, stripes[stripe_num].read_end - stripes[stripe_num].read_start);
+                        subop->iov.push_back(stripes[stripe_num].read_buf, stripes[stripe_num].read_end - stripes[stripe_num].read_start);
                     }
                 }
-                subops[i].callback = [cur_op, this](osd_op_t *subop)
+                subop->callback = [cur_op, this](osd_op_t *subop)
                 {
                     handle_primary_subop(subop, cur_op);
                 };
-                c_cli.outbox_push(&subops[i]);
+                c_cli.outbox_push(subop);
             }
             i++;
         }
     }
+    return i-subop_idx;
 }
 
 static uint64_t bs_op_to_osd_op[] = {
@@ -302,8 +303,13 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
 {
     uint64_t opcode = subop->req.hdr.opcode;
     int retval = subop->reply.hdr.retval;
-    int expected = opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE
-        || opcode == OSD_OP_SEC_WRITE_STABLE ? subop->req.sec_rw.len : 0;
+    int expected;
+    if (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE || opcode == OSD_OP_SEC_WRITE_STABLE)
+        expected = subop->req.sec_rw.len;
+    else if (opcode == OSD_OP_SEC_READ_BMP)
+        expected = subop->req.sec_read_bmp.len / sizeof(obj_ver_id) * (8 + clean_entry_bitmap_size);
+    else
+        expected = 0;
     osd_primary_op_data_t *op_data = cur_op->op_data;
     if (retval != expected)
     {
@@ -330,14 +336,17 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
                 ? c_cli.clients[subop->peer_fd]->osd_num : osd_num;
             printf("subop %lu from osd %lu: version = %lu\n", opcode, peer_osd, version);
 #endif
-            if (op_data->fact_ver != 0 && op_data->fact_ver != version)
+            if (op_data->fact_ver != UINT64_MAX)
             {
-                throw std::runtime_error(
-                    "different fact_versions returned from "+std::string(osd_op_names[opcode])+
-                    " subops: "+std::to_string(version)+" vs "+std::to_string(op_data->fact_ver)
-                );
+                if (op_data->fact_ver != 0 && op_data->fact_ver != version)
+                {
+                    throw std::runtime_error(
+                        "different fact_versions returned from "+std::string(osd_op_names[opcode])+
+                        " subops: "+std::to_string(version)+" vs "+std::to_string(op_data->fact_ver)
+                    );
+                }
+                op_data->fact_ver = version;
             }
-            op_data->fact_ver = version;
         }
     }
     if ((op_data->errors + op_data->done) >= op_data->n_subops)

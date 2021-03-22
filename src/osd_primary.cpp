@@ -28,6 +28,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         return false;
     }
     auto & pool_cfg = pool_cfg_it->second;
+    // FIXME: op_data->pg_data_size can probably be removed (there's pg.pg_data_size)
     uint64_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
     uint64_t pg_block_size = bs_block_size * pg_data_size;
     object_id oid = {
@@ -52,20 +53,81 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         return false;
     }
     int stripe_count = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_size);
+    int chain_size = 0;
+    if (cur_op->req.hdr.opcode == OSD_OP_READ && cur_op->req.rw.meta_revision > 0)
+    {
+        // Chained read
+        auto inode_it = st_cli.inode_config.find(cur_op->req.rw.inode);
+        if (inode_it->second.mod_revision != cur_op->req.rw.meta_revision)
+        {
+            // Client view of the metadata differs from OSD's view
+            // Operation can't be completed correctly, client should retry later
+            finish_op(cur_op, -EPIPE);
+            return false;
+        }
+        // Find parents from the same pool. Optimized reads only work within pools
+        while (inode_it != st_cli.inode_config.end() && inode_it->second.parent_id &&
+            INODE_POOL(inode_it->second.parent_id) == pg_it->second.pool_id)
+        {
+            chain_size++;
+            inode_it = st_cli.inode_config.find(inode_it->second.parent_id);
+        }
+        if (chain_size)
+        {
+            // Add the original inode
+            chain_size++;
+        }
+    }
     osd_primary_op_data_t *op_data = (osd_primary_op_data_t*)calloc_or_die(
-        1, sizeof(osd_primary_op_data_t) + (clean_entry_bitmap_size + sizeof(osd_rmw_stripe_t)) * stripe_count
+        // Allocate:
+        // - op_data
+        1, sizeof(osd_primary_op_data_t) +
+        // - stripes
+        // - resulting bitmap buffers
+        stripe_count * (clean_entry_bitmap_size + sizeof(osd_rmw_stripe_t)) +
+        chain_size * (
+            // - copy of the chain
+            sizeof(inode_t) +
+            // - bitmap buffers for chained read
+            stripe_count * clean_entry_bitmap_size +
+            // - 'missing' flags for chained reads
+            (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 0 : pg_it->second.pg_size)
+        )
     );
+    void *data_buf = ((void*)op_data) + sizeof(osd_primary_op_data_t);
     op_data->pg_num = pg_num;
     op_data->oid = oid;
-    op_data->stripes = ((osd_rmw_stripe_t*)(op_data+1));
+    op_data->stripes = (osd_rmw_stripe_t*)data_buf;
+    data_buf += sizeof(osd_rmw_stripe_t) * stripe_count;
     op_data->scheme = pool_cfg.scheme;
     op_data->pg_data_size = pg_data_size;
+    op_data->pg_size = pg_it->second.pg_size;
     cur_op->op_data = op_data;
     split_stripes(pg_data_size, bs_block_size, (uint32_t)(cur_op->req.rw.offset - oid.stripe), cur_op->req.rw.len, op_data->stripes);
     // Allocate bitmaps along with stripes to avoid extra allocations and fragmentation
     for (int i = 0; i < stripe_count; i++)
     {
-        op_data->stripes[i].bmp_buf = (void*)(op_data->stripes+stripe_count) + clean_entry_bitmap_size*i;
+        op_data->stripes[i].bmp_buf = data_buf;
+        data_buf += clean_entry_bitmap_size;
+    }
+    op_data->chain_size = chain_size;
+    if (chain_size > 0)
+    {
+        op_data->read_chain = (inode_t*)data_buf;
+        data_buf += sizeof(inode_t) * chain_size;
+        op_data->snapshot_bitmaps = data_buf;
+        data_buf += chain_size * stripe_count * clean_entry_bitmap_size;
+        op_data->missing_flags = (uint8_t*)data_buf;
+        data_buf += chain_size * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 0 : pg_it->second.pg_size);
+        // Copy chain
+        int chain_num = 0;
+        op_data->read_chain[chain_num++] = cur_op->req.rw.inode;
+        auto inode_it = st_cli.inode_config.find(cur_op->req.rw.inode);
+        while (inode_it != st_cli.inode_config.end() && inode_it->second.parent_id)
+        {
+            op_data->read_chain[chain_num++] = inode_it->second.parent_id;
+            inode_it = st_cli.inode_config.find(inode_it->second.parent_id);
+        }
     }
     pg_it->second.inflight++;
     return true;
@@ -106,10 +168,17 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
     {
         return;
     }
-    cur_op->reply.rw.bitmap_len = 0;
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    if (op_data->st == 1)      goto resume_1;
-    else if (op_data->st == 2) goto resume_2;
+    if (op_data->chain_size)
+    {
+        continue_chained_read(cur_op);
+        return;
+    }
+    if (op_data->st == 1)
+        goto resume_1;
+    else if (op_data->st == 2)
+        goto resume_2;
+    cur_op->reply.rw.bitmap_len = 0;
     {
         auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
         for (int role = 0; role < op_data->pg_data_size; role++)
@@ -124,8 +193,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         {
             // Fast happy-path
             cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->pg_data_size, 0);
-            submit_primary_subops(SUBMIT_READ, op_data->target_ver,
-                (op_data->scheme == POOL_SCHEME_REPLICATED ? pg.pg_size : op_data->pg_data_size), pg.cur_set.data(), cur_op);
+            submit_primary_subops(SUBMIT_READ, op_data->target_ver, pg.cur_set.data(), cur_op);
             op_data->st = 1;
         }
         else
@@ -142,7 +210,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
             op_data->scheme = pg.scheme;
             op_data->degraded = 1;
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0);
-            submit_primary_subops(SUBMIT_READ, op_data->target_ver, pg.pg_size, cur_set, cur_op);
+            submit_primary_subops(SUBMIT_READ, op_data->target_ver, cur_set, cur_op);
             op_data->st = 1;
         }
     }
@@ -265,7 +333,7 @@ resume_1:
     // Determine which OSDs contain this object and delete it
     op_data->prev_set = get_object_osd_set(pg, op_data->oid, pg.cur_set.data(), &op_data->object_state);
     // Submit 1 read to determine the actual version number
-    submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, pg.pg_size, op_data->prev_set, cur_op);
+    submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, op_data->prev_set, cur_op);
 resume_2:
     op_data->st = 2;
     return;

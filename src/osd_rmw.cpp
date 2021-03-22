@@ -246,20 +246,23 @@ void reconstruct_stripes_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg
     {
         if (stripes[role].read_end != 0 && stripes[role].missing)
         {
-            for (int other = 0; other < pg_size; other++)
+            if (stripes[role].read_end > stripes[role].read_start)
             {
-                if (stripes[other].read_end != 0 && !stripes[other].missing)
+                for (int other = 0; other < pg_size; other++)
                 {
-                    assert(stripes[other].read_start <= stripes[role].read_start);
-                    assert(stripes[other].read_end >= stripes[role].read_end);
-                    data_ptrs[other] = (char*)(stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start));
+                    if (stripes[other].read_end != 0 && !stripes[other].missing)
+                    {
+                        assert(stripes[other].read_start <= stripes[role].read_start);
+                        assert(stripes[other].read_end >= stripes[role].read_end);
+                        data_ptrs[other] = (char*)(stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start));
+                    }
                 }
+                data_ptrs[role] = (char*)stripes[role].read_buf;
+                jerasure_matrix_dotprod(
+                    pg_minsize, OSD_JERASURE_W, decoding_matrix+(role*pg_minsize), dm_ids, role,
+                    data_ptrs, data_ptrs+pg_minsize, stripes[role].read_end - stripes[role].read_start
+                );
             }
-            data_ptrs[role] = (char*)stripes[role].read_buf;
-            jerasure_matrix_dotprod(
-                pg_minsize, OSD_JERASURE_W, decoding_matrix+(role*pg_minsize), dm_ids, role,
-                data_ptrs, data_ptrs+pg_minsize, stripes[role].read_end - stripes[role].read_start
-            );
             for (int other = 0; other < pg_size; other++)
             {
                 if (stripes[other].read_end != 0 && !stripes[other].missing)

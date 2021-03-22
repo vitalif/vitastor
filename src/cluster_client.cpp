@@ -811,6 +811,7 @@ bool cluster_client_t::try_send(cluster_op_t *op, int i)
                     .inode = op->cur_inode,
                     .offset = part->offset,
                     .len = part->len,
+                    .meta_revision = 0,
                 } },
                 .bitmap = op->opcode == OSD_OP_WRITE ? NULL : op->part_bitmaps + pg_bitmap_size*i,
                 .bitmap_len = (unsigned)(op->opcode == OSD_OP_WRITE ? 0 : pg_bitmap_size),
