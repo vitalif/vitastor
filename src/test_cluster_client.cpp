@@ -9,7 +9,7 @@
 void configure_single_pg_pool(cluster_client_t *cli)
 {
     cli->st_cli.on_load_pgs_hook(true);
-    cli->st_cli.parse_state((json_kv_t){
+    cli->st_cli.parse_state((etcd_kv_t){
         .key = "/config/pools",
         .value = json11::Json::object {
             { "1", json11::Json::object {
@@ -22,7 +22,7 @@ void configure_single_pg_pool(cluster_client_t *cli)
             } }
         },
     });
-    cli->st_cli.parse_state((json_kv_t){
+    cli->st_cli.parse_state((etcd_kv_t){
         .key = "/config/pgs",
         .value = json11::Json::object {
             { "items", json11::Json::object {
@@ -35,7 +35,7 @@ void configure_single_pg_pool(cluster_client_t *cli)
             } }
         },
     });
-    cli->st_cli.parse_state((json_kv_t){
+    cli->st_cli.parse_state((etcd_kv_t){
         .key = "/pg/state/1/1",
         .value = json11::Json::object {
             { "peers", json11::Json::array { 1, 2 } },
@@ -43,7 +43,7 @@ void configure_single_pg_pool(cluster_client_t *cli)
             { "state", json11::Json::array { "active" } },
         },
     });
-    json11::Json::object changes;
+    std::map<std::string, etcd_kv_t> changes;
     cli->st_cli.on_change_hook(changes);
 }
 

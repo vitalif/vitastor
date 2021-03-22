@@ -58,7 +58,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     st_cli.tfd = tfd;
     st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
     st_cli.on_change_osd_state_hook = [this](uint64_t peer_osd) { on_change_osd_state_hook(peer_osd); };
-    st_cli.on_change_hook = [this](json11::Json::object & changes) { on_change_hook(changes); };
+    st_cli.on_change_hook = [this](std::map<std::string, etcd_kv_t> & changes) { on_change_hook(changes); };
     st_cli.on_load_pgs_hook = [this](bool success) { on_load_pgs_hook(success); };
 
     st_cli.parse_config(config);
@@ -273,7 +273,7 @@ void cluster_client_t::on_load_pgs_hook(bool success)
     continue_ops();
 }
 
-void cluster_client_t::on_change_hook(json11::Json::object & changes)
+void cluster_client_t::on_change_hook(std::map<std::string, etcd_kv_t> & changes)
 {
     for (auto pool_item: st_cli.pool_config)
     {

@@ -65,7 +65,7 @@ void osd_t::init_cluster()
         st_cli.log_level = log_level;
         st_cli.on_change_osd_state_hook = [this](osd_num_t peer_osd) { on_change_osd_state_hook(peer_osd); };
         st_cli.on_change_pg_history_hook = [this](pool_id_t pool_id, pg_num_t pg_num) { on_change_pg_history_hook(pool_id, pg_num); };
-        st_cli.on_change_hook = [this](json11::Json::object & changes) { on_change_etcd_state_hook(changes); };
+        st_cli.on_change_hook = [this](std::map<std::string, etcd_kv_t> & changes) { on_change_etcd_state_hook(changes); };
         st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
         st_cli.load_pgs_checks_hook = [this]() { return on_load_pgs_checks_hook(); };
         st_cli.on_load_pgs_hook = [this](bool success) { on_load_pgs_hook(success); };
@@ -272,7 +272,7 @@ void osd_t::on_change_osd_state_hook(osd_num_t peer_osd)
     }
 }
 
-void osd_t::on_change_etcd_state_hook(json11::Json::object & changes)
+void osd_t::on_change_etcd_state_hook(std::map<std::string, etcd_kv_t> & changes)
 {
     // FIXME apply config changes in runtime (maybe, some)
     if (run_primary)

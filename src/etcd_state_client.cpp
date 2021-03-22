@@ -27,9 +27,9 @@ etcd_state_client_t::~etcd_state_client_t()
 }
 
 #ifndef __MOCK__
-json_kv_t etcd_state_client_t::parse_etcd_kv(const json11::Json & kv_json)
+etcd_kv_t etcd_state_client_t::parse_etcd_kv(const json11::Json & kv_json)
 {
-    json_kv_t kv;
+    etcd_kv_t kv;
     kv.key = base64_decode(kv_json["key"].string_value());
     std::string json_err, json_text = base64_decode(kv_json["value"].string_value());
     kv.value = json_text == "" ? json11::Json() : json11::Json::parse(json_text, json_err);
@@ -38,6 +38,8 @@ json_kv_t etcd_state_client_t::parse_etcd_kv(const json11::Json & kv_json)
         printf("Bad JSON in etcd key %s: %s (value: %s)\n", kv.key.c_str(), json_err.c_str(), json_text.c_str());
         kv.key = "";
     }
+    else
+        kv.mod_revision = kv_json["mod_revision"].uint64_value();
     return kv;
 }
 
@@ -150,22 +152,22 @@ void etcd_state_client_t::start_etcd_watcher()
                     etcd_watch_revision = data["result"]["header"]["revision"].uint64_value();
                 }
                 // First gather all changes into a hash to remove multiple overwrites
-                json11::Json::object changes;
+                std::map<std::string, etcd_kv_t> changes;
                 for (auto & ev: data["result"]["events"].array_items())
                 {
                     auto kv = parse_etcd_kv(ev["kv"]);
                     if (kv.key != "")
                     {
-                        changes[kv.key] = kv.value;
+                        changes[kv.key] = kv;
                     }
                 }
                 for (auto & kv: changes)
                 {
                     if (this->log_level > 3)
                     {
-                        printf("Incoming event: %s -> %s\n", kv.first.c_str(), kv.second.dump().c_str());
+                        printf("Incoming event: %s -> %s\n", kv.first.c_str(), kv.second.value.dump().c_str());
                     }
-                    parse_state(kv.first, kv.second);
+                    parse_state(kv.second);
                 }
                 // React to changes
                 if (on_change_hook != NULL)
@@ -332,7 +334,7 @@ void etcd_state_client_t::load_pgs()
             for (auto & kv_json: res["response_range"]["kvs"].array_items())
             {
                 auto kv = parse_etcd_kv(kv_json);
-                parse_state(kv.key, kv.value);
+                parse_state(kv);
             }
         }
         on_load_pgs_hook(true);
@@ -355,13 +357,10 @@ void etcd_state_client_t::load_pgs()
 }
 #endif
 
-void etcd_state_client_t::parse_state(const json_kv_t & kv)
+void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
 {
-    parse_state(kv.key, kv.value);
-}
-
-void etcd_state_client_t::parse_state(const std::string & key, const json11::Json & value)
-{
+    const std::string & key = kv.key;
+    const json11::Json & value = kv.value;
     if (key == etcd_prefix+"/config/pools")
     {
         for (auto & pool_item: this->pool_config)
@@ -712,6 +711,7 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
                     .size = value["size"].uint64_value(),
                     .parent_id = parent_inode_num,
                     .readonly = value["readonly"].bool_value(),
+                    .mod_revision = kv.mod_revision,
                 };
                 this->inode_config[inode_num] = cfg;
                 if (cfg.name != "")

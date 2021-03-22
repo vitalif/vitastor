@@ -18,10 +18,11 @@
 
 #define DEFAULT_BLOCK_SIZE 128*1024
 
-struct json_kv_t
+struct etcd_kv_t
 {
     std::string key;
     json11::Json value;
+    uint64_t mod_revision;
 };
 
 struct pg_config_t
@@ -59,6 +60,8 @@ struct inode_config_t
     uint64_t size;
     inode_t parent_id;
     bool readonly;
+    // Change revision of the metadata in etcd
+    uint64_t mod_revision;
 };
 
 struct inode_watch_t
@@ -89,21 +92,20 @@ public:
     std::map<inode_t, inode_config_t> inode_config;
     std::map<std::string, inode_t> inode_by_name;
 
-    std::function<void(json11::Json::object &)> on_change_hook;
+    std::function<void(std::map<std::string, etcd_kv_t> &)> on_change_hook;
     std::function<void(json11::Json::object &)> on_load_config_hook;
     std::function<json11::Json()> load_pgs_checks_hook;
     std::function<void(bool)> on_load_pgs_hook;
     std::function<void(pool_id_t, pg_num_t)> on_change_pg_history_hook;
     std::function<void(osd_num_t)> on_change_osd_state_hook;
 
-    json_kv_t parse_etcd_kv(const json11::Json & kv_json);
+    etcd_kv_t parse_etcd_kv(const json11::Json & kv_json);
     void etcd_call(std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback);
     void etcd_txn(json11::Json txn, int timeout, std::function<void(std::string, json11::Json)> callback);
     void start_etcd_watcher();
     void load_global_config();
     void load_pgs();
-    void parse_state(const json_kv_t & kv);
-    void parse_state(const std::string & key, const json11::Json & value);
+    void parse_state(const etcd_kv_t & kv);
     void parse_config(json11::Json & config);
     inode_watch_t* watch_inode(std::string name);
     void close_watch(inode_watch_t* watch);

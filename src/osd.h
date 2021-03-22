@@ -147,7 +147,7 @@ class osd_t
     void init_cluster();
     void on_change_osd_state_hook(osd_num_t peer_osd);
     void on_change_pg_history_hook(pool_id_t pool_id, pg_num_t pg_num);
-    void on_change_etcd_state_hook(json11::Json::object & changes);
+    void on_change_etcd_state_hook(std::map<std::string, etcd_kv_t> & changes);
     void on_load_config_hook(json11::Json::object & changes);
     json11::Json on_load_pgs_checks_hook();
     void on_load_pgs_hook(bool success);

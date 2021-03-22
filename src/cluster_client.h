@@ -108,7 +108,7 @@ protected:
     void flush_buffer(const object_id & oid, cluster_buffer_t *wr);
     void on_load_config_hook(json11::Json::object & config);
     void on_load_pgs_hook(bool success);
-    void on_change_hook(json11::Json::object & changes);
+    void on_change_hook(std::map<std::string, etcd_kv_t> & changes);
     void on_change_osd_state_hook(uint64_t peer_osd);
     int continue_rw(cluster_op_t *op);
     void slice_rw(cluster_op_t *op);
