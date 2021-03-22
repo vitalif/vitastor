@@ -427,7 +427,7 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
         {
             subops[i].op_type = OSD_OP_OUT;
             subops[i].peer_fd = c_cli.osd_peer_fds.at(chunk.osd_num);
-            subops[i].req.sec_del = {
+            subops[i].req = (osd_any_op_t){ .sec_del = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
                     .id = c_cli.next_subop_id++,
@@ -435,7 +435,7 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
                 },
                 .oid = chunk.oid,
                 .version = chunk.version,
-            };
+            } };
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
                 int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
@@ -480,13 +480,13 @@ int osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
         {
             subops[i].op_type = OSD_OP_OUT;
             subops[i].peer_fd = peer_it->second;
-            subops[i].req.sec_sync = {
+            subops[i].req = (osd_any_op_t){ .sec_sync = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
                     .id = c_cli.next_subop_id++,
                     .opcode = OSD_OP_SEC_SYNC,
                 },
-            };
+            } };
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
                 int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
@@ -543,14 +543,14 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
         {
             subops[i].op_type = OSD_OP_OUT;
             subops[i].peer_fd = c_cli.osd_peer_fds.at(stab_osd.osd_num);
-            subops[i].req.sec_stab = {
+            subops[i].req = (osd_any_op_t){ .sec_stab = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
                     .id = c_cli.next_subop_id++,
                     .opcode = OSD_OP_SEC_STABILIZE,
                 },
                 .len = (uint64_t)(stab_osd.len * sizeof(obj_ver_id)),
-            };
+            } };
             subops[i].iov.push_back(op_data->unstable_writes + stab_osd.start, stab_osd.len * sizeof(obj_ver_id));
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {

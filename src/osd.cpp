@@ -191,6 +191,8 @@ void osd_t::exec_op(osd_op_t *cur_op)
         delete cur_op;
         return;
     }
+    // Clear the reply buffer
+    memset(cur_op->reply.buf, 0, OSD_PACKET_SIZE);
     inflight_ops++;
     if (cur_op->req.hdr.magic != SECONDARY_OSD_OP_MAGIC ||
         cur_op->req.hdr.opcode < OSD_OP_MIN || cur_op->req.hdr.opcode > OSD_OP_MAX ||
