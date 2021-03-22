@@ -66,7 +66,8 @@ target_link_libraries(fio_vitastor_blk
 # vitastor-osd
 add_executable(vitastor-osd
 	osd_main.cpp osd.cpp osd_secondary.cpp msgr_receive.cpp msgr_send.cpp osd_peering.cpp osd_flush.cpp osd_peering_pg.cpp
-	osd_primary.cpp osd_primary_subops.cpp etcd_state_client.cpp messenger.cpp osd_cluster.cpp http_client.cpp osd_ops.cpp pg_states.cpp
+	osd_primary.cpp osd_primary_sync.cpp osd_primary_write.cpp osd_primary_subops.cpp
+	etcd_state_client.cpp messenger.cpp osd_cluster.cpp http_client.cpp osd_ops.cpp pg_states.cpp
 	osd_rmw.cpp base64.cpp timerfd_manager.cpp epoll_manager.cpp ../json11/json11.cpp
 )
 target_link_libraries(vitastor-osd
