@@ -92,7 +92,8 @@ const etcd_tree = {
             disable_device_lock,
             // blockstore - configurable
             max_write_iodepth,
-            flusher_count,
+            min_flusher_count: 1,
+            max_flusher_count: 256,
             inmemory_metadata,
             inmemory_journal,
             journal_sector_buffer_count,

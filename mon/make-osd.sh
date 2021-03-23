@@ -53,7 +53,6 @@ ExecStart=/usr/bin/vitastor-osd \\
     --osd_num $OSD_NUM \\
     --disable_data_fsync 1 \\
     --immediate_commit all \\
-    --flusher_count 256 \\
     --disk_alignment 4096 --journal_block_size 4096 --meta_block_size 4096 \\
     --journal_no_same_sector_overwrites true \\
     --journal_sector_buffer_count 1024 \\

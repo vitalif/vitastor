@@ -31,7 +31,7 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *
             close(journal.fd);
         throw;
     }
-    flusher = new journal_flusher_t(flusher_count, this);
+    flusher = new journal_flusher_t(this);
 }
 
 blockstore_impl_t::~blockstore_impl_t()

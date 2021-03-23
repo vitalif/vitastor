@@ -69,7 +69,10 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     journal_block_size = strtoull(config["journal_block_size"].c_str(), NULL, 10);
     meta_block_size = strtoull(config["meta_block_size"].c_str(), NULL, 10);
     bitmap_granularity = strtoull(config["bitmap_granularity"].c_str(), NULL, 10);
-    flusher_count = strtoull(config["flusher_count"].c_str(), NULL, 10);
+    max_flusher_count = strtoull(config["max_flusher_count"].c_str(), NULL, 10);
+    if (!max_flusher_count)
+        max_flusher_count = strtoull(config["flusher_count"].c_str(), NULL, 10);
+    min_flusher_count = strtoull(config["min_flusher_count"].c_str(), NULL, 10);
     max_write_iodepth = strtoull(config["max_write_iodepth"].c_str(), NULL, 10);
     // Validate
     if (!block_size)
@@ -80,9 +83,13 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     {
         throw std::runtime_error("Bad block size");
     }
-    if (!flusher_count)
+    if (!max_flusher_count)
     {
-        flusher_count = 32;
+        max_flusher_count = 256;
+    }
+    if (!min_flusher_count)
+    {
+        min_flusher_count = 1;
     }
     if (!max_write_iodepth)
     {

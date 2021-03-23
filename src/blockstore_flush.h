@@ -80,7 +80,7 @@ class journal_flusher_t
 {
     int trim_wanted = 0;
     bool dequeuing;
-    int flusher_count, cur_flusher_count, target_flusher_count;
+    int min_flusher_count, max_flusher_count, cur_flusher_count, target_flusher_count;
     int flusher_start_threshold;
     journal_flusher_co *co;
     blockstore_impl_t *bs;
@@ -99,7 +99,7 @@ class journal_flusher_t
     std::deque<object_id> flush_queue;
     std::map<object_id, uint64_t> flush_versions;
 public:
-    journal_flusher_t(int flusher_count, blockstore_impl_t *bs);
+    journal_flusher_t(blockstore_impl_t *bs);
     ~journal_flusher_t();
     void loop();
     bool is_active();

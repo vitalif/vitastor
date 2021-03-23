@@ -3,12 +3,13 @@
 
 #include "blockstore_impl.h"
 
-journal_flusher_t::journal_flusher_t(int flusher_count, blockstore_impl_t *bs)
+journal_flusher_t::journal_flusher_t(blockstore_impl_t *bs)
 {
     this->bs = bs;
-    this->flusher_count = flusher_count;
-    this->cur_flusher_count = 1;
-    this->target_flusher_count = 1;
+    this->max_flusher_count = bs->max_flusher_count;
+    this->min_flusher_count = bs->min_flusher_count;
+    this->cur_flusher_count = bs->min_flusher_count;
+    this->target_flusher_count = bs->min_flusher_count;
     dequeuing = false;
     trimming = false;
     active_flushers = 0;
@@ -19,8 +20,8 @@ journal_flusher_t::journal_flusher_t(int flusher_count, blockstore_impl_t *bs)
     journal_trim_counter = 0;
     trim_wanted = 0;
     journal_superblock = bs->journal.inmemory ? bs->journal.buffer : memalign_or_die(MEM_ALIGNMENT, bs->journal_block_size);
-    co = new journal_flusher_co[flusher_count];
-    for (int i = 0; i < flusher_count; i++)
+    co = new journal_flusher_co[max_flusher_count];
+    for (int i = 0; i < max_flusher_count; i++)
     {
         co[i].bs = bs;
         co[i].flusher = this;
@@ -71,10 +72,10 @@ bool journal_flusher_t::is_active()
 void journal_flusher_t::loop()
 {
     target_flusher_count = bs->write_iodepth*2;
-    if (target_flusher_count <= 0)
-        target_flusher_count = 1;
-    else if (target_flusher_count > flusher_count)
-        target_flusher_count = flusher_count;
+    if (target_flusher_count < min_flusher_count)
+        target_flusher_count = min_flusher_count;
+    else if (target_flusher_count > max_flusher_count)
+        target_flusher_count = max_flusher_count;
     if (target_flusher_count > cur_flusher_count)
         cur_flusher_count = target_flusher_count;
     else if (target_flusher_count < cur_flusher_count)

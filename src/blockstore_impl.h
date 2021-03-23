@@ -197,8 +197,8 @@ class blockstore_impl_t
     // Suitable only for server SSDs with capacitors, requires disabled data and journal fsyncs
     int immediate_commit = IMMEDIATE_NONE;
     bool inmemory_meta = false;
-    // Maximum flusher count
-    unsigned flusher_count;
+    // Maximum and minimum flusher count
+    unsigned max_flusher_count, min_flusher_count;
     // Maximum queue depth
     unsigned max_write_iodepth = 128;
     /******* END OF OPTIONS *******/
