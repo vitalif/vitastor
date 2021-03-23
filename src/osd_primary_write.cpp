@@ -183,7 +183,6 @@ resume_6:
 resume_7:
     if (!remember_unstable_write(cur_op, pg, pg.cur_loc_set, 6))
     {
-        // FIXME: Check for immediate_commit == IMMEDIATE_SMALL
         free_object_state(pg, &op_data->object_state);
         return;
     }
@@ -283,9 +282,9 @@ bool osd_t::remember_unstable_write(osd_op_t *cur_op, pg_t & pg, pg_osd_set_t & 
     {
         goto resume_7;
     }
-    // FIXME: Check for immediate_commit == IMMEDIATE_SMALL
     if (immediate_commit == IMMEDIATE_ALL)
     {
+immediate:
         if (op_data->scheme != POOL_SCHEME_REPLICATED)
         {
             // Send STABILIZE ops immediately
@@ -327,8 +326,23 @@ resume_7:
             }
         }
     }
+    else if (immediate_commit == IMMEDIATE_SMALL)
+    {
+        int stripe_count = (op_data->scheme == POOL_SCHEME_REPLICATED ? 1 : op_data->pg_size);
+        for (int role = 0; role < stripe_count; role++)
+        {
+            if (op_data->stripes[role].write_start == 0 &&
+                op_data->stripes[role].write_end == bs_block_size)
+            {
+                // Big write. Treat write as unsynced
+                goto lazy;
+            }
+        }
+        goto immediate;
+    }
     else
     {
+lazy:
         if (op_data->scheme != POOL_SCHEME_REPLICATED)
         {
             // Remember version as unstable for EC/XOR
