@@ -163,10 +163,7 @@ void blockstore_impl_t::mark_rolled_back(const obj_ver_id & ov)
         auto rm_start = it;
         auto rm_end = it;
         it--;
-        while (it->first.oid == ov.oid &&
-            it->first.version > ov.version &&
-            !IS_IN_FLIGHT(it->second.state) &&
-            !IS_STABLE(it->second.state))
+        while (1)
         {
             if (it->first.oid != ov.oid)
                 break;
@@ -176,7 +173,7 @@ void blockstore_impl_t::mark_rolled_back(const obj_ver_id & ov)
                     max_unstable = it->first.version;
                 break;
             }
-            else if (IS_STABLE(it->second.state))
+            else if (IS_IN_FLIGHT(it->second.state) || IS_STABLE(it->second.state))
                 break;
             // Remove entry
             rm_start = it;
@@ -187,14 +184,14 @@ void blockstore_impl_t::mark_rolled_back(const obj_ver_id & ov)
         if (rm_start != rm_end)
         {
             erase_dirty(rm_start, rm_end, UINT64_MAX);
-        }
-        auto unstab_it = unstable_writes.find(ov.oid);
-        if (unstab_it != unstable_writes.end())
-        {
-            if (max_unstable == 0)
-                unstable_writes.erase(unstab_it);
-            else
-                unstab_it->second = max_unstable;
+            auto unstab_it = unstable_writes.find(ov.oid);
+            if (unstab_it != unstable_writes.end())
+            {
+                if (max_unstable == 0)
+                    unstable_writes.erase(unstab_it);
+                else
+                    unstab_it->second = max_unstable;
+            }
         }
     }
 }
