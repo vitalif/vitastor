@@ -676,9 +676,16 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
 #ifdef BLOCKSTORE_DEBUG
                 printf("je_delete oid=%lx:%lx ver=%lu\n", je->del.oid.inode, je->del.oid.stripe, je->del.version);
 #endif
+                auto dirty_it = bs->dirty_db.upper_bound((obj_ver_id){
+                    .oid = je->del.oid,
+                    .version = UINT64_MAX,
+                });
                 auto clean_it = bs->clean_db.find(je->del.oid);
-                if (clean_it == bs->clean_db.end() ||
-                    clean_it->second.version < je->del.version)
+                // Ignore delete if neither preceding dirty entries nor the clean one are present
+                if ((clean_it != bs->clean_db.end() &&
+                    clean_it->second.version < je->del.version) ||
+                    (dirty_it != bs->dirty_db.begin() &&
+                    std::prev(dirty_it)->first.oid == je->del.oid))
                 {
                     // oid, version
                     obj_ver_id ov = {
