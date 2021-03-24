@@ -625,7 +625,11 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .journal_sector = proc_pos,
                     });
 #ifdef BLOCKSTORE_DEBUG
-                    printf("Allocate block %lu\n", je->big_write.location >> bs->block_order);
+                    printf(
+                        "Allocate block (journal) %lu: %lx:%lx v%lu\n",
+                        je->big_write.location >> bs->block_order,
+                        ov.oid.inode, ov.oid.stripe, ov.version
+                    );
 #endif
                     bs->data_alloc->set(je->big_write.location >> bs->block_order, true);
                     bs->journal.used_sectors[proc_pos]++;

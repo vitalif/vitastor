@@ -783,6 +783,9 @@ void journal_flusher_co::update_clean_db()
     {
         auto clean_it = bs->clean_db.find(cur.oid);
         bs->clean_db.erase(clean_it);
+#ifdef BLOCKSTORE_DEBUG
+        printf("Free block %lu (delete)\n", clean_loc >> bs->block_order);
+#endif
         bs->data_alloc->set(clean_loc >> bs->block_order, false);
         clean_loc = UINT64_MAX;
     }

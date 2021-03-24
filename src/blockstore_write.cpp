@@ -224,7 +224,10 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         dirty_it->second.location = loc << block_order;
         dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_SUBMITTED;
 #ifdef BLOCKSTORE_DEBUG
-        printf("Allocate block %lu\n", loc);
+        printf(
+            "Allocate block %lu for %lx:%lx v%lu\n",
+            loc, op->oid.inode, op->oid.stripe, op->version
+        );
 #endif
         data_alloc->set(loc, true);
         uint64_t stripe_offset = (op->offset % bitmap_granularity);
