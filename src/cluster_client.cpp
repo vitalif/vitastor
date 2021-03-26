@@ -711,8 +711,8 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
     {
         // Operation failed, retry
         printf(
-            "Operation failed on OSD %lu: retval=%ld (expected %d), dropping connection\n",
-            part->osd_num, part->op.reply.hdr.retval, expected
+            "%s operation failed on OSD %lu: retval=%ld (expected %d), dropping connection\n",
+            osd_op_names[part->op.req.hdr.opcode], part->osd_num, part->op.reply.hdr.retval, expected
         );
         msgr.stop_client(part->op.peer_fd);
         if (part->op.reply.hdr.retval == -EPIPE)
