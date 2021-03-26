@@ -315,10 +315,9 @@ Vitastor with single-thread NBD on the same hardware:
   there is at least one known io_uring hang with 5.4 and an HP SmartArray controller.
 - Install liburing 0.4 or newer and its headers.
 - Install lp_solve.
-- Install etcd. Attention: you need a fixed version from here: https://github.com/vitalif/etcd/,
-  branch release-3.4, because there is a bug in upstream etcd which makes Vitastor OSDs fail to
-  move PGs out of "starting" state if you have at least around ~500 PGs or so. The custom build
-  will be unnecessary when etcd merges the fix: https://github.com/etcd-io/etcd/pull/12402.
+- Install etcd, at least version 3.4.15. Earlier versions won't work because of various bugs,
+  for example [#12402](https://github.com/etcd-io/etcd/pull/12402). You can also take 3.4.13
+  with this specific fix from here: https://github.com/vitalif/etcd/, branch release-3.4.
 - Install node.js 10 or newer.
 - Install gcc and g++ 8.x or newer.
 - Clone https://yourcmc.ru/git/vitalif/vitastor/ with submodules.
