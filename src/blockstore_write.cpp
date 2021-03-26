@@ -30,10 +30,13 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             wait_big = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE
                 ? !IS_SYNCED(dirty_it->second.state)
                 : ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG);
-            if (clean_entry_bitmap_size > sizeof(void*))
-                memcpy(bmp, dirty_it->second.bitmap, clean_entry_bitmap_size);
-            else
-                bmp = dirty_it->second.bitmap;
+            if (!is_del && !deleted)
+            {
+                if (clean_entry_bitmap_size > sizeof(void*))
+                    memcpy(bmp, dirty_it->second.bitmap, clean_entry_bitmap_size);
+                else
+                    bmp = dirty_it->second.bitmap;
+            }
         }
     }
     if (!found)
@@ -42,8 +45,11 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         if (clean_it != clean_db.end())
         {
             version = clean_it->second.version + 1;
-            void *bmp_ptr = get_clean_entry_bitmap(clean_it->second.location, clean_entry_bitmap_size);
-            memcpy((clean_entry_bitmap_size > sizeof(void*) ? bmp : &bmp), bmp_ptr, clean_entry_bitmap_size);
+            if (!is_del)
+            {
+                void *bmp_ptr = get_clean_entry_bitmap(clean_it->second.location, clean_entry_bitmap_size);
+                memcpy((clean_entry_bitmap_size > sizeof(void*) ? bmp : &bmp), bmp_ptr, clean_entry_bitmap_size);
+            }
         }
         else
         {

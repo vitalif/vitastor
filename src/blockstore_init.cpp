@@ -549,20 +549,20 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .oid = je->small_write.oid,
                         .version = je->small_write.version,
                     };
-                    void *bmp = (void*)je + sizeof(journal_entry_small_write);
+                    void *bmp = NULL;
+                    void *bmp_from = (void*)je + sizeof(journal_entry_small_write);
                     if (bs->clean_entry_bitmap_size <= sizeof(void*))
                     {
-                        memcpy(&bmp, bmp, bs->clean_entry_bitmap_size);
+                        memcpy(&bmp, bmp_from, bs->clean_entry_bitmap_size);
                     }
-                    else if (!bs->journal.inmemory)
+                    else
                     {
-                        // FIXME Using large blockstore objects and not keeping journal in memory
-                        // will result in a lot of small allocations for entry bitmaps. This can
-                        // only be fixed by using a patched map with dynamic entry size, but not
-                        // the btree_map, because it doesn't keep iterators valid all the time.
-                        void *bmp_cp = malloc_or_die(bs->clean_entry_bitmap_size);
-                        memcpy(bmp_cp, bmp, bs->clean_entry_bitmap_size);
-                        bmp = bmp_cp;
+                        // FIXME Using large blockstore objects will result in a lot of small
+                        // allocations for entry bitmaps. This can only be fixed by using
+                        // a patched map with dynamic entry size, but not the btree_map,
+                        // because it doesn't keep iterators valid all the time.
+                        bmp = malloc_or_die(bs->clean_entry_bitmap_size);
+                        memcpy(bmp, bmp_from, bs->clean_entry_bitmap_size);
                     }
                     bs->dirty_db.emplace(ov, (dirty_entry){
                         .state = (BS_ST_SMALL_WRITE | BS_ST_SYNCED),
@@ -629,20 +629,20 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .oid = je->big_write.oid,
                         .version = je->big_write.version,
                     };
-                    void *bmp = (void*)je + sizeof(journal_entry_big_write);
+                    void *bmp = NULL;
+                    void *bmp_from = (void*)je + sizeof(journal_entry_big_write);
                     if (bs->clean_entry_bitmap_size <= sizeof(void*))
                     {
-                        memcpy(&bmp, bmp, bs->clean_entry_bitmap_size);
+                        memcpy(&bmp, bmp_from, bs->clean_entry_bitmap_size);
                     }
-                    else if (!bs->journal.inmemory)
+                    else
                     {
-                        // FIXME Using large blockstore objects and not keeping journal in memory
-                        // will result in a lot of small allocations for entry bitmaps. This can
-                        // only be fixed by using a patched map with dynamic entry size, but not
-                        // the btree_map, because it doesn't keep iterators valid all the time.
-                        void *bmp_cp = malloc_or_die(bs->clean_entry_bitmap_size);
-                        memcpy(bmp_cp, bmp, bs->clean_entry_bitmap_size);
-                        bmp = bmp_cp;
+                        // FIXME Using large blockstore objects will result in a lot of small
+                        // allocations for entry bitmaps. This can only be fixed by using
+                        // a patched map with dynamic entry size, but not the btree_map,
+                        // because it doesn't keep iterators valid all the time.
+                        bmp = malloc_or_die(bs->clean_entry_bitmap_size);
+                        memcpy(bmp, bmp_from, bs->clean_entry_bitmap_size);
                     }
                     auto dirty_it = bs->dirty_db.emplace(ov, (dirty_entry){
                         .state = (BS_ST_BIG_WRITE | BS_ST_SYNCED),
