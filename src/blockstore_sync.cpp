@@ -80,7 +80,8 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
         // 2nd step: Data device is synced, prepare & write journal entries
         // Check space in the journal and journal memory buffers
         blockstore_journal_check_t space_check(this);
-        if (!space_check.check_available(op, PRIV(op)->sync_big_writes.size(), sizeof(journal_entry_big_write), JOURNAL_STABILIZE_RESERVATION))
+        if (!space_check.check_available(op, PRIV(op)->sync_big_writes.size(),
+            sizeof(journal_entry_big_write) + clean_entry_bitmap_size, JOURNAL_STABILIZE_RESERVATION))
         {
             return 0;
         }
@@ -95,7 +96,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
         int s = 0, cur_sector = -1;
         while (it != PRIV(op)->sync_big_writes.end())
         {
-            if (!journal.entry_fits(sizeof(journal_entry_big_write)) &&
+            if (!journal.entry_fits(sizeof(journal_entry_big_write) + clean_entry_bitmap_size) &&
                 journal.sector_info[journal.cur_sector].dirty)
             {
                 if (cur_sector == -1)
@@ -103,24 +104,27 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
                 prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], [this, op](ring_data_t *data) { handle_sync_event(data, op); });
                 cur_sector = journal.cur_sector;
             }
+            auto & dirty_entry = dirty_db.at(*it);
             journal_entry_big_write *je = (journal_entry_big_write*)prefill_single_journal_entry(
-                journal, (dirty_db[*it].state & BS_ST_INSTANT) ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
-                sizeof(journal_entry_big_write)
+                journal, (dirty_entry.state & BS_ST_INSTANT) ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
+                sizeof(journal_entry_big_write) + clean_entry_bitmap_size
             );
-            dirty_db[*it].journal_sector = journal.sector_info[journal.cur_sector].offset;
+            dirty_entry.journal_sector = journal.sector_info[journal.cur_sector].offset;
             journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
             printf(
                 "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
-                dirty_db[*it].journal_sector, it->oid.inode, it->oid.stripe, it->version,
+                dirty_entry.journal_sector, it->oid.inode, it->oid.stripe, it->version,
                 journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
             );
 #endif
             je->oid = it->oid;
             je->version = it->version;
-            je->offset = dirty_db[*it].offset;
-            je->len = dirty_db[*it].len;
-            je->location = dirty_db[*it].location;
+            je->offset = dirty_entry.offset;
+            je->len = dirty_entry.len;
+            je->location = dirty_entry.location;
+            memcpy((void*)(je+1), (clean_entry_bitmap_size > sizeof(void*)
+                ? dirty_entry.bitmap : &dirty_entry.bitmap), clean_entry_bitmap_size);
             je->crc32 = je_crc32((journal_entry*)je);
             journal.crc32_last = je->crc32;
             it++;

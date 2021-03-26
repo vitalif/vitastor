@@ -241,7 +241,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     if ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE)
     {
         blockstore_journal_check_t space_check(this);
-        if (!space_check.check_available(op, unsynced_big_write_count + 1, sizeof(journal_entry_big_write), JOURNAL_STABILIZE_RESERVATION))
+        if (!space_check.check_available(op, unsynced_big_write_count + 1,
+            sizeof(journal_entry_big_write) + clean_entry_bitmap_size, JOURNAL_STABILIZE_RESERVATION))
         {
             return 0;
         }
@@ -307,8 +308,11 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         // Small (journaled) write
         // First check if the journal has sufficient space
         blockstore_journal_check_t space_check(this);
-        if (unsynced_big_write_count && !space_check.check_available(op, unsynced_big_write_count, sizeof(journal_entry_big_write), 0)
-            || !space_check.check_available(op, 1, sizeof(journal_entry_small_write), op->len + JOURNAL_STABILIZE_RESERVATION))
+        if (unsynced_big_write_count &&
+            !space_check.check_available(op, unsynced_big_write_count,
+                sizeof(journal_entry_big_write) + clean_entry_bitmap_size, 0)
+            || !space_check.check_available(op, 1,
+                sizeof(journal_entry_small_write) + clean_entry_bitmap_size, op->len + JOURNAL_STABILIZE_RESERVATION))
         {
             return 0;
         }
@@ -316,8 +320,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         // There is sufficient space. Get SQE(s)
         struct io_uring_sqe *sqe1 = NULL;
         if (immediate_commit != IMMEDIATE_NONE ||
-            (journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_small_write) &&
-            journal.sector_info[journal.cur_sector].dirty)
+            !journal.entry_fits(sizeof(journal_entry_small_write) + clean_entry_bitmap_size))
         {
             // Write current journal sector only if it's dirty and full, or in the immediate_commit mode
             BS_SUBMIT_GET_SQE_DECL(sqe1);
