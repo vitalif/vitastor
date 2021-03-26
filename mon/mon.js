@@ -541,7 +541,7 @@ class Mon
         for (const osd_num of this.all_osds().sort((a, b) => a - b))
         {
             const stat = this.state.osd.stats[osd_num];
-            if (stat.size && (this.state.osd.state[osd_num] || Number(stat.time) >= down_time))
+            if (stat && stat.size && (this.state.osd.state[osd_num] || Number(stat.time) >= down_time))
             {
                 // Numeric IDs are reserved for OSDs
                 const osd_cfg = this.state.config.osd[osd_num];
@@ -1072,7 +1072,7 @@ class Mon
         const op_stats = {}, subop_stats = {}, recovery_stats = {};
         for (const osd in this.state.osd.stats)
         {
-            const st = this.state.osd.stats[osd];
+            const st = this.state.osd.stats[osd]||{};
             for (const op in st.op_stats||{})
             {
                 op_stats[op] = op_stats[op] || { count: 0n, usec: 0n, bytes: 0n };
