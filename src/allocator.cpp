@@ -37,6 +37,21 @@ allocator::~allocator()
     delete[] mask;
 }
 
+bool allocator::get(uint64_t addr)
+{
+    if (addr >= size)
+    {
+        return false;
+    }
+    uint64_t p2 = 1, offset = 0;
+    while (p2 * 64 < size)
+    {
+        offset += p2;
+        p2 = p2 * 64;
+    }
+    return ((mask[offset + addr/64] >> (addr % 64)) & 1);
+}
+
 void allocator::set(uint64_t addr, bool value)
 {
     if (addr >= size)

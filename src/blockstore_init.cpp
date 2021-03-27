@@ -402,6 +402,18 @@ resume_1:
             }
         }
     }
+    for (auto ov: double_allocs)
+    {
+        auto dirty_it = bs->dirty_db.find(ov);
+        if (dirty_it != bs->dirty_db.end() &&
+            IS_BIG_WRITE(dirty_it->second.state) &&
+            dirty_it->second.location == UINT64_MAX)
+        {
+            printf("Fatal error (bug): %lx:%lx v%lu big_write journal_entry was allocated over another object\n",
+                dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
+            exit(1);
+        }
+    }
     bs->flusher->mark_trim_possible();
     bs->journal.dirty_start = bs->journal.next_free;
     printf(
@@ -597,22 +609,32 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .oid = je->big_write.oid,
                         .version = je->big_write.version,
                     };
-                    bs->dirty_db.emplace(ov, (dirty_entry){
+                    auto dirty_it = bs->dirty_db.emplace(ov, (dirty_entry){
                         .state = (BS_ST_BIG_WRITE | BS_ST_SYNCED),
                         .flags = 0,
                         .location = je->big_write.location,
                         .offset = je->big_write.offset,
                         .len = je->big_write.len,
                         .journal_sector = proc_pos,
-                    });
+                    }).first;
+                    if (bs->data_alloc->get(je->big_write.location >> bs->block_order))
+                    {
+                        // This is probably a big_write that's already flushed and freed, but it may
+                        // also indicate a bug. So we remember such entries and recheck them afterwards
+                        dirty_it->second.location = UINT64_MAX;
+                        double_allocs.push_back(ov);
+                    }
+                    else
+                    {
 #ifdef BLOCKSTORE_DEBUG
-                    printf(
-                        "Allocate block (journal) %lu: %lx:%lx v%lu\n",
-                        je->big_write.location >> bs->block_order,
-                        ov.oid.inode, ov.oid.stripe, ov.version
-                    );
+                        printf(
+                            "Allocate block (journal) %lu: %lx:%lx v%lu\n",
+                            je->big_write.location >> bs->block_order,
+                            ov.oid.inode, ov.oid.stripe, ov.version
+                        );
 #endif
-                    bs->data_alloc->set(je->big_write.location >> bs->block_order, true);
+                        bs->data_alloc->set(je->big_write.location >> bs->block_order, true);
+                    }
                     bs->journal.used_sectors[proc_pos]++;
 #ifdef BLOCKSTORE_DEBUG
                     printf(

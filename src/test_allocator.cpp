@@ -20,7 +20,15 @@ void alloc_all(int size)
         {
             printf("incorrect block allocated: expected %d, got %lu\n", i, x);
         }
+        if (a->get(x))
+        {
+            printf("not free before set at %d\n", i);
+        }
         a->set(x, true);
+        if (!a->get(x))
+        {
+            printf("free after set at %d\n", i);
+        }
     }
     uint64_t x = a->find_free();
     if (x != UINT64_MAX)

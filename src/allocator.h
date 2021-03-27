@@ -16,6 +16,7 @@ class allocator
 public:
     allocator(uint64_t blocks);
     ~allocator();
+    bool get(uint64_t addr);
     void set(uint64_t addr, bool value);
     uint64_t find_free();
     uint64_t get_free_count();

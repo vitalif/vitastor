@@ -248,7 +248,8 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
     }
     while (1)
     {
-        if (IS_BIG_WRITE(dirty_it->second.state) && dirty_it->second.location != clean_loc)
+        if (IS_BIG_WRITE(dirty_it->second.state) && dirty_it->second.location != clean_loc &&
+            dirty_it->second.location != UINT64_MAX)
         {
 #ifdef BLOCKSTORE_DEBUG
             printf("Free block %lu from %lx:%lx v%lu\n", dirty_it->second.location >> block_order,
