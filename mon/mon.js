@@ -692,6 +692,11 @@ class Mon
                 pg_history[i].osd_sets = pg_history[i].osd_sets || [];
                 pg_history[i].osd_sets.push(prev_pgs[i]);
             }
+            if (pg_history[i] && pg_history[i].osd_sets)
+            {
+                pg_history[i].osd_sets = Object.values(pg_history[i].osd_sets
+                    .reduce((a, c) => { a[c.join(' ')] = c; return a; }, {}));
+            }
         });
         for (let i = 0; i < new_pgs.length || i < prev_pgs.length; i++)
         {

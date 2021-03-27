@@ -32,7 +32,8 @@ ExecStart=/usr/local/bin/etcd -name etcd$ETCD_NUM --data-dir /var/lib/etcd$ETCD_
     --advertise-client-urls http://$IP:2379 --listen-client-urls http://$IP:2379 \\
     --initial-advertise-peer-urls http://$IP:2380 --listen-peer-urls http://$IP:2380 \\
     --initial-cluster-token vitastor-etcd-1 --initial-cluster $ETCD_HOSTS \\
-    --initial-cluster-state new --max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision
+    --initial-cluster-state new --max-txn-ops=100000 --max-request-bytes=104857600 \\
+    --auto-compaction-retention=10 --auto-compaction-mode=revision
 WorkingDirectory=/var/lib/etcd$ETCD_NUM.etcd
 ExecStartPre=+chown -R etcd /var/lib/etcd$ETCD_NUM.etcd
 User=etcd
