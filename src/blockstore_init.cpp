@@ -111,7 +111,10 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
                 {
                     // free the previous block
 #ifdef BLOCKSTORE_DEBUG
-                    printf("Free block %lu (new location is %lu)\n", clean_it->second.location >> block_order, done_cnt+i);
+                    printf("Free block %lu from %lx:%lx v%lu (new location is %lu)\n",
+                        clean_it->second.location >> block_order,
+                        clean_it->first.inode, clean_it->first.stripe, clean_it->second.version,
+                        done_cnt+i);
 #endif
                     bs->data_alloc->set(clean_it->second.location >> block_order, false);
                 }

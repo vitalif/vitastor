@@ -251,7 +251,8 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
         if (IS_BIG_WRITE(dirty_it->second.state) && dirty_it->second.location != clean_loc)
         {
 #ifdef BLOCKSTORE_DEBUG
-            printf("Free block %lu\n", dirty_it->second.location >> block_order);
+            printf("Free block %lu from %lx:%lx v%lu\n", dirty_it->second.location >> block_order,
+                dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
 #endif
             data_alloc->set(dirty_it->second.location >> block_order, false);
         }

@@ -482,6 +482,14 @@ resume_1:
         }
         if (has_delete)
         {
+            clean_disk_entry *new_entry = (clean_disk_entry*)(meta_new.buf + meta_new.pos*bs->clean_entry_size);
+            if (new_entry->oid.inode != 0 && new_entry->oid != cur.oid)
+            {
+                printf("Fatal error (metadata corruption or bug): tried to delete metadata entry %lu (%lx:%lx) while deleting %lx:%lx\n",
+                    clean_loc >> bs->block_order, new_entry->oid.inode, new_entry->oid.stripe, cur.oid.inode, cur.oid.stripe);
+                exit(1);
+            }
+            // zero out new metadata entry
             memset(meta_new.buf + meta_new.pos*bs->clean_entry_size, 0, bs->clean_entry_size);
         }
         else
@@ -775,7 +783,10 @@ void journal_flusher_co::update_clean_db()
     if (old_clean_loc != UINT64_MAX && old_clean_loc != clean_loc)
     {
 #ifdef BLOCKSTORE_DEBUG
-        printf("Free block %lu (new location is %lu)\n", old_clean_loc >> bs->block_order, clean_loc >> bs->block_order);
+        printf("Free block %lu from %lx:%lx v%lu (new location is %lu)\n",
+            old_clean_loc >> bs->block_order,
+            cur.oid.inode, cur.oid.stripe, cur.version,
+            clean_loc >> bs->block_order);
 #endif
         bs->data_alloc->set(old_clean_loc >> bs->block_order, false);
     }
@@ -784,7 +795,9 @@ void journal_flusher_co::update_clean_db()
         auto clean_it = bs->clean_db.find(cur.oid);
         bs->clean_db.erase(clean_it);
 #ifdef BLOCKSTORE_DEBUG
-        printf("Free block %lu (delete)\n", clean_loc >> bs->block_order);
+        printf("Free block %lu from %lx:%lx v%lu (delete)\n",
+            clean_loc >> bs->block_order,
+            cur.oid.inode, cur.oid.stripe, cur.version);
 #endif
         bs->data_alloc->set(clean_loc >> bs->block_order, false);
         clean_loc = UINT64_MAX;
