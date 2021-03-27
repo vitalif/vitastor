@@ -48,6 +48,7 @@ class blockstore_init_journal
     std::function<void(ring_data_t*)> simple_callback;
     int handle_journal_part(void *buf, uint64_t done_pos, uint64_t len);
     void handle_event(ring_data_t *data);
+    void erase_dirty_object(blockstore_dirty_db_t::iterator dirty_it);
 public:
     blockstore_init_journal(blockstore_impl_t* bs);
     int loop();
