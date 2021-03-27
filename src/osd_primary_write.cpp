@@ -65,7 +65,6 @@ resume_1:
         op_data->stripes[0].write_start = op_data->stripes[0].req_start;
         op_data->stripes[0].write_end = op_data->stripes[0].req_end;
         op_data->stripes[0].write_buf = cur_op->buf;
-        op_data->stripes[0].bmp_buf = (void*)(op_data->stripes+1);
         if (pg.cur_set.data() != op_data->prev_set && (op_data->stripes[0].write_start != 0 ||
             op_data->stripes[0].write_end != bs_block_size))
         {
@@ -100,7 +99,8 @@ resume_3:
     if (op_data->scheme == POOL_SCHEME_REPLICATED)
     {
         // Set bitmap bits
-        bitmap_set(op_data->stripes[0].bmp_buf, op_data->stripes[0].write_start, op_data->stripes[0].write_end, bs_bitmap_granularity);
+        bitmap_set(op_data->stripes[0].bmp_buf, op_data->stripes[0].write_start,
+            op_data->stripes[0].write_end-op_data->stripes[0].write_start, bs_bitmap_granularity);
         // Possibly copy new data from the request into the recovery buffer
         if (pg.cur_set.data() != op_data->prev_set && (op_data->stripes[0].write_start != 0 ||
             op_data->stripes[0].write_end != bs_block_size))
