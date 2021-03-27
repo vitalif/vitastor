@@ -238,7 +238,8 @@ bool journal_flusher_co::loop()
     else if (wait_state == 21)
         goto resume_21;
 resume_0:
-    if (!flusher->flush_queue.size() || !flusher->dequeuing)
+    if (flusher->flush_queue.size() < flusher->min_flusher_count && !flusher->trim_wanted ||
+        !flusher->flush_queue.size() || !flusher->dequeuing)
     {
 stop_flusher:
         if (flusher->trim_wanted > 0 && flusher->journal_trim_counter > 0)
