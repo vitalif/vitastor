@@ -2,7 +2,6 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include <malloc.h>
-#include "timerfd_interval.h"
 #include "blockstore.h"
 
 int main(int narg, char *args[])
@@ -13,10 +12,6 @@ int main(int narg, char *args[])
     config["data_device"] = "./test_data.bin";
     ring_loop_t *ringloop = new ring_loop_t(512);
     blockstore_t *bs = new blockstore_t(config, ringloop);
-    timerfd_interval tick_tfd(ringloop, 1, []()
-    {
-        printf("tick 1s\n");
-    });
 
     blockstore_op_t op;
     int main_state = 0;

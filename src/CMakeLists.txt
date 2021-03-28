@@ -187,7 +187,7 @@ target_compile_definitions(test_cluster_client PUBLIC -D__MOCK__)
 target_include_directories(test_cluster_client PUBLIC ${CMAKE_SOURCE_DIR}/src/mock)
 
 ## test_blockstore, test_shit
-#add_executable(test_blockstore test_blockstore.cpp timerfd_interval.cpp)
+#add_executable(test_blockstore test_blockstore.cpp)
 #target_link_libraries(test_blockstore blockstore)
 #add_executable(test_shit test_shit.cpp osd_peering_pg.cpp)
 #target_link_libraries(test_shit ${LIBURING_LIBRARIES} m)
