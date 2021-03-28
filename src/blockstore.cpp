@@ -3,9 +3,9 @@
 
 #include "blockstore_impl.h"
 
-blockstore_t::blockstore_t(blockstore_config_t & config, ring_loop_t *ringloop)
+blockstore_t::blockstore_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd)
 {
-    impl = new blockstore_impl_t(config, ringloop);
+    impl = new blockstore_impl_t(config, ringloop, tfd);
 }
 
 blockstore_t::~blockstore_t()

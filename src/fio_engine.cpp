@@ -25,6 +25,7 @@
 //     -bs_config='{"data_device":"./test_data.bin"}' -size=1000M
 
 #include "blockstore.h"
+#include "epoll_manager.h"
 #include "fio_headers.h"
 
 #include "json11/json11.hpp"
@@ -32,6 +33,7 @@
 struct bs_data
 {
     blockstore_t *bs;
+    epoll_manager_t *epmgr;
     ring_loop_t *ringloop;
     /* The list of completed io_u structs. */
     std::vector<io_u*> completed;
@@ -104,6 +106,7 @@ static void bs_cleanup(struct thread_data *td)
         }
     safe:
         delete bsd->bs;
+        delete bsd->epmgr;
         delete bsd->ringloop;
         delete bsd;
     }
@@ -129,7 +132,8 @@ static int bs_init(struct thread_data *td)
         }
     }
     bsd->ringloop = new ring_loop_t(512);
-    bsd->bs = new blockstore_t(config, bsd->ringloop);
+    bsd->epmgr = new epoll_manager_t(bsd->ringloop);
+    bsd->bs = new blockstore_t(config, bsd->ringloop, bsd->epmgr->tfd);
     while (1)
     {
         bsd->ringloop->loop();

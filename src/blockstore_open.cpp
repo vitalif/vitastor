@@ -79,6 +79,11 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
         max_flusher_count = strtoull(config["flusher_count"].c_str(), NULL, 10);
     min_flusher_count = strtoull(config["min_flusher_count"].c_str(), NULL, 10);
     max_write_iodepth = strtoull(config["max_write_iodepth"].c_str(), NULL, 10);
+    throttle_small_writes = config["throttle_small_writes"] == "true" || config["throttle_small_writes"] == "1" || config["throttle_small_writes"] == "yes";
+    throttle_target_iops = strtoull(config["throttle_target_iops"].c_str(), NULL, 10);
+    throttle_target_mbs = strtoull(config["throttle_target_mbs"].c_str(), NULL, 10);
+    throttle_target_parallelism = strtoull(config["throttle_target_parallelism"].c_str(), NULL, 10);
+    throttle_threshold_us = strtoull(config["throttle_threshold_us"].c_str(), NULL, 10);
     // Validate
     if (!block_size)
     {
@@ -179,6 +184,22 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     if (immediate_commit == IMMEDIATE_ALL && !disable_data_fsync)
     {
         throw std::runtime_error("immediate_commit=all requires disable_journal_fsync and disable_data_fsync");
+    }
+    if (!throttle_target_iops)
+    {
+        throttle_target_iops = 100;
+    }
+    if (!throttle_target_mbs)
+    {
+        throttle_target_mbs = 100;
+    }
+    if (!throttle_target_parallelism)
+    {
+        throttle_target_parallelism = 1;
+    }
+    if (!throttle_threshold_us)
+    {
+        throttle_threshold_us = 50;
     }
     // init some fields
     clean_entry_bitmap_size = block_size / bitmap_granularity / 8;

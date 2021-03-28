@@ -3,9 +3,10 @@
 
 #include "blockstore_impl.h"
 
-blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *ringloop)
+blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd)
 {
     assert(sizeof(blockstore_op_private_t) <= BS_OP_PRIVATE_DATA_SIZE);
+    this->tfd = tfd;
     this->ringloop = ringloop;
     ring_consumer.loop = [this]() { loop(); };
     ringloop->register_consumer(&ring_consumer);

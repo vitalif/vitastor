@@ -9,6 +9,7 @@
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <time.h>
 #include <unistd.h>
 #include <linux/fs.h>
 
@@ -158,6 +159,7 @@ struct blockstore_op_private_t
     struct iovec iov_zerofill[3];
     // Warning: must not have a default value here because it's written to before calling constructor in blockstore_write.cpp O_o
     uint64_t real_version;
+    timespec tv_begin;
 
     // Sync
     std::vector<obj_ver_id> sync_big_writes, sync_small_writes;
@@ -203,6 +205,14 @@ class blockstore_impl_t
     unsigned max_flusher_count, min_flusher_count;
     // Maximum queue depth
     unsigned max_write_iodepth = 128;
+    // Enable small (journaled) write throttling, useful for the SSD+HDD case
+    bool throttle_small_writes = false;
+    // Target data device iops, bandwidth and parallelism for throttling (100/100/1 is the default for HDD)
+    int throttle_target_iops = 100;
+    int throttle_target_mbs = 100;
+    int throttle_target_parallelism = 1;
+    // Minimum difference in microseconds between target and real execution times to throttle the response
+    int throttle_threshold_us = 50;
     /******* END OF OPTIONS *******/
 
     struct ring_consumer_t ring_consumer;
@@ -233,6 +243,7 @@ class blockstore_impl_t
 
     bool live = false, queue_stall = false;
     ring_loop_t *ringloop;
+    timerfd_manager_t *tfd;
 
     bool stop_sync_submitted;
 
@@ -303,7 +314,7 @@ class blockstore_impl_t
 
 public:
 
-    blockstore_impl_t(blockstore_config_t & config, ring_loop_t *ringloop);
+    blockstore_impl_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd);
     ~blockstore_impl_t();
 
     // Event loop

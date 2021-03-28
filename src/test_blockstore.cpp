@@ -3,6 +3,7 @@
 
 #include <malloc.h>
 #include "blockstore.h"
+#include "epoll_manager.h"
 
 int main(int narg, char *args[])
 {
@@ -11,7 +12,8 @@ int main(int narg, char *args[])
     config["journal_device"] = "./test_journal.bin";
     config["data_device"] = "./test_data.bin";
     ring_loop_t *ringloop = new ring_loop_t(512);
-    blockstore_t *bs = new blockstore_t(config, ringloop);
+    epoll_manager_t *epmgr = new epoll_manager_t(ringloop);
+    blockstore_t *bs = new blockstore_t(config, ringloop, epmgr->tfd);
 
     blockstore_op_t op;
     int main_state = 0;
@@ -120,6 +122,7 @@ int main(int narg, char *args[])
         ringloop->wait();
     }
     delete bs;
+    delete epmgr;
     delete ringloop;
     return 0;
 }

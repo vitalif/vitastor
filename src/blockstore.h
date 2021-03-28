@@ -16,6 +16,7 @@
 
 #include "object_id.h"
 #include "ringloop.h"
+#include "timerfd_manager.h"
 
 // Memory alignment for direct I/O (usually 512 bytes)
 // All other alignments must be a multiple of this one
@@ -158,7 +159,7 @@ class blockstore_t
 {
     blockstore_impl_t *impl;
 public:
-    blockstore_t(blockstore_config_t & config, ring_loop_t *ringloop);
+    blockstore_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd);
     ~blockstore_t();
 
     // Event loop

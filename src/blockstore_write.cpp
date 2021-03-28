@@ -122,6 +122,8 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     else
     {
         state = (op->len == block_size || deleted ? BS_ST_BIG_WRITE : BS_ST_SMALL_WRITE);
+        if (state == BS_ST_SMALL_WRITE && throttle_small_writes)
+            clock_gettime(CLOCK_REALTIME, &PRIV(op)->tv_begin);
         if (wait_del)
             state |= BS_ST_WAIT_DEL;
         else if (state == BS_ST_SMALL_WRITE && wait_big)
@@ -424,105 +426,148 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
 
 int blockstore_impl_t::continue_write(blockstore_op_t *op)
 {
-    io_uring_sqe *sqe = NULL;
-    journal_entry_big_write *je;
     int op_state = PRIV(op)->op_state;
-    if (op_state != 2 && op_state != 4)
-    {
-        // In progress
-        return 1;
-    }
-    auto dirty_it = dirty_db.find((obj_ver_id){
-        .oid = op->oid,
-        .version = op->version,
-    });
-    assert(dirty_it != dirty_db.end());
     if (op_state == 2)
         goto resume_2;
     else if (op_state == 4)
         goto resume_4;
+    else if (op_state == 6)
+        goto resume_6;
+    else
+    {
+        // In progress
+        return 1;
+    }
 resume_2:
     // Only for the immediate_commit mode: prepare and submit big_write journal entry
-    BS_SUBMIT_GET_SQE_DECL(sqe);
-    je = (journal_entry_big_write*)prefill_single_journal_entry(
-        journal, op->opcode == BS_OP_WRITE_STABLE ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
-        sizeof(journal_entry_big_write) + clean_entry_bitmap_size
-    );
-    dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
-    journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
+    {
+        auto dirty_it = dirty_db.find((obj_ver_id){
+            .oid = op->oid,
+            .version = op->version,
+        });
+        assert(dirty_it != dirty_db.end());
+        io_uring_sqe *sqe = NULL;
+        BS_SUBMIT_GET_SQE_DECL(sqe);
+        journal_entry_big_write *je = (journal_entry_big_write*)prefill_single_journal_entry(
+            journal, op->opcode == BS_OP_WRITE_STABLE ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
+            sizeof(journal_entry_big_write) + clean_entry_bitmap_size
+        );
+        dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
+        journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
-    printf(
-        "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
-        journal.sector_info[journal.cur_sector].offset, op->oid.inode, op->oid.stripe, op->version,
-        journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
-    );
+        printf(
+            "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
+            journal.sector_info[journal.cur_sector].offset, op->oid.inode, op->oid.stripe, op->version,
+            journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
+        );
 #endif
-    je->oid = op->oid;
-    je->version = op->version;
-    je->offset = op->offset;
-    je->len = op->len;
-    je->location = dirty_it->second.location;
-    memcpy((void*)(je+1), (clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap), clean_entry_bitmap_size);
-    je->crc32 = je_crc32((journal_entry*)je);
-    journal.crc32_last = je->crc32;
-    prepare_journal_sector_write(journal, journal.cur_sector, sqe,
-        [this, op](ring_data_t *data) { handle_write_event(data, op); });
-    PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
-    PRIV(op)->pending_ops = 1;
-    PRIV(op)->op_state = 3;
-    return 1;
+        je->oid = op->oid;
+        je->version = op->version;
+        je->offset = op->offset;
+        je->len = op->len;
+        je->location = dirty_it->second.location;
+        memcpy((void*)(je+1), (clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap), clean_entry_bitmap_size);
+        je->crc32 = je_crc32((journal_entry*)je);
+        journal.crc32_last = je->crc32;
+        prepare_journal_sector_write(journal, journal.cur_sector, sqe,
+            [this, op](ring_data_t *data) { handle_write_event(data, op); });
+        PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
+        PRIV(op)->pending_ops = 1;
+        PRIV(op)->op_state = 3;
+        return 1;
+    }
 resume_4:
     // Switch object state
 #ifdef BLOCKSTORE_DEBUG
     printf("Ack write %lx:%lx v%lu = state 0x%x\n", op->oid.inode, op->oid.stripe, op->version, dirty_it->second.state);
 #endif
-    bool imm = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE
-        ? (immediate_commit == IMMEDIATE_ALL)
-        : (immediate_commit != IMMEDIATE_NONE);
-    if (imm)
     {
-        auto & unstab = unstable_writes[op->oid];
-        unstab = unstab < op->version ? op->version : unstab;
-    }
-    dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK)
-        | (imm ? BS_ST_SYNCED : BS_ST_WRITTEN);
-    if (imm && ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_DELETE || (dirty_it->second.state & BS_ST_INSTANT)))
-    {
-        // Deletions and 'instant' operations are treated as immediately stable
-        mark_stable(dirty_it->first);
-    }
-    if (!imm)
-    {
-        if ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE)
+        auto dirty_it = dirty_db.find((obj_ver_id){
+            .oid = op->oid,
+            .version = op->version,
+        });
+        assert(dirty_it != dirty_db.end());
+        bool is_big = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE;
+        bool imm = is_big ? (immediate_commit == IMMEDIATE_ALL) : (immediate_commit != IMMEDIATE_NONE);
+        if (imm)
         {
-            // Remember big write as unsynced
-            unsynced_big_writes.push_back((obj_ver_id){
-                .oid = op->oid,
-                .version = op->version,
-            });
+            auto & unstab = unstable_writes[op->oid];
+            unstab = unstab < op->version ? op->version : unstab;
         }
-        else
+        dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK)
+            | (imm ? BS_ST_SYNCED : BS_ST_WRITTEN);
+        if (imm && ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_DELETE || (dirty_it->second.state & BS_ST_INSTANT)))
         {
-            // Remember small write as unsynced
-            unsynced_small_writes.push_back((obj_ver_id){
-                .oid = op->oid,
-                .version = op->version,
-            });
+            // Deletions and 'instant' operations are treated as immediately stable
+            mark_stable(dirty_it->first);
         }
-    }
-    if (imm && (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE)
-    {
-        // Unblock small writes
-        dirty_it++;
-        while (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
+        if (!imm)
         {
-            if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG)
+            if (is_big)
             {
-                dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_IN_FLIGHT;
+                // Remember big write as unsynced
+                unsynced_big_writes.push_back((obj_ver_id){
+                    .oid = op->oid,
+                    .version = op->version,
+                });
             }
+            else
+            {
+                // Remember small write as unsynced
+                unsynced_small_writes.push_back((obj_ver_id){
+                    .oid = op->oid,
+                    .version = op->version,
+                });
+            }
+        }
+        if (imm && (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE)
+        {
+            // Unblock small writes
             dirty_it++;
+            while (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
+            {
+                if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG)
+                {
+                    dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_IN_FLIGHT;
+                }
+                dirty_it++;
+            }
+        }
+        // Apply throttling to not fill the journal too fast for the SSD+HDD case
+        if (!is_big && throttle_small_writes)
+        {
+            // Apply throttling
+            timespec tv_end;
+            clock_gettime(CLOCK_REALTIME, &tv_end);
+            uint64_t exec_us =
+                (tv_end.tv_sec - PRIV(op)->tv_begin.tv_sec)*1000000 +
+                (tv_end.tv_nsec - PRIV(op)->tv_begin.tv_nsec)/1000;
+            // Compare with target execution time
+            // 100% free -> target time = 0
+            // 0% free -> target time = iodepth/parallelism * (iops + size/bw) / write per second
+            uint64_t used_start = journal.get_trim_pos();
+            uint64_t journal_free_space = journal.next_free < used_start
+                ? (used_start - journal.next_free)
+                : (journal.len - journal.next_free + used_start - journal.block_size);
+            uint64_t ref_us =
+                (write_iodepth <= throttle_target_parallelism ? 100 : 100*write_iodepth/throttle_target_parallelism)
+                * (1000000/throttle_target_iops + op->len*1000000/throttle_target_mbs/1024/1024)
+                / 100;
+            ref_us -= ref_us * journal_free_space / journal.len;
+            if (ref_us > exec_us + throttle_threshold_us)
+            {
+                // Pause reply
+                tfd->set_timer_us(ref_us-exec_us, false, [this, op](int timer_id)
+                {
+                    PRIV(op)->op_state++;
+                    ringloop->wakeup();
+                });
+                PRIV(op)->op_state = 5;
+                return 1;
+            }
         }
     }
+resume_6:
     // Acknowledge write
     op->retval = op->len;
     write_iodepth--;

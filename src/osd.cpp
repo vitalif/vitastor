@@ -27,13 +27,14 @@ osd_t::osd_t(blockstore_config_t & config, ring_loop_t *ringloop)
     this->config = config;
     this->ringloop = ringloop;
 
+    epmgr = new epoll_manager_t(ringloop);
+    // FIXME: Use timerfd_interval based directly on io_uring
+    this->tfd = epmgr->tfd;
+
     // FIXME: Create Blockstore from on-disk superblock config and check it against the OSD cluster config
-    this->bs = new blockstore_t(config, ringloop);
+    this->bs = new blockstore_t(config, ringloop, tfd);
 
     parse_config(config);
-
-    epmgr = new epoll_manager_t(ringloop);
-    this->tfd = epmgr->tfd;
 
     this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
     {
