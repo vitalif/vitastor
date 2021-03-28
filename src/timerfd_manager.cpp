@@ -34,8 +34,8 @@ timerfd_manager_t::~timerfd_manager_t()
 
 void timerfd_manager_t::inc_timer(timerfd_timer_t & t)
 {
-    t.next.tv_sec += t.millis/1000;
-    t.next.tv_nsec += (t.millis%1000)*1000000;
+    t.next.tv_sec += t.micros/1000000;
+    t.next.tv_nsec += (t.micros%1000000)*1000;
     if (t.next.tv_nsec > 1000000000)
     {
         t.next.tv_sec++;
@@ -45,12 +45,17 @@ void timerfd_manager_t::inc_timer(timerfd_timer_t & t)
 
 int timerfd_manager_t::set_timer(uint64_t millis, bool repeat, std::function<void(int)> callback)
 {
+    return set_timer_us(millis*1000, repeat, callback);
+}
+
+int timerfd_manager_t::set_timer_us(uint64_t micros, bool repeat, std::function<void(int)> callback)
+{
     int timer_id = id++;
     timespec start;
     clock_gettime(CLOCK_MONOTONIC, &start);
     timers.push_back({
         .id = timer_id,
-        .millis = millis,
+        .micros = micros,
         .start = start,
         .next = start,
         .repeat = repeat,

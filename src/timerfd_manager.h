@@ -10,7 +10,7 @@
 struct timerfd_timer_t
 {
     int id;
-    uint64_t millis;
+    uint64_t micros;
     timespec start, next;
     bool repeat;
     std::function<void(int)> callback;
@@ -34,5 +34,6 @@ public:
     timerfd_manager_t(std::function<void(int, bool, std::function<void(int, int)>)> set_fd_handler);
     ~timerfd_manager_t();
     int set_timer(uint64_t millis, bool repeat, std::function<void(int)> callback);
+    int set_timer_us(uint64_t micros, bool repeat, std::function<void(int)> callback);
     void clear_timer(int timer_id);
 };
