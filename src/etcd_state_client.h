@@ -3,8 +3,8 @@
 
 #pragma once
 
+#include "json11/json11.hpp"
 #include "osd_id.h"
-#include "http_client.h"
 #include "timerfd_manager.h"
 
 #define ETCD_CONFIG_WATCH_ID 1
@@ -51,6 +51,8 @@ struct pool_config_t
     uint64_t pg_stripe_size;
     std::map<pg_num_t, pg_config_t> pg_config;
 };
+
+struct websocket_t;
 
 struct etcd_state_client_t
 {

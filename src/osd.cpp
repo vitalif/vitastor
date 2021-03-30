@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 
 #include "osd.h"
+#include "http_client.h"
 
 osd_t::osd_t(blockstore_config_t & config, ring_loop_t *ringloop)
 {

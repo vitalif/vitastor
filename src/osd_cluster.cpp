@@ -4,6 +4,7 @@
 #include "osd.h"
 #include "base64.h"
 #include "etcd_state_client.h"
+#include "http_client.h"
 #include "osd_rmw.h"
 
 // Startup sequence:
