@@ -67,7 +67,7 @@ target_link_libraries(fio_vitastor_blk
 add_executable(vitastor-osd
 	osd_main.cpp osd.cpp osd_secondary.cpp msgr_receive.cpp msgr_send.cpp osd_peering.cpp osd_flush.cpp osd_peering_pg.cpp
 	osd_primary.cpp osd_primary_sync.cpp osd_primary_write.cpp osd_primary_subops.cpp
-	etcd_state_client.cpp messenger.cpp osd_cluster.cpp http_client.cpp osd_ops.cpp pg_states.cpp
+	etcd_state_client.cpp messenger.cpp msgr_op.cpp osd_cluster.cpp http_client.cpp osd_ops.cpp pg_states.cpp
 	osd_rmw.cpp base64.cpp timerfd_manager.cpp epoll_manager.cpp ../json11/json11.cpp
 )
 target_link_libraries(vitastor-osd
@@ -87,7 +87,7 @@ target_link_libraries(fio_vitastor_sec
 # libvitastor_client.so
 add_library(vitastor_client SHARED
 	cluster_client.cpp epoll_manager.cpp etcd_state_client.cpp
-	messenger.cpp msgr_send.cpp msgr_receive.cpp ringloop.cpp ../json11/json11.cpp
+	messenger.cpp msgr_op.cpp msgr_send.cpp msgr_receive.cpp ringloop.cpp ../json11/json11.cpp
 	http_client.cpp osd_ops.cpp pg_states.cpp timerfd_manager.cpp base64.cpp
 )
 target_link_libraries(vitastor_client
@@ -162,7 +162,7 @@ target_link_libraries(osd_rmw_test Jerasure tcmalloc_minimal)
 
 # stub_uring_osd
 add_executable(stub_uring_osd
-	stub_uring_osd.cpp epoll_manager.cpp messenger.cpp msgr_send.cpp msgr_receive.cpp ringloop.cpp timerfd_manager.cpp ../json11/json11.cpp
+	stub_uring_osd.cpp epoll_manager.cpp messenger.cpp msgr_op.cpp msgr_send.cpp msgr_receive.cpp ringloop.cpp timerfd_manager.cpp ../json11/json11.cpp
 )
 target_link_libraries(stub_uring_osd
 	${LIBURING_LIBRARIES}
