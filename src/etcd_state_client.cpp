@@ -336,8 +336,10 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
         {
             pool_config_t pc;
             // ID
-            pool_id_t pool_id = stoull_full(pool_item.first);
-            if (!pool_id || pool_id >= POOL_ID_MAX)
+            pool_id_t pool_id;
+            char null_byte = 0;
+            sscanf(pool_item.first.c_str(), "%u%c", &pool_id, &null_byte);
+            if (!pool_id || pool_id >= POOL_ID_MAX || null_byte != 0)
             {
                 printf("Pool ID %s is invalid (must be a number less than 0x%x), skipping pool\n", pool_item.first.c_str(), POOL_ID_MAX);
                 continue;
@@ -449,16 +451,19 @@ void etcd_state_client_t::parse_state(const std::string & key, const json11::Jso
         }
         for (auto & pool_item: value["items"].object_items())
         {
-            pool_id_t pool_id = stoull_full(pool_item.first);
-            if (!pool_id || pool_id >= POOL_ID_MAX)
+            pool_id_t pool_id;
+            char null_byte = 0;
+            sscanf(pool_item.first.c_str(), "%u%c", &pool_id, &null_byte);
+            if (!pool_id || pool_id >= POOL_ID_MAX || null_byte != 0)
             {
                 printf("Pool ID %s is invalid in PG configuration (must be a number less than 0x%x), skipping pool\n", pool_item.first.c_str(), POOL_ID_MAX);
                 continue;
             }
             for (auto & pg_item: pool_item.second.object_items())
             {
-                pg_num_t pg_num = stoull_full(pg_item.first);
-                if (!pg_num)
+                pg_num_t pg_num = 0;
+                sscanf(pg_item.first.c_str(), "%u%c", &pg_num, &null_byte);
+                if (!pg_num || null_byte != 0)
                 {
                     printf("Bad key in pool %u PG configuration: %s (must be a number), skipped\n", pool_id, pg_item.first.c_str());
                     continue;
