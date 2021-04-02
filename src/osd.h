@@ -210,6 +210,8 @@ class osd_t
     int submit_primary_sync_subops(osd_op_t *cur_op);
     void submit_primary_stab_subops(osd_op_t *cur_op);
 
+    uint64_t* get_object_osd_set(pg_t &pg, object_id &oid, uint64_t *def, pg_osd_set_state_t **object_state);
+
     inline pg_num_t map_to_pg(object_id oid, uint64_t pg_stripe_size)
     {
         uint64_t pg_count = pg_counts[INODE_POOL(oid.inode)];

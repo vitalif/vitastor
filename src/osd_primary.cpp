@@ -64,7 +64,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     return true;
 }
 
-static uint64_t* get_object_osd_set(pg_t &pg, object_id &oid, uint64_t *def, pg_osd_set_state_t **object_state)
+uint64_t* osd_t::get_object_osd_set(pg_t &pg, object_id &oid, uint64_t *def, pg_osd_set_state_t **object_state)
 {
     if (!(pg.state & (PG_HAS_INCOMPLETE | PG_HAS_DEGRADED | PG_HAS_MISPLACED)))
     {
