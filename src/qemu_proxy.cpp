@@ -47,7 +47,6 @@ public:
 
     ~QemuProxy()
     {
-        cli->stop();
         delete cli;
         delete tfd;
     }

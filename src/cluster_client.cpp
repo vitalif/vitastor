@@ -96,14 +96,6 @@ cluster_client_t::~cluster_client_t()
     }
 }
 
-void cluster_client_t::stop()
-{
-    while (msgr.clients.size() > 0)
-    {
-        msgr.stop_client(msgr.clients.begin()->first);
-    }
-}
-
 void cluster_client_t::continue_ops(bool up_retry)
 {
     for (auto op_it = cur_ops.begin(); op_it != cur_ops.end(); )
@@ -248,6 +240,11 @@ void cluster_client_t::on_change_osd_state_hook(uint64_t peer_osd)
     {
         msgr.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
     }
+}
+
+bool cluster_client_t::is_ready()
+{
+    return pgs_loaded;
 }
 
 void cluster_client_t::on_ready(std::function<void(void)> fn)
