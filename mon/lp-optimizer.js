@@ -104,6 +104,17 @@ async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 
     return res;
 }
 
+function shuffle(array)
+{
+    for (let i = array.length - 1, j, x; i > 0; i--)
+    {
+        j = Math.floor(Math.random() * (i + 1));
+        x = array[i];
+        array[i] = array[j];
+        array[j] = x;
+    }
+}
+
 function make_int_pgs(weights, pg_count)
 {
     const total_weight = Object.values(weights).reduce((a, c) => Number(a) + Number(c), 0);
@@ -120,6 +131,7 @@ function make_int_pgs(weights, pg_count)
         weight_left -= weights[pg_name];
         pg_left -= n;
     }
+    shuffle(int_pgs);
     return int_pgs;
 }
 

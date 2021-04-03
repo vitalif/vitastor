@@ -848,7 +848,7 @@ class Mon
     {
         // Take configuration and state, check it against the stored configuration hash
         // Recalculate PGs and save them to etcd if the configuration is changed
-        // FIXME: Also do not change anything if the distribution is good enough and no PGs are degraded
+        // FIXME: Do not change anything if the distribution is good and random enough and no PGs are degraded
         const { up_osds, levels, osd_tree } = this.get_osd_tree();
         const tree_cfg = {
             osd_tree,
@@ -907,7 +907,14 @@ class Mon
                     prev_pgs[pg-1] = this.state.history.last_clean_pgs.items[pool_id][pg].osd_set;
                 }
                 prev_pgs = JSON.parse(JSON.stringify(prev_pgs.length ? prev_pgs : real_prev_pgs));
-                const old_pg_count = prev_pgs.length;
+                const old_pg_count = real_prev_pgs.length;
+                const optimize_cfg = {
+                    osd_tree: pool_tree,
+                    pg_count: pool_cfg.pg_count,
+                    pg_size: pool_cfg.pg_size,
+                    pg_minsize: pool_cfg.pg_minsize,
+                    max_combinations: pool_cfg.max_osd_combinations,
+                };
                 let optimize_result;
                 if (old_pg_count > 0)
                 {
@@ -934,23 +941,22 @@ class Mon
                             pg.pop();
                         }
                     }
-                    optimize_result = await LPOptimizer.optimize_change({
-                        prev_pgs,
-                        osd_tree: pool_tree,
-                        pg_size: pool_cfg.pg_size,
-                        pg_minsize: pool_cfg.pg_minsize,
-                        max_combinations: pool_cfg.max_osd_combinations,
-                    });
+                    if (!this.state.config.pgs.hash)
+                    {
+                        // Re-shuffle PGs
+                        optimize_result = await LPOptimizer.optimize_initial(optimize_cfg);
+                    }
+                    else
+                    {
+                        optimize_result = await LPOptimizer.optimize_change({
+                            prev_pgs,
+                            ...optimize_cfg,
+                        });
+                    }
                 }
                 else
                 {
-                    optimize_result = await LPOptimizer.optimize_initial({
-                        osd_tree: pool_tree,
-                        pg_count: pool_cfg.pg_count,
-                        pg_size: pool_cfg.pg_size,
-                        pg_minsize: pool_cfg.pg_minsize,
-                        max_combinations: pool_cfg.max_osd_combinations,
-                    });
+                    optimize_result = await LPOptimizer.optimize_initial(optimize_cfg);
                 }
                 if (old_pg_count != optimize_result.int_pgs.length)
                 {
