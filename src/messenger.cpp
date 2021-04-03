@@ -28,6 +28,7 @@ void osd_messenger_t::init()
                 if (!cl->ping_time_remaining)
                 {
                     // Ping timed out, stop the client
+                    printf("Ping timed out for OSD %lu (client %d), disconnecting peer\n", cl->osd_num, cl->peer_fd);
                     stop_client(cl->peer_fd, true);
                 }
             }
@@ -54,6 +55,7 @@ void osd_messenger_t::init()
                         delete op;
                         if (fail_fd >= 0)
                         {
+                            printf("Ping failed for OSD %lu (client %d), disconnecting peer\n", cl->osd_num, cl->peer_fd);
                             stop_client(fail_fd, true);
                         }
                     };
