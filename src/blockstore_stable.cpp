@@ -176,7 +176,7 @@ resume_5:
     return 2;
 }
 
-void blockstore_impl_t::mark_stable(const obj_ver_id & v)
+void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
 {
     auto dirty_it = dirty_db.find(v);
     if (dirty_it != dirty_db.end())
@@ -187,7 +187,27 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v)
             {
                 dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_STABLE;
             }
-            else if (IS_STABLE(dirty_it->second.state))
+            if (forget_dirty && (IS_BIG_WRITE(dirty_it->second.state) ||
+                IS_DELETE(dirty_it->second.state)))
+            {
+                // Big write overrides all previous dirty entries
+                auto erase_end = dirty_it;
+                while (dirty_it != dirty_db.begin())
+                {
+                    dirty_it--;
+                    if (dirty_it->first.oid != v.oid)
+                    {
+                        dirty_it++;
+                        break;
+                    }
+                }
+                auto clean_it = clean_db.find(v.oid);
+                uint64_t clean_loc = clean_it != clean_db.end()
+                    ? clean_it->second.location : UINT64_MAX;
+                erase_dirty(dirty_it, erase_end, clean_loc);
+                break;
+            }
+            if (IS_STABLE(dirty_it->second.state))
             {
                 break;
             }

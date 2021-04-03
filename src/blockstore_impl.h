@@ -284,7 +284,7 @@ class blockstore_impl_t
     // Stabilize
     int dequeue_stable(blockstore_op_t *op);
     int continue_stable(blockstore_op_t *op);
-    void mark_stable(const obj_ver_id & ov);
+    void mark_stable(const obj_ver_id & ov, bool forget_dirty = false);
     void handle_stable_event(ring_data_t *data, blockstore_op_t *op);
     void stabilize_object(object_id oid, uint64_t max_ver);
 

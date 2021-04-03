@@ -564,7 +564,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     unstab = unstab < ov.version ? ov.version : unstab;
                     if (je->type == JE_SMALL_WRITE_INSTANT)
                     {
-                        bs->mark_stable(ov);
+                        bs->mark_stable(ov, true);
                     }
                 }
             }
@@ -620,7 +620,8 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     if (bs->data_alloc->get(je->big_write.location >> bs->block_order))
                     {
                         // This is probably a big_write that's already flushed and freed, but it may
-                        // also indicate a bug. So we remember such entries and recheck them afterwards
+                        // also indicate a bug. So we remember such entries and recheck them afterwards.
+                        // If it's not a bug they won't be present after reading the whole journal.
                         dirty_it->second.location = UINT64_MAX;
                         double_allocs.push_back(ov);
                     }
@@ -646,7 +647,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     unstab = unstab < ov.version ? ov.version : unstab;
                     if (je->type == JE_BIG_WRITE_INSTANT)
                     {
-                        bs->mark_stable(ov);
+                        bs->mark_stable(ov, true);
                     }
                 }
             }
@@ -660,7 +661,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     .oid = je->stable.oid,
                     .version = je->stable.version,
                 };
-                bs->mark_stable(ov);
+                bs->mark_stable(ov, true);
             }
             else if (je->type == JE_ROLLBACK)
             {
@@ -716,7 +717,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     bs->journal.used_sectors[proc_pos]++;
                     // Deletions are treated as immediately stable, because
                     // "2-phase commit" (write->stabilize) isn't sufficient for them anyway
-                    bs->mark_stable(ov);
+                    bs->mark_stable(ov, true);
                 }
                 // Ignore delete if neither preceding dirty entries nor the clean one are present
             }
@@ -748,7 +749,10 @@ void blockstore_init_journal::erase_dirty_object(blockstore_dirty_db_t::iterator
             break;
         }
     }
-    bs->erase_dirty(dirty_it, dirty_end, UINT64_MAX);
+    auto clean_it = bs->clean_db.find(oid);
+    uint64_t clean_loc = clean_it != bs->clean_db.end()
+        ? clean_it->second.location : UINT64_MAX;
+    bs->erase_dirty(dirty_it, dirty_end, clean_loc);
     // Remove it from the flusher's queue, too
     // Otherwise it may end up referring to a small unstable write after reading the rest of the journal
     bs->flusher->remove_flush(oid);
