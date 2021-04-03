@@ -57,6 +57,8 @@ struct websocket_t;
 struct etcd_state_client_t
 {
 protected:
+    websocket_t *etcd_watch_ws = NULL;
+    uint64_t bs_block_size = DEFAULT_BLOCK_SIZE;
     void add_etcd_url(std::string);
 public:
     std::vector<std::string> etcd_addresses;
@@ -66,8 +68,6 @@ public:
 
     int etcd_watches_initialised = 0;
     uint64_t etcd_watch_revision = 0;
-    websocket_t *etcd_watch_ws = NULL;
-    uint64_t bs_block_size = 0;
     std::map<pool_id_t, pool_config_t> pool_config;
     std::map<osd_num_t, json11::Json> peer_states;
 
@@ -84,6 +84,7 @@ public:
     void start_etcd_watcher();
     void load_global_config();
     void load_pgs();
+    void parse_state(const json_kv_t & kv);
     void parse_state(const std::string & key, const json11::Json & value);
     void parse_config(json11::Json & config);
     ~etcd_state_client_t();

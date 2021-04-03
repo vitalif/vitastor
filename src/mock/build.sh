@@ -1,0 +1,1 @@
+g++ -D__MOCK__ -fsanitize=address -g -Wno-pointer-arith pg_states.cpp osd_ops.cpp test_cluster_client.cpp cluster_client.cpp msgr_op.cpp msgr_stop.cpp mock/messenger.cpp etcd_state_client.cpp timerfd_manager.cpp ../json11/json11.cpp -I mock -I . -I ..; ./a.out

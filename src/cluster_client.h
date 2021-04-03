@@ -37,9 +37,10 @@ struct cluster_op_t
     osd_op_buf_list_t iov;
     std::function<void(cluster_op_t*)> callback;
 protected:
+    int flags = 0;
+    int state = 0;
     void *buf = NULL;
     cluster_op_t *orig_op = NULL;
-    bool is_internal = false;
     bool needs_reslice = false;
     bool up_wait = false;
     int sent_count = 0, done_count = 0;
@@ -47,6 +48,14 @@ protected:
     friend class cluster_client_t;
 };
 
+struct cluster_buffer_t
+{
+    void *buf;
+    uint64_t len;
+    int state;
+};
+
+// FIXME: Split into public and private interfaces
 class cluster_client_t
 {
     timerfd_manager_t *tfd;
@@ -61,21 +70,16 @@ class cluster_client_t
     int log_level;
     int up_wait_retry_interval = 500; // ms
 
-    uint64_t op_id = 1;
-    ring_consumer_t consumer;
-    // operations currently in progress
-    std::set<cluster_op_t*> cur_ops;
     int retry_timeout_id = 0;
-    // unsynced operations are copied in memory to allow replay when cluster isn't in the immediate_commit mode
-    // unsynced_writes are replayed in any order (because only the SYNC operation guarantees ordering)
-    std::vector<cluster_op_t*> unsynced_writes;
-    std::vector<cluster_op_t*> syncing_writes;
-    cluster_op_t* cur_sync = NULL;
-    std::vector<cluster_op_t*> next_writes;
+    uint64_t op_id = 1;
     std::vector<cluster_op_t*> offline_ops;
-    uint64_t queued_bytes = 0;
+    std::deque<cluster_op_t*> op_queue;
+    std::map<object_id, cluster_buffer_t> dirty_buffers;
+    std::set<osd_num_t> dirty_osds;
+    uint64_t dirty_bytes = 0;
 
     bool pgs_loaded = false;
+    ring_consumer_t consumer;
     std::vector<std::function<void(void)>> on_ready_hooks;
 
 public:
@@ -89,18 +93,19 @@ public:
     bool is_ready();
     void on_ready(std::function<void(void)> fn);
 
-protected:
+    static void copy_write(cluster_op_t *op, std::map<object_id, cluster_buffer_t> & dirty_buffers);
     void continue_ops(bool up_retry = false);
+protected:
+    bool affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd);
+    void flush_buffer(const object_id & oid, cluster_buffer_t & wr);
     void on_load_config_hook(json11::Json::object & config);
     void on_load_pgs_hook(bool success);
     void on_change_hook(json11::Json::object & changes);
     void on_change_osd_state_hook(uint64_t peer_osd);
-    void continue_rw(cluster_op_t *op);
+    int continue_rw(cluster_op_t *op);
     void slice_rw(cluster_op_t *op);
-    bool try_send(cluster_op_t *op, cluster_op_part_t *part);
-    void execute_sync(cluster_op_t *op);
-    void continue_sync();
-    void finish_sync();
+    bool try_send(cluster_op_t *op, int i);
+    int continue_sync(cluster_op_t *op);
     void send_sync(cluster_op_t *op, cluster_op_part_t *part);
     void handle_op_part(cluster_op_part_t *part);
 };

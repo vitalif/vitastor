@@ -5,6 +5,11 @@
 #include <assert.h>
 #include "cluster_client.h"
 
+#define CACHE_DIRTY 1
+#define CACHE_FLUSHING 2
+#define CACHE_REPEATING 4
+#define OP_FLUSH_BUFFER 2
+
 cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config)
 {
     this->ringloop = ringloop;
@@ -21,39 +26,18 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
             // peer_osd just connected
             continue_ops();
         }
-        else if (unsynced_writes.size())
+        else if (dirty_buffers.size())
         {
             // peer_osd just dropped connection
-            for (auto op: syncing_writes)
+            // determine WHICH dirty_buffers are now obsolete and repeat them
+            dirty_osds.erase(peer_osd);
+            for (auto & wr: dirty_buffers)
             {
-                for (auto & part: op->parts)
+                if (affects_osd(wr.first.inode, wr.first.stripe, wr.second.len, peer_osd) &&
+                    !(wr.second.state & CACHE_REPEATING))
                 {
-                    if (part.osd_num == peer_osd && part.done)
-                    {
-                        // repeat this operation
-                        part.osd_num = 0;
-                        part.done = false;
-                        assert(!part.sent);
-                        op->done_count--;
-                    }
-                }
-            }
-            for (auto op: unsynced_writes)
-            {
-                for (auto & part: op->parts)
-                {
-                    if (part.osd_num == peer_osd && part.done)
-                    {
-                        // repeat this operation
-                        part.osd_num = 0;
-                        part.done = false;
-                        assert(!part.sent);
-                        op->done_count--;
-                    }
-                }
-                if (op->done_count < op->parts.size())
-                {
-                    cur_ops.insert(op);
+                    // FIXME: Flush in larger parts
+                    flush_buffer(wr.first, wr.second);
                 }
             }
             continue_ops();
@@ -91,6 +75,11 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
 
 cluster_client_t::~cluster_client_t()
 {
+    for (auto bp: dirty_buffers)
+    {
+        free(bp.second.buf);
+    }
+    dirty_buffers.clear();
     if (ringloop)
     {
         ringloop->unregister_consumer(&consumer);
@@ -99,21 +88,64 @@ cluster_client_t::~cluster_client_t()
 
 void cluster_client_t::continue_ops(bool up_retry)
 {
-    for (auto op_it = cur_ops.begin(); op_it != cur_ops.end(); )
+    if (!pgs_loaded)
     {
-        if ((*op_it)->up_wait)
-        {
-            if (up_retry)
-            {
-                (*op_it)->up_wait = false;
-                continue_rw(*op_it++);
-            }
-            else
-                op_it++;
-        }
-        else
-            continue_rw(*op_it++);
+        // We're offline
+        return;
     }
+    bool has_flushes = false, has_writes = false;
+    int j = 0;
+    for (int i = 0; i < op_queue.size(); i++)
+    {
+        bool rm = false;
+        if (!op_queue[i]->up_wait || up_retry)
+        {
+            op_queue[i]->up_wait = false;
+            if (op_queue[i]->opcode == OSD_OP_READ)
+            {
+                rm = continue_rw(op_queue[i]);
+            }
+            else if (op_queue[i]->opcode == OSD_OP_WRITE)
+            {
+                if (op_queue[i]->flags & OP_FLUSH_BUFFER)
+                {
+                    rm = continue_rw(op_queue[i]);
+                    if (!rm)
+                    {
+                        // Regular writes can't proceed before buffer flushes
+                        has_flushes = true;
+                    }
+                }
+                else if (!has_flushes)
+                {
+                    rm = continue_rw(op_queue[i]);
+                }
+                if (!rm)
+                {
+                    has_writes = true;
+                }
+            }
+            else if (op_queue[i]->opcode == OSD_OP_SYNC)
+            {
+                if (!has_writes)
+                {
+                    // SYNC can't proceed before previous writes
+                    rm = continue_sync(op_queue[i]);
+                    if (!rm)
+                    {
+                        // Postpone writes until previous SYNC completes
+                        // ...so dirty_writes can't contain anything newer than SYNC
+                        has_flushes = true;
+                    }
+                }
+            }
+        }
+        if (!rm)
+        {
+            op_queue[j++] = op_queue[i];
+        }
+    }
+    op_queue.resize(j);
 }
 
 static uint32_t is_power_of_two(uint64_t value)
@@ -203,23 +235,10 @@ void cluster_client_t::on_change_hook(json11::Json::object & changes)
         {
             // At this point, all pool operations should have been suspended
             // And now they have to be resliced!
-            for (auto op: cur_ops)
+            for (auto op: op_queue)
             {
-                if (INODE_POOL(op->inode) == pool_item.first)
-                {
-                    op->needs_reslice = true;
-                }
-            }
-            for (auto op: unsynced_writes)
-            {
-                if (INODE_POOL(op->inode) == pool_item.first)
-                {
-                    op->needs_reslice = true;
-                }
-            }
-            for (auto op: syncing_writes)
-            {
-                if (INODE_POOL(op->inode) == pool_item.first)
+                if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_READ) &&
+                    INODE_POOL(op->inode) == pool_item.first)
                 {
                     op->needs_reslice = true;
                 }
@@ -258,21 +277,15 @@ void cluster_client_t::on_ready(std::function<void(void)> fn)
 /**
  * How writes are synced when immediate_commit is false
  *
- * 1) accept up to <client_dirty_limit> write operations for execution,
- *    queue all subsequent writes into <next_writes>
- * 2) accept exactly one SYNC, queue all subsequent SYNCs into <next_writes>, too
- * 3) "continue" all accepted writes
- *
  * "Continue" WRITE:
- * 1) if the operation is not a copy yet - copy it (required for replay)
- * 2) if the operation is not sliced yet - slice it
- * 3) if the operation doesn't require reslice - try to connect & send all remaining parts
- * 4) if any of them fail due to disconnected peers or PGs not up, repeat after reconnecting or small timeout
- * 5) if any of them fail due to other errors, fail the operation and forget it from the current "unsynced batch"
- * 6) if PG count changes before all parts are done, wait for all in-progress parts to finish,
+ * 1) if the operation is not sliced yet - slice it
+ * 2) if the operation doesn't require reslice - try to connect & send all remaining parts
+ * 3) if any of them fail due to disconnected peers or PGs not up, repeat after reconnecting or small timeout
+ * 4) if any of them fail due to other errors, fail the operation and forget it from the current "unsynced batch"
+ * 5) if PG count changes before all parts are done, wait for all in-progress parts to finish,
  *    throw all results away, reslice and resubmit op
- * 7) when all parts are done, try to "continue" the current SYNC
- * 8) if the operation succeeds, but then some OSDs drop their connections, repeat
+ * 6) when all parts are done, try to "continue" the current SYNC
+ * 7) if the operation succeeds, but then some OSDs drop their connections, repeat
  *    parts from the current "unsynced batch" previously sent to those OSDs in any order
  *
  * "Continue" current SYNC:
@@ -282,181 +295,241 @@ void cluster_client_t::on_ready(std::function<void(void)> fn)
  * 4) if any of them fail due to disconnected peers, repeat SYNC after repeating all writes
  * 5) if any of them fail due to other errors, fail the SYNC operation
  */
-
 void cluster_client_t::execute(cluster_op_t *op)
 {
-    if (!pgs_loaded)
+    if (op->opcode != OSD_OP_SYNC && op->opcode != OSD_OP_READ && op->opcode != OSD_OP_WRITE)
     {
-        // We're offline
-        offline_ops.push_back(op);
+        op->retval = -EINVAL;
+        std::function<void(cluster_op_t*)>(op->callback)(op);
         return;
     }
     op->retval = 0;
-    if (op->opcode != OSD_OP_SYNC && op->opcode != OSD_OP_READ && op->opcode != OSD_OP_WRITE ||
-        (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_WRITE) && (!op->inode || !op->len ||
-        op->offset % bs_bitmap_granularity || op->len % bs_bitmap_granularity))
-    {
-        op->retval = -EINVAL;
-        std::function<void(cluster_op_t*)>(op->callback)(op);
-        return;
-    }
-    if (op->opcode == OSD_OP_SYNC)
-    {
-        execute_sync(op);
-        return;
-    }
     if (op->opcode == OSD_OP_WRITE && !immediate_commit)
     {
-        if (next_writes.size() > 0)
-        {
-            assert(cur_sync);
-            next_writes.push_back(op);
-            return;
-        }
-        if (queued_bytes >= client_dirty_limit)
+        if (dirty_bytes >= client_dirty_limit)
         {
             // Push an extra SYNC operation to flush previous writes
-            next_writes.push_back(op);
             cluster_op_t *sync_op = new cluster_op_t;
-            sync_op->is_internal = true;
             sync_op->opcode = OSD_OP_SYNC;
-            sync_op->callback = [](cluster_op_t* sync_op) {};
-            execute_sync(sync_op);
-            return;
+            sync_op->callback = [](cluster_op_t* sync_op)
+            {
+                delete sync_op;
+            };
+            op_queue.push_back(sync_op);
+            dirty_bytes = 0;
         }
-        queued_bytes += op->len;
+        dirty_bytes += op->len;
     }
-    cur_ops.insert(op);
-    continue_rw(op);
+    else if (op->opcode == OSD_OP_SYNC)
+    {
+        dirty_bytes = 0;
+    }
+    op_queue.push_back(op);
+    continue_ops();
 }
 
-void cluster_client_t::continue_rw(cluster_op_t *op)
+void cluster_client_t::copy_write(cluster_op_t *op, std::map<object_id, cluster_buffer_t> & dirty_buffers)
 {
-    pool_id_t pool_id = INODE_POOL(op->inode);
-    if (!pool_id)
+    // Save operation for replay when one of PGs goes out of sync
+    // (primary OSD drops our connection in this case)
+    auto dirty_it = dirty_buffers.lower_bound((object_id){
+        .inode = op->inode,
+        .stripe = op->offset,
+    });
+    while (dirty_it != dirty_buffers.begin())
+    {
+        dirty_it--;
+        if (dirty_it->first.inode != op->inode ||
+            (dirty_it->first.stripe + dirty_it->second.len) <= op->offset)
+        {
+            dirty_it++;
+            break;
+        }
+    }
+    uint64_t pos = op->offset, len = op->len, iov_idx = 0, iov_pos = 0;
+    while (len > 0)
+    {
+        uint64_t new_len = 0;
+        if (dirty_it == dirty_buffers.end())
+        {
+            new_len = len;
+        }
+        else if (dirty_it->first.inode != op->inode || dirty_it->first.stripe > pos)
+        {
+            new_len = dirty_it->first.stripe - pos;
+            if (new_len > len)
+            {
+                new_len = len;
+            }
+        }
+        if (new_len > 0)
+        {
+            dirty_it = dirty_buffers.emplace_hint(dirty_it, (object_id){
+                .inode = op->inode,
+                .stripe = pos,
+            }, (cluster_buffer_t){
+                .buf = malloc_or_die(new_len),
+                .len = new_len,
+            });
+        }
+        // FIXME: Split big buffers into smaller ones on overwrites. But this will require refcounting
+        dirty_it->second.state = CACHE_DIRTY;
+        uint64_t cur_len = (dirty_it->first.stripe + dirty_it->second.len - pos);
+        if (cur_len > len)
+        {
+            cur_len = len;
+        }
+        while (cur_len > 0 && iov_idx < op->iov.count)
+        {
+            unsigned iov_len = (op->iov.buf[iov_idx].iov_len - iov_pos);
+            if (iov_len <= cur_len)
+            {
+                memcpy(dirty_it->second.buf + pos - dirty_it->first.stripe,
+                    op->iov.buf[iov_idx].iov_base + iov_pos, iov_len);
+                pos += iov_len;
+                len -= iov_len;
+                cur_len -= iov_len;
+                iov_pos = 0;
+                iov_idx++;
+            }
+            else
+            {
+                memcpy(dirty_it->second.buf + pos - dirty_it->first.stripe,
+                    op->iov.buf[iov_idx].iov_base + iov_pos, cur_len);
+                pos += cur_len;
+                len -= cur_len;
+                iov_pos += cur_len;
+                cur_len = 0;
+            }
+        }
+        dirty_it++;
+    }
+}
+
+void cluster_client_t::flush_buffer(const object_id & oid, cluster_buffer_t & wr)
+{
+    wr.state = CACHE_DIRTY | CACHE_REPEATING;
+    cluster_op_t *op = new cluster_op_t;
+    op->flags = OP_FLUSH_BUFFER;
+    op->opcode = OSD_OP_WRITE;
+    op->inode = oid.inode;
+    op->offset = oid.stripe;
+    op->len = wr.len;
+    op->iov.push_back(wr.buf, wr.len);
+    op->callback = [](cluster_op_t* op)
+    {
+        delete op;
+    };
+    op_queue.push_front(op);
+}
+
+int cluster_client_t::continue_rw(cluster_op_t *op)
+{
+    if (op->state == 0)
+        goto resume_0;
+    else if (op->state == 1)
+        goto resume_1;
+    else if (op->state == 2)
+        goto resume_2;
+    else if (op->state == 3)
+        goto resume_3;
+resume_0:
+    if (!op->len || op->offset % bs_bitmap_granularity || op->len % bs_bitmap_granularity)
     {
         op->retval = -EINVAL;
         std::function<void(cluster_op_t*)>(op->callback)(op);
-        return;
+        return 1;
     }
-    if (st_cli.pool_config.find(pool_id) == st_cli.pool_config.end() ||
-        st_cli.pool_config[pool_id].real_pg_count == 0)
     {
-        // Postpone operations to unknown pools
-        return;
-    }
-    if (op->opcode == OSD_OP_WRITE && !immediate_commit && !op->is_internal)
-    {
-        // Save operation for replay when PG goes out of sync
-        // (primary OSD drops our connection in this case)
-        cluster_op_t *op_copy = new cluster_op_t();
-        op_copy->is_internal = true;
-        op_copy->orig_op = op;
-        op_copy->opcode = op->opcode;
-        op_copy->inode = op->inode;
-        op_copy->offset = op->offset;
-        op_copy->len = op->len;
-        op_copy->buf = malloc_or_die(op->len);
-        op_copy->iov.push_back(op_copy->buf, op->len);
-        op_copy->callback = [](cluster_op_t* op_copy)
+        pool_id_t pool_id = INODE_POOL(op->inode);
+        if (!pool_id)
         {
-            if (op_copy->orig_op)
-            {
-                // Acknowledge write and forget the original pointer
-                op_copy->orig_op->retval = op_copy->retval;
-                std::function<void(cluster_op_t*)>(op_copy->orig_op->callback)(op_copy->orig_op);
-                op_copy->orig_op = NULL;
-            }
-        };
-        void *cur_buf = op_copy->buf;
-        for (int i = 0; i < op->iov.count; i++)
-        {
-            memcpy(cur_buf, op->iov.buf[i].iov_base, op->iov.buf[i].iov_len);
-            cur_buf += op->iov.buf[i].iov_len;
-        }
-        unsynced_writes.push_back(op_copy);
-        cur_ops.erase(op);
-        cur_ops.insert(op_copy);
-        op = op_copy;
-    }
-    if (!op->parts.size())
-    {
-        // Slice the operation into parts
-        slice_rw(op);
-    }
-    if (!op->needs_reslice)
-    {
-        // Send unsent parts, if they're not subject to change
-        for (auto & op_part: op->parts)
-        {
-            if (!op_part.sent && !op_part.done)
-            {
-                try_send(op, &op_part);
-            }
-        }
-    }
-    if (!op->sent_count)
-    {
-        if (op->done_count >= op->parts.size())
-        {
-            // Finished successfully
-            // Even if the PG count has changed in meanwhile we treat it as success
-            // because if some operations were invalid for the new PG count we'd get errors
-            cur_ops.erase(op);
-            op->retval = op->len;
+            op->retval = -EINVAL;
             std::function<void(cluster_op_t*)>(op->callback)(op);
-            continue_sync();
-            return;
+            return 1;
         }
-        else if (op->retval != 0 && op->retval != -EPIPE)
+        if (st_cli.pool_config.find(pool_id) == st_cli.pool_config.end() ||
+            st_cli.pool_config[pool_id].real_pg_count == 0)
         {
-            // Fatal error (not -EPIPE)
-            cur_ops.erase(op);
-            if (!immediate_commit && op->opcode == OSD_OP_WRITE)
+            // Postpone operations to unknown pools
+            return 0;
+        }
+    }
+    if (op->opcode == OSD_OP_WRITE)
+    {
+        if (!immediate_commit)
+        {
+            copy_write(op, dirty_buffers);
+        }
+    }
+resume_1:
+    // Slice the operation into parts
+    slice_rw(op);
+    op->needs_reslice = false;
+resume_2:
+    // Send unsent parts, if they're not subject to change
+    op->state = 3;
+    for (int i = 0; i < op->parts.size(); i++)
+    {
+        if (!op->parts[i].sent && !op->parts[i].done)
+        {
+            if (!try_send(op, i))
             {
-                for (int i = 0; i < unsynced_writes.size(); i++)
-                {
-                    if (unsynced_writes[i] == op)
-                    {
-                        unsynced_writes.erase(unsynced_writes.begin()+i, unsynced_writes.begin()+i+1);
-                        break;
-                    }
-                }
+                // We'll need to retry again
+                op->state = 2;
             }
-            bool del = op->is_internal;
-            std::function<void(cluster_op_t*)>(op->callback)(op);
-            if (del)
-            {
-                if (op->buf)
-                    free(op->buf);
-                delete op;
-            }
-            continue_sync();
-            return;
+        }
+    }
+    if (op->state == 2)
+    {
+        return 0;
+    }
+resume_3:
+    if (op->sent_count > 0)
+    {
+        op->state = 3;
+        return 0;
+    }
+    if (op->done_count >= op->parts.size())
+    {
+        // Finished successfully
+        // Even if the PG count has changed in meanwhile we treat it as success
+        // because if some operations were invalid for the new PG count we'd get errors
+        op->retval = op->len;
+        std::function<void(cluster_op_t*)>(op->callback)(op);
+        return 1;
+    }
+    else if (op->retval != 0 && op->retval != -EPIPE)
+    {
+        // Fatal error (not -EPIPE)
+        std::function<void(cluster_op_t*)>(op->callback)(op);
+        return 1;
+    }
+    else
+    {
+        // -EPIPE - clear the error and retry
+        op->retval = 0;
+        if (op->needs_reslice)
+        {
+            op->parts.clear();
+            op->done_count = 0;
+            goto resume_1;
         }
         else
         {
-            // -EPIPE or no error - clear the error
-            op->retval = 0;
-            if (op->needs_reslice)
-            {
-                op->parts.clear();
-                op->done_count = 0;
-                op->needs_reslice = false;
-                continue_rw(op);
-            }
+            goto resume_2;
         }
     }
+    return 0;
 }
 
 void cluster_client_t::slice_rw(cluster_op_t *op)
 {
     // Slice the request into individual object stripe requests
     // Primary OSDs still operate individual stripes, but their size is multiplied by PG minsize in case of EC
-    auto & pool_cfg = st_cli.pool_config[INODE_POOL(op->inode)];
-    uint64_t pg_block_size = bs_block_size * (
-        pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks
-    );
+    auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(op->inode));
+    uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+    uint64_t pg_block_size = bs_block_size * pg_data_size;
     uint64_t first_stripe = (op->offset / pg_block_size) * pg_block_size;
     uint64_t last_stripe = ((op->offset + op->len + pg_block_size - 1) / pg_block_size - 1) * pg_block_size;
     op->retval = 0;
@@ -500,8 +573,28 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
     }
 }
 
-bool cluster_client_t::try_send(cluster_op_t *op, cluster_op_part_t *part)
+bool cluster_client_t::affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd)
 {
+    auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(inode));
+    uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+    uint64_t pg_block_size = bs_block_size * pg_data_size;
+    uint64_t first_stripe = (offset / pg_block_size) * pg_block_size;
+    uint64_t last_stripe = ((offset + len + pg_block_size - 1) / pg_block_size - 1) * pg_block_size;
+    for (uint64_t stripe = first_stripe; stripe <= last_stripe; stripe += pg_block_size)
+    {
+        pg_num_t pg_num = (stripe/pool_cfg.pg_stripe_size) % pool_cfg.real_pg_count + 1; // like map_to_pg()
+        auto pg_it = pool_cfg.pg_config.find(pg_num);
+        if (pg_it != pool_cfg.pg_config.end() && pg_it->second.cur_primary == osd)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool cluster_client_t::try_send(cluster_op_t *op, int i)
+{
+    auto part = &op->parts[i];
     auto & pool_cfg = st_cli.pool_config[INODE_POOL(op->inode)];
     auto pg_it = pool_cfg.pg_config.find(part->pg_num);
     if (pg_it != pool_cfg.pg_config.end() &&
@@ -545,129 +638,92 @@ bool cluster_client_t::try_send(cluster_op_t *op, cluster_op_part_t *part)
     return false;
 }
 
-void cluster_client_t::execute_sync(cluster_op_t *op)
+int cluster_client_t::continue_sync(cluster_op_t *op)
 {
-    if (immediate_commit)
+    if (op->state == 1)
+        goto resume_1;
+    if (immediate_commit || !dirty_osds.size())
     {
-        // Syncs are not required in the immediate_commit mode
+        // Sync is not required in the immediate_commit mode or if there are no dirty_osds
         op->retval = 0;
         std::function<void(cluster_op_t*)>(op->callback)(op);
-    }
-    else if (cur_sync != NULL)
-    {
-        next_writes.push_back(op);
-    }
-    else
-    {
-        cur_sync = op;
-        continue_sync();
-    }
-}
-
-void cluster_client_t::continue_sync()
-{
-    if (!cur_sync || cur_sync->parts.size() > 0)
-    {
-        // Already submitted
-        return;
-    }
-    cur_sync->retval = 0;
-    std::set<osd_num_t> sync_osds;
-    for (auto prev_op: unsynced_writes)
-    {
-        if (prev_op->done_count < prev_op->parts.size())
-        {
-            // Writes not finished yet
-            return;
-        }
-        for (auto & part: prev_op->parts)
-        {
-            if (part.osd_num)
-            {
-                sync_osds.insert(part.osd_num);
-            }
-        }
-    }
-    if (!sync_osds.size())
-    {
-        // No dirty writes
-        finish_sync();
-        return;
+        return 1;
     }
     // Check that all OSD connections are still alive
-    for (auto sync_osd: sync_osds)
+    for (auto sync_osd: dirty_osds)
     {
         auto peer_it = msgr.osd_peer_fds.find(sync_osd);
         if (peer_it == msgr.osd_peer_fds.end())
         {
-            // SYNC is pointless to send to a non connected OSD
-            return;
+            return 0;
         }
     }
-    syncing_writes.swap(unsynced_writes);
     // Post sync to affected OSDs
-    cur_sync->parts.resize(sync_osds.size());
-    int i = 0;
-    for (auto sync_osd: sync_osds)
+    for (auto & prev_op: dirty_buffers)
     {
-        cur_sync->parts[i] = {
-            .parent = cur_sync,
-            .osd_num = sync_osd,
-            .sent = false,
-            .done = false,
-        };
-        send_sync(cur_sync, &cur_sync->parts[i]);
-        i++;
-    }
-}
-
-void cluster_client_t::finish_sync()
-{
-    int retval = cur_sync->retval;
-    if (retval != 0)
-    {
-        for (auto op: syncing_writes)
+        if (prev_op.second.state == CACHE_DIRTY)
         {
-            if (op->done_count < op->parts.size())
+            prev_op.second.state = CACHE_FLUSHING;
+        }
+    }
+    op->parts.resize(dirty_osds.size());
+    op->retval = 0;
+    {
+        int i = 0;
+        for (auto sync_osd: dirty_osds)
+        {
+            op->parts[i] = {
+                .parent = op,
+                .osd_num = sync_osd,
+                .sent = false,
+                .done = false,
+            };
+            send_sync(op, &op->parts[i]);
+            i++;
+        }
+    }
+    dirty_osds.clear();
+resume_1:
+    if (op->sent_count > 0)
+    {
+        op->state = 1;
+        return 0;
+    }
+    if (op->retval != 0)
+    {
+        for (auto uw_it = dirty_buffers.begin(); uw_it != dirty_buffers.end(); uw_it++)
+        {
+            if (uw_it->second.state == CACHE_FLUSHING)
             {
-                cur_ops.insert(op);
+                uw_it->second.state = CACHE_DIRTY;
             }
         }
-        unsynced_writes.insert(unsynced_writes.begin(), syncing_writes.begin(), syncing_writes.end());
-        syncing_writes.clear();
-    }
-    if (retval == -EPIPE)
-    {
-        // Retry later
-        cur_sync->parts.clear();
-        cur_sync->retval = 0;
-        cur_sync->sent_count = 0;
-        cur_sync->done_count = 0;
-        return;
-    }
-    std::function<void(cluster_op_t*)>(cur_sync->callback)(cur_sync);
-    if (!retval)
-    {
-        for (auto op: syncing_writes)
+        if (op->retval == -EPIPE)
         {
-            assert(op->sent_count == 0);
-            if (op->is_internal)
-            {
-                if (op->buf)
-                    free(op->buf);
-                delete op;
-            }
+            // Retry later
+            op->parts.clear();
+            op->retval = 0;
+            op->sent_count = 0;
+            op->done_count = 0;
+            op->state = 0;
+            return 0;
         }
-        syncing_writes.clear();
     }
-    cur_sync = NULL;
-    queued_bytes = 0;
-    std::vector<cluster_op_t*> next_wr_copy;
-    next_wr_copy.swap(next_writes);
-    for (auto next_op: next_wr_copy)
+    else
     {
-        execute(next_op);
+        for (auto uw_it = dirty_buffers.begin(); uw_it != dirty_buffers.end(); )
+        {
+            if (uw_it->second.state == CACHE_FLUSHING)
+            {
+                free(uw_it->second.buf);
+                dirty_buffers.erase(uw_it++);
+            }
+            else
+                uw_it++;
+        }
     }
+    std::function<void(cluster_op_t*)>(op->callback)(op);
+    return 1;
 }
 
 void cluster_client_t::send_sync(cluster_op_t *op, cluster_op_part_t *part)
@@ -729,19 +785,12 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
     else
     {
         // OK
+        dirty_osds.insert(part->osd_num);
         part->done = true;
         op->done_count++;
     }
     if (op->sent_count == 0)
     {
-        if (op->opcode == OSD_OP_SYNC)
-        {
-            assert(op == cur_sync);
-            finish_sync();
-        }
-        else if (!op->up_wait)
-        {
-            continue_rw(op);
-        }
+        continue_ops();
     }
 }

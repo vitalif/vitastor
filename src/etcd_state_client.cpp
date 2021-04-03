@@ -4,19 +4,24 @@
 #include "osd_ops.h"
 #include "pg_states.h"
 #include "etcd_state_client.h"
+#ifndef __MOCK__
 #include "http_client.h"
 #include "base64.h"
+#endif
 
 etcd_state_client_t::~etcd_state_client_t()
 {
     etcd_watches_initialised = -1;
+#ifndef __MOCK__
     if (etcd_watch_ws)
     {
         etcd_watch_ws->close();
         etcd_watch_ws = NULL;
     }
+#endif
 }
 
+#ifndef __MOCK__
 json_kv_t etcd_state_client_t::parse_etcd_kv(const json11::Json & kv_json)
 {
     json_kv_t kv;
@@ -322,6 +327,26 @@ void etcd_state_client_t::load_pgs()
         on_load_pgs_hook(true);
         start_etcd_watcher();
     });
+}
+#else
+void etcd_state_client_t::parse_config(json11::Json & config)
+{
+}
+
+void etcd_state_client_t::load_global_config()
+{
+    json11::Json::object global_config;
+    on_load_config_hook(global_config);
+}
+
+void etcd_state_client_t::load_pgs()
+{
+}
+#endif
+
+void etcd_state_client_t::parse_state(const json_kv_t & kv)
+{
+    parse_state(kv.key, kv.value);
 }
 
 void etcd_state_client_t::parse_state(const std::string & key, const json11::Json & value)
