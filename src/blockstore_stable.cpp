@@ -193,7 +193,25 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
                 // Allocations and deletions are counted when they're stabilized
                 if (IS_BIG_WRITE(dirty_it->second.state))
                 {
-                    inode_space_stats[dirty_it->first.oid.inode] += block_size;
+                    int exists = -1;
+                    if (dirty_it != dirty_db.begin())
+                    {
+                        auto prev_it = dirty_it;
+                        prev_it--;
+                        if (prev_it->first.oid == v.oid)
+                        {
+                            exists = IS_DELETE(prev_it->second.state) ? 0 : 1;
+                        }
+                    }
+                    if (exists == -1)
+                    {
+                        auto clean_it = clean_db.find(v.oid);
+                        exists = clean_it != clean_db.end() ? 1 : 0;
+                    }
+                    if (!exists)
+                    {
+                        inode_space_stats[dirty_it->first.oid.inode] += block_size;
+                    }
                 }
                 else if (IS_DELETE(dirty_it->second.state))
                 {

@@ -770,6 +770,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
 void blockstore_init_journal::erase_dirty_object(blockstore_dirty_db_t::iterator dirty_it)
 {
     auto oid = dirty_it->first.oid;
+    bool exists = !IS_DELETE(dirty_it->second.state);
     auto dirty_end = dirty_it;
     dirty_end++;
     while (1)
@@ -788,6 +789,10 @@ void blockstore_init_journal::erase_dirty_object(blockstore_dirty_db_t::iterator
     auto clean_it = bs->clean_db.find(oid);
     uint64_t clean_loc = clean_it != bs->clean_db.end()
         ? clean_it->second.location : UINT64_MAX;
+    if (exists && clean_loc == UINT64_MAX)
+    {
+        bs->inode_space_stats[oid.inode] -= bs->block_size;
+    }
     bs->erase_dirty(dirty_it, dirty_end, clean_loc);
     // Remove it from the flusher's queue, too
     // Otherwise it may end up referring to a small unstable write after reading the rest of the journal
