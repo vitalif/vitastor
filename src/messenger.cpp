@@ -127,17 +127,14 @@ void osd_messenger_t::connect_peer(uint64_t peer_osd, json11::Json peer_state)
         wanted_peers[peer_osd].port = (int)peer_state["port"].int64_value();
     }
     wanted_peers[peer_osd].address_changed = true;
-    if (!wanted_peers[peer_osd].connecting &&
-        (time(NULL) - wanted_peers[peer_osd].last_connect_attempt) >= peer_connect_interval)
-    {
-        try_connect_peer(peer_osd);
-    }
+    try_connect_peer(peer_osd);
 }
 
 void osd_messenger_t::try_connect_peer(uint64_t peer_osd)
 {
     auto wp_it = wanted_peers.find(peer_osd);
-    if (wp_it == wanted_peers.end())
+    if (wp_it == wanted_peers.end() || wp_it->second.connecting ||
+        (time(NULL) - wp_it->second.last_connect_attempt) < peer_connect_interval)
     {
         return;
     }
