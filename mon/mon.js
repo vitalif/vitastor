@@ -34,7 +34,7 @@ const etcd_allow = new RegExp('^'+[
     'pg/stats/[1-9]\\d*/[1-9]\\d*',
     'pg/history/[1-9]\\d*/[1-9]\\d*',
     'history/last_clean_pgs',
-    'inode/stats/[1-9]\\d*',
+    'inode/stats/[1-9]\\d*/[1-9]\\d*',
     'stats',
 ].join('$|^')+'$');
 
@@ -1178,23 +1178,31 @@ class Mon
         });
         for (const osd_num in this.state.osd.space)
         {
-            for (const inode_num in this.state.osd.space[osd_num])
+            for (const pool_id in this.state.osd.space[osd_num])
             {
-                inode_stats[inode_num] = inode_stats[inode_num] || inode_stub();
-                inode_stats[inode_num].raw_used += BigInt(this.state.osd.space[osd_num][inode_num]||0);
+                inode_stats[pool_id] = inode_stats[pool_id] || {};
+                for (const inode_num in this.state.osd.space[osd_num][pool_id])
+                {
+                    inode_stats[pool_id][inode_num] = inode_stats[pool_id][inode_num] || inode_stub();
+                    inode_stats[pool_id][inode_num].raw_used += BigInt(this.state.osd.space[osd_num][pool_id][inode_num]||0);
+                }
             }
         }
         for (const osd_num in this.state.osd.inodestats)
         {
             const ist = this.state.osd.inodestats[osd_num];
-            for (const inode_num in ist)
+            for (const pool_id in ist)
             {
-                inode_stats[inode_num] = inode_stats[inode_num] || inode_stub();
-                for (const op of [ 'read', 'write', 'delete' ])
+                inode_stats[pool_id] = inode_stats[pool_id] || {};
+                for (const inode_num in ist[pool_id])
                 {
-                    inode_stats[inode_num][op].count += BigInt(ist[inode_num][op].count||0);
-                    inode_stats[inode_num][op].usec += BigInt(ist[inode_num][op].usec||0);
-                    inode_stats[inode_num][op].bytes += BigInt(ist[inode_num][op].bytes||0);
+                    inode_stats[pool_id][inode_num] = inode_stats[pool_id][inode_num] || inode_stub();
+                    for (const op of [ 'read', 'write', 'delete' ])
+                    {
+                        inode_stats[pool_id][inode_num][op].count += BigInt(ist[pool_id][inode_num][op].count||0);
+                        inode_stats[pool_id][inode_num][op].usec += BigInt(ist[pool_id][inode_num][op].usec||0);
+                        inode_stats[pool_id][inode_num][op].bytes += BigInt(ist[pool_id][inode_num][op].bytes||0);
+                    }
                 }
             }
         }
@@ -1260,12 +1268,15 @@ class Mon
         this.serialize_bigints(stats);
         this.serialize_bigints(inode_stats);
         txn.push({ requestPut: { key: b64(this.etcd_prefix+'/stats'), value: b64(JSON.stringify(stats)) } });
-        for (const inode_num in inode_stats)
+        for (const pool_id in inode_stats)
         {
-            txn.push({ requestPut: {
-                key: b64(this.etcd_prefix+'/inode/stats/'+inode_num),
-                value: b64(JSON.stringify(inode_stats[inode_num])),
-            } });
+            for (const inode_num in inode_stats[pool_id])
+            {
+                txn.push({ requestPut: {
+                    key: b64(this.etcd_prefix+'/inode/stats/'+pool_id+'/'+inode_num),
+                    value: b64(JSON.stringify(inode_stats[pool_id][inode_num])),
+                } });
+            }
         }
         if (txn.length)
         {

@@ -183,14 +183,38 @@ void osd_t::report_statistics()
     // Report space usage statistics as a whole
     // Maybe we'll report it using deltas if we tune for a lot of inodes at some point
     json11::Json::object inode_space;
+    json11::Json::object last_stat;
+    pool_id_t last_pool = 0;
     for (auto kv: bs->get_inode_space_stats())
     {
-        inode_space[std::to_string(kv.first)] = kv.second;
+        pool_id_t pool_id = INODE_POOL(kv.first);
+        uint64_t only_inode_num = (kv.first & ((1l << (64-POOL_ID_BITS)) - 1));
+        if (!last_pool || pool_id != last_pool)
+        {
+            if (last_pool)
+                inode_space[std::to_string(last_pool)] = last_stat;
+            last_stat = json11::Json::object();
+            last_pool = pool_id;
+        }
+        last_stat[std::to_string(only_inode_num)] = kv.second;
     }
+    if (last_pool)
+        inode_space[std::to_string(last_pool)] = last_stat;
+    last_stat = json11::Json::object();
+    last_pool = 0;
     json11::Json::object inode_ops;
     for (auto kv: inode_stats)
     {
-        inode_ops[std::to_string(kv.first)] = json11::Json::object {
+        pool_id_t pool_id = INODE_POOL(kv.first);
+        uint64_t only_inode_num = (kv.first & ((1l << (64-POOL_ID_BITS)) - 1));
+        if (!last_pool || pool_id != last_pool)
+        {
+            if (last_pool)
+                inode_ops[std::to_string(last_pool)] = last_stat;
+            last_stat = json11::Json::object();
+            last_pool = pool_id;
+        }
+        last_stat[std::to_string(only_inode_num)] = json11::Json::object {
             { "read", json11::Json::object {
                 { "count", kv.second.op_count[INODE_STATS_READ] },
                 { "usec", kv.second.op_sum[INODE_STATS_READ] },
@@ -208,20 +232,28 @@ void osd_t::report_statistics()
             } },
         };
     }
-    json11::Json::array txn = { json11::Json::object {
-        { "request_put", json11::Json::object {
-            { "key", base64_encode(st_cli.etcd_prefix+"/osd/stats/"+std::to_string(osd_num)) },
-            { "value", base64_encode(get_statistics().dump()) },
-        } },
-        { "request_put", json11::Json::object {
-            { "key", base64_encode(st_cli.etcd_prefix+"/osd/space/"+std::to_string(osd_num)) },
-            { "value", base64_encode(json11::Json(inode_space).dump()) },
-        } },
-        { "request_put", json11::Json::object {
-            { "key", base64_encode(st_cli.etcd_prefix+"/osd/inodestats/"+std::to_string(osd_num)) },
-            { "value", base64_encode(json11::Json(inode_ops).dump()) },
-        } },
-    } };
+    if (last_pool)
+        inode_ops[std::to_string(last_pool)] = last_stat;
+    json11::Json::array txn = {
+        json11::Json::object {
+            { "request_put", json11::Json::object {
+                { "key", base64_encode(st_cli.etcd_prefix+"/osd/stats/"+std::to_string(osd_num)) },
+                { "value", base64_encode(get_statistics().dump()) },
+            } },
+        },
+        json11::Json::object {
+            { "request_put", json11::Json::object {
+                { "key", base64_encode(st_cli.etcd_prefix+"/osd/space/"+std::to_string(osd_num)) },
+                { "value", base64_encode(json11::Json(inode_space).dump()) },
+            } },
+        },
+        json11::Json::object {
+            { "request_put", json11::Json::object {
+                { "key", base64_encode(st_cli.etcd_prefix+"/osd/inodestats/"+std::to_string(osd_num)) },
+                { "value", base64_encode(json11::Json(inode_ops).dump()) },
+            } },
+        },
+    };
     for (auto & p: pgs)
     {
         auto & pg = p.second;
