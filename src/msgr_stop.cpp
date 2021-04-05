@@ -8,12 +8,19 @@
 
 void osd_messenger_t::cancel_osd_ops(osd_client_t *cl)
 {
+    std::vector<osd_op_t*> cancel_ops;
+    cancel_ops.resize(cl->sent_ops.size());
+    int i = 0;
     for (auto p: cl->sent_ops)
     {
-        cancel_op(p.second);
+        cancel_ops[i++] = p.second;
     }
     cl->sent_ops.clear();
     cl->outbox.clear();
+    for (auto op: cancel_ops)
+    {
+        cancel_op(op);
+    }
 }
 
 void osd_messenger_t::cancel_op(osd_op_t *op)

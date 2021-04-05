@@ -180,23 +180,12 @@ void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer
         on_connect_peer(peer_osd, -errno);
         return;
     }
-    int timeout_id = -1;
-    if (peer_connect_timeout > 0)
-    {
-        timeout_id = tfd->set_timer(1000*peer_connect_timeout, false, [this, peer_fd](int timer_id)
-        {
-            osd_num_t peer_osd = clients.at(peer_fd)->osd_num;
-            stop_client(peer_fd, true);
-            on_connect_peer(peer_osd, -EIO);
-            return;
-        });
-    }
     clients[peer_fd] = new osd_client_t((osd_client_t){
         .peer_addr = addr,
         .peer_port = peer_port,
         .peer_fd = peer_fd,
         .peer_state = PEER_CONNECTING,
-        .connect_timeout_id = timeout_id,
+        .connect_timeout_id = -1,
         .osd_num = peer_osd,
         .in_buf = malloc_or_die(receive_buffer_size),
     });
@@ -205,6 +194,16 @@ void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer
         // Either OUT (connected) or HUP
         handle_connect_epoll(peer_fd);
     });
+    if (peer_connect_timeout > 0)
+    {
+        clients[peer_fd]->connect_timeout_id = tfd->set_timer(1000*peer_connect_timeout, false, [this, peer_fd](int timer_id)
+        {
+            osd_num_t peer_osd = clients.at(peer_fd)->osd_num;
+            stop_client(peer_fd, true);
+            on_connect_peer(peer_osd, -EIO);
+            return;
+        });
+    }
 }
 
 void osd_messenger_t::handle_connect_epoll(int peer_fd)

@@ -5,6 +5,9 @@
 #include <assert.h>
 #include "cluster_client.h"
 
+#define PART_SENT 1
+#define PART_DONE 2
+#define PART_ERROR 4
 #define CACHE_DIRTY 1
 #define CACHE_FLUSHING 2
 #define CACHE_REPEATING 4
@@ -30,7 +33,6 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         {
             // peer_osd just dropped connection
             // determine WHICH dirty_buffers are now obsolete and repeat them
-            dirty_osds.erase(peer_osd);
             for (auto & wr: dirty_buffers)
             {
                 if (affects_osd(wr.first.inode, wr.first.stripe, wr.second.len, peer_osd) &&
@@ -97,48 +99,41 @@ void cluster_client_t::continue_ops(bool up_retry)
     int j = 0;
     for (int i = 0; i < op_queue.size(); i++)
     {
-        bool rm = false;
+        bool rm = false, is_flush = op_queue[i]->flags & OP_FLUSH_BUFFER;
+        auto opcode = op_queue[i]->opcode;
         if (!op_queue[i]->up_wait || up_retry)
         {
             op_queue[i]->up_wait = false;
-            if (op_queue[i]->opcode == OSD_OP_READ)
+            if (opcode == OSD_OP_READ || opcode == OSD_OP_WRITE)
             {
-                rm = continue_rw(op_queue[i]);
-            }
-            else if (op_queue[i]->opcode == OSD_OP_WRITE)
-            {
-                if (op_queue[i]->flags & OP_FLUSH_BUFFER)
+                if (is_flush || !has_flushes)
                 {
-                    rm = continue_rw(op_queue[i]);
-                    if (!rm)
-                    {
-                        // Regular writes can't proceed before buffer flushes
-                        has_flushes = true;
-                    }
-                }
-                else if (!has_flushes)
-                {
+                    // Regular writes can't proceed before buffer flushes
                     rm = continue_rw(op_queue[i]);
                 }
-                if (!rm)
-                {
-                    has_writes = true;
-                }
             }
-            else if (op_queue[i]->opcode == OSD_OP_SYNC)
+            else if (opcode == OSD_OP_SYNC)
             {
                 if (!has_writes)
                 {
                     // SYNC can't proceed before previous writes
                     rm = continue_sync(op_queue[i]);
-                    if (!rm)
-                    {
-                        // Postpone writes until previous SYNC completes
-                        // ...so dirty_writes can't contain anything newer than SYNC
-                        has_flushes = true;
-                    }
                 }
             }
+        }
+        if (opcode == OSD_OP_WRITE)
+        {
+            has_writes = has_writes || !rm;
+            if (is_flush)
+            {
+                has_flushes = has_writes || !rm;
+            }
+        }
+        else if (opcode == OSD_OP_SYNC)
+        {
+            // Postpone writes until previous SYNC completes
+            // ...so dirty_writes can't contain anything newer than SYNC
+            has_flushes = has_writes || !rm;
         }
         if (!rm)
         {
@@ -185,13 +180,26 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & config)
         // Cluster-wide immediate_commit mode
         immediate_commit = true;
     }
+    if (config.find("client_max_dirty_bytes") != config.end())
+    {
+        client_max_dirty_bytes = config["client_max_dirty_bytes"].uint64_value();
+    }
     else if (config.find("client_dirty_limit") != config.end())
     {
-        client_dirty_limit = config["client_dirty_limit"].uint64_value();
+        // Old name
+        client_max_dirty_bytes = config["client_dirty_limit"].uint64_value();
     }
-    if (!client_dirty_limit)
+    if (config.find("client_max_dirty_ops") != config.end())
     {
-        client_dirty_limit = DEFAULT_CLIENT_DIRTY_LIMIT;
+        client_max_dirty_ops = config["client_max_dirty_ops"].uint64_value();
+    }
+    if (!client_max_dirty_bytes)
+    {
+        client_max_dirty_bytes = DEFAULT_CLIENT_MAX_DIRTY_BYTES;
+    }
+    if (!client_max_dirty_ops)
+    {
+        client_max_dirty_ops = DEFAULT_CLIENT_MAX_DIRTY_OPS;
     }
     up_wait_retry_interval = config["up_wait_retry_interval"].uint64_value();
     if (!up_wait_retry_interval)
@@ -306,7 +314,7 @@ void cluster_client_t::execute(cluster_op_t *op)
     op->retval = 0;
     if (op->opcode == OSD_OP_WRITE && !immediate_commit)
     {
-        if (dirty_bytes >= client_dirty_limit)
+        if (dirty_bytes >= client_max_dirty_bytes || dirty_ops >= client_max_dirty_ops)
         {
             // Push an extra SYNC operation to flush previous writes
             cluster_op_t *sync_op = new cluster_op_t;
@@ -317,12 +325,15 @@ void cluster_client_t::execute(cluster_op_t *op)
             };
             op_queue.push_back(sync_op);
             dirty_bytes = 0;
+            dirty_ops = 0;
         }
         dirty_bytes += op->len;
+        dirty_ops++;
     }
     else if (op->opcode == OSD_OP_SYNC)
     {
         dirty_bytes = 0;
+        dirty_ops = 0;
     }
     op_queue.push_back(op);
     continue_ops();
@@ -457,7 +468,7 @@ resume_0:
     }
     if (op->opcode == OSD_OP_WRITE)
     {
-        if (!immediate_commit)
+        if (!immediate_commit && !(op->flags & OP_FLUSH_BUFFER))
         {
             copy_write(op, dirty_buffers);
         }
@@ -469,13 +480,33 @@ resume_1:
 resume_2:
     // Send unsent parts, if they're not subject to change
     op->state = 3;
+    if (op->needs_reslice)
+    {
+        for (int i = 0; i < op->parts.size(); i++)
+        {
+            if (!(op->parts[i].flags & PART_SENT) && op->retval)
+            {
+                op->retval = -EPIPE;
+            }
+        }
+        goto resume_3;
+    }
     for (int i = 0; i < op->parts.size(); i++)
     {
-        if (!op->parts[i].sent && !op->parts[i].done)
+        if (!(op->parts[i].flags & PART_SENT))
         {
             if (!try_send(op, i))
             {
                 // We'll need to retry again
+                op->up_wait = true;
+                if (!retry_timeout_id)
+                {
+                    retry_timeout_id = tfd->set_timer(up_wait_retry_interval, false, [this](int)
+                    {
+                        retry_timeout_id = 0;
+                        continue_ops(true);
+                    });
+                }
                 op->state = 2;
             }
         }
@@ -485,7 +516,7 @@ resume_2:
         return 0;
     }
 resume_3:
-    if (op->sent_count > 0)
+    if (op->inflight_count > 0)
     {
         op->state = 3;
         return 0;
@@ -517,6 +548,10 @@ resume_3:
         }
         else
         {
+            for (int i = 0; i < op->parts.size(); i++)
+            {
+                op->parts[i].flags = 0;
+            }
             goto resume_2;
         }
     }
@@ -548,8 +583,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
             .offset = begin,
             .len = (uint32_t)(end - begin),
             .pg_num = pg_num,
-            .sent = false,
-            .done = false,
+            .flags = 0,
         };
         int left = end-begin;
         while (left > 0 && iov_idx < op->iov.count)
@@ -606,8 +640,8 @@ bool cluster_client_t::try_send(cluster_op_t *op, int i)
         {
             int peer_fd = peer_it->second;
             part->osd_num = primary_osd;
-            part->sent = true;
-            op->sent_count++;
+            part->flags |= PART_SENT;
+            op->inflight_count++;
             part->op = (osd_op_t){
                 .op_type = OSD_OP_OUT,
                 .peer_fd = peer_fd,
@@ -675,8 +709,7 @@ int cluster_client_t::continue_sync(cluster_op_t *op)
             op->parts[i] = {
                 .parent = op,
                 .osd_num = sync_osd,
-                .sent = false,
-                .done = false,
+                .flags = 0,
             };
             send_sync(op, &op->parts[i]);
             i++;
@@ -684,7 +717,7 @@ int cluster_client_t::continue_sync(cluster_op_t *op)
     }
     dirty_osds.clear();
 resume_1:
-    if (op->sent_count > 0)
+    if (op->inflight_count > 0)
     {
         op->state = 1;
         return 0;
@@ -703,7 +736,7 @@ resume_1:
             // Retry later
             op->parts.clear();
             op->retval = 0;
-            op->sent_count = 0;
+            op->inflight_count = 0;
             op->done_count = 0;
             op->state = 0;
             return 0;
@@ -730,8 +763,8 @@ void cluster_client_t::send_sync(cluster_op_t *op, cluster_op_part_t *part)
 {
     auto peer_it = msgr.osd_peer_fds.find(part->osd_num);
     assert(peer_it != msgr.osd_peer_fds.end());
-    part->sent = true;
-    op->sent_count++;
+    part->flags |= PART_SENT;
+    op->inflight_count++;
     part->op = (osd_op_t){
         .op_type = OSD_OP_OUT,
         .peer_fd = peer_it->second,
@@ -753,8 +786,7 @@ void cluster_client_t::send_sync(cluster_op_t *op, cluster_op_part_t *part)
 void cluster_client_t::handle_op_part(cluster_op_part_t *part)
 {
     cluster_op_t *op = part->parent;
-    part->sent = false;
-    op->sent_count--;
+    op->inflight_count--;
     int expected = part->op.req.hdr.opcode == OSD_OP_SYNC ? 0 : part->op.req.rw.len;
     if (part->op.reply.hdr.retval != expected)
     {
@@ -763,9 +795,9 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             "%s operation failed on OSD %lu: retval=%ld (expected %d), dropping connection\n",
             osd_op_names[part->op.req.hdr.opcode], part->osd_num, part->op.reply.hdr.retval, expected
         );
-        msgr.stop_client(part->op.peer_fd);
         if (part->op.reply.hdr.retval == -EPIPE)
         {
+            // Mark op->up_wait = true before stopping the client
             op->up_wait = true;
             if (!retry_timeout_id)
             {
@@ -781,15 +813,17 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             // Don't overwrite other errors with -EPIPE
             op->retval = part->op.reply.hdr.retval;
         }
+        msgr.stop_client(part->op.peer_fd);
+        part->flags |= PART_ERROR;
     }
     else
     {
         // OK
         dirty_osds.insert(part->osd_num);
-        part->done = true;
+        part->flags |= PART_DONE;
         op->done_count++;
     }
-    if (op->sent_count == 0)
+    if (op->inflight_count == 0)
     {
         continue_ops();
     }

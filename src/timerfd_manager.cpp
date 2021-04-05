@@ -121,7 +121,7 @@ again:
             exp.it_value.tv_sec--;
             exp.it_value.tv_nsec += 1000000000;
         }
-        if (exp.it_value.tv_sec < 0 || !exp.it_value.tv_sec && !exp.it_value.tv_nsec)
+        if (exp.it_value.tv_sec < 0 || exp.it_value.tv_sec == 0 && exp.it_value.tv_nsec <= 0)
         {
             // It already happened
             trigger_nearest();
@@ -159,6 +159,6 @@ void timerfd_manager_t::trigger_nearest()
     {
         timers.erase(timers.begin()+nearest, timers.begin()+nearest+1);
     }
-    cb(nearest_id);
     nearest = -1;
+    cb(nearest_id);
 }

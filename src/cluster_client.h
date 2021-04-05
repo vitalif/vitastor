@@ -10,7 +10,8 @@
 #define MAX_BLOCK_SIZE 128*1024*1024
 #define DEFAULT_DISK_ALIGNMENT 4096
 #define DEFAULT_BITMAP_GRANULARITY 4096
-#define DEFAULT_CLIENT_DIRTY_LIMIT 32*1024*1024
+#define DEFAULT_CLIENT_MAX_DIRTY_BYTES 32*1024*1024
+#define DEFAULT_CLIENT_MAX_DIRTY_OPS 1024
 
 struct cluster_op_t;
 
@@ -22,8 +23,7 @@ struct cluster_op_part_t
     pg_num_t pg_num;
     osd_num_t osd_num;
     osd_op_buf_list_t iov;
-    bool sent;
-    bool done;
+    unsigned flags;
     osd_op_t op;
 };
 
@@ -43,7 +43,7 @@ protected:
     cluster_op_t *orig_op = NULL;
     bool needs_reslice = false;
     bool up_wait = false;
-    int sent_count = 0, done_count = 0;
+    int inflight_count = 0, done_count = 0;
     std::vector<cluster_op_part_t> parts;
     friend class cluster_client_t;
 };
@@ -66,7 +66,8 @@ class cluster_client_t
     std::map<pool_id_t, uint64_t> pg_counts;
     bool immediate_commit = false;
     // FIXME: Implement inmemory_commit mode. Note that it requires to return overlapping reads from memory.
-    uint64_t client_dirty_limit = 0;
+    uint64_t client_max_dirty_bytes = 0;
+    uint64_t client_max_dirty_ops = 0;
     int log_level;
     int up_wait_retry_interval = 500; // ms
 
@@ -76,7 +77,7 @@ class cluster_client_t
     std::deque<cluster_op_t*> op_queue;
     std::map<object_id, cluster_buffer_t> dirty_buffers;
     std::set<osd_num_t> dirty_osds;
-    uint64_t dirty_bytes = 0;
+    uint64_t dirty_bytes = 0, dirty_ops = 0;
 
     bool pgs_loaded = false;
     ring_consumer_t consumer;

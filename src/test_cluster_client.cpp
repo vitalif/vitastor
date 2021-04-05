@@ -124,6 +124,15 @@ void pretend_disconnected(cluster_client_t *cli, osd_num_t osd_num)
     cli->msgr.stop_client(cli->msgr.osd_peer_fds.at(osd_num));
 }
 
+void check_disconnected(cluster_client_t *cli, osd_num_t osd_num)
+{
+    if (cli->msgr.osd_peer_fds.find(osd_num) != cli->msgr.osd_peer_fds.end())
+    {
+        printf("OSD %lu not disconnected as it ought to be\n", osd_num);
+        assert(0);
+    }
+}
+
 void check_op_count(cluster_client_t *cli, osd_num_t osd_num, int ops)
 {
     int peer_fd = cli->msgr.osd_peer_fds.at(osd_num);
@@ -152,20 +161,20 @@ osd_op_t *find_op(cluster_client_t *cli, osd_num_t osd_num, uint64_t opcode, uin
     return NULL;
 }
 
-void pretend_op_completed(cluster_client_t *cli, osd_op_t *op, int retval)
+void pretend_op_completed(cluster_client_t *cli, osd_op_t *op, int64_t retval)
 {
     assert(op);
     printf("Pretend completed %s %lx+%x\n", op->req.hdr.opcode == OSD_OP_SYNC
         ? "sync" : (op->req.hdr.opcode == OSD_OP_WRITE ? "write" : "read"), op->req.rw.offset, op->req.rw.len);
     uint64_t op_id = op->req.hdr.id;
     int peer_fd = op->peer_fd;
+    cli->msgr.clients[peer_fd]->sent_ops.erase(op_id);
     op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
     op->reply.hdr.id = op->req.hdr.id;
     op->reply.hdr.opcode = op->req.hdr.opcode;
     op->reply.hdr.retval = retval < 0 ? retval : (op->req.hdr.opcode == OSD_OP_SYNC ? 0 : op->req.rw.len);
     // Copy lambda to be unaffected by `delete op`
     std::function<void(osd_op_t*)>(op->callback)(op);
-    cli->msgr.clients[peer_fd]->sent_ops.erase(op_id);
 }
 
 void test1()
@@ -177,6 +186,7 @@ void test1()
     int *r1 = test_write(cli, 0, 4096, 0x55);
     configure_single_pg_pool(cli);
     pretend_connected(cli, 1);
+    cli->continue_ops(true);
     can_complete(r1);
     check_op_count(cli, 1, 1);
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 4096), 0);
@@ -184,6 +194,8 @@ void test1()
     pretend_disconnected(cli, 1);
     int *r2 = test_sync(cli);
     pretend_connected(cli, 1);
+    check_op_count(cli, 1, 0);
+    cli->continue_ops(true);
     check_op_count(cli, 1, 1);
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 4096), 0);
     check_op_count(cli, 1, 1);
@@ -226,8 +238,8 @@ void test1()
     r1 = test_write(cli, 0x10000, 0x4000, 0x58);
 
     pretend_disconnected(cli, 1);
-    cli->continue_ops(true);
     pretend_connected(cli, 1);
+    cli->continue_ops(true);
 
     // Check replay
     {
@@ -260,8 +272,11 @@ void test1()
             assert(offset == op->req.rw.offset+op->req.rw.len);
             replay_ops.push_back(op);
         }
-        assert(replay_start == 0);
-        assert(replay_end == 0x14000);
+        if (replay_start != 0 || replay_end != 0x14000)
+        {
+            printf("Write replay: range mismatch: %lx-%lx\n", replay_start, replay_end);
+            assert(0);
+        }
         for (auto op: replay_ops)
         {
             pretend_op_completed(cli, op, 0);
@@ -273,6 +288,28 @@ void test1()
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x10000, 0x4000), 0);
     check_completed(r1);
     check_op_count(cli, 1, 0);
+
+    // Check sync
+    r2 = test_sync(cli);
+    can_complete(r2);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_SYNC, 0, 0), 0);
+    check_completed(r2);
+
+    // Check disconnect during write
+    r1 = test_write(cli, 0, 4096, 0x59);
+    check_op_count(cli, 1, 1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), -EPIPE);
+    check_disconnected(cli, 1);
+    pretend_connected(cli, 1);
+    check_op_count(cli, 1, 0);
+    cli->continue_ops(true);
+    check_op_count(cli, 1, 1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), 0);
+    check_op_count(cli, 1, 1);
+    can_complete(r1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), 0);
+    check_completed(r1);
+
     // Free client
     delete cli;
     delete tfd;
