@@ -49,52 +49,37 @@ void osd_messenger_t::stop_client(int peer_fd, bool force)
     {
         return;
     }
-    uint64_t repeer_osd = 0;
     osd_client_t *cl = it->second;
-    if (cl->peer_state == PEER_CONNECTED)
-    {
-        if (cl->osd_num)
-        {
-            // Reload configuration from etcd when the connection is dropped
-            if (log_level > 0)
-                printf("[OSD %lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl->osd_num);
-            repeer_osd = cl->osd_num;
-        }
-        else
-        {
-            if (log_level > 0)
-                printf("[OSD %lu] Stopping client %d (regular client)\n", osd_num, peer_fd);
-        }
-    }
-    else if (!force)
+    if (cl->peer_state == PEER_CONNECTING && !force || cl->peer_state == PEER_STOPPED)
     {
         return;
     }
+    if (log_level > 0)
+    {
+        if (cl->osd_num)
+        {
+            printf("[OSD %lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl->osd_num);
+        }
+        else
+        {
+            printf("[OSD %lu] Stopping client %d (regular client)\n", osd_num, peer_fd);
+        }
+    }
+    // First set state to STOPPED so another stop_client() call doesn't try to free it again
+    cl->refs++;
     cl->peer_state = PEER_STOPPED;
-    clients.erase(it);
+    if (cl->osd_num)
+    {
+        // ...and forget OSD peer
+        osd_peer_fds.erase(cl->osd_num);
+    }
 #ifndef __MOCK__
+    // Then remove FD from the eventloop so we don't accidentally read something
     tfd->set_fd_handler(peer_fd, false, NULL);
     if (cl->connect_timeout_id >= 0)
     {
         tfd->clear_timer(cl->connect_timeout_id);
         cl->connect_timeout_id = -1;
-    }
-#endif
-    if (cl->osd_num)
-    {
-        osd_peer_fds.erase(cl->osd_num);
-    }
-    if (cl->read_op)
-    {
-        if (cl->read_op->callback)
-        {
-            cancel_op(cl->read_op);
-        }
-        else
-        {
-            delete cl->read_op;
-        }
-        cl->read_op = NULL;
     }
     for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
     {
@@ -112,22 +97,39 @@ void osd_messenger_t::stop_client(int peer_fd, bool force)
             break;
         }
     }
-    free(cl->in_buf);
-    cl->in_buf = NULL;
-#ifndef __MOCK__
-    close(peer_fd);
 #endif
-    if (repeer_osd)
+    if (cl->osd_num)
     {
-        // First repeer PGs as canceling OSD ops may push new operations
-        // and we need correct PG states when we do that
-        repeer_pgs(repeer_osd);
+        // Then repeer PGs because cancel_op() callbacks can try to perform
+        // some actions and we need correct PG states to not do something silly
+        repeer_pgs(cl->osd_num);
+    }
+    // Then cancel all operations
+    if (cl->read_op)
+    {
+        if (!cl->read_op->callback)
+        {
+            delete cl->read_op;
+        }
+        cl->read_op = NULL;
     }
     if (cl->osd_num)
     {
         // Cancel outbound operations
         cancel_osd_ops(cl);
     }
+#ifndef __MOCK__
+    // And close the FD only when everything is done
+    // ...because peer_fd number can get reused after close()
+    close(peer_fd);
+#endif
+    // Find the item again because it can be invalidated at this point
+    it = clients.find(peer_fd);
+    if (it != clients.end())
+    {
+        clients.erase(it);
+    }
+    cl->refs--;
     if (cl->refs <= 0)
     {
         delete cl;

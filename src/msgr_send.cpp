@@ -180,7 +180,7 @@ void osd_messenger_t::handle_send(int result, osd_client_t *cl)
     cl->refs--;
     if (cl->peer_state == PEER_STOPPED)
     {
-        if (!cl->refs)
+        if (cl->refs <= 0)
         {
             delete cl;
         }

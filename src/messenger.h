@@ -70,6 +70,12 @@ struct osd_client_t
     int write_state = 0;
     std::vector<iovec> send_list, next_send_list;
     std::vector<osd_op_t*> outbox, next_outbox;
+
+    ~osd_client_t()
+    {
+        free(in_buf);
+        in_buf = NULL;
+    }
 };
 
 struct osd_wanted_peer_t
