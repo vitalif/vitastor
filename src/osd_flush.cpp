@@ -149,9 +149,13 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
         {
             continue_primary_write(op);
         }
-        if (pg.inflight == 0 && (pg.state & PG_STOPPING))
+        if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch)
         {
             finish_stop_pg(pg);
+        }
+        else if ((pg.state & PG_REPEERING) && pg.inflight == 0 && !pg.flush_batch)
+        {
+            start_pg_peering(pg);
         }
     }
 }

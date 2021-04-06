@@ -43,11 +43,13 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
             auto & pg = pgs.at({ .pool_id = INODE_POOL(cur_op->op_data->oid.inode), .pg_num = cur_op->op_data->pg_num });
             pg.inflight--;
             assert(pg.inflight >= 0);
-            if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch &&
-                // We must either forget all PG's unstable writes or wait for it to become clean
-                dirty_pgs.find({ .pool_id = pg.pool_id, .pg_num = pg.pg_num }) == dirty_pgs.end())
+            if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch)
             {
                 finish_stop_pg(pg);
+            }
+            else if ((pg.state & PG_REPEERING) && pg.inflight == 0 && !pg.flush_batch)
+            {
+                start_pg_peering(pg);
             }
         }
         assert(!cur_op->op_data->subops);
@@ -194,14 +196,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, int pg_s
                 }
                 subops[i].callback = [cur_op, this](osd_op_t *subop)
                 {
-                    int fail_fd = subop->req.hdr.opcode == OSD_OP_SEC_WRITE &&
-                        subop->reply.hdr.retval != subop->req.sec_rw.len ? subop->peer_fd : -1;
                     handle_primary_subop(subop, cur_op);
-                    if (fail_fd >= 0)
-                    {
-                        // write operation failed, drop the connection
-                        c_cli.stop_client(fail_fd);
-                    }
                 };
                 c_cli.outbox_push(&subops[i]);
             }
@@ -247,6 +242,7 @@ void osd_t::handle_primary_bs_subop(osd_op_t *subop)
     }
     delete bs_op;
     subop->bs_op = NULL;
+    subop->peer_fd = -1;
     handle_primary_subop(subop, cur_op);
 }
 
@@ -288,6 +284,11 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
             op_data->epipe++;
         }
         op_data->errors++;
+        if (subop->peer_fd >= 0)
+        {
+            // Drop connection on any error
+            c_cli.stop_client(subop->peer_fd);
+        }
     }
     else
     {
@@ -438,13 +439,7 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
             } };
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
-                int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
                 handle_primary_subop(subop, cur_op);
-                if (fail_fd >= 0)
-                {
-                    // delete operation failed, drop the connection
-                    c_cli.stop_client(fail_fd);
-                }
             };
             c_cli.outbox_push(&subops[i]);
         }
@@ -489,13 +484,7 @@ int osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
             } };
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
-                int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
                 handle_primary_subop(subop, cur_op);
-                if (fail_fd >= 0)
-                {
-                    // sync operation failed, drop the connection
-                    c_cli.stop_client(fail_fd);
-                }
             };
             c_cli.outbox_push(&subops[i]);
         }
@@ -554,13 +543,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
             subops[i].iov.push_back(op_data->unstable_writes + stab_osd.start, stab_osd.len * sizeof(obj_ver_id));
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
-                int fail_fd = subop->reply.hdr.retval != 0 ? subop->peer_fd : -1;
                 handle_primary_subop(subop, cur_op);
-                if (fail_fd >= 0)
-                {
-                    // sync operation failed, drop the connection
-                    c_cli.stop_client(fail_fd);
-                }
             };
             c_cli.outbox_push(&subops[i]);
         }
@@ -578,7 +561,7 @@ void osd_t::pg_cancel_write_queue(pg_t & pg, osd_op_t *first_op, object_id oid, 
         return;
     }
     std::vector<osd_op_t*> cancel_ops;
-    while (it != pg.write_queue.end())
+    while (it != pg.write_queue.end() && it->first == oid)
     {
         cancel_ops.push_back(it->second);
         it++;

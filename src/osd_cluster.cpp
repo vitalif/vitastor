@@ -558,7 +558,7 @@ void osd_t::apply_pg_config()
                 }
                 if (currently_taken)
                 {
-                    if (pg_it->second.state & (PG_ACTIVE | PG_INCOMPLETE | PG_PEERING))
+                    if (pg_it->second.state & (PG_ACTIVE | PG_INCOMPLETE | PG_PEERING | PG_REPEERING))
                     {
                         if (pg_it->second.target_set == pg_cfg.target_set)
                         {

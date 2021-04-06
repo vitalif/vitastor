@@ -77,10 +77,11 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
     // Re-peer affected PGs
     for (auto & p: pgs)
     {
+        auto & pg = p.second;
         bool repeer = false;
-        if (p.second.state & (PG_PEERING | PG_ACTIVE | PG_INCOMPLETE))
+        if (pg.state & (PG_PEERING | PG_ACTIVE | PG_INCOMPLETE))
         {
-            for (osd_num_t pg_osd: p.second.all_peers)
+            for (osd_num_t pg_osd: pg.all_peers)
             {
                 if (pg_osd == peer_osd)
                 {
@@ -91,8 +92,17 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
             if (repeer)
             {
                 // Repeer this pg
-                printf("[PG %u/%u] Repeer because of OSD %lu\n", p.second.pool_id, p.second.pg_num, peer_osd);
-                start_pg_peering(p.second);
+                printf("[PG %u/%u] Repeer because of OSD %lu\n", pg.pool_id, pg.pg_num, peer_osd);
+                if (!(pg.state & (PG_ACTIVE | PG_REPEERING)) || pg.inflight == 0 && !pg.flush_batch)
+                {
+                    start_pg_peering(pg);
+                }
+                else
+                {
+                    // Stop accepting new operations, wait for current ones to finish or fail
+                    pg.state = pg.state & ~PG_ACTIVE | PG_REPEERING;
+                    report_pg_state(pg);
+                }
             }
         }
     }
@@ -334,9 +344,10 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
             {
                 // FIXME: Mark peer as failed and don't reconnect immediately after dropping the connection
                 printf("Failed to sync OSD %lu: %ld (%s), disconnecting peer\n", role_osd, op->reply.hdr.retval, strerror(-op->reply.hdr.retval));
+                int fail_fd = op->peer_fd;
                 ps->list_ops.erase(role_osd);
-                c_cli.stop_client(op->peer_fd);
                 delete op;
+                c_cli.stop_client(fail_fd);
                 return;
             }
             delete op;
@@ -413,9 +424,10 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
             if (op->reply.hdr.retval < 0)
             {
                 printf("Failed to get object list from OSD %lu (retval=%ld), disconnecting peer\n", role_osd, op->reply.hdr.retval);
+                int fail_fd = op->peer_fd;
                 ps->list_ops.erase(role_osd);
-                c_cli.stop_client(op->peer_fd);
                 delete op;
+                c_cli.stop_client(fail_fd);
                 return;
             }
             printf(
@@ -484,15 +496,13 @@ bool osd_t::stop_pg(pg_t & pg)
     {
         return false;
     }
-    if (!(pg.state & PG_ACTIVE))
+    if (!(pg.state & (PG_ACTIVE | PG_REPEERING)))
     {
         finish_stop_pg(pg);
         return true;
     }
-    pg.state = pg.state & ~PG_ACTIVE | PG_STOPPING;
-    if (pg.inflight == 0 && !pg.flush_batch &&
-        // We must either forget all PG's unstable writes or wait for it to become clean
-        dirty_pgs.find({ .pool_id = pg.pool_id, .pg_num = pg.pg_num }) == dirty_pgs.end())
+    pg.state = pg.state & ~PG_ACTIVE & ~PG_REPEERING | PG_STOPPING;
+    if (pg.inflight == 0 && !pg.flush_batch)
     {
         finish_stop_pg(pg);
     }

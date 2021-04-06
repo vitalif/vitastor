@@ -218,11 +218,13 @@ resume_8:
     {
         auto & pg = pgs.at(op_data->dirty_pgs[i]);
         pg.inflight--;
-        if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch &&
-            // We must either forget all PG's unstable writes or wait for it to become clean
-            dirty_pgs.find({ .pool_id = pg.pool_id, .pg_num = pg.pg_num }) == dirty_pgs.end())
+        if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch)
         {
             finish_stop_pg(pg);
+        }
+        else if ((pg.state & PG_REPEERING) && pg.inflight == 0 && !pg.flush_batch)
+        {
+            start_pg_peering(pg);
         }
     }
     // FIXME: Free those in the destructor?
