@@ -16,6 +16,7 @@ with configurable redundancy (replication or erasure codes/XOR).
 Vitastor is currently a pre-release, a lot of features are missing and you can still expect
 breaking changes in the future. However, the following is implemented:
 
+0.5.x (stable):
 - Basic part: highly-available block storage with symmetric clustering and no SPOF
 - Performance ;-D
 - Multiple redundancy schemes: Replication, XOR n+1, Reed-Solomon erasure codes
@@ -36,9 +37,12 @@ breaking changes in the future. However, the following is implemented:
 - NBD proxy for kernel mounts
 - Inode removal tool (vitastor-rm)
 - Packaging for Debian and CentOS
+
+0.6.x (master):
 - Per-inode I/O and space usage statistics
 - Inode metadata storage in etcd
 - Snapshots and copy-on-write image clones
+- Write throttling to smooth random write workloads in SSD+HDD configurations
 
 ## Roadmap
 
@@ -46,10 +50,10 @@ breaking changes in the future. However, the following is implemented:
 - Other administrative tools
 - Plugins for OpenStack, Kubernetes, OpenNebula, Proxmox and other cloud systems
 - iSCSI proxy
-- Operation timeouts and better failure detection
+- Faster failover
 - Scrubbing without checksums (verification of replicas)
 - Checksums
-- SSD+HDD optimizations, possibly including tiered storage and soft journal flushes
+- Tiered storage
 - RDMA and NVDIMM support
 - Web GUI
 - Compression (possibly)
