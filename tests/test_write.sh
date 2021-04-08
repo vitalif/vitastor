@@ -37,6 +37,10 @@ fi
 LD_PRELOAD=libasan.so.5 \
     fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -cluster_log_level=10
 
+LD_PRELOAD=libasan.so.5 \
+    fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4k -direct=1 -iodepth=1 -fsync=32 -buffer_pattern=0xdeadface \
+        -rw=randwrite -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -number_ios=1024
+
 qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:pool=1:inode=1:size=$((128*1024*1024))" \
     -O raw ./testdata/read.bin

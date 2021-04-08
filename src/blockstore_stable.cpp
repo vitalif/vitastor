@@ -168,6 +168,9 @@ resume_5:
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
     {
         // Mark all dirty_db entries up to op->version as stable
+#ifdef BLOCKSTORE_DEBUG
+        printf("Stabilize %lx:%lx v%lu\n", v->oid.inode, v->oid.stripe, v->version);
+#endif
         mark_stable(*v);
     }
     // Acknowledge op
@@ -183,6 +186,7 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
     {
         while (1)
         {
+            bool was_stable = IS_STABLE(dirty_it->second.state);
             if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_SYNCED)
             {
                 dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_STABLE;
@@ -207,11 +211,7 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
                 erase_dirty(dirty_it, erase_end, clean_loc);
                 break;
             }
-            if (IS_STABLE(dirty_it->second.state))
-            {
-                break;
-            }
-            if (dirty_it == dirty_db.begin())
+            if (was_stable || dirty_it == dirty_db.begin())
             {
                 break;
             }
