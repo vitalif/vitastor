@@ -82,6 +82,7 @@ class cluster_client_t
     bool pgs_loaded = false;
     ring_consumer_t consumer;
     std::vector<std::function<void(void)>> on_ready_hooks;
+    int continuing_ops = 0;
 
 public:
     etcd_state_client_t st_cli;

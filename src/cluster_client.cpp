@@ -95,6 +95,14 @@ void cluster_client_t::continue_ops(bool up_retry)
         // We're offline
         return;
     }
+    if (continuing_ops)
+    {
+        // Attempt to reenter the function
+        continuing_ops = 2;
+        return;
+    }
+restart:
+    continuing_ops = 1;
     bool has_flushes = false, has_writes = false;
     int j = 0;
     for (int i = 0; i < op_queue.size(); i++)
@@ -141,6 +149,14 @@ void cluster_client_t::continue_ops(bool up_retry)
         }
     }
     op_queue.resize(j);
+    if (continuing_ops == 2)
+    {
+        goto restart;
+    }
+    else
+    {
+        continuing_ops = 0;
+    }
 }
 
 static uint32_t is_power_of_two(uint64_t value)
