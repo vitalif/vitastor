@@ -40,10 +40,10 @@ RUN set -e -x; \
     mkdir -p /root/packages/vitastor-$REL; \
     rm -rf /root/packages/vitastor-$REL/*; \
     cd /root/packages/vitastor-$REL; \
-    cp -r /root/vitastor vitastor-0.5.12; \
-    ln -s /root/packages/qemu-$REL/qemu-*/ vitastor-0.5.12/qemu; \
-    ln -s /root/fio-build/fio-*/ vitastor-0.5.12/fio; \
-    cd vitastor-0.5.12; \
+    cp -r /root/vitastor vitastor-0.5.13; \
+    ln -s /root/packages/qemu-$REL/qemu-*/ vitastor-0.5.13/qemu; \
+    ln -s /root/fio-build/fio-*/ vitastor-0.5.13/fio; \
+    cd vitastor-0.5.13; \
     FIO=$(head -n1 fio/debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
     QEMU=$(head -n1 qemu/debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
     sh copy-qemu-includes.sh; \
@@ -59,8 +59,8 @@ RUN set -e -x; \
     echo "dep:fio=$FIO" > debian/substvars; \
     echo "dep:qemu=$QEMU" >> debian/substvars; \
     cd /root/packages/vitastor-$REL; \
-    tar --sort=name --mtime='2020-01-01' --owner=0 --group=0 --exclude=debian -cJf vitastor_0.5.12.orig.tar.xz vitastor-0.5.12; \
-    cd vitastor-0.5.12; \
+    tar --sort=name --mtime='2020-01-01' --owner=0 --group=0 --exclude=debian -cJf vitastor_0.5.13.orig.tar.xz vitastor-0.5.13; \
+    cd vitastor-0.5.13; \
     V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
     DEBFULLNAME="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v "$V""$REL" "Rebuild for $REL"; \
     DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto -sa; \
