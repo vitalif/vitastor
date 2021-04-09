@@ -10,7 +10,7 @@
 #define PART_ERROR 4
 #define CACHE_DIRTY 1
 #define CACHE_FLUSHING 2
-#define CACHE_REPEATING 4
+#define CACHE_REPEATING 3
 #define OP_FLUSH_BUFFER 2
 
 cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config)
@@ -36,10 +36,10 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
             for (auto & wr: dirty_buffers)
             {
                 if (affects_osd(wr.first.inode, wr.first.stripe, wr.second.len, peer_osd) &&
-                    !(wr.second.state & CACHE_REPEATING))
+                    wr.second.state != CACHE_REPEATING)
                 {
                     // FIXME: Flush in larger parts
-                    flush_buffer(wr.first, wr.second);
+                    flush_buffer(wr.first, &wr.second);
                 }
             }
             continue_ops();
@@ -103,21 +103,22 @@ void cluster_client_t::continue_ops(bool up_retry)
     }
 restart:
     continuing_ops = 1;
+    op_queue_pos = 0;
     bool has_flushes = false, has_writes = false;
-    int j = 0;
-    for (int i = 0; i < op_queue.size(); i++)
+    while (op_queue_pos < op_queue.size())
     {
-        bool rm = false, is_flush = op_queue[i]->flags & OP_FLUSH_BUFFER;
-        auto opcode = op_queue[i]->opcode;
-        if (!op_queue[i]->up_wait || up_retry)
+        auto op = op_queue[op_queue_pos];
+        bool rm = false, is_flush = op->flags & OP_FLUSH_BUFFER;
+        auto opcode = op->opcode;
+        if (!op->up_wait || up_retry)
         {
-            op_queue[i]->up_wait = false;
+            op->up_wait = false;
             if (opcode == OSD_OP_READ || opcode == OSD_OP_WRITE)
             {
                 if (is_flush || !has_flushes)
                 {
                     // Regular writes can't proceed before buffer flushes
-                    rm = continue_rw(op_queue[i]);
+                    rm = continue_rw(op);
                 }
             }
             else if (opcode == OSD_OP_SYNC)
@@ -125,7 +126,7 @@ restart:
                 if (!has_writes)
                 {
                     // SYNC can't proceed before previous writes
-                    rm = continue_sync(op_queue[i]);
+                    rm = continue_sync(op);
                 }
             }
         }
@@ -143,20 +144,20 @@ restart:
             // ...so dirty_writes can't contain anything newer than SYNC
             has_flushes = has_writes || !rm;
         }
-        if (!rm)
+        if (rm)
         {
-            op_queue[j++] = op_queue[i];
+            op_queue.erase(op_queue.begin()+op_queue_pos, op_queue.begin()+op_queue_pos+1);
+        }
+        else
+        {
+            op_queue_pos++;
+        }
+        if (continuing_ops == 2)
+        {
+            goto restart;
         }
     }
-    op_queue.resize(j);
-    if (continuing_ops == 2)
-    {
-        goto restart;
-    }
-    else
-    {
-        continuing_ops = 0;
-    }
+    continuing_ops = 0;
 }
 
 static uint32_t is_power_of_two(uint64_t value)
@@ -433,21 +434,30 @@ void cluster_client_t::copy_write(cluster_op_t *op, std::map<object_id, cluster_
     }
 }
 
-void cluster_client_t::flush_buffer(const object_id & oid, cluster_buffer_t & wr)
+void cluster_client_t::flush_buffer(const object_id & oid, cluster_buffer_t *wr)
 {
-    wr.state = CACHE_DIRTY | CACHE_REPEATING;
+    wr->state = CACHE_REPEATING;
     cluster_op_t *op = new cluster_op_t;
     op->flags = OP_FLUSH_BUFFER;
     op->opcode = OSD_OP_WRITE;
     op->inode = oid.inode;
     op->offset = oid.stripe;
-    op->len = wr.len;
-    op->iov.push_back(wr.buf, wr.len);
-    op->callback = [](cluster_op_t* op)
+    op->len = wr->len;
+    op->iov.push_back(wr->buf, wr->len);
+    op->callback = [wr](cluster_op_t* op)
     {
+        if (wr->state == CACHE_REPEATING)
+        {
+            wr->state = CACHE_DIRTY;
+        }
         delete op;
     };
-    op_queue.push_front(op);
+    op_queue.insert(op_queue.begin(), op);
+    if (continuing_ops)
+    {
+        continuing_ops = 2;
+        op_queue_pos++;
+    }
 }
 
 int cluster_client_t::continue_rw(cluster_op_t *op)

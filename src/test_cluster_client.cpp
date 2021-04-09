@@ -47,7 +47,7 @@ void configure_single_pg_pool(cluster_client_t *cli)
     cli->st_cli.on_change_hook(changes);
 }
 
-int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c)
+int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c, std::function<void()> cb = NULL)
 {
     printf("Post write %lx+%lx\n", offset, len);
     int *r = new int;
@@ -59,7 +59,7 @@ int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c)
     op->len = len;
     op->iov.push_back(malloc_or_die(len), len);
     memset(op->iov.buf[0].iov_base, c, len);
-    op->callback = [r](cluster_op_t *op)
+    op->callback = [r, cb](cluster_op_t *op)
     {
         if (*r == -1)
             printf("Error: Not allowed to complete yet\n");
@@ -68,6 +68,8 @@ int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c)
         free(op->iov.buf[0].iov_base);
         printf("Done write %lx+%lx r=%d\n", op->offset, op->len, op->retval);
         delete op;
+        if (cb != NULL)
+            cb();
     };
     cli->execute(op);
     return r;
@@ -309,6 +311,28 @@ void test1()
     can_complete(r1);
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), 0);
     check_completed(r1);
+
+    // Check disconnect inside operation callback (reenterability)
+    // Probably doesn't happen too often, but possible in theory
+    r1 = test_write(cli, 0, 0x1000, 0x60, [cli]()
+    {
+        pretend_disconnected(cli, 1);
+    });
+    r2 = test_write(cli, 0x1000, 0x1000, 0x61);
+    check_op_count(cli, 1, 2);
+    can_complete(r1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), 0);
+    check_completed(r1);
+    check_disconnected(cli, 1);
+    pretend_connected(cli, 1);
+    cli->continue_ops(true);
+    check_op_count(cli, 1, 2);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x1000, 0x1000), 0);
+    check_op_count(cli, 1, 1);
+    can_complete(r2);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x1000, 0x1000), 0);
+    check_completed(r2);
 
     // Free client
     delete cli;

@@ -74,7 +74,7 @@ class cluster_client_t
     int retry_timeout_id = 0;
     uint64_t op_id = 1;
     std::vector<cluster_op_t*> offline_ops;
-    std::deque<cluster_op_t*> op_queue;
+    std::vector<cluster_op_t*> op_queue;
     std::map<object_id, cluster_buffer_t> dirty_buffers;
     std::set<osd_num_t> dirty_osds;
     uint64_t dirty_bytes = 0, dirty_ops = 0;
@@ -83,6 +83,7 @@ class cluster_client_t
     ring_consumer_t consumer;
     std::vector<std::function<void(void)>> on_ready_hooks;
     int continuing_ops = 0;
+    int op_queue_pos = 0;
 
 public:
     etcd_state_client_t st_cli;
@@ -99,7 +100,7 @@ public:
     void continue_ops(bool up_retry = false);
 protected:
     bool affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd);
-    void flush_buffer(const object_id & oid, cluster_buffer_t & wr);
+    void flush_buffer(const object_id & oid, cluster_buffer_t *wr);
     void on_load_config_hook(json11::Json::object & config);
     void on_load_pgs_hook(bool success);
     void on_change_hook(json11::Json::object & changes);
