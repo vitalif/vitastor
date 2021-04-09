@@ -602,6 +602,7 @@ resume_1:
                     .size = sizeof(journal_entry_start),
                     .reserved = 0,
                     .journal_start = new_trim_pos,
+                    .version = JOURNAL_VERSION,
                 };
                 ((journal_entry_start*)flusher->journal_superblock)->crc32 = je_crc32((journal_entry*)flusher->journal_superblock);
                 data->iov = (struct iovec){ flusher->journal_superblock, bs->journal_block_size };

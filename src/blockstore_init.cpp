@@ -231,7 +231,7 @@ resume_1:
         wait_state = 1;
         return 1;
     }
-    if (iszero((uint64_t*)submitted_buf, 3))
+    if (iszero((uint64_t*)submitted_buf, bs->journal.block_size))
     {
         // Journal is empty
         // FIXME handle this wrapping to journal_block_size better (maybe)
@@ -246,6 +246,7 @@ resume_1:
             .size = sizeof(journal_entry_start),
             .reserved = 0,
             .journal_start = bs->journal.block_size,
+            .version = JOURNAL_VERSION,
         };
         ((journal_entry_start*)submitted_buf)->crc32 = je_crc32((journal_entry*)submitted_buf);
         if (bs->readonly)
@@ -296,11 +297,21 @@ resume_1:
         je_start = (journal_entry_start*)submitted_buf;
         if (je_start->magic != JOURNAL_MAGIC ||
             je_start->type != JE_START ||
-            je_start->size != sizeof(journal_entry_start) ||
-            je_crc32((journal_entry*)je_start) != je_start->crc32)
+            je_crc32((journal_entry*)je_start) != je_start->crc32 ||
+            je_start->size != sizeof(journal_entry_start) && je_start->size != JE_START_LEGACY_SIZE)
         {
             // Entry is corrupt
-            throw std::runtime_error("first entry of the journal is corrupt");
+            fprintf(stderr, "First entry of the journal is corrupt\n");
+            exit(1);
+        }
+        if (je_start->size == JE_START_LEGACY_SIZE || je_start->version != JOURNAL_VERSION)
+        {
+            fprintf(
+                stderr, "The code only supports journal version %d, but it is %lu on disk."
+                    " Please use the previous version to flush the journal before upgrading OSD\n",
+                JOURNAL_VERSION, je_start->size == JE_START_LEGACY_SIZE ? 0 : je_start->version
+            );
+            exit(1);
         }
         next_free = journal_pos = bs->journal.used_start = je_start->journal_start;
         if (!bs->journal.inmemory)

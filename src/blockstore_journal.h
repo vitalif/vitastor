@@ -7,6 +7,7 @@
 
 #define MIN_JOURNAL_SIZE 4*1024*1024
 #define JOURNAL_MAGIC 0x4A33
+#define JOURNAL_VERSION 1
 #define JOURNAL_BUFFER_SIZE 4*1024*1024
 
 // We reserve some extra space for future stabilize requests during writes
@@ -37,7 +38,9 @@ struct __attribute__((__packed__)) journal_entry_start
     uint32_t size;
     uint32_t reserved;
     uint64_t journal_start;
+    uint64_t version;
 };
+#define JE_START_LEGACY_SIZE 24
 
 struct __attribute__((__packed__)) journal_entry_small_write
 {
