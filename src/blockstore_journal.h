@@ -143,6 +143,7 @@ struct journal_t
     int fd;
     uint64_t device_size;
     bool inmemory = false;
+    bool flush_journal = false;
     void *buffer = NULL;
 
     uint64_t block_size;

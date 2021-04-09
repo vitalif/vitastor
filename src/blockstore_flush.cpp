@@ -17,8 +17,8 @@ journal_flusher_t::journal_flusher_t(blockstore_impl_t *bs)
     // FIXME: allow to configure flusher_start_threshold and journal_trim_interval
     flusher_start_threshold = bs->journal_block_size / sizeof(journal_entry_stable);
     journal_trim_interval = 512;
-    journal_trim_counter = 0;
-    trim_wanted = 0;
+    journal_trim_counter = bs->journal.flush_journal ? 1 : 0;
+    trim_wanted = bs->journal.flush_journal ? 1 : 0;
     journal_superblock = bs->journal.inmemory ? bs->journal.buffer : memalign_or_die(MEM_ALIGNMENT, bs->journal_block_size);
     co = new journal_flusher_co[max_flusher_count];
     for (int i = 0; i < max_flusher_count; i++)
@@ -625,6 +625,12 @@ resume_1:
                 printf("Journal trimmed to %08lx (next_free=%08lx)\n", bs->journal.used_start, bs->journal.next_free);
 #endif
                 flusher->trimming = false;
+            }
+            if (bs->journal.flush_journal && !flusher->flush_queue.size())
+            {
+                assert(bs->journal.used_start == bs->journal.next_free);
+                printf("Journal flushed\n");
+                exit(0);
             }
         }
         // All done

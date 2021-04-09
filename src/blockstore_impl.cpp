@@ -92,9 +92,22 @@ void blockstore_impl_t::loop()
             {
                 delete journal_init_reader;
                 journal_init_reader = NULL;
-                initialized = 10;
+                if (journal.flush_journal)
+                    initialized = 3;
+                else
+                    initialized = 10;
                 ringloop->wakeup();
             }
+        }
+        if (initialized == 3)
+        {
+            if (readonly)
+            {
+                printf("Can't flush the journal in readonly mode\n");
+                exit(1);
+            }
+            flusher->loop();
+            ringloop->submit();
         }
     }
     else

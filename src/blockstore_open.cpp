@@ -42,6 +42,11 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     {
         disable_flock = true;
     }
+    if (config["flush_journal"] == "true" || config["flush_journal"] == "1" || config["flush_journal"] == "yes")
+    {
+        // Only flush journal and exit
+        journal.flush_journal = true;
+    }
     if (config["immediate_commit"] == "all")
     {
         immediate_commit = IMMEDIATE_ALL;
@@ -87,7 +92,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     {
         max_flusher_count = 256;
     }
-    if (!min_flusher_count)
+    if (!min_flusher_count || journal.flush_journal)
     {
         min_flusher_count = 1;
     }
