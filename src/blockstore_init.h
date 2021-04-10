@@ -7,6 +7,7 @@ class blockstore_init_meta
 {
     blockstore_impl_t *bs;
     int wait_state = 0, wait_count = 0;
+    bool zero_on_init = false;
     void *metadata_buffer = NULL;
     uint64_t metadata_read = 0;
     int prev = 0, prev_done = 0, done_len = 0, submitted = 0;

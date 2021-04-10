@@ -51,7 +51,7 @@ async function run()
     const meta_offset = options.journal_offset + Math.ceil(options.journal_size/options.device_block_size)*options.device_block_size;
     const entries_per_block = Math.floor(options.device_block_size / (24 + 2*options.object_size/options.bitmap_granularity/8));
     const object_count = Math.floor((device_size-meta_offset)/options.object_size);
-    const meta_size = Math.ceil(object_count / entries_per_block) * options.device_block_size;
+    const meta_size = Math.ceil(1 + object_count / entries_per_block) * options.device_block_size;
     const data_offset = meta_offset + meta_size;
     const meta_size_fmt = (meta_size > 1024*1024*1024 ? Math.round(meta_size/1024/1024/1024*100)/100+" GB"
         : Math.round(meta_size/1024/1024*100)/100+" MB");
@@ -65,6 +65,9 @@ async function run()
             );
         }
         process.stdout.write(
+            (options.device_block_size != 4096 ?
+                `    --meta_block_size ${options.device}\n`+
+                `    --journal_block-size ${options.device}\n` : '')+
             `    --data_device ${options.device}\n`+
             `    --journal_offset ${options.journal_offset}\n`+
             `    --meta_offset ${meta_offset}\n`+

@@ -3,6 +3,20 @@
 
 #include "blockstore_impl.h"
 
+#define GET_SQE() \
+    sqe = bs->get_sqe();\
+    if (!sqe)\
+        throw std::runtime_error("io_uring is full during initialization");\
+    data = ((ring_data_t*)sqe->user_data)
+
+static bool iszero(uint64_t *buf, int len)
+{
+    for (int i = 0; i < len; i++)
+        if (buf[i] != 0)
+            return false;
+    return true;
+}
+
 blockstore_init_meta::blockstore_init_meta(blockstore_impl_t *bs)
 {
     this->bs = bs;
@@ -10,7 +24,7 @@ blockstore_init_meta::blockstore_init_meta(blockstore_impl_t *bs)
 
 void blockstore_init_meta::handle_event(ring_data_t *data)
 {
-    if (data->res <= 0)
+    if (data->res < 0)
     {
         throw std::runtime_error(
             std::string("read metadata failed at offset ") + std::to_string(metadata_read) +
@@ -28,6 +42,12 @@ int blockstore_init_meta::loop()
 {
     if (wait_state == 1)
         goto resume_1;
+    else if (wait_state == 2)
+        goto resume_2;
+    else if (wait_state == 3)
+        goto resume_3;
+    else if (wait_state == 4)
+        goto resume_4;
     printf("Reading blockstore metadata\n");
     if (bs->inmemory_meta)
         metadata_buffer = bs->metadata_buffer;
@@ -35,22 +55,98 @@ int blockstore_init_meta::loop()
         metadata_buffer = memalign(MEM_ALIGNMENT, 2*bs->metadata_buf_size);
     if (!metadata_buffer)
         throw std::runtime_error("Failed to allocate metadata read buffer");
+    // Read superblock
+    GET_SQE();
+    data->iov = { metadata_buffer, bs->meta_block_size };
+    data->callback = [this](ring_data_t *data) { handle_event(data); };
+    my_uring_prep_readv(sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset);
+    bs->ringloop->submit();
+    submitted = 1;
+resume_1:
+    if (submitted)
+    {
+        wait_state = 1;
+        return 1;
+    }
+    if (iszero((uint64_t*)metadata_buffer, bs->meta_block_size / sizeof(uint64_t)))
+    {
+        {
+            blockstore_meta_header_t *hdr = (blockstore_meta_header_t *)metadata_buffer;
+            hdr->zero = 0;
+            hdr->magic = BLOCKSTORE_META_MAGIC;
+            hdr->version = BLOCKSTORE_META_VERSION;
+            hdr->meta_block_size = bs->meta_block_size;
+            hdr->data_block_size = bs->block_size;
+            hdr->bitmap_granularity = bs->bitmap_granularity;
+        }
+        if (bs->readonly)
+        {
+            printf("Skipping metadata initialization because blockstore is readonly\n");
+        }
+        else
+        {
+            printf("Initializing metadata area\n");
+            GET_SQE();
+            data->iov = (struct iovec){ metadata_buffer, bs->meta_block_size };
+            data->callback = [this](ring_data_t *data) { handle_event(data); };
+            my_uring_prep_writev(sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset);
+            bs->ringloop->submit();
+            submitted = 1;
+        resume_3:
+            if (submitted > 0)
+            {
+                wait_state = 3;
+                return 1;
+            }
+            zero_on_init = true;
+        }
+    }
+    else
+    {
+        blockstore_meta_header_t *hdr = (blockstore_meta_header_t *)metadata_buffer;
+        if (hdr->zero != 0 ||
+            hdr->magic != BLOCKSTORE_META_MAGIC ||
+            hdr->version != BLOCKSTORE_META_VERSION)
+        {
+            printf(
+                "Metadata is corrupt or old version.\n"
+                " If this is a new OSD please zero out the metadata area before starting it.\n"
+                " If you need to upgrade from 0.5.x please request it via the issue tracker.\n"
+            );
+            exit(1);
+        }
+        if (hdr->meta_block_size != bs->meta_block_size ||
+            hdr->data_block_size != bs->block_size ||
+            hdr->bitmap_granularity != bs->bitmap_granularity)
+        {
+            printf(
+                "Configuration stored in metadata superblock"
+                " (meta_block_size=%u, data_block_size=%u, bitmap_granularity=%u)"
+                " differs from OSD configuration (%lu/%u/%lu).\n",
+                hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity,
+                bs->meta_block_size, bs->block_size, bs->bitmap_granularity
+            );
+            exit(1);
+        }
+    }
+    // Skip superblock
+    bs->meta_offset += bs->meta_block_size;
+    prev_done = 0;
+    done_len = 0;
+    done_pos = 0;
+    metadata_read = 0;
+    // Read the rest of the metadata
     while (1)
     {
-    resume_1:
+    resume_2:
         if (submitted)
         {
-            wait_state = 1;
+            wait_state = 2;
             return 1;
         }
         if (metadata_read < bs->meta_len)
         {
-            sqe = bs->get_sqe();
-            if (!sqe)
-            {
-                throw std::runtime_error("io_uring is full while trying to read metadata");
-            }
-            data = ((ring_data_t*)sqe->user_data);
+            GET_SQE();
             data->iov = {
                 metadata_buffer + (bs->inmemory_meta
                     ? metadata_read
@@ -58,7 +154,14 @@ int blockstore_init_meta::loop()
                 bs->meta_len - metadata_read > bs->metadata_buf_size ? bs->metadata_buf_size : bs->meta_len - metadata_read,
             };
             data->callback = [this](ring_data_t *data) { handle_event(data); };
-            my_uring_prep_readv(sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + metadata_read);
+            if (!zero_on_init)
+                my_uring_prep_readv(sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + metadata_read);
+            else
+            {
+                // Fill metadata with zeroes
+                memset(data->iov.iov_base, 0, data->iov.iov_len);
+                my_uring_prep_writev(sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + metadata_read);
+            }
             bs->ringloop->submit();
             submitted = (prev == 1 ? 2 : 1);
             prev = submitted;
@@ -89,6 +192,21 @@ int blockstore_init_meta::loop()
     {
         free(metadata_buffer);
         metadata_buffer = NULL;
+    }
+    if (zero_on_init && !bs->disable_meta_fsync)
+    {
+        GET_SQE();
+        my_uring_prep_fsync(sqe, bs->meta_fd, IORING_FSYNC_DATASYNC);
+        data->iov = { 0 };
+        data->callback = [this](ring_data_t *data) { handle_event(data); };
+        submitted = 1;
+        bs->ringloop->submit();
+    resume_4:
+        if (submitted > 0)
+        {
+            wait_state = 4;
+            return 1;
+        }
     }
     return 0;
 }
@@ -156,14 +274,6 @@ blockstore_init_journal::blockstore_init_journal(blockstore_impl_t *bs)
     };
 }
 
-bool iszero(uint64_t *buf, int len)
-{
-    for (int i = 0; i < len; i++)
-        if (buf[i] != 0)
-            return false;
-    return true;
-}
-
 void blockstore_init_journal::handle_event(ring_data_t *data1)
 {
     if (data1->res <= 0)
@@ -187,12 +297,6 @@ void blockstore_init_journal::handle_event(ring_data_t *data1)
     }
     submitted_buf = NULL;
 }
-
-#define GET_SQE() \
-    sqe = bs->get_sqe();\
-    if (!sqe)\
-        throw std::runtime_error("io_uring is full while trying to read journal");\
-    data = ((ring_data_t*)sqe->user_data)
 
 int blockstore_init_journal::loop()
 {
@@ -231,7 +335,7 @@ resume_1:
         wait_state = 1;
         return 1;
     }
-    if (iszero((uint64_t*)submitted_buf, bs->journal.block_size))
+    if (iszero((uint64_t*)submitted_buf, bs->journal.block_size / sizeof(uint64_t)))
     {
         // Journal is empty
         // FIXME handle this wrapping to journal_block_size better (maybe)

@@ -257,7 +257,7 @@ void blockstore_impl_t::calc_lengths()
     }
     // required metadata size
     block_count = data_len / block_size;
-    meta_len = ((block_count - 1 + meta_block_size / clean_entry_size) / (meta_block_size / clean_entry_size)) * meta_block_size;
+    meta_len = (1 + (block_count - 1 + meta_block_size / clean_entry_size) / (meta_block_size / clean_entry_size)) * meta_block_size;
     if (meta_area < meta_len)
     {
         throw std::runtime_error("Metadata area is too small, need at least "+std::to_string(meta_len)+" bytes");
