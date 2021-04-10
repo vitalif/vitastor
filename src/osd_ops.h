@@ -35,6 +35,7 @@
 #define MEM_ALIGNMENT               512
 #endif
 #define OSD_RW_MAX                  64*1024*1024
+#define OSD_PROTOCOL_VERSION        1
 
 // common request and reply headers
 struct __attribute__((__packed__)) osd_op_header_t

@@ -349,6 +349,15 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
                 err = true;
                 printf("Connected to OSD %lu instead of OSD %lu, peer state is outdated, disconnecting peer\n", config["osd_num"].uint64_value(), cl->osd_num);
             }
+            else if (config["protocol_version"].uint64_value() != OSD_PROTOCOL_VERSION)
+            {
+                err = true;
+                printf(
+                    "OSD %lu protocol version is %lu, but only version %u is supported.\n"
+                    " If you need to upgrade from 0.5.x please request it via the issue tracker.\n",
+                    cl->osd_num, config["protocol_version"].uint64_value(), OSD_PROTOCOL_VERSION
+                );
+            }
         }
         if (err)
         {

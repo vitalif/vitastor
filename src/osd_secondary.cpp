@@ -145,7 +145,9 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
 void osd_t::exec_show_config(osd_op_t *cur_op)
 {
     // FIXME: Send the real config, not its source
-    std::string cfg_str = json11::Json(config).dump();
+    auto cfg_copy = config;
+    cfg_copy["protocol_version"] = std::to_string(OSD_PROTOCOL_VERSION);
+    std::string cfg_str = json11::Json(cfg_copy).dump();
     cur_op->buf = malloc_or_die(cfg_str.size()+1);
     memcpy(cur_op->buf, cfg_str.c_str(), cfg_str.size()+1);
     cur_op->iov.push_back(cur_op->buf, cfg_str.size()+1);
