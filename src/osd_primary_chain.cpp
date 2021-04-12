@@ -349,9 +349,12 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
     int stripe_count = (pg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_size);
     op_data->chain_read_count = chain_reads.size();
     op_data->chain_reads = (osd_chain_read_t*)calloc_or_die(
-        1, (sizeof(osd_chain_read_t) + sizeof(osd_rmw_stripe_t)*stripe_count) * chain_reads.size()
+        1, sizeof(osd_chain_read_t) * chain_reads.size()
+        + sizeof(osd_rmw_stripe_t) * stripe_count * op_data->chain_size
     );
-    osd_rmw_stripe_t *chain_stripes = (osd_rmw_stripe_t*)(((void*)op_data->chain_reads) + sizeof(osd_chain_read_t) * op_data->chain_read_count);
+    osd_rmw_stripe_t *chain_stripes = (osd_rmw_stripe_t*)(
+        ((void*)op_data->chain_reads) + sizeof(osd_chain_read_t) * op_data->chain_read_count
+    );
     // Now process each subrequest as a separate read, including reconstruction if needed
     // Prepare reads
     int n_subops = 0;
@@ -361,7 +364,7 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
         op_data->chain_reads[cri] = chain_reads[cri];
         object_id cur_oid = { .inode = chain_reads[cri].inode, .stripe = op_data->oid.stripe };
         // FIXME: maybe introduce split_read_stripes to shorten these lines and to remove read_start=req_start
-        osd_rmw_stripe_t *stripes = chain_stripes + cri*stripe_count;
+        osd_rmw_stripe_t *stripes = chain_stripes + chain_reads[cri].chain_pos*stripe_count;
         split_stripes(pg.pg_data_size, bs_block_size, chain_reads[cri].offset, chain_reads[cri].len, stripes);
         if (op_data->scheme == POOL_SCHEME_REPLICATED && !stripes[0].req_end)
         {
@@ -406,7 +409,7 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
     void *cur_buf = cur_op->buf;
     for (int cri = 0; cri < chain_reads.size(); cri++)
     {
-        osd_rmw_stripe_t *stripes = chain_stripes + cri*stripe_count;
+        osd_rmw_stripe_t *stripes = chain_stripes + chain_reads[cri].chain_pos*stripe_count;
         for (int role = 0; role < stripe_count; role++)
         {
             if (stripes[role].read_end > 0)
@@ -429,7 +432,7 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
     int cur_subops = 0;
     for (int cri = 0; cri < chain_reads.size(); cri++)
     {
-        osd_rmw_stripe_t *stripes = chain_stripes + cri*stripe_count;
+        osd_rmw_stripe_t *stripes = chain_stripes + chain_reads[cri].chain_pos*stripe_count;
         if (op_data->scheme == POOL_SCHEME_REPLICATED && !stripes[0].req_end)
         {
             continue;
@@ -460,7 +463,9 @@ void osd_t::send_chained_read_results(pg_t & pg, osd_op_t *cur_op)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     int stripe_count = (pg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_size);
-    osd_rmw_stripe_t *chain_stripes = (osd_rmw_stripe_t*)(((void*)op_data->chain_reads) + sizeof(osd_chain_read_t) * op_data->chain_read_count);
+    osd_rmw_stripe_t *chain_stripes = (osd_rmw_stripe_t*)(
+        ((void*)op_data->chain_reads) + sizeof(osd_chain_read_t) * op_data->chain_read_count
+    );
     // Reconstruct parts if needed
     if (op_data->degraded)
     {
@@ -468,7 +473,7 @@ void osd_t::send_chained_read_results(pg_t & pg, osd_op_t *cur_op)
         for (int cri = 0; cri < op_data->chain_read_count; cri++)
         {
             // Reconstruct missing stripes
-            osd_rmw_stripe_t *stripes = chain_stripes + cri*stripe_count;
+            osd_rmw_stripe_t *stripes = chain_stripes + op_data->chain_reads[cri].chain_pos*stripe_count;
             if (op_data->scheme == POOL_SCHEME_XOR)
             {
                 reconstruct_stripes_xor(stripes, pg.pg_size, clean_entry_bitmap_size);

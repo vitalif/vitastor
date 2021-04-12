@@ -23,8 +23,10 @@ trap 'kill -9 $(jobs -p)' EXIT
 ETCD=${ETCD:-etcd}
 ETCD_PORT=${ETCD_PORT:-12379}
 
-rm -rf ./testdata
-mkdir -p ./testdata
+if [ "$KEEP_DATA" = "" ]; then
+    rm -rf ./testdata
+    mkdir -p ./testdata
+fi
 
 $ETCD -name etcd_test --data-dir ./testdata/etcd \
     --advertise-client-urls http://127.0.0.1:$ETCD_PORT --listen-client-urls http://127.0.0.1:$ETCD_PORT \
