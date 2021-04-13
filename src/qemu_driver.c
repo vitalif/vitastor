@@ -206,7 +206,6 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
         }
         else
         {
-            assert(qemu_get_current_aio_context() == qemu_get_aio_context());
             qemu_coroutine_enter(qemu_coroutine_create((void(*)(void*))vitastor_co_get_metadata, &task));
         }
         BDRV_POLL_WHILE(bs, !task.complete);
