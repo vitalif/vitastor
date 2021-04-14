@@ -39,6 +39,12 @@ if ! cmp build/src/block-vitastor.so /usr/lib/x86_64-linux-gnu/qemu/block-vitast
     sudo ln -s "$(realpath .)/build/src/block-vitastor.so" /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so
 fi
 
+# A lot of parallel syncs was crashing the primary OSD at some point
+
+LD_PRELOAD=libasan.so.5 \
+    fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4k -direct=1 -numjobs=64 -iodepth=1 -fsync=1 \
+        -rw=randwrite -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -number_ios=100
+
 LD_PRELOAD=libasan.so.5 \
     fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -cluster_log_level=10
 

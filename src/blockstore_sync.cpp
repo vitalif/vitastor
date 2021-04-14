@@ -146,6 +146,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
             my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
             data->iov = { 0 };
             data->callback = [this, op](ring_data_t *data) { handle_sync_event(data, op); };
+            PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
             PRIV(op)->pending_ops = 1;
             PRIV(op)->op_state = SYNC_JOURNAL_SYNC_SENT;
             return 1;
