@@ -3,6 +3,7 @@
 export KEEP_DATA=1
 . `dirname $0`/common.sh
 
+etcdctl --endpoints=http://127.0.0.1:12379/v3 del --prefix /vitastor/mon/master
 etcdctl --endpoints=http://127.0.0.1:12379/v3 del --prefix /vitastor/pg/state
 etcdctl --endpoints=http://127.0.0.1:12379/v3 del --prefix /vitastor/osd/state
 

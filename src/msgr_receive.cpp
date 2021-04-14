@@ -332,6 +332,7 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
         cl->read_remaining = op->reply.hdr.retval;
+        free(op->buf);
         op->buf = memalign_or_die(MEM_ALIGNMENT, cl->read_remaining);
         cl->recv_list.push_back(op->buf, cl->read_remaining);
     }
