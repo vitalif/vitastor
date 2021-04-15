@@ -18,20 +18,34 @@
 #include "timerfd_manager.h"
 #include <ringloop.h>
 
+#ifdef WITH_RDMA
+#include "msgr_rdma.h"
+#endif
+
 #define CL_READ_HDR 1
 #define CL_READ_DATA 2
 #define CL_READ_REPLY_DATA 3
 #define CL_WRITE_READY 1
-#define CL_WRITE_REPLY 2
 
 #define PEER_CONNECTING 1
 #define PEER_CONNECTED 2
-#define PEER_STOPPED 3
+#define PEER_RDMA_CONNECTING 3
+#define PEER_RDMA 4
+#define PEER_STOPPED 5
 
 #define DEFAULT_PEER_CONNECT_INTERVAL 5
 #define DEFAULT_PEER_CONNECT_TIMEOUT 5
 #define DEFAULT_OSD_PING_TIMEOUT 5
 #define DEFAULT_BITMAP_GRANULARITY 4096
+
+#define MSGR_SENDP_HDR 1
+#define MSGR_SENDP_FREE 2
+
+struct msgr_sendp_t
+{
+    osd_op_t *op;
+    int flags;
+};
 
 struct osd_client_t
 {
@@ -47,6 +61,10 @@ struct osd_client_t
     osd_num_t osd_num = 0;
 
     void *in_buf = NULL;
+
+#ifdef WITH_RDMA
+    msgr_rdma_connection_t *rdma_conn = NULL;
+#endif
 
     // Read state
     int read_ready = 0;
@@ -70,7 +88,7 @@ struct osd_client_t
     msghdr write_msg = { 0 };
     int write_state = 0;
     std::vector<iovec> send_list, next_send_list;
-    std::vector<osd_op_t*> outbox, next_outbox;
+    std::vector<msgr_sendp_t> outbox, next_outbox;
 
     ~osd_client_t()
     {
@@ -110,8 +128,17 @@ protected:
     int peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
     int osd_idle_timeout = DEFAULT_OSD_PING_TIMEOUT;
     int osd_ping_timeout = DEFAULT_OSD_PING_TIMEOUT;
+    uint32_t bs_bitmap_granularity = 0;
     int log_level = 0;
     bool use_sync_send_recv = false;
+
+#ifdef WITH_RDMA
+    bool use_rdma = true;
+    std::string rdma_device;
+    uint64_t rdma_port_num = 1, rdma_gid_index = 0, rdma_mtu = 0;
+    msgr_rdma_context_t *rdma_context = NULL;
+    int max_rdma_sge = 128, max_rdma_send = 32, max_rdma_recv = 32;
+#endif
 
     std::vector<int> read_ready_clients;
     std::vector<int> write_ready_clients;
@@ -141,6 +168,11 @@ public:
     void accept_connections(int listen_fd);
     ~osd_messenger_t();
 
+#ifdef WITH_RDMA
+    bool is_rdma_enabled();
+    bool connect_rdma(int peer_fd, std::string rdma_address);
+#endif
+
 protected:
     void try_connect_peer(uint64_t osd_num);
     void try_connect_peer_addr(osd_num_t peer_osd, const char *peer_host, int peer_port);
@@ -160,4 +192,10 @@ protected:
     void handle_op_hdr(osd_client_t *cl);
     bool handle_reply_hdr(osd_client_t *cl);
     void handle_reply_ready(osd_op_t *op);
+
+#ifdef WITH_RDMA
+    bool try_send_rdma(osd_client_t *cl);
+    bool try_recv_rdma(osd_client_t *cl);
+    void handle_rdma_events();
+#endif
 };

@@ -12,6 +12,29 @@
 
 void osd_messenger_t::init()
 {
+#ifdef WITH_RDMA
+    if (use_rdma)
+    {
+        rdma_context = msgr_rdma_context_t::create(
+            rdma_device != "" ? rdma_device.c_str() : NULL,
+            rdma_port_num, rdma_gid_index, rdma_mtu
+        );
+        if (!rdma_context)
+        {
+            printf("[OSD %lu] Couldn't initialize RDMA, proceeding with TCP only\n", osd_num);
+        }
+        else
+        {
+            printf("[OSD %lu] RDMA initialized successfully\n", osd_num);
+            fcntl(rdma_context->channel->fd, F_SETFL, fcntl(rdma_context->channel->fd, F_GETFL, 0) | O_NONBLOCK);
+            tfd->set_fd_handler(rdma_context->channel->fd, false, [this](int notify_fd, int epoll_events)
+            {
+                handle_rdma_events();
+            });
+            handle_rdma_events();
+        }
+    }
+#endif
     keepalive_timer_id = tfd->set_timer(1000, true, [this](int)
     {
         std::vector<int> to_stop;
@@ -19,7 +42,7 @@ void osd_messenger_t::init()
         for (auto cl_it = clients.begin(); cl_it != clients.end(); cl_it++)
         {
             auto cl = cl_it->second;
-            if (!cl->osd_num || cl->peer_state != PEER_CONNECTED)
+            if (!cl->osd_num || cl->peer_state != PEER_CONNECTED && cl->peer_state != PEER_RDMA)
             {
                 // Do not run keepalive on regular clients
                 continue;
@@ -94,10 +117,29 @@ osd_messenger_t::~osd_messenger_t()
     {
         stop_client(clients.begin()->first, true);
     }
+#ifdef WITH_RDMA
+    if (rdma_context)
+    {
+        delete rdma_context;
+    }
+#endif
 }
 
 void osd_messenger_t::parse_config(const json11::Json & config)
 {
+#ifdef WITH_RDMA
+    if (!config["use_rdma"].is_null())
+        this->use_rdma = config["use_rdma"].bool_value() || config["use_rdma"].uint64_value() != 0;
+    this->rdma_device = config["rdma_device"].string_value();
+    this->rdma_port_num = (uint8_t)config["rdma_port_num"].uint64_value();
+    if (!this->rdma_port_num)
+        this->rdma_port_num = 1;
+    this->rdma_gid_index = (uint8_t)config["rdma_gid_index"].uint64_value();
+    this->rdma_mtu = (uint32_t)config["rdma_mtu"].uint64_value();
+#endif
+    this->bs_bitmap_granularity = strtoull(config["bitmap_granularity"].string_value().c_str(), NULL, 10);
+    if (!this->bs_bitmap_granularity)
+        this->bs_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
     this->use_sync_send_recv = config["use_sync_send_recv"].bool_value() ||
         config["use_sync_send_recv"].uint64_value();
     this->peer_connect_interval = config["peer_connect_interval"].uint64_value();
@@ -314,6 +356,9 @@ void osd_messenger_t::on_connect_peer(osd_num_t peer_osd, int peer_fd)
 
 void osd_messenger_t::check_peer_config(osd_client_t *cl)
 {
+#ifdef WITH_RDMA
+    msgr_rdma_connection_t *rdma_conn = NULL;
+#endif
     osd_op_t *op = new osd_op_t();
     op->op_type = OSD_OP_OUT;
     op->peer_fd = cl->peer_fd;
@@ -326,7 +371,28 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
             },
         },
     };
-    op->callback = [this, cl](osd_op_t *op)
+#ifdef WITH_RDMA
+    if (rdma_context)
+    {
+        cl->rdma_conn = msgr_rdma_connection_t::create(rdma_context, max_rdma_send, max_rdma_recv, max_rdma_sge);
+        if (cl->rdma_conn)
+        {
+            json11::Json payload = json11::Json::object {
+                { "connect_rdma", cl->rdma_conn->addr.to_string() },
+            };
+            std::string payload_str = payload.dump();
+            op->req.show_conf.json_len = payload_str.size();
+            op->buf = malloc_or_die(payload_str.size());
+            op->iov.push_back(op->buf, payload_str.size());
+            memcpy(op->buf, payload_str.c_str(), payload_str.size());
+        }
+    }
+#endif
+    op->callback = [this, cl
+#ifdef WITH_RDMA
+    , rdma_conn
+#endif
+    ](osd_op_t *op)
     {
         std::string json_err;
         json11::Json config;
@@ -361,12 +427,42 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
         }
         if (err)
         {
-            osd_num_t osd_num = cl->osd_num;
+            osd_num_t peer_osd = cl->osd_num;
             stop_client(op->peer_fd);
-            on_connect_peer(osd_num, -1);
+            on_connect_peer(peer_osd, -1);
             delete op;
             return;
         }
+#ifdef WITH_RDMA
+        if (config["rdma_address"].is_string())
+        {
+            msgr_rdma_address_t addr;
+            if (!msgr_rdma_address_t::from_string(config["rdma_address"].string_value().c_str(), &addr) ||
+                cl->rdma_conn->connect(&addr) != 0)
+            {
+                printf(
+                    "Failed to connect to OSD %lu (address %s) using RDMA\n",
+                    cl->osd_num, config["rdma_address"].string_value().c_str()
+                );
+                delete cl->rdma_conn;
+                cl->rdma_conn = NULL;
+                // FIXME: Keep TCP connection in this case
+                osd_num_t peer_osd = cl->osd_num;
+                stop_client(cl->peer_fd);
+                on_connect_peer(peer_osd, -1);
+                delete op;
+                return;
+            }
+            else
+            {
+                printf("Connected to OSD %lu using RDMA\n", cl->osd_num);
+                cl->peer_state = PEER_RDMA;
+                tfd->set_fd_handler(cl->peer_fd, false, NULL);
+                // Add the initial receive request
+                try_recv_rdma(cl);
+            }
+        }
+#endif
         osd_peer_fds[cl->osd_num] = cl->peer_fd;
         on_connect_peer(cl->osd_num, cl->peer_fd);
         delete op;
@@ -407,4 +503,9 @@ void osd_messenger_t::accept_connections(int listen_fd)
     {
         throw std::runtime_error(std::string("accept: ") + strerror(errno));
     }
+}
+
+bool osd_messenger_t::is_rdma_enabled()
+{
+    return rdma_context != NULL;
 }

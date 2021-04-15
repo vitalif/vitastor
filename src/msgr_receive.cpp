@@ -254,6 +254,16 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
         }
         cl->read_remaining = cur_op->req.rw.len;
     }
+    else if (cur_op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)
+    {
+        if (cur_op->req.show_conf.json_len > 0)
+        {
+            cur_op->buf = malloc_or_die(cur_op->req.show_conf.json_len+1);
+            ((uint8_t*)cur_op->buf)[cur_op->req.show_conf.json_len] = 0;
+            cl->recv_list.push_back(cur_op->buf, cur_op->req.show_conf.json_len);
+        }
+        cl->read_remaining = cur_op->req.show_conf.json_len;
+    }
     if (cl->read_remaining > 0)
     {
         // Read data
@@ -338,11 +348,11 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
     }
     else if (op->reply.hdr.opcode == OSD_OP_SHOW_CONFIG && op->reply.hdr.retval > 0)
     {
-        assert(!op->iov.count);
         delete cl->read_op;
         cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
         cl->read_remaining = op->reply.hdr.retval;
+        free(op->buf);
         op->buf = malloc_or_die(op->reply.hdr.retval);
         cl->recv_list.push_back(op->buf, op->reply.hdr.retval);
     }

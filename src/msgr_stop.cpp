@@ -122,6 +122,12 @@ void osd_messenger_t::stop_client(int peer_fd, bool force)
     // And close the FD only when everything is done
     // ...because peer_fd number can get reused after close()
     close(peer_fd);
+#ifdef WITH_RDMA
+    if (cl->rdma_conn)
+    {
+        delete cl->rdma_conn;
+    }
+#endif
 #endif
     // Find the item again because it can be invalidated at this point
     it = clients.find(peer_fd);

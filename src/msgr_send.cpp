@@ -46,7 +46,7 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
         to_send_list.push_back((iovec){ .iov_base = cur_op->req.buf, .iov_len = OSD_PACKET_SIZE });
         cl->sent_ops[cur_op->req.hdr.id] = cur_op;
     }
-    to_outbox.push_back(NULL);
+    to_outbox.push_back((msgr_sendp_t){ .op = cur_op, .flags = MSGR_SENDP_HDR });
     // Bitmap
     if (cur_op->op_type == OSD_OP_IN &&
         cur_op->req.hdr.opcode == OSD_OP_SEC_READ &&
@@ -56,7 +56,7 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
             .iov_base = cur_op->bitmap,
             .iov_len = cur_op->reply.sec_rw.attr_len,
         });
-        to_outbox.push_back(NULL);
+        to_outbox.push_back((msgr_sendp_t){ .op = cur_op, .flags = 0 });
     }
     else if (cur_op->op_type == OSD_OP_OUT &&
         (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE || cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE) &&
@@ -66,7 +66,7 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
             .iov_base = cur_op->bitmap,
             .iov_len = cur_op->req.sec_rw.attr_len,
         });
-        to_outbox.push_back(NULL);
+        to_outbox.push_back((msgr_sendp_t){ .op = cur_op, .flags = 0 });
     }
     // Operation data
     if ((cur_op->op_type == OSD_OP_IN
@@ -78,13 +78,14 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
-        cur_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)) && cur_op->iov.count > 0)
+        cur_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK ||
+        cur_op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)) && cur_op->iov.count > 0)
     {
         for (int i = 0; i < cur_op->iov.count; i++)
         {
             assert(cur_op->iov.buf[i].iov_base);
             to_send_list.push_back(cur_op->iov.buf[i]);
-            to_outbox.push_back(NULL);
+            to_outbox.push_back((msgr_sendp_t){ .op = cur_op, .flags = 0 });
         }
     }
     if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
@@ -93,13 +94,19 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
             to_send_list.push_back((iovec){ .iov_base = cur_op->buf, .iov_len = (size_t)cur_op->reply.hdr.retval });
         else if (cur_op->op_type == OSD_OP_OUT && cur_op->req.sec_read_bmp.len > 0)
             to_send_list.push_back((iovec){ .iov_base = cur_op->buf, .iov_len = (size_t)cur_op->req.sec_read_bmp.len });
-        to_outbox.push_back(NULL);
+        to_outbox.push_back((msgr_sendp_t){ .op = cur_op, .flags = 0 });
     }
     if (cur_op->op_type == OSD_OP_IN)
     {
-        // To free it later
-        to_outbox[to_outbox.size()-1] = cur_op;
+        to_outbox[to_outbox.size()-1].flags |= MSGR_SENDP_FREE;
     }
+#ifdef WITH_RDMA
+    if (cl->peer_state == PEER_RDMA)
+    {
+        try_send_rdma(cl);
+        return;
+    }
+#endif
     if (!ringloop)
     {
         // FIXME: It's worse because it doesn't allow batching
@@ -232,10 +239,10 @@ void osd_messenger_t::handle_send(int result, osd_client_t *cl)
             iovec & iov = cl->send_list[done];
             if (iov.iov_len <= result)
             {
-                if (cl->outbox[done])
+                if (cl->outbox[done].flags & MSGR_SENDP_FREE)
                 {
                     // Reply fully sent
-                    delete cl->outbox[done];
+                    delete cl->outbox[done].op;
                 }
                 result -= iov.iov_len;
                 done++;
@@ -260,6 +267,18 @@ void osd_messenger_t::handle_send(int result, osd_client_t *cl)
             cl->next_outbox.clear();
         }
         cl->write_state = cl->outbox.size() > 0 ? CL_WRITE_READY : 0;
+#ifdef WITH_RDMA
+        if (cl->rdma_conn && !cl->outbox.size() && cl->peer_state == PEER_RDMA_CONNECTING)
+        {
+            // FIXME: Do something better than just forgetting the FD
+            // FIXME: Ignore pings during RDMA state transition
+            printf("Successfully connected with client %d using RDMA\n", cl->peer_fd);
+            cl->peer_state = PEER_RDMA;
+            tfd->set_fd_handler(cl->peer_fd, false, NULL);
+            // Add the initial receive request
+            try_recv_rdma(cl);
+        }
+#endif
     }
     if (cl->write_state != 0)
     {

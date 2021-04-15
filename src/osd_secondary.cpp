@@ -144,6 +144,10 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
 
 void osd_t::exec_show_config(osd_op_t *cur_op)
 {
+    std::string json_err;
+    json11::Json req_json = cur_op->req.show_conf.json_len > 0
+        ? json11::Json::parse(std::string((char *)cur_op->buf), json_err)
+        : json11::Json();
     // Expose sensitive configuration values so peers can check them
     json11::Json::object wire_config = json11::Json::object {
         { "osd_num", osd_num },
@@ -157,6 +161,25 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
             (immediate_commit == IMMEDIATE_SMALL ? "small" : "none")) },
         { "lease_timeout", etcd_report_interval+(MAX_ETCD_ATTEMPTS*(2*ETCD_QUICK_TIMEOUT)+999)/1000 },
     };
+#ifdef WITH_RDMA
+    if (msgr.is_rdma_enabled())
+    {
+        // Indicate that RDMA is enabled
+        wire_config["rdma_enabled"] = true;
+        if (req_json["connect_rdma"].is_string())
+        {
+            // Peer is trying to connect using RDMA, try to satisfy him
+            bool ok = msgr.connect_rdma(cur_op->peer_fd, req_json["connect_rdma"].string_value());
+            if (ok)
+            {
+                wire_config["rdma_connected"] = true;
+                wire_config["rdma_address"] = msgr.clients.at(cur_op->peer_fd)->rdma_conn->addr.to_string();
+            }
+        }
+    }
+#endif
+    if (cur_op->buf)
+        free(cur_op->buf);
     std::string cfg_str = json11::Json(wire_config).dump();
     cur_op->buf = malloc_or_die(cfg_str.size()+1);
     memcpy(cur_op->buf, cfg_str.c_str(), cfg_str.size()+1);

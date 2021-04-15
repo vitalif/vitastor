@@ -148,6 +148,8 @@ struct __attribute__((__packed__)) osd_reply_sec_read_bmp_t
 struct __attribute__((__packed__)) osd_op_show_config_t
 {
     osd_op_header_t header;
+    // JSON request length
+    uint64_t json_len;
 };
 
 struct __attribute__((__packed__)) osd_reply_show_config_t

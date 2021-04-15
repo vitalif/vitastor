@@ -37,11 +37,16 @@ string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_C_FLAGS_RELWITHDEBINFO "${CM
 find_package(PkgConfig)
 pkg_check_modules(LIBURING REQUIRED liburing)
 pkg_check_modules(GLIB REQUIRED glib-2.0)
+pkg_check_modules(IBVERBS libibverbs)
+if (IBVERBS_LIBRARIES)
+	add_definitions(-DWITH_RDMA)
+endif (IBVERBS_LIBRARIES)
 
 include_directories(
 	../
 	/usr/include/jerasure
 	${LIBURING_INCLUDE_DIRS}
+	${IBVERBS_INCLUDE_DIRS}
 )
 
 # libvitastor_blk.so
@@ -72,6 +77,9 @@ add_library(vitastor_common STATIC
 	messenger.cpp msgr_stop.cpp msgr_op.cpp msgr_send.cpp msgr_receive.cpp ringloop.cpp ../json11/json11.cpp
 	http_client.cpp osd_ops.cpp pg_states.cpp timerfd_manager.cpp base64.cpp
 )
+if (IBVERBS_LIBRARIES)
+	target_sources(vitastor_common PRIVATE msgr_rdma.cpp)
+endif (IBVERBS_LIBRARIES)
 target_compile_options(vitastor_common PUBLIC -fPIC)
 
 # vitastor-osd
@@ -84,6 +92,7 @@ target_link_libraries(vitastor-osd
 	vitastor_common
 	vitastor_blk
 	Jerasure
+	${IBVERBS_LIBRARIES}
 )
 
 # libfio_vitastor_sec.so
@@ -103,6 +112,7 @@ target_link_libraries(vitastor_client
 	vitastor_common
 	tcmalloc_minimal
 	${LIBURING_LIBRARIES}
+	${IBVERBS_LIBRARIES}
 )
 set_target_properties(vitastor_client PROPERTIES VERSION ${VERSION} SOVERSION 0)
 
@@ -178,6 +188,7 @@ add_executable(stub_uring_osd
 target_link_libraries(stub_uring_osd
 	vitastor_common
 	${LIBURING_LIBRARIES}
+	${IBVERBS_LIBRARIES}
 	tcmalloc_minimal
 )
 

@@ -53,6 +53,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         msgr.stop_client(op->peer_fd);
         delete op;
     };
+    msgr.parse_config(this->config);
     msgr.init();
 
     st_cli.tfd = tfd;

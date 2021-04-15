@@ -53,6 +53,10 @@ struct sec_options
     uint64_t inode = 0;
     int cluster_log = 0;
     int trace = 0;
+    int use_rdma = 0;
+    int rdma_port_num = 0;
+    int rdma_gid_index = 0;
+    int rdma_mtu = 0;
 };
 
 static struct fio_option options[] = {
@@ -122,6 +126,16 @@ static struct fio_option options[] = {
         .group  = FIO_OPT_G_FILENAME,
     },
     {
+        .name   = "use_rdma",
+        .lname  = "OSD trace",
+        .type   = FIO_OPT_BOOL,
+        .off1   = offsetof(struct sec_options, use_rdma),
+        .help   = "Use RDMA",
+        .def    = "0",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
         .name = NULL,
     },
 };
@@ -156,6 +170,7 @@ static int sec_setup(struct thread_data *td)
         { "etcd_address", std::string(o->etcd_host) },
         { "etcd_prefix", std::string(o->etcd_prefix ? o->etcd_prefix : "/vitastor") },
         { "log_level", o->cluster_log },
+        { "use_rdma", o->use_rdma },
     };
 
     if (!o->image)
