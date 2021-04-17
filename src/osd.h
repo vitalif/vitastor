@@ -104,7 +104,7 @@ class osd_t
     int bind_port, listen_backlog;
     // FIXME: Implement client queue depth limit
     int client_queue_depth = 128;
-    bool allow_test_ops = true;
+    bool allow_test_ops = false;
     int print_stats_interval = 3;
     int slow_log_interval = 10;
     int immediate_commit = IMMEDIATE_NONE;

@@ -144,10 +144,20 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
 
 void osd_t::exec_show_config(osd_op_t *cur_op)
 {
-    // FIXME: Send the real config, not its source
-    auto cfg_copy = config;
-    cfg_copy["protocol_version"] = std::to_string(OSD_PROTOCOL_VERSION);
-    std::string cfg_str = json11::Json(cfg_copy).dump();
+    // Expose sensitive configuration values so peers can check them
+    json11::Json::object wire_config = json11::Json::object {
+        { "osd_num", osd_num },
+        { "protocol_version", OSD_PROTOCOL_VERSION },
+        { "block_size", (uint64_t)bs_block_size },
+        { "bitmap_granularity", (uint64_t)bs_bitmap_granularity },
+        { "primary_enabled", run_primary },
+        { "blockstore_enabled", bs ? true : false },
+        { "readonly", readonly },
+        { "immediate_commit", (immediate_commit == IMMEDIATE_ALL ? "all" :
+            (immediate_commit == IMMEDIATE_SMALL ? "small" : "none")) },
+        { "lease_timeout", etcd_report_interval+(MAX_ETCD_ATTEMPTS*(2*ETCD_QUICK_TIMEOUT)+999)/1000 },
+    };
+    std::string cfg_str = json11::Json(wire_config).dump();
     cur_op->buf = malloc_or_die(cfg_str.size()+1);
     memcpy(cur_op->buf, cfg_str.c_str(), cfg_str.size()+1);
     cur_op->iov.push_back(cur_op->buf, cfg_str.size()+1);
