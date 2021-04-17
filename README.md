@@ -379,24 +379,86 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
   For jerasure pools the configuration should look like the following: `2:{"name":"ecpool","scheme":"jerasure","pg_size":4,"parity_chunks":2,"pg_minsize":2,"pg_count":256,"failure_domain":"host"}`.
 - At this point, one of the monitors will configure PGs and OSDs will start them.
 - You can check PG states with `etcdctl --endpoints=... get --prefix /vitastor/pg/state`. All PGs should become 'active'.
-- Run tests with (for example): `fio -thread -ioengine=libfio_vitastor.so -name=test -bs=4M -direct=1 -iodepth=16 -rw=write -etcd=10.115.0.10:2379/v3 -pool=1 -inode=1 -size=400G`.
-- Upload VM disk image with qemu-img (for example):
-  ```
-  qemu-img convert -f qcow2 debian10.qcow2 -p -O raw 'vitastor:etcd_host=10.115.0.10\:2379/v3:pool=1:inode=1:size=2147483648'
-  ```
-  Note that the command requires to be run with `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so qemu-img ...`
-  if you use unmodified QEMU.
-- Run QEMU with (for example):
-  ```
-  qemu-system-x86_64 -enable-kvm -m 1024
-    -drive 'file=vitastor:etcd_host=10.115.0.10\:2379/v3:pool=1:inode=1:size=2147483648',format=raw,if=none,id=drive-virtio-disk0,cache=none
-    -device virtio-blk-pci,scsi=off,bus=pci.0,addr=0x5,drive=drive-virtio-disk0,id=virtio-disk0,bootindex=1,write-cache=off,physical_block_size=4096,logical_block_size=512
-    -vnc 0.0.0.0:0
-  ```
-- Remove inode with (for example):
-  ```
-  vitastor-rm --etcd_address 10.115.0.10:2379/v3 --pool 1 --inode 1 --parallel_osds 16 --iodepth 32
-  ```
+
+### Name an image
+
+```
+etcdctl --endpoints=<etcd> put /vitastor/config/inode/<pool>/<inode> '{"name":"<name>","size":<size>[,"parent_id":<parent_inode_number>][,"readonly":true]}'
+```
+
+For example:
+
+```
+etcdctl --endpoints=http://10.115.0.10:2379/v3 put /vitastor/config/inode/1/1 '{"name":"testimg","size":2147483648}'
+```
+
+If you specify parent_id the image becomes a CoW clone. I.e. all writes go to the new inode and reads first check it
+and then upper layers. You can then make parent readonly by updating its entry with `"readonly":true` for safety and
+basically treat it as a snapshot.
+
+So to create a snapshot you basically rename the previous upper layer (for example from testimg to testimg@0), make it readonly
+and create a new top layer with the original name (testimg) and the previous one as a parent.
+
+### Run fio benchmarks
+
+fio command example:
+
+```
+fio -thread -ioengine=libfio_vitastor.so -name=test -bs=4M -direct=1 -iodepth=16 -rw=write -etcd=10.115.0.10:2379/v3 -image=testimg
+```
+
+If you don't want to access your image by name, you can specify pool number, inode number and size
+(`-pool=1 -inode=1 -size=400G`) instead of the image name (`-image=testimg`).
+
+### Upload VM image
+
+Use qemu-img and `vitastor:etcd_host=<HOST>:image=<IMAGE>` disk filename. For example:
+
+```
+qemu-img convert -f qcow2 debian10.qcow2 -p -O raw 'vitastor:etcd_host=10.115.0.10\:2379/v3:image=testimg'
+```
+
+Note that the command requires to be run with `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so qemu-img ...`
+if you use unmodified QEMU.
+
+You can also specify `:pool=<POOL>:inode=<INODE>:size=<SIZE>` instead of `:image=<IMAGE>`
+if you don't want to use inode metadata.
+
+### Start a VM
+
+Run QEMU with `-drive file=vitastor:etcd_host=<HOST>:image=<IMAGE>` and use 4 KB physical block size.
+
+For example:
+
+```
+qemu-system-x86_64 -enable-kvm -m 1024
+  -drive 'file=vitastor:etcd_host=10.115.0.10\:2379/v3:image=testimg',format=raw,if=none,id=drive-virtio-disk0,cache=none
+  -device virtio-blk-pci,scsi=off,bus=pci.0,addr=0x5,drive=drive-virtio-disk0,id=virtio-disk0,bootindex=1,write-cache=off,physical_block_size=4096,logical_block_size=512
+  -vnc 0.0.0.0:0
+```
+
+You can also specify `:pool=<POOL>:inode=<INODE>:size=<SIZE>` instead of `:image=<IMAGE>`,
+just like in qemu-img.
+
+### Remove inode
+
+Use vitastor-rm. For example:
+
+```
+vitastor-rm --etcd_address 10.115.0.10:2379/v3 --pool 1 --inode 1 --parallel_osds 16 --iodepth 32
+```
+
+### NBD
+
+To create a local block device for a Vitastor image, use NBD. For example:
+
+```
+vitastor-nbd map --etcd_address 10.115.0.10:2379/v3 --image testimg
+```
+
+It will output the device name, like /dev/nbd0 which you can then format and mount as a normal block device.
+
+Again, you can use `--pool <POOL> --inode <INODE> --size <SIZE>` insteaf of `--image <IMAGE>` if you want.
 
 ## Known Problems
 
