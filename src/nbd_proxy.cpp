@@ -26,7 +26,10 @@ const char *exe_name = NULL;
 class nbd_proxy
 {
 protected:
+    std::string image_name;
     uint64_t inode = 0;
+    uint64_t device_size = 0;
+    inode_watch_t *watch = NULL;
 
     ring_loop_t *ringloop = NULL;
     epoll_manager_t *epmgr = NULL;
@@ -111,9 +114,9 @@ public:
     {
         printf(
             "Vitastor NBD proxy\n"
-            "(c) Vitaliy Filippov, 2020 (VNPL-1.1)\n\n"
+            "(c) Vitaliy Filippov, 2020-2021 (VNPL-1.1)\n\n"
             "USAGE:\n"
-            "  %s map --etcd_address <etcd_address> --pool <pool> --inode <inode> --size <size in bytes>\n"
+            "  %s map --etcd_address <etcd_address> (--image <image> | --pool <pool> --inode <inode> --size <size in bytes>)\n"
             "  %s unmap /dev/nbd0\n"
             "  %s list [--json]\n",
             exe_name, exe_name, exe_name
@@ -148,21 +151,49 @@ public:
             fprintf(stderr, "etcd_address is missing\n");
             exit(1);
         }
-        if (!cfg["size"].uint64_value())
+        if (cfg["image"].string_value() != "")
         {
-            fprintf(stderr, "device size is missing\n");
-            exit(1);
+            // Use image name
+            image_name = cfg["image"].string_value();
+            inode = 0;
         }
-        inode = cfg["inode"].uint64_value();
-        uint64_t pool = cfg["pool"].uint64_value();
-        if (pool)
+        else
         {
-            inode = (inode & ((1l << (64-POOL_ID_BITS)) - 1)) | (pool << (64-POOL_ID_BITS));
+            // Use pool, inode number and size
+            if (!cfg["size"].uint64_value())
+            {
+                fprintf(stderr, "device size is missing\n");
+                exit(1);
+            }
+            device_size = cfg["size"].uint64_value();
+            inode = cfg["inode"].uint64_value();
+            uint64_t pool = cfg["pool"].uint64_value();
+            if (pool)
+            {
+                inode = (inode & ((1l << (64-POOL_ID_BITS)) - 1)) | (pool << (64-POOL_ID_BITS));
+            }
+            if (!(inode >> (64-POOL_ID_BITS)))
+            {
+                fprintf(stderr, "pool is missing\n");
+                exit(1);
+            }
         }
-        if (!(inode >> (64-POOL_ID_BITS)))
+        // Create client
+        ringloop = new ring_loop_t(512);
+        epmgr = new epoll_manager_t(ringloop);
+        cli = new cluster_client_t(ringloop, epmgr->tfd, cfg);
+        if (!inode)
         {
-            fprintf(stderr, "pool is missing\n");
-            exit(1);
+            // Load image metadata
+            while (!cli->is_ready())
+            {
+                ringloop->loop();
+                if (cli->is_ready())
+                    break;
+                ringloop->wait();
+            }
+            watch = cli->st_cli.watch_inode(image_name);
+            device_size = watch->cfg.size;
         }
         // Initialize NBD
         int sockfd[2];
@@ -176,7 +207,7 @@ public:
         load_module();
         if (!cfg["dev_num"].is_null())
         {
-            if (run_nbd(sockfd, cfg["dev_num"].int64_value(), cfg["size"].uint64_value(), NBD_FLAG_SEND_FLUSH, 30) < 0)
+            if (run_nbd(sockfd, cfg["dev_num"].int64_value(), device_size, NBD_FLAG_SEND_FLUSH, 30) < 0)
             {
                 perror("run_nbd");
                 exit(1);
@@ -188,7 +219,7 @@ public:
             int i = 0;
             while (true)
             {
-                int r = run_nbd(sockfd, i, cfg["size"].uint64_value(), NBD_FLAG_SEND_FLUSH, 30);
+                int r = run_nbd(sockfd, i, device_size, NBD_FLAG_SEND_FLUSH, 30);
                 if (r == 0)
                 {
                     printf("/dev/nbd%d\n", i);
@@ -215,10 +246,6 @@ public:
         {
             daemonize();
         }
-        // Create client
-        ringloop = new ring_loop_t(512);
-        epmgr = new epoll_manager_t(ringloop);
-        cli = new cluster_client_t(ringloop, epmgr->tfd, cfg);
         // Initialize read state
         read_state = CL_READ_HDR;
         recv_buf = malloc_or_die(receive_buffer_size);
@@ -242,6 +269,7 @@ public:
             ringloop->loop();
             ringloop->wait();
         }
+        // FIXME: Cleanup when exiting
     }
 
     void load_module()
@@ -610,7 +638,7 @@ protected:
             if (req_type == NBD_CMD_READ || req_type == NBD_CMD_WRITE)
             {
                 op->opcode = req_type == NBD_CMD_READ ? OSD_OP_READ : OSD_OP_WRITE;
-                op->inode = inode;
+                op->inode = inode ? inode : watch->cfg.num;
                 op->offset = be64toh(cur_req.from);
                 op->len = be32toh(cur_req.len);
                 buf = malloc_or_die(sizeof(nbd_reply) + op->len);
@@ -657,7 +685,15 @@ protected:
         }
         else
         {
-            cli->execute(cur_op);
+            if (cur_op->opcode == OSD_OP_WRITE && watch->cfg.readonly)
+            {
+                cur_op->retval = -EROFS;
+                std::function<void(cluster_op_t*)>(cur_op->callback)(cur_op);
+            }
+            else
+            {
+                cli->execute(cur_op);
+            }
             cur_op = NULL;
             cur_buf = &cur_req;
             cur_left = sizeof(nbd_request);
