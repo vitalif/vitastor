@@ -236,14 +236,14 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
                 // Send to a remote OSD
                 osd_op_t *subop = op_data->subops+subop_idx;
                 subop->op_type = OSD_OP_OUT;
-                subop->peer_fd = c_cli.osd_peer_fds.at(subop_osd_num);
+                subop->peer_fd = msgr.osd_peer_fds.at(subop_osd_num);
                 // FIXME: Use the pre-allocated buffer
                 subop->buf = malloc_or_die(sizeof(obj_ver_id)*(i+1-prev));
                 subop->req = (osd_any_op_t){
                     .sec_read_bmp = {
                         .header = {
                             .magic = SECONDARY_OSD_OP_MAGIC,
-                            .id = c_cli.next_subop_id++,
+                            .id = msgr.next_subop_id++,
                             .opcode = OSD_OP_SEC_READ_BMP,
                         },
                         .len = sizeof(obj_ver_id)*(i+1-prev),
@@ -273,7 +273,7 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
                     }
                     handle_primary_subop(subop, cur_op);
                 };
-                c_cli.outbox_push(subop);
+                msgr.outbox_push(subop);
                 subop_idx++;
             }
             prev = i+1;

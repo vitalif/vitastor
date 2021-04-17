@@ -116,7 +116,7 @@ class osd_t
     // cluster state
 
     etcd_state_client_t st_cli;
-    osd_messenger_t c_cli;
+    osd_messenger_t msgr;
     int etcd_failed_attempts = 0;
     std::string etcd_lease_id;
     json11::Json self_state;

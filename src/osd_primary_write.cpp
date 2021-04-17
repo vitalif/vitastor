@@ -370,8 +370,8 @@ lazy:
         }
         // Remember PG as dirty to drop the connection when PG goes offline
         // (this is required because of the "lazy sync")
-        auto cl_it = c_cli.clients.find(cur_op->peer_fd);
-        if (cl_it != c_cli.clients.end())
+        auto cl_it = msgr.clients.find(cur_op->peer_fd);
+        if (cl_it != msgr.clients.end())
         {
             cl_it->second->dirty_pgs.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
         }

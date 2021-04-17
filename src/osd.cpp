@@ -45,11 +45,11 @@ osd_t::osd_t(blockstore_config_t & config, ring_loop_t *ringloop)
         print_slow();
     });
 
-    c_cli.tfd = this->tfd;
-    c_cli.ringloop = this->ringloop;
-    c_cli.exec_op = [this](osd_op_t *op) { exec_op(op); };
-    c_cli.repeer_pgs = [this](osd_num_t peer_osd) { repeer_pgs(peer_osd); };
-    c_cli.init();
+    msgr.tfd = this->tfd;
+    msgr.ringloop = this->ringloop;
+    msgr.exec_op = [this](osd_op_t *op) { exec_op(op); };
+    msgr.repeer_pgs = [this](osd_num_t peer_osd) { repeer_pgs(peer_osd); };
+    msgr.init();
 
     init_cluster();
 
@@ -80,7 +80,7 @@ void osd_t::parse_config(blockstore_config_t & config)
     osd_num = strtoull(config["osd_num"].c_str(), NULL, 10);
     if (!osd_num)
         throw std::runtime_error("osd_num is required in the configuration");
-    c_cli.osd_num = osd_num;
+    msgr.osd_num = osd_num;
     run_primary = config["run_primary"] != "false" && config["run_primary"] != "0" && config["run_primary"] != "no";
     no_rebalance = config["no_rebalance"] == "true" || config["no_rebalance"] == "1" || config["no_rebalance"] == "yes";
     no_recovery = config["no_recovery"] == "true" || config["no_recovery"] == "1" || config["no_recovery"] == "yes";
@@ -121,7 +121,7 @@ void osd_t::parse_config(blockstore_config_t & config)
     slow_log_interval = strtoull(config["slow_log_interval"].c_str(), NULL, 10);
     if (!slow_log_interval)
         slow_log_interval = 10;
-    c_cli.parse_config(json_config);
+    msgr.parse_config(json_config);
 }
 
 void osd_t::bind_socket()
@@ -174,7 +174,7 @@ void osd_t::bind_socket()
 
     epmgr->set_fd_handler(listen_fd, false, [this](int fd, int events)
     {
-        c_cli.accept_connections(listen_fd);
+        msgr.accept_connections(listen_fd);
     });
 }
 
@@ -191,8 +191,8 @@ bool osd_t::shutdown()
 void osd_t::loop()
 {
     handle_peers();
-    c_cli.read_requests();
-    c_cli.send_replies();
+    msgr.read_requests();
+    msgr.send_replies();
     ringloop->submit();
 }
 
@@ -276,7 +276,7 @@ void osd_t::exec_op(osd_op_t *cur_op)
 
 void osd_t::reset_stats()
 {
-    c_cli.stats = { 0 };
+    msgr.stats = { 0 };
     prev_stats = { 0 };
     memset(recovery_stat_count, 0, sizeof(recovery_stat_count));
     memset(recovery_stat_bytes, 0, sizeof(recovery_stat_bytes));
@@ -286,11 +286,11 @@ void osd_t::print_stats()
 {
     for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)
     {
-        if (c_cli.stats.op_stat_count[i] != prev_stats.op_stat_count[i] && i != OSD_OP_PING)
+        if (msgr.stats.op_stat_count[i] != prev_stats.op_stat_count[i] && i != OSD_OP_PING)
         {
-            uint64_t avg = (c_cli.stats.op_stat_sum[i] - prev_stats.op_stat_sum[i])/(c_cli.stats.op_stat_count[i] - prev_stats.op_stat_count[i]);
-            uint64_t bw = (c_cli.stats.op_stat_bytes[i] - prev_stats.op_stat_bytes[i]) / print_stats_interval;
-            if (c_cli.stats.op_stat_bytes[i] != 0)
+            uint64_t avg = (msgr.stats.op_stat_sum[i] - prev_stats.op_stat_sum[i])/(msgr.stats.op_stat_count[i] - prev_stats.op_stat_count[i]);
+            uint64_t bw = (msgr.stats.op_stat_bytes[i] - prev_stats.op_stat_bytes[i]) / print_stats_interval;
+            if (msgr.stats.op_stat_bytes[i] != 0)
             {
                 printf(
                     "[OSD %lu] avg latency for op %d (%s): %lu us, B/W: %.2f %s\n", osd_num, i, osd_op_names[i], avg,
@@ -302,19 +302,19 @@ void osd_t::print_stats()
             {
                 printf("[OSD %lu] avg latency for op %d (%s): %lu us\n", osd_num, i, osd_op_names[i], avg);
             }
-            prev_stats.op_stat_count[i] = c_cli.stats.op_stat_count[i];
-            prev_stats.op_stat_sum[i] = c_cli.stats.op_stat_sum[i];
-            prev_stats.op_stat_bytes[i] = c_cli.stats.op_stat_bytes[i];
+            prev_stats.op_stat_count[i] = msgr.stats.op_stat_count[i];
+            prev_stats.op_stat_sum[i] = msgr.stats.op_stat_sum[i];
+            prev_stats.op_stat_bytes[i] = msgr.stats.op_stat_bytes[i];
         }
     }
     for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)
     {
-        if (c_cli.stats.subop_stat_count[i] != prev_stats.subop_stat_count[i])
+        if (msgr.stats.subop_stat_count[i] != prev_stats.subop_stat_count[i])
         {
-            uint64_t avg = (c_cli.stats.subop_stat_sum[i] - prev_stats.subop_stat_sum[i])/(c_cli.stats.subop_stat_count[i] - prev_stats.subop_stat_count[i]);
+            uint64_t avg = (msgr.stats.subop_stat_sum[i] - prev_stats.subop_stat_sum[i])/(msgr.stats.subop_stat_count[i] - prev_stats.subop_stat_count[i]);
             printf("[OSD %lu] avg latency for subop %d (%s): %ld us\n", osd_num, i, osd_op_names[i], avg);
-            prev_stats.subop_stat_count[i] = c_cli.stats.subop_stat_count[i];
-            prev_stats.subop_stat_sum[i] = c_cli.stats.subop_stat_sum[i];
+            prev_stats.subop_stat_count[i] = msgr.stats.subop_stat_count[i];
+            prev_stats.subop_stat_sum[i] = msgr.stats.subop_stat_sum[i];
         }
     }
     for (int i = 0; i < 2; i++)
@@ -351,7 +351,7 @@ void osd_t::print_slow()
     char alloc[1024];
     timespec now;
     clock_gettime(CLOCK_REALTIME, &now);
-    for (auto & kv: c_cli.clients)
+    for (auto & kv: msgr.clients)
     {
         for (auto op: kv.second->received_ops)
         {

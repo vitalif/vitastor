@@ -104,7 +104,7 @@ void osd_t::parse_test_peer(std::string peer)
         { "addresses", json11::Json::array { addr } },
         { "port", port },
     };
-    c_cli.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
+    msgr.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
 }
 
 json11::Json osd_t::get_osd_state()
@@ -146,16 +146,16 @@ json11::Json osd_t::get_statistics()
     for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)
     {
         op_stats[osd_op_names[i]] = json11::Json::object {
-            { "count", c_cli.stats.op_stat_count[i] },
-            { "usec", c_cli.stats.op_stat_sum[i] },
-            { "bytes", c_cli.stats.op_stat_bytes[i] },
+            { "count", msgr.stats.op_stat_count[i] },
+            { "usec", msgr.stats.op_stat_sum[i] },
+            { "bytes", msgr.stats.op_stat_bytes[i] },
         };
     }
     for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)
     {
         subop_stats[osd_op_names[i]] = json11::Json::object {
-            { "count", c_cli.stats.subop_stat_count[i] },
-            { "usec", c_cli.stats.subop_stat_sum[i] },
+            { "count", msgr.stats.subop_stat_count[i] },
+            { "usec", msgr.stats.subop_stat_sum[i] },
         };
     }
     st["op_stats"] = op_stats;
@@ -298,9 +298,9 @@ void osd_t::report_statistics()
 
 void osd_t::on_change_osd_state_hook(osd_num_t peer_osd)
 {
-    if (c_cli.wanted_peers.find(peer_osd) != c_cli.wanted_peers.end())
+    if (msgr.wanted_peers.find(peer_osd) != msgr.wanted_peers.end())
     {
-        c_cli.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
+        msgr.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
     }
 }
 
@@ -695,9 +695,9 @@ void osd_t::apply_pg_config()
                     // Add peers
                     for (auto pg_osd: all_peers)
                     {
-                        if (pg_osd != this->osd_num && c_cli.osd_peer_fds.find(pg_osd) == c_cli.osd_peer_fds.end())
+                        if (pg_osd != this->osd_num && msgr.osd_peer_fds.find(pg_osd) == msgr.osd_peer_fds.end())
                         {
-                            c_cli.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
+                            msgr.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
                         }
                     }
                     start_pg_peering(pg);

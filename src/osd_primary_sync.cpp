@@ -247,8 +247,8 @@ resume_8:
 finish:
         if (cur_op->peer_fd)
         {
-            auto it = c_cli.clients.find(cur_op->peer_fd);
-            if (it != c_cli.clients.end())
+            auto it = msgr.clients.find(cur_op->peer_fd);
+            if (it != msgr.clients.end())
                 it->second->dirty_pgs.clear();
         }
         finish_op(cur_op, 0);

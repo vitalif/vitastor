@@ -82,10 +82,10 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
         else
         {
             printf("Error while doing flush on OSD %lu: %d (%s)\n", osd_num, retval, strerror(-retval));
-            auto fd_it = c_cli.osd_peer_fds.find(peer_osd);
-            if (fd_it != c_cli.osd_peer_fds.end())
+            auto fd_it = msgr.osd_peer_fds.find(peer_osd);
+            if (fd_it != msgr.osd_peer_fds.end())
             {
-                c_cli.stop_client(fd_it->second);
+                msgr.stop_client(fd_it->second);
             }
             return;
         }
@@ -188,7 +188,7 @@ void osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
     else
     {
         // Peer
-        int peer_fd = c_cli.osd_peer_fds[peer_osd];
+        int peer_fd = msgr.osd_peer_fds[peer_osd];
         op->op_type = OSD_OP_OUT;
         op->iov.push_back(op->buf, count * sizeof(obj_ver_id));
         op->peer_fd = peer_fd;
@@ -196,7 +196,7 @@ void osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
             .sec_stab = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = c_cli.next_subop_id++,
+                    .id = msgr.next_subop_id++,
                     .opcode = (uint64_t)(rollback ? OSD_OP_SEC_ROLLBACK : OSD_OP_SEC_STABILIZE),
                 },
                 .len = count * sizeof(obj_ver_id),
@@ -207,7 +207,7 @@ void osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
             handle_flush_op(op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK, pool_id, pg_num, fb, peer_osd, op->reply.hdr.retval);
             delete op;
         };
-        c_cli.outbox_push(op);
+        msgr.outbox_push(op);
     }
 }
 

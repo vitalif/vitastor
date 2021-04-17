@@ -156,7 +156,7 @@ void osd_t::start_pg_peering(pg_t & pg)
     if (immediate_commit != IMMEDIATE_ALL)
     {
         std::vector<int> to_stop;
-        for (auto & cp: c_cli.clients)
+        for (auto & cp: msgr.clients)
         {
             if (cp.second->dirty_pgs.find({ .pool_id = pg.pool_id, .pg_num = pg.pg_num }) != cp.second->dirty_pgs.end())
             {
@@ -165,7 +165,7 @@ void osd_t::start_pg_peering(pg_t & pg)
         }
         for (auto peer_fd: to_stop)
         {
-            c_cli.stop_client(peer_fd);
+            msgr.stop_client(peer_fd);
         }
     }
     // Calculate current write OSD set
@@ -175,7 +175,7 @@ void osd_t::start_pg_peering(pg_t & pg)
     for (int role = 0; role < pg.target_set.size(); role++)
     {
         pg.cur_set[role] = pg.target_set[role] == this->osd_num ||
-            c_cli.osd_peer_fds.find(pg.target_set[role]) != c_cli.osd_peer_fds.end() ? pg.target_set[role] : 0;
+            msgr.osd_peer_fds.find(pg.target_set[role]) != msgr.osd_peer_fds.end() ? pg.target_set[role] : 0;
         if (pg.cur_set[role] != 0)
         {
             pg.pg_cursize++;
@@ -199,7 +199,7 @@ void osd_t::start_pg_peering(pg_t & pg)
                 {
                     found = false;
                     if (history_osd == this->osd_num ||
-                        c_cli.osd_peer_fds.find(history_osd) != c_cli.osd_peer_fds.end())
+                        msgr.osd_peer_fds.find(history_osd) != msgr.osd_peer_fds.end())
                     {
                         found = true;
                         break;
@@ -223,13 +223,13 @@ void osd_t::start_pg_peering(pg_t & pg)
     std::set<osd_num_t> cur_peers;
     for (auto pg_osd: pg.all_peers)
     {
-        if (pg_osd == this->osd_num || c_cli.osd_peer_fds.find(pg_osd) != c_cli.osd_peer_fds.end())
+        if (pg_osd == this->osd_num || msgr.osd_peer_fds.find(pg_osd) != msgr.osd_peer_fds.end())
         {
             cur_peers.insert(pg_osd);
         }
-        else if (c_cli.wanted_peers.find(pg_osd) == c_cli.wanted_peers.end())
+        else if (msgr.wanted_peers.find(pg_osd) == msgr.wanted_peers.end())
         {
-            c_cli.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
+            msgr.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
         }
     }
     pg.cur_peers.insert(pg.cur_peers.begin(), cur_peers.begin(), cur_peers.end());
@@ -325,7 +325,7 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
     else
     {
         // Peer
-        auto & cl = c_cli.clients.at(c_cli.osd_peer_fds[role_osd]);
+        auto & cl = msgr.clients.at(msgr.osd_peer_fds[role_osd]);
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
         op->peer_fd = cl->peer_fd;
@@ -333,7 +333,7 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
             .sec_sync = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = c_cli.next_subop_id++,
+                    .id = msgr.next_subop_id++,
                     .opcode = OSD_OP_SEC_SYNC,
                 },
             },
@@ -347,14 +347,14 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
                 int fail_fd = op->peer_fd;
                 ps->list_ops.erase(role_osd);
                 delete op;
-                c_cli.stop_client(fail_fd);
+                msgr.stop_client(fail_fd);
                 return;
             }
             delete op;
             ps->list_ops.erase(role_osd);
             submit_list_subop(role_osd, ps);
         };
-        c_cli.outbox_push(op);
+        msgr.outbox_push(op);
         ps->list_ops[role_osd] = op;
     }
 }
@@ -404,12 +404,12 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         // Peer
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
-        op->peer_fd = c_cli.osd_peer_fds[role_osd];
+        op->peer_fd = msgr.osd_peer_fds[role_osd];
         op->req = (osd_any_op_t){
             .sec_list = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = c_cli.next_subop_id++,
+                    .id = msgr.next_subop_id++,
                     .opcode = OSD_OP_SEC_LIST,
                 },
                 .list_pg = ps->pg_num,
@@ -427,7 +427,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
                 int fail_fd = op->peer_fd;
                 ps->list_ops.erase(role_osd);
                 delete op;
-                c_cli.stop_client(fail_fd);
+                msgr.stop_client(fail_fd);
                 return;
             }
             printf(
@@ -444,7 +444,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
             ps->list_ops.erase(role_osd);
             delete op;
         };
-        c_cli.outbox_push(op);
+        msgr.outbox_push(op);
         ps->list_ops[role_osd] = op;
     }
 }

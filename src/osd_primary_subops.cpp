@@ -87,14 +87,14 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     else
     {
         // FIXME add separate magic number for primary ops
-        auto cl_it = c_cli.clients.find(cur_op->peer_fd);
-        if (cl_it != c_cli.clients.end())
+        auto cl_it = msgr.clients.find(cur_op->peer_fd);
+        if (cl_it != msgr.clients.end())
         {
             cur_op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
             cur_op->reply.hdr.id = cur_op->req.hdr.id;
             cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
             cur_op->reply.hdr.retval = retval;
-            c_cli.outbox_push(cur_op);
+            msgr.outbox_push(cur_op);
         }
         else
         {
@@ -184,13 +184,13 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
             else
             {
                 subop->op_type = OSD_OP_OUT;
-                subop->peer_fd = c_cli.osd_peer_fds.at(role_osd_num);
+                subop->peer_fd = msgr.osd_peer_fds.at(role_osd_num);
                 subop->bitmap = stripes[stripe_num].bmp_buf;
                 subop->bitmap_len = clean_entry_bitmap_size;
                 subop->req.sec_rw = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
-                        .id = c_cli.next_subop_id++,
+                        .id = msgr.next_subop_id++,
                         .opcode = (uint64_t)(wr ? (rep ? OSD_OP_SEC_WRITE_STABLE : OSD_OP_SEC_WRITE) : OSD_OP_SEC_READ),
                     },
                     .oid = {
@@ -227,7 +227,7 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                 {
                     handle_primary_subop(subop, cur_op);
                 };
-                c_cli.outbox_push(subop);
+                msgr.outbox_push(subop);
             }
             i++;
         }
@@ -282,20 +282,20 @@ void osd_t::add_bs_subop_stats(osd_op_t *subop)
     uint64_t opcode = bs_op_to_osd_op[subop->bs_op->opcode];
     timespec tv_end;
     clock_gettime(CLOCK_REALTIME, &tv_end);
-    c_cli.stats.op_stat_count[opcode]++;
-    if (!c_cli.stats.op_stat_count[opcode])
+    msgr.stats.op_stat_count[opcode]++;
+    if (!msgr.stats.op_stat_count[opcode])
     {
-        c_cli.stats.op_stat_count[opcode] = 1;
-        c_cli.stats.op_stat_sum[opcode] = 0;
-        c_cli.stats.op_stat_bytes[opcode] = 0;
+        msgr.stats.op_stat_count[opcode] = 1;
+        msgr.stats.op_stat_sum[opcode] = 0;
+        msgr.stats.op_stat_bytes[opcode] = 0;
     }
-    c_cli.stats.op_stat_sum[opcode] += (
+    msgr.stats.op_stat_sum[opcode] += (
         (tv_end.tv_sec - subop->tv_begin.tv_sec)*1000000 +
         (tv_end.tv_nsec - subop->tv_begin.tv_nsec)/1000
     );
     if (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE)
     {
-        c_cli.stats.op_stat_bytes[opcode] += subop->bs_op->len;
+        msgr.stats.op_stat_bytes[opcode] += subop->bs_op->len;
     }
 }
 
@@ -322,7 +322,7 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
         if (subop->peer_fd >= 0)
         {
             // Drop connection on any error
-            c_cli.stop_client(subop->peer_fd);
+            msgr.stop_client(subop->peer_fd);
         }
     }
     else
@@ -332,8 +332,8 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
         {
             uint64_t version = subop->reply.sec_rw.version;
 #ifdef OSD_DEBUG
-            uint64_t peer_osd = c_cli.clients.find(subop->peer_fd) != c_cli.clients.end()
-                ? c_cli.clients[subop->peer_fd]->osd_num : osd_num;
+            uint64_t peer_osd = msgr.clients.find(subop->peer_fd) != msgr.clients.end()
+                ? msgr.clients[subop->peer_fd]->osd_num : osd_num;
             printf("subop %lu from osd %lu: version = %lu\n", opcode, peer_osd, version);
 #endif
             if (op_data->fact_ver != UINT64_MAX)
@@ -465,11 +465,11 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
         else
         {
             subops[i].op_type = OSD_OP_OUT;
-            subops[i].peer_fd = c_cli.osd_peer_fds.at(chunk.osd_num);
+            subops[i].peer_fd = msgr.osd_peer_fds.at(chunk.osd_num);
             subops[i].req = (osd_any_op_t){ .sec_del = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = c_cli.next_subop_id++,
+                    .id = msgr.next_subop_id++,
                     .opcode = OSD_OP_SEC_DELETE,
                 },
                 .oid = chunk.oid,
@@ -479,7 +479,7 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
             {
                 handle_primary_subop(subop, cur_op);
             };
-            c_cli.outbox_push(&subops[i]);
+            msgr.outbox_push(&subops[i]);
         }
     }
 }
@@ -509,14 +509,14 @@ int osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
             });
             bs->enqueue_op(subops[i].bs_op);
         }
-        else if ((peer_it = c_cli.osd_peer_fds.find(sync_osd)) != c_cli.osd_peer_fds.end())
+        else if ((peer_it = msgr.osd_peer_fds.find(sync_osd)) != msgr.osd_peer_fds.end())
         {
             subops[i].op_type = OSD_OP_OUT;
             subops[i].peer_fd = peer_it->second;
             subops[i].req = (osd_any_op_t){ .sec_sync = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = c_cli.next_subop_id++,
+                    .id = msgr.next_subop_id++,
                     .opcode = OSD_OP_SEC_SYNC,
                 },
             } };
@@ -524,7 +524,7 @@ int osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
             {
                 handle_primary_subop(subop, cur_op);
             };
-            c_cli.outbox_push(&subops[i]);
+            msgr.outbox_push(&subops[i]);
         }
         else
         {
@@ -569,11 +569,11 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
         else
         {
             subops[i].op_type = OSD_OP_OUT;
-            subops[i].peer_fd = c_cli.osd_peer_fds.at(stab_osd.osd_num);
+            subops[i].peer_fd = msgr.osd_peer_fds.at(stab_osd.osd_num);
             subops[i].req = (osd_any_op_t){ .sec_stab = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = c_cli.next_subop_id++,
+                    .id = msgr.next_subop_id++,
                     .opcode = OSD_OP_SEC_STABILIZE,
                 },
                 .len = (uint64_t)(stab_osd.len * sizeof(obj_ver_id)),
@@ -583,7 +583,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
             {
                 handle_primary_subop(subop, cur_op);
             };
-            c_cli.outbox_push(&subops[i]);
+            msgr.outbox_push(&subops[i]);
         }
     }
 }
