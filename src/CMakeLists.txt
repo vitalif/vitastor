@@ -55,6 +55,7 @@ target_link_libraries(vitastor_blk
 	# for timerfd_manager
 	vitastor_common
 )
+set_target_properties(vitastor_blk PROPERTIES VERSION ${VERSION} SOVERSION 0)
 
 # libfio_vitastor_blk.so
 add_library(fio_vitastor_blk SHARED
@@ -103,6 +104,7 @@ target_link_libraries(vitastor_client
 	tcmalloc_minimal
 	${LIBURING_LIBRARIES}
 )
+set_target_properties(vitastor_client PROPERTIES VERSION ${VERSION} SOVERSION 0)
 
 # libfio_vitastor.so
 add_library(fio_vitastor SHARED
