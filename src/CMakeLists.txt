@@ -52,6 +52,8 @@ add_library(vitastor_blk SHARED
 target_link_libraries(vitastor_blk
 	${LIBURING_LIBRARIES}
 	tcmalloc_minimal
+	# for timerfd_manager
+	vitastor_common
 )
 
 # libfio_vitastor_blk.so
