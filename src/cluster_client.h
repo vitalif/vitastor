@@ -47,6 +47,7 @@ protected:
     std::vector<cluster_op_part_t> parts;
     void *bitmap_buf = NULL, *part_bitmaps = NULL;
     unsigned bitmap_buf_size = 0;
+    cluster_op_t *prev = NULL, *next = NULL;
     friend class cluster_client_t;
 };
 
@@ -76,7 +77,7 @@ class cluster_client_t
     int retry_timeout_id = 0;
     uint64_t op_id = 1;
     std::vector<cluster_op_t*> offline_ops;
-    std::vector<cluster_op_t*> op_queue;
+    cluster_op_t *op_queue_head = NULL, *op_queue_tail = NULL;
     std::map<object_id, cluster_buffer_t> dirty_buffers;
     std::set<osd_num_t> dirty_osds;
     uint64_t dirty_bytes = 0, dirty_ops = 0;
@@ -88,7 +89,6 @@ class cluster_client_t
     ring_consumer_t consumer;
     std::vector<std::function<void(void)>> on_ready_hooks;
     int continuing_ops = 0;
-    int op_queue_pos = 0;
 
 public:
     etcd_state_client_t st_cli;
@@ -117,4 +117,5 @@ protected:
     void send_sync(cluster_op_t *op, cluster_op_part_t *part);
     void handle_op_part(cluster_op_part_t *part);
     void copy_part_bitmap(cluster_op_t *op, cluster_op_part_t *part);
+    void erase_op(cluster_op_t *op);
 };
