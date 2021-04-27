@@ -155,14 +155,14 @@ restart:
             has_writes = has_writes || !rm;
             if (is_flush)
             {
-                has_flushes = has_writes || !rm;
+                has_flushes = has_flushes || !rm;
             }
         }
         else if (opcode == OSD_OP_SYNC)
         {
             // Postpone writes until previous SYNC completes
             // ...so dirty_writes can't contain anything newer than SYNC
-            has_flushes = has_writes || !rm;
+            has_flushes = has_flushes || !rm;
         }
         if (rm)
         {
