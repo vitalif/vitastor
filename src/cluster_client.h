@@ -36,7 +36,7 @@ struct cluster_op_t
     std::function<void(cluster_op_t*)> callback;
     ~cluster_op_t();
 protected:
-    int flags = 0;
+    uint64_t flags = 0;
     int state = 0;
     uint64_t cur_inode; // for snapshot reads
     void *buf = NULL;
@@ -48,6 +48,7 @@ protected:
     void *bitmap_buf = NULL, *part_bitmaps = NULL;
     unsigned bitmap_buf_size = 0;
     cluster_op_t *prev = NULL, *next = NULL;
+    int prev_wait = 0;
     friend class cluster_client_t;
 };
 
@@ -67,7 +68,8 @@ class cluster_client_t
     uint64_t bs_block_size = 0;
     uint32_t bs_bitmap_granularity = 0, bs_bitmap_size = 0;
     std::map<pool_id_t, uint64_t> pg_counts;
-    bool immediate_commit = false;
+    // WARNING: initially true so execute() doesn't create fake sync
+    bool immediate_commit = true;
     // FIXME: Implement inmemory_commit mode. Note that it requires to return overlapping reads from memory.
     uint64_t client_max_dirty_bytes = 0;
     uint64_t client_max_dirty_ops = 0;
@@ -118,4 +120,6 @@ protected:
     void handle_op_part(cluster_op_part_t *part);
     void copy_part_bitmap(cluster_op_t *op, cluster_op_part_t *part);
     void erase_op(cluster_op_t *op);
+    void calc_wait(cluster_op_t *op);
+    void inc_wait(uint64_t opcode, uint64_t flags, cluster_op_t *next, int inc);
 };
