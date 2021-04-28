@@ -169,11 +169,11 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
         if (req_json["connect_rdma"].is_string())
         {
             // Peer is trying to connect using RDMA, try to satisfy him
-            bool ok = msgr.connect_rdma(cur_op->peer_fd, req_json["connect_rdma"].string_value());
+            bool ok = msgr.connect_rdma(cur_op->peer_fd, req_json["connect_rdma"].string_value(), req_json["rdma_max_sge"].uint64_value());
             if (ok)
             {
-                wire_config["rdma_connected"] = true;
                 wire_config["rdma_address"] = msgr.clients.at(cur_op->peer_fd)->rdma_conn->addr.to_string();
+                wire_config["rdma_max_sge"] = msgr.get_rdma_max_sge();
             }
         }
     }

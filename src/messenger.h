@@ -137,7 +137,7 @@ protected:
     std::string rdma_device;
     uint64_t rdma_port_num = 1, rdma_gid_index = 0, rdma_mtu = 0;
     msgr_rdma_context_t *rdma_context = NULL;
-    int max_rdma_sge = 128, max_rdma_send = 32, max_rdma_recv = 32;
+    uint64_t rdma_max_sge = 128, rdma_max_send = 32, rdma_max_recv = 32;
 #endif
 
     std::vector<int> read_ready_clients;
@@ -170,7 +170,8 @@ public:
 
 #ifdef WITH_RDMA
     bool is_rdma_enabled();
-    bool connect_rdma(int peer_fd, std::string rdma_address);
+    bool connect_rdma(int peer_fd, std::string rdma_address, uint64_t client_max_sge);
+    uint64_t get_rdma_max_sge();
 #endif
 
 protected:

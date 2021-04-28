@@ -293,13 +293,17 @@ int msgr_rdma_connection_t::connect(msgr_rdma_address_t *dest)
     return 0;
 }
 
-bool osd_messenger_t::connect_rdma(int peer_fd, std::string rdma_address)
+bool osd_messenger_t::connect_rdma(int peer_fd, std::string rdma_address, uint64_t client_max_sge)
 {
     // Try to connect to the peer using RDMA
     msgr_rdma_address_t addr;
     if (msgr_rdma_address_t::from_string(rdma_address.c_str(), &addr))
     {
-        auto rdma_conn = msgr_rdma_connection_t::create(rdma_context, max_rdma_send, max_rdma_recv, max_rdma_sge);
+        if (client_max_sge > rdma_max_sge)
+        {
+            client_max_sge = rdma_max_sge;
+        }
+        auto rdma_conn = msgr_rdma_connection_t::create(rdma_context, rdma_max_send, rdma_max_recv, rdma_max_sge);
         if (rdma_conn)
         {
             int r = rdma_conn->connect(&addr);
@@ -352,7 +356,6 @@ bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
         return true;
     }
     int op_size = 0, op_sge = 0, op_max = rc->max_sge*bs_bitmap_granularity;
-    // FIXME: rc->max_sge should be negotiated between client & server
     ibv_sge sge[rc->max_sge];
     while (rc->send_pos < cl->send_list.size())
     {
@@ -448,7 +451,6 @@ bool osd_messenger_t::try_recv_rdma(osd_client_t *cl)
     }
     int op_size = 0, op_sge = 0, op_max = rc->max_sge*bs_bitmap_granularity;
     iovec *segments = cl->recv_list.get_iovec();
-    // FIXME: rc->max_sge should be negotiated between client & server
     ibv_sge sge[rc->max_sge];
     while (rc->recv_pos < cl->recv_list.get_size())
     {

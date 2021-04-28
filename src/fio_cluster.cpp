@@ -54,6 +54,7 @@ struct sec_options
     int cluster_log = 0;
     int trace = 0;
     int use_rdma = 0;
+    char *rdma_device = NULL;
     int rdma_port_num = 0;
     int rdma_gid_index = 0;
     int rdma_mtu = 0;
@@ -127,10 +128,49 @@ static struct fio_option options[] = {
     },
     {
         .name   = "use_rdma",
-        .lname  = "OSD trace",
+        .lname  = "Use RDMA",
         .type   = FIO_OPT_BOOL,
         .off1   = offsetof(struct sec_options, use_rdma),
         .help   = "Use RDMA",
+        .def    = "0",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "rdma_device",
+        .lname  = "RDMA device name",
+        .type   = FIO_OPT_STR_STORE,
+        .off1   = offsetof(struct sec_options, rdma_device),
+        .help   = "RDMA device name",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "rdma_port_num",
+        .lname  = "RDMA port number",
+        .type   = FIO_OPT_INT,
+        .off1   = offsetof(struct sec_options, rdma_port_num),
+        .help   = "RDMA port number",
+        .def    = "0",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "rdma_gid_index",
+        .lname  = "RDMA gid index",
+        .type   = FIO_OPT_INT,
+        .off1   = offsetof(struct sec_options, rdma_gid_index),
+        .help   = "RDMA gid index",
+        .def    = "0",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "rdma_mtu",
+        .lname  = "RDMA path MTU",
+        .type   = FIO_OPT_INT,
+        .off1   = offsetof(struct sec_options, rdma_mtu),
+        .help   = "RDMA path MTU",
         .def    = "0",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
@@ -171,6 +211,10 @@ static int sec_setup(struct thread_data *td)
         { "etcd_prefix", std::string(o->etcd_prefix ? o->etcd_prefix : "/vitastor") },
         { "log_level", o->cluster_log },
         { "use_rdma", o->use_rdma },
+        { "rdma_device", std::string(o->rdma_device ? o->rdma_device : "") },
+        { "rdma_port_num", o->rdma_port_num },
+        { "rdma_gid_index", o->rdma_gid_index },
+        { "rdma_mtu", o->rdma_mtu },
     };
 
     if (!o->image)
