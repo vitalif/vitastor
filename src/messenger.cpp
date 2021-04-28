@@ -139,9 +139,6 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     this->rdma_gid_index = (uint8_t)config["rdma_gid_index"].uint64_value();
     this->rdma_mtu = (uint32_t)config["rdma_mtu"].uint64_value();
 #endif
-    this->bs_bitmap_granularity = strtoull(config["bitmap_granularity"].string_value().c_str(), NULL, 10);
-    if (!this->bs_bitmap_granularity)
-        this->bs_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
     this->use_sync_send_recv = config["use_sync_send_recv"].bool_value() ||
         config["use_sync_send_recv"].uint64_value();
     this->peer_connect_interval = config["peer_connect_interval"].uint64_value();

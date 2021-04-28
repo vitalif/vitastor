@@ -43,6 +43,7 @@ breaking changes in the future. However, the following is implemented:
 - Inode metadata storage in etcd
 - Snapshots and copy-on-write image clones
 - Write throttling to smooth random write workloads in SSD+HDD configurations
+- RDMA/RoCEv2 support via libibverbs
 
 ## Roadmap
 
@@ -54,7 +55,7 @@ breaking changes in the future. However, the following is implemented:
 - Scrubbing without checksums (verification of replicas)
 - Checksums
 - Tiered storage
-- RDMA and NVDIMM support
+- NVDIMM support
 - Web GUI
 - Compression (possibly)
 - Read caching using system page cache (possibly)

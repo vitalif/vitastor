@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
+
 #include <stdio.h>
 #include <stdlib.h>
 #include "msgr_rdma.h"
@@ -355,57 +358,34 @@ bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
         // Only send one batch at a time
         return true;
     }
-    int op_size = 0, op_sge = 0, op_max = rc->max_sge*bs_bitmap_granularity;
+    uint64_t op_size = 0, op_sge = 0;
     ibv_sge sge[rc->max_sge];
     while (rc->send_pos < cl->send_list.size())
     {
         iovec & iov = cl->send_list[rc->send_pos];
-        if (cl->outbox[rc->send_pos].flags & MSGR_SENDP_HDR)
+        if (op_size >= RDMA_MAX_MSG || op_sge >= rc->max_sge)
         {
-            if (op_sge > 0)
-            {
-                try_send_rdma_wr(cl, sge, op_sge);
-                op_sge = 0;
-                op_size = 0;
-                if (rc->cur_send >= rc->max_send)
-                    break;
-            }
-            assert(rc->send_buf_pos == 0);
-            sge[0] = {
-                .addr = (uintptr_t)iov.iov_base,
-                .length = (uint32_t)iov.iov_len,
-                .lkey = rc->ctx->mr->lkey,
-            };
-            try_send_rdma_wr(cl, sge, 1);
-            rc->send_pos++;
+            try_send_rdma_wr(cl, sge, op_sge);
+            op_sge = 0;
+            op_size = 0;
             if (rc->cur_send >= rc->max_send)
+            {
                 break;
+            }
         }
-        else
+        uint32_t len = (uint32_t)(op_size+iov.iov_len-rc->send_buf_pos < RDMA_MAX_MSG
+            ? iov.iov_len-rc->send_buf_pos : RDMA_MAX_MSG-op_size);
+        sge[op_sge++] = {
+            .addr = (uintptr_t)(iov.iov_base+rc->send_buf_pos),
+            .length = len,
+            .lkey = rc->ctx->mr->lkey,
+        };
+        op_size += len;
+        rc->send_buf_pos += len;
+        if (rc->send_buf_pos >= iov.iov_len)
         {
-            if (op_size >= op_max || op_sge >= rc->max_sge)
-            {
-                try_send_rdma_wr(cl, sge, op_sge);
-                op_sge = 0;
-                op_size = 0;
-                if (rc->cur_send >= rc->max_send)
-                    break;
-            }
-            // Fragment all messages into parts no longer than (max_sge*4k) = 120k on ConnectX-4
-            // Otherwise the client may not be able to receive them in small parts
-            uint32_t len = (uint32_t)(op_size+iov.iov_len-rc->send_buf_pos < op_max ? iov.iov_len-rc->send_buf_pos : op_max-op_size);
-            sge[op_sge++] = {
-                .addr = (uintptr_t)(iov.iov_base+rc->send_buf_pos),
-                .length = len,
-                .lkey = rc->ctx->mr->lkey,
-            };
-            op_size += len;
-            rc->send_buf_pos += len;
-            if (rc->send_buf_pos >= iov.iov_len)
-            {
-                rc->send_pos++;
-                rc->send_buf_pos = 0;
-            }
+            rc->send_pos++;
+            rc->send_buf_pos = 0;
         }
     }
     if (op_sge > 0)
@@ -435,52 +415,16 @@ static void try_recv_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
 bool osd_messenger_t::try_recv_rdma(osd_client_t *cl)
 {
     auto rc = cl->rdma_conn;
-    if (rc->cur_recv > 0)
+    while (rc->cur_recv < rc->max_recv)
     {
-        return true;
-    }
-    if (!cl->recv_list.get_size())
-    {
-        cl->recv_list.reset();
-        cl->read_op = new osd_op_t;
-        cl->read_op->peer_fd = cl->peer_fd;
-        cl->read_op->op_type = OSD_OP_IN;
-        cl->recv_list.push_back(cl->read_op->req.buf, OSD_PACKET_SIZE);
-        cl->read_remaining = OSD_PACKET_SIZE;
-        cl->read_state = CL_READ_HDR;
-    }
-    int op_size = 0, op_sge = 0, op_max = rc->max_sge*bs_bitmap_granularity;
-    iovec *segments = cl->recv_list.get_iovec();
-    ibv_sge sge[rc->max_sge];
-    while (rc->recv_pos < cl->recv_list.get_size())
-    {
-        iovec & iov = segments[rc->recv_pos];
-        if (op_size >= op_max || op_sge >= rc->max_sge)
-        {
-            try_recv_rdma_wr(cl, sge, op_sge);
-            op_sge = 0;
-            op_size = 0;
-            if (rc->cur_recv >= rc->max_recv)
-                break;
-        }
-        // Receive in identical (max_sge*4k) fragments
-        uint32_t len = (uint32_t)(op_size+iov.iov_len-rc->recv_buf_pos < op_max ? iov.iov_len-rc->recv_buf_pos : op_max-op_size);
-        sge[op_sge++] = {
-            .addr = (uintptr_t)(iov.iov_base+rc->recv_buf_pos),
-            .length = len,
+        void *buf = malloc_or_die(RDMA_MAX_MSG);
+        rc->recv_buffers.push_back(buf);
+        ibv_sge sge = {
+            .addr = (uintptr_t)buf,
+            .length = RDMA_MAX_MSG,
             .lkey = rc->ctx->mr->lkey,
         };
-        op_size += len;
-        rc->recv_buf_pos += len;
-        if (rc->recv_buf_pos >= iov.iov_len)
-        {
-            rc->recv_pos++;
-            rc->recv_buf_pos = 0;
-        }
-    }
-    if (op_sge > 0)
-    {
-        try_recv_rdma_wr(cl, sge, op_sge);
+        try_recv_rdma_wr(cl, &sge, 1);
     }
     return true;
 }
@@ -531,24 +475,10 @@ void osd_messenger_t::handle_rdma_events()
             if (!is_send)
             {
                 cl->rdma_conn->cur_recv--;
-                if (!cl->rdma_conn->cur_recv)
-                {
-                    cl->recv_list.done += cl->rdma_conn->recv_pos;
-                    cl->rdma_conn->recv_pos = 0;
-                    if (!cl->recv_list.get_size())
-                    {
-                        cl->read_remaining = 0;
-                        if (handle_finished_read(cl))
-                        {
-                            try_recv_rdma(cl);
-                        }
-                    }
-                    else
-                    {
-                        // Continue to receive data
-                        try_recv_rdma(cl);
-                    }
-                }
+                handle_read_buffer(cl, cl->rdma_conn->recv_buffers[0], wc[i].byte_len);
+                free(cl->rdma_conn->recv_buffers[0]);
+                cl->rdma_conn->recv_buffers.erase(cl->rdma_conn->recv_buffers.begin(), cl->rdma_conn->recv_buffers.begin()+1);
+                try_recv_rdma(cl);
             }
             else
             {

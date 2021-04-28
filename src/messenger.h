@@ -128,7 +128,6 @@ protected:
     int peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
     int osd_idle_timeout = DEFAULT_OSD_PING_TIMEOUT;
     int osd_ping_timeout = DEFAULT_OSD_PING_TIMEOUT;
-    uint32_t bs_bitmap_granularity = 0;
     int log_level = 0;
     bool use_sync_send_recv = false;
 
@@ -137,6 +136,7 @@ protected:
     std::string rdma_device;
     uint64_t rdma_port_num = 1, rdma_gid_index = 0, rdma_mtu = 0;
     msgr_rdma_context_t *rdma_context = NULL;
+    // FIXME: Allow to configure these options
     uint64_t rdma_max_sge = 128, rdma_max_send = 32, rdma_max_recv = 32;
 #endif
 
@@ -189,6 +189,7 @@ protected:
     void handle_send(int result, osd_client_t *cl);
 
     bool handle_read(int result, osd_client_t *cl);
+    bool handle_read_buffer(osd_client_t *cl, void *curbuf, int remain);
     bool handle_finished_read(osd_client_t *cl);
     void handle_op_hdr(osd_client_t *cl);
     bool handle_reply_hdr(osd_client_t *cl);

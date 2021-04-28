@@ -91,48 +91,9 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
     {
         if (cl->read_iov.iov_base == cl->in_buf)
         {
-            // Compose operation(s) from the buffer
-            int remain = result;
-            void *curbuf = cl->in_buf;
-            while (remain > 0)
+            if (!handle_read_buffer(cl, cl->in_buf, result))
             {
-                if (!cl->read_op)
-                {
-                    cl->read_op = new osd_op_t;
-                    cl->read_op->peer_fd = cl->peer_fd;
-                    cl->read_op->op_type = OSD_OP_IN;
-                    cl->recv_list.push_back(cl->read_op->req.buf, OSD_PACKET_SIZE);
-                    cl->read_remaining = OSD_PACKET_SIZE;
-                    cl->read_state = CL_READ_HDR;
-                }
-                while (cl->recv_list.done < cl->recv_list.count && remain > 0)
-                {
-                    iovec* cur = cl->recv_list.get_iovec();
-                    if (cur->iov_len > remain)
-                    {
-                        memcpy(cur->iov_base, curbuf, remain);
-                        cl->read_remaining -= remain;
-                        cur->iov_len -= remain;
-                        cur->iov_base += remain;
-                        remain = 0;
-                    }
-                    else
-                    {
-                        memcpy(cur->iov_base, curbuf, cur->iov_len);
-                        curbuf += cur->iov_len;
-                        cl->read_remaining -= cur->iov_len;
-                        remain -= cur->iov_len;
-                        cur->iov_len = 0;
-                        cl->recv_list.done++;
-                    }
-                }
-                if (cl->recv_list.done >= cl->recv_list.count)
-                {
-                    if (!handle_finished_read(cl))
-                    {
-                        goto fin;
-                    }
-                }
+                goto fin;
             }
         }
         else
@@ -157,6 +118,52 @@ fin:
     }
     set_immediate.clear();
     return ret;
+}
+
+bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, void *curbuf, int remain)
+{
+    // Compose operation(s) from the buffer
+    while (remain > 0)
+    {
+        if (!cl->read_op)
+        {
+            cl->read_op = new osd_op_t;
+            cl->read_op->peer_fd = cl->peer_fd;
+            cl->read_op->op_type = OSD_OP_IN;
+            cl->recv_list.push_back(cl->read_op->req.buf, OSD_PACKET_SIZE);
+            cl->read_remaining = OSD_PACKET_SIZE;
+            cl->read_state = CL_READ_HDR;
+        }
+        while (cl->recv_list.done < cl->recv_list.count && remain > 0)
+        {
+            iovec* cur = cl->recv_list.get_iovec();
+            if (cur->iov_len > remain)
+            {
+                memcpy(cur->iov_base, curbuf, remain);
+                cl->read_remaining -= remain;
+                cur->iov_len -= remain;
+                cur->iov_base += remain;
+                remain = 0;
+            }
+            else
+            {
+                memcpy(cur->iov_base, curbuf, cur->iov_len);
+                curbuf += cur->iov_len;
+                cl->read_remaining -= cur->iov_len;
+                remain -= cur->iov_len;
+                cur->iov_len = 0;
+                cl->recv_list.done++;
+            }
+        }
+        if (cl->recv_list.done >= cl->recv_list.count)
+        {
+            if (!handle_finished_read(cl))
+            {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 bool osd_messenger_t::handle_finished_read(osd_client_t *cl)

@@ -1,7 +1,13 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
+
 #pragma once
 #include <infiniband/verbs.h>
 #include <string>
 #include <vector>
+
+// FIXME: Allow to configure this option
+#define RDMA_MAX_MSG 4194304
 
 struct msgr_rdma_address_t
 {
@@ -46,6 +52,7 @@ struct msgr_rdma_connection_t
 
     int send_pos = 0, send_buf_pos = 0;
     int recv_pos = 0, recv_buf_pos = 0;
+    std::vector<void*> recv_buffers;
 
     ~msgr_rdma_connection_t();
     static msgr_rdma_connection_t *create(msgr_rdma_context_t *ctx, uint32_t max_send, uint32_t max_recv, uint32_t max_sge);
