@@ -47,6 +47,10 @@ typedef struct VitastorClient
     uint64_t pool;
     uint64_t size;
     long readonly;
+    char *rdma_device;
+    int rdma_port_num;
+    int rdma_gid_index;
+    int rdma_mtu;
     QemuMutex mutex;
 } VitastorClient;
 
@@ -95,7 +99,7 @@ static void qemu_rbd_unescape(char *src)
 }
 
 // vitastor[:key=value]*
-// vitastor:etcd_host=127.0.0.1:inode=1:pool=1
+// vitastor:etcd_host=127.0.0.1:inode=1:pool=1[:rdma_gid_index=3]
 static void vitastor_parse_filename(const char *filename, QDict *options, Error **errp)
 {
     const char *start;
@@ -123,7 +127,12 @@ static void vitastor_parse_filename(const char *filename, QDict *options, Error 
         qemu_rbd_unescape(name);
         value = qemu_rbd_next_tok(p, ':', &p);
         qemu_rbd_unescape(value);
-        if (!strcmp(name, "inode") || !strcmp(name, "pool") || !strcmp(name, "size"))
+        if (!strcmp(name, "inode") ||
+            !strcmp(name, "pool") ||
+            !strcmp(name, "size") ||
+            !strcmp(name, "rdma_port_num") ||
+            !strcmp(name, "rdma_gid_index") ||
+            !strcmp(name, "rdma_mtu"))
         {
             unsigned long long num_val;
             if (parse_uint_full(value, &num_val, 0))
@@ -191,7 +200,14 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     qemu_mutex_init(&client->mutex);
     client->etcd_host = g_strdup(qdict_get_try_str(options, "etcd_host"));
     client->etcd_prefix = g_strdup(qdict_get_try_str(options, "etcd_prefix"));
-    client->proxy = vitastor_proxy_create(bdrv_get_aio_context(bs), client->etcd_host, client->etcd_prefix);
+    client->rdma_device = g_strdup(qdict_get_try_str(options, "rdma_device"));
+    client->rdma_port_num = qdict_get_int(options, "rdma_port_num");
+    client->rdma_gid_index = qdict_get_int(options, "rdma_gid_index");
+    client->rdma_mtu = qdict_get_int(options, "rdma_mtu");
+    client->proxy = vitastor_proxy_create(
+        bdrv_get_aio_context(bs), client->etcd_host, client->etcd_prefix,
+        client->rdma_device, client->rdma_port_num, client->rdma_gid_index, client->rdma_mtu
+    );
     client->image = g_strdup(qdict_get_try_str(options, "image"));
     client->readonly = (flags & BDRV_O_RDWR) ? 1 : 0;
     if (client->image)
@@ -241,6 +257,10 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     }
     bs->total_sectors = client->size / BDRV_SECTOR_SIZE;
     //client->aio_context = bdrv_get_aio_context(bs);
+    qdict_del(options, "rdma_mtu");
+    qdict_del(options, "rdma_gid_index");
+    qdict_del(options, "rdma_port_num");
+    qdict_del(options, "rdma_device");
     qdict_del(options, "etcd_host");
     qdict_del(options, "etcd_prefix");
     qdict_del(options, "image");

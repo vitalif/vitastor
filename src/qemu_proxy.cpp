@@ -34,12 +34,17 @@ public:
     cluster_client_t *cli;
     AioContext *ctx;
 
-    QemuProxy(AioContext *ctx, const char *etcd_host, const char *etcd_prefix)
+    QemuProxy(AioContext *ctx, const char *etcd_host, const char *etcd_prefix,
+        const char *rdma_device, int rdma_port_num, int rdma_gid_index, int rdma_mtu)
     {
         this->ctx = ctx;
         json11::Json cfg = json11::Json::object {
             { "etcd_address", std::string(etcd_host) },
             { "etcd_prefix", std::string(etcd_prefix ? etcd_prefix : "/vitastor") },
+            { "rdma_device", std::string(rdma_device ? rdma_device : "") },
+            { "rdma_port_num", rdma_port_num },
+            { "rdma_gid_index", rdma_gid_index },
+            { "rdma_mtu", rdma_mtu },
         };
         tfd = new timerfd_manager_t([this](int fd, bool wr, std::function<void(int, int)> callback) { set_fd_handler(fd, wr, callback); });
         cli = new cluster_client_t(NULL, tfd, cfg);
@@ -80,9 +85,10 @@ public:
 
 extern "C" {
 
-void* vitastor_proxy_create(AioContext *ctx, const char *etcd_host, const char *etcd_prefix)
+void* vitastor_proxy_create(AioContext *ctx, const char *etcd_host, const char *etcd_prefix,
+    const char *rdma_device, int rdma_port_num, int rdma_gid_index, int rdma_mtu)
 {
-    QemuProxy *p = new QemuProxy(ctx, etcd_host, etcd_prefix);
+    QemuProxy *p = new QemuProxy(ctx, etcd_host, etcd_prefix, rdma_device, rdma_port_num, rdma_gid_index, rdma_mtu);
     return p;
 }
 
