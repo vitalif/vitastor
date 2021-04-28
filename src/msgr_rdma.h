@@ -6,9 +6,6 @@
 #include <string>
 #include <vector>
 
-// FIXME: Allow to configure this option
-#define RDMA_MAX_MSG 4194304
-
 struct msgr_rdma_address_t
 {
     ibv_gid gid;
@@ -49,12 +46,13 @@ struct msgr_rdma_connection_t
     msgr_rdma_address_t addr;
     int max_send = 0, max_recv = 0, max_sge = 0;
     int cur_send = 0, cur_recv = 0;
+    uint64_t max_msg = 0;
 
     int send_pos = 0, send_buf_pos = 0;
     int recv_pos = 0, recv_buf_pos = 0;
     std::vector<void*> recv_buffers;
 
     ~msgr_rdma_connection_t();
-    static msgr_rdma_connection_t *create(msgr_rdma_context_t *ctx, uint32_t max_send, uint32_t max_recv, uint32_t max_sge);
+    static msgr_rdma_connection_t *create(msgr_rdma_context_t *ctx, uint32_t max_send, uint32_t max_recv, uint32_t max_sge, uint32_t max_msg);
     int connect(msgr_rdma_address_t *dest);
 };

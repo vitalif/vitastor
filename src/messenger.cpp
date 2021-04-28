@@ -370,12 +370,12 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
 #ifdef WITH_RDMA
     if (rdma_context)
     {
-        cl->rdma_conn = msgr_rdma_connection_t::create(rdma_context, rdma_max_send, rdma_max_recv, rdma_max_sge);
+        cl->rdma_conn = msgr_rdma_connection_t::create(rdma_context, rdma_max_send, rdma_max_recv, rdma_max_sge, rdma_max_msg);
         if (cl->rdma_conn)
         {
             json11::Json payload = json11::Json::object {
                 { "connect_rdma", cl->rdma_conn->addr.to_string() },
-                { "rdma_max_sge", rdma_max_sge },
+                { "rdma_max_msg", cl->rdma_conn->max_msg },
             };
             std::string payload_str = payload.dump();
             op->req.show_conf.json_len = payload_str.size();
@@ -448,10 +448,10 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
             }
             else
             {
-                uint64_t server_max_sge = config["rdma_max_sge"].uint64_value();
-                if (cl->rdma_conn->max_sge > server_max_sge)
+                uint64_t server_max_msg = config["rdma_max_msg"].uint64_value();
+                if (cl->rdma_conn->max_msg > server_max_msg)
                 {
-                    cl->rdma_conn->max_sge = server_max_sge;
+                    cl->rdma_conn->max_msg = server_max_msg;
                 }
                 printf("Connected to OSD %lu using RDMA\n", cl->osd_num);
                 cl->peer_state = PEER_RDMA;
@@ -506,9 +506,4 @@ void osd_messenger_t::accept_connections(int listen_fd)
 bool osd_messenger_t::is_rdma_enabled()
 {
     return rdma_context != NULL;
-}
-
-uint64_t osd_messenger_t::get_rdma_max_sge()
-{
-    return rdma_max_sge;
 }

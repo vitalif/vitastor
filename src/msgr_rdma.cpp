@@ -166,7 +166,8 @@ cleanup:
     return NULL;
 }
 
-msgr_rdma_connection_t *msgr_rdma_connection_t::create(msgr_rdma_context_t *ctx, uint32_t max_send, uint32_t max_recv, uint32_t max_sge)
+msgr_rdma_connection_t *msgr_rdma_connection_t::create(msgr_rdma_context_t *ctx, uint32_t max_send,
+    uint32_t max_recv, uint32_t max_sge, uint32_t max_msg)
 {
     msgr_rdma_connection_t *conn = new msgr_rdma_connection_t;
 
@@ -176,6 +177,7 @@ msgr_rdma_connection_t *msgr_rdma_connection_t::create(msgr_rdma_context_t *ctx,
     conn->max_send = max_send;
     conn->max_recv = max_recv;
     conn->max_sge = max_sge;
+    conn->max_msg = max_msg;
 
     ctx->used_max_cqe += max_send+max_recv;
     if (ctx->used_max_cqe > ctx->max_cqe)
@@ -296,17 +298,17 @@ int msgr_rdma_connection_t::connect(msgr_rdma_address_t *dest)
     return 0;
 }
 
-bool osd_messenger_t::connect_rdma(int peer_fd, std::string rdma_address, uint64_t client_max_sge)
+bool osd_messenger_t::connect_rdma(int peer_fd, std::string rdma_address, uint64_t client_max_msg)
 {
     // Try to connect to the peer using RDMA
     msgr_rdma_address_t addr;
     if (msgr_rdma_address_t::from_string(rdma_address.c_str(), &addr))
     {
-        if (client_max_sge > rdma_max_sge)
+        if (client_max_msg > rdma_max_msg)
         {
-            client_max_sge = rdma_max_sge;
+            client_max_msg = rdma_max_msg;
         }
-        auto rdma_conn = msgr_rdma_connection_t::create(rdma_context, rdma_max_send, rdma_max_recv, rdma_max_sge);
+        auto rdma_conn = msgr_rdma_connection_t::create(rdma_context, rdma_max_send, rdma_max_recv, rdma_max_sge, client_max_msg);
         if (rdma_conn)
         {
             int r = rdma_conn->connect(&addr);
@@ -363,7 +365,7 @@ bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
     while (rc->send_pos < cl->send_list.size())
     {
         iovec & iov = cl->send_list[rc->send_pos];
-        if (op_size >= RDMA_MAX_MSG || op_sge >= rc->max_sge)
+        if (op_size >= rc->max_msg || op_sge >= rc->max_sge)
         {
             try_send_rdma_wr(cl, sge, op_sge);
             op_sge = 0;
@@ -373,8 +375,8 @@ bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
                 break;
             }
         }
-        uint32_t len = (uint32_t)(op_size+iov.iov_len-rc->send_buf_pos < RDMA_MAX_MSG
-            ? iov.iov_len-rc->send_buf_pos : RDMA_MAX_MSG-op_size);
+        uint32_t len = (uint32_t)(op_size+iov.iov_len-rc->send_buf_pos < rc->max_msg
+            ? iov.iov_len-rc->send_buf_pos : rc->max_msg-op_size);
         sge[op_sge++] = {
             .addr = (uintptr_t)(iov.iov_base+rc->send_buf_pos),
             .length = len,
@@ -417,11 +419,11 @@ bool osd_messenger_t::try_recv_rdma(osd_client_t *cl)
     auto rc = cl->rdma_conn;
     while (rc->cur_recv < rc->max_recv)
     {
-        void *buf = malloc_or_die(RDMA_MAX_MSG);
+        void *buf = malloc_or_die(rc->max_msg);
         rc->recv_buffers.push_back(buf);
         ibv_sge sge = {
             .addr = (uintptr_t)buf,
-            .length = RDMA_MAX_MSG,
+            .length = (uint32_t)rc->max_msg,
             .lkey = rc->ctx->mr->lkey,
         };
         try_recv_rdma_wr(cl, &sge, 1);
