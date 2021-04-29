@@ -116,7 +116,7 @@ public:
             "Vitastor NBD proxy\n"
             "(c) Vitaliy Filippov, 2020-2021 (VNPL-1.1)\n\n"
             "USAGE:\n"
-            "  %s map --etcd_address <etcd_address> (--image <image> | --pool <pool> --inode <inode> --size <size in bytes>)\n"
+            "  %s map [--etcd_address <etcd_address>] (--image <image> | --pool <pool> --inode <inode> --size <size in bytes>)\n"
             "  %s unmap /dev/nbd0\n"
             "  %s list [--json]\n",
             exe_name, exe_name, exe_name
@@ -146,11 +146,6 @@ public:
     void start(json11::Json cfg)
     {
         // Check options
-        if (cfg["etcd_address"].string_value() == "")
-        {
-            fprintf(stderr, "etcd_address is missing\n");
-            exit(1);
-        }
         if (cfg["image"].string_value() != "")
         {
             // Use image name

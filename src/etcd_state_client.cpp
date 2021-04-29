@@ -50,6 +50,11 @@ void etcd_state_client_t::etcd_txn(json11::Json txn, int timeout, std::function<
 
 void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback)
 {
+    if (!etcd_addresses.size())
+    {
+        fprintf(stderr, "etcd_address is missing in Vitastor configuration\n");
+        exit(1);
+    }
     std::string etcd_address = etcd_addresses[rand() % etcd_addresses.size()];
     std::string etcd_api_path;
     int pos = etcd_address.find('/');
@@ -122,6 +127,11 @@ void etcd_state_client_t::parse_config(const json11::Json & config)
 
 void etcd_state_client_t::start_etcd_watcher()
 {
+    if (!etcd_addresses.size())
+    {
+        fprintf(stderr, "etcd_address is missing in Vitastor configuration\n");
+        exit(1);
+    }
     std::string etcd_address = etcd_addresses[rand() % etcd_addresses.size()];
     std::string etcd_api_path;
     int pos = etcd_address.find('/');

@@ -16,7 +16,7 @@ extern "C" {
 
 // Our exports
 typedef void VitastorIOHandler(long retval, void *opaque);
-void* vitastor_proxy_create(AioContext *ctx, const char *etcd_host, const char *etcd_prefix,
+void* vitastor_proxy_create(AioContext *ctx, const char *config_path, const char *etcd_host, const char *etcd_prefix,
     const char *rdma_device, int rdma_port_num, int rdma_gid_index, int rdma_mtu);
 void vitastor_proxy_destroy(void *client);
 void vitastor_proxy_rw(int write, void *client, uint64_t inode, uint64_t offset, uint64_t len,

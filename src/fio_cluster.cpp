@@ -45,6 +45,7 @@ struct sec_data
 struct sec_options
 {
     int __pad;
+    char *config_path = NULL;
     char *etcd_host = NULL;
     char *etcd_prefix = NULL;
     char *image = NULL;
@@ -60,6 +61,15 @@ struct sec_options
 };
 
 static struct fio_option options[] = {
+    {
+        .name   = "conf",
+        .lname  = "Vitastor config path",
+        .type   = FIO_OPT_STR_STORE,
+        .off1   = offsetof(struct sec_options, config_path),
+        .help   = "Vitastor config path",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
     {
         .name   = "etcd",
         .lname  = "etcd address",
@@ -131,7 +141,7 @@ static struct fio_option options[] = {
         .type   = FIO_OPT_BOOL,
         .off1   = offsetof(struct sec_options, use_rdma),
         .help   = "Use RDMA",
-        .def    = "0",
+        .def    = "-1",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
     },
@@ -184,12 +194,6 @@ static int sec_setup(struct thread_data *td)
     sec_options *o = (sec_options*)td->eo;
     sec_data *bsd;
 
-    if (!o->etcd_host)
-    {
-        td_verror(td, EINVAL, "etcd address is missing");
-        return 1;
-    }
-
     bsd = new sec_data;
     if (!bsd)
     {
@@ -205,16 +209,26 @@ static int sec_setup(struct thread_data *td)
         td->o.open_files++;
     }
 
-    json11::Json cfg = json11::Json::object {
-        { "etcd_address", std::string(o->etcd_host) },
-        { "etcd_prefix", std::string(o->etcd_prefix ? o->etcd_prefix : "/vitastor") },
-        { "log_level", o->cluster_log },
-        { "use_rdma", o->use_rdma },
-        { "rdma_device", std::string(o->rdma_device ? o->rdma_device : "") },
-        { "rdma_port_num", o->rdma_port_num },
-        { "rdma_gid_index", o->rdma_gid_index },
-        { "rdma_mtu", o->rdma_mtu },
-    };
+    json11::Json::object cfg;
+    if (o->config_path)
+        cfg["config_path"] = std::string(o->config_path);
+    if (o->etcd_host)
+        cfg["etcd_address"] = std::string(o->etcd_host);
+    if (o->etcd_prefix)
+        cfg["etcd_prefix"] = std::string(o->etcd_prefix);
+    if (o->rdma_device)
+        cfg["rdma_device"] = std::string(o->rdma_device);
+    if (o->rdma_port_num)
+        cfg["rdma_port_num"] = o->rdma_port_num;
+    if (o->rdma_gid_index)
+        cfg["rdma_gid_index"] = o->rdma_gid_index;
+    if (o->rdma_mtu)
+        cfg["rdma_mtu"] = o->rdma_mtu;
+    if (o->cluster_log)
+        cfg["log_level"] = o->cluster_log;
+    if (o->use_rdma != -1)
+        cfg["use_rdma"] = o->use_rdma;
+    json11::Json cfg_json(cfg);
 
     if (!o->image)
     {
@@ -239,7 +253,7 @@ static int sec_setup(struct thread_data *td)
     }
     bsd->ringloop = new ring_loop_t(512);
     bsd->epmgr = new epoll_manager_t(bsd->ringloop);
-    bsd->cli = new cluster_client_t(bsd->ringloop, bsd->epmgr->tfd, cfg);
+    bsd->cli = new cluster_client_t(bsd->ringloop, bsd->epmgr->tfd, cfg_json);
     if (o->image)
     {
         while (!bsd->cli->is_ready())

@@ -40,6 +40,7 @@ typedef struct VitastorClient
 {
     void *proxy;
     void *watch;
+    char *config_path;
     char *etcd_host;
     char *etcd_prefix;
     char *image;
@@ -99,7 +100,8 @@ static void qemu_rbd_unescape(char *src)
 }
 
 // vitastor[:key=value]*
-// vitastor:etcd_host=127.0.0.1:inode=1:pool=1[:rdma_gid_index=3]
+// vitastor[:etcd_host=127.0.0.1]:inode=1:pool=1[:rdma_gid_index=3]
+// vitastor:config_path=/etc/vitastor/vitastor.conf:image=testimg
 static void vitastor_parse_filename(const char *filename, QDict *options, Error **errp)
 {
     const char *start;
@@ -166,11 +168,6 @@ static void vitastor_parse_filename(const char *filename, QDict *options, Error 
             goto out;
         }
     }
-    if (!qdict_get_str(options, "etcd_host"))
-    {
-        error_setg(errp, "etcd_host is missing");
-        goto out;
-    }
 
 out:
     g_free(buf);
@@ -198,6 +195,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     VitastorClient *client = bs->opaque;
     int64_t ret = 0;
     qemu_mutex_init(&client->mutex);
+    client->config_path = g_strdup(qdict_get_try_str(options, "config_path"));
     client->etcd_host = g_strdup(qdict_get_try_str(options, "etcd_host"));
     client->etcd_prefix = g_strdup(qdict_get_try_str(options, "etcd_prefix"));
     client->rdma_device = g_strdup(qdict_get_try_str(options, "rdma_device"));
@@ -205,7 +203,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     client->rdma_gid_index = qdict_get_int(options, "rdma_gid_index");
     client->rdma_mtu = qdict_get_int(options, "rdma_mtu");
     client->proxy = vitastor_proxy_create(
-        bdrv_get_aio_context(bs), client->etcd_host, client->etcd_prefix,
+        bdrv_get_aio_context(bs), client->config_path, client->etcd_host, client->etcd_prefix,
         client->rdma_device, client->rdma_port_num, client->rdma_gid_index, client->rdma_mtu
     );
     client->image = g_strdup(qdict_get_try_str(options, "image"));
@@ -261,6 +259,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     qdict_del(options, "rdma_gid_index");
     qdict_del(options, "rdma_port_num");
     qdict_del(options, "rdma_device");
+    qdict_del(options, "config_path");
     qdict_del(options, "etcd_host");
     qdict_del(options, "etcd_prefix");
     qdict_del(options, "image");
@@ -275,7 +274,10 @@ static void vitastor_close(BlockDriverState *bs)
     VitastorClient *client = bs->opaque;
     vitastor_proxy_destroy(client->proxy);
     qemu_mutex_destroy(&client->mutex);
-    g_free(client->etcd_host);
+    if (client->config_path)
+        g_free(client->config_path);
+    if (client->etcd_host)
+        g_free(client->etcd_host);
     if (client->etcd_prefix)
         g_free(client->etcd_prefix);
     if (client->image)
@@ -498,6 +500,7 @@ static QEMUOptionParameter vitastor_create_opts[] = {
 static const char *vitastor_strong_runtime_opts[] = {
     "inode",
     "pool",
+    "config_path",
     "etcd_host",
     "etcd_prefix",
 

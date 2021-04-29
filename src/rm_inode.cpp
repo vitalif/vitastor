@@ -87,7 +87,7 @@ public:
             "Vitastor inode removal tool\n"
             "(c) Vitaliy Filippov, 2020 (VNPL-1.1)\n\n"
             "USAGE:\n"
-            "  %s --etcd_address <etcd_address> --pool <pool> --inode <inode> [--wait-list]\n",
+            "  %s [--etcd_address <etcd_address>] --pool <pool> --inode <inode> [--wait-list]\n",
             exe_name
         );
         exit(0);
@@ -95,11 +95,6 @@ public:
 
     void run(json11::Json cfg)
     {
-        if (cfg["etcd_address"].string_value() == "")
-        {
-            fprintf(stderr, "etcd_address is missing\n");
-            exit(1);
-        }
         inode = cfg["inode"].uint64_value();
         pool_id = cfg["pool"].uint64_value();
         if (pool_id)
