@@ -21,7 +21,7 @@ void osd_t::init_cluster()
         {
             // Test version of clustering code with 1 pool, 1 PG and 2 peers
             // Example: peers = 2:127.0.0.1:11204,3:127.0.0.1:11205
-            std::string peerstr = config["peers"];
+            std::string peerstr = config["peers"].string_value();
             while (peerstr.size())
             {
                 int pos = peerstr.find(',');
@@ -340,21 +340,10 @@ void osd_t::on_change_pg_history_hook(pool_id_t pool_id, pg_num_t pg_num)
 
 void osd_t::on_load_config_hook(json11::Json::object & global_config)
 {
-    blockstore_config_t osd_config = this->config;
-    for (auto & cfg_var: global_config)
-    {
-        if (this->config.find(cfg_var.first) == this->config.end())
-        {
-            if (cfg_var.second.is_string())
-            {
-                osd_config[cfg_var.first] = cfg_var.second.string_value();
-            }
-            else
-            {
-                osd_config[cfg_var.first] = cfg_var.second.dump();
-            }
-        }
-    }
+    json11::Json::object osd_config = this->config;
+    for (auto & kv: global_config)
+        if (osd_config.find(kv.first) == osd_config.end())
+            osd_config[kv.first] = kv.second;
     parse_config(osd_config);
     bind_socket();
     acquire_lease();
@@ -380,7 +369,7 @@ void osd_t::acquire_lease()
         etcd_lease_id = data["ID"].string_value();
         create_osd_state();
     });
-    printf("[OSD %lu] reporting to etcd at %s every %d seconds\n", this->osd_num, config["etcd_address"].c_str(), etcd_report_interval);
+    printf("[OSD %lu] reporting to etcd at %s every %d seconds\n", this->osd_num, config["etcd_address"].string_value().c_str(), etcd_report_interval);
     tfd->set_timer(etcd_report_interval*1000, true, [this](int timer_id)
     {
         renew_lease();

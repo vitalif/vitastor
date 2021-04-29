@@ -85,7 +85,7 @@ void etcd_state_client_t::add_etcd_url(std::string addr)
     }
 }
 
-void etcd_state_client_t::parse_config(json11::Json & config)
+void etcd_state_client_t::parse_config(const json11::Json & config)
 {
     this->etcd_addresses.clear();
     if (config["etcd_address"].is_string())
@@ -342,7 +342,7 @@ void etcd_state_client_t::load_pgs()
     });
 }
 #else
-void etcd_state_client_t::parse_config(json11::Json & config)
+void etcd_state_client_t::parse_config(const json11::Json & config)
 {
 }
 

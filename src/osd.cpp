@@ -10,31 +10,39 @@
 #include "osd.h"
 #include "http_client.h"
 
-osd_t::osd_t(blockstore_config_t & config, ring_loop_t *ringloop)
+static blockstore_config_t json_to_bs(const json11::Json::object & config)
 {
-    bs_block_size = strtoull(config["block_size"].c_str(), NULL, 10);
-    bs_bitmap_granularity = strtoull(config["bitmap_granularity"].c_str(), NULL, 10);
-    if (!bs_block_size)
-        bs_block_size = DEFAULT_BLOCK_SIZE;
-    if (!bs_bitmap_granularity)
-        bs_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
-    clean_entry_bitmap_size = bs_block_size / bs_bitmap_granularity / 8;
+    blockstore_config_t bs;
+    for (auto kv: config)
+    {
+        if (kv.second.is_string())
+            bs[kv.first] = kv.second.string_value();
+        else
+            bs[kv.first] = kv.second.dump();
+    }
+    return bs;
+}
 
+osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
+{
     zero_buffer_size = 1<<20;
     zero_buffer = malloc_or_die(zero_buffer_size);
     memset(zero_buffer, 0, zero_buffer_size);
 
-    this->config = config;
+    this->config = config.object_items();
     this->ringloop = ringloop;
+
+    if (this->config.find("log_level") == this->config.end())
+        this->config["log_level"] = 1;
+    parse_config(this->config);
 
     epmgr = new epoll_manager_t(ringloop);
     // FIXME: Use timerfd_interval based directly on io_uring
     this->tfd = epmgr->tfd;
 
     // FIXME: Create Blockstore from on-disk superblock config and check it against the OSD cluster config
-    this->bs = new blockstore_t(config, ringloop, tfd);
-
-    parse_config(config);
+    auto bs_cfg = json_to_bs(this->config);
+    this->bs = new blockstore_t(bs_cfg, ringloop, tfd);
 
     this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
     {
@@ -66,63 +74,69 @@ osd_t::~osd_t()
     free(zero_buffer);
 }
 
-void osd_t::parse_config(blockstore_config_t & config)
+void osd_t::parse_config(const json11::Json & config)
 {
-    if (config.find("log_level") == config.end())
-        config["log_level"] = "1";
-    log_level = strtoull(config["log_level"].c_str(), NULL, 10);
-    // Initial startup configuration
-    json11::Json json_config = json11::Json(config);
-    st_cli.parse_config(json_config);
-    etcd_report_interval = strtoull(config["etcd_report_interval"].c_str(), NULL, 10);
-    if (etcd_report_interval <= 0)
-        etcd_report_interval = 30;
-    osd_num = strtoull(config["osd_num"].c_str(), NULL, 10);
+    st_cli.parse_config(config);
+    msgr.parse_config(config);
+    // OSD number
+    osd_num = config["osd_num"].uint64_value();
     if (!osd_num)
         throw std::runtime_error("osd_num is required in the configuration");
     msgr.osd_num = osd_num;
+    // Vital Blockstore parameters
+    bs_block_size = config["block_size"].uint64_value();
+    if (!bs_block_size)
+        bs_block_size = DEFAULT_BLOCK_SIZE;
+    bs_bitmap_granularity = config["bitmap_granularity"].uint64_value();
+    if (!bs_bitmap_granularity)
+        bs_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
+    clean_entry_bitmap_size = bs_block_size / bs_bitmap_granularity / 8;
+    // Bind address
+    bind_address = config["bind_address"].string_value();
+    if (bind_address == "")
+        bind_address = "0.0.0.0";
+    bind_port = config["bind_port"].uint64_value();
+    if (bind_port <= 0 || bind_port > 65535)
+        bind_port = 0;
+    // OSD configuration
+    log_level = config["log_level"].uint64_value();
+    etcd_report_interval = config["etcd_report_interval"].uint64_value();
+    if (etcd_report_interval <= 0)
+        etcd_report_interval = 30;
+    readonly = config["readonly"] == "true" || config["readonly"] == "1" || config["readonly"] == "yes";
     run_primary = config["run_primary"] != "false" && config["run_primary"] != "0" && config["run_primary"] != "no";
     no_rebalance = config["no_rebalance"] == "true" || config["no_rebalance"] == "1" || config["no_rebalance"] == "yes";
     no_recovery = config["no_recovery"] == "true" || config["no_recovery"] == "1" || config["no_recovery"] == "yes";
     allow_test_ops = config["allow_test_ops"] == "true" || config["allow_test_ops"] == "1" || config["allow_test_ops"] == "yes";
-    // Cluster configuration
-    bind_address = config["bind_address"];
-    if (bind_address == "")
-        bind_address = "0.0.0.0";
-    bind_port = stoull_full(config["bind_port"]);
-    if (bind_port <= 0 || bind_port > 65535)
-        bind_port = 0;
     if (config["immediate_commit"] == "all")
         immediate_commit = IMMEDIATE_ALL;
     else if (config["immediate_commit"] == "small")
         immediate_commit = IMMEDIATE_SMALL;
-    if (config.find("autosync_interval") != config.end())
+    if (!config["autosync_interval"].is_null())
     {
-        autosync_interval = strtoull(config["autosync_interval"].c_str(), NULL, 10);
+        // Allow to set it to 0
+        autosync_interval = config["autosync_interval"].uint64_value();
         if (autosync_interval > MAX_AUTOSYNC_INTERVAL)
             autosync_interval = DEFAULT_AUTOSYNC_INTERVAL;
     }
-    if (config.find("client_queue_depth") != config.end())
+    if (!config["client_queue_depth"].is_null())
     {
-        client_queue_depth = strtoull(config["client_queue_depth"].c_str(), NULL, 10);
+        client_queue_depth = config["client_queue_depth"].uint64_value();
         if (client_queue_depth < 128)
             client_queue_depth = 128;
     }
-    recovery_queue_depth = strtoull(config["recovery_queue_depth"].c_str(), NULL, 10);
+    recovery_queue_depth = config["recovery_queue_depth"].uint64_value();
     if (recovery_queue_depth < 1 || recovery_queue_depth > MAX_RECOVERY_QUEUE)
         recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
-    recovery_sync_batch = strtoull(config["recovery_sync_batch"].c_str(), NULL, 10);
+    recovery_sync_batch = config["recovery_sync_batch"].uint64_value();
     if (recovery_sync_batch < 1 || recovery_sync_batch > MAX_RECOVERY_QUEUE)
         recovery_sync_batch = DEFAULT_RECOVERY_BATCH;
-    if (config["readonly"] == "true" || config["readonly"] == "1" || config["readonly"] == "yes")
-        readonly = true;
-    print_stats_interval = strtoull(config["print_stats_interval"].c_str(), NULL, 10);
+    print_stats_interval = config["print_stats_interval"].uint64_value();
     if (!print_stats_interval)
         print_stats_interval = 3;
-    slow_log_interval = strtoull(config["slow_log_interval"].c_str(), NULL, 10);
+    slow_log_interval = config["slow_log_interval"].uint64_value();
     if (!slow_log_interval)
         slow_log_interval = 10;
-    msgr.parse_config(json_config);
 }
 
 void osd_t::bind_socket()

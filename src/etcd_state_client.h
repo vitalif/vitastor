@@ -106,7 +106,7 @@ public:
     void load_global_config();
     void load_pgs();
     void parse_state(const etcd_kv_t & kv);
-    void parse_config(json11::Json & config);
+    void parse_config(const json11::Json & config);
     inode_watch_t* watch_inode(std::string name);
     void close_watch(inode_watch_t* watch);
     ~etcd_state_client_t();

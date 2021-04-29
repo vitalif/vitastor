@@ -29,13 +29,13 @@ int main(int narg, char *args[])
         perror("BUG: too small packet size");
         return 1;
     }
-    blockstore_config_t config;
+    json11::Json::object config;
     for (int i = 1; i < narg; i++)
     {
         if (args[i][0] == '-' && args[i][1] == '-' && i < narg-1)
         {
             char *opt = args[i]+2;
-            config[opt] = args[++i];
+            config[std::string(opt)] = std::string(args[++i]);
         }
     }
     signal(SIGINT, handle_sigint);

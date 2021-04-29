@@ -92,7 +92,7 @@ class osd_t
 {
     // config
 
-    blockstore_config_t config;
+    json11::Json::object config;
     int etcd_report_interval = 30;
 
     bool readonly = false;
@@ -167,7 +167,7 @@ class osd_t
     uint64_t recovery_stat_bytes[2][2] = { 0 };
 
     // cluster connection
-    void parse_config(blockstore_config_t & config);
+    void parse_config(const json11::Json & config);
     void init_cluster();
     void on_change_osd_state_hook(osd_num_t peer_osd);
     void on_change_pg_history_hook(pool_id_t pool_id, pg_num_t pg_num);
@@ -268,7 +268,7 @@ class osd_t
     }
 
 public:
-    osd_t(blockstore_config_t & config, ring_loop_t *ringloop);
+    osd_t(const json11::Json & config, ring_loop_t *ringloop);
     ~osd_t();
     void force_stop(int exitcode);
     bool shutdown();
