@@ -41,6 +41,12 @@ const etcd_allow = new RegExp('^'+[
 const etcd_tree = {
     config: {
         /* global: {
+            // WARNING: NOT ALL OF THESE ARE ACTUALLY CONFIGURABLE HERE
+            // THIS IS JUST A POOR'S MAN CONFIG DOCUMENTATION
+            // etcd connection
+            config_path: "/etc/vitastor/vitastor.conf",
+            etcd_address: "10.0.115.10:2379/v3",
+            etcd_prefix: "/vitastor",
             // mon
             etcd_mon_ttl: 30, // min: 10
             etcd_mon_timeout: 1000, // ms. min: 0
@@ -50,7 +56,17 @@ const etcd_tree = {
             osd_out_time: 600, // seconds. min: 0
             placement_levels: { datacenter: 1, rack: 2, host: 3, osd: 4, ... },
             // client and osd
+            tcp_header_buffer_size: 65536,
             use_sync_send_recv: false,
+            use_rdma: true,
+            rdma_device: null, // for example, "rocep5s0f0"
+            rdma_port_num: 1,
+            rdma_gid_index: 0,
+            rdma_mtu: 4096,
+            rdma_max_sge: 128,
+            rdma_max_send: 32,
+            rdma_max_recv: 8,
+            rdma_max_msg: 1048576,
             log_level: 0,
             block_size: 131072,
             disk_alignment: 4096,
