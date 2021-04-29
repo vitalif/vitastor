@@ -43,11 +43,6 @@ int blockstore_t::read_bitmap(object_id oid, uint64_t target_version, void *bitm
     return impl->read_bitmap(oid, target_version, bitmap, result_version);
 }
 
-std::unordered_map<object_id, uint64_t> & blockstore_t::get_unstable_writes()
-{
-    return impl->unstable_writes;
-}
-
 std::map<uint64_t, uint64_t> & blockstore_t::get_inode_space_stats()
 {
     return impl->inode_space_stats;

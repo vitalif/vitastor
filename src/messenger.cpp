@@ -131,36 +131,46 @@ void osd_messenger_t::parse_config(const json11::Json & config)
 {
 #ifdef WITH_RDMA
     if (!config["use_rdma"].is_null())
+    {
+        // RDMA is on by default in RDMA-enabled builds
         this->use_rdma = config["use_rdma"].bool_value() || config["use_rdma"].uint64_value() != 0;
+    }
     this->rdma_device = config["rdma_device"].string_value();
     this->rdma_port_num = (uint8_t)config["rdma_port_num"].uint64_value();
     if (!this->rdma_port_num)
         this->rdma_port_num = 1;
     this->rdma_gid_index = (uint8_t)config["rdma_gid_index"].uint64_value();
     this->rdma_mtu = (uint32_t)config["rdma_mtu"].uint64_value();
+    this->rdma_max_sge = config["rdma_max_sge"].uint64_value();
+    if (!this->rdma_max_sge)
+        this->rdma_max_sge = 128;
+    this->rdma_max_send = config["rdma_max_send"].uint64_value();
+    if (!this->rdma_max_send)
+        this->rdma_max_send = 32;
+    this->rdma_max_recv = config["rdma_max_recv"].uint64_value();
+    if (!this->rdma_max_recv)
+        this->rdma_max_recv = 8;
+    this->rdma_max_msg = config["rdma_max_msg"].uint64_value();
+    if (!this->rdma_max_msg || this->rdma_max_msg > 128*1024*1024)
+        this->rdma_max_msg = 1024*1024;
 #endif
+    this->receive_buffer_size = (uint32_t)config["tcp_header_buffer_size"].uint64_value();
+    if (!this->receive_buffer_size || this->receive_buffer_size > 1024*1024*1024)
+        this->receive_buffer_size = 65536;
     this->use_sync_send_recv = config["use_sync_send_recv"].bool_value() ||
         config["use_sync_send_recv"].uint64_value();
     this->peer_connect_interval = config["peer_connect_interval"].uint64_value();
     if (!this->peer_connect_interval)
-    {
-        this->peer_connect_interval = DEFAULT_PEER_CONNECT_INTERVAL;
-    }
+        this->peer_connect_interval = 5;
     this->peer_connect_timeout = config["peer_connect_timeout"].uint64_value();
     if (!this->peer_connect_timeout)
-    {
-        this->peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
-    }
+        this->peer_connect_timeout = 5;
     this->osd_idle_timeout = config["osd_idle_timeout"].uint64_value();
     if (!this->osd_idle_timeout)
-    {
-        this->osd_idle_timeout = DEFAULT_OSD_PING_TIMEOUT;
-    }
+        this->osd_idle_timeout = 5;
     this->osd_ping_timeout = config["osd_ping_timeout"].uint64_value();
     if (!this->osd_ping_timeout)
-    {
-        this->osd_ping_timeout = DEFAULT_OSD_PING_TIMEOUT;
-    }
+        this->osd_ping_timeout = 5;
     this->log_level = config["log_level"].uint64_value();
 }
 
@@ -506,4 +516,52 @@ void osd_messenger_t::accept_connections(int listen_fd)
 bool osd_messenger_t::is_rdma_enabled()
 {
     return rdma_context != NULL;
+}
+
+json11::Json osd_messenger_t::read_config(const json11::Json & config)
+{
+    const char *config_path = config["config_path"].string_value() != ""
+        ? config["config_path"].string_value().c_str() : VITASTOR_CONFIG_PATH;
+    int fd = open(config_path, O_RDONLY);
+    if (fd < 0)
+    {
+        fprintf(stderr, "Error reading %s: %s\n", config_path, strerror(errno));
+        return config;
+    }
+    struct stat st;
+    if (fstat(fd, &st) != 0)
+    {
+        fprintf(stderr, "Error reading %s: %s\n", config_path, strerror(errno));
+        close(fd);
+        return config;
+    }
+    std::string buf;
+    buf.resize(st.st_size);
+    int done = 0;
+    while (done < st.st_size)
+    {
+        int r = read(fd, (void*)buf.data()+done, st.st_size-done);
+        if (r < 0)
+        {
+            fprintf(stderr, "Error reading %s: %s\n", config_path, strerror(errno));
+            close(fd);
+            return config;
+        }
+        done += r;
+    }
+    close(fd);
+    std::string json_err;
+    json11::Json::object file_config = json11::Json::parse(buf, json_err).object_items();
+    if (json_err != "")
+    {
+        fprintf(stderr, "Invalid JSON in %s: %s\n", config_path, json_err.c_str());
+        return config;
+    }
+    file_config.erase("config_path");
+    file_config.erase("osd_num");
+    for (auto kv: config.object_items())
+    {
+        file_config[kv.first] = kv.second;
+    }
+    return file_config;
 }

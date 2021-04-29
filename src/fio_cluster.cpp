@@ -24,7 +24,6 @@
 #include <netinet/tcp.h>
 
 #include <vector>
-#include <unordered_map>
 
 #include "epoll_manager.h"
 #include "cluster_client.h"

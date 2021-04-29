@@ -42,3 +42,8 @@ void osd_messenger_t::read_requests()
 void osd_messenger_t::send_replies()
 {
 }
+
+json11::Json osd_messenger_t::read_config(const json11::Json & config)
+{
+    return config;
+}

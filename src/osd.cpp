@@ -29,9 +29,9 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
     zero_buffer = malloc_or_die(zero_buffer_size);
     memset(zero_buffer, 0, zero_buffer_size);
 
-    this->config = config.object_items();
     this->ringloop = ringloop;
 
+    this->config = msgr.read_config(config).object_items();
     if (this->config.find("log_level") == this->config.end())
         this->config["log_level"] = 1;
     parse_config(this->config);

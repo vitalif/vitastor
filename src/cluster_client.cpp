@@ -16,6 +16,8 @@
 
 cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config)
 {
+    config = osd_messenger_t::read_config(config);
+
     this->ringloop = ringloop;
     this->tfd = tfd;
     this->config = config;

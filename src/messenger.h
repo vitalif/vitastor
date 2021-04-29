@@ -33,10 +33,8 @@
 #define PEER_RDMA 4
 #define PEER_STOPPED 5
 
-#define DEFAULT_PEER_CONNECT_INTERVAL 5
-#define DEFAULT_PEER_CONNECT_TIMEOUT 5
-#define DEFAULT_OSD_PING_TIMEOUT 5
 #define DEFAULT_BITMAP_GRANULARITY 4096
+#define VITASTOR_CONFIG_PATH "/etc/vitastor/vitastor.conf"
 
 #define MSGR_SENDP_HDR 1
 #define MSGR_SENDP_FREE 2
@@ -122,12 +120,11 @@ struct osd_messenger_t
 protected:
     int keepalive_timer_id = -1;
 
-    // FIXME: make receive_buffer_size configurable
-    int receive_buffer_size = 64*1024;
-    int peer_connect_interval = DEFAULT_PEER_CONNECT_INTERVAL;
-    int peer_connect_timeout = DEFAULT_PEER_CONNECT_TIMEOUT;
-    int osd_idle_timeout = DEFAULT_OSD_PING_TIMEOUT;
-    int osd_ping_timeout = DEFAULT_OSD_PING_TIMEOUT;
+    uint32_t receive_buffer_size = 0;
+    int peer_connect_interval = 0;
+    int peer_connect_timeout = 0;
+    int osd_idle_timeout = 0;
+    int osd_ping_timeout = 0;
     int log_level = 0;
     bool use_sync_send_recv = false;
 
@@ -136,9 +133,8 @@ protected:
     std::string rdma_device;
     uint64_t rdma_port_num = 1, rdma_gid_index = 0, rdma_mtu = 0;
     msgr_rdma_context_t *rdma_context = NULL;
-    // FIXME: Allow to configure these options
-    uint64_t rdma_max_sge = 128, rdma_max_send = 32, rdma_max_recv = 8;
-    uint64_t rdma_max_msg = 1024*1024;
+    uint64_t rdma_max_sge = 0, rdma_max_send = 0, rdma_max_recv = 8;
+    uint64_t rdma_max_msg = 0;
 #endif
 
     std::vector<int> read_ready_clients;
@@ -168,6 +164,8 @@ public:
     void send_replies();
     void accept_connections(int listen_fd);
     ~osd_messenger_t();
+
+    static json11::Json read_config(const json11::Json & config);
 
 #ifdef WITH_RDMA
     bool is_rdma_enabled();
