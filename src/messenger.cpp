@@ -525,7 +525,8 @@ json11::Json osd_messenger_t::read_config(const json11::Json & config)
     int fd = open(config_path, O_RDONLY);
     if (fd < 0)
     {
-        fprintf(stderr, "Error reading %s: %s\n", config_path, strerror(errno));
+        if (errno != ENOENT)
+            fprintf(stderr, "Error reading %s: %s\n", config_path, strerror(errno));
         return config;
     }
     struct stat st;

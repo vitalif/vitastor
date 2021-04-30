@@ -199,9 +199,9 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     client->etcd_host = g_strdup(qdict_get_try_str(options, "etcd_host"));
     client->etcd_prefix = g_strdup(qdict_get_try_str(options, "etcd_prefix"));
     client->rdma_device = g_strdup(qdict_get_try_str(options, "rdma_device"));
-    client->rdma_port_num = qdict_get_int(options, "rdma_port_num");
-    client->rdma_gid_index = qdict_get_int(options, "rdma_gid_index");
-    client->rdma_mtu = qdict_get_int(options, "rdma_mtu");
+    client->rdma_port_num = qdict_get_try_int(options, "rdma_port_num", 0);
+    client->rdma_gid_index = qdict_get_try_int(options, "rdma_gid_index", 0);
+    client->rdma_mtu = qdict_get_try_int(options, "rdma_mtu", 0);
     client->proxy = vitastor_proxy_create(
         bdrv_get_aio_context(bs), client->config_path, client->etcd_host, client->etcd_prefix,
         client->rdma_device, client->rdma_port_num, client->rdma_gid_index, client->rdma_mtu

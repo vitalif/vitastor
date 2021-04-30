@@ -112,6 +112,8 @@ void osd_t::parse_config(const json11::Json & config)
         immediate_commit = IMMEDIATE_ALL;
     else if (config["immediate_commit"] == "small")
         immediate_commit = IMMEDIATE_SMALL;
+    else
+        immediate_commit = IMMEDIATE_NONE;
     if (!config["autosync_interval"].is_null())
     {
         // Allow to set it to 0
