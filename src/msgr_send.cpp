@@ -272,7 +272,10 @@ void osd_messenger_t::handle_send(int result, osd_client_t *cl)
         {
             // FIXME: Do something better than just forgetting the FD
             // FIXME: Ignore pings during RDMA state transition
-            printf("Successfully connected with client %d using RDMA\n", cl->peer_fd);
+            if (log_level > 0)
+            {
+                printf("Successfully connected with client %d using RDMA\n", cl->peer_fd);
+            }
             cl->peer_state = PEER_RDMA;
             tfd->set_fd_handler(cl->peer_fd, false, NULL);
             // Add the initial receive request

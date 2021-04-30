@@ -463,7 +463,10 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
                 {
                     cl->rdma_conn->max_msg = server_max_msg;
                 }
-                printf("Connected to OSD %lu using RDMA\n", cl->osd_num);
+                if (log_level > 0)
+                {
+                    printf("Connected to OSD %lu using RDMA\n", cl->osd_num);
+                }
                 cl->peer_state = PEER_RDMA;
                 tfd->set_fd_handler(cl->peer_fd, false, NULL);
                 // Add the initial receive request
