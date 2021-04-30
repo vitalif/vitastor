@@ -954,13 +954,14 @@ int cluster_client_t::continue_sync(cluster_op_t *op)
         return 1;
     }
     // Check that all OSD connections are still alive
-    for (auto sync_osd: dirty_osds)
+    for (auto do_it = dirty_osds.begin(); do_it != dirty_osds.end(); )
     {
+        osd_num_t sync_osd = *do_it;
         auto peer_it = msgr.osd_peer_fds.find(sync_osd);
         if (peer_it == msgr.osd_peer_fds.end())
-        {
-            return 0;
-        }
+            dirty_osds.erase(do_it++);
+        else
+            do_it++;
     }
     // Post sync to affected OSDs
     for (auto & prev_op: dirty_buffers)
