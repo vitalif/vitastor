@@ -14,6 +14,7 @@ BuildRequires:  rh-nodejs12
 BuildRequires:  rh-nodejs12-npm
 BuildRequires:  jerasure-devel
 BuildRequires:  gf-complete-devel
+BuildRequires:  libibverbs-devel
 BuildRequires:  cmake
 Requires:       fio = 3.7-1.el7
 Requires:       qemu-kvm = 2.0.0-1.el7.6
@@ -61,8 +62,8 @@ cp -r mon %buildroot/usr/lib/vitastor/mon
 %_libdir/libfio_vitastor.so
 %_libdir/libfio_vitastor_blk.so
 %_libdir/libfio_vitastor_sec.so
-%_libdir/libvitastor_blk.so
-%_libdir/libvitastor_client.so
+%_libdir/libvitastor_blk.so*
+%_libdir/libvitastor_client.so*
 /usr/lib/vitastor
 
 

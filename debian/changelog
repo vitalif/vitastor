@@ -1,8 +1,18 @@
 vitastor (0.6.2-1) unstable; urgency=medium
 
+  * RDMA support
   * Bugfixes
 
- -- Vitaliy Filippov <vitalif@yourcmc.ru>  Tue, 02 Feb 2021 23:01:24 +0300
+ -- Vitaliy Filippov <vitalif@yourcmc.ru>  Sat, 01 May 2021 18:46:10 +0300
+
+vitastor (0.6.0-1) unstable; urgency=medium
+
+  * Snapshots and Copy-on-Write clones
+  * Image metadata in etcd (name, size)
+  * Image I/O and space statistics in etcd
+  * Write throttling for smoothing random write workloads in SSD+HDD configurations
+
+ -- Vitaliy Filippov <vitalif@yourcmc.ru>  Sun, 11 Apr 2021 00:49:18 +0300
 
 vitastor (0.5.1-1) unstable; urgency=medium
 

@@ -22,7 +22,7 @@ RUN apt-get -y build-dep qemu
 RUN apt-get -y build-dep fio
 RUN apt-get --download-only source qemu
 RUN apt-get --download-only source fio
-RUN apt-get -y install libjerasure-dev cmake
+RUN apt-get update && apt-get -y install libjerasure-dev cmake libibverbs-dev
 
 ADD . /root/vitastor
 RUN set -e -x; \

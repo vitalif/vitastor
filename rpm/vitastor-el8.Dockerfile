@@ -15,6 +15,7 @@ RUN rpm --nomd5 -i qemu*.src.rpm
 RUN rpm --nomd5 -i fio*.src.rpm
 RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo=powertools --spec qemu-kvm.spec
 RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo=powertools --spec fio.spec && dnf install -y cmake
+RUN yum -y install libibverbs-devel
 
 ADD https://vitastor.io/rpms/liburing-el7/liburing-0.7-2.el7.src.rpm /root
 

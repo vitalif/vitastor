@@ -13,6 +13,7 @@ BuildRequires:  gcc-toolset-9-gcc-c++
 BuildRequires:  nodejs >= 10
 BuildRequires:  jerasure-devel
 BuildRequires:  gf-complete-devel
+BuildRequires:  libibverbs-devel
 BuildRequires:  cmake
 Requires:       fio = 3.7-3.el8
 Requires:       qemu-kvm = 4.2.0-29.el8.6
@@ -58,8 +59,8 @@ cp -r mon %buildroot/usr/lib/vitastor
 %_libdir/libfio_vitastor.so
 %_libdir/libfio_vitastor_blk.so
 %_libdir/libfio_vitastor_sec.so
-%_libdir/libvitastor_blk.so
-%_libdir/libvitastor_client.so
+%_libdir/libvitastor_blk.so*
+%_libdir/libvitastor_client.so*
 /usr/lib/vitastor
 
 
