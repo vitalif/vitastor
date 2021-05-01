@@ -1,4 +1,4 @@
-vitastor (0.6.2-1) unstable; urgency=medium
+vitastor (0.6.3-1) unstable; urgency=medium
 
   * RDMA support
   * Bugfixes

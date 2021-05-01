@@ -2,6 +2,6 @@ cmake_minimum_required(VERSION 2.8)
 
 project(vitastor)
 
-set(VERSION "0.6.2")
+set(VERSION "0.6.3")
 
 add_subdirectory(src)
