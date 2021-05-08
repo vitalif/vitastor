@@ -516,10 +516,12 @@ void osd_messenger_t::accept_connections(int listen_fd)
     }
 }
 
+#ifdef WITH_RDMA
 bool osd_messenger_t::is_rdma_enabled()
 {
     return rdma_context != NULL;
 }
+#endif
 
 json11::Json osd_messenger_t::read_config(const json11::Json & config)
 {
