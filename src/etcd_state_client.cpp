@@ -84,7 +84,7 @@ void etcd_state_client_t::add_etcd_url(std::string addr)
             printf("HTTPS is unsupported for etcd. Either use plain HTTP or setup a local proxy for etcd interaction\n");
             exit(1);
         }
-        if (addr.find('/') < 0)
+        if (addr.find('/') == std::string::npos)
             addr += "/v3";
         this->etcd_addresses.push_back(addr);
     }
