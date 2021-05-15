@@ -10,6 +10,7 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <sys/un.h>
+#include <sys/epoll.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -200,9 +201,10 @@ public:
         fcntl(sockfd[0], F_SETFL, fcntl(sockfd[0], F_GETFL, 0) | O_NONBLOCK);
         nbd_fd = sockfd[0];
         load_module();
+        bool bg = cfg["foreground"].is_null();
         if (!cfg["dev_num"].is_null())
         {
-            if (run_nbd(sockfd, cfg["dev_num"].int64_value(), device_size, NBD_FLAG_SEND_FLUSH, 30) < 0)
+            if (run_nbd(sockfd, cfg["dev_num"].int64_value(), device_size, NBD_FLAG_SEND_FLUSH, 30, bg) < 0)
             {
                 perror("run_nbd");
                 exit(1);
@@ -214,7 +216,7 @@ public:
             int i = 0;
             while (true)
             {
-                int r = run_nbd(sockfd, i, device_size, NBD_FLAG_SEND_FLUSH, 30);
+                int r = run_nbd(sockfd, i, device_size, NBD_FLAG_SEND_FLUSH, 30, bg);
                 if (r == 0)
                 {
                     printf("/dev/nbd%d\n", i);
@@ -237,7 +239,7 @@ public:
                 }
             }
         }
-        if (cfg["foreground"].is_null())
+        if (bg)
         {
             daemonize();
         }
@@ -254,17 +256,42 @@ public:
         };
         ringloop->register_consumer(&consumer);
         // Add FD to epoll
-        epmgr->tfd->set_fd_handler(sockfd[0], false, [this](int peer_fd, int epoll_events)
+        bool stop = false;
+        epmgr->tfd->set_fd_handler(sockfd[0], false, [this, &stop](int peer_fd, int epoll_events)
         {
-            read_ready++;
-            submit_read();
+            if (epoll_events & EPOLLRDHUP)
+            {
+                close(peer_fd);
+                stop = true;
+            }
+            else
+            {
+                read_ready++;
+                submit_read();
+            }
         });
-        while (1)
+        while (!stop)
         {
             ringloop->loop();
             ringloop->wait();
         }
-        // FIXME: Cleanup when exiting
+        stop = false;
+        cluster_op_t *close_sync = new cluster_op_t;
+        close_sync->opcode = OSD_OP_SYNC;
+        close_sync->callback = [this, &stop](cluster_op_t *op)
+        {
+            stop = true;
+            delete op;
+        };
+        cli->execute(close_sync);
+        while (!stop)
+        {
+            ringloop->loop();
+            ringloop->wait();
+        }
+        delete cli;
+        delete epmgr;
+        delete ringloop;
     }
 
     void load_module()
@@ -411,7 +438,7 @@ public:
     }
 
 protected:
-    int run_nbd(int sockfd[2], int dev_num, uint64_t size, uint64_t flags, unsigned timeout)
+    int run_nbd(int sockfd[2], int dev_num, uint64_t size, uint64_t flags, unsigned timeout, bool bg)
     {
         // Check handle size
         assert(sizeof(cur_req.handle) == 8);
@@ -459,11 +486,14 @@ protected:
         {
             // Run in child
             close(sockfd[0]);
+            if (bg)
+            {
+                daemonize();
+            }
             r = ioctl(nbd, NBD_DO_IT);
             if (r < 0)
             {
                 fprintf(stderr, "NBD device terminated with error: %s\n", strerror(errno));
-                kill(getppid(), SIGTERM);
             }
             close(sockfd[1]);
             ioctl(nbd, NBD_CLEAR_QUE);
