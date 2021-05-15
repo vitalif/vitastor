@@ -269,7 +269,7 @@ public:
 
     void load_module()
     {
-        if (access("/sys/module/nbd", F_OK))
+        if (access("/sys/module/nbd", F_OK) == 0)
         {
             return;
         }
