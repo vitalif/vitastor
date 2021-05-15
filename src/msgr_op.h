@@ -76,7 +76,7 @@ struct osd_op_buf_list_t
                 buf = (iovec*)malloc(sizeof(iovec) * alloc);
                 if (!buf)
                 {
-                    printf("Failed to allocate %lu bytes\n", sizeof(iovec) * alloc);
+                    fprintf(stderr, "Failed to allocate %lu bytes\n", sizeof(iovec) * alloc);
                     exit(1);
                 }
                 memcpy(buf, inline_buf, sizeof(iovec) * old);
@@ -87,7 +87,7 @@ struct osd_op_buf_list_t
                 buf = (iovec*)realloc(buf, sizeof(iovec) * alloc);
                 if (!buf)
                 {
-                    printf("Failed to allocate %lu bytes\n", sizeof(iovec) * alloc);
+                    fprintf(stderr, "Failed to allocate %lu bytes\n", sizeof(iovec) * alloc);
                     exit(1);
                 }
             }
@@ -109,7 +109,7 @@ struct osd_op_buf_list_t
                 buf = (iovec*)malloc(sizeof(iovec) * alloc);
                 if (!buf)
                 {
-                    printf("Failed to allocate %lu bytes\n", sizeof(iovec) * alloc);
+                    fprintf(stderr, "Failed to allocate %lu bytes\n", sizeof(iovec) * alloc);
                     exit(1);
                 }
                 memcpy(buf, inline_buf, sizeof(iovec)*old);
@@ -120,7 +120,7 @@ struct osd_op_buf_list_t
                 buf = (iovec*)realloc(buf, sizeof(iovec) * alloc);
                 if (!buf)
                 {
-                    printf("Failed to allocate %lu bytes\n", sizeof(iovec) * alloc);
+                    fprintf(stderr, "Failed to allocate %lu bytes\n", sizeof(iovec) * alloc);
                     exit(1);
                 }
             }

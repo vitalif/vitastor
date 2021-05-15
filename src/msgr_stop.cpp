@@ -58,11 +58,11 @@ void osd_messenger_t::stop_client(int peer_fd, bool force)
     {
         if (cl->osd_num)
         {
-            printf("[OSD %lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl->osd_num);
+            fprintf(stderr, "[OSD %lu] Stopping client %d (OSD peer %lu)\n", osd_num, peer_fd, cl->osd_num);
         }
         else
         {
-            printf("[OSD %lu] Stopping client %d (regular client)\n", osd_num, peer_fd);
+            fprintf(stderr, "[OSD %lu] Stopping client %d (regular client)\n", osd_num, peer_fd);
         }
     }
     // First set state to STOPPED so another stop_client() call doesn't try to free it again

@@ -227,7 +227,7 @@ void osd_messenger_t::handle_send(int result, osd_client_t *cl)
     if (result < 0 && result != -EAGAIN)
     {
         // this is a client socket, so don't panic. just disconnect it
-        printf("Client %d socket write error: %d (%s). Disconnecting client\n", cl->peer_fd, -result, strerror(-result));
+        fprintf(stderr, "Client %d socket write error: %d (%s). Disconnecting client\n", cl->peer_fd, -result, strerror(-result));
         stop_client(cl->peer_fd);
         return;
     }
@@ -274,7 +274,7 @@ void osd_messenger_t::handle_send(int result, osd_client_t *cl)
             // FIXME: Ignore pings during RDMA state transition
             if (log_level > 0)
             {
-                printf("Successfully connected with client %d using RDMA\n", cl->peer_fd);
+                fprintf(stderr, "Successfully connected with client %d using RDMA\n", cl->peer_fd);
             }
             cl->peer_state = PEER_RDMA;
             tfd->set_fd_handler(cl->peer_fd, false, NULL);

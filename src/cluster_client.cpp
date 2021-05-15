@@ -51,7 +51,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     msgr.exec_op = [this](osd_op_t *op)
     {
         // Garbage in
-        printf("Incoming garbage from peer %d\n", op->peer_fd);
+        fprintf(stderr, "Incoming garbage from peer %d\n", op->peer_fd);
         msgr.stop_client(op->peer_fd);
         delete op;
     };
@@ -1072,8 +1072,8 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
     if (part->op.reply.hdr.retval != expected)
     {
         // Operation failed, retry
-        printf(
-            "%s operation failed on OSD %lu: retval=%ld (expected %d), dropping connection\n",
+        fprintf(
+            stderr, "%s operation failed on OSD %lu: retval=%ld (expected %d), dropping connection\n",
             osd_op_names[part->op.req.hdr.opcode], part->osd_num, part->op.reply.hdr.retval, expected
         );
         if (part->op.reply.hdr.retval == -EPIPE)

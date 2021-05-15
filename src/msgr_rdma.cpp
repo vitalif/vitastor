@@ -315,8 +315,8 @@ bool osd_messenger_t::connect_rdma(int peer_fd, std::string rdma_address, uint64
             if (r != 0)
             {
                 delete rdma_conn;
-                printf(
-                    "Failed to connect RDMA queue pair to %s (client %d)\n",
+                fprintf(
+                    stderr, "Failed to connect RDMA queue pair to %s (client %d)\n",
                     addr.to_string().c_str(), peer_fd
                 );
             }
@@ -346,7 +346,7 @@ static void try_send_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
     int err = ibv_post_send(cl->rdma_conn->qp, &wr, &bad_wr);
     if (err || bad_wr)
     {
-        printf("RDMA send failed: %s\n", strerror(err));
+        fprintf(stderr, "RDMA send failed: %s\n", strerror(err));
         exit(1);
     }
     cl->rdma_conn->cur_send++;
@@ -408,7 +408,7 @@ static void try_recv_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
     int err = ibv_post_recv(cl->rdma_conn->qp, &wr, &bad_wr);
     if (err || bad_wr)
     {
-        printf("RDMA receive failed: %s\n", strerror(err));
+        fprintf(stderr, "RDMA receive failed: %s\n", strerror(err));
         exit(1);
     }
     cl->rdma_conn->cur_recv++;
@@ -445,7 +445,7 @@ void osd_messenger_t::handle_rdma_events()
     }
     if (ibv_req_notify_cq(rdma_context->cq, 0) != 0)
     {
-        printf("Failed to request RDMA completion notification, exiting\n");
+        fprintf(stderr, "Failed to request RDMA completion notification, exiting\n");
         exit(1);
     }
     ibv_wc wc[RDMA_EVENTS_AT_ONCE];
@@ -465,12 +465,12 @@ void osd_messenger_t::handle_rdma_events()
             osd_client_t *cl = cl_it->second;
             if (wc[i].status != IBV_WC_SUCCESS)
             {
-                printf("RDMA work request failed for client %d", client_id);
+                fprintf(stderr, "RDMA work request failed for client %d", client_id);
                 if (cl->osd_num)
                 {
-                    printf(" (OSD %lu)", cl->osd_num);
+                    fprintf(stderr, " (OSD %lu)", cl->osd_num);
                 }
-                printf(" with status: %s, stopping client\n", ibv_wc_status_str(wc[i].status));
+                fprintf(stderr, " with status: %s, stopping client\n", ibv_wc_status_str(wc[i].status));
                 stop_client(client_id);
                 continue;
             }
