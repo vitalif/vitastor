@@ -4,7 +4,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: test-vitastor-pvc
 spec:
-  storageClassName: vitastor-csi-storage-class
+  storageClassName: vitastor
   accessModes:
     - ReadWriteOnce
   resources:

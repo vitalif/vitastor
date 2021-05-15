@@ -16,7 +16,6 @@ with configurable redundancy (replication or erasure codes/XOR).
 Vitastor is currently a pre-release, a lot of features are missing and you can still expect
 breaking changes in the future. However, the following is implemented:
 
-0.5.x (stable):
 - Basic part: highly-available block storage with symmetric clustering and no SPOF
 - Performance ;-D
 - Multiple redundancy schemes: Replication, XOR n+1, Reed-Solomon erasure codes
@@ -37,19 +36,18 @@ breaking changes in the future. However, the following is implemented:
 - NBD proxy for kernel mounts
 - Inode removal tool (vitastor-rm)
 - Packaging for Debian and CentOS
-
-0.6.x (master):
 - Per-inode I/O and space usage statistics
 - Inode metadata storage in etcd
 - Snapshots and copy-on-write image clones
 - Write throttling to smooth random write workloads in SSD+HDD configurations
 - RDMA/RoCEv2 support via libibverbs
+- CSI plugin for Kubernetes
 
 ## Roadmap
 
 - Better OSD creation and auto-start tools
 - Other administrative tools
-- Plugins for OpenStack, Kubernetes, OpenNebula, Proxmox and other cloud systems
+- Plugins for OpenStack, OpenNebula, Proxmox and other cloud systems
 - iSCSI proxy
 - Faster failover
 - Scrubbing without checksums (verification of replicas)
@@ -460,6 +458,21 @@ vitastor-nbd map --etcd_address 10.115.0.10:2379/v3 --image testimg
 It will output the device name, like /dev/nbd0 which you can then format and mount as a normal block device.
 
 Again, you can use `--pool <POOL> --inode <INODE> --size <SIZE>` insteaf of `--image <IMAGE>` if you want.
+
+### Kubernetes
+
+Vitastor has a CSI plugin for Kubernetes which supports RWO volumes.
+
+To deploy it, take manifests from [csi/deploy/](csi/deploy/) directory, put your
+Vitastor configuration in [csi/deploy/001-csi-config-map.yaml](001-csi-config-map.yaml),
+configure storage class in [csi/deploy/009-storage-class.yaml](009-storage-class.yaml)
+and apply all `NNN-*.yaml` manifests to your Kubernetes installation:
+
+```
+for i in ./???-*.yaml; do kubectl apply -f $i; done
+```
+
+After that you'll be able to create PersistentVolumes. See example in [csi/deploy/example-pvc.yaml](csi/deploy/example-pvc.yaml).
 
 ## Known Problems
 
