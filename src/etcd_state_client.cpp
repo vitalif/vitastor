@@ -35,7 +35,7 @@ etcd_kv_t etcd_state_client_t::parse_etcd_kv(const json11::Json & kv_json)
     kv.value = json_text == "" ? json11::Json() : json11::Json::parse(json_text, json_err);
     if (json_err != "")
     {
-        printf("Bad JSON in etcd key %s: %s (value: %s)\n", kv.key.c_str(), json_err.c_str(), json_text.c_str());
+        fprintf(stderr, "Bad JSON in etcd key %s: %s (value: %s)\n", kv.key.c_str(), json_err.c_str(), json_text.c_str());
         kv.key = "";
     }
     else
@@ -81,7 +81,7 @@ void etcd_state_client_t::add_etcd_url(std::string addr)
             addr = addr.substr(7);
         else if (strtolower(addr.substr(0, 8)) == "https://")
         {
-            printf("HTTPS is unsupported for etcd. Either use plain HTTP or setup a local proxy for etcd interaction\n");
+            fprintf(stderr, "HTTPS is unsupported for etcd. Either use plain HTTP or setup a local proxy for etcd interaction\n");
             exit(1);
         }
         if (addr.find('/') == std::string::npos)
@@ -149,7 +149,7 @@ void etcd_state_client_t::start_etcd_watcher()
             json11::Json data = json11::Json::parse(msg->body, json_err);
             if (json_err != "")
             {
-                printf("Bad JSON in etcd event: %s, ignoring event\n", json_err.c_str());
+                fprintf(stderr, "Bad JSON in etcd event: %s, ignoring event\n", json_err.c_str());
             }
             else
             {
@@ -175,7 +175,7 @@ void etcd_state_client_t::start_etcd_watcher()
                 {
                     if (this->log_level > 3)
                     {
-                        printf("Incoming event: %s -> %s\n", kv.first.c_str(), kv.second.value.dump().c_str());
+                        fprintf(stderr, "Incoming event: %s -> %s\n", kv.first.c_str(), kv.second.value.dump().c_str());
                     }
                     parse_state(kv.second);
                 }
@@ -250,7 +250,7 @@ void etcd_state_client_t::load_global_config()
     {
         if (err != "")
         {
-            printf("Error reading OSD configuration from etcd: %s\n", err.c_str());
+            fprintf(stderr, "Error reading OSD configuration from etcd: %s\n", err.c_str());
             tfd->set_timer(ETCD_SLOW_TIMEOUT, false, [this](int timer_id)
             {
                 load_global_config();
@@ -323,7 +323,7 @@ void etcd_state_client_t::load_pgs()
     {
         if (err != "")
         {
-            printf("Error loading PGs from etcd: %s\n", err.c_str());
+            fprintf(stderr, "Error loading PGs from etcd: %s\n", err.c_str());
             tfd->set_timer(ETCD_SLOW_TIMEOUT, false, [this](int timer_id)
             {
                 load_pgs();
@@ -386,7 +386,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             sscanf(pool_item.first.c_str(), "%u%c", &pool_id, &null_byte);
             if (!pool_id || pool_id >= POOL_ID_MAX || null_byte != 0)
             {
-                printf("Pool ID %s is invalid (must be a number less than 0x%x), skipping pool\n", pool_item.first.c_str(), POOL_ID_MAX);
+                fprintf(stderr, "Pool ID %s is invalid (must be a number less than 0x%x), skipping pool\n", pool_item.first.c_str(), POOL_ID_MAX);
                 continue;
             }
             pc.id = pool_id;
@@ -394,7 +394,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             pc.name = pool_item.second["name"].string_value();
             if (pc.name == "")
             {
-                printf("Pool %u has empty name, skipping pool\n", pool_id);
+                fprintf(stderr, "Pool %u has empty name, skipping pool\n", pool_id);
                 continue;
             }
             // Failure Domain
@@ -408,7 +408,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 pc.scheme = POOL_SCHEME_JERASURE;
             else
             {
-                printf("Pool %u has invalid coding scheme (one of \"xor\", \"replicated\" or \"jerasure\" required), skipping pool\n", pool_id);
+                fprintf(stderr, "Pool %u has invalid coding scheme (one of \"xor\", \"replicated\" or \"jerasure\" required), skipping pool\n", pool_id);
                 continue;
             }
             // PG Size
@@ -418,7 +418,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 (pc.scheme == POOL_SCHEME_XOR || pc.scheme == POOL_SCHEME_JERASURE) ||
                 pool_item.second["pg_size"].uint64_value() > 256)
             {
-                printf("Pool %u has invalid pg_size, skipping pool\n", pool_id);
+                fprintf(stderr, "Pool %u has invalid pg_size, skipping pool\n", pool_id);
                 continue;
             }
             // Parity Chunks
@@ -427,7 +427,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             {
                 if (pc.parity_chunks > 1)
                 {
-                    printf("Pool %u has invalid parity_chunks (must be 1), skipping pool\n", pool_id);
+                    fprintf(stderr, "Pool %u has invalid parity_chunks (must be 1), skipping pool\n", pool_id);
                     continue;
                 }
                 pc.parity_chunks = 1;
@@ -435,7 +435,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             if (pc.scheme == POOL_SCHEME_JERASURE &&
                 (pc.parity_chunks < 1 || pc.parity_chunks > pc.pg_size-2))
             {
-                printf("Pool %u has invalid parity_chunks (must be between 1 and pg_size-2), skipping pool\n", pool_id);
+                fprintf(stderr, "Pool %u has invalid parity_chunks (must be between 1 and pg_size-2), skipping pool\n", pool_id);
                 continue;
             }
             // PG MinSize
@@ -444,14 +444,14 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 (pc.scheme == POOL_SCHEME_XOR || pc.scheme == POOL_SCHEME_JERASURE) &&
                 pc.pg_minsize < (pc.pg_size-pc.parity_chunks))
             {
-                printf("Pool %u has invalid pg_minsize, skipping pool\n", pool_id);
+                fprintf(stderr, "Pool %u has invalid pg_minsize, skipping pool\n", pool_id);
                 continue;
             }
             // PG Count
             pc.pg_count = pool_item.second["pg_count"].uint64_value();
             if (pc.pg_count < 1)
             {
-                printf("Pool %u has invalid pg_count, skipping pool\n", pool_id);
+                fprintf(stderr, "Pool %u has invalid pg_count, skipping pool\n", pool_id);
                 continue;
             }
             // Max OSD Combinations
@@ -460,7 +460,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 pc.max_osd_combinations = 10000;
             if (pc.max_osd_combinations > 0 && pc.max_osd_combinations < 100)
             {
-                printf("Pool %u has invalid max_osd_combinations (must be at least 100), skipping pool\n", pool_id);
+                fprintf(stderr, "Pool %u has invalid max_osd_combinations (must be at least 100), skipping pool\n", pool_id);
                 continue;
             }
             // PG Stripe Size
@@ -478,7 +478,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             {
                 if (pg_item.second.target_set.size() != parsed_cfg.pg_size)
                 {
-                    printf("Pool %u PG %u configuration is invalid: osd_set size %lu != pool pg_size %lu\n",
+                    fprintf(stderr, "Pool %u PG %u configuration is invalid: osd_set size %lu != pool pg_size %lu\n",
                         pool_id, pg_item.first, pg_item.second.target_set.size(), parsed_cfg.pg_size);
                     pg_item.second.pause = true;
                 }
@@ -501,7 +501,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             sscanf(pool_item.first.c_str(), "%u%c", &pool_id, &null_byte);
             if (!pool_id || pool_id >= POOL_ID_MAX || null_byte != 0)
             {
-                printf("Pool ID %s is invalid in PG configuration (must be a number less than 0x%x), skipping pool\n", pool_item.first.c_str(), POOL_ID_MAX);
+                fprintf(stderr, "Pool ID %s is invalid in PG configuration (must be a number less than 0x%x), skipping pool\n", pool_item.first.c_str(), POOL_ID_MAX);
                 continue;
             }
             for (auto & pg_item: pool_item.second.object_items())
@@ -510,7 +510,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 sscanf(pg_item.first.c_str(), "%u%c", &pg_num, &null_byte);
                 if (!pg_num || null_byte != 0)
                 {
-                    printf("Bad key in pool %u PG configuration: %s (must be a number), skipped\n", pool_id, pg_item.first.c_str());
+                    fprintf(stderr, "Bad key in pool %u PG configuration: %s (must be a number), skipped\n", pool_id, pg_item.first.c_str());
                     continue;
                 }
                 auto & parsed_cfg = this->pool_config[pool_id].pg_config[pg_num];
@@ -524,7 +524,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 }
                 if (parsed_cfg.target_set.size() != pool_config[pool_id].pg_size)
                 {
-                    printf("Pool %u PG %u configuration is invalid: osd_set size %lu != pool pg_size %lu\n",
+                    fprintf(stderr, "Pool %u PG %u configuration is invalid: osd_set size %lu != pool pg_size %lu\n",
                         pool_id, pg_num, parsed_cfg.target_set.size(), pool_config[pool_id].pg_size);
                     parsed_cfg.pause = true;
                 }
@@ -537,8 +537,8 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             {
                 if (pg_it->second.exists && pg_it->first != ++n)
                 {
-                    printf(
-                        "Invalid pool %u PG configuration: PG numbers don't cover whole 1..%lu range\n",
+                    fprintf(
+                        stderr, "Invalid pool %u PG configuration: PG numbers don't cover whole 1..%lu range\n",
                         pool_item.second.id, pool_item.second.pg_config.size()
                     );
                     for (pg_it = pool_item.second.pg_config.begin(); pg_it != pool_item.second.pg_config.end(); pg_it++)
@@ -561,7 +561,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         sscanf(key.c_str() + etcd_prefix.length()+12, "%u/%u%c", &pool_id, &pg_num, &null_byte);
         if (!pool_id || pool_id >= POOL_ID_MAX || !pg_num || null_byte != 0)
         {
-            printf("Bad etcd key %s, ignoring\n", key.c_str());
+            fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
         }
         else
         {
@@ -600,7 +600,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         sscanf(key.c_str() + etcd_prefix.length()+10, "%u/%u%c", &pool_id, &pg_num, &null_byte);
         if (!pool_id || pool_id >= POOL_ID_MAX || !pg_num || null_byte != 0)
         {
-            printf("Bad etcd key %s, ignoring\n", key.c_str());
+            fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
         }
         else if (value.is_null())
         {
@@ -624,7 +624,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 }
                 if (i >= pg_state_bit_count)
                 {
-                    printf("Unexpected pool %u PG %u state keyword in etcd: %s\n", pool_id, pg_num, e.dump().c_str());
+                    fprintf(stderr, "Unexpected pool %u PG %u state keyword in etcd: %s\n", pool_id, pg_num, e.dump().c_str());
                     return;
                 }
             }
@@ -633,7 +633,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 (state & PG_PEERING) && state != PG_PEERING ||
                 (state & PG_INCOMPLETE) && state != PG_INCOMPLETE)
             {
-                printf("Unexpected pool %u PG %u state in etcd: primary=%lu, state=%s\n", pool_id, pg_num, cur_primary, value["state"].dump().c_str());
+                fprintf(stderr, "Unexpected pool %u PG %u state in etcd: primary=%lu, state=%s\n", pool_id, pg_num, cur_primary, value["state"].dump().c_str());
                 return;
             }
             this->pool_config[pool_id].pg_config[pg_num].cur_primary = cur_primary;
@@ -671,7 +671,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         sscanf(key.c_str() + etcd_prefix.length()+14, "%lu/%lu%c", &pool_id, &inode_num, &null_byte);
         if (!pool_id || pool_id >= POOL_ID_MAX || !inode_num || (inode_num >> (64-POOL_ID_BITS)) || null_byte != 0)
         {
-            printf("Bad etcd key %s, ignoring\n", key.c_str());
+            fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
         }
         else
         {
@@ -706,8 +706,8 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                         parent_inode_num |= pool_id << (64-POOL_ID_BITS);
                     else if (parent_pool_id >= POOL_ID_MAX)
                     {
-                        printf(
-                            "Inode %lu/%lu parent_pool value is invalid, ignoring parent setting\n",
+                        fprintf(
+                            stderr, "Inode %lu/%lu parent_pool value is invalid, ignoring parent setting\n",
                             inode_num >> (64-POOL_ID_BITS), inode_num & ((1l << (64-POOL_ID_BITS)) - 1)
                         );
                         parent_inode_num = 0;
