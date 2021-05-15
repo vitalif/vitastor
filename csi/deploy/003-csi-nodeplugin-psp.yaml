@@ -1,0 +1,72 @@
+---
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  namespace: vitastor-system
+  name: vitastor-csi-nodeplugin-psp
+spec:
+  allowPrivilegeEscalation: true
+  allowedCapabilities:
+    - 'SYS_ADMIN'
+  fsGroup:
+    rule: RunAsAny
+  privileged: true
+  hostNetwork: true
+  hostPID: true
+  runAsUser:
+    rule: RunAsAny
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: RunAsAny
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'hostPath'
+  allowedHostPaths:
+    - pathPrefix: '/dev'
+      readOnly: false
+    - pathPrefix: '/run/mount'
+      readOnly: false
+    - pathPrefix: '/sys'
+      readOnly: false
+    - pathPrefix: '/lib/modules'
+      readOnly: true
+    - pathPrefix: '/var/lib/kubelet/pods'
+      readOnly: false
+    - pathPrefix: '/var/lib/kubelet/plugins/csi.vitastor.io'
+      readOnly: false
+    - pathPrefix: '/var/lib/kubelet/plugins_registry'
+      readOnly: false
+    - pathPrefix: '/var/lib/kubelet/plugins'
+      readOnly: false
+
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: vitastor-system
+  name: vitastor-csi-nodeplugin-psp
+rules:
+  - apiGroups: ['policy']
+    resources: ['podsecuritypolicies']
+    verbs: ['use']
+    resourceNames: ['vitastor-csi-nodeplugin-psp']
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: vitastor-system
+  name: vitastor-csi-nodeplugin-psp
+subjects:
+  - kind: ServiceAccount
+    name: vitastor-csi-nodeplugin
+    namespace: vitastor-system
+roleRef:
+  kind: Role
+  name: vitastor-csi-nodeplugin-psp
+  apiGroup: rbac.authorization.k8s.io

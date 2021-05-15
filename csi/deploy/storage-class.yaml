@@ -1,0 +1,19 @@
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  namespace: vitastor-system
+  name: vitastor-csi-storage-class
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: csi.vitastor.io
+volumeBindingMode: Immediate
+parameters:
+  etcdVolumePrefix: ""
+  poolId: "1"
+  # you can choose other configuration file if you have it in the config map
+  #configPath: "/etc/vitastor/vitastor.conf"
+  # you can also specify etcdUrl here, maybe to connect to another Vitastor cluster
+  # multiple etcdUrls may be specified, delimited by comma
+  #etcdUrl: "http://192.168.7.2:2379"
+  #etcdPrefix: "/vitastor"
