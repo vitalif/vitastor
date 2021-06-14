@@ -200,6 +200,14 @@ target_link_libraries(osd_peering_pg_test tcmalloc_minimal)
 # test_allocator
 add_executable(test_allocator test_allocator.cpp allocator.cpp)
 
+# test_cas
+add_executable(test_cas
+	test_cas.cpp
+)
+target_link_libraries(test_cas
+	vitastor_client
+)
+
 # test_cluster_client
 add_executable(test_cluster_client
 	test_cluster_client.cpp
