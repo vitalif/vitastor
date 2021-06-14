@@ -65,7 +65,10 @@ int osd_t::read_bitmaps(osd_op_t *cur_op, pg_t & pg, int base_state)
             auto vo_it = pg.ver_override.find(cur_oid);
             auto read_version = (vo_it != pg.ver_override.end() ? vo_it->second : UINT64_MAX);
             // Read bitmap synchronously from the local database
-            bs->read_bitmap(cur_oid, read_version, op_data->snapshot_bitmaps + chain_num*clean_entry_bitmap_size, NULL);
+            bs->read_bitmap(
+                cur_oid, read_version, op_data->snapshot_bitmaps + chain_num*clean_entry_bitmap_size,
+                !chain_num ? &cur_op->reply.rw.version : NULL
+            );
         }
     }
     else
@@ -228,7 +231,10 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
                 // Read bitmap synchronously from the local database
                 for (int j = prev; j <= i; j++)
                 {
-                    bs->read_bitmap((*bitmap_requests)[j].oid, (*bitmap_requests)[j].version, (*bitmap_requests)[j].bmp_buf, NULL);
+                    bs->read_bitmap(
+                        (*bitmap_requests)[j].oid, (*bitmap_requests)[j].version, (*bitmap_requests)[j].bmp_buf,
+                        (*bitmap_requests)[j].oid.inode == cur_op->req.rw.inode ? &cur_op->reply.rw.version : NULL
+                    );
                 }
             }
             else
@@ -264,6 +270,10 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
                         for (int j = prev; j <= i; j++)
                         {
                             memcpy((*bitmap_requests)[j].bmp_buf, cur_buf, clean_entry_bitmap_size);
+                            if ((*bitmap_requests)[j].oid.inode == cur_op->req.rw.inode)
+                            {
+                                memcpy(&cur_op->reply.rw.version, cur_buf-8, 8);
+                            }
                             cur_buf += 8 + clean_entry_bitmap_size;
                         }
                     }

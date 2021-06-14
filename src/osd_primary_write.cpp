@@ -96,6 +96,12 @@ resume_3:
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
         return;
     }
+    // Check CAS version
+    if (cur_op->req.rw.version && op_data->fact_ver != (cur_op->req.rw.version-1))
+    {
+        cur_op->reply.hdr.retval = -EINTR;
+        goto continue_others;
+    }
     if (op_data->scheme == POOL_SCHEME_REPLICATED)
     {
         // Set bitmap bits
@@ -265,7 +271,7 @@ continue_others:
             next_op = next_it->second;
     }
     // finish_op would invalidate next_it if it cleared pg.write_queue, but it doesn't do that :)
-    finish_op(cur_op, cur_op->req.rw.len);
+    finish_op(cur_op, cur_op->reply.hdr.retval);
     if (next_op)
     {
         // Continue next write to the same object

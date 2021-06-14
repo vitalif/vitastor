@@ -31,6 +31,9 @@ struct cluster_op_t
     uint64_t inode;
     uint64_t offset;
     uint64_t len;
+    // for reads and writes within a single object (stripe),
+    // reads can return current version and writes can use "CAS" semantics
+    uint64_t version = 0;
     int retval;
     osd_op_buf_list_t iov;
     std::function<void(cluster_op_t*)> callback;

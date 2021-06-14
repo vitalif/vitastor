@@ -633,6 +633,13 @@ resume_1:
     // Slice the operation into parts
     slice_rw(op);
     op->needs_reslice = false;
+    if (op->opcode == OSD_OP_WRITE && op->version && op->parts.size() > 1)
+    {
+        // Atomic writes to multiple stripes are unsupported
+        op->retval = -EINVAL;
+        erase_op(op);
+        return 1;
+    }
 resume_2:
     // Send unsent parts, if they're not subject to change
     op->state = 3;
@@ -922,6 +929,7 @@ bool cluster_client_t::try_send(cluster_op_t *op, int i)
                     .offset = part->offset,
                     .len = part->len,
                     .meta_revision = meta_rev,
+                    .version = op->opcode == OSD_OP_WRITE ? op->version : 0,
                 } },
                 .bitmap = op->opcode == OSD_OP_WRITE ? NULL : op->part_bitmaps + pg_bitmap_size*i,
                 .bitmap_len = (unsigned)(op->opcode == OSD_OP_WRITE ? 0 : pg_bitmap_size),
@@ -1072,10 +1080,6 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
     if (part->op.reply.hdr.retval != expected)
     {
         // Operation failed, retry
-        fprintf(
-            stderr, "%s operation failed on OSD %lu: retval=%ld (expected %d), dropping connection\n",
-            osd_op_names[part->op.req.hdr.opcode], part->osd_num, part->op.reply.hdr.retval, expected
-        );
         if (part->op.reply.hdr.retval == -EPIPE)
         {
             // Mark op->up_wait = true before stopping the client
@@ -1094,7 +1098,14 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             // Don't overwrite other errors with -EPIPE
             op->retval = part->op.reply.hdr.retval;
         }
-        msgr.stop_client(part->op.peer_fd);
+        if (op->retval != -EINTR && op->retval != -EIO)
+        {
+            fprintf(
+                stderr, "%s operation failed on OSD %lu: retval=%ld (expected %d), dropping connection\n",
+                osd_op_names[part->op.req.hdr.opcode], part->osd_num, part->op.reply.hdr.retval, expected
+            );
+            msgr.stop_client(part->op.peer_fd);
+        }
         part->flags |= PART_ERROR;
     }
     else
@@ -1106,6 +1117,7 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
         if (op->opcode == OSD_OP_READ)
         {
             copy_part_bitmap(op, part);
+            op->version = op->parts.size() == 1 ? part->op.reply.rw.version : 0;
         }
     }
     if (op->inflight_count == 0)

@@ -261,7 +261,7 @@ void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer
         {
             osd_num_t peer_osd = clients.at(peer_fd)->osd_num;
             stop_client(peer_fd, true);
-            on_connect_peer(peer_osd, -EIO);
+            on_connect_peer(peer_osd, -EPIPE);
             return;
         });
     }

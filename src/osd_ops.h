@@ -191,6 +191,9 @@ struct __attribute__((__packed__)) osd_op_rw_t
     uint32_t flags;
     // inode metadata revision
     uint64_t meta_revision;
+    // object version for atomic "CAS" (compare-and-set) writes
+    // writes and deletes fail with -EINTR if object version differs from (version-1)
+    uint64_t version;
 };
 
 struct __attribute__((__packed__)) osd_reply_rw_t
@@ -199,6 +202,8 @@ struct __attribute__((__packed__)) osd_reply_rw_t
     // for reads: bitmap length
     uint32_t bitmap_len;
     uint32_t pad0;
+    // for reads: object version
+    uint64_t version;
 };
 
 // sync to the primary OSD

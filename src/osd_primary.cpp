@@ -222,6 +222,7 @@ resume_2:
         finish_op(cur_op, op_data->epipe > 0 ? -EPIPE : -EIO);
         return;
     }
+    cur_op->reply.rw.version = op_data->fact_ver;
     cur_op->reply.rw.bitmap_len = op_data->pg_data_size * clean_entry_bitmap_size;
     if (op_data->degraded)
     {
@@ -343,6 +344,12 @@ resume_3:
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
         return;
     }
+    // Check CAS version
+    if (cur_op->req.rw.version && op_data->fact_ver != (cur_op->req.rw.version-1))
+    {
+        cur_op->reply.hdr.retval = -EINTR;
+        goto continue_others;
+    }
     // Save version override for parallel reads
     pg.ver_override[op_data->oid] = op_data->fact_ver;
     // Submit deletes
@@ -370,6 +377,8 @@ resume_5:
         free_object_state(pg, &op_data->object_state);
     }
     pg.total_count--;
+    cur_op->reply.hdr.retval = 0;
+continue_others:
     osd_op_t *next_op = NULL;
     auto next_it = pg.write_queue.find(op_data->oid);
     if (next_it != pg.write_queue.end() && next_it->second == cur_op)
@@ -378,7 +387,7 @@ resume_5:
         if (next_it != pg.write_queue.end() && next_it->first == op_data->oid)
             next_op = next_it->second;
     }
-    finish_op(cur_op, cur_op->req.rw.len);
+    finish_op(cur_op, cur_op->reply.hdr.retval);
     if (next_op)
     {
         // Continue next write to the same object
