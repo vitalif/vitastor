@@ -166,11 +166,11 @@ void vitastor_c_uring_wait_events(vitastor_c *client)
     client->ringloop->wait();
 }
 
-static inline void vitastor_c_rw(bool write, vitastor_c *p, uint64_t inode, uint64_t offset, uint64_t len,
-    struct iovec *iov, int iovcnt, VitastorIOHandler cb, void *opaque)
+void vitastor_c_read(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
+    struct iovec *iov, int iovcnt, VitastorReadHandler cb, void *opaque)
 {
     cluster_op_t *op = new cluster_op_t;
-    op->opcode = write ? OSD_OP_WRITE : OSD_OP_READ;
+    op->opcode = OSD_OP_READ;
     op->inode = inode;
     op->offset = offset;
     op->len = len;
@@ -180,22 +180,31 @@ static inline void vitastor_c_rw(bool write, vitastor_c *p, uint64_t inode, uint
     }
     op->callback = [cb, opaque](cluster_op_t *op)
     {
-        cb(op->retval, opaque);
+        cb(opaque, op->retval, op->version);
         delete op;
     };
-    p->cli->execute(op);
+    client->cli->execute(op);
 }
 
-void vitastor_c_read(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
+void vitastor_c_write(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len, uint64_t check_version,
     struct iovec *iov, int iovcnt, VitastorIOHandler cb, void *opaque)
 {
-    vitastor_c_rw(0, client, inode, offset, len, iov, iovcnt, cb, opaque);
-}
-
-void vitastor_c_write(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
-    struct iovec *iov, int iovcnt, VitastorIOHandler cb, void *opaque)
-{
-    vitastor_c_rw(1, client, inode, offset, len, iov, iovcnt, cb, opaque);
+    cluster_op_t *op = new cluster_op_t;
+    op->opcode = OSD_OP_WRITE;
+    op->inode = inode;
+    op->offset = offset;
+    op->len = len;
+    op->version = check_version;
+    for (int i = 0; i < iovcnt; i++)
+    {
+        op->iov.push_back(iov[i].iov_base, iov[i].iov_len);
+    }
+    op->callback = [cb, opaque](cluster_op_t *op)
+    {
+        cb(opaque, op->retval);
+        delete op;
+    };
+    client->cli->execute(op);
 }
 
 void vitastor_c_sync(vitastor_c *client, VitastorIOHandler cb, void *opaque)
@@ -204,7 +213,7 @@ void vitastor_c_sync(vitastor_c *client, VitastorIOHandler cb, void *opaque)
     op->opcode = OSD_OP_SYNC;
     op->callback = [cb, opaque](cluster_op_t *op)
     {
-        cb(op->retval, opaque);
+        cb(opaque, op->retval);
         delete op;
     };
     client->cli->execute(op);
@@ -215,7 +224,7 @@ void vitastor_c_watch_inode(vitastor_c *client, char *image, VitastorIOHandler c
     client->cli->on_ready([=]()
     {
         auto watch = client->cli->st_cli.watch_inode(std::string(image));
-        cb((long)watch, opaque);
+        cb(opaque, (long)watch);
     });
 }
 

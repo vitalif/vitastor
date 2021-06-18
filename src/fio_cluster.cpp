@@ -186,10 +186,10 @@ static struct fio_option options[] = {
     },
 };
 
-static void watch_callback(long retval, void *opaque)
+static void watch_callback(void *opaque, long watch)
 {
     struct sec_data *bsd = (struct sec_data*)opaque;
-    bsd->watch = (void*)retval;
+    bsd->watch = (void*)watch;
 }
 
 static int sec_setup(struct thread_data *td)
@@ -274,7 +274,7 @@ static int sec_init(struct thread_data *td)
     return 0;
 }
 
-static void io_callback(long retval, void *opaque)
+static void io_callback(void *opaque, long retval)
 {
     struct io_u *io = (struct io_u*)opaque;
     io->error = retval < 0 ? -retval : 0;
@@ -286,6 +286,11 @@ static void io_callback(long retval, void *opaque)
         printf("--- %s 0x%lx retval=%ld\n", io->ddir == DDIR_READ ? "READ" :
             (io->ddir == DDIR_WRITE ? "WRITE" : "SYNC"), (uint64_t)io, retval);
     }
+}
+
+static void read_callback(void *opaque, long retval, uint64_t version)
+{
+    io_callback(opaque, retval);
 }
 
 /* Begin read or write request. */
@@ -310,7 +315,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     {
     case DDIR_READ:
         iov = { .iov_base = io->xfer_buf, .iov_len = io->xfer_buflen };
-        vitastor_c_read(bsd->cli, inode, io->offset, io->xfer_buflen, &iov, 1, io_callback, io);
+        vitastor_c_read(bsd->cli, inode, io->offset, io->xfer_buflen, &iov, 1, read_callback, io);
         bsd->last_sync = false;
         break;
     case DDIR_WRITE:
@@ -320,7 +325,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
             return FIO_Q_COMPLETED;
         }
         iov = { .iov_base = io->xfer_buf, .iov_len = io->xfer_buflen };
-        vitastor_c_write(bsd->cli, inode, io->offset, io->xfer_buflen, &iov, 1, io_callback, io);
+        vitastor_c_write(bsd->cli, inode, io->offset, io->xfer_buflen, 0, &iov, 1, io_callback, io);
         bsd->last_sync = false;
         break;
     case DDIR_SYNC:

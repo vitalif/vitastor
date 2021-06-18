@@ -19,7 +19,8 @@ extern "C" {
 struct vitastor_c;
 typedef struct vitastor_c vitastor_c;
 
-typedef void VitastorIOHandler(long retval, void *opaque);
+typedef void VitastorReadHandler(void *opaque, long retval, uint64_t version);
+typedef void VitastorIOHandler(void *opaque, long retval);
 
 // QEMU
 typedef void IOHandler(void *opaque);
@@ -37,8 +38,8 @@ void vitastor_c_uring_wait_ready(vitastor_c *client);
 void vitastor_c_uring_handle_events(vitastor_c *client);
 void vitastor_c_uring_wait_events(vitastor_c *client);
 void vitastor_c_read(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
-    struct iovec *iov, int iovcnt, VitastorIOHandler cb, void *opaque);
-void vitastor_c_write(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
+    struct iovec *iov, int iovcnt, VitastorReadHandler cb, void *opaque);
+void vitastor_c_write(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len, uint64_t check_version,
     struct iovec *iov, int iovcnt, VitastorIOHandler cb, void *opaque);
 void vitastor_c_sync(vitastor_c *client, VitastorIOHandler cb, void *opaque);
 void vitastor_c_watch_inode(vitastor_c *client, char *image, VitastorIOHandler cb, void *opaque);

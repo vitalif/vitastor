@@ -66,7 +66,8 @@ typedef struct VitastorRPC
 } VitastorRPC;
 
 static void vitastor_co_init_task(BlockDriverState *bs, VitastorRPC *task);
-static void vitastor_co_generic_bh_cb(long retval, void *opaque);
+static void vitastor_co_generic_bh_cb(void *opaque, long retval);
+static void vitastor_co_read_cb(void *opaque, long retval, uint64_t version);
 static void vitastor_close(BlockDriverState *bs);
 
 static char *qemu_rbd_next_tok(char *src, char delim, char **p)
@@ -391,7 +392,7 @@ static void vitastor_co_init_task(BlockDriverState *bs, VitastorRPC *task)
     };
 }
 
-static void vitastor_co_generic_bh_cb(long retval, void *opaque)
+static void vitastor_co_generic_bh_cb(void *opaque, long retval)
 {
     VitastorRPC *task = opaque;
     task->ret = retval;
@@ -407,6 +408,11 @@ static void vitastor_co_generic_bh_cb(long retval, void *opaque)
     }
 }
 
+static void vitastor_co_read_cb(void *opaque, long retval, uint64_t version)
+{
+    vitastor_co_generic_bh_cb(opaque, retval);
+}
+
 static int coroutine_fn vitastor_co_preadv(BlockDriverState *bs, uint64_t offset, uint64_t bytes, QEMUIOVector *iov, int flags)
 {
     VitastorClient *client = bs->opaque;
@@ -416,7 +422,7 @@ static int coroutine_fn vitastor_co_preadv(BlockDriverState *bs, uint64_t offset
 
     uint64_t inode = client->watch ? vitastor_c_inode_get_num(client->watch) : client->inode;
     qemu_mutex_lock(&client->mutex);
-    vitastor_c_read(client->proxy, inode, offset, bytes, iov->iov, iov->niov, vitastor_co_generic_bh_cb, &task);
+    vitastor_c_read(client->proxy, inode, offset, bytes, iov->iov, iov->niov, vitastor_co_read_cb, &task);
     qemu_mutex_unlock(&client->mutex);
 
     while (!task.complete)
@@ -436,7 +442,7 @@ static int coroutine_fn vitastor_co_pwritev(BlockDriverState *bs, uint64_t offse
 
     uint64_t inode = client->watch ? vitastor_c_inode_get_num(client->watch) : client->inode;
     qemu_mutex_lock(&client->mutex);
-    vitastor_c_write(client->proxy, inode, offset, bytes, iov->iov, iov->niov, vitastor_co_generic_bh_cb, &task);
+    vitastor_c_write(client->proxy, inode, offset, bytes, 0, iov->iov, iov->niov, vitastor_co_generic_bh_cb, &task);
     qemu_mutex_unlock(&client->mutex);
 
     while (!task.complete)
