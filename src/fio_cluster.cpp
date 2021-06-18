@@ -25,20 +25,17 @@
 
 #include <vector>
 
-#include "epoll_manager.h"
-#include "cluster_client.h"
+#include "vitastor_c.h"
 #include "fio_headers.h"
 
 struct sec_data
 {
-    ring_loop_t *ringloop = NULL;
-    epoll_manager_t *epmgr = NULL;
-    cluster_client_t *cli = NULL;
-    inode_watch_t *watch = NULL;
+    vitastor_c *cli = NULL;
+    void *watch = NULL;
     bool last_sync = false;
     /* The list of completed io_u structs. */
     std::vector<io_u*> completed;
-    uint64_t op_n = 0, inflight = 0;
+    uint64_t inflight = 0;
     bool trace = false;
 };
 
@@ -189,6 +186,12 @@ static struct fio_option options[] = {
     },
 };
 
+static void watch_callback(long retval, void *opaque)
+{
+    struct sec_data *bsd = (struct sec_data*)opaque;
+    bsd->watch = (void*)retval;
+}
+
 static int sec_setup(struct thread_data *td)
 {
     sec_options *o = (sec_options*)td->eo;
@@ -208,27 +211,6 @@ static int sec_setup(struct thread_data *td)
         td->o.nr_files = td->o.nr_files ? : 1;
         td->o.open_files++;
     }
-
-    json11::Json::object cfg;
-    if (o->config_path)
-        cfg["config_path"] = std::string(o->config_path);
-    if (o->etcd_host)
-        cfg["etcd_address"] = std::string(o->etcd_host);
-    if (o->etcd_prefix)
-        cfg["etcd_prefix"] = std::string(o->etcd_prefix);
-    if (o->rdma_device)
-        cfg["rdma_device"] = std::string(o->rdma_device);
-    if (o->rdma_port_num)
-        cfg["rdma_port_num"] = o->rdma_port_num;
-    if (o->rdma_gid_index)
-        cfg["rdma_gid_index"] = o->rdma_gid_index;
-    if (o->rdma_mtu)
-        cfg["rdma_mtu"] = o->rdma_mtu;
-    if (o->cluster_log)
-        cfg["log_level"] = o->cluster_log;
-    if (o->use_rdma != -1)
-        cfg["use_rdma"] = o->use_rdma;
-    json11::Json cfg_json(cfg);
 
     if (!o->image)
     {
@@ -251,20 +233,20 @@ static int sec_setup(struct thread_data *td)
     {
         o->inode = 0;
     }
-    bsd->ringloop = new ring_loop_t(512);
-    bsd->epmgr = new epoll_manager_t(bsd->ringloop);
-    bsd->cli = new cluster_client_t(bsd->ringloop, bsd->epmgr->tfd, cfg_json);
+    bsd->cli = vitastor_c_create_uring(o->config_path, o->etcd_host, o->etcd_prefix,
+        o->use_rdma, o->rdma_device, o->rdma_port_num, o->rdma_gid_index, o->rdma_mtu, o->cluster_log);
     if (o->image)
     {
-        while (!bsd->cli->is_ready())
+        bsd->watch = NULL;
+        vitastor_c_watch_inode(bsd->cli, o->image, watch_callback, bsd);
+        while (true)
         {
-            bsd->ringloop->loop();
-            if (bsd->cli->is_ready())
+            vitastor_c_uring_handle_events(bsd->cli);
+            if (bsd->watch)
                 break;
-            bsd->ringloop->wait();
+            vitastor_c_uring_wait_events(bsd->cli);
         }
-        bsd->watch = bsd->cli->st_cli.watch_inode(std::string(o->image));
-        td->files[0]->real_file_size = bsd->watch->cfg.size;
+        td->files[0]->real_file_size = vitastor_c_inode_get_size(bsd->watch);
     }
 
     bsd->trace = o->trace ? true : false;
@@ -279,11 +261,9 @@ static void sec_cleanup(struct thread_data *td)
     {
         if (bsd->watch)
         {
-            bsd->cli->st_cli.close_watch(bsd->watch);
+            vitastor_c_close_watch(bsd->cli, bsd->watch);
         }
-        delete bsd->cli;
-        delete bsd->epmgr;
-        delete bsd->ringloop;
+        vitastor_c_destroy(bsd->cli);
         delete bsd;
     }
 }
@@ -294,12 +274,26 @@ static int sec_init(struct thread_data *td)
     return 0;
 }
 
+static void io_callback(long retval, void *opaque)
+{
+    struct io_u *io = (struct io_u*)opaque;
+    io->error = retval < 0 ? -retval : 0;
+    sec_data *bsd = (sec_data*)io->engine_data;
+    bsd->inflight--;
+    bsd->completed.push_back(io);
+    if (bsd->trace)
+    {
+        printf("--- %s 0x%lx retval=%ld\n", io->ddir == DDIR_READ ? "READ" :
+            (io->ddir == DDIR_WRITE ? "WRITE" : "SYNC"), (uint64_t)io, retval);
+    }
+}
+
 /* Begin read or write request. */
 static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
 {
     sec_options *opt = (sec_options*)td->eo;
     sec_data *bsd = (sec_data*)td->io_ops_data;
-    int n = bsd->op_n;
+    struct iovec iov;
 
     fio_ro_check(td, io);
     if (io->ddir == DDIR_SYNC && bsd->last_sync)
@@ -308,32 +302,29 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     }
 
     io->engine_data = bsd;
-    cluster_op_t *op = new cluster_op_t;
+    io->error = 0;
+    bsd->inflight++;
 
-    op->inode = opt->image ? bsd->watch->cfg.num : opt->inode;
+    uint64_t inode = opt->image ? vitastor_c_inode_get_num(bsd->watch) : opt->inode;
     switch (io->ddir)
     {
     case DDIR_READ:
-        op->opcode = OSD_OP_READ;
-        op->offset = io->offset;
-        op->len = io->xfer_buflen;
-        op->iov.push_back(io->xfer_buf, io->xfer_buflen);
+        iov = { .iov_base = io->xfer_buf, .iov_len = io->xfer_buflen };
+        vitastor_c_read(bsd->cli, inode, io->offset, io->xfer_buflen, &iov, 1, io_callback, io);
         bsd->last_sync = false;
         break;
     case DDIR_WRITE:
-        if (opt->image && bsd->watch->cfg.readonly)
+        if (opt->image && vitastor_c_inode_get_readonly(bsd->watch))
         {
             io->error = EROFS;
             return FIO_Q_COMPLETED;
         }
-        op->opcode = OSD_OP_WRITE;
-        op->offset = io->offset;
-        op->len = io->xfer_buflen;
-        op->iov.push_back(io->xfer_buf, io->xfer_buflen);
+        iov = { .iov_base = io->xfer_buf, .iov_len = io->xfer_buflen };
+        vitastor_c_write(bsd->cli, inode, io->offset, io->xfer_buflen, &iov, 1, io_callback, io);
         bsd->last_sync = false;
         break;
     case DDIR_SYNC:
-        op->opcode = OSD_OP_SYNC;
+        vitastor_c_sync(bsd->cli, io_callback, io);
         bsd->last_sync = true;
         break;
     default:
@@ -341,38 +332,19 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
         return FIO_Q_COMPLETED;
     }
 
-    op->callback = [io, n](cluster_op_t *op)
-    {
-        io->error = op->retval < 0 ? -op->retval : 0;
-        sec_data *bsd = (sec_data*)io->engine_data;
-        bsd->inflight--;
-        bsd->completed.push_back(io);
-        if (bsd->trace)
-        {
-            printf("--- %s n=%d retval=%d\n", io->ddir == DDIR_READ ? "READ" :
-                (io->ddir == DDIR_WRITE ? "WRITE" : "SYNC"), n, op->retval);
-        }
-        delete op;
-    };
-
     if (opt->trace)
     {
         if (io->ddir == DDIR_SYNC)
         {
-            printf("+++ SYNC # %d\n", n);
+            printf("+++ SYNC 0x%lx\n", (uint64_t)io);
         }
         else
         {
-            printf("+++ %s # %d 0x%llx+%llx\n",
+            printf("+++ %s 0x%lx 0x%llx+%llx\n",
                 io->ddir == DDIR_READ ? "READ" : "WRITE",
-                n, io->offset, io->xfer_buflen);
+                (uint64_t)io, io->offset, io->xfer_buflen);
         }
     }
-
-    io->error = 0;
-    bsd->inflight++;
-    bsd->op_n++;
-    bsd->cli->execute(op);
 
     if (io->error != 0)
         return FIO_Q_COMPLETED;
@@ -384,10 +356,10 @@ static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int 
     sec_data *bsd = (sec_data*)td->io_ops_data;
     while (true)
     {
-        bsd->ringloop->loop();
+        vitastor_c_uring_handle_events(bsd->cli);
         if (bsd->completed.size() >= min)
             break;
-        bsd->ringloop->wait();
+        vitastor_c_uring_wait_events(bsd->cli);
     }
     return bsd->completed.size();
 }

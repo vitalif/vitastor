@@ -4,6 +4,8 @@ project(vitastor)
 
 include(GNUInstallDirs)
 
+set(WITH_QEMU true CACHE BOOL "Build QEMU driver")
+set(WITH_FIO true CACHE BOOL "Build FIO driver")
 set(QEMU_PLUGINDIR qemu CACHE STRING "QEMU plugin directory suffix (qemu-kvm on RHEL)")
 set(WITH_ASAN false CACHE BOOL "Build with AddressSanitizer")
 if("${CMAKE_INSTALL_PREFIX}" MATCHES "^/usr/local/?$")
@@ -36,7 +38,9 @@ string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_C_FLAGS_RELWITHDEBINFO "${CM
 
 find_package(PkgConfig)
 pkg_check_modules(LIBURING REQUIRED liburing)
-pkg_check_modules(GLIB REQUIRED glib-2.0)
+if (${WITH_QEMU})
+	pkg_check_modules(GLIB REQUIRED glib-2.0)
+endif (${WITH_QEMU})
 pkg_check_modules(IBVERBS libibverbs)
 if (IBVERBS_LIBRARIES)
 	add_definitions(-DWITH_RDMA)
@@ -62,14 +66,16 @@ target_link_libraries(vitastor_blk
 )
 set_target_properties(vitastor_blk PROPERTIES VERSION ${VERSION} SOVERSION 0)
 
-# libfio_vitastor_blk.so
-add_library(fio_vitastor_blk SHARED
-	fio_engine.cpp
-	../json11/json11.cpp
-)
-target_link_libraries(fio_vitastor_blk
-	vitastor_blk
-)
+if (${WITH_FIO})
+	# libfio_vitastor_blk.so
+	add_library(fio_vitastor_blk SHARED
+		fio_engine.cpp
+		../json11/json11.cpp
+	)
+	target_link_libraries(fio_vitastor_blk
+		vitastor_blk
+	)
+endif (${WITH_FIO})
 
 # libvitastor_common.a
 set(MSGR_RDMA "")
@@ -96,19 +102,23 @@ target_link_libraries(vitastor-osd
 	${IBVERBS_LIBRARIES}
 )
 
-# libfio_vitastor_sec.so
-add_library(fio_vitastor_sec SHARED
-	fio_sec_osd.cpp
-	rw_blocking.cpp
-)
-target_link_libraries(fio_vitastor_sec
-	tcmalloc_minimal
-)
+if (${WITH_FIO})
+	# libfio_vitastor_sec.so
+	add_library(fio_vitastor_sec SHARED
+		fio_sec_osd.cpp
+		rw_blocking.cpp
+	)
+	target_link_libraries(fio_vitastor_sec
+		tcmalloc_minimal
+	)
+endif (${WITH_FIO})
 
 # libvitastor_client.so
 add_library(vitastor_client SHARED
 	cluster_client.cpp
+	vitastor_c.cpp
 )
+set_target_properties(vitastor_client PROPERTIES PUBLIC_HEADER "vitastor_c.h")
 target_link_libraries(vitastor_client
 	vitastor_common
 	tcmalloc_minimal
@@ -117,13 +127,15 @@ target_link_libraries(vitastor_client
 )
 set_target_properties(vitastor_client PROPERTIES VERSION ${VERSION} SOVERSION 0)
 
-# libfio_vitastor.so
-add_library(fio_vitastor SHARED
-	fio_cluster.cpp
-)
-target_link_libraries(fio_vitastor
-	vitastor_client
-)
+if (${WITH_FIO})
+	# libfio_vitastor.so
+	add_library(fio_vitastor SHARED
+		fio_cluster.cpp
+	)
+	target_link_libraries(fio_vitastor
+		vitastor_client
+	)
+endif (${WITH_FIO})
 
 # vitastor-nbd
 add_executable(vitastor-nbd
@@ -146,27 +158,24 @@ add_executable(vitastor-dump-journal
 	dump_journal.cpp crc32c.c
 )
 
-# qemu_driver.so
-add_library(qemu_proxy STATIC qemu_proxy.cpp)
-target_compile_options(qemu_proxy PUBLIC -fPIC)
-target_include_directories(qemu_proxy PUBLIC
-	../qemu/b/qemu
-	../qemu/include
-	${GLIB_INCLUDE_DIRS}
-)
-target_link_libraries(qemu_proxy
-	vitastor_client
-)
-add_library(qemu_vitastor SHARED
-	qemu_driver.c
-)
-target_link_libraries(qemu_vitastor
-	qemu_proxy
-)
-set_target_properties(qemu_vitastor PROPERTIES
-	PREFIX ""
-	OUTPUT_NAME "block-vitastor"
-)
+if (${WITH_QEMU})
+	# qemu_driver.so
+	add_library(qemu_vitastor SHARED
+		qemu_driver.c
+	)
+	target_include_directories(qemu_vitastor PUBLIC
+		../qemu/b/qemu
+		../qemu/include
+		${GLIB_INCLUDE_DIRS}
+	)
+	target_link_libraries(qemu_vitastor
+		vitastor_client
+	)
+	set_target_properties(qemu_vitastor PROPERTIES
+		PREFIX ""
+		OUTPUT_NAME "block-vitastor"
+	)
+endif (${WITH_QEMU})
 
 ### Test stubs
 
@@ -226,5 +235,14 @@ target_include_directories(test_cluster_client PUBLIC ${CMAKE_SOURCE_DIR}/src/mo
 ### Install
 
 install(TARGETS vitastor-osd vitastor-dump-journal vitastor-nbd vitastor-rm RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(TARGETS fio_vitastor fio_vitastor_blk fio_vitastor_sec vitastor_blk vitastor_client LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(TARGETS qemu_vitastor LIBRARY DESTINATION /usr/${CMAKE_INSTALL_LIBDIR}/${QEMU_PLUGINDIR})
+install(
+	TARGETS vitastor_blk vitastor_client
+	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+if (${WITH_FIO})
+	install(TARGETS fio_vitastor fio_vitastor_blk fio_vitastor_sec LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+endif (${WITH_FIO})
+if (${WITH_QEMU})
+	install(TARGETS qemu_vitastor LIBRARY DESTINATION /usr/${CMAKE_INSTALL_LIBDIR}/${QEMU_PLUGINDIR})
+endif (${WITH_QEMU})

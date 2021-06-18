@@ -64,6 +64,7 @@ cp -r mon %buildroot/usr/lib/vitastor/mon
 %_libdir/libfio_vitastor_sec.so
 %_libdir/libvitastor_blk.so*
 %_libdir/libvitastor_client.so*
+%_includedir/vitastor_c.h
 /usr/lib/vitastor
 
 
