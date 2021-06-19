@@ -42,7 +42,7 @@ const etcd_tree = {
     config: {
         /* global: {
             // WARNING: NOT ALL OF THESE ARE ACTUALLY CONFIGURABLE HERE
-            // THIS IS JUST A POOR'S MAN CONFIG DOCUMENTATION
+            // THIS IS JUST A POOR MAN'S CONFIG DOCUMENTATION
             // etcd connection
             config_path: "/etc/vitastor/vitastor.conf",
             etcd_address: "10.0.115.10:2379/v3",
@@ -257,11 +257,13 @@ const etcd_tree = {
     },
     inode: {
         stats: {
-            /* <inode_t>: {
-                raw_used: uint64_t, // raw used bytes on OSDs
-                read: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
-                write: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
-                delete: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+            /* <pool_id>: {
+                <inode_t>: {
+                    raw_used: uint64_t, // raw used bytes on OSDs
+                    read: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+                    write: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+                    delete: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+                },
             }, */
         },
     },
