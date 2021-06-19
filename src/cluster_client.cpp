@@ -695,13 +695,16 @@ resume_3:
             // Check parent inode
             auto ino_it = st_cli.inode_config.find(op->cur_inode);
             while (ino_it != st_cli.inode_config.end() && ino_it->second.parent_id &&
-                INODE_POOL(ino_it->second.parent_id) == INODE_POOL(op->cur_inode))
+                INODE_POOL(ino_it->second.parent_id) == INODE_POOL(op->cur_inode) &&
+                // Check for loops
+                ino_it->second.parent_id != op->inode)
             {
                 // Skip parents from the same pool
                 ino_it = st_cli.inode_config.find(ino_it->second.parent_id);
             }
             if (ino_it != st_cli.inode_config.end() &&
-                ino_it->second.parent_id)
+                ino_it->second.parent_id &&
+                ino_it->second.parent_id != op->inode)
             {
                 // Continue reading from the parent inode
                 op->cur_inode = ino_it->second.parent_id;

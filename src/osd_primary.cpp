@@ -67,7 +67,9 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         }
         // Find parents from the same pool. Optimized reads only work within pools
         while (inode_it != st_cli.inode_config.end() && inode_it->second.parent_id &&
-            INODE_POOL(inode_it->second.parent_id) == pg_it->second.pool_id)
+            INODE_POOL(inode_it->second.parent_id) == pg_it->second.pool_id &&
+            // Check for loops
+            inode_it->second.parent_id != cur_op->req.rw.inode)
         {
             chain_size++;
             inode_it = st_cli.inode_config.find(inode_it->second.parent_id);
@@ -123,7 +125,10 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         int chain_num = 0;
         op_data->read_chain[chain_num++] = cur_op->req.rw.inode;
         auto inode_it = st_cli.inode_config.find(cur_op->req.rw.inode);
-        while (inode_it != st_cli.inode_config.end() && inode_it->second.parent_id)
+        while (inode_it != st_cli.inode_config.end() && inode_it->second.parent_id &&
+            INODE_POOL(inode_it->second.parent_id) == pg_it->second.pool_id &&
+            // Check for loops
+            inode_it->second.parent_id != cur_op->req.rw.inode)
         {
             op_data->read_chain[chain_num++] = inode_it->second.parent_id;
             inode_it = st_cli.inode_config.find(inode_it->second.parent_id);
