@@ -1,0 +1,32 @@
+<!-- Example libvirt VM configuration with Vitastor disk -->
+<domain type='kvm'>
+  <name>debian9</name>
+  <uuid>96f277fb-fd9c-49da-bf21-a5cfd54eb162</uuid>
+  <memory unit="KiB">524288</memory>
+  <currentMemory>524288</currentMemory>
+  <vcpu>1</vcpu>
+  <os>
+    <type arch='x86_64'>hvm</type>
+    <boot dev='hd' />
+  </os>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='network' device='disk'>
+      <target dev='vda' bus='virtio' />
+      <driver name='qemu' type='raw' />
+      <!-- name is Vitastor image name -->
+      <!-- config (optional) is the path to Vitastor's configuration file -->
+      <!-- query (optional) is Vitastor's etcd_prefix -->
+      <source protocol='vitastor' name='debian9' query='/vitastor' config='/etc/vitastor/vitastor.conf'>
+        <!-- hosts = etcd addresses -->
+        <host name='192.168.7.2' port='2379' />
+      </source>
+      <!-- required because Vitastor only supports 4k physical sectors -->
+      <blockio physical_block_size="4096" logical_block_size="512" />
+    </disk>
+    <interface type='network'>
+      <source network='default' />
+    </interface>
+    <graphics type='vnc' port='-1' />
+  </devices>
+</domain>

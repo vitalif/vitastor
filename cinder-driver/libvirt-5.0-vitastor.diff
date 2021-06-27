@@ -1,9 +1,57 @@
-commit 367f518e76c36e1d815b41f5a0f623b71877e13c
+commit 74b70c3e9482850c0f141f52ef2510466d68050b
 Author: Vitaliy Filippov <vitalif@yourcmc.ru>
 Date:   Sun Jun 27 12:52:40 2021 +0300
 
     Add Vitastor support
 
+diff --git a/docs/schemas/domaincommon.rng b/docs/schemas/domaincommon.rng
+index aa50eac..082b4f8 100644
+--- a/docs/schemas/domaincommon.rng
++++ b/docs/schemas/domaincommon.rng
+@@ -1728,6 +1728,35 @@
+     </element>
+   </define>
+ 
++  <define name="diskSourceNetworkProtocolVitastor">
++    <element name="source">
++      <interleave>
++        <attribute name="protocol">
++          <value>vitastor</value>
++        </attribute>
++        <ref name="diskSourceCommon"/>
++        <optional>
++          <attribute name="name"/>
++        </optional>
++        <optional>
++          <attribute name="query"/>
++        </optional>
++        <zeroOrMore>
++          <ref name="diskSourceNetworkHost"/>
++        </zeroOrMore>
++        <optional>
++          <element name="config">
++            <attribute name="file">
++              <ref name="absFilePath"/>
++            </attribute>
++            <empty/>
++          </element>
++        </optional>
++        <empty/>
++      </interleave>
++    </element>
++  </define>
++
+   <define name="diskSourceNetworkProtocolISCSI">
+     <element name="source">
+       <attribute name="protocol">
+@@ -1851,6 +1880,7 @@
+       <ref name="diskSourceNetworkProtocolHTTP"/>
+       <ref name="diskSourceNetworkProtocolSimple"/>
+       <ref name="diskSourceNetworkProtocolVxHS"/>
++      <ref name="diskSourceNetworkProtocolVitastor"/>
+     </choice>
+   </define>
+ 
 diff --git a/include/libvirt/libvirt-storage.h b/include/libvirt/libvirt-storage.h
 index 4bf2b5f..dbc011b 100644
 --- a/include/libvirt/libvirt-storage.h
