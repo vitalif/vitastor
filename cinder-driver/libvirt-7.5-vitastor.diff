@@ -11,10 +11,10 @@ index 089e1e0..d7e7ef4 100644
  
  int                     virConnectListAllStoragePools(virConnectPtr conn,
 diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
-index 01b7187..5b81e37 100644
+index d78f846..97f4d6d 100644
 --- a/src/conf/domain_conf.c
 +++ b/src/conf/domain_conf.c
-@@ -31392,6 +31392,7 @@ virDomainStorageSourceTranslateSourcePool(virStorageSourcePtr src,
+@@ -30775,6 +30775,7 @@ virDomainStorageSourceTranslateSourcePool(virStorageSource *src,
  
      case VIR_STORAGE_POOL_MPATH:
      case VIR_STORAGE_POOL_RBD:
@@ -23,7 +23,7 @@ index 01b7187..5b81e37 100644
      case VIR_STORAGE_POOL_GLUSTER:
      case VIR_STORAGE_POOL_LAST:
 diff --git a/src/conf/storage_conf.c b/src/conf/storage_conf.c
-index 0c50529..fe97574 100644
+index 2aa9a3d..166ca1f 100644
 --- a/src/conf/storage_conf.c
 +++ b/src/conf/storage_conf.c
 @@ -60,7 +60,7 @@ VIR_ENUM_IMPL(virStoragePool,
@@ -35,7 +35,7 @@ index 0c50529..fe97574 100644
  );
  
  VIR_ENUM_IMPL(virStoragePoolFormatFileSystem,
-@@ -249,6 +249,18 @@ static virStoragePoolTypeInfo poolTypeInfo[] = {
+@@ -246,6 +246,18 @@ static virStoragePoolTypeInfo poolTypeInfo[] = {
            .formatToString = virStorageFileFormatTypeToString,
        }
      },
@@ -54,9 +54,9 @@ index 0c50529..fe97574 100644
      {.poolType = VIR_STORAGE_POOL_SHEEPDOG,
       .poolOptions = {
           .flags = (VIR_STORAGE_POOL_SOURCE_HOST |
-@@ -551,6 +563,11 @@ virStoragePoolDefParseSource(xmlXPathContextPtr ctxt,
+@@ -546,6 +558,11 @@ virStoragePoolDefParseSource(xmlXPathContextPtr ctxt,
                         _("element 'name' is mandatory for RBD pool"));
-         goto cleanup;
+         return -1;
      }
 +    if (pool_type == VIR_STORAGE_POOL_VITASTOR && source->name == NULL) {
 +        virReportError(VIR_ERR_XML_ERROR, "%s",
@@ -66,7 +66,7 @@ index 0c50529..fe97574 100644
  
      if (options->formatFromString) {
          g_autofree char *format = NULL;
-@@ -1217,6 +1234,7 @@ virStoragePoolDefFormatBuf(virBufferPtr buf,
+@@ -1182,6 +1199,7 @@ virStoragePoolDefFormatBuf(virBuffer *buf,
      /* RBD, Sheepdog, Gluster and Iscsi-direct devices are not local block devs nor
       * files, so they don't have a target */
      if (def->type != VIR_STORAGE_POOL_RBD &&
@@ -75,10 +75,10 @@ index 0c50529..fe97574 100644
          def->type != VIR_STORAGE_POOL_GLUSTER &&
          def->type != VIR_STORAGE_POOL_ISCSI_DIRECT) {
 diff --git a/src/conf/storage_conf.h b/src/conf/storage_conf.h
-index ffd406e..8868a05 100644
+index 76efaac..928149a 100644
 --- a/src/conf/storage_conf.h
 +++ b/src/conf/storage_conf.h
-@@ -110,6 +110,7 @@ typedef enum {
+@@ -106,6 +106,7 @@ typedef enum {
      VIR_STORAGE_POOL_GLUSTER,  /* Gluster device */
      VIR_STORAGE_POOL_ZFS,      /* ZFS */
      VIR_STORAGE_POOL_VSTORAGE, /* Virtuozzo Storage */
@@ -86,7 +86,7 @@ index ffd406e..8868a05 100644
  
      VIR_STORAGE_POOL_LAST,
  } virStoragePoolType;
-@@ -474,6 +475,7 @@ VIR_ENUM_DECL(virStoragePartedFs);
+@@ -465,6 +466,7 @@ VIR_ENUM_DECL(virStoragePartedFs);
                   VIR_CONNECT_LIST_STORAGE_POOLS_SCSI     | \
                   VIR_CONNECT_LIST_STORAGE_POOLS_MPATH    | \
                   VIR_CONNECT_LIST_STORAGE_POOLS_RBD      | \
@@ -94,11 +94,43 @@ index ffd406e..8868a05 100644
                   VIR_CONNECT_LIST_STORAGE_POOLS_SHEEPDOG | \
                   VIR_CONNECT_LIST_STORAGE_POOLS_GLUSTER  | \
                   VIR_CONNECT_LIST_STORAGE_POOLS_ZFS      | \
+diff --git a/src/conf/storage_source_conf.c b/src/conf/storage_source_conf.c
+index 5ca06fa..05ded49 100644
+--- a/src/conf/storage_source_conf.c
++++ b/src/conf/storage_source_conf.c
+@@ -85,6 +85,7 @@ VIR_ENUM_IMPL(virStorageNetProtocol,
+               "ssh",
+               "vxhs",
+               "nfs",
++              "vitastor",
+ );
+ 
+ 
+@@ -1262,6 +1263,7 @@ virStorageSourceNetworkDefaultPort(virStorageNetProtocol protocol)
+         case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
+             return 24007;
+ 
++        case VIR_STORAGE_NET_PROTOCOL_VITASTOR:
+         case VIR_STORAGE_NET_PROTOCOL_RBD:
+             /* we don't provide a default for RBD */
+             return 0;
+diff --git a/src/conf/storage_source_conf.h b/src/conf/storage_source_conf.h
+index 389c7b5..dbf02e3 100644
+--- a/src/conf/storage_source_conf.h
++++ b/src/conf/storage_source_conf.h
+@@ -127,6 +127,7 @@ typedef enum {
+     VIR_STORAGE_NET_PROTOCOL_SSH,
+     VIR_STORAGE_NET_PROTOCOL_VXHS,
+     VIR_STORAGE_NET_PROTOCOL_NFS,
++    VIR_STORAGE_NET_PROTOCOL_VITASTOR,
+ 
+     VIR_STORAGE_NET_PROTOCOL_LAST
+ } virStorageNetProtocol;
 diff --git a/src/conf/virstorageobj.c b/src/conf/virstorageobj.c
-index 9fe8b3f..bf595b0 100644
+index 24957d6..4520a73 100644
 --- a/src/conf/virstorageobj.c
 +++ b/src/conf/virstorageobj.c
-@@ -1491,6 +1491,7 @@ virStoragePoolObjSourceFindDuplicateCb(const void *payload,
+@@ -1487,6 +1487,7 @@ virStoragePoolObjSourceFindDuplicateCb(const void *payload,
              return 1;
          break;
  
@@ -106,7 +138,7 @@ index 9fe8b3f..bf595b0 100644
      case VIR_STORAGE_POOL_RBD:
      case VIR_STORAGE_POOL_LAST:
          break;
-@@ -1990,6 +1991,8 @@ virStoragePoolObjMatch(virStoragePoolObjPtr obj,
+@@ -1986,6 +1987,8 @@ virStoragePoolObjMatch(virStoragePoolObj *obj,
                 (obj->def->type == VIR_STORAGE_POOL_MPATH))   ||
                (MATCH(VIR_CONNECT_LIST_STORAGE_POOLS_RBD) &&
                 (obj->def->type == VIR_STORAGE_POOL_RBD))     ||
@@ -127,26 +159,50 @@ index 2a7cdca..f756be1 100644
   * VIR_CONNECT_LIST_STORAGE_POOLS_SHEEPDOG
   * VIR_CONNECT_LIST_STORAGE_POOLS_GLUSTER
   * VIR_CONNECT_LIST_STORAGE_POOLS_ZFS
+diff --git a/src/libxl/libxl_conf.c b/src/libxl/libxl_conf.c
+index 56cb9ab..dfb31b9 100644
+--- a/src/libxl/libxl_conf.c
++++ b/src/libxl/libxl_conf.c
+@@ -972,6 +972,7 @@ libxlMakeNetworkDiskSrcStr(virStorageSource *src,
+     case VIR_STORAGE_NET_PROTOCOL_SSH:
+     case VIR_STORAGE_NET_PROTOCOL_VXHS:
+     case VIR_STORAGE_NET_PROTOCOL_NFS:
++    case VIR_STORAGE_NET_PROTOCOL_VITASTOR:
+     case VIR_STORAGE_NET_PROTOCOL_LAST:
+     case VIR_STORAGE_NET_PROTOCOL_NONE:
+         virReportError(VIR_ERR_NO_SUPPORT,
+diff --git a/src/libxl/xen_xl.c b/src/libxl/xen_xl.c
+index c0905b0..c172378 100644
+--- a/src/libxl/xen_xl.c
++++ b/src/libxl/xen_xl.c
+@@ -1540,6 +1540,7 @@ xenFormatXLDiskSrcNet(virStorageSource *src)
+     case VIR_STORAGE_NET_PROTOCOL_SSH:
+     case VIR_STORAGE_NET_PROTOCOL_VXHS:
+     case VIR_STORAGE_NET_PROTOCOL_NFS:
++    case VIR_STORAGE_NET_PROTOCOL_VITASTOR:
+     case VIR_STORAGE_NET_PROTOCOL_LAST:
+     case VIR_STORAGE_NET_PROTOCOL_NONE:
+         virReportError(VIR_ERR_NO_SUPPORT,
 diff --git a/src/qemu/qemu_block.c b/src/qemu/qemu_block.c
-index f9c6da2..92093e4 100644
+index 6627d04..277b04e 100644
 --- a/src/qemu/qemu_block.c
 +++ b/src/qemu/qemu_block.c
-@@ -938,6 +938,28 @@ qemuBlockStorageSourceGetRBDProps(virStorageSourcePtr src,
+@@ -928,6 +928,28 @@ qemuBlockStorageSourceGetRBDProps(virStorageSource *src,
  }
  
  
-+static virJSONValuePtr
++static virJSONValue *
 +qemuBlockStorageSourceGetVitastorProps(virStorageSource *src)
 +{
 +    g_autoptr(virJSONValue) servers = NULL;
-+    virJSONValuePtr ret = NULL;
++    virJSONValue *ret = NULL;
 +
 +    if (src->nhosts > 0 &&
 +        !(servers = qemuBlockStorageSourceBuildHostsJSONInetSocketAddress(src)))
 +        return NULL;
 +
 +    if (virJSONValueObjectCreate(&ret,
-+                                 "A:server", &servers,
++                                 "A:etcd_address", &servers,
 +                                 "s:etcd_prefix", src->query,
 +                                 "S:config_path", src->configFile,
 +                                 "s:image", src->path,
@@ -157,10 +213,10 @@ index f9c6da2..92093e4 100644
 +}
 +
 +
- static virJSONValuePtr
- qemuBlockStorageSourceGetSheepdogProps(virStorageSourcePtr src)
+ static virJSONValue *
+ qemuBlockStorageSourceGetSheepdogProps(virStorageSource *src)
  {
-@@ -1224,6 +1246,12 @@ qemuBlockStorageSourceGetBackendProps(virStorageSourcePtr src,
+@@ -1218,6 +1240,12 @@ qemuBlockStorageSourceGetBackendProps(virStorageSource *src,
                  return NULL;
              break;
  
@@ -173,7 +229,7 @@ index f9c6da2..92093e4 100644
          case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
              driver = "sheepdog";
              if (!(fileprops = qemuBlockStorageSourceGetSheepdogProps(src)))
-@@ -2183,6 +2211,7 @@ qemuBlockGetBackingStoreString(virStorageSourcePtr src,
+@@ -2231,6 +2259,7 @@ qemuBlockGetBackingStoreString(virStorageSource *src,
  
              case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
              case VIR_STORAGE_NET_PROTOCOL_RBD:
@@ -181,7 +237,7 @@ index f9c6da2..92093e4 100644
              case VIR_STORAGE_NET_PROTOCOL_VXHS:
              case VIR_STORAGE_NET_PROTOCOL_NFS:
              case VIR_STORAGE_NET_PROTOCOL_SSH:
-@@ -2560,6 +2589,12 @@ qemuBlockStorageSourceCreateGetStorageProps(virStorageSourcePtr src,
+@@ -2608,6 +2637,12 @@ qemuBlockStorageSourceCreateGetStorageProps(virStorageSource *src,
                  return -1;
              break;
  
@@ -195,10 +251,10 @@ index f9c6da2..92093e4 100644
              driver = "sheepdog";
              if (!(location = qemuBlockStorageSourceGetSheepdogProps(src)))
 diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
-index 6f970a3..10b39ca 100644
+index ea51369..8258632 100644
 --- a/src/qemu/qemu_command.c
 +++ b/src/qemu/qemu_command.c
-@@ -1034,6 +1034,43 @@ qemuBuildNetworkDriveStr(virStorageSourcePtr src,
+@@ -1074,6 +1074,43 @@ qemuBuildNetworkDriveStr(virStorageSource *src,
              ret = virBufferContentAndReset(&buf);
              break;
  
@@ -243,10 +299,10 @@ index 6f970a3..10b39ca 100644
              virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                             _("VxHS protocol does not support URI syntax"));
 diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
-index 0765dc7..c69b1f1 100644
+index fc60e15..88bcb26 100644
 --- a/src/qemu/qemu_domain.c
 +++ b/src/qemu/qemu_domain.c
-@@ -9704,6 +9704,7 @@ qemuDomainPrepareStorageSourceTLS(virStorageSourcePtr src,
+@@ -10027,6 +10027,7 @@ qemuDomainPrepareStorageSourceTLS(virStorageSource *src,
          break;
  
      case VIR_STORAGE_NET_PROTOCOL_RBD:
@@ -255,10 +311,10 @@ index 0765dc7..c69b1f1 100644
      case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
      case VIR_STORAGE_NET_PROTOCOL_ISCSI:
 diff --git a/src/qemu/qemu_snapshot.c b/src/qemu/qemu_snapshot.c
-index ee333c3..674aa58 100644
+index 4e74ddd..14e5f2e 100644
 --- a/src/qemu/qemu_snapshot.c
 +++ b/src/qemu/qemu_snapshot.c
-@@ -403,6 +403,7 @@ qemuSnapshotPrepareDiskExternalInactive(virDomainSnapshotDiskDefPtr snapdisk,
+@@ -402,6 +402,7 @@ qemuSnapshotPrepareDiskExternalInactive(virDomainSnapshotDiskDef *snapdisk,
          case VIR_STORAGE_NET_PROTOCOL_NONE:
          case VIR_STORAGE_NET_PROTOCOL_NBD:
          case VIR_STORAGE_NET_PROTOCOL_RBD:
@@ -266,7 +322,7 @@ index ee333c3..674aa58 100644
          case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
          case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
          case VIR_STORAGE_NET_PROTOCOL_ISCSI:
-@@ -493,6 +494,7 @@ qemuSnapshotPrepareDiskExternalActive(virDomainObjPtr vm,
+@@ -494,6 +495,7 @@ qemuSnapshotPrepareDiskExternalActive(virDomainObj *vm,
          case VIR_STORAGE_NET_PROTOCOL_NONE:
          case VIR_STORAGE_NET_PROTOCOL_NBD:
          case VIR_STORAGE_NET_PROTOCOL_RBD:
@@ -274,7 +330,7 @@ index ee333c3..674aa58 100644
          case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
          case VIR_STORAGE_NET_PROTOCOL_ISCSI:
          case VIR_STORAGE_NET_PROTOCOL_HTTP:
-@@ -623,6 +625,7 @@ qemuSnapshotPrepareDiskInternal(virDomainDiskDefPtr disk,
+@@ -647,6 +649,7 @@ qemuSnapshotPrepareDiskInternal(virDomainDiskDef *disk,
          case VIR_STORAGE_NET_PROTOCOL_NONE:
          case VIR_STORAGE_NET_PROTOCOL_NBD:
          case VIR_STORAGE_NET_PROTOCOL_RBD:
@@ -282,37 +338,29 @@ index ee333c3..674aa58 100644
          case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
          case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
          case VIR_STORAGE_NET_PROTOCOL_ISCSI:
-diff --git a/src/test/test_driver.c b/src/test/test_driver.c
-index 29c4c86..a27ad94 100644
---- a/src/test/test_driver.c
-+++ b/src/test/test_driver.c
-@@ -7096,6 +7096,7 @@ testStorageVolumeTypeForPool(int pooltype)
-     case VIR_STORAGE_POOL_ISCSI_DIRECT:
-     case VIR_STORAGE_POOL_GLUSTER:
-     case VIR_STORAGE_POOL_RBD:
-+    case VIR_STORAGE_POOL_VITASTOR:
-         return VIR_STORAGE_VOL_NETWORK;
-     case VIR_STORAGE_POOL_LOGICAL:
-     case VIR_STORAGE_POOL_DISK:
-diff --git a/src/util/virstoragefile.c b/src/util/virstoragefile.c
-index 0d3c2af..36e3afc 100644
---- a/src/util/virstoragefile.c
-+++ b/src/util/virstoragefile.c
-@@ -91,6 +91,7 @@ VIR_ENUM_IMPL(virStorageNetProtocol,
-               "ssh",
-               "vxhs",
-               "nfs",
-+              "vitastor",
- );
+diff --git a/src/storage/storage_driver.c b/src/storage/storage_driver.c
+index c2ff4b8..70d0689 100644
+--- a/src/storage/storage_driver.c
++++ b/src/storage/storage_driver.c
+@@ -1644,6 +1644,7 @@ storageVolLookupByPathCallback(virStoragePoolObj *obj,
  
- VIR_ENUM_IMPL(virStorageNetHostTransport,
-@@ -2880,6 +2881,75 @@ virStorageSourceParseRBDColonString(const char *rbdstr,
+         case VIR_STORAGE_POOL_GLUSTER:
+         case VIR_STORAGE_POOL_RBD:
++        case VIR_STORAGE_POOL_VITASTOR:
+         case VIR_STORAGE_POOL_SHEEPDOG:
+         case VIR_STORAGE_POOL_ZFS:
+         case VIR_STORAGE_POOL_LAST:
+diff --git a/src/storage_file/storage_source_backingstore.c b/src/storage_file/storage_source_backingstore.c
+index e48ae72..d7a9b72 100644
+--- a/src/storage_file/storage_source_backingstore.c
++++ b/src/storage_file/storage_source_backingstore.c
+@@ -284,6 +284,75 @@ virStorageSourceParseRBDColonString(const char *rbdstr,
  }
  
  
 +static int
 +virStorageSourceParseVitastorColonString(const char *colonstr,
-+                                         virStorageSourcePtr src)
++                                         virStorageSource *src)
 +{
 +    char *p, *e, *next;
 +    g_autofree char *options = NULL;
@@ -381,8 +429,8 @@ index 0d3c2af..36e3afc 100644
 +
  static int
  virStorageSourceParseNBDColonString(const char *nbdstr,
-                                     virStorageSourcePtr src)
-@@ -2992,6 +3062,11 @@ virStorageSourceParseBackingColon(virStorageSourcePtr src,
+                                     virStorageSource *src)
+@@ -396,6 +465,11 @@ virStorageSourceParseBackingColon(virStorageSource *src,
              return -1;
          break;
  
@@ -394,13 +442,13 @@ index 0d3c2af..36e3afc 100644
      case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
      case VIR_STORAGE_NET_PROTOCOL_LAST:
      case VIR_STORAGE_NET_PROTOCOL_NONE:
-@@ -3581,6 +3656,54 @@ virStorageSourceParseBackingJSONRBD(virStorageSourcePtr src,
+@@ -984,6 +1058,54 @@ virStorageSourceParseBackingJSONRBD(virStorageSource *src,
      return 0;
  }
  
 +static int
-+virStorageSourceParseBackingJSONVitastor(virStorageSourcePtr src,
-+                                         virJSONValuePtr json,
++virStorageSourceParseBackingJSONVitastor(virStorageSource *src,
++                                         virJSONValue *json,
 +                                         const char *jsonstr G_GNUC_UNUSED,
 +                                         int opaque G_GNUC_UNUSED)
 +{
@@ -408,7 +456,7 @@ index 0d3c2af..36e3afc 100644
 +    const char *image = virJSONValueObjectGetString(json, "image");
 +    const char *conf = virJSONValueObjectGetString(json, "config_path");
 +    const char *etcd_prefix = virJSONValueObjectGetString(json, "etcd_prefix");
-+    virJSONValuePtr servers = virJSONValueObjectGetArray(json, "server");
++    virJSONValue *servers = virJSONValueObjectGetArray(json, "server");
 +    size_t nservers;
 +    size_t i;
 +
@@ -447,9 +495,9 @@ index 0d3c2af..36e3afc 100644
 +}
 +
  static int
- virStorageSourceParseBackingJSONRaw(virStorageSourcePtr src,
-                                     virJSONValuePtr json,
-@@ -3759,6 +3882,7 @@ static const struct virStorageSourceJSONDriverParser jsonParsers[] = {
+ virStorageSourceParseBackingJSONRaw(virStorageSource *src,
+                                     virJSONValue *json,
+@@ -1162,6 +1284,7 @@ static const struct virStorageSourceJSONDriverParser jsonParsers[] = {
      {"sheepdog", false, virStorageSourceParseBackingJSONSheepdog, 0},
      {"ssh", false, virStorageSourceParseBackingJSONSSH, 0},
      {"rbd", false, virStorageSourceParseBackingJSONRBD, 0},
@@ -457,26 +505,18 @@ index 0d3c2af..36e3afc 100644
      {"raw", true, virStorageSourceParseBackingJSONRaw, 0},
      {"nfs", false, virStorageSourceParseBackingJSONNFS, 0},
      {"vxhs", false, virStorageSourceParseBackingJSONVxHS, 0},
-@@ -4503,6 +4627,7 @@ virStorageSourceNetworkDefaultPort(virStorageNetProtocol protocol)
-         case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
-             return 24007;
- 
-+        case VIR_STORAGE_NET_PROTOCOL_VITASTOR:
-         case VIR_STORAGE_NET_PROTOCOL_RBD:
-             /* we don't provide a default for RBD */
-             return 0;
-diff --git a/src/util/virstoragefile.h b/src/util/virstoragefile.h
-index 5689c39..3eb4e3c 100644
---- a/src/util/virstoragefile.h
-+++ b/src/util/virstoragefile.h
-@@ -136,6 +136,7 @@ typedef enum {
-     VIR_STORAGE_NET_PROTOCOL_SSH,
-     VIR_STORAGE_NET_PROTOCOL_VXHS,
-     VIR_STORAGE_NET_PROTOCOL_NFS,
-+    VIR_STORAGE_NET_PROTOCOL_VITASTOR,
- 
-     VIR_STORAGE_NET_PROTOCOL_LAST
- } virStorageNetProtocol;
+diff --git a/src/test/test_driver.c b/src/test/test_driver.c
+index ef0ddab..2173dc3 100644
+--- a/src/test/test_driver.c
++++ b/src/test/test_driver.c
+@@ -7131,6 +7131,7 @@ testStorageVolumeTypeForPool(int pooltype)
+     case VIR_STORAGE_POOL_ISCSI_DIRECT:
+     case VIR_STORAGE_POOL_GLUSTER:
+     case VIR_STORAGE_POOL_RBD:
++    case VIR_STORAGE_POOL_VITASTOR:
+         return VIR_STORAGE_VOL_NETWORK;
+     case VIR_STORAGE_POOL_LOGICAL:
+     case VIR_STORAGE_POOL_DISK:
 diff --git a/tests/storagepoolcapsschemadata/poolcaps-fs.xml b/tests/storagepoolcapsschemadata/poolcaps-fs.xml
 index eee75af..8bd0a57 100644
 --- a/tests/storagepoolcapsschemadata/poolcaps-fs.xml
@@ -509,11 +549,23 @@ index 805950a..852df0d 100644
 +    </volOptions>
 +  </pool>
  </storagepoolCapabilities>
+diff --git a/tests/storagepoolxml2argvtest.c b/tests/storagepoolxml2argvtest.c
+index 449b745..7f95cc8 100644
+--- a/tests/storagepoolxml2argvtest.c
++++ b/tests/storagepoolxml2argvtest.c
+@@ -68,6 +68,7 @@ testCompareXMLToArgvFiles(bool shouldFail,
+     case VIR_STORAGE_POOL_GLUSTER:
+     case VIR_STORAGE_POOL_ZFS:
+     case VIR_STORAGE_POOL_VSTORAGE:
++    case VIR_STORAGE_POOL_VITASTOR:
+     case VIR_STORAGE_POOL_LAST:
+     default:
+         VIR_TEST_DEBUG("pool type '%s' has no xml2argv test", defTypeStr);
 diff --git a/tools/virsh-pool.c b/tools/virsh-pool.c
-index 7835fa6..8841fcf 100644
+index 18f3839..c8e1436 100644
 --- a/tools/virsh-pool.c
 +++ b/tools/virsh-pool.c
-@@ -1237,6 +1237,9 @@ cmdPoolList(vshControl *ctl, const vshCmd *cmd G_GNUC_UNUSED)
+@@ -1231,6 +1231,9 @@ cmdPoolList(vshControl *ctl, const vshCmd *cmd G_GNUC_UNUSED)
              case VIR_STORAGE_POOL_VSTORAGE:
                  flags |= VIR_CONNECT_LIST_STORAGE_POOLS_VSTORAGE;
                  break;
