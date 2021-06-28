@@ -1,4 +1,4 @@
-commit 46c76fe10d9e327fcefbf22b3173095626bee083
+commit 41854e5059a1ba0b8e2918ce872e1ba78d3ecd6a
 Author: Vitaliy Filippov <vitalif@yourcmc.ru>
 Date:   Mon Jun 28 01:18:41 2021 +0300
 
@@ -181,6 +181,30 @@ index 2a7cdca..f756be1 100644
   * VIR_CONNECT_LIST_STORAGE_POOLS_SHEEPDOG
   * VIR_CONNECT_LIST_STORAGE_POOLS_GLUSTER
   * VIR_CONNECT_LIST_STORAGE_POOLS_ZFS
+diff --git a/src/libxl/libxl_conf.c b/src/libxl/libxl_conf.c
+index 6a8ae27..a735bc6 100644
+--- a/src/libxl/libxl_conf.c
++++ b/src/libxl/libxl_conf.c
+@@ -942,6 +942,7 @@ libxlMakeNetworkDiskSrcStr(virStorageSourcePtr src,
+     case VIR_STORAGE_NET_PROTOCOL_SSH:
+     case VIR_STORAGE_NET_PROTOCOL_VXHS:
+     case VIR_STORAGE_NET_PROTOCOL_NFS:
++    case VIR_STORAGE_NET_PROTOCOL_VITASTOR:
+     case VIR_STORAGE_NET_PROTOCOL_LAST:
+     case VIR_STORAGE_NET_PROTOCOL_NONE:
+         virReportError(VIR_ERR_NO_SUPPORT,
+diff --git a/src/libxl/xen_xl.c b/src/libxl/xen_xl.c
+index 17b93d0..c5a0084 100644
+--- a/src/libxl/xen_xl.c
++++ b/src/libxl/xen_xl.c
+@@ -1601,6 +1601,7 @@ xenFormatXLDiskSrcNet(virStorageSourcePtr src)
+     case VIR_STORAGE_NET_PROTOCOL_SSH:
+     case VIR_STORAGE_NET_PROTOCOL_VXHS:
+     case VIR_STORAGE_NET_PROTOCOL_NFS:
++    case VIR_STORAGE_NET_PROTOCOL_VITASTOR:
+     case VIR_STORAGE_NET_PROTOCOL_LAST:
+     case VIR_STORAGE_NET_PROTOCOL_NONE:
+         virReportError(VIR_ERR_NO_SUPPORT,
 diff --git a/src/qemu/qemu_block.c b/src/qemu/qemu_block.c
 index f9c6da2..92093e4 100644
 --- a/src/qemu/qemu_block.c
@@ -336,6 +360,18 @@ index ee333c3..674aa58 100644
          case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
          case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
          case VIR_STORAGE_NET_PROTOCOL_ISCSI:
+diff --git a/src/storage/storage_driver.c b/src/storage/storage_driver.c
+index 16bc53a..1e5d820 100644
+--- a/src/storage/storage_driver.c
++++ b/src/storage/storage_driver.c
+@@ -1645,6 +1645,7 @@ storageVolLookupByPathCallback(virStoragePoolObjPtr obj,
+ 
+         case VIR_STORAGE_POOL_GLUSTER:
+         case VIR_STORAGE_POOL_RBD:
++        case VIR_STORAGE_POOL_VITASTOR:
+         case VIR_STORAGE_POOL_SHEEPDOG:
+         case VIR_STORAGE_POOL_ZFS:
+         case VIR_STORAGE_POOL_LAST:
 diff --git a/src/test/test_driver.c b/src/test/test_driver.c
 index 29c4c86..a27ad94 100644
 --- a/src/test/test_driver.c
@@ -563,6 +599,18 @@ index 805950a..852df0d 100644
 +    </volOptions>
 +  </pool>
  </storagepoolCapabilities>
+diff --git a/tests/storagepoolxml2argvtest.c b/tests/storagepoolxml2argvtest.c
+index 967d1f2..1e8ff7a 100644
+--- a/tests/storagepoolxml2argvtest.c
++++ b/tests/storagepoolxml2argvtest.c
+@@ -68,6 +68,7 @@ testCompareXMLToArgvFiles(bool shouldFail,
+     case VIR_STORAGE_POOL_GLUSTER:
+     case VIR_STORAGE_POOL_ZFS:
+     case VIR_STORAGE_POOL_VSTORAGE:
++    case VIR_STORAGE_POOL_VITASTOR:
+     case VIR_STORAGE_POOL_LAST:
+     default:
+         VIR_TEST_DEBUG("pool type '%s' has no xml2argv test", defTypeStr);
 diff --git a/tools/virsh-pool.c b/tools/virsh-pool.c
 index 7835fa6..8841fcf 100644
 --- a/tools/virsh-pool.c
