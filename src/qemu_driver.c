@@ -199,6 +199,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     int64_t ret = 0;
     qemu_mutex_init(&client->mutex);
     client->config_path = g_strdup(qdict_get_try_str(options, "config_path"));
+    // FIXME: Rename to etcd_address
     client->etcd_host = g_strdup(qdict_get_try_str(options, "etcd_host"));
     client->etcd_prefix = g_strdup(qdict_get_try_str(options, "etcd_prefix"));
     client->use_rdma = qdict_get_try_int(options, "use_rdma", -1);

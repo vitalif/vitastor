@@ -36,6 +36,8 @@ const etcd_allow = new RegExp('^'+[
     'history/last_clean_pgs',
     'inode/stats/[1-9]\\d*/[1-9]\\d*',
     'stats',
+    'index/image/.*',
+    'index/maxid/[1-9]\\d*',
 ].join('$|^')+'$');
 
 const etcd_tree = {
@@ -267,6 +269,16 @@ const etcd_tree = {
             }, */
         },
     },
+    pool: {
+        stats: {
+            /* <pool_id>: {
+                used_raw_tb: float, // used raw space in the pool
+                total_raw_tb: float, // maximum amount of space in the pool
+                raw_to_usable: float, // raw to usable ratio
+                space_efficiency: float, // 0..1
+            } */
+        },
+    },
     stats: {
         /* op_stats: {
             <string>: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
@@ -288,6 +300,17 @@ const etcd_tree = {
     },
     history: {
         last_clean_pgs: {},
+    },
+    index: {
+        image: {
+            /* <name>: {
+                id: uint64_t,
+                pool_id: uint64_t,
+            }, */
+        },
+        maxid: {
+            /* <pool_id>: uint64_t, */
+        },
     },
 };
 
@@ -362,6 +385,11 @@ class Mon
         if (this.config.mon_stats_timeout < 100)
         {
             this.config.mon_stats_timeout = 100;
+        }
+        this.config.mon_stats_interval = Number(this.config.mon_stats_interval) || 5000;
+        if (this.config.mon_stats_interval < 100)
+        {
+            this.config.mon_stats_interval = 100;
         }
         // After this number of seconds, a dead OSD will be removed from PG distribution
         this.config.osd_out_time = Number(this.config.osd_out_time) || 0;
@@ -1027,6 +1055,17 @@ class Mon
                     } });
                 }
                 LPOptimizer.print_change_stats(optimize_result);
+                const pg_effsize = Math.min(pool_cfg.pg_size, Object.keys(pool_tree).length);
+                this.state.pool.stats[pool_id] = {
+                    used_raw_tb: (this.state.pool.stats[pool_id]||{}).used_raw_tb || 0,
+                    total_raw_tb: optimize_result.space,
+                    raw_to_usable: pg_effsize / (pool_cfg.pg_size - (pool_cfg.parity_chunks||0)),
+                    space_efficiency: optimize_result.space/(optimize_result.total_space||1),
+                };
+                etcd_request.success.push({ requestPut: {
+                    key: b64(this.etcd_prefix+'/pool/stats/'+pool_id),
+                    value: b64(JSON.stringify(this.state.pool.stats[pool_id])),
+                } });
                 this.save_new_pgs_txn(etcd_request, pool_id, up_osds, real_prev_pgs, optimize_result.int_pgs, pg_history);
             }
             this.state.config.pgs.hash = tree_hash;
@@ -1133,7 +1172,7 @@ class Mon
         }, this.config.mon_change_timeout || 1000);
     }
 
-    sum_stats()
+    sum_op_stats()
     {
         const op_stats = {}, subop_stats = {}, recovery_stats = {};
         for (const osd in this.state.osd.stats)
@@ -1194,17 +1233,30 @@ class Mon
             write: { count: 0n, usec: 0n, bytes: 0n },
             delete: { count: 0n, usec: 0n, bytes: 0n },
         });
+        for (const pool_id in this.state.config.pools)
+        {
+            this.state.pool.stats[pool_id] = this.state.pool.stats[pool_id] || {};
+            this.state.pool.stats[pool_id].used_raw_tb = 0n;
+        }
         for (const osd_num in this.state.osd.space)
         {
             for (const pool_id in this.state.osd.space[osd_num])
             {
+                this.state.pool.stats[pool_id] = this.state.pool.stats[pool_id] || { used_raw_tb: 0n };
                 inode_stats[pool_id] = inode_stats[pool_id] || {};
                 for (const inode_num in this.state.osd.space[osd_num][pool_id])
                 {
+                    const u = BigInt(this.state.osd.space[osd_num][pool_id][inode_num]||0);
                     inode_stats[pool_id][inode_num] = inode_stats[pool_id][inode_num] || inode_stub();
-                    inode_stats[pool_id][inode_num].raw_used += BigInt(this.state.osd.space[osd_num][pool_id][inode_num]||0);
+                    inode_stats[pool_id][inode_num].raw_used += u;
+                    this.state.pool.stats[pool_id].used_raw_tb += u;
                 }
             }
+        }
+        for (const pool_id in this.state.config.pools)
+        {
+            const used = this.state.pool.stats[pool_id].used_raw_tb;
+            this.state.pool.stats[pool_id].used_raw_tb = Number(used)/1024/1024/1024/1024;
         }
         for (const osd_num in this.state.osd.inodestats)
         {
@@ -1277,7 +1329,7 @@ class Mon
     async update_total_stats()
     {
         const txn = [];
-        const stats = this.sum_stats();
+        const stats = this.sum_op_stats();
         const object_counts = this.sum_object_counts();
         const inode_stats = this.sum_inode_stats();
         this.fix_stat_overflows(stats, (this.prev_stats = this.prev_stats || {}));
@@ -1296,6 +1348,13 @@ class Mon
                 } });
             }
         }
+        for (const pool_id in this.state.pool.stats)
+        {
+            txn.push({ requestPut: {
+                key: b64(this.etcd_prefix+'/pool/stats/'+pool_id),
+                value: b64(JSON.stringify(this.state.pool.stats[pool_id])),
+            } });
+        }
         if (txn.length)
         {
             await this.etcd_call('/kv/txn', { success: txn }, this.config.etcd_mon_timeout, 0);
@@ -1309,11 +1368,17 @@ class Mon
             clearTimeout(this.stats_timer);
             this.stats_timer = null;
         }
+        let sleep = (this.stats_update_next||0) - Date.now();
+        if (sleep < this.config.mon_stats_timeout)
+        {
+            sleep = this.config.mon_stats_timeout;
+        }
         this.stats_timer = setTimeout(() =>
         {
             this.stats_timer = null;
+            this.stats_update_next = Date.now() + this.config.mon_stats_interval;
             this.update_total_stats().catch(console.error);
-        }, this.config.mon_stats_timeout || 1000);
+        }, sleep);
     }
 
     parse_kv(kv)

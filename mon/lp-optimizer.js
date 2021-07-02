@@ -244,6 +244,7 @@ async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, 
     {
         return null;
     }
+    // FIXME: use parity_chunks with parity_space instead of pg_minsize
     const pg_effsize = Math.min(pg_minsize, Object.keys(osd_tree).length)
         + Math.max(0, Math.min(pg_size, Object.keys(osd_tree).length) - pg_minsize) * parity_space;
     const pg_count = prev_int_pgs.length;
