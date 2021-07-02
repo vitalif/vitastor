@@ -70,7 +70,7 @@ static void vitastor_co_generic_bh_cb(void *opaque, long retval);
 static void vitastor_co_read_cb(void *opaque, long retval, uint64_t version);
 static void vitastor_close(BlockDriverState *bs);
 
-static char *qemu_rbd_next_tok(char *src, char delim, char **p)
+static char *qemu_vitastor_next_tok(char *src, char delim, char **p)
 {
     char *end;
     *p = NULL;
@@ -89,7 +89,7 @@ static char *qemu_rbd_next_tok(char *src, char delim, char **p)
     return src;
 }
 
-static void qemu_rbd_unescape(char *src)
+static void qemu_vitastor_unescape(char *src)
 {
     char *p;
     for (p = src; *src; ++src, ++p)
@@ -122,15 +122,15 @@ static void vitastor_parse_filename(const char *filename, QDict *options, Error 
     while (p)
     {
         char *name, *value;
-        name = qemu_rbd_next_tok(p, '=', &p);
+        name = qemu_vitastor_next_tok(p, '=', &p);
         if (!p)
         {
             error_setg(errp, "conf option %s has no value", name);
             break;
         }
-        qemu_rbd_unescape(name);
-        value = qemu_rbd_next_tok(p, ':', &p);
-        qemu_rbd_unescape(value);
+        qemu_vitastor_unescape(name);
+        value = qemu_vitastor_next_tok(p, ':', &p);
+        qemu_vitastor_unescape(value);
         if (!strcmp(name, "inode") ||
             !strcmp(name, "pool") ||
             !strcmp(name, "size") ||
