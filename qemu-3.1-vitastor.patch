@@ -11,7 +11,7 @@ Index: qemu-3.1+dfsg/qapi/block-core.json
              'host_cdrom', 'host_device', 'http', 'https', 'iscsi', 'luks',
              'nbd', 'nfs', 'null-aio', 'null-co', 'nvme', 'parallels', 'qcow',
              'qcow2', 'qed', 'quorum', 'raw', 'rbd', 'replication', 'sheepdog',
-@@ -3367,6 +3367,24 @@
+@@ -3367,6 +3367,28 @@
              '*tag': 'str' } }
  
  ##
@@ -19,17 +19,21 @@ Index: qemu-3.1+dfsg/qapi/block-core.json
 +#
 +# Driver specific block device options for vitastor
 +#
++# @image:       Image name
 +# @inode:       Inode number
 +# @pool:        Pool ID
 +# @size:        Desired image size in bytes
-+# @etcd_host:   etcd connection address
++# @config_path: Path to Vitastor configuration
++# @etcd_host:   etcd connection address(es)
 +# @etcd_prefix: etcd key/value prefix
 +##
 +{ 'struct': 'BlockdevOptionsVitastor',
-+  'data': { 'inode': 'uint64',
-+            'pool': 'uint64',
-+            'size': 'uint64',
-+            'etcd_host': 'str',
++  'data': { '*inode': 'uint64',
++            '*pool': 'uint64',
++            '*size': 'uint64',
++            '*image': 'str',
++            '*config_path': 'str',
++            '*etcd_host': 'str',
 +            '*etcd_prefix': 'str' } }
 +
 +##
