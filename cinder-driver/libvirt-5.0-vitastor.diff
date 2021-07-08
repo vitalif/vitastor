@@ -1,4 +1,4 @@
-commit 74b70c3e9482850c0f141f52ef2510466d68050b
+commit bd283191b3e7a4c6d1c100d3d96e348a1ebffe55
 Author: Vitaliy Filippov <vitalif@yourcmc.ru>
 Date:   Sun Jun 27 12:52:40 2021 +0300
 
@@ -65,10 +65,32 @@ index 4bf2b5f..dbc011b 100644
  
  int                     virConnectListAllStoragePools(virConnectPtr conn,
 diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
-index 222bb8c..7687a5d 100644
+index 222bb8c..685d255 100644
 --- a/src/conf/domain_conf.c
 +++ b/src/conf/domain_conf.c
-@@ -30930,6 +30930,7 @@ virDomainDiskTranslateSourcePool(virDomainDiskDefPtr def)
+@@ -8653,6 +8653,10 @@ virDomainDiskSourceNetworkParse(xmlNodePtr node,
+         goto cleanup;
+     }
+ 
++    if (src->protocol == VIR_STORAGE_NET_PROTOCOL_VITASTOR) {
++        src->relPath = virXMLPropString(node, "query");
++    }
++
+     if ((haveTLS = virXMLPropString(node, "tls")) &&
+         (src->haveTLS = virTristateBoolTypeFromString(haveTLS)) <= 0) {
+         virReportError(VIR_ERR_XML_ERROR,
+@@ -23849,6 +23853,10 @@ virDomainDiskSourceFormatNetwork(virBufferPtr attrBuf,
+ 
+     virBufferEscapeString(attrBuf, " name='%s'", path ? path : src->path);
+ 
++    if (src->protocol == VIR_STORAGE_NET_PROTOCOL_VITASTOR && src->relPath != NULL) {
++        virBufferEscapeString(attrBuf, " query='%s'", src->relPath);
++    }
++
+     VIR_FREE(path);
+ 
+     if (src->haveTLS != VIR_TRISTATE_BOOL_ABSENT &&
+@@ -30930,6 +30938,7 @@ virDomainDiskTranslateSourcePool(virDomainDiskDefPtr def)
  
      case VIR_STORAGE_POOL_MPATH:
      case VIR_STORAGE_POOL_RBD:
@@ -194,32 +216,45 @@ index 73e988a..ab7bb81 100644
      case VIR_STORAGE_NET_PROTOCOL_NONE:
          virReportError(VIR_ERR_NO_SUPPORT,
 diff --git a/src/qemu/qemu_block.c b/src/qemu/qemu_block.c
-index cbf0aa4..a485979 100644
+index cbf0aa4..096700d 100644
 --- a/src/qemu/qemu_block.c
 +++ b/src/qemu/qemu_block.c
-@@ -959,6 +959,29 @@ qemuBlockStorageSourceGetRBDProps(virStorageSourcePtr src)
+@@ -959,6 +959,42 @@ qemuBlockStorageSourceGetRBDProps(virStorageSourcePtr src)
  }
  
  
 +static virJSONValuePtr
 +qemuBlockStorageSourceGetVitastorProps(virStorageSource *src)
 +{
-+    virJSONValuePtr servers = NULL;
 +    virJSONValuePtr ret = NULL;
++    virStorageNetHostDefPtr host;
++    size_t i;
++    virBuffer buf = VIR_BUFFER_INITIALIZER;
++    char *etcd = NULL;
 +
-+    if (src->nhosts > 0 &&
-+        !(servers = qemuBlockStorageSourceBuildHostsJSONInetSocketAddress(src)))
-+        return NULL;
++    for (i = 0; i < src->nhosts; i++) {
++        host = src->hosts + i;
++        if ((virStorageNetHostTransport)host->transport != VIR_STORAGE_NET_HOST_TRANS_TCP) {
++            goto cleanup;
++        }
++        virBufferAsprintf(&buf, i > 0 ? ",%s:%u" : "%s:%u", host->name, host->port);
++    }
++    if (src->nhosts > 0) {
++        etcd = virBufferContentAndReset(&buf);
++    }
 +
 +    if (virJSONValueObjectCreate(&ret,
 +                                 "s:driver", "vitastor",
-+                                 "A:server", &servers,
-+                                 "s:etcd_prefix", src->relPath,
++                                 "S:etcd_host", etcd,
++                                 "S:etcd_prefix", src->relPath,
 +                                 "S:config_path", src->configFile,
 +                                 "s:image", src->path,
 +                                 NULL) < 0)
-+        return NULL;
++        goto cleanup;
 +
++cleanup:
++    VIR_FREE(etcd);
++    virBufferFreeAndReset(&buf);
 +    return ret;
 +}
 +
@@ -227,7 +262,7 @@ index cbf0aa4..a485979 100644
  static virJSONValuePtr
  qemuBlockStorageSourceGetSheepdogProps(virStorageSourcePtr src)
  {
-@@ -1174,6 +1197,11 @@ qemuBlockStorageSourceGetBackendProps(virStorageSourcePtr src,
+@@ -1174,6 +1210,11 @@ qemuBlockStorageSourceGetBackendProps(virStorageSourcePtr src,
                  return NULL;
              break;
  

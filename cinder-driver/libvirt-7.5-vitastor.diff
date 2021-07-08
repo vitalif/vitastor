@@ -1,4 +1,4 @@
-commit 804f2fb24aedd32e238f84a7865e8a454e012e9c
+commit c6e1958a1b4974828e8e5852beb252ce6594e670
 Author: Vitaliy Filippov <vitalif@yourcmc.ru>
 Date:   Mon Jun 28 01:20:19 2021 +0300
 
@@ -65,10 +65,20 @@ index 089e1e0..d7e7ef4 100644
  
  int                     virConnectListAllStoragePools(virConnectPtr conn,
 diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
-index d78f846..97f4d6d 100644
+index d78f846..f7222e3 100644
 --- a/src/conf/domain_conf.c
 +++ b/src/conf/domain_conf.c
-@@ -30775,6 +30775,7 @@ virDomainStorageSourceTranslateSourcePool(virStorageSource *src,
+@@ -8251,7 +8251,8 @@ virDomainDiskSourceNetworkParse(xmlNodePtr node,
+     src->configFile = virXPathString("string(./config/@file)", ctxt);
+ 
+     if (src->protocol == VIR_STORAGE_NET_PROTOCOL_HTTP ||
+-        src->protocol == VIR_STORAGE_NET_PROTOCOL_HTTPS)
++        src->protocol == VIR_STORAGE_NET_PROTOCOL_HTTPS ||
++        src->protocol == VIR_STORAGE_NET_PROTOCOL_VITASTOR)
+         src->query = virXMLPropString(node, "query");
+ 
+     if (virDomainStorageNetworkParseHosts(node, ctxt, &src->hosts, &src->nhosts) < 0)
+@@ -30775,6 +30776,7 @@ virDomainStorageSourceTranslateSourcePool(virStorageSource *src,
  
      case VIR_STORAGE_POOL_MPATH:
      case VIR_STORAGE_POOL_RBD:
@@ -238,26 +248,36 @@ index c0905b0..c172378 100644
      case VIR_STORAGE_NET_PROTOCOL_NONE:
          virReportError(VIR_ERR_NO_SUPPORT,
 diff --git a/src/qemu/qemu_block.c b/src/qemu/qemu_block.c
-index 6627d04..277b04e 100644
+index 6627d04..c33f428 100644
 --- a/src/qemu/qemu_block.c
 +++ b/src/qemu/qemu_block.c
-@@ -928,6 +928,28 @@ qemuBlockStorageSourceGetRBDProps(virStorageSource *src,
+@@ -928,6 +928,38 @@ qemuBlockStorageSourceGetRBDProps(virStorageSource *src,
  }
  
  
 +static virJSONValue *
 +qemuBlockStorageSourceGetVitastorProps(virStorageSource *src)
 +{
-+    g_autoptr(virJSONValue) servers = NULL;
-+    virJSONValue *ret = NULL;
++    virJSONValuePtr ret = NULL;
++    virStorageNetHostDefPtr host;
++    size_t i;
++    g_auto(virBuffer) buf = VIR_BUFFER_INITIALIZER;
++    g_autofree char *etcd = NULL;
 +
-+    if (src->nhosts > 0 &&
-+        !(servers = qemuBlockStorageSourceBuildHostsJSONInetSocketAddress(src)))
-+        return NULL;
++    for (i = 0; i < src->nhosts; i++) {
++        host = src->hosts + i;
++        if ((virStorageNetHostTransport)host->transport != VIR_STORAGE_NET_HOST_TRANS_TCP) {
++            return NULL;
++        }
++        virBufferAsprintf(&buf, i > 0 ? ",%s:%u" : "%s:%u", host->name, host->port);
++    }
++    if (src->nhosts > 0) {
++        etcd = virBufferContentAndReset(&buf);
++    }
 +
 +    if (virJSONValueObjectCreate(&ret,
-+                                 "A:etcd_address", &servers,
-+                                 "s:etcd_prefix", src->query,
++                                 "S:etcd_host", etcd,
++                                 "S:etcd_prefix", src->query,
 +                                 "S:config_path", src->configFile,
 +                                 "s:image", src->path,
 +                                 NULL) < 0)
@@ -270,7 +290,7 @@ index 6627d04..277b04e 100644
  static virJSONValue *
  qemuBlockStorageSourceGetSheepdogProps(virStorageSource *src)
  {
-@@ -1218,6 +1240,12 @@ qemuBlockStorageSourceGetBackendProps(virStorageSource *src,
+@@ -1218,6 +1250,12 @@ qemuBlockStorageSourceGetBackendProps(virStorageSource *src,
                  return NULL;
              break;
  
@@ -283,7 +303,7 @@ index 6627d04..277b04e 100644
          case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
              driver = "sheepdog";
              if (!(fileprops = qemuBlockStorageSourceGetSheepdogProps(src)))
-@@ -2231,6 +2259,7 @@ qemuBlockGetBackingStoreString(virStorageSource *src,
+@@ -2231,6 +2269,7 @@ qemuBlockGetBackingStoreString(virStorageSource *src,
  
              case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
              case VIR_STORAGE_NET_PROTOCOL_RBD:
@@ -291,7 +311,7 @@ index 6627d04..277b04e 100644
              case VIR_STORAGE_NET_PROTOCOL_VXHS:
              case VIR_STORAGE_NET_PROTOCOL_NFS:
              case VIR_STORAGE_NET_PROTOCOL_SSH:
-@@ -2608,6 +2637,12 @@ qemuBlockStorageSourceCreateGetStorageProps(virStorageSource *src,
+@@ -2608,6 +2647,12 @@ qemuBlockStorageSourceCreateGetStorageProps(virStorageSource *src,
                  return -1;
              break;
  
@@ -353,10 +373,20 @@ index ea51369..8258632 100644
              virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                             _("VxHS protocol does not support URI syntax"));
 diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
-index fc60e15..88bcb26 100644
+index fc60e15..5ab410d 100644
 --- a/src/qemu/qemu_domain.c
 +++ b/src/qemu/qemu_domain.c
-@@ -10027,6 +10027,7 @@ qemuDomainPrepareStorageSourceTLS(virStorageSource *src,
+@@ -4829,7 +4829,8 @@ qemuDomainValidateStorageSource(virStorageSource *src,
+     if (src->query &&
+         (actualType != VIR_STORAGE_TYPE_NETWORK ||
+          (src->protocol != VIR_STORAGE_NET_PROTOCOL_HTTPS &&
+-          src->protocol != VIR_STORAGE_NET_PROTOCOL_HTTP))) {
++          src->protocol != VIR_STORAGE_NET_PROTOCOL_HTTP &&
++          src->protocol != VIR_STORAGE_NET_PROTOCOL_VITASTOR))) {
+         virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+                        _("query is supported only with HTTP(S) protocols"));
+         return -1;
+@@ -10027,6 +10028,7 @@ qemuDomainPrepareStorageSourceTLS(virStorageSource *src,
          break;
  
      case VIR_STORAGE_NET_PROTOCOL_RBD:
