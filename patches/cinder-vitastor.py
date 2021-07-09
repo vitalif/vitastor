@@ -50,7 +50,7 @@ from cinder.volume import configuration
 from cinder.volume import driver
 from cinder.volume import volume_utils
 
-VERSION = '0.6.4'
+VERSION = '0.6.5'
 
 LOG = logging.getLogger(__name__)
 
