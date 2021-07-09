@@ -11,6 +11,10 @@ RUN if [ "$REL" = "buster" ]; then \
         echo 'Package: *' >> /etc/apt/preferences; \
         echo 'Pin: release a=buster-backports' >> /etc/apt/preferences; \
         echo 'Pin-Priority: 500' >> /etc/apt/preferences; \
+        echo >> /etc/apt/preferences; \
+        echo 'Package: libglvnd* libgles* libglx* libgl1 libegl* libopengl* mesa*' >> /etc/apt/preferences; \
+        echo 'Pin: release a=buster-backports' >> /etc/apt/preferences; \
+        echo 'Pin-Priority: 50' >> /etc/apt/preferences; \
     fi; \
     grep '^deb ' /etc/apt/sources.list | perl -pe 's/^deb/deb-src/' >> /etc/apt/sources.list; \
     echo 'APT::Install-Recommends false;' >> /etc/apt/apt.conf; \
@@ -20,6 +24,8 @@ RUN apt-get update
 RUN apt-get -y install qemu fio liburing1 liburing-dev libgoogle-perftools-dev devscripts
 RUN apt-get -y build-dep qemu
 RUN apt-get -y build-dep fio
+# To build a custom version
+#RUN cp /root/packages/qemu-orig/* /root
 RUN apt-get --download-only source qemu
 RUN apt-get --download-only source fio
 
