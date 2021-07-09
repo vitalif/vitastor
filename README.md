@@ -42,12 +42,14 @@ breaking changes in the future. However, the following is implemented:
 - Write throttling to smooth random write workloads in SSD+HDD configurations
 - RDMA/RoCEv2 support via libibverbs
 - CSI plugin for Kubernetes
+- Basic OpenStack support: Cinder driver, Nova and libvirt patches
 
 ## Roadmap
 
+- Snapshot deletion (layer merge) support
 - Better OSD creation and auto-start tools
 - Other administrative tools
-- Plugins for OpenStack, OpenNebula, Proxmox and other cloud systems
+- Plugins for OpenNebula, Proxmox and other cloud systems
 - iSCSI proxy
 - Faster failover
 - Scrubbing without checksums (verification of replicas)
