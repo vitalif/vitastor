@@ -11,7 +11,7 @@ RUN rm -rf /var/lib/dnf/*; dnf download --disablerepo='*' --enablerepo='centos-a
 RUN rpm --nomd5 -i qemu*.src.rpm
 RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo=PowerTools --spec qemu-kvm.spec
 
-ADD qemu-*-vitastor.patch /root/vitastor/
+ADD patches/qemu-*-vitastor.patch /root/vitastor/patches/
 
 RUN set -e; \
     mkdir -p /root/packages/qemu-el8; \
@@ -25,7 +25,7 @@ RUN set -e; \
     echo "Patch$((PN+1)): qemu-4.2-vitastor.patch" >> qemu-kvm.spec; \
     tail -n +2 xx01 >> qemu-kvm.spec; \
     perl -i -pe 's/(^Release:\s*\d+)/$1.vitastor/' qemu-kvm.spec; \
-    cp /root/vitastor/qemu-4.2-vitastor.patch ~/rpmbuild/SOURCES; \
+    cp /root/vitastor/patches/qemu-4.2-vitastor.patch ~/rpmbuild/SOURCES; \
     rpmbuild --nocheck -ba qemu-kvm.spec; \
     cp ~/rpmbuild/RPMS/*/*qemu* /root/packages/qemu-el8/; \
     cp ~/rpmbuild/SRPMS/*qemu* /root/packages/qemu-el8/

@@ -29,17 +29,17 @@ RUN apt-get -y build-dep fio
 RUN apt-get --download-only source qemu
 RUN apt-get --download-only source fio
 
-ADD qemu-5.0-vitastor.patch qemu-5.1-vitastor.patch /root/vitastor/
+ADD patches/qemu-5.0-vitastor.patch patches/qemu-5.1-vitastor.patch /root/vitastor/patches/
 RUN set -e; \
     mkdir -p /root/packages/qemu-$REL; \
     rm -rf /root/packages/qemu-$REL/*; \
     cd /root/packages/qemu-$REL; \
     dpkg-source -x /root/qemu*.dsc; \
     if [ -d /root/packages/qemu-$REL/qemu-5.0 ]; then \
-        cp /root/vitastor/qemu-5.0-vitastor.patch /root/packages/qemu-$REL/qemu-5.0/debian/patches; \
+        cp /root/vitastor/patches/qemu-5.0-vitastor.patch /root/packages/qemu-$REL/qemu-5.0/debian/patches; \
         echo qemu-5.0-vitastor.patch >> /root/packages/qemu-$REL/qemu-5.0/debian/patches/series; \
     else \
-        cp /root/vitastor/qemu-5.1-vitastor.patch /root/packages/qemu-$REL/qemu-*/debian/patches; \
+        cp /root/vitastor/patches/qemu-5.1-vitastor.patch /root/packages/qemu-$REL/qemu-*/debian/patches; \
         P=`ls -d /root/packages/qemu-$REL/qemu-*/debian/patches`; \
         echo qemu-5.1-vitastor.patch >> $P/series; \
     fi; \

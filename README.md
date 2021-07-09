@@ -338,7 +338,7 @@ Vitastor with single-thread NBD on the same hardware:
       * For QEMU 2.0+: `<qemu>/qapi-types.h` &rarr; `<vitastor>/qemu/b/qemu/qapi-types.h`
    - `config-host.h` and `qapi` are required because they contain generated headers
 - You can also rebuild QEMU with a patch that makes LD_PRELOAD unnecessary to load vitastor driver.
-  See `qemu-*.*-vitastor.patch`.
+  See `patches/qemu-*.*-vitastor.patch`.
 - Install fio 3.7 or later, get its source and symlink it into `<vitastor>/fio`.
 - Build & install Vitastor with `mkdir build && cd build && cmake .. && make -j8 && make install`.
   Pay attention to the `QEMU_PLUGINDIR` cmake option - it must be set to `qemu-kvm` on RHEL.
