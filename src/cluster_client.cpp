@@ -31,6 +31,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         {
             // peer_osd just connected
             continue_ops();
+            continue_lists();
         }
         else if (dirty_buffers.size())
         {
@@ -1160,4 +1161,9 @@ void cluster_client_t::copy_part_bitmap(cluster_op_t *op, cluster_op_part_t *par
         object_offset++;
         part_len--;
     }
+}
+
+uint64_t cluster_client_t::next_op_id()
+{
+    return op_id++;
 }

@@ -10,6 +10,8 @@
 #define MAX_BLOCK_SIZE 128*1024*1024
 #define DEFAULT_CLIENT_MAX_DIRTY_BYTES 32*1024*1024
 #define DEFAULT_CLIENT_MAX_DIRTY_OPS 1024
+#define INODE_LIST_DONE 1
+#define INODE_LIST_HAS_UNSTABLE 2
 
 struct cluster_op_t;
 
@@ -62,6 +64,9 @@ struct cluster_buffer_t
     int state;
 };
 
+struct inode_list_t;
+struct inode_list_osd_t;
+
 // FIXME: Split into public and private interfaces
 class cluster_client_t
 {
@@ -93,6 +98,7 @@ class cluster_client_t
     bool pgs_loaded = false;
     ring_consumer_t consumer;
     std::vector<std::function<void(void)>> on_ready_hooks;
+    std::vector<inode_list_t*> lists;
     int continuing_ops = 0;
 
 public:
@@ -108,6 +114,12 @@ public:
 
     static void copy_write(cluster_op_t *op, std::map<object_id, cluster_buffer_t> & dirty_buffers);
     void continue_ops(bool up_retry = false);
+    inode_list_t *list_inode_start(inode_t inode,
+        std::function<void(std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback);
+    int list_pg_count(inode_list_t *lst);
+    void list_inode_next(inode_list_t *lst, int next_pgs);
+    uint64_t next_op_id();
+
 protected:
     bool affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd);
     void flush_buffer(const object_id & oid, cluster_buffer_t *wr);
@@ -125,4 +137,7 @@ protected:
     void erase_op(cluster_op_t *op);
     void calc_wait(cluster_op_t *op);
     void inc_wait(uint64_t opcode, uint64_t flags, cluster_op_t *next, int inc);
+    void continue_lists();
+    void continue_listing(inode_list_t *lst);
+    void send_list(inode_list_osd_t *cur_list);
 };

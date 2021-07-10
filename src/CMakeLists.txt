@@ -116,6 +116,7 @@ endif (${WITH_FIO})
 # libvitastor_client.so
 add_library(vitastor_client SHARED
 	cluster_client.cpp
+	cluster_client_list.cpp
 	vitastor_c.cpp
 )
 set_target_properties(vitastor_client PROPERTIES PUBLIC_HEADER "vitastor_c.h")
@@ -220,7 +221,7 @@ target_link_libraries(test_cas
 # test_cluster_client
 add_executable(test_cluster_client
 	test_cluster_client.cpp
-	pg_states.cpp osd_ops.cpp cluster_client.cpp msgr_op.cpp mock/messenger.cpp msgr_stop.cpp
+	pg_states.cpp osd_ops.cpp cluster_client.cpp cluster_client_list.cpp msgr_op.cpp mock/messenger.cpp msgr_stop.cpp
 	etcd_state_client.cpp timerfd_manager.cpp ../json11/json11.cpp
 )
 target_compile_definitions(test_cluster_client PUBLIC -D__MOCK__)
