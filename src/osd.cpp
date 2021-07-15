@@ -7,6 +7,8 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
+#include "blockstore_impl.h"
+#include "osd_primary.h"
 #include "osd.h"
 #include "http_client.h"
 
@@ -425,6 +427,24 @@ void osd_t::print_slow()
                     op->req.hdr.opcode == OSD_OP_DELETE)
                 {
                     bufprintf(" inode=%lx offset=%lx len=%x", op->req.rw.inode, op->req.rw.offset, op->req.rw.len);
+                }
+                if (op->req.hdr.opcode == OSD_OP_SEC_READ || op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
+                    op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE || op->req.hdr.opcode == OSD_OP_SEC_DELETE ||
+                    op->req.hdr.opcode == OSD_OP_SEC_SYNC || op->req.hdr.opcode == OSD_OP_SEC_LIST ||
+                    op->req.hdr.opcode == OSD_OP_SEC_STABILIZE || op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK ||
+                    op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
+                {
+                    bufprintf(" state=%d", PRIV(op->bs_op)->op_state);
+                    int wait_for = PRIV(op->bs_op)->wait_for;
+                    if (wait_for)
+                    {
+                        bufprintf(" wait=%d (detail=%lu)", wait_for, PRIV(op->bs_op)->wait_detail);
+                    }
+                }
+                else if (op->req.hdr.opcode == OSD_OP_READ || op->req.hdr.opcode == OSD_OP_WRITE ||
+                    op->req.hdr.opcode == OSD_OP_SYNC || op->req.hdr.opcode == OSD_OP_DELETE)
+                {
+                    bufprintf(" state=%d", !op->op_data ? -1 : op->op_data->st);
                 }
 #undef bufprintf
                 printf("%s\n", alloc);
