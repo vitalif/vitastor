@@ -361,6 +361,9 @@ public:
     // Space usage statistics
     std::map<uint64_t, uint64_t> inode_space_stats;
 
+    // Print diagnostics to stdout
+    void dump_diagnostics();
+
     inline uint32_t get_block_size() { return block_size; }
     inline uint64_t get_block_count() { return block_count; }
     inline uint64_t get_free_block_count() { return data_alloc->get_free_count(); }

@@ -48,6 +48,11 @@ std::map<uint64_t, uint64_t> & blockstore_t::get_inode_space_stats()
     return impl->inode_space_stats;
 }
 
+void blockstore_t::dump_diagnostics()
+{
+    return impl->dump_diagnostics();
+}
+
 uint32_t blockstore_t::get_block_size()
 {
     return impl->get_block_size();

@@ -180,6 +180,7 @@ struct journal_t
     ~journal_t();
     bool trim();
     uint64_t get_trim_pos();
+    void dump_diagnostics();
     inline bool entry_fits(int size)
     {
         return !(block_size - in_sector_pos < size ||

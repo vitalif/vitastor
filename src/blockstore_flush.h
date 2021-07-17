@@ -97,6 +97,9 @@ class journal_flusher_t
     std::map<uint64_t, meta_sector_t> meta_sectors;
     std::deque<object_id> flush_queue;
     std::map<object_id, uint64_t> flush_versions;
+
+    bool try_find_older(std::map<obj_ver_id, dirty_entry>::iterator & dirty_end, obj_ver_id & cur);
+
 public:
     journal_flusher_t(blockstore_impl_t *bs);
     ~journal_flusher_t();
@@ -108,4 +111,5 @@ public:
     void enqueue_flush(obj_ver_id oid);
     void unshift_flush(obj_ver_id oid, bool force);
     void remove_flush(object_id oid);
+    void dump_diagnostics();
 };

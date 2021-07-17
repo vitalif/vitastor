@@ -367,6 +367,7 @@ void osd_t::print_stats()
 
 void osd_t::print_slow()
 {
+    bool has_slow = false;
     char alloc[1024];
     timespec now;
     clock_gettime(CLOCK_REALTIME, &now);
@@ -448,7 +449,12 @@ void osd_t::print_slow()
                 }
 #undef bufprintf
                 printf("%s\n", alloc);
+                has_slow = true;
             }
         }
+    }
+    if (has_slow)
+    {
+        bs->dump_diagnostics();
     }
 }

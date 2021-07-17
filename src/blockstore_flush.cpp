@@ -182,6 +182,67 @@ void journal_flusher_t::release_trim()
     trim_wanted--;
 }
 
+void journal_flusher_t::dump_diagnostics()
+{
+    obj_ver_id flushable = { 0 };
+    // Try to find out if there is a flushable object for information
+    for (object_id cur_oid: flush_queue)
+    {
+        obj_ver_id cur = { .oid = cur_oid, .version = flush_versions[cur_oid] };
+        auto dirty_end = bs->dirty_db.find(cur);
+        if (dirty_end == bs->dirty_db.end())
+        {
+            // Already flushed
+            continue;
+        }
+        auto repeat_it = sync_to_repeat.find(cur.oid);
+        if (repeat_it != sync_to_repeat.end())
+        {
+            // Someone is already flushing it
+            continue;
+        }
+        if (dirty_end->second.journal_sector >= bs->journal.dirty_start &&
+            (bs->journal.dirty_start >= bs->journal.used_start ||
+            dirty_end->second.journal_sector < bs->journal.used_start))
+        {
+            // Object is more recent than possible to flush
+            bool found = try_find_older(dirty_end, cur);
+            if (!found)
+                continue;
+        }
+        flushable = cur;
+        break;
+    }
+    printf(
+        "Flusher: queued=%ld first=%lx:%lx trim_wanted=%d dequeuing=%d trimming=%d cur=%d target=%d active=%d syncing=%d\n",
+        flush_queue.size(), flushable.oid.inode, flushable.oid.stripe,
+        trim_wanted, dequeuing, trimming, cur_flusher_count, target_flusher_count,
+        active_flushers, syncing_flushers
+    );
+}
+
+bool journal_flusher_t::try_find_older(std::map<obj_ver_id, dirty_entry>::iterator & dirty_end, obj_ver_id & cur)
+{
+    bool found = false;
+    while (dirty_end != bs->dirty_db.begin())
+    {
+        dirty_end--;
+        if (dirty_end->first.oid != cur.oid)
+        {
+            break;
+        }
+        if (!(dirty_end->second.journal_sector >= bs->journal.dirty_start &&
+            (bs->journal.dirty_start >= bs->journal.used_start ||
+            dirty_end->second.journal_sector < bs->journal.used_start)))
+        {
+            found = true;
+            cur.version = dirty_end->first.version;
+            break;
+        }
+    }
+    return found;
+}
+
 #define await_sqe(label) \
     resume_##label:\
         sqe = bs->get_sqe();\
@@ -286,23 +347,7 @@ stop_flusher:
             // And it may even block writes if we don't flush the older version
             // (if it's in the beginning of the journal)...
             // So first try to find an older version of the same object to flush.
-            bool found = false;
-            while (dirty_end != bs->dirty_db.begin())
-            {
-                dirty_end--;
-                if (dirty_end->first.oid != cur.oid)
-                {
-                    break;
-                }
-                if (!(dirty_end->second.journal_sector >= bs->journal.dirty_start &&
-                    (bs->journal.dirty_start >= bs->journal.used_start ||
-                    dirty_end->second.journal_sector < bs->journal.used_start)))
-                {
-                    found = true;
-                    cur.version = dirty_end->first.version;
-                    break;
-                }
-            }
+            bool found = flusher->try_find_older(dirty_end, cur);
             if (!found)
             {
                 // Try other objects

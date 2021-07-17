@@ -595,3 +595,9 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     op->buf = stable;
     FINISH_OP(op);
 }
+
+void blockstore_impl_t::dump_diagnostics()
+{
+    journal.dump_diagnostics();
+    flusher->dump_diagnostics();
+}

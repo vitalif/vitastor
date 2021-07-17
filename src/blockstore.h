@@ -186,6 +186,9 @@ public:
     // Get per-inode space usage statistics
     std::map<uint64_t, uint64_t> & get_inode_space_stats();
 
+    // Print diagnostics to stdout
+    void dump_diagnostics();
+
     // FIXME rename to object_size
     uint32_t get_block_size();
     uint64_t get_block_count();

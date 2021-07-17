@@ -218,3 +218,19 @@ uint64_t journal_t::get_trim_pos()
     // Can't trim journal
     return used_start;
 }
+
+void journal_t::dump_diagnostics()
+{
+    auto journal_used_it = used_sectors.lower_bound(used_start);
+    if (journal_used_it == used_sectors.end())
+    {
+        // Journal is cleared to its end, restart from the beginning
+        journal_used_it = used_sectors.begin();
+    }
+    printf(
+        "Journal: used_start=%08lx next_free=%08lx dirty_start=%08lx trim_to=%08lx trim_to_refs=%ld\n",
+        used_start, next_free, dirty_start,
+        journal_used_it == used_sectors.end() ? 0 : journal_used_it->first,
+        journal_used_it == used_sectors.end() ? 0 : journal_used_it->second
+    );
+}
