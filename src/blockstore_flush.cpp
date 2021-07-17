@@ -184,7 +184,8 @@ void journal_flusher_t::release_trim()
 
 void journal_flusher_t::dump_diagnostics()
 {
-    obj_ver_id flushable = { 0 };
+    const char *unflushable_type = "";
+    obj_ver_id unflushable = { 0 };
     // Try to find out if there is a flushable object for information
     for (object_id cur_oid: flush_queue)
     {
@@ -199,7 +200,9 @@ void journal_flusher_t::dump_diagnostics()
         if (repeat_it != sync_to_repeat.end())
         {
             // Someone is already flushing it
-            continue;
+            unflushable_type = "locked,";
+            unflushable = cur;
+            break;
         }
         if (dirty_end->second.journal_sector >= bs->journal.dirty_start &&
             (bs->journal.dirty_start >= bs->journal.used_start ||
@@ -208,14 +211,19 @@ void journal_flusher_t::dump_diagnostics()
             // Object is more recent than possible to flush
             bool found = try_find_older(dirty_end, cur);
             if (!found)
-                continue;
+            {
+                unflushable_type = "dirty,";
+                unflushable = cur;
+                break;
+            }
         }
-        flushable = cur;
+        unflushable_type = "ok,";
+        unflushable = cur;
         break;
     }
     printf(
-        "Flusher: queued=%ld first=%lx:%lx trim_wanted=%d dequeuing=%d trimming=%d cur=%d target=%d active=%d syncing=%d\n",
-        flush_queue.size(), flushable.oid.inode, flushable.oid.stripe,
+        "Flusher: queued=%ld first=%s%lx:%lx trim_wanted=%d dequeuing=%d trimming=%d cur=%d target=%d active=%d syncing=%d\n",
+        flush_queue.size(), unflushable_type, unflushable.oid.inode, unflushable.oid.stripe,
         trim_wanted, dequeuing, trimming, cur_flusher_count, target_flusher_count,
         active_flushers, syncing_flushers
     );
@@ -354,7 +362,8 @@ stop_flusher:
                 flusher->sync_to_repeat.erase(cur.oid);
                 int search_left = flusher->flush_queue.size() - 1;
 #ifdef BLOCKSTORE_DEBUG
-                printf("Flusher overran writers (dirty_start=%08lx) - searching for older flushes (%d left)\n", bs->journal.dirty_start, search_left);
+                printf("Flusher overran writers (%lx:%lx v%lu, dirty_start=%08lx) - searching for older flushes (%d left)\n",
+                    cur.oid.inode, cur.oid.stripe, cur.version, bs->journal.dirty_start, search_left);
 #endif
                 while (search_left > 0)
                 {
