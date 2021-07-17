@@ -478,15 +478,15 @@ resume_2:
     }
 resume_4:
     // Switch object state
-#ifdef BLOCKSTORE_DEBUG
-    printf("Ack write %lx:%lx v%lu = state 0x%x\n", op->oid.inode, op->oid.stripe, op->version, dirty_it->second.state);
-#endif
     {
         auto dirty_it = dirty_db.find((obj_ver_id){
             .oid = op->oid,
             .version = op->version,
         });
         assert(dirty_it != dirty_db.end());
+#ifdef BLOCKSTORE_DEBUG
+        printf("Ack write %lx:%lx v%lu = state 0x%x\n", op->oid.inode, op->oid.stripe, op->version, dirty_it->second.state);
+#endif
         bool is_big = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE;
         bool imm = is_big ? (immediate_commit == IMMEDIATE_ALL) : (immediate_commit != IMMEDIATE_NONE);
         if (imm)
