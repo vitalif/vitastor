@@ -377,7 +377,12 @@ stop_flusher:
                         else
                         {
                             repeat_it = flusher->sync_to_repeat.find(cur.oid);
-                            if (repeat_it == flusher->sync_to_repeat.end())
+                            if (repeat_it != flusher->sync_to_repeat.end())
+                            {
+                                if (repeat_it->second < cur.version)
+                                    repeat_it->second = cur.version;
+                            }
+                            else
                             {
                                 flusher->sync_to_repeat[cur.oid] = 0;
                                 break;
