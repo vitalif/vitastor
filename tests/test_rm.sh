@@ -9,7 +9,6 @@ LD_PRELOAD=libasan.so.5 \
 
 $ETCDCTL get --prefix '/vitastor/pg/state'
 
-LD_PRELOAD=libasan.so.5 \
-    build/src/vitastor-rm --etcd_address $ETCD_URL --pool 1 --inode 1
+build/src/vitastor-cmd rm --etcd_address $ETCD_URL --pool 1 --inode 1
 
 format_green OK

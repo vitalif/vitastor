@@ -36,6 +36,11 @@ string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_F
 string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_C_FLAGS_MINSIZEREL "${CMAKE_C_FLAGS_MINSIZEREL}")
 string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
 
+macro(install_symlink filepath sympath)
+	install(CODE "execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink ${filepath} ${sympath})")
+	install(CODE "message(\"-- Created symlink: ${sympath} -> ${filepath}\")")
+endmacro(install_symlink)
+
 find_package(PkgConfig)
 pkg_check_modules(LIBURING REQUIRED liburing)
 if (${WITH_QEMU})
@@ -146,11 +151,11 @@ target_link_libraries(vitastor-nbd
 	vitastor_client
 )
 
-# vitastor-rm
-add_executable(vitastor-rm
-	rm_inode.cpp
+# vitastor-cmd
+add_executable(vitastor-cmd
+	cmd.cpp
 )
-target_link_libraries(vitastor-rm
+target_link_libraries(vitastor-cmd
 	vitastor_client
 )
 
@@ -235,7 +240,8 @@ target_include_directories(test_cluster_client PUBLIC ${CMAKE_SOURCE_DIR}/src/mo
 
 ### Install
 
-install(TARGETS vitastor-osd vitastor-dump-journal vitastor-nbd vitastor-rm RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS vitastor-osd vitastor-dump-journal vitastor-nbd vitastor-cmd RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install_symlink(${CMAKE_INSTALL_BINDIR}/vitastor-rm vitastor-cmd)
 install(
 	TARGETS vitastor_blk vitastor_client
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

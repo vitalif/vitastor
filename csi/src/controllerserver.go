@@ -354,9 +354,9 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
         return nil, status.Error(codes.Internal, "invalid "+inodeCfgKey+" key in etcd: "+err.Error())
     }
 
-    // Delete inode data by invoking vitastor-rm
+    // Delete inode data by invoking vitastor-cmd
     args := []string{
-        "--etcd_address", strings.Join(etcdUrl, ","),
+        "rm", "--etcd_address", strings.Join(etcdUrl, ","),
         "--pool", fmt.Sprintf("%d", idx.PoolId),
         "--inode", fmt.Sprintf("%d", idx.Id),
     }
@@ -364,7 +364,7 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
     {
         args = append(args, "--config_path", ctxVars["configPath"])
     }
-    c := exec.Command("/usr/bin/vitastor-rm", args...)
+    c := exec.Command("/usr/bin/vitastor-cmd", args...)
     var stderr bytes.Buffer
     c.Stdout = nil
     c.Stderr = &stderr
@@ -372,7 +372,7 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
     stderrStr := string(stderr.Bytes())
     if (err != nil)
     {
-        klog.Errorf("vitastor-rm failed: %s, status %s\n", stderrStr, err)
+        klog.Errorf("vitastor-cmd rm failed: %s, status %s\n", stderrStr, err)
         return nil, status.Error(codes.Internal, stderrStr+" (status "+err.Error()+")")
     }
 

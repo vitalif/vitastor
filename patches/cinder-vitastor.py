@@ -514,7 +514,7 @@ class VitastorDriver(driver.CloneableImageVD,
         # Clear data
         for kv in layers:
             args = [
-                'vitastor-rm', '--pool', str(kv['value']['pool_id']),
+                'vitastor-cmd', 'rm', '--pool', str(kv['value']['pool_id']),
                 '--inode', str(kv['value']['id']), '--progress', '0',
                 *(self._vitastor_args())
             ]

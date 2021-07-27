@@ -34,7 +34,7 @@ breaking changes in the future. However, the following is implemented:
 - QEMU driver (built out-of-tree)
 - Loadable fio engine for benchmarks (also built out-of-tree)
 - NBD proxy for kernel mounts
-- Inode removal tool (vitastor-rm)
+- Inode removal tool (vitastor-cmd rm)
 - Packaging for Debian and CentOS
 - Per-inode I/O and space usage statistics
 - Inode metadata storage in etcd
@@ -43,6 +43,7 @@ breaking changes in the future. However, the following is implemented:
 - RDMA/RoCEv2 support via libibverbs
 - CSI plugin for Kubernetes
 - Basic OpenStack support: Cinder driver, Nova and libvirt patches
+- Snapshot merge tool (vitastor-cmd merge)
 
 ## Roadmap
 

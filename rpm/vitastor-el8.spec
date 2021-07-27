@@ -54,6 +54,7 @@ cp -r mon %buildroot/usr/lib/vitastor
 %_bindir/vitastor-dump-journal
 %_bindir/vitastor-nbd
 %_bindir/vitastor-osd
+%_bindir/vitastor-cmd
 %_bindir/vitastor-rm
 %_libdir/qemu-kvm/block-vitastor.so
 %_libdir/libfio_vitastor.so

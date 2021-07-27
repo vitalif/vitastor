@@ -12,6 +12,7 @@
 #define DEFAULT_CLIENT_MAX_DIRTY_OPS 1024
 #define INODE_LIST_DONE 1
 #define INODE_LIST_HAS_UNSTABLE 2
+#define OSD_OP_READ_BITMAP OSD_OP_SEC_READ_BMP
 
 struct cluster_op_t;
 
@@ -29,7 +30,7 @@ struct cluster_op_part_t
 
 struct cluster_op_t
 {
-    uint64_t opcode; // OSD_OP_READ, OSD_OP_WRITE, OSD_OP_SYNC
+    uint64_t opcode; // OSD_OP_READ, OSD_OP_WRITE, OSD_OP_SYNC, OSD_OP_DELETE, OSD_OP_READ_BITMAP
     uint64_t inode;
     uint64_t offset;
     uint64_t len;
@@ -38,6 +39,8 @@ struct cluster_op_t
     uint64_t version = 0;
     int retval;
     osd_op_buf_list_t iov;
+    // READ and READ_BITMAP return the bitmap here
+    void *bitmap_buf = NULL;
     std::function<void(cluster_op_t*)> callback;
     ~cluster_op_t();
 protected:
@@ -50,7 +53,7 @@ protected:
     bool up_wait = false;
     int inflight_count = 0, done_count = 0;
     std::vector<cluster_op_part_t> parts;
-    void *bitmap_buf = NULL, *part_bitmaps = NULL;
+    void *part_bitmaps = NULL;
     unsigned bitmap_buf_size = 0;
     cluster_op_t *prev = NULL, *next = NULL;
     int prev_wait = 0;
@@ -115,9 +118,11 @@ public:
     static void copy_write(cluster_op_t *op, std::map<object_id, cluster_buffer_t> & dirty_buffers);
     void continue_ops(bool up_retry = false);
     inode_list_t *list_inode_start(inode_t inode,
-        std::function<void(std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback);
+        std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback);
     int list_pg_count(inode_list_t *lst);
     void list_inode_next(inode_list_t *lst, int next_pgs);
+    inline uint32_t get_bs_bitmap_granularity() { return bs_bitmap_granularity; }
+    inline uint64_t get_bs_block_size() { return bs_block_size; }
     uint64_t next_op_id();
 
 protected:

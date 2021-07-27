@@ -37,11 +37,11 @@ struct inode_list_t
     int done_pgs = 0;
     int want = 0;
     std::vector<inode_list_pg_t*> pgs;
-    std::function<void(std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback;
+    std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback;
 };
 
 inode_list_t* cluster_client_t::list_inode_start(inode_t inode,
-    std::function<void(std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback)
+    std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback)
 {
     int skipped_pgs = 0;
     pool_id_t pool_id = INODE_POOL(inode);
@@ -264,7 +264,7 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
             {
                 status |= INODE_LIST_HAS_UNSTABLE;
             }
-            lst->callback(std::move(pg->objects), pg->pg_num, pg->cur_primary, status);
+            lst->callback(lst, std::move(pg->objects), pg->pg_num, pg->cur_primary, status);
             lst->pgs[pg->pos] = NULL;
             delete pg;
         }

@@ -198,7 +198,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         {
             // Fast happy-path
             cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->pg_data_size, 0);
-            submit_primary_subops(SUBMIT_READ, op_data->target_ver, pg.cur_set.data(), cur_op);
+            submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, pg.cur_set.data(), cur_op);
             op_data->st = 1;
         }
         else
@@ -215,7 +215,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
             op_data->scheme = pg.scheme;
             op_data->degraded = 1;
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0);
-            submit_primary_subops(SUBMIT_READ, op_data->target_ver, cur_set, cur_op);
+            submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, cur_set, cur_op);
             op_data->st = 1;
         }
     }
