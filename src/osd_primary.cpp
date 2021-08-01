@@ -353,6 +353,7 @@ resume_3:
     if (cur_op->req.rw.version && op_data->fact_ver != (cur_op->req.rw.version-1))
     {
         cur_op->reply.hdr.retval = -EINTR;
+        cur_op->reply.rw.version = op_data->fact_ver;
         goto continue_others;
     }
     // Save version override for parallel reads

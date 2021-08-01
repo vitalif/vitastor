@@ -100,6 +100,7 @@ resume_3:
     if (cur_op->req.rw.version && op_data->fact_ver != (cur_op->req.rw.version-1))
     {
         cur_op->reply.hdr.retval = -EINTR;
+        cur_op->reply.rw.version = op_data->fact_ver;
         goto continue_others;
     }
     if (op_data->scheme == POOL_SCHEME_REPLICATED)
@@ -260,6 +261,7 @@ resume_9:
         }
     }
     cur_op->reply.hdr.retval = cur_op->req.rw.len;
+    cur_op->reply.rw.version = op_data->fact_ver;
 continue_others:
     osd_op_t *next_op = NULL;
     auto next_it = pg.write_queue.find(op_data->oid);
