@@ -195,6 +195,19 @@ public:
             ringloop->wakeup();
         });
     }
+
+    inode_config_t* get_inode_cfg(const std::string & name)
+    {
+        for (auto & ic: cli->st_cli.inode_config)
+        {
+            if (ic.second.name == name)
+            {
+                return &ic.second;
+            }
+        }
+        fprintf(stderr, "Layer %s not found\n", name.c_str());
+        exit(1);
+    }
 };
 
 struct rm_inode_t
@@ -344,19 +357,6 @@ struct snap_rw_op_t
     uint32_t start = 0, end = 0;
 };
 
-static inode_config_t* get_inode_cfg(cluster_client_t *cli, const std::string & name)
-{
-    for (auto & ic: cli->st_cli.inode_config)
-    {
-        if (ic.second.name == name)
-        {
-            return &ic.second;
-        }
-    }
-    fprintf(stderr, "Layer %s not found\n", name.c_str());
-    exit(1);
-}
-
 // Layer merge is the base for multiple operations:
 // 1) Delete snapshot "up" = merge child layer into the parent layer, remove the child
 //    and rename the parent to the child
@@ -401,9 +401,9 @@ struct snap_merger_t
     void start_merge()
     {
         check_delete_source = delete_source || check_delete_source;
-        inode_config_t *from_cfg = get_inode_cfg(parent->cli, from_name);
-        inode_config_t *to_cfg = get_inode_cfg(parent->cli, to_name);
-        inode_config_t *target_cfg = target_name == "" ? from_cfg : get_inode_cfg(parent->cli, target_name);
+        inode_config_t *from_cfg = parent->get_inode_cfg(from_name);
+        inode_config_t *to_cfg = parent->get_inode_cfg(to_name);
+        inode_config_t *target_cfg = target_name == "" ? from_cfg : parent->get_inode_cfg(target_name);
         if (to_cfg->num == from_cfg->num)
         {
             fprintf(stderr, "Only one layer specified, nothing to merge\n");
@@ -915,7 +915,7 @@ struct snap_flattener_t
     void get_merge_parents()
     {
         // Get all parents of target
-        inode_config_t *target_cfg = get_inode_cfg(parent->cli, target_name);
+        inode_config_t *target_cfg = parent->get_inode_cfg(target_name);
         target_id = target_cfg->num;
         std::vector<inode_t> chain_list;
         inode_config_t *cur = target_cfg;
@@ -1037,8 +1037,8 @@ struct snap_remover_t
     void get_merge_children()
     {
         // Get all children of from..to
-        inode_config_t *from_cfg = get_inode_cfg(parent->cli, from_name);
-        inode_config_t *to_cfg = get_inode_cfg(parent->cli, to_name);
+        inode_config_t *from_cfg = parent->get_inode_cfg(from_name);
+        inode_config_t *to_cfg = parent->get_inode_cfg(to_name);
         // Check that to_cfg is actually a child of from_cfg
         // FIXME de-copypaste the following piece of code with snap_merger_t
         inode_config_t *cur = to_cfg;
