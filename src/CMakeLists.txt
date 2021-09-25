@@ -16,7 +16,7 @@ if("${CMAKE_INSTALL_PREFIX}" MATCHES "^/usr/local/?$")
 endif()
 
 add_definitions(-DVERSION="0.6.5")
-add_definitions(-Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -I ${CMAKE_SOURCE_DIR}/src)
+add_definitions(-Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fdiagnostics-color=always -I ${CMAKE_SOURCE_DIR}/src)
 if (${WITH_ASAN})
 	add_definitions(-fsanitize=address -fno-omit-frame-pointer)
 	add_link_options(-fsanitize=address -fno-omit-frame-pointer)
@@ -153,7 +153,7 @@ target_link_libraries(vitastor-nbd
 
 # vitastor-cmd
 add_executable(vitastor-cmd
-	cmd.cpp
+	cli.cpp cli_flatten.cpp cli_merge.cpp cli_rm.cpp cli_snap_rm.cpp
 )
 target_link_libraries(vitastor-cmd
 	vitastor_client
