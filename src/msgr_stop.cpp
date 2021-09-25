@@ -41,7 +41,7 @@ void osd_messenger_t::cancel_op(osd_op_t *op)
     }
 }
 
-void osd_messenger_t::stop_client(int peer_fd, bool force)
+void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
 {
     assert(peer_fd != 0);
     auto it = clients.find(peer_fd);
@@ -136,7 +136,7 @@ void osd_messenger_t::stop_client(int peer_fd, bool force)
         clients.erase(it);
     }
     cl->refs--;
-    if (cl->refs <= 0)
+    if (cl->refs <= 0 || force_delete)
     {
         delete cl;
     }

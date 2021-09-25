@@ -125,6 +125,7 @@ public:
             exit(1);
         }
         inode_config_t *cur_cfg = &cur_cfg_it->second;
+        std::string cur_name = cur_cfg->name;
         std::string cur_cfg_key = base64_encode(cli->st_cli.etcd_prefix+
             "/config/inode/"+std::to_string(INODE_POOL(cur))+
             "/"+std::to_string(INODE_NO_POOL(cur)));
@@ -149,7 +150,7 @@ public:
                     { "target", "MOD" },
                     { "key", cur_cfg_key },
                     { "result", "LESS" },
-                    { "mod_revision", cur_cfg->mod_revision },
+                    { "mod_revision", cur_cfg->mod_revision+1 },
                 },
             } },
             { "success", json11::Json::array {
@@ -160,17 +161,35 @@ public:
                     } }
                 },
             } },
-        }, ETCD_SLOW_TIMEOUT, [this, cur_cfg](std::string err, json11::Json res)
+        }, ETCD_SLOW_TIMEOUT, [this, new_parent, cur, cur_name](std::string err, json11::Json res)
         {
             if (err != "")
             {
-                fprintf(stderr, "Error changing parent of %s: %s\n", cur_cfg->name.c_str(), err.c_str());
+                fprintf(stderr, "Error changing parent of %s: %s\n", cur_name.c_str(), err.c_str());
                 exit(1);
             }
             if (!res["succeeded"].bool_value())
             {
-                fprintf(stderr, "Inode %s was modified during snapshot deletion\n", cur_cfg->name.c_str());
+                fprintf(stderr, "Inode %s was modified during snapshot deletion\n", cur_name.c_str());
                 exit(1);
+            }
+            if (new_parent)
+            {
+                auto new_parent_it = cli->st_cli.inode_config.find(new_parent);
+                std::string new_parent_name = new_parent_it != cli->st_cli.inode_config.end()
+                    ? new_parent_it->second.name : "<unknown>";
+                printf(
+                    "Parent of layer %s (inode %lu in pool %u) changed to %s (inode %lu in pool %u)\n",
+                    cur_name.c_str(), INODE_NO_POOL(cur), INODE_POOL(cur),
+                    new_parent_name.c_str(), INODE_NO_POOL(new_parent), INODE_POOL(new_parent)
+                );
+            }
+            else
+            {
+                printf(
+                    "Parent of layer %s (inode %lu in pool %u) detached\n",
+                    cur_name.c_str(), INODE_NO_POOL(cur), INODE_POOL(cur)
+                );
             }
             waiting--;
             ringloop->wakeup();
@@ -218,7 +237,7 @@ struct rm_inode_t
         });
         if (!lister)
         {
-            fprintf(stderr, "Failed to list inode %lx objects\n", inode);
+            fprintf(stderr, "Failed to list inode %lu from pool %u objects\n", INODE_NO_POOL(inode), INODE_POOL(inode));
             exit(1);
         }
         pgs_to_list = parent->cli->list_pg_count(lister);
@@ -305,7 +324,7 @@ struct rm_inode_t
         }
         if (lists_done && !lists.size())
         {
-            printf("Done, inode %lu in pool %u removed\n", (inode & ((1l << (64-POOL_ID_BITS)) - 1)), pool_id);
+            printf("Done, inode %lu in pool %u data removed\n", INODE_NO_POOL(inode), pool_id);
             finished = true;
         }
     }
@@ -477,9 +496,9 @@ struct snap_merger_t
         }
         sources.erase(target);
         printf(
-            "Merging %ld layer(s) into target %s%s (inode %lx)\n",
+            "Merging %ld layer(s) into target %s%s (inode %lu in pool %u)\n",
             sources.size(), target_cfg->name.c_str(),
-            use_cas ? " online (with CAS)" : "", target
+            use_cas ? " online (with CAS)" : "", INODE_NO_POOL(target), INODE_POOL(target)
         );
         target_block_size = get_block_size(target);
         continue_merge_reent();
@@ -639,7 +658,7 @@ struct snap_merger_t
                     if (status & INODE_LIST_DONE)
                     {
                         auto & name = parent->cli->st_cli.inode_config.at(src).name;
-                        printf("Got listing of layer %s (inode %lx)\n", name.c_str(), src);
+                        printf("Got listing of layer %s (inode %lu in pool %u)\n", name.c_str(), INODE_NO_POOL(src), INODE_POOL(src));
                         if (delete_source)
                         {
                             // Sort the inode listing
@@ -1117,6 +1136,7 @@ resume_4:
             if (parent->waiting > 0)
                 return;
         }
+        state = 5;
 resume_5:
         // Done
         return;
@@ -1131,6 +1151,7 @@ resume_5:
             exit(1);
         }
         inode_config_t *cur_cfg = &cur_cfg_it->second;
+        std::string cur_name = cur_cfg->name;
         std::string cur_cfg_key = base64_encode(parent->cli->st_cli.etcd_prefix+
             "/config/inode/"+std::to_string(INODE_POOL(cur))+
             "/"+std::to_string(INODE_NO_POOL(cur)));
@@ -1141,7 +1162,7 @@ resume_5:
                     { "target", "MOD" },
                     { "key", cur_cfg_key },
                     { "result", "LESS" },
-                    { "mod_revision", cur_cfg->mod_revision },
+                    { "mod_revision", cur_cfg->mod_revision+1 },
                 },
             } },
             { "success", json11::Json::array {
@@ -1151,18 +1172,19 @@ resume_5:
                     } }
                 },
             } },
-        }, ETCD_SLOW_TIMEOUT, [this, cur_cfg](std::string err, json11::Json res)
+        }, ETCD_SLOW_TIMEOUT, [this, cur_name](std::string err, json11::Json res)
         {
             if (err != "")
             {
-                fprintf(stderr, "Error deleting %s: %s\n", cur_cfg->name.c_str(), err.c_str());
+                fprintf(stderr, "Error deleting %s: %s\n", cur_name.c_str(), err.c_str());
                 exit(1);
             }
             if (!res["succeeded"].bool_value())
             {
-                fprintf(stderr, "Inode %s was modified during deletion\n", cur_cfg->name.c_str());
+                fprintf(stderr, "Layer %s configuration was modified during deletion\n", cur_name.c_str());
                 exit(1);
             }
+            printf("Layer %s deleted\n", cur_name.c_str());
             parent->waiting--;
             parent->ringloop->wakeup();
         });
@@ -1232,8 +1254,8 @@ void cli_tool_t::run(json11::Json cfg)
         // Merge layer data without affecting metadata
         merger = new snap_merger_t();
         merger->parent = this;
-        merger->from_name = cmd[1].string_value();
-        merger->to_name = cmd[2].string_value();
+        merger->from_name = cmd.size() > 1 ? cmd[1].string_value() : "";
+        merger->to_name = cmd.size() > 2 ? cmd[2].string_value() : "";
         merger->target_name = cfg["target"].string_value();
         if (merger->from_name == "" || merger->to_name == "")
         {
@@ -1252,7 +1274,7 @@ void cli_tool_t::run(json11::Json cfg)
         // Merge layer data without affecting metadata
         flattener = new snap_flattener_t();
         flattener->parent = this;
-        flattener->target_name = cmd[1].string_value();
+        flattener->target_name = cmd.size() > 1 ? cmd[1].string_value() : "";
         if (flattener->target_name == "")
         {
             fprintf(stderr, "Layer to flatten argument is missing\n");
@@ -1269,8 +1291,8 @@ void cli_tool_t::run(json11::Json cfg)
         // Remove multiple snapshots and rebase their children
         snap_remover = new snap_remover_t();
         snap_remover->parent = this;
-        snap_remover->from_name = cmd[1].string_value();
-        snap_remover->to_name = cmd[2].string_value();
+        snap_remover->from_name = cmd.size() > 1 ? cmd[1].string_value() : "";
+        snap_remover->to_name = cmd.size() > 2 ? cmd[2].string_value() : "";
         if (snap_remover->from_name == "")
         {
             fprintf(stderr, "Layer to remove argument is missing\n");

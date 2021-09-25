@@ -156,7 +156,7 @@ public:
     void init();
     void parse_config(const json11::Json & config);
     void connect_peer(uint64_t osd_num, json11::Json peer_state);
-    void stop_client(int peer_fd, bool force = false);
+    void stop_client(int peer_fd, bool force = false, bool force_delete = false);
     void outbox_push(osd_op_t *cur_op);
     std::function<void(osd_op_t*)> exec_op;
     std::function<void(osd_num_t)> repeer_pgs;

@@ -117,7 +117,7 @@ osd_messenger_t::~osd_messenger_t()
     }
     while (clients.size() > 0)
     {
-        stop_client(clients.begin()->first, true);
+        stop_client(clients.begin()->first, true, true);
     }
 #ifdef WITH_RDMA
     if (rdma_context)
