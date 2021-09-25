@@ -151,11 +151,11 @@ target_link_libraries(vitastor-nbd
 	vitastor_client
 )
 
-# vitastor-cmd
-add_executable(vitastor-cmd
+# vitastor-cli
+add_executable(vitastor-cli
 	cli.cpp cli_flatten.cpp cli_merge.cpp cli_rm.cpp cli_snap_rm.cpp
 )
-target_link_libraries(vitastor-cmd
+target_link_libraries(vitastor-cli
 	vitastor_client
 )
 
@@ -240,8 +240,8 @@ target_include_directories(test_cluster_client PUBLIC ${CMAKE_SOURCE_DIR}/src/mo
 
 ### Install
 
-install(TARGETS vitastor-osd vitastor-dump-journal vitastor-nbd vitastor-cmd RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install_symlink(${CMAKE_INSTALL_BINDIR}/vitastor-rm vitastor-cmd)
+install(TARGETS vitastor-osd vitastor-dump-journal vitastor-nbd vitastor-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install_symlink(${CMAKE_INSTALL_BINDIR}/vitastor-rm vitastor-cli)
 install(
 	TARGETS vitastor_blk vitastor_client
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
