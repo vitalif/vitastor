@@ -458,6 +458,7 @@ struct snap_merger_t
         subop->offset = rwo->offset+start;
         subop->len = end-start;
         subop->version = version;
+        subop->flags = OSD_OP_IGNORE_READONLY;
         subop->iov.push_back(rwo->buf+start, end-start);
         subop->callback = [this, rwo](cluster_op_t *subop)
         {
@@ -493,6 +494,7 @@ struct snap_merger_t
         subop->inode = inode_num;
         subop->offset = offset;
         subop->len = 0;
+        subop->flags = OSD_OP_IGNORE_READONLY;
         subop->callback = [this](cluster_op_t *subop)
         {
             if (subop->retval != 0)

@@ -12,7 +12,7 @@
 #define CACHE_DIRTY 1
 #define CACHE_FLUSHING 2
 #define CACHE_REPEATING 3
-#define OP_FLUSH_BUFFER 2
+#define OP_FLUSH_BUFFER 0x02
 
 cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config)
 {
@@ -559,7 +559,7 @@ void cluster_client_t::flush_buffer(const object_id & oid, cluster_buffer_t *wr)
 {
     wr->state = CACHE_REPEATING;
     cluster_op_t *op = new cluster_op_t;
-    op->flags = OP_FLUSH_BUFFER;
+    op->flags = OSD_OP_IGNORE_READONLY|OP_FLUSH_BUFFER;
     op->opcode = OSD_OP_WRITE;
     op->cur_inode = op->inode = oid.inode;
     op->offset = oid.stripe;
@@ -620,12 +620,15 @@ resume_0:
     }
     if (op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE)
     {
-        auto ino_it = st_cli.inode_config.find(op->inode);
-        if (ino_it != st_cli.inode_config.end() && ino_it->second.readonly)
+        if (!(op->flags & OSD_OP_IGNORE_READONLY))
         {
-            op->retval = -EINVAL;
-            erase_op(op);
-            return 1;
+            auto ino_it = st_cli.inode_config.find(op->inode);
+            if (ino_it != st_cli.inode_config.end() && ino_it->second.readonly)
+            {
+                op->retval = -EINVAL;
+                erase_op(op);
+                return 1;
+            }
         }
         if (op->opcode == OSD_OP_WRITE && !immediate_commit && !(op->flags & OP_FLUSH_BUFFER))
         {

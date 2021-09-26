@@ -14,6 +14,8 @@
 #define INODE_LIST_HAS_UNSTABLE 2
 #define OSD_OP_READ_BITMAP OSD_OP_SEC_READ_BMP
 
+#define OSD_OP_IGNORE_READONLY 0x08
+
 struct cluster_op_t;
 
 struct cluster_op_part_t
@@ -37,6 +39,8 @@ struct cluster_op_t
     // for reads and writes within a single object (stripe),
     // reads can return current version and writes can use "CAS" semantics
     uint64_t version = 0;
+    // now only OSD_OP_IGNORE_READONLY is supported
+    uint64_t flags = 0;
     int retval;
     osd_op_buf_list_t iov;
     // READ and READ_BITMAP return the bitmap here
@@ -44,7 +48,6 @@ struct cluster_op_t
     std::function<void(cluster_op_t*)> callback;
     ~cluster_op_t();
 protected:
-    uint64_t flags = 0;
     int state = 0;
     uint64_t cur_inode; // for snapshot reads
     void *buf = NULL;
