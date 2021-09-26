@@ -467,7 +467,7 @@ resume_9:
             exit(1);
         }
         cb = parent->start_merge(json11::Json::object {
-            { "command", json11::Json::array{ "merge", from_name, child_it->second.name } },
+            { "command", json11::Json::array{ "merge-data", from_name, child_it->second.name } },
             { "target", target_it->second.name },
             { "delete-source", false },
             { "cas", use_cas },

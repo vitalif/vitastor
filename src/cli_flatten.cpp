@@ -67,7 +67,7 @@ struct snap_flattener_t
         get_merge_parents();
         // Start merger
         merger_cb = parent->start_merge(json11::Json::object {
-            { "command", json11::Json::array{ "merge", top_parent_name, target_name } },
+            { "command", json11::Json::array{ "merge-data", top_parent_name, target_name } },
             { "target", target_name },
             { "delete-source", false },
             { "cas", use_cas },

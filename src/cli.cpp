@@ -43,7 +43,7 @@ json11::Json::object cli_tool_t::parse_args(int narg, const char *args[])
         std::string exe(exe_name);
         if (exe.substr(exe.size()-11) == "vitastor-rm")
         {
-            cmd.push_back("rm");
+            cmd.push_back("rm-data");
         }
     }
     cfg["command"] = cmd;
@@ -53,14 +53,36 @@ json11::Json::object cli_tool_t::parse_args(int narg, const char *args[])
 void cli_tool_t::help()
 {
     printf(
-        "Vitastor inode removal tool\n"
-        "(c) Vitaliy Filippov, 2020 (VNPL-1.1)\n\n"
+        "Vitastor command-line tool\n"
+        "(c) Vitaliy Filippov, 2019+ (VNPL-1.1)\n\n"
         "USAGE:\n"
-        "  %s rm [--etcd_address <etcd_address>] --pool <pool> --inode <inode>\n"
-        "        [--wait-list] [--iodepth 32] [--parallel_osds 4] [--progress 1]\n"
-        "  %s merge [--etcd_address <etcd_address>] <from> <to> [--target <from>]\n"
-        "        [--iodepth 128] [--progress 1] [--cas 0|1]\n",
-        exe_name, exe_name
+        "%s rm-data [OPTIONS] --pool <pool> --inode <inode> [--wait-list]\n"
+        "  Remove inode data without changing metadata.\n"
+        "  --wait-list means first retrieve objects listings and then remove it.\n"
+        "  --wait-list requires more memory, but allows to show correct stats.\n"
+        "\n"
+        "%s merge-data [OPTIONS] <from> <to> [--target <target>]\n"
+        "  Merge layer data without changing metadata. Merge <from>..<to> to <target>.\n"
+        "  <to> must be a child of <from> and <target> may be one of the layers between\n"
+        "  <from> and <to>, including <from> and <to>.\n"
+        "\n"
+        "%s flatten [OPTIONS] <layer>\n"
+        "  Flatten a layer, i.e. merge data and detach it from parents\n"
+        "\n"
+        "%s rm [OPTIONS] <from> [<to>] [--writers-stopped 1]\n"
+        "  Remove <from> or all layers between <from> and <to> (<to> must be a child of <from>),\n"
+        "  rebasing all their children accordingly. One of deleted parents may be renamed to one\n"
+        "  of children \"to be rebased\", but only if that child itself is readonly or if\n"
+        "  --writers-stopped 1 is specified\n"
+        "\n"
+        "OPTIONS (global):\n"
+        "  --etcd_address <etcd_address>\n"
+        "  --iodepth N         Send N operations in parallel to each OSD when possible (default 32)\n"
+        "  --parallel_osds M   Work with M osds in parallel when possible (default 4)\n"
+        "  --progress 1|0      Report progress (default 1)\n"
+        "  --cas 1|0           Use online CAS writes when possible (default auto)\n"
+        ,
+        exe_name, exe_name, exe_name, exe_name
     );
     exit(0);
 }
@@ -166,12 +188,12 @@ void cli_tool_t::run(json11::Json cfg)
         fprintf(stderr, "command is missing\n");
         exit(1);
     }
-    else if (cmd[0] == "rm")
+    else if (cmd[0] == "rm-data")
     {
-        // Delete inode
+        // Delete inode data
         action_cb = start_rm(cfg);
     }
-    else if (cmd[0] == "merge")
+    else if (cmd[0] == "merge-data")
     {
         // Merge layer data without affecting metadata
         action_cb = start_merge(cfg);
@@ -181,7 +203,7 @@ void cli_tool_t::run(json11::Json cfg)
         // Merge layer data without affecting metadata
         action_cb = start_flatten(cfg);
     }
-    else if (cmd[0] == "snap-rm")
+    else if (cmd[0] == "rm")
     {
         // Remove multiple snapshots and rebase their children
         action_cb = start_snap_rm(cfg);
