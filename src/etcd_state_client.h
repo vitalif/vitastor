@@ -99,6 +99,7 @@ public:
     std::function<void(pool_id_t, pg_num_t)> on_change_pg_history_hook;
     std::function<void(osd_num_t)> on_change_osd_state_hook;
 
+    json11::Json::object & serialize_inode_cfg(inode_config_t *cfg);
     etcd_kv_t parse_etcd_kv(const json11::Json & kv_json);
     void etcd_call(std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback);
     void etcd_txn(json11::Json txn, int timeout, std::function<void(std::string, json11::Json)> callback);

@@ -95,25 +95,13 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent)
         fprintf(stderr, "Inode 0x%lx disappeared\n", cur);
         exit(1);
     }
-    inode_config_t *cur_cfg = &cur_cfg_it->second;
-    std::string cur_name = cur_cfg->name;
+    inode_config_t new_cfg = cur_cfg_it->second;
+    std::string cur_name = new_cfg.name;
     std::string cur_cfg_key = base64_encode(cli->st_cli.etcd_prefix+
         "/config/inode/"+std::to_string(INODE_POOL(cur))+
         "/"+std::to_string(INODE_NO_POOL(cur)));
-    json11::Json::object cur_cfg_json = json11::Json::object {
-        { "name", cur_cfg->name },
-        { "size", cur_cfg->size },
-    };
-    if (new_parent)
-    {
-        if (INODE_POOL(cur) != INODE_POOL(new_parent))
-            cur_cfg_json["parent_pool"] = (uint64_t)INODE_POOL(new_parent);
-        cur_cfg_json["parent_id"] = (uint64_t)INODE_NO_POOL(new_parent);
-    }
-    if (cur_cfg->readonly)
-    {
-        cur_cfg_json["readonly"] = true;
-    }
+    new_cfg.parent_id = new_parent;
+    json11::Json::object cur_cfg_json = cli->st_cli.serialize_inode_cfg(&new_cfg);
     waiting++;
     cli->st_cli.etcd_txn(json11::Json::object {
         { "compare", json11::Json::array {
@@ -121,7 +109,7 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent)
                 { "target", "MOD" },
                 { "key", cur_cfg_key },
                 { "result", "LESS" },
-                { "mod_revision", cur_cfg->mod_revision+1 },
+                { "mod_revision", new_cfg.mod_revision+1 },
             },
         } },
         { "success", json11::Json::array {

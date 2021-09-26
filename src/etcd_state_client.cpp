@@ -765,3 +765,22 @@ void etcd_state_client_t::close_watch(inode_watch_t* watch)
     }
     delete watch;
 }
+
+json11::Json::object & etcd_state_client_t::serialize_inode_cfg(inode_config_t *cfg)
+{
+    json11::Json::object new_cfg = json11::Json::object {
+        { "name", cfg->name },
+        { "size", cfg->size },
+    };
+    if (cfg->parent_id)
+    {
+        if (INODE_POOL(cfg->num) != INODE_POOL(cfg->parent_id))
+            new_cfg["parent_pool"] = (uint64_t)INODE_POOL(cfg->parent_id);
+        new_cfg["parent_id"] = (uint64_t)INODE_NO_POOL(cfg->parent_id);
+    }
+    if (cfg->readonly)
+    {
+        new_cfg["readonly"] = true;
+    }
+    return new_cfg;
+}

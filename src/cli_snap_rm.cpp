@@ -138,7 +138,8 @@ resume_5:
                 return;
             }
             cb = NULL;
-            // Delete "inverse" child metadata and rename parent over it
+            // Delete "inverse" child metadata, rename parent over it,
+            // and also change parent links of the previous "inverse" child
             rename_inverse_parent();
             state = 6;
 resume_6:
@@ -345,47 +346,76 @@ resume_9:
             "/config/inode/"+std::to_string(INODE_POOL(inverse_parent))+
             "/"+std::to_string(INODE_NO_POOL(inverse_parent))
         );
-        json11::Json::object new_cfg = json11::Json::object {
-            { "name", child_cfg->name },
-            { "size", child_cfg->size },
+        // Fill new configuration
+        inode_config_t new_cfg = *child_cfg;
+        new_cfg.num = target_cfg->num;
+        new_cfg.parent_id = new_parent;
+        json11::Json::array cmp = json11::Json::array {
+            json11::Json::object {
+                { "target", "MOD" },
+                { "key", child_cfg_key },
+                { "result", "LESS" },
+                { "mod_revision", child_cfg->mod_revision+1 },
+            },
+            json11::Json::object {
+                { "target", "MOD" },
+                { "key", target_cfg_key },
+                { "result", "LESS" },
+                { "mod_revision", target_cfg->mod_revision+1 },
+            },
         };
-        if (new_parent)
+        json11::Json::array txn = json11::Json::array {
+            json11::Json::object {
+                { "request_delete_range", json11::Json::object {
+                    { "key", child_cfg_key },
+                } },
+            },
+            json11::Json::object {
+                { "request_put", json11::Json::object {
+                    { "key", target_cfg_key },
+                    { "value", base64_encode(json11::Json(parent->cli->st_cli.serialize_inode_cfg(&new_cfg)).dump()) },
+                } },
+            },
+            json11::Json::object {
+                { "request_put", json11::Json::object {
+                    { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/index/image/"+child_cfg->name) },
+                    { "value", base64_encode(json11::Json({
+                        { "id", INODE_NO_POOL(inverse_parent) },
+                        { "pool_id", (uint64_t)INODE_POOL(inverse_parent) },
+                    }).dump()) },
+                } },
+            },
+        };
+        // Reparent children of inverse_child
+        for (auto & cp: parent->cli->st_cli.inode_config)
         {
-            if (INODE_POOL(inverse_parent) != INODE_POOL(new_parent))
-                new_cfg["parent_pool"] = (uint64_t)INODE_POOL(new_parent);
-            new_cfg["parent_id"] = (uint64_t)INODE_NO_POOL(new_parent);
-        }
-        if (child_cfg->readonly)
-        {
-            new_cfg["readonly"] = true;
+            if (cp.second.parent_id == child_cfg->num)
+            {
+                auto cp_cfg = cp.second;
+                cp_cfg.parent_id = inverse_parent;
+                auto cp_key = base64_encode(
+                    parent->cli->st_cli.etcd_prefix+
+                    "/config/inode/"+std::to_string(INODE_POOL(cp.second.num))+
+                    "/"+std::to_string(INODE_NO_POOL(cp.second.num))
+                );
+                cmp.push_back(json11::Json::object {
+                    { "target", "MOD" },
+                    { "key", cp_key },
+                    { "result", "LESS" },
+                    { "mod_revision", cp.second.mod_revision+1 },
+                });
+                txn.push_back(json11::Json::object {
+                    { "request_put", json11::Json::object {
+                        { "key", cp_key },
+                        { "value", base64_encode(json11::Json(parent->cli->st_cli.serialize_inode_cfg(&cp_cfg)).dump()) },
+                    } },
+                });
+            }
         }
         parent->waiting++;
         parent->cli->st_cli.etcd_txn(json11::Json::object {
-            { "compare", json11::Json::array {
-                json11::Json::object {
-                    { "target", "MOD" },
-                    { "key", child_cfg_key },
-                    { "result", "LESS" },
-                    { "mod_revision", child_cfg->mod_revision+1 },
-                },
-                json11::Json::object {
-                    { "target", "MOD" },
-                    { "key", target_cfg_key },
-                    { "result", "LESS" },
-                    { "mod_revision", target_cfg->mod_revision+1 },
-                },
-            } },
-            { "success", json11::Json::array {
-                json11::Json::object {
-                    { "request_delete_range", json11::Json::object {
-                        { "key", child_cfg_key },
-                    } },
-                    { "request_put", json11::Json::object {
-                        { "key", target_cfg_key },
-                        { "value", base64_encode(json11::Json(new_cfg).dump()) },
-                    } }
-                },
-            } },
+            { "compare", cmp },
+            { "success", txn },
         }, ETCD_SLOW_TIMEOUT, [this, target_name, child_name](std::string err, json11::Json res)
         {
             parent->waiting--;
@@ -396,7 +426,10 @@ resume_9:
             }
             if (!res["succeeded"].bool_value())
             {
-                fprintf(stderr, "Layer %s or %s configuration was modified during renaming\n", target_name.c_str(), child_name.c_str());
+                fprintf(
+                    stderr, "Parent (%s), child (%s), or one of its children"
+                    " configuration was modified during rename\n", target_name.c_str(), child_name.c_str()
+                );
                 exit(1);
             }
             printf("Layer %s renamed to %s\n", target_name.c_str(), child_name.c_str());
@@ -414,9 +447,11 @@ resume_9:
         }
         inode_config_t *cur_cfg = &cur_cfg_it->second;
         std::string cur_name = cur_cfg->name;
-        std::string cur_cfg_key = base64_encode(parent->cli->st_cli.etcd_prefix+
+        std::string cur_cfg_key = base64_encode(
+            parent->cli->st_cli.etcd_prefix+
             "/config/inode/"+std::to_string(INODE_POOL(cur))+
-            "/"+std::to_string(INODE_NO_POOL(cur)));
+            "/"+std::to_string(INODE_NO_POOL(cur))
+        );
         parent->waiting++;
         parent->cli->st_cli.etcd_txn(json11::Json::object {
             { "compare", json11::Json::array {
@@ -431,6 +466,9 @@ resume_9:
                 json11::Json::object {
                     { "request_delete_range", json11::Json::object {
                         { "key", cur_cfg_key },
+                    } },
+                    { "request_delete_range", json11::Json::object {
+                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/index/image/"+cur_name) },
                     } },
                 },
             } },
