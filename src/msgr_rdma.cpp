@@ -46,6 +46,9 @@ msgr_rdma_connection_t::~msgr_rdma_connection_t()
     ctx->used_max_cqe -= max_send+max_recv;
     if (qp)
         ibv_destroy_qp(qp);
+    if (recv_buffers.size())
+        for (auto b: recv_buffers)
+            free(b);
 }
 
 msgr_rdma_context_t *msgr_rdma_context_t::create(const char *ib_devname, uint8_t ib_port, uint8_t gid_index, uint32_t mtu)
@@ -55,6 +58,7 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(const char *ib_devname, uint8_t
     msgr_rdma_context_t *ctx = new msgr_rdma_context_t();
     ctx->mtu = mtu;
 
+    srand48(time(NULL));
     dev_list = ibv_get_device_list(NULL);
     if (!dev_list)
     {
@@ -477,7 +481,11 @@ void osd_messenger_t::handle_rdma_events()
             if (!is_send)
             {
                 cl->rdma_conn->cur_recv--;
-                handle_read_buffer(cl, cl->rdma_conn->recv_buffers[0], wc[i].byte_len);
+                if (!handle_read_buffer(cl, cl->rdma_conn->recv_buffers[0], wc[i].byte_len))
+                {
+                    // handle_read_buffer may stop the client
+                    continue;
+                }
                 free(cl->rdma_conn->recv_buffers[0]);
                 cl->rdma_conn->recv_buffers.erase(cl->rdma_conn->recv_buffers.begin(), cl->rdma_conn->recv_buffers.begin()+1);
                 try_recv_rdma(cl);
