@@ -72,7 +72,7 @@ static void vitastor_c_write_handler(void *opaque)
 
 vitastor_c *vitastor_c_create_qemu(QEMUSetFDHandler *aio_set_fd_handler, void *aio_context,
     const char *config_path, const char *etcd_host, const char *etcd_prefix,
-    bool use_rdma, const char *rdma_device, int rdma_port_num, int rdma_gid_index, int rdma_mtu, int log_level)
+    int use_rdma, const char *rdma_device, int rdma_port_num, int rdma_gid_index, int rdma_mtu, int log_level)
 {
     json11::Json cfg_json = vitastor_c_common_config(
         config_path, etcd_host, etcd_prefix, use_rdma,

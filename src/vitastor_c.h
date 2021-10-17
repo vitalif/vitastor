@@ -28,7 +28,7 @@ typedef void QEMUSetFDHandler(void *ctx, int fd, int is_external, IOHandler *fd_
 
 vitastor_c *vitastor_c_create_qemu(QEMUSetFDHandler *aio_set_fd_handler, void *aio_context,
     const char *config_path, const char *etcd_host, const char *etcd_prefix,
-    bool use_rdma, const char *rdma_device, int rdma_port_num, int rdma_gid_index, int rdma_mtu, int log_level);
+    int use_rdma, const char *rdma_device, int rdma_port_num, int rdma_gid_index, int rdma_mtu, int log_level);
 vitastor_c *vitastor_c_create_uring(const char *config_path, const char *etcd_host, const char *etcd_prefix,
     int use_rdma, const char *rdma_device, int rdma_port_num, int rdma_gid_index, int rdma_mtu, int log_level);
 vitastor_c *vitastor_c_create_uring_json(const char **options, int options_len);
