@@ -1,7 +1,7 @@
 # Compile stage
 FROM golang:buster AS build
 
-ADD go.mod /app/
+ADD go.sum go.mod /app/
 RUN cd /app; CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go mod download -x
 ADD . /app
 RUN perl -i -e '$/ = undef; while(<>) { s/\n\s*(\{\s*\n)/$1\n/g; s/\}(\s*\n\s*)else\b/$1} else/g; print; }' `find /app -name '*.go'`
