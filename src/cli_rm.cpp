@@ -37,7 +37,7 @@ struct rm_inode_t
         lister = parent->cli->list_inode_start(inode, [this](inode_list_t *lst,
             std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)
         {
-            rm_pg_t *rm = new rm_pg_t({
+            rm_pg_t *rm = new rm_pg_t((rm_pg_t){
                 .pg_num = pg_num,
                 .rm_osd_num = primary_osd,
                 .objects = objects,
