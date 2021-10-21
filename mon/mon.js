@@ -35,6 +35,7 @@ const etcd_allow = new RegExp('^'+[
     'pg/history/[1-9]\\d*/[1-9]\\d*',
     'history/last_clean_pgs',
     'inode/stats/[1-9]\\d*/[1-9]\\d*',
+    'pool/stats/[1-9]\\d*',
     'stats',
     'index/image/.*',
     'index/maxid/[1-9]\\d*',
@@ -1233,8 +1234,10 @@ class Mon
             write: { count: 0n, usec: 0n, bytes: 0n },
             delete: { count: 0n, usec: 0n, bytes: 0n },
         });
+        const seen_pools = {};
         for (const pool_id in this.state.config.pools)
         {
+            seen_pools[pool_id] = true;
             this.state.pool.stats[pool_id] = this.state.pool.stats[pool_id] || {};
             this.state.pool.stats[pool_id].used_raw_tb = 0n;
         }
@@ -1242,7 +1245,12 @@ class Mon
         {
             for (const pool_id in this.state.osd.space[osd_num])
             {
-                this.state.pool.stats[pool_id] = this.state.pool.stats[pool_id] || { used_raw_tb: 0n };
+                this.state.pool.stats[pool_id] = this.state.pool.stats[pool_id] || {};
+                if (!seen_pools[pool_id])
+                {
+                    this.state.pool.stats[pool_id].used_raw_tb = 0n;
+                    seen_pools[pool_id] = true;
+                }
                 inode_stats[pool_id] = inode_stats[pool_id] || {};
                 for (const inode_num in this.state.osd.space[osd_num][pool_id])
                 {
@@ -1253,7 +1261,7 @@ class Mon
                 }
             }
         }
-        for (const pool_id in this.state.config.pools)
+        for (const pool_id in seen_pools)
         {
             const used = this.state.pool.stats[pool_id].used_raw_tb;
             this.state.pool.stats[pool_id].used_raw_tb = Number(used)/1024/1024/1024/1024;
@@ -1350,9 +1358,11 @@ class Mon
         }
         for (const pool_id in this.state.pool.stats)
         {
+            const pool_stats = { ...this.state.pool.stats[pool_id] };
+            this.serialize_bigints(pool_stats);
             txn.push({ requestPut: {
                 key: b64(this.etcd_prefix+'/pool/stats/'+pool_id),
-                value: b64(JSON.stringify(this.state.pool.stats[pool_id])),
+                value: b64(JSON.stringify(pool_stats)),
             } });
         }
         if (txn.length)
