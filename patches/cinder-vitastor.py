@@ -266,7 +266,7 @@ class VitastorDriver(driver.CloneableImageVD,
             stats['provisioned_capacity_gb'] = round(total_provisioned/1024.0/1024.0/1024.0, 2)
             pool_stats = pool_stats['responses'][0]['kvs']
             if len(pool_stats):
-                pool_stats = pool_stats[0]
+                pool_stats = pool_stats[0]['value']
                 stats['free_capacity_gb'] = round(1024.0*(pool_stats['total_raw_tb']-pool_stats['used_raw_tb'])/pool_stats['raw_to_usable'], 2)
                 stats['total_capacity_gb'] = round(1024.0*pool_stats['total_raw_tb'], 2)
             stats['backend_state'] = 'up'
