@@ -34,7 +34,7 @@ breaking changes in the future. However, the following is implemented:
 - QEMU driver (built out-of-tree)
 - Loadable fio engine for benchmarks (also built out-of-tree)
 - NBD proxy for kernel mounts
-- Inode removal tool (vitastor-cli rm)
+- Inode removal tool (vitastor-cli rm-data)
 - Packaging for Debian and CentOS
 - Per-inode I/O and space usage statistics
 - Inode metadata storage in etcd
@@ -444,10 +444,10 @@ just like in qemu-img.
 
 ### Remove inode
 
-Use vitastor-rm. For example:
+Use vitastor-rm / vitastor-cli rm-data. For example:
 
 ```
-vitastor-rm --etcd_address 10.115.0.10:2379/v3 --pool 1 --inode 1 --parallel_osds 16 --iodepth 32
+vitastor-cli rm-data --etcd_address 10.115.0.10:2379/v3 --pool 1 --inode 1 --parallel_osds 16 --iodepth 32
 ```
 
 ### NBD

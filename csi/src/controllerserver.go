@@ -356,7 +356,7 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 
     // Delete inode data by invoking vitastor-cli
     args := []string{
-        "rm", "--etcd_address", strings.Join(etcdUrl, ","),
+        "rm-data", "--etcd_address", strings.Join(etcdUrl, ","),
         "--pool", fmt.Sprintf("%d", idx.PoolId),
         "--inode", fmt.Sprintf("%d", idx.Id),
     }
@@ -372,7 +372,7 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
     stderrStr := string(stderr.Bytes())
     if (err != nil)
     {
-        klog.Errorf("vitastor-cli rm failed: %s, status %s\n", stderrStr, err)
+        klog.Errorf("vitastor-cli rm-data failed: %s, status %s\n", stderrStr, err)
         return nil, status.Error(codes.Internal, stderrStr+" (status "+err.Error()+")")
     }
 
