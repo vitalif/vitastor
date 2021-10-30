@@ -35,6 +35,7 @@
 
 #define MAX_AUTOSYNC_INTERVAL 3600
 #define DEFAULT_AUTOSYNC_INTERVAL 5
+#define DEFAULT_AUTOSYNC_WRITES 128
 #define MAX_RECOVERY_QUEUE 2048
 #define DEFAULT_RECOVERY_QUEUE 4
 #define DEFAULT_RECOVERY_BATCH 16
@@ -108,7 +109,8 @@ class osd_t
     int print_stats_interval = 3;
     int slow_log_interval = 10;
     int immediate_commit = IMMEDIATE_NONE;
-    int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // sync every 5 seconds
+    int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // "emergency" sync every 5 seconds
+    int autosync_writes = DEFAULT_AUTOSYNC_WRITES;
     int recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
     int recovery_sync_batch = DEFAULT_RECOVERY_BATCH;
     int log_level = 0;
@@ -140,6 +142,7 @@ class osd_t
     osd_op_t *autosync_op = NULL;
 
     // Unstable writes
+    uint64_t unstable_write_count = 0;
     std::map<osd_object_id_t, uint64_t> unstable_writes;
     std::deque<osd_op_t*> syncs_in_progress;
 

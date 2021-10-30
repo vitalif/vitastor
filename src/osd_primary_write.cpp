@@ -274,6 +274,11 @@ continue_others:
     }
     // finish_op would invalidate next_it if it cleared pg.write_queue, but it doesn't do that :)
     finish_op(cur_op, cur_op->reply.hdr.retval);
+    if (unstable_write_count >= autosync_writes)
+    {
+        unstable_write_count = 0;
+        autosync();
+    }
     if (next_op)
     {
         // Continue next write to the same object
@@ -353,6 +358,7 @@ resume_7:
     else
     {
 lazy:
+        unstable_write_count++;
         if (op_data->scheme != POOL_SCHEME_REPLICATED)
         {
             // Remember version as unstable for EC/XOR

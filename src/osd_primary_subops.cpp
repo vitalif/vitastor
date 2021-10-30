@@ -5,8 +5,6 @@
 
 void osd_t::autosync()
 {
-    // FIXME Autosync based on the number of unstable writes to prevent
-    // "journal_sector_buffer_count is too low for this batch" errors
     if (immediate_commit != IMMEDIATE_ALL && !autosync_op)
     {
         autosync_op = new osd_op_t();

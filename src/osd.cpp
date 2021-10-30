@@ -45,6 +45,12 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
     // FIXME: Create Blockstore from on-disk superblock config and check it against the OSD cluster config
     auto bs_cfg = json_to_bs(this->config);
     this->bs = new blockstore_t(bs_cfg, ringloop, tfd);
+    {
+        // Autosync based on the number of unstable writes to prevent stalls due to insufficient journal space
+        uint64_t max_autosync = bs->get_journal_size() / bs->get_block_size() / 2;
+        if (autosync_writes > max_autosync)
+            autosync_writes = max_autosync;
+    }
 
     this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
     {
@@ -122,6 +128,11 @@ void osd_t::parse_config(const json11::Json & config)
         autosync_interval = config["autosync_interval"].uint64_value();
         if (autosync_interval > MAX_AUTOSYNC_INTERVAL)
             autosync_interval = DEFAULT_AUTOSYNC_INTERVAL;
+    }
+    if (!config["autosync_writes"].is_null())
+    {
+        // Allow to set it to 0
+        autosync_writes = config["autosync_writes"].uint64_value();
     }
     if (!config["client_queue_depth"].is_null())
     {

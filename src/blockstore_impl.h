@@ -368,4 +368,5 @@ public:
     inline uint64_t get_block_count() { return block_count; }
     inline uint64_t get_free_block_count() { return data_alloc->get_free_count(); }
     inline uint32_t get_bitmap_granularity() { return disk_alignment; }
+    inline uint64_t get_journal_size() { return journal.len; }
 };

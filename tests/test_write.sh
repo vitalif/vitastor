@@ -5,6 +5,12 @@
 #LD_PRELOAD=libasan.so.5 \
 #    fio -thread -name=test -ioengine=build/src/libfio_vitastor_sec.so -bs=4k -fsync=128 `$ETCDCTL get /vitastor/osd/state/1 --print-value-only | jq -r '"-host="+.addresses[0]+" -port="+(.port|tostring)'` -rw=write -size=32M
 
+# Random writes without immediate_commit were stalling OSDs
+
+LD_PRELOAD=libasan.so.5 \
+    fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=124k -direct=1 -numjobs=16 -iodepth=4 \
+        -rw=randwrite -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -runtime=10
+
 # A lot of parallel syncs was crashing the primary OSD at some point
 
 LD_PRELOAD=libasan.so.5 \

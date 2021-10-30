@@ -87,6 +87,7 @@ const etcd_tree = {
             bind_address: "0.0.0.0",
             bind_port: 0,
             autosync_interval: 5,
+            autosync_writes: 128,
             client_queue_depth: 128, // unused
             recovery_queue_depth: 4,
             recovery_sync_batch: 16,
