@@ -25,6 +25,7 @@ public:
     uint64_t iodepth = 0, parallel_osds = 0;
     bool progress = true;
     bool list_first = false;
+    bool json_output = false;
     int log_level = 0;
     int mode = 0;
 
@@ -49,6 +50,7 @@ public:
     friend struct snap_flattener_t;
     friend struct snap_remover_t;
 
+    std::function<bool(void)> start_ls(json11::Json cfg);
     std::function<bool(void)> start_rm(json11::Json);
     std::function<bool(void)> start_merge(json11::Json);
     std::function<bool(void)> start_flatten(json11::Json);

@@ -766,7 +766,7 @@ void etcd_state_client_t::close_watch(inode_watch_t* watch)
     delete watch;
 }
 
-json11::Json::object & etcd_state_client_t::serialize_inode_cfg(inode_config_t *cfg)
+json11::Json::object etcd_state_client_t::serialize_inode_cfg(inode_config_t *cfg)
 {
     json11::Json::object new_cfg = json11::Json::object {
         { "name", cfg->name },
