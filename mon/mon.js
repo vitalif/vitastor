@@ -33,6 +33,7 @@ const etcd_allow = new RegExp('^'+[
     'pg/state/[1-9]\\d*/[1-9]\\d*',
     'pg/stats/[1-9]\\d*/[1-9]\\d*',
     'pg/history/[1-9]\\d*/[1-9]\\d*',
+    'pool/stats/[1-9]\\d*',
     'history/last_clean_pgs',
     'inode/stats/[1-9]\\d*/[1-9]\\d*',
     'pool/stats/[1-9]\\d*',
@@ -337,6 +338,8 @@ class Mon
         this.etcd_prefix = this.etcd_prefix.replace(/\/\/+/g, '/').replace(/^\/?(.*[^\/])\/?$/, '/$1');
         this.etcd_start_timeout = (config.etcd_start_timeout || 5) * 1000;
         this.state = JSON.parse(JSON.stringify(this.constructor.etcd_tree));
+        this.signals_set = false;
+        this.on_stop_cb = () => this.on_stop().catch(console.error);
     }
 
     async start()
@@ -346,6 +349,16 @@ class Mon
         await this.become_master();
         await this.load_cluster_state();
         await this.start_watcher(this.config.etcd_mon_retries);
+        for (const pool_id in this.state.config.pools)
+        {
+            if (!this.state.pool.stats[pool_id] ||
+                !this.state.pool.stats[pool_id].pg_real_size)
+            {
+                // Generate missing data in etcd
+                this.state.config.pgs.hash = null;
+                break;
+            }
+        }
         await this.recheck_pgs();
     }
 
@@ -555,7 +568,7 @@ class Mon
         const max_ttl = this.config.etcd_mon_ttl + this.config.etcd_mon_timeout/1000*this.config.etcd_mon_retries;
         const res = await this.etcd_call('/lease/grant', { TTL: max_ttl }, this.config.etcd_mon_timeout, -1);
         this.etcd_lease_id = res.ID;
-        setInterval(async () =>
+        this.lease_timer = setInterval(async () =>
         {
             const res = await this.etcd_call('/lease/keepalive', { ID: this.etcd_lease_id }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
             if (!res.result.TTL)
@@ -563,6 +576,19 @@ class Mon
                 this.die('Lease expired');
             }
         }, this.config.etcd_mon_timeout);
+        if (!this.signals_set)
+        {
+            process.on('SIGINT', this.on_stop_cb);
+            process.on('SIGTERM', this.on_stop_cb);
+            this.signals_set = true;
+        }
+    }
+
+    async on_stop()
+    {
+        clearInterval(this.lease_timer);
+        await this.etcd_call('/lease/revoke', { ID: this.etcd_lease_id }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
+        process.exit(0);
     }
 
     async become_master()
@@ -1061,7 +1087,9 @@ class Mon
                 this.state.pool.stats[pool_id] = {
                     used_raw_tb: (this.state.pool.stats[pool_id]||{}).used_raw_tb || 0,
                     total_raw_tb: optimize_result.space,
-                    raw_to_usable: pg_effsize / (pool_cfg.pg_size - (pool_cfg.parity_chunks||0)),
+                    pg_real_size: pg_effsize,
+                    raw_to_usable: pg_effsize / (pool_cfg.scheme === 'replicated'
+                        ? 1 : (pool_cfg.pg_size - (pool_cfg.parity_chunks||0))),
                     space_efficiency: optimize_result.space/(optimize_result.total_space||1),
                 };
                 etcd_request.success.push({ requestPut: {
