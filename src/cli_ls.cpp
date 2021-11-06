@@ -18,7 +18,7 @@ struct image_lister_t
 
     int state = 0;
     bool detailed = false;
-    std::map<inode_t, uint64_t> used_sizes;
+    std::map<inode_t, json11::Json::object> stats;
     json11::Json space_info;
 
     bool is_done()
@@ -26,15 +26,13 @@ struct image_lister_t
         return state == 100;
     }
 
-    json11::Json::array get_list()
+    void get_list()
     {
-        json11::Json::array list;
         for (auto & ic: parent->cli->st_cli.inode_config)
         {
             auto item = json11::Json::object {
                 { "name", ic.second.name },
                 { "size", ic.second.size },
-                { "used_size", used_sizes[ic.second.num] },
                 { "readonly", ic.second.readonly },
                 { "pool_id", (uint64_t)INODE_POOL(ic.second.num) },
                 { "inode_num", INODE_NO_POOL(ic.second.num) },
@@ -49,19 +47,18 @@ struct image_lister_t
             }
             if (!parent->json_output)
             {
-                item["used_size_fmt"] = format_size(used_sizes[ic.second.num]);
                 item["size_fmt"] = format_size(ic.second.size);
                 item["ro"] = ic.second.readonly ? "RO" : "-";
             }
-            list.push_back(item);
+            stats[ic.second.num] = item;
         }
-        return list;
     }
 
     void loop()
     {
         if (state == 1)
             goto resume_1;
+        get_list();
         if (detailed)
         {
             // Space statistics
@@ -126,21 +123,49 @@ resume_1:
                 auto kv = parent->cli->st_cli.parse_etcd_kv(kv_item);
                 // pool ID & inode number
                 pool_id_t pool_id;
-                inode_t inode_num;
+                inode_t only_inode_num;
                 char null_byte = 0;
-                sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(), "/inode/stats/%u/%lu%c", &pool_id, &inode_num, &null_byte);
-                if (!pool_id || pool_id >= POOL_ID_MAX || INODE_POOL(inode_num) != 0 || null_byte != 0)
+                sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(),
+                    "/inode/stats/%u/%lu%c", &pool_id, &only_inode_num, &null_byte);
+                if (!pool_id || pool_id >= POOL_ID_MAX || INODE_POOL(only_inode_num) != 0 || null_byte != 0)
                 {
                     fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
                     continue;
                 }
+                inode_t inode_num = INODE_WITH_POOL(pool_id, inode_num);
                 // save stats
                 auto & pool_cfg = parent->cli->st_cli.pool_config.at(pool_id);
-                used_sizes[INODE_WITH_POOL(pool_id, inode_num)] = kv.value["raw_used"].uint64_value() / pool_pg_real_size[pool_id]
+                uint64_t used_size = kv.value["raw_used"].uint64_value() / pool_pg_real_size[pool_id]
                     * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+                auto stat_it = stats.find(inode_num);
+                if (stat_it == stats.end())
+                {
+                    stats[inode_num] = json11::Json::object {
+                        { "name", "UnknownID:"+std::to_string(pool_id)+"/"+std::to_string(only_inode_num)+")" },
+                        { "size", 0 },
+                        { "readonly", false },
+                        { "pool_id", (uint64_t)INODE_POOL(inode_num) },
+                        { "inode_num", INODE_NO_POOL(inode_num) },
+                    };
+                    if (!parent->json_output)
+                    {
+                        stats[inode_num]["size_fmt"] = format_size(0);
+                        stats[inode_num]["ro"] = "-";
+                    }
+                    stat_it = stats.find(inode_num);
+                }
+                stat_it->second["used_size"] = used_size;
+                if (!parent->json_output)
+                {
+                    stat_it->second["used_size_fmt"] = format_size(used_size);
+                }
             }
         }
-        json11::Json::array list = get_list();
+        json11::Json::array list;
+        for (auto & kv: stats)
+        {
+            list.push_back(kv.second);
+        }
         if (parent->json_output)
         {
             // JSON output
