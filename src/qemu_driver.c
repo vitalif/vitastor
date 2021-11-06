@@ -372,7 +372,7 @@ static int vitastor_refresh_limits(BlockDriverState *bs)
     bs->bl.request_alignment = 4096;
     bs->bl.min_mem_alignment = 4096;
 #else
-    bs->request_alignment = 4096;
+    bs->bl.request_alignment = 4096;
 #endif
     bs->bl.opt_mem_alignment = 4096;
 #if QEMU_VERSION_MAJOR < 3
