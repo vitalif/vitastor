@@ -51,7 +51,7 @@ msgr_rdma_connection_t::~msgr_rdma_connection_t()
             free(b);
 }
 
-msgr_rdma_context_t *msgr_rdma_context_t::create(const char *ib_devname, uint8_t ib_port, uint8_t gid_index, uint32_t mtu)
+msgr_rdma_context_t *msgr_rdma_context_t::create(const char *ib_devname, uint8_t ib_port, uint8_t gid_index, uint32_t mtu, int log_level)
 {
     int res;
     ibv_device **dev_list = NULL;
@@ -70,7 +70,8 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(const char *ib_devname, uint8_t
         ctx->dev = *dev_list;
         if (!ctx->dev)
         {
-            fprintf(stderr, "No RDMA devices found\n");
+            if (log_level > 0)
+                fprintf(stderr, "No RDMA devices found\n");
             goto cleanup;
         }
     }

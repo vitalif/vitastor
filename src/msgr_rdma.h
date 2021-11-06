@@ -35,7 +35,7 @@ struct msgr_rdma_context_t
     int max_cqe = 0;
     int used_max_cqe = 0;
 
-    static msgr_rdma_context_t *create(const char *ib_devname, uint8_t ib_port, uint8_t gid_index, uint32_t mtu);
+    static msgr_rdma_context_t *create(const char *ib_devname, uint8_t ib_port, uint8_t gid_index, uint32_t mtu, int log_level);
     ~msgr_rdma_context_t();
 };
 

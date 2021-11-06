@@ -17,11 +17,12 @@ void osd_messenger_t::init()
     {
         rdma_context = msgr_rdma_context_t::create(
             rdma_device != "" ? rdma_device.c_str() : NULL,
-            rdma_port_num, rdma_gid_index, rdma_mtu
+            rdma_port_num, rdma_gid_index, rdma_mtu, log_level
         );
         if (!rdma_context)
         {
-            fprintf(stderr, "[OSD %lu] Couldn't initialize RDMA, proceeding with TCP only\n", osd_num);
+            if (log_level > 0)
+                fprintf(stderr, "[OSD %lu] Couldn't initialize RDMA, proceeding with TCP only\n", osd_num);
         }
         else
         {
