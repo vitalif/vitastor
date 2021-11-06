@@ -40,6 +40,14 @@ json11::Json::object cli_tool_t::parse_args(int narg, const char *args[])
         {
             cfg["interactive"] = "1";
         }
+        else if (args[i][0] == '-' && args[i][1] == 'p')
+        {
+            cfg["pool"] = args[++i];
+        }
+        else if (args[i][0] == '-' && args[i][1] == 's')
+        {
+            cfg["size"] = args[++i];
+        }
         else if (args[i][0] == '-' && args[i][1] == '-')
         {
             const char *opt = args[i]+2;
@@ -71,17 +79,20 @@ void cli_tool_t::help()
         "(c) Vitaliy Filippov, 2019+ (VNPL-1.1)\n"
         "\n"
         "USAGE:\n"
-        "%s ls [-l]\n"
-        "  List existing images. Also report provisioned and allocated size if -l is specified.\n"
+        "%s ls [-l] [--pool|-p <id|name>]\n"
+        "  List existing images from a specified pool or from all pools if not specified.\n"
+        "  Also report allocated size if -l is specified.\n"
         "\n"
-        "%s create --size <size> [--parent <parent_name>[@<snapshot>]] <name>\n"
+        "%s create -s|--size <size> [--pool <id|name>] [--parent <parent_name>[@<snapshot>]] <name>\n"
         "  Create an image. You may use K/M/G/T suffixes for <size>. If --parent is specified,\n"
         "  a copy-on-write image clone is created. Parent must be a snapshot (readonly image).\n"
+        "  Pool must be specified if there is more than one pool.\n"
         "\n"
-        "%s snap-create <name>@<snapshot>\n"
+        "%s create --snapshot <snapshot> [--pool <id|name>] <image>\n"
+        "%s snap-create [--pool <id|name>] <image>@<snapshot>\n"
         "  Create a snapshot of image <name>. May be used live if only a single writer is active.\n"
         "\n"
-        "%s set <name> [--size <size>] [--readonly | --readwrite]\n"
+        "%s set <name> [-s|--size <size>] [--readonly | --readwrite]\n"
         "  Resize image or change its readonly status. Images with children can't be made read-write.\n"
         "\n"
         "%s top [-n <MAX_COUNT>] [-i]\n"
@@ -115,7 +126,7 @@ void cli_tool_t::help()
         "  --cas 1|0           Use online CAS writes when possible (default auto)\n"
         "  --json              JSON output\n"
         ,
-        exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name
+        exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name
     );
     exit(0);
 }
@@ -213,6 +224,11 @@ void cli_tool_t::run(json11::Json cfg)
     {
         // List images
         action_cb = start_ls(cfg);
+    }
+    else if (cmd[0] == "create" || cmd[0] == "snap-create")
+    {
+        // Create image/snapshot
+        action_cb = start_create(cfg);
     }
     else if (cmd[0] == "rm-data")
     {

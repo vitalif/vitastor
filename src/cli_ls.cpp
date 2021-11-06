@@ -16,8 +16,11 @@ struct image_lister_t
 {
     cli_tool_t *parent;
 
-    int state = 0;
+    pool_id_t list_pool_id = 0;
+    std::string list_pool_name;
     bool detailed = false;
+
+    int state = 0;
     std::map<inode_t, json11::Json::object> stats;
     json11::Json space_info;
 
@@ -28,13 +31,36 @@ struct image_lister_t
 
     void get_list()
     {
+        if (list_pool_name != "")
+        {
+            for (auto & ic: parent->cli->st_cli.pool_config)
+            {
+                if (ic.second.name == list_pool_name)
+                {
+                    list_pool_id = ic.first;
+                    break;
+                }
+            }
+            if (!list_pool_id)
+            {
+                fprintf(stderr, "Pool %s does not exist\n", list_pool_name.c_str());
+                exit(1);
+            }
+        }
         for (auto & ic: parent->cli->st_cli.inode_config)
         {
+            if (list_pool_id && INODE_POOL(ic.second.num) != list_pool_id)
+            {
+                continue;
+            }
+            auto & pool_cfg = parent->cli->st_cli.pool_config.at(INODE_POOL(ic.second.num));
             auto item = json11::Json::object {
                 { "name", ic.second.name },
                 { "size", ic.second.size },
+                { "used_size", 0 },
                 { "readonly", ic.second.readonly },
                 { "pool_id", (uint64_t)INODE_POOL(ic.second.num) },
+                { "pool_name", pool_cfg.name },
                 { "inode_num", INODE_NO_POOL(ic.second.num) },
             };
             if (ic.second.parent_id)
@@ -47,6 +73,7 @@ struct image_lister_t
             }
             if (!parent->json_output)
             {
+                item["used_size_fmt"] = format_size(0);
                 item["size_fmt"] = format_size(ic.second.size);
                 item["ro"] = ic.second.readonly ? "RO" : "-";
             }
@@ -70,20 +97,24 @@ struct image_lister_t
                     json11::Json::object {
                         { "request_range", json11::Json::object {
                             { "key", base64_encode(
-                                parent->cli->st_cli.etcd_prefix+"/pool/stats/"
+                                parent->cli->st_cli.etcd_prefix+"/pool/stats"+
+                                (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"/"
                             ) },
                             { "range_end", base64_encode(
-                                parent->cli->st_cli.etcd_prefix+"/pool/stats0"
+                                parent->cli->st_cli.etcd_prefix+"/pool/stats"+
+                                (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"0"
                             ) },
                         } },
                     },
                     json11::Json::object {
                         { "request_range", json11::Json::object {
                             { "key", base64_encode(
-                                parent->cli->st_cli.etcd_prefix+"/inode/stats/"
+                                parent->cli->st_cli.etcd_prefix+"/inode/stats"+
+                                (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"/"
                             ) },
                             { "range_end", base64_encode(
-                                parent->cli->st_cli.etcd_prefix+"/inode/stats0"
+                                parent->cli->st_cli.etcd_prefix+"/inode/stats"+
+                                (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"0"
                             ) },
                         } },
                     },
@@ -133,10 +164,15 @@ resume_1:
                     continue;
                 }
                 inode_t inode_num = INODE_WITH_POOL(pool_id, inode_num);
+                uint64_t used_size = kv.value["raw_used"].uint64_value();
                 // save stats
-                auto & pool_cfg = parent->cli->st_cli.pool_config.at(pool_id);
-                uint64_t used_size = kv.value["raw_used"].uint64_value() / pool_pg_real_size[pool_id]
-                    * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+                auto pool_it = parent->cli->st_cli.pool_config.find(pool_id);
+                if (pool_it == parent->cli->st_cli.pool_config.end())
+                {
+                    auto & pool_cfg = pool_it->second;
+                    used_size = used_size / pool_pg_real_size[pool_id]
+                        * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+                }
                 auto stat_it = stats.find(inode_num);
                 if (stat_it == stats.end())
                 {
@@ -145,6 +181,8 @@ resume_1:
                         { "size", 0 },
                         { "readonly", false },
                         { "pool_id", (uint64_t)INODE_POOL(inode_num) },
+                        { "pool_name", pool_it == parent->cli->st_cli.pool_config.end()
+                            ? (pool_it->second.name == "" ? "<Unnamed>" : pool_it->second.name) : "?" },
                         { "inode_num", INODE_NO_POOL(inode_num) },
                     };
                     if (!parent->json_output)
@@ -174,17 +212,24 @@ resume_1:
             return;
         }
         // Table output: name, size_fmt, [used_size_fmt], ro, parent_name
-        json11::Json::array cols = json11::Json::array{
-            json11::Json::object{
-                { "key", "name" },
-                { "title", "NAME" },
-            },
-            json11::Json::object{
-                { "key", "size_fmt" },
-                { "title", "SIZE" },
+        json11::Json::array cols;
+        cols.push_back(json11::Json::object{
+            { "key", "name" },
+            { "title", "NAME" },
+        });
+        if (!list_pool_id && parent->cli->st_cli.pool_config.size() > 1)
+        {
+            cols.push_back(json11::Json::object{
+                { "key", "used_size_fmt" },
+                { "title", "USED" },
                 { "right", true },
-            },
-        };
+            });
+        }
+        cols.push_back(json11::Json::object{
+            { "key", "size_fmt" },
+            { "title", "SIZE" },
+            { "right", true },
+        });
         if (detailed)
         {
             cols.push_back(json11::Json::object{
@@ -306,6 +351,8 @@ std::function<bool(void)> cli_tool_t::start_ls(json11::Json cfg)
     json11::Json::array cmd = cfg["command"].array_items();
     auto lister = new image_lister_t();
     lister->parent = this;
+    lister->list_pool_id = cfg["pool"].uint64_value();
+    lister->list_pool_name = lister->list_pool_id ? "" : cfg["pool"].string_value();
     lister->detailed = cfg["long"].bool_value();
     return [lister]()
     {
