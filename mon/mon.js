@@ -360,6 +360,7 @@ class Mon
             }
         }
         await this.recheck_pgs();
+        this.schedule_update_stats();
     }
 
     async load_config()
@@ -400,11 +401,6 @@ class Mon
         if (this.config.mon_stats_timeout < 100)
         {
             this.config.mon_stats_timeout = 100;
-        }
-        this.config.mon_stats_interval = Number(this.config.mon_stats_interval) || 5000;
-        if (this.config.mon_stats_interval < 100)
-        {
-            this.config.mon_stats_interval = 100;
         }
         // After this number of seconds, a dead OSD will be removed from PG distribution
         this.config.osd_out_time = Number(this.config.osd_out_time) || 0;
@@ -1404,20 +1400,13 @@ class Mon
     {
         if (this.stats_timer)
         {
-            clearTimeout(this.stats_timer);
-            this.stats_timer = null;
-        }
-        let sleep = (this.stats_update_next||0) - Date.now();
-        if (sleep < this.config.mon_stats_timeout)
-        {
-            sleep = this.config.mon_stats_timeout;
+            return;
         }
         this.stats_timer = setTimeout(() =>
         {
             this.stats_timer = null;
-            this.stats_update_next = Date.now() + this.config.mon_stats_interval;
             this.update_total_stats().catch(console.error);
-        }, sleep);
+        }, this.config.mon_stats_timeout);
     }
 
     parse_kv(kv)
