@@ -102,7 +102,7 @@ void cli_tool_t::help()
         "  Remove <from> or all layers between <from> and <to> (<to> must be a child of <from>),\n"
         "  rebasing all their children accordingly. --writers-stopped allows merging to be a bit\n"
         "  more effective in case of a single 'slim' read-write child and 'fat' removed parent:\n"
-        "  the child is merged into parent in that case and parent is renamed to child.\n"
+        "  the child is merged into parent and parent is renamed to child in that case.\n"
         "  In other cases parent layers are always merged into children.\n"
         "\n"
         "%s flatten [OPTIONS] <layer>\n"

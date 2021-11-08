@@ -83,7 +83,7 @@ const etcd_tree = {
             osd_ping_timeout: 5, // seconds. min: 1
             up_wait_retry_interval: 500, // ms. min: 50
             // osd
-            etcd_report_interval: 30, // min: 10
+            etcd_report_interval: 5,
             run_primary: true,
             bind_address: "0.0.0.0",
             bind_port: 0,

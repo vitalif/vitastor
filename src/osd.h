@@ -94,7 +94,7 @@ class osd_t
     // config
 
     json11::Json::object config;
-    int etcd_report_interval = 30;
+    int etcd_report_interval = 5;
 
     bool readonly = false;
     osd_num_t osd_num = 1; // OSD numbers start with 1

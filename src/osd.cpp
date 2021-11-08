@@ -110,7 +110,7 @@ void osd_t::parse_config(const json11::Json & config)
     log_level = config["log_level"].uint64_value();
     etcd_report_interval = config["etcd_report_interval"].uint64_value();
     if (etcd_report_interval <= 0)
-        etcd_report_interval = 30;
+        etcd_report_interval = 5;
     readonly = config["readonly"] == "true" || config["readonly"] == "1" || config["readonly"] == "yes";
     run_primary = config["run_primary"] != "false" && config["run_primary"] != "0" && config["run_primary"] != "no";
     no_rebalance = config["no_rebalance"] == "true" || config["no_rebalance"] == "1" || config["no_rebalance"] == "yes";
