@@ -19,6 +19,10 @@
 #include "qemu/units.h"
 #include "block/qdict.h"
 #include "qemu/cutils.h"
+#elif QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 10
+#include "qemu/cutils.h"
+#include "qapi/qmp/qstring.h"
+#include "qapi/qmp/qjson.h"
 #else
 #include "qapi/qmp/qint.h"
 #define qdict_put_int(options, name, num_val) qdict_put_obj(options, name, QOBJECT(qint_from_int(num_val)))
@@ -290,7 +294,7 @@ static void vitastor_close(BlockDriverState *bs)
         g_free(client->image);
 }
 
-#if QEMU_VERSION_MAJOR >= 3
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 2
 static int vitastor_probe_blocksizes(BlockDriverState *bs, BlockSizes *bsz)
 {
     bsz->phys = 4096;
@@ -299,6 +303,7 @@ static int vitastor_probe_blocksizes(BlockDriverState *bs, BlockSizes *bsz)
 }
 #endif
 
+#if QEMU_VERSION_MAJOR >= 3
 static int coroutine_fn vitastor_co_create_opts(
 #if QEMU_VERSION_MAJOR >= 4
     BlockDriver *drv,
@@ -323,6 +328,7 @@ out:
     qobject_unref(options);
     return ret;
 }
+#endif
 
 #if QEMU_VERSION_MAJOR >= 3
 static int coroutine_fn vitastor_co_truncate(BlockDriverState *bs, int64_t offset,
@@ -362,20 +368,18 @@ static int64_t vitastor_getlength(BlockDriverState *bs)
     return client->size;
 }
 
-#if QEMU_VERSION_MAJOR >= 3
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 0
 static void vitastor_refresh_limits(BlockDriverState *bs, Error **errp)
 #else
 static int vitastor_refresh_limits(BlockDriverState *bs)
 #endif
 {
-#if QEMU_VERSION_MAJOR >= 4
     bs->bl.request_alignment = 4096;
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 3
     bs->bl.min_mem_alignment = 4096;
-#else
-    bs->bl.request_alignment = 4096;
 #endif
     bs->bl.opt_mem_alignment = 4096;
-#if QEMU_VERSION_MAJOR < 3
+#if QEMU_VERSION_MAJOR < 2 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR == 0
     return 0;
 #endif
 }
@@ -400,7 +404,7 @@ static void vitastor_co_generic_bh_cb(void *opaque, long retval)
     task->complete = 1;
     if (qemu_coroutine_self() != task->co)
     {
-#if QEMU_VERSION_MAJOR >= 3
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 8
         aio_co_wake(task->co);
 #else
         qemu_coroutine_enter(task->co, NULL);
@@ -484,7 +488,7 @@ static int coroutine_fn vitastor_co_flush(BlockDriverState *bs)
     return task.ret;
 }
 
-#if QEMU_VERSION_MAJOR >= 3
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 0
 static QemuOptsList vitastor_create_opts = {
     .name = "vitastor-create-opts",
     .head = QTAILQ_HEAD_INITIALIZER(vitastor_create_opts.head),
@@ -528,7 +532,7 @@ static BlockDriver bdrv_vitastor = {
     .bdrv_has_zero_init             = bdrv_has_zero_init_1,
     .bdrv_get_info                  = vitastor_get_info,
     .bdrv_getlength                 = vitastor_getlength,
-#if QEMU_VERSION_MAJOR >= 3
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 2
     .bdrv_probe_blocksizes          = vitastor_probe_blocksizes,
 #endif
     .bdrv_refresh_limits            = vitastor_refresh_limits,
@@ -540,7 +544,7 @@ static BlockDriver bdrv_vitastor = {
     .bdrv_close                     = vitastor_close,
 
     // Option list for the create operation
-#if QEMU_VERSION_MAJOR >= 3
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 0
     .create_opts                    = &vitastor_create_opts,
 #else
     .create_options                 = vitastor_create_opts,
