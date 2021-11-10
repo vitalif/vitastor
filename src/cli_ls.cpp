@@ -348,7 +348,7 @@ resume_1:
             kv.second["size_fmt"] = format_size(kv.second["size"].uint64_value());
             kv.second["ro"] = kv.second["readonly"].bool_value() ? "RO" : "-";
         }
-        printf("%s", print_table(to_list(), cols, true).c_str());
+        printf("%s", print_table(to_list(), cols, parent->color).c_str());
         state = 100;
     }
 };
@@ -393,7 +393,8 @@ std::string print_table(json11::Json items, json11::Json header, bool use_esc)
         }
     }
     if (use_esc)
-        str += "\033[0m\n";
+        str += "\033[0m";
+    str += "\n";
     for (auto & item: items.array_items())
     {
         for (int i = 0; i < header.array_items().size(); i++)

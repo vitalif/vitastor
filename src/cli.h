@@ -27,7 +27,7 @@ public:
     bool list_first = false;
     bool json_output = false;
     int log_level = 0;
-    int mode = 0;
+    bool color = false;
 
     ring_loop_t *ringloop = NULL;
     epoll_manager_t *epmgr = NULL;

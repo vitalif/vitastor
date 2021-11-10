@@ -52,7 +52,7 @@ json11::Json::object cli_tool_t::parse_args(int narg, const char *args[])
         {
             const char *opt = args[i]+2;
             cfg[opt] = i == narg-1 || !strcmp(opt, "json") || !strcmp(opt, "wait-list") ||
-                !strcmp(opt, "long") || !strcmp(opt, "del") ||
+                !strcmp(opt, "long") || !strcmp(opt, "del") || !strcmp(opt, "no-color") ||
                 !strcmp(opt, "writers-stopped") && strcmp("1", args[i+1]) != 0
                 ? "1" : args[++i];
         }
@@ -127,6 +127,7 @@ void cli_tool_t::help()
         "  --parallel_osds M   Work with M osds in parallel when possible (default 4)\n"
         "  --progress 1|0      Report progress (default 1)\n"
         "  --cas 1|0           Use online CAS writes when possible (default auto)\n"
+        "  --no-color          Disable colored output\n"
         "  --json              JSON output\n"
         ,
         exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name
@@ -258,6 +259,7 @@ void cli_tool_t::run(json11::Json cfg)
         fprintf(stderr, "unknown command: %s\n", cmd[0].string_value().c_str());
         exit(1);
     }
+    color = !cfg["no-color"].bool_value();
     json_output = cfg["json"].bool_value();
     iodepth = cfg["iodepth"].uint64_value();
     if (!iodepth)
