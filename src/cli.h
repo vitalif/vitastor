@@ -52,6 +52,7 @@ public:
 
     std::function<bool(void)> start_ls(json11::Json cfg);
     std::function<bool(void)> start_create(json11::Json cfg);
+    std::function<bool(void)> start_set(json11::Json cfg);
     std::function<bool(void)> start_rm(json11::Json);
     std::function<bool(void)> start_merge(json11::Json);
     std::function<bool(void)> start_flatten(json11::Json);

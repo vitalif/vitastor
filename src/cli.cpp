@@ -48,11 +48,16 @@ json11::Json::object cli_tool_t::parse_args(int narg, const char *args[])
         {
             cfg["reverse"] = "1";
         }
+        else if (args[i][0] == '-' && args[i][1] == 'f')
+        {
+            cfg["force"] = "1";
+        }
         else if (args[i][0] == '-' && args[i][1] == '-')
         {
             const char *opt = args[i]+2;
             cfg[opt] = i == narg-1 || !strcmp(opt, "json") || !strcmp(opt, "wait-list") ||
                 !strcmp(opt, "long") || !strcmp(opt, "del") || !strcmp(opt, "no-color") ||
+                !strcmp(opt, "force") ||
                 !strcmp(opt, "writers-stopped") && strcmp("1", args[i+1]) != 0
                 ? "1" : args[++i];
         }
@@ -98,8 +103,11 @@ void cli_tool_t::help()
         "%s snap-create [-p|--pool <id|name>] <image>@<snapshot>\n"
         "  Create a snapshot of image <name>. May be used live if only a single writer is active.\n"
         "\n"
-        "%s set <name> [-s|--size <size>] [--readonly | --readwrite]\n"
+        "%s set <name> [-s|--size <size>] [--readonly | --readwrite] [-f|--force]\n"
         "  Resize image or change its readonly status. Images with children can't be made read-write.\n"
+        "  If the new size is smaller than the old size, extra data will be purged.\n"
+        "  You should resize file system in the image, if present, before shrinking it.\n"
+        "  -f|--force  Proceed with shrinking or setting readwrite flag even if the image has children.\n"
         "\n"
         "%s rm <from> [<to>] [--writers-stopped]\n"
         "  Remove <from> or all layers between <from> and <to> (<to> must be a child of <from>),\n"
@@ -111,10 +119,11 @@ void cli_tool_t::help()
         "%s flatten <layer>\n"
         "  Flatten a layer, i.e. merge data and detach it from parents.\n"
         "\n"
-        "%s rm-data --pool <pool> --inode <inode> [--wait-list]\n"
+        "%s rm-data --pool <pool> --inode <inode> [--wait-list] [--min-offset <offset>]\n"
         "  Remove inode data without changing metadata.\n"
-        "  --wait-list means first retrieve objects listings and then remove it.\n"
-        "  --wait-list requires more memory, but allows to show correct removal progress.\n"
+        "  --wait-list   Retrieve full objects listings before starting to remove objects.\n"
+        "                Requires more memory, but allows to show correct removal progress.\n"
+        "  --min-offset  Purge only data starting with specified offset.\n"
         "\n"
         "%s merge-data <from> <to> [--target <target>]\n"
         "  Merge layer data without changing metadata. Merge <from>..<to> to <target>.\n"

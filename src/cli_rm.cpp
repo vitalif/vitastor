@@ -14,7 +14,7 @@ struct rm_pg_t
     osd_num_t rm_osd_num;
     std::set<object_id> objects;
     std::set<object_id>::iterator obj_pos;
-    uint64_t obj_count = 0, obj_done = 0, obj_prev_done = 0;
+    uint64_t obj_count = 0, obj_done = 0;
     int state = 0;
     int in_flight = 0;
 };
@@ -23,6 +23,7 @@ struct rm_inode_t
 {
     uint64_t inode = 0;
     pool_id_t pool_id = 0;
+    uint64_t min_offset = 0;
 
     cli_tool_t *parent = NULL;
     inode_list_t *lister = NULL;
@@ -43,8 +44,21 @@ struct rm_inode_t
                 .objects = objects,
                 .obj_count = objects.size(),
                 .obj_done = 0,
-                .obj_prev_done = 0,
             });
+            if (min_offset == 0)
+            {
+                total_count += objects.size();
+            }
+            else
+            {
+                for (object_id oid: objects)
+                {
+                    if (oid.stripe >= min_offset)
+                    {
+                        total_count++;
+                    }
+                }
+            }
             rm->obj_pos = rm->objects.begin();
             lists.push_back(rm);
             if (parent->list_first)
@@ -78,38 +92,41 @@ struct rm_inode_t
         }
         while (cur_list->in_flight < parent->iodepth && cur_list->obj_pos != cur_list->objects.end())
         {
-            osd_op_t *op = new osd_op_t();
-            op->op_type = OSD_OP_OUT;
-            op->peer_fd = parent->cli->msgr.osd_peer_fds[cur_list->rm_osd_num];
-            op->req = (osd_any_op_t){
-                .rw = {
-                    .header = {
-                        .magic = SECONDARY_OSD_OP_MAGIC,
-                        .id = parent->cli->next_op_id(),
-                        .opcode = OSD_OP_DELETE,
-                    },
-                    .inode = cur_list->obj_pos->inode,
-                    .offset = cur_list->obj_pos->stripe,
-                    .len = 0,
-                },
-            };
-            op->callback = [this, cur_list](osd_op_t *op)
+            if (cur_list->obj_pos->stripe >= min_offset)
             {
-                cur_list->in_flight--;
-                if (op->reply.hdr.retval < 0)
+                osd_op_t *op = new osd_op_t();
+                op->op_type = OSD_OP_OUT;
+                op->peer_fd = parent->cli->msgr.osd_peer_fds[cur_list->rm_osd_num];
+                op->req = (osd_any_op_t){
+                    .rw = {
+                        .header = {
+                            .magic = SECONDARY_OSD_OP_MAGIC,
+                            .id = parent->cli->next_op_id(),
+                            .opcode = OSD_OP_DELETE,
+                        },
+                        .inode = cur_list->obj_pos->inode,
+                        .offset = cur_list->obj_pos->stripe,
+                        .len = 0,
+                    },
+                };
+                op->callback = [this, cur_list](osd_op_t *op)
                 {
-                    fprintf(stderr, "Failed to remove object %lx:%lx from PG %u (OSD %lu) (retval=%ld)\n",
-                        op->req.rw.inode, op->req.rw.offset,
-                        cur_list->pg_num, cur_list->rm_osd_num, op->reply.hdr.retval);
-                }
-                delete op;
-                cur_list->obj_done++;
-                total_done++;
-                continue_delete();
-            };
+                    cur_list->in_flight--;
+                    if (op->reply.hdr.retval < 0)
+                    {
+                        fprintf(stderr, "Failed to remove object %lx:%lx from PG %u (OSD %lu) (retval=%ld)\n",
+                            op->req.rw.inode, op->req.rw.offset,
+                            cur_list->pg_num, cur_list->rm_osd_num, op->reply.hdr.retval);
+                    }
+                    delete op;
+                    cur_list->obj_done++;
+                    total_done++;
+                    continue_delete();
+                };
+                cur_list->in_flight++;
+                parent->cli->msgr.outbox_push(op);
+            }
             cur_list->obj_pos++;
-            cur_list->in_flight++;
-            parent->cli->msgr.outbox_push(op);
         }
     }
 
@@ -183,6 +200,7 @@ std::function<bool(void)> cli_tool_t::start_rm(json11::Json cfg)
         fprintf(stderr, "pool is missing\n");
         exit(1);
     }
+    remover->min_offset = cfg["min-offset"].uint64_value();
     return [remover]()
     {
         if (remover->loop())

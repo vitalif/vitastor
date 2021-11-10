@@ -427,6 +427,7 @@ resume_3:
                 exit(1);
             }
             this->result = res;
+            parent->ringloop->wakeup();
         });
     }
 };
@@ -476,6 +477,11 @@ std::function<bool(void)> cli_tool_t::start_create(json11::Json cfg)
         if (size == 0)
         {
             fprintf(stderr, "Invalid syntax for size: %s\n", cfg["size"].string_value().c_str());
+            exit(1);
+        }
+        if (size % 4096)
+        {
+            fprintf(stderr, "Image size should be a multiple of 4096\n");
             exit(1);
         }
         image_creator->size = size;

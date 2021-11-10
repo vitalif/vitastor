@@ -129,6 +129,7 @@ struct image_lister_t
                 exit(1);
             }
             space_info = res;
+            parent->ringloop->wakeup();
         });
         state = 1;
 resume_1:
