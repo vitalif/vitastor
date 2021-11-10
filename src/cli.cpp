@@ -36,10 +36,6 @@ json11::Json::object cli_tool_t::parse_args(int narg, const char *args[])
         {
             cfg["count"] = args[++i];
         }
-        else if (args[i][0] == '-' && args[i][1] == 'i')
-        {
-            cfg["interactive"] = "1";
-        }
         else if (args[i][0] == '-' && args[i][1] == 'p')
         {
             cfg["pool"] = args[++i];
@@ -48,11 +44,16 @@ json11::Json::object cli_tool_t::parse_args(int narg, const char *args[])
         {
             cfg["size"] = args[++i];
         }
+        else if (args[i][0] == '-' && args[i][1] == 'r')
+        {
+            cfg["reverse"] = "1";
+        }
         else if (args[i][0] == '-' && args[i][1] == '-')
         {
             const char *opt = args[i]+2;
             cfg[opt] = i == narg-1 || !strcmp(opt, "json") || !strcmp(opt, "wait-list") ||
-                !strcmp(opt, "long") || !strcmp(opt, "writers-stopped") && strcmp("1", args[i+1]) != 0
+                !strcmp(opt, "long") || !strcmp(opt, "del") ||
+                !strcmp(opt, "writers-stopped") && strcmp("1", args[i+1]) != 0
                 ? "1" : args[++i];
         }
         else
@@ -79,46 +80,48 @@ void cli_tool_t::help()
         "(c) Vitaliy Filippov, 2019+ (VNPL-1.1)\n"
         "\n"
         "USAGE:\n"
-        "%s ls [-l] [--pool|-p <id|name>]\n"
-        "  List existing images from a specified pool or from all pools if not specified.\n"
-        "  Also report allocated size if -l is specified.\n"
+        "%s ls [-l] [--del] [-p <id|name>] [-w]\n"
+        "  List images.\n"
+        "  -p|--pool POOL  Filter images by pool ID or name\n"
+        "  -l|--long       Also report allocated size and I/O statistics\n"
+        "  --del           Also include delete operation statistics\n"
+        "  --sort <field>  Sort by specified field (name, size, used_size, <read|write|delete>_<iops|bps|lat|queue>)\n"
+        "  -r|--reverse    Sort in descending order\n"
+        "  --top <n>       Only list top <n> items\n"
         "\n"
-        "%s create -s|--size <size> [--pool <id|name>] [--parent <parent_name>[@<snapshot>]] <name>\n"
+        "%s create -s|--size <size> [-p|--pool <id|name>] [--parent <parent_name>[@<snapshot>]] <name>\n"
         "  Create an image. You may use K/M/G/T suffixes for <size>. If --parent is specified,\n"
         "  a copy-on-write image clone is created. Parent must be a snapshot (readonly image).\n"
         "  Pool must be specified if there is more than one pool.\n"
         "\n"
-        "%s create --snapshot <snapshot> [--pool <id|name>] <image>\n"
-        "%s snap-create [--pool <id|name>] <image>@<snapshot>\n"
+        "%s create --snapshot <snapshot> [-p|--pool <id|name>] <image>\n"
+        "%s snap-create [-p|--pool <id|name>] <image>@<snapshot>\n"
         "  Create a snapshot of image <name>. May be used live if only a single writer is active.\n"
         "\n"
         "%s set <name> [-s|--size <size>] [--readonly | --readwrite]\n"
         "  Resize image or change its readonly status. Images with children can't be made read-write.\n"
         "\n"
-        "%s top [-n <MAX_COUNT>] [-i]\n"
-        "  Disable image list sorted by I/O load, interactive if -i specified.\n"
-        "\n"
-        "%s rm [OPTIONS] <from> [<to>] [--writers-stopped]\n"
+        "%s rm <from> [<to>] [--writers-stopped]\n"
         "  Remove <from> or all layers between <from> and <to> (<to> must be a child of <from>),\n"
         "  rebasing all their children accordingly. --writers-stopped allows merging to be a bit\n"
         "  more effective in case of a single 'slim' read-write child and 'fat' removed parent:\n"
         "  the child is merged into parent and parent is renamed to child in that case.\n"
         "  In other cases parent layers are always merged into children.\n"
         "\n"
-        "%s flatten [OPTIONS] <layer>\n"
+        "%s flatten <layer>\n"
         "  Flatten a layer, i.e. merge data and detach it from parents.\n"
         "\n"
-        "%s rm-data [OPTIONS] --pool <pool> --inode <inode> [--wait-list]\n"
+        "%s rm-data --pool <pool> --inode <inode> [--wait-list]\n"
         "  Remove inode data without changing metadata.\n"
         "  --wait-list means first retrieve objects listings and then remove it.\n"
         "  --wait-list requires more memory, but allows to show correct removal progress.\n"
         "\n"
-        "%s merge-data [OPTIONS] <from> <to> [--target <target>]\n"
+        "%s merge-data <from> <to> [--target <target>]\n"
         "  Merge layer data without changing metadata. Merge <from>..<to> to <target>.\n"
         "  <to> must be a child of <from> and <target> may be one of the layers between\n"
         "  <from> and <to>, including <from> and <to>.\n"
         "\n"
-        "OPTIONS (global):\n"
+        "GLOBAL OPTIONS:\n"
         "  --etcd_address <etcd_address>\n"
         "  --iodepth N         Send N operations in parallel to each OSD when possible (default 32)\n"
         "  --parallel_osds M   Work with M osds in parallel when possible (default 4)\n"
@@ -126,7 +129,7 @@ void cli_tool_t::help()
         "  --cas 1|0           Use online CAS writes when possible (default auto)\n"
         "  --json              JSON output\n"
         ,
-        exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name
+        exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name
     );
     exit(0);
 }
