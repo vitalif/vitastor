@@ -275,6 +275,15 @@ class VitastorDriver(driver.CloneableImageVD,
             LOG.exception('error getting vitastor pool stats: '+str(e))
 
         self._stats = stats
+        
+    def get_volume_stats(self, refresh=False):
+        """Get volume stats.
+        If 'refresh' is True, run update the stats first.
+        """
+        if not self._stats or refresh:
+            self._update_volume_stats()
+
+        return self._stats
 
     def _next_id(self, resp):
         if len(resp['kvs']) == 0:
