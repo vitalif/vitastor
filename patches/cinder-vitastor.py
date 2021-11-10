@@ -833,7 +833,7 @@ class VitastorDriver(driver.CloneableImageVD,
 
     def manage_existing_get_size(self, volume, existing_ref):
         """Return size of an existing image for manage_existing.
-        
+
         :param volume: volume ref info to be set
         :param existing_ref: {'source-name': <image name>}
         """
@@ -845,9 +845,9 @@ class VitastorDriver(driver.CloneableImageVD,
 
     def manage_existing(self, volume, existing_ref):
         """Manages an existing image.
-        
+
         Renames the image name to match the expected name for the volume.
-        
+
         :param volume: volume ref info to be set
         :param existing_ref: {'source-name': <image name>}
         """
@@ -921,7 +921,7 @@ class VitastorDriver(driver.CloneableImageVD,
 
     def manage_existing_snapshot_get_size(self, snapshot, existing_ref):
         """Return size of an existing image for manage_existing.
-        
+
         :param snapshot: snapshot ref info to be set
         :param existing_ref: {'source-name': <name of snapshot>}
         """
@@ -936,10 +936,10 @@ class VitastorDriver(driver.CloneableImageVD,
 
     def manage_existing_snapshot(self, snapshot, existing_ref):
         """Manages an existing snapshot.
-        
+
         Renames the snapshot name to match the expected name for the snapshot.
         Error checking done by manage_existing_get_size is not repeated.
-        
+
         :param snapshot: snapshot ref info to be set
         :param existing_ref: {'source-name': <name of snapshot>}
         """
