@@ -265,9 +265,9 @@ const etcd_tree = {
             /* <pool_id>: {
                 <inode_t>: {
                     raw_used: uint64_t, // raw used bytes on OSDs
-                    read: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
-                    write: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
-                    delete: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+                    read: { count: uint64_t, usec: uint64_t, bytes: uint64_t, bps: uint64_t, iops: uint64_t, lat: uint64_t },
+                    write: { count: uint64_t, usec: uint64_t, bytes: uint64_t, bps: uint64_t, iops: uint64_t, lat: uint64_t },
+                    delete: { count: uint64_t, usec: uint64_t, bytes: uint64_t, bps: uint64_t, iops: uint64_t, lat: uint64_t },
                 },
             }, */
         },
@@ -284,14 +284,14 @@ const etcd_tree = {
     },
     stats: {
         /* op_stats: {
-            <string>: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+            <string>: { count: uint64_t, usec: uint64_t, bytes: uint64_t, bps: uint64_t, iops: uint64_t, lat: uint64_t },
         },
         subop_stats: {
-            <string>: { count: uint64_t, usec: uint64_t },
+            <string>: { count: uint64_t, usec: uint64_t, iops: uint64_t, lat: uint64_t },
         },
         recovery_stats: {
-            degraded: { count: uint64_t, bytes: uint64_t },
-            misplaced: { count: uint64_t, bytes: uint64_t },
+            degraded: { count: uint64_t, bytes: uint64_t, bps: uint64_t, iops: uint64_t },
+            misplaced: { count: uint64_t, bytes: uint64_t, bps: uint64_t, iops: uint64_t },
         },
         object_counts: {
             object: uint64_t,
@@ -1198,7 +1198,7 @@ class Mon
         }, this.config.mon_change_timeout || 1000);
     }
 
-    sum_op_stats()
+    sum_op_stats(timestamp, prev_stats)
     {
         const op_stats = {}, subop_stats = {}, recovery_stats = {};
         for (const osd in this.state.osd.stats)
@@ -1223,6 +1223,29 @@ class Mon
                 recovery_stats[op].count += BigInt(st.recovery_stats[op].count||0);
                 recovery_stats[op].bytes += BigInt(st.recovery_stats[op].bytes||0);
             }
+        }
+        if (prev_stats && prev_stats.timestamp >= timestamp)
+        {
+            prev_stats = null;
+        }
+        const tm = prev_stats ? BigInt(timestamp - prev_stats.timestamp) : 0;
+        for (const op in op_stats)
+        {
+            op_stats[op].bps = prev_stats ? (op_stats[op].bytes - prev_stats.op_stats[op].bytes) * 1000n / tm : 0;
+            op_stats[op].iops = prev_stats ? (op_stats[op].count - prev_stats.op_stats[op].count) * 1000n / tm : 0;
+            op_stats[op].lat = prev_stats ? (op_stats[op].usec - prev_stats.op_stats[op].usec)
+                / ((op_stats[op].count - prev_stats.op_stats[op].count) || 1n) : 0;
+        }
+        for (const op in subop_stats)
+        {
+            subop_stats[op].iops = prev_stats ? (subop_stats[op].count - prev_stats.subop_stats[op].count) * 1000n / tm : 0;
+            subop_stats[op].lat = prev_stats ? (subop_stats[op].usec - prev_stats.subop_stats[op].usec)
+                / ((subop_stats[op].count - prev_stats.subop_stats[op].count) || 1n) : 0;
+        }
+        for (const op in recovery_stats)
+        {
+            recovery_stats[op].bps = prev_stats ? (recovery_stats[op].bytes - prev_stats.recovery_stats[op].bytes) * 1000n / tm : 0;
+            recovery_stats[op].iops = prev_stats ? (recovery_stats[op].count - prev_stats.recovery_stats[op].count) * 1000n / tm : 0;
         }
         return { op_stats, subop_stats, recovery_stats };
     }
@@ -1250,7 +1273,7 @@ class Mon
         return object_counts;
     }
 
-    sum_inode_stats()
+    sum_inode_stats(prev_stats, timestamp, prev_timestamp)
     {
         const inode_stats = {};
         const inode_stub = () => ({
@@ -1309,43 +1332,31 @@ class Mon
                 }
             }
         }
-        return inode_stats;
-    }
-
-    fix_stat_overflows(obj, scratch)
-    {
-        for (const k in obj)
+        if (prev_stats && prev_timestamp >= timestamp)
         {
-            if (typeof obj[k] == 'bigint')
+            prev_stats = null;
+        }
+        const tm = prev_stats ? BigInt(timestamp - prev_timestamp) : 0;
+        for (const pool_id in inode_stats)
+        {
+            for (const inode_num in inode_stats[pool_id])
             {
-                if (obj[k] >= 0x10000000000000000n)
+                for (const op of [ 'read', 'write', 'delete' ])
                 {
-                    if (scratch[k])
-                    {
-                        for (const k2 in scratch)
-                        {
-                            obj[k2] -= scratch[k2];
-                            scratch[k2] = 0n;
-                        }
-                    }
-                    else
-                    {
-                        for (const k2 in obj)
-                        {
-                            scratch[k2] = obj[k2];
-                        }
-                    }
+                    const op_st = inode_stats[pool_id][inode_num][op];
+                    const prev_st = prev_stats && prev_stats[pool_id] && prev_stats[pool_id][inode_num] && prev_stats[pool_id][inode_num][op];
+                    op_st.bps = prev_st ? (op_st.bytes - prev_st.bytes) * 1000n / tm : 0;
+                    op_st.iops = prev_st ? (op_st.count - prev_st.count) * 1000n / tm : 0;
+                    op_st.lat = prev_st ? (op_st.usec - prev_st.usec) / ((op_st.count - prev_st.count) || 1n) : 0;
                 }
             }
-            else if (typeof obj[k] == 'object')
-            {
-                this.fix_stat_overflows(obj[k], scratch[k] = (scratch[k] || {}));
-            }
         }
+        return inode_stats;
     }
 
     serialize_bigints(obj)
     {
+        obj = { ...obj };
         for (const k in obj)
         {
             if (typeof obj[k] == 'bigint')
@@ -1354,22 +1365,26 @@ class Mon
             }
             else if (typeof obj[k] == 'object')
             {
-                this.serialize_bigints(obj[k]);
+                obj[k] = this.serialize_bigints(obj[k]);
             }
         }
+        return obj;
     }
 
     async update_total_stats()
     {
         const txn = [];
-        const stats = this.sum_op_stats();
+        const timestamp = Date.now();
         const object_counts = this.sum_object_counts();
-        const inode_stats = this.sum_inode_stats();
-        this.fix_stat_overflows(stats, (this.prev_stats = this.prev_stats || {}));
-        this.fix_stat_overflows(inode_stats, (this.prev_inode_stats = this.prev_inode_stats || {}));
+        let stats = this.sum_op_stats(timestamp, this.prev_stats);
+        let inode_stats = this.sum_inode_stats(
+            this.prev_stats ? this.prev_stats.inode_stats : null,
+            timestamp, this.prev_stats ? this.prev_stats.timestamp : null
+        );
+        this.prev_stats = { timestamp, ...stats, inode_stats };
         stats.object_counts = object_counts;
-        this.serialize_bigints(stats);
-        this.serialize_bigints(inode_stats);
+        stats = this.serialize_bigints(stats);
+        inode_stats = this.serialize_bigints(inode_stats);
         txn.push({ requestPut: { key: b64(this.etcd_prefix+'/stats'), value: b64(JSON.stringify(stats)) } });
         for (const pool_id in inode_stats)
         {
