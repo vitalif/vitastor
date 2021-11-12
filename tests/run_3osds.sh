@@ -4,17 +4,15 @@
 
 OSD_SIZE=${OSD_SIZE:-1024}
 PG_COUNT=${PG_COUNT:-1}
+PG_SIZE=${PG_SIZE:-3}
+OSD_COUNT=${OSD_COUNT:-3}
+SCHEME=${SCHEME:-ec}
 
-dd if=/dev/zero of=./testdata/test_osd1.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
-dd if=/dev/zero of=./testdata/test_osd2.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
-dd if=/dev/zero of=./testdata/test_osd3.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
-
-build/src/vitastor-osd --osd_num 1 --bind_address 127.0.0.1 $OSD_ARGS --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd1.bin 2>/dev/null) &>./testdata/osd1.log &
-OSD1_PID=$!
-build/src/vitastor-osd --osd_num 2 --bind_address 127.0.0.1 $OSD_ARGS --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd2.bin 2>/dev/null) &>./testdata/osd2.log &
-OSD2_PID=$!
-build/src/vitastor-osd --osd_num 3 --bind_address 127.0.0.1 $OSD_ARGS --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd3.bin 2>/dev/null) &>./testdata/osd3.log &
-OSD3_PID=$!
+for i in $(seq 1 $OSD_COUNT); do
+    dd if=/dev/zero of=./testdata/test_osd$i.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
+    build/src/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $OSD_ARGS --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd$i.bin 2>/dev/null) &>./testdata/osd$i.log &
+    eval OSD${i}_PID=$!
+done
 
 cd mon
 npm install
@@ -26,11 +24,15 @@ if [ -n "$GLOBAL_CONF" ]; then
     $ETCDCTL put /vitastor/config/global "$GLOBAL_CONF"
 fi
 
-$ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"xor","pg_size":3,"pg_minsize":2,"parity_chunks":1,"pg_count":'$PG_COUNT',"failure_domain":"osd"}}'
+if [ "$SCHEME" = "replicated" ]; then
+    $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":'$PG_SIZE',"pg_minsize":'$((PG_SIZE-1))',"pg_count":'$PG_COUNT',"failure_domain":"osd"}}'
+else
+    $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"xor","pg_size":'$PG_SIZE',"pg_minsize":'$((PG_SIZE-1))',"parity_chunks":1,"pg_count":'$PG_COUNT',"failure_domain":"osd"}}'
+fi
 
 sleep 2
 
-if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(. | length) != 0 and ([ .[0].items["1"][] | select((.osd_set | sort) == ["1","2","3"]) ] | length) == '$PG_COUNT); then
+if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(. | length) != 0 and ([ .[0].items["1"][] | select(((.osd_set | select(. != 0) | sort | unique) | length) == '$PG_SIZE') ] | length) == '$PG_COUNT); then
     format_error "FAILED: $PG_COUNT PG(s) NOT CONFIGURED"
 fi
 
