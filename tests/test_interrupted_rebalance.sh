@@ -18,19 +18,19 @@ dd if=/dev/zero of=./testdata/test_osd5.bin bs=1024 count=1 seek=$((1024*1024-1)
 dd if=/dev/zero of=./testdata/test_osd6.bin bs=1024 count=1 seek=$((1024*1024-1))
 dd if=/dev/zero of=./testdata/test_osd7.bin bs=1024 count=1 seek=$((1024*1024-1))
 
-build/src/vitastor-osd --osd_num 1 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd1.bin 2>/dev/null) 2>&1 >>./testdata/osd1.log &
+build/src/vitastor-osd --osd_num 1 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd1.bin 2>/dev/null) &>./testdata/osd1.log &
 OSD1_PID=$!
-build/src/vitastor-osd --osd_num 2 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd2.bin 2>/dev/null) 2>&1 >>./testdata/osd2.log &
+build/src/vitastor-osd --osd_num 2 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd2.bin 2>/dev/null) &>./testdata/osd2.log &
 OSD2_PID=$!
-build/src/vitastor-osd --osd_num 3 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd3.bin 2>/dev/null) 2>&1 >>./testdata/osd3.log &
+build/src/vitastor-osd --osd_num 3 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd3.bin 2>/dev/null) &>./testdata/osd3.log &
 OSD3_PID=$!
-build/src/vitastor-osd --osd_num 4 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd4.bin 2>/dev/null) 2>&1 >>./testdata/osd4.log &
+build/src/vitastor-osd --osd_num 4 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd4.bin 2>/dev/null) &>./testdata/osd4.log &
 OSD4_PID=$!
-build/src/vitastor-osd --osd_num 5 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd5.bin 2>/dev/null) 2>&1 >>./testdata/osd5.log &
+build/src/vitastor-osd --osd_num 5 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd5.bin 2>/dev/null) &>./testdata/osd5.log &
 OSD5_PID=$!
-build/src/vitastor-osd --osd_num 6 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd6.bin 2>/dev/null) 2>&1 >>./testdata/osd6.log &
+build/src/vitastor-osd --osd_num 6 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd6.bin 2>/dev/null) &>./testdata/osd6.log &
 OSD6_PID=$!
-build/src/vitastor-osd --osd_num 7 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd7.bin 2>/dev/null) 2>&1 >>./testdata/osd7.log &
+build/src/vitastor-osd --osd_num 7 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd7.bin 2>/dev/null) &>./testdata/osd7.log &
 OSD7_PID=$!
 
 cd mon

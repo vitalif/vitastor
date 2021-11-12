@@ -86,9 +86,24 @@ void pg_obj_state_check_t::walk()
     }
     if (pg->pg_cursize < pg->pg_size)
     {
-        pg->state |= PG_DEGRADED;
+        // Report PG history and activate
+        pg->state |= PG_DEGRADED | PG_PEERED;
+        std::vector<osd_num_t> history_set;
+        for (auto peer_osd: pg->cur_set)
+        {
+            if (peer_osd != 0)
+            {
+                history_set.push_back(peer_osd);
+            }
+        }
+        pg->target_history.push_back(history_set);
+        pg->history_changed = true;
     }
-    pg->state |= PG_ACTIVE;
+    else
+    {
+        // Just activate
+        pg->state |= PG_ACTIVE;
+    }
     if (pg->state == PG_ACTIVE && pg->cur_peers.size() < pg->all_peers.size())
     {
         pg->state |= PG_LEFT_ON_DEAD;
@@ -430,10 +445,11 @@ void pg_t::calc_object_states(int log_level)
 void pg_t::print_state()
 {
     printf(
-        "[PG %u/%u] is %s%s%s%s%s%s%s%s%s%s%s%s%s%s (%lu objects)\n", pool_id, pg_num,
+        "[PG %u/%u] is %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s (%lu objects)\n", pool_id, pg_num,
         (state & PG_STARTING) ? "starting" : "",
         (state & PG_OFFLINE) ? "offline" : "",
         (state & PG_PEERING) ? "peering" : "",
+        (state & PG_PEERED) ? "peered" : "",
         (state & PG_INCOMPLETE) ? "incomplete" : "",
         (state & PG_ACTIVE) ? "active" : "",
         (state & PG_REPEERING) ? "repeering" : "",

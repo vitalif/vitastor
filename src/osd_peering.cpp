@@ -37,6 +37,10 @@ void osd_t::handle_peers()
                     still = true;
                 }
             }
+            else if (p.second.state & PG_PEERED)
+            {
+                still = true;
+            }
         }
         if (!still)
         {
@@ -55,6 +59,10 @@ void osd_t::handle_peers()
                 {
                     submit_pg_flush_ops(p.second);
                 }
+                still = true;
+            }
+            else if (p.second.state & PG_PEERED)
+            {
                 still = true;
             }
         }
@@ -79,7 +87,7 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
     {
         auto & pg = p.second;
         bool repeer = false;
-        if (pg.state & (PG_PEERING | PG_ACTIVE | PG_INCOMPLETE))
+        if (pg.state & (PG_PEERING | PG_PEERED | PG_ACTIVE | PG_INCOMPLETE))
         {
             for (osd_num_t pg_osd: pg.all_peers)
             {

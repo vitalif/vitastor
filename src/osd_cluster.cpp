@@ -615,7 +615,7 @@ void osd_t::apply_pg_config()
                 }
                 if (currently_taken)
                 {
-                    if (pg_it->second.state & (PG_ACTIVE | PG_INCOMPLETE | PG_PEERING | PG_REPEERING))
+                    if (pg_it->second.state & (PG_ACTIVE | PG_INCOMPLETE | PG_PEERING | PG_REPEERING | PG_PEERED))
                     {
                         if (pg_it->second.target_set == pg_cfg.target_set)
                         {
@@ -703,13 +703,19 @@ void osd_t::apply_pg_config()
     this->pg_config_applied = all_applied;
 }
 
+struct reporting_pg_t
+{
+    pool_pg_num_t pool_pg_num;
+    bool history_changed;
+};
+
 void osd_t::report_pg_states()
 {
     if (etcd_reporting_pg_state || !this->pg_state_dirty.size() || !st_cli.etcd_addresses.size())
     {
         return;
     }
-    std::vector<std::pair<pool_pg_num_t,bool>> reporting_pgs;
+    std::vector<reporting_pg_t> reporting_pgs;
     json11::Json::array checks;
     json11::Json::array success;
     json11::Json::array failure;
@@ -721,7 +727,7 @@ void osd_t::report_pg_states()
             continue;
         }
         auto & pg = pg_it->second;
-        reporting_pgs.push_back({ *it, pg.history_changed });
+        reporting_pgs.push_back((reporting_pg_t){ *it, pg.history_changed });
         std::string state_key_base64 = base64_encode(st_cli.etcd_prefix+"/pg/state/"+std::to_string(pg.pool_id)+"/"+std::to_string(pg.pg_num));
         bool pg_state_exists = false;
         if (pg.state != PG_STARTING)
@@ -827,10 +833,10 @@ void osd_t::report_pg_states()
             // One of PG state updates failed, put dirty flags back
             for (auto pp: reporting_pgs)
             {
-                this->pg_state_dirty.insert(pp.first);
-                if (pp.second)
+                this->pg_state_dirty.insert(pp.pool_pg_num);
+                if (pp.history_changed)
                 {
-                    auto pg_it = this->pgs.find(pp.first);
+                    auto pg_it = this->pgs.find(pp.pool_pg_num);
                     if (pg_it != this->pgs.end())
                     {
                         pg_it->second.history_changed = true;
@@ -870,17 +876,27 @@ void osd_t::report_pg_states()
             // Success. We'll get our changes back via the watcher and react to them
             for (auto pp: reporting_pgs)
             {
-                auto pg_it = this->pgs.find(pp.first);
+                auto pg_it = this->pgs.find(pp.pool_pg_num);
                 if (pg_it != this->pgs.end() &&
-                    pg_it->second.state == PG_OFFLINE &&
-                    pg_state_dirty.find(pp.first) == pg_state_dirty.end())
+                    pg_state_dirty.find(pp.pool_pg_num) == pg_state_dirty.end())
                 {
-                    // Forget offline PGs after reporting their state
-                    if (pg_it->second.scheme == POOL_SCHEME_JERASURE)
+                    if (pg_it->second.state == PG_OFFLINE)
                     {
-                        use_jerasure(pg_it->second.pg_size, pg_it->second.pg_data_size, false);
+                        // Forget offline PGs after reporting their state
+                        // (if the state wasn't changed again)
+                        if (pg_it->second.scheme == POOL_SCHEME_JERASURE)
+                        {
+                            use_jerasure(pg_it->second.pg_size, pg_it->second.pg_data_size, false);
+                        }
+                        this->pgs.erase(pg_it);
                     }
-                    this->pgs.erase(pg_it);
+                    else if (pg_it->second.state & PG_PEERED)
+                    {
+                        // Activate PG after PG PEERED state is reported along with history
+                        // (if the state wasn't changed again)
+                        pg_it->second.state = pg_it->second.state & ~PG_PEERED | PG_ACTIVE;
+                        report_pg_state(pg_it->second);
+                    }
                 }
             }
             // Push other PG state updates, if any

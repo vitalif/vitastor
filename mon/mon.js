@@ -232,7 +232,7 @@ const etcd_tree = {
             /* <pool_id>: {
                 <pg_id>: {
                     primary: osd_num_t,
-                    state: ("starting"|"peering"|"incomplete"|"active"|"repeering"|"stopping"|"offline"|
+                    state: ("starting"|"peering"|"peered"|"incomplete"|"active"|"repeering"|"stopping"|"offline"|
                         "degraded"|"has_incomplete"|"has_degraded"|"has_misplaced"|"has_unclean"|
                         "has_invalid"|"left_on_dead")[],
                 }
