@@ -1,7 +1,9 @@
 # Build Vitastor packages for Debian Buster or Bullseye/Sid inside a container
 # cd ..; podman build --build-arg REL=bullseye -v `pwd`/packages:/root/packages -f debian/vitastor.Dockerfile .
 
+ARG REL=
 FROM debian:$REL
+ARG REL=
 
 WORKDIR /root
 

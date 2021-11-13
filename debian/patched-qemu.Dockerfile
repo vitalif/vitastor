@@ -1,7 +1,9 @@
 # Build patched QEMU for Debian Buster or Bullseye/Sid inside a container
 # cd ..; podman build --build-arg REL=bullseye -v `pwd`/packages:/root/packages -f debian/patched-qemu.Dockerfile .
 
+ARG REL=
 FROM debian:$REL
+ARG REL=
 
 WORKDIR /root
 
@@ -11,10 +13,6 @@ RUN if [ "$REL" = "buster" ]; then \
         echo 'Package: *' >> /etc/apt/preferences; \
         echo 'Pin: release a=buster-backports' >> /etc/apt/preferences; \
         echo 'Pin-Priority: 500' >> /etc/apt/preferences; \
-        echo >> /etc/apt/preferences; \
-        echo 'Package: libglvnd* libgles* libglx* libgl1 libegl* libopengl* mesa*' >> /etc/apt/preferences; \
-        echo 'Pin: release a=buster-backports' >> /etc/apt/preferences; \
-        echo 'Pin-Priority: 50' >> /etc/apt/preferences; \
     fi; \
     grep '^deb ' /etc/apt/sources.list | perl -pe 's/^deb/deb-src/' >> /etc/apt/sources.list; \
     echo 'APT::Install-Recommends false;' >> /etc/apt/apt.conf; \
