@@ -242,6 +242,7 @@ target_include_directories(test_cluster_client PUBLIC ${CMAKE_SOURCE_DIR}/src/mo
 
 install(TARGETS vitastor-osd vitastor-dump-journal vitastor-nbd vitastor-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install_symlink(vitastor-cli ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vitastor-rm)
+install_symlink(vitastor-cli ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vita)
 install(
 	TARGETS vitastor_blk vitastor_client
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
