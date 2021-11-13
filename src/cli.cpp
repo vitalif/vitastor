@@ -103,7 +103,7 @@ void cli_tool_t::help()
         "%s snap-create [-p|--pool <id|name>] <image>@<snapshot>\n"
         "  Create a snapshot of image <name>. May be used live if only a single writer is active.\n"
         "\n"
-        "%s set <name> [-s|--size <size>] [--readonly | --readwrite] [-f|--force]\n"
+        "%s modify <name> [-s|--size <size>] [--readonly | --readwrite] [-f|--force]\n"
         "  Resize image or change its readonly status. Images with children can't be made read-write.\n"
         "  If the new size is smaller than the old size, extra data will be purged.\n"
         "  You should resize file system in the image, if present, before shrinking it.\n"
@@ -242,6 +242,11 @@ void cli_tool_t::run(json11::Json cfg)
     {
         // Create image/snapshot
         action_cb = start_create(cfg);
+    }
+    else if (cmd[0] == "modify")
+    {
+        // Modify image
+        action_cb = start_modify(cfg);
     }
     else if (cmd[0] == "rm-data")
     {

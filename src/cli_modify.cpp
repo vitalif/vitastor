@@ -145,7 +145,7 @@ resume_2:
     }
 };
 
-std::function<bool(void)> cli_tool_t::start_set(json11::Json cfg)
+std::function<bool(void)> cli_tool_t::start_modify(json11::Json cfg)
 {
     json11::Json::array cmd = cfg["command"].array_items();
     auto changer = new image_changer_t();
