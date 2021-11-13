@@ -44,6 +44,7 @@ breaking changes in the future. However, the following is implemented:
 - CSI plugin for Kubernetes
 - Basic OpenStack support: Cinder driver, Nova and libvirt patches
 - Snapshot merge tool (vitastor-cli {snap-rm,flatten,merge})
+- Image management CLI (vitastor-cli {ls,create,modify})
 
 ## Roadmap
 
