@@ -100,7 +100,7 @@ public:
             }
             unmap(cfg["dev_num"].uint64_value());
         }
-        else if (cfg["command"] == "list" || cfg["command"] == "list-mapped")
+        else if (cfg["command"] == "ls" || cfg["command"] == "list" || cfg["command"] == "list-mapped")
         {
             auto mapped = list_mapped();
             print_mapped(mapped, !cfg["json"].is_null());
@@ -119,7 +119,7 @@ public:
             "USAGE:\n"
             "  %s map [--etcd_address <etcd_address>] (--image <image> | --pool <pool> --inode <inode> --size <size in bytes>)\n"
             "  %s unmap /dev/nbd0\n"
-            "  %s list [--json]\n",
+            "  %s ls [--json]\n",
             exe_name, exe_name, exe_name
         );
         exit(0);
@@ -402,7 +402,7 @@ public:
                 printf("%s\n", dev.first.c_str());
                 for (auto & k: dev.second.object_items())
                 {
-                    printf("%s: %s\n", k.first.c_str(), k.second.string_value().c_str());
+                    printf("%s: %s\n", k.first.c_str(), k.second.as_string().c_str());
                 }
                 printf("\n");
             }
