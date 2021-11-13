@@ -26,6 +26,7 @@ struct image_lister_t
     pool_id_t list_pool_id = 0;
     std::string list_pool_name;
     std::string sort_field;
+    std::set<std::string> only_names;
     bool reverse = false;
     int max_count = 0;
     bool show_stats = false, show_delete = false;
@@ -212,7 +213,10 @@ resume_1:
         json11::Json::array list;
         for (auto & kv: stats)
         {
-            list.push_back(kv.second);
+            if (!only_names.size() || only_names.find(kv.second["name"].string_value()) != only_names.end())
+            {
+                list.push_back(kv.second);
+            }
         }
         if (sort_field == "name" || sort_field == "pool_name")
         {
@@ -500,7 +504,11 @@ std::function<bool(void)> cli_tool_t::start_ls(json11::Json cfg)
     lister->show_delete = cfg["del"].bool_value();
     lister->sort_field = cfg["sort"].string_value();
     lister->reverse = cfg["reverse"].bool_value();
-    lister->max_count = cfg["top"].uint64_value();
+    lister->max_count = cfg["count"].uint64_value();
+    for (int i = 0; i < cmd.size(); i++)
+    {
+        lister->only_names.insert(cmd[i].string_value());
+    }
     return [lister]()
     {
         lister->loop();
