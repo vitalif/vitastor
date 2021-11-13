@@ -26,7 +26,7 @@ struct image_lister_t
     pool_id_t list_pool_id = 0;
     std::string list_pool_name;
     std::string sort_field;
-    int sort_dir = 1;
+    bool reverse = false;
     int max_count = 0;
     bool show_stats = false, show_delete = false;
 
@@ -72,6 +72,7 @@ struct image_lister_t
                 { "pool_id", (uint64_t)INODE_POOL(ic.second.num) },
                 { "pool_name", pool_cfg.name },
                 { "inode_num", INODE_NO_POOL(ic.second.num) },
+                { "inode_id", ic.second.num },
             };
             if (ic.second.parent_id)
             {
@@ -186,6 +187,7 @@ resume_1:
                     { "pool_name", pool_it == parent->cli->st_cli.pool_config.end()
                         ? (pool_it->second.name == "" ? "<Unnamed>" : pool_it->second.name) : "?" },
                     { "inode_num", INODE_NO_POOL(inode_num) },
+                    { "inode_id", inode_num },
                 };
                 stat_it = stats.find(inode_num);
             }
@@ -212,14 +214,24 @@ resume_1:
         {
             list.push_back(kv.second);
         }
-        std::sort(list.begin(), list.end(), [this](json11::Json a, json11::Json b)
+        if (sort_field == "name" || sort_field == "pool_name")
         {
-            if (a[sort_field] < b[sort_field])
-                return -1 * sort_dir;
-            if (a[sort_field] > b[sort_field])
-                return 1 * sort_dir;
-            return 0;
-        });
+            std::sort(list.begin(), list.end(), [this](json11::Json a, json11::Json b)
+            {
+                auto av = a[sort_field].as_string();
+                auto bv = b[sort_field].as_string();
+                return reverse ? av > bv : av < bv;
+            });
+        }
+        else
+        {
+            std::sort(list.begin(), list.end(), [this](json11::Json a, json11::Json b)
+            {
+                auto av = a[sort_field].number_value();
+                auto bv = b[sort_field].number_value();
+                return reverse ? av > bv : av < bv;
+            });
+        }
         if (max_count > 0 && list.size() > max_count)
         {
             list.resize(max_count);
@@ -487,7 +499,7 @@ std::function<bool(void)> cli_tool_t::start_ls(json11::Json cfg)
     lister->show_stats = cfg["long"].bool_value();
     lister->show_delete = cfg["del"].bool_value();
     lister->sort_field = cfg["sort"].string_value();
-    lister->sort_dir = cfg["reverse"].bool_value() ? -1 : 1;
+    lister->reverse = cfg["reverse"].bool_value();
     lister->max_count = cfg["top"].uint64_value();
     return [lister]()
     {

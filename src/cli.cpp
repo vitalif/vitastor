@@ -57,7 +57,7 @@ json11::Json::object cli_tool_t::parse_args(int narg, const char *args[])
             const char *opt = args[i]+2;
             cfg[opt] = i == narg-1 || !strcmp(opt, "json") || !strcmp(opt, "wait-list") ||
                 !strcmp(opt, "long") || !strcmp(opt, "del") || !strcmp(opt, "no-color") ||
-                !strcmp(opt, "force") ||
+                !strcmp(opt, "force") || !strcmp(opt, "reverse") ||
                 !strcmp(opt, "writers-stopped") && strcmp("1", args[i+1]) != 0
                 ? "1" : args[++i];
         }
