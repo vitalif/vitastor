@@ -158,6 +158,7 @@ add_executable(vitastor-cli
 target_link_libraries(vitastor-cli
 	vitastor_client
 )
+configure_file(vitastor.pc.in vitastor.pc @ONLY)
 
 # vitastor-dump-journal
 add_executable(vitastor-dump-journal
@@ -248,6 +249,7 @@ install(
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vitastor.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 if (${WITH_FIO})
 	install(TARGETS fio_vitastor fio_vitastor_blk fio_vitastor_sec LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif (${WITH_FIO})

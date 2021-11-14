@@ -1,0 +1,12 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+
+Name: Vitastor
+Description: Vitastor client library
+Version: 0.6.8
+Libs: -L${libdir} -lvitastor_client
+Cflags: -I${includedir}
+

@@ -138,6 +138,7 @@ cp -r mon %buildroot/usr/lib/vitastor
 
 %files -n vitastor-client-devel
 %_includedir/vitastor_c.h
+%_libdir/pkgconfig
 
 
 %files -n vitastor-fio
