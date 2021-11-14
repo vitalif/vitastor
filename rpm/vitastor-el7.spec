@@ -117,7 +117,7 @@ cp -r mon %buildroot/usr/lib/vitastor
 
 
 %files
-%doc GPL-2.0.txt VNPL-1.1.txt
+%doc GPL-2.0.txt VNPL-1.1.txt README.md README-ru.md
 
 
 %files -n vitastor-osd
