@@ -16,19 +16,82 @@ BuildRequires:  jerasure-devel
 BuildRequires:  gf-complete-devel
 BuildRequires:  libibverbs-devel
 BuildRequires:  cmake
-Requires:       fio = 3.7-1.el7
-Requires:       qemu-kvm = 2.0.0-1.el7.6
-Requires:       rh-nodejs12
-Requires:       rh-nodejs12-npm
-Requires:       liburing >= 0.6
-Requires:       libJerasure2
-Requires:       lpsolve
+Requires:       vitastor-osd = %{version}-%{release}
+Requires:       vitastor-mon = %{version}-%{release}
+Requires:       vitastor-client = %{version}-%{release}
+Requires:       vitastor-client-devel = %{version}-%{release}
+Requires:       vitastor-fio = %{version}-%{release}
+Requires:       vitastor-qemu = %{version}-%{release}
 
 %description
 Vitastor is a small, simple and fast clustered block storage (storage for VM drives),
 architecturally similar to Ceph which means strong consistency, primary-replication,
 symmetric clustering and automatic data distribution over any number of drives of any
 size with configurable redundancy (replication or erasure codes/XOR).
+
+
+%package -n vitastor-osd
+Summary:        Vitastor - OSD
+Requires:       libJerasure2
+Requires:       liburing >= 0.6
+Requires:       vitastor-client = %{version}-%{release}
+
+
+%description -n vitastor-osd
+Vitastor object storage daemon, i.e. server program that stores data.
+
+
+%package -n vitastor-mon
+Summary:        Vitastor - monitor
+Requires:       rh-nodejs12
+Requires:       rh-nodejs12-npm
+Requires:       lpsolve
+
+
+%description -n vitastor-mon
+Vitastor monitor, i.e. server program responsible for watching cluster state and
+scheduling cluster-level operations.
+
+
+%package -n vitastor-client
+Summary:        Vitastor - client
+Requires:       liburing >= 0.6
+
+
+%description -n vitastor-client
+Vitastor client library and command-line interface.
+
+
+%package -n vitastor-client-devel
+Summary:        Vitastor - development files
+Group:          Development/Libraries
+Requires:       vitastor-client = %{version}-%{release}
+
+
+%description -n vitastor-client-devel
+Vitastor library headers for development.
+
+
+%package -n vitastor-fio
+Summary:        Vitastor - fio drivers
+Group:          Development/Libraries
+Requires:       vitastor-client = %{version}-%{release}
+Requires:       fio = 3.7-1.el7
+
+
+%description -n vitastor-fio
+Vitastor fio drivers for benchmarking.
+
+
+%package -n vitastor-qemu
+Summary:        Vitastor - QEMU driver
+Group:          Development/Libraries
+Requires:       vitastor-client = %{version}-%{release}
+Requires:       qemu-kvm = 2.0.0-1.el7.6
+
+
+%description -n vitastor-qemu
+Vitastor QEMU block device driver.
 
 
 %prep
@@ -49,25 +112,45 @@ cd mon
 npm install
 cd ..
 mkdir -p %buildroot/usr/lib/vitastor
-cp -r mon %buildroot/usr/lib/vitastor/mon
+cp mon/make-osd.sh %buildroot/usr/lib/vitastor
+cp -r mon %buildroot/usr/lib/vitastor
 
 
 %files
-%doc
-%_bindir/vitastor-dump-journal
-%_bindir/vitastor-nbd
+%doc GPL-2.0.txt VNPL-1.1.txt
+
+
+%files -n vitastor-osd
 %_bindir/vitastor-osd
+%_bindir/vitastor-dump-journal
+/usr/lib/vitastor/make-osd.sh
+
+
+%files -n vitastor-mon
+/usr/lib/vitastor/mon
+
+
+%files -n vitastor-client
+%_bindir/vitastor-nbd
 %_bindir/vitastor-cli
 %_bindir/vitastor-rm
 %_bindir/vita
-%_libdir/qemu-kvm/block-vitastor.so
+%_libdir/libvitastor_blk.so*
+%_libdir/libvitastor_client.so*
+
+
+%files -n vitastor-client-devel
+%_includedir/vitastor_c.h
+
+
+%files -n vitastor-fio
 %_libdir/libfio_vitastor.so
 %_libdir/libfio_vitastor_blk.so
 %_libdir/libfio_vitastor_sec.so
-%_libdir/libvitastor_blk.so*
-%_libdir/libvitastor_client.so*
-%_includedir/vitastor_c.h
-/usr/lib/vitastor
+
+
+%files -n vitastor-qemu
+%_libdir/qemu-kvm/block-vitastor.so
 
 
 %changelog
