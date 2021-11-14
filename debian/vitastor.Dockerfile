@@ -58,8 +58,8 @@ RUN set -e -x; \
     echo qemu-fio-headers.patch >> debian/patches/series; \
     rm -rf a b; \
     rm -rf /root/packages/qemu-$REL/qemu*/; \
-    echo "dep:fio=$FIO" > debian/substvars; \
-    echo "dep:qemu=$QEMU" >> debian/substvars; \
+    echo "dep:fio=$FIO" > debian/fio_version; \
+    echo "dep:qemu=$QEMU" > debian/qemu_version; \
     cd /root/packages/vitastor-$REL; \
     tar --sort=name --mtime='2020-01-01' --owner=0 --group=0 --exclude=debian -cJf vitastor_0.6.7.orig.tar.xz vitastor-0.6.7; \
     cd vitastor-0.6.7; \

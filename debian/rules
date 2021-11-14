@@ -5,5 +5,6 @@ export DH_VERBOSE = 1
 	dh $@
 
 override_dh_installdeb:
-	cat debian/substvars >> debian/vitastor.substvars
+	cat debian/fio_version >> debian/vitastor-fio.substvars
+	cat debian/qemu_version >> debian/vitastor-qemu.substvars
 	dh_installdeb

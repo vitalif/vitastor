@@ -1,0 +1,5 @@
+usr/bin/vita
+usr/bin/vitastor-cli
+usr/bin/vitastor-rm
+usr/bin/vitastor-nbd
+usr/lib/*/libvitastor*.so*
