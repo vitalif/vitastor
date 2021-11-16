@@ -1022,6 +1022,7 @@ class Mon
                     pg_size: pool_cfg.pg_size,
                     pg_minsize: pool_cfg.pg_minsize,
                     max_combinations: pool_cfg.max_osd_combinations,
+                    round_robin: pool_cfg.scheme != 'replicated',
                 };
                 let optimize_result;
                 if (old_pg_count > 0)

@@ -50,7 +50,7 @@ async function lp_solve(text)
     return { score, vars };
 }
 
-async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 2, max_combinations = 10000, parity_space = 1 })
+async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 2, max_combinations = 10000, parity_space = 1, round_robin = false })
 {
     if (!pg_count || !osd_tree)
     {
@@ -92,7 +92,7 @@ async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 
         console.log(lp);
         throw new Error('Problem is infeasible or unbounded - is it a bug?');
     }
-    const int_pgs = make_int_pgs(lp_result.vars, pg_count);
+    const int_pgs = make_int_pgs(lp_result.vars, pg_count, round_robin);
     const eff = pg_list_space_efficiency(int_pgs, all_weights, pg_minsize, parity_space);
     const res = {
         score: lp_result.score,
@@ -115,7 +115,7 @@ function shuffle(array)
     }
 }
 
-function make_int_pgs(weights, pg_count)
+function make_int_pgs(weights, pg_count, round_robin)
 {
     const total_weight = Object.values(weights).reduce((a, c) => Number(a) + Number(c), 0);
     let int_pgs = [];
@@ -123,10 +123,15 @@ function make_int_pgs(weights, pg_count)
     let weight_left = total_weight;
     for (const pg_name in weights)
     {
+        let cur_pg = pg_name.substr(3).split('_');
         let n = Math.round(weights[pg_name] / weight_left * pg_left);
         for (let i = 0; i < n; i++)
         {
-            int_pgs.push(pg_name.substr(3).split('_'));
+            int_pgs.push([ ...cur_pg ]);
+            if (round_robin)
+            {
+                cur_pg.push(cur_pg.shift());
+            }
         }
         weight_left -= weights[pg_name];
         pg_left -= n;
