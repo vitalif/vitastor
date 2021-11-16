@@ -505,7 +505,7 @@ std::function<bool(void)> cli_tool_t::start_ls(json11::Json cfg)
     lister->sort_field = cfg["sort"].string_value();
     lister->reverse = cfg["reverse"].bool_value();
     lister->max_count = cfg["count"].uint64_value();
-    for (int i = 0; i < cmd.size(); i++)
+    for (int i = 1; i < cmd.size(); i++)
     {
         lister->only_names.insert(cmd[i].string_value());
     }
