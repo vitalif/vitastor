@@ -94,6 +94,11 @@ struct image_creator_t
             goto resume_2;
         else if (state == 3)
             goto resume_3;
+        if (!size)
+        {
+            fprintf(stderr, "Image size is missing\n");
+            exit(1);
+        }
         for (auto & ic: parent->cli->st_cli.inode_config)
         {
             if (ic.second.name == image_name)
@@ -432,6 +437,31 @@ resume_3:
     }
 };
 
+uint64_t parse_size(std::string size_str)
+{
+    uint64_t mul = 1;
+    char type_char = tolower(size_str[size_str.length()-1]);
+    if (type_char == 'k' || type_char == 'm' || type_char == 'g' || type_char == 't')
+    {
+        if (type_char == 'k')
+            mul = 1l<<10;
+        else if (type_char == 'm')
+            mul = 1l<<20;
+        else if (type_char == 'g')
+            mul = 1l<<30;
+        else /*if (type_char == 't')*/
+            mul = 1l<<40;
+        size_str = size_str.substr(0, size_str.length()-1);
+    }
+    uint64_t size = json11::Json(size_str).uint64_value() * mul;
+    if (size == 0 && size_str != "0")
+    {
+        fprintf(stderr, "Invalid syntax for size: %s\n", size_str.c_str());
+        exit(1);
+    }
+    return size;
+}
+
 std::function<bool(void)> cli_tool_t::start_create(json11::Json cfg)
 {
     json11::Json::array cmd = cfg["command"].array_items();
@@ -458,33 +488,12 @@ std::function<bool(void)> cli_tool_t::start_create(json11::Json cfg)
     image_creator->new_parent = cfg["parent"].string_value();
     if (cfg["size"].string_value() != "")
     {
-        std::string size_str = cfg["size"].string_value();
-        uint64_t mul = 1;
-        char type_char = tolower(size_str[size_str.length()-1]);
-        if (type_char == 'k' || type_char == 'm' || type_char == 'g' || type_char == 't')
+        image_creator->size = parse_size(cfg["size"].string_value());
+        if (image_creator->size % 4096)
         {
-            if (type_char == 'k')
-                mul = 1l<<10;
-            else if (type_char == 'm')
-                mul = 1l<<20;
-            else if (type_char == 'g')
-                mul = 1l<<30;
-            else /*if (type_char == 't')*/
-                mul = 1l<<40;
-            size_str = size_str.substr(0, size_str.length()-1);
-        }
-        uint64_t size = json11::Json(size_str).uint64_value() * mul;
-        if (size == 0)
-        {
-            fprintf(stderr, "Invalid syntax for size: %s\n", cfg["size"].string_value().c_str());
+            fprintf(stderr, "Size should be a multiple of 4096\n");
             exit(1);
         }
-        if (size % 4096)
-        {
-            fprintf(stderr, "Image size should be a multiple of 4096\n");
-            exit(1);
-        }
-        image_creator->size = size;
         if (image_creator->new_snap != "")
         {
             fprintf(stderr, "--size can't be specified for snapshots\n");

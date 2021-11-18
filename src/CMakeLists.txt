@@ -153,7 +153,8 @@ target_link_libraries(vitastor-nbd
 
 # vitastor-cli
 add_executable(vitastor-cli
-	cli.cpp cli_alloc_osd.cpp cli_ls.cpp cli_create.cpp cli_modify.cpp cli_flatten.cpp cli_merge.cpp cli_rm.cpp cli_snap_rm.cpp
+	cli.cpp cli_alloc_osd.cpp cli_simple_offsets.cpp
+	cli_ls.cpp cli_create.cpp cli_modify.cpp cli_flatten.cpp cli_merge.cpp cli_rm.cpp cli_snap_rm.cpp
 )
 target_link_libraries(vitastor-cli
 	vitastor_client

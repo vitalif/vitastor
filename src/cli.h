@@ -58,4 +58,8 @@ public:
     std::function<bool(void)> start_flatten(json11::Json);
     std::function<bool(void)> start_snap_rm(json11::Json);
     std::function<bool(void)> start_alloc_osd(json11::Json cfg, uint64_t *out = NULL);
+    std::function<bool(void)> simple_offsets(json11::Json cfg);
 };
+
+std::string format_size(uint64_t size);
+uint64_t parse_size(std::string size_str);
