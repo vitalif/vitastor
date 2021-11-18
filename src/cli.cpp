@@ -130,6 +130,9 @@ void cli_tool_t::help()
         "  <to> must be a child of <from> and <target> may be one of the layers between\n"
         "  <from> and <to>, including <from> and <to>.\n"
         "\n"
+        "%s alloc-osd\n"
+        "  Allocate a new OSD number and reserve it by creating empty /osd/stats/<n> key.\n"
+        "\n"
         "GLOBAL OPTIONS:\n"
         "  --etcd_address <etcd_address>\n"
         "  --iodepth N         Send N operations in parallel to each OSD when possible (default 32)\n"
@@ -139,7 +142,7 @@ void cli_tool_t::help()
         "  --no-color          Disable colored output\n"
         "  --json              JSON output\n"
         ,
-        exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name
+        exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name
     );
     exit(0);
 }
@@ -267,6 +270,11 @@ void cli_tool_t::run(json11::Json cfg)
     {
         // Remove multiple snapshots and rebase their children
         action_cb = start_snap_rm(cfg);
+    }
+    else if (cmd[0] == "alloc-osd")
+    {
+        // Allocate a new OSD number
+        action_cb = start_alloc_osd(cfg);
     }
     else
     {

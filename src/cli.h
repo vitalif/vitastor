@@ -50,11 +50,12 @@ public:
     friend struct snap_flattener_t;
     friend struct snap_remover_t;
 
-    std::function<bool(void)> start_ls(json11::Json cfg);
-    std::function<bool(void)> start_create(json11::Json cfg);
-    std::function<bool(void)> start_modify(json11::Json cfg);
+    std::function<bool(void)> start_ls(json11::Json);
+    std::function<bool(void)> start_create(json11::Json);
+    std::function<bool(void)> start_modify(json11::Json);
     std::function<bool(void)> start_rm(json11::Json);
     std::function<bool(void)> start_merge(json11::Json);
     std::function<bool(void)> start_flatten(json11::Json);
     std::function<bool(void)> start_snap_rm(json11::Json);
+    std::function<bool(void)> start_alloc_osd(json11::Json cfg, uint64_t *out = NULL);
 };
