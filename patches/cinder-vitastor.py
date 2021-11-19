@@ -658,8 +658,8 @@ class VitastorDriver(driver.CloneableImageVD,
                 'etcd_address': self.configuration.vitastor_etcd_address,
                 'etcd_prefix': self.configuration.vitastor_etcd_prefix,
                 'name': volume.name,
-                'logical_block_size': 512,
-                'physical_block_size': 4096,
+                'logical_block_size': '512',
+                'physical_block_size': '4096',
             }
         }
         LOG.debug('connection data: %s', data)
