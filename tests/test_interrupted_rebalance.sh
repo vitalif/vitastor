@@ -10,28 +10,14 @@ else
     $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"osd_out_time":5}'
 fi
 
-dd if=/dev/zero of=./testdata/test_osd1.bin bs=1024 count=1 seek=$((1024*1024-1))
-dd if=/dev/zero of=./testdata/test_osd2.bin bs=1024 count=1 seek=$((1024*1024-1))
-dd if=/dev/zero of=./testdata/test_osd3.bin bs=1024 count=1 seek=$((1024*1024-1))
-dd if=/dev/zero of=./testdata/test_osd4.bin bs=1024 count=1 seek=$((1024*1024-1))
-dd if=/dev/zero of=./testdata/test_osd5.bin bs=1024 count=1 seek=$((1024*1024-1))
-dd if=/dev/zero of=./testdata/test_osd6.bin bs=1024 count=1 seek=$((1024*1024-1))
-dd if=/dev/zero of=./testdata/test_osd7.bin bs=1024 count=1 seek=$((1024*1024-1))
-
-build/src/vitastor-osd --osd_num 1 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd1.bin 2>/dev/null) &>./testdata/osd1.log &
-OSD1_PID=$!
-build/src/vitastor-osd --osd_num 2 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd2.bin 2>/dev/null) &>./testdata/osd2.log &
-OSD2_PID=$!
-build/src/vitastor-osd --osd_num 3 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd3.bin 2>/dev/null) &>./testdata/osd3.log &
-OSD3_PID=$!
-build/src/vitastor-osd --osd_num 4 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd4.bin 2>/dev/null) &>./testdata/osd4.log &
-OSD4_PID=$!
-build/src/vitastor-osd --osd_num 5 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd5.bin 2>/dev/null) &>./testdata/osd5.log &
-OSD5_PID=$!
-build/src/vitastor-osd --osd_num 6 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd6.bin 2>/dev/null) &>./testdata/osd6.log &
-OSD6_PID=$!
-build/src/vitastor-osd --osd_num 7 --bind_address 127.0.0.1 $NO_SAME --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd7.bin 2>/dev/null) &>./testdata/osd7.log &
-OSD7_PID=$!
+OSD_SIZE=1024
+OSD_COUNT=7
+OSD_ARGS=
+for i in $(seq 1 $OSD_COUNT); do
+    dd if=/dev/zero of=./testdata/test_osd$i.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
+    build/src/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $OSD_ARGS --etcd_address $ETCD_URL $(build/src/vitastor-cli simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) &>./testdata/osd$i.log &
+    eval OSD${i}_PID=$!
+done
 
 cd mon
 npm install

@@ -454,7 +454,7 @@ uint64_t parse_size(std::string size_str)
         size_str = size_str.substr(0, size_str.length()-1);
     }
     uint64_t size = json11::Json(size_str).uint64_value() * mul;
-    if (size == 0 && size_str != "0")
+    if (size == 0 && size_str != "0" && (size_str != "" || mul != 1))
     {
         fprintf(stderr, "Invalid syntax for size: %s\n", size_str.c_str());
         exit(1);

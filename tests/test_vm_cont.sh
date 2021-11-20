@@ -7,12 +7,12 @@ etcdctl --endpoints=http://127.0.0.1:12379/v3 del --prefix /vitastor/mon/master
 etcdctl --endpoints=http://127.0.0.1:12379/v3 del --prefix /vitastor/pg/state
 etcdctl --endpoints=http://127.0.0.1:12379/v3 del --prefix /vitastor/osd/state
 
-build/src/vitastor-osd --osd_num 1 --bind_address 127.0.0.1 --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd1.bin 2>/dev/null) &>./testdata/osd1.log &
-OSD1_PID=$!
-build/src/vitastor-osd --osd_num 2 --bind_address 127.0.0.1 --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd2.bin 2>/dev/null) &>./testdata/osd2.log &
-OSD2_PID=$!
-build/src/vitastor-osd --osd_num 3 --bind_address 127.0.0.1 --etcd_address $ETCD_URL $(node mon/simple-offsets.js --format options --device ./testdata/test_osd3.bin 2>/dev/null) &>./testdata/osd3.log &
-OSD3_PID=$!
+OSD_COUNT=3
+OSD_ARGS=
+for i in $(seq 1 $OSD_COUNT); do
+    build/src/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $OSD_ARGS --etcd_address $ETCD_URL $(build/src/vitastor-cli simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) &>./testdata/osd$i.log &
+    eval OSD${i}_PID=$!
+done
 
 node mon/mon-main.js --etcd_url http://$ETCD_URL --etcd_prefix "/vitastor" &>./testdata/mon.log &
 MON_PID=$!
