@@ -27,7 +27,7 @@ struct alloc_osd_t
     {
         if (state == 1)
             goto resume_1;
-        while (true)
+        do
         {
             etcd_txn(json11::Json::object {
                 { "compare", json11::Json::array {
@@ -98,7 +98,7 @@ struct alloc_osd_t
                     new_id = used[e-1]+1;
                 }
             }
-        }
+        } while (!result["succeeded"].bool_value());
         state = 100;
     }
 

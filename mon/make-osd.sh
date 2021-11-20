@@ -17,23 +17,14 @@ ETCD_MON=$(echo $ETCD_HOSTS | perl -pe 's/:2380/:2379/g; s/etcd\d*=//g;')
 D=`dirname $0`
 
 # Create OSDs on all passed devices
-OSD_NUM=1
 for DEV in $*; do
 
-# Ugly :) -> node.js rework pending
-while true; do
-    ST=$(etcdctl --endpoints="$ETCD_MON" get --print-value-only /vitastor/osd/stats/$OSD_NUM)
-    if [ "$ST" = "" ]; then
-        break
-    fi
-    OSD_NUM=$((OSD_NUM+1))
-done
-etcdctl --endpoints="$ETCD_MON" put /vitastor/osd/stats/$OSD_NUM '{}'
+OSD_NUM=$(vitastor-cli alloc-osd)
 
 echo Creating OSD $OSD_NUM on $DEV
 
-OPT=`node $D/simple-offsets.js --device $DEV --format options | tr '\n' ' '`
-META=`echo $OPT | grep -Po '(?<=data_offset )\d+'`
+OPT=$(vitastor-cli simple-offsets --format options $DEV | tr '\n' ' ')
+META=$(vitastor-cli simple-offsets --format json $DEV | jq .data_offset)
 dd if=/dev/zero of=$DEV bs=1048576 count=$(((META+1048575)/1048576)) oflag=direct
 
 cat >/etc/systemd/system/vitastor-osd$OSD_NUM.service <<EOF
