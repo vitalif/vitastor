@@ -132,16 +132,19 @@ static void vitastor_parse_filename(const char *filename, QDict *options, Error 
             error_setg(errp, "conf option %s has no value", name);
             break;
         }
+        for (int i = 0; i < strlen(name); i++)
+            if (name[i] == '_')
+                name[i] = '-';
         qemu_vitastor_unescape(name);
         value = qemu_vitastor_next_tok(p, ':', &p);
         qemu_vitastor_unescape(value);
         if (!strcmp(name, "inode") ||
             !strcmp(name, "pool") ||
             !strcmp(name, "size") ||
-            !strcmp(name, "use_rdma") ||
-            !strcmp(name, "rdma_port_num") ||
-            !strcmp(name, "rdma_gid_index") ||
-            !strcmp(name, "rdma_mtu"))
+            !strcmp(name, "use-rdma") ||
+            !strcmp(name, "rdma-port_num") ||
+            !strcmp(name, "rdma-gid-index") ||
+            !strcmp(name, "rdma-mtu"))
         {
             unsigned long long num_val;
             if (parse_uint_full(value, &num_val, 0))
@@ -202,15 +205,15 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     VitastorClient *client = bs->opaque;
     int64_t ret = 0;
     qemu_mutex_init(&client->mutex);
-    client->config_path = g_strdup(qdict_get_try_str(options, "config_path"));
+    client->config_path = g_strdup(qdict_get_try_str(options, "config-path"));
     // FIXME: Rename to etcd_address
-    client->etcd_host = g_strdup(qdict_get_try_str(options, "etcd_host"));
-    client->etcd_prefix = g_strdup(qdict_get_try_str(options, "etcd_prefix"));
-    client->use_rdma = qdict_get_try_int(options, "use_rdma", -1);
-    client->rdma_device = g_strdup(qdict_get_try_str(options, "rdma_device"));
-    client->rdma_port_num = qdict_get_try_int(options, "rdma_port_num", 0);
-    client->rdma_gid_index = qdict_get_try_int(options, "rdma_gid_index", 0);
-    client->rdma_mtu = qdict_get_try_int(options, "rdma_mtu", 0);
+    client->etcd_host = g_strdup(qdict_get_try_str(options, "etcd-host"));
+    client->etcd_prefix = g_strdup(qdict_get_try_str(options, "etcd-prefix"));
+    client->use_rdma = qdict_get_try_int(options, "use-rdma", -1);
+    client->rdma_device = g_strdup(qdict_get_try_str(options, "rdma-device"));
+    client->rdma_port_num = qdict_get_try_int(options, "rdma-port-num", 0);
+    client->rdma_gid_index = qdict_get_try_int(options, "rdma-gid-index", 0);
+    client->rdma_mtu = qdict_get_try_int(options, "rdma-mtu", 0);
     client->proxy = vitastor_c_create_qemu(
         (QEMUSetFDHandler*)aio_set_fd_handler, bdrv_get_aio_context(bs), client->config_path, client->etcd_host, client->etcd_prefix,
         client->use_rdma, client->rdma_device, client->rdma_port_num, client->rdma_gid_index, client->rdma_mtu, 0
@@ -264,14 +267,14 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     }
     bs->total_sectors = client->size / BDRV_SECTOR_SIZE;
     //client->aio_context = bdrv_get_aio_context(bs);
-    qdict_del(options, "use_rdma");
-    qdict_del(options, "rdma_mtu");
-    qdict_del(options, "rdma_gid_index");
-    qdict_del(options, "rdma_port_num");
-    qdict_del(options, "rdma_device");
-    qdict_del(options, "config_path");
-    qdict_del(options, "etcd_host");
-    qdict_del(options, "etcd_prefix");
+    qdict_del(options, "use-rdma");
+    qdict_del(options, "rdma-mtu");
+    qdict_del(options, "rdma-gid-index");
+    qdict_del(options, "rdma-port-num");
+    qdict_del(options, "rdma-device");
+    qdict_del(options, "config-path");
+    qdict_del(options, "etcd-host");
+    qdict_del(options, "etcd-prefix");
     qdict_del(options, "image");
     qdict_del(options, "inode");
     qdict_del(options, "pool");
@@ -515,9 +518,9 @@ static QEMUOptionParameter vitastor_create_opts[] = {
 static const char *vitastor_strong_runtime_opts[] = {
     "inode",
     "pool",
-    "config_path",
-    "etcd_host",
-    "etcd_prefix",
+    "config-path",
+    "etcd-host",
+    "etcd-prefix",
 
     NULL
 };

@@ -1,18 +1,18 @@
-Index: qemu/qapi/block-core.json
+Index: qemu-6.1+dfsg/qapi/block-core.json
 ===================================================================
---- qemu.orig/qapi/block-core.json
-+++ qemu/qapi/block-core.json
-@@ -2798,7 +2798,7 @@
+--- qemu-6.1+dfsg.orig/qapi/block-core.json
++++ qemu-6.1+dfsg/qapi/block-core.json
+@@ -2838,7 +2838,7 @@
              'luks', 'nbd', 'nfs', 'null-aio', 'null-co', 'nvme', 'parallels',
-             'qcow', 'qcow2', 'qed', 'quorum', 'raw', 'rbd',
+             'preallocate', 'qcow', 'qcow2', 'qed', 'quorum', 'raw', 'rbd',
              { 'name': 'replication', 'if': 'defined(CONFIG_REPLICATION)' },
--            'sheepdog',
-+            'sheepdog', 'vitastor',
-             'ssh', 'throttle', 'vdi', 'vhdx', 'vmdk', 'vpc', 'vvfat', 'vxhs' ] }
+-            'ssh', 'throttle', 'vdi', 'vhdx', 'vmdk', 'vpc', 'vvfat' ] }
++            'ssh', 'throttle', 'vdi', 'vhdx', 'vitastor', 'vmdk', 'vpc', 'vvfat' ] }
  
  ##
-@@ -3635,6 +3635,28 @@
-             '*tag': 'str' } }
+ # @BlockdevOptionsFile:
+@@ -3763,6 +3763,28 @@
+             '*server': ['InetSocketAddressBase'] } }
  
  ##
 +# @BlockdevOptionsVitastor:
@@ -40,16 +40,16 @@ Index: qemu/qapi/block-core.json
  # @ReplicationMode:
  #
  # An enumeration of replication modes.
-@@ -3995,6 +4013,7 @@
-       'replication': { 'type': 'BlockdevOptionsReplication',
-                        'if': 'defined(CONFIG_REPLICATION)' },
-       'sheepdog':   'BlockdevOptionsSheepdog',
-+      'vitastor':   'BlockdevOptionsVitastor',
-       'ssh':        'BlockdevOptionsSsh',
+@@ -4134,6 +4156,7 @@
        'throttle':   'BlockdevOptionsThrottle',
        'vdi':        'BlockdevOptionsGenericFormat',
-@@ -4365,6 +4384,17 @@
-             '*cluster-size' :   'size' } }
+       'vhdx':       'BlockdevOptionsGenericFormat',
++      'vitastor':   'BlockdevOptionsVitastor',
+       'vmdk':       'BlockdevOptionsGenericCOWFormat',
+       'vpc':        'BlockdevOptionsGenericFormat',
+       'vvfat':      'BlockdevOptionsVVFAT'
+@@ -4523,6 +4546,17 @@
+             '*encrypt' :        'RbdEncryptionCreateOptions' } }
  
  ##
 +# @BlockdevCreateOptionsVitastor:
@@ -66,23 +66,23 @@ Index: qemu/qapi/block-core.json
  # @BlockdevVmdkSubformat:
  #
  # Subformat options for VMDK images
-@@ -4626,6 +4656,7 @@
-       'qed':            'BlockdevCreateOptionsQed',
-       'rbd':            'BlockdevCreateOptionsRbd',
-       'sheepdog':       'BlockdevCreateOptionsSheepdog',
-+      'vitastor':       'BlockdevCreateOptionsVitastor',
+@@ -4718,6 +4752,7 @@
        'ssh':            'BlockdevCreateOptionsSsh',
        'vdi':            'BlockdevCreateOptionsVdi',
        'vhdx':           'BlockdevCreateOptionsVhdx',
-Index: qemu/scripts/modules/module_block.py
++      'vitastor':       'BlockdevCreateOptionsVitastor',
+       'vmdk':           'BlockdevCreateOptionsVmdk',
+       'vpc':            'BlockdevCreateOptionsVpc'
+   } }
+Index: qemu-6.1+dfsg/scripts/modules/module_block.py
 ===================================================================
---- qemu.orig/scripts/modules/module_block.py
-+++ qemu/scripts/modules/module_block.py
-@@ -85,6 +85,7 @@ def print_bottom(fheader):
- output_file = sys.argv[1]
- with open(output_file, 'w') as fheader:
-     print_top(fheader)
-+    add_module(fheader, "vitastor", "vitastor", "vitastor")
+--- qemu-6.1+dfsg.orig/scripts/modules/module_block.py
++++ qemu-6.1+dfsg/scripts/modules/module_block.py
+@@ -86,6 +86,7 @@ if __name__ == '__main__':
+     output_file = sys.argv[1]
+     with open(output_file, 'w') as fheader:
+         print_top(fheader)
++        add_module(fheader, "vitastor", "vitastor", "vitastor")
  
-     for filename in sys.argv[2:]:
-         if os.path.isfile(filename):
+         for filename in sys.argv[2:]:
+             if os.path.isfile(filename):

@@ -489,7 +489,7 @@ class VitastorDriver(driver.CloneableImageVD,
                 # FIXME use etcd_address in qemu driver
                 kk = 'etcd_host'
             if v:
-                args += ':'+kk+'='+v.replace(':', '\\:')
+                args += ':'+kk.replace('_', '-')+'='+v.replace(':', '\\:')
         return args
 
     def delete_volume(self, volume):

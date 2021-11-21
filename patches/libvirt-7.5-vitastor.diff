@@ -276,9 +276,9 @@ index 6627d04..c33f428 100644
 +    }
 +
 +    if (virJSONValueObjectCreate(&ret,
-+                                 "S:etcd_host", etcd,
-+                                 "S:etcd_prefix", src->query,
-+                                 "S:config_path", src->configFile,
++                                 "S:etcd-host", etcd,
++                                 "S:etcd-prefix", src->query,
++                                 "S:config-path", src->configFile,
 +                                 "s:image", src->path,
 +                                 NULL) < 0)
 +        return NULL;
@@ -343,7 +343,7 @@ index ea51369..8258632 100644
 +            virBufferStrcat(&buf, "vitastor:image=", src->path, NULL);
 +
 +            if (src->nhosts > 0) {
-+                virBufferAddLit(&buf, ":etcd_host=");
++                virBufferAddLit(&buf, ":etcd-host=");
 +                for (i = 0; i < src->nhosts; i++) {
 +                    if (i)
 +                        virBufferAddLit(&buf, ",");
@@ -361,10 +361,10 @@ index ea51369..8258632 100644
 +            }
 +
 +            if (src->configFile)
-+                virBufferEscape(&buf, '\\', ":", ":config_path=%s", src->configFile);
++                virBufferEscape(&buf, '\\', ":", ":config-path=%s", src->configFile);
 +
 +            if (src->query)
-+                virBufferEscape(&buf, '\\', ":", ":etcd_prefix=%s", src->query);
++                virBufferEscape(&buf, '\\', ":", ":etcd-prefix=%s", src->query);
 +
 +            ret = virBufferContentAndReset(&buf);
 +            break;
@@ -474,14 +474,14 @@ index e48ae72..d7a9b72 100644
 +
 +        if (STRPREFIX(p, "image=")) {
 +            src->path = g_strdup(p + strlen("image="));
-+        } else if (STRPREFIX(p, "etcd_prefix=")) {
-+            src->query = g_strdup(p + strlen("etcd_prefix="));
-+        } else if (STRPREFIX(p, "config_file=")) {
-+            src->configFile = g_strdup(p + strlen("config_file="));
-+        } else if (STRPREFIX(p, "etcd_host=")) {
++        } else if (STRPREFIX(p, "etcd-prefix=")) {
++            src->query = g_strdup(p + strlen("etcd-prefix="));
++        } else if (STRPREFIX(p, "config-path=")) {
++            src->configFile = g_strdup(p + strlen("config-path="));
++        } else if (STRPREFIX(p, "etcd-host=")) {
 +            char *h, *sep;
 +
-+            h = p + strlen("etcd_host=");
++            h = p + strlen("etcd-host=");
 +            while (h < e) {
 +                for (sep = h; sep < e; ++sep) {
 +                    if (*sep == '\\' && (sep[1] == ',' ||
@@ -538,8 +538,8 @@ index e48ae72..d7a9b72 100644
 +{
 +    const char *filename;
 +    const char *image = virJSONValueObjectGetString(json, "image");
-+    const char *conf = virJSONValueObjectGetString(json, "config_path");
-+    const char *etcd_prefix = virJSONValueObjectGetString(json, "etcd_prefix");
++    const char *conf = virJSONValueObjectGetString(json, "config-path");
++    const char *etcd_prefix = virJSONValueObjectGetString(json, "etcd-prefix");
 +    virJSONValue *servers = virJSONValueObjectGetArray(json, "server");
 +    size_t nservers;
 +    size_t i;

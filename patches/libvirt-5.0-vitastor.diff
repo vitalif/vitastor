@@ -245,9 +245,9 @@ index cbf0aa4..096700d 100644
 +
 +    if (virJSONValueObjectCreate(&ret,
 +                                 "s:driver", "vitastor",
-+                                 "S:etcd_host", etcd,
-+                                 "S:etcd_prefix", src->relPath,
-+                                 "S:config_path", src->configFile,
++                                 "S:etcd-host", etcd,
++                                 "S:etcd-prefix", src->relPath,
++                                 "S:config-path", src->configFile,
 +                                 "s:image", src->path,
 +                                 NULL) < 0)
 +        goto cleanup;
@@ -293,7 +293,7 @@ index 822d5f8..e375cef 100644
 +            virBufferStrcat(&buf, "vitastor:image=", src->path, NULL);
 +
 +            if (src->nhosts > 0) {
-+                virBufferAddLit(&buf, ":etcd_host=");
++                virBufferAddLit(&buf, ":etcd-host=");
 +                for (i = 0; i < src->nhosts; i++) {
 +                    if (i)
 +                        virBufferAddLit(&buf, ",");
@@ -311,10 +311,10 @@ index 822d5f8..e375cef 100644
 +            }
 +
 +            if (src->configFile)
-+                virBufferEscape(&buf, '\\', ":", ":config_path=%s", src->configFile);
++                virBufferEscape(&buf, '\\', ":", ":config-path=%s", src->configFile);
 +
 +            if (src->relPath)
-+                virBufferEscape(&buf, '\\', ":", ":etcd_prefix=%s", src->relPath);
++                virBufferEscape(&buf, '\\', ":", ":etcd-prefix=%s", src->relPath);
 +
 +            ret = virBufferContentAndReset(&buf);
 +            break;
@@ -438,16 +438,16 @@ index bd4b027..b323cd6 100644
 +        if (STRPREFIX(p, "image=")) {
 +            if (VIR_STRDUP(src->path, p + strlen("image=")) < 0)
 +                return -1;
-+        } else if (STRPREFIX(p, "etcd_prefix=")) {
-+            if (VIR_STRDUP(src->relPath, p + strlen("etcd_prefix=")) < 0)
++        } else if (STRPREFIX(p, "etcd-prefix=")) {
++            if (VIR_STRDUP(src->relPath, p + strlen("etcd-prefix=")) < 0)
 +                return -1;
-+        } else if (STRPREFIX(p, "config_file=")) {
-+            if (VIR_STRDUP(src->configFile, p + strlen("config_file=")) < 0)
++        } else if (STRPREFIX(p, "config-path=")) {
++            if (VIR_STRDUP(src->configFile, p + strlen("config-path=")) < 0)
 +                return -1;
-+        } else if (STRPREFIX(p, "etcd_host=")) {
++        } else if (STRPREFIX(p, "etcd-host=")) {
 +            char *h, *sep;
 +
-+            h = p + strlen("etcd_host=");
++            h = p + strlen("etcd-host=");
 +            while (h < e) {
 +                for (sep = h; sep < e; ++sep) {
 +                    if (*sep == '\\' && (sep[1] == ',' ||
@@ -507,8 +507,8 @@ index bd4b027..b323cd6 100644
 +{
 +    const char *filename;
 +    const char *image = virJSONValueObjectGetString(json, "image");
-+    const char *conf = virJSONValueObjectGetString(json, "config_path");
-+    const char *etcd_prefix = virJSONValueObjectGetString(json, "etcd_prefix");
++    const char *conf = virJSONValueObjectGetString(json, "config-path");
++    const char *etcd_prefix = virJSONValueObjectGetString(json, "etcd-prefix");
 +    virJSONValuePtr servers = virJSONValueObjectGetArray(json, "server");
 +    size_t nservers;
 +    size_t i;

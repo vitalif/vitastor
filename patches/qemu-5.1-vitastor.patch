@@ -23,18 +23,18 @@ Index: qemu-5.1+dfsg/qapi/block-core.json
 +# @inode:       Inode number
 +# @pool:        Pool ID
 +# @size:        Desired image size in bytes
-+# @config_path: Path to Vitastor configuration
-+# @etcd_host:   etcd connection address(es)
-+# @etcd_prefix: etcd key/value prefix
++# @config-path: Path to Vitastor configuration
++# @etcd-host:   etcd connection address(es)
++# @etcd-prefix: etcd key/value prefix
 +##
 +{ 'struct': 'BlockdevOptionsVitastor',
 +  'data': { '*inode': 'uint64',
 +            '*pool': 'uint64',
 +            '*size': 'uint64',
 +            '*image': 'str',
-+            '*config_path': 'str',
-+            '*etcd_host': 'str',
-+            '*etcd_prefix': 'str' } }
++            '*config-path': 'str',
++            '*etcd-host': 'str',
++            '*etcd-prefix': 'str' } }
 +
 +##
  # @ReplicationMode:

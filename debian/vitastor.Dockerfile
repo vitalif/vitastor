@@ -7,11 +7,11 @@ ARG REL=
 
 WORKDIR /root
 
-RUN if [ "$REL" = "buster" ]; then \
-        echo 'deb http://deb.debian.org/debian buster-backports main' >> /etc/apt/sources.list; \
+RUN if [ "$REL" = "buster" -o "$REL" = "bullseye" ]; then \
+        echo "deb http://deb.debian.org/debian $REL-backports main" >> /etc/apt/sources.list; \
         echo >> /etc/apt/preferences; \
         echo 'Package: *' >> /etc/apt/preferences; \
-        echo 'Pin: release a=buster-backports' >> /etc/apt/preferences; \
+        echo "Pin: release a=$REL-backports" >> /etc/apt/preferences; \
         echo 'Pin-Priority: 500' >> /etc/apt/preferences; \
     fi; \
     grep '^deb ' /etc/apt/sources.list | perl -pe 's/^deb/deb-src/' >> /etc/apt/sources.list; \

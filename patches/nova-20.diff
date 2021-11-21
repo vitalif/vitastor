@@ -124,7 +124,7 @@ index 391231c527..34dc60dcdd 100644
 +                            if kk == 'etcd_address':
 +                                # FIXME use etcd_address in qemu driver
 +                                kk = 'etcd_host'
-+                            path += ":"+kk+"="+connection_info['data'][k].replace(':', '\\:')
++                            path += ":"+kk.replace('_', '-')+"="+connection_info['data'][k].replace(':', '\\:')
                  else:
                      path = 'unknown'
                      raise exception.DiskNotFound(location='unknown')
