@@ -120,7 +120,6 @@ cp -r mon %buildroot/usr/lib/vitastor
 %files -n vitastor-osd
 %_bindir/vitastor-osd
 %_bindir/vitastor-dump-journal
-/usr/lib/vitastor/make-osd.sh
 
 
 %files -n vitastor-mon
@@ -134,6 +133,7 @@ cp -r mon %buildroot/usr/lib/vitastor
 %_bindir/vita
 %_libdir/libvitastor_blk.so*
 %_libdir/libvitastor_client.so*
+/usr/lib/vitastor/make-osd.sh
 
 
 %files -n vitastor-client-devel

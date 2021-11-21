@@ -1,3 +1,2 @@
 usr/bin/vitastor-osd
 usr/bin/vitastor-dump-journal
-mon/make-osd.sh /usr/lib/vitastor
