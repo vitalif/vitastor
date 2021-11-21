@@ -133,7 +133,7 @@ protected:
     std::string rdma_device;
     uint64_t rdma_port_num = 1, rdma_gid_index = 0, rdma_mtu = 0;
     msgr_rdma_context_t *rdma_context = NULL;
-    uint64_t rdma_max_sge = 0, rdma_max_send = 0, rdma_max_recv = 8;
+    uint64_t rdma_max_sge = 0, rdma_max_send = 0, rdma_max_recv = 0;
     uint64_t rdma_max_msg = 0;
 #endif
 
