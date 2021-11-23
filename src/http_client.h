@@ -45,7 +45,7 @@ struct websocket_t
 
 void parse_http_headers(std::string & res, http_response_t *parsed);
 
-std::vector<std::string> getifaddr_list(bool include_v6 = false);
+std::vector<std::string> getifaddr_list(json11::Json mask_cfg = json11::Json(), bool include_v6 = false);
 
 uint64_t stoull_full(const std::string & str, int base = 10);
 

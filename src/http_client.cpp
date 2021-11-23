@@ -621,8 +621,82 @@ static bool ws_parse_frame(std::string & buf, int & type, std::string & res)
     return true;
 }
 
-std::vector<std::string> getifaddr_list(bool include_v6)
+static bool cidr_match(const in_addr &addr, const in_addr &net, uint8_t bits)
 {
+    if (bits == 0)
+    {
+        // C99 6.5.7 (3): u32 << 32 is undefined behaviour
+        return true;
+    }
+    return !((addr.s_addr ^ net.s_addr) & htonl(0xFFFFFFFFu << (32 - bits)));
+}
+
+static bool cidr6_match(const in6_addr &address, const in6_addr &network, uint8_t bits)
+{
+    const uint32_t *a = address.s6_addr32;
+    const uint32_t *n = network.s6_addr32;
+    int bits_whole, bits_incomplete;
+    bits_whole = bits >> 5;         // number of whole u32
+    bits_incomplete = bits & 0x1F;  // number of bits in incomplete u32
+    if (bits_whole && memcmp(a, n, bits_whole << 2))
+        return false;
+    if (bits_incomplete)
+    {
+        uint32_t mask = htonl((0xFFFFFFFFu) << (32 - bits_incomplete));
+        if ((a[bits_whole] ^ n[bits_whole]) & mask)
+            return false;
+    }
+    return true;
+}
+
+struct addr_mask_t
+{
+    sa_family_t family;
+    in_addr ipv4;
+    in6_addr ipv6;
+    uint8_t bits;
+};
+
+std::vector<std::string> getifaddr_list(json11::Json mask_cfg, bool include_v6)
+{
+    std::vector<addr_mask_t> masks;
+    if (mask_cfg.is_string())
+    {
+        mask_cfg = json11::Json::array{ mask_cfg };
+    }
+    for (auto mask_json: mask_cfg.array_items())
+    {
+        std::string mask = mask_json.string_value();
+        unsigned bits = 0;
+        int p = mask.find('/');
+        if (p != std::string::npos)
+        {
+            char null_byte = 0;
+            if (sscanf(mask.c_str()+p+1, "%u%c", &bits, &null_byte) != 1 || bits > 128)
+            {
+                throw std::runtime_error((include_v6 ? "Invalid IPv4 address mask: " : "Invalid IP address mask: ") + mask);
+            }
+            mask = mask.substr(0, p);
+        }
+        in_addr ipv4;
+        in6_addr ipv6;
+        if (inet_pton(AF_INET, mask.c_str(), &ipv4) == 1)
+        {
+            if (bits > 32)
+            {
+                throw std::runtime_error((include_v6 ? "Invalid IPv4 address mask: " : "Invalid IP address mask: ") + mask);
+            }
+            masks.push_back((addr_mask_t){ .family = AF_INET, .ipv4 = ipv4, .bits = (uint8_t)bits });
+        }
+        else if (include_v6 && inet_pton(AF_INET6, mask.c_str(), &ipv6) == 1)
+        {
+            masks.push_back((addr_mask_t){ .family = AF_INET6, .ipv6 = ipv6, .bits = (uint8_t)bits });
+        }
+        else
+        {
+            throw std::runtime_error((include_v6 ? "Invalid IPv4 address mask: " : "Invalid IP address mask: ") + mask);
+        }
+    }
     std::vector<std::string> addresses;
     ifaddrs *list, *ifa;
     if (getifaddrs(&list) == -1)
@@ -641,9 +715,30 @@ std::vector<std::string> getifaddr_list(bool include_v6)
         {
             void *addr_ptr;
             if (family == AF_INET)
+            {
                 addr_ptr = &((sockaddr_in *)ifa->ifa_addr)->sin_addr;
+            }
             else
+            {
                 addr_ptr = &((sockaddr_in6 *)ifa->ifa_addr)->sin6_addr;
+            }
+            if (masks.size() > 0)
+            {
+                int i;
+                for (i = 0; i < masks.size(); i++)
+                {
+                    if (masks[i].family == family && (family == AF_INET
+                        ? cidr_match(*(in_addr*)addr_ptr, masks[i].ipv4, masks[i].bits)
+                        : cidr6_match(*(in6_addr*)addr_ptr, masks[i].ipv6, masks[i].bits)))
+                    {
+                        break;
+                    }
+                }
+                if (i >= masks.size())
+                {
+                    continue;
+                }
+            }
             char addr[INET6_ADDRSTRLEN];
             if (!inet_ntop(family, addr_ptr, addr, INET6_ADDRSTRLEN))
             {

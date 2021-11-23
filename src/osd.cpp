@@ -164,6 +164,26 @@ void osd_t::bind_socket()
     int enable = 1;
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
 
+    if (config["osd_network"].is_string() ||
+        config["osd_network"].is_array())
+    {
+        std::vector<std::string> mask;
+        if (config["osd_network"].is_string())
+            mask.push_back(config["osd_network"].string_value());
+        else
+            for (auto v: config["osd_network"].array_items())
+                mask.push_back(v.string_value());
+        auto matched_addrs = getifaddr_list(mask, false);
+        if (matched_addrs.size() > 1)
+        {
+            fprintf(stderr, "More than 1 address matches requested network(s): %s\n", json11::Json(matched_addrs).dump().c_str());
+            force_stop(1);
+        }
+        bind_address = matched_addrs[0];
+    }
+
+    // FIXME Support multiple listening sockets
+
     sockaddr_in addr;
     int r;
     if ((r = inet_pton(AF_INET, bind_address.c_str(), &addr.sin_addr)) != 1)

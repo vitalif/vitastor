@@ -85,6 +85,7 @@ const etcd_tree = {
             // osd
             etcd_report_interval: 5,
             run_primary: true,
+            osd_network: null, // "192.168.7.0/24" or an array of masks
             bind_address: "0.0.0.0",
             bind_port: 0,
             autosync_interval: 5,
