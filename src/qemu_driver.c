@@ -125,6 +125,7 @@ static void vitastor_parse_filename(const char *filename, QDict *options, Error 
     // The following are all key/value pairs
     while (p)
     {
+        int i;
         char *name, *value;
         name = qemu_vitastor_next_tok(p, '=', &p);
         if (!p)
@@ -132,7 +133,7 @@ static void vitastor_parse_filename(const char *filename, QDict *options, Error 
             error_setg(errp, "conf option %s has no value", name);
             break;
         }
-        for (int i = 0; i < strlen(name); i++)
+        for (i = 0; i < strlen(name); i++)
             if (name[i] == '_')
                 name[i] = '-';
         qemu_vitastor_unescape(name);
