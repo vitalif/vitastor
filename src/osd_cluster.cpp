@@ -845,10 +845,10 @@ void osd_t::report_pg_states()
             }
             for (auto & res: data["responses"].array_items())
             {
-                if (res["kvs"].array_items().size())
+                if (res["response_range"]["kvs"].array_items().size())
                 {
-                    auto kv = st_cli.parse_etcd_kv(res["kvs"][0]);
-                    if (kv.key.substr(st_cli.etcd_prefix.length()+10) == st_cli.etcd_prefix+"/pg/state/")
+                    auto kv = st_cli.parse_etcd_kv(res["response_range"]["kvs"][0]);
+                    if (kv.key.substr(0, st_cli.etcd_prefix.length()+10) == st_cli.etcd_prefix+"/pg/state/")
                     {
                         pool_id_t pool_id = 0;
                         pg_num_t pg_num = 0;
