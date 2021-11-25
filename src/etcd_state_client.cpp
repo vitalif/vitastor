@@ -55,6 +55,7 @@ void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int t
         fprintf(stderr, "etcd_address is missing in Vitastor configuration\n");
         exit(1);
     }
+    // FIXME: Prefer local etcd
     std::string etcd_address = etcd_addresses[rand() % etcd_addresses.size()];
     std::string etcd_api_path;
     int pos = etcd_address.find('/');

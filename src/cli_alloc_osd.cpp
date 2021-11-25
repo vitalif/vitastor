@@ -124,7 +124,7 @@ std::function<bool(void)> cli_tool_t::start_alloc_osd(json11::Json cfg, uint64_t
     json11::Json::array cmd = cfg["command"].array_items();
     auto alloc_osd = new alloc_osd_t();
     alloc_osd->parent = this;
-    return [alloc_osd, &out]()
+    return [alloc_osd, out]()
     {
         alloc_osd->loop();
         if (alloc_osd->is_done())
