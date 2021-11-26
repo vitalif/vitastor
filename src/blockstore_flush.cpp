@@ -743,12 +743,15 @@ bool journal_flusher_co::scan_dirty(int wait_base)
                 offset = dirty_it->second.offset;
                 end_offset = dirty_it->second.offset + dirty_it->second.len;
                 it = v.begin();
-                while (1)
+                while (end_offset > offset)
                 {
                     for (; it != v.end(); it++)
-                        if (it->offset >= offset)
+                        if (it->offset+it->len > offset)
                             break;
-                    if (it == v.end() || it->offset > offset && it->len > 0)
+                    // If all items end before offset or if the found item starts after end_offset, just insert the buffer
+                    // If (offset < it->offset < end_offset) insert (offset..it->offset) part
+                    // If (it->offset <= offset <= it->offset+it->len) then just skip to it->offset+it->len
+                    if (it == v.end() || it->offset > offset)
                     {
                         submit_offset = dirty_it->second.location + offset - dirty_it->second.offset;
                         submit_len = it == v.end() || it->offset >= end_offset ? end_offset-offset : it->offset-offset;
@@ -772,7 +775,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
                         }
                     }
                     offset = it->offset+it->len;
-                    if (it == v.end() || offset >= end_offset)
+                    if (it == v.end())
                         break;
                 }
             }
