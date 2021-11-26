@@ -746,8 +746,20 @@ bool journal_flusher_co::scan_dirty(int wait_base)
                 while (1)
                 {
                     for (; it != v.end(); it++)
+                    {
                         if (it->offset >= offset)
+                        {
                             break;
+                        }
+                        else if (it->offset + it->len > offset)
+                        {
+                            offset = it->offset + it->len;
+                            if (offset >= end_offset)
+                            {
+                                goto endwhile;
+                            }
+                        }
+                    }
                     if (it == v.end() || it->offset > offset && it->len > 0)
                     {
                         submit_offset = dirty_it->second.location + offset - dirty_it->second.offset;
@@ -793,6 +805,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
             has_delete = true;
             skip_copy = true;
         }
+endwhile:
         dirty_start = dirty_it;
         if (dirty_it == bs->dirty_db.begin())
         {
