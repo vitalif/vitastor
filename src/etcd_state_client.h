@@ -75,6 +75,8 @@ struct websocket_t;
 struct etcd_state_client_t
 {
 protected:
+    std::vector<std::string> local_ips;
+    std::vector<std::string> etcd_local;
     std::vector<inode_watch_t*> watches;
     websocket_t *etcd_watch_ws = NULL;
     uint64_t bs_block_size = DEFAULT_BLOCK_SIZE;

@@ -55,8 +55,14 @@ void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int t
         fprintf(stderr, "etcd_address is missing in Vitastor configuration\n");
         exit(1);
     }
-    // FIXME: Prefer local etcd
-    std::string etcd_address = etcd_addresses[rand() % etcd_addresses.size()];
+    std::string etcd_address;
+    // Always prefer local etcd
+    // FIXME: Handle partial etcd failures. Now OSDs select etcd instance
+    // randomly so all OSDs may crash if any of etcds crashes.
+    if (etcd_local.size() > 0)
+        etcd_address = etcd_local[rand() % etcd_local.size()];
+    else
+        etcd_address = etcd_addresses[rand() % etcd_addresses.size()];
     std::string etcd_api_path;
     int pos = etcd_address.find('/');
     if (pos >= 0)
@@ -85,9 +91,23 @@ void etcd_state_client_t::add_etcd_url(std::string addr)
             fprintf(stderr, "HTTPS is unsupported for etcd. Either use plain HTTP or setup a local proxy for etcd interaction\n");
             exit(1);
         }
-        if (addr.find('/') == std::string::npos)
+        if (!local_ips.size())
+            local_ips = getifaddr_list();
+        std::string check_addr;
+        int pos = addr.find('/');
+        int pos2 = addr.find(':');
+        if (pos2 >= 0)
+            check_addr = addr.substr(0, pos2);
+        else if (pos >= 0)
+            check_addr = addr.substr(0, pos);
+        else
+            check_addr = addr;
+        if (pos == std::string::npos)
             addr += "/v3";
         this->etcd_addresses.push_back(addr);
+        for (int i = 0; i < local_ips.size(); i++)
+            if (local_ips[i] == check_addr)
+                this->etcd_local.push_back(addr);
     }
 }
 
