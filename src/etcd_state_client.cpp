@@ -209,6 +209,20 @@ void etcd_state_client_t::start_etcd_watcher()
                 {
                     etcd_watches_initialised++;
                 }
+                if (data["result"]["canceled"].bool_value())
+                {
+                    // etcd watch canceled, maybe because the revision was compacted
+                    if (data["result"]["compact_revision"].uint64_value())
+                    {
+                        // we may miss events if we proceed
+                        // FIXME: reload state and continue when used inside cluster_client
+                        fprintf(stderr, "Revisions before %lu were compacted by etcd, exiting\n",
+                            data["result"]["compact_revision"].uint64_value());
+                        exit(1);
+                    }
+                    fprintf(stderr, "Watch canceled by etcd, reason: %s, exiting\n", data["result"]["cancel_reason"].string_value().c_str());
+                    exit(1);
+                }
                 if (etcd_watches_initialised == 4)
                 {
                     etcd_watch_revision = data["result"]["header"]["revision"].uint64_value();

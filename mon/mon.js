@@ -341,7 +341,7 @@ class Mon
         this.etcd_start_timeout = (config.etcd_start_timeout || 5) * 1000;
         this.state = JSON.parse(JSON.stringify(this.constructor.etcd_tree));
         this.signals_set = false;
-        this.on_stop_cb = () => this.on_stop().catch(console.error);
+        this.on_stop_cb = () => this.on_stop(0).catch(console.error);
     }
 
     parse_etcd_addresses(addrs)
@@ -530,12 +530,25 @@ class Mon
             catch (e)
             {
             }
-            if (!data || !data.result || !data.result.events)
+            if (!data || !data.result)
             {
-                if (!data || !data.result || !data.result.watch_id)
+                console.error('Unknown message received from watch websocket: '+msg);
+            }
+            else if (data.result.canceled)
+            {
+                // etcd watch canceled
+                if (data.result.compact_revision)
                 {
-                    console.error('Garbage received from watch websocket: '+msg);
+                    // we may miss events if we proceed
+                    console.error('Revisions before '+data.result.compact_revision+' were compacted by etcd, exiting');
+                    this.on_stop(1);
                 }
+                console.error('Watch canceled by etcd, reason: '+data.result.cancel_reason+', exiting');
+                this.on_stop(1);
+            }
+            else if (data.result.created)
+            {
+                // etcd watch created
             }
             else
             {
@@ -639,11 +652,11 @@ class Mon
         }
     }
 
-    async on_stop()
+    async on_stop(status)
     {
         clearInterval(this.lease_timer);
         await this.etcd_call('/lease/revoke', { ID: this.etcd_lease_id }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
-        process.exit(0);
+        process.exit(status);
     }
 
     async become_master()
