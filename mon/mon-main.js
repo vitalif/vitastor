@@ -9,17 +9,18 @@ const options = {};
 
 for (let i = 2; i < process.argv.length; i++)
 {
-    if (process.argv[i].substr(0, 2) == '--')
+    if (process.argv[i] === '-h' || process.argv[i] === '--help')
+    {
+        console.error('USAGE: '+process.argv[0]+' '+process.argv[1]+' [--verbose 1]'+
+            ' [--etcd_address "http://127.0.0.1:2379,..."] [--config_file /etc/vitastor/vitastor.conf]'+
+            ' [--etcd_prefix "/vitastor"] [--etcd_start_timeout 5]');
+        process.exit();
+    }
+    else if (process.argv[i].substr(0, 2) == '--')
     {
         options[process.argv[i].substr(2)] = process.argv[i+1];
         i++;
     }
 }
 
-if (!options.etcd_url)
-{
-    console.error('USAGE: '+process.argv[0]+' '+process.argv[1]+' --etcd_url "http://127.0.0.1:2379,..." --etcd_prefix "/vitastor" --etcd_start_timeout 5 [--verbose 1]');
-    process.exit();
-}
-
-new Mon(options).start().catch(e => { console.error(e); process.exit(); });
+new Mon(options).start().catch(e => { console.error(e); process.exit(1); });

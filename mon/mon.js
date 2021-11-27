@@ -1,6 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
 const os = require('os');
@@ -323,17 +324,17 @@ class Mon
 {
     constructor(config)
     {
-        // FIXME: Maybe prefer local etcd
-        this.etcd_urls = [];
-        for (let url of config.etcd_url.split(/,/))
+        this.die = (e) => this._die(e);
+        if (fs.existsSync(config.config_path||'/etc/vitastor/vitastor.conf'))
         {
-            let scheme = 'http';
-            url = url.trim().replace(/^(https?):\/\//, (m, m1) => { scheme = m1; return ''; });
-            if (!/\/[^\/]/.exec(url))
-                url += '/v3';
-            this.etcd_urls.push(scheme+'://'+url);
+            config = {
+                ...JSON.parse(fs.readFileSync(config.config_path||'/etc/vitastor/vitastor.conf', { encoding: 'utf-8' })),
+                ...config,
+            };
         }
+        this.parse_etcd_addresses(config.etcd_address||config.etcd_url);
         this.verbose = config.verbose || 0;
+        this.initConfig = config;
         this.config = {};
         this.etcd_prefix = config.etcd_prefix || '/vitastor';
         this.etcd_prefix = this.etcd_prefix.replace(/\/\/+/g, '/').replace(/^\/?(.*[^\/])\/?$/, '/$1');
@@ -341,6 +342,35 @@ class Mon
         this.state = JSON.parse(JSON.stringify(this.constructor.etcd_tree));
         this.signals_set = false;
         this.on_stop_cb = () => this.on_stop().catch(console.error);
+    }
+
+    parse_etcd_addresses(addrs)
+    {
+        const is_local_ip = this.local_ips(true).reduce((a, c) => { a[c] = true; return a; }, {});
+        this.etcd_local = [];
+        this.etcd_urls = [];
+        this.selected_etcd_url = null;
+        this.etcd_urls_to_try = [];
+        if (!(addrs instanceof Array))
+            addrs = addrs ? (''+(addrs||'')).split(/,/) : [];
+        if (!addrs.length)
+        {
+            console.error('Vitastor etcd address(es) not specified. Please set on the command line or in the config file');
+            process.exit(1);
+        }
+        for (let url of addrs)
+        {
+            let scheme = 'http';
+            url = url.trim().replace(/^(https?):\/\//, (m, m1) => { scheme = m1; return ''; });
+            const slash = url.indexOf('/');
+            const colon = url.indexOf(':');
+            const is_local = is_local_ip[colon >= 0 ? url.substr(0, colon) : (slash >= 0 ? url.substr(0, slash) : url)];
+            url = scheme+'://'+(slash >= 0 ? url : url+'/v3');
+            if (is_local)
+                this.etcd_local.push(url);
+            else
+                this.etcd_urls.push(url);
+        }
     }
 
     async start()
@@ -411,6 +441,31 @@ class Mon
         }
     }
 
+    pick_next_etcd()
+    {
+        if (this.selected_etcd_url)
+            return this.selected_etcd_url;
+        if (!this.etcd_urls_to_try || !this.etcd_urls_to_try.length)
+        {
+            this.etcd_urls_to_try = [ ...this.etcd_local ];
+            const others = [ ...this.etcd_urls ];
+            while (others.length)
+            {
+                const url = others.splice(0|(others.length*Math.random()), 1);
+                this.etcd_urls_to_try.push(url[0]);
+            }
+        }
+        this.selected_etcd_url = this.etcd_urls_to_try.shift();
+        return this.selected_etcd_url;
+    }
+
+    restart_watcher(cur_addr)
+    {
+        if (this.selected_etcd_url == cur_addr)
+            this.selected_etcd_url = null;
+        this.start_watcher(this.config.etcd_mon_retries).catch(this.die);
+    }
+
     async start_watcher(retries)
     {
         let retry = 0;
@@ -420,7 +475,8 @@ class Mon
         }
         while (retries < 0 || retry < retries)
         {
-            const base = 'ws'+this.etcd_urls[Math.floor(Math.random()*this.etcd_urls.length)].substr(4);
+            const cur_addr = this.pick_next_etcd();
+            const base = 'ws'+cur_addr.substr(4);
             const ok = await new Promise((ok, no) =>
             {
                 const timer_id = setTimeout(() =>
@@ -443,9 +499,9 @@ class Mon
                 });
             });
             if (ok)
-            {
                 break;
-            }
+            if (this.selected_etcd_url == cur_addr)
+                this.selected_etcd_url = null;
             this.ws = null;
             retry++;
         }
@@ -453,6 +509,8 @@ class Mon
         {
             this.die('Failed to open etcd watch websocket');
         }
+        const cur_addr = this.selected_etcd_url;
+        this.ws.on('error', () => this.restart_watcher(cur_addr));
         this.ws.send(JSON.stringify({
             create_request: {
                 key: b64(this.etcd_prefix+'/'),
@@ -510,7 +568,7 @@ class Mon
                 }
                 if (pg_states_changed)
                 {
-                    this.save_last_clean().catch(console.error);
+                    this.save_last_clean().catch(this.die);
                 }
                 if (stats_changed)
                 {
@@ -1196,7 +1254,7 @@ class Mon
         this.recheck_timer = setTimeout(() =>
         {
             this.recheck_timer = null;
-            this.recheck_pgs().catch(console.error);
+            this.recheck_pgs().catch(this.die);
         }, this.config.mon_change_timeout || 1000);
     }
 
@@ -1463,7 +1521,7 @@ class Mon
         cur[key_parts[key_parts.length-1]] = kv.value;
         if (key === 'config/global')
         {
-            this.config = this.state.config.global;
+            this.config = { ...this.initConfig, ...this.state.config.global };
             this.check_config();
             for (const osd_num in this.state.osd.stats)
             {
@@ -1500,12 +1558,15 @@ class Mon
         }
         while (retries < 0 || retry < retries)
         {
-            const base = this.etcd_urls[Math.floor(Math.random()*this.etcd_urls.length)];
+            retry++;
+            const base = this.pick_next_etcd();
             const res = await POST(base+path, body, timeout);
             if (res.error)
             {
-                console.error('etcd returned error: '+res.error);
-                break;
+                if (this.selected_etcd_url == base)
+                    this.selected_etcd_url = null;
+                console.error('failed to query etcd: '+res.error);
+                continue;
             }
             if (res.json)
             {
@@ -1514,26 +1575,20 @@ class Mon
                     console.error('etcd returned error: '+res.json.error);
                     break;
                 }
-                if (this.etcd_urls.length > 1)
-                {
-                    // Stick to the same etcd for the rest of calls
-                    this.etcd_urls = [ base ];
-                }
                 return res.json;
             }
-            retry++;
         }
         this.die();
     }
 
-    die(err)
+    _die(err)
     {
         // In fact we can just try to rejoin
         console.error(new Error(err || 'Cluster connection failed'));
         process.exit(1);
     }
 
-    local_ips()
+    local_ips(all)
     {
         const ips = [];
         const ifaces = os.networkInterfaces();
@@ -1541,7 +1596,7 @@ class Mon
         {
             for (const iface of ifaces[ifname])
             {
-                if (iface.family == 'IPv4' && !iface.internal)
+                if (iface.family == 'IPv4' && !iface.internal || all)
                 {
                     ips.push(iface.address);
                 }
