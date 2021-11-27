@@ -15,7 +15,7 @@
 //   Peer connection is lost -> Reload connection data -> Try to reconnect
 void osd_t::init_cluster()
 {
-    if (!st_cli.etcd_addresses.size())
+    if (!st_cli.address_count())
     {
         if (run_primary)
         {
@@ -711,7 +711,7 @@ struct reporting_pg_t
 
 void osd_t::report_pg_states()
 {
-    if (etcd_reporting_pg_state || !this->pg_state_dirty.size() || !st_cli.etcd_addresses.size())
+    if (etcd_reporting_pg_state || !this->pg_state_dirty.size() || !st_cli.address_count())
     {
         return;
     }

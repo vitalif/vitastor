@@ -76,13 +76,16 @@ struct etcd_state_client_t
 {
 protected:
     std::vector<std::string> local_ips;
+    std::vector<std::string> etcd_addresses;
     std::vector<std::string> etcd_local;
+    std::string selected_etcd_address;
+    std::vector<std::string> addresses_to_try;
     std::vector<inode_watch_t*> watches;
     websocket_t *etcd_watch_ws = NULL;
     uint64_t bs_block_size = DEFAULT_BLOCK_SIZE;
     void add_etcd_url(std::string);
+    void pick_next_etcd();
 public:
-    std::vector<std::string> etcd_addresses;
     std::string etcd_prefix;
     int log_level = 0;
     timerfd_manager_t *tfd = NULL;
@@ -112,5 +115,6 @@ public:
     void parse_config(const json11::Json & config);
     inode_watch_t* watch_inode(std::string name);
     void close_watch(inode_watch_t* watch);
+    int address_count();
     ~etcd_state_client_t();
 };
