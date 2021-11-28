@@ -70,7 +70,7 @@ struct image_changer_t
                 // Check confirmation when trimming an image with children
                 if (has_children && !force)
                 {
-                    fprintf(stderr, "Image %s has children. Refusing to shrink it without --force", image_name.c_str());
+                    fprintf(stderr, "Image %s has children. Refusing to shrink it without --force\n", image_name.c_str());
                     exit(1);
                 }
                 // Shrink the image first
@@ -98,9 +98,9 @@ resume_1:
         {
             cfg.readonly = false;
             // Check confirmation when making an image with children read-write
-            if (!force)
+            if (has_children && !force)
             {
-                fprintf(stderr, "Image %s has children. Refusing to make it read-write without --force", image_name.c_str());
+                fprintf(stderr, "Image %s has children. Refusing to make it read-write without --force\n", image_name.c_str());
                 exit(1);
             }
         }
@@ -184,7 +184,7 @@ resume_1:
 resume_2:
         if (parent->waiting > 0)
             return;
-        printf("Image %s changed\n", image_name.c_str());
+        printf("Image %s modified\n", image_name.c_str());
         state = 100;
     }
 };
