@@ -49,7 +49,8 @@ struct image_creator_t
             auto & pools = parent->cli->st_cli.pool_config;
             if (pools.find(new_pool_id) == pools.end())
             {
-                new_pool_id = 0;
+                fprintf(stderr, "Pool %u does not exist\n", new_pool_id);
+                exit(1);
             }
         }
         else if (new_pool_name != "")
@@ -62,23 +63,16 @@ struct image_creator_t
                     break;
                 }
             }
+            if (!new_pool_id)
+            {
+                fprintf(stderr, "Pool %s does not exist\n", new_pool_name.c_str());
+                exit(1);
+            }
         }
         else if (parent->cli->st_cli.pool_config.size() == 1)
         {
             auto it = parent->cli->st_cli.pool_config.begin();
             new_pool_id = it->first;
-        }
-        if (!new_pool_id)
-        {
-            if (new_pool_name == "")
-            {
-                fprintf(stderr, "Pool name or ID is missing\n");
-            }
-            else
-            {
-                fprintf(stderr, "Pool %s does not exist\n", new_pool_name.c_str());
-            }
-            exit(1);
         }
         state = 1;
     resume_1:
@@ -94,6 +88,11 @@ struct image_creator_t
             goto resume_2;
         else if (state == 3)
             goto resume_3;
+        if (!new_pool_id)
+        {
+            fprintf(stderr, "Pool name or ID is missing\n");
+            exit(1);
+        }
         if (!size)
         {
             fprintf(stderr, "Image size is missing\n");
@@ -164,6 +163,11 @@ resume_3:
             {
                 fprintf(stderr, "Image %s does not exist\n", image_name.c_str());
                 exit(1);
+            }
+            if (!new_pool_id)
+            {
+                // Create snapshot in the same pool by default
+                new_pool_id = old_pool_id;
             }
             attempt_create();
             state = 4;
