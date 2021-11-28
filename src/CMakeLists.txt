@@ -4,7 +4,7 @@ project(vitastor)
 
 include(GNUInstallDirs)
 
-set(WITH_QEMU true CACHE BOOL "Build QEMU driver")
+set(WITH_QEMU false CACHE BOOL "Build QEMU driver inside Vitastor source tree")
 set(WITH_FIO true CACHE BOOL "Build FIO driver")
 set(QEMU_PLUGINDIR qemu CACHE STRING "QEMU plugin directory suffix (qemu-kvm on RHEL)")
 set(WITH_ASAN false CACHE BOOL "Build with AddressSanitizer")
@@ -171,6 +171,7 @@ if (${WITH_QEMU})
 	add_library(qemu_vitastor SHARED
 		qemu_driver.c
 	)
+	target_compile_options(qemu_vitastor PUBLIC -DVITASTOR_SOURCE_TREE)
 	target_include_directories(qemu_vitastor PUBLIC
 		../qemu/b/qemu
 		../qemu/include

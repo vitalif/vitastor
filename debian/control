@@ -9,7 +9,7 @@ Rules-Requires-Root: no
 
 Package: vitastor
 Architecture: amd64
-Depends: vitastor-osd, vitastor-mon, vitastor-client, vitastor-client-dev, vitastor-fio, vitastor-qemu
+Depends: vitastor-osd, vitastor-mon, vitastor-client, vitastor-client-dev, vitastor-fio
 Description: Vitastor, a fast software-defined clustered block storage
  Vitastor is a small, simple and fast clustered block storage (storage for VM drives),
  architecturally similar to Ceph which means strong consistency, primary-replication,
@@ -47,9 +47,3 @@ Architecture: amd64
 Depends: ${shlibs:Depends}, ${misc:Depends}, vitastor-client (= ${binary:Version}), fio (= ${dep:fio})
 Description: Vitastor, a fast software-defined clustered block storage - fio drivers
  Vitastor fio drivers for benchmarking.
-
-Package: vitastor-qemu
-Architecture: amd64
-Depends: ${shlibs:Depends}, ${misc:Depends}, vitastor-client (= ${binary:Version}), qemu (= ${dep:qemu})
-Description: Vitastor, a fast software-defined clustered block storage - QEMU driver
- Vitastor QEMU block device driver.

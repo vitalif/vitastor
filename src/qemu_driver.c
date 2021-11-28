@@ -3,8 +3,10 @@
 
 // QEMU block driver
 
+#ifdef VITASTOR_SOURCE_TREE
 #define BUILD_DSO
 #define _GNU_SOURCE
+#endif
 #include "qemu/osdep.h"
 #include "block/block_int.h"
 #include "qapi/error.h"
@@ -32,6 +34,7 @@
 
 #include "vitastor_c.h"
 
+#ifdef VITASTOR_SOURCE_TREE
 void qemu_module_dummy(void)
 {
 }
@@ -39,6 +42,7 @@ void qemu_module_dummy(void)
 void DSO_STAMP_FUN(void)
 {
 }
+#endif
 
 typedef struct VitastorClient
 {

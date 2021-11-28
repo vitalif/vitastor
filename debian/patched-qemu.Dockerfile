@@ -27,8 +27,14 @@ RUN apt-get -y build-dep fio
 RUN apt-get --download-only source qemu
 RUN apt-get --download-only source fio
 
-ADD patches/qemu-5.0-vitastor.patch patches/qemu-5.1-vitastor.patch patches/qemu-6.1-vitastor.patch /root/vitastor/patches/
+ADD patches/qemu-5.0-vitastor.patch patches/qemu-5.1-vitastor.patch patches/qemu-6.1-vitastor.patch src/qemu_driver.c /root/vitastor/patches/
 RUN set -e; \
+    apt-get install -y wget; \
+    wget -q -O /etc/apt/trusted.gpg.d/vitastor.gpg https://vitastor.io/debian/pubkey.gpg; \
+    (echo deb http://vitastor.io/debian bullseye main > /etc/apt/sources.list.d/vitastor.list); \
+    (echo "APT::Install-Recommends false;" > /etc/apt/apt.conf) && \
+    apt-get update; \
+    apt-get install -y vitastor-client-dev quilt; \
     mkdir -p /root/packages/qemu-$REL; \
     rm -rf /root/packages/qemu-$REL/*; \
     cd /root/packages/qemu-$REL; \
@@ -47,7 +53,11 @@ RUN set -e; \
         echo qemu-5.1-vitastor.patch >> $P/series; \
     fi; \
     cd /root/packages/qemu-$REL/qemu-*/; \
+    quilt push -a; \
+    quilt add block/vitastor.c; \
+    cp /root/vitastor/patches/qemu_driver.c block/vitastor.c; \
+    quilt refresh; \
     V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)(~bpo[\d\+]*)?\).*$/$1/')+vitastor1; \
-    DEBFULLNAME="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v $V 'Plug Vitastor block driver'; \
+    DEBEMAIL="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v $V 'Plug Vitastor block driver'; \
     DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto -sa; \
     rm -rf /root/packages/qemu-$REL/qemu-*/

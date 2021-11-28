@@ -74,15 +74,115 @@ Index: qemu-6.1+dfsg/qapi/block-core.json
        'vmdk':           'BlockdevCreateOptionsVmdk',
        'vpc':            'BlockdevCreateOptionsVpc'
    } }
-Index: qemu-6.1+dfsg/scripts/modules/module_block.py
+Index: qemu-6.1+dfsg/block/meson.build
 ===================================================================
---- qemu-6.1+dfsg.orig/scripts/modules/module_block.py
-+++ qemu-6.1+dfsg/scripts/modules/module_block.py
-@@ -86,6 +86,7 @@ if __name__ == '__main__':
-     output_file = sys.argv[1]
-     with open(output_file, 'w') as fheader:
-         print_top(fheader)
-+        add_module(fheader, "vitastor", "vitastor", "vitastor")
+--- qemu-6.1+dfsg.orig/block/meson.build
++++ qemu-6.1+dfsg/block/meson.build
+@@ -78,6 +78,7 @@ foreach m : [
+   [libnfs, 'nfs', files('nfs.c')],
+   [libssh, 'ssh', files('ssh.c')],
+   [rbd, 'rbd', files('rbd.c')],
++  [vitastor, 'vitastor', files('vitastor.c')],
+ ]
+   if m[0].found()
+     module_ss = ss.source_set()
+Index: qemu-6.1+dfsg/configure
+===================================================================
+--- qemu-6.1+dfsg.orig/configure
++++ qemu-6.1+dfsg/configure
+@@ -375,6 +375,7 @@ trace_file="trace"
+ spice="$default_feature"
+ spice_protocol="auto"
+ rbd="auto"
++vitastor="auto"
+ smartcard="auto"
+ u2f="auto"
+ libusb="auto"
+@@ -1292,6 +1293,10 @@ for opt do
+   ;;
+   --enable-rbd) rbd="enabled"
+   ;;
++  --disable-vitastor) vitastor="disabled"
++  ;;
++  --enable-vitastor) vitastor="enabled"
++  ;;
+   --disable-xfsctl) xfs="no"
+   ;;
+   --enable-xfsctl) xfs="yes"
+@@ -1916,6 +1921,7 @@ disabled with --disable-FEATURE, default
+   spice           spice
+   spice-protocol  spice-protocol
+   rbd             rados block device (rbd)
++  vitastor        vitastor block device
+   libiscsi        iscsi support
+   libnfs          nfs support
+   smartcard       smartcard support (libcacard)
+@@ -5202,7 +5208,7 @@ if test "$skip_meson" = no; then
+         -Dcapstone=$capstone -Dslirp=$slirp -Dfdt=$fdt -Dbrlapi=$brlapi \
+         -Dcurl=$curl -Dglusterfs=$glusterfs -Dbzip2=$bzip2 -Dlibiscsi=$libiscsi \
+         -Dlibnfs=$libnfs -Diconv=$iconv -Dcurses=$curses -Dlibudev=$libudev\
+-        -Drbd=$rbd -Dlzo=$lzo -Dsnappy=$snappy -Dlzfse=$lzfse -Dlibxml2=$libxml2 \
++        -Drbd=$rbd -Dvitastor=$vitastor -Dlzo=$lzo -Dsnappy=$snappy -Dlzfse=$lzfse -Dlibxml2=$libxml2 \
+         -Dlibdaxctl=$libdaxctl -Dlibpmem=$libpmem -Dlinux_io_uring=$linux_io_uring \
+         -Dgnutls=$gnutls -Dnettle=$nettle -Dgcrypt=$gcrypt -Dauth_pam=$auth_pam \
+         -Dzstd=$zstd -Dseccomp=$seccomp -Dvirtfs=$virtfs -Dcap_ng=$cap_ng \
+Index: qemu-6.1+dfsg/meson.build
+===================================================================
+--- qemu-6.1+dfsg.orig/meson.build
++++ qemu-6.1+dfsg/meson.build
+@@ -729,6 +729,26 @@ if not get_option('rbd').auto() or have_
+   endif
+ endif
  
-         for filename in sys.argv[2:]:
-             if os.path.isfile(filename):
++vitastor = not_found
++if not get_option('vitastor').auto() or have_block
++  libvitastor_client = cc.find_library('vitastor_client', has_headers: ['vitastor_c.h'],
++    required: get_option('vitastor'), kwargs: static_kwargs)
++  if libvitastor_client.found()
++    if cc.links('''
++      #include <vitastor_c.h>
++      int main(void) {
++        vitastor_c_create_qemu(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
++        return 0;
++      }''', dependencies: libvitastor_client)
++      vitastor = declare_dependency(dependencies: libvitastor_client)
++    elif get_option('vitastor').enabled()
++      error('could not link libvitastor_client')
++    else
++      warning('could not link libvitastor_client, disabling')
++    endif
++  endif
++endif
++
+ glusterfs = not_found
+ glusterfs_ftruncate_has_stat = false
+ glusterfs_iocb_has_stat = false
+@@ -1264,6 +1284,7 @@ config_host_data.set('CONFIG_LIBNFS', li
+ config_host_data.set('CONFIG_LINUX_IO_URING', linux_io_uring.found())
+ config_host_data.set('CONFIG_LIBPMEM', libpmem.found())
+ config_host_data.set('CONFIG_RBD', rbd.found())
++config_host_data.set('CONFIG_VITASTOR', vitastor.found())
+ config_host_data.set('CONFIG_SDL', sdl.found())
+ config_host_data.set('CONFIG_SDL_IMAGE', sdl_image.found())
+ config_host_data.set('CONFIG_SECCOMP', seccomp.found())
+@@ -3075,6 +3096,7 @@ summary_info += {'bpf support': libbpf.f
+ # TODO: add back protocol and server version
+ summary_info += {'spice support':     config_host.has_key('CONFIG_SPICE')}
+ summary_info += {'rbd support':       rbd.found()}
++summary_info += {'vitastor support':  vitastor.found()}
+ summary_info += {'xfsctl support':    config_host.has_key('CONFIG_XFS')}
+ summary_info += {'smartcard support': cacard.found()}
+ summary_info += {'U2F support':       u2f.found()}
+Index: qemu-6.1+dfsg/meson_options.txt
+===================================================================
+--- qemu-6.1+dfsg.orig/meson_options.txt
++++ qemu-6.1+dfsg/meson_options.txt
+@@ -102,6 +102,8 @@ option('lzo', type : 'feature', value :
+        description: 'lzo compression support')
+ option('rbd', type : 'feature', value : 'auto',
+        description: 'Ceph block device driver')
++option('vitastor', type : 'feature', value : 'auto',
++       description: 'Vitastor block device driver')
+ option('gtk', type : 'feature', value : 'auto',
+        description: 'GTK+ user interface')
+ option('sdl', type : 'feature', value : 'auto',
