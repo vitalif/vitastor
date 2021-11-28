@@ -1414,6 +1414,7 @@ class Mon
         {
             for (const inode_num in inode_stats[pool_id])
             {
+                let nonzero = inode_stats[pool_id][inode_num].raw_used > 0;
                 for (const op of [ 'read', 'write', 'delete' ])
                 {
                     const op_st = inode_stats[pool_id][inode_num][op];
@@ -1421,6 +1422,13 @@ class Mon
                     op_st.bps = prev_st ? (op_st.bytes - prev_st.bytes) * 1000n / tm : 0;
                     op_st.iops = prev_st ? (op_st.count - prev_st.count) * 1000n / tm : 0;
                     op_st.lat = prev_st ? (op_st.usec - prev_st.usec) / ((op_st.count - prev_st.count) || 1n) : 0;
+                    if (op_st.bps > 0 || op_st.iops > 0 || op_st.lat > 0)
+                        nonzero = true;
+                }
+                if (!nonzero && (!this.state.config.inode[pool_id] || !this.state.config.inode[pool_id][inode_num]))
+                {
+                    // Deleted inode (no data, no I/O, no config)
+                    delete inode_stats[pool_id][inode_num];
                 }
             }
         }
@@ -1467,6 +1475,18 @@ class Mon
                     key: b64(this.etcd_prefix+'/inode/stats/'+pool_id+'/'+inode_num),
                     value: b64(JSON.stringify(inode_stats[pool_id][inode_num])),
                 } });
+            }
+        }
+        for (const pool_id in this.state.inode.stats)
+        {
+            for (const inode_num in this.state.inode.stats[pool_id])
+            {
+                if (!inode_stats[pool_id] || !inode_stats[pool_id][inode_num])
+                {
+                    txn.push({ requestDeleteRange: {
+                        key: b64(this.etcd_prefix+'/inode/stats/'+pool_id+'/'+inode_num),
+                    } });
+                }
             }
         }
         for (const pool_id in this.state.pool.stats)
