@@ -5,12 +5,13 @@
 #include "cluster_client.h"
 #include "base64.h"
 
-// Resize image (purging extra data on shrink) or change its readonly status
+// Rename, resize image (and purge extra data on shrink) or change its readonly status
 struct image_changer_t
 {
     cli_tool_t *parent;
 
     std::string image_name;
+    std::string new_name;
     uint64_t new_size = 0;
     bool set_readonly = false, set_readwrite = false, force = false;
     // interval between fsyncs
@@ -18,7 +19,7 @@ struct image_changer_t
 
     uint64_t inode_num = 0;
     inode_config_t cfg;
-    std::string cur_cfg_key;
+    json11::Json::array checks, success;
     bool has_children = false;
 
     int state = 0;
@@ -43,6 +44,11 @@ struct image_changer_t
                 cfg = ic.second;
                 break;
             }
+            if (new_name != "" && ic.second.name == new_name)
+            {
+                fprintf(stderr, "Image %s already exists\n", new_name.c_str());
+                exit(1);
+            }
         }
         if (!inode_num)
         {
@@ -61,7 +67,7 @@ struct image_changer_t
         {
             if (cfg.size >= new_size)
             {
-                // Check confirmation if trimming an image with children
+                // Check confirmation when trimming an image with children
                 if (has_children && !force)
                 {
                     fprintf(stderr, "Image %s has children. Refusing to shrink it without --force", image_name.c_str());
@@ -91,36 +97,74 @@ resume_1:
         if (set_readwrite)
         {
             cfg.readonly = false;
-            // Check confirmation if trimming an image with children
+            // Check confirmation when making an image with children read-write
             if (!force)
             {
                 fprintf(stderr, "Image %s has children. Refusing to make it read-write without --force", image_name.c_str());
                 exit(1);
             }
         }
-        cur_cfg_key = base64_encode(parent->cli->st_cli.etcd_prefix+
-            "/config/inode/"+std::to_string(INODE_POOL(inode_num))+
-            "/"+std::to_string(INODE_NO_POOL(inode_num)));
+        if (new_name != "")
+        {
+            cfg.name = new_name;
+        }
+        {
+            std::string cur_cfg_key = base64_encode(parent->cli->st_cli.etcd_prefix+
+                "/config/inode/"+std::to_string(INODE_POOL(inode_num))+
+                "/"+std::to_string(INODE_NO_POOL(inode_num)));
+            checks.push_back(json11::Json::object {
+                { "target", "MOD" },
+                { "key", cur_cfg_key },
+                { "result", "LESS" },
+                { "mod_revision", cfg.mod_revision+1 },
+            });
+            success.push_back(json11::Json::object {
+                { "request_put", json11::Json::object {
+                    { "key", cur_cfg_key },
+                    { "value", base64_encode(json11::Json(
+                        parent->cli->st_cli.serialize_inode_cfg(&cfg)
+                    ).dump()) },
+                } }
+            });
+        }
+        if (new_name != "")
+        {
+            std::string old_idx_key = base64_encode(
+                parent->cli->st_cli.etcd_prefix+"/index/image/"+image_name
+            );
+            std::string new_idx_key = base64_encode(
+                parent->cli->st_cli.etcd_prefix+"/index/image/"+new_name
+            );
+            checks.push_back(json11::Json::object {
+                { "target", "MOD" },
+                { "key", old_idx_key },
+                { "result", "LESS" },
+                { "mod_revision", cfg.mod_revision+1 },
+            });
+            checks.push_back(json11::Json::object {
+                { "target", "VERSION" },
+                { "version", 0 },
+                { "key", new_idx_key },
+            });
+            success.push_back(json11::Json::object {
+                { "request_delete_range", json11::Json::object {
+                    { "key", old_idx_key },
+                } }
+            });
+            success.push_back(json11::Json::object {
+                { "request_put", json11::Json::object {
+                    { "key", new_idx_key },
+                    { "value", base64_encode(json11::Json(json11::Json::object{
+                        { "id", INODE_NO_POOL(inode_num) },
+                        { "pool_id", (uint64_t)INODE_POOL(inode_num) },
+                    }).dump()) },
+                } }
+            });
+        }
         parent->waiting++;
         parent->cli->st_cli.etcd_txn(json11::Json::object {
-            { "compare", json11::Json::array {
-                json11::Json::object {
-                    { "target", "MOD" },
-                    { "key", cur_cfg_key },
-                    { "result", "LESS" },
-                    { "mod_revision", cfg.mod_revision+1 },
-                },
-            } },
-            { "success", json11::Json::array {
-                json11::Json::object {
-                    { "request_put", json11::Json::object {
-                        { "key", cur_cfg_key },
-                        { "value", base64_encode(json11::Json(
-                            parent->cli->st_cli.serialize_inode_cfg(&cfg)
-                        ).dump()) },
-                    } }
-                },
-            } },
+            { "compare", checks },
+            { "success", success },
         }, ETCD_SLOW_TIMEOUT, [this](std::string err, json11::Json res)
         {
             if (err != "")
@@ -155,6 +199,11 @@ std::function<bool(void)> cli_tool_t::start_modify(json11::Json cfg)
     {
         fprintf(stderr, "Image name is missing\n");
         exit(1);
+    }
+    changer->new_name = cfg["rename"].string_value();
+    if (changer->new_name == changer->image_name)
+    {
+        changer->new_name = "";
     }
     changer->new_size = cfg["size"].uint64_value();
     if (changer->new_size != 0 && (changer->new_size % 4096))
