@@ -468,6 +468,8 @@ resume_9:
                     { "request_delete_range", json11::Json::object {
                         { "key", cur_cfg_key },
                     } },
+                },
+                json11::Json::object {
                     { "request_delete_range", json11::Json::object {
                         { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/index/image/"+cur_name) },
                     } },
