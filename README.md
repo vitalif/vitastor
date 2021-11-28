@@ -356,13 +356,21 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
   with lazy fsync, but prepare for inferior single-thread latency.
 - Get a fast network (at least 10 Gbit/s).
 - Disable CPU powersaving: `cpupower idle-set -D 0 && cpupower frequency-set -g performance`.
-- Check `/usr/lib/vitastor/mon/make-units.sh` and `/usr/lib/vitastor/mon/make-osd.sh` and
-  put desired values into the variables at the top of these files.
-- Create systemd units for the monitor and etcd: `/usr/lib/vitastor/mon/make-units.sh`
+- On the monitor hosts:
+  - Edit variables at the top of `/usr/lib/vitastor/mon/make-units.sh` to desired values.
+  - Create systemd units for the monitor and etcd: `/usr/lib/vitastor/mon/make-units.sh`
+- Put etcd_address and osd_network into `/etc/vitastor/vitastor.conf`. Example:
+  ```
+  {
+    "etcd_address": ["10.200.1.10:2379","10.200.1.11:2379","10.200.1.12:2379"],
+    "osd_network": "10.200.1.0/24"
+  }
+  ```
 - Create systemd units for your OSDs: `/usr/lib/vitastor/mon/make-osd.sh /dev/disk/by-partuuid/XXX [/dev/disk/by-partuuid/YYY ...]`
-- You can edit the units and change OSD configuration. Notable configuration variables:
+- You can change OSD configuration in units or in `vitastor.conf`. Notable configuration variables:
   - `disable_data_fsync 1` - only safe with server-grade drives with capacitors.
   - `immediate_commit all` - use this if all your drives are server-grade.
+    If all OSDs have it set to all then you should also put the same value in etcd into /vitastor/config/global
   - `disable_device_lock 1` - only required if you run multiple OSDs on one block device.
   - `flusher_count 256` - flusher is a micro-thread that removes old data from the journal.
     You don't have to worry about this parameter anymore, 256 is enough.

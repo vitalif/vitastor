@@ -4,17 +4,15 @@
 # Copyright (c) Vitaliy Filippov, 2019+
 # License: MIT
 
-# USAGE: ./make-osd.sh /dev/disk/by-partuuid/xxx [ /dev/disk/by-partuuid/yyy]...
-
-IP_SUBSTR="10.200.1."
-ETCD_HOSTS="etcd0=http://10.200.1.10:2380,etcd1=http://10.200.1.11:2380,etcd2=http://10.200.1.12:2380"
+# USAGE:
+# 1) Put etcd_address and osd_network into /etc/vitastor/vitastor.conf. Example:
+#    {
+#        "etcd_address":["http://10.200.1.10:2379/v3","http://10.200.1.11:2379/v3","http://10.200.1.12:2379/v3"],
+#        "osd_network":"10.200.1.0/24"
+#    }
+# 2) Run ./make-osd.sh /dev/disk/by-partuuid/xxx [ /dev/disk/by-partuuid/yyy]...
 
 set -e -x
-
-IP=`ip -json a s | jq -r '.[].addr_info[] | select(.local | startswith("'$IP_SUBSTR'")) | .local'`
-[ "$IP" != "" ] || exit 1
-ETCD_MON=$(echo $ETCD_HOSTS | perl -pe 's/:2380/:2379/g; s/etcd\d*=//g;')
-D=`dirname $0`
 
 # Create OSDs on all passed devices
 for DEV in $*; do
@@ -39,8 +37,6 @@ LimitNOFILE=1048576
 LimitNPROC=1048576
 LimitMEMLOCK=infinity
 ExecStart=/usr/bin/vitastor-osd \\
-    --etcd_address $IP:2379/v3 \\
-    --bind_address $IP \\
     --osd_num $OSD_NUM \\
     --disable_data_fsync 1 \\
     --immediate_commit all \\
