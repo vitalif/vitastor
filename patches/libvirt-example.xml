@@ -15,9 +15,10 @@
       <target dev='vda' bus='virtio' />
       <driver name='qemu' type='raw' />
       <!-- name is Vitastor image name -->
-      <!-- config (optional) is the path to Vitastor's configuration file -->
       <!-- query (optional) is Vitastor's etcd_prefix -->
-      <source protocol='vitastor' name='debian9' query='/vitastor' config='/etc/vitastor/vitastor.conf'>
+      <source protocol='vitastor' name='debian9' query='/vitastor'>
+        <!-- config (optional) is the path to Vitastor's configuration file -->
+        <config file='/etc/vitastor/vitastor.conf' />
         <!-- hosts = etcd addresses -->
         <host name='192.168.7.2' port='2379' />
       </source>

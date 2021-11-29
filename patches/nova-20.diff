@@ -1,5 +1,5 @@
 diff --git a/nova/virt/image/model.py b/nova/virt/image/model.py
-index 971f7e9c07..70ed70d5e2 100644
+index 971f7e9c07..ec3fca72cb 100644
 --- a/nova/virt/image/model.py
 +++ b/nova/virt/image/model.py
 @@ -129,3 +129,22 @@ class RBDImage(Image):
@@ -19,7 +19,7 @@ index 971f7e9c07..70ed70d5e2 100644
 +        :param etcd_prefix: etcd prefix (optional)
 +        :param config_path: path to the configuration (optional)
 +        """
-+        super(RBDImage, self).__init__(FORMAT_RAW)
++        super(VitastorImage, self).__init__(FORMAT_RAW)
 +
 +        self.name = name
 +        self.etcd_address = etcd_address
@@ -48,7 +48,7 @@ index 5358f3766a..ebe3d6effb 100644
  
      info = nova.privsep.qemu.privileged_qemu_img_info(path, format=format)
 diff --git a/nova/virt/libvirt/config.py b/nova/virt/libvirt/config.py
-index f9475776b3..51573fe41d 100644
+index f9475776b3..a2e18aab67 100644
 --- a/nova/virt/libvirt/config.py
 +++ b/nova/virt/libvirt/config.py
 @@ -1060,6 +1060,8 @@ class LibvirtConfigGuestDisk(LibvirtConfigGuestDevice):
@@ -60,18 +60,19 @@ index f9475776b3..51573fe41d 100644
          self.source_name = None
          self.source_hosts = []
          self.source_ports = []
-@@ -1186,7 +1188,8 @@ class LibvirtConfigGuestDisk(LibvirtConfigGuestDevice):
-         elif self.source_type == "mount":
-             dev.append(etree.Element("source", dir=self.source_path))
-         elif self.source_type == "network" and self.source_protocol:
--            source = etree.Element("source", protocol=self.source_protocol)
-+            source = etree.Element("source", protocol=self.source_protocol,
-+                query=self.source_query, config=self.source_config)
+@@ -1189,6 +1191,10 @@ class LibvirtConfigGuestDisk(LibvirtConfigGuestDevice):
+             source = etree.Element("source", protocol=self.source_protocol)
              if self.source_name is not None:
                  source.set('name', self.source_name)
++            if self.source_query is not None:
++                source.set('query', self.source_query)
++            if self.source_config is not None:
++                source.append(etree.Element('config', file=self.source_config))
              hosts_info = zip(self.source_hosts, self.source_ports)
+             for name, port in hosts_info:
+                 host = etree.Element('host', name=name)
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index 391231c527..34dc60dcdd 100644
+index 391231c527..f38faa1608 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
 @@ -179,6 +179,7 @@ VOLUME_DRIVERS = {

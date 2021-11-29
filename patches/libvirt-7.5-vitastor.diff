@@ -1,4 +1,4 @@
-commit c6e1958a1b4974828e8e5852beb252ce6594e670
+commit c97d7f2bfb7798f0d68bdba2646245dcfb940efa
 Author: Vitaliy Filippov <vitalif@yourcmc.ru>
 Date:   Mon Jun 28 01:20:19 2021 +0300
 
@@ -86,6 +86,37 @@ index d78f846..f7222e3 100644
      case VIR_STORAGE_POOL_SHEEPDOG:
      case VIR_STORAGE_POOL_GLUSTER:
      case VIR_STORAGE_POOL_LAST:
+diff --git a/src/conf/domain_validate.c b/src/conf/domain_validate.c
+index 2124d25..6acc6fa 100644
+--- a/src/conf/domain_validate.c
++++ b/src/conf/domain_validate.c
+@@ -470,7 +470,7 @@ virDomainDiskDefValidateSourceChainOne(const virStorageSource *src)
+         }
+     }
+ 
+-    /* internal snapshots and config files are currently supported only with rbd: */
++    /* internal snapshots are currently supported only with rbd: */
+     if (virStorageSourceGetActualType(src) != VIR_STORAGE_TYPE_NETWORK &&
+         src->protocol != VIR_STORAGE_NET_PROTOCOL_RBD) {
+         if (src->snapshot) {
+@@ -479,11 +479,15 @@ virDomainDiskDefValidateSourceChainOne(const virStorageSource *src)
+                              "only with 'rbd' disks"));
+             return -1;
+         }
+-
++    }
++    /* config files are currently supported only with rbd and vitastor: */
++    if (virStorageSourceGetActualType(src) != VIR_STORAGE_TYPE_NETWORK &&
++        src->protocol != VIR_STORAGE_NET_PROTOCOL_RBD &&
++        src->protocol != VIR_STORAGE_NET_PROTOCOL_VITASTOR) {
+         if (src->configFile) {
+             virReportError(VIR_ERR_XML_ERROR, "%s",
+                            _("<config> element is currently supported "
+-                             "only with 'rbd' disks"));
++                             "only with 'rbd' and 'vitastor' disks"));
+             return -1;
+         }
+     }
 diff --git a/src/conf/storage_conf.c b/src/conf/storage_conf.c
 index 2aa9a3d..166ca1f 100644
 --- a/src/conf/storage_conf.c
@@ -248,7 +279,7 @@ index c0905b0..c172378 100644
      case VIR_STORAGE_NET_PROTOCOL_NONE:
          virReportError(VIR_ERR_NO_SUPPORT,
 diff --git a/src/qemu/qemu_block.c b/src/qemu/qemu_block.c
-index 6627d04..c33f428 100644
+index 6627d04..f769d24 100644
 --- a/src/qemu/qemu_block.c
 +++ b/src/qemu/qemu_block.c
 @@ -928,6 +928,38 @@ qemuBlockStorageSourceGetRBDProps(virStorageSource *src,
@@ -325,7 +356,7 @@ index 6627d04..c33f428 100644
              driver = "sheepdog";
              if (!(location = qemuBlockStorageSourceGetSheepdogProps(src)))
 diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
-index ea51369..8258632 100644
+index ea51369..d714597 100644
 --- a/src/qemu/qemu_command.c
 +++ b/src/qemu/qemu_command.c
 @@ -1074,6 +1074,43 @@ qemuBuildNetworkDriveStr(virStorageSource *src,
@@ -435,7 +466,7 @@ index c2ff4b8..70d0689 100644
          case VIR_STORAGE_POOL_ZFS:
          case VIR_STORAGE_POOL_LAST:
 diff --git a/src/storage_file/storage_source_backingstore.c b/src/storage_file/storage_source_backingstore.c
-index e48ae72..d7a9b72 100644
+index e48ae72..2017ccc 100644
 --- a/src/storage_file/storage_source_backingstore.c
 +++ b/src/storage_file/storage_source_backingstore.c
 @@ -284,6 +284,75 @@ virStorageSourceParseRBDColonString(const char *rbdstr,

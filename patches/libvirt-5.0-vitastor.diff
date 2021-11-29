@@ -1,4 +1,4 @@
-commit bd283191b3e7a4c6d1c100d3d96e348a1ebffe55
+commit 7f01510ef207940b07fac4f5fc8b9f1580b443aa
 Author: Vitaliy Filippov <vitalif@yourcmc.ru>
 Date:   Sun Jun 27 12:52:40 2021 +0300
 
@@ -65,10 +65,38 @@ index 4bf2b5f..dbc011b 100644
  
  int                     virConnectListAllStoragePools(virConnectPtr conn,
 diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
-index 222bb8c..685d255 100644
+index 222bb8c..2c30c55 100644
 --- a/src/conf/domain_conf.c
 +++ b/src/conf/domain_conf.c
-@@ -8653,6 +8653,10 @@ virDomainDiskSourceNetworkParse(xmlNodePtr node,
+@@ -4667,8 +4667,7 @@ virDomainDeviceDefPostParseCommon(virDomainDeviceDefPtr dev,
+     if (dev->type == VIR_DOMAIN_DEVICE_DISK) {
+         virDomainDiskDefPtr disk = dev->data.disk;
+ 
+-        /* internal snapshots and config files are currently supported
+-         * only with rbd: */
++        /* internal snapshots are currently supported only with rbd: */
+         if (virStorageSourceGetActualType(disk->src) != VIR_STORAGE_TYPE_NETWORK &&
+             disk->src->protocol != VIR_STORAGE_NET_PROTOCOL_RBD) {
+             if (disk->src->snapshot) {
+@@ -4677,11 +4676,15 @@ virDomainDeviceDefPostParseCommon(virDomainDeviceDefPtr dev,
+                                  "only with 'rbd' disks"));
+                 return -1;
+             }
+-
++        }
++        /* config files are currently supported only with rbd and vitastor: */
++        if (virStorageSourceGetActualType(disk->src) != VIR_STORAGE_TYPE_NETWORK &&
++            disk->src->protocol != VIR_STORAGE_NET_PROTOCOL_RBD &&
++            disk->src->protocol != VIR_STORAGE_NET_PROTOCOL_VITASTOR) {
+             if (disk->src->configFile) {
+                 virReportError(VIR_ERR_XML_ERROR, "%s",
+                                _("<config> element is currently supported "
+-                                 "only with 'rbd' disks"));
++                                 "only with 'rbd' and 'vitastor' disks"));
+                 return -1;
+             }
+         }
+@@ -8653,6 +8656,10 @@ virDomainDiskSourceNetworkParse(xmlNodePtr node,
          goto cleanup;
      }
  
@@ -79,7 +107,7 @@ index 222bb8c..685d255 100644
      if ((haveTLS = virXMLPropString(node, "tls")) &&
          (src->haveTLS = virTristateBoolTypeFromString(haveTLS)) <= 0) {
          virReportError(VIR_ERR_XML_ERROR,
-@@ -23849,6 +23853,10 @@ virDomainDiskSourceFormatNetwork(virBufferPtr attrBuf,
+@@ -23849,6 +23856,10 @@ virDomainDiskSourceFormatNetwork(virBufferPtr attrBuf,
  
      virBufferEscapeString(attrBuf, " name='%s'", path ? path : src->path);
  
@@ -90,7 +118,7 @@ index 222bb8c..685d255 100644
      VIR_FREE(path);
  
      if (src->haveTLS != VIR_TRISTATE_BOOL_ABSENT &&
-@@ -30930,6 +30938,7 @@ virDomainDiskTranslateSourcePool(virDomainDiskDefPtr def)
+@@ -30930,6 +30941,7 @@ virDomainDiskTranslateSourcePool(virDomainDiskDefPtr def)
  
      case VIR_STORAGE_POOL_MPATH:
      case VIR_STORAGE_POOL_RBD:
@@ -216,7 +244,7 @@ index 73e988a..ab7bb81 100644
      case VIR_STORAGE_NET_PROTOCOL_NONE:
          virReportError(VIR_ERR_NO_SUPPORT,
 diff --git a/src/qemu/qemu_block.c b/src/qemu/qemu_block.c
-index cbf0aa4..096700d 100644
+index cbf0aa4..f0ca9e7 100644
 --- a/src/qemu/qemu_block.c
 +++ b/src/qemu/qemu_block.c
 @@ -959,6 +959,42 @@ qemuBlockStorageSourceGetRBDProps(virStorageSourcePtr src)
@@ -275,7 +303,7 @@ index cbf0aa4..096700d 100644
              if (!(fileprops = qemuBlockStorageSourceGetSheepdogProps(src)))
                  return NULL;
 diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
-index 822d5f8..e375cef 100644
+index 822d5f8..abec34e 100644
 --- a/src/qemu/qemu_command.c
 +++ b/src/qemu/qemu_command.c
 @@ -975,6 +975,43 @@ qemuBuildNetworkDriveStr(virStorageSourcePtr src,
@@ -387,7 +415,7 @@ index 4a13e90..33301c7 100644
              ignore_value(VIR_STRDUP(stable_path, data->path));
              break;
 diff --git a/src/util/virstoragefile.c b/src/util/virstoragefile.c
-index bd4b027..b323cd6 100644
+index bd4b027..8454906 100644
 --- a/src/util/virstoragefile.c
 +++ b/src/util/virstoragefile.c
 @@ -84,7 +84,8 @@ VIR_ENUM_IMPL(virStorageNetProtocol, VIR_STORAGE_NET_PROTOCOL_LAST,
