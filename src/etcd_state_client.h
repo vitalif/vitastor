@@ -15,6 +15,7 @@
 #define MAX_ETCD_ATTEMPTS 5
 #define ETCD_SLOW_TIMEOUT 5000
 #define ETCD_QUICK_TIMEOUT 1000
+#define ETCD_KEEPALIVE_TIMEOUT 30000
 
 #define DEFAULT_BLOCK_SIZE 128*1024
 
@@ -82,6 +83,8 @@ protected:
     std::vector<std::string> addresses_to_try;
     std::vector<inode_watch_t*> watches;
     websocket_t *etcd_watch_ws = NULL;
+    int ws_keepalive_timer = -1;
+    int ws_alive = 0;
     uint64_t bs_block_size = DEFAULT_BLOCK_SIZE;
     void add_etcd_url(std::string);
     void pick_next_etcd();
@@ -103,6 +106,7 @@ public:
     std::function<void(bool)> on_load_pgs_hook;
     std::function<void(pool_id_t, pg_num_t)> on_change_pg_history_hook;
     std::function<void(osd_num_t)> on_change_osd_state_hook;
+    std::function<void()> on_reload_hook;
 
     json11::Json::object serialize_inode_cfg(inode_config_t *cfg);
     etcd_kv_t parse_etcd_kv(const json11::Json & kv_json);

@@ -64,6 +64,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     st_cli.on_change_osd_state_hook = [this](uint64_t peer_osd) { on_change_osd_state_hook(peer_osd); };
     st_cli.on_change_hook = [this](std::map<std::string, etcd_kv_t> & changes) { on_change_hook(changes); };
     st_cli.on_load_pgs_hook = [this](bool success) { on_load_pgs_hook(success); };
+    st_cli.on_reload_hook = [this]() { st_cli.load_global_config(); };
 
     st_cli.parse_config(config);
     st_cli.load_global_config();

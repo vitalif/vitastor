@@ -451,7 +451,11 @@ bool http_co_t::handle_read()
         }
         if (want_streaming && parsed.body.size() > 0)
         {
-            callback(&parsed);
+            if (!ended)
+            {
+                // Don't deliver additional events after close()
+                callback(&parsed);
+            }
             parsed.body = "";
         }
     }
@@ -459,7 +463,11 @@ bool http_co_t::handle_read()
     {
         while (ws_parse_frame(response, parsed.ws_msg_type, parsed.body))
         {
-            callback(&parsed);
+            if (!ended)
+            {
+                // Don't deliver additional events after close()
+                callback(&parsed);
+            }
             parsed.body = "";
         }
     }

@@ -17,6 +17,11 @@ etcd_state_client_t::~etcd_state_client_t()
     }
     watches.clear();
     etcd_watches_initialised = -1;
+    if (ws_keepalive_timer >= 0)
+    {
+        tfd->clear_timer(ws_keepalive_timer);
+        ws_keepalive_timer = -1;
+    }
 #ifndef __MOCK__
     if (etcd_watch_ws)
     {
@@ -192,11 +197,18 @@ void etcd_state_client_t::start_etcd_watcher()
         etcd_address = etcd_address.substr(0, pos);
     }
     etcd_watches_initialised = 0;
+    ws_alive = 1;
+    if (etcd_watch_ws)
+    {
+        etcd_watch_ws->close();
+        etcd_watch_ws = NULL;
+    }
     etcd_watch_ws = open_websocket(tfd, etcd_address, etcd_api_path+"/watch", ETCD_SLOW_TIMEOUT,
         [this, cur_addr = selected_etcd_address](const http_response_t *msg)
     {
         if (msg->body.length())
         {
+            ws_alive = 1;
             std::string json_err;
             json11::Json data = json11::Json::parse(msg->body, json_err);
             if (json_err != "")
@@ -215,17 +227,32 @@ void etcd_state_client_t::start_etcd_watcher()
                     if (data["result"]["compact_revision"].uint64_value())
                     {
                         // we may miss events if we proceed
-                        // FIXME: reload state and continue when used inside cluster_client
-                        fprintf(stderr, "Revisions before %lu were compacted by etcd, exiting\n",
-                            data["result"]["compact_revision"].uint64_value());
+                        // so we should restart from the beginning if we can
+                        if (on_reload_hook != NULL)
+                        {
+                            fprintf(stderr, "Revisions before %lu were compacted by etcd, reloading state\n",
+                                data["result"]["compact_revision"].uint64_value());
+                            etcd_watch_ws->close();
+                            etcd_watch_ws = NULL;
+                            etcd_watch_revision = 0;
+                            on_reload_hook();
+                        }
+                        else
+                        {
+                            fprintf(stderr, "Revisions before %lu were compacted by etcd, exiting\n",
+                                data["result"]["compact_revision"].uint64_value());
+                            exit(1);
+                        }
+                    }
+                    else
+                    {
+                        fprintf(stderr, "Watch canceled by etcd, reason: %s, exiting\n", data["result"]["cancel_reason"].string_value().c_str());
                         exit(1);
                     }
-                    fprintf(stderr, "Watch canceled by etcd, reason: %s, exiting\n", data["result"]["cancel_reason"].string_value().c_str());
-                    exit(1);
                 }
                 if (etcd_watches_initialised == 4)
                 {
-                    etcd_watch_revision = data["result"]["header"]["revision"].uint64_value();
+                    etcd_watch_revision = data["result"]["header"]["revision"].uint64_value()+1;
                     addresses_to_try.clear();
                 }
                 // First gather all changes into a hash to remove multiple overwrites
@@ -256,7 +283,9 @@ void etcd_state_client_t::start_etcd_watcher()
         if (msg->eof)
         {
             if (cur_addr == selected_etcd_address)
+            {
                 selected_etcd_address = "";
+            }
             etcd_watch_ws = NULL;
             if (etcd_watches_initialised == 0)
             {
@@ -277,7 +306,7 @@ void etcd_state_client_t::start_etcd_watcher()
         { "create_request", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/config/") },
             { "range_end", base64_encode(etcd_prefix+"/config0") },
-            { "start_revision", etcd_watch_revision+1 },
+            { "start_revision", etcd_watch_revision },
             { "watch_id", ETCD_CONFIG_WATCH_ID },
             { "progress_notify", true },
         } }
@@ -286,7 +315,7 @@ void etcd_state_client_t::start_etcd_watcher()
         { "create_request", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/osd/state/") },
             { "range_end", base64_encode(etcd_prefix+"/osd/state0") },
-            { "start_revision", etcd_watch_revision+1 },
+            { "start_revision", etcd_watch_revision },
             { "watch_id", ETCD_OSD_STATE_WATCH_ID },
             { "progress_notify", true },
         } }
@@ -295,7 +324,7 @@ void etcd_state_client_t::start_etcd_watcher()
         { "create_request", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/pg/state/") },
             { "range_end", base64_encode(etcd_prefix+"/pg/state0") },
-            { "start_revision", etcd_watch_revision+1 },
+            { "start_revision", etcd_watch_revision },
             { "watch_id", ETCD_PG_STATE_WATCH_ID },
             { "progress_notify", true },
         } }
@@ -304,11 +333,34 @@ void etcd_state_client_t::start_etcd_watcher()
         { "create_request", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/pg/history/") },
             { "range_end", base64_encode(etcd_prefix+"/pg/history0") },
-            { "start_revision", etcd_watch_revision+1 },
+            { "start_revision", etcd_watch_revision },
             { "watch_id", ETCD_PG_HISTORY_WATCH_ID },
             { "progress_notify", true },
         } }
     }).dump());
+    if (ws_keepalive_timer < 0)
+    {
+        ws_keepalive_timer = tfd->set_timer(ETCD_KEEPALIVE_TIMEOUT, true, [this](int)
+        {
+            if (!etcd_watch_ws)
+            {
+                // Do nothing
+            }
+            else if (!ws_alive)
+            {
+                etcd_watch_ws->close();
+                etcd_watch_ws = NULL;
+                start_etcd_watcher();
+            }
+            else
+            {
+                ws_alive = 0;
+                etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
+                    { "progress_request", json11::Json::object { } }
+                }).dump());
+            }
+        });
+    }
 }
 
 void etcd_state_client_t::load_global_config()
@@ -406,7 +458,7 @@ void etcd_state_client_t::load_pgs()
         }
         if (!etcd_watch_revision)
         {
-            etcd_watch_revision = data["header"]["revision"].uint64_value();
+            etcd_watch_revision = data["header"]["revision"].uint64_value()+1;
         }
         for (auto & res: data["responses"].array_items())
         {
