@@ -19,10 +19,8 @@ RUN if [ "$REL" = "buster" -o "$REL" = "bullseye" ]; then \
     echo 'APT::Install-Suggests false;' >> /etc/apt/apt.conf
 
 RUN apt-get update
-RUN apt-get -y install qemu fio liburing1 liburing-dev libgoogle-perftools-dev devscripts
-RUN apt-get -y build-dep qemu
+RUN apt-get -y install fio liburing1 liburing-dev libgoogle-perftools-dev devscripts
 RUN apt-get -y build-dep fio
-RUN apt-get --download-only source qemu
 RUN apt-get --download-only source fio
 RUN apt-get update && apt-get -y install libjerasure-dev cmake libibverbs-dev
 
@@ -32,34 +30,22 @@ RUN set -e -x; \
     cd /root/fio-build/; \
     rm -rf /root/fio-build/*; \
     dpkg-source -x /root/fio*.dsc; \
-    cd /root/packages/qemu-$REL/; \
-    rm -rf qemu*/; \
-    dpkg-source -x qemu*.dsc; \
-    cd /root/packages/qemu-$REL/qemu*/; \
-    debian/rules b/configure-stamp; \
-    cd b/qemu; \
-    make -j8 qapi/qapi-builtin-types.h; \
     mkdir -p /root/packages/vitastor-$REL; \
     rm -rf /root/packages/vitastor-$REL/*; \
     cd /root/packages/vitastor-$REL; \
     cp -r /root/vitastor vitastor-0.6.8; \
-    ln -s /root/packages/qemu-$REL/qemu-*/ vitastor-0.6.8/qemu; \
-    ln -s /root/fio-build/fio-*/ vitastor-0.6.8/fio; \
     cd vitastor-0.6.8; \
+    ln -s /root/fio-build/fio-*/ ./fio; \
     FIO=$(head -n1 fio/debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
-    QEMU=$(head -n1 qemu/debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
-    sh copy-qemu-includes.sh; \
+    ls /usr/include/linux/raw.h || cp ./debian/raw.h /usr/include/linux/raw.h; \
     sh copy-fio-includes.sh; \
-    rm qemu fio; \
+    rm fio; \
     mkdir -p a b debian/patches; \
-    mv qemu-copy b/qemu; \
     mv fio-copy b/fio; \
-    diff -NaurpbB a b > debian/patches/qemu-fio-headers.patch || true; \
-    echo qemu-fio-headers.patch >> debian/patches/series; \
+    diff -NaurpbB a b > debian/patches/fio-headers.patch || true; \
+    echo fio-headers.patch >> debian/patches/series; \
     rm -rf a b; \
-    rm -rf /root/packages/qemu-$REL/qemu*/; \
     echo "dep:fio=$FIO" > debian/fio_version; \
-    echo "dep:qemu=$QEMU" > debian/qemu_version; \
     cd /root/packages/vitastor-$REL; \
     tar --sort=name --mtime='2020-01-01' --owner=0 --group=0 --exclude=debian -cJf vitastor_0.6.8.orig.tar.xz vitastor-0.6.8; \
     cd vitastor-0.6.8; \
