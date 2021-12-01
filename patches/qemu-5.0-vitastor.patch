@@ -1,7 +1,107 @@
-Index: qemu/qapi/block-core.json
-===================================================================
---- qemu.orig/qapi/block-core.json
-+++ qemu/qapi/block-core.json
+diff --git a/block/Makefile.objs b/block/Makefile.objs
+index 3635b6b4c1..6cdf6df6ff 100644
+--- a/block/Makefile.objs
++++ b/block/Makefile.objs
+@@ -30,6 +30,7 @@ block-obj-$(if $(CONFIG_LIBISCSI),y,n) += iscsi-opts.o
+ block-obj-$(CONFIG_LIBNFS) += nfs.o
+ block-obj-$(CONFIG_CURL) += curl.o
+ block-obj-$(CONFIG_RBD) += rbd.o
++block-obj-$(CONFIG_VITASTOR) += vitastor.o
+ block-obj-$(CONFIG_GLUSTERFS) += gluster.o
+ block-obj-$(CONFIG_VXHS) += vxhs.o
+ block-obj-$(CONFIG_LIBSSH) += ssh.o
+@@ -58,6 +59,8 @@ curl.o-cflags      := $(CURL_CFLAGS)
+ curl.o-libs        := $(CURL_LIBS)
+ rbd.o-cflags       := $(RBD_CFLAGS)
+ rbd.o-libs         := $(RBD_LIBS)
++vitastor.o-cflags  := $(VITASTOR_CFLAGS)
++vitastor.o-libs    := $(VITASTOR_LIBS)
+ gluster.o-cflags   := $(GLUSTERFS_CFLAGS)
+ gluster.o-libs     := $(GLUSTERFS_LIBS)
+ vxhs.o-libs        := $(VXHS_LIBS)
+diff --git a/configure b/configure
+index 23b5e93752..7400cb9546 100755
+--- a/configure
++++ b/configure
+@@ -438,6 +438,7 @@ trace_backends="log"
+ trace_file="trace"
+ spice=""
+ rbd=""
++vitastor=""
+ smartcard=""
+ libusb=""
+ usb_redir=""
+@@ -1355,6 +1356,10 @@ for opt do
+   ;;
+   --enable-rbd) rbd="yes"
+   ;;
++  --disable-vitastor) vitastor="no"
++  ;;
++  --enable-vitastor) vitastor="yes"
++  ;;
+   --disable-xfsctl) xfs="no"
+   ;;
+   --enable-xfsctl) xfs="yes"
+@@ -1848,6 +1853,7 @@ disabled with --disable-FEATURE, default is enabled if available:
+   vhost-user      vhost-user backend support
+   spice           spice
+   rbd             rados block device (rbd)
++  vitastor        vitastor block device
+   libiscsi        iscsi support
+   libnfs          nfs support
+   smartcard       smartcard support (libcacard)
+@@ -4088,6 +4094,27 @@ EOF
+   fi
+ fi
+ 
++##########################################
++# vitastor probe
++if test "$vitastor" != "no" ; then
++  cat > $TMPC <<EOF
++#include <vitastor_c.h>
++int main(void) {
++  vitastor_c_create_qemu(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
++  return 0;
++}
++EOF
++  vitastor_libs="-lvitastor_client"
++  if compile_prog "" "$vitastor_libs" ; then
++    vitastor=yes
++  else
++    if test "$vitastor" = "yes" ; then
++      feature_not_found "vitastor block device" "Install vitastor-client-dev"
++    fi
++    vitastor=no
++  fi
++fi
++
+ ##########################################
+ # libssh probe
+ if test "$libssh" != "no" ; then
+@@ -6679,6 +6706,7 @@ echo "Trace output file $trace_file-<pid>"
+ fi
+ echo "spice support     $spice $(echo_version $spice $spice_protocol_version/$spice_server_version)"
+ echo "rbd support       $rbd"
++echo "vitastor support  $vitastor"
+ echo "xfsctl support    $xfs"
+ echo "smartcard support $smartcard"
+ echo "libusb            $libusb"
+@@ -7329,6 +7357,11 @@ if test "$rbd" = "yes" ; then
+   echo "RBD_CFLAGS=$rbd_cflags" >> $config_host_mak
+   echo "RBD_LIBS=$rbd_libs" >> $config_host_mak
+ fi
++if test "$vitastor" = "yes" ; then
++  echo "CONFIG_VITASTOR=m" >> $config_host_mak
++  echo "VITASTOR_CFLAGS=$vitastor_cflags" >> $config_host_mak
++  echo "VITASTOR_LIBS=$vitastor_libs" >> $config_host_mak
++fi
+ 
+ echo "CONFIG_COROUTINE_BACKEND=$coroutine" >> $config_host_mak
+ if test "$coroutine_pool" = "yes" ; then
+diff --git a/qapi/block-core.json b/qapi/block-core.json
+index 943df1926a..c4f23230a3 100644
+--- a/qapi/block-core.json
++++ b/qapi/block-core.json
 @@ -2798,7 +2798,7 @@
              'luks', 'nbd', 'nfs', 'null-aio', 'null-co', 'nvme', 'parallels',
              'qcow', 'qcow2', 'qed', 'quorum', 'raw', 'rbd',
@@ -11,10 +111,11 @@ Index: qemu/qapi/block-core.json
              'ssh', 'throttle', 'vdi', 'vhdx', 'vmdk', 'vpc', 'vvfat', 'vxhs' ] }
  
  ##
-@@ -3635,6 +3635,28 @@
+@@ -3634,6 +3634,28 @@
+             '*snap-id': 'uint32',
              '*tag': 'str' } }
  
- ##
++##
 +# @BlockdevOptionsVitastor:
 +#
 +# Driver specific block device options for vitastor
@@ -36,11 +137,10 @@ Index: qemu/qapi/block-core.json
 +            '*etcd-host': 'str',
 +            '*etcd-prefix': 'str' } }
 +
-+##
+ ##
  # @ReplicationMode:
  #
- # An enumeration of replication modes.
-@@ -3995,6 +4013,7 @@
+@@ -3995,6 +4017,7 @@
        'replication': { 'type': 'BlockdevOptionsReplication',
                         'if': 'defined(CONFIG_REPLICATION)' },
        'sheepdog':   'BlockdevOptionsSheepdog',
@@ -48,10 +148,11 @@ Index: qemu/qapi/block-core.json
        'ssh':        'BlockdevOptionsSsh',
        'throttle':   'BlockdevOptionsThrottle',
        'vdi':        'BlockdevOptionsGenericFormat',
-@@ -4365,6 +4384,17 @@
+@@ -4364,6 +4387,17 @@
+             'size':             'size',
              '*cluster-size' :   'size' } }
  
- ##
++##
 +# @BlockdevCreateOptionsVitastor:
 +#
 +# Driver specific image creation options for Vitastor.
@@ -62,11 +163,10 @@ Index: qemu/qapi/block-core.json
 +  'data': { 'location':         'BlockdevOptionsVitastor',
 +            'size':             'size' } }
 +
-+##
+ ##
  # @BlockdevVmdkSubformat:
  #
- # Subformat options for VMDK images
-@@ -4626,6 +4656,7 @@
+@@ -4626,6 +4660,7 @@
        'qed':            'BlockdevCreateOptionsQed',
        'rbd':            'BlockdevCreateOptionsRbd',
        'sheepdog':       'BlockdevCreateOptionsSheepdog',
@@ -74,15 +174,3 @@ Index: qemu/qapi/block-core.json
        'ssh':            'BlockdevCreateOptionsSsh',
        'vdi':            'BlockdevCreateOptionsVdi',
        'vhdx':           'BlockdevCreateOptionsVhdx',
-Index: qemu/scripts/modules/module_block.py
-===================================================================
---- qemu.orig/scripts/modules/module_block.py
-+++ qemu/scripts/modules/module_block.py
-@@ -85,6 +85,7 @@ def print_bottom(fheader):
- output_file = sys.argv[1]
- with open(output_file, 'w') as fheader:
-     print_top(fheader)
-+    add_module(fheader, "vitastor", "vitastor", "vitastor")
- 
-     for filename in sys.argv[2:]:
-         if os.path.isfile(filename):
