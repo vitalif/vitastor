@@ -1,8 +1,105 @@
-Index: qemu/qapi/block-core.json
-===================================================================
---- qemu.orig/qapi/block-core.json	2020-11-07 22:57:38.932613674 +0000
-+++ qemu.orig/qapi/block-core.json	2020-11-07 22:59:49.890722862 +0000
-@@ -2907,7 +2907,7 @@
+diff -NaurpbB qemu-4.2.0/block/Makefile.objs qemu-4.2.0-vitastor/block/Makefile.objs
+--- qemu-4.2.0/block/Makefile.objs	2019-12-12 18:20:47.000000000 +0000
++++ qemu-4.2.0-vitastor/block/Makefile.objs	2021-12-01 21:28:47.342341760 +0000
+@@ -29,6 +29,7 @@ block-obj-$(if $(CONFIG_LIBISCSI),y,n) +
+ block-obj-$(CONFIG_LIBNFS) += nfs.o
+ block-obj-$(CONFIG_CURL) += curl.o
+ block-obj-$(CONFIG_RBD) += rbd.o
++block-obj-$(CONFIG_VITASTOR) += vitastor.o
+ block-obj-$(CONFIG_GLUSTERFS) += gluster.o
+ block-obj-$(CONFIG_VXHS) += vxhs.o
+ block-obj-$(CONFIG_LIBSSH) += ssh.o
+@@ -53,6 +54,8 @@ curl.o-cflags      := $(CURL_CFLAGS)
+ curl.o-libs        := $(CURL_LIBS)
+ rbd.o-cflags       := $(RBD_CFLAGS)
+ rbd.o-libs         := $(RBD_LIBS)
++vitastor.o-cflags  := $(VITASTOR_CFLAGS)
++vitastor.o-libs    := $(VITASTOR_LIBS)
+ gluster.o-cflags   := $(GLUSTERFS_CFLAGS)
+ gluster.o-libs     := $(GLUSTERFS_LIBS)
+ vxhs.o-libs        := $(VXHS_LIBS)
+diff -NaurpbB qemu-4.2.0/configure qemu-4.2.0-vitastor/configure
+--- qemu-4.2.0/configure	2019-12-12 18:20:47.000000000 +0000
++++ qemu-4.2.0-vitastor/configure	2021-12-01 21:30:24.605237562 +0000
+@@ -435,6 +435,7 @@ trace_backends="log"
+ trace_file="trace"
+ spice=""
+ rbd=""
++vitastor=""
+ smartcard=""
+ libusb=""
+ usb_redir=""
+@@ -1312,6 +1313,10 @@ for opt do
+   ;;
+   --enable-rbd) rbd="yes"
+   ;;
++  --disable-vitastor) vitastor="no"
++  ;;
++  --enable-vitastor) vitastor="yes"
++  ;;
+   --disable-xfsctl) xfs="no"
+   ;;
+   --enable-xfsctl) xfs="yes"
+@@ -1782,6 +1787,7 @@ disabled with --disable-FEATURE, default
+   vhost-user      vhost-user backend support
+   spice           spice
+   rbd             rados block device (rbd)
++  vitastor        vitastor block device
+   libiscsi        iscsi support
+   libnfs          nfs support
+   smartcard       smartcard support (libcacard)
+@@ -3980,6 +3986,27 @@ EOF
+ fi
+ 
+ ##########################################
++# vitastor probe
++if test "$vitastor" != "no" ; then
++  cat > $TMPC <<EOF
++#include <vitastor_c.h>
++int main(void) {
++  vitastor_c_create_qemu(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
++  return 0;
++}
++EOF
++  vitastor_libs="-lvitastor_client"
++  if compile_prog "" "$vitastor_libs" ; then
++    vitastor=yes
++  else
++    if test "$vitastor" = "yes" ; then
++      feature_not_found "vitastor block device" "Install vitastor-client-dev"
++    fi
++    vitastor=no
++  fi
++fi
++
++##########################################
+ # libssh probe
+ if test "$libssh" != "no" ; then
+   if $pkg_config --exists libssh; then
+@@ -6549,6 +6576,7 @@ echo "Trace output file $trace_file-<pid
+ fi
+ echo "spice support     $spice $(echo_version $spice $spice_protocol_version/$spice_server_version)"
+ echo "rbd support       $rbd"
++echo "vitastor support  $vitastor"
+ echo "xfsctl support    $xfs"
+ echo "smartcard support $smartcard"
+ echo "libusb            $libusb"
+@@ -7182,6 +7210,11 @@ if test "$rbd" = "yes" ; then
+   echo "RBD_CFLAGS=$rbd_cflags" >> $config_host_mak
+   echo "RBD_LIBS=$rbd_libs" >> $config_host_mak
+ fi
++if test "$vitastor" = "yes" ; then
++  echo "CONFIG_VITASTOR=m" >> $config_host_mak
++  echo "VITASTOR_CFLAGS=$vitastor_cflags" >> $config_host_mak
++  echo "VITASTOR_LIBS=$vitastor_libs" >> $config_host_mak
++fi
+ 
+ echo "CONFIG_COROUTINE_BACKEND=$coroutine" >> $config_host_mak
+ if test "$coroutine_pool" = "yes" ; then
+diff -NaurpbB qemu-4.2.0/qapi/block-core.json qemu-4.2.0-vitastor/qapi/block-core.json
+--- qemu-4.2.0/qapi/block-core.json	2019-12-12 18:20:48.000000000 +0000
++++ qemu-4.2.0-vitastor/qapi/block-core.json	2021-12-01 21:27:49.213574396 +0000
+@@ -2894,7 +2894,7 @@
              'nbd', 'nfs', 'null-aio', 'null-co', 'nvme', 'parallels', 'qcow',
              'qcow2', 'qed', 'quorum', 'raw', 'rbd',
              { 'name': 'replication', 'if': 'defined(CONFIG_REPLICATION)' },
@@ -11,7 +108,7 @@ Index: qemu/qapi/block-core.json
              'ssh', 'throttle', 'vdi', 'vhdx', 'vmdk', 'vpc', 'vvfat', 'vxhs' ] }
  
  ##
-@@ -3725,6 +3725,28 @@
+@@ -3712,6 +3712,28 @@
              '*tag': 'str' } }
  
  ##
@@ -40,7 +137,7 @@ Index: qemu/qapi/block-core.json
  # @ReplicationMode:
  #
  # An enumeration of replication modes.
-@@ -4084,6 +4102,7 @@
+@@ -4071,6 +4093,7 @@
        'replication': { 'type': 'BlockdevOptionsReplication',
                         'if': 'defined(CONFIG_REPLICATION)' },
        'sheepdog':   'BlockdevOptionsSheepdog',
@@ -48,7 +145,7 @@ Index: qemu/qapi/block-core.json
        'ssh':        'BlockdevOptionsSsh',
        'throttle':   'BlockdevOptionsThrottle',
        'vdi':        'BlockdevOptionsGenericFormat',
-@@ -4461,6 +4480,17 @@
+@@ -4441,6 +4464,17 @@
              '*cluster-size' :   'size' } }
  
  ##
@@ -66,7 +163,7 @@ Index: qemu/qapi/block-core.json
  # @BlockdevVmdkSubformat:
  #
  # Subformat options for VMDK images
-@@ -4722,6 +4752,7 @@
+@@ -4702,6 +4736,7 @@
        'qed':            'BlockdevCreateOptionsQed',
        'rbd':            'BlockdevCreateOptionsRbd',
        'sheepdog':       'BlockdevCreateOptionsSheepdog',
@@ -74,15 +171,3 @@ Index: qemu/qapi/block-core.json
        'ssh':            'BlockdevCreateOptionsSsh',
        'vdi':            'BlockdevCreateOptionsVdi',
        'vhdx':           'BlockdevCreateOptionsVhdx',
-Index: qemu/scripts/modules/module_block.py
-===================================================================
---- qemu.orig/scripts/modules/module_block.py	2020-11-07 22:57:38.936613739 +0000
-+++ qemu/scripts/modules/module_block.py	2020-11-07 22:59:49.890722862 +0000
-@@ -86,6 +86,7 @@ def print_bottom(fheader):
- output_file = sys.argv[1]
- with open(output_file, 'w') as fheader:
-     print_top(fheader)
-+    add_module(fheader, "vitastor", "vitastor", "vitastor")
- 
-     for filename in sys.argv[2:]:
-         if os.path.isfile(filename):

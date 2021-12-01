@@ -8,6 +8,7 @@
 #define _GNU_SOURCE
 #endif
 #include "qemu/osdep.h"
+#include "qemu/main-loop.h"
 #include "block/block_int.h"
 #include "qapi/error.h"
 #include "qapi/qmp/qdict.h"
@@ -344,7 +345,7 @@ static int coroutine_fn vitastor_co_truncate(BlockDriverState *bs, int64_t offse
     bool exact,
 #endif
     PreallocMode prealloc,
-#if QEMU_VERSION_MAJOR >= 5 && QEMU_VERSION_MINOR >= 1 || QEMU_VERSION_MAJOR > 5
+#if QEMU_VERSION_MAJOR >= 5 && QEMU_VERSION_MINOR >= 1 || QEMU_VERSION_MAJOR > 5 || defined RHEL_BDRV_CO_TRUNCATE_FLAGS
     BdrvRequestFlags flags,
 #endif
     Error **errp)
@@ -392,10 +393,10 @@ static int vitastor_refresh_limits(BlockDriverState *bs)
 #endif
 }
 
-static int64_t vitastor_get_allocated_file_size(BlockDriverState *bs)
-{
-    return 0;
-}
+//static int64_t vitastor_get_allocated_file_size(BlockDriverState *bs)
+//{
+//    return 0;
+//}
 
 static void vitastor_co_init_task(BlockDriverState *bs, VitastorRPC *task)
 {
