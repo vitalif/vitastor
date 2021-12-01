@@ -312,7 +312,7 @@ static int vitastor_probe_blocksizes(BlockDriverState *bs, BlockSizes *bsz)
 }
 #endif
 
-#if QEMU_VERSION_MAJOR >= 3
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 12
 static int coroutine_fn vitastor_co_create_opts(
 #if QEMU_VERSION_MAJOR >= 4
     BlockDriver *drv,
@@ -467,7 +467,7 @@ static int coroutine_fn vitastor_co_pwritev(BlockDriverState *bs, uint64_t offse
     return task.ret;
 }
 
-#if QEMU_VERSION_MAJOR < 3
+#if !( QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 7 )
 static int coroutine_fn vitastor_co_readv(BlockDriverState *bs, int64_t sector_num, int nb_sectors, QEMUIOVector *iov)
 {
     return vitastor_co_preadv(bs, sector_num*BDRV_SECTOR_SIZE, nb_sectors*BDRV_SECTOR_SIZE, iov, 0);
@@ -521,6 +521,7 @@ static QEMUOptionParameter vitastor_create_opts[] = {
 };
 #endif
 
+#if QEMU_VERSION_MAJOR >= 4
 static const char *vitastor_strong_runtime_opts[] = {
     "inode",
     "pool",
@@ -530,6 +531,7 @@ static const char *vitastor_strong_runtime_opts[] = {
 
     NULL
 };
+#endif
 
 static BlockDriver bdrv_vitastor = {
     .format_name                    = "vitastor",
@@ -563,12 +565,16 @@ static BlockDriver bdrv_vitastor = {
     // Requires patching QAPI IDL, thus unimplemented
     //.bdrv_co_create                 = vitastor_co_create,
 
-#if QEMU_VERSION_MAJOR >= 3
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 12
     // For bdrv_create(), used by qemu-img
     .bdrv_co_create_opts            = vitastor_co_create_opts,
+#endif
 
+#if QEMU_VERSION_MAJOR >= 3
     .bdrv_co_truncate               = vitastor_co_truncate,
+#endif
 
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 7
     .bdrv_co_preadv                 = vitastor_co_preadv,
     .bdrv_co_pwritev                = vitastor_co_pwritev,
 #else
