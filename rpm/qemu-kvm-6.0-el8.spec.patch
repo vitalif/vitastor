@@ -1,0 +1,103 @@
+--- qemu-kvm_6.0.spec.orig	2021-10-22 13:22:07.000000000 +0000
++++ qemu-kvm_6.0.spec	2021-12-01 22:43:26.095508618 +0000
+@@ -67,6 +67,7 @@ Requires: %{name}-hw-usbredir = %{epoch}
+ %endif                                                           \
+ Requires: %{name}-block-iscsi = %{epoch}:%{version}-%{release}   \
+ Requires: %{name}-block-rbd = %{epoch}:%{version}-%{release}     \
++Requires: %{name}-block-vitastor = %{epoch}:%{version}-%{release}\
+ Requires: %{name}-block-ssh = %{epoch}:%{version}-%{release}
+ 
+ # Macro to properly setup RHEL/RHEV conflict handling
+@@ -77,7 +78,7 @@ Obsoletes: %1-rhev <= %{epoch}:%{version
+ Summary: QEMU is a machine emulator and virtualizer
+ Name: qemu-kvm
+ Version: 6.0.0
+-Release: 33%{?dist}
++Release: 33.vitastor%{?dist}
+ # Epoch because we pushed a qemu-1.0 package. AIUI this can't ever be dropped
+ Epoch: 15
+ License: GPLv2 and GPLv2+ and CC-BY
+@@ -112,6 +113,7 @@ Source33: qemu-pr-helper.socket
+ Source34: 81-kvm-rhel.rules
+ Source35: udev-kvm-check.c
+ Source36: README.tests
++Source37: qemu-vitastor.c
+ 
+ 
+ Patch0001: 0001-redhat-Adding-slirp-to-the-exploded-tree.patch
+@@ -342,6 +344,7 @@ Patch109: kvm-virtio-balloon-Fix-page-po
+ Patch110: kvm-virtio-net-fix-use-after-unmap-free-for-sg.patch
+ # For bz#1999141 - migration fails with: "qemu-kvm: get_pci_config_device: Bad config data: i=0x9a read: 3 device: 2 cmask: ff wmask: 0 w1cmask:0"
+ Patch111: kvm-Fix-virtio-net-pci-vectors-compat.patch
++Patch112: qemu-6.0-vitastor.patch
+ 
+ BuildRequires: wget
+ BuildRequires: rpm-build
+@@ -379,6 +382,7 @@ BuildRequires: libcurl-devel
+ BuildRequires: libssh-devel
+ BuildRequires: librados-devel
+ BuildRequires: librbd-devel
++BuildRequires: vitastor-client-devel
+ %if %{have_gluster}
+ # For gluster block driver
+ BuildRequires: glusterfs-api-devel
+@@ -625,6 +629,14 @@ Install this package if you want to acce
+ using the rbd protocol.
+ 
+ 
++%package  block-vitastor
++Summary: QEMU Vitastor block driver
++Requires: %{name}-common%{?_isa} = %{epoch}:%{version}-%{release}
++
++%description block-vitastor
++This package provides the additional Vitastor block driver for QEMU.
++
++
+ %package  block-ssh
+ Summary: QEMU SSH block driver
+ Requires: %{name}-common%{?_isa} = %{epoch}:%{version}-%{release}
+@@ -678,6 +690,7 @@ This package provides usbredir support.
+ rm -fr slirp
+ mkdir slirp
+ %autopatch -p1
++cp %{SOURCE37} ./block/vitastor.c
+ 
+ %global qemu_kvm_build qemu_kvm_build
+ %global qemu_kiwi_build qemu_kiwi_src/build
+@@ -701,7 +714,7 @@ mkdir -p %{qemu_kvm_build}
+ # --build-id option is used for giving info to the debug packages.
+ buildldflags="VL_LDFLAGS=-Wl,--build-id"
+ 
+-%global block_drivers_list qcow2,raw,file,host_device,nbd,iscsi,rbd,blkdebug,luks,null-co,nvme,copy-on-read,throttle
++%global block_drivers_list qcow2,raw,file,host_device,nbd,iscsi,rbd,vitastor,blkdebug,luks,null-co,nvme,copy-on-read,throttle
+ 
+ %if 0%{have_gluster}
+     %global block_drivers_list %{block_drivers_list},gluster
+@@ -894,6 +907,7 @@ pushd %{qemu_kvm_build}
+ %endif
+   --enable-pie \
+   --enable-rbd \
++  --enable-vitastor \
+ %if 0%{have_librdma}
+   --enable-rdma \
+ %endif
+@@ -977,9 +991,7 @@ find ../default-configs -name "*-rh-devi
+   --firmwarepath=%{_prefix}/share/qemu-firmware \
+   --meson="%{__meson}" \
+   --target-list="%{buildarch}" \
+-  --block-drv-rw-whitelist=%{block_drivers_list} \
+   --audio-drv-list= \
+-  --block-drv-ro-whitelist=vmdk,vhdx,vpc,https,ssh \
+   --with-coroutine=ucontext \
+   --with-git=git \
+   --tls-priority=@QEMU,SYSTEM \
+@@ -1584,6 +1596,9 @@ sh %{_sysconfdir}/sysconfig/modules/kvm.
+ %files block-rbd
+ %{_libdir}/qemu-kvm/block-rbd.so
+ 
++%files block-vitastor
++%{_libdir}/qemu-kvm/block-vitastor.so
++
+ %files block-ssh
+ %{_libdir}/qemu-kvm/block-ssh.so
+ 
