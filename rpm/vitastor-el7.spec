@@ -21,7 +21,6 @@ Requires:       vitastor-mon = %{version}-%{release}
 Requires:       vitastor-client = %{version}-%{release}
 Requires:       vitastor-client-devel = %{version}-%{release}
 Requires:       vitastor-fio = %{version}-%{release}
-Requires:       vitastor-qemu = %{version}-%{release}
 
 %description
 Vitastor is a small, simple and fast clustered block storage (storage for VM drives),
@@ -83,24 +82,13 @@ Requires:       fio = 3.7-1.el7
 Vitastor fio drivers for benchmarking.
 
 
-%package -n vitastor-qemu
-Summary:        Vitastor - QEMU driver
-Group:          Development/Libraries
-Requires:       vitastor-client = %{version}-%{release}
-Requires:       qemu-kvm = 2.0.0-1.el7.6
-
-
-%description -n vitastor-qemu
-Vitastor QEMU block device driver.
-
-
 %prep
 %setup -q
 
 
 %build
 . /opt/rh/devtoolset-9/enable
-%cmake . -DQEMU_PLUGINDIR=qemu-kvm
+%cmake .
 %make_build
 
 
@@ -148,10 +136,6 @@ cp -r mon %buildroot/usr/lib/vitastor
 %_libdir/libfio_vitastor.so
 %_libdir/libfio_vitastor_blk.so
 %_libdir/libfio_vitastor_sec.so
-
-
-%files -n vitastor-qemu
-%_libdir/qemu-kvm/block-vitastor.so
 
 
 %changelog

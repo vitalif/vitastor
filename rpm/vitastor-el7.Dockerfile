@@ -9,15 +9,11 @@ WORKDIR /root
 RUN rm -f /etc/yum.repos.d/CentOS-Media.repo
 RUN yum -y --enablerepo=extras install centos-release-scl epel-release yum-utils rpm-build
 RUN yum -y install https://vitastor.io/rpms/centos/7/vitastor-release-1.0-1.el7.noarch.rpm
-RUN yum -y install devtoolset-9-gcc-c++ devtoolset-9-libatomic-devel gperftools-devel qemu-kvm fio rh-nodejs12 jerasure-devel gf-complete-devel
-RUN yumdownloader --disablerepo=centos-sclo-rh --source qemu-kvm
+RUN yum -y install devtoolset-9-gcc-c++ devtoolset-9-libatomic-devel gperftools-devel fio rh-nodejs12 jerasure-devel gf-complete-devel rdma-core-devel
 RUN yumdownloader --disablerepo=centos-sclo-rh --source fio
-RUN rpm --nomd5 -i qemu*.src.rpm
 RUN rpm --nomd5 -i fio*.src.rpm
 RUN rm -f /etc/yum.repos.d/CentOS-Media.repo
-RUN cd ~/rpmbuild/SPECS && yum-builddep -y qemu-kvm.spec
 RUN cd ~/rpmbuild/SPECS && yum-builddep -y fio.spec
-RUN yum -y install rdma-core-devel
 
 ADD https://vitastor.io/rpms/liburing-el7/liburing-0.7-2.el7.src.rpm /root
 
