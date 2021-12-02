@@ -248,6 +248,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
         {
             error_setg(errp, "image does not exist");
             vitastor_close(bs);
+            return -1;
         }
         if (!client->size)
         {
