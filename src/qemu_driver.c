@@ -251,19 +251,19 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
         }
         if (!client->size)
         {
-            client->size = qdict_get_int(options, "size");
+            client->size = qdict_get_try_int(options, "size", 0);
         }
     }
     else
     {
         client->watch = NULL;
-        client->inode = qdict_get_int(options, "inode");
-        client->pool = qdict_get_int(options, "pool");
+        client->inode = qdict_get_try_int(options, "inode", 0);
+        client->pool = qdict_get_try_int(options, "pool", 0);
         if (client->pool)
         {
             client->inode = (client->inode & ((1l << (64-POOL_ID_BITS)) - 1)) | (client->pool << (64-POOL_ID_BITS));
         }
-        client->size = qdict_get_int(options, "size");
+        client->size = qdict_get_try_int(options, "size", 0);
     }
     if (!client->size)
     {
