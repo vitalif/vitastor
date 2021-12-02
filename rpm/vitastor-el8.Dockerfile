@@ -8,7 +8,7 @@ WORKDIR /root
 RUN rm -f /etc/yum.repos.d/CentOS-Media.repo
 RUN dnf -y install centos-release-advanced-virtualization epel-release dnf-plugins-core
 RUN yum -y install https://vitastor.io/rpms/centos/8/vitastor-release-1.0-1.el8.noarch.rpm
-RUN dnf --enablerepo='centos-advanced-virtualization' -y install gcc-toolset-9 gcc-toolset-9-gcc-c++ gperftools-devel \
+RUN dnf -y install gcc-toolset-9 gcc-toolset-9-gcc-c++ gperftools-devel \
     fio nodejs rpm-build jerasure-devel gf-complete-devel libibverbs-devel libarchive cmake
 RUN dnf download --source fio
 RUN rpm --nomd5 -i fio*.src.rpm
