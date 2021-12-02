@@ -26,7 +26,7 @@ RUN set -e; \
     cp ~/rpmbuild/RPMS/*/liburing* /root/packages/liburing-el8/; \
     cp ~/rpmbuild/SRPMS/liburing* /root/packages/liburing-el8/
 
-RUN rpm -i `ls /root/packages/liburing-el7/liburing-*.x86_64.rpm | grep -v debug`
+RUN rpm -i `ls /root/packages/liburing-el8/liburing-*.x86_64.rpm | grep -v debug`
 
 ADD . /root/vitastor
 
