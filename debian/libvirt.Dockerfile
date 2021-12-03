@@ -34,7 +34,7 @@ RUN set -e; \
     cp /root/libvirt-$V-vitastor.diff $D/debian/patches; \
     echo libvirt-$V-vitastor.diff >> $D/debian/patches/series; \
     cd $D; \
-    V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)(~bpo[\d\+]*)?\).*$/$1/')+vitastor2; \
+    V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)(~bpo[\d\+]*)?(\+deb[u\d]+)?\).*$/$1/')+vitastor2; \
     DEBEMAIL="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v $V 'Add Vitastor support'; \
     DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto -sa; \
     rm -rf /root/packages/libvirt-$REL/$D
