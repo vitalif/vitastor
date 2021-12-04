@@ -63,6 +63,15 @@ struct image_changer_t
                 break;
             }
         }
+        if ((!set_readwrite || !cfg.readonly) &&
+            (!set_readonly || cfg.readonly) &&
+            (!new_size || cfg.size == new_size) &&
+            (new_name == "" || new_name == image_name))
+        {
+            printf("No change\n");
+            state = 100;
+            return;
+        }
         if (new_size != 0)
         {
             if (cfg.size >= new_size)
@@ -201,11 +210,7 @@ std::function<bool(void)> cli_tool_t::start_modify(json11::Json cfg)
         exit(1);
     }
     changer->new_name = cfg["rename"].string_value();
-    if (changer->new_name == changer->image_name)
-    {
-        changer->new_name = "";
-    }
-    changer->new_size = cfg["size"].uint64_value();
+    changer->new_size = parse_size(cfg["resize"].string_value());
     if (changer->new_size != 0 && (changer->new_size % 4096))
     {
         fprintf(stderr, "Image size should be a multiple of 4096\n");

@@ -103,7 +103,7 @@ void cli_tool_t::help()
         "%s snap-create [-p|--pool <id|name>] <image>@<snapshot>\n"
         "  Create a snapshot of image <name>. May be used live if only a single writer is active.\n"
         "\n"
-        "%s modify <name> [--rename <new-name>] [-s|--size <size>] [--readonly | --readwrite] [-f|--force]\n"
+        "%s modify <name> [--rename <new-name>] [--resize <size>] [--readonly | --readwrite] [-f|--force]\n"
         "  Rename, resize image or change its readonly status. Images with children can't be made read-write.\n"
         "  If the new size is smaller than the old size, extra data will be purged.\n"
         "  You should resize file system in the image, if present, before shrinking it.\n"
