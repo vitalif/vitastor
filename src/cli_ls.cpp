@@ -16,6 +16,8 @@ std::string format_lat(uint64_t lat);
 
 std::string format_q(double depth);
 
+bool stupid_glob(const std::string str, const std::string glob);
+
 // List existing images
 //
 // Again, you can just look into etcd, but this console tool incapsulates it
@@ -213,9 +215,20 @@ resume_1:
         json11::Json::array list;
         for (auto & kv: stats)
         {
-            if (!only_names.size() || only_names.find(kv.second["name"].string_value()) != only_names.end())
+            if (!only_names.size())
             {
                 list.push_back(kv.second);
+            }
+            else
+            {
+                for (auto glob: only_names)
+                {
+                    if (stupid_glob(kv.second["name"].string_value(), glob))
+                    {
+                        list.push_back(kv.second);
+                        break;
+                    }
+                }
             }
         }
         if (sort_field == "name" || sort_field == "pool_name")
@@ -491,6 +504,62 @@ std::string format_q(double depth)
         l -= 2;
     buf[l] = 0;
     return std::string(buf);
+}
+
+struct glob_stack_t
+{
+    int glob_pos;
+    int str_pos;
+};
+
+// Yes I know I could do it by translating the pattern to std::regex O:-)
+bool stupid_glob(const std::string str, const std::string glob)
+{
+    std::vector<glob_stack_t> wildcards;
+    int pos = 0, gp = 0;
+    bool m;
+back:
+    while (true)
+    {
+        if (gp >= glob.length())
+        {
+            if (pos >= str.length())
+                return true;
+            m = false;
+        }
+        else if (glob[gp] == '*')
+        {
+            wildcards.push_back((glob_stack_t){ .glob_pos = ++gp, .str_pos = pos });
+            continue;
+        }
+        else if (glob[gp] == '?')
+            m = pos < str.size();
+        else
+        {
+            if (glob[gp] == '\\' && gp < glob.length()-1)
+                gp++;
+            m = pos < str.size() && str[pos] == glob[gp];
+        }
+        if (!m)
+        {
+            while (wildcards.size() > 0)
+            {
+                // Backtrack
+                pos = (++wildcards[wildcards.size()-1].str_pos);
+                if (pos > str.size())
+                    wildcards.pop_back();
+                else
+                {
+                    gp = wildcards[wildcards.size()-1].glob_pos;
+                    goto back;
+                }
+            }
+            return false;
+        }
+        pos++;
+        gp++;
+    }
+    return true;
 }
 
 std::function<bool(void)> cli_tool_t::start_ls(json11::Json cfg)
