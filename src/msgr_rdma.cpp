@@ -62,7 +62,13 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(const char *ib_devname, uint8_t
     dev_list = ibv_get_device_list(NULL);
     if (!dev_list)
     {
-        fprintf(stderr, "Failed to get RDMA device list: %s\n", strerror(errno));
+        if (errno == -ENOSYS || errno == ENOSYS)
+        {
+            if (log_level > 0)
+                fprintf(stderr, "No RDMA devices found (RDMA device list returned ENOSYS)\n");
+        }
+        else
+            fprintf(stderr, "Failed to get RDMA device list: %s\n", strerror(errno));
         goto cleanup;
     }
     if (!ib_devname)
