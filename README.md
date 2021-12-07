@@ -45,6 +45,7 @@ breaking changes in the future. However, the following is implemented:
 - Basic OpenStack support: Cinder driver, Nova and libvirt patches
 - Snapshot merge tool (vitastor-cli {snap-rm,flatten,merge})
 - Image management CLI (vitastor-cli {ls,create,modify})
+- Proxmox storage plugin
 
 ## Roadmap
 
@@ -485,6 +486,70 @@ for i in ./???-*.yaml; do kubectl apply -f $i; done
 ```
 
 After that you'll be able to create PersistentVolumes. See example in [csi/deploy/example-pvc.yaml](csi/deploy/example-pvc.yaml).
+
+### OpenStack
+
+To enable Vitastor support in an OpenStack installation:
+
+- Install vitastor-client, patched QEMU and libvirt packages from Vitastor DEB or RPM repository
+- Use `patches/nova-21.diff` or `patches/nova-23.diff` to patch your Nova installation.
+  Patch 21 fits Nova 21-22, patch 23 fits Nova 23-24.
+- Install `patches/cinder-vitastor.py` as `..../cinder/volume/drivers/vitastor.py`
+- Define a volume type in cinder.conf (see below)
+- Restart Cinder and Nova
+
+Cinder volume type configuration example:
+
+```
+[DEFAULT]
+enabled_backends = lvmdriver-1, vitastor-testcluster
+# ...
+
+[vitastor-testcluster]
+volume_driver = cinder.volume.drivers.vitastor.VitastorDriver
+volume_backend_name = vitastor-testcluster
+image_volume_cache_enabled = True
+volume_clear = none
+vitastor_etcd_address = 192.168.7.2:2379
+vitastor_etcd_prefix =
+vitastor_config_path = /etc/vitastor/vitastor.conf
+vitastor_pool_id = 1
+image_upload_use_cinder_backend = True
+```
+
+To put Glance images in Vitastor, use [https://docs.openstack.org/cinder/pike/admin/blockstorage-volume-backed-image.html](volume-backed images),
+although the support has not been verified yet.
+
+### Proxmox
+
+To enable Vitastor support in Proxmox Virtual Environment (6.4 and 7.1 are supported):
+
+- Add the corresponding Vitastor Debian repository into sources.list on Proxmox hosts
+  (buster for 6.4, bullseye for 7.1)
+- Install vitastor-client and pve-qemu-kvm from Vitastor repository
+- Copy [patches/PVE_VitastorPlugin.pm](patches/PVE_VitastorPlugin.pm) to Proxmox hosts
+  as `/usr/share/perl5/PVE/Storage/Custom/VitastorPlugin.pm`
+- Define storage in `/etc/pve/storage.cfg` (see below)
+- Restart pvedaemon: `systemctl restart pvedaemon`
+
+`/etc/pve/storage.cfg` example (the only required option is vitastor_pool, all others
+are listed below with their default values):
+
+```
+vitastor: vitastor
+    # pool to put new images into
+    vitastor_pool testpool
+    # path to the configuration file
+    vitastor_config_path /etc/vitastor/vitastor.conf
+    # etcd address(es), required only if missing in the configuration file
+    vitastor_etcd_address 192.168.7.2:2379/v3
+    # prefix for keys in etcd
+    vitastor_etcd_prefix /vitastor
+    # prefix for images
+    vitastor_prefix pve/
+    # use NBD mounter (only required for containers)
+    vitastor_nbd 0
+```
 
 ## Known Problems
 

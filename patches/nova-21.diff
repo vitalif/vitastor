@@ -1,0 +1,288 @@
+diff --git a/nova/virt/image/model.py b/nova/virt/image/model.py
+index 971f7e9c07..ec3fca72cb 100644
+--- a/nova/virt/image/model.py
++++ b/nova/virt/image/model.py
+@@ -129,3 +129,22 @@ class RBDImage(Image):
+         self.user = user
+         self.password = password
+         self.servers = servers
++
++
++class VitastorImage(Image):
++    """Class for images in a remote Vitastor cluster"""
++
++    def __init__(self, name, etcd_address = None, etcd_prefix = None, config_path = None):
++        """Create a new Vitastor image object
++
++        :param name: name of the image
++        :param etcd_address: etcd URL(s) (optional)
++        :param etcd_prefix: etcd prefix (optional)
++        :param config_path: path to the configuration (optional)
++        """
++        super(VitastorImage, self).__init__(FORMAT_RAW)
++
++        self.name = name
++        self.etcd_address = etcd_address
++        self.etcd_prefix = etcd_prefix
++        self.config_path = config_path
+diff --git a/nova/virt/images.py b/nova/virt/images.py
+index 5358f3766a..ebe3d6effb 100644
+--- a/nova/virt/images.py
++++ b/nova/virt/images.py
+@@ -41,7 +41,7 @@ IMAGE_API = glance.API()
+ 
+ def qemu_img_info(path, format=None):
+     """Return an object containing the parsed output from qemu-img info."""
+-    if not os.path.exists(path) and not path.startswith('rbd:'):
++    if not os.path.exists(path) and not path.startswith('rbd:') and not path.startswith('vitastor:'):
+         raise exception.DiskNotFound(location=path)
+ 
+     info = nova.privsep.qemu.unprivileged_qemu_img_info(path, format=format)
+@@ -50,7 +50,7 @@ def qemu_img_info(path, format=None):
+ 
+ def privileged_qemu_img_info(path, format=None, output_format='json'):
+     """Return an object containing the parsed output from qemu-img info."""
+-    if not os.path.exists(path) and not path.startswith('rbd:'):
++    if not os.path.exists(path) and not path.startswith('rbd:') and not path.startswith('vitastor:'):
+         raise exception.DiskNotFound(location=path)
+ 
+     info = nova.privsep.qemu.privileged_qemu_img_info(path, format=format)
+diff --git a/nova/virt/libvirt/config.py b/nova/virt/libvirt/config.py
+index ea525648b3..d7aa798954 100644
+--- a/nova/virt/libvirt/config.py
++++ b/nova/virt/libvirt/config.py
+@@ -1005,6 +1005,8 @@ class LibvirtConfigGuestDisk(LibvirtConfigGuestDevice):
+         self.driver_iommu = False
+         self.source_path = None
+         self.source_protocol = None
++        self.source_query = None
++        self.source_config = None
+         self.source_name = None
+         self.source_hosts = []
+         self.source_ports = []
+@@ -1133,6 +1135,10 @@ class LibvirtConfigGuestDisk(LibvirtConfigGuestDevice):
+             source = etree.Element("source", protocol=self.source_protocol)
+             if self.source_name is not None:
+                 source.set('name', self.source_name)
++            if self.source_query is not None:
++                source.set('query', self.source_query)
++            if self.source_config is not None:
++                source.append(etree.Element('config', file=self.source_config))
+             hosts_info = zip(self.source_hosts, self.source_ports)
+             for name, port in hosts_info:
+                 host = etree.Element('host', name=name)
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index fbd033690a..74dc59ce87 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -180,6 +180,7 @@ libvirt_volume_drivers = [
+     'local=nova.virt.libvirt.volume.volume.LibvirtVolumeDriver',
+     'fake=nova.virt.libvirt.volume.volume.LibvirtFakeVolumeDriver',
+     'rbd=nova.virt.libvirt.volume.net.LibvirtNetVolumeDriver',
++    'vitastor=nova.virt.libvirt.volume.vitastor.LibvirtVitastorVolumeDriver',
+     'nfs=nova.virt.libvirt.volume.nfs.LibvirtNFSVolumeDriver',
+     'smbfs=nova.virt.libvirt.volume.smbfs.LibvirtSMBFSVolumeDriver',
+     'fibre_channel='
+@@ -287,10 +288,10 @@ class LibvirtDriver(driver.ComputeDriver):
+         # This prevents the risk of one test setting a capability
+         # which bleeds over into other tests.
+ 
+-        # LVM and RBD require raw images. If we are not configured to
++        # LVM, RBD, Vitastor require raw images. If we are not configured to
+         # force convert images into raw format, then we _require_ raw
+         # images only.
+-        raw_only = ('rbd', 'lvm')
++        raw_only = ('rbd', 'lvm', 'vitastor')
+         requires_raw_image = (CONF.libvirt.images_type in raw_only and
+                               not CONF.force_raw_images)
+         requires_ploop_image = CONF.libvirt.virt_type == 'parallels'
+@@ -703,12 +704,12 @@ class LibvirtDriver(driver.ComputeDriver):
+         # Some imagebackends are only able to import raw disk images,
+         # and will fail if given any other format. See the bug
+         # https://bugs.launchpad.net/nova/+bug/1816686 for more details.
+-        if CONF.libvirt.images_type in ('rbd',):
++        if CONF.libvirt.images_type in ('rbd', 'vitastor'):
+             if not CONF.force_raw_images:
+                 msg = _("'[DEFAULT]/force_raw_images = False' is not "
+-                        "allowed with '[libvirt]/images_type = rbd'. "
++                        "allowed with '[libvirt]/images_type = rbd' or 'vitastor'. "
+                         "Please check the two configs and if you really "
+-                        "do want to use rbd as images_type, set "
++                        "do want to use rbd or vitastor as images_type, set "
+                         "force_raw_images to True.")
+                 raise exception.InvalidConfiguration(msg)
+ 
+@@ -2165,6 +2166,16 @@ class LibvirtDriver(driver.ComputeDriver):
+                     if connection_info['data'].get('auth_enabled'):
+                         username = connection_info['data']['auth_username']
+                         path = f"rbd:{volume_name}:id={username}"
++                elif connection_info['driver_volume_type'] == 'vitastor':
++                    volume_name = connection_info['data']['name']
++                    path = 'vitastor:image='+volume_name.replace(':', '\\:')
++                    for k in [ 'config_path', 'etcd_address', 'etcd_prefix' ]:
++                        if k in connection_info['data']:
++                            kk = k
++                            if kk == 'etcd_address':
++                                # FIXME use etcd_address in qemu driver
++                                kk = 'etcd_host'
++                            path += ":"+kk.replace('_', '-')+"="+connection_info['data'][k].replace(':', '\\:')
+                 else:
+                     path = 'unknown'
+                     raise exception.DiskNotFound(location='unknown')
+@@ -2440,8 +2451,8 @@ class LibvirtDriver(driver.ComputeDriver):
+ 
+         image_format = CONF.libvirt.snapshot_image_format or source_type
+ 
+-        # NOTE(bfilippov): save lvm and rbd as raw
+-        if image_format == 'lvm' or image_format == 'rbd':
++        # NOTE(bfilippov): save lvm and rbd and vitastor as raw
++        if image_format == 'lvm' or image_format == 'rbd' or image_format == 'vitastor':
+             image_format = 'raw'
+ 
+         metadata = self._create_snapshot_metadata(instance.image_meta,
+@@ -2512,7 +2523,7 @@ class LibvirtDriver(driver.ComputeDriver):
+                               expected_state=task_states.IMAGE_UPLOADING)
+ 
+             # TODO(nic): possibly abstract this out to the root_disk
+-            if source_type == 'rbd' and live_snapshot:
++            if (source_type == 'rbd' or source_type == 'vitastor') and live_snapshot:
+                 # Standard snapshot uses qemu-img convert from RBD which is
+                 # not safe to run with live_snapshot.
+                 live_snapshot = False
+@@ -3715,7 +3726,7 @@ class LibvirtDriver(driver.ComputeDriver):
+         # cleanup rescue volume
+         lvm.remove_volumes([lvmdisk for lvmdisk in self._lvm_disks(instance)
+                                 if lvmdisk.endswith('.rescue')])
+-        if CONF.libvirt.images_type == 'rbd':
++        if CONF.libvirt.images_type == 'rbd' or CONF.libvirt.images_type == 'vitastor':
+             filter_fn = lambda disk: (disk.startswith(instance.uuid) and
+                                       disk.endswith('.rescue'))
+             rbd_utils.RBDDriver().cleanup_volumes(filter_fn)
+@@ -3972,6 +3983,8 @@ class LibvirtDriver(driver.ComputeDriver):
+         # TODO(mikal): there is a bug here if images_type has
+         # changed since creation of the instance, but I am pretty
+         # sure that this bug already exists.
++        if CONF.libvirt.images_type == 'vitastor':
++            return 'vitastor'
+         return 'rbd' if CONF.libvirt.images_type == 'rbd' else 'raw'
+ 
+     @staticmethod
+@@ -4370,10 +4383,10 @@ class LibvirtDriver(driver.ComputeDriver):
+                 finally:
+                     # NOTE(mikal): if the config drive was imported into RBD,
+                     # then we no longer need the local copy
+-                    if CONF.libvirt.images_type == 'rbd':
++                    if CONF.libvirt.images_type == 'rbd' or CONF.libvirt.images_type == 'vitastor':
+                         LOG.info('Deleting local config drive %(path)s '
+-                                 'because it was imported into RBD.',
+-                                 {'path': config_disk_local_path},
++                                 'because it was imported into %(type).',
++                                 {'path': config_disk_local_path, 'type': CONF.libvirt.images_type},
+                                  instance=instance)
+                         os.unlink(config_disk_local_path)
+ 
+diff --git a/nova/virt/libvirt/utils.py b/nova/virt/libvirt/utils.py
+index c1dc34daf4..263965912f 100644
+--- a/nova/virt/libvirt/utils.py
++++ b/nova/virt/libvirt/utils.py
+@@ -399,6 +399,10 @@ def find_disk(guest: libvirt_guest.Guest) -> ty.Tuple[str, ty.Optional[str]]:
+             disk_path = disk.source_name
+             if disk_path:
+                 disk_path = 'rbd:' + disk_path
++        elif not disk_path and disk.source_protocol == 'vitastor':
++            disk_path = disk.source_name
++            if disk_path:
++                disk_path = 'vitastor:' + disk_path
+ 
+     if not disk_path:
+         raise RuntimeError(_("Can't retrieve root device path "
+@@ -417,6 +421,8 @@ def get_disk_type_from_path(path: str) -> ty.Optional[str]:
+         return 'lvm'
+     elif path.startswith('rbd:'):
+         return 'rbd'
++    elif path.startswith('vitastor:'):
++        return 'vitastor'
+     elif (os.path.isdir(path) and
+           os.path.exists(os.path.join(path, "DiskDescriptor.xml"))):
+         return 'ploop'
+diff --git a/nova/virt/libvirt/volume/vitastor.py b/nova/virt/libvirt/volume/vitastor.py
+new file mode 100644
+index 0000000000..0256df62c1
+--- /dev/null
++++ b/nova/virt/libvirt/volume/vitastor.py
+@@ -0,0 +1,75 @@
++# Copyright (c) 2021+, Vitaliy Filippov <vitalif@yourcmc.ru>
++#
++#    Licensed under the Apache License, Version 2.0 (the "License"); you may
++#    not use this file except in compliance with the License. You may obtain
++#    a copy of the License at
++#
++#         http://www.apache.org/licenses/LICENSE-2.0
++#
++#    Unless required by applicable law or agreed to in writing, software
++#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#    License for the specific language governing permissions and limitations
++#    under the License.
++
++from os_brick import exception as os_brick_exception
++from os_brick import initiator
++from os_brick.initiator import connector
++from oslo_log import log as logging
++
++import nova.conf
++from nova import utils
++from nova.virt.libvirt.volume import volume as libvirt_volume
++
++
++CONF = nova.conf.CONF
++LOG = logging.getLogger(__name__)
++
++
++class LibvirtVitastorVolumeDriver(libvirt_volume.LibvirtBaseVolumeDriver):
++    """Driver to attach Vitastor volumes to libvirt."""
++    def __init__(self, host):
++        super(LibvirtVitastorVolumeDriver, self).__init__(host, is_block_dev=False)
++
++    def connect_volume(self, connection_info, instance):
++        pass
++
++    def disconnect_volume(self, connection_info, instance):
++        pass
++
++    def get_config(self, connection_info, disk_info):
++        """Returns xml for libvirt."""
++        conf = super(LibvirtVitastorVolumeDriver, self).get_config(connection_info, disk_info)
++        conf.source_type = 'network'
++        conf.source_protocol = 'vitastor'
++        conf.source_name = connection_info['data'].get('name')
++        conf.source_query = connection_info['data'].get('etcd_prefix') or None
++        conf.source_config = connection_info['data'].get('config_path') or None
++        conf.source_hosts = []
++        conf.source_ports = []
++        addresses = connection_info['data'].get('etcd_address', '')
++        if addresses:
++            if not isinstance(addresses, list):
++                addresses = addresses.split(',')
++            for addr in addresses:
++                if addr.startswith('https://'):
++                    raise NotImplementedError('Vitastor block driver does not support SSL for etcd communication yet')
++                if addr.startswith('http://'):
++                    addr = addr[7:]
++                addr = addr.rstrip('/')
++                if addr.endswith('/v3'):
++                    addr = addr[0:-3]
++                p = addr.find('/')
++                if p > 0:
++                    raise NotImplementedError('libvirt does not support custom URL paths for Vitastor etcd yet. Use /etc/vitastor/vitastor.conf')
++                p = addr.find(':')
++                port = '2379'
++                if p > 0:
++                    port = addr[p+1:]
++                    addr = addr[0:p]
++                conf.source_hosts.append(addr)
++                conf.source_ports.append(port)
++        return conf
++
++    def extend_volume(self, connection_info, instance, requested_size):
++        raise NotImplementedError

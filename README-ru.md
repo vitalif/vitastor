@@ -51,13 +51,14 @@ Vitastor на данный момент находится в статусе п�
 - Базовая поддержка OpenStack: драйвер Cinder, патчи для Nova и libvirt
 - Слияние снапшотов (vitastor-cli {snap-rm,flatten,merge})
 - Консольный интерфейс для управления образами (vitastor-cli {ls,create,modify})
+- Плагин для Proxmox
 
 ## Планы развития
 
 - Поддержка удаления снапшотов (слияния слоёв)
 - Более корректные скрипты разметки дисков и автоматического запуска OSD
 - Другие инструменты администрирования
-- Плагины для OpenNebula, Proxmox и других облачных систем
+- Плагины для OpenNebula и других облачных систем
 - iSCSI-прокси
 - Более быстрое переключение при отказах
 - Фоновая проверка целостности без контрольных сумм (сверка реплик)
@@ -536,6 +537,71 @@ for i in ./???-*.yaml; do kubectl apply -f $i; done
 ```
 
 После этого вы сможете создавать PersistentVolume. Пример смотрите в файле [csi/deploy/example-pvc.yaml](csi/deploy/example-pvc.yaml).
+
+### OpenStack
+
+Чтобы подключить Vitastor к OpenStack:
+
+- Установите пакеты vitastor-client, libvirt и QEMU из DEB или RPM репозитория Vitastor
+- Примените патч `patches/nova-21.diff` или `patches/nova-23.diff` к вашей инсталляции Nova.
+  nova-21.diff подходит для Nova 21-22, nova-23.diff подходит для Nova 23-24.
+- Скопируйте `patches/cinder-vitastor.py` в инсталляцию Cinder как `cinder/volume/drivers/vitastor.py`
+- Создайте тип томов в cinder.conf (см. ниже)
+- Перезапустите Cinder и Nova
+
+Пример конфигурации Cinder:
+
+```
+[DEFAULT]
+enabled_backends = lvmdriver-1, vitastor-testcluster
+# ...
+
+[vitastor-testcluster]
+volume_driver = cinder.volume.drivers.vitastor.VitastorDriver
+volume_backend_name = vitastor-testcluster
+image_volume_cache_enabled = True
+volume_clear = none
+vitastor_etcd_address = 192.168.7.2:2379
+vitastor_etcd_prefix =
+vitastor_config_path = /etc/vitastor/vitastor.conf
+vitastor_pool_id = 1
+image_upload_use_cinder_backend = True
+```
+
+Чтобы помещать в Vitastor Glance-образы, нужно использовать
+[https://docs.openstack.org/cinder/pike/admin/blockstorage-volume-backed-image.html](образы на основе томов Cinder),
+однако, поддержка этой функции ещё не проверялась.
+
+### Proxmox
+
+Чтобы подключить Vitastor к Proxmox Virtual Environment (поддерживаются версии 6.4 и 7.1):
+
+- Добавьте соответствующий Debian-репозиторий Vitastor в sources.list на хостах Proxmox
+  (buster для 6.4, bullseye для 7.1)
+- Установите пакеты vitastor-client и pve-qemu-kvm из репозитория Vitastor
+- Скопируйте файл [patches/PVE_VitastorPlugin.pm](patches/PVE_VitastorPlugin.pm) на хосты
+  Proxmox как `/usr/share/perl5/PVE/Storage/Custom/VitastorPlugin.pm`
+- Определите тип хранилища в `/etc/pve/storage.cfg` (см. ниже)
+- Перезапустите демон Proxmox: `systemctl restart pvedaemon`
+
+Пример `/etc/pve/storage.cfg` (единственная обязательная опция - vitastor_pool, все остальные
+перечислены внизу для понимания значений по умолчанию):
+
+```
+vitastor: vitastor
+    # Пул, в который будут помещаться образы дисков
+    vitastor_pool testpool
+    # Путь к файлу конфигурации
+    vitastor_config_path /etc/vitastor/vitastor.conf
+    # Адрес(а) etcd, нужны, только если не указаны в vitastor.conf
+    vitastor_etcd_address 192.168.7.2:2379/v3
+    # Префикс ключей метаданных в etcd
+    vitastor_etcd_prefix /vitastor
+    # Префикс имён образов
+    vitastor_prefix pve/
+    # Монтировать образы через NBD прокси, через ядро (нужно только для контейнеров)
+    vitastor_nbd 0
+```
 
 ## Известные проблемы
 
