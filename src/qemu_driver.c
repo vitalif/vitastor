@@ -308,7 +308,7 @@ static void vitastor_close(BlockDriverState *bs)
 static int vitastor_probe_blocksizes(BlockDriverState *bs, BlockSizes *bsz)
 {
     bsz->phys = 4096;
-    bsz->log = 4096;
+    bsz->log = 512;
     return 0;
 }
 #endif
