@@ -88,6 +88,31 @@ struct image_creator_t
             goto resume_2;
         else if (state == 3)
             goto resume_3;
+        for (auto & ic: parent->cli->st_cli.inode_config)
+        {
+            if (ic.second.name == image_name)
+            {
+                fprintf(stderr, "Image %s already exists\n", image_name.c_str());
+                exit(1);
+            }
+            if (ic.second.name == new_parent)
+            {
+                new_parent_id = ic.second.num;
+                if (!new_pool_id)
+                {
+                    new_pool_id = INODE_POOL(ic.second.num);
+                }
+                if (!size)
+                {
+                    size = ic.second.size;
+                }
+            }
+        }
+        if (new_parent != "" && !new_parent_id)
+        {
+            fprintf(stderr, "Parent image not found\n");
+            exit(1);
+        }
         if (!new_pool_id)
         {
             fprintf(stderr, "Pool name or ID is missing\n");
@@ -97,14 +122,6 @@ struct image_creator_t
         {
             fprintf(stderr, "Image size is missing\n");
             exit(1);
-        }
-        for (auto & ic: parent->cli->st_cli.inode_config)
-        {
-            if (ic.second.name == image_name)
-            {
-                fprintf(stderr, "Image %s already exists\n", image_name.c_str());
-                exit(1);
-            }
         }
         do
         {
@@ -150,6 +167,11 @@ resume_3:
                 fprintf(stderr, "Snapshot %s@%s already exists\n", image_name.c_str(), new_snap.c_str());
                 exit(1);
             }
+        }
+        if (new_parent != "")
+        {
+            fprintf(stderr, "--parent can't be used with snapshots\n");
+            exit(1);
         }
         do
         {
