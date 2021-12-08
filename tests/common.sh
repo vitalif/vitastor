@@ -21,6 +21,7 @@ cd `dirname $0`/..
 trap 'kill -9 $(jobs -p)' EXIT
 
 ETCD=${ETCD:-etcd}
+ETCD_IP=${ETCD_IP:-127.0.0.1}
 ETCD_PORT=${ETCD_PORT:-12379}
 
 if [ "$KEEP_DATA" = "" ]; then
@@ -29,11 +30,11 @@ if [ "$KEEP_DATA" = "" ]; then
 fi
 
 $ETCD -name etcd_test --data-dir ./testdata/etcd \
-    --advertise-client-urls http://127.0.0.1:$ETCD_PORT --listen-client-urls http://127.0.0.1:$ETCD_PORT \
-    --initial-advertise-peer-urls http://127.0.0.1:$((ETCD_PORT+1)) --listen-peer-urls http://127.0.0.1:$((ETCD_PORT+1)) \
+    --advertise-client-urls http://$ETCD_IP:$ETCD_PORT --listen-client-urls http://$ETCD_IP:$ETCD_PORT \
+    --initial-advertise-peer-urls http://$ETCD_IP:$((ETCD_PORT+1)) --listen-peer-urls http://$ETCD_IP:$((ETCD_PORT+1)) \
     --max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision &>./testdata/etcd.log &
 ETCD_PID=$!
-ETCD_URL=127.0.0.1:$ETCD_PORT/v3
+ETCD_URL=$ETCD_IP:$ETCD_PORT/v3
 ETCDCTL="${ETCD}ctl --endpoints=http://$ETCD_URL"
 
 echo leak:fio >> testdata/lsan-suppress.txt
