@@ -249,6 +249,7 @@ sub clone_image
 
 sub alloc_image
 {
+    # $size is in kb in this method
     my ($class, $storeid, $scfg, $vmid, $fmt, $name, $size) = @_;
     my $prefix = defined $scfg->{vitastor_prefix} ? $scfg->{vitastor_prefix} : 'pve/';
     die "illegal name '$name' - should be 'vm-$vmid-*'\n" if $name && $name !~ m/^vm-$vmid-/;
@@ -266,21 +267,25 @@ sub free_image
     my $full_list = run_cli($scfg, [ 'ls', '-l' ]);
     my $list = _process_list($scfg, $storeid, $full_list);
     # Remove image and all its snapshots
-    my $to_remove = [ grep { $_->{name} eq $name || substr($_->{name}, 0, length($name)+1) eq ($name.'@') } @$list ];
-    my $rm_names = { map { ($prefix.$_->{name} => 1) } @$to_remove };
-    my $children = [ grep { $rm_names->{$_->{parent_name}} } @$full_list ];
+    my $rm_names = {
+        map { ($prefix.$_->{name} => 1) }
+        grep { $_->{name} eq $name || substr($_->{name}, 0, length($name)+1) eq ($name.'@') }
+        @$list
+    };
+    my $children = [ grep { $_->{parent_name} && $rm_names->{$_->{parent_name}} } @$full_list ];
     die "Image has children: ".join(', ', map {
         substr($_->{name}, 0, length $prefix) eq $prefix
             ? substr($_->name, length $prefix)
             : $_->{name}
-    } @$children)."\n";
+    } @$children)."\n" if @$children;
+    my $to_remove = [ grep { $rm_names->{$_->{name}} } @$full_list ];
     for my $rmi (@$to_remove)
     {
         run_cli($scfg, [ 'rm-data', '--pool', $rmi->{pool_id}, '--inode', $rmi->{inode_num} ], json => 0);
     }
     for my $rmi (@$to_remove)
     {
-        run_cli($scfg, [ 'rm', $prefix.$rmi->{name} ], json => 0);
+        run_cli($scfg, [ 'rm', $rmi->{name} ], json => 0);
     }
     return undef;
 }
@@ -297,8 +302,10 @@ sub _process_list
         next if $name =~ /@/;
         my ($owner) = $name =~ /^(?:vm|base)-(\d+)-/s;
         next if !defined $owner;
-        my $parent = $prefix eq '' || substr($el->{parent_name}, 0, length $prefix) eq $prefix
-            ? substr($el->{parent_name}, length $prefix) : '';
+        my $parent = !defined $el->{parent_name}
+            ? undef
+            : ($prefix eq '' || substr($el->{parent_name}, 0, length $prefix) eq $prefix
+                ? substr($el->{parent_name}, length $prefix) : '');
         my $volid = $parent && $parent =~ /^(base-\d+-\S+)$/s
             ? "$storeid:$1/$name" : "$storeid:$name";
         push @$list, {
@@ -316,7 +323,17 @@ sub _process_list
 sub list_images
 {
     my ($class, $storeid, $scfg, $vmid, $vollist, $cache) = @_;
-    return _process_list($scfg, $storeid, run_cli($scfg, [ 'ls', '-l' ]));
+    my $list = _process_list($scfg, $storeid, run_cli($scfg, [ 'ls', '-l' ]));
+    if ($vollist)
+    {
+        my $h = { map { ($_ => 1) } @$vollist };
+        $list = [ grep { $h->{$_->{volid}} } @$list ]
+    }
+    elsif (defined $vmid)
+    {
+        $list = [ grep { $_->{vmid} eq $vmid } @$list ];
+    }
+    return $list;
 }
 
 sub status
@@ -408,7 +425,8 @@ sub volume_resize
     my ($class, $scfg, $storeid, $volname, $size, $running) = @_;
     my $prefix = defined $scfg->{vitastor_prefix} ? $scfg->{vitastor_prefix} : 'pve/';
     my ($vtype, $name, $vmid) = $class->parse_volname($volname);
-    run_cli($scfg, [ 'modify', '--resize', (int(($size+3)/4)*4).'k', $prefix.$name ], json => 0);
+    # $size is in bytes in this method
+    run_cli($scfg, [ 'modify', '--resize', (int(($size+4095)/4096)*4).'k', $prefix.$name ], json => 0);
     return undef;
 }
 
