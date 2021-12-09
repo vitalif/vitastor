@@ -368,6 +368,9 @@ resume_1:
                 kv.second["read_bw"] = format_size(kv.second["read_bps"].uint64_value())+"/s";
                 kv.second["write_bw"] = format_size(kv.second["write_bps"].uint64_value())+"/s";
                 kv.second["delete_bw"] = format_size(kv.second["delete_bps"].uint64_value())+"/s";
+                kv.second["read_iops"] = format_q(kv.second["read_iops"].number_value());
+                kv.second["write_iops"] = format_q(kv.second["write_iops"].number_value());
+                kv.second["delete_iops"] = format_q(kv.second["delete_iops"].number_value());
                 kv.second["read_lat_f"] = format_lat(kv.second["read_lat"].uint64_value());
                 kv.second["write_lat_f"] = format_lat(kv.second["write_lat"].uint64_value());
                 kv.second["delete_lat_f"] = format_lat(kv.second["delete_lat"].uint64_value());
