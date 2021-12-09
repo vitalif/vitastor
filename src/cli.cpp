@@ -70,7 +70,7 @@ json11::Json::object cli_tool_t::parse_args(int narg, const char *args[])
     if (!cmd.size())
     {
         std::string exe(exe_name);
-        if (exe.substr(exe.size()-11) == "vitastor-rm")
+        if (exe.size() >= 11 && exe.substr(exe.size()-11) == "vitastor-rm")
         {
             cmd.push_back("rm-data");
         }
