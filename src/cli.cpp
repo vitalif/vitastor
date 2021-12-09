@@ -86,6 +86,9 @@ void cli_tool_t::help()
         "(c) Vitaliy Filippov, 2019+ (VNPL-1.1)\n"
         "\n"
         "USAGE:\n"
+        "%s df\n"
+        "  Show pool space statistics\n"
+        "\n"
         "%s ls [-l] [-p POOL] [--sort FIELD] [-r] [-n N] [<glob> ...]\n"
         "  List images (only matching <glob> patterns if passed).\n"
         "  -p|--pool POOL  Filter images by pool ID or name\n"
@@ -152,7 +155,8 @@ void cli_tool_t::help()
         "  --no-color          Disable colored output\n"
         "  --json              JSON output\n"
         ,
-        exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name
+        exe_name, exe_name, exe_name, exe_name, exe_name, exe_name,
+        exe_name, exe_name, exe_name, exe_name, exe_name, exe_name
     );
     exit(0);
 }
@@ -245,6 +249,11 @@ void cli_tool_t::run(json11::Json cfg)
     {
         fprintf(stderr, "command is missing\n");
         exit(1);
+    }
+    else if (cmd[0] == "df")
+    {
+        // Show pool space stats
+        action_cb = start_df(cfg);
     }
     else if (cmd[0] == "ls")
     {

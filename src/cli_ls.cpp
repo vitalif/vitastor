@@ -6,18 +6,6 @@
 #include "cluster_client.h"
 #include "base64.h"
 
-#define MIN(a, b) ((a) < (b) ? (b) : (a))
-
-std::string print_table(json11::Json items, json11::Json header, bool use_esc);
-
-std::string format_size(uint64_t size);
-
-std::string format_lat(uint64_t lat);
-
-std::string format_q(double depth);
-
-bool stupid_glob(const std::string str, const std::string glob);
-
 // List existing images
 //
 // Again, you can just look into etcd, but this console tool incapsulates it
