@@ -339,11 +339,11 @@ sub list_images
 sub status
 {
     my ($class, $storeid, $scfg, $cache) = @_;
-    # FIXME: take it from etcd
-    my $free = 0;
-    my $used = 0;
-    my $total = $used + $free;
-    my $active = 1;
+    my $stats = [ grep { $_->{name} eq $scfg->{vitastor_pool} } @{ run_cli($scfg, [ 'df' ]) } ]->[0];
+    my $free = $stats ? $stats->{max_available} : 0;
+    my $used = $stats ? $stats->{used_raw}/($stats->{raw_to_usable}||1) : 0;
+    my $total = $free+$used;
+    my $active = $stats ? 1 : 0;
     return ($total, $free, $used, $active);
 }
 
