@@ -496,6 +496,7 @@ To enable Vitastor support in an OpenStack installation:
   Patch 21 fits Nova 21-22, patch 23 fits Nova 23-24.
 - Install `patches/cinder-vitastor.py` as `..../cinder/volume/drivers/vitastor.py`
 - Define a volume type in cinder.conf (see below)
+- Block network access from VMs to Vitastor network (to OSDs and etcd), because Vitastor doesn't support authentication (yet)
 - Restart Cinder and Nova
 
 Cinder volume type configuration example:
@@ -526,10 +527,9 @@ To enable Vitastor support in Proxmox Virtual Environment (6.4 and 7.1 are suppo
 
 - Add the corresponding Vitastor Debian repository into sources.list on Proxmox hosts
   (buster for 6.4, bullseye for 7.1)
-- Install vitastor-client and pve-qemu-kvm from Vitastor repository
-- Copy [patches/PVE_VitastorPlugin.pm](patches/PVE_VitastorPlugin.pm) to Proxmox hosts
-  as `/usr/share/perl5/PVE/Storage/Custom/VitastorPlugin.pm`
+- Install vitastor-client, pve-qemu-kvm, pve-storage-vitastor (* or see note) packages from Vitastor repository
 - Define storage in `/etc/pve/storage.cfg` (see below)
+- Block network access from VMs to Vitastor network (to OSDs and etcd), because Vitastor doesn't support authentication (yet)
 - Restart pvedaemon: `systemctl restart pvedaemon`
 
 `/etc/pve/storage.cfg` example (the only required option is vitastor_pool, all others
@@ -550,6 +550,9 @@ vitastor: vitastor
     # use NBD mounter (only required for containers)
     vitastor_nbd 0
 ```
+
+\* Note: you can also manually copy [patches/PVE_VitastorPlugin.pm](patches/PVE_VitastorPlugin.pm) to Proxmox hosts
+as `/usr/share/perl5/PVE/Storage/Custom/VitastorPlugin.pm` instead of installing pve-storage-vitastor.
 
 ## Known Problems
 

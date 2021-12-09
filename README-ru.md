@@ -547,6 +547,7 @@ for i in ./???-*.yaml; do kubectl apply -f $i; done
   nova-21.diff подходит для Nova 21-22, nova-23.diff подходит для Nova 23-24.
 - Скопируйте `patches/cinder-vitastor.py` в инсталляцию Cinder как `cinder/volume/drivers/vitastor.py`
 - Создайте тип томов в cinder.conf (см. ниже)
+- Обязательно заблокируйте доступ от виртуальных машин к сети Vitastor (OSD и etcd), т.к. Vitastor (пока) не поддерживает аутентификацию
 - Перезапустите Cinder и Nova
 
 Пример конфигурации Cinder:
@@ -578,10 +579,9 @@ image_upload_use_cinder_backend = True
 
 - Добавьте соответствующий Debian-репозиторий Vitastor в sources.list на хостах Proxmox
   (buster для 6.4, bullseye для 7.1)
-- Установите пакеты vitastor-client и pve-qemu-kvm из репозитория Vitastor
-- Скопируйте файл [patches/PVE_VitastorPlugin.pm](patches/PVE_VitastorPlugin.pm) на хосты
-  Proxmox как `/usr/share/perl5/PVE/Storage/Custom/VitastorPlugin.pm`
+- Установите пакеты vitastor-client, pve-qemu-kvm, pve-storage-vitastor (* или см. сноску) из репозитория Vitastor
 - Определите тип хранилища в `/etc/pve/storage.cfg` (см. ниже)
+- Обязательно заблокируйте доступ от виртуальных машин к сети Vitastor (OSD и etcd), т.к. Vitastor (пока) не поддерживает аутентификацию
 - Перезапустите демон Proxmox: `systemctl restart pvedaemon`
 
 Пример `/etc/pve/storage.cfg` (единственная обязательная опция - vitastor_pool, все остальные
@@ -602,6 +602,10 @@ vitastor: vitastor
     # Монтировать образы через NBD прокси, через ядро (нужно только для контейнеров)
     vitastor_nbd 0
 ```
+
+\* Примечание: вместо установки пакета pve-storage-vitastor вы можете вручную скопировать файл
+[patches/PVE_VitastorPlugin.pm](patches/PVE_VitastorPlugin.pm) на хосты Proxmox как
+`/usr/share/perl5/PVE/Storage/Custom/VitastorPlugin.pm`.
 
 ## Известные проблемы
 

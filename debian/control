@@ -47,3 +47,9 @@ Architecture: amd64
 Depends: ${shlibs:Depends}, ${misc:Depends}, vitastor-client (= ${binary:Version}), fio (= ${dep:fio})
 Description: Vitastor, a fast software-defined clustered block storage - fio drivers
  Vitastor fio drivers for benchmarking.
+
+Package: pve-storage-vitastor
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, vitastor-client (= ${binary:Version})
+Description: Vitastor Proxmox Virtual Environment storage plugin
+ Vitastor storage plugin for Proxmox Virtual Environment.
