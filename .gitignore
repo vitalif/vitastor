@@ -16,3 +16,4 @@ test_allocator
 test_blockstore
 test_shit
 osd_rmw_test
+build/
