@@ -28,7 +28,7 @@ int read_blocking(int fd, void *read_buf, size_t remaining)
             continue;
         }
         done += r;
-        read_buf += r;
+        read_buf = reinterpret_cast<size_t*>(read_buf) + r;
     }
     return done;
 }
@@ -49,7 +49,7 @@ int write_blocking(int fd, void *write_buf, size_t remaining)
             continue;
         }
         done += r;
-        write_buf += r;
+        write_buf = reinterpret_cast<size_t*>(write_buf) + r;
     }
     return done;
 }
@@ -75,7 +75,7 @@ int readv_blocking(int fd, iovec *iov, int iovcnt)
             if (iov[v].iov_len > r)
             {
                 iov[v].iov_len -= r;
-                iov[v].iov_base += r;
+                iov[v].iov_base = reinterpret_cast<ssize_t*>(iov[v].iov_base) + r;
                 break;
             }
             else
@@ -109,7 +109,7 @@ int writev_blocking(int fd, iovec *iov, int iovcnt)
             if (iov[v].iov_len > r)
             {
                 iov[v].iov_len -= r;
-                iov[v].iov_base += r;
+                iov[v].iov_base = reinterpret_cast<ssize_t*>(iov[v].iov_base) + r;
                 break;
             }
             else
