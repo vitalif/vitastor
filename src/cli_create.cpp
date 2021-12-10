@@ -465,6 +465,10 @@ resume_3:
 
 uint64_t parse_size(std::string size_str)
 {
+    if (!size_str.length())
+    {
+        return 0;
+    }
     uint64_t mul = 1;
     char type_char = tolower(size_str[size_str.length()-1]);
     if (type_char == 'k' || type_char == 'm' || type_char == 'g' || type_char == 't')
