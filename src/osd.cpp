@@ -179,6 +179,14 @@ void osd_t::bind_socket()
             fprintf(stderr, "More than 1 address matches requested network(s): %s\n", json11::Json(matched_addrs).dump().c_str());
             force_stop(1);
         }
+        if (!matched_addrs.size())
+        {
+            std::string nets;
+            for (auto v: mask)
+                nets += (nets == "" ? v : ","+v);
+            fprintf(stderr, "Addresses matching osd_network(s) %s not found\n", nets.c_str());
+            force_stop(1);
+        }
         bind_address = matched_addrs[0];
     }
 
