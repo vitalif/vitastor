@@ -295,9 +295,9 @@ void blockstore_impl_t::calc_lengths()
     }
 }
 
-void check_size(int fd, uint64_t *size, std::string name)
+static void check_size(int fd, uint64_t *size, uint64_t *sectsize, std::string name)
 {
-    int sectsize;
+    int sect;
     struct stat st;
     if (fstat(fd, &st) < 0)
     {
@@ -309,11 +309,14 @@ void check_size(int fd, uint64_t *size, std::string name)
     }
     else if (S_ISBLK(st.st_mode))
     {
-        if (ioctl(fd, BLKSSZGET, &sectsize) < 0 ||
-            ioctl(fd, BLKGETSIZE64, size) < 0 ||
-            sectsize != 512)
+        if (ioctl(fd, BLKGETSIZE64, size) < 0 ||
+            ioctl(fd, BLKSSZGET, &sect) < 0)
         {
-            throw std::runtime_error(name+" sector is not equal to 512 bytes");
+            throw std::runtime_error("failed to get "+name+" size or block size: "+strerror(errno));
+        }
+        if (sectsize)
+        {
+            *sectsize = sect;
         }
     }
     else
@@ -329,7 +332,14 @@ void blockstore_impl_t::open_data()
     {
         throw std::runtime_error("Failed to open data device");
     }
-    check_size(data_fd, &data_size, "data device");
+    check_size(data_fd, &data_size, &data_device_sect, "data device");
+    if (disk_alignment % data_device_sect)
+    {
+        throw std::runtime_error(
+            "disk_alignment ("+std::to_string(disk_alignment)+
+            ") is not a multiple of data device sector size ("+std::to_string(data_device_sect)+")"
+        );
+    }
     if (data_offset >= data_size)
     {
         throw std::runtime_error("data_offset exceeds device size = "+std::to_string(data_size));
@@ -350,7 +360,7 @@ void blockstore_impl_t::open_meta()
         {
             throw std::runtime_error("Failed to open metadata device");
         }
-        check_size(meta_fd, &meta_size, "metadata device");
+        check_size(meta_fd, &meta_size, &meta_device_sect, "metadata device");
         if (meta_offset >= meta_size)
         {
             throw std::runtime_error("meta_offset exceeds device size = "+std::to_string(meta_size));
@@ -363,11 +373,19 @@ void blockstore_impl_t::open_meta()
     else
     {
         meta_fd = data_fd;
+        meta_device_sect = data_device_sect;
         meta_size = 0;
         if (meta_offset >= data_size)
         {
             throw std::runtime_error("meta_offset exceeds device size = "+std::to_string(data_size));
         }
+    }
+    if (meta_block_size % meta_device_sect)
+    {
+        throw std::runtime_error(
+            "meta_block_size ("+std::to_string(meta_block_size)+
+            ") is not a multiple of data device sector size ("+std::to_string(meta_device_sect)+")"
+        );
     }
 }
 
@@ -380,7 +398,7 @@ void blockstore_impl_t::open_journal()
         {
             throw std::runtime_error("Failed to open journal device");
         }
-        check_size(journal.fd, &journal.device_size, "journal device");
+        check_size(journal.fd, &journal.device_size, &journal_device_sect, "journal device");
         if (!disable_flock && flock(journal.fd, LOCK_EX|LOCK_NB) != 0)
         {
             throw std::runtime_error(std::string("Failed to lock journal device: ") + strerror(errno));
@@ -389,6 +407,7 @@ void blockstore_impl_t::open_journal()
     else
     {
         journal.fd = meta_fd;
+        journal_device_sect = meta_device_sect;
         journal.device_size = 0;
         if (journal.offset >= data_size)
         {
@@ -405,5 +424,12 @@ void blockstore_impl_t::open_journal()
         journal.sector_buf = (uint8_t*)memalign(MEM_ALIGNMENT, journal.sector_count * journal_block_size);
         if (!journal.sector_buf)
             throw std::bad_alloc();
+    }
+    if (journal_block_size % journal_device_sect)
+    {
+        throw std::runtime_error(
+            "journal_block_size ("+std::to_string(journal_block_size)+
+            ") is not a multiple of journal device sector size ("+std::to_string(journal_device_sect)+")"
+        );
     }
 }

@@ -251,6 +251,7 @@ class blockstore_impl_t
     int data_fd;
     uint64_t meta_size, meta_area, meta_len;
     uint64_t data_size, data_len;
+    uint64_t data_device_sect, meta_device_sect, journal_device_sect;
 
     void *metadata_buffer = NULL;
 
