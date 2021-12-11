@@ -709,10 +709,13 @@ class Mon
         for (const node_id in this.state.config.node_placement||{})
         {
             const node_cfg = this.state.config.node_placement[node_id];
-            if (!node_id || /^\d/.exec(node_id) ||
-                !node_cfg.level || !levels[node_cfg.level])
+            if (/^\d+$/.exec(node_id))
             {
-                // All nodes must have non-empty non-numeric IDs and valid levels
+                node_cfg.level = 'osd';
+            }
+            if (!node_id || !node_cfg.level || !levels[node_cfg.level])
+            {
+                // All nodes must have non-empty IDs and valid levels
                 continue;
             }
             tree[node_id] = { id: node_id, level: node_cfg.level, parent: node_cfg.parent, children: [] };
@@ -745,10 +748,10 @@ class Mon
                         .reduce((a, c) => { a[c] = true; return a; }, {});
                 }
                 delete tree[osd_num].children;
-                if (!tree[tree[osd_num].parent])
+                if (!tree[stat.host])
                 {
-                    tree[tree[osd_num].parent] = {
-                        id: tree[osd_num].parent,
+                    tree[stat.host] = {
+                        id: stat.host,
                         level: 'host',
                         parent: null,
                         children: [],
