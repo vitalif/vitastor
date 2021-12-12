@@ -116,7 +116,7 @@ int bind_stub(const char *bind_address, int bind_port)
 void run_stub(int peer_fd)
 {
     osd_any_op_t op;
-    osd_any_reply_t reply;
+    osd_any_reply_t reply = { 0 };
     void *buf = NULL;
     while (1)
     {
@@ -139,7 +139,7 @@ void run_stub(int peer_fd)
             buf = malloc(op.sec_rw.len);
             r = write_blocking(peer_fd, reply.buf, OSD_PACKET_SIZE);
             if (r == OSD_PACKET_SIZE)
-                r = write_blocking(peer_fd, &buf, op.sec_rw.len);
+                r = write_blocking(peer_fd, buf, op.sec_rw.len);
             free(buf);
             if (r < op.sec_rw.len)
                 break;

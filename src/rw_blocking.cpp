@@ -60,7 +60,7 @@ int readv_blocking(int fd, iovec *iov, int iovcnt)
     int done = 0;
     while (v < iovcnt)
     {
-        ssize_t r = readv(fd, iov, iovcnt);
+        ssize_t r = readv(fd, iov+v, iovcnt-v);
         if (r < 0)
         {
             if (errno != EAGAIN && errno != EPIPE)
@@ -70,6 +70,7 @@ int readv_blocking(int fd, iovec *iov, int iovcnt)
             }
             continue;
         }
+        done += r;
         while (v < iovcnt)
         {
             if (iov[v].iov_len > r)
@@ -80,10 +81,10 @@ int readv_blocking(int fd, iovec *iov, int iovcnt)
             }
             else
             {
+                r -= iov[v].iov_len;
                 v++;
             }
         }
-        done += r;
     }
     return done;
 }
@@ -94,7 +95,7 @@ int writev_blocking(int fd, iovec *iov, int iovcnt)
     int done = 0;
     while (v < iovcnt)
     {
-        ssize_t r = writev(fd, iov, iovcnt);
+        ssize_t r = writev(fd, iov+v, iovcnt-v);
         if (r < 0)
         {
             if (errno != EAGAIN && errno != EPIPE)
@@ -104,6 +105,7 @@ int writev_blocking(int fd, iovec *iov, int iovcnt)
             }
             continue;
         }
+        done += r;
         while (v < iovcnt)
         {
             if (iov[v].iov_len > r)
@@ -114,10 +116,10 @@ int writev_blocking(int fd, iovec *iov, int iovcnt)
             }
             else
             {
+                r -= iov[v].iov_len;
                 v++;
             }
         }
-        done += r;
     }
     return done;
 }
