@@ -41,6 +41,14 @@ void osd_t::init_cluster()
                 .pg_data_size = 2,
                 .pool_id = 1,
                 .pg_num = 1,
+                .clean_count = 0, 
+                .total_count = 0,
+                .epoch = 0, 
+                .reported_epoch = 0,
+                .target_history = std::vector<std::vector<osd_num_t>>{},
+                .all_peers = std::vector<osd_num_t>{},
+                .history_changed = false,
+                .cur_peers = std::vector<osd_num_t>{}, 
                 .target_set = { 1, 2, 3 },
                 .cur_set = { 0, 0, 0 },
             };
@@ -51,6 +59,7 @@ void osd_t::init_cluster()
                 .scheme = POOL_SCHEME_XOR,
                 .pg_size = 3,
                 .pg_minsize = 2,
+                .parity_chunks = 0,
                 .pg_count = 1,
                 .real_pg_count = 1,
             };
@@ -659,6 +668,40 @@ void osd_t::apply_pg_config()
                 }
                 auto & pg = this->pgs[{ .pool_id = pool_id, .pg_num = pg_num }];
                 pg = (pg_t){
+//     pool_id_t pool_id = 0;
+//     pg_num_t pg_num = 0;
+//     uint64_t epoch = 0, reported_epoch = 0;
+//     // target history and all potential peers
+//     std::vector<std::vector<osd_num_t>> target_history;
+//     std::vector<osd_num_t> all_peers;
+//     bool history_changed = false;
+//     // peer list from the last peering event
+//     std::vector<osd_num_t> cur_peers;
+//     // target_set is the "correct" peer OSD set for this PG
+//     std::vector<osd_num_t> target_set;
+//     // cur_set is the current set of connected peer OSDs for this PG
+//     // cur_set = (role => osd_num or UINT64_MAX if missing). role numbers begin with zero
+//     std::vector<osd_num_t> cur_set;
+//     // same thing in state_dict-like format
+//     pg_osd_set_t cur_loc_set;
+//     // moved object map. by default, each object is considered to reside on cur_set.
+//     // this map stores all objects that differ.
+//     // it may consume up to ~ (raw storage / object size) * 24 bytes in the worst case scenario
+//     // which is up to ~192 MB per 1 TB in the worst case scenario
+//     std::map<pg_osd_set_t, pg_osd_set_state_t> state_dict;
+//     btree::btree_map<object_id, pg_osd_set_state_t*> incomplete_objects, misplaced_objects, degraded_objects;
+//     std::map<obj_piece_id_t, flush_action_t> flush_actions;
+//     std::vector<obj_ver_osd_t> copies_to_delete_after_sync;
+//     btree::btree_map<object_id, uint64_t> ver_override;
+//     pg_peering_state_t *peering_state = NULL;
+//     pg_flush_batch_t *flush_batch = NULL;
+
+//     int inflight = 0; // including write_queue
+//     std::multimap<object_id, osd_op_t*> write_queue;
+
+//     void calc_object_states(int log_level);
+//     void print_state();
+
                     .state = pg_cfg.cur_primary == this->osd_num ? PG_PEERING : PG_STARTING,
                     .scheme = pool_item.second.scheme,
                     .pg_cursize = 0,
@@ -668,9 +711,14 @@ void osd_t::apply_pg_config()
                          ? 1 : pool_item.second.pg_size - pool_item.second.parity_chunks,
                     .pool_id = pool_id,
                     .pg_num = pg_num,
+                    .clean_count = 0, 
+                    .total_count = 0,
+                    .epoch = 0,
                     .reported_epoch = pg_cfg.epoch,
                     .target_history = pg_cfg.target_history,
                     .all_peers = std::vector<osd_num_t>(all_peers.begin(), all_peers.end()),
+                    .history_changed = false,
+                    .cur_peers = std::vector<osd_num_t>{},
                     .target_set = pg_cfg.target_set,
                 };
                 if (pg.scheme == POOL_SCHEME_JERASURE)

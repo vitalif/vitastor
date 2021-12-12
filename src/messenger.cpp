@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/epoll.h>
 #include <netinet/tcp.h>
 #include <stdexcept>

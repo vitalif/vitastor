@@ -142,13 +142,13 @@ bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, void *curbuf, int rem
                 memcpy(cur->iov_base, curbuf, remain);
                 cl->read_remaining -= remain;
                 cur->iov_len -= remain;
-                cur->iov_base += remain;
+                cur->iov_base = reinterpret_cast<int*>(cur->iov_base) +  remain;
                 remain = 0;
             }
             else
             {
                 memcpy(cur->iov_base, curbuf, cur->iov_len);
-                curbuf += cur->iov_len;
+                curbuf = reinterpret_cast<size_t*>(curbuf) + cur->iov_len;
                 cl->read_remaining -= cur->iov_len;
                 remain -= cur->iov_len;
                 cur->iov_len = 0;

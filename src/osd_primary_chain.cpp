@@ -274,7 +274,7 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
                             {
                                 memcpy(&cur_op->reply.rw.version, cur_buf-8, 8);
                             }
-                            cur_buf += 8 + clean_entry_bitmap_size;
+                            cur_buf = reinterpret_cast<uint32_t*>(cur_buf) + 8 + clean_entry_bitmap_size;
                         }
                     }
                     if ((cur_op->op_data->errors + cur_op->op_data->done + 1) >= cur_op->op_data->n_subops)
@@ -426,7 +426,7 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
             {
                 stripes[role].read_buf = cur_buf;
                 stripes[role].bmp_buf = op_data->snapshot_bitmaps + (chain_reads[cri].chain_pos*stripe_count + role)*clean_entry_bitmap_size;
-                cur_buf += stripes[role].read_end - stripes[role].read_start;
+                cur_buf =  reinterpret_cast<uint32_t*>(cur_buf) + stripes[role].read_end - stripes[role].read_start;
             }
         }
     }
