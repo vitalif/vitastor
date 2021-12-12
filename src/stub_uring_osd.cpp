@@ -39,6 +39,8 @@ int main(int narg, char *args[])
     msgr->ringloop = ringloop;
     msgr->repeer_pgs = [](osd_num_t) {};
     msgr->exec_op = [msgr](osd_op_t *op) { stub_exec_op(msgr, op); };
+    json11::Json config = json11::Json::object { { "log_level", 1 } };
+    msgr->parse_config(config);
     // Accept new connections
     int listen_fd = bind_stub("0.0.0.0", 11203);
     epmgr->set_fd_handler(listen_fd, false, [listen_fd, msgr](int fd, int events)
