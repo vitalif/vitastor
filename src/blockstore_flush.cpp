@@ -547,8 +547,9 @@ resume_1:
             clean_disk_entry *new_entry = (clean_disk_entry*)(meta_new.buf + meta_new.pos*bs->clean_entry_size);
             if (new_entry->oid.inode != 0 && new_entry->oid != cur.oid)
             {
-                printf("Fatal error (metadata corruption or bug): tried to delete metadata entry %lu (%lx:%lx) while deleting %lx:%lx\n",
-                    clean_loc >> bs->block_order, new_entry->oid.inode, new_entry->oid.stripe, cur.oid.inode, cur.oid.stripe);
+                printf("Fatal error (metadata corruption or bug): tried to delete metadata entry %lu (%lx:%lx v%lu) while deleting %lx:%lx\n",
+                    clean_loc >> bs->block_order, new_entry->oid.inode, new_entry->oid.stripe,
+                    new_entry->version, cur.oid.inode, cur.oid.stripe);
                 exit(1);
             }
             // zero out new metadata entry
@@ -559,8 +560,9 @@ resume_1:
             clean_disk_entry *new_entry = (clean_disk_entry*)(meta_new.buf + meta_new.pos*bs->clean_entry_size);
             if (new_entry->oid.inode != 0 && new_entry->oid != cur.oid)
             {
-                printf("Fatal error (metadata corruption or bug): tried to overwrite non-zero metadata entry %lu (%lx:%lx) with %lx:%lx\n",
-                    clean_loc >> bs->block_order, new_entry->oid.inode, new_entry->oid.stripe, cur.oid.inode, cur.oid.stripe);
+                printf("Fatal error (metadata corruption or bug): tried to overwrite non-zero metadata entry %lu (%lx:%lx v%lu) with %lx:%lx v%lu\n",
+                    clean_loc >> bs->block_order, new_entry->oid.inode, new_entry->oid.stripe, new_entry->version,
+                    cur.oid.inode, cur.oid.stripe, cur.version);
                 exit(1);
             }
             new_entry->oid = cur.oid;
