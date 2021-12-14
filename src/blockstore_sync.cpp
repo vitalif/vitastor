@@ -44,10 +44,8 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
         if (journal.sector_info[journal.cur_sector].dirty)
         {
             // Write out the last journal sector if it happens to be dirty
-            BS_SUBMIT_GET_ONLY_SQE(sqe);
-            prepare_journal_sector_write(journal, journal.cur_sector, sqe, [this, op](ring_data_t *data) { handle_sync_event(data, op); });
-            PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
-            PRIV(op)->pending_ops = 1;
+            BS_SUBMIT_CHECK_SQES(1);
+            prepare_journal_sector_write(journal.cur_sector, op);
             PRIV(op)->op_state = SYNC_JOURNAL_WRITE_SENT;
             return 1;
         }
@@ -64,7 +62,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
             BS_SUBMIT_GET_SQE(sqe, data);
             my_uring_prep_fsync(sqe, data_fd, IORING_FSYNC_DATASYNC);
             data->iov = { 0 };
-            data->callback = [this, op](ring_data_t *data) { handle_sync_event(data, op); };
+            data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
             PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
             PRIV(op)->pending_ops = 1;
             PRIV(op)->op_state = SYNC_DATA_SYNC_SENT;
@@ -85,24 +83,18 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
         {
             return 0;
         }
-        // Get SQEs. Don't bother about merging, submit each journal sector as a separate request
-        struct io_uring_sqe *sqe[space_check.sectors_to_write];
-        for (int i = 0; i < space_check.sectors_to_write; i++)
-        {
-            BS_SUBMIT_GET_SQE_DECL(sqe[i]);
-        }
+        // Check SQEs. Don't bother about merging, submit each journal sector as a separate request
+        BS_SUBMIT_CHECK_SQES(space_check.sectors_to_write);
         // Prepare and submit journal entries
         auto it = PRIV(op)->sync_big_writes.begin();
-        int s = 0, cur_sector = -1;
+        int s = 0;
         while (it != PRIV(op)->sync_big_writes.end())
         {
             if (!journal.entry_fits(sizeof(journal_entry_big_write) + clean_entry_bitmap_size) &&
                 journal.sector_info[journal.cur_sector].dirty)
             {
-                if (cur_sector == -1)
-                    PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
-                prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], [this, op](ring_data_t *data) { handle_sync_event(data, op); });
-                cur_sector = journal.cur_sector;
+                prepare_journal_sector_write(journal.cur_sector, op);
+                s++;
             }
             auto & dirty_entry = dirty_db.at(*it);
             journal_entry_big_write *je = (journal_entry_big_write*)prefill_single_journal_entry(
@@ -129,12 +121,9 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
             journal.crc32_last = je->crc32;
             it++;
         }
-        prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], [this, op](ring_data_t *data) { handle_sync_event(data, op); });
+        prepare_journal_sector_write(journal.cur_sector, op);
+        s++;
         assert(s == space_check.sectors_to_write);
-        if (cur_sector == -1)
-            PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
-        PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
-        PRIV(op)->pending_ops = s;
         PRIV(op)->op_state = SYNC_JOURNAL_WRITE_SENT;
         return 1;
     }
@@ -145,7 +134,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
             BS_SUBMIT_GET_SQE(sqe, data);
             my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
             data->iov = { 0 };
-            data->callback = [this, op](ring_data_t *data) { handle_sync_event(data, op); };
+            data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
             PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
             PRIV(op)->pending_ops = 1;
             PRIV(op)->op_state = SYNC_JOURNAL_SYNC_SENT;
@@ -162,42 +151,6 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
         return 2;
     }
     return 1;
-}
-
-void blockstore_impl_t::handle_sync_event(ring_data_t *data, blockstore_op_t *op)
-{
-    live = true;
-    if (data->res != data->iov.iov_len)
-    {
-        throw std::runtime_error(
-            "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
-            "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
-        );
-    }
-    PRIV(op)->pending_ops--;
-    if (PRIV(op)->pending_ops == 0)
-    {
-        // Release used journal sectors
-        release_journal_sectors(op);
-        // Handle states
-        if (PRIV(op)->op_state == SYNC_DATA_SYNC_SENT)
-        {
-            PRIV(op)->op_state = SYNC_DATA_SYNC_DONE;
-        }
-        else if (PRIV(op)->op_state == SYNC_JOURNAL_WRITE_SENT)
-        {
-            PRIV(op)->op_state = SYNC_JOURNAL_WRITE_DONE;
-        }
-        else if (PRIV(op)->op_state == SYNC_JOURNAL_SYNC_SENT)
-        {
-            PRIV(op)->op_state = SYNC_DONE;
-        }
-        else
-        {
-            throw std::runtime_error("BUG: unexpected sync op state");
-        }
-        ringloop->wakeup();
-    }
 }
 
 void blockstore_impl_t::ack_sync(blockstore_op_t *op)

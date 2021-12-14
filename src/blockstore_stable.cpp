@@ -97,25 +97,18 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     {
         return 0;
     }
-    // There is sufficient space. Get SQEs
-    struct io_uring_sqe *sqe[space_check.sectors_to_write];
-    for (i = 0; i < space_check.sectors_to_write; i++)
-    {
-        BS_SUBMIT_GET_SQE_DECL(sqe[i]);
-    }
+    // There is sufficient space. Check SQEs
+    BS_SUBMIT_CHECK_SQES(space_check.sectors_to_write);
     // Prepare and submit journal entries
-    auto cb = [this, op](ring_data_t *data) { handle_stable_event(data, op); };
-    int s = 0, cur_sector = -1;
+    int s = 0;
     for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
     {
         // FIXME: Only stabilize versions that aren't stable yet
         if (!journal.entry_fits(sizeof(journal_entry_stable)) &&
             journal.sector_info[journal.cur_sector].dirty)
         {
-            if (cur_sector == -1)
-                PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
-            prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], cb);
-            cur_sector = journal.cur_sector;
+            prepare_journal_sector_write(journal.cur_sector, op);
+            s++;
         }
         journal_entry_stable *je = (journal_entry_stable*)
             prefill_single_journal_entry(journal, JE_STABLE, sizeof(journal_entry_stable));
@@ -124,12 +117,9 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
     }
-    prepare_journal_sector_write(journal, journal.cur_sector, sqe[s++], cb);
+    prepare_journal_sector_write(journal.cur_sector, op);
+    s++;
     assert(s == space_check.sectors_to_write);
-    if (cur_sector == -1)
-        PRIV(op)->min_flushed_journal_sector = 1 + journal.cur_sector;
-    PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
-    PRIV(op)->pending_ops = s;
     PRIV(op)->op_state = 1;
     return 1;
 }
@@ -138,30 +128,23 @@ int blockstore_impl_t::continue_stable(blockstore_op_t *op)
 {
     if (PRIV(op)->op_state == 2)
         goto resume_2;
-    else if (PRIV(op)->op_state == 3)
-        goto resume_3;
-    else if (PRIV(op)->op_state == 5)
-        goto resume_5;
+    else if (PRIV(op)->op_state == 4)
+        goto resume_4;
     else
         return 1;
 resume_2:
-    // Release used journal sectors
-    release_journal_sectors(op);
-resume_3:
     if (!disable_journal_fsync)
     {
-        io_uring_sqe *sqe;
-        BS_SUBMIT_GET_SQE_DECL(sqe);
-        ring_data_t *data = ((ring_data_t*)sqe->user_data);
+        BS_SUBMIT_GET_SQE(sqe, data);
         my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
         data->iov = { 0 };
-        data->callback = [this, op](ring_data_t *data) { handle_stable_event(data, op); };
+        data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
         PRIV(op)->pending_ops = 1;
-        PRIV(op)->op_state = 4;
+        PRIV(op)->op_state = 3;
         return 1;
     }
-resume_5:
+resume_4:
     // Mark dirty_db entries as stable, acknowledge op completion
     obj_ver_id* v;
     int i;
@@ -255,23 +238,5 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
         unstab_it->second <= v.version)
     {
         unstable_writes.erase(unstab_it);
-    }
-}
-
-void blockstore_impl_t::handle_stable_event(ring_data_t *data, blockstore_op_t *op)
-{
-    live = true;
-    if (data->res != data->iov.iov_len)
-    {
-        throw std::runtime_error(
-            "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
-            "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
-        );
-    }
-    PRIV(op)->pending_ops--;
-    if (PRIV(op)->pending_ops == 0)
-    {
-        PRIV(op)->op_state++;
-        ringloop->wakeup();
     }
 }

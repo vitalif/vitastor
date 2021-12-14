@@ -153,22 +153,73 @@ journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, 
     return je;
 }
 
-void prepare_journal_sector_write(journal_t & journal, int cur_sector, io_uring_sqe *sqe, std::function<void(ring_data_t*)> cb)
+void blockstore_impl_t::prepare_journal_sector_write(int cur_sector, blockstore_op_t *op)
 {
+    // Don't submit the same sector twice in the same batch
+    if (!journal.sector_info[cur_sector].submit_id)
+    {
+        io_uring_sqe *sqe = get_sqe();
+        // Caller must ensure availability of an SQE
+        assert(sqe != NULL);
+        ring_data_t *data = ((ring_data_t*)sqe->user_data);
+        journal.sector_info[cur_sector].written = true;
+        journal.sector_info[cur_sector].submit_id = ++journal.submit_id;
+        journal.submitting_sectors.push_back(cur_sector);
+        journal.sector_info[cur_sector].flush_count++;
+        data->iov = (struct iovec){
+            (journal.inmemory
+                ? journal.buffer + journal.sector_info[cur_sector].offset
+                : journal.sector_buf + journal.block_size*cur_sector),
+            journal.block_size
+        };
+        data->callback = [this, flush_id = journal.submit_id](ring_data_t *data) { handle_journal_write(data, flush_id); };
+        my_uring_prep_writev(
+            sqe, journal.fd, &data->iov, 1, journal.offset + journal.sector_info[cur_sector].offset
+        );
+    }
     journal.sector_info[cur_sector].dirty = false;
-    journal.sector_info[cur_sector].written = true;
-    journal.sector_info[cur_sector].flush_count++;
-    ring_data_t *data = ((ring_data_t*)sqe->user_data);
-    data->iov = (struct iovec){
-        (journal.inmemory
-            ? journal.buffer + journal.sector_info[cur_sector].offset
-            : journal.sector_buf + journal.block_size*cur_sector),
-        journal.block_size
-    };
-    data->callback = cb;
-    my_uring_prep_writev(
-        sqe, journal.fd, &data->iov, 1, journal.offset + journal.sector_info[cur_sector].offset
-    );
+    // But always remember that this operation has to wait until this exact journal write is finished
+    journal.flushing_ops.insert((pending_journaling_t){
+        .flush_id = journal.sector_info[cur_sector].submit_id,
+        .sector = cur_sector,
+        .op = op,
+    });
+    auto priv = PRIV(op);
+    priv->pending_ops++;
+    if (!priv->min_flushed_journal_sector)
+        priv->min_flushed_journal_sector = 1+cur_sector;
+    priv->max_flushed_journal_sector = 1+cur_sector;
+}
+
+void blockstore_impl_t::handle_journal_write(ring_data_t *data, uint64_t flush_id)
+{
+    live = true;
+    if (data->res != data->iov.iov_len)
+    {
+        // FIXME: our state becomes corrupted after a write error. maybe do something better than just die
+        throw std::runtime_error(
+            "journal write failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
+            "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
+        );
+    }
+    auto fl_it = journal.flushing_ops.upper_bound((pending_journaling_t){ .flush_id = flush_id });
+    if (fl_it != journal.flushing_ops.end() && fl_it->flush_id == flush_id)
+    {
+        journal.sector_info[fl_it->sector].flush_count--;
+    }
+    while (fl_it != journal.flushing_ops.end() && fl_it->flush_id == flush_id)
+    {
+        auto priv = PRIV(fl_it->op);
+        priv->pending_ops--;
+        assert(priv->pending_ops >= 0);
+        if (priv->pending_ops == 0)
+        {
+            release_journal_sectors(fl_it->op);
+            priv->op_state++;
+            ringloop->wakeup();
+        }
+        journal.flushing_ops.erase(fl_it++);
+    }
 }
 
 journal_t::~journal_t()

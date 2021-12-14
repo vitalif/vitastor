@@ -4,6 +4,7 @@
 #pragma once
 
 #include "crc32c.h"
+#include <set>
 
 #define MIN_JOURNAL_SIZE 4*1024*1024
 #define JOURNAL_MAGIC 0x4A33
@@ -145,7 +146,20 @@ struct journal_sector_info_t
     uint64_t flush_count;
     bool written;
     bool dirty;
+    uint64_t submit_id;
 };
+
+struct pending_journaling_t
+{
+    uint64_t flush_id;
+    int sector;
+    blockstore_op_t *op;
+};
+
+inline bool operator < (const pending_journaling_t & a, const pending_journaling_t & b)
+{
+    return a.flush_id < b.flush_id || a.flush_id == b.flush_id && a.op < b.op;
+}
 
 struct journal_t
 {
@@ -172,6 +186,9 @@ struct journal_t
     bool no_same_sector_overwrites = false;
     int cur_sector = 0;
     int in_sector_pos = 0;
+    std::vector<int> submitting_sectors;
+    std::set<pending_journaling_t> flushing_ops;
+    uint64_t submit_id = 0;
 
     // Used sector map
     // May use ~ 80 MB per 1 GB of used journal space in the worst case
@@ -200,5 +217,3 @@ struct blockstore_journal_check_t
 };
 
 journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, uint32_t size);
-
-void prepare_journal_sector_write(journal_t & journal, int sector, io_uring_sqe *sqe, std::function<void(ring_data_t*)> cb);

@@ -268,8 +268,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             cancel_all_writes(op, dirty_it, -ENOSPC);
             return 2;
         }
-        write_iodepth++;
         BS_SUBMIT_GET_SQE(sqe, data);
+        write_iodepth++;
         dirty_it->second.location = loc << block_order;
         dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_SUBMITTED;
 #ifdef BLOCKSTORE_DEBUG
@@ -324,29 +324,21 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         {
             return 0;
         }
-        write_iodepth++;
-        // There is sufficient space. Get SQE(s)
-        struct io_uring_sqe *sqe1 = NULL;
-        if (immediate_commit != IMMEDIATE_NONE ||
-            !journal.entry_fits(sizeof(journal_entry_small_write) + clean_entry_bitmap_size))
-        {
+        // There is sufficient space. Check SQE(s)
+        BS_SUBMIT_CHECK_SQES(
             // Write current journal sector only if it's dirty and full, or in the immediate_commit mode
-            BS_SUBMIT_GET_SQE_DECL(sqe1);
-        }
-        struct io_uring_sqe *sqe2 = NULL;
-        if (op->len > 0)
-        {
-            BS_SUBMIT_GET_SQE_DECL(sqe2);
-        }
+            (immediate_commit != IMMEDIATE_NONE ||
+                !journal.entry_fits(sizeof(journal_entry_small_write) + clean_entry_bitmap_size) ? 1 : 0) +
+            (op->len > 0 ? 1 : 0)
+        );
+        write_iodepth++;
         // Got SQEs. Prepare previous journal sector write if required
         auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         if (immediate_commit == IMMEDIATE_NONE)
         {
-            if (sqe1)
+            if (!journal.entry_fits(sizeof(journal_entry_small_write) + clean_entry_bitmap_size))
             {
-                prepare_journal_sector_write(journal, journal.cur_sector, sqe1, cb);
-                PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
-                PRIV(op)->pending_ops++;
+                prepare_journal_sector_write(journal.cur_sector, op);
             }
             else
             {
@@ -380,9 +372,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         journal.crc32_last = je->crc32;
         if (immediate_commit != IMMEDIATE_NONE)
         {
-            prepare_journal_sector_write(journal, journal.cur_sector, sqe1, cb);
-            PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
-            PRIV(op)->pending_ops++;
+            prepare_journal_sector_write(journal.cur_sector, op);
         }
         if (op->len > 0)
         {
@@ -392,7 +382,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 // Copy data
                 memcpy(journal.buffer + journal.next_free, op->buf, op->len);
             }
-            ring_data_t *data2 = ((ring_data_t*)sqe2->user_data);
+            BS_SUBMIT_GET_SQE(sqe2, data2);
             data2->iov = (struct iovec){ op->buf, op->len };
             data2->callback = cb;
             my_uring_prep_writev(
@@ -441,13 +431,12 @@ int blockstore_impl_t::continue_write(blockstore_op_t *op)
 resume_2:
     // Only for the immediate_commit mode: prepare and submit big_write journal entry
     {
+        BS_SUBMIT_CHECK_SQES(1);
         auto dirty_it = dirty_db.find((obj_ver_id){
             .oid = op->oid,
             .version = op->version,
         });
         assert(dirty_it != dirty_db.end());
-        io_uring_sqe *sqe = NULL;
-        BS_SUBMIT_GET_SQE_DECL(sqe);
         journal_entry_big_write *je = (journal_entry_big_write*)prefill_single_journal_entry(
             journal, op->opcode == BS_OP_WRITE_STABLE ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
             sizeof(journal_entry_big_write) + clean_entry_bitmap_size
@@ -469,10 +458,7 @@ resume_2:
         memcpy((void*)(je+1), (clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap), clean_entry_bitmap_size);
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
-        prepare_journal_sector_write(journal, journal.cur_sector, sqe,
-            [this, op](ring_data_t *data) { handle_write_event(data, op); });
-        PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
-        PRIV(op)->pending_ops = 1;
+        prepare_journal_sector_write(journal.cur_sector, op);
         PRIV(op)->op_state = 3;
         return 1;
     }
@@ -587,6 +573,7 @@ void blockstore_impl_t::handle_write_event(ring_data_t *data, blockstore_op_t *o
         );
     }
     PRIV(op)->pending_ops--;
+    assert(PRIV(op)->pending_ops >= 0);
     if (PRIV(op)->pending_ops == 0)
     {
         release_journal_sectors(op);
@@ -604,7 +591,6 @@ void blockstore_impl_t::release_journal_sectors(blockstore_op_t *op)
         uint64_t s = PRIV(op)->min_flushed_journal_sector;
         while (1)
         {
-            journal.sector_info[s-1].flush_count--;
             if (s != (1+journal.cur_sector) && journal.sector_info[s-1].flush_count == 0)
             {
                 // We know for sure that we won't write into this sector anymore
@@ -644,23 +630,19 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
         return 0;
     }
     write_iodepth++;
-    io_uring_sqe *sqe = NULL;
-    if (immediate_commit != IMMEDIATE_NONE ||
-        (journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_del) &&
-        journal.sector_info[journal.cur_sector].dirty)
-    {
-        // Write current journal sector only if it's dirty and full, or in the immediate_commit mode
-        BS_SUBMIT_GET_SQE_DECL(sqe);
-    }
-    auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
+    // Write current journal sector only if it's dirty and full, or in the immediate_commit mode
+    BS_SUBMIT_CHECK_SQES(
+        (immediate_commit != IMMEDIATE_NONE ||
+            (journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_del) &&
+            journal.sector_info[journal.cur_sector].dirty) ? 1 : 0
+    );
     // Prepare journal sector write
     if (immediate_commit == IMMEDIATE_NONE)
     {
-        if (sqe)
+        if ((journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_del) &&
+            journal.sector_info[journal.cur_sector].dirty)
         {
-            prepare_journal_sector_write(journal, journal.cur_sector, sqe, cb);
-            PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
-            PRIV(op)->pending_ops++;
+            prepare_journal_sector_write(journal.cur_sector, op);
         }
         else
         {
@@ -687,9 +669,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     dirty_it->second.state = BS_ST_DELETE | BS_ST_SUBMITTED;
     if (immediate_commit != IMMEDIATE_NONE)
     {
-        prepare_journal_sector_write(journal, journal.cur_sector, sqe, cb);
-        PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 1 + journal.cur_sector;
-        PRIV(op)->pending_ops++;
+        prepare_journal_sector_write(journal.cur_sector, op);
     }
     if (!PRIV(op)->pending_ops)
     {

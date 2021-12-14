@@ -54,6 +54,14 @@
 #define IS_BIG_WRITE(st) (((st) & 0x0F) == BS_ST_BIG_WRITE)
 #define IS_DELETE(st) (((st) & 0x0F) == BS_ST_DELETE)
 
+#define BS_SUBMIT_CHECK_SQES(n) \
+    if (ringloop->space_left() < (n))\
+    {\
+        /* Pause until there are more requests available */\
+        PRIV(op)->wait_for = WAIT_SQE;\
+        return 0;\
+    }
+
 #define BS_SUBMIT_GET_SQE(sqe, data) \
     BS_SUBMIT_GET_ONLY_SQE(sqe); \
     struct ring_data_t *data = ((ring_data_t*)sqe->user_data)
@@ -170,7 +178,7 @@ struct blockstore_op_private_t
     std::vector<fulfill_read_t> read_vec;
 
     // Sync, write
-    uint64_t min_flushed_journal_sector, max_flushed_journal_sector;
+    int min_flushed_journal_sector, max_flushed_journal_sector;
 
     // Write
     struct iovec iov_zerofill[3];
@@ -283,6 +291,10 @@ class blockstore_impl_t
     void open_journal();
     uint8_t* get_clean_entry_bitmap(uint64_t block_loc, int offset);
 
+    // Journaling
+    void prepare_journal_sector_write(int sector, blockstore_op_t *op);
+    void handle_journal_write(ring_data_t *data, uint64_t flush_id);
+
     // Asynchronous init
     int initialized;
     int metadata_buf_size;
@@ -310,21 +322,18 @@ class blockstore_impl_t
 
     // Sync
     int continue_sync(blockstore_op_t *op, bool queue_has_in_progress_sync);
-    void handle_sync_event(ring_data_t *data, blockstore_op_t *op);
     void ack_sync(blockstore_op_t *op);
 
     // Stabilize
     int dequeue_stable(blockstore_op_t *op);
     int continue_stable(blockstore_op_t *op);
     void mark_stable(const obj_ver_id & ov, bool forget_dirty = false);
-    void handle_stable_event(ring_data_t *data, blockstore_op_t *op);
     void stabilize_object(object_id oid, uint64_t max_ver);
 
     // Rollback
     int dequeue_rollback(blockstore_op_t *op);
     int continue_rollback(blockstore_op_t *op);
     void mark_rolled_back(const obj_ver_id & ov);
-    void handle_rollback_event(ring_data_t *data, blockstore_op_t *op);
     void erase_dirty(blockstore_dirty_db_t::iterator dirty_start, blockstore_dirty_db_t::iterator dirty_end, uint64_t clean_loc);
 
     // List
