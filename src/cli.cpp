@@ -305,6 +305,10 @@ void cli_tool_t::run(json11::Json cfg)
         fprintf(stderr, "unknown command: %s\n", cmd[0].string_value().c_str());
         exit(1);
     }
+    if (action_cb == NULL)
+    {
+        return;
+    }
     color = !cfg["no-color"].bool_value();
     json_output = cfg["json"].bool_value();
     iodepth = cfg["iodepth"].uint64_value();
