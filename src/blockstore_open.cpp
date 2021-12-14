@@ -306,6 +306,10 @@ static void check_size(int fd, uint64_t *size, uint64_t *sectsize, std::string n
     if (S_ISREG(st.st_mode))
     {
         *size = st.st_size;
+        if (sectsize)
+        {
+            *sectsize = st.st_blksize;
+        }
     }
     else if (S_ISBLK(st.st_mode))
     {
