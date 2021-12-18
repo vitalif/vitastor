@@ -15,13 +15,13 @@
 
 #include <stdexcept>
 
+#include "addr_util.h"
 #include "json11/json11.hpp"
 #include "http_client.h"
 #include "timerfd_manager.h"
 
 #define READ_BUFFER_SIZE 9000
 
-static int extract_port(std::string & host);
 static std::string trim(const std::string & in);
 static std::string ws_format_frame(int type, uint64_t size);
 static bool ws_parse_frame(std::string & buf, int & type, std::string & res);
@@ -185,19 +185,15 @@ http_co_t::~http_co_t()
 void http_co_t::start_connection()
 {
     stackin();
-    int port = extract_port(host);
-    struct sockaddr_in addr;
-    int r;
-    if ((r = inet_pton(AF_INET, host.c_str(), &addr.sin_addr)) != 1)
+    struct sockaddr addr;
+    if (!string_to_addr(host.c_str(), 1, 80, &addr))
     {
         parsed.error_code = ENXIO;
         stackout();
         end();
         return;
     }
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port ? port : 80);
-    peer_fd = socket(AF_INET, SOCK_STREAM, 0);
+    peer_fd = socket(addr.sa_family, SOCK_STREAM, 0);
     if (peer_fd < 0)
     {
         parsed.error_code = errno;
@@ -219,7 +215,7 @@ void http_co_t::start_connection()
     }
     epoll_events = 0;
     // Finally call connect
-    r = ::connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
+    int r = ::connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
     if (r < 0 && errno != EINPROGRESS)
     {
         parsed.error_code = errno;
@@ -757,22 +753,6 @@ std::vector<std::string> getifaddr_list(json11::Json mask_cfg, bool include_v6)
     }
     freeifaddrs(list);
     return addresses;
-}
-
-static int extract_port(std::string & host)
-{
-    int port = 0;
-    int pos = 0;
-    if ((pos = host.find(':')) >= 0)
-    {
-        port = strtoull(host.c_str() + pos + 1, NULL, 10);
-        if (port >= 0x10000)
-        {
-            port = 0;
-        }
-        host = host.substr(0, pos);
-    }
-    return port;
 }
 
 std::string strtolower(const std::string & in)

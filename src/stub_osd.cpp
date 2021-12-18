@@ -37,10 +37,11 @@
 
 #include <stdexcept>
 
+#include "addr_util.h"
 #include "rw_blocking.h"
 #include "osd_ops.h"
 
-int bind_stub(const char *bind_address, int bind_port);
+int bind_stub(std::string bind_address, int bind_port);
 
 void run_stub(int peer_fd);
 
@@ -48,13 +49,13 @@ int main(int narg, char *args[])
 {
     int listen_fd = bind_stub("0.0.0.0", 11203);
     // Accept new connections
-    sockaddr_in addr;
+    sockaddr addr;
     socklen_t peer_addr_size = sizeof(addr);
     int peer_fd;
     while (1)
     {
         printf("stub_osd: waiting for 1 client\n");
-        peer_fd = accept(listen_fd, (sockaddr*)&addr, &peer_addr_size);
+        peer_fd = accept(listen_fd, &addr, &peer_addr_size);
         if (peer_fd == -1)
         {
             if (errno == EAGAIN)
@@ -62,9 +63,8 @@ int main(int narg, char *args[])
             else
                 throw std::runtime_error(std::string("accept: ") + strerror(errno));
         }
-        char peer_str[256];
-        printf("stub_osd: new client %d: connection from %s port %d\n", peer_fd,
-            inet_ntop(AF_INET, &addr.sin_addr, peer_str, 256), ntohs(addr.sin_port));
+        printf("stub_osd: new client %d: connection from %s\n", peer_fd,
+            addr_to_string(addr).c_str());
         int one = 1;
         setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
         run_stub(peer_fd);
@@ -76,11 +76,17 @@ int main(int narg, char *args[])
     return 0;
 }
 
-int bind_stub(const char *bind_address, int bind_port)
+int bind_stub(std::string bind_address, int bind_port)
 {
     int listen_backlog = 128;
 
-    int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr addr;
+    if (!string_to_addr(bind_address, 0, bind_port, &addr))
+    {
+        throw std::runtime_error("bind address "+bind_address+" is not valid");
+    }
+
+    int listen_fd = socket(addr.sa_family, SOCK_STREAM, 0);
     if (listen_fd < 0)
     {
         throw std::runtime_error(std::string("socket: ") + strerror(errno));
@@ -88,17 +94,7 @@ int bind_stub(const char *bind_address, int bind_port)
     int enable = 1;
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
 
-    sockaddr_in addr;
-    int r;
-    if ((r = inet_pton(AF_INET, bind_address, &addr.sin_addr)) != 1)
-    {
-        close(listen_fd);
-        throw std::runtime_error("bind address "+std::string(bind_address)+(r == 0 ? " is not valid" : ": no ipv4 support"));
-    }
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(bind_port);
-
-    if (bind(listen_fd, (sockaddr*)&addr, sizeof(addr)) < 0)
+    if (bind(listen_fd, &addr, sizeof(addr)) < 0)
     {
         close(listen_fd);
         throw std::runtime_error(std::string("bind: ") + strerror(errno));

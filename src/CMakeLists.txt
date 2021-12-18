@@ -88,8 +88,8 @@ if (IBVERBS_LIBRARIES)
 	set(MSGR_RDMA "msgr_rdma.cpp")
 endif (IBVERBS_LIBRARIES)
 add_library(vitastor_common STATIC
-	epoll_manager.cpp etcd_state_client.cpp
-	messenger.cpp msgr_stop.cpp msgr_op.cpp msgr_send.cpp msgr_receive.cpp ringloop.cpp ../json11/json11.cpp
+	epoll_manager.cpp etcd_state_client.cpp messenger.cpp addr_util.cpp
+	msgr_stop.cpp msgr_op.cpp msgr_send.cpp msgr_receive.cpp ringloop.cpp ../json11/json11.cpp
 	http_client.cpp osd_ops.cpp pg_states.cpp timerfd_manager.cpp base64.cpp ${MSGR_RDMA}
 )
 target_compile_options(vitastor_common PUBLIC -fPIC)
@@ -112,6 +112,7 @@ if (${WITH_FIO})
 	add_library(fio_vitastor_sec SHARED
 		fio_sec_osd.cpp
 		rw_blocking.cpp
+		addr_util.cpp
 	)
 	target_link_libraries(fio_vitastor_sec
 		tcmalloc_minimal
@@ -189,11 +190,11 @@ endif (${WITH_QEMU})
 ### Test stubs
 
 # stub_osd, stub_bench, osd_test
-add_executable(stub_osd stub_osd.cpp rw_blocking.cpp)
+add_executable(stub_osd stub_osd.cpp rw_blocking.cpp addr_util.cpp)
 target_link_libraries(stub_osd tcmalloc_minimal)
-add_executable(stub_bench stub_bench.cpp rw_blocking.cpp)
+add_executable(stub_bench stub_bench.cpp rw_blocking.cpp addr_util.cpp)
 target_link_libraries(stub_bench tcmalloc_minimal)
-add_executable(osd_test osd_test.cpp rw_blocking.cpp)
+add_executable(osd_test osd_test.cpp rw_blocking.cpp addr_util.cpp)
 target_link_libraries(osd_test tcmalloc_minimal)
 
 # osd_rmw_test

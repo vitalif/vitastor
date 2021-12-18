@@ -49,7 +49,7 @@ struct osd_client_t
 {
     int refs = 0;
 
-    sockaddr_in peer_addr;
+    sockaddr peer_addr;
     int peer_port;
     int peer_fd;
     int peer_state;

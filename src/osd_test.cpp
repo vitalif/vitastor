@@ -16,6 +16,7 @@
 
 #include <stdexcept>
 
+#include "addr_util.h"
 #include "osd_ops.h"
 #include "rw_blocking.h"
 #include "test_pattern.h"
@@ -133,17 +134,14 @@ int main(int narg, char *args[])
 
 int connect_osd(const char *osd_address, int osd_port)
 {
-    struct sockaddr_in addr;
-    int r;
-    if ((r = inet_pton(AF_INET, osd_address, &addr.sin_addr)) != 1)
+    struct sockaddr addr;
+    if (!string_to_addr(osd_address, 0, osd_port, &addr))
     {
-        fprintf(stderr, "server address: %s%s\n", osd_address, r == 0 ? " is not valid" : ": no ipv4 support");
+        fprintf(stderr, "server address: %s is not valid\n", osd_address);
         return -1;
     }
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(osd_port);
 
-    int connect_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int connect_fd = socket(addr.sa_family, SOCK_STREAM, 0);
     if (connect_fd < 0)
     {
         perror("socket");

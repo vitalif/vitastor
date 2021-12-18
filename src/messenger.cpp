@@ -8,6 +8,7 @@
 #include <netinet/tcp.h>
 #include <stdexcept>
 
+#include "addr_util.h"
 #include "messenger.h"
 
 void osd_messenger_t::init()
@@ -220,23 +221,20 @@ void osd_messenger_t::try_connect_peer(uint64_t peer_osd)
 void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer_host, int peer_port)
 {
     assert(peer_osd != this->osd_num);
-    struct sockaddr_in addr;
-    int r;
-    if ((r = inet_pton(AF_INET, peer_host, &addr.sin_addr)) != 1)
+    struct sockaddr addr;
+    if (!string_to_addr(peer_host, 0, peer_port, &addr))
     {
         on_connect_peer(peer_osd, -EINVAL);
         return;
     }
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(peer_port ? peer_port : 11203);
-    int peer_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int peer_fd = socket(addr.sa_family, SOCK_STREAM, 0);
     if (peer_fd < 0)
     {
         on_connect_peer(peer_osd, -errno);
         return;
     }
     fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
-    r = connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
+    int r = connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
     if (r < 0 && errno != EINPROGRESS)
     {
         close(peer_fd);
@@ -485,21 +483,20 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
 void osd_messenger_t::accept_connections(int listen_fd)
 {
     // Accept new connections
-    sockaddr_in addr;
+    sockaddr addr;
     socklen_t peer_addr_size = sizeof(addr);
     int peer_fd;
-    while ((peer_fd = accept(listen_fd, (sockaddr*)&addr, &peer_addr_size)) >= 0)
+    while ((peer_fd = accept(listen_fd, &addr, &peer_addr_size)) >= 0)
     {
         assert(peer_fd != 0);
-        char peer_str[256];
-        fprintf(stderr, "[OSD %lu] new client %d: connection from %s port %d\n", this->osd_num, peer_fd,
-            inet_ntop(AF_INET, &addr.sin_addr, peer_str, 256), ntohs(addr.sin_port));
+        fprintf(stderr, "[OSD %lu] new client %d: connection from %s\n", this->osd_num, peer_fd,
+            addr_to_string(addr).c_str());
         fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
         int one = 1;
         setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
         clients[peer_fd] = new osd_client_t();
         clients[peer_fd]->peer_addr = addr;
-        clients[peer_fd]->peer_port = ntohs(addr.sin_port);
+        clients[peer_fd]->peer_port = ntohs(((sockaddr_in*)&addr)->sin_port);
         clients[peer_fd]->peer_fd = peer_fd;
         clients[peer_fd]->peer_state = PEER_CONNECTED;
         clients[peer_fd]->in_buf = malloc_or_die(receive_buffer_size);

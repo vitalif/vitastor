@@ -7,6 +7,7 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
+#include "addr_util.h"
 #include "blockstore_impl.h"
 #include "osd_primary.h"
 #include "osd.h"
@@ -156,14 +157,6 @@ void osd_t::parse_config(const json11::Json & config)
 
 void osd_t::bind_socket()
 {
-    listen_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (listen_fd < 0)
-    {
-        throw std::runtime_error(std::string("socket: ") + strerror(errno));
-    }
-    int enable = 1;
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
-
     if (config["osd_network"].is_string() ||
         config["osd_network"].is_array())
     {
@@ -173,7 +166,7 @@ void osd_t::bind_socket()
         else
             for (auto v: config["osd_network"].array_items())
                 mask.push_back(v.string_value());
-        auto matched_addrs = getifaddr_list(mask, false);
+        auto matched_addrs = getifaddr_list(mask);
         if (matched_addrs.size() > 1)
         {
             fprintf(stderr, "More than 1 address matches requested network(s): %s\n", json11::Json(matched_addrs).dump().c_str());
@@ -192,17 +185,21 @@ void osd_t::bind_socket()
 
     // FIXME Support multiple listening sockets
 
-    sockaddr_in addr;
-    int r;
-    if ((r = inet_pton(AF_INET, bind_address.c_str(), &addr.sin_addr)) != 1)
+    sockaddr addr;
+    if (!string_to_addr(bind_address, 0, bind_port, &addr))
     {
-        close(listen_fd);
-        throw std::runtime_error("bind address "+bind_address+(r == 0 ? " is not valid" : ": no ipv4 support"));
+        throw std::runtime_error("bind address "+bind_address+" is not valid");
     }
-    addr.sin_family = AF_INET;
 
-    addr.sin_port = htons(bind_port);
-    if (bind(listen_fd, (sockaddr*)&addr, sizeof(addr)) < 0)
+    listen_fd = socket(addr.sa_family, SOCK_STREAM, 0);
+    if (listen_fd < 0)
+    {
+        throw std::runtime_error(std::string("socket: ") + strerror(errno));
+    }
+    int enable = 1;
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+
+    if (bind(listen_fd, &addr, sizeof(addr)) < 0)
     {
         close(listen_fd);
         throw std::runtime_error(std::string("bind: ") + strerror(errno));
@@ -215,7 +212,7 @@ void osd_t::bind_socket()
             close(listen_fd);
             throw std::runtime_error(std::string("getsockname: ") + strerror(errno));
         }
-        listening_port = ntohs(addr.sin_port);
+        listening_port = ntohs(((sockaddr_in*)&addr)->sin_port);
     }
     else
     {
