@@ -141,7 +141,7 @@ struct osd_op_buf_list_t
             else
             {
                 iov.iov_len -= result;
-                iov.iov_base = reinterpret_cast<int*>(iov.iov_base) +  result;
+                iov.iov_base = (uint8_t*)iov.iov_base +  result;
                 break;
             }
         }

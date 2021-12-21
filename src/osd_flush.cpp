@@ -183,7 +183,7 @@ void osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
             .oid = {},
             .version = 0,
             .offset=0,
-            .len = static_cast<uint32_t>(count),
+            .len = (uint32_t)count,
             .buf = op->buf,
         });
         bs->enqueue_op(op->bs_op);

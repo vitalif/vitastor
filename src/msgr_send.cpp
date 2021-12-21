@@ -250,7 +250,7 @@ void osd_messenger_t::handle_send(int result, osd_client_t *cl)
             else
             {
                 iov.iov_len -= result;
-                iov.iov_base = reinterpret_cast<int*>(iov.iov_base) + result;
+                iov.iov_base = (uint8_t*)iov.iov_base + result;
                 break;
             }
         }

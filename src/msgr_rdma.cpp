@@ -513,7 +513,7 @@ void osd_messenger_t::handle_rdma_events()
                     }
                     if (cl->rdma_conn->send_buf_pos > 0)
                     {
-                        cl->send_list[0].iov_base = reinterpret_cast<int*>(cl->send_list[0].iov_base) + cl->rdma_conn->send_buf_pos;
+                        cl->send_list[0].iov_base = (uint8_t*)cl->send_list[0].iov_base + cl->rdma_conn->send_buf_pos;
                         cl->send_list[0].iov_len -= cl->rdma_conn->send_buf_pos;
                         cl->rdma_conn->send_buf_pos = 0;
                     }
