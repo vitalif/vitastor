@@ -464,7 +464,7 @@ class VitastorDriver(driver.CloneableImageVD,
         vol_name = utils.convert_str(volume.name)
         snap_name = utils.convert_str(snapshot.name)
 
-        snap = self._get_image(vol_name+'@'+snap_name)
+        snap = self._get_image('volume-'+snapshot.volume_id+'@'+snap_name)
         if not snap:
             raise exception.SnapshotNotFound(snapshot_id = snap_name)
         snap_inode_id = int(resp['responses'][0]['kvs'][0]['value']['id'])
