@@ -110,8 +110,10 @@ void stub_exec_op(osd_messenger_t *msgr, osd_op_t *op)
     if (op->req.hdr.opcode == OSD_OP_SEC_READ)
     {
         op->reply.hdr.retval = op->req.sec_rw.len;
-        op->buf = malloc(op->req.sec_rw.len);
+        op->buf = memalign_or_die(MEM_ALIGNMENT, op->req.sec_rw.len);
         op->iov.push_back(op->buf, op->req.sec_rw.len);
+        op->reply.sec_rw.attr_len = 4;
+        op->bitmap = op->buf;
     }
     else if (op->req.hdr.opcode == OSD_OP_SEC_WRITE || op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
     {
