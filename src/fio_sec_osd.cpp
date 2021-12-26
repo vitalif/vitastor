@@ -33,12 +33,18 @@
 #include "osd_ops.h"
 #include "fio_headers.h"
 
+struct op_buf_t
+{
+    osd_any_op_t buf;
+    io_u* fio_op;
+};
+
 struct sec_data
 {
     int connect_fd;
     /* block_size = 1 << block_order (128KB by default) */
     uint64_t block_order = 17, block_size = 1 << 17;
-    std::unordered_map<uint64_t, io_u*> queue;
+    std::unordered_map<uint64_t, op_buf_t*> queue;
     bool last_sync = false;
     /* The list of completed io_u structs. */
     std::vector<io_u*> completed;
@@ -53,6 +59,7 @@ struct sec_options
     int single_primary = 0;
     int trace = 0;
     int block_order = 17;
+    int zerocopy_send = 0;
 };
 
 static struct fio_option options[] = {
@@ -99,6 +106,16 @@ static struct fio_option options[] = {
         .type   = FIO_OPT_BOOL,
         .off1   = offsetof(struct sec_options, trace),
         .help   = "Trace OSD operations",
+        .def    = "0",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "zerocopy_send",
+        .lname  = "Use zero-copy send",
+        .type   = FIO_OPT_BOOL,
+        .off1   = offsetof(struct sec_options, zerocopy_send),
+        .help   = "Use zero-copy send (MSG_ZEROCOPY)",
         .def    = "0",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
@@ -173,6 +190,14 @@ static int sec_init(struct thread_data *td)
     }
     int one = 1;
     setsockopt(bsd->connect_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
+    if (o->zerocopy_send)
+    {
+        if (setsockopt(bsd->connect_fd, SOL_SOCKET, SO_ZEROCOPY, &one, sizeof(one)) < 0)
+        {
+            perror("setsockopt zerocopy");
+            return 1;
+        }
+    }
 
     // FIXME: read config (block size) from OSD
 
@@ -193,7 +218,9 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     }
 
     io->engine_data = bsd;
-    osd_any_op_t op = { 0 };
+    op_buf_t *op_buf = new op_buf_t;
+    op_buf->fio_op = io;
+    osd_any_op_t &op = op_buf->buf;
 
     op.hdr.magic = SECONDARY_OSD_OP_MAGIC;
     op.hdr.id = n;
@@ -269,19 +296,18 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     io->error = 0;
     bsd->inflight++;
     bsd->op_n++;
-    bsd->queue[n] = io;
+    bsd->queue[n] = op_buf;
 
     iovec iov[2] = { { .iov_base = op.buf, .iov_len = OSD_PACKET_SIZE } };
     int iovcnt = 1, wtotal = OSD_PACKET_SIZE;
     if (io->ddir == DDIR_WRITE)
     {
-        iov[1] = { .iov_base = io->xfer_buf, .iov_len = io->xfer_buflen };
+        iov[iovcnt++] = { .iov_base = io->xfer_buf, .iov_len = io->xfer_buflen };
         wtotal += io->xfer_buflen;
-        iovcnt++;
     }
-    if (writev_blocking(bsd->connect_fd, iov, iovcnt) != wtotal)
+    if (sendv_blocking(bsd->connect_fd, iov, iovcnt, opt->zerocopy_send ? MSG_ZEROCOPY : 0) != wtotal)
     {
-        perror("writev");
+        perror("sendmsg");
         exit(1);
     }
 
@@ -310,7 +336,8 @@ static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int 
             fprintf(stderr, "bad reply: op id %lx missing in local queue\n", reply.hdr.id);
             exit(1);
         }
-        io_u* io = it->second;
+        io_u* io = it->second->fio_op;
+        delete it->second;
         bsd->queue.erase(it);
         if (io->ddir == DDIR_READ)
         {

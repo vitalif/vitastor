@@ -4,6 +4,8 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
 #include "rw_blocking.h"
 
@@ -101,6 +103,44 @@ int writev_blocking(int fd, iovec *iov, int iovcnt)
             if (errno != EAGAIN && errno != EPIPE)
             {
                 perror("writev");
+                exit(1);
+            }
+            continue;
+        }
+        done += r;
+        while (v < iovcnt)
+        {
+            if (iov[v].iov_len > r)
+            {
+                iov[v].iov_len -= r;
+                iov[v].iov_base += r;
+                break;
+            }
+            else
+            {
+                r -= iov[v].iov_len;
+                v++;
+            }
+        }
+    }
+    return done;
+}
+
+int sendv_blocking(int fd, iovec *iov, int iovcnt, int flags)
+{
+    struct msghdr msg = { 0 };
+    int v = 0;
+    int done = 0;
+    while (v < iovcnt)
+    {
+        msg.msg_iov = iov+v;
+        msg.msg_iovlen = iovcnt-v;
+        ssize_t r = sendmsg(fd, &msg, flags);
+        if (r < 0)
+        {
+            if (errno != EAGAIN && errno != EPIPE)
+            {
+                perror("sendmsg");
                 exit(1);
             }
             continue;
