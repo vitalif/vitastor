@@ -319,7 +319,23 @@ static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int 
                 fprintf(stderr, "Short read: retval = %ld instead of %llu\n", reply.hdr.retval, io->xfer_buflen);
                 exit(1);
             }
-            read_blocking(bsd->connect_fd, io->xfer_buf, io->xfer_buflen);
+            // Support bitmap
+            uint64_t bitmap = 0;
+            int iovcnt = 0;
+            iovec iov[2];
+            if (reply.sec_rw.attr_len > 0)
+            {
+                if (reply.sec_rw.attr_len <= 8)
+                    iov[iovcnt++] = { .iov_base = &bitmap, .iov_len = reply.sec_rw.attr_len };
+                else
+                    iov[iovcnt++] = { .iov_base = (void*)(bitmap = (uint64_t)malloc(reply.sec_rw.attr_len)), .iov_len = reply.sec_rw.attr_len };
+            }
+            iov[iovcnt++] = { .iov_base = io->xfer_buf, .iov_len = io->xfer_buflen };
+            readv_blocking(bsd->connect_fd, iov, iovcnt);
+            if (reply.sec_rw.attr_len > 8)
+            {
+                free((void*)bitmap);
+            }
         }
         else if (io->ddir == DDIR_WRITE)
         {
