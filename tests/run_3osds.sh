@@ -5,6 +5,7 @@
 OSD_SIZE=${OSD_SIZE:-1024}
 PG_COUNT=${PG_COUNT:-1}
 PG_SIZE=${PG_SIZE:-3}
+PG_MINSIZE=${PG_MINSIZE:-2}
 OSD_COUNT=${OSD_COUNT:-3}
 SCHEME=${SCHEME:-ec}
 
@@ -25,9 +26,9 @@ if [ -n "$GLOBAL_CONF" ]; then
 fi
 
 if [ "$SCHEME" = "replicated" ]; then
-    $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":'$PG_SIZE',"pg_minsize":'$((PG_SIZE-1))',"pg_count":'$PG_COUNT',"failure_domain":"osd"}}'
+    $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":'$PG_SIZE',"pg_minsize":'$PG_MINSIZE',"pg_count":'$PG_COUNT',"failure_domain":"osd"}}'
 else
-    $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"xor","pg_size":'$PG_SIZE',"pg_minsize":'$((PG_SIZE-1))',"parity_chunks":1,"pg_count":'$PG_COUNT',"failure_domain":"osd"}}'
+    $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"xor","pg_size":'$PG_SIZE',"pg_minsize":'$PG_MINSIZE',"parity_chunks":1,"pg_count":'$PG_COUNT',"failure_domain":"osd"}}'
 fi
 
 sleep 2
