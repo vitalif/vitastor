@@ -96,7 +96,8 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
         next_pos = next_pos + data_after;
         if (next_pos > bs->journal.len)
         {
-            next_pos = bs->journal.block_size + data_after;
+            if (right_dir)
+                next_pos = bs->journal.block_size + data_after;
             right_dir = false;
         }
     }
