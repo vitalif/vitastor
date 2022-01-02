@@ -5,6 +5,7 @@
 #include "pg_states.h"
 #include "etcd_state_client.h"
 #ifndef __MOCK__
+#include "addr_util.h"
 #include "http_client.h"
 #include "base64.h"
 #endif
@@ -25,8 +26,13 @@ etcd_state_client_t::~etcd_state_client_t()
 #ifndef __MOCK__
     if (etcd_watch_ws)
     {
-        etcd_watch_ws->close();
+        http_close(etcd_watch_ws);
         etcd_watch_ws = NULL;
+    }
+    if (keepalive_client)
+    {
+        http_close(keepalive_client);
+        keepalive_client = NULL;
     }
 #endif
 }
@@ -74,14 +80,26 @@ void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int t
         "Host: "+etcd_address+"\r\n"
         "Content-Type: application/json\r\n"
         "Content-Length: "+std::to_string(req.size())+"\r\n"
-        "Connection: close\r\n"
+        "Connection: keep-alive\r\n"
+        "Keep-Alive: timeout="+std::to_string(etcd_keepalive_interval)+"\r\n"
         "\r\n"+req;
-    http_request_json(tfd, etcd_address, req, timeout, [this, cur_addr = selected_etcd_address, callback](std::string err, json11::Json data)
+    auto cb = [this, cur_addr = selected_etcd_address, callback](const http_response_t *response)
     {
-        if (err != "" && cur_addr == selected_etcd_address)
-            selected_etcd_address = "";
+        std::string err;
+        json11::Json data;
+        response->parse_json_response(err, data);
+        if (err != "")
+        {
+            if (cur_addr == selected_etcd_address)
+                selected_etcd_address = "";
+        }
         callback(err, data);
-    });
+    };
+    if (!keepalive_client)
+    {
+        keepalive_client = http_init(tfd);
+    }
+    http_request(keepalive_client, etcd_address, req, { .timeout = timeout, .keepalive = true }, cb);
 }
 
 void etcd_state_client_t::add_etcd_url(std::string addr)
@@ -155,6 +173,13 @@ void etcd_state_client_t::parse_config(const json11::Json & config)
         this->etcd_prefix = "/"+this->etcd_prefix;
     }
     this->log_level = config["log_level"].int64_value();
+    this->etcd_keepalive_interval = config["etcd_keepalive_interval"].uint64_value();
+    if (this->etcd_keepalive_interval <= 0)
+    {
+        this->etcd_keepalive_interval = config["etcd_report_interval"].uint64_value() * 2;
+        if (this->etcd_keepalive_interval <= 0)
+            this->etcd_keepalive_interval = 10;
+    }
 }
 
 void etcd_state_client_t::pick_next_etcd()
@@ -200,7 +225,7 @@ void etcd_state_client_t::start_etcd_watcher()
     ws_alive = 1;
     if (etcd_watch_ws)
     {
-        etcd_watch_ws->close();
+        http_close(etcd_watch_ws);
         etcd_watch_ws = NULL;
     }
     etcd_watch_ws = open_websocket(tfd, etcd_address, etcd_api_path+"/watch", ETCD_SLOW_TIMEOUT,
@@ -232,7 +257,7 @@ void etcd_state_client_t::start_etcd_watcher()
                         {
                             fprintf(stderr, "Revisions before %lu were compacted by etcd, reloading state\n",
                                 data["result"]["compact_revision"].uint64_value());
-                            etcd_watch_ws->close();
+                            http_close(etcd_watch_ws);
                             etcd_watch_ws = NULL;
                             etcd_watch_revision = 0;
                             on_reload_hook();
@@ -286,6 +311,7 @@ void etcd_state_client_t::start_etcd_watcher()
             {
                 selected_etcd_address = "";
             }
+            http_close(etcd_watch_ws);
             etcd_watch_ws = NULL;
             if (etcd_watches_initialised == 0)
             {
@@ -302,7 +328,7 @@ void etcd_state_client_t::start_etcd_watcher()
             }
         }
     });
-    etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
+    http_post_message(etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
         { "create_request", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/config/") },
             { "range_end", base64_encode(etcd_prefix+"/config0") },
@@ -311,7 +337,7 @@ void etcd_state_client_t::start_etcd_watcher()
             { "progress_notify", true },
         } }
     }).dump());
-    etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
+    http_post_message(etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
         { "create_request", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/osd/state/") },
             { "range_end", base64_encode(etcd_prefix+"/osd/state0") },
@@ -320,7 +346,7 @@ void etcd_state_client_t::start_etcd_watcher()
             { "progress_notify", true },
         } }
     }).dump());
-    etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
+    http_post_message(etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
         { "create_request", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/pg/state/") },
             { "range_end", base64_encode(etcd_prefix+"/pg/state0") },
@@ -329,7 +355,7 @@ void etcd_state_client_t::start_etcd_watcher()
             { "progress_notify", true },
         } }
     }).dump());
-    etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
+    http_post_message(etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
         { "create_request", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/pg/history/") },
             { "range_end", base64_encode(etcd_prefix+"/pg/history0") },
@@ -348,14 +374,14 @@ void etcd_state_client_t::start_etcd_watcher()
             }
             else if (!ws_alive)
             {
-                etcd_watch_ws->close();
+                http_close(etcd_watch_ws);
                 etcd_watch_ws = NULL;
                 start_etcd_watcher();
             }
             else
             {
                 ws_alive = 0;
-                etcd_watch_ws->post_message(WS_TEXT, json11::Json(json11::Json::object {
+                http_post_message(etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
                     { "progress_request", json11::Json::object { } }
                 }).dump());
             }

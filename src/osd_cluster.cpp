@@ -6,6 +6,7 @@
 #include "etcd_state_client.h"
 #include "http_client.h"
 #include "osd_rmw.h"
+#include "addr_util.h"
 
 // Startup sequence:
 //   Start etcd watcher -> Load global OSD configuration -> Bind socket -> Acquire lease -> Report&lock OSD state

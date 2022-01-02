@@ -4,9 +4,7 @@
 #include <netinet/tcp.h>
 #include <sys/epoll.h>
 
-#include <net/if.h>
 #include <arpa/inet.h>
-#include <ifaddrs.h>
 
 #include <ctype.h>
 #include <unistd.h>
@@ -25,11 +23,12 @@
 static std::string trim(const std::string & in);
 static std::string ws_format_frame(int type, uint64_t size);
 static bool ws_parse_frame(std::string & buf, int & type, std::string & res);
+static void parse_http_headers(std::string & res, http_response_t *parsed);
 
-// FIXME: Use keepalive
 struct http_co_t
 {
     timerfd_manager_t *tfd;
+    std::function<void(const http_response_t*)> response_callback;
 
     int request_timeout = 0;
     std::string host;
@@ -37,11 +36,12 @@ struct http_co_t
     std::string ws_outbox;
     std::string response;
     bool want_streaming;
+    bool keepalive;
 
-    http_response_t parsed;
-    uint64_t target_response_size = 0;
+    std::vector<std::function<void()>> keepalive_queue;
 
     int state = 0;
+    std::string connected_host;
     int peer_fd = -1;
     int timeout_id = -1;
     int epoll_events = 0;
@@ -49,10 +49,8 @@ struct http_co_t
     std::vector<char> rbuf;
     iovec read_iov, send_iov;
     msghdr read_msg = { 0 }, send_msg = { 0 };
-
-    std::function<void(const http_response_t*)> callback;
-
-    websocket_t ws;
+    http_response_t parsed;
+    uint64_t target_response_size = 0;
 
     int onstack = 0;
     bool ended = false;
@@ -62,65 +60,39 @@ struct http_co_t
     inline void stackout() { onstack--; if (!onstack && ended) end(); }
     inline void end() { ended = true; if (!onstack) { delete this; } }
     void start_connection();
+    void close_connection();
     void handle_events();
     void handle_connect_result();
     void submit_read();
     void submit_send();
     bool handle_read();
+    void fill_parsed_response();
     void post_message(int type, const std::string & msg);
+    void send_request(const std::string & host, const std::string & request,
+        const http_options_t & options, std::function<void(const http_response_t *response)> response_callback);
 };
 
+#define HTTP_CO_CLOSED 0
 #define HTTP_CO_CONNECTING 1
 #define HTTP_CO_SENDING_REQUEST 2
 #define HTTP_CO_REQUEST_SENT 3
 #define HTTP_CO_HEADERS_RECEIVED 4
 #define HTTP_CO_WEBSOCKET 5
 #define HTTP_CO_CHUNKED 6
+#define HTTP_CO_KEEPALIVE 7
 
 #define DEFAULT_TIMEOUT 5000
 
-void http_request(timerfd_manager_t *tfd, const std::string & host, const std::string & request,
-    const http_options_t & options, std::function<void(const http_response_t *response)> callback)
+http_co_t *http_init(timerfd_manager_t *tfd)
 {
     http_co_t *handler = new http_co_t();
-    handler->request_timeout = options.timeout < 0 ? 0 : (options.timeout == 0 ? DEFAULT_TIMEOUT : options.timeout);
-    handler->want_streaming = options.want_streaming;
     handler->tfd = tfd;
-    handler->host = host;
-    handler->request = request;
-    handler->callback = callback;
-    handler->ws.co = handler;
-    handler->start_connection();
+    handler->state = HTTP_CO_CLOSED;
+    return handler;
 }
 
-void http_request_json(timerfd_manager_t *tfd, const std::string & host, const std::string & request,
-    int timeout, std::function<void(std::string, json11::Json r)> callback)
-{
-    http_request(tfd, host, request, { .timeout = timeout }, [callback](const http_response_t* res)
-    {
-        if (res->error_code != 0)
-        {
-            callback("Error code: "+std::to_string(res->error_code)+" ("+std::string(strerror(res->error_code))+")", json11::Json());
-            return;
-        }
-        if (res->status_code != 200)
-        {
-            callback("HTTP "+std::to_string(res->status_code)+" "+res->status_line+" body: "+trim(res->body), json11::Json());
-            return;
-        }
-        std::string json_err;
-        json11::Json data = json11::Json::parse(res->body, json_err);
-        if (json_err != "")
-        {
-            callback("Bad JSON: "+json_err+" (response: "+trim(res->body)+")", json11::Json());
-            return;
-        }
-        callback(std::string(), data);
-    });
-}
-
-websocket_t* open_websocket(timerfd_manager_t *tfd, const std::string & host, const std::string & path,
-    int timeout, std::function<void(const http_response_t *msg)> callback)
+http_co_t* open_websocket(timerfd_manager_t *tfd, const std::string & host, const std::string & path,
+    int timeout, std::function<void(const http_response_t *msg)> response_callback)
 {
     std::string request = "GET "+path+" HTTP/1.1\r\n"
         "Host: "+host+"\r\n"
@@ -130,40 +102,145 @@ websocket_t* open_websocket(timerfd_manager_t *tfd, const std::string & host, co
         "Sec-WebSocket-Version: 13\r\n"
         "\r\n";
     http_co_t *handler = new http_co_t();
+    handler->tfd = tfd;
+    handler->state = HTTP_CO_CLOSED;
+    handler->host = host;
     handler->request_timeout = timeout < 0 ? -1 : (timeout == 0 ? DEFAULT_TIMEOUT : timeout);
     handler->want_streaming = false;
-    handler->tfd = tfd;
-    handler->host = host;
+    handler->keepalive = false;
     handler->request = request;
-    handler->callback = callback;
-    handler->ws.co = handler;
+    handler->response_callback = response_callback;
     handler->start_connection();
-    return &handler->ws;
+    return handler;
 }
 
-void websocket_t::post_message(int type, const std::string & msg)
+void http_request(http_co_t *handler, const std::string & host, const std::string & request,
+    const http_options_t & options, std::function<void(const http_response_t *response)> response_callback)
 {
-    co->post_message(type, msg);
+    handler->send_request(host, request, options, response_callback);
 }
 
-void websocket_t::close()
+void http_co_t::send_request(const std::string & host, const std::string & request,
+    const http_options_t & options, std::function<void(const http_response_t *response)> response_callback)
 {
-    co->end();
+    stackin();
+    if (state == HTTP_CO_WEBSOCKET)
+    {
+        stackout();
+        throw std::runtime_error("Attempt to send HTTP request into a websocket or chunked stream");
+    }
+    else if (state != HTTP_CO_KEEPALIVE && state != HTTP_CO_CLOSED)
+    {
+        keepalive_queue.push_back([this, host, request, options, response_callback]()
+        {
+            this->send_request(host, request, options, response_callback);
+        });
+        stackout();
+        return;
+    }
+    this->request_timeout = options.timeout < 0 ? 0 : (options.timeout == 0 ? DEFAULT_TIMEOUT : options.timeout);
+    this->want_streaming = options.want_streaming;
+    this->keepalive = options.keepalive;
+    this->host = host;
+    this->request = request;
+    this->response = "";
+    this->sent = 0;
+    this->response_callback = response_callback;
+    if (state == HTTP_CO_KEEPALIVE && connected_host != host)
+    {
+        close_connection();
+    }
+    if (request_timeout > 0)
+    {
+        timeout_id = tfd->set_timer(request_timeout, false, [this](int timer_id)
+        {
+            stackin();
+            close_connection();
+            parsed = { .error = "HTTP request timed out" };
+            this->response_callback(&parsed);
+            this->response_callback = NULL;
+            stackout();
+        });
+    }
+    if (state == HTTP_CO_KEEPALIVE)
+    {
+        state = HTTP_CO_SENDING_REQUEST;
+        submit_send();
+    }
+    else
+    {
+        start_connection();
+    }
+    stackout();
+}
+
+void http_post_message(http_co_t *handler, int type, const std::string & msg)
+{
+    handler->post_message(type, msg);
+}
+
+void http_co_t::post_message(int type, const std::string & msg)
+{
+    stackin();
+    if (state == HTTP_CO_WEBSOCKET)
+    {
+        request += ws_format_frame(type, msg.size());
+        request += msg;
+        submit_send();
+    }
+    else if (state == HTTP_CO_KEEPALIVE || state == HTTP_CO_CHUNKED)
+    {
+        throw std::runtime_error("Attempt to send websocket message on a regular HTTP connection");
+    }
+    else
+    {
+        ws_outbox += ws_format_frame(type, msg.size());
+        ws_outbox += msg;
+    }
+    stackout();
+}
+
+void http_close(http_co_t *handler)
+{
+    handler->end();
+}
+
+void http_response_t::parse_json_response(std::string & error, json11::Json & r) const
+{
+    if (this->error != "")
+    {
+        error = this->error;
+        r = json11::Json();
+    }
+    else if (status_code != 200)
+    {
+        error = "HTTP "+std::to_string(status_code)+" "+status_line+" body: "+trim(body);
+        r = json11::Json();
+    }
+    else
+    {
+        std::string json_err;
+        json11::Json data = json11::Json::parse(body, json_err);
+        if (json_err != "")
+        {
+            error = "Bad JSON: "+json_err+" (response: "+trim(body)+")";
+            r = json11::Json();
+        }
+        else
+        {
+            error = "";
+            r = data;
+        }
+    }
 }
 
 http_co_t::~http_co_t()
 {
-    if (timeout_id >= 0)
-    {
-        tfd->clear_timer(timeout_id);
-        timeout_id = -1;
-    }
-    if (peer_fd >= 0)
-    {
-        tfd->set_fd_handler(peer_fd, false, NULL);
-        close(peer_fd);
-        peer_fd = -1;
-    }
+    close_connection();
+}
+
+void http_co_t::fill_parsed_response()
+{
     if (parsed.headers["transfer-encoding"] == "chunked")
     {
         int prev = 0, pos = 0;
@@ -178,8 +255,24 @@ http_co_t::~http_co_t()
     {
         std::swap(parsed.body, response);
     }
-    parsed.eof = true;
-    callback(&parsed);
+}
+
+void http_co_t::close_connection()
+{
+    if (timeout_id >= 0)
+    {
+        tfd->clear_timer(timeout_id);
+        timeout_id = -1;
+    }
+    if (peer_fd >= 0)
+    {
+        tfd->set_fd_handler(peer_fd, false, NULL);
+        close(peer_fd);
+        peer_fd = -1;
+    }
+    state = HTTP_CO_CLOSED;
+    connected_host = "";
+    response = "";
 }
 
 void http_co_t::start_connection()
@@ -188,39 +281,31 @@ void http_co_t::start_connection()
     struct sockaddr addr;
     if (!string_to_addr(host.c_str(), 1, 80, &addr))
     {
-        parsed.error_code = ENXIO;
+        parsed = { .error = "Invalid address: "+host };
+        response_callback(&parsed);
+        response_callback = NULL;
         stackout();
-        end();
         return;
     }
     peer_fd = socket(addr.sa_family, SOCK_STREAM, 0);
     if (peer_fd < 0)
     {
-        parsed.error_code = errno;
+        parsed = { .error = std::string("socket: ")+strerror(errno) };
+        response_callback(&parsed);
+        response_callback = NULL;
         stackout();
-        end();
         return;
     }
     fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
-    if (request_timeout > 0)
-    {
-        timeout_id = tfd->set_timer(request_timeout, false, [this](int timer_id)
-        {
-            if (response.length() == 0)
-            {
-                parsed.error_code = ETIME;
-            }
-            end();
-        });
-    }
     epoll_events = 0;
     // Finally call connect
     int r = ::connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
     if (r < 0 && errno != EINPROGRESS)
     {
-        parsed.error_code = errno;
+        parsed = { .error = std::string("connect: ")+strerror(errno) };
+        response_callback(&parsed);
+        response_callback = NULL;
         stackout();
-        end();
         return;
     }
     tfd->set_fd_handler(peer_fd, true, [this](int peer_fd, int epoll_events)
@@ -228,6 +313,7 @@ void http_co_t::start_connection()
         this->epoll_events |= epoll_events;
         handle_events();
     });
+    connected_host = host;
     state = HTTP_CO_CONNECTING;
     stackout();
 }
@@ -250,7 +336,14 @@ void http_co_t::handle_events()
             }
             else if (epoll_events & (EPOLLRDHUP|EPOLLERR))
             {
-                end();
+                close_connection();
+                if (response_callback != NULL)
+                {
+                    parsed.eof = true;
+                    response_callback(&parsed);
+                    response_callback = NULL;
+                    parsed = {};
+                }
                 break;
             }
         }
@@ -269,9 +362,11 @@ void http_co_t::handle_connect_result()
     }
     if (result != 0)
     {
-        parsed.error_code = result;
+        close_connection();
+        parsed = { .error = std::string("connect: ")+strerror(result) };
+        response_callback(&parsed);
+        response_callback = NULL;
         stackout();
-        end();
         return;
     }
     int one = 1;
@@ -283,6 +378,49 @@ void http_co_t::handle_connect_result()
     });
     state = HTTP_CO_SENDING_REQUEST;
     submit_send();
+    stackout();
+}
+
+void http_co_t::submit_send()
+{
+    stackin();
+    int res;
+again:
+    if (sent < request.size())
+    {
+        send_iov = (iovec){ .iov_base = (void*)(request.c_str()+sent), .iov_len = request.size()-sent };
+        send_msg.msg_iov = &send_iov;
+        send_msg.msg_iovlen = 1;
+        res = sendmsg(peer_fd, &send_msg, MSG_NOSIGNAL);
+        if (res < 0)
+        {
+            res = -errno;
+        }
+        if (res == -EAGAIN)
+        {
+            res = 0;
+        }
+        else if (res < 0)
+        {
+            stackout();
+            end();
+            return;
+        }
+        sent += res;
+        if (state == HTTP_CO_SENDING_REQUEST)
+        {
+            if (sent >= request.size())
+                state = HTTP_CO_REQUEST_SENT;
+            else
+                goto again;
+        }
+        else if (state == HTTP_CO_WEBSOCKET)
+        {
+            request = request.substr(sent);
+            sent = 0;
+            goto again;
+        }
+    }
     stackout();
 }
 
@@ -321,51 +459,6 @@ void http_co_t::submit_read()
     stackout();
 }
 
-void http_co_t::submit_send()
-{
-    stackin();
-    int res;
-again:
-    if (sent < request.size())
-    {
-        send_iov = (iovec){ .iov_base = (void*)(request.c_str()+sent), .iov_len = request.size()-sent };
-        send_msg.msg_iov = &send_iov;
-        send_msg.msg_iovlen = 1;
-        res = sendmsg(peer_fd, &send_msg, MSG_NOSIGNAL);
-        if (res < 0)
-        {
-            res = -errno;
-        }
-        if (res == -EAGAIN)
-        {
-            res = 0;
-        }
-        else if (res < 0)
-        {
-            stackout();
-            end();
-            return;
-        }
-        sent += res;
-        if (state == HTTP_CO_SENDING_REQUEST)
-        {
-            if (sent >= request.size())
-            {
-                state = HTTP_CO_REQUEST_SENT;
-            }
-            else
-                goto again;
-        }
-        else if (state == HTTP_CO_WEBSOCKET)
-        {
-            request = request.substr(sent);
-            sent = 0;
-            goto again;
-        }
-    }
-    stackout();
-}
-
 bool http_co_t::handle_read()
 {
     stackin();
@@ -376,6 +469,7 @@ bool http_co_t::handle_read()
         {
             if (timeout_id >= 0)
             {
+                // Timeout is cleared when headers are received
                 tfd->clear_timer(timeout_id);
                 timeout_id = -1;
             }
@@ -403,20 +497,27 @@ bool http_co_t::handle_read()
                 if (!target_response_size)
                 {
                     // Sorry, unsupported response
+                    close_connection();
+                    parsed = { .error = "Response has neither Connection: close, nor Transfer-Encoding: chunked nor Content-Length headers" };
+                    response_callback(&parsed);
+                    response_callback = NULL;
                     stackout();
-                    end();
                     return false;
                 }
+            }
+            else
+            {
+                keepalive = false;
             }
         }
     }
     if (state == HTTP_CO_HEADERS_RECEIVED && target_response_size > 0 && response.size() >= target_response_size)
     {
-        stackout();
-        end();
-        return false;
+        fill_parsed_response();
+        response_callback(&parsed);
+        parsed.eof = true;
     }
-    if (state == HTTP_CO_CHUNKED && response.size() > 0)
+    else if (state == HTTP_CO_CHUNKED && response.size() > 0)
     {
         int prev = 0, pos = 0;
         while ((pos = response.find("\r\n", prev)) >= prev)
@@ -439,53 +540,47 @@ bool http_co_t::handle_read()
         {
             response = response.substr(prev);
         }
-        if (parsed.eof)
+        if (want_streaming)
         {
-            stackout();
-            end();
-            return false;
-        }
-        if (want_streaming && parsed.body.size() > 0)
-        {
-            if (!ended)
-            {
-                // Don't deliver additional events after close()
-                callback(&parsed);
-            }
+            // Streaming response
+            response_callback(&parsed);
             parsed.body = "";
         }
+        if (parsed.eof && !want_streaming)
+        {
+            // Normal response
+            response_callback(&parsed);
+        }
     }
-    if (state == HTTP_CO_WEBSOCKET && response.size() > 0)
+    else if (state == HTTP_CO_WEBSOCKET && response.size() > 0)
     {
         while (ws_parse_frame(response, parsed.ws_msg_type, parsed.body))
         {
-            if (!ended)
-            {
-                // Don't deliver additional events after close()
-                callback(&parsed);
-            }
+            response_callback(&parsed);
             parsed.body = "";
+        }
+    }
+    if (parsed.eof)
+    {
+        response_callback = NULL;
+        parsed = {};
+        if (!keepalive)
+        {
+            close_connection();
+        }
+        else
+        {
+            state = HTTP_CO_KEEPALIVE;
+            if (keepalive_queue.size() > 0)
+            {
+                auto next = keepalive_queue[0];
+                keepalive_queue.erase(keepalive_queue.begin(), keepalive_queue.begin()+1);
+                next();
+            }
         }
     }
     stackout();
     return true;
-}
-
-void http_co_t::post_message(int type, const std::string & msg)
-{
-    stackin();
-    if (state == HTTP_CO_WEBSOCKET)
-    {
-        request += ws_format_frame(type, msg.size());
-        request += msg;
-        submit_send();
-    }
-    else
-    {
-        ws_outbox += ws_format_frame(type, msg.size());
-        ws_outbox += msg;
-    }
-    stackout();
 }
 
 uint64_t stoull_full(const std::string & str, int base)
@@ -503,7 +598,7 @@ uint64_t stoull_full(const std::string & str, int base)
     return r;
 }
 
-void parse_http_headers(std::string & res, http_response_t *parsed)
+static void parse_http_headers(std::string & res, http_response_t *parsed)
 {
     int pos = res.find("\r\n");
     pos = pos < 0 ? res.length() : pos+2;
@@ -623,136 +718,6 @@ static bool ws_parse_frame(std::string & buf, int & type, std::string & res)
     res += buf.substr(hdr, len);
     buf = buf.substr(hdr+len);
     return true;
-}
-
-static bool cidr_match(const in_addr &addr, const in_addr &net, uint8_t bits)
-{
-    if (bits == 0)
-    {
-        // C99 6.5.7 (3): u32 << 32 is undefined behaviour
-        return true;
-    }
-    return !((addr.s_addr ^ net.s_addr) & htonl(0xFFFFFFFFu << (32 - bits)));
-}
-
-static bool cidr6_match(const in6_addr &address, const in6_addr &network, uint8_t bits)
-{
-    const uint32_t *a = address.s6_addr32;
-    const uint32_t *n = network.s6_addr32;
-    int bits_whole, bits_incomplete;
-    bits_whole = bits >> 5;         // number of whole u32
-    bits_incomplete = bits & 0x1F;  // number of bits in incomplete u32
-    if (bits_whole && memcmp(a, n, bits_whole << 2))
-        return false;
-    if (bits_incomplete)
-    {
-        uint32_t mask = htonl((0xFFFFFFFFu) << (32 - bits_incomplete));
-        if ((a[bits_whole] ^ n[bits_whole]) & mask)
-            return false;
-    }
-    return true;
-}
-
-struct addr_mask_t
-{
-    sa_family_t family;
-    in_addr ipv4;
-    in6_addr ipv6;
-    uint8_t bits;
-};
-
-std::vector<std::string> getifaddr_list(json11::Json mask_cfg, bool include_v6)
-{
-    std::vector<addr_mask_t> masks;
-    if (mask_cfg.is_string())
-    {
-        mask_cfg = json11::Json::array{ mask_cfg };
-    }
-    for (auto mask_json: mask_cfg.array_items())
-    {
-        std::string mask = mask_json.string_value();
-        unsigned bits = 0;
-        int p = mask.find('/');
-        if (p != std::string::npos)
-        {
-            char null_byte = 0;
-            if (sscanf(mask.c_str()+p+1, "%u%c", &bits, &null_byte) != 1 || bits > 128)
-            {
-                throw std::runtime_error((include_v6 ? "Invalid IPv4 address mask: " : "Invalid IP address mask: ") + mask);
-            }
-            mask = mask.substr(0, p);
-        }
-        in_addr ipv4;
-        in6_addr ipv6;
-        if (inet_pton(AF_INET, mask.c_str(), &ipv4) == 1)
-        {
-            if (bits > 32)
-            {
-                throw std::runtime_error((include_v6 ? "Invalid IPv4 address mask: " : "Invalid IP address mask: ") + mask);
-            }
-            masks.push_back((addr_mask_t){ .family = AF_INET, .ipv4 = ipv4, .bits = (uint8_t)bits });
-        }
-        else if (include_v6 && inet_pton(AF_INET6, mask.c_str(), &ipv6) == 1)
-        {
-            masks.push_back((addr_mask_t){ .family = AF_INET6, .ipv6 = ipv6, .bits = (uint8_t)bits });
-        }
-        else
-        {
-            throw std::runtime_error((include_v6 ? "Invalid IPv4 address mask: " : "Invalid IP address mask: ") + mask);
-        }
-    }
-    std::vector<std::string> addresses;
-    ifaddrs *list, *ifa;
-    if (getifaddrs(&list) == -1)
-    {
-        throw std::runtime_error(std::string("getifaddrs: ") + strerror(errno));
-    }
-    for (ifa = list; ifa != NULL; ifa = ifa->ifa_next)
-    {
-        if (!ifa->ifa_addr)
-        {
-            continue;
-        }
-        int family = ifa->ifa_addr->sa_family;
-        if ((family == AF_INET || family == AF_INET6 && include_v6) &&
-            (ifa->ifa_flags & (IFF_UP | IFF_RUNNING | IFF_LOOPBACK)) == (IFF_UP | IFF_RUNNING))
-        {
-            void *addr_ptr;
-            if (family == AF_INET)
-            {
-                addr_ptr = &((sockaddr_in *)ifa->ifa_addr)->sin_addr;
-            }
-            else
-            {
-                addr_ptr = &((sockaddr_in6 *)ifa->ifa_addr)->sin6_addr;
-            }
-            if (masks.size() > 0)
-            {
-                int i;
-                for (i = 0; i < masks.size(); i++)
-                {
-                    if (masks[i].family == family && (family == AF_INET
-                        ? cidr_match(*(in_addr*)addr_ptr, masks[i].ipv4, masks[i].bits)
-                        : cidr6_match(*(in6_addr*)addr_ptr, masks[i].ipv6, masks[i].bits)))
-                    {
-                        break;
-                    }
-                }
-                if (i >= masks.size())
-                {
-                    continue;
-                }
-            }
-            char addr[INET6_ADDRSTRLEN];
-            if (!inet_ntop(family, addr_ptr, addr, INET6_ADDRSTRLEN))
-            {
-                throw std::runtime_error(std::string("inet_ntop: ") + strerror(errno));
-            }
-            addresses.push_back(std::string(addr));
-        }
-    }
-    freeifaddrs(list);
-    return addresses;
 }
 
 std::string strtolower(const std::string & in)

@@ -84,7 +84,8 @@ const etcd_tree = {
             osd_ping_timeout: 5, // seconds. min: 1
             up_wait_retry_interval: 500, // ms. min: 50
             // osd
-            etcd_report_interval: 5,
+            etcd_report_interval: 5, // seconds
+            etcd_keepalive_interval: 10, // seconds, default is etcd_report_interval*2
             run_primary: true,
             osd_network: null, // "192.168.7.0/24" or an array of masks
             bind_address: "0.0.0.0",

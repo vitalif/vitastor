@@ -71,7 +71,7 @@ struct inode_watch_t
     inode_config_t cfg;
 };
 
-struct websocket_t;
+struct http_co_t;
 
 struct etcd_state_client_t
 {
@@ -82,10 +82,11 @@ protected:
     std::string selected_etcd_address;
     std::vector<std::string> addresses_to_try;
     std::vector<inode_watch_t*> watches;
-    websocket_t *etcd_watch_ws = NULL;
+    http_co_t *etcd_watch_ws = NULL, *keepalive_client = NULL;
     int ws_keepalive_timer = -1;
     int ws_alive = 0;
     uint64_t bs_block_size = DEFAULT_BLOCK_SIZE;
+    int etcd_keepalive_interval = 10;
     void add_etcd_url(std::string);
     void pick_next_etcd();
 public:
