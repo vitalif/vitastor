@@ -50,7 +50,7 @@ async function lp_solve(text)
     return { score, vars };
 }
 
-async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 2, max_combinations = 10000, parity_space = 1, round_robin = false })
+async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 2, max_combinations = 10000, parity_space = 1, ordered = false })
 {
     if (!pg_count || !osd_tree)
     {
@@ -92,7 +92,7 @@ async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 
         console.log(lp);
         throw new Error('Problem is infeasible or unbounded - is it a bug?');
     }
-    const int_pgs = make_int_pgs(lp_result.vars, pg_count, round_robin);
+    const int_pgs = make_int_pgs(lp_result.vars, pg_count, ordered);
     const eff = pg_list_space_efficiency(int_pgs, all_weights, pg_minsize, parity_space);
     const res = {
         score: lp_result.score,
@@ -382,11 +382,35 @@ async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, 
         {
             differs++;
         }
-        for (let j = 0; j < pg_size; j++)
+    }
+    if (ordered)
+    {
+        for (let i = 0; i < pg_count; i++)
         {
-            if (new_pgs[i][j] != prev_int_pgs[i][j])
+            for (let j = 0; j < pg_size; j++)
             {
-                osd_differs++;
+                if (new_pgs[i][j] != prev_int_pgs[i][j])
+                {
+                    osd_differs++;
+                }
+            }
+        }
+    }
+    else
+    {
+        for (let i = 0; i < pg_count; i++)
+        {
+            const old_map = prev_int_pgs[i].reduce((a, c) => { a[c] = (a[c]|0) + 1; return a; }, {});
+            for (let j = 0; j < pg_size; j++)
+            {
+                if ((0|old_map[new_pgs[i][j]]) > 0)
+                {
+                    old_map[new_pgs[i][j]]--;
+                }
+                else
+                {
+                    osd_differs++;
+                }
             }
         }
     }

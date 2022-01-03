@@ -45,30 +45,45 @@ async function run()
     console.log('Empty tree:');
     let res = await LPOptimizer.optimize_initial({ osd_tree: cur_tree, pg_size: 3, pg_count: 256 });
     LPOptimizer.print_change_stats(res, false);
+    assert(res.space == 0);
     console.log('\nAdding 1st failure domain:');
     cur_tree['dom1'] = osd_tree['dom1'];
     res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree: cur_tree, pg_size: 3 });
     LPOptimizer.print_change_stats(res, false);
+    assert(res.space == 12 && res.total_space == 12);
     console.log('\nAdding 2nd failure domain:');
     cur_tree['dom2'] = osd_tree['dom2'];
     res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree: cur_tree, pg_size: 3 });
     LPOptimizer.print_change_stats(res, false);
+    assert(res.space == 24 && res.total_space == 24);
     console.log('\nAdding 3rd failure domain:');
     cur_tree['dom3'] = osd_tree['dom3'];
     res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree: cur_tree, pg_size: 3 });
     LPOptimizer.print_change_stats(res, false);
+    assert(res.space == 36 && res.total_space == 36);
     console.log('\nRemoving 3rd failure domain:');
     delete cur_tree['dom3'];
     res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree: cur_tree, pg_size: 3 });
     LPOptimizer.print_change_stats(res, false);
+    assert(res.space == 24 && res.total_space == 24);
     console.log('\nRemoving 2nd failure domain:');
     delete cur_tree['dom2'];
     res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree: cur_tree, pg_size: 3 });
     LPOptimizer.print_change_stats(res, false);
+    assert(res.space == 12 && res.total_space == 12);
     console.log('\nRemoving 1st failure domain:');
     delete cur_tree['dom1'];
     res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree: cur_tree, pg_size: 3 });
     LPOptimizer.print_change_stats(res, false);
+    assert(res.space == 0);
+}
+
+function assert(cond, txt)
+{
+    if (!cond)
+    {
+        throw new Error((txt||'test')+' failed');
+    }
 }
 
 run().catch(console.error);
