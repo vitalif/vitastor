@@ -140,20 +140,20 @@ function make_int_pgs(weights, pg_count, round_robin)
     return int_pgs;
 }
 
-function calc_intersect_weights(pg_size, pg_count, prev_weights, all_pgs)
+function calc_intersect_weights(old_pg_size, pg_size, pg_count, prev_weights, all_pgs, ordered)
 {
     const move_weights = {};
-    if ((1 << pg_size) < pg_count)
+    if ((1 << old_pg_size) < pg_count)
     {
         const intersect = {};
         for (const pg_name in prev_weights)
         {
             const pg = pg_name.substr(3).split(/_/);
-            for (let omit = 1; omit < (1 << pg_size); omit++)
+            for (let omit = 1; omit < (1 << old_pg_size); omit++)
             {
                 let pg_omit = [ ...pg ];
-                let intersect_count = pg_size;
-                for (let i = 0; i < pg_size; i++)
+                let intersect_count = old_pg_size;
+                for (let i = 0; i < old_pg_size; i++)
                 {
                     if (omit & (1 << i))
                     {
@@ -161,6 +161,8 @@ function calc_intersect_weights(pg_size, pg_count, prev_weights, all_pgs)
                         intersect_count--;
                     }
                 }
+                if (!ordered)
+                    pg_omit = pg_omit.filter(n => n).sort();
                 pg_omit = pg_omit.join(':');
                 intersect[pg_omit] = Math.max(intersect[pg_omit] || 0, intersect_count);
             }
@@ -174,10 +176,10 @@ function calc_intersect_weights(pg_size, pg_count, prev_weights, all_pgs)
                 for (let i = 0; i < pg_size; i++)
                 {
                     if (omit & (1 << i))
-                    {
                         pg_omit[i] = '';
-                    }
                 }
+                if (!ordered)
+                    pg_omit = pg_omit.filter(n => n).sort();
                 pg_omit = pg_omit.join(':');
                 max_int = Math.max(max_int, intersect[pg_omit] || 0);
             }
@@ -186,15 +188,18 @@ function calc_intersect_weights(pg_size, pg_count, prev_weights, all_pgs)
     }
     else
     {
-        const prev_pg_hashed = Object.keys(prev_weights).map(pg_name => pg_name.substr(3).split(/_/).reduce((a, c) => { a[c] = 1; return a; }, {}));
+        const prev_pg_hashed = Object.keys(prev_weights).map(pg_name => pg_name
+            .substr(3).split(/_/).reduce((a, c, i) => { a[c] = i+1; return a; }, {}));
         for (const pg of all_pgs)
         {
             if (!prev_weights['pg_'+pg.join('_')])
             {
                 let max_int = 0;
-                for (const prev_hash in prev_pg_hashed)
+                for (const prev_hash of prev_pg_hashed)
                 {
-                    const intersect_count = pg.reduce((a, osd) => a + (prev_hash[osd] ? 1 : 0), 0);
+                    const intersect_count = ordered
+                        ? pg.reduce((a, osd, i) => a + (prev_hash[osd] == 1+i ? 1 : 0), 0)
+                        : pg.reduce((a, osd, i) => a + (prev_hash[osd] ? 1 : 0), 0);
                     if (max_int < intersect_count)
                     {
                         max_int = intersect_count;
@@ -243,7 +248,7 @@ function add_valid_previous(osd_tree, prev_weights, all_pgs)
 }
 
 // Try to minimize data movement
-async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, pg_minsize = 2, max_combinations = 10000, parity_space = 1 })
+async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, pg_minsize = 2, max_combinations = 10000, parity_space = 1, ordered = false })
 {
     if (!osd_tree)
     {
@@ -266,9 +271,13 @@ async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, 
             prev_pg_per_osd[osd].push([ pg_name, (i >= pg_minsize ? parity_space : 1) ]);
         }
     }
+    const old_pg_size = prev_int_pgs[0].length;
     // Get all combinations
     let all_pgs = random_combinations(osd_tree, pg_size, max_combinations, parity_space > 1);
-    add_valid_previous(osd_tree, prev_weights, all_pgs);
+    if (old_pg_size == pg_size)
+    {
+        add_valid_previous(osd_tree, prev_weights, all_pgs);
+    }
     all_pgs = Object.values(all_pgs);
     const pg_per_osd = {};
     for (const pg of all_pgs)
@@ -282,7 +291,7 @@ async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, 
         }
     }
     // Penalize PGs based on their similarity to old PGs
-    const move_weights = calc_intersect_weights(pg_size, pg_count, prev_weights, all_pgs);
+    const move_weights = calc_intersect_weights(old_pg_size, pg_size, pg_count, prev_weights, all_pgs, ordered);
     // Calculate total weight - old PG weights
     const all_pg_names = all_pgs.map(pg => 'pg_'+pg.join('_'));
     const all_pgs_hash = all_pg_names.reduce((a, c) => { a[c] = true; return a; }, {});
