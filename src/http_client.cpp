@@ -66,7 +66,6 @@ struct http_co_t
     void submit_read();
     void submit_send();
     bool handle_read();
-    void fill_parsed_response();
     void post_message(int type, const std::string & msg);
     void send_request(const std::string & host, const std::string & request,
         const http_options_t & options, std::function<void(const http_response_t *response)> response_callback);
@@ -237,24 +236,6 @@ void http_response_t::parse_json_response(std::string & error, json11::Json & r)
 http_co_t::~http_co_t()
 {
     close_connection();
-}
-
-void http_co_t::fill_parsed_response()
-{
-    if (parsed.headers["transfer-encoding"] == "chunked")
-    {
-        int prev = 0, pos = 0;
-        while ((pos = response.find("\r\n", prev)) >= prev)
-        {
-            uint64_t len = strtoull(response.c_str()+prev, NULL, 16);
-            parsed.body += response.substr(pos+2, len);
-            prev = pos+2+len+2;
-        }
-    }
-    else
-    {
-        std::swap(parsed.body, response);
-    }
 }
 
 void http_co_t::close_connection()
@@ -513,7 +494,7 @@ bool http_co_t::handle_read()
     }
     if (state == HTTP_CO_HEADERS_RECEIVED && target_response_size > 0 && response.size() >= target_response_size)
     {
-        fill_parsed_response();
+        std::swap(parsed.body, response);
         response_callback(&parsed);
         parsed.eof = true;
     }
