@@ -858,10 +858,13 @@ void osd_t::report_pg_states()
                         if (null_byte == 0)
                         {
                             auto pg_it = pgs.find({ .pool_id = pool_id, .pg_num = pg_num });
-                            if (pg_it != pgs.end() && pg_it->second.state != PG_OFFLINE && pg_it->second.state != PG_STARTING)
+                            if (pg_it != pgs.end() && pg_it->second.state != PG_OFFLINE && pg_it->second.state != PG_STARTING &&
+                                kv.value["primary"].uint64_value() != 0 &&
+                                kv.value["primary"].uint64_value() != this->osd_num)
                             {
-                                // Live PG state update failed
-                                printf("Failed to report state of pool %u PG %u which is live. Race condition detected, exiting\n", pool_id, pg_num);
+                                // PG is somehow captured by another OSD
+                                printf("BUG: OSD %lu captured our PG %u/%u. Race condition detected, exiting\n",
+                                    kv.value["primary"].uint64_value(), pool_id, pg_num);
                                 force_stop(1);
                                 return;
                             }
