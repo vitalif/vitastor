@@ -590,7 +590,7 @@ class Mon
                     console.log('Revision '+data.result.header.revision+' events: ');
                 }
                 this.etcd_watch_revision = BigInt(data.result.header.revision)+BigInt(1);
-                for (const e of data.result.events)
+                for (const e of data.result.events||[])
                 {
                     this.parse_kv(e.kv);
                     const key = e.kv.key.substr(this.etcd_prefix.length);
