@@ -41,14 +41,6 @@ void osd_t::init_cluster()
                 .pg_data_size = 2,
                 .pool_id = 1,
                 .pg_num = 1,
-                .clean_count = 0, 
-                .total_count = 0,
-                .epoch = 0, 
-                .reported_epoch = 0,
-                .target_history = std::vector<std::vector<osd_num_t>>{},
-                .all_peers = std::vector<osd_num_t>{},
-                .history_changed = false,
-                .cur_peers = std::vector<osd_num_t>{}, 
                 .target_set = { 1, 2, 3 },
                 .cur_set = { 0, 0, 0 },
             };
@@ -59,7 +51,6 @@ void osd_t::init_cluster()
                 .scheme = POOL_SCHEME_XOR,
                 .pg_size = 3,
                 .pg_minsize = 2,
-                .parity_chunks = 0,
                 .pg_count = 1,
                 .real_pg_count = 1,
             };
@@ -677,14 +668,9 @@ void osd_t::apply_pg_config()
                          ? 1 : pool_item.second.pg_size - pool_item.second.parity_chunks,
                     .pool_id = pool_id,
                     .pg_num = pg_num,
-                    .clean_count = 0, 
-                    .total_count = 0,
-                    .epoch = 0,
                     .reported_epoch = pg_cfg.epoch,
                     .target_history = pg_cfg.target_history,
                     .all_peers = std::vector<osd_num_t>(all_peers.begin(), all_peers.end()),
-                    .history_changed = false,
-                    .cur_peers = std::vector<osd_num_t>{},
                     .target_set = pg_cfg.target_set,
                 };
                 if (pg.scheme == POOL_SCHEME_JERASURE)

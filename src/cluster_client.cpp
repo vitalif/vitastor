@@ -929,8 +929,6 @@ bool cluster_client_t::try_send(cluster_op_t *op, int i)
                     meta_rev = ino_it->second.mod_revision;
             }
             part->op = (osd_op_t){
-                .tv_begin = 0,
-                .tv_end = 0,
                 .op_type = OSD_OP_OUT,
                 .peer_fd = peer_fd,
                 .req = { .rw = {

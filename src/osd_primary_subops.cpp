@@ -559,9 +559,6 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
                 {
                     handle_primary_bs_subop(subop);
                 },
-                .oid = {},
-                .version = 0,
-                .offset = 0,
                 .len = (uint32_t)stab_osd.len,
                 .buf = (void*)(op_data->unstable_writes + stab_osd.start),
             });

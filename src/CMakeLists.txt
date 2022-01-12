@@ -41,9 +41,8 @@ macro(install_symlink filepath sympath)
 	install(CODE "message(\"-- Created symlink: ${sympath} -> ${filepath}\")")
 endmacro(install_symlink)
 
-find_library(LIBURING_LIBRARIES NAMES liburing uring REQUIRED)
-
 find_package(PkgConfig)
+pkg_check_modules(LIBURING REQUIRED liburing)
 if (${WITH_QEMU})
 	pkg_check_modules(GLIB REQUIRED glib-2.0)
 endif (${WITH_QEMU})
