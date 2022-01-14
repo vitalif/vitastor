@@ -553,7 +553,7 @@ protected:
             }
             else
             {
-                send_list[to_eat].iov_base += result;
+                send_list[to_eat].iov_base = send_list[to_eat].iov_base  + (uint8_t) result;
                 send_list[to_eat].iov_len -= result;
                 break;
             }
@@ -627,8 +627,8 @@ protected:
                 memcpy(cur_buf, b, inc);
                 cur_left -= inc;
                 result -= inc;
-                cur_buf += inc;
-                b += inc;
+                cur_buf = cur_buf + (uint8_t) inc;
+                b = b + (uint8_t) inc;
             }
             else
             {
