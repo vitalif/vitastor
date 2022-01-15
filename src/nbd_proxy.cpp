@@ -734,5 +734,6 @@ int main(int narg, const char *args[])
     exe_name = args[0];
     nbd_proxy *p = new nbd_proxy();
     p->exec(nbd_proxy::parse_args(narg, args));
+    delete p;
     return 0;
 }

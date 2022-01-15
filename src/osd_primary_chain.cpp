@@ -207,6 +207,7 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
     std::vector<bitmap_request_t> *bitmap_requests = new std::vector<bitmap_request_t>();
     if (collect_bitmap_requests(cur_op, pg, *bitmap_requests) < 0)
     {
+        delete bitmap_requests;
         return -1;
     }
     op_data->n_subops = 0;

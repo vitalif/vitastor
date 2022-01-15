@@ -284,6 +284,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
         break;
     default:
         io->error = EINVAL;
+        delete op_buf;
         return FIO_Q_COMPLETED;
     }
 

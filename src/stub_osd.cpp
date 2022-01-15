@@ -166,5 +166,4 @@ void run_stub(int peer_fd)
             break;
         }
     }
-    free(buf);
 }
