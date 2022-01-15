@@ -137,13 +137,13 @@ journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, 
         journal.in_sector_pos = 0;
         journal.next_free = (journal.next_free+journal.block_size) < journal.len ? journal.next_free + journal.block_size : journal.block_size;
         memset(journal.inmemory
-            ? journal.buffer + journal.sector_info[journal.cur_sector].offset
-            : journal.sector_buf + journal.block_size*journal.cur_sector, 0, journal.block_size);
+            ? (uint8_t*)journal.buffer + journal.sector_info[journal.cur_sector].offset
+            : (uint8_t*)journal.sector_buf + journal.block_size*journal.cur_sector, 0, journal.block_size);
     }
     journal_entry *je = (struct journal_entry*)(
         (journal.inmemory
-            ? journal.buffer + journal.sector_info[journal.cur_sector].offset
-            : journal.sector_buf + journal.block_size*journal.cur_sector) + journal.in_sector_pos
+            ? (uint8_t*)journal.buffer + journal.sector_info[journal.cur_sector].offset
+            : (uint8_t*)journal.sector_buf + journal.block_size*journal.cur_sector) + journal.in_sector_pos
     );
     journal.in_sector_pos += size;
     je->magic = JOURNAL_MAGIC;
@@ -169,8 +169,8 @@ void blockstore_impl_t::prepare_journal_sector_write(int cur_sector, blockstore_
         journal.sector_info[cur_sector].flush_count++;
         data->iov = (struct iovec){
             (journal.inmemory
-                ? journal.buffer + journal.sector_info[cur_sector].offset
-                : journal.sector_buf + journal.block_size*cur_sector),
+                ? (uint8_t*)journal.buffer + journal.sector_info[cur_sector].offset
+                : (uint8_t*)journal.sector_buf + journal.block_size*cur_sector),
             journal.block_size
         };
         data->callback = [this, flush_id = journal.submit_id](ring_data_t *data) { handle_journal_write(data, flush_id); };

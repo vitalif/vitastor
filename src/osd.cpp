@@ -331,8 +331,8 @@ void osd_t::exec_op(osd_op_t *cur_op)
 
 void osd_t::reset_stats()
 {
-    msgr.stats = { 0 };
-    prev_stats = { 0 };
+    msgr.stats = {};
+    prev_stats = {};
     memset(recovery_stat_count, 0, sizeof(recovery_stat_count));
     memset(recovery_stat_bytes, 0, sizeof(recovery_stat_bytes));
 }
@@ -447,7 +447,7 @@ void osd_t::print_slow()
                 {
                     for (uint64_t i = 0; i < op->req.sec_stab.len; i += sizeof(obj_ver_id))
                     {
-                        obj_ver_id *ov = (obj_ver_id*)(op->buf + i);
+                        obj_ver_id *ov = (obj_ver_id*)((uint8_t*)op->buf + i);
                         bufprintf(i == 0 ? " %lx:%lx v%lu" : ", %lx:%lx v%lu", ov->oid.inode, ov->oid.stripe, ov->version);
                     }
                 }

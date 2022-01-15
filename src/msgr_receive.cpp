@@ -142,13 +142,13 @@ bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, void *curbuf, int rem
                 memcpy(cur->iov_base, curbuf, remain);
                 cl->read_remaining -= remain;
                 cur->iov_len -= remain;
-                cur->iov_base += remain;
+                cur->iov_base = (uint8_t*)cur->iov_base + remain;
                 remain = 0;
             }
             else
             {
                 memcpy(cur->iov_base, curbuf, cur->iov_len);
-                curbuf += cur->iov_len;
+                curbuf = (uint8_t*)curbuf + cur->iov_len;
                 cl->read_remaining -= cur->iov_len;
                 remain -= cur->iov_len;
                 cur->iov_len = 0;
@@ -390,7 +390,7 @@ void osd_messenger_t::handle_reply_ready(osd_op_t *op)
         (tv_end.tv_sec - op->tv_begin.tv_sec)*1000000 +
         (tv_end.tv_nsec - op->tv_begin.tv_nsec)/1000
     );
-    set_immediate.push_back([this, op]()
+    set_immediate.push_back([op]()
     {
         // Copy lambda to be unaffected by `delete op`
         std::function<void(osd_op_t*)>(op->callback)(op);

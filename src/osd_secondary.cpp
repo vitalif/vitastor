@@ -54,8 +54,8 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
             void *cur_buf = reply_buf;
             for (int i = 0; i < n; i++)
             {
-                bs->read_bitmap(ov[i].oid, ov[i].version, cur_buf + sizeof(uint64_t), (uint64_t*)cur_buf);
-                cur_buf += (8 + clean_entry_bitmap_size);
+                bs->read_bitmap(ov[i].oid, ov[i].version, (uint8_t*)cur_buf + sizeof(uint64_t), (uint64_t*)cur_buf);
+                cur_buf = (uint8_t*)cur_buf + (8 + clean_entry_bitmap_size);
             }
             free(cur_op->buf);
             cur_op->buf = reply_buf;

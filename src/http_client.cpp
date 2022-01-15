@@ -628,13 +628,13 @@ static std::string ws_format_frame(int type, uint64_t size)
         res[p++] = size | /*mask*/0x80;
     else if (size < 65536)
     {
-        res[p++] = 126 | /*mask*/0x80;
+        res[p++] = (char)(126 | /*mask*/0x80);
         res[p++] = (size >> 8) & 0xFF;
         res[p++] = (size >> 0) & 0xFF;
     }
     else
     {
-        res[p++] = 127 | /*mask*/0x80;
+        res[p++] = (char)(127 | /*mask*/0x80);
         res[p++] = (size >> 56) & 0xFF;
         res[p++] = (size >> 48) & 0xFF;
         res[p++] = (size >> 40) & 0xFF;

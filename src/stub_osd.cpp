@@ -112,7 +112,7 @@ int bind_stub(std::string bind_address, int bind_port)
 void run_stub(int peer_fd)
 {
     osd_any_op_t op;
-    osd_any_reply_t reply = { 0 };
+    osd_any_reply_t reply = {};
     void *buf = NULL;
     while (1)
     {

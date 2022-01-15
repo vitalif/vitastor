@@ -278,7 +278,7 @@ public:
         stop = false;
         cluster_op_t *close_sync = new cluster_op_t;
         close_sync->opcode = OSD_OP_SYNC;
-        close_sync->callback = [this, &stop](cluster_op_t *op)
+        close_sync->callback = [&stop](cluster_op_t *op)
         {
             stop = true;
             delete op;
@@ -553,7 +553,7 @@ protected:
             }
             else
             {
-                send_list[to_eat].iov_base += result;
+                send_list[to_eat].iov_base = (uint8_t*)send_list[to_eat].iov_base + result;
                 send_list[to_eat].iov_len -= result;
                 break;
             }
@@ -627,8 +627,8 @@ protected:
                 memcpy(cur_buf, b, inc);
                 cur_left -= inc;
                 result -= inc;
-                cur_buf += inc;
-                b += inc;
+                cur_buf = (uint8_t*)cur_buf + inc;
+                b = (uint8_t*)b + inc;
             }
             else
             {
@@ -667,7 +667,7 @@ protected:
                 op->offset = be64toh(cur_req.from);
                 op->len = be32toh(cur_req.len);
                 buf = malloc_or_die(sizeof(nbd_reply) + op->len);
-                op->iov.push_back(buf + sizeof(nbd_reply), op->len);
+                op->iov.push_back((uint8_t*)buf + sizeof(nbd_reply), op->len);
             }
             else if (req_type == NBD_CMD_FLUSH)
             {
@@ -695,7 +695,7 @@ protected:
             if (req_type == NBD_CMD_WRITE)
             {
                 cur_op = op;
-                cur_buf = buf + sizeof(nbd_reply);
+                cur_buf = (uint8_t*)buf + sizeof(nbd_reply);
                 cur_left = op->len;
                 read_state = CL_READ_DATA;
             }

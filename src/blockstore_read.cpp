@@ -24,7 +24,7 @@ int blockstore_impl_t::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_
     }
     if (journal.inmemory && IS_JOURNAL(item_state))
     {
-        memcpy(buf, journal.buffer + offset, len);
+        memcpy(buf, (uint8_t*)journal.buffer + offset, len);
         return 1;
     }
     BS_SUBMIT_GET_SQE(sqe, data);
@@ -75,7 +75,7 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op, uint64_t &fulfille
                 };
                 it = PRIV(read_op)->read_vec.insert(it, el);
                 if (!fulfill_read_push(read_op,
-                    read_op->buf + el.offset - read_op->offset,
+                    (uint8_t*)read_op->buf + el.offset - read_op->offset,
                     item_location + el.offset - item_start,
                     el.len, item_state, item_version))
                 {
@@ -102,7 +102,7 @@ uint8_t* blockstore_impl_t::get_clean_entry_bitmap(uint64_t block_loc, int offse
     {
         uint64_t sector = (meta_loc / (meta_block_size / clean_entry_size)) * meta_block_size;
         uint64_t pos = (meta_loc % (meta_block_size / clean_entry_size));
-        clean_entry_bitmap = (uint8_t*)(metadata_buffer + sector + pos*clean_entry_size + sizeof(clean_disk_entry) + offset);
+        clean_entry_bitmap = ((uint8_t*)metadata_buffer + sector + pos*clean_entry_size + sizeof(clean_disk_entry) + offset);
     }
     else
         clean_entry_bitmap = (uint8_t*)(clean_bitmap + meta_loc*2*clean_entry_bitmap_size + offset);

@@ -113,7 +113,7 @@ resume_3:
             op_data->stripes[0].write_end != bs_block_size))
         {
             memcpy(
-                op_data->stripes[0].read_buf + op_data->stripes[0].req_start,
+                (uint8_t*)op_data->stripes[0].read_buf + op_data->stripes[0].req_start,
                 op_data->stripes[0].write_buf,
                 op_data->stripes[0].req_end - op_data->stripes[0].req_start
             );

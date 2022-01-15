@@ -544,7 +544,7 @@ json11::Json osd_messenger_t::read_config(const json11::Json & config)
     int done = 0;
     while (done < st.st_size)
     {
-        int r = read(fd, (void*)buf.data()+done, st.st_size-done);
+        int r = read(fd, (uint8_t*)buf.data()+done, st.st_size-done);
         if (r < 0)
         {
             fprintf(stderr, "Error reading %s: %s\n", config_path, strerror(errno));

@@ -148,7 +148,7 @@ resume_1:
         {
             GET_SQE();
             data->iov = {
-                metadata_buffer + (bs->inmemory_meta
+                (uint8_t*)metadata_buffer + (bs->inmemory_meta
                     ? metadata_read
                     : (prev == 1 ? bs->metadata_buf_size : 0)),
                 bs->meta_len - metadata_read > bs->metadata_buf_size ? bs->metadata_buf_size : bs->meta_len - metadata_read,
@@ -169,13 +169,13 @@ resume_1:
         if (prev_done)
         {
             void *done_buf = bs->inmemory_meta
-                ? (metadata_buffer + done_pos)
-                : (metadata_buffer + (prev_done == 2 ? bs->metadata_buf_size : 0));
+                ? ((uint8_t*)metadata_buffer + done_pos)
+                : ((uint8_t*)metadata_buffer + (prev_done == 2 ? bs->metadata_buf_size : 0));
             unsigned count = bs->meta_block_size / bs->clean_entry_size;
             for (int sector = 0; sector < done_len; sector += bs->meta_block_size)
             {
                 // handle <count> entries
-                handle_entries(done_buf + sector, count, bs->block_order);
+                handle_entries((uint8_t*)done_buf + sector, count, bs->block_order);
                 done_cnt += count;
             }
             prev_done = 0;
@@ -215,7 +215,7 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
 {
     for (unsigned i = 0; i < count; i++)
     {
-        clean_disk_entry *entry = (clean_disk_entry*)(entries + i*bs->clean_entry_size);
+        clean_disk_entry *entry = (clean_disk_entry*)((uint8_t*)entries + i*bs->clean_entry_size);
         if (!bs->inmemory_meta && bs->clean_entry_bitmap_size)
         {
             memcpy(bs->clean_bitmap + (done_cnt+i)*2*bs->clean_entry_bitmap_size, &entry->bitmap, 2*bs->clean_entry_bitmap_size);
@@ -440,7 +440,7 @@ resume_1:
                 if (!bs->journal.inmemory)
                     submitted_buf = memalign_or_die(MEM_ALIGNMENT, JOURNAL_BUFFER_SIZE);
                 else
-                    submitted_buf = bs->journal.buffer + journal_pos;
+                    submitted_buf = (uint8_t*)bs->journal.buffer + journal_pos;
                 data->iov = {
                     submitted_buf,
                     end - journal_pos < JOURNAL_BUFFER_SIZE ? end - journal_pos : JOURNAL_BUFFER_SIZE,
@@ -570,7 +570,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
     resume:
         while (pos < bs->journal.block_size)
         {
-            journal_entry *je = (journal_entry*)(buf + proc_pos - done_pos + pos);
+            journal_entry *je = (journal_entry*)((uint8_t*)buf + proc_pos - done_pos + pos);
             if (je->magic != JOURNAL_MAGIC || je_crc32(je) != je->crc32 ||
                 je->type < JE_MIN || je->type > JE_MAX || started && je->crc32_prev != crc32_last)
             {
@@ -619,7 +619,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                 if (location >= done_pos && location+je->small_write.len <= done_pos+len)
                 {
                     // data is within this buffer
-                    data_crc32 = crc32c(0, buf + location - done_pos, je->small_write.len);
+                    data_crc32 = crc32c(0, (uint8_t*)buf + location - done_pos, je->small_write.len);
                 }
                 else
                 {
@@ -634,7 +634,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                                 ? location+je->small_write.len : done[i].pos+done[i].len);
                             uint64_t part_begin = (location < done[i].pos ? done[i].pos : location);
                             covered += part_end - part_begin;
-                            data_crc32 = crc32c(data_crc32, done[i].buf + part_begin - done[i].pos, part_end - part_begin);
+                            data_crc32 = crc32c(data_crc32, (uint8_t*)done[i].buf + part_begin - done[i].pos, part_end - part_begin);
                         }
                     }
                     if (covered < je->small_write.len)
@@ -650,9 +650,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     // interesting thing is that we must clear the corrupt entry if we're not readonly,
                     // because we don't write next entries in the same journal block
                     printf("Journal entry data is corrupt (data crc32 %x != %x)\n", data_crc32, je->small_write.crc32_data);
-                    memset(buf + proc_pos - done_pos + pos, 0, bs->journal.block_size - pos);
+                    memset((uint8_t*)buf + proc_pos - done_pos + pos, 0, bs->journal.block_size - pos);
                     bs->journal.next_free = prev_free;
-                    init_write_buf = buf + proc_pos - done_pos;
+                    init_write_buf = (uint8_t*)buf + proc_pos - done_pos;
                     init_write_sector = proc_pos;
                     return 0;
                 }
@@ -665,7 +665,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .version = je->small_write.version,
                     };
                     void *bmp = NULL;
-                    void *bmp_from = (void*)je + sizeof(journal_entry_small_write);
+                    void *bmp_from = (uint8_t*)je + sizeof(journal_entry_small_write);
                     if (bs->clean_entry_bitmap_size <= sizeof(void*))
                     {
                         memcpy(&bmp, bmp_from, bs->clean_entry_bitmap_size);
@@ -745,7 +745,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .version = je->big_write.version,
                     };
                     void *bmp = NULL;
-                    void *bmp_from = (void*)je + sizeof(journal_entry_big_write);
+                    void *bmp_from = (uint8_t*)je + sizeof(journal_entry_big_write);
                     if (bs->clean_entry_bitmap_size <= sizeof(void*))
                     {
                         memcpy(&bmp, bmp_from, bs->clean_entry_bitmap_size);

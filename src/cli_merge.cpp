@@ -412,7 +412,7 @@ struct snap_merger_t
         uint64_t bitmap_size = target_block_size / gran;
         while (rwo->end < bitmap_size)
         {
-            auto bit = ((*(uint8_t*)(rwo->op.bitmap_buf + (rwo->end >> 3))) & (1 << (rwo->end & 0x7)));
+            auto bit = ((*((uint8_t*)rwo->op.bitmap_buf + (rwo->end >> 3))) & (1 << (rwo->end & 0x7)));
             if (!bit)
             {
                 if (rwo->end > rwo->start)
@@ -459,7 +459,7 @@ struct snap_merger_t
         subop->len = end-start;
         subop->version = version;
         subop->flags = OSD_OP_IGNORE_READONLY;
-        subop->iov.push_back(rwo->buf+start, end-start);
+        subop->iov.push_back((uint8_t*)rwo->buf+start, end-start);
         subop->callback = [this, rwo](cluster_op_t *subop)
         {
             rwo->todo--;
@@ -495,7 +495,7 @@ struct snap_merger_t
         subop->offset = offset;
         subop->len = 0;
         subop->flags = OSD_OP_IGNORE_READONLY;
-        subop->callback = [this](cluster_op_t *subop)
+        subop->callback = [](cluster_op_t *subop)
         {
             if (subop->retval != 0)
             {
@@ -519,10 +519,10 @@ struct snap_merger_t
                 deleted_unsynced++;
                 if (deleted_unsynced >= fsync_interval)
                 {
-                    uint64_t from = last_fsync_offset, to = last_written_offset;
+                    uint64_t to = last_written_offset;
                     cluster_op_t *subop = new cluster_op_t;
                     subop->opcode = OSD_OP_SYNC;
-                    subop->callback = [this, from, to](cluster_op_t *subop)
+                    subop->callback = [this, to](cluster_op_t *subop)
                     {
                         delete subop;
                         // We can now delete source data between <from> and <to>

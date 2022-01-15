@@ -66,7 +66,7 @@ int osd_t::read_bitmaps(osd_op_t *cur_op, pg_t & pg, int base_state)
             auto read_version = (vo_it != pg.ver_override.end() ? vo_it->second : UINT64_MAX);
             // Read bitmap synchronously from the local database
             bs->read_bitmap(
-                cur_oid, read_version, op_data->snapshot_bitmaps + chain_num*clean_entry_bitmap_size,
+                cur_oid, read_version, (uint8_t*)op_data->snapshot_bitmaps + chain_num*clean_entry_bitmap_size,
                 !chain_num ? &cur_op->reply.rw.version : NULL
             );
         }
@@ -96,12 +96,15 @@ resume_1:
                 {
                     if (op_data->missing_flags[chain_num*pg.pg_size + i])
                     {
-                        osd_rmw_stripe_t local_stripes[pg.pg_size] = { 0 };
+                        osd_rmw_stripe_t local_stripes[pg.pg_size];
                         for (i = 0; i < pg.pg_size; i++)
                         {
-                            local_stripes[i].missing = op_data->missing_flags[chain_num*pg.pg_size + i] && true;
-                            local_stripes[i].bmp_buf = op_data->snapshot_bitmaps + (chain_num*pg.pg_size + i)*clean_entry_bitmap_size;
-                            local_stripes[i].read_start = local_stripes[i].read_end = 1;
+                            local_stripes[i] = {
+                                .bmp_buf = (uint8_t*)op_data->snapshot_bitmaps + (chain_num*pg.pg_size + i)*clean_entry_bitmap_size,
+                                .read_start = 1,
+                                .read_end = 1,
+                                .missing = op_data->missing_flags[chain_num*pg.pg_size + i] && true,
+                            };
                         }
                         if (pg.scheme == POOL_SCHEME_XOR)
                         {
@@ -146,7 +149,7 @@ int osd_t::collect_bitmap_requests(osd_op_t *cur_op, pg_t & pg, std::vector<bitm
                 .osd_num = read_target,
                 .oid = cur_oid,
                 .version = target_version,
-                .bmp_buf = op_data->snapshot_bitmaps + chain_num*clean_entry_bitmap_size,
+                .bmp_buf = (uint8_t*)op_data->snapshot_bitmaps + chain_num*clean_entry_bitmap_size,
             });
         }
         else
@@ -185,7 +188,7 @@ int osd_t::collect_bitmap_requests(osd_op_t *cur_op, pg_t & pg, std::vector<bitm
                             .stripe = cur_oid.stripe | i,
                         },
                         .version = target_version,
-                        .bmp_buf = op_data->snapshot_bitmaps + (chain_num*pg.pg_size + i)*clean_entry_bitmap_size,
+                        .bmp_buf = (uint8_t*)op_data->snapshot_bitmaps + (chain_num*pg.pg_size + i)*clean_entry_bitmap_size,
                     });
                     found++;
                 }
@@ -266,15 +269,15 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
                     int requested_count = subop->req.sec_read_bmp.len / sizeof(obj_ver_id);
                     if (subop->reply.hdr.retval == requested_count * (8 + clean_entry_bitmap_size))
                     {
-                        void *cur_buf = subop->buf + 8;
+                        void *cur_buf = (uint8_t*)subop->buf + 8;
                         for (int j = prev; j <= i; j++)
                         {
                             memcpy((*bitmap_requests)[j].bmp_buf, cur_buf, clean_entry_bitmap_size);
                             if ((*bitmap_requests)[j].oid.inode == cur_op->req.rw.inode)
                             {
-                                memcpy(&cur_op->reply.rw.version, cur_buf-8, 8);
+                                memcpy(&cur_op->reply.rw.version, (uint8_t*)cur_buf-8, 8);
                             }
-                            cur_buf += 8 + clean_entry_bitmap_size;
+                            cur_buf = (uint8_t*)cur_buf + 8 + clean_entry_bitmap_size;
                         }
                     }
                     if ((cur_op->op_data->errors + cur_op->op_data->done + 1) >= cur_op->op_data->n_subops)
@@ -363,7 +366,7 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
         + sizeof(osd_rmw_stripe_t) * stripe_count * op_data->chain_size
     );
     osd_rmw_stripe_t *chain_stripes = (osd_rmw_stripe_t*)(
-        ((void*)op_data->chain_reads) + sizeof(osd_chain_read_t) * op_data->chain_read_count
+        (uint8_t*)op_data->chain_reads + sizeof(osd_chain_read_t) * op_data->chain_read_count
     );
     // Now process each subrequest as a separate read, including reconstruction if needed
     // Prepare reads
@@ -425,8 +428,8 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
             if (stripes[role].read_end > 0)
             {
                 stripes[role].read_buf = cur_buf;
-                stripes[role].bmp_buf = op_data->snapshot_bitmaps + (chain_reads[cri].chain_pos*stripe_count + role)*clean_entry_bitmap_size;
-                cur_buf += stripes[role].read_end - stripes[role].read_start;
+                stripes[role].bmp_buf = (uint8_t*)op_data->snapshot_bitmaps + (chain_reads[cri].chain_pos*stripe_count + role)*clean_entry_bitmap_size;
+                cur_buf = (uint8_t*)cur_buf + stripes[role].read_end - stripes[role].read_start;
             }
         }
     }
@@ -474,7 +477,7 @@ void osd_t::send_chained_read_results(pg_t & pg, osd_op_t *cur_op)
     osd_primary_op_data_t *op_data = cur_op->op_data;
     int stripe_count = (pg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_size);
     osd_rmw_stripe_t *chain_stripes = (osd_rmw_stripe_t*)(
-        ((void*)op_data->chain_reads) + sizeof(osd_chain_read_t) * op_data->chain_read_count
+        (uint8_t*)op_data->chain_reads + sizeof(osd_chain_read_t) * op_data->chain_read_count
     );
     // Reconstruct parts if needed
     if (op_data->degraded)
@@ -544,7 +547,7 @@ void osd_t::send_chained_read_results(pg_t & pg, osd_op_t *cur_op)
                             role_end = bs_block_size;
                         assert(stripes[role].read_buf);
                         cur_op->iov.push_back(
-                            stripes[role].read_buf + (role_start - stripes[role].read_start),
+                            (uint8_t*)stripes[role].read_buf + (role_start - stripes[role].read_start),
                             role_end - role_start
                         );
                         sent += role_end - role_start;

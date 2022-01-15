@@ -280,7 +280,7 @@ class blockstore_impl_t
 
     friend class blockstore_init_meta;
     friend class blockstore_init_journal;
-    friend class blockstore_journal_check_t;
+    friend struct blockstore_journal_check_t;
     friend class journal_flusher_t;
     friend class journal_flusher_co;
 

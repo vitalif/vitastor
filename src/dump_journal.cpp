@@ -75,7 +75,7 @@ int main(int argc, char *argv[])
             uint64_t s;
             for (s = 0; s < self.journal_block; s += 8)
             {
-                if (*((uint64_t*)(data+s)) != 0)
+                if (*((uint64_t*)((uint8_t*)data+s)) != 0)
                     break;
             }
             if (s == self.journal_block)
@@ -139,7 +139,7 @@ int journal_dump_t::dump_block(void *buf)
     bool wrapped = false;
     while (pos < journal_block)
     {
-        journal_entry *je = (journal_entry*)(buf + pos);
+        journal_entry *je = (journal_entry*)((uint8_t*)buf + pos);
         if (je->magic != JOURNAL_MAGIC || je->type < JE_MIN || je->type > JE_MAX ||
             !all && started && je->crc32_prev != crc32_last)
         {

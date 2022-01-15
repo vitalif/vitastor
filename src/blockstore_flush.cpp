@@ -185,7 +185,7 @@ void journal_flusher_t::release_trim()
 void journal_flusher_t::dump_diagnostics()
 {
     const char *unflushable_type = "";
-    obj_ver_id unflushable = { 0 };
+    obj_ver_id unflushable = {};
     // Try to find out if there is a flushable object for information
     for (object_id cur_oid: flush_queue)
     {
@@ -486,8 +486,8 @@ resume_1:
         if (bs->clean_entry_bitmap_size)
         {
             new_clean_bitmap = (bs->inmemory_meta
-                ? meta_new.buf + meta_new.pos*bs->clean_entry_size + sizeof(clean_disk_entry)
-                : bs->clean_bitmap + (clean_loc >> bs->block_order)*(2*bs->clean_entry_bitmap_size));
+                ? (uint8_t*)meta_new.buf + meta_new.pos*bs->clean_entry_size + sizeof(clean_disk_entry)
+                : (uint8_t*)bs->clean_bitmap + (clean_loc >> bs->block_order)*(2*bs->clean_entry_bitmap_size));
             if (clean_init_bitmap)
             {
                 memset(new_clean_bitmap, 0, bs->clean_entry_bitmap_size);
@@ -533,7 +533,7 @@ resume_1:
                 return false;
             }
             // zero out old metadata entry
-            memset(meta_old.buf + meta_old.pos*bs->clean_entry_size, 0, bs->clean_entry_size);
+            memset((uint8_t*)meta_old.buf + meta_old.pos*bs->clean_entry_size, 0, bs->clean_entry_size);
             await_sqe(15);
             data->iov = (struct iovec){ meta_old.buf, bs->meta_block_size };
             data->callback = simple_callback_w;
@@ -544,7 +544,7 @@ resume_1:
         }
         if (has_delete)
         {
-            clean_disk_entry *new_entry = (clean_disk_entry*)(meta_new.buf + meta_new.pos*bs->clean_entry_size);
+            clean_disk_entry *new_entry = (clean_disk_entry*)((uint8_t*)meta_new.buf + meta_new.pos*bs->clean_entry_size);
             if (new_entry->oid.inode != 0 && new_entry->oid != cur.oid)
             {
                 printf("Fatal error (metadata corruption or bug): tried to delete metadata entry %lu (%lx:%lx v%lu) while deleting %lx:%lx\n",
@@ -553,11 +553,11 @@ resume_1:
                 exit(1);
             }
             // zero out new metadata entry
-            memset(meta_new.buf + meta_new.pos*bs->clean_entry_size, 0, bs->clean_entry_size);
+            memset((uint8_t*)meta_new.buf + meta_new.pos*bs->clean_entry_size, 0, bs->clean_entry_size);
         }
         else
         {
-            clean_disk_entry *new_entry = (clean_disk_entry*)(meta_new.buf + meta_new.pos*bs->clean_entry_size);
+            clean_disk_entry *new_entry = (clean_disk_entry*)((uint8_t*)meta_new.buf + meta_new.pos*bs->clean_entry_size);
             if (new_entry->oid.inode != 0 && new_entry->oid != cur.oid)
             {
                 printf("Fatal error (metadata corruption or bug): tried to overwrite non-zero metadata entry %lu (%lx:%lx v%lu) with %lx:%lx v%lu\n",
@@ -575,7 +575,7 @@ resume_1:
             if (bs->clean_entry_bitmap_size)
             {
                 void *bmp_ptr = bs->clean_entry_bitmap_size > sizeof(void*) ? dirty_end->second.bitmap : &dirty_end->second.bitmap;
-                memcpy((void*)(new_entry+1) + bs->clean_entry_bitmap_size, bmp_ptr, bs->clean_entry_bitmap_size);
+                memcpy((uint8_t*)(new_entry+1) + bs->clean_entry_bitmap_size, bmp_ptr, bs->clean_entry_bitmap_size);
             }
         }
         await_sqe(6);
@@ -762,7 +762,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
                         if (bs->journal.inmemory)
                         {
                             // Take it from memory
-                            memcpy(it->buf, bs->journal.buffer + submit_offset, submit_len);
+                            memcpy(it->buf, (uint8_t*)bs->journal.buffer + submit_offset, submit_len);
                         }
                         else
                         {
@@ -826,7 +826,7 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
     wr.pos = ((meta_loc >> bs->block_order) % (bs->meta_block_size / bs->clean_entry_size));
     if (bs->inmemory_meta)
     {
-        wr.buf = bs->metadata_buffer + wr.sector;
+        wr.buf = (uint8_t*)bs->metadata_buffer + wr.sector;
         return true;
     }
     wr.it = flusher->meta_sectors.find(wr.sector);

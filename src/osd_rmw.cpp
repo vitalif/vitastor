@@ -103,8 +103,8 @@ void reconstruct_stripes_xor(osd_rmw_stripe_t *stripes, int pg_size, uint32_t bi
                         assert(stripes[role].read_start >= stripes[prev].read_start &&
                             stripes[role].read_start >= stripes[other].read_start);
                         memxor(
-                            stripes[prev].read_buf + (stripes[role].read_start - stripes[prev].read_start),
-                            stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
+                            (uint8_t*)stripes[prev].read_buf + (stripes[role].read_start - stripes[prev].read_start),
+                            (uint8_t*)stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
                             stripes[role].read_buf, stripes[role].read_end - stripes[role].read_start
                         );
                         memxor(stripes[prev].bmp_buf, stripes[other].bmp_buf, stripes[role].bmp_buf, bitmap_size);
@@ -115,7 +115,7 @@ void reconstruct_stripes_xor(osd_rmw_stripe_t *stripes, int pg_size, uint32_t bi
                         assert(stripes[role].read_start >= stripes[other].read_start);
                         memxor(
                             stripes[role].read_buf,
-                            stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
+                            (uint8_t*)stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
                             stripes[role].read_buf, stripes[role].read_end - stripes[role].read_start
                         );
                         memxor(stripes[role].bmp_buf, stripes[other].bmp_buf, stripes[role].bmp_buf, bitmap_size);
@@ -202,10 +202,9 @@ reed_sol_matrix_t* get_jerasure_matrix(int pg_size, int pg_minsize)
 int* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize)
 {
     int edd = 0;
-    int erased[pg_size] = { 0 };
+    int erased[pg_size];
     for (int i = 0; i < pg_size; i++)
-        if (stripes[i].read_end == 0 || stripes[i].missing)
-            erased[i] = 1;
+        erased[i] = (stripes[i].read_end == 0 || stripes[i].missing ? 1 : 0);
     for (int i = 0; i < pg_minsize; i++)
         if (stripes[i].read_end != 0 && stripes[i].missing)
             edd++;
@@ -241,7 +240,9 @@ void reconstruct_stripes_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg
         return;
     }
     int *decoding_matrix = dm_ids + pg_minsize;
-    char *data_ptrs[pg_size] = { 0 };
+    char *data_ptrs[pg_size];
+    for (int role = 0; role < pg_size; role++)
+        data_ptrs[role] = NULL;
     for (int role = 0; role < pg_minsize; role++)
     {
         if (stripes[role].read_end != 0 && stripes[role].missing)
@@ -254,7 +255,7 @@ void reconstruct_stripes_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg
                     {
                         assert(stripes[other].read_start <= stripes[role].read_start);
                         assert(stripes[other].read_end >= stripes[role].read_end);
-                        data_ptrs[other] = (char*)(stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start));
+                        data_ptrs[other] = (char*)stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start);
                     }
                 }
                 data_ptrs[role] = (char*)stripes[role].read_buf;
@@ -330,7 +331,7 @@ void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t ad
     {
         if (stripes[role].read_end != 0)
         {
-            stripes[role].read_buf = buf + buf_pos;
+            stripes[role].read_buf = (uint8_t*)buf + buf_pos;
             buf_pos += stripes[role].read_end - stripes[role].read_start;
         }
     }
@@ -446,12 +447,12 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
     {
         if (stripes[role].req_end != 0)
         {
-            stripes[role].write_buf = request_buf + in_pos;
+            stripes[role].write_buf = (uint8_t*)request_buf + in_pos;
             in_pos += stripes[role].req_end - stripes[role].req_start;
         }
         else if (role >= pg_minsize && write_osd_set[role] != 0 && end != 0)
         {
-            stripes[role].write_buf = rmw_buf + buf_pos;
+            stripes[role].write_buf = (uint8_t*)rmw_buf + buf_pos;
             buf_pos += end - start;
         }
     }
@@ -476,13 +477,13 @@ static void get_old_new_buffers(osd_rmw_stripe_t & stripe, uint32_t wr_start, ui
     if (ne && (!oe || ns <= os))
     {
         // NEW or NEW->OLD
-        bufs[nbufs++] = { .buf = stripe.write_buf + ns - stripe.req_start, .len = ne-ns };
+        bufs[nbufs++] = { .buf = (uint8_t*)stripe.write_buf + ns - stripe.req_start, .len = ne-ns };
         if (os < ne)
             os = ne;
         if (oe > os)
         {
             // NEW->OLD
-            bufs[nbufs++] = { .buf = stripe.read_buf + os - stripe.read_start, .len = oe-os };
+            bufs[nbufs++] = { .buf = (uint8_t*)stripe.read_buf + os - stripe.read_start, .len = oe-os };
         }
     }
     else if (oe)
@@ -491,18 +492,18 @@ static void get_old_new_buffers(osd_rmw_stripe_t & stripe, uint32_t wr_start, ui
         if (ne)
         {
             // OLD->NEW or OLD->NEW->OLD
-            bufs[nbufs++] = { .buf = stripe.read_buf + os - stripe.read_start, .len = ns-os };
-            bufs[nbufs++] = { .buf = stripe.write_buf + ns - stripe.req_start, .len = ne-ns };
+            bufs[nbufs++] = { .buf = (uint8_t*)stripe.read_buf + os - stripe.read_start, .len = ns-os };
+            bufs[nbufs++] = { .buf = (uint8_t*)stripe.write_buf + ns - stripe.req_start, .len = ne-ns };
             if (oe > ne)
             {
                 // OLD->NEW->OLD
-                bufs[nbufs++] = { .buf = stripe.read_buf + ne - stripe.read_start, .len = oe-ne };
+                bufs[nbufs++] = { .buf = (uint8_t*)stripe.read_buf + ne - stripe.read_start, .len = oe-ne };
             }
         }
         else
         {
             // OLD
-            bufs[nbufs++] = { .buf = stripe.read_buf + os - stripe.read_start, .len = oe-os };
+            bufs[nbufs++] = { .buf = (uint8_t*)stripe.read_buf + os - stripe.read_start, .len = oe-os };
         }
     }
 }
@@ -517,7 +518,7 @@ static void xor_multiple_buffers(buf_len_t *xor1, int n1, buf_len_t *xor2, int n
     {
         // We know for sure that ranges overlap
         uint32_t end = std::min(end1, end2);
-        memxor(xor1[i1].buf + pos-start1, xor2[i2].buf + pos-start2, dest+pos, end-pos);
+        memxor((uint8_t*)xor1[i1].buf + pos-start1, (uint8_t*)xor2[i2].buf + pos-start2, (uint8_t*)dest+pos, end-pos);
         pos = end;
         if (pos >= end1)
         {
@@ -586,7 +587,7 @@ static void calc_rmw_parity_copy_mod(osd_rmw_stripe_t *stripes, int pg_size, int
             {
                 // Copy modified chunk into the read buffer to write it back
                 memcpy(
-                    stripes[role].read_buf + stripes[role].req_start,
+                    (uint8_t*)stripes[role].read_buf + stripes[role].req_start,
                     stripes[role].write_buf,
                     stripes[role].req_end - stripes[role].req_start
                 );
@@ -609,7 +610,7 @@ static void calc_rmw_parity_copy_parity(osd_rmw_stripe_t *stripes, int pg_size, 
             {
                 // Copy new parity into the read buffer to write it back
                 memcpy(
-                    stripes[role].read_buf + start,
+                    (uint8_t*)stripes[role].read_buf + start,
                     stripes[role].write_buf,
                     end - start
                 );
@@ -698,9 +699,15 @@ void calc_rmw_parity_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_min
         {
             // Calculate new coding chunks
             buf_len_t bufs[pg_size][3];
-            int nbuf[pg_size] = { 0 }, curbuf[pg_size] = { 0 };
+            int nbuf[pg_size], curbuf[pg_size];
             uint32_t positions[pg_size];
-            void *data_ptrs[pg_size] = { 0 };
+            void *data_ptrs[pg_size];
+            for (int i = 0; i < pg_size; i++)
+            {
+                data_ptrs[i] = NULL;
+                nbuf[i] = 0;
+                curbuf[i] = 0;
+            }
             for (int i = 0; i < pg_minsize; i++)
             {
                 get_old_new_buffers(stripes[i], start, end, bufs[i], nbuf[i]);
@@ -719,7 +726,7 @@ void calc_rmw_parity_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_min
                 {
                     assert(curbuf[i] < nbuf[i]);
                     assert(bufs[i][curbuf[i]].buf);
-                    data_ptrs[i] = bufs[i][curbuf[i]].buf + pos-positions[i];
+                    data_ptrs[i] = (uint8_t*)bufs[i][curbuf[i]].buf + pos-positions[i];
                     uint32_t this_end = bufs[i][curbuf[i]].len + positions[i];
                     if (next_end > this_end)
                         next_end = this_end;

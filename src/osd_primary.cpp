@@ -96,11 +96,11 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
             (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 0 : pg_it->second.pg_size)
         )
     );
-    void *data_buf = ((void*)op_data) + sizeof(osd_primary_op_data_t);
+    void *data_buf = (uint8_t*)op_data + sizeof(osd_primary_op_data_t);
     op_data->pg_num = pg_num;
     op_data->oid = oid;
     op_data->stripes = (osd_rmw_stripe_t*)data_buf;
-    data_buf += sizeof(osd_rmw_stripe_t) * stripe_count;
+    data_buf = (uint8_t*)data_buf + sizeof(osd_rmw_stripe_t) * stripe_count;
     op_data->scheme = pool_cfg.scheme;
     op_data->pg_data_size = pg_data_size;
     op_data->pg_size = pg_it->second.pg_size;
@@ -110,17 +110,17 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     for (int i = 0; i < stripe_count; i++)
     {
         op_data->stripes[i].bmp_buf = data_buf;
-        data_buf += clean_entry_bitmap_size;
+        data_buf = (uint8_t*)data_buf + clean_entry_bitmap_size;
     }
     op_data->chain_size = chain_size;
     if (chain_size > 0)
     {
         op_data->read_chain = (inode_t*)data_buf;
-        data_buf += sizeof(inode_t) * chain_size;
+        data_buf = (uint8_t*)data_buf + sizeof(inode_t) * chain_size;
         op_data->snapshot_bitmaps = data_buf;
-        data_buf += chain_size * stripe_count * clean_entry_bitmap_size;
+        data_buf = (uint8_t*)data_buf + chain_size * stripe_count * clean_entry_bitmap_size;
         op_data->missing_flags = (uint8_t*)data_buf;
-        data_buf += chain_size * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 0 : pg_it->second.pg_size);
+        data_buf = (uint8_t*)data_buf + chain_size * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 0 : pg_it->second.pg_size);
         // Copy chain
         int chain_num = 0;
         op_data->read_chain[chain_num++] = cur_op->req.rw.inode;
@@ -248,7 +248,7 @@ resume_2:
             {
                 // Send buffer in parts to avoid copying
                 cur_op->iov.push_back(
-                    stripes[role].read_buf + (stripes[role].req_start - stripes[role].read_start),
+                    (uint8_t*)stripes[role].read_buf + (stripes[role].req_start - stripes[role].read_start),
                     stripes[role].req_end - stripes[role].req_start
                 );
             }

@@ -26,9 +26,8 @@
 
 #include "blockstore.h"
 #include "epoll_manager.h"
-#include "fio_headers.h"
-
 #include "json11/json11.hpp"
+#include "fio_headers.h"
 
 struct bs_data
 {
@@ -150,7 +149,6 @@ static int bs_init(struct thread_data *td)
 static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
 {
     bs_data *bsd = (bs_data*)td->io_ops_data;
-    int n = bsd->op_n;
     if (io->ddir == DDIR_SYNC && bsd->last_sync)
     {
         return FIO_Q_COMPLETED;
@@ -178,7 +176,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->version = UINT64_MAX; // last unstable
         op->offset = io->offset % bsd->bs->get_block_size();
         op->len = io->xfer_buflen;
-        op->callback = [io, n](blockstore_op_t *op)
+        op->callback = [io](blockstore_op_t *op)
         {
             io->error = op->retval < 0 ? -op->retval : 0;
             bs_data *bsd = (bs_data*)io->engine_data;
@@ -200,7 +198,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->version = 0; // assign automatically
         op->offset = io->offset % bsd->bs->get_block_size();
         op->len = io->xfer_buflen;
-        op->callback = [io, n](blockstore_op_t *op)
+        op->callback = [io](blockstore_op_t *op)
         {
             io->error = op->retval < 0 ? -op->retval : 0;
             bs_data *bsd = (bs_data*)io->engine_data;
@@ -215,7 +213,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         break;
     case DDIR_SYNC:
         op->opcode = BS_OP_SYNC_STAB_ALL;
-        op->callback = [io, n](blockstore_op_t *op)
+        op->callback = [io](blockstore_op_t *op)
         {
             bs_data *bsd = (bs_data*)io->engine_data;
             io->error = op->retval < 0 ? -op->retval : 0;

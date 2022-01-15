@@ -166,8 +166,8 @@ class osd_t
     osd_op_stats_t prev_stats;
     std::map<uint64_t, inode_stats_t> inode_stats;
     const char* recovery_stat_names[2] = { "degraded", "misplaced" };
-    uint64_t recovery_stat_count[2][2] = { 0 };
-    uint64_t recovery_stat_bytes[2][2] = { 0 };
+    uint64_t recovery_stat_count[2][2] = {};
+    uint64_t recovery_stat_bytes[2][2] = {};
 
     // cluster connection
     void parse_config(const json11::Json & config);

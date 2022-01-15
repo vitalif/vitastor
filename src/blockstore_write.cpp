@@ -102,7 +102,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         // Issue an additional sync so that the previous big write can reach the journal
         blockstore_op_t *sync_op = new blockstore_op_t;
         sync_op->opcode = BS_OP_SYNC;
-        sync_op->callback = [this, op](blockstore_op_t *sync_op)
+        sync_op->callback = [](blockstore_op_t *sync_op)
         {
             delete sync_op;
         };
@@ -380,7 +380,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             if (journal.inmemory)
             {
                 // Copy data
-                memcpy(journal.buffer + journal.next_free, op->buf, op->len);
+                memcpy((uint8_t*)journal.buffer + journal.next_free, op->buf, op->len);
             }
             BS_SUBMIT_GET_SQE(sqe2, data2);
             data2->iov = (struct iovec){ op->buf, op->len };

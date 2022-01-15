@@ -3,6 +3,7 @@
 
 #include <errno.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -30,7 +31,7 @@ int read_blocking(int fd, void *read_buf, size_t remaining)
             continue;
         }
         done += r;
-        read_buf += r;
+        read_buf = (uint8_t*)read_buf + r;
     }
     return done;
 }
@@ -51,7 +52,7 @@ int write_blocking(int fd, void *write_buf, size_t remaining)
             continue;
         }
         done += r;
-        write_buf += r;
+        write_buf = (uint8_t*)write_buf + r;
     }
     return done;
 }
@@ -78,7 +79,7 @@ int readv_blocking(int fd, iovec *iov, int iovcnt)
             if (iov[v].iov_len > r)
             {
                 iov[v].iov_len -= r;
-                iov[v].iov_base += r;
+                iov[v].iov_base = (uint8_t*)iov[v].iov_base + r;
                 break;
             }
             else
@@ -113,7 +114,7 @@ int writev_blocking(int fd, iovec *iov, int iovcnt)
             if (iov[v].iov_len > r)
             {
                 iov[v].iov_len -= r;
-                iov[v].iov_base += r;
+                iov[v].iov_base = (uint8_t*)iov[v].iov_base + r;
                 break;
             }
             else
@@ -151,7 +152,7 @@ int sendv_blocking(int fd, iovec *iov, int iovcnt, int flags)
             if (iov[v].iov_len > r)
             {
                 iov[v].iov_len -= r;
-                iov[v].iov_base += r;
+                iov[v].iov_base = (uint8_t*)iov[v].iov_base + r;
                 break;
             }
             else

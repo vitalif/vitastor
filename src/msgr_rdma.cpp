@@ -389,7 +389,7 @@ bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
         uint32_t len = (uint32_t)(op_size+iov.iov_len-rc->send_buf_pos < rc->max_msg
             ? iov.iov_len-rc->send_buf_pos : rc->max_msg-op_size);
         sge[op_sge++] = {
-            .addr = (uintptr_t)(iov.iov_base+rc->send_buf_pos),
+            .addr = (uintptr_t)((uint8_t*)iov.iov_base+rc->send_buf_pos),
             .length = len,
             .lkey = rc->ctx->mr->lkey,
         };
@@ -519,7 +519,7 @@ void osd_messenger_t::handle_rdma_events()
                     }
                     if (cl->rdma_conn->send_buf_pos > 0)
                     {
-                        cl->send_list[0].iov_base += cl->rdma_conn->send_buf_pos;
+                        cl->send_list[0].iov_base = (uint8_t*)cl->send_list[0].iov_base + cl->rdma_conn->send_buf_pos;
                         cl->send_list[0].iov_len -= cl->rdma_conn->send_buf_pos;
                         cl->rdma_conn->send_buf_pos = 0;
                     }

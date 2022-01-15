@@ -94,7 +94,7 @@ again:
     if (!timers.size())
     {
         nearest = -1;
-        itimerspec exp = { 0 };
+        itimerspec exp = {};
         if (timerfd_settime(timerfd, 0, &exp, NULL))
         {
             throw std::runtime_error(std::string("timerfd_settime: ") + strerror(errno));

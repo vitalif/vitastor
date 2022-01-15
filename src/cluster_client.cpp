@@ -534,8 +534,8 @@ void cluster_client_t::copy_write(cluster_op_t *op, std::map<object_id, cluster_
             unsigned iov_len = (op->iov.buf[iov_idx].iov_len - iov_pos);
             if (iov_len <= cur_len)
             {
-                memcpy(dirty_it->second.buf + pos - dirty_it->first.stripe,
-                    op->iov.buf[iov_idx].iov_base + iov_pos, iov_len);
+                memcpy((uint8_t*)dirty_it->second.buf + pos - dirty_it->first.stripe,
+                    (uint8_t*)op->iov.buf[iov_idx].iov_base + iov_pos, iov_len);
                 pos += iov_len;
                 len -= iov_len;
                 cur_len -= iov_len;
@@ -544,8 +544,8 @@ void cluster_client_t::copy_write(cluster_op_t *op, std::map<object_id, cluster_
             }
             else
             {
-                memcpy(dirty_it->second.buf + pos - dirty_it->first.stripe,
-                    op->iov.buf[iov_idx].iov_base + iov_pos, cur_len);
+                memcpy((uint8_t*)dirty_it->second.buf + pos - dirty_it->first.stripe,
+                    (uint8_t*)op->iov.buf[iov_idx].iov_base + iov_pos, cur_len);
                 pos += cur_len;
                 len -= cur_len;
                 iov_pos += cur_len;
@@ -762,7 +762,7 @@ static void add_iov(int size, bool skip, cluster_op_t *op, int &iov_idx, size_t 
         {
             if (!skip)
             {
-                iov.push_back(op->iov.buf[iov_idx].iov_base + iov_pos, cur_left);
+                iov.push_back((uint8_t*)op->iov.buf[iov_idx].iov_base + iov_pos, cur_left);
             }
             left -= cur_left;
             iov_pos = 0;
@@ -772,7 +772,7 @@ static void add_iov(int size, bool skip, cluster_op_t *op, int &iov_idx, size_t 
         {
             if (!skip)
             {
-                iov.push_back(op->iov.buf[iov_idx].iov_base + iov_pos, left);
+                iov.push_back((uint8_t*)op->iov.buf[iov_idx].iov_base + iov_pos, left);
             }
             iov_pos += left;
             left = 0;
@@ -817,7 +817,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
                 // First allocation
                 memset(op->bitmap_buf, 0, object_bitmap_size);
             }
-            op->part_bitmaps = op->bitmap_buf + object_bitmap_size;
+            op->part_bitmaps = (uint8_t*)op->bitmap_buf + object_bitmap_size;
             op->bitmap_buf_size = bitmap_mem;
         }
     }
@@ -839,7 +839,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
             while (cur < end)
             {
                 unsigned bmp_loc = (cur - op->offset)/bs_bitmap_granularity;
-                bool skip = (((*(uint8_t*)(op->bitmap_buf + bmp_loc/8)) >> (bmp_loc%8)) & 0x1);
+                bool skip = (((*((uint8_t*)op->bitmap_buf + bmp_loc/8)) >> (bmp_loc%8)) & 0x1);
                 if (skip_prev != skip)
                 {
                     if (cur > prev)
@@ -944,7 +944,7 @@ bool cluster_client_t::try_send(cluster_op_t *op, int i)
                     .meta_revision = meta_rev,
                     .version = op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE ? op->version : 0,
                 } },
-                .bitmap = (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP ? op->part_bitmaps + pg_bitmap_size*i : NULL),
+                .bitmap = (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP ? (uint8_t*)op->part_bitmaps + pg_bitmap_size*i : NULL),
                 .bitmap_len = (unsigned)(op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP ? pg_bitmap_size : 0),
                 .callback = [this, part](osd_op_t *op_part)
                 {
@@ -1155,7 +1155,7 @@ void cluster_client_t::copy_part_bitmap(cluster_op_t *op, cluster_op_part_t *par
     if (!(object_offset & 0x7) && !(part_offset & 0x7) && (part_len >= 8))
     {
         // Copy bytes
-        mem_or(op->bitmap_buf + object_offset/8, part->op.bitmap + part_offset/8, part_len/8);
+        mem_or((uint8_t*)op->bitmap_buf + object_offset/8, (uint8_t*)part->op.bitmap + part_offset/8, part_len/8);
         object_offset += (part_len & ~0x7);
         part_offset += (part_len & ~0x7);
         part_len = (part_len & 0x7);
@@ -1163,8 +1163,8 @@ void cluster_client_t::copy_part_bitmap(cluster_op_t *op, cluster_op_part_t *par
     while (part_len > 0)
     {
         // Copy bits
-        (*(uint8_t*)(op->bitmap_buf + (object_offset >> 3))) |= (
-            (((*(uint8_t*)(part->op.bitmap + (part_offset >> 3))) >> (part_offset & 0x7)) & 0x1) << (object_offset & 0x7)
+        (*((uint8_t*)op->bitmap_buf + (object_offset >> 3))) |= (
+            (((*((uint8_t*)part->op.bitmap + (part_offset >> 3))) >> (part_offset & 0x7)) & 0x1) << (object_offset & 0x7)
         );
         part_offset++;
         object_offset++;

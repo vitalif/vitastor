@@ -372,7 +372,7 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
                     };
                 }
                 unstable_writes.clear();
-                op->callback = [this, old_callback](blockstore_op_t *op)
+                op->callback = [old_callback](blockstore_op_t *op)
                 {
                     obj_ver_id *vers = (obj_ver_id*)op->buf;
                     delete[] vers;

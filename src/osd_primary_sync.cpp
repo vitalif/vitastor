@@ -86,7 +86,7 @@ resume_2:
             sizeof(obj_ver_osd_t)*this->copies_to_delete_after_sync_count
         );
         op_data->dirty_pgs = (pool_pg_num_t*)dirty_buf;
-        op_data->dirty_osds = (osd_num_t*)(dirty_buf + sizeof(pool_pg_num_t)*dirty_pgs.size());
+        op_data->dirty_osds = (osd_num_t*)((uint8_t*)dirty_buf + sizeof(pool_pg_num_t)*dirty_pgs.size());
         op_data->dirty_pg_count = dirty_pgs.size();
         op_data->dirty_osd_count = dirty_osds.size();
         if (this->copies_to_delete_after_sync_count)
