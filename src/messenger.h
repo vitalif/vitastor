@@ -4,6 +4,7 @@
 #pragma once
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <stdint.h>
 #include <arpa/inet.h>
 
