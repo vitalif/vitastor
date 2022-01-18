@@ -3,6 +3,7 @@
 
 #include "cli.h"
 #include "cluster_client.h"
+#include <sys/stat.h>
 
 // Flatten a layer: merge all parents into a layer and break the connection completely
 struct snap_flattener_t
