@@ -8,6 +8,7 @@
 #include "cli.h"
 #include "cluster_client.h"
 #include "base64.h"
+#include <sys/stat.h>
 
 // Calculate offsets for a block device and print OSD command line parameters
 std::function<bool(void)> cli_tool_t::simple_offsets(json11::Json cfg)
