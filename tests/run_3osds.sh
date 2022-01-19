@@ -18,7 +18,7 @@ done
 cd mon
 npm install
 cd ..
-node mon/mon-main.js --etcd_url http://$ETCD_URL --etcd_prefix "/vitastor" &>./testdata/mon.log &
+node mon/mon-main.js --etcd_url $ETCD_URL --etcd_prefix "/vitastor" &>./testdata/mon.log &
 MON_PID=$!
 
 if [ -n "$GLOBAL_CONF" ]; then

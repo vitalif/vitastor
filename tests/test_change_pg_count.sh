@@ -22,7 +22,7 @@ done
 cd mon
 npm install
 cd ..
-node mon/mon-main.js --etcd_url http://$ETCD_URL --etcd_prefix "/vitastor" --verbose 1 &>./testdata/mon.log &
+node mon/mon-main.js --etcd_url $ETCD_URL --etcd_prefix "/vitastor" --verbose 1 &>./testdata/mon.log &
 MON_PID=$!
 
 $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool",'$POOLCFG',"pg_count":16,"failure_domain":"osd"}}'

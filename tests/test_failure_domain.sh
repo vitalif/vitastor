@@ -18,7 +18,7 @@ $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicate
 cd mon
 npm install
 cd ..
-node mon/mon-main.js --etcd_url http://$ETCD_URL --etcd_prefix "/vitastor" &>./testdata/mon.log &
+node mon/mon-main.js --etcd_url $ETCD_URL --etcd_prefix "/vitastor" &>./testdata/mon.log &
 MON_PID=$!
 
 sleep 2

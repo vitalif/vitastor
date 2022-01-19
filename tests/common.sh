@@ -23,19 +23,39 @@ trap 'kill -9 $(jobs -p)' EXIT
 ETCD=${ETCD:-etcd}
 ETCD_IP=${ETCD_IP:-127.0.0.1}
 ETCD_PORT=${ETCD_PORT:-12379}
+ETCD_COUNT=${ETCD_COUNT:-1}
 
 if [ "$KEEP_DATA" = "" ]; then
     rm -rf ./testdata
     mkdir -p ./testdata
 fi
 
-$ETCD -name etcd_test --data-dir ./testdata/etcd \
-    --advertise-client-urls http://$ETCD_IP:$ETCD_PORT --listen-client-urls http://$ETCD_IP:$ETCD_PORT \
-    --initial-advertise-peer-urls http://$ETCD_IP:$((ETCD_PORT+1)) --listen-peer-urls http://$ETCD_IP:$((ETCD_PORT+1)) \
-    --max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision &>./testdata/etcd.log &
-ETCD_PID=$!
-ETCD_URL=$ETCD_IP:$ETCD_PORT/v3
+ETCD_URL="http://$ETCD_IP:$ETCD_PORT"
+ETCD_CLUSTER="etcd1=http://$ETCD_IP:$((ETCD_PORT+1))"
+for i in $(seq 2 $ETCD_COUNT); do
+    ETCD_URL="$ETCD_URL,http://$ETCD_IP:$((ETCD_PORT+2*i-2))"
+    ETCD_CLUSTER="$ETCD_CLUSTER,etcd$i=http://$ETCD_IP:$((ETCD_PORT+2*i-1))"
+done
 ETCDCTL="${ETCD}ctl --endpoints=http://$ETCD_URL"
+
+start_etcd()
+{
+    local i=$1
+    $ETCD -name etcd$i --data-dir ./testdata/etcd$i \
+        --advertise-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) --listen-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) \
+        --initial-advertise-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) --listen-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) \
+        --initial-cluster-token vitastor-tests-etcd --initial-cluster-state new \
+        --initial-cluster "$ETCD_CLUSTER" \
+        --max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision &>./testdata/etcd$i.log &
+    eval ETCD${i}_PID=$!
+}
+
+for i in $(seq 1 $ETCD_COUNT); do
+    start_etcd $i
+done
+if [ $ETCD_COUNT -gt 1 ]; then
+    sleep 1
+fi
 
 echo leak:fio >> testdata/lsan-suppress.txt
 echo leak:tcmalloc >> testdata/lsan-suppress.txt
