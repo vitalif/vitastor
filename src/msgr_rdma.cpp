@@ -58,7 +58,9 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(const char *ib_devname, uint8_t
     msgr_rdma_context_t *ctx = new msgr_rdma_context_t();
     ctx->mtu = mtu;
 
-    srand48(time(NULL));
+    timespec tv;
+    clock_gettime(CLOCK_REALTIME, &tv);
+    srand48(tv.tv_sec*1000000000 + tv.tv_nsec);
     dev_list = ibv_get_device_list(NULL);
     if (!dev_list)
     {

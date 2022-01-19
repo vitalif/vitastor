@@ -194,9 +194,16 @@ void etcd_state_client_t::pick_next_etcd()
         std::vector<int> ns;
         for (int i = 0; i < etcd_addresses.size(); i++)
             ns.push_back(i);
+        if (!rand_initialized)
+        {
+            timespec tv;
+            clock_gettime(CLOCK_REALTIME, &tv);
+            srand48(tv.tv_sec*1000000000 + tv.tv_nsec);
+            rand_initialized = true;
+        }
         while (ns.size())
         {
-            int i = rand() % ns.size();
+            int i = lrand48() % ns.size();
             addresses_to_try.push_back(etcd_addresses[ns[i]]);
             ns.erase(ns.begin()+i, ns.begin()+i+1);
         }
@@ -244,6 +251,8 @@ void etcd_state_client_t::start_etcd_watcher()
             {
                 if (data["result"]["created"].bool_value())
                 {
+                    if (etcd_watches_initialised == 3 && this->log_level > 0)
+                        fprintf(stderr, "Successfully subscribed to etcd at %s\n", selected_etcd_address.c_str());
                     etcd_watches_initialised++;
                 }
                 if (data["result"]["canceled"].bool_value())
@@ -309,8 +318,11 @@ void etcd_state_client_t::start_etcd_watcher()
         {
             if (cur_addr == selected_etcd_address)
             {
+                fprintf(stderr, "Disconnected from etcd %s\n", selected_etcd_address.c_str());
                 selected_etcd_address = "";
             }
+            else
+                fprintf(stderr, "Disconnected from etcd\n");
             http_close(etcd_watch_ws);
             etcd_watch_ws = NULL;
             if (etcd_watches_initialised == 0)
@@ -374,6 +386,10 @@ void etcd_state_client_t::start_etcd_watcher()
             }
             else if (!ws_alive)
             {
+                if (this->log_level > 0)
+                {
+                    fprintf(stderr, "Websocket ping failed, disconnecting from etcd %s\n", selected_etcd_address.c_str());
+                }
                 http_close(etcd_watch_ws);
                 etcd_watch_ws = NULL;
                 start_etcd_watcher();

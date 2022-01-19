@@ -12,6 +12,7 @@
 #define ETCD_PG_HISTORY_WATCH_ID 3
 #define ETCD_OSD_STATE_WATCH_ID 4
 
+// FIXME: Remove hardcode
 #define MAX_ETCD_ATTEMPTS 5
 #define ETCD_SLOW_TIMEOUT 5000
 #define ETCD_QUICK_TIMEOUT 1000
@@ -85,6 +86,7 @@ protected:
     http_co_t *etcd_watch_ws = NULL, *keepalive_client = NULL;
     int ws_keepalive_timer = -1;
     int ws_alive = 0;
+    bool rand_initialized = false;
     uint64_t bs_block_size = DEFAULT_BLOCK_SIZE;
     int etcd_keepalive_interval = 10;
     void add_etcd_url(std::string);
