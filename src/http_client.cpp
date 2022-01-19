@@ -283,6 +283,7 @@ void http_co_t::start_connection()
     int r = ::connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
     if (r < 0 && errno != EINPROGRESS)
     {
+        close_connection();
         parsed = { .error = std::string("connect: ")+strerror(errno) };
         response_callback(&parsed);
         response_callback = NULL;
@@ -344,9 +345,12 @@ void http_co_t::handle_connect_result()
     if (result != 0)
     {
         close_connection();
-        parsed = { .error = std::string("connect: ")+strerror(result) };
-        response_callback(&parsed);
-        response_callback = NULL;
+        if (response_callback != NULL)
+        {
+            parsed = { .error = std::string("connect: ")+strerror(result) };
+            response_callback(&parsed);
+            response_callback = NULL;
+        }
         stackout();
         return;
     }
@@ -383,8 +387,14 @@ again:
         }
         else if (res < 0)
         {
+            close_connection();
+            if (response_callback != NULL)
+            {
+                parsed = { .error = std::string("sendmsg: ")+strerror(errno) };
+                response_callback(&parsed);
+                response_callback = NULL;
+            }
             stackout();
-            end();
             return;
         }
         sent += res;
@@ -428,9 +438,17 @@ void http_co_t::submit_read()
     else if (res <= 0)
     {
         // < 0 means error, 0 means EOF
-        if (!res)
-            epoll_events = epoll_events & ~EPOLLIN;
-        end();
+        epoll_events = epoll_events & ~EPOLLIN;
+        close_connection();
+        if (res < 0)
+            parsed = { .error = std::string("recvmsg: ")+strerror(-res) };
+        else
+            parsed.eof = true;
+        if (response_callback != NULL)
+        {
+            response_callback(&parsed);
+            response_callback = NULL;
+        }
     }
     else
     {
