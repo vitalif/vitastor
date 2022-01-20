@@ -36,7 +36,7 @@ for i in $(seq 2 $ETCD_COUNT); do
     ETCD_URL="$ETCD_URL,http://$ETCD_IP:$((ETCD_PORT+2*i-2))"
     ETCD_CLUSTER="$ETCD_CLUSTER,etcd$i=http://$ETCD_IP:$((ETCD_PORT+2*i-1))"
 done
-ETCDCTL="${ETCD}ctl --endpoints=http://$ETCD_URL"
+ETCDCTL="${ETCD}ctl --endpoints=$ETCD_URL"
 
 start_etcd()
 {
