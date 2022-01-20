@@ -99,7 +99,7 @@ resume_1:
                         osd_rmw_stripe_t local_stripes[pg.pg_size];
                         for (i = 0; i < pg.pg_size; i++)
                         {
-                            local_stripes[i] = {
+                            local_stripes[i] = (osd_rmw_stripe_t){
                                 .bmp_buf = (uint8_t*)op_data->snapshot_bitmaps + (chain_num*pg.pg_size + i)*clean_entry_bitmap_size,
                                 .read_start = 1,
                                 .read_end = 1,
