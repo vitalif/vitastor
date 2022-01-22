@@ -286,8 +286,11 @@ void etcd_state_client_t::start_etcd_watcher()
                         {
                             fprintf(stderr, "Revisions before %lu were compacted by etcd, reloading state\n",
                                 data["result"]["compact_revision"].uint64_value());
-                            http_close(etcd_watch_ws);
-                            etcd_watch_ws = NULL;
+                            if (etcd_watch_ws)
+                            {
+                                http_close(etcd_watch_ws);
+                                etcd_watch_ws = NULL;
+                            }
                             etcd_watch_revision = 0;
                             on_reload_hook();
                         }
@@ -343,8 +346,11 @@ void etcd_state_client_t::start_etcd_watcher()
             }
             else
                 fprintf(stderr, "Disconnected from etcd\n");
-            http_close(etcd_watch_ws);
-            etcd_watch_ws = NULL;
+            if (etcd_watch_ws)
+            {
+                http_close(etcd_watch_ws);
+                etcd_watch_ws = NULL;
+            }
             if (etcd_watches_initialised == 0)
             {
                 // Connection not established, retry in <etcd_quick_timeout>
@@ -410,8 +416,11 @@ void etcd_state_client_t::start_etcd_watcher()
                 {
                     fprintf(stderr, "Websocket ping failed, disconnecting from etcd %s\n", selected_etcd_address.c_str());
                 }
-                http_close(etcd_watch_ws);
-                etcd_watch_ws = NULL;
+                if (etcd_watch_ws)
+                {
+                    http_close(etcd_watch_ws);
+                    etcd_watch_ws = NULL;
+                }
                 start_etcd_watcher();
             }
             else
