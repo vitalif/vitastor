@@ -81,7 +81,7 @@ void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int t
         "Content-Type: application/json\r\n"
         "Content-Length: "+std::to_string(req.size())+"\r\n"
         "Connection: keep-alive\r\n"
-        "Keep-Alive: timeout="+std::to_string(etcd_keepalive_interval)+"\r\n"
+        "Keep-Alive: timeout="+std::to_string(etcd_keepalive_timeout)+"\r\n"
         "\r\n"+req;
     auto cb = [this, cur_addr = selected_etcd_address, callback](const http_response_t *response)
     {
@@ -173,12 +173,32 @@ void etcd_state_client_t::parse_config(const json11::Json & config)
         this->etcd_prefix = "/"+this->etcd_prefix;
     }
     this->log_level = config["log_level"].int64_value();
-    this->etcd_keepalive_interval = config["etcd_keepalive_interval"].uint64_value();
-    if (this->etcd_keepalive_interval <= 0)
+    this->etcd_keepalive_timeout = config["etcd_keepalive_timeout"].uint64_value();
+    if (this->etcd_keepalive_timeout <= 0)
     {
-        this->etcd_keepalive_interval = config["etcd_report_interval"].uint64_value() * 2;
-        if (this->etcd_keepalive_interval <= 0)
-            this->etcd_keepalive_interval = 10;
+        this->etcd_keepalive_timeout = config["etcd_report_interval"].uint64_value() * 2;
+        if (this->etcd_keepalive_timeout < 30)
+            this->etcd_keepalive_timeout = 30;
+    }
+    this->etcd_ws_keepalive_interval = config["etcd_ws_keepalive_interval"].uint64_value();
+    if (this->etcd_ws_keepalive_interval <= 0)
+    {
+        this->etcd_ws_keepalive_interval = 30;
+    }
+    this->max_etcd_attempts = config["max_etcd_attempts"].uint64_value();
+    if (this->max_etcd_attempts <= 0)
+    {
+        this->max_etcd_attempts = 5;
+    }
+    this->etcd_slow_timeout = config["etcd_slow_timeout"].uint64_value();
+    if (this->etcd_slow_timeout <= 0)
+    {
+        this->etcd_slow_timeout = 5000;
+    }
+    this->etcd_quick_timeout = config["etcd_quick_timeout"].uint64_value();
+    if (this->etcd_quick_timeout <= 0)
+    {
+        this->etcd_quick_timeout = 1000;
     }
 }
 
@@ -235,7 +255,7 @@ void etcd_state_client_t::start_etcd_watcher()
         http_close(etcd_watch_ws);
         etcd_watch_ws = NULL;
     }
-    etcd_watch_ws = open_websocket(tfd, etcd_address, etcd_api_path+"/watch", ETCD_SLOW_TIMEOUT,
+    etcd_watch_ws = open_websocket(tfd, etcd_address, etcd_api_path+"/watch", etcd_slow_timeout,
         [this, cur_addr = selected_etcd_address](const http_response_t *msg)
     {
         if (msg->body.length())
@@ -327,8 +347,8 @@ void etcd_state_client_t::start_etcd_watcher()
             etcd_watch_ws = NULL;
             if (etcd_watches_initialised == 0)
             {
-                // Connection not established, retry in <ETCD_QUICK_TIMEOUT>
-                tfd->set_timer(ETCD_QUICK_TIMEOUT, false, [this](int)
+                // Connection not established, retry in <etcd_quick_timeout>
+                tfd->set_timer(etcd_quick_timeout, false, [this](int)
                 {
                     start_etcd_watcher();
                 });
@@ -378,7 +398,7 @@ void etcd_state_client_t::start_etcd_watcher()
     }).dump());
     if (ws_keepalive_timer < 0)
     {
-        ws_keepalive_timer = tfd->set_timer(ETCD_KEEPALIVE_TIMEOUT, true, [this](int)
+        ws_keepalive_timer = tfd->set_timer(etcd_ws_keepalive_interval*1000, true, [this](int)
         {
             if (!etcd_watch_ws)
             {
@@ -409,12 +429,12 @@ void etcd_state_client_t::load_global_config()
 {
     etcd_call("/kv/range", json11::Json::object {
         { "key", base64_encode(etcd_prefix+"/config/global") }
-    }, ETCD_SLOW_TIMEOUT, [this](std::string err, json11::Json data)
+    }, etcd_slow_timeout, [this](std::string err, json11::Json data)
     {
         if (err != "")
         {
             fprintf(stderr, "Error reading OSD configuration from etcd: %s\n", err.c_str());
-            tfd->set_timer(ETCD_SLOW_TIMEOUT, false, [this](int timer_id)
+            tfd->set_timer(etcd_slow_timeout, false, [this](int timer_id)
             {
                 load_global_config();
             });
@@ -482,12 +502,12 @@ void etcd_state_client_t::load_pgs()
     {
         req["compare"] = checks;
     }
-    etcd_txn(req, ETCD_SLOW_TIMEOUT, [this](std::string err, json11::Json data)
+    etcd_txn(req, etcd_slow_timeout, [this](std::string err, json11::Json data)
     {
         if (err != "")
         {
             fprintf(stderr, "Error loading PGs from etcd: %s\n", err.c_str());
-            tfd->set_timer(ETCD_SLOW_TIMEOUT, false, [this](int timer_id)
+            tfd->set_timer(etcd_slow_timeout, false, [this](int timer_id)
             {
                 load_pgs();
             });

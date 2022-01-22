@@ -174,7 +174,7 @@ resume_1:
         parent->cli->st_cli.etcd_txn(json11::Json::object {
             { "compare", checks },
             { "success", success },
-        }, ETCD_SLOW_TIMEOUT, [this](std::string err, json11::Json res)
+        }, parent->cli->st_cli.etcd_slow_timeout, [this](std::string err, json11::Json res)
         {
             if (err != "")
             {

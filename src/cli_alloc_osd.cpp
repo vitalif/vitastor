@@ -105,7 +105,7 @@ struct alloc_osd_t
     void etcd_txn(json11::Json txn)
     {
         parent->waiting++;
-        parent->cli->st_cli.etcd_txn(txn, ETCD_SLOW_TIMEOUT, [this](std::string err, json11::Json res)
+        parent->cli->st_cli.etcd_txn(txn, parent->cli->st_cli.etcd_slow_timeout, [this](std::string err, json11::Json res)
         {
             parent->waiting--;
             if (err != "")

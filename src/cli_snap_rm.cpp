@@ -258,7 +258,7 @@ resume_9:
         parent->waiting++;
         parent->cli->st_cli.etcd_txn(json11::Json::object {
             { "success", reads },
-        }, ETCD_SLOW_TIMEOUT, [this](std::string err, json11::Json data)
+        }, parent->cli->st_cli.etcd_slow_timeout, [this](std::string err, json11::Json data)
         {
             parent->waiting--;
             if (err != "")
@@ -417,7 +417,7 @@ resume_9:
         parent->cli->st_cli.etcd_txn(json11::Json::object {
             { "compare", cmp },
             { "success", txn },
-        }, ETCD_SLOW_TIMEOUT, [this, target_name, child_name](std::string err, json11::Json res)
+        }, parent->cli->st_cli.etcd_slow_timeout, [this, target_name, child_name](std::string err, json11::Json res)
         {
             parent->waiting--;
             if (err != "")
@@ -475,7 +475,7 @@ resume_9:
                     } },
                 },
             } },
-        }, ETCD_SLOW_TIMEOUT, [this, cur_name](std::string err, json11::Json res)
+        }, parent->cli->st_cli.etcd_slow_timeout, [this, cur_name](std::string err, json11::Json res)
         {
             parent->waiting--;
             if (err != "")

@@ -112,7 +112,7 @@ struct image_lister_t
                     } },
                 },
             } },
-        }, ETCD_SLOW_TIMEOUT, [this](std::string err, json11::Json res)
+        }, parent->cli->st_cli.etcd_slow_timeout, [this](std::string err, json11::Json res)
         {
             parent->waiting--;
             if (err != "")

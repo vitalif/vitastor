@@ -12,12 +12,6 @@
 #define ETCD_PG_HISTORY_WATCH_ID 3
 #define ETCD_OSD_STATE_WATCH_ID 4
 
-// FIXME: Remove hardcode
-#define MAX_ETCD_ATTEMPTS 5
-#define ETCD_SLOW_TIMEOUT 5000
-#define ETCD_QUICK_TIMEOUT 1000
-#define ETCD_KEEPALIVE_TIMEOUT 30000
-
 #define DEFAULT_BLOCK_SIZE 128*1024
 
 struct etcd_kv_t
@@ -88,10 +82,15 @@ protected:
     int ws_alive = 0;
     bool rand_initialized = false;
     uint64_t bs_block_size = DEFAULT_BLOCK_SIZE;
-    int etcd_keepalive_interval = 10;
     void add_etcd_url(std::string);
     void pick_next_etcd();
 public:
+    int etcd_keepalive_timeout = 30;
+    int etcd_ws_keepalive_interval = 30;
+    int max_etcd_attempts = 5;
+    int etcd_quick_timeout = 1000;
+    int etcd_slow_timeout = 5000;
+
     std::string etcd_prefix;
     int log_level = 0;
     timerfd_manager_t *tfd = NULL;

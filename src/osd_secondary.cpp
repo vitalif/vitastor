@@ -159,7 +159,7 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
         { "readonly", readonly },
         { "immediate_commit", (immediate_commit == IMMEDIATE_ALL ? "all" :
             (immediate_commit == IMMEDIATE_SMALL ? "small" : "none")) },
-        { "lease_timeout", etcd_report_interval+(MAX_ETCD_ATTEMPTS*(2*ETCD_QUICK_TIMEOUT)+999)/1000 },
+        { "lease_timeout", etcd_report_interval+(st_cli.max_etcd_attempts*(2*st_cli.etcd_quick_timeout)+999)/1000 },
     };
 #ifdef WITH_RDMA
     if (msgr.is_rdma_enabled())

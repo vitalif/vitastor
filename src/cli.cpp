@@ -194,7 +194,7 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent)
                 } }
             },
         } },
-    }, ETCD_SLOW_TIMEOUT, [this, new_parent, cur, cur_name](std::string err, json11::Json res)
+    }, cli->st_cli.etcd_slow_timeout, [this, new_parent, cur, cur_name](std::string err, json11::Json res)
     {
         if (err != "")
         {
