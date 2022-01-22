@@ -145,6 +145,7 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
     this->response = "";
     this->sent = 0;
     this->response_callback = response_callback;
+    this->parsed = {};
     if (state == HTTP_CO_KEEPALIVE && connected_host != host)
     {
         close_connection();
@@ -155,9 +156,12 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
         {
             stackin();
             close_connection();
-            parsed = { .error = "HTTP request timed out" };
-            this->response_callback(&parsed);
-            this->response_callback = NULL;
+            if (this->response_callback != NULL)
+            {
+                parsed = { .error = "HTTP request timed out" };
+                this->response_callback(&parsed);
+                this->response_callback = NULL;
+            }
             stackout();
         });
     }
@@ -324,7 +328,6 @@ void http_co_t::handle_events()
                     parsed.eof = true;
                     response_callback(&parsed);
                     response_callback = NULL;
-                    parsed = {};
                 }
                 break;
             }
@@ -345,12 +348,9 @@ void http_co_t::handle_connect_result()
     if (result != 0)
     {
         close_connection();
-        if (response_callback != NULL)
-        {
-            parsed = { .error = std::string("connect: ")+strerror(result) };
-            response_callback(&parsed);
-            response_callback = NULL;
-        }
+        parsed = { .error = std::string("connect: ")+strerror(result) };
+        response_callback(&parsed);
+        response_callback = NULL;
         stackout();
         return;
     }
@@ -497,9 +497,12 @@ bool http_co_t::handle_read()
                 {
                     // Sorry, unsupported response
                     close_connection();
-                    parsed = { .error = "Response has neither Connection: close, nor Transfer-Encoding: chunked nor Content-Length headers" };
-                    response_callback(&parsed);
-                    response_callback = NULL;
+                    if (response_callback != NULL)
+                    {
+                        parsed = { .error = "Response has neither Connection: close, nor Transfer-Encoding: chunked nor Content-Length headers" };
+                        response_callback(&parsed);
+                        response_callback = NULL;
+                    }
                     stackout();
                     return false;
                 }
