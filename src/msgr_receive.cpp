@@ -67,7 +67,7 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
         }
         return false;
     }
-    if (result <= 0 && result != -EAGAIN)
+    if (result <= 0 && result != -EAGAIN && result != -EINTR)
     {
         // this is a client socket, so don't panic on error. just disconnect it
         if (result != 0)
@@ -77,7 +77,7 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
         stop_client(cl->peer_fd);
         return false;
     }
-    if (result == -EAGAIN || result < cl->read_iov.iov_len)
+    if (result == -EAGAIN || result == -EINTR || result < cl->read_iov.iov_len)
     {
         cl->read_ready--;
         if (cl->read_ready > 0)

@@ -224,7 +224,7 @@ void osd_messenger_t::handle_send(int result, osd_client_t *cl)
         }
         return;
     }
-    if (result < 0 && result != -EAGAIN)
+    if (result < 0 && result != -EAGAIN && result != -EINTR)
     {
         // this is a client socket, so don't panic. just disconnect it
         fprintf(stderr, "Client %d socket write error: %d (%s). Disconnecting client\n", cl->peer_fd, -result, strerror(-result));

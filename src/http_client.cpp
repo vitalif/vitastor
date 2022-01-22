@@ -381,7 +381,7 @@ again:
         {
             res = -errno;
         }
-        if (res == -EAGAIN)
+        if (res == -EAGAIN || res == -EINTR)
         {
             res = 0;
         }
@@ -431,7 +431,7 @@ void http_co_t::submit_read()
     {
         res = -errno;
     }
-    if (res == -EAGAIN)
+    if (res == -EAGAIN || res == -EINTR)
     {
         epoll_events = epoll_events & ~EPOLLIN;
     }

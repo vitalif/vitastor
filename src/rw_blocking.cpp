@@ -23,7 +23,7 @@ int read_blocking(int fd, void *read_buf, size_t remaining)
                 // EOF
                 return done;
             }
-            else if (errno != EAGAIN && errno != EPIPE)
+            else if (errno != EINTR && errno != EAGAIN && errno != EPIPE)
             {
                 perror("read");
                 exit(1);
@@ -44,7 +44,7 @@ int write_blocking(int fd, void *write_buf, size_t remaining)
         size_t r = write(fd, write_buf, remaining-done);
         if (r < 0)
         {
-            if (errno != EAGAIN && errno != EPIPE)
+            if (errno != EINTR && errno != EAGAIN && errno != EPIPE)
             {
                 perror("write");
                 exit(1);
@@ -66,7 +66,7 @@ int readv_blocking(int fd, iovec *iov, int iovcnt)
         ssize_t r = readv(fd, iov+v, iovcnt-v);
         if (r < 0)
         {
-            if (errno != EAGAIN && errno != EPIPE)
+            if (errno != EINTR && errno != EAGAIN && errno != EPIPE)
             {
                 perror("writev");
                 exit(1);
@@ -101,7 +101,7 @@ int writev_blocking(int fd, iovec *iov, int iovcnt)
         ssize_t r = writev(fd, iov+v, iovcnt-v);
         if (r < 0)
         {
-            if (errno != EAGAIN && errno != EPIPE)
+            if (errno != EINTR && errno != EAGAIN && errno != EPIPE)
             {
                 perror("writev");
                 exit(1);
@@ -139,7 +139,7 @@ int sendv_blocking(int fd, iovec *iov, int iovcnt, int flags)
         ssize_t r = sendmsg(fd, &msg, flags);
         if (r < 0)
         {
-            if (errno != EAGAIN && errno != EPIPE)
+            if (errno != EINTR && errno != EAGAIN && errno != EPIPE)
             {
                 perror("sendmsg");
                 exit(1);
