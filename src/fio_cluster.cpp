@@ -247,6 +247,12 @@ static int sec_setup(struct thread_data *td)
             vitastor_c_uring_wait_events(bsd->cli);
         }
         td->files[0]->real_file_size = vitastor_c_inode_get_size(bsd->watch);
+        if (!vitastor_c_inode_get_num(bsd->watch) ||
+            !td->files[0]->real_file_size)
+        {
+            td_verror(td, EINVAL, "image does not exist");
+            return 1;
+        }
     }
 
     bsd->trace = o->trace ? true : false;

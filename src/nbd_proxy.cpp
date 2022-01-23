@@ -190,6 +190,12 @@ public:
             }
             watch = cli->st_cli.watch_inode(image_name);
             device_size = watch->cfg.size;
+            if (!watch->cfg.num || !device_size)
+            {
+                // Image does not exist
+                fprintf(stderr, "Image %s does not exist\n", image_name.c_str());
+                exit(1);
+            }
         }
         // Initialize NBD
         int sockfd[2];
