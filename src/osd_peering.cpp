@@ -176,6 +176,17 @@ void osd_t::start_pg_peering(pg_t & pg)
             msgr.stop_client(peer_fd);
         }
     }
+    // Try to connect with current peers if they're up, but we don't have connections to them
+    // Otherwise we may erroneously decide that the pg is incomplete :-)
+    for (auto pg_osd: pg.all_peers)
+    {
+        if (pg_osd != this->osd_num &&
+            msgr.osd_peer_fds.find(pg_osd) == msgr.osd_peer_fds.end() &&
+            msgr.wanted_peers.find(pg_osd) == msgr.wanted_peers.end())
+        {
+            msgr.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
+        }
+    }
     // Calculate current write OSD set
     pg.pg_cursize = 0;
     pg.cur_set.resize(pg.target_set.size());
@@ -206,10 +217,6 @@ void osd_t::start_pg_peering(pg_t & pg)
         if (pg_osd == this->osd_num || msgr.osd_peer_fds.find(pg_osd) != msgr.osd_peer_fds.end())
         {
             cur_peers.insert(pg_osd);
-        }
-        else if (msgr.wanted_peers.find(pg_osd) == msgr.wanted_peers.end())
-        {
-            msgr.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
         }
     }
     if (pg.target_history.size())
