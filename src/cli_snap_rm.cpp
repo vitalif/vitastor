@@ -256,9 +256,9 @@ resume_9:
             });
         }
         parent->waiting++;
-        parent->cli->st_cli.etcd_txn(json11::Json::object {
+        parent->cli->st_cli.etcd_txn_slow(json11::Json::object {
             { "success", reads },
-        }, parent->cli->st_cli.etcd_slow_timeout, [this](std::string err, json11::Json data)
+        }, [this](std::string err, json11::Json data)
         {
             parent->waiting--;
             if (err != "")
@@ -414,10 +414,10 @@ resume_9:
             }
         }
         parent->waiting++;
-        parent->cli->st_cli.etcd_txn(json11::Json::object {
+        parent->cli->st_cli.etcd_txn_slow(json11::Json::object {
             { "compare", cmp },
             { "success", txn },
-        }, parent->cli->st_cli.etcd_slow_timeout, [this, target_name, child_name](std::string err, json11::Json res)
+        }, [this, target_name, child_name](std::string err, json11::Json res)
         {
             parent->waiting--;
             if (err != "")
@@ -454,7 +454,7 @@ resume_9:
             "/"+std::to_string(INODE_NO_POOL(cur))
         );
         parent->waiting++;
-        parent->cli->st_cli.etcd_txn(json11::Json::object {
+        parent->cli->st_cli.etcd_txn_slow(json11::Json::object {
             { "compare", json11::Json::array {
                 json11::Json::object {
                     { "target", "MOD" },
@@ -475,7 +475,7 @@ resume_9:
                     } },
                 },
             } },
-        }, parent->cli->st_cli.etcd_slow_timeout, [this, cur_name](std::string err, json11::Json res)
+        }, [this, cur_name](std::string err, json11::Json res)
         {
             parent->waiting--;
             if (err != "")

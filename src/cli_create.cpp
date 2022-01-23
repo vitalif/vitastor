@@ -31,7 +31,6 @@ struct image_creator_t
     inode_t new_parent_id = 0;
     inode_t new_id = 0, old_id = 0;
     uint64_t max_id_mod_rev = 0, cfg_mod_rev = 0, idx_mod_rev = 0;
-    json11::Json result;
 
     int state = 0;
 
@@ -125,26 +124,26 @@ struct image_creator_t
         }
         do
         {
-            etcd_txn(json11::Json::object {
+            parent->etcd_txn(json11::Json::object {
                 { "success", json11::Json::array { get_next_id() } }
             });
             state = 2;
 resume_2:
             if (parent->waiting > 0)
                 return;
-            extract_next_id(result["responses"][0]);
+            extract_next_id(parent->etcd_result["responses"][0]);
             attempt_create();
             state = 3;
 resume_3:
             if (parent->waiting > 0)
                 return;
-            if (!result["succeeded"].bool_value() &&
-                result["responses"][0]["response_range"]["kvs"].array_items().size() > 0)
+            if (!parent->etcd_result["succeeded"].bool_value() &&
+                parent->etcd_result["responses"][0]["response_range"]["kvs"].array_items().size() > 0)
             {
                 fprintf(stderr, "Image %s already exists\n", image_name.c_str());
                 exit(1);
             }
-        } while (!result["succeeded"].bool_value());
+        } while (!parent->etcd_result["succeeded"].bool_value());
         if (parent->progress)
         {
             printf("Image %s created\n", image_name.c_str());
@@ -196,13 +195,13 @@ resume_3:
 resume_4:
             if (parent->waiting > 0)
                 return;
-            if (!result["succeeded"].bool_value() &&
-                result["responses"][0]["response_range"]["kvs"].array_items().size() > 0)
+            if (!parent->etcd_result["succeeded"].bool_value() &&
+                parent->etcd_result["responses"][0]["response_range"]["kvs"].array_items().size() > 0)
             {
                 fprintf(stderr, "Snapshot %s@%s already exists\n", image_name.c_str(), new_snap.c_str());
                 exit(1);
             }
-        } while (!result["succeeded"].bool_value());
+        } while (!parent->etcd_result["succeeded"].bool_value());
         if (parent->progress)
         {
             printf("Snapshot %s@%s created\n", image_name.c_str(), new_snap.c_str());
@@ -246,7 +245,7 @@ resume_4:
             goto resume_2;
         else if (state == 3)
             goto resume_3;
-        etcd_txn(json11::Json::object { { "success", json11::Json::array {
+        parent->etcd_txn(json11::Json::object { { "success", json11::Json::array {
             get_next_id(),
             json11::Json::object {
                 { "request_range", json11::Json::object {
@@ -260,11 +259,11 @@ resume_4:
 resume_2:
         if (parent->waiting > 0)
             return;
-        extract_next_id(result["responses"][0]);
+        extract_next_id(parent->etcd_result["responses"][0]);
         old_id = 0;
         old_pool_id = 0;
         cfg_mod_rev = idx_mod_rev = 0;
-        if (result["responses"][1]["response_range"]["kvs"].array_items().size() == 0)
+        if (parent->etcd_result["responses"][1]["response_range"]["kvs"].array_items().size() == 0)
         {
             for (auto & ic: parent->cli->st_cli.inode_config)
             {
@@ -283,7 +282,7 @@ resume_2:
         {
             // FIXME: Parse kvs in etcd_state_client automatically
             {
-                auto kv = parent->cli->st_cli.parse_etcd_kv(result["responses"][1]["response_range"]["kvs"][0]);
+                auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][1]["response_range"]["kvs"][0]);
                 old_id = INODE_NO_POOL(kv.value["id"].uint64_value());
                 old_pool_id = (pool_id_t)kv.value["pool_id"].uint64_value();
                 idx_mod_rev = kv.mod_revision;
@@ -293,7 +292,7 @@ resume_2:
                     exit(1);
                 }
             }
-            etcd_txn(json11::Json::object {
+            parent->etcd_txn(json11::Json::object {
                 { "success", json11::Json::array {
                     json11::Json::object {
                         { "request_range", json11::Json::object {
@@ -310,7 +309,7 @@ resume_3:
             if (parent->waiting > 0)
                 return;
             {
-                auto kv = parent->cli->st_cli.parse_etcd_kv(result["responses"][0]["response_range"]["kvs"][0]);
+                auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
                 size = kv.value["size"].uint64_value();
                 new_parent_id = kv.value["parent_id"].uint64_value();
                 uint64_t parent_pool_id = kv.value["parent_pool_id"].uint64_value();
@@ -439,26 +438,10 @@ resume_3:
                 } },
             });
         };
-        etcd_txn(json11::Json::object {
+        parent->etcd_txn(json11::Json::object {
             { "compare", checks },
             { "success", success },
             { "failure", failure },
-        });
-    }
-
-    void etcd_txn(json11::Json txn)
-    {
-        parent->waiting++;
-        parent->cli->st_cli.etcd_txn(txn, parent->cli->st_cli.etcd_slow_timeout, [this](std::string err, json11::Json res)
-        {
-            parent->waiting--;
-            if (err != "")
-            {
-                fprintf(stderr, "Error reading from etcd: %s\n", err.c_str());
-                exit(1);
-            }
-            this->result = res;
-            parent->ringloop->wakeup();
         });
     }
 };

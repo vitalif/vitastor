@@ -13,7 +13,6 @@ struct alloc_osd_t
 {
     cli_tool_t *parent;
 
-    json11::Json result;
     uint64_t new_id = 1;
 
     int state = 0;
@@ -29,7 +28,7 @@ struct alloc_osd_t
             goto resume_1;
         do
         {
-            etcd_txn(json11::Json::object {
+            parent->etcd_txn(json11::Json::object {
                 { "compare", json11::Json::array {
                     json11::Json::object {
                         { "target", "VERSION" },
@@ -63,10 +62,10 @@ struct alloc_osd_t
             state = 1;
             if (parent->waiting > 0)
                 return;
-            if (!result["succeeded"].bool_value())
+            if (!parent->etcd_result["succeeded"].bool_value())
             {
                 std::vector<osd_num_t> used;
-                for (auto kv: result["responses"][0]["response_range"]["kvs"].array_items())
+                for (auto kv: parent->etcd_result["responses"][0]["response_range"]["kvs"].array_items())
                 {
                     std::string key = base64_decode(kv["key"].string_value());
                     osd_num_t cur_osd;
@@ -98,24 +97,8 @@ struct alloc_osd_t
                     new_id = used[e-1]+1;
                 }
             }
-        } while (!result["succeeded"].bool_value());
+        } while (!parent->etcd_result["succeeded"].bool_value());
         state = 100;
-    }
-
-    void etcd_txn(json11::Json txn)
-    {
-        parent->waiting++;
-        parent->cli->st_cli.etcd_txn(txn, parent->cli->st_cli.etcd_slow_timeout, [this](std::string err, json11::Json res)
-        {
-            parent->waiting--;
-            if (err != "")
-            {
-                fprintf(stderr, "Error reading from etcd: %s\n", err.c_str());
-                exit(1);
-            }
-            this->result = res;
-            parent->ringloop->wakeup();
-        });
     }
 };
 

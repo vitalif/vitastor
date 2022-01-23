@@ -84,8 +84,7 @@ struct image_lister_t
         // Space statistics
         // inode/stats/<pool>/<inode>::raw_used divided by pool/stats/<pool>::pg_real_size
         // multiplied by 1 or number of data drives
-        parent->waiting++;
-        parent->cli->st_cli.etcd_txn(json11::Json::object {
+        parent->etcd_txn(json11::Json::object {
             { "success", json11::Json::array {
                 json11::Json::object {
                     { "request_range", json11::Json::object {
@@ -112,21 +111,12 @@ struct image_lister_t
                     } },
                 },
             } },
-        }, parent->cli->st_cli.etcd_slow_timeout, [this](std::string err, json11::Json res)
-        {
-            parent->waiting--;
-            if (err != "")
-            {
-                fprintf(stderr, "Error reading from etcd: %s\n", err.c_str());
-                exit(1);
-            }
-            space_info = res;
-            parent->ringloop->wakeup();
         });
         state = 1;
 resume_1:
         if (parent->waiting > 0)
             return;
+        space_info = parent->etcd_result;
         std::map<pool_id_t, uint64_t> pool_pg_real_size;
         for (auto & kv_item: space_info["responses"][0]["response_range"]["kvs"].array_items())
         {

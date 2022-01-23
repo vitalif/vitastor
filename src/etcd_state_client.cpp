@@ -54,12 +54,18 @@ etcd_kv_t etcd_state_client_t::parse_etcd_kv(const json11::Json & kv_json)
     return kv;
 }
 
-void etcd_state_client_t::etcd_txn(json11::Json txn, int timeout, std::function<void(std::string, json11::Json)> callback)
+void etcd_state_client_t::etcd_txn(json11::Json txn, int timeout, int retries, int interval, std::function<void(std::string, json11::Json)> callback)
 {
-    etcd_call("/kv/txn", txn, timeout, callback);
+    etcd_call("/kv/txn", txn, timeout, retries, interval, callback);
 }
 
-void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback)
+void etcd_state_client_t::etcd_txn_slow(json11::Json txn, std::function<void(std::string, json11::Json)> callback)
+{
+    etcd_call("/kv/txn", txn, etcd_slow_timeout, max_etcd_attempts, 0, callback);
+}
+
+void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int timeout,
+    int retries, int interval, std::function<void(std::string, json11::Json)> callback)
 {
     if (!etcd_addresses.size() && !etcd_local.size())
     {
@@ -83,7 +89,8 @@ void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int t
         "Connection: keep-alive\r\n"
         "Keep-Alive: timeout="+std::to_string(etcd_keepalive_timeout)+"\r\n"
         "\r\n"+req;
-    auto cb = [this, cur_addr = selected_etcd_address, callback](const http_response_t *response)
+    auto cb = [this, api, payload, timeout, retries, interval, callback,
+        cur_addr = selected_etcd_address](const http_response_t *response)
     {
         std::string err;
         json11::Json data;
@@ -92,8 +99,30 @@ void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int t
         {
             if (cur_addr == selected_etcd_address)
                 selected_etcd_address = "";
+            if (retries > 0)
+            {
+                if (this->log_level > 0)
+                {
+                    printf(
+                        "Warning: etcd request failed: %s, retrying %d more times\n",
+                        err.c_str(), retries
+                    );
+                }
+                if (interval > 0)
+                {
+                    tfd->set_timer(interval, false, [this, api, payload, timeout, retries, interval, callback](int)
+                    {
+                        etcd_call(api, payload, timeout, retries-1, interval, callback);
+                    });
+                }
+                else
+                    etcd_call(api, payload, timeout, retries-1, interval, callback);
+            }
+            else
+                callback(err, data);
         }
-        callback(err, data);
+        else
+            callback(err, data);
     };
     if (!keepalive_client)
     {
@@ -255,6 +284,8 @@ void etcd_state_client_t::start_etcd_watcher()
         http_close(etcd_watch_ws);
         etcd_watch_ws = NULL;
     }
+    if (this->log_level > 1)
+        printf("Trying to connect to etcd websocket at %s\n", etcd_address.c_str());
     etcd_watch_ws = open_websocket(tfd, etcd_address, etcd_api_path+"/watch", etcd_slow_timeout,
         [this, cur_addr = selected_etcd_address](const http_response_t *msg)
     {
@@ -438,7 +469,7 @@ void etcd_state_client_t::load_global_config()
 {
     etcd_call("/kv/range", json11::Json::object {
         { "key", base64_encode(etcd_prefix+"/config/global") }
-    }, etcd_slow_timeout, [this](std::string err, json11::Json data)
+    }, etcd_slow_timeout, max_etcd_attempts, 0, [this](std::string err, json11::Json data)
     {
         if (err != "")
         {
@@ -511,10 +542,11 @@ void etcd_state_client_t::load_pgs()
     {
         req["compare"] = checks;
     }
-    etcd_txn(req, etcd_slow_timeout, [this](std::string err, json11::Json data)
+    etcd_txn_slow(req, [this](std::string err, json11::Json data)
     {
         if (err != "")
         {
+            // Retry indefinitely
             fprintf(stderr, "Error loading PGs from etcd: %s\n", err.c_str());
             tfd->set_timer(etcd_slow_timeout, false, [this](int timer_id)
             {

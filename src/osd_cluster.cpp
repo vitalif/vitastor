@@ -277,7 +277,7 @@ void osd_t::report_statistics()
             } }
         });
     }
-    st_cli.etcd_txn(json11::Json::object { { "success", txn } }, st_cli.etcd_slow_timeout, [this](std::string err, json11::Json res)
+    st_cli.etcd_txn_slow(json11::Json::object { { "success", txn } }, [this](std::string err, json11::Json res)
     {
         etcd_reporting_stats = false;
         if (err != "")
@@ -356,11 +356,11 @@ void osd_t::acquire_lease()
     // Maximum lease TTL is (report interval) + retries * (timeout + repeat interval)
     st_cli.etcd_call("/lease/grant", json11::Json::object {
         { "TTL", etcd_report_interval+(st_cli.max_etcd_attempts*(2*st_cli.etcd_quick_timeout)+999)/1000 }
-    }, st_cli.etcd_quick_timeout, [this](std::string err, json11::Json data)
+    }, st_cli.etcd_quick_timeout, 0, 0, [this](std::string err, json11::Json data)
     {
         if (err != "" || data["ID"].string_value() == "")
         {
-            printf("Error acquiring a lease from etcd: %s\n", err.c_str());
+            printf("Error acquiring a lease from etcd: %s, retrying\n", err.c_str());
             tfd->set_timer(st_cli.etcd_quick_timeout, false, [this](int timer_id)
             {
                 acquire_lease();
@@ -408,7 +408,7 @@ void osd_t::create_osd_state()
                 } }
             },
         } },
-    }, st_cli.etcd_quick_timeout, [this](std::string err, json11::Json data)
+    }, st_cli.etcd_quick_timeout, 0, 0, [this](std::string err, json11::Json data)
     {
         if (err != "")
         {
@@ -452,7 +452,7 @@ void osd_t::renew_lease()
 {
     st_cli.etcd_call("/lease/keepalive", json11::Json::object {
         { "ID", etcd_lease_id }
-    }, st_cli.etcd_quick_timeout, [this](std::string err, json11::Json data)
+    }, st_cli.etcd_quick_timeout, 0, 0, [this](std::string err, json11::Json data)
     {
         if (err == "" && data["result"]["TTL"].string_value() == "")
         {
@@ -488,7 +488,7 @@ void osd_t::force_stop(int exitcode)
     {
         st_cli.etcd_call("/kv/lease/revoke", json11::Json::object {
             { "ID", etcd_lease_id }
-        }, st_cli.etcd_quick_timeout, [this, exitcode](std::string err, json11::Json data)
+        }, st_cli.etcd_quick_timeout, st_cli.max_etcd_attempts, 0, [this, exitcode](std::string err, json11::Json data)
         {
             if (err != "")
             {
@@ -826,7 +826,7 @@ void osd_t::report_pg_states()
     etcd_reporting_pg_state = true;
     st_cli.etcd_txn(json11::Json::object {
         { "compare", checks }, { "success", success }, { "failure", failure }
-    }, st_cli.etcd_quick_timeout, [this, reporting_pgs](std::string err, json11::Json data)
+    }, st_cli.etcd_quick_timeout, 0, 0, [this, reporting_pgs](std::string err, json11::Json data)
     {
         etcd_reporting_pg_state = false;
         if (!data["succeeded"].bool_value())

@@ -177,7 +177,7 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent)
     new_cfg.parent_id = new_parent;
     json11::Json::object cur_cfg_json = cli->st_cli.serialize_inode_cfg(&new_cfg);
     waiting++;
-    cli->st_cli.etcd_txn(json11::Json::object {
+    cli->st_cli.etcd_txn_slow(json11::Json::object {
         { "compare", json11::Json::array {
             json11::Json::object {
                 { "target", "MOD" },
@@ -194,7 +194,7 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent)
                 } }
             },
         } },
-    }, cli->st_cli.etcd_slow_timeout, [this, new_parent, cur, cur_name](std::string err, json11::Json res)
+    }, [this, new_parent, cur, cur_name](std::string err, json11::Json res)
     {
         if (err != "")
         {
@@ -225,6 +225,22 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent)
             );
         }
         waiting--;
+        ringloop->wakeup();
+    });
+}
+
+void cli_tool_t::etcd_txn(json11::Json txn)
+{
+    waiting++;
+    cli->st_cli.etcd_txn_slow(txn, [this](std::string err, json11::Json res)
+    {
+        waiting--;
+        if (err != "")
+        {
+            fprintf(stderr, "Error reading from etcd: %s\n", err.c_str());
+            exit(1);
+        }
+        etcd_result = res;
         ringloop->wakeup();
     });
 }

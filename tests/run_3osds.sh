@@ -31,7 +31,7 @@ else
     $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"xor","pg_size":'$PG_SIZE',"pg_minsize":'$PG_MINSIZE',"parity_chunks":1,"pg_count":'$PG_COUNT',"failure_domain":"osd"}}'
 fi
 
-sleep 2
+sleep 3
 
 if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(. | length) != 0 and ([ .[0].items["1"][] | select(((.osd_set | select(. != 0) | sort | unique) | length) == '$PG_SIZE') ] | length) == '$PG_COUNT); then
     format_error "FAILED: $PG_COUNT PG(s) NOT CONFIGURED"

@@ -24,8 +24,7 @@ struct pool_lister_t
         if (state == 1)
             goto resume_1;
         // Space statistics - pool/stats/<pool>
-        parent->waiting++;
-        parent->cli->st_cli.etcd_txn(json11::Json::object {
+        parent->etcd_txn(json11::Json::object {
             { "success", json11::Json::array {
                 json11::Json::object {
                     { "request_range", json11::Json::object {
@@ -48,21 +47,12 @@ struct pool_lister_t
                     } },
                 },
             } },
-        }, parent->cli->st_cli.etcd_slow_timeout, [this](std::string err, json11::Json res)
-        {
-            parent->waiting--;
-            if (err != "")
-            {
-                fprintf(stderr, "Error reading from etcd: %s\n", err.c_str());
-                exit(1);
-            }
-            space_info = res;
-            parent->ringloop->wakeup();
         });
         state = 1;
 resume_1:
         if (parent->waiting > 0)
             return;
+        space_info = parent->etcd_result;
         std::map<pool_id_t, uint64_t> osd_free;
         for (auto & kv_item: space_info["responses"][0]["response_range"]["kvs"].array_items())
         {

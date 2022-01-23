@@ -59,6 +59,7 @@ struct http_co_t
     inline void stackin() { onstack++; }
     inline void stackout() { onstack--; if (!onstack && ended) end(); }
     inline void end() { ended = true; if (!onstack) { delete this; } }
+    void run_cb_and_clear();
     void start_connection();
     void close_connection();
     void handle_events();
@@ -119,6 +120,16 @@ void http_request(http_co_t *handler, const std::string & host, const std::strin
     handler->send_request(host, request, options, response_callback);
 }
 
+void http_co_t::run_cb_and_clear()
+{
+    parsed.eof = true;
+    std::function<void(const http_response_t*)> cb;
+    cb.swap(response_callback);
+    // Call callback after clearing it because otherwise we may hit reenterability problems
+    if (cb != NULL)
+        cb(&parsed);
+}
+
 void http_co_t::send_request(const std::string & host, const std::string & request,
     const http_options_t & options, std::function<void(const http_response_t *response)> response_callback)
 {
@@ -137,6 +148,10 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
         stackout();
         return;
     }
+    if (state == HTTP_CO_KEEPALIVE && connected_host != host)
+    {
+        close_connection();
+    }
     this->request_timeout = options.timeout < 0 ? 0 : (options.timeout == 0 ? DEFAULT_TIMEOUT : options.timeout);
     this->want_streaming = options.want_streaming;
     this->keepalive = options.keepalive;
@@ -146,22 +161,14 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
     this->sent = 0;
     this->response_callback = response_callback;
     this->parsed = {};
-    if (state == HTTP_CO_KEEPALIVE && connected_host != host)
-    {
-        close_connection();
-    }
     if (request_timeout > 0)
     {
         timeout_id = tfd->set_timer(request_timeout, false, [this](int timer_id)
         {
             stackin();
             close_connection();
-            if (this->response_callback != NULL)
-            {
-                parsed = { .error = "HTTP request timed out" };
-                this->response_callback(&parsed);
-                this->response_callback = NULL;
-            }
+            parsed = { .error = "HTTP request timed out" };
+            run_cb_and_clear();
             stackout();
         });
     }
@@ -258,6 +265,7 @@ void http_co_t::close_connection()
     state = HTTP_CO_CLOSED;
     connected_host = "";
     response = "";
+    epoll_events = 0;
 }
 
 void http_co_t::start_connection()
@@ -267,8 +275,7 @@ void http_co_t::start_connection()
     if (!string_to_addr(host.c_str(), 1, 80, &addr))
     {
         parsed = { .error = "Invalid address: "+host };
-        response_callback(&parsed);
-        response_callback = NULL;
+        run_cb_and_clear();
         stackout();
         return;
     }
@@ -276,8 +283,7 @@ void http_co_t::start_connection()
     if (peer_fd < 0)
     {
         parsed = { .error = std::string("socket: ")+strerror(errno) };
-        response_callback(&parsed);
-        response_callback = NULL;
+        run_cb_and_clear();
         stackout();
         return;
     }
@@ -289,8 +295,7 @@ void http_co_t::start_connection()
     {
         close_connection();
         parsed = { .error = std::string("connect: ")+strerror(errno) };
-        response_callback(&parsed);
-        response_callback = NULL;
+        run_cb_and_clear();
         stackout();
         return;
     }
@@ -323,12 +328,7 @@ void http_co_t::handle_events()
             else if (epoll_events & (EPOLLRDHUP|EPOLLERR))
             {
                 close_connection();
-                if (response_callback != NULL)
-                {
-                    parsed.eof = true;
-                    response_callback(&parsed);
-                    response_callback = NULL;
-                }
+                run_cb_and_clear();
                 break;
             }
         }
@@ -349,8 +349,7 @@ void http_co_t::handle_connect_result()
     {
         close_connection();
         parsed = { .error = std::string("connect: ")+strerror(result) };
-        response_callback(&parsed);
-        response_callback = NULL;
+        run_cb_and_clear();
         stackout();
         return;
     }
@@ -388,12 +387,8 @@ again:
         else if (res < 0)
         {
             close_connection();
-            if (response_callback != NULL)
-            {
-                parsed = { .error = std::string("sendmsg: ")+strerror(errno) };
-                response_callback(&parsed);
-                response_callback = NULL;
-            }
+            parsed = { .error = std::string("sendmsg: ")+strerror(errno) };
+            run_cb_and_clear();
             stackout();
             return;
         }
@@ -442,13 +437,7 @@ void http_co_t::submit_read()
         close_connection();
         if (res < 0)
             parsed = { .error = std::string("recvmsg: ")+strerror(-res) };
-        else
-            parsed.eof = true;
-        if (response_callback != NULL)
-        {
-            response_callback(&parsed);
-            response_callback = NULL;
-        }
+        run_cb_and_clear();
     }
     else
     {
@@ -497,12 +486,8 @@ bool http_co_t::handle_read()
                 {
                     // Sorry, unsupported response
                     close_connection();
-                    if (response_callback != NULL)
-                    {
-                        parsed = { .error = "Response has neither Connection: close, nor Transfer-Encoding: chunked nor Content-Length headers" };
-                        response_callback(&parsed);
-                        response_callback = NULL;
-                    }
+                    parsed = { .error = "Response has neither Connection: close, nor Transfer-Encoding: chunked nor Content-Length headers" };
+                    run_cb_and_clear();
                     stackout();
                     return false;
                 }

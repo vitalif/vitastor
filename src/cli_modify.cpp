@@ -170,29 +170,19 @@ resume_1:
                 } }
             });
         }
-        parent->waiting++;
-        parent->cli->st_cli.etcd_txn(json11::Json::object {
+        parent->etcd_txn(json11::Json::object {
             { "compare", checks },
             { "success", success },
-        }, parent->cli->st_cli.etcd_slow_timeout, [this](std::string err, json11::Json res)
-        {
-            if (err != "")
-            {
-                fprintf(stderr, "Error changing %s: %s\n", image_name.c_str(), err.c_str());
-                exit(1);
-            }
-            if (!res["succeeded"].bool_value())
-            {
-                fprintf(stderr, "Image %s was modified by someone else, please repeat your request\n", image_name.c_str());
-                exit(1);
-            }
-            parent->waiting--;
-            parent->ringloop->wakeup();
         });
         state = 2;
 resume_2:
         if (parent->waiting > 0)
             return;
+        if (!parent->etcd_result["succeeded"].bool_value())
+        {
+            fprintf(stderr, "Image %s was modified by someone else, please repeat your request\n", image_name.c_str());
+            exit(1);
+        }
         printf("Image %s modified\n", image_name.c_str());
         state = 100;
     }

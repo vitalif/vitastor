@@ -34,6 +34,7 @@ public:
     cluster_client_t *cli = NULL;
 
     int waiting = 0;
+    json11::Json etcd_result;
     ring_consumer_t consumer;
     std::function<bool(void)> action_cb;
 
@@ -60,6 +61,8 @@ public:
     std::function<bool(void)> start_snap_rm(json11::Json);
     std::function<bool(void)> start_alloc_osd(json11::Json cfg, uint64_t *out = NULL);
     std::function<bool(void)> simple_offsets(json11::Json cfg);
+
+    void etcd_txn(json11::Json txn);
 };
 
 uint64_t parse_size(std::string size_str);
