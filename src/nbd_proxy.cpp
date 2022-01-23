@@ -30,6 +30,9 @@ protected:
     std::string image_name;
     uint64_t inode = 0;
     uint64_t device_size = 0;
+    int nbd_timeout = 30;
+    int nbd_max_devices = 64;
+    int nbd_max_part = 3;
     inode_watch_t *watch = NULL;
 
     ring_loop_t *ringloop = NULL;
@@ -117,9 +120,18 @@ public:
             "Vitastor NBD proxy\n"
             "(c) Vitaliy Filippov, 2020-2021 (VNPL-1.1)\n\n"
             "USAGE:\n"
-            "  %s map [--etcd_address <etcd_address>] (--image <image> | --pool <pool> --inode <inode> --size <size in bytes>)\n"
+            "  %s map [OPTIONS] (--image <image> | --pool <pool> --inode <inode> --size <size in bytes>)\n"
             "  %s unmap /dev/nbd0\n"
-            "  %s ls [--json]\n",
+            "  %s ls [--json]\n"
+            "OPTIONS:\n"
+            "  All usual Vitastor config options like --etcd_address <etcd_address> plus NBD-specific:\n"
+            "  --nbd_timeout 30\n"
+            "    timeout in seconds after which the kernel will stop the device\n"
+            "    you can set it to 0, but beware that you won't be able to stop the device at all\n"
+            "    if vitastor-nbd process dies\n"
+            "  --nbd_max_devices 64 --nbd_max_part 3\n"
+            "    options for the \"nbd\" kernel module when modprobing it (nbds_max and max_part).\n"
+            "    note that maximum allowed (nbds_max)*(1+max_part) is 256.\n",
             exe_name, exe_name, exe_name
         );
         exit(0);
@@ -174,6 +186,18 @@ public:
                 exit(1);
             }
         }
+        if (cfg["nbd_max_devices"].is_number() || cfg["nbd_max_devices"].is_string())
+        {
+            nbd_max_devices = cfg["nbd_max_devices"].uint64_value();
+        }
+        if (cfg["nbd_max_part"].is_number() || cfg["nbd_max_part"].is_string())
+        {
+            nbd_max_part = cfg["nbd_max_part"].uint64_value();
+        }
+        if (cfg["nbd_timeout"].is_number() || cfg["nbd_timeout"].is_string())
+        {
+            nbd_timeout = cfg["nbd_timeout"].uint64_value();
+        }
         // Create client
         ringloop = new ring_loop_t(512);
         epmgr = new epoll_manager_t(ringloop);
@@ -210,7 +234,7 @@ public:
         bool bg = cfg["foreground"].is_null();
         if (!cfg["dev_num"].is_null())
         {
-            if (run_nbd(sockfd, cfg["dev_num"].int64_value(), device_size, NBD_FLAG_SEND_FLUSH, 30, bg) < 0)
+            if (run_nbd(sockfd, cfg["dev_num"].int64_value(), device_size, NBD_FLAG_SEND_FLUSH, nbd_timeout, bg) < 0)
             {
                 perror("run_nbd");
                 exit(1);
@@ -307,7 +331,10 @@ public:
             return;
         }
         int r;
-        if ((r = system("modprobe nbd")) != 0)
+        // Kernel built-in default is 16 devices with up to 16 partitions per device which is a big shit
+        // 64 also isn't too high, but the possible maximum is nbds_max=256 max_part=0 and it won't reserve
+        // any block device minor numbers for partitions
+        if ((r = system(("modprobe nbd nbds_max="+std::to_string(nbd_max_devices)+" max_part="+std::to_string(nbd_max_part)).c_str())) != 0)
         {
             if (r < 0)
                 perror("Failed to load NBD kernel module");
