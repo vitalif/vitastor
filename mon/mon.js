@@ -391,7 +391,7 @@ class Mon
         for (const pool_id in this.state.config.pools)
         {
             if (!this.state.pool.stats[pool_id] ||
-                !this.state.pool.stats[pool_id].pg_real_size)
+                !Number(this.state.pool.stats[pool_id].pg_real_size))
             {
                 // Generate missing data in etcd
                 this.state.config.pgs.hash = null;
@@ -1191,8 +1191,8 @@ class Mon
                 this.state.pool.stats[pool_id] = {
                     used_raw_tb: (this.state.pool.stats[pool_id]||{}).used_raw_tb || 0,
                     total_raw_tb: optimize_result.space,
-                    pg_real_size: pg_effsize,
-                    raw_to_usable: pg_effsize / (pool_cfg.scheme === 'replicated'
+                    pg_real_size: pg_effsize || pool_cfg.pg_size,
+                    raw_to_usable: (pg_effsize || pool_cfg.pg_size) / (pool_cfg.scheme === 'replicated'
                         ? 1 : (pool_cfg.pg_size - (pool_cfg.parity_chunks||0))),
                     space_efficiency: optimize_result.space/(optimize_result.total_space||1),
                 };
