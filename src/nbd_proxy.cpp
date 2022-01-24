@@ -498,7 +498,7 @@ protected:
             goto end_unmap;
         }
         ioctl(nbd, NBD_SET_FLAGS, flags);
-        if (timeout >= 0)
+        if (timeout > 0)
         {
             r = ioctl(nbd, NBD_SET_TIMEOUT, (unsigned long)timeout);
             if (r < 0)
