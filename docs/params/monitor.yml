@@ -1,0 +1,65 @@
+- name: etcd_mon_ttl
+  type: sec
+  min: 10
+  default: 30
+  info: Monitor etcd lease refresh interval in seconds
+  info_ru: Интервал обновления etcd резервации (lease) монитором
+- name: etcd_mon_timeout
+  type: ms
+  default: 1000
+  info: etcd request timeout used by monitor
+  info_ru: Таймаут выполнения запросов к etcd от монитора
+- name: etcd_mon_retries
+  type: int
+  default: 5
+  info: Maximum number of attempts for one monitor etcd request
+  info_ru: Максимальное число попыток выполнения запросов к etcd монитором
+- name: mon_change_timeout
+  type: ms
+  min: 100
+  default: 1000
+  info: Optimistic retry interval for monitor etcd modification requests
+  info_ru: Время повтора при коллизиях при запросах модификации в etcd, производимых монитором
+- name: mon_stats_timeout
+  type: ms
+  min: 100
+  default: 1000
+  info: >
+    Interval for monitor to wait before updating aggregated statistics in
+    etcd after receiving OSD statistics updates
+  info_ru: >
+    Интервал, который монитор ожидает при изменении статистики по отдельным
+    OSD перед обновлением агрегированной статистики в etcd
+- name: osd_out_time
+  type: sec
+  default: 600
+  info: >
+    Time after which a failed OSD is removed from the data distribution.
+    I.e. time which the monitor waits before attempting to restore data
+    redundancy using other OSDs.
+  info_ru: >
+    Время, через которое отключенный OSD исключается из распределения данных.
+    То есть, время, которое монитор ожидает перед попыткой переместить данные
+    на другие OSD и таким образом восстановить избыточность хранения.
+- name: placement_levels
+  type: json
+  default: '{"host":100,"osd":101}'
+  info: >
+    Levels for the placement tree. You can define arbitrary tree levels by
+    defining them in this parameter. The configuration parameter value should
+    contain a JSON object with level names as keys and integer priorities as
+    values.  Smaller priority means higher level in tree. For example,
+    "datacenter" should have smaller priority than "osd". "host" and "osd"
+    levels are always predefined and can't be removed. If one of them is not
+    present in the configuration, then it is defined with the default priority
+    (100 for "host", 101 for "osd").
+  info_ru: >
+    Определения уровней для дерева размещения OSD. Вы можете определять
+    произвольные уровни, помещая их в данный параметр конфигурации. Значение
+    параметра должно содержать JSON-объект, ключи которого будут являться
+    названиями уровней, а значения - целочисленными приоритетами. Меньшие
+    приоритеты соответствуют верхним уровням дерева. Например, уровень
+    "датацентр" должен иметь меньший приоритет, чем "OSD". Уровни с названиями
+    "host" и "osd" являются предопределёнными и не могут быть удалены. Если
+    один из них отсутствует в конфигурации, он доопределяется с приоритетом по
+    умолчанию (100 для уровня "host", 101 для "osd").

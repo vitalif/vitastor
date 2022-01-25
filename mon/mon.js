@@ -83,13 +83,13 @@ const etcd_tree = {
             osd_idle_timeout: 5, // seconds. min: 1
             osd_ping_timeout: 5, // seconds. min: 1
             up_wait_retry_interval: 500, // ms. min: 50
-            // osd
-            etcd_report_interval: 5, // seconds
             max_etcd_attempts: 5,
             etcd_quick_timeout: 1000, // ms
             etcd_slow_timeout: 5000, // ms
-            etcd_keepalive_timeout: 30, // seconds, default is min(30, etcd_report_interval*2)
+            etcd_keepalive_timeout: 30, // seconds, default is max(30, etcd_report_interval*2)
             etcd_ws_keepalive_interval: 30, // seconds
+            // osd
+            etcd_report_interval: 5, // seconds
             run_primary: true,
             osd_network: null, // "192.168.7.0/24" or an array of masks
             bind_address: "0.0.0.0",
@@ -130,6 +130,11 @@ const etcd_tree = {
             inmemory_journal,
             journal_sector_buffer_count,
             journal_no_same_sector_overwrites,
+            throttle_small_writes: false,
+            throttle_target_iops: 100,
+            throttle_target_mbs: 100,
+            throttle_target_parallelism: 1,
+            throttle_threshold_us: 50,
         }, */
         global: {},
         /* node_placement: {

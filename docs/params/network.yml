@@ -1,0 +1,212 @@
+- name: tcp_header_buffer_size
+  type: int
+  default: 65536
+  info: >
+    Size of the buffer used to read data using an additional copy. Vitastor
+    packet headers are 128 bytes, payload is always at least 4 KB, so it is
+    usually beneficial to try to read multiple packets at once even though
+    it requires to copy the data an additional time. The rest of each packet
+    is received without an additional copy. You can try to play with this
+    parameter and see how it affects random iops and linear bandwidth if you
+    want.
+  info_ru: >
+    Размер буфера для чтения данных с дополнительным копированием. Пакеты
+    Vitastor содержат 128-байтные заголовки, за которыми следуют данные размером
+    от 4 КБ и для мелких операций ввода-вывода обычно выгодно за 1 вызов читать
+    сразу несколько пакетов, даже не смотря на то, что это требует лишний раз
+    скопировать данные. Часть каждого пакета за пределами значения данного
+    параметра читается без дополнительного копирования. Вы можете попробовать
+    поменять этот параметр и посмотреть, как он влияет на производительность
+    случайного и линейного доступа.
+- name: use_sync_send_recv
+  type: bool
+  default: false
+  info: >
+    If true, synchronous send/recv syscalls are used instead of io_uring for
+    socket communication. Useless for OSDs because they require io_uring anyway,
+    but may be required for clients with old kernel versions.
+  info_ru: >
+    Если установлено в истину, то вместо io_uring для передачи данных по сети
+    будут использоваться обычные синхронные системные вызовы send/recv. Для OSD
+    это бессмысленно, так как OSD в любом случае нуждается в io_uring, но, в
+    принципе, это может применяться для клиентов со старыми версиями ядра.
+- name: use_rdma
+  type: bool
+  default: true
+  info: >
+    Try to use RDMA for communication if it's available.
+    Disable if you don't want Vitastor to use RDMA.
+  info_ru: >
+    Пытаться использовать RDMA для связи при наличии доступных устройств.
+    Отключите, если вы не хотите, чтобы Vitastor использовал RDMA.
+- name: rdma_device
+  type: string
+  info: >
+    RDMA device name to use for Vitastor OSD communications (for example,
+    "rocep5s0f0"). Run `ibv_devinfo -v` as root to list available RDMA devices.
+  info_ru: >
+    Название RDMA-устройства для связи с Vitastor OSD (например, "rocep5s0f0").
+    Запустите `ibv_devinfo -v` под суперпользователем, чтобы посмотреть список
+    доступных RDMA-устройств и их параметры.
+- name: rdma_port_num
+  type: int
+  default: 1
+  info: >
+    RDMA device port number to use. Only for devices that have more than 1 port.
+    See `phys_port_cnt` in `ibv_devinfo -v` output to determine how many ports
+    your device has.
+  info_ru: >
+    Номер порта RDMA-устройства, который следует использовать. Имеет смысл
+    только для устройств, у которых более 1 порта. Чтобы узнать, сколько портов
+    у вашего адаптера, посмотрите `phys_port_cnt` в выводе команды
+    `ibv_devinfo -v`.
+- name: rdma_gid_index
+  type: int
+  default: 0
+  info: >
+    Global address identifier index of the RDMA device to use. Different GID
+    indexes may correspond to different protocols like RoCEv1, RoCEv2 and iWARP.
+    Search for "GID" in `ibv_devinfo -v` output to determine which GID index
+    you need.
+
+    **IMPORTANT:** If you want to use RoCEv2 (as recommended) then the correct
+    rdma_gid_index is usually 1 (IPv6) or 3 (IPv4).
+  info_ru: >
+    Номер глобального идентификатора адреса RDMA-устройства, который следует
+    использовать. Разным gid_index могут соответствовать разные протоколы связи:
+    RoCEv1, RoCEv2, iWARP. Чтобы понять, какой нужен вам - смотрите строчки со
+    словом "GID" в выводе команды `ibv_devinfo -v`.
+
+    **ВАЖНО:** Если вы хотите использовать RoCEv2 (как мы и рекомендуем), то
+    правильный rdma_gid_index, как правило, 1 (IPv6) или 3 (IPv4).
+- name: rdma_mtu
+  type: int
+  default: 4096
+  info: >
+    RDMA Path MTU to use. Must be 1024, 2048 or 4096. There is usually no
+    sense to change it from the default 4096.
+  info_ru: >
+    Максимальная единица передачи (Path MTU) для RDMA. Должно быть равно 1024,
+    2048 или 4096. Обычно нет смысла менять значение по умолчанию, равное 4096.
+- name: rdma_max_sge
+  type: int
+  default: 128
+  info: >
+    Maximum number of scatter/gather entries to use for RDMA. OSDs negotiate
+    the actual value when establishing connection anyway, so it's usually not
+    required to change this parameter.
+  info_ru: >
+    Максимальное число записей разделения/сборки (scatter/gather) для RDMA.
+    OSD в любом случае согласовывают реальное значение при установке соединения,
+    так что менять этот параметр обычно не нужно.
+- name: rdma_max_msg
+  type: int
+  default: 1048576
+  info: Maximum size of a single RDMA send or receive operation in bytes.
+  info_ru: Максимальный размер одной RDMA-операции отправки или приёма.
+- name: rdma_max_recv
+  type: int
+  default: 8
+  info: >
+    Maximum number of parallel RDMA receive operations. Note that this number
+    of receive buffers `rdma_max_msg` in size are allocated for each client,
+    so this setting actually affects memory usage. This is because RDMA receive
+    operations are (sadly) still not zero-copy in Vitastor. It may be fixed in
+    later versions.
+  info_ru: >
+    Максимальное число параллельных RDMA-операций получения данных. Следует
+    иметь в виду, что данное число буферов размером `rdma_max_msg` выделяется
+    для каждого подключённого клиентского соединения, так что данная настройка
+    влияет на потребление памяти. Это так потому, что RDMA-приём данных в
+    Vitastor, увы, всё равно не является zero-copy, т.е. всё равно 1 раз
+    копирует данные в памяти. Данная особенность, возможно, будет исправлена в
+    более новых версиях Vitastor.
+- name: peer_connect_interval
+  type: sec
+  min: 1
+  default: 5
+  info: Interval before attempting to reconnect to an unavailable OSD.
+  info_ru: Время ожидания перед повторной попыткой соединиться с недоступным OSD.
+- name: peer_connect_timeout
+  type: sec
+  min: 1
+  default: 5
+  info: Timeout for OSD connection attempts.
+  info_ru: Максимальное время ожидания попытки соединения с OSD.
+- name: osd_idle_timeout
+  type: sec
+  min: 1
+  default: 5
+  info: >
+    OSD connection inactivity time after which clients and other OSDs send
+    keepalive requests to check state of the connection.
+  info_ru: >
+    Время неактивности соединения с OSD, после которого клиенты или другие OSD
+    посылают запрос проверки состояния соединения.
+- name: osd_ping_timeout
+  type: sec
+  min: 1
+  default: 5
+  info: >
+    Maximum time to wait for OSD keepalive responses. If an OSD doesn't respond
+    within this time, the connection to it is dropped and a reconnection attempt
+    is scheduled.
+  info_ru: >
+    Максимальное время ожидания ответа на запрос проверки состояния соединения.
+    Если OSD не отвечает за это время, соединение отключается и производится
+    повторная попытка соединения.
+- name: up_wait_retry_interval
+  type: ms
+  min: 50
+  default: 500
+  info: >
+    OSDs respond to clients with a special error code when they receive I/O
+    requests for a PG that's not synchronized and started. This parameter sets
+    the time for the clients to wait before re-attempting such I/O requests.
+  info_ru: >
+    Когда OSD получают от клиентов запросы ввода-вывода, относящиеся к не
+    поднятым на данный момент на них PG, либо к PG в процессе синхронизации,
+    они отвечают клиентам специальным кодом ошибки, означающим, что клиент
+    должен некоторое время подождать перед повторением запроса. Именно это время
+    ожидания задаёт данный параметр.
+- name: max_etcd_attempts
+  type: int
+  default: 5
+  info: >
+    Maximum number of attempts for etcd requests which can't be retried
+    indefinitely.
+  info_ru: >
+    Максимальное число попыток выполнения запросов к etcd для тех запросов,
+    которые нельзя повторять бесконечно.
+- name: etcd_quick_timeout
+  type: ms
+  default: 1000
+  info: >
+    Timeout for etcd requests which should complete quickly, like lease refresh.
+  info_ru: >
+    Максимальное время выполнения запросов к etcd, которые должны завершаться
+    быстро, таких, как обновление резервации (lease).
+- name: etcd_slow_timeout
+  type: ms
+  default: 5000
+  info: Timeout for etcd requests which are allowed to wait for some time.
+  info_ru: >
+    Максимальное время выполнения запросов к etcd, для которых не обязательно
+    гарантировать быстрое выполнение.
+- name: etcd_keepalive_timeout
+  type: sec
+  default: `max(30, etcd_report_interval*2)`
+  info: >
+    Timeout for etcd connection HTTP Keep-Alive. Should be higher than
+    etcd_report_interval to guarantee that keepalive actually works.
+  info_ru: >
+    Таймаут для HTTP Keep-Alive в соединениях к etcd. Должен быть больше, чем
+    etcd_report_interval, чтобы keepalive гарантированно работал.
+- name: etcd_ws_keepalive_timeout
+  type: sec
+  default: 30
+  info: >
+    etcd websocket ping interval required to keep the connection alive and
+    detect disconnections quickly.
+  info_ru: >
+    Интервал проверки живости вебсокет-подключений к etcd.

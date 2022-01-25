@@ -1,0 +1,165 @@
+- name: data_device
+  type: string
+  info: >
+    Path to the block device to use for data. It's highly recommendded to use
+    stable paths for all device names: `/dev/disk/by-partuuid/xxx...` instead
+    of just `/dev/sda` or `/dev/nvme0n1` to not mess up after server restart.
+    For testing purposes, files can also be used instead of block devices, but
+    that's not for a production environment, of course.
+  info_ru: >
+    Путь к диску (блочному устройству) для хранения данных. Крайне рекомендуется
+    использовать стабильные пути: `/dev/disk/by-partuuid/xxx...` вместо простых
+    `/dev/sda` или `/dev/nvme0n1`, чтобы пути не могли спутаться после
+    перезагрузки сервера. В целях тестирования вместо устройств также разрешено
+    использовать и простые файлы, но делать так в боевой среде не следует.
+- name: meta_device
+  type: string
+  info: >
+    Path to the block device to use for the metadata. Metadata must be on a fast
+    SSD or performance will suffer. If this option is skipped, `data_device` is
+    used for the metadata.
+  info_ru: >
+    Путь к диску метаданных. Метаданные должны располагаться на быстром
+    SSD-диске, иначе производительность пострадает. Если эта опция не указана,
+    для метаданных используется `data_device`.
+- name: journal_device
+  type: string
+  info: >
+    Path to the block device to use for the journal. Journal must be on a fast
+    SSD or performance will suffer. If this option is skipped, `meta_device` is
+    used for the journal, and if it's also empty, journal is put on
+    `data_device`. It's almost always fine to put metadata and journal on the
+    same device, in this case you only need to set `meta_device`.
+  info_ru: >
+    Путь к диску журнала. Журнал должен располагаться на быстром SSD-диске,
+    иначе производительность пострадает. Если эта опция не указана,
+    для журнала используется `meta_device`, если же пуста и она, журнал
+    располагается на `data_device`. Нормально располагать журнал и метаданные
+    на одном устройстве, в этом случае достаточно указать только `meta_device`.
+- name: journal_offset
+  type: int
+  default: 0
+  info: Offset on the device in bytes where the journal is stored.
+  info_ru: Смещение на устройстве в байтах, по которому располагается журнал.
+- name: journal_size
+  type: int
+  info: >
+    Journal size in bytes. Doesn't have to be large, 16-32 MB is usually fine.
+    By default, the whole journal device will be used for the journal. You must
+    set it to some value manually (or use make-osd.sh) if you colocate the
+    journal with data or metadata.
+  info_ru: >
+    Размер журнала в байтах. Большим быть не обязан, 16-32 МБ обычно достаточно.
+    По умолчанию для журнала используется всё устройство журнала. Если же вы
+    размещаете журнал на устройстве данных или метаданных, то вы должны
+    установить эту опцию в какое-то значение сами (или использовать скрипт
+    make-osd.sh).
+- name: meta_offset
+  type: int
+  default: 0
+  info: >
+    Offset on the device in bytes where the metadata area is stored.
+    Again, set it to something if you colocate metadata with journal or data.
+  info_ru: >
+    Смещение на устройстве в байтах, по которому располагаются метаданные.
+    Эту опцию нужно задать, если метаданные у вас хранятся на том же
+    устройстве, что данные или журнал.
+- name: data_offset
+  type: int
+  default: 0
+  info: >
+    Offset on the device in bytes where the data area is stored.
+    Again, set it to something if you colocate data with journal or metadata.
+  info_ru: >
+    Смещение на устройстве в байтах, по которому располагаются данные.
+    Эту опцию нужно задать, если данные у вас хранятся на том же
+    устройстве, что метаданные или журнал.
+- name: data_size
+  type: int
+  info: >
+    Data area size in bytes. By default, the whole data device up to the end
+    will be used for the data area, but you can restrict it if you want to use
+    a smaller part. Note that there is no option to set metadata area size -
+    it's derived from the data area size.
+  info_ru: >
+    Размер области данных в байтах. По умолчанию под данные будет использована
+    вся доступная область устройства данных до конца устройства, но вы можете
+    использовать эту опцию, чтобы ограничить её меньшим размером. Заметьте, что
+    опции размера области метаданных нет - она вычисляется из размера области
+    данных автоматически.
+- name: meta_block_size
+  type: int
+  default: 4096
+  info: >
+    Physical block size of the metadata device. 4096 for most current
+    HDDs and SSDs.
+  info_ru: >
+    Размер физического блока устройства метаданных. 4096 для большинства
+    современных SSD и HDD.
+- name: journal_block_size
+  type: int
+  default: 4096
+  info: >
+    Physical block size of the journal device. Must be a multiple of
+    `disk_alignment`. 4096 for most current HDDs and SSDs.
+  info_ru: >
+    Размер физического блока устройства журнала. Должен быть кратен
+    `disk_alignment`. 4096 для большинства современных SSD и HDD.
+- name: disable_data_fsync
+  type: bool
+  default: false
+  info: >
+    Do not issue fsyncs to the data device, i.e. do not flush its cache.
+    Safe ONLY if your data device has write-through cache. If you disable
+    the cache yourself using `hdparm` or `scsi_disk/cache_type` then make sure
+    that the cache disable command is run every time before starting Vitastor
+    OSD, for example, in the systemd unit. See also `immediate_commit` option
+    for the instructions to disable cache and how to benefit from it.
+  info_ru: >
+    Не отправлять fsync-и устройству данных, т.е. не сбрасывать его кэш.
+    Безопасно, ТОЛЬКО если ваше устройство данных имеет кэш со сквозной
+    записью (write-through). Если вы отключаете кэш через `hdparm` или
+    `scsi_disk/cache_type`, то удостоверьтесь, что команда отключения кэша
+    выполняется перед каждым запуском Vitastor OSD, например, в systemd unit-е.
+    Смотрите также опцию `immediate_commit` для инструкций по отключению кэша
+    и о том, как из этого извлечь выгоду.
+- name: disable_meta_fsync
+  type: bool
+  default: false
+  info: >
+    Same as disable_data_fsync, but for the metadata device. If the metadata
+    device is not set or if the data device is used for the metadata the option
+    is ignored and disable_data_fsync value is used instead of it.
+  info: >
+    То же, что disable_data_fsync, но для устройства метаданных. Если устройство
+    метаданных не задано или если оно равно устройству данных, значение опции
+    игнорируется и вместо него используется значение опции disable_data_fsync.
+- name: disable_journal_fsync
+  type: bool
+  default: false
+  info: >
+    Same as disable_data_fsync, but for the journal device. If the journal
+    device is not set or if the metadata device is used for the journal the
+    option is ignored and disable_meta_fsync value is used instead of it. If
+    the same device is used for data, metadata and journal the option is also
+    ignored and disable_data_fsync value is used instead of it.
+  info: >
+    То же, что disable_data_fsync, но для устройства журнала. Если устройство
+    журнала не задано или если оно равно устройству метаданных, значение опции
+    игнорируется и вместо него используется значение опции disable_meta_fsync.
+    Если одно и то же устройство используется и под данные, и под журнал, и под
+    метаданные - значение опции также игнорируется и вместо него используется
+    значение опции disable_data_fsync.
+- name: disable_device_lock
+  type: bool
+  default: false
+  info: >
+    Do not lock data, metadata and journal block devices exclusively with
+    flock(). Though it's not recommended, but you can use it you want to run
+    multiple OSD with a single device and different offsets, without using
+    partitions.
+  info_ru: >
+    Не блокировать устройства данных, метаданных и журнала от открытия их
+    другими OSD с помощью flock(). Так делать не рекомендуется, но теоретически
+    вы можете это использовать, чтобы запускать несколько OSD на одном
+    устройстве с разными смещениями и без использования разделов.

@@ -1,0 +1,35 @@
+- name: config_path
+  type: string
+  default: "/etc/vitastor/vitastor.conf"
+  info: >
+    Path to the JSON configuration file. Configuration file is optional,
+    a non-existing configuration file does not prevent Vitastor from
+    running if required parameters are specified.
+  info_ru: >
+    Путь к файлу конфигурации в формате JSON. Файл конфигурации необязателен,
+    без него Vitastor тоже будет работать, если переданы необходимые параметры.
+- name: etcd_address
+  type: string or array of strings
+  type_ru: строка или массив строк
+  info: >
+    etcd connection endpoint(s). Multiple endpoints may be delimited by "," or
+    specified in a JSON array `["10.0.115.10:2379/v3","10.0.115.11:2379/v3"]`.
+    Note that https is not supported for etcd connections yet.
+  info_ru: >
+    Адрес(а) подключения к etcd. Несколько адресов могут разделяться запятой
+    или указываться в виде JSON-массива `["10.0.115.10:2379/v3","10.0.115.11:2379/v3"]`.
+- name: etcd_prefix
+  type: string
+  default: "/vitastor"
+  info: >
+    Prefix for all keys in etcd Vitastor uses. You can change prefix and, for
+    example, use a single etcd cluster for multiple Vitastor clusters.
+  info_ru: >
+    Префикс для ключей etcd, которые использует Vitastor. Вы можете задать другой
+    префикс, например, чтобы запустить несколько кластеров Vitastor с одним
+    кластером etcd.
+- name: log_level
+  type: int
+  default: 0
+  info: Log level. Raise if you want more verbose output.
+  info_ru: Уровень логгирования. Повысьте, если хотите более подробный вывод.

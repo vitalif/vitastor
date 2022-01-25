@@ -1,0 +1,206 @@
+- name: block_size
+  type: int
+  default: 131072
+  info: >
+    Size of objects (data blocks) into which all physical and virtual drives are
+    subdivided in Vitastor. One of current main settings in Vitastor, affects
+    memory usage, write amplification and I/O load distribution effectiveness.
+
+    Block size is fixed for the whole Vitastor cluster i.e. two different block
+    sizes can't be used in a single Vitastor cluster. Also you must not change
+    block size after initializing an OSD because even if you succeed you'll
+    destroy your data.
+
+    Recommended default block size is 128 KB for SSD and 4 MB for HDD. In fact,
+    it's possible to use 4 MB for SSD too - it will lower memory usage, but
+    may increase average WA and reduce linear performance. SSD and HDD OSDs
+    with different block size can currently coexist in one etcd instance only
+    within separate Vitastor clusters with different etcd_prefix'es.
+
+    You must always specify block_size in etcd in /vitastor/config/global if
+    you change it so all clients can know about it.
+
+    OSD memory usage is roughly (SIZE / BLOCK * 68 bytes) which is roughly
+    544 MB per 1 TB of used disk space with default 128 KB block size.
+  info_ru: >
+    Размер объектов (блоков данных), на которые делятся физические и виртуальные
+    диски в Vitastor. Одна из ключевых на данный момент настроек, влияет на
+    потребление памяти, объём избыточной записи (write amplification) и
+    эффективность распределения нагрузки по OSD.
+
+    Размер блока фиксируется на уровне всего кластера Vitastor, т.е. разные
+    размеры блока не могут сосуществовать в одном кластере. Также размер блока
+    нельзя менять после инициализации OSD - даже если у вас получится, вы
+    уничтожите сохранённые на OSD данные.
+
+    Рекомендуемые по умолчанию размеры блока - 128 килобайт для SSD и 4
+    мегабайта для HDD. В принципе, для SSD можно тоже использовать 4 мегабайта,
+    это понизит использование памяти, но ухудшит распределение нагрузки и в
+    среднем увеличит WA. SSD и HDD с разными размерами блока на данный момент
+    могут сосуществовать в рамках одного etcd только в виде двух независимых
+    кластеров Vitastor с разными etcd_prefix.
+
+    Если вы меняете размер блока, обязательно прописывайте его в etcd в
+    /vitastor/config/global, дабы все клиенты его знали.
+
+    Потребление памяти OSD составляет примерно (РАЗМЕР / БЛОК * 68 байт),
+    т.е. примерно 544 МБ памяти на 1 ТБ занятого места на диске при
+    стандартном 128 КБ блоке.
+- name: disk_alignment
+  type: int
+  default: 4096
+  info: >
+    Required physical disk write alignment. Most current SSD and HDD drives
+    use 4 KB physical sectors even if they report 512 byte logical sector
+    size, so 4 KB is a good default setting.
+
+    Note, however, that physical sector size also affects WA, because with block
+    devices it's impossible to write anything smaller than a block. So, when
+    Vitastor has to write a single metadata entry that's only about 32 bytes in
+    size, it actually has to write the whole 4 KB sector.
+
+    Because of this it can actually be beneficial to use SSDs which work well
+    with 512 byte sectors and use 512 byte disk_alignment, journal_block_size
+    and meta_block_size. But the only SSD that may fit into this category is
+    Intel Optane (probably, not tested yet).
+  info_ru: >
+    Требуемое выравнивание записи на физические диски. Почти все современные
+    SSD и HDD диски используют 4 КБ физические секторы, даже если показывают
+    логический размер сектора 512 байт, поэтому 4 КБ - хорошее значение по
+    умолчанию.
+
+    Однако стоит понимать, что физический размер сектора тоже влияет на
+    избыточную запись (WA), потому что ничего меньше блока (сектора) на блочное
+    устройство записать невозможно. Таким образом, когда Vitastor-у нужно
+    записать на диск всего лишь одну 32-байтную запись метаданных, фактически
+    приходится перезаписывать 4 КБ сектор целиком.
+
+    Поэтому, на самом деле, может быть выгодно найти SSD, хорошо работающие с
+    меньшими, 512-байтными, блоками и использовать 512-байтные disk_alignment,
+    journal_block_size и meta_block_size. Однако единственные SSD, которые
+    теоретически могут попасть в эту категорию - это Intel Optane (но и это
+    пока не проверялось автором).
+- name: bitmap_granularity
+  type: int
+  default: 4096
+  info: >
+    Required virtual disk write alignment ("sector size"). Must be a multiple
+    of disk_alignment. It's called bitmap granularity because Vitastor tracks
+    an allocation bitmap for each object containing 2 bits per each
+    (bitmap_granularity) bytes.
+  info_ru: >
+    Требуемое выравнивание записи на виртуальные диски (размер их "сектора").
+    Должен быть кратен disk_alignment. Называется гранулярностью битовой карты
+    потому, что Vitastor хранит битовую карту для каждого объекта, содержащую
+    по 2 бита на каждые (bitmap_granularity) байт.
+- name: immediate_commit
+  type: string
+  default: false
+  info: >
+    Another parameter which is really important for performance.
+
+    Desktop SSDs are very fast (100000+ iops) for simple random writes
+    without cache flush. However, they are really slow (only around 1000 iops)
+    if you try to fsync() each write, that is, when you want to guarantee that
+    each change gets immediately persisted to the physical media.
+
+    Server-grade SSDs with "Advanced/Enhanced Power Loss Protection" or with
+    "Supercapacitor-based Power Loss Protection", on the other hand, are equally
+    fast with and without fsync because their cache is protected from sudden
+    power loss by a built-in supercapacitor-based "UPS".
+
+    Some software-defined storage systems always fsync each write and thus are
+    really slow when used with desktop SSDs. Vitastor, however, can also
+    efficiently utilize desktop SSDs by postponing fsync until the client calls
+    it explicitly.
+
+    This is what this parameter regulates. When it's set to "all" the whole
+    Vitastor cluster commits each change to disks immediately and clients just
+    ignore fsyncs because they know for sure that they're unneeded. This reduces
+    the amount of network roundtrips performed by clients and improves
+    performance. So it's always better to use server grade SSDs with
+    supercapacitors even with Vitastor, especially given that they cost only
+    a bit more than desktop models.
+
+    There is also a common SATA SSD (and HDD too!) firmware bug (or feature)
+    that makes server SSDs which have supercapacitors slow with fsync. To check
+    if your SSDs are affected, compare benchmark results from `fio -name=test
+    -ioengine=libaio -direct=1 -bs=4k -rw=randwrite -iodepth=1` with and without
+    `-fsync=1`. Results should be the same. If fsync=1 result is worse you can
+    try to work around this bug by "disabling" drive write-back cache by running
+    `hdparm -W 0 /dev/sdXX` or `echo write through > /sys/block/sdXX/device/scsi_disk/*/cache_type`
+    (IMPORTANT: don't mistake it with `/sys/block/sdXX/queue/write_cache` - it's
+    unsafe to change by hand). The same may apply to newer HDDs with internal
+    SSD cache or "media-cache" - for example, a lot of Seagate EXOS drives have
+    it (they have internal SSD cache even though it's not stated in datasheets).
+
+    TLDR: For optimal performance, set immediate_commit to "all" if you only use
+    SSDs with supercapacitor-based power loss protection (nonvolatile
+    write-through cache) for both data and journals in the whole Vitastor
+    cluster. Set it to "small" if you only use such SSDs for journals. Leave
+    empty if your drives have write-back cache.
+  info_ru: >
+    Ещё один важный для производительности параметр.
+
+    Модели SSD для настольных компьютеров очень быстрые (100000+ операций в
+    секунду) при простой случайной записи без сбросов кэша. Однако они очень
+    медленные (всего порядка 1000 iops), если вы пытаетесь сбрасывать кэш после
+    каждой записи, то есть, если вы пытаетесь гарантировать, что каждое
+    изменение физически записывается в энергонезависимую память.
+
+    С другой стороны, серверные SSD с конденсаторами - функцией, называемой
+    "Advanced/Enhanced Power Loss Protection" или просто "Supercapacitor-based
+    Power Loss Protection" - одинаково быстрые и со сбросом кэша, и без
+    него, потому что их кэш защищён от потери питания встроенным "источником
+    бесперебойного питания" на основе суперконденсаторов и на самом деле они
+    его никогда не сбрасывают.
+
+    Некоторые программные СХД всегда сбрасывают кэши дисков при каждой записи
+    и поэтому работают очень медленно с настольными SSD. Vitastor, однако, может
+    откладывать fsync до явного его вызова со стороны клиента и таким образом
+    эффективно утилизировать настольные SSD.
+
+    Данный параметр влияет как раз на это. Когда он установлен в значение "all",
+    весь кластер Vitastor мгновенно фиксирует каждое изменение на физические
+    носители и клиенты могут просто игнорировать запросы fsync, т.к. они точно
+    знают, что fsync-и не нужны. Это уменьшает число необходимых обращений к OSD
+    по сети и улучшает производительность. Поэтому даже с Vitastor лучше всегда
+    использовать только серверные модели SSD с суперконденсаторами, особенно
+    учитывая то, что стоят они ненамного дороже настольных.
+
+    Также в прошивках SATA SSD (и даже HDD!) очень часто встречается либо баг,
+    либо просто особенность логики, из-за которой серверные SSD, имеющие
+    конденсаторы и защиту от потери питания, всё равно медленно работают с
+    fsync. Чтобы понять, подвержены ли этой проблеме ваши SSD, сравните
+    результаты тестов `fio -name=test -ioengine=libaio -direct=1 -bs=4k
+    -rw=randwrite -iodepth=1` без и с опцией `-fsync=1`. Результаты должны
+    быть одинаковые. Если результат с `fsync=1` хуже, вы можете попробовать
+    обойти проблему, "отключив" кэш записи диска командой `hdparm -W 0 /dev/sdXX`
+    либо `echo write through > /sys/block/sdXX/device/scsi_disk/*/cache_type`
+    (ВАЖНО: не перепутайте с `/sys/block/sdXX/queue/write_cache` - этот параметр
+    менять руками небезопасно). Такая же проблема может встречаться и в новых
+    HDD-дисках с внутренним SSD или "медиа" кэшем - например, она встречается во
+    многих дисках Seagate EXOS (у них есть внутренний SSD-кэш, хотя это и не
+    указано в спецификациях).
+
+    Итого, вкратце: для оптимальной производительности установите
+    immediate_commit в значение "all", если вы используете в кластере только SSD
+    с суперконденсаторами и для данных, и для журналов. Если вы используете
+    такие SSD для всех журналов, но не для данных - можете установить параметр
+    в "small". Если и какие-то из дисков журналов имеют волатильный кэш записи -
+    оставьте параметр пустым.
+- name: client_dirty_limit
+  type: int
+  default: 33554432
+  info: >
+    Without immediate_commit=all this parameter sets the limit of "dirty"
+    (not committed by fsync) data allowed by the client before forcing an
+    additional fsync and committing the data. Also note that the client always
+    holds a copy of uncommitted data in memory so this setting also affects
+    RAM usage of clients.
+  info_ru: >
+    При работе без immediate_commit=all - это лимит объёма "грязных" (не
+    зафиксированных fsync-ом) данных, при достижении которого клиент будет
+    принудительно вызывать fsync и фиксировать данные. Также стоит иметь в виду,
+    что в этом случае до момента fsync клиент хранит копию незафиксированных
+    данных в памяти, то есть, настройка влияет на потребление памяти клиентами.
