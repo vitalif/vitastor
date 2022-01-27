@@ -111,6 +111,10 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
         {
             delete cl->read_op;
         }
+        else
+        {
+            cancel_op(cl->read_op);
+        }
         cl->read_op = NULL;
     }
     if (cl->osd_num)
