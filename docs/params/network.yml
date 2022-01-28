@@ -195,7 +195,7 @@
     гарантировать быстрое выполнение.
 - name: etcd_keepalive_timeout
   type: sec
-  default: `max(30, etcd_report_interval*2)`
+  default: max(30, etcd_report_interval*2)
   info: >
     Timeout for etcd connection HTTP Keep-Alive. Should be higher than
     etcd_report_interval to guarantee that keepalive actually works.
