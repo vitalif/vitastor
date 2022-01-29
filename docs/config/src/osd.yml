@@ -248,6 +248,8 @@
     row and slow down significantly (from 25000+ iops to ~3000 iops). When
     this option is set, Vitastor will always move to the next sector of the
     journal after writing it instead of possibly overwriting it the second time.
+
+    Most (99%) other SSDs don't need this option.
   info_ru: |
     Включайте данную опцию для SSD вроде Intel D3-S4510 и D3-S4610, которые
     ОЧЕНЬ не любят, когда ПО перезаписывает один и тот же сектор несколько раз
@@ -256,6 +258,8 @@
     данная опция установлена, Vitastor всегда переходит к следующему сектору
     журнала после записи вместо потенциально повторной перезаписи того же
     самого сектора.
+
+    Почти все другие SSD (99% моделей) не требуют данной опции.
 - name: throttle_small_writes
   type: bool
   default: false

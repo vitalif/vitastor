@@ -155,7 +155,7 @@ static void help()
         "  --iodepth N         Send N operations in parallel to each OSD when possible (default 32)\n"
         "  --parallel_osds M   Work with M osds in parallel when possible (default 4)\n"
         "  --progress 1|0      Report progress (default 1)\n"
-        "  --cas 1|0           Use online CAS writes when possible (default auto)\n"
+        "  --cas 1|0           Use CAS writes for flatten, merge, rm (default is decide automatically)\n"
         "  --no-color          Disable colored output\n"
         "  --json              JSON output\n"
         ,

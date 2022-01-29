@@ -44,16 +44,17 @@
 - name: journal_size
   type: int
   info: |
-    Journal size in bytes. Doesn't have to be large, 16-32 MB is usually fine.
-    By default, the whole journal device will be used for the journal. You must
-    set it to some value manually (or use make-osd.sh) if you colocate the
-    journal with data or metadata.
+    Journal size in bytes. By default, all available space between journal_offset
+    and data_offset, meta_offset or the end of the journal device is used.
+    Large journals aren't needed in SSD-only setups, 32 MB is always enough.
+    In SSD+HDD setups it is beneficial to use larger journals (for example, 1 GB)
+    and enable [throttle_small_writes](osd.en.md#throttle_small_writes).
   info_ru: |
-    Размер журнала в байтах. Большим быть не обязан, 16-32 МБ обычно достаточно.
-    По умолчанию для журнала используется всё устройство журнала. Если же вы
-    размещаете журнал на устройстве данных или метаданных, то вы должны
-    установить эту опцию в какое-то значение сами (или использовать скрипт
-    make-osd.sh).
+    Размер журнала в байтах. По умолчанию для журнала используется всё доступное
+    место между journal_offset и data_offset, meta_offset или концом диска.
+    В SSD-кластерах большие журналы не нужны, достаточно 32 МБ. В гибридных
+    (SSD+HDD) кластерах осмысленно использовать больший размер журнал (например, 1 ГБ)
+    и включить [throttle_small_writes](osd.ru.md#throttle_small_writes).
 - name: meta_offset
   type: int
   default: 0

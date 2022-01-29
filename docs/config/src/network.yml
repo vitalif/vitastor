@@ -35,15 +35,15 @@
   default: true
   info: |
     Try to use RDMA for communication if it's available. Disable if you don't
-    want Vitastor to use RDMA. RDMA increases the performance, but TCP-only
-    clients can still talk to an RDMA-enabled cluster, so you don't need to
-    make sure that all clients support RDMA when enabling it.
+    want Vitastor to use RDMA. TCP-only clients can also talk to an RDMA-enabled
+    cluster, so disabling RDMA may be needed if clients have RDMA devices,
+    but they are not connected to the cluster.
   info_ru: |
     Пытаться использовать RDMA для связи при наличии доступных устройств.
     Отключите, если вы не хотите, чтобы Vitastor использовал RDMA.
-    RDMA улучшает производительность, но 
-    Клиенты и клиентов and TCP-only clients in the cluster at the
-    same time - TCP-only clients are still able to use an RDMA-enabled cluster.
+    TCP-клиенты также могут работать с RDMA-кластером, так что отключать
+    RDMA может быть нужно только если у клиентов есть RDMA-устройства,
+    но они не имеют соединения с кластером Vitastor.
 - name: rdma_device
   type: string
   info: |
