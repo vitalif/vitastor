@@ -49,11 +49,11 @@ breaking changes in the future. However, the following is implemented:
 
 ## Roadmap
 
-- Snapshot deletion (layer merge) support
 - Better OSD creation and auto-start tools
 - Other administrative tools
-- Plugins for OpenNebula, Proxmox and other cloud systems
+- Plugins for OpenNebula and other cloud systems
 - iSCSI proxy
+- Simplified NFS proxy
 - Faster failover
 - Scrubbing without checksums (verification of replicas)
 - Checksums
