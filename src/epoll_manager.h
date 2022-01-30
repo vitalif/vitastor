@@ -11,6 +11,8 @@
 class epoll_manager_t
 {
     int epoll_fd;
+    bool pending;
+    ring_consumer_t consumer;
     ring_loop_t *ringloop;
     std::map<int, std::function<void(int, int)>> epoll_handlers;
 public:
