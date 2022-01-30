@@ -192,11 +192,16 @@ static int sec_init(struct thread_data *td)
     setsockopt(bsd->connect_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
     if (o->zerocopy_send)
     {
+#ifndef SO_ZEROCOPY
+        perror("zerocopy send not supported on your system (socket.h misses SO_ZEROCOPY)");
+        return 1;
+#else
         if (setsockopt(bsd->connect_fd, SOL_SOCKET, SO_ZEROCOPY, &one, sizeof(one)) < 0)
         {
             perror("setsockopt zerocopy");
             return 1;
         }
+#endif
     }
 
     // FIXME: read config (block size) from OSD
@@ -306,7 +311,13 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
         iov[iovcnt++] = { .iov_base = io->xfer_buf, .iov_len = io->xfer_buflen };
         wtotal += io->xfer_buflen;
     }
-    if (sendv_blocking(bsd->connect_fd, iov, iovcnt, opt->zerocopy_send ? MSG_ZEROCOPY : 0) != wtotal)
+    if (sendv_blocking(bsd->connect_fd, iov, iovcnt,
+#ifdef SO_ZEROCOPY
+        opt->zerocopy_send ? MSG_ZEROCOPY : 0
+#else
+        0
+#endif
+    ) != wtotal)
     {
         perror("sendmsg");
         exit(1);
