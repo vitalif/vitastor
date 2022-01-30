@@ -172,6 +172,7 @@ public:
         struct io_uring_cqe *cqe;
         return io_uring_wait_cqe(&ring, &cqe);
     }
+    int sqes_left();
     inline unsigned space_left()
     {
         return free_ring_data_ptr;

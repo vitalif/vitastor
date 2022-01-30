@@ -55,7 +55,7 @@
 #define IS_DELETE(st) (((st) & 0x0F) == BS_ST_DELETE)
 
 #define BS_SUBMIT_CHECK_SQES(n) \
-    if (ringloop->space_left() < (n))\
+    if (ringloop->sqes_left() < (n))\
     {\
         /* Pause until there are more requests available */\
         PRIV(op)->wait_for = WAIT_SQE;\
