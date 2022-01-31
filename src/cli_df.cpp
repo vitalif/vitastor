@@ -108,9 +108,14 @@ resume_1:
                     pool_avail = pg_free;
                 }
             }
+            if (pool_avail == UINT64_MAX)
+            {
+                pool_avail = 0;
+            }
             if (pool_cfg.scheme != POOL_SCHEME_REPLICATED)
             {
-                pool_avail = pool_avail * (pool_cfg.pg_size - pool_cfg.parity_chunks) / pool_stats[pool_cfg.id]["pg_real_size"].uint64_value();
+                uint64_t pg_real_size = pool_stats[pool_cfg.id]["pg_real_size"].uint64_value();
+                pool_avail = pg_real_size > 0 ? pool_avail * (pool_cfg.pg_size - pool_cfg.parity_chunks) / pg_real_size : 0;
             }
             pool_stats[pool_cfg.id] = json11::Json::object {
                 { "name", pool_cfg.name },
@@ -189,11 +194,16 @@ resume_1:
         json11::Json::array list;
         for (auto & kv: pool_stats)
         {
-            kv.second["total_fmt"] = format_size(kv.second["total_raw"].uint64_value() / kv.second["raw_to_usable"].number_value());
-            kv.second["used_fmt"] = format_size(kv.second["used_raw"].uint64_value() / kv.second["raw_to_usable"].number_value());
+            double raw_to = kv.second["raw_to_usable"].number_value();
+            if (raw_to < 0.000001 && raw_to > -0.000001)
+                raw_to = 1;
+            kv.second["total_fmt"] = format_size(kv.second["total_raw"].uint64_value() / raw_to);
+            kv.second["used_fmt"] = format_size(kv.second["used_raw"].uint64_value() / raw_to);
             kv.second["max_avail_fmt"] = format_size(kv.second["max_available"].uint64_value());
-            kv.second["used_pct"] = format_q(100 - 100*kv.second["max_available"].uint64_value() *
-                kv.second["raw_to_usable"].number_value() / kv.second["total_raw"].uint64_value())+"%";
+            kv.second["used_pct"] = format_q(kv.second["total_raw"].uint64_value()
+                ? (100 - 100*kv.second["max_available"].uint64_value() *
+                    kv.second["raw_to_usable"].number_value() / kv.second["total_raw"].uint64_value())
+                : 100)+"%";
             kv.second["eff_fmt"] = format_q(kv.second["space_efficiency"].number_value()*100)+"%";
         }
         printf("%s", print_table(to_list(), cols, parent->color).c_str());
