@@ -118,5 +118,11 @@ int ring_loop_t::sqes_left()
     struct io_uring_sq *sq = &ring.sq;
     unsigned int head = io_uring_smp_load_acquire(sq->khead);
     unsigned int next = sq->sqe_tail + 1;
-    return *sq->kring_entries - (next - head);
+    int left = *sq->kring_entries - (next - head);
+    if (left > free_ring_data_ptr)
+    {
+        // return min(sqes left, ring_datas left)
+        return free_ring_data_ptr;
+    }
+    return left;
 }
