@@ -17,15 +17,12 @@
 
 static inline void my_uring_prep_rw(int op, struct io_uring_sqe *sqe, int fd, const void *addr, unsigned len, off_t offset)
 {
-    sqe->opcode = op;
-    sqe->flags = 0;
-    sqe->ioprio = 0;
-    sqe->fd = fd;
-    sqe->off = offset;
-    sqe->addr = (unsigned long) addr;
-    sqe->len = len;
-    sqe->rw_flags = 0;
-    sqe->__pad2[0] = sqe->__pad2[1] = sqe->__pad2[2] = 0;
+    // Prepare a read/write operation without clearing user_data
+    // Very recently, 22 Dec 2021, liburing finally got this change too (8ecd3fd959634df81d66af8b3a69c16202a014e8)
+    // But all versions prior to it (sadly) clear user_data
+    __u64 user_data = sqe->user_data;
+    io_uring_prep_rw(op, sqe, fd, addr, len, offset);
+    sqe->user_data = user_data;
 }
 
 static inline void my_uring_prep_readv(struct io_uring_sqe *sqe, int fd, const struct iovec *iovecs, unsigned nr_vecs, off_t offset)
