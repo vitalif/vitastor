@@ -55,6 +55,15 @@ protected:
     iovec read_iov = { 0 };
 
 public:
+    ~nbd_proxy()
+    {
+        if (recv_buf)
+        {
+            free(recv_buf);
+            recv_buf = NULL;
+        }
+    }
+
     static json11::Json::object parse_args(int narg, const char *args[])
     {
         json11::Json::object cfg;
@@ -322,6 +331,9 @@ public:
         delete cli;
         delete epmgr;
         delete ringloop;
+        cli = NULL;
+        epmgr = NULL;
+        ringloop = NULL;
     }
 
     void load_module()
