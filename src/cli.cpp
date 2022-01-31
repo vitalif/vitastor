@@ -365,6 +365,13 @@ void cli_tool_t::run(json11::Json cfg)
         if (action_cb != NULL)
             ringloop->wait();
     }
+    // Destroy the client
+    delete cli;
+    delete epmgr;
+    delete ringloop;
+    cli = NULL;
+    epmgr = NULL;
+    ringloop = NULL;
 }
 
 int main(int narg, const char *args[])
@@ -374,5 +381,6 @@ int main(int narg, const char *args[])
     exe_name = args[0];
     cli_tool_t *p = new cli_tool_t();
     p->run(cli_tool_t::parse_args(narg, args));
+    delete p;
     return 0;
 }
