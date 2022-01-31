@@ -58,6 +58,7 @@
     if (ringloop->sqes_left() < (n))\
     {\
         /* Pause until there are more requests available */\
+        PRIV(op)->wait_detail = (n);\
         PRIV(op)->wait_for = WAIT_SQE;\
         return 0;\
     }
@@ -71,6 +72,7 @@
     if (!sqe)\
     {\
         /* Pause until there are more requests available */\
+        PRIV(op)->wait_detail = 1;\
         PRIV(op)->wait_for = WAIT_SQE;\
         return 0;\
     }
@@ -80,6 +82,7 @@
     if (!sqe)\
     {\
         /* Pause until there are more requests available */\
+        PRIV(op)->wait_detail = 1;\
         PRIV(op)->wait_for = WAIT_SQE;\
         return 0;\
     }

@@ -142,7 +142,6 @@ void blockstore_impl_t::loop()
                     continue;
                 }
             }
-            unsigned ring_space = ringloop->space_left();
             unsigned prev_sqe_pos = ringloop->save();
             // 0 = can't submit
             // 1 = in progress
@@ -212,7 +211,6 @@ void blockstore_impl_t::loop()
                 ringloop->restore(prev_sqe_pos);
                 if (PRIV(op)->wait_for == WAIT_SQE)
                 {
-                    PRIV(op)->wait_detail = 1 + ring_space;
                     // ring is full, stop submission
                     break;
                 }
@@ -282,7 +280,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
 {
     if (PRIV(op)->wait_for == WAIT_SQE)
     {
-        if (ringloop->space_left() < PRIV(op)->wait_detail)
+        if (ringloop->sqes_left() < PRIV(op)->wait_detail)
         {
             // stop submission if there's still no free space
 #ifdef BLOCKSTORE_DEBUG
