@@ -104,6 +104,7 @@ const etcd_tree = {
             no_rebalance: false,
             print_stats_interval: 3,
             slow_log_interval: 10,
+            osd_memlock: false,
             // blockstore - fixed in superblock
             block_size,
             disk_alignment,

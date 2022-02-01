@@ -329,3 +329,13 @@
   info_ru: |
     Минимальная применимая к ограничиваемым операциям задержка. Обычно не
     требует изменений.
+- name: osd_memlock
+  type: bool
+  default: false
+  info: >
+    Lock all OSD memory to prevent it from being unloaded into swap with
+    mlockall(). Requires sufficient ulimit -l (max locked memory).
+  info_ru: >
+    Блокировать всю память OSD с помощью mlockall, чтобы запретить её выгрузку
+    в пространство подкачки. Требует достаточного значения ulimit -l (лимита
+    заблокированной памяти).

@@ -3,6 +3,7 @@
 
 #include <sys/socket.h>
 #include <sys/poll.h>
+#include <sys/mman.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
@@ -51,6 +52,16 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
         uint64_t max_autosync = bs->get_journal_size() / bs->get_block_size() / 2;
         if (autosync_writes > max_autosync)
             autosync_writes = max_autosync;
+    }
+
+    if (this->config["osd_memlock"] == "true" || this->config["osd_memlock"] == "1" || this->config["osd_memlock"] == "yes")
+    {
+        // Lock all OSD memory if requested
+        if (mlockall(MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) != 0)
+        {
+            fprintf(stderr, "osd_memlock is set to true, but mlockall() failed: %s\n", strerror(errno));
+            exit(-1);
+        }
     }
 
     this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
