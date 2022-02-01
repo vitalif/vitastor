@@ -43,7 +43,7 @@
     на другие OSD и таким образом восстановить избыточность хранения.
 - name: placement_levels
   type: json
-  default: '{"host":100,"osd":101}'
+  default: '`{"host":100,"osd":101}`'
   info: |
     Levels for the placement tree. You can define arbitrary tree levels by
     defining them in this parameter. The configuration parameter value should

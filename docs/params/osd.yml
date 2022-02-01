@@ -4,13 +4,13 @@
   info: |
     Interval at which OSDs report their state to etcd. Affects OSD lease time
     and thus the failover speed. Lease time is equal to this parameter value
-    plus max_etcd_attempts*etcd_quick_timeout because it should be guaranteed
+    plus max_etcd_attempts * etcd_quick_timeout because it should be guaranteed
     that every OSD always refreshes its lease in time.
   info_ru: |
     Интервал, с которым OSD обновляет своё состояние в etcd. Значение параметра
     влияет на время резервации (lease) OSD и поэтому на скорость переключения
     при падении OSD. Время lease равняется значению этого параметра плюс
-    max_etcd_attempts*etcd_quick_timeout.
+    max_etcd_attempts * etcd_quick_timeout.
 - name: run_primary
   type: bool
   default: true
@@ -245,15 +245,17 @@
   info: |
     Enable this option for SSDs like Intel D3-S4510 and D3-S4610 which REALLY
     don't like when a program overwrites the same sector multiple times in a
-    row and slow down significantly (from 20000+ iops to ~3000 iops). When
+    row and slow down significantly (from 25000+ iops to ~3000 iops). When
     this option is set, Vitastor will always move to the next sector of the
     journal after writing it instead of possibly overwriting it the second time.
   info_ru: |
-    Включайте данную опцию для SSD вроде Intel D3-S4510 и D3-4610, которые ОЧЕНЬ
-    не любят, когда ПО перезаписывает один и тот же сектор несколько раз подряд
-    и сильно замедляются (с 20000 и более iops до 3000). Когда данная опция
-    установлена, Vitastor всегда переходит к следующему сектор журнала после
-    записи вместо потенциально повторной перезаписи того же самого сектора.
+    Включайте данную опцию для SSD вроде Intel D3-S4510 и D3-S4610, которые
+    ОЧЕНЬ не любят, когда ПО перезаписывает один и тот же сектор несколько раз
+    подряд. Такие SSD при многократной перезаписи одного и того же сектора
+    сильно замедляются - условно, с 25000 и более iops до 3000 iops. Когда
+    данная опция установлена, Vitastor всегда переходит к следующему сектору
+    журнала после записи вместо потенциально повторной перезаписи того же
+    самого сектора.
 - name: throttle_small_writes
   type: bool
   default: false
@@ -319,7 +321,7 @@
     равным внутреннему параллелизму ваших устройств данных (1 для HDD, 4-8
     для SSD).
 - name: throttle_threshold_us
-  type: usec
+  type: us
   default: 50
   info: |
     Minimal computed delay to be applied to throttled operations. Usually

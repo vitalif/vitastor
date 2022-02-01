@@ -22,7 +22,7 @@
   type: string
   default: "/vitastor"
   info: |
-    Prefix for all keys in etcd Vitastor uses. You can change prefix and, for
+    Prefix for all keys in etcd used by Vitastor. You can change prefix and, for
     example, use a single etcd cluster for multiple Vitastor clusters.
   info_ru: |
     Префикс для ключей etcd, которые использует Vitastor. Вы можете задать другой

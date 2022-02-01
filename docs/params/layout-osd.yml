@@ -4,14 +4,14 @@
     Path to the block device to use for data. It's highly recommendded to use
     stable paths for all device names: `/dev/disk/by-partuuid/xxx...` instead
     of just `/dev/sda` or `/dev/nvme0n1` to not mess up after server restart.
-    For testing purposes, files can also be used instead of block devices, but
-    that's not for a production environment, of course.
+    Files can also be used instead of block devices, but this is implemented
+    only for testing purposes and not for production.
   info_ru: |
     Путь к диску (блочному устройству) для хранения данных. Крайне рекомендуется
     использовать стабильные пути: `/dev/disk/by-partuuid/xxx...` вместо простых
     `/dev/sda` или `/dev/nvme0n1`, чтобы пути не могли спутаться после
-    перезагрузки сервера. В целях тестирования вместо устройств также разрешено
-    использовать и простые файлы, но делать так в боевой среде не следует.
+    перезагрузки сервера. Также вместо блочных устройств можно указывать файлы,
+    но это реализовано только для тестирования, а не для боевой среды.
 - name: meta_device
   type: string
   info: |
@@ -130,7 +130,7 @@
     Same as disable_data_fsync, but for the metadata device. If the metadata
     device is not set or if the data device is used for the metadata the option
     is ignored and disable_data_fsync value is used instead of it.
-  info: |
+  info_ru: |
     То же, что disable_data_fsync, но для устройства метаданных. Если устройство
     метаданных не задано или если оно равно устройству данных, значение опции
     игнорируется и вместо него используется значение опции disable_data_fsync.
@@ -143,7 +143,7 @@
     option is ignored and disable_meta_fsync value is used instead of it. If
     the same device is used for data, metadata and journal the option is also
     ignored and disable_data_fsync value is used instead of it.
-  info: |
+  info_ru: |
     То же, что disable_data_fsync, но для устройства журнала. Если устройство
     журнала не задано или если оно равно устройству метаданных, значение опции
     игнорируется и вместо него используется значение опции disable_meta_fsync.
@@ -163,3 +163,43 @@
     другими OSD с помощью flock(). Так делать не рекомендуется, но теоретически
     вы можете это использовать, чтобы запускать несколько OSD на одном
     устройстве с разными смещениями и без использования разделов.
+- name: disk_alignment
+  type: int
+  default: 4096
+  info: |
+    Required physical disk write alignment. Most current SSD and HDD drives
+    use 4 KB physical sectors even if they report 512 byte logical sector
+    size, so 4 KB is a good default setting.
+
+    Note, however, that physical sector size also affects WA, because with block
+    devices it's impossible to write anything smaller than a block. So, when
+    Vitastor has to write a single metadata entry that's only about 32 bytes in
+    size, it actually has to write the whole 4 KB sector.
+
+    Because of this it can actually be beneficial to use SSDs which work well
+    with 512 byte sectors and use 512 byte disk_alignment, journal_block_size
+    and meta_block_size. But the only SSD that may fit into this category is
+    Intel Optane (probably, not tested yet).
+
+    Clients don't need to be aware of disk_alignment, so it's not required to
+    put a modified value into etcd key /vitastor/config/global.
+  info_ru: |
+    Требуемое выравнивание записи на физические диски. Почти все современные
+    SSD и HDD диски используют 4 КБ физические секторы, даже если показывают
+    логический размер сектора 512 байт, поэтому 4 КБ - хорошее значение по
+    умолчанию.
+
+    Однако стоит понимать, что физический размер сектора тоже влияет на
+    избыточную запись (WA), потому что ничего меньше блока (сектора) на блочное
+    устройство записать невозможно. Таким образом, когда Vitastor-у нужно
+    записать на диск всего лишь одну 32-байтную запись метаданных, фактически
+    приходится перезаписывать 4 КБ сектор целиком.
+
+    Поэтому, на самом деле, может быть выгодно найти SSD, хорошо работающие с
+    меньшими, 512-байтными, блоками и использовать 512-байтные disk_alignment,
+    journal_block_size и meta_block_size. Однако единственные SSD, которые
+    теоретически могут попасть в эту категорию - это Intel Optane (но и это
+    пока не проверялось автором).
+
+    Клиентам не обязательно знать про disk_alignment, так что помещать значение
+    этого параметра в etcd в /vitastor/config/global не нужно.

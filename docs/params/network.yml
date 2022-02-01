@@ -34,20 +34,33 @@
   type: bool
   default: true
   info: |
-    Try to use RDMA for communication if it's available.
-    Disable if you don't want Vitastor to use RDMA.
+    Try to use RDMA for communication if it's available. Disable if you don't
+    want Vitastor to use RDMA. RDMA increases the performance, but TCP-only
+    clients can still talk to an RDMA-enabled cluster, so you don't need to
+    make sure that all clients support RDMA when enabling it.
   info_ru: |
     Пытаться использовать RDMA для связи при наличии доступных устройств.
     Отключите, если вы не хотите, чтобы Vitastor использовал RDMA.
+    RDMA улучшает производительность, но 
+    Клиенты и клиентов and TCP-only clients in the cluster at the
+    same time - TCP-only clients are still able to use an RDMA-enabled cluster.
 - name: rdma_device
   type: string
   info: |
     RDMA device name to use for Vitastor OSD communications (for example,
-    "rocep5s0f0"). Run `ibv_devinfo -v` as root to list available RDMA devices.
+    "rocep5s0f0"). Please note that Vitastor RDMA requires Implicit On-Demand
+    Paging (Implicit ODP) and Scatter/Gather (SG) support from the RDMA device
+    to work. For example, Mellanox ConnectX-3 and older adapters don't have
+    Implicit ODP, so they're unsupported by Vitastor. Run `ibv_devinfo -v` as
+    root to list available RDMA devices and their features.
   info_ru: |
     Название RDMA-устройства для связи с Vitastor OSD (например, "rocep5s0f0").
-    Запустите `ibv_devinfo -v` под суперпользователем, чтобы посмотреть список
-    доступных RDMA-устройств и их параметры.
+    Имейте в виду, что поддержка RDMA в Vitastor требует функций устройства
+    Implicit On-Demand Paging (Implicit ODP) и Scatter/Gather (SG). Например,
+    адаптеры Mellanox ConnectX-3 и более старые не поддерживают Implicit ODP и
+    потому не поддерживаются в Vitastor. Запустите `ibv_devinfo -v` от имени
+    суперпользователя, чтобы посмотреть список доступных RDMA-устройств, их
+    параметры и возможности.
 - name: rdma_port_num
   type: int
   default: 1
