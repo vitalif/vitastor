@@ -351,7 +351,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
         }
         else
         {
-            printf("+++ %s 0x%lx 0x%llx+%llx\n",
+            printf("+++ %s 0x%lx 0x%llx+%lx\n",
                 io->ddir == DDIR_READ ? "READ" : "WRITE",
                 (uint64_t)io, io->offset, io->xfer_buflen);
         }

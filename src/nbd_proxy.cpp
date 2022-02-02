@@ -363,7 +363,8 @@ public:
         setsid();
         if (fork())
             exit(0);
-        chdir("/");
+        if (chdir("/") != 0)
+            fprintf(stderr, "Warning: Failed to chdir into /\n");
         close(0);
         close(1);
         close(2);
@@ -525,7 +526,11 @@ protected:
         {
             goto end_unmap;
         }
-        write(qd_fd, "32768", 5);
+        r = write(qd_fd, "32768", 5);
+        if (r != 5)
+        {
+            fprintf(stderr, "Warning: Failed to configure max_sectors_kb\n");
+        }
         close(qd_fd);
         if (!fork())
         {
