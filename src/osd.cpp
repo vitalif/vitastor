@@ -57,7 +57,11 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
     if (this->config["osd_memlock"] == "true" || this->config["osd_memlock"] == "1" || this->config["osd_memlock"] == "yes")
     {
         // Lock all OSD memory if requested
-        if (mlockall(MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) != 0)
+        if (mlockall(MCL_CURRENT|MCL_FUTURE
+#ifdef MCL_ONFAULT
+            | MCL_ONFAULT
+#endif
+            ) != 0)
         {
             fprintf(stderr, "osd_memlock is set to true, but mlockall() failed: %s\n", strerror(errno));
             exit(-1);
