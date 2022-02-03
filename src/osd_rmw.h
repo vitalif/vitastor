@@ -8,7 +8,7 @@
 #include "osd_id.h"
 
 #ifndef MEM_ALIGNMENT
-#define MEM_ALIGNMENT 512
+#define MEM_ALIGNMENT 4096
 #endif
 
 struct buf_len_t
