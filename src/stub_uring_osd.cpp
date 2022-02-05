@@ -25,8 +25,6 @@
 #include "epoll_manager.h"
 #include "messenger.h"
 
-int bind_stub(std::string bind_address, int bind_port);
-
 void stub_exec_op(osd_messenger_t *msgr, osd_op_t *op);
 
 int main(int narg, char *args[])
@@ -43,7 +41,8 @@ int main(int narg, char *args[])
     json11::Json config = json11::Json::object { { "log_level", 1 } };
     msgr->parse_config(config);
     // Accept new connections
-    int listen_fd = bind_stub("0.0.0.0", 11203);
+    int listen_fd = create_and_bind_socket("0.0.0.0", 11203, 128, NULL);
+    fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
     epmgr->set_fd_handler(listen_fd, false, [listen_fd, msgr](int fd, int events)
     {
         msgr->accept_connections(listen_fd);
@@ -65,41 +64,6 @@ int main(int narg, char *args[])
     delete epmgr;
     delete ringloop;
     return 0;
-}
-
-int bind_stub(std::string bind_address, int bind_port)
-{
-    int listen_backlog = 128;
-
-    sockaddr addr;
-    if (!string_to_addr(bind_address, 0, bind_port, &addr))
-    {
-        throw std::runtime_error("bind address "+bind_address+" is not valid");
-    }
-
-    int listen_fd = socket(addr.sa_family, SOCK_STREAM, 0);
-    if (listen_fd < 0)
-    {
-        throw std::runtime_error(std::string("socket: ") + strerror(errno));
-    }
-    int enable = 1;
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
-
-    if (bind(listen_fd, &addr, sizeof(addr)) < 0)
-    {
-        close(listen_fd);
-        throw std::runtime_error(std::string("bind: ") + strerror(errno));
-    }
-
-    if (listen(listen_fd, listen_backlog) < 0)
-    {
-        close(listen_fd);
-        throw std::runtime_error(std::string("listen: ") + strerror(errno));
-    }
-
-    fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
-
-    return listen_fd;
 }
 
 void stub_exec_op(osd_messenger_t *msgr, osd_op_t *op)

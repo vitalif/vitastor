@@ -1,3 +1,5 @@
+#include <sys/socket.h>
+#include <unistd.h>
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <sys/types.h>
@@ -185,4 +187,52 @@ std::vector<std::string> getifaddr_list(std::vector<std::string> mask_cfg, bool 
     }
     freeifaddrs(list);
     return addresses;
+}
+
+int create_and_bind_socket(std::string bind_address, int bind_port, int listen_backlog, int *listening_port)
+{
+    sockaddr addr;
+    if (!string_to_addr(bind_address, 0, bind_port, &addr))
+    {
+        throw std::runtime_error("bind address "+bind_address+" is not valid");
+    }
+
+    int listen_fd = socket(addr.sa_family, SOCK_STREAM, 0);
+    if (listen_fd < 0)
+    {
+        throw std::runtime_error(std::string("socket: ") + strerror(errno));
+    }
+    int enable = 1;
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+
+    if (bind(listen_fd, &addr, sizeof(addr)) < 0)
+    {
+        close(listen_fd);
+        throw std::runtime_error(std::string("bind: ") + strerror(errno));
+    }
+    if (listening_port)
+    {
+        if (bind_port == 0)
+        {
+            socklen_t len = sizeof(addr);
+            if (getsockname(listen_fd, (sockaddr *)&addr, &len) == -1)
+            {
+                close(listen_fd);
+                throw std::runtime_error(std::string("getsockname: ") + strerror(errno));
+            }
+            *listening_port = ntohs(((sockaddr_in*)&addr)->sin_port);
+        }
+        else
+        {
+            *listening_port = bind_port;
+        }
+    }
+
+    if (listen(listen_fd, listen_backlog ? listen_backlog : 128) < 0)
+    {
+        close(listen_fd);
+        throw std::runtime_error(std::string("listen: ") + strerror(errno));
+    }
+
+    return listen_fd;
 }

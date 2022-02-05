@@ -200,46 +200,7 @@ void osd_t::bind_socket()
 
     // FIXME Support multiple listening sockets
 
-    sockaddr addr;
-    if (!string_to_addr(bind_address, 0, bind_port, &addr))
-    {
-        throw std::runtime_error("bind address "+bind_address+" is not valid");
-    }
-
-    listen_fd = socket(addr.sa_family, SOCK_STREAM, 0);
-    if (listen_fd < 0)
-    {
-        throw std::runtime_error(std::string("socket: ") + strerror(errno));
-    }
-    int enable = 1;
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
-
-    if (bind(listen_fd, &addr, sizeof(addr)) < 0)
-    {
-        close(listen_fd);
-        throw std::runtime_error(std::string("bind: ") + strerror(errno));
-    }
-    if (bind_port == 0)
-    {
-        socklen_t len = sizeof(addr);
-        if (getsockname(listen_fd, (sockaddr *)&addr, &len) == -1)
-        {
-            close(listen_fd);
-            throw std::runtime_error(std::string("getsockname: ") + strerror(errno));
-        }
-        listening_port = ntohs(((sockaddr_in*)&addr)->sin_port);
-    }
-    else
-    {
-        listening_port = bind_port;
-    }
-
-    if (listen(listen_fd, listen_backlog) < 0)
-    {
-        close(listen_fd);
-        throw std::runtime_error(std::string("listen: ") + strerror(errno));
-    }
-
+    listen_fd = create_and_bind_socket(bind_address, bind_port, listen_backlog, &listening_port);
     fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
 
     epmgr->set_fd_handler(listen_fd, false, [this](int fd, int events)

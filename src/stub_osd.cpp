@@ -41,13 +41,11 @@
 #include "rw_blocking.h"
 #include "osd_ops.h"
 
-int bind_stub(std::string bind_address, int bind_port);
-
 void run_stub(int peer_fd);
 
 int main(int narg, char *args[])
 {
-    int listen_fd = bind_stub("0.0.0.0", 11203);
+    int listen_fd = create_and_bind_socket("0.0.0.0", 11203, 128, NULL);
     // Accept new connections
     sockaddr addr;
     socklen_t peer_addr_size = sizeof(addr);
@@ -74,39 +72,6 @@ int main(int narg, char *args[])
         peer_addr_size = sizeof(addr);
     }
     return 0;
-}
-
-int bind_stub(std::string bind_address, int bind_port)
-{
-    int listen_backlog = 128;
-
-    sockaddr addr;
-    if (!string_to_addr(bind_address, 0, bind_port, &addr))
-    {
-        throw std::runtime_error("bind address "+bind_address+" is not valid");
-    }
-
-    int listen_fd = socket(addr.sa_family, SOCK_STREAM, 0);
-    if (listen_fd < 0)
-    {
-        throw std::runtime_error(std::string("socket: ") + strerror(errno));
-    }
-    int enable = 1;
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
-
-    if (bind(listen_fd, &addr, sizeof(addr)) < 0)
-    {
-        close(listen_fd);
-        throw std::runtime_error(std::string("bind: ") + strerror(errno));
-    }
-
-    if (listen(listen_fd, listen_backlog) < 0)
-    {
-        close(listen_fd);
-        throw std::runtime_error(std::string("listen: ") + strerror(errno));
-    }
-
-    return listen_fd;
 }
 
 void run_stub(int peer_fd)
