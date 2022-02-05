@@ -154,7 +154,7 @@ resume_1:
             if (pool_it != parent->cli->st_cli.pool_config.end())
             {
                 auto & pool_cfg = pool_it->second;
-                used_size = used_size / pool_pg_real_size[pool_id]
+                used_size = used_size / (pool_pg_real_size[pool_id] ? pool_pg_real_size[pool_id] : 1)
                     * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
             }
             auto stat_it = stats.find(inode_num);
