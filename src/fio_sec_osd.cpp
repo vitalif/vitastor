@@ -355,7 +355,7 @@ static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int 
         {
             if (reply.hdr.retval != io->xfer_buflen)
             {
-                fprintf(stderr, "Short read: retval = %ld instead of %lu\n", reply.hdr.retval, io->xfer_buflen);
+                fprintf(stderr, "Short read: retval = %ld instead of %lu\n", reply.hdr.retval, (uint64_t)io->xfer_buflen);
                 exit(1);
             }
             // Support bitmap
@@ -380,7 +380,7 @@ static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int 
         {
             if (reply.hdr.retval != io->xfer_buflen)
             {
-                fprintf(stderr, "Short write: retval = %ld instead of %lu\n", reply.hdr.retval, io->xfer_buflen);
+                fprintf(stderr, "Short write: retval = %ld instead of %lu\n", reply.hdr.retval, (uint64_t)io->xfer_buflen);
                 exit(1);
             }
         }
