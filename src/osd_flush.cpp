@@ -47,7 +47,8 @@ void osd_t::submit_pg_flush_ops(pg_t & pg)
         if (l.second.size() > 0)
         {
             fb->flush_ops++;
-            submit_flush_op(pg.pool_id, pg.pg_num, fb, true, l.first, l.second.size(), l.second.data());
+            if (!submit_flush_op(pg.pool_id, pg.pg_num, fb, true, l.first, l.second.size(), l.second.data()))
+                return;
         }
     }
     for (auto & l: fb->stable_lists)
@@ -55,7 +56,8 @@ void osd_t::submit_pg_flush_ops(pg_t & pg)
         if (l.second.size() > 0)
         {
             fb->flush_ops++;
-            submit_flush_op(pg.pool_id, pg.pg_num, fb, false, l.first, l.second.size(), l.second.data());
+            if (!submit_flush_op(pg.pool_id, pg.pg_num, fb, false, l.first, l.second.size(), l.second.data()))
+                return;
         }
     }
 }
@@ -160,7 +162,7 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
     }
 }
 
-void osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t peer_osd, int count, obj_ver_id *data)
+bool osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t peer_osd, int count, obj_ver_id *data)
 {
     osd_op_t *op = new osd_op_t();
     // Copy buffer so it gets freed along with the operation
@@ -188,10 +190,8 @@ void osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
     else
     {
         // Peer
-        int peer_fd = msgr.osd_peer_fds[peer_osd];
         op->op_type = OSD_OP_OUT;
         op->iov.push_back(op->buf, count * sizeof(obj_ver_id));
-        op->peer_fd = peer_fd;
         op->req = (osd_any_op_t){
             .sec_stab = {
                 .header = {
@@ -207,8 +207,21 @@ void osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
             handle_flush_op(op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK, pool_id, pg_num, fb, peer_osd, op->reply.hdr.retval);
             delete op;
         };
-        msgr.outbox_push(op);
+        auto peer_fd_it = msgr.osd_peer_fds.find(peer_osd);
+        if (peer_fd_it != msgr.osd_peer_fds.end())
+        {
+            op->peer_fd = peer_fd_it->second;
+            msgr.outbox_push(op);
+        }
+        else
+        {
+            // Fail it immediately
+            op->reply.hdr.retval = -EPIPE;
+            op->callback(op);
+            return false;
+        }
     }
+    return true;
 }
 
 bool osd_t::pick_next_recovery(osd_recovery_op_t &op)

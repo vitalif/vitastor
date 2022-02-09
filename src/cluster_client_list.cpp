@@ -200,7 +200,8 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
     auto & pool_cfg = st_cli.pool_config[cur_list->pg->lst->pool_id];
     osd_op_t *op = new osd_op_t();
     op->op_type = OSD_OP_OUT;
-    op->peer_fd = msgr.osd_peer_fds[cur_list->osd_num];
+    // Already checked that it exists above, but anyway
+    op->peer_fd = msgr.osd_peer_fds.at(cur_list->osd_num);
     op->req = (osd_any_op_t){
         .sec_list = {
             .header = {

@@ -182,7 +182,6 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
             else
             {
                 subop->op_type = OSD_OP_OUT;
-                subop->peer_fd = msgr.osd_peer_fds.at(role_osd_num);
                 subop->bitmap = stripes[stripe_num].bmp_buf;
                 subop->bitmap_len = clean_entry_bitmap_size;
                 subop->req.sec_rw = {
@@ -225,7 +224,18 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                 {
                     handle_primary_subop(subop, cur_op);
                 };
-                msgr.outbox_push(subop);
+                auto peer_fd_it = msgr.osd_peer_fds.find(role_osd_num);
+                if (peer_fd_it != msgr.osd_peer_fds.end())
+                {
+                    subop->peer_fd = peer_fd_it->second;
+                    msgr.outbox_push(subop);
+                }
+                else
+                {
+                    // Fail it immediately
+                    subop->reply.hdr.retval = -EPIPE;
+                    subop->callback(subop);
+                }
             }
             i++;
         }
@@ -463,7 +473,6 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
         else
         {
             subops[i].op_type = OSD_OP_OUT;
-            subops[i].peer_fd = msgr.osd_peer_fds.at(chunk.osd_num);
             subops[i].req = (osd_any_op_t){ .sec_del = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
@@ -477,7 +486,18 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
             {
                 handle_primary_subop(subop, cur_op);
             };
-            msgr.outbox_push(&subops[i]);
+            auto peer_fd_it = msgr.osd_peer_fds.find(chunk.osd_num);
+            if (peer_fd_it != msgr.osd_peer_fds.end())
+            {
+                subops[i].peer_fd = peer_fd_it->second;
+                msgr.outbox_push(&subops[i]);
+            }
+            else
+            {
+                // Fail it immediately
+                subops[i].reply.hdr.retval = -EPIPE;
+                subops[i].callback(&subops[i]);
+            }
         }
     }
 }
@@ -567,7 +587,6 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
         else
         {
             subops[i].op_type = OSD_OP_OUT;
-            subops[i].peer_fd = msgr.osd_peer_fds.at(stab_osd.osd_num);
             subops[i].req = (osd_any_op_t){ .sec_stab = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
@@ -581,7 +600,18 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
             {
                 handle_primary_subop(subop, cur_op);
             };
-            msgr.outbox_push(&subops[i]);
+            auto peer_fd_it = msgr.osd_peer_fds.find(stab_osd.osd_num);
+            if (peer_fd_it != msgr.osd_peer_fds.end())
+            {
+                subops[i].peer_fd = peer_fd_it->second;
+                msgr.outbox_push(&subops[i]);
+            }
+            else
+            {
+                // Fail it immediately
+                subops[i].reply.hdr.retval = -EPIPE;
+                subops[i].callback(&subops[i]);
+            }
         }
     }
 }

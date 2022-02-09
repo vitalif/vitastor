@@ -96,7 +96,8 @@ struct rm_inode_t
             {
                 osd_op_t *op = new osd_op_t();
                 op->op_type = OSD_OP_OUT;
-                op->peer_fd = parent->cli->msgr.osd_peer_fds[cur_list->rm_osd_num];
+                // Already checked that it exists above, but anyway
+                op->peer_fd = parent->cli->msgr.osd_peer_fds.at(cur_list->rm_osd_num);
                 op->req = (osd_any_op_t){
                     .rw = {
                         .header = {

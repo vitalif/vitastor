@@ -340,7 +340,7 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
     else
     {
         // Peer
-        auto & cl = msgr.clients.at(msgr.osd_peer_fds[role_osd]);
+        auto & cl = msgr.clients.at(msgr.osd_peer_fds.at(role_osd));
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
         op->peer_fd = cl->peer_fd;
@@ -419,7 +419,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         // Peer
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
-        op->peer_fd = msgr.osd_peer_fds[role_osd];
+        op->peer_fd = msgr.osd_peer_fds.at(role_osd);
         op->req = (osd_any_op_t){
             .sec_list = {
                 .header = {
