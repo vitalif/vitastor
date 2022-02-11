@@ -1345,21 +1345,30 @@ class Mon
         const tm = prev_stats ? BigInt(timestamp - prev_stats.timestamp) : 0;
         for (const op in op_stats)
         {
-            op_stats[op].bps = prev_stats ? (op_stats[op].bytes - prev_stats.op_stats[op].bytes) * 1000n / tm : 0;
-            op_stats[op].iops = prev_stats ? (op_stats[op].count - prev_stats.op_stats[op].count) * 1000n / tm : 0;
-            op_stats[op].lat = prev_stats ? (op_stats[op].usec - prev_stats.op_stats[op].usec)
-                / ((op_stats[op].count - prev_stats.op_stats[op].count) || 1n) : 0;
+            if (prev_stats && prev_stats.op_stats && prev_stats.op_stats[op])
+            {
+                op_stats[op].bps = (op_stats[op].bytes - prev_stats.op_stats[op].bytes) * 1000n / tm;
+                op_stats[op].iops = (op_stats[op].count - prev_stats.op_stats[op].count) * 1000n / tm;
+                op_stats[op].lat = (op_stats[op].usec - prev_stats.op_stats[op].usec)
+                    / ((op_stats[op].count - prev_stats.op_stats[op].count) || 1n);
+            }
         }
         for (const op in subop_stats)
         {
-            subop_stats[op].iops = prev_stats ? (subop_stats[op].count - prev_stats.subop_stats[op].count) * 1000n / tm : 0;
-            subop_stats[op].lat = prev_stats ? (subop_stats[op].usec - prev_stats.subop_stats[op].usec)
-                / ((subop_stats[op].count - prev_stats.subop_stats[op].count) || 1n) : 0;
+            if (prev_stats && prev_stats.subop_stats && prev_stats.subop_stats[op])
+            {
+                subop_stats[op].iops = (subop_stats[op].count - prev_stats.subop_stats[op].count) * 1000n / tm;
+                subop_stats[op].lat = (subop_stats[op].usec - prev_stats.subop_stats[op].usec)
+                    / ((subop_stats[op].count - prev_stats.subop_stats[op].count) || 1n);
+            }
         }
         for (const op in recovery_stats)
         {
-            recovery_stats[op].bps = prev_stats ? (recovery_stats[op].bytes - prev_stats.recovery_stats[op].bytes) * 1000n / tm : 0;
-            recovery_stats[op].iops = prev_stats ? (recovery_stats[op].count - prev_stats.recovery_stats[op].count) * 1000n / tm : 0;
+            if (prev_stats && prev_stats.recovery_stats && prev_stats.recovery_stats[op])
+            {
+                recovery_stats[op].bps = (recovery_stats[op].bytes - prev_stats.recovery_stats[op].bytes) * 1000n / tm;
+                recovery_stats[op].iops = (recovery_stats[op].count - prev_stats.recovery_stats[op].count) * 1000n / tm;
+            }
         }
         return { op_stats, subop_stats, recovery_stats };
     }
