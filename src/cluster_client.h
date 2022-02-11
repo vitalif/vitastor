@@ -118,6 +118,8 @@ public:
     bool is_ready();
     void on_ready(std::function<void(void)> fn);
 
+    bool get_immediate_commit();
+
     static void copy_write(cluster_op_t *op, std::map<object_id, cluster_buffer_t> & dirty_buffers);
     void continue_ops(bool up_retry = false);
     inode_list_t *list_inode_start(inode_t inode,

@@ -164,6 +164,21 @@ target_link_libraries(vitastor-nbd
 	vitastor_client
 )
 
+# vitastor-nfs
+add_executable(vitastor-nfs
+	nfs_proxy.cpp
+	nfs_conn.cpp
+	nfs_portmap.cpp
+	sha256.c
+	nfs/xdr_impl.cpp
+	nfs/rpc_xdr.cpp
+	nfs/portmap_xdr.cpp
+	nfs/nfs_xdr.cpp
+)
+target_link_libraries(vitastor-nfs
+	vitastor_client
+)
+
 # vitastor-cli
 add_executable(vitastor-cli
 	cli.cpp

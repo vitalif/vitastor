@@ -25,7 +25,9 @@ struct image_creator_t
     pool_id_t new_pool_id = 0;
     std::string new_pool_name;
     std::string image_name, new_snap, new_parent;
+    json11::Json new_meta;
     uint64_t size;
+    bool force_size = false;
 
     pool_id_t old_pool_id = 0;
     inode_t new_parent_id = 0;
@@ -137,7 +139,7 @@ struct image_creator_t
             state = 100;
             return;
         }
-        if (!size)
+        if (!size && !force_size)
         {
             result = (cli_result_t){ .err = EINVAL, .text = "Image size is missing" };
             state = 100;
@@ -387,6 +389,7 @@ resume_3:
             .size = size,
             .parent_id = (new_snap != "" ? INODE_WITH_POOL(old_pool_id, old_id) : new_parent_id),
             .readonly = false,
+            .meta = new_meta,
         };
         json11::Json::array checks = json11::Json::array {
             json11::Json::object {
@@ -538,6 +541,11 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_create(json11::Json cfg)
     image_creator->image_name = cfg["image"].string_value();
     image_creator->new_pool_id = cfg["pool"].uint64_value();
     image_creator->new_pool_name = cfg["pool"].string_value();
+    image_creator->force_size = cfg["force_size"].bool_value();
+    if (cfg["image_meta"].is_object())
+    {
+        image_creator->new_meta = cfg["image-meta"];
+    }
     if (cfg["snapshot"].string_value() != "")
     {
         image_creator->new_snap = cfg["snapshot"].string_value();
@@ -554,7 +562,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_create(json11::Json cfg)
                 return true;
             };
         }
-        if (image_creator->size % 4096)
+        if ((image_creator->size % 4096) && !cfg["force_size"].bool_value())
         {
             delete image_creator;
             return [](cli_result_t & result)

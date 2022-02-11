@@ -81,14 +81,14 @@ struct image_changer_t
         }
         if ((!set_readwrite || !cfg.readonly) &&
             (!set_readonly || cfg.readonly) &&
-            (!new_size || cfg.size == new_size) &&
+            (!new_size && !force_size || cfg.size == new_size) &&
             (new_name == "" || new_name == image_name))
         {
             result = (cli_result_t){ .text = "No change" };
             state = 100;
             return;
         }
-        if (new_size != 0)
+        if (new_size != 0 || force_size)
         {
             if (cfg.size >= new_size)
             {

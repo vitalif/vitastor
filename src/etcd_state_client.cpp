@@ -338,9 +338,14 @@ void etcd_state_client_t::start_etcd_watcher()
             {
                 if (data["result"]["created"].bool_value())
                 {
-                    if (etcd_watches_initialised == 3 && this->log_level > 0)
+                    uint64_t watch_id = data["result"]["watch_id"].uint64_value();
+                    if (watch_id == ETCD_CONFIG_WATCH_ID ||
+                        watch_id == ETCD_PG_STATE_WATCH_ID ||
+                        watch_id == ETCD_PG_HISTORY_WATCH_ID ||
+                        watch_id == ETCD_OSD_STATE_WATCH_ID)
+                        etcd_watches_initialised++;
+                    if (etcd_watches_initialised == 4 && this->log_level > 0)
                         fprintf(stderr, "Successfully subscribed to etcd at %s\n", selected_etcd_address.c_str());
-                    etcd_watches_initialised++;
                 }
                 if (data["result"]["canceled"].bool_value())
                 {
@@ -469,6 +474,10 @@ void etcd_state_client_t::start_etcd_watcher()
             { "progress_notify", true },
         } }
     }).dump());
+    if (on_start_watcher_hook)
+    {
+        on_start_watcher_hook(etcd_watch_ws);
+    }
     if (ws_keepalive_timer < 0)
     {
         ws_keepalive_timer = tfd->set_timer(etcd_ws_keepalive_interval*1000, true, [this](int)
@@ -954,6 +963,10 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             }
             if (!value.is_object())
             {
+                if (on_inode_change_hook != NULL)
+                {
+                    on_inode_change_hook(inode_num, true);
+                }
                 this->inode_config.erase(inode_num);
             }
             else
@@ -981,6 +994,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                     .size = value["size"].uint64_value(),
                     .parent_id = parent_inode_num,
                     .readonly = value["readonly"].bool_value(),
+                    .meta = value["meta"],
                     .mod_revision = kv.mod_revision,
                 });
             }
@@ -1001,6 +1015,10 @@ void etcd_state_client_t::insert_inode_config(const inode_config_t & cfg)
                 w->cfg = cfg;
             }
         }
+    }
+    if (on_inode_change_hook != NULL)
+    {
+        on_inode_change_hook(cfg.num, false);
     }
 }
 
@@ -1045,6 +1063,10 @@ json11::Json::object etcd_state_client_t::serialize_inode_cfg(inode_config_t *cf
     if (cfg->readonly)
     {
         new_cfg["readonly"] = true;
+    }
+    if (cfg->meta.is_object())
+    {
+        new_cfg["meta"] = cfg->meta;
     }
     return new_cfg;
 }

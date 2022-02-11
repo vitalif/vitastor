@@ -374,6 +374,11 @@ void cluster_client_t::on_change_hook(std::map<std::string, etcd_kv_t> & changes
     continue_ops();
 }
 
+bool cluster_client_t::get_immediate_commit()
+{
+    return immediate_commit;
+}
+
 void cluster_client_t::on_change_osd_state_hook(uint64_t peer_osd)
 {
     if (msgr.wanted_peers.find(peer_osd) != msgr.wanted_peers.end())

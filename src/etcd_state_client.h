@@ -56,6 +56,8 @@ struct inode_config_t
     uint64_t size;
     inode_t parent_id;
     bool readonly;
+    // Arbitrary metadata
+    json11::Json meta;
     // Change revision of the metadata in etcd
     uint64_t mod_revision;
 };
@@ -109,6 +111,8 @@ public:
     std::function<void(pool_id_t, pg_num_t)> on_change_pg_history_hook;
     std::function<void(osd_num_t)> on_change_osd_state_hook;
     std::function<void()> on_reload_hook;
+    std::function<void(inode_t, bool)> on_inode_change_hook;
+    std::function<void(http_co_t *)> on_start_watcher_hook;
 
     json11::Json::object serialize_inode_cfg(inode_config_t *cfg);
     etcd_kv_t parse_etcd_kv(const json11::Json & kv_json);

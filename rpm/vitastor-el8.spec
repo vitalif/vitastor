@@ -116,6 +116,7 @@ cp -r mon %buildroot/usr/lib/vitastor
 
 %files -n vitastor-client
 %_bindir/vitastor-nbd
+%_bindir/vitastor-nfs
 %_bindir/vitastor-cli
 %_bindir/vitastor-rm
 %_bindir/vita
