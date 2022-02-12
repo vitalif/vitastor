@@ -11,7 +11,7 @@
 
 #include "addr_util.h"
 
-bool string_to_addr(std::string str, bool parse_port, int default_port, struct sockaddr *addr)
+bool string_to_addr(std::string str, bool parse_port, int default_port, struct sockaddr_storage *addr)
 {
     if (parse_port)
     {
@@ -27,7 +27,7 @@ bool string_to_addr(std::string str, bool parse_port, int default_port, struct s
     }
     if (inet_pton(AF_INET, str.c_str(), &((struct sockaddr_in*)addr)->sin_addr) == 1)
     {
-        addr->sa_family = AF_INET;
+        addr->ss_family = AF_INET;
         ((struct sockaddr_in*)addr)->sin_port = htons(default_port);
         return true;
     }
@@ -35,30 +35,30 @@ bool string_to_addr(std::string str, bool parse_port, int default_port, struct s
         str = str.substr(1, str.length()-2);
     if (inet_pton(AF_INET6, str.c_str(), &((struct sockaddr_in6*)addr)->sin6_addr) == 1)
     {
-        addr->sa_family = AF_INET6;
+        addr->ss_family = AF_INET6;
         ((struct sockaddr_in6*)addr)->sin6_port = htons(default_port);
         return true;
     }
     return false;
 }
 
-std::string addr_to_string(const sockaddr &addr)
+std::string addr_to_string(const sockaddr_storage &addr)
 {
     char peer_str[256];
     bool ok = false;
     int port;
-    if (addr.sa_family == AF_INET)
+    if (addr.ss_family == AF_INET)
     {
         ok = !!inet_ntop(AF_INET, &((sockaddr_in*)&addr)->sin_addr, peer_str, 256);
         port = ntohs(((sockaddr_in*)&addr)->sin_port);
     }
-    else if (addr.sa_family == AF_INET6)
+    else if (addr.ss_family == AF_INET6)
     {
         ok = !!inet_ntop(AF_INET6, &((sockaddr_in6*)&addr)->sin6_addr, peer_str, 256);
         port = ntohs(((sockaddr_in6*)&addr)->sin6_port);
     }
     else
-        throw std::runtime_error("Unknown address family "+std::to_string(addr.sa_family));
+        throw std::runtime_error("Unknown address family "+std::to_string(addr.ss_family));
     if (!ok)
         throw std::runtime_error(std::string("inet_ntop: ") + strerror(errno));
     return std::string(peer_str)+":"+std::to_string(port);
@@ -191,13 +191,13 @@ std::vector<std::string> getifaddr_list(std::vector<std::string> mask_cfg, bool 
 
 int create_and_bind_socket(std::string bind_address, int bind_port, int listen_backlog, int *listening_port)
 {
-    sockaddr addr;
+    sockaddr_storage addr;
     if (!string_to_addr(bind_address, 0, bind_port, &addr))
     {
         throw std::runtime_error("bind address "+bind_address+" is not valid");
     }
 
-    int listen_fd = socket(addr.sa_family, SOCK_STREAM, 0);
+    int listen_fd = socket(addr.ss_family, SOCK_STREAM, 0);
     if (listen_fd < 0)
     {
         throw std::runtime_error(std::string("socket: ") + strerror(errno));
@@ -205,7 +205,7 @@ int create_and_bind_socket(std::string bind_address, int bind_port, int listen_b
     int enable = 1;
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
 
-    if (bind(listen_fd, &addr, sizeof(addr)) < 0)
+    if (bind(listen_fd, (sockaddr*)&addr, sizeof(addr)) < 0)
     {
         close(listen_fd);
         throw std::runtime_error(std::string("bind: ") + strerror(errno));

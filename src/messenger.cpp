@@ -222,13 +222,13 @@ void osd_messenger_t::try_connect_peer(uint64_t peer_osd)
 void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer_host, int peer_port)
 {
     assert(peer_osd != this->osd_num);
-    struct sockaddr addr;
+    struct sockaddr_storage addr;
     if (!string_to_addr(peer_host, 0, peer_port, &addr))
     {
         on_connect_peer(peer_osd, -EINVAL);
         return;
     }
-    int peer_fd = socket(addr.sa_family, SOCK_STREAM, 0);
+    int peer_fd = socket(addr.ss_family, SOCK_STREAM, 0);
     if (peer_fd < 0)
     {
         on_connect_peer(peer_osd, -errno);
@@ -484,10 +484,10 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
 void osd_messenger_t::accept_connections(int listen_fd)
 {
     // Accept new connections
-    sockaddr addr;
+    sockaddr_storage addr;
     socklen_t peer_addr_size = sizeof(addr);
     int peer_fd;
-    while ((peer_fd = accept(listen_fd, &addr, &peer_addr_size)) >= 0)
+    while ((peer_fd = accept(listen_fd, (sockaddr*)&addr, &peer_addr_size)) >= 0)
     {
         assert(peer_fd != 0);
         fprintf(stderr, "[OSD %lu] new client %d: connection from %s\n", this->osd_num, peer_fd,

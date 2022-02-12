@@ -47,13 +47,13 @@ int main(int narg, char *args[])
 {
     int listen_fd = create_and_bind_socket("0.0.0.0", 11203, 128, NULL);
     // Accept new connections
-    sockaddr addr;
+    sockaddr_storage addr;
     socklen_t peer_addr_size = sizeof(addr);
     int peer_fd;
     while (1)
     {
         printf("stub_osd: waiting for 1 client\n");
-        peer_fd = accept(listen_fd, &addr, &peer_addr_size);
+        peer_fd = accept(listen_fd, (sockaddr*)&addr, &peer_addr_size);
         if (peer_fd == -1)
         {
             if (errno == EAGAIN)

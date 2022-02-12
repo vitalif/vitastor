@@ -134,14 +134,14 @@ int main(int narg, char *args[])
 
 int connect_osd(const char *osd_address, int osd_port)
 {
-    struct sockaddr addr;
+    struct sockaddr_storage addr;
     if (!string_to_addr(osd_address, 0, osd_port, &addr))
     {
         fprintf(stderr, "server address: %s is not valid\n", osd_address);
         return -1;
     }
 
-    int connect_fd = socket(addr.sa_family, SOCK_STREAM, 0);
+    int connect_fd = socket(addr.ss_family, SOCK_STREAM, 0);
     if (connect_fd < 0)
     {
         perror("socket");

@@ -271,7 +271,7 @@ void http_co_t::close_connection()
 void http_co_t::start_connection()
 {
     stackin();
-    struct sockaddr addr;
+    struct sockaddr_storage addr;
     if (!string_to_addr(host.c_str(), 1, 80, &addr))
     {
         parsed = { .error = "Invalid address: "+host };
@@ -279,7 +279,7 @@ void http_co_t::start_connection()
         stackout();
         return;
     }
-    peer_fd = socket(addr.sa_family, SOCK_STREAM, 0);
+    peer_fd = socket(addr.ss_family, SOCK_STREAM, 0);
     if (peer_fd < 0)
     {
         parsed = { .error = std::string("socket: ")+strerror(errno) };

@@ -170,14 +170,14 @@ static int sec_init(struct thread_data *td)
     bsd->block_order = o->block_order == 0 ? 17 : o->block_order;
     bsd->block_size = 1 << o->block_order;
 
-    sockaddr addr;
+    sockaddr_storage addr;
     if (!string_to_addr(std::string(o->host ? o->host : "127.0.0.1"), false, o->port > 0 ? o->port : 11203, &addr))
     {
         fprintf(stderr, "server address: %s is not valid\n", o->host ? o->host : "127.0.0.1");
         return 1;
     }
 
-    bsd->connect_fd = socket(addr.sa_family, SOCK_STREAM, 0);
+    bsd->connect_fd = socket(addr.ss_family, SOCK_STREAM, 0);
     if (bsd->connect_fd < 0)
     {
         perror("socket");
