@@ -118,7 +118,7 @@ void blockstore_impl_t::loop()
         // has_writes == 0 - no writes before the current queue item
         // has_writes == 1 - some writes in progress
         // has_writes == 2 - tried to submit some writes, but failed
-        int has_writes = 0, op_idx = 0, new_idx = 0;
+        int has_writes = 0, op_idx = 0, new_idx = 0, done_lists = 0;
         for (; op_idx < submit_queue.size(); op_idx++, new_idx++)
         {
             auto op = submit_queue[op_idx];
@@ -198,9 +198,14 @@ void blockstore_impl_t::loop()
             }
             else if (op->opcode == BS_OP_LIST)
             {
-                // LIST doesn't need to be blocked by previous modifications
-                process_list(op);
-                wr_st = 2;
+                // LIST doesn't have to be blocked by previous modifications
+                // But don't do a lot of LISTs at once, because they're blocking and potentially slow
+                if (single_tick_list_limit <= 0 || done_lists < single_tick_list_limit)
+                {
+                    process_list(op);
+                    done_lists++;
+                    wr_st = 2;
+                }
             }
             if (wr_st == 2)
             {
