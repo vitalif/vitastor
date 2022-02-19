@@ -163,6 +163,17 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
     this->sent = 0;
     this->response_callback = response_callback;
     this->parsed = {};
+    if (state == HTTP_CO_KEEPALIVE)
+    {
+        state = HTTP_CO_SENDING_REQUEST;
+        submit_send();
+    }
+    else
+    {
+        start_connection();
+    }
+    // Do it _after_ state assignment because set_timer() can actually trigger
+    // other timers and requests (reenterability is our friend)
     if (request_timeout > 0)
     {
         timeout_id = tfd->set_timer(request_timeout, false, [this](int timer_id)
@@ -182,15 +193,6 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
             }
             stackout();
         });
-    }
-    if (state == HTTP_CO_KEEPALIVE)
-    {
-        state = HTTP_CO_SENDING_REQUEST;
-        submit_send();
-    }
-    else
-    {
-        start_connection();
     }
     stackout();
 }
