@@ -31,6 +31,8 @@ void osd_t::handle_peers()
                         peering_state = peering_state | OSD_FLUSHING_PGS;
                     else if (p.second.state & (PG_HAS_DEGRADED | PG_HAS_MISPLACED))
                         peering_state = peering_state | OSD_RECOVERING;
+                    ringloop->wakeup();
+                    return;
                 }
                 else
                 {
