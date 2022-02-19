@@ -129,6 +129,7 @@ void http_co_t::run_cb_and_clear()
     // Call callback after clearing it because otherwise we may hit reenterability problems
     if (cb != NULL)
         cb(&parsed);
+    next_request();
 }
 
 void http_co_t::send_request(const std::string & host, const std::string & request,
@@ -178,7 +179,6 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
                 close_connection();
                 parsed = { .error = "HTTP request timed out" };
                 run_cb_and_clear();
-                next_request();
             }
             stackout();
         });
@@ -309,7 +309,6 @@ void http_co_t::start_connection()
         close_connection();
         parsed = { .error = std::string("connect: ")+strerror(errno) };
         run_cb_and_clear();
-        next_request();
         stackout();
         return;
     }
@@ -343,7 +342,6 @@ void http_co_t::handle_events()
             {
                 close_connection();
                 run_cb_and_clear();
-                next_request();
                 break;
             }
         }
@@ -365,7 +363,6 @@ void http_co_t::handle_connect_result()
         close_connection();
         parsed = { .error = std::string("connect: ")+strerror(result) };
         run_cb_and_clear();
-        next_request();
         stackout();
         return;
     }
@@ -405,7 +402,6 @@ again:
             close_connection();
             parsed = { .error = std::string("sendmsg: ")+strerror(errno) };
             run_cb_and_clear();
-            next_request();
             stackout();
             return;
         }
@@ -456,7 +452,6 @@ again:
                 close_connection();
                 parsed = { .error = "HTTP request timed out" };
                 run_cb_and_clear();
-                next_request();
             }
         }
         else
@@ -472,7 +467,6 @@ again:
         if (res < 0)
             parsed = { .error = std::string("recvmsg: ")+strerror(-res) };
         run_cb_and_clear();
-        next_request();
     }
     else
     {
@@ -523,7 +517,6 @@ bool http_co_t::handle_read()
                     close_connection();
                     parsed = { .error = "Response has neither Connection: close, nor Transfer-Encoding: chunked nor Content-Length headers" };
                     run_cb_and_clear();
-                    next_request();
                     stackout();
                     return false;
                 }
@@ -537,8 +530,11 @@ bool http_co_t::handle_read()
     if (state == HTTP_CO_HEADERS_RECEIVED && target_response_size > 0 && response.size() >= target_response_size)
     {
         std::swap(parsed.body, response);
-        response_callback(&parsed);
-        parsed.eof = true;
+        if (!keepalive)
+            close_connection();
+        else
+            state = HTTP_CO_KEEPALIVE;
+        run_cb_and_clear();
     }
     else if (state == HTTP_CO_CHUNKED && response.size() > 0)
     {
@@ -569,10 +565,14 @@ bool http_co_t::handle_read()
             response_callback(&parsed);
             parsed.body = "";
         }
-        if (parsed.eof && !want_streaming)
+        else if (parsed.eof)
         {
             // Normal response
-            response_callback(&parsed);
+            if (!keepalive)
+                close_connection();
+            else
+                state = HTTP_CO_KEEPALIVE;
+            run_cb_and_clear();
         }
     }
     else if (state == HTTP_CO_WEBSOCKET && response.size() > 0)
@@ -582,16 +582,6 @@ bool http_co_t::handle_read()
             response_callback(&parsed);
             parsed.body = "";
         }
-    }
-    if (parsed.eof)
-    {
-        response_callback = NULL;
-        parsed = {};
-        if (!keepalive)
-            close_connection();
-        else
-            state = HTTP_CO_KEEPALIVE;
-        next_request();
     }
     stackout();
     return true;
