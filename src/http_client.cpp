@@ -65,7 +65,7 @@ struct http_co_t
     void next_request();
     void handle_events();
     void handle_connect_result();
-    void submit_read();
+    void submit_read(bool check_timeout);
     void submit_send();
     bool handle_read();
     void post_message(int type, const std::string & msg);
@@ -167,10 +167,19 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
         timeout_id = tfd->set_timer(request_timeout, false, [this](int timer_id)
         {
             stackin();
-            close_connection();
-            parsed = { .error = "HTTP request timed out" };
-            run_cb_and_clear();
-            next_request();
+            if (state == HTTP_CO_REQUEST_SENT)
+            {
+                // In case of high CPU load, we may not handle etcd responses in time
+                // For this case, first check the socket and only then terminate request with the timeout
+                submit_read(true);
+            }
+            else
+            {
+                close_connection();
+                parsed = { .error = "HTTP request timed out" };
+                run_cb_and_clear();
+                next_request();
+            }
             stackout();
         });
     }
@@ -328,7 +337,7 @@ void http_co_t::handle_events()
             epoll_events &= ~EPOLLOUT;
             if (epoll_events & EPOLLIN)
             {
-                submit_read();
+                submit_read(false);
             }
             else if (epoll_events & (EPOLLRDHUP|EPOLLERR))
             {
@@ -418,10 +427,11 @@ again:
     stackout();
 }
 
-void http_co_t::submit_read()
+void http_co_t::submit_read(bool check_timeout)
 {
     stackin();
     int res;
+again:
     if (rbuf.size() != READ_BUFFER_SIZE)
     {
         rbuf.resize(READ_BUFFER_SIZE);
@@ -436,7 +446,23 @@ void http_co_t::submit_read()
     }
     if (res == -EAGAIN || res == -EINTR)
     {
-        epoll_events = epoll_events & ~EPOLLIN;
+        if (check_timeout)
+        {
+            if (res == -EINTR)
+                goto again;
+            else
+            {
+                // Timeout happened and there is no data to read
+                close_connection();
+                parsed = { .error = "HTTP request timed out" };
+                run_cb_and_clear();
+                next_request();
+            }
+        }
+        else
+        {
+            epoll_events = epoll_events & ~EPOLLIN;
+        }
     }
     else if (res <= 0)
     {
