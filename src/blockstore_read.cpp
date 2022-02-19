@@ -111,6 +111,7 @@ uint8_t* blockstore_impl_t::get_clean_entry_bitmap(uint64_t block_loc, int offse
 
 int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
 {
+    auto & clean_db = clean_db_shard(read_op->oid);
     auto clean_it = clean_db.find(read_op->oid);
     auto dirty_it = dirty_db.upper_bound((obj_ver_id){
         .oid = read_op->oid,
@@ -297,6 +298,7 @@ int blockstore_impl_t::read_bitmap(object_id oid, uint64_t target_version, void 
             dirty_it--;
         }
     }
+    auto & clean_db = clean_db_shard(oid);
     auto clean_it = clean_db.find(oid);
     if (clean_it != clean_db.end())
     {

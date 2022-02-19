@@ -428,22 +428,104 @@ static bool replace_stable(object_id oid, uint64_t version, int search_start, in
     return false;
 }
 
+blockstore_clean_db_t& blockstore_impl_t::clean_db_shard(object_id oid)
+{
+    uint64_t pg_num = 0;
+    uint64_t pool_id = (oid.inode >> (64-POOL_ID_BITS));
+    auto sh_it = clean_db_settings.find(pool_id);
+    if (sh_it != clean_db_settings.end())
+    {
+        // like map_to_pg()
+        pg_num = (oid.stripe / sh_it->second.pg_stripe_size) % sh_it->second.pg_count + 1;
+    }
+    return clean_db_shards[(pool_id << (64-POOL_ID_BITS)) | pg_num];
+}
+
+void blockstore_impl_t::reshard_clean_db(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size)
+{
+    uint64_t pool_id = (uint64_t)pool;
+    std::map<pool_pg_id_t, blockstore_clean_db_t> new_shards;
+    auto sh_it = clean_db_shards.lower_bound((pool_id << (64-POOL_ID_BITS)));
+    while (sh_it != clean_db_shards.end() &&
+        (sh_it->first >> (64-POOL_ID_BITS)) == pool_id)
+    {
+        for (auto & pair: sh_it->second)
+        {
+            // like map_to_pg()
+            uint64_t pg_num = (pair.first.stripe / pg_stripe_size) % pg_count + 1;
+            uint64_t shard_id = (pool_id << (64-POOL_ID_BITS)) | pg_num;
+            new_shards[shard_id][pair.first] = pair.second;
+        }
+        clean_db_shards.erase(sh_it++);
+    }
+    for (sh_it = new_shards.begin(); sh_it != new_shards.end(); sh_it++)
+    {
+        auto & to = clean_db_shards[sh_it->first];
+        to.swap(sh_it->second);
+    }
+    clean_db_settings[pool_id] = (pool_shard_settings_t){
+        .pg_count = pg_count,
+        .pg_stripe_size = pg_stripe_size,
+    };
+}
+
 void blockstore_impl_t::process_list(blockstore_op_t *op)
 {
-    uint32_t list_pg = op->offset;
+    uint32_t list_pg = op->offset+1;
     uint32_t pg_count = op->len;
     uint64_t pg_stripe_size = op->oid.stripe;
     uint64_t min_inode = op->oid.inode;
     uint64_t max_inode = op->version;
     // Check PG
-    if (pg_count != 0 && (pg_stripe_size < MIN_BLOCK_SIZE || list_pg >= pg_count))
+    if (pg_count != 0 && (pg_stripe_size < MIN_BLOCK_SIZE || list_pg > pg_count))
     {
         op->retval = -EINVAL;
         FINISH_OP(op);
         return;
     }
-    // Copy clean_db entries (sorted)
-    int stable_count = 0, stable_alloc = clean_db.size() / (pg_count ? pg_count : 1);
+    // Check if the DB needs resharding
+    // (we don't know about PGs from the beginning, we only create "shards" here)
+    uint64_t first_shard = 0, last_shard = UINT64_MAX;
+    if (min_inode != 0 &&
+        // Check if min_inode == max_inode == pool_id<<N, i.e. this is a pool listing
+        (min_inode >> (64-POOL_ID_BITS)) == (max_inode >> (64-POOL_ID_BITS)))
+    {
+        pool_id_t pool_id = (min_inode >> (64-POOL_ID_BITS));
+        if (pg_count > 1)
+        {
+            // Per-pg listing
+            auto sh_it = clean_db_settings.find(pool_id);
+            if (sh_it == clean_db_settings.end() ||
+                sh_it->second.pg_count != pg_count ||
+                sh_it->second.pg_stripe_size != pg_stripe_size)
+            {
+                reshard_clean_db(pool_id, pg_count, pg_stripe_size);
+            }
+            first_shard = last_shard = ((uint64_t)pool_id << (64-POOL_ID_BITS)) | list_pg;
+        }
+        else
+        {
+            // Per-pool listing
+            first_shard = ((uint64_t)pool_id << (64-POOL_ID_BITS));
+            last_shard = ((uint64_t)(pool_id+1) << (64-POOL_ID_BITS)) - 1;
+        }
+    }
+    // Copy clean_db entries
+    int stable_count = 0, stable_alloc = 0;
+    if (min_inode != max_inode)
+    {
+        for (auto shard_it = clean_db_shards.lower_bound(first_shard);
+            shard_it != clean_db_shards.end() && shard_it->first <= last_shard;
+            shard_it++)
+        {
+            auto & clean_db = shard_it->second;
+            stable_alloc += clean_db.size();
+        }
+    }
+    else
+    {
+        stable_alloc = 32768;
+    }
     obj_ver_id *stable = (obj_ver_id*)malloc(sizeof(obj_ver_id) * stable_alloc);
     if (!stable)
     {
@@ -451,7 +533,11 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
         FINISH_OP(op);
         return;
     }
+    for (auto shard_it = clean_db_shards.lower_bound(first_shard);
+        shard_it != clean_db_shards.end() && shard_it->first <= last_shard;
+        shard_it++)
     {
+        auto & clean_db = shard_it->second;
         auto clean_it = clean_db.begin(), clean_end = clean_db.end();
         if ((min_inode != 0 || max_inode != 0) && min_inode <= max_inode)
         {
@@ -466,25 +552,27 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
         }
         for (; clean_it != clean_end; clean_it++)
         {
-            if (!pg_count || ((clean_it->first.stripe / pg_stripe_size) % pg_count) == list_pg) // like map_to_pg()
+            if (stable_count >= stable_alloc)
             {
-                if (stable_count >= stable_alloc)
+                stable_alloc *= 2;
+                stable = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
+                if (!stable)
                 {
-                    stable_alloc += 32768;
-                    stable = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
-                    if (!stable)
-                    {
-                        op->retval = -ENOMEM;
-                        FINISH_OP(op);
-                        return;
-                    }
+                    op->retval = -ENOMEM;
+                    FINISH_OP(op);
+                    return;
                 }
-                stable[stable_count++] = {
-                    .oid = clean_it->first,
-                    .version = clean_it->second.version,
-                };
             }
+            stable[stable_count++] = {
+                .oid = clean_it->first,
+                .version = clean_it->second.version,
+            };
         }
+    }
+    if (first_shard != last_shard)
+    {
+        // If that's not a per-PG listing, sort clean entries
+        std::sort(stable, stable+stable_count);
     }
     int clean_stable_count = stable_count;
     // Copy dirty_db entries (sorted, too)
@@ -511,7 +599,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
         }
         for (; dirty_it != dirty_end; dirty_it++)
         {
-            if (!pg_count || ((dirty_it->first.oid.stripe / pg_stripe_size) % pg_count) == list_pg) // like map_to_pg()
+            if (!pg_count || ((dirty_it->first.oid.stripe / pg_stripe_size) % pg_count + 1) == list_pg) // like map_to_pg()
             {
                 if (IS_DELETE(dirty_it->second.state))
                 {

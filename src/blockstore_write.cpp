@@ -41,6 +41,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     }
     if (!found)
     {
+        auto & clean_db = clean_db_shard(op->oid);
         auto clean_it = clean_db.find(op->oid);
         if (clean_it != clean_db.end())
         {

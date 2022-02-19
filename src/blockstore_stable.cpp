@@ -54,6 +54,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
         auto dirty_it = dirty_db.find(*v);
         if (dirty_it == dirty_db.end())
         {
+            auto & clean_db = clean_db_shard(v->oid);
             auto clean_it = clean_db.find(v->oid);
             if (clean_it == clean_db.end() || clean_it->second.version < v->version)
             {
@@ -188,6 +189,7 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
                     }
                     if (exists == -1)
                     {
+                        auto & clean_db = clean_db_shard(v.oid);
                         auto clean_it = clean_db.find(v.oid);
                         exists = clean_it != clean_db.end() ? 1 : 0;
                     }
@@ -215,6 +217,7 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
                         break;
                     }
                 }
+                auto & clean_db = clean_db_shard(v.oid);
                 auto clean_it = clean_db.find(v.oid);
                 uint64_t clean_loc = clean_it != clean_db.end()
                     ? clean_it->second.location : UINT64_MAX;

@@ -222,10 +222,11 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
         }
         if (entry->oid.inode > 0)
         {
-            auto clean_it = bs->clean_db.find(entry->oid);
-            if (clean_it == bs->clean_db.end() || clean_it->second.version < entry->version)
+            auto & clean_db = bs->clean_db_shard(entry->oid);
+            auto clean_it = clean_db.find(entry->oid);
+            if (clean_it == clean_db.end() || clean_it->second.version < entry->version)
             {
-                if (clean_it != bs->clean_db.end())
+                if (clean_it != clean_db.end())
                 {
                     // free the previous block
 #ifdef BLOCKSTORE_DEBUG
@@ -245,7 +246,7 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
                 printf("Allocate block (clean entry) %lu: %lx:%lx v%lu\n", done_cnt+i, entry->oid.inode, entry->oid.stripe, entry->version);
 #endif
                 bs->data_alloc->set(done_cnt+i, true);
-                bs->clean_db[entry->oid] = (struct clean_entry){
+                clean_db[entry->oid] = (struct clean_entry){
                     .version = entry->version,
                     .location = (done_cnt+i) << block_order,
                 };
@@ -656,8 +657,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     init_write_sector = proc_pos;
                     return 0;
                 }
-                auto clean_it = bs->clean_db.find(je->small_write.oid);
-                if (clean_it == bs->clean_db.end() ||
+                auto & clean_db = bs->clean_db_shard(je->small_write.oid);
+                auto clean_it = clean_db.find(je->small_write.oid);
+                if (clean_it == clean_db.end() ||
                     clean_it->second.version < je->small_write.version)
                 {
                     obj_ver_id ov = {
@@ -735,8 +737,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         erase_dirty_object(dirty_it);
                     }
                 }
-                auto clean_it = bs->clean_db.find(je->big_write.oid);
-                if (clean_it == bs->clean_db.end() ||
+                auto & clean_db = bs->clean_db_shard(je->big_write.oid);
+                auto clean_it = clean_db.find(je->big_write.oid);
+                if (clean_it == clean_db.end() ||
                     clean_it->second.version < je->big_write.version)
                 {
                     // oid, version, block
@@ -841,8 +844,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     dirty_it--;
                     dirty_exists = dirty_it->first.oid == je->del.oid;
                 }
-                auto clean_it = bs->clean_db.find(je->del.oid);
-                bool clean_exists = (clean_it != bs->clean_db.end() &&
+                auto & clean_db = bs->clean_db_shard(je->del.oid);
+                auto clean_it = clean_db.find(je->del.oid);
+                bool clean_exists = (clean_it != clean_db.end() &&
                     clean_it->second.version < je->del.version);
                 if (!clean_exists && dirty_exists)
                 {
@@ -901,8 +905,9 @@ void blockstore_init_journal::erase_dirty_object(blockstore_dirty_db_t::iterator
             break;
         }
     }
-    auto clean_it = bs->clean_db.find(oid);
-    uint64_t clean_loc = clean_it != bs->clean_db.end()
+    auto & clean_db = bs->clean_db_shard(oid);
+    auto clean_it = clean_db.find(oid);
+    uint64_t clean_loc = clean_it != clean_db.end()
         ? clean_it->second.location : UINT64_MAX;
     if (exists && clean_loc == UINT64_MAX)
     {

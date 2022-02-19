@@ -415,8 +415,11 @@ stop_flusher:
         flusher->active_flushers++;
 resume_1:
         // Find it in clean_db
-        clean_it = bs->clean_db.find(cur.oid);
-        old_clean_loc = (clean_it != bs->clean_db.end() ? clean_it->second.location : UINT64_MAX);
+        {
+            auto & clean_db = bs->clean_db_shard(cur.oid);
+            auto clean_it = clean_db.find(cur.oid);
+            old_clean_loc = (clean_it != clean_db.end() ? clean_it->second.location : UINT64_MAX);
+        }
         // Scan dirty versions of the object
         if (!scan_dirty(1))
         {
@@ -870,10 +873,11 @@ void journal_flusher_co::update_clean_db()
 #endif
         bs->data_alloc->set(old_clean_loc >> bs->block_order, false);
     }
+    auto & clean_db = bs->clean_db_shard(cur.oid);
     if (has_delete)
     {
-        auto clean_it = bs->clean_db.find(cur.oid);
-        bs->clean_db.erase(clean_it);
+        auto clean_it = clean_db.find(cur.oid);
+        clean_db.erase(clean_it);
 #ifdef BLOCKSTORE_DEBUG
         printf("Free block %lu from %lx:%lx v%lu (delete)\n",
             clean_loc >> bs->block_order,
@@ -884,7 +888,7 @@ void journal_flusher_co::update_clean_db()
     }
     else
     {
-        bs->clean_db[cur.oid] = {
+        clean_db[cur.oid] = {
             .version = cur.version,
             .location = clean_loc,
         };

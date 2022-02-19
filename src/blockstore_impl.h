@@ -204,6 +204,17 @@ typedef std::map<obj_ver_id, dirty_entry> blockstore_dirty_db_t;
 
 #include "blockstore_flush.h"
 
+typedef uint32_t pool_id_t;
+typedef uint64_t pool_pg_id_t;
+
+#define POOL_ID_BITS 16
+
+struct pool_shard_settings_t
+{
+    uint32_t pg_count;
+    uint32_t pg_stripe_size;
+};
+
 class blockstore_impl_t
 {
     /******* OPTIONS *******/
@@ -247,7 +258,8 @@ class blockstore_impl_t
 
     struct ring_consumer_t ring_consumer;
 
-    blockstore_clean_db_t clean_db;
+    std::map<pool_id_t, pool_shard_settings_t> clean_db_settings;
+    std::map<pool_pg_id_t, blockstore_clean_db_t> clean_db_shards;
     uint8_t *clean_bitmap = NULL;
     blockstore_dirty_db_t dirty_db;
     std::vector<blockstore_op_t*> submit_queue;
@@ -295,6 +307,9 @@ class blockstore_impl_t
     void open_meta();
     void open_journal();
     uint8_t* get_clean_entry_bitmap(uint64_t block_loc, int offset);
+
+    blockstore_clean_db_t& clean_db_shard(object_id oid);
+    void reshard_clean_db(pool_id_t pool_id, uint32_t pg_count, uint32_t pg_stripe_size);
 
     // Journaling
     void prepare_journal_sector_write(int sector, blockstore_op_t *op);
