@@ -62,6 +62,7 @@ struct http_co_t
     void run_cb_and_clear();
     void start_connection();
     void close_connection();
+    void next_request();
     void handle_events();
     void handle_connect_result();
     void submit_read();
@@ -169,6 +170,7 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
             close_connection();
             parsed = { .error = "HTTP request timed out" };
             run_cb_and_clear();
+            next_request();
             stackout();
         });
     }
@@ -274,6 +276,7 @@ void http_co_t::start_connection()
     struct sockaddr_storage addr;
     if (!string_to_addr(host.c_str(), 1, 80, &addr))
     {
+        close_connection();
         parsed = { .error = "Invalid address: "+host };
         run_cb_and_clear();
         stackout();
@@ -282,6 +285,7 @@ void http_co_t::start_connection()
     peer_fd = socket(addr.ss_family, SOCK_STREAM, 0);
     if (peer_fd < 0)
     {
+        close_connection();
         parsed = { .error = std::string("socket: ")+strerror(errno) };
         run_cb_and_clear();
         stackout();
@@ -296,6 +300,7 @@ void http_co_t::start_connection()
         close_connection();
         parsed = { .error = std::string("connect: ")+strerror(errno) };
         run_cb_and_clear();
+        next_request();
         stackout();
         return;
     }
@@ -329,6 +334,7 @@ void http_co_t::handle_events()
             {
                 close_connection();
                 run_cb_and_clear();
+                next_request();
                 break;
             }
         }
@@ -350,6 +356,7 @@ void http_co_t::handle_connect_result()
         close_connection();
         parsed = { .error = std::string("connect: ")+strerror(result) };
         run_cb_and_clear();
+        next_request();
         stackout();
         return;
     }
@@ -389,6 +396,7 @@ again:
             close_connection();
             parsed = { .error = std::string("sendmsg: ")+strerror(errno) };
             run_cb_and_clear();
+            next_request();
             stackout();
             return;
         }
@@ -438,6 +446,7 @@ void http_co_t::submit_read()
         if (res < 0)
             parsed = { .error = std::string("recvmsg: ")+strerror(-res) };
         run_cb_and_clear();
+        next_request();
     }
     else
     {
@@ -488,6 +497,7 @@ bool http_co_t::handle_read()
                     close_connection();
                     parsed = { .error = "Response has neither Connection: close, nor Transfer-Encoding: chunked nor Content-Length headers" };
                     run_cb_and_clear();
+                    next_request();
                     stackout();
                     return false;
                 }
@@ -552,22 +562,23 @@ bool http_co_t::handle_read()
         response_callback = NULL;
         parsed = {};
         if (!keepalive)
-        {
             close_connection();
-        }
         else
-        {
             state = HTTP_CO_KEEPALIVE;
-            if (keepalive_queue.size() > 0)
-            {
-                auto next = keepalive_queue[0];
-                keepalive_queue.erase(keepalive_queue.begin(), keepalive_queue.begin()+1);
-                next();
-            }
-        }
+        next_request();
     }
     stackout();
     return true;
+}
+
+void http_co_t::next_request()
+{
+    if (keepalive_queue.size() > 0)
+    {
+        auto next = keepalive_queue[0];
+        keepalive_queue.erase(keepalive_queue.begin(), keepalive_queue.begin()+1);
+        next();
+    }
 }
 
 uint64_t stoull_full(const std::string & str, int base)
