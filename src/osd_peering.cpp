@@ -396,7 +396,9 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         {
             if (op->bs_op->retval < 0)
             {
-                throw std::runtime_error("local OP_LIST failed");
+                printf("Local OP_LIST failed: retval=%d\n", op->bs_op->retval);
+                force_stop(1);
+                return;
             }
             add_bs_subop_stats(op);
             printf(

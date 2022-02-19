@@ -457,7 +457,8 @@ void osd_t::renew_lease()
         if (err == "" && data["result"]["TTL"].string_value() == "")
         {
             // Die
-            throw std::runtime_error("etcd lease has expired");
+            fprintf(stderr, "Error refreshing etcd lease\n");
+            force_stop(1);
         }
         if (err != "")
         {
@@ -466,7 +467,8 @@ void osd_t::renew_lease()
             if (etcd_failed_attempts > st_cli.max_etcd_attempts)
             {
                 // Die
-                throw std::runtime_error("Cluster connection failed");
+                fprintf(stderr, "Cluster connection failed\n");
+                force_stop(1);
             }
             // Retry
             tfd->set_timer(st_cli.etcd_quick_timeout, false, [this](int timer_id)
