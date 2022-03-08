@@ -355,7 +355,25 @@ class VitastorDriver(driver.CloneableImageVD,
     def revert_to_snapshot(self, context, volume, snapshot):
         """Revert a volume to a given snapshot."""
 
-        # FIXME Delete the image, then recreate it from the snapshot
+        vol_name = utils.convert_str(snapshot.volume_name)
+        snap_name = utils.convert_str(snapshot.name)
+
+        # Delete the image and recreate it from the snapshot
+        args = [ 'vitastor-cli', 'rm', vol_name, *(self._vitastor_args()) ]
+        try:
+            self._execute(*args)
+        except processutils.ProcessExecutionError as exc:
+            LOG.error("Failed to delete image "+vol_name+": "+exc)
+            raise exception.VolumeBackendAPIException(data = exc.stderr)
+        args = [
+            'vitastor-cli', 'create', '--parent', vol_name+'@'+snap_name,
+            vol_name, *(self._vitastor_args())
+        ]
+        try:
+            self._execute(*args)
+        except processutils.ProcessExecutionError as exc:
+            LOG.error("Failed to recreate image "+vol_name+" from "+vol_name+"@"+snap_name+": "+exc)
+            raise exception.VolumeBackendAPIException(data = exc.stderr)
 
     def delete_snapshot(self, snapshot):
         """Deletes a snapshot."""
@@ -363,24 +381,15 @@ class VitastorDriver(driver.CloneableImageVD,
         vol_name = utils.convert_str(snapshot.volume_name)
         snap_name = utils.convert_str(snapshot.name)
 
-        # Find the snapshot
-        resp = self._etcd_txn({ 'success': [
-            { 'request_range': { 'key': 'index/image/'+vol_name+'@'+snap_name } },
-        ] })
-        if len(resp['responses'][0]['kvs']) == 0:
-            raise exception.SnapshotNotFound(snapshot_id = snap_name)
-        inode_id = int(resp['responses'][0]['kvs'][0]['value']['id'])
-        pool_id = int(resp['responses'][0]['kvs'][0]['value']['pool_id'])
-        parents = {}
-        parents[(pool_id << 48) | (inode_id & 0xffffffffffff)] = True
-
-        # Check if there are child volumes
-        children = self._child_count(parents)
-        if children > 0:
-            raise exception.SnapshotIsBusy(snapshot_name = snap_name)
-
-        # FIXME: We can't delete snapshots because we can't merge layers yet
-        raise exception.VolumeBackendAPIException(data = 'Snapshot delete (layer merge) is not implemented yet')
+        args = [
+            'vitastor-cli', 'rm', vol_name+'@'+snap_name,
+            *(self._vitastor_args())
+        ]
+        try:
+            self._execute(*args)
+        except processutils.ProcessExecutionError as exc:
+            LOG.error("Failed to remove snapshot "+vol_name+'@'+snap_name+": "+exc)
+            raise exception.VolumeBackendAPIException(data = exc.stderr)
 
     def _child_count(self, parents):
         children = 0
