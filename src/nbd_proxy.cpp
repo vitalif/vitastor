@@ -54,6 +54,8 @@ protected:
     msghdr read_msg = { 0 }, send_msg = { 0 };
     iovec read_iov = { 0 };
 
+    std::string logfile = "/dev/null";
+
 public:
     ~nbd_proxy()
     {
@@ -278,6 +280,10 @@ public:
                 }
             }
         }
+        if (cfg["logfile"].is_string())
+        {
+            logfile = cfg["logfile"].string_value();
+        }
         if (bg)
         {
             daemonize();
@@ -369,8 +375,8 @@ public:
         close(1);
         close(2);
         open("/dev/null", O_RDONLY);
-        open("/dev/null", O_WRONLY);
-        open("/dev/null", O_WRONLY);
+        open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT);
+        open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT);
     }
 
     json11::Json::object list_mapped()
