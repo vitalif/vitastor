@@ -690,6 +690,7 @@ protected:
             {
                 assert(result <= cur_left);
                 cur_left -= result;
+                cur_buf = (uint8_t*)cur_buf + result;
                 result = 0;
             }
             if (cur_left <= 0)
