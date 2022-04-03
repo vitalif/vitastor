@@ -122,6 +122,7 @@ public:
     void load_pgs();
     void parse_state(const etcd_kv_t & kv);
     void parse_config(const json11::Json & config);
+    void insert_inode_config(const inode_config_t & cfg);
     inode_watch_t* watch_inode(std::string name);
     void close_watch(inode_watch_t* watch);
     int address_count();

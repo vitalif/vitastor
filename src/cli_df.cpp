@@ -12,6 +12,7 @@ struct pool_lister_t
 
     int state = 0;
     json11::Json space_info;
+    cli_result_t result;
     std::map<pool_id_t, json11::Json::object> pool_stats;
 
     bool is_done()
@@ -52,6 +53,12 @@ struct pool_lister_t
 resume_1:
         if (parent->waiting > 0)
             return;
+        if (parent->etcd_err.err)
+        {
+            result = parent->etcd_err;
+            state = 100;
+            return;
+        }
         space_info = parent->etcd_result;
         std::map<pool_id_t, uint64_t> osd_free;
         for (auto & kv_item: space_info["responses"][0]["response_range"]["kvs"].array_items())
@@ -150,10 +157,12 @@ resume_1:
         get_stats();
         if (parent->waiting > 0)
             return;
+        if (state == 100)
+            return;
         if (parent->json_output)
         {
             // JSON output
-            printf("%s\n", json11::Json(to_list()).dump().c_str());
+            result.data = to_list();
             state = 100;
             return;
         }
@@ -206,21 +215,22 @@ resume_1:
                 : 100)+"%";
             kv.second["eff_fmt"] = format_q(kv.second["space_efficiency"].number_value()*100)+"%";
         }
-        printf("%s", print_table(to_list(), cols, parent->color).c_str());
+        result.data = to_list();
+        result.text = print_table(result.data, cols, parent->color);
         state = 100;
     }
 };
 
-std::function<bool(void)> cli_tool_t::start_df(json11::Json cfg)
+std::function<bool(cli_result_t &)> cli_tool_t::start_df(json11::Json cfg)
 {
-    json11::Json::array cmd = cfg["command"].array_items();
     auto lister = new pool_lister_t();
     lister->parent = this;
-    return [lister]()
+    return [lister](cli_result_t & result)
     {
         lister->loop();
         if (lister->is_done())
         {
+            result = lister->result;
             delete lister;
             return true;
         }

@@ -124,6 +124,18 @@ add_library(vitastor_client SHARED
 	cluster_client.cpp
 	cluster_client_list.cpp
 	vitastor_c.cpp
+	cli_common.cpp
+	cli_alloc_osd.cpp
+	cli_simple_offsets.cpp
+	cli_status.cpp
+	cli_df.cpp
+	cli_ls.cpp
+	cli_create.cpp
+	cli_modify.cpp
+	cli_flatten.cpp
+	cli_merge.cpp
+	cli_rm_data.cpp
+	cli_rm.cpp
 )
 set_target_properties(vitastor_client PROPERTIES PUBLIC_HEADER "vitastor_c.h")
 target_link_libraries(vitastor_client
@@ -154,8 +166,7 @@ target_link_libraries(vitastor-nbd
 
 # vitastor-cli
 add_executable(vitastor-cli
-	cli.cpp cli_alloc_osd.cpp cli_simple_offsets.cpp cli_status.cpp cli_df.cpp
-	cli_ls.cpp cli_create.cpp cli_modify.cpp cli_flatten.cpp cli_merge.cpp cli_rm_data.cpp cli_rm.cpp
+	cli.cpp
 )
 target_link_libraries(vitastor-cli
 	vitastor_client

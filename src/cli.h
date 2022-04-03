@@ -19,11 +19,18 @@ class epoll_manager_t;
 class cluster_client_t;
 struct inode_config_t;
 
+struct cli_result_t
+{
+    int err;
+    std::string text;
+    json11::Json data;
+};
+
 class cli_tool_t
 {
 public:
-    uint64_t iodepth = 0, parallel_osds = 0;
-    bool progress = true;
+    uint64_t iodepth = 4, parallel_osds = 32;
+    bool progress = false;
     bool list_first = false;
     bool json_output = false;
     int log_level = 0;
@@ -34,34 +41,33 @@ public:
     cluster_client_t *cli = NULL;
 
     int waiting = 0;
+    cli_result_t etcd_err;
     json11::Json etcd_result;
-    ring_consumer_t consumer;
-    std::function<bool(void)> action_cb;
 
-    void run(json11::Json cfg);
+    void parse_config(json11::Json cfg);
 
-    void change_parent(inode_t cur, inode_t new_parent);
+    void change_parent(inode_t cur, inode_t new_parent, cli_result_t *result);
     inode_config_t* get_inode_cfg(const std::string & name);
-
-    static json11::Json::object parse_args(int narg, const char *args[]);
-    static void help();
 
     friend struct rm_inode_t;
     friend struct snap_merger_t;
     friend struct snap_flattener_t;
     friend struct snap_remover_t;
 
-    std::function<bool(void)> start_status(json11::Json cfg);
-    std::function<bool(void)> start_df(json11::Json);
-    std::function<bool(void)> start_ls(json11::Json);
-    std::function<bool(void)> start_create(json11::Json);
-    std::function<bool(void)> start_modify(json11::Json);
-    std::function<bool(void)> start_rm(json11::Json);
-    std::function<bool(void)> start_merge(json11::Json);
-    std::function<bool(void)> start_flatten(json11::Json);
-    std::function<bool(void)> start_snap_rm(json11::Json);
-    std::function<bool(void)> start_alloc_osd(json11::Json cfg, uint64_t *out = NULL);
-    std::function<bool(void)> simple_offsets(json11::Json cfg);
+    std::function<bool(cli_result_t &)> start_status(json11::Json);
+    std::function<bool(cli_result_t &)> start_df(json11::Json);
+    std::function<bool(cli_result_t &)> start_ls(json11::Json);
+    std::function<bool(cli_result_t &)> start_create(json11::Json);
+    std::function<bool(cli_result_t &)> start_modify(json11::Json);
+    std::function<bool(cli_result_t &)> start_rm_data(json11::Json);
+    std::function<bool(cli_result_t &)> start_merge(json11::Json);
+    std::function<bool(cli_result_t &)> start_flatten(json11::Json);
+    std::function<bool(cli_result_t &)> start_rm(json11::Json);
+    std::function<bool(cli_result_t &)> start_alloc_osd(json11::Json cfg);
+    std::function<bool(cli_result_t &)> simple_offsets(json11::Json cfg);
+
+    // Should be called like loop_and_wait(start_status(), <completion callback>)
+    void loop_and_wait(std::function<bool(cli_result_t &)> loop_cb, std::function<void(const cli_result_t &)> complete_cb);
 
     void etcd_txn(json11::Json txn);
 };

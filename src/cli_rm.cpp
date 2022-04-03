@@ -63,11 +63,13 @@ struct snap_remover_t
     inode_t new_parent = 0;
     int state = 0;
     int current_child = 0;
-    std::function<bool(void)> cb;
+    std::function<bool(cli_result_t &)> cb;
+
+    cli_result_t result;
 
     bool is_done()
     {
-        return state == 9;
+        return state == 100;
     }
 
     void loop()
@@ -88,13 +90,28 @@ struct snap_remover_t
             goto resume_7;
         else if (state == 8)
             goto resume_8;
-        else if (state == 9)
-            goto resume_9;
+        else if (state == 100)
+            goto resume_100;
+        assert(!state);
+        if (from_name == "")
+        {
+            result = (cli_result_t){ .err = EINVAL, .text = "Layer to remove argument is missing" };
+            state = 100;
+            return;
+        }
+        if (to_name == "")
+        {
+            to_name = from_name;
+        }
         // Get children to merge
         get_merge_children();
+        if (state == 100)
+            return;
         // Try to select an inode for the "inverse" optimized scenario
         // Read statistics from etcd to do it
         read_stats();
+        if (state == 100)
+            return;
         state = 1;
 resume_1:
         if (parent->waiting > 0)
@@ -106,42 +123,72 @@ resume_1:
             if (merge_children[current_child] == inverse_child)
                 continue;
             start_merge_child(merge_children[current_child], merge_children[current_child]);
+            if (state == 100)
+                return;
 resume_2:
-            while (!cb())
+            while (!cb(result))
             {
                 state = 2;
                 return;
             }
             cb = NULL;
-            parent->change_parent(merge_children[current_child], new_parent);
+            if (result.err)
+            {
+                state = 100;
+                return;
+            }
+            parent->change_parent(merge_children[current_child], new_parent, &result);
             state = 3;
 resume_3:
             if (parent->waiting > 0)
                 return;
+            if (result.err)
+            {
+                state = 100;
+                return;
+            }
+            else if (parent->progress)
+                printf("%s\n", result.text.c_str());
         }
         // Merge our "inverse" child into our "inverse" parent
         if (inverse_child != 0)
         {
             start_merge_child(inverse_child, inverse_parent);
+            if (state == 100)
+                return;
 resume_4:
-            while (!cb())
+            while (!cb(result))
             {
                 state = 4;
                 return;
             }
             cb = NULL;
+            if (result.err)
+            {
+                state = 100;
+                return;
+            }
             // Delete "inverse" child data
             start_delete_source(inverse_child);
+            if (state == 100)
+                return;
 resume_5:
-            while (!cb())
+            while (!cb(result))
             {
                 state = 5;
                 return;
             }
             cb = NULL;
+            if (result.err)
+            {
+                state = 100;
+                return;
+            }
             // Delete "inverse" child metadata, rename parent over it,
             // and also change parent links of the previous "inverse" child
             rename_inverse_parent();
+            if (state == 100)
+                return;
             state = 6;
 resume_6:
             if (parent->waiting > 0)
@@ -154,20 +201,27 @@ resume_6:
                 continue;
             start_delete_source(chain_list[current_child]);
 resume_7:
-            while (!cb())
+            while (!cb(result))
             {
                 state = 7;
                 return;
             }
             cb = NULL;
+            if (result.err)
+            {
+                state = 100;
+                return;
+            }
             delete_inode_config(chain_list[current_child]);
+            if (state == 100)
+                return;
             state = 8;
 resume_8:
             if (parent->waiting > 0)
                 return;
         }
-        state = 9;
-resume_9:
+        state = 100;
+resume_100:
         // Done
         return;
     }
@@ -176,7 +230,19 @@ resume_9:
     {
         // Get all children of from..to
         inode_config_t *from_cfg = parent->get_inode_cfg(from_name);
+        if (!from_cfg)
+        {
+            result = (cli_result_t){ .err = ENOENT, .text = "Layer "+from_name+" not found" };
+            state = 100;
+            return;
+        }
         inode_config_t *to_cfg = parent->get_inode_cfg(to_name);
+        if (!to_cfg)
+        {
+            result = (cli_result_t){ .err = ENOENT, .text = "Layer "+to_name+" not found" };
+            state = 100;
+            return;
+        }
         // Check that to_cfg is actually a child of from_cfg
         // FIXME de-copypaste the following piece of code with snap_merger_t
         inode_config_t *cur = to_cfg;
@@ -186,16 +252,19 @@ resume_9:
             auto it = parent->cli->st_cli.inode_config.find(cur->parent_id);
             if (it == parent->cli->st_cli.inode_config.end())
             {
-                fprintf(stderr, "Parent inode of layer %s (id %ld) not found\n", cur->name.c_str(), cur->parent_id);
-                exit(1);
+                char buf[1024];
+                snprintf(buf, 1024, "Parent inode of layer %s (id 0x%lx) not found", cur->name.c_str(), cur->parent_id);
+                state = 100;
+                return;
             }
             cur = &it->second;
             chain_list.push_back(cur->num);
         }
         if (cur->num != from_cfg->num)
         {
-            fprintf(stderr, "Layer %s is not a child of %s\n", to_name.c_str(), from_name.c_str());
-            exit(1);
+            result = (cli_result_t){ .err = EINVAL, .text = "Layer "+to_name+" is not a child of "+from_name };
+            state = 100;
+            return;
         }
         new_parent = from_cfg->parent_id;
         // Calculate ranks
@@ -263,8 +332,9 @@ resume_9:
             parent->waiting--;
             if (err != "")
             {
-                fprintf(stderr, "Error reading layer statistics from etcd: %s\n", err.c_str());
-                exit(1);
+                result = (cli_result_t){ .err = EIO, .text = "Error reading layer statistics from etcd: "+err };
+                state = 100;
+                return;
             }
             for (auto inode_result: data["responses"].array_items())
             {
@@ -275,14 +345,16 @@ resume_9:
                 sscanf(kv.key.c_str() + parent->cli->st_cli.etcd_prefix.length()+13, "%u/%lu%c", &pool_id, &inode, &null_byte);
                 if (!inode || null_byte != 0)
                 {
-                    fprintf(stderr, "Bad key returned from etcd: %s\n", kv.key.c_str());
-                    exit(1);
+                    result = (cli_result_t){ .err = EIO, .text = "Bad key returned from etcd: "+kv.key };
+                    state = 100;
+                    return;
                 }
                 auto pool_cfg_it = parent->cli->st_cli.pool_config.find(pool_id);
                 if (pool_cfg_it == parent->cli->st_cli.pool_config.end())
                 {
-                    fprintf(stderr, "Pool %u does not exist\n", pool_id);
-                    exit(1);
+                    result = (cli_result_t){ .err = ENOENT, .text = "Pool "+std::to_string(pool_id)+" does not exist" };
+                    state = 100;
+                    return;
                 }
                 inode = INODE_WITH_POOL(pool_id, inode);
                 auto & pool_cfg = pool_cfg_it->second;
@@ -324,14 +396,20 @@ resume_9:
         auto child_it = parent->cli->st_cli.inode_config.find(inverse_child);
         if (child_it == parent->cli->st_cli.inode_config.end())
         {
-            fprintf(stderr, "Inode %ld disappeared\n", inverse_child);
-            exit(1);
+            char buf[1024];
+            snprintf(buf, 1024, "Inode 0x%lx disappeared", inverse_child);
+            result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
+            state = 100;
+            return;
         }
         auto target_it = parent->cli->st_cli.inode_config.find(inverse_parent);
         if (target_it == parent->cli->st_cli.inode_config.end())
         {
-            fprintf(stderr, "Inode %ld disappeared\n", inverse_parent);
-            exit(1);
+            char buf[1024];
+            snprintf(buf, 1024, "Inode 0x%lx disappeared", inverse_parent);
+            result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
+            state = 100;
+            return;
         }
         inode_config_t *child_cfg = &child_it->second;
         inode_config_t *target_cfg = &target_it->second;
@@ -422,18 +500,22 @@ resume_9:
             parent->waiting--;
             if (err != "")
             {
-                fprintf(stderr, "Error renaming %s to %s: %s\n", target_name.c_str(), child_name.c_str(), err.c_str());
-                exit(1);
+                result = (cli_result_t){ .err = EIO, .text = "Error renaming "+target_name+" to "+child_name+": "+err };
+                state = 100;
+                return;
             }
             if (!res["succeeded"].bool_value())
             {
-                fprintf(
-                    stderr, "Parent (%s), child (%s), or one of its children"
-                    " configuration was modified during rename\n", target_name.c_str(), child_name.c_str()
-                );
-                exit(1);
+                result = (cli_result_t){
+                    .err = EAGAIN,
+                    .text = "Parent ("+target_name+"), child ("+child_name+"), or one of its children"
+                        " configuration was modified during rename",
+                };
+                state = 100;
+                return;
             }
-            printf("Layer %s renamed to %s\n", target_name.c_str(), child_name.c_str());
+            if (parent->progress)
+                printf("Layer %s renamed to %s\n", target_name.c_str(), child_name.c_str());
             parent->ringloop->wakeup();
         });
     }
@@ -443,8 +525,11 @@ resume_9:
         auto cur_cfg_it = parent->cli->st_cli.inode_config.find(cur);
         if (cur_cfg_it == parent->cli->st_cli.inode_config.end())
         {
-            fprintf(stderr, "Inode 0x%lx disappeared\n", cur);
-            exit(1);
+            char buf[1024];
+            snprintf(buf, 1024, "Inode 0x%lx disappeared", cur);
+            result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
+            state = 100;
+            return;
         }
         inode_config_t *cur_cfg = &cur_cfg_it->second;
         std::string cur_name = cur_cfg->name;
@@ -475,20 +560,26 @@ resume_9:
                     } },
                 },
             } },
-        }, [this, cur_name](std::string err, json11::Json res)
+        }, [this, cur, cur_name](std::string err, json11::Json res)
         {
             parent->waiting--;
             if (err != "")
             {
-                fprintf(stderr, "Error deleting %s: %s\n", cur_name.c_str(), err.c_str());
-                exit(1);
+                result = (cli_result_t){ .err = EIO, .text = "Error deleting "+cur_name+": "+err };
+                state = 100;
+                return;
             }
             if (!res["succeeded"].bool_value())
             {
-                fprintf(stderr, "Layer %s configuration was modified during deletion\n", cur_name.c_str());
-                exit(1);
+                result = (cli_result_t){ .err = EAGAIN, .text = "Layer "+cur_name+" was modified during deletion" };
+                state = 100;
+                return;
             }
-            printf("Layer %s deleted\n", cur_name.c_str());
+            // Modify inode_config for library users to be able to take it from there immediately
+            parent->cli->st_cli.inode_by_name.erase(cur_name);
+            parent->cli->st_cli.inode_config.erase(cur);
+            if (parent->progress)
+                printf("Layer %s deleted\n", cur_name.c_str());
             parent->ringloop->wakeup();
         });
     }
@@ -498,17 +589,24 @@ resume_9:
         auto child_it = parent->cli->st_cli.inode_config.find(child_inode);
         if (child_it == parent->cli->st_cli.inode_config.end())
         {
-            fprintf(stderr, "Inode %ld disappeared\n", child_inode);
-            exit(1);
+            char buf[1024];
+            snprintf(buf, 1024, "Inode 0x%lx disappeared", child_inode);
+            result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
+            state = 100;
+            return;
         }
         auto target_it = parent->cli->st_cli.inode_config.find(target_inode);
         if (target_it == parent->cli->st_cli.inode_config.end())
         {
-            fprintf(stderr, "Inode %ld disappeared\n", target_inode);
-            exit(1);
+            char buf[1024];
+            snprintf(buf, 1024, "Inode 0x%lx disappeared", target_inode);
+            result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
+            state = 100;
+            return;
         }
         cb = parent->start_merge(json11::Json::object {
-            { "command", json11::Json::array{ "merge-data", from_name, child_it->second.name } },
+            { "from", from_name },
+            { "to", child_it->second.name },
             { "target", target_it->second.name },
             { "delete-source", false },
             { "cas", use_cas },
@@ -521,10 +619,13 @@ resume_9:
         auto source = parent->cli->st_cli.inode_config.find(inode);
         if (source == parent->cli->st_cli.inode_config.end())
         {
-            fprintf(stderr, "Inode %ld disappeared\n", inode);
-            exit(1);
+            char buf[1024];
+            snprintf(buf, 1024, "Inode 0x%lx disappeared", inode);
+            result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
+            state = 100;
+            return;
         }
-        cb = parent->start_rm(json11::Json::object {
+        cb = parent->start_rm_data(json11::Json::object {
             { "inode", inode },
             { "pool", (uint64_t)INODE_POOL(inode) },
             { "fsync-interval", fsync_interval },
@@ -532,22 +633,12 @@ resume_9:
     }
 };
 
-std::function<bool(void)> cli_tool_t::start_snap_rm(json11::Json cfg)
+std::function<bool(cli_result_t &)> cli_tool_t::start_rm(json11::Json cfg)
 {
-    json11::Json::array cmd = cfg["command"].array_items();
     auto snap_remover = new snap_remover_t();
     snap_remover->parent = this;
-    snap_remover->from_name = cmd.size() > 1 ? cmd[1].string_value() : "";
-    snap_remover->to_name = cmd.size() > 2 ? cmd[2].string_value() : "";
-    if (snap_remover->from_name == "")
-    {
-        fprintf(stderr, "Layer to remove argument is missing\n");
-        exit(1);
-    }
-    if (snap_remover->to_name == "")
-    {
-        snap_remover->to_name = snap_remover->from_name;
-    }
+    snap_remover->from_name = cfg["from"].string_value();
+    snap_remover->to_name = cfg["to"].string_value();
     snap_remover->fsync_interval = cfg["fsync-interval"].uint64_value();
     if (!snap_remover->fsync_interval)
         snap_remover->fsync_interval = 128;
@@ -555,11 +646,12 @@ std::function<bool(void)> cli_tool_t::start_snap_rm(json11::Json cfg)
         snap_remover->use_cas = cfg["cas"].uint64_value() ? 2 : 0;
     if (!cfg["writers_stopped"].is_null())
         snap_remover->writers_stopped = true;
-    return [snap_remover]()
+    return [snap_remover](cli_result_t & result)
     {
         snap_remover->loop();
         if (snap_remover->is_done())
         {
+            result = snap_remover->result;
             delete snap_remover;
             return true;
         }

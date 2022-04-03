@@ -24,6 +24,7 @@ struct image_lister_t
     int state = 0;
     std::map<inode_t, json11::Json::object> stats;
     json11::Json space_info;
+    cli_result_t result;
 
     bool is_done()
     {
@@ -44,8 +45,9 @@ struct image_lister_t
             }
             if (!list_pool_id)
             {
-                fprintf(stderr, "Pool %s does not exist\n", list_pool_name.c_str());
-                exit(1);
+                result = (cli_result_t){ .err = ENOENT, .text = "Pool "+list_pool_name+" does not exist" };
+                state = 100;
+                return;
             }
         }
         for (auto & ic: parent->cli->st_cli.inode_config)
@@ -116,6 +118,12 @@ struct image_lister_t
 resume_1:
         if (parent->waiting > 0)
             return;
+        if (parent->etcd_err.err)
+        {
+            result = parent->etcd_err;
+            state = 100;
+            return;
+        }
         space_info = parent->etcd_result;
         std::map<pool_id_t, uint64_t> pool_pg_real_size;
         for (auto & kv_item: space_info["responses"][0]["response_range"]["kvs"].array_items())
@@ -245,11 +253,13 @@ resume_1:
             get_stats();
             if (parent->waiting > 0)
                 return;
+            if (state == 100)
+                return;
         }
+        result.data = to_list();
         if (parent->json_output)
         {
             // JSON output
-            printf("%s\n", json11::Json(to_list()).dump().c_str());
             state = 100;
             return;
         }
@@ -359,7 +369,7 @@ resume_1:
             kv.second["size_fmt"] = format_size(kv.second["size"].uint64_value());
             kv.second["ro"] = kv.second["readonly"].bool_value() ? "RO" : "-";
         }
-        printf("%s", print_table(to_list(), cols, parent->color).c_str());
+        result.text = print_table(to_list(), cols, parent->color);
         state = 100;
     }
 };
@@ -546,9 +556,8 @@ back:
     return true;
 }
 
-std::function<bool(void)> cli_tool_t::start_ls(json11::Json cfg)
+std::function<bool(cli_result_t &)> cli_tool_t::start_ls(json11::Json cfg)
 {
-    json11::Json::array cmd = cfg["command"].array_items();
     auto lister = new image_lister_t();
     lister->parent = this;
     lister->list_pool_id = cfg["pool"].uint64_value();
@@ -558,15 +567,16 @@ std::function<bool(void)> cli_tool_t::start_ls(json11::Json cfg)
     lister->sort_field = cfg["sort"].string_value();
     lister->reverse = cfg["reverse"].bool_value();
     lister->max_count = cfg["count"].uint64_value();
-    for (int i = 1; i < cmd.size(); i++)
+    for (auto & item: cfg["names"].array_items())
     {
-        lister->only_names.insert(cmd[i].string_value());
+        lister->only_names.insert(item.string_value());
     }
-    return [lister]()
+    return [lister](cli_result_t & result)
     {
         lister->loop();
         if (lister->is_done())
         {
+            result = lister->result;
             delete lister;
             return true;
         }

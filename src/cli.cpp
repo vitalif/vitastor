@@ -2,8 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 /**
- * CLI tool
- * Currently can (a) remove inodes and (b) merge snapshot/clone layers
+ * CLI tool and also a library for administrative tasks
  */
 
 #include <vector>
@@ -17,7 +16,9 @@
 
 static const char *exe_name = NULL;
 
-json11::Json::object cli_tool_t::parse_args(int narg, const char *args[])
+static void help();
+
+static json11::Json::object parse_args(int narg, const char *args[])
 {
     json11::Json::object cfg;
     json11::Json::array cmd;
@@ -79,7 +80,7 @@ json11::Json::object cli_tool_t::parse_args(int narg, const char *args[])
     return cfg;
 }
 
-void cli_tool_t::help()
+static void help()
 {
     printf(
         "Vitastor command-line tool\n"
@@ -164,224 +165,171 @@ void cli_tool_t::help()
     exit(0);
 }
 
-void cli_tool_t::change_parent(inode_t cur, inode_t new_parent)
+static int run(cli_tool_t *p, json11::Json::object cfg)
 {
-    auto cur_cfg_it = cli->st_cli.inode_config.find(cur);
-    if (cur_cfg_it == cli->st_cli.inode_config.end())
-    {
-        fprintf(stderr, "Inode 0x%lx disappeared\n", cur);
-        exit(1);
-    }
-    inode_config_t new_cfg = cur_cfg_it->second;
-    std::string cur_name = new_cfg.name;
-    std::string cur_cfg_key = base64_encode(cli->st_cli.etcd_prefix+
-        "/config/inode/"+std::to_string(INODE_POOL(cur))+
-        "/"+std::to_string(INODE_NO_POOL(cur)));
-    new_cfg.parent_id = new_parent;
-    json11::Json::object cur_cfg_json = cli->st_cli.serialize_inode_cfg(&new_cfg);
-    waiting++;
-    cli->st_cli.etcd_txn_slow(json11::Json::object {
-        { "compare", json11::Json::array {
-            json11::Json::object {
-                { "target", "MOD" },
-                { "key", cur_cfg_key },
-                { "result", "LESS" },
-                { "mod_revision", new_cfg.mod_revision+1 },
-            },
-        } },
-        { "success", json11::Json::array {
-            json11::Json::object {
-                { "request_put", json11::Json::object {
-                    { "key", cur_cfg_key },
-                    { "value", base64_encode(json11::Json(cur_cfg_json).dump()) },
-                } }
-            },
-        } },
-    }, [this, new_parent, cur, cur_name](std::string err, json11::Json res)
-    {
-        if (err != "")
-        {
-            fprintf(stderr, "Error changing parent of %s: %s\n", cur_name.c_str(), err.c_str());
-            exit(1);
-        }
-        if (!res["succeeded"].bool_value())
-        {
-            fprintf(stderr, "Inode %s was modified during snapshot deletion\n", cur_name.c_str());
-            exit(1);
-        }
-        if (new_parent)
-        {
-            auto new_parent_it = cli->st_cli.inode_config.find(new_parent);
-            std::string new_parent_name = new_parent_it != cli->st_cli.inode_config.end()
-                ? new_parent_it->second.name : "<unknown>";
-            printf(
-                "Parent of layer %s (inode %lu in pool %u) changed to %s (inode %lu in pool %u)\n",
-                cur_name.c_str(), INODE_NO_POOL(cur), INODE_POOL(cur),
-                new_parent_name.c_str(), INODE_NO_POOL(new_parent), INODE_POOL(new_parent)
-            );
-        }
-        else
-        {
-            printf(
-                "Parent of layer %s (inode %lu in pool %u) detached\n",
-                cur_name.c_str(), INODE_NO_POOL(cur), INODE_POOL(cur)
-            );
-        }
-        waiting--;
-        ringloop->wakeup();
-    });
-}
-
-void cli_tool_t::etcd_txn(json11::Json txn)
-{
-    waiting++;
-    cli->st_cli.etcd_txn_slow(txn, [this](std::string err, json11::Json res)
-    {
-        waiting--;
-        if (err != "")
-        {
-            fprintf(stderr, "Error reading from etcd: %s\n", err.c_str());
-            exit(1);
-        }
-        etcd_result = res;
-        ringloop->wakeup();
-    });
-}
-
-inode_config_t* cli_tool_t::get_inode_cfg(const std::string & name)
-{
-    for (auto & ic: cli->st_cli.inode_config)
-    {
-        if (ic.second.name == name)
-        {
-            return &ic.second;
-        }
-    }
-    fprintf(stderr, "Layer %s not found\n", name.c_str());
-    exit(1);
-}
-
-void cli_tool_t::run(json11::Json cfg)
-{
+    cli_result_t result;
+    p->parse_config(cfg);
     json11::Json::array cmd = cfg["command"].array_items();
+    cfg.erase("command");
+    std::function<bool(cli_result_t &)> action_cb;
     if (!cmd.size())
     {
-        fprintf(stderr, "command is missing\n");
-        exit(1);
+        result = { .err = EINVAL, .text = "command is missing" };
     }
     else if (cmd[0] == "status")
     {
         // Show cluster status
-        action_cb = start_status(cfg);
+        action_cb = p->start_status(cfg);
     }
     else if (cmd[0] == "df")
     {
         // Show pool space stats
-        action_cb = start_df(cfg);
+        action_cb = p->start_df(cfg);
     }
     else if (cmd[0] == "ls")
     {
         // List images
-        action_cb = start_ls(cfg);
+        if (cmd.size() > 1)
+        {
+            cmd.erase(cmd.begin(), cmd.begin()+1);
+            cfg["names"] = cmd;
+        }
+        action_cb = p->start_ls(cfg);
     }
-    else if (cmd[0] == "create" || cmd[0] == "snap-create")
+    else if (cmd[0] == "snap-create")
+    {
+        // Create snapshot
+        std::string name = cmd.size() > 1 ? cmd[1].string_value() : "";
+        int pos = name.find('@');
+        if (pos == std::string::npos || pos == name.length()-1)
+        {
+            result = (cli_result_t){ .err = EINVAL, .text = "Please specify new snapshot name after @" };
+        }
+        else
+        {
+            cfg["image"] = name.substr(0, pos);
+            cfg["snapshot"] = name.substr(pos + 1);
+            action_cb = p->start_create(cfg);
+        }
+    }
+    else if (cmd[0] == "create")
     {
         // Create image/snapshot
-        action_cb = start_create(cfg);
+        if (cmd.size() > 1)
+        {
+            cfg["image"] = cmd[1];
+        }
+        action_cb = p->start_create(cfg);
     }
     else if (cmd[0] == "modify")
     {
         // Modify image
-        action_cb = start_modify(cfg);
+        if (cmd.size() > 1)
+        {
+            cfg["image"] = cmd[1];
+        }
+        action_cb = p->start_modify(cfg);
     }
     else if (cmd[0] == "rm-data")
     {
         // Delete inode data
-        action_cb = start_rm(cfg);
+        action_cb = p->start_rm_data(cfg);
     }
     else if (cmd[0] == "merge-data")
     {
         // Merge layer data without affecting metadata
-        action_cb = start_merge(cfg);
+        if (cmd.size() > 1)
+        {
+            cfg["from"] = cmd[1];
+            if (cmd.size() > 2)
+                cfg["to"] = cmd[2];
+        }
+        action_cb = p->start_merge(cfg);
     }
     else if (cmd[0] == "flatten")
     {
         // Merge layer data without affecting metadata
-        action_cb = start_flatten(cfg);
+        if (cmd.size() > 1)
+        {
+            cfg["image"] = cmd[1];
+        }
+        action_cb = p->start_flatten(cfg);
     }
     else if (cmd[0] == "rm")
     {
         // Remove multiple snapshots and rebase their children
-        action_cb = start_snap_rm(cfg);
+        if (cmd.size() > 1)
+        {
+            cfg["from"] = cmd[1];
+            if (cmd.size() > 2)
+                cfg["to"] = cmd[2];
+        }
+        action_cb = p->start_rm(cfg);
     }
     else if (cmd[0] == "alloc-osd")
     {
         // Allocate a new OSD number
-        action_cb = start_alloc_osd(cfg);
+        action_cb = p->start_alloc_osd(cfg);
     }
     else if (cmd[0] == "simple-offsets")
     {
         // Calculate offsets for simple & stupid OSD deployment without superblock
-        action_cb = simple_offsets(cfg);
+        if (cmd.size() > 1)
+        {
+            cfg["device"] = cmd[1];
+        }
+        action_cb = p->simple_offsets(cfg);
     }
     else
     {
-        fprintf(stderr, "unknown command: %s\n", cmd[0].string_value().c_str());
-        exit(1);
+        result = { .err = EINVAL, .text = "unknown command: "+cmd[0].string_value() };
     }
-    if (action_cb == NULL)
+    if (action_cb != NULL)
     {
-        return;
-    }
-    color = !cfg["no-color"].bool_value();
-    json_output = cfg["json"].bool_value();
-    iodepth = cfg["iodepth"].uint64_value();
-    if (!iodepth)
-        iodepth = 32;
-    parallel_osds = cfg["parallel_osds"].uint64_value();
-    if (!parallel_osds)
-        parallel_osds = 4;
-    log_level = cfg["log_level"].int64_value();
-    progress = cfg["progress"].uint64_value() ? true : false;
-    list_first = cfg["wait-list"].uint64_value() ? true : false;
-    // Create client
-    ringloop = new ring_loop_t(512);
-    epmgr = new epoll_manager_t(ringloop);
-    cli = new cluster_client_t(ringloop, epmgr->tfd, cfg);
-    // Smaller timeout by default for more interactiveness
-    cli->st_cli.etcd_slow_timeout = cli->st_cli.etcd_quick_timeout;
-    cli->on_ready([this]()
-    {
-        // Initialize job
-        consumer.loop = [this]()
+        // Create client
+        json11::Json cfg_j = cfg;
+        p->ringloop = new ring_loop_t(512);
+        p->epmgr = new epoll_manager_t(p->ringloop);
+        p->cli = new cluster_client_t(p->ringloop, p->epmgr->tfd, cfg_j);
+        // Smaller timeout by default for more interactiveness
+        p->cli->st_cli.etcd_slow_timeout = p->cli->st_cli.etcd_quick_timeout;
+        p->loop_and_wait(action_cb, [&](const cli_result_t & r)
         {
+            result = r;
+            action_cb = NULL;
+        });
+        // Loop until it completes
+        while (action_cb != NULL)
+        {
+            p->ringloop->loop();
             if (action_cb != NULL)
-            {
-                bool done = action_cb();
-                if (done)
-                {
-                    action_cb = NULL;
-                }
-            }
-            ringloop->submit();
-        };
-        ringloop->register_consumer(&consumer);
-        consumer.loop();
-    });
-    // Loop until it completes
-    while (action_cb != NULL)
-    {
-        ringloop->loop();
-        if (action_cb != NULL)
-            ringloop->wait();
+                p->ringloop->wait();
+        }
+        // Destroy the client
+        delete p->cli;
+        delete p->epmgr;
+        delete p->ringloop;
+        p->cli = NULL;
+        p->epmgr = NULL;
+        p->ringloop = NULL;
     }
-    // Destroy the client
-    delete cli;
-    delete epmgr;
-    delete ringloop;
-    cli = NULL;
-    epmgr = NULL;
-    ringloop = NULL;
+    // Print result
+    if (p->json_output && !result.data.is_null())
+    {
+        printf("%s\n", result.data.dump().c_str());
+    }
+    else if (p->json_output && result.err)
+    {
+        printf("%s\n", json11::Json(json11::Json::object {
+            { "error_code", result.err },
+            { "error_text", result.text },
+        }).dump().c_str());
+    }
+    else if (result.text != "")
+    {
+        fprintf(result.err ? stderr : stdout, result.text[result.text.size()-1] == '\n' ? "%s" : "%s\n", result.text.c_str());
+    }
+    return result.err;
 }
 
 int main(int narg, const char *args[])
@@ -390,7 +338,7 @@ int main(int narg, const char *args[])
     setvbuf(stderr, NULL, _IONBF, 0);
     exe_name = args[0];
     cli_tool_t *p = new cli_tool_t();
-    p->run(cli_tool_t::parse_args(narg, args));
+    int r = run(p, parse_args(narg, args));
     delete p;
-    return 0;
+    return r;
 }

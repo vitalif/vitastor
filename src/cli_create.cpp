@@ -31,8 +31,10 @@ struct image_creator_t
     inode_t new_parent_id = 0;
     inode_t new_id = 0, old_id = 0;
     uint64_t max_id_mod_rev = 0, cfg_mod_rev = 0, idx_mod_rev = 0;
+    inode_config_t new_cfg;
 
     int state = 0;
+    cli_result_t result;
 
     bool is_done()
     {
@@ -43,13 +45,27 @@ struct image_creator_t
     {
         if (state >= 1)
             goto resume_1;
+        if (image_name == "")
+        {
+            // FIXME: EINVAL -> specific codes for every error
+            result = (cli_result_t){ .err = EINVAL, .text = "Image name is missing" };
+            state = 100;
+            return;
+        }
+        if (image_name.find('@') != std::string::npos)
+        {
+            result = (cli_result_t){ .err = EINVAL, .text = "Image name can't contain @ character" };
+            state = 100;
+            return;
+        }
         if (new_pool_id)
         {
             auto & pools = parent->cli->st_cli.pool_config;
             if (pools.find(new_pool_id) == pools.end())
             {
-                fprintf(stderr, "Pool %u does not exist\n", new_pool_id);
-                exit(1);
+                result = (cli_result_t){ .err = ENOENT, .text = "Pool "+std::to_string(new_pool_id)+" does not exist" };
+                state = 100;
+                return;
             }
         }
         else if (new_pool_name != "")
@@ -64,8 +80,9 @@ struct image_creator_t
             }
             if (!new_pool_id)
             {
-                fprintf(stderr, "Pool %s does not exist\n", new_pool_name.c_str());
-                exit(1);
+                result = (cli_result_t){ .err = ENOENT, .text = "Pool "+new_pool_name+" does not exist" };
+                state = 100;
+                return;
             }
         }
         else if (parent->cli->st_cli.pool_config.size() == 1)
@@ -91,8 +108,9 @@ struct image_creator_t
         {
             if (ic.second.name == image_name)
             {
-                fprintf(stderr, "Image %s already exists\n", image_name.c_str());
-                exit(1);
+                result = (cli_result_t){ .err = EEXIST, .text = "Image "+image_name+" already exists" };
+                state = 100;
+                return;
             }
             if (ic.second.name == new_parent)
             {
@@ -109,18 +127,21 @@ struct image_creator_t
         }
         if (new_parent != "" && !new_parent_id)
         {
-            fprintf(stderr, "Parent image not found\n");
-            exit(1);
+            result = (cli_result_t){ .err = ENOENT, .text = "Parent image "+new_parent+" not found" };
+            state = 100;
+            return;
         }
         if (!new_pool_id)
         {
-            fprintf(stderr, "Pool name or ID is missing\n");
-            exit(1);
+            result = (cli_result_t){ .err = EINVAL, .text = "Pool name or ID is missing" };
+            state = 100;
+            return;
         }
         if (!size)
         {
-            fprintf(stderr, "Image size is missing\n");
-            exit(1);
+            result = (cli_result_t){ .err = EINVAL, .text = "Image size is missing" };
+            state = 100;
+            return;
         }
         do
         {
@@ -131,23 +152,36 @@ struct image_creator_t
 resume_2:
             if (parent->waiting > 0)
                 return;
+            if (parent->etcd_err.err)
+            {
+                result = parent->etcd_err;
+                state = 100;
+                return;
+            }
             extract_next_id(parent->etcd_result["responses"][0]);
             attempt_create();
             state = 3;
 resume_3:
             if (parent->waiting > 0)
                 return;
+            if (parent->etcd_err.err)
+            {
+                result = parent->etcd_err;
+                state = 100;
+                return;
+            }
             if (!parent->etcd_result["succeeded"].bool_value() &&
                 parent->etcd_result["responses"][0]["response_range"]["kvs"].array_items().size() > 0)
             {
-                fprintf(stderr, "Image %s already exists\n", image_name.c_str());
-                exit(1);
+                result = (cli_result_t){ .err = EEXIST, .text = "Image "+image_name+" already exists" };
+                state = 100;
+                return;
             }
         } while (!parent->etcd_result["succeeded"].bool_value());
-        if (parent->progress)
-        {
-            printf("Image %s created\n", image_name.c_str());
-        }
+        // Save into inode_config for library users to be able to take it from there immediately
+        new_cfg.mod_revision = parent->etcd_result["responses"][0]["response_put"]["header"]["revision"].uint64_value();
+        parent->cli->st_cli.insert_inode_config(new_cfg);
+        result = (cli_result_t){ .err = 0, .text = "Image "+image_name+" created" };
         state = 100;
     }
 
@@ -163,14 +197,16 @@ resume_3:
         {
             if (ic.second.name == image_name+"@"+new_snap)
             {
-                fprintf(stderr, "Snapshot %s@%s already exists\n", image_name.c_str(), new_snap.c_str());
-                exit(1);
+                result = (cli_result_t){ .err = EEXIST, .text = "Snapshot "+image_name+"@"+new_snap+" already exists" };
+                state = 100;
+                return;
             }
         }
         if (new_parent != "")
         {
-            fprintf(stderr, "--parent can't be used with snapshots\n");
-            exit(1);
+            result = (cli_result_t){ .err = EINVAL, .text = "Parent can't be specified for snapshots" };
+            state = 100;
+            return;
         }
         do
         {
@@ -182,8 +218,9 @@ resume_3:
                 return;
             if (!old_id)
             {
-                fprintf(stderr, "Image %s does not exist\n", image_name.c_str());
-                exit(1);
+                result = (cli_result_t){ .err = ENOENT, .text = "Image "+image_name+" does not exist" };
+                state = 100;
+                return;
             }
             if (!new_pool_id)
             {
@@ -195,17 +232,24 @@ resume_3:
 resume_4:
             if (parent->waiting > 0)
                 return;
+            if (parent->etcd_err.err)
+            {
+                result = parent->etcd_err;
+                state = 100;
+                return;
+            }
             if (!parent->etcd_result["succeeded"].bool_value() &&
                 parent->etcd_result["responses"][0]["response_range"]["kvs"].array_items().size() > 0)
             {
-                fprintf(stderr, "Snapshot %s@%s already exists\n", image_name.c_str(), new_snap.c_str());
-                exit(1);
+                result = (cli_result_t){ .err = EEXIST, .text = "Snapshot "+image_name+"@"+new_snap+" already exists" };
+                state = 100;
+                return;
             }
         } while (!parent->etcd_result["succeeded"].bool_value());
-        if (parent->progress)
-        {
-            printf("Snapshot %s@%s created\n", image_name.c_str(), new_snap.c_str());
-        }
+        // Save into inode_config for library users to be able to take it from there immediately
+        new_cfg.mod_revision = parent->etcd_result["responses"][0]["response_put"]["header"]["revision"].uint64_value();
+        parent->cli->st_cli.insert_inode_config(new_cfg);
+        result = (cli_result_t){ .err = 0, .text = "Snapshot "+image_name+"@"+new_snap+" created" };
         state = 100;
     }
 
@@ -259,6 +303,12 @@ resume_4:
 resume_2:
         if (parent->waiting > 0)
             return;
+        if (parent->etcd_err.err)
+        {
+            result = parent->etcd_err;
+            state = 100;
+            return;
+        }
         extract_next_id(parent->etcd_result["responses"][0]);
         old_id = 0;
         old_pool_id = 0;
@@ -288,8 +338,9 @@ resume_2:
                 idx_mod_rev = kv.mod_revision;
                 if (!old_id || !old_pool_id || old_pool_id >= POOL_ID_MAX)
                 {
-                    fprintf(stderr, "Invalid pool or inode ID in etcd key %s\n", kv.key.c_str());
-                    exit(1);
+                    result = (cli_result_t){ .err = ENOENT, .text = "Invalid pool or inode ID in etcd key "+kv.key };
+                    state = 100;
+                    return;
                 }
             }
             parent->etcd_txn(json11::Json::object {
@@ -308,6 +359,12 @@ resume_2:
 resume_3:
             if (parent->waiting > 0)
                 return;
+            if (parent->etcd_err.err)
+            {
+                result = parent->etcd_err;
+                state = 100;
+                return;
+            }
             {
                 auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
                 size = kv.value["size"].uint64_value();
@@ -324,7 +381,7 @@ resume_3:
 
     void attempt_create()
     {
-        inode_config_t new_cfg = {
+        new_cfg = {
             .num = INODE_WITH_POOL(new_pool_id, new_id),
             .name = image_name,
             .size = size,
@@ -469,65 +526,59 @@ uint64_t parse_size(std::string size_str)
     uint64_t size = json11::Json(size_str).uint64_value() * mul;
     if (size == 0 && size_str != "0" && (size_str != "" || mul != 1))
     {
-        fprintf(stderr, "Invalid syntax for size: %s\n", size_str.c_str());
-        exit(1);
+        return UINT64_MAX;
     }
     return size;
 }
 
-std::function<bool(void)> cli_tool_t::start_create(json11::Json cfg)
+std::function<bool(cli_result_t &)> cli_tool_t::start_create(json11::Json cfg)
 {
-    json11::Json::array cmd = cfg["command"].array_items();
     auto image_creator = new image_creator_t();
     image_creator->parent = this;
-    image_creator->image_name = cmd.size() > 1 ? cmd[1].string_value() : "";
+    image_creator->image_name = cfg["image"].string_value();
     image_creator->new_pool_id = cfg["pool"].uint64_value();
     image_creator->new_pool_name = cfg["pool"].string_value();
     if (cfg["snapshot"].string_value() != "")
     {
         image_creator->new_snap = cfg["snapshot"].string_value();
     }
-    else if (cmd[0] == "snap-create")
-    {
-        int p = image_creator->image_name.find('@');
-        if (p == std::string::npos || p == image_creator->image_name.length()-1)
-        {
-            fprintf(stderr, "Please specify new snapshot name after @\n");
-            exit(1);
-        }
-        image_creator->new_snap = image_creator->image_name.substr(p + 1);
-        image_creator->image_name = image_creator->image_name.substr(0, p);
-    }
     image_creator->new_parent = cfg["parent"].string_value();
     if (cfg["size"].string_value() != "")
     {
         image_creator->size = parse_size(cfg["size"].string_value());
+        if (image_creator->size == UINT64_MAX)
+        {
+            return [size = cfg["size"].string_value()](cli_result_t & result)
+            {
+                result = (cli_result_t){ .err = EINVAL, .text = "Invalid syntax for size: "+size };
+                return true;
+            };
+        }
         if (image_creator->size % 4096)
         {
-            fprintf(stderr, "Size should be a multiple of 4096\n");
-            exit(1);
+            delete image_creator;
+            return [](cli_result_t & result)
+            {
+                result = (cli_result_t){ .err = EINVAL, .text = "Size should be a multiple of 4096" };
+                return true;
+            };
         }
         if (image_creator->new_snap != "")
         {
-            fprintf(stderr, "--size can't be specified for snapshots\n");
-            exit(1);
+            delete image_creator;
+            return [](cli_result_t & result)
+            {
+                result = (cli_result_t){ .err = EINVAL, .text = "Size can't be specified for snapshots" };
+                return true;
+            };
         }
     }
-    if (image_creator->image_name == "")
-    {
-        fprintf(stderr, "Image name is missing\n");
-        exit(1);
-    }
-    if (image_creator->image_name.find('@') != std::string::npos)
-    {
-        fprintf(stderr, "Image name can't contain @ character\n");
-        exit(1);
-    }
-    return [image_creator]()
+    return [image_creator](cli_result_t & result)
     {
         image_creator->loop();
         if (image_creator->is_done())
         {
+            result = image_creator->result;
             delete image_creator;
             return true;
         }

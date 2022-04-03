@@ -12,6 +12,9 @@ struct snap_rw_op_t
     cluster_op_t op;
     int todo = 0;
     uint32_t start = 0, end = 0;
+    int error_code = 0;
+    uint64_t error_offset = 0;
+    bool error_read = false;
 };
 
 // Layer merge is the base for multiple operations:
@@ -54,17 +57,45 @@ struct snap_merger_t
     uint64_t last_written_offset = 0;
     int deleted_unsynced = 0;
     uint64_t processed = 0, to_process = 0;
+    std::string rwo_error;
+
+    cli_result_t result;
 
     void start_merge()
     {
+        if (from_name == "" || to_name == "")
+        {
+            result = (cli_result_t){ .err = EINVAL, .text = "Beginning or end of the merge sequence is missing" };
+            state = 100;
+            return;
+        }
         check_delete_source = delete_source || check_delete_source;
         inode_config_t *from_cfg = parent->get_inode_cfg(from_name);
+        if (!from_cfg)
+        {
+            result = (cli_result_t){ .err = ENOENT, .text = "Layer "+from_name+" not found" };
+            state = 100;
+            return;
+        }
         inode_config_t *to_cfg = parent->get_inode_cfg(to_name);
+        if (!to_cfg)
+        {
+            result = (cli_result_t){ .err = ENOENT, .text = "Layer "+to_name+" not found" };
+            state = 100;
+            return;
+        }
         inode_config_t *target_cfg = target_name == "" ? from_cfg : parent->get_inode_cfg(target_name);
+        if (!target_cfg)
+        {
+            result = (cli_result_t){ .err = ENOENT, .text = "Layer "+target_name+" not found" };
+            state = 100;
+            return;
+        }
         if (to_cfg->num == from_cfg->num)
         {
-            fprintf(stderr, "Only one layer specified, nothing to merge\n");
-            exit(1);
+            result = (cli_result_t){ .err = EINVAL, .text = "Only one layer specified, nothing to merge" };
+            state = 100;
+            return;
         }
         // Check that to_cfg is actually a child of from_cfg and target_cfg is somewhere between them
         std::vector<inode_t> chain_list;
@@ -78,8 +109,18 @@ struct snap_merger_t
             auto it = parent->cli->st_cli.inode_config.find(cur->parent_id);
             if (it == parent->cli->st_cli.inode_config.end())
             {
-                fprintf(stderr, "Parent inode of layer %s (id %ld) not found\n", cur->name.c_str(), cur->parent_id);
-                exit(1);
+                result = (cli_result_t){
+                    .err = ENOENT,
+                    .text = "Parent inode of layer "+cur->name+" (id "+std::to_string(cur->parent_id)+") does not exist",
+                    .data = json11::Json::object {
+                        { "error", "parent-not-found" },
+                        { "inode_id", cur->num },
+                        { "inode_name", cur->name },
+                        { "parent_id", cur->parent_id },
+                    },
+                };
+                state = 100;
+                return;
             }
             cur = &it->second;
             chain_list.push_back(cur->num);
@@ -87,8 +128,9 @@ struct snap_merger_t
         }
         if (cur->parent_id != from_cfg->num)
         {
-            fprintf(stderr, "Layer %s is not a child of %s\n", to_name.c_str(), from_name.c_str());
-            exit(1);
+            result = (cli_result_t){ .err = EINVAL, .text = "Layer "+to_name+" is not a child of "+from_name };
+            state = 100;
+            return;
         }
         chain_list.push_back(from_cfg->num);
         layer_block_size[from_cfg->num] = get_block_size(from_cfg->num);
@@ -99,8 +141,9 @@ struct snap_merger_t
         }
         if (sources.find(target_cfg->num) == sources.end())
         {
-            fprintf(stderr, "Layer %s is not between %s and %s\n", target_name.c_str(), to_name.c_str(), from_name.c_str());
-            exit(1);
+            result = (cli_result_t){ .err = EINVAL, .text = "Layer "+target_name+" is not between "+to_name+" and "+from_name };
+            state = 100;
+            return;
         }
         target = target_cfg->num;
         target_rank = sources.at(target);
@@ -130,14 +173,15 @@ struct snap_merger_t
                     int parent_rank = it->second;
                     if (parent_rank < to_rank && (parent_rank >= target_rank || check_delete_source))
                     {
-                        fprintf(
-                            stderr, "Layers at or above %s, but below %s are not allowed"
-                                " to have other children, but %s is a child of %s\n",
-                            (check_delete_source ? from_name.c_str() : target_name.c_str()),
-                            to_name.c_str(), ic.second.name.c_str(),
-                            parent->cli->st_cli.inode_config.at(ic.second.parent_id).name.c_str()
-                        );
-                        exit(1);
+                        result = (cli_result_t){
+                            .err = EINVAL,
+                            .text = "Layers at or above "+(check_delete_source ? from_name : target_name)+
+                                ", but below "+to_name+" are not allowed to have other children, but "+
+                                ic.second.name+" is a child of "+
+                                parent->cli->st_cli.inode_config.at(ic.second.parent_id).name,
+                        };
+                        state = 100;
+                        return;
                     }
                     if (parent_rank >= to_rank)
                     {
@@ -152,11 +196,14 @@ struct snap_merger_t
             use_cas = 0;
         }
         sources.erase(target);
-        printf(
-            "Merging %ld layer(s) into target %s%s (inode %lu in pool %u)\n",
-            sources.size(), target_cfg->name.c_str(),
-            use_cas ? " online (with CAS)" : "", INODE_NO_POOL(target), INODE_POOL(target)
-        );
+        if (parent->progress)
+        {
+            printf(
+                "Merging %ld layer(s) into target %s%s (inode %lu in pool %u)\n",
+                sources.size(), target_cfg->name.c_str(),
+                use_cas ? " online (with CAS)" : "", INODE_NO_POOL(target), INODE_POOL(target)
+            );
+        }
         target_block_size = get_block_size(target);
     }
 
@@ -179,7 +226,7 @@ struct snap_merger_t
 
     bool is_done()
     {
-        return state == 6;
+        return state == 100;
     }
 
     void continue_merge()
@@ -194,8 +241,8 @@ struct snap_merger_t
             goto resume_4;
         else if (state == 5)
             goto resume_5;
-        else if (state == 6)
-            goto resume_6;
+        else if (state == 100)
+            goto resume_100;
         // Get parents and so on
         start_merge();
         // First list lower layers
@@ -253,7 +300,8 @@ struct snap_merger_t
         oit = merge_offsets.begin();
     resume_5:
         // Now read, overwrite and optionally delete offsets one by one
-        while (in_flight < parent->iodepth*parent->parallel_osds && oit != merge_offsets.end())
+        while (in_flight < parent->iodepth*parent->parallel_osds &&
+            oit != merge_offsets.end() && !rwo_error.size())
         {
             in_flight++;
             read_and_write(*oit);
@@ -263,6 +311,15 @@ struct snap_merger_t
             {
                 printf("\rOverwriting blocks: %lu/%lu", processed, to_process);
             }
+        }
+        if (in_flight == 0 && rwo_error.size())
+        {
+            result = (cli_result_t){
+                .err = EIO,
+                .text = rwo_error,
+            };
+            state = 100;
+            return;
         }
         if (in_flight > 0 || oit != merge_offsets.end())
         {
@@ -274,9 +331,9 @@ struct snap_merger_t
             printf("\rOverwriting blocks: %lu/%lu\n", to_process, to_process);
         }
         // Done
-        printf("Done, layers from %s to %s merged into %s\n", from_name.c_str(), to_name.c_str(), target_name.c_str());
-        state = 6;
-    resume_6:
+        result = { .text = "Done, layers from "+from_name+" to "+to_name+" merged into "+target_name };
+        state = 100;
+    resume_100:
         return;
     }
 
@@ -314,7 +371,10 @@ struct snap_merger_t
                     if (status & INODE_LIST_DONE)
                     {
                         auto & name = parent->cli->st_cli.inode_config.at(src).name;
-                        printf("Got listing of layer %s (inode %lu in pool %u)\n", name.c_str(), INODE_NO_POOL(src), INODE_POOL(src));
+                        if (parent->progress)
+                        {
+                            printf("Got listing of layer %s (inode %lu in pool %u)\n", name.c_str(), INODE_NO_POOL(src), INODE_POOL(src));
+                        }
                         if (delete_source)
                         {
                             // Sort the inode listing
@@ -396,8 +456,9 @@ struct snap_merger_t
         {
             if (op->retval != op->len)
             {
-                fprintf(stderr, "error reading target at offset %lx: %s\n", op->offset, strerror(-op->retval));
-                exit(1);
+                rwo->error_code = -op->retval;
+                rwo->error_offset = op->offset;
+                rwo->error_read = true;
             }
             next_write(rwo);
         };
@@ -410,7 +471,7 @@ struct snap_merger_t
         // FIXME: Allow to use single write with "holes" (OSDs don't allow it yet)
         uint32_t gran = parent->cli->get_bs_bitmap_granularity();
         uint64_t bitmap_size = target_block_size / gran;
-        while (rwo->end < bitmap_size)
+        while (rwo->end < bitmap_size && !rwo->error_code)
         {
             auto bit = ((*((uint8_t*)rwo->op.bitmap_buf + (rwo->end >> 3))) & (1 << (rwo->end & 0x7)));
             if (!bit)
@@ -434,7 +495,7 @@ struct snap_merger_t
                 rwo->end++;
             }
         }
-        if (rwo->end > rwo->start)
+        if (rwo->end > rwo->start && !rwo->error_code)
         {
             // write start->end
             rwo->todo++;
@@ -473,8 +534,9 @@ struct snap_merger_t
                     delete subop;
                     return;
                 }
-                fprintf(stderr, "error writing target at offset %lx: %s\n", subop->offset, strerror(-subop->retval));
-                exit(1);
+                rwo->error_code = -subop->retval;
+                rwo->error_offset = subop->offset;
+                rwo->error_read = false;
             }
             // Increment CAS version
             rwo->op.version++;
@@ -510,11 +572,12 @@ struct snap_merger_t
     {
         if (!rwo->todo)
         {
-            if (last_written_offset < rwo->op.offset+target_block_size)
+            if (!rwo->error_code &&
+                last_written_offset < rwo->op.offset+target_block_size)
             {
                 last_written_offset = rwo->op.offset+target_block_size;
             }
-            if (delete_source)
+            if (!rwo->error_code && delete_source)
             {
                 deleted_unsynced++;
                 if (deleted_unsynced >= fsync_interval)
@@ -544,6 +607,13 @@ struct snap_merger_t
                 }
             }
             free(rwo->buf);
+            if (rwo->error_code)
+            {
+                char buf[1024];
+                snprintf(buf, 1024, "Error %s target at offset %lx: %s",
+                    rwo->error_read ? "reading" : "writing", rwo->error_offset, strerror(rwo->error_code));
+                rwo_error = std::string(buf);
+            }
             delete rwo;
             in_flight--;
             continue_merge_reent();
@@ -551,30 +621,25 @@ struct snap_merger_t
     }
 };
 
-std::function<bool(void)> cli_tool_t::start_merge(json11::Json cfg)
+std::function<bool(cli_result_t &)> cli_tool_t::start_merge(json11::Json cfg)
 {
-    json11::Json::array cmd = cfg["command"].array_items();
     auto merger = new snap_merger_t();
     merger->parent = this;
-    merger->from_name = cmd.size() > 1 ? cmd[1].string_value() : "";
-    merger->to_name = cmd.size() > 2 ? cmd[2].string_value() : "";
+    merger->from_name = cfg["from"].string_value();
+    merger->to_name = cfg["to"].string_value();
     merger->target_name = cfg["target"].string_value();
-    if (merger->from_name == "" || merger->to_name == "")
-    {
-        fprintf(stderr, "Beginning or end of the merge sequence is missing\n");
-        exit(1);
-    }
     merger->delete_source = cfg["delete-source"].string_value() != "";
     merger->fsync_interval = cfg["fsync-interval"].uint64_value();
     if (!merger->fsync_interval)
         merger->fsync_interval = 128;
     if (!cfg["cas"].is_null())
         merger->use_cas = cfg["cas"].uint64_value() ? 2 : 0;
-    return [merger]()
+    return [merger](cli_result_t & result)
     {
         merger->continue_merge_reent();
         if (merger->is_done())
         {
+            result = merger->result;
             delete merger;
             return true;
         }

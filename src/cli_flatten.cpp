@@ -22,12 +22,19 @@ struct snap_flattener_t
     std::string top_parent_name;
     inode_t target_id = 0;
     int state = 0;
-    std::function<bool(void)> merger_cb;
+    std::function<bool(cli_result_t &)> merger_cb;
+    cli_result_t result;
 
     void get_merge_parents()
     {
         // Get all parents of target
         inode_config_t *target_cfg = parent->get_inode_cfg(target_name);
+        if (!target_cfg)
+        {
+            result = (cli_result_t){ .err = ENOENT, .text = "Layer "+target_name+" not found" };
+            state = 100;
+            return;
+        }
         target_id = target_cfg->num;
         std::vector<inode_t> chain_list;
         inode_config_t *cur = target_cfg;
@@ -37,23 +44,34 @@ struct snap_flattener_t
             auto it = parent->cli->st_cli.inode_config.find(cur->parent_id);
             if (it == parent->cli->st_cli.inode_config.end())
             {
-                fprintf(stderr, "Parent inode of layer %s (id %ld) not found\n", cur->name.c_str(), cur->parent_id);
-                exit(1);
+                result = (cli_result_t){
+                    .err = ENOENT,
+                    .text = "Parent inode of layer "+cur->name+" (id "+std::to_string(cur->parent_id)+") does not exist",
+                    .data = json11::Json::object {
+                        { "error", "parent-not-found" },
+                        { "inode_id", cur->num },
+                        { "inode_name", cur->name },
+                        { "parent_id", cur->parent_id },
+                    },
+                };
+                state = 100;
+                return;
             }
             cur = &it->second;
             chain_list.push_back(cur->num);
         }
         if (cur->parent_id != 0)
         {
-            fprintf(stderr, "Layer %s has a loop in parents\n", target_name.c_str());
-            exit(1);
+            result = (cli_result_t){ .err = EBADF, .text = "Layer "+target_name+" has a loop in parents" };
+            state = 100;
+            return;
         }
         top_parent_name = cur->name;
     }
 
     bool is_done()
     {
-        return state == 5;
+        return state == 100;
     }
 
     void loop()
@@ -64,11 +82,20 @@ struct snap_flattener_t
             goto resume_2;
         else if (state == 3)
             goto resume_3;
+        if (target_name == "")
+        {
+            result = (cli_result_t){ .err = EINVAL, .text = "Layer to flatten not specified" };
+            state = 100;
+            return;
+        }
         // Get parent layers
         get_merge_parents();
+        if (state == 100)
+            return;
         // Start merger
         merger_cb = parent->start_merge(json11::Json::object {
-            { "command", json11::Json::array{ "merge-data", top_parent_name, target_name } },
+            { "from", top_parent_name },
+            { "to", target_name },
             { "target", target_name },
             { "delete-source", false },
             { "cas", use_cas },
@@ -76,14 +103,19 @@ struct snap_flattener_t
         });
         // Wait for it
 resume_1:
-        while (!merger_cb())
+        while (!merger_cb(result))
         {
             state = 1;
             return;
         }
         merger_cb = NULL;
+        if (result.err)
+        {
+            state = 100;
+            return;
+        }
         // Change parent
-        parent->change_parent(target_id, 0);
+        parent->change_parent(target_id, 0, &result);
         // Wait for it to complete
         state = 2;
 resume_2:
@@ -92,31 +124,26 @@ resume_2:
         state = 3;
 resume_3:
         // Done
-        return;
+        state = 100;
     }
 };
 
-std::function<bool(void)> cli_tool_t::start_flatten(json11::Json cfg)
+std::function<bool(cli_result_t &)> cli_tool_t::start_flatten(json11::Json cfg)
 {
-    json11::Json::array cmd = cfg["command"].array_items();
     auto flattener = new snap_flattener_t();
     flattener->parent = this;
-    flattener->target_name = cmd.size() > 1 ? cmd[1].string_value() : "";
-    if (flattener->target_name == "")
-    {
-        fprintf(stderr, "Layer to flatten argument is missing\n");
-        exit(1);
-    }
+    flattener->target_name = cfg["image"].string_value();
     flattener->fsync_interval = cfg["fsync-interval"].uint64_value();
     if (!flattener->fsync_interval)
         flattener->fsync_interval = 128;
     if (!cfg["cas"].is_null())
         flattener->use_cas = cfg["cas"].uint64_value() ? 2 : 0;
-    return [flattener]()
+    return [flattener](cli_result_t & result)
     {
         flattener->loop();
         if (flattener->is_done())
         {
+            result = flattener->result;
             delete flattener;
             return true;
         }

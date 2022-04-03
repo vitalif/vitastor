@@ -16,6 +16,7 @@ struct alloc_osd_t
     uint64_t new_id = 1;
 
     int state = 0;
+    cli_result_t result;
 
     bool is_done()
     {
@@ -62,6 +63,12 @@ struct alloc_osd_t
             state = 1;
             if (parent->waiting > 0)
                 return;
+            if (parent->etcd_err.err)
+            {
+                result = parent->etcd_err;
+                state = 100;
+                return;
+            }
             if (!parent->etcd_result["succeeded"].bool_value())
             {
                 std::vector<osd_num_t> used;
@@ -99,23 +106,23 @@ struct alloc_osd_t
             }
         } while (!parent->etcd_result["succeeded"].bool_value());
         state = 100;
+        result = (cli_result_t){
+            .text = std::to_string(new_id),
+            .data = json11::Json(new_id),
+        };
     }
 };
 
-std::function<bool(void)> cli_tool_t::start_alloc_osd(json11::Json cfg, uint64_t *out)
+std::function<bool(cli_result_t &)> cli_tool_t::start_alloc_osd(json11::Json cfg)
 {
-    json11::Json::array cmd = cfg["command"].array_items();
     auto alloc_osd = new alloc_osd_t();
     alloc_osd->parent = this;
-    return [alloc_osd, out]()
+    return [alloc_osd](cli_result_t & result)
     {
         alloc_osd->loop();
         if (alloc_osd->is_done())
         {
-            if (out)
-                *out = alloc_osd->new_id;
-            else if (alloc_osd->new_id)
-                printf("%lu\n", alloc_osd->new_id);
+            result = alloc_osd->result;
             delete alloc_osd;
             return true;
         }

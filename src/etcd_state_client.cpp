@@ -975,26 +975,30 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                     else
                         parent_inode_num |= parent_pool_id << (64-POOL_ID_BITS);
                 }
-                inode_config_t cfg = (inode_config_t){
+                insert_inode_config((inode_config_t){
                     .num = inode_num,
                     .name = value["name"].string_value(),
                     .size = value["size"].uint64_value(),
                     .parent_id = parent_inode_num,
                     .readonly = value["readonly"].bool_value(),
                     .mod_revision = kv.mod_revision,
-                };
-                this->inode_config[inode_num] = cfg;
-                if (cfg.name != "")
-                {
-                    this->inode_by_name[cfg.name] = inode_num;
-                    for (auto w: watches)
-                    {
-                        if (w->name == value["name"].string_value())
-                        {
-                            w->cfg = cfg;
-                        }
-                    }
-                }
+                });
+            }
+        }
+    }
+}
+
+void etcd_state_client_t::insert_inode_config(const inode_config_t & cfg)
+{
+    this->inode_config[cfg.num] = cfg;
+    if (cfg.name != "")
+    {
+        this->inode_by_name[cfg.name] = cfg.num;
+        for (auto w: watches)
+        {
+            if (w->name == cfg.name)
+            {
+                w->cfg = cfg;
             }
         }
     }

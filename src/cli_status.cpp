@@ -83,6 +83,12 @@ resume_1:
 resume_2:
         if (parent->waiting > 0)
             return;
+        if (parent->etcd_err.err)
+        {
+            fprintf(stderr, "%s\n", parent->etcd_err.text.c_str());
+            state = 100;
+            return;
+        }
         mon_members = parent->etcd_result["responses"][0]["response_range"]["kvs"].array_items();
         osd_stats = parent->etcd_result["responses"][1]["response_range"]["kvs"].array_items();
         if (parent->etcd_result["responses"][2]["response_range"]["kvs"].array_items().size() > 0)
@@ -277,16 +283,16 @@ resume_2:
     }
 };
 
-std::function<bool(void)> cli_tool_t::start_status(json11::Json cfg)
+std::function<bool(cli_result_t &)> cli_tool_t::start_status(json11::Json cfg)
 {
-    json11::Json::array cmd = cfg["command"].array_items();
     auto printer = new status_printer_t();
     printer->parent = this;
-    return [printer]()
+    return [printer](cli_result_t & result)
     {
         printer->loop();
         if (printer->is_done())
         {
+            result = { .err = 0 };
             delete printer;
             return true;
         }

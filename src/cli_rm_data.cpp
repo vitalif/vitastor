@@ -32,6 +32,9 @@ struct rm_inode_t
     uint64_t pgs_to_list = 0;
     bool lists_done = false;
     int state = 0;
+    int error_count = 0;
+
+    cli_result_t result;
 
     void start_delete()
     {
@@ -74,8 +77,13 @@ struct rm_inode_t
         });
         if (!lister)
         {
-            fprintf(stderr, "Failed to list inode %lu from pool %u objects\n", INODE_NO_POOL(inode), INODE_POOL(inode));
-            exit(1);
+            result = (cli_result_t){
+                .err = EIO,
+                .text = "Failed to list objects of inode "+std::to_string(INODE_NO_POOL(inode))+
+                    " from pool "+std::to_string(INODE_POOL(inode)),
+            };
+            state = 100;
+            return;
         }
         pgs_to_list = parent->cli->list_pg_count(lister);
         parent->cli->list_inode_next(lister, parent->parallel_osds);
@@ -118,6 +126,7 @@ struct rm_inode_t
                         fprintf(stderr, "Failed to remove object %lx:%lx from PG %u (OSD %lu) (retval=%ld)\n",
                             op->req.rw.inode, op->req.rw.offset,
                             cur_list->pg_num, cur_list->rm_osd_num, op->reply.hdr.retval);
+                        error_count++;
                     }
                     delete op;
                     cur_list->obj_done++;
@@ -161,31 +170,43 @@ struct rm_inode_t
         }
         if (lists_done && !lists.size())
         {
-            printf("Done, inode %lu in pool %u data removed\n", INODE_NO_POOL(inode), pool_id);
-            state = 2;
+            result = (cli_result_t){
+                .err = error_count > 0 ? EIO : 0,
+                .text = error_count > 0 ? "Some blocks were not removed" : (
+                    "Done, inode "+std::to_string(INODE_NO_POOL(inode))+" from pool "+
+                    std::to_string(pool_id)+" removed"),
+            };
+            state = 100;
         }
     }
 
-    bool loop()
+    bool is_done()
     {
-        if (state == 0)
+        return state == 100;
+    }
+
+    void loop()
+    {
+        if (state == 1)
+            goto resume_1;
+        if (state == 100)
+            return;
+        if (!pool_id)
         {
-            start_delete();
-            state = 1;
+            result = (cli_result_t){ .err = EINVAL, .text = "Pool is not specified" };
+            state = 100;
+            return;
         }
-        else if (state == 1)
-        {
-            continue_delete();
-        }
-        else if (state == 2)
-        {
-            return true;
-        }
-        return false;
+        start_delete();
+        if (state == 100)
+            return;
+        state = 1;
+    resume_1:
+        continue_delete();
     }
 };
 
-std::function<bool(void)> cli_tool_t::start_rm(json11::Json cfg)
+std::function<bool(cli_result_t &)> cli_tool_t::start_rm_data(json11::Json cfg)
 {
     auto remover = new rm_inode_t();
     remover->parent = this;
@@ -196,16 +217,13 @@ std::function<bool(void)> cli_tool_t::start_rm(json11::Json cfg)
         remover->inode = (remover->inode & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1)) | (((uint64_t)remover->pool_id) << (64-POOL_ID_BITS));
     }
     remover->pool_id = INODE_POOL(remover->inode);
-    if (!remover->pool_id)
-    {
-        fprintf(stderr, "pool is missing\n");
-        exit(1);
-    }
     remover->min_offset = cfg["min-offset"].uint64_value();
-    return [remover]()
+    return [remover](cli_result_t & result)
     {
-        if (remover->loop())
+        remover->loop();
+        if (remover->is_done())
         {
+            result = remover->result;
             delete remover;
             return true;
         }
