@@ -31,6 +31,7 @@ const etcd_allow = new RegExp('^'+[
     'osd/inodestats/[1-9]\\d*',
     'osd/space/[1-9]\\d*',
     'mon/master',
+    'mon/member/[a-f0-9]+',
     'pg/state/[1-9]\\d*/[1-9]\\d*',
     'pg/stats/[1-9]\\d*/[1-9]\\d*',
     'pg/history/[1-9]\\d*/[1-9]\\d*',
@@ -237,7 +238,10 @@ const etcd_tree = {
     },
     mon: {
         master: {
-            /* ip: [ string ], */
+            /* ip: [ string ], id: uint64_t */
+        },
+        standby: {
+            /* <uint64_t>: { ip: [ string ] }, */
         },
     },
     pg: {
@@ -676,8 +680,17 @@ class Mon
     async get_lease()
     {
         const max_ttl = this.config.etcd_mon_ttl + this.config.etcd_mon_timeout/1000*this.config.etcd_mon_retries;
-        const res = await this.etcd_call('/lease/grant', { TTL: max_ttl }, this.config.etcd_mon_timeout, -1);
+        // Get lease
+        let res = await this.etcd_call('/lease/grant', { TTL: max_ttl }, this.config.etcd_mon_timeout, -1);
         this.etcd_lease_id = res.ID;
+        // Register in /mon/member, just for the information
+        const state = { ip: this.local_ips() };
+        res = await this.etcd_call('/kv/put', {
+            key: b64(this.etcd_prefix+'/mon/member/'+this.etcd_lease_id),
+            value: b64(JSON.stringify(state)),
+            lease: ''+this.etcd_lease_id
+        }, this.etcd_start_timeout, 0);
+        // Set refresh timer
         this.lease_timer = setInterval(async () =>
         {
             const res = await this.etcd_call('/lease/keepalive', { ID: this.etcd_lease_id }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
@@ -703,7 +716,7 @@ class Mon
 
     async become_master()
     {
-        const state = { ip: this.local_ips() };
+        const state = { ip: this.local_ips(), id: ''+this.etcd_lease_id };
         while (1)
         {
             const res = await this.etcd_call('/kv/txn', {
