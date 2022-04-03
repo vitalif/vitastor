@@ -367,7 +367,13 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
     "osd_network": "10.200.1.0/24"
   }
   ```
-- Create systemd units for your OSDs: `/usr/lib/vitastor/mon/make-osd.sh /dev/disk/by-partuuid/XXX [/dev/disk/by-partuuid/YYY ...]`
+- Initialize OSDs:
+  - Simplest, SSD-only: `/usr/lib/vitastor/mon/make-osd.sh /dev/disk/by-partuuid/XXX [/dev/disk/by-partuuid/YYY ...]`
+  - Hybrid, HDD+SSD: `/usr/lib/vitastor/mon/make-osd-hybrid.js /dev/sda /dev/sdb ...` - pass all your
+    devices (HDD and SSD) to this script - it will partition disks and initialize journals on its own.
+    This script skips HDDs which are already partitioned so if you want to use non-empty disks for
+    Vitastor you should first wipe them with `wipefs -a`. SSDs with GPT partition table are not skipped,
+    but some free unpartitioned space must be available because the script creates new partitions for journals.
 - You can change OSD configuration in units or in `vitastor.conf`. Notable configuration variables:
   - `disable_data_fsync 1` - only safe with server-grade drives with capacitors.
   - `immediate_commit all` - use this if all your drives are server-grade.

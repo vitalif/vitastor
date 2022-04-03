@@ -25,6 +25,10 @@ OPT=$(vitastor-cli simple-offsets --format options $DEV | tr '\n' ' ')
 META=$(vitastor-cli simple-offsets --format json $DEV | jq .data_offset)
 dd if=/dev/zero of=$DEV bs=1048576 count=$(((META+1048575)/1048576)) oflag=direct
 
+mkdir -p /var/log/vitastor
+id vitastor &>/dev/null || useradd vitastor
+chown vitastor /var/log/vitastor
+
 cat >/etc/systemd/system/vitastor-osd$OSD_NUM.service <<EOF
 [Unit]
 Description=Vitastor object storage daemon osd.$OSD_NUM
@@ -36,14 +40,14 @@ PartOf=vitastor.target
 LimitNOFILE=1048576
 LimitNPROC=1048576
 LimitMEMLOCK=infinity
-ExecStart=/usr/bin/vitastor-osd \\
+ExecStart=bash -c '/usr/bin/vitastor-osd \\
     --osd_num $OSD_NUM \\
     --disable_data_fsync 1 \\
     --immediate_commit all \\
     --disk_alignment 4096 --journal_block_size 4096 --meta_block_size 4096 \\
     --journal_no_same_sector_overwrites true \\
     --journal_sector_buffer_count 1024 \\
-    $OPT
+    $OPT >>/var/log/vitastor/osd$OSD_NUM.log 2>&1'
 WorkingDirectory=/
 ExecStartPre=+chown vitastor:vitastor $DEV
 User=vitastor
