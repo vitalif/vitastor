@@ -369,14 +369,14 @@ public:
         setsid();
         if (fork())
             exit(0);
-        if (chdir("/") != 0)
-            fprintf(stderr, "Warning: Failed to chdir into /\n");
         close(0);
         close(1);
         close(2);
         open("/dev/null", O_RDONLY);
-        open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT);
-        open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT);
+        open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT, 0666);
+        open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT, 0666);
+        if (chdir("/") != 0)
+            fprintf(stderr, "Warning: Failed to chdir into /\n");
     }
 
     json11::Json::object list_mapped()
