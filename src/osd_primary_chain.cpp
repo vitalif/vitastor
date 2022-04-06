@@ -400,18 +400,21 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
             stripes[role].read_end = stripes[role].req_end;
         }
         uint64_t *cur_set = pg.cur_set.data();
-        if (pg.state != PG_ACTIVE && op_data->scheme != POOL_SCHEME_REPLICATED)
+        if (pg.state != PG_ACTIVE)
         {
             pg_osd_set_state_t *object_state;
             cur_set = get_object_osd_set(pg, cur_oid, pg.cur_set.data(), &object_state);
-            if (extend_missing_stripes(stripes, cur_set, pg.pg_data_size, pg.pg_size) < 0)
+            if (op_data->scheme != POOL_SCHEME_REPLICATED)
             {
-                free(op_data->chain_reads);
-                op_data->chain_reads = NULL;
-                finish_op(cur_op, -EIO);
-                return -1;
+                if (extend_missing_stripes(stripes, cur_set, pg.pg_data_size, pg.pg_size) < 0)
+                {
+                    free(op_data->chain_reads);
+                    op_data->chain_reads = NULL;
+                    finish_op(cur_op, -EIO);
+                    return -1;
+                }
+                op_data->degraded = 1;
             }
-            op_data->degraded = 1;
         }
         if (op_data->scheme == POOL_SCHEME_REPLICATED)
         {
@@ -465,7 +468,7 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
         auto vo_it = pg.ver_override.find(cur_oid);
         uint64_t target_ver = vo_it != pg.ver_override.end() ? vo_it->second : UINT64_MAX;
         uint64_t *cur_set = pg.cur_set.data();
-        if (pg.state != PG_ACTIVE && op_data->scheme != POOL_SCHEME_REPLICATED)
+        if (pg.state != PG_ACTIVE)
         {
             pg_osd_set_state_t *object_state;
             cur_set = get_object_osd_set(pg, cur_oid, pg.cur_set.data(), &object_state);
