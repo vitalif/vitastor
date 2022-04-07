@@ -705,6 +705,12 @@ protected:
         if (read_state == CL_READ_HDR)
         {
             int req_type = be32toh(cur_req.type);
+            if (be32toh(cur_req.magic) == NBD_REQUEST_MAGIC && req_type == NBD_CMD_DISC)
+            {
+                // Disconnect
+                close(nbd_fd);
+                exit(0);
+            }
             if (be32toh(cur_req.magic) != NBD_REQUEST_MAGIC ||
                 req_type != NBD_CMD_READ && req_type != NBD_CMD_WRITE && req_type != NBD_CMD_FLUSH)
             {
