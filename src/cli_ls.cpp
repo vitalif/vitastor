@@ -437,22 +437,25 @@ std::string print_table(json11::Json items, json11::Json header, bool use_esc)
 }
 
 static uint64_t size_thresh[] = { 1024l*1024*1024*1024, 1024l*1024*1024, 1024l*1024, 1024, 0 };
+static uint64_t size_thresh_d[] = { 1000000000000l, 1000000000l, 1000000l, 1000l, 0 };
+static const int size_thresh_n = sizeof(size_thresh)/sizeof(size_thresh[0]);
 static const char *size_unit = "TGMKB";
 
-std::string format_size(uint64_t size)
+std::string format_size(uint64_t size, bool nobytes)
 {
+    uint64_t *thr = nobytes ? size_thresh_d : size_thresh;
     char buf[256];
-    for (int i = 0; i < sizeof(size_thresh)/sizeof(size_thresh[0]); i++)
+    for (int i = 0; i < size_thresh_n; i++)
     {
-        if (size >= size_thresh[i] || i >= sizeof(size_thresh)/sizeof(size_thresh[0])-1)
+        if (size >= thr[i] || i >= size_thresh_n-1)
         {
-            double value = size_thresh[i] ? (double)size/size_thresh[i] : size;
+            double value = thr[i] ? (double)size/thr[i] : size;
             int l = snprintf(buf, sizeof(buf), "%.1f", value);
             assert(l < sizeof(buf)-2);
             if (buf[l-1] == '0')
                 l -= 2;
-            buf[l] = ' ';
-            buf[l+1] = size_unit[i];
+            buf[l] = i == size_thresh_n-1 && nobytes ? 0 : ' ';
+            buf[l+1] = i == size_thresh_n-1 && nobytes ? 0 : size_unit[i];
             buf[l+2] = 0;
             break;
         }

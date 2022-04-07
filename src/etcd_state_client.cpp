@@ -64,6 +64,42 @@ void etcd_state_client_t::etcd_txn_slow(json11::Json txn, std::function<void(std
     etcd_call("/kv/txn", txn, etcd_slow_timeout, max_etcd_attempts, 0, callback);
 }
 
+std::vector<std::string> etcd_state_client_t::get_addresses()
+{
+    auto addrs = etcd_local;
+    addrs.insert(addrs.end(), etcd_addresses.begin(), etcd_addresses.end());
+    return addrs;
+}
+
+void etcd_state_client_t::etcd_call_oneshot(std::string etcd_address, std::string api, json11::Json payload,
+    int timeout, std::function<void(std::string, json11::Json)> callback)
+{
+    std::string etcd_api_path;
+    int pos = etcd_address.find('/');
+    if (pos >= 0)
+    {
+        etcd_api_path = etcd_address.substr(pos);
+        etcd_address = etcd_address.substr(0, pos);
+    }
+    std::string req = payload.dump();
+    req = "POST "+etcd_api_path+api+" HTTP/1.1\r\n"
+        "Host: "+etcd_address+"\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: "+std::to_string(req.size())+"\r\n"
+        "Connection: close\r\n"
+        "\r\n"+req;
+    auto http_cli = http_init(tfd);
+    auto cb = [this, http_cli, callback](const http_response_t *response)
+    {
+        std::string err;
+        json11::Json data;
+        response->parse_json_response(err, data);
+        callback(err, data);
+        http_close(http_cli);
+    };
+    http_request(http_cli, etcd_address, req, { .timeout = timeout }, cb);
+}
+
 void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int timeout,
     int retries, int interval, std::function<void(std::string, json11::Json)> callback)
 {

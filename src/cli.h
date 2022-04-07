@@ -51,6 +51,7 @@ public:
     friend struct snap_flattener_t;
     friend struct snap_remover_t;
 
+    std::function<bool(void)> start_status(json11::Json cfg);
     std::function<bool(void)> start_df(json11::Json);
     std::function<bool(void)> start_ls(json11::Json);
     std::function<bool(void)> start_create(json11::Json);
@@ -69,7 +70,7 @@ uint64_t parse_size(std::string size_str);
 
 std::string print_table(json11::Json items, json11::Json header, bool use_esc);
 
-std::string format_size(uint64_t size);
+std::string format_size(uint64_t size, bool nobytes = false);
 
 std::string format_lat(uint64_t lat);
 

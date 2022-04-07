@@ -112,6 +112,8 @@ public:
 
     json11::Json::object serialize_inode_cfg(inode_config_t *cfg);
     etcd_kv_t parse_etcd_kv(const json11::Json & kv_json);
+    std::vector<std::string> get_addresses();
+    void etcd_call_oneshot(std::string etcd_address, std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback);
     void etcd_call(std::string api, json11::Json payload, int timeout, int retries, int interval, std::function<void(std::string, json11::Json)> callback);
     void etcd_txn(json11::Json txn, int timeout, int retries, int interval, std::function<void(std::string, json11::Json)> callback);
     void etcd_txn_slow(json11::Json txn, std::function<void(std::string, json11::Json)> callback);

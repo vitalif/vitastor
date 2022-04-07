@@ -677,6 +677,11 @@ class Mon
         }, this.etcd_start_timeout, 0);
     }
 
+    get_mon_state()
+    {
+        return { ip: this.local_ips(), hostname: os.hostname() };
+    }
+
     async get_lease()
     {
         const max_ttl = this.config.etcd_mon_ttl + this.config.etcd_mon_timeout/1000*this.config.etcd_mon_retries;
@@ -684,7 +689,7 @@ class Mon
         let res = await this.etcd_call('/lease/grant', { TTL: max_ttl }, this.config.etcd_mon_timeout, -1);
         this.etcd_lease_id = res.ID;
         // Register in /mon/member, just for the information
-        const state = { ip: this.local_ips() };
+        const state = this.get_mon_state();
         res = await this.etcd_call('/kv/put', {
             key: b64(this.etcd_prefix+'/mon/member/'+this.etcd_lease_id),
             value: b64(JSON.stringify(state)),
@@ -716,7 +721,7 @@ class Mon
 
     async become_master()
     {
-        const state = { ip: this.local_ips(), id: ''+this.etcd_lease_id };
+        const state = { ...this.get_mon_state(), id: ''+this.etcd_lease_id };
         while (1)
         {
             const res = await this.etcd_call('/kv/txn', {

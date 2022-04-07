@@ -342,6 +342,8 @@ void http_co_t::handle_events()
             }
             else if (epoll_events & (EPOLLRDHUP|EPOLLERR))
             {
+                if (state == HTTP_CO_HEADERS_RECEIVED)
+                    std::swap(parsed.body, response);
                 close_connection();
                 run_cb_and_clear();
                 break;
@@ -465,6 +467,8 @@ again:
     {
         // < 0 means error, 0 means EOF
         epoll_events = epoll_events & ~EPOLLIN;
+        if (state == HTTP_CO_HEADERS_RECEIVED)
+            std::swap(parsed.body, response);
         close_connection();
         if (res < 0)
             parsed = { .error = std::string("recvmsg: ")+strerror(-res) };
