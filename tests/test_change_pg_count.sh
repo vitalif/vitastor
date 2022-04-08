@@ -78,7 +78,16 @@ try_change()
     fi
 
     # Check that no objects are lost !
-    nobj=`$ETCDCTL get --prefix '/vitastor/pg/stats' --print-value-only | jq -s '[ .[].object_count ] | reduce .[] as $num (0; .+$num)'`
+    # But note that reporting this information may take up to <etcd_report_interval+1> seconds
+    nobj=0
+    waittime=0
+    while [[ $nobj -ne $NOBJ && $waittime -lt 7 ]]; do
+        nobj=`$ETCDCTL get --prefix '/vitastor/pg/stats' --print-value-only | jq -s '[ .[].object_count ] | reduce .[] as $num (0; .+$num)'`
+        if [[ $nobj -ne $NOBJ ]]; then
+            waittime=$((waittime+1))
+            sleep 1
+        fi
+    done
     if [ "$nobj" -ne $NOBJ ]; then
         format_error "Data lost after changing PG count to $n: $NOBJ objects expected, but got $nobj"
     fi
