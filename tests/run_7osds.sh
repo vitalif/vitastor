@@ -25,11 +25,18 @@ cd ..
 node mon/mon-main.js --etcd_url $ETCD_URL --etcd_prefix "/vitastor" --verbose 1 &>./testdata/mon.log &
 MON_PID=$!
 
-$ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":32,"failure_domain":"osd"}}'
+if [ "$EC" != "" ]; then
+    POOLCFG='"scheme":"xor","pg_size":3,"pg_minsize":2,"parity_chunks":1'
+    PG_SIZE=3
+else
+    POOLCFG='"scheme":"replicated","pg_size":2,"pg_minsize":2'
+    PG_SIZE=2
+fi
+$ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool",'$POOLCFG',"pg_count":32,"failure_domain":"osd"}}'
 
 sleep 2
 
-if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(.[0].items["1"] | map((.osd_set | select(. > 0)) | length == 2) | length) == 32'); then
+if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(.[0].items["1"] | map((.osd_set | select(. > 0)) | length == '$PG_SIZE') | length) == 32'); then
     format_error "FAILED: 32 PGS NOT CONFIGURED"
 fi
 
