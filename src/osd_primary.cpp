@@ -194,18 +194,22 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         // Determine version
         auto vo_it = pg.ver_override.find(op_data->oid);
         op_data->target_ver = vo_it != pg.ver_override.end() ? vo_it->second : UINT64_MAX;
+        op_data->prev_set = pg.cur_set.data();
+        if (pg.state != PG_ACTIVE)
+        {
+            // PG may be degraded or have misplaced objects
+            op_data->prev_set = get_object_osd_set(pg, op_data->oid, pg.cur_set.data(), &op_data->object_state);
+        }
         if (pg.state == PG_ACTIVE || op_data->scheme == POOL_SCHEME_REPLICATED)
         {
             // Fast happy-path
             cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->pg_data_size, 0);
-            submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, pg.cur_set.data(), cur_op);
+            submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, op_data->prev_set, cur_op);
             op_data->st = 1;
         }
         else
         {
-            // PG may be degraded or have misplaced objects
-            uint64_t* cur_set = get_object_osd_set(pg, op_data->oid, pg.cur_set.data(), &op_data->object_state);
-            if (extend_missing_stripes(op_data->stripes, cur_set, op_data->pg_data_size, pg.pg_size) < 0)
+            if (extend_missing_stripes(op_data->stripes, op_data->prev_set, op_data->pg_data_size, pg.pg_size) < 0)
             {
                 finish_op(cur_op, -EIO);
                 return;
@@ -215,7 +219,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
             op_data->scheme = pg.scheme;
             op_data->degraded = 1;
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0);
-            submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, cur_set, cur_op);
+            submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, op_data->prev_set, cur_op);
             op_data->st = 1;
         }
     }
