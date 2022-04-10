@@ -272,7 +272,7 @@ const etcd_tree = {
                 <pg_id>: {
                     osd_sets: osd_num_t[][],
                     all_peers: osd_num_t[],
-                    epoch: uint32_t,
+                    epoch: uint64_t,
                 },
             }, */
         },
