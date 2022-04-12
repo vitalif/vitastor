@@ -360,6 +360,7 @@ and calculate disk offsets almost by hand. This will be fixed in near future.
 - On the monitor hosts:
   - Edit variables at the top of `/usr/lib/vitastor/mon/make-units.sh` to desired values.
   - Create systemd units for the monitor and etcd: `/usr/lib/vitastor/mon/make-units.sh`
+- Start etcd and monitors: `systemctl start etcd vitastor-mon`
 - Put etcd_address and osd_network into `/etc/vitastor/vitastor.conf`. Example:
   ```
   {
