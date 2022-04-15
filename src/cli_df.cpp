@@ -124,8 +124,8 @@ resume_1:
                 { "scheme_name", pool_cfg.scheme == POOL_SCHEME_REPLICATED
                     ? std::to_string(pool_cfg.pg_size)+"/"+std::to_string(pool_cfg.pg_minsize)
                     : "EC "+std::to_string(pool_cfg.pg_size-pool_cfg.parity_chunks)+"+"+std::to_string(pool_cfg.parity_chunks) },
-                { "used_raw", (uint64_t)(pool_stats[pool_cfg.id]["used_raw_tb"].number_value() * (1l<<40)) },
-                { "total_raw", (uint64_t)(pool_stats[pool_cfg.id]["total_raw_tb"].number_value() * (1l<<40)) },
+                { "used_raw", (uint64_t)(pool_stats[pool_cfg.id]["used_raw_tb"].number_value() * ((uint64_t)1<<40)) },
+                { "total_raw", (uint64_t)(pool_stats[pool_cfg.id]["total_raw_tb"].number_value() * ((uint64_t)1<<40)) },
                 { "max_available", pool_avail },
                 { "raw_to_usable", pool_stats[pool_cfg.id]["raw_to_usable"].number_value() },
                 { "space_efficiency", pool_stats[pool_cfg.id]["space_efficiency"].number_value() },

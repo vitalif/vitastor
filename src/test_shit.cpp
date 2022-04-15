@@ -406,7 +406,7 @@ uint64_t crush(uint64_t key, int count, uint64_t *weights)
         seed = (key + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
         seed ^= (j + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
         seed = 2862933555777941757ull*seed + 3037000493ull; // LCPRNG
-        seed = -log(((double)seed) / (1ul << 32) / (1ul << 32)) * weights[j];
+        seed = -log(((double)seed) / ((uint64_t)1 << 32) / ((uint64_t)1 << 32)) * weights[j];
         if (seed > max)
         {
             max = seed;
@@ -439,8 +439,8 @@ void crush3(uint64_t key, int count, uint64_t *weights, uint64_t *r, uint64_t to
                 seed ^= (k2 + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
                 seed ^= (k3 + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
                 seed = 2862933555777941757ull*seed + 3037000493ull; // LCPRNG
-                //seed = ((double)seed) / (1ul << 32) / (1ul << 32) * (weights[k1] + weights[k2] + weights[k3]);
-                seed = ((double)seed) / (1ul << 32) / (1ul << 32) * (1 -
+                //seed = ((double)seed) / ((uint64_t)1 << 32) / ((uint64_t)1 << 32) * (weights[k1] + weights[k2] + weights[k3]);
+                seed = ((double)seed) / ((uint64_t)1 << 32) / ((uint64_t)1 << 32) * (1 -
                     (1 - 1.0*weights[k1]/total_weight)*
                     (1 - 1.0*weights[k2]/total_weight)*
                     (1 - 1.0*weights[k3]/total_weight)

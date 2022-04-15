@@ -189,7 +189,7 @@ public:
             uint64_t pool = cfg["pool"].uint64_value();
             if (pool)
             {
-                inode = (inode & ((1l << (64-POOL_ID_BITS)) - 1)) | (pool << (64-POOL_ID_BITS));
+                inode = (inode & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1)) | (pool << (64-POOL_ID_BITS));
             }
             if (!(inode >> (64-POOL_ID_BITS)))
             {

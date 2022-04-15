@@ -968,7 +968,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                     {
                         fprintf(
                             stderr, "Inode %lu/%lu parent_pool value is invalid, ignoring parent setting\n",
-                            inode_num >> (64-POOL_ID_BITS), inode_num & ((1l << (64-POOL_ID_BITS)) - 1)
+                            inode_num >> (64-POOL_ID_BITS), inode_num & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1)
                         );
                         parent_inode_num = 0;
                     }

@@ -193,7 +193,7 @@ std::function<bool(void)> cli_tool_t::start_rm(json11::Json cfg)
     remover->pool_id = cfg["pool"].uint64_value();
     if (remover->pool_id)
     {
-        remover->inode = (remover->inode & ((1l << (64-POOL_ID_BITS)) - 1)) | (((uint64_t)remover->pool_id) << (64-POOL_ID_BITS));
+        remover->inode = (remover->inode & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1)) | (((uint64_t)remover->pool_id) << (64-POOL_ID_BITS));
     }
     remover->pool_id = INODE_POOL(remover->inode);
     if (!remover->pool_id)

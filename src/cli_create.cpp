@@ -457,13 +457,13 @@ uint64_t parse_size(std::string size_str)
     if (type_char == 'k' || type_char == 'm' || type_char == 'g' || type_char == 't')
     {
         if (type_char == 'k')
-            mul = 1l<<10;
+            mul = (uint64_t)1<<10;
         else if (type_char == 'm')
-            mul = 1l<<20;
+            mul = (uint64_t)1<<20;
         else if (type_char == 'g')
-            mul = 1l<<30;
+            mul = (uint64_t)1<<30;
         else /*if (type_char == 't')*/
-            mul = 1l<<40;
+            mul = (uint64_t)1<<40;
         size_str = size_str.substr(0, size_str.length()-1);
     }
     uint64_t size = json11::Json(size_str).uint64_value() * mul;

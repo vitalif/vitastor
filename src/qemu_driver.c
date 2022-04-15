@@ -262,7 +262,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
         client->pool = qdict_get_try_int(options, "pool", 0);
         if (client->pool)
         {
-            client->inode = (client->inode & ((1l << (64-POOL_ID_BITS)) - 1)) | (client->pool << (64-POOL_ID_BITS));
+            client->inode = (client->inode & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1)) | (client->pool << (64-POOL_ID_BITS));
         }
         client->size = qdict_get_try_int(options, "size", 0);
     }

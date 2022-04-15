@@ -436,8 +436,8 @@ std::string print_table(json11::Json items, json11::Json header, bool use_esc)
     return str;
 }
 
-static uint64_t size_thresh[] = { 1024l*1024*1024*1024, 1024l*1024*1024, 1024l*1024, 1024, 0 };
-static uint64_t size_thresh_d[] = { 1000000000000l, 1000000000l, 1000000l, 1000l, 0 };
+static uint64_t size_thresh[] = { (uint64_t)1024*1024*1024*1024, (uint64_t)1024*1024*1024, (uint64_t)1024*1024, 1024, 0 };
+static uint64_t size_thresh_d[] = { (uint64_t)1000000000000, (uint64_t)1000000000, (uint64_t)1000000, (uint64_t)1000, 0 };
 static const int size_thresh_n = sizeof(size_thresh)/sizeof(size_thresh[0]);
 static const char *size_unit = "TGMKB";
 

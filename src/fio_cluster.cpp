@@ -214,14 +214,14 @@ static int sec_setup(struct thread_data *td)
 
     if (!o->image)
     {
-        if (!(o->inode & ((1l << (64-POOL_ID_BITS)) - 1)))
+        if (!(o->inode & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1)))
         {
             td_verror(td, EINVAL, "inode number is missing");
             return 1;
         }
         if (o->pool)
         {
-            o->inode = (o->inode & ((1l << (64-POOL_ID_BITS)) - 1)) | (o->pool << (64-POOL_ID_BITS));
+            o->inode = (o->inode & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1)) | (o->pool << (64-POOL_ID_BITS));
         }
         if (!(o->inode >> (64-POOL_ID_BITS)))
         {

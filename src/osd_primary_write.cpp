@@ -144,9 +144,9 @@ resume_3:
     }
     else
     {
-        if ((op_data->fact_ver & (1ul<<(64-PG_EPOCH_BITS) - 1)) == (1ul<<(64-PG_EPOCH_BITS) - 1))
+        if ((op_data->fact_ver & ((uint64_t)1 << (64-PG_EPOCH_BITS) - 1)) == ((uint64_t)1 << (64-PG_EPOCH_BITS) - 1))
         {
-            assert(pg.epoch != ((1ul << PG_EPOCH_BITS)-1));
+            assert(pg.epoch != (((uint64_t)1 << PG_EPOCH_BITS)-1));
             pg.epoch++;
         }
         op_data->target_ver = op_data->fact_ver + 1;

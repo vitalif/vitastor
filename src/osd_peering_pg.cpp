@@ -437,7 +437,7 @@ void pg_t::calc_object_states(int log_level)
     st.walk();
     if (this->state & (PG_DEGRADED|PG_LEFT_ON_DEAD))
     {
-        assert(epoch != ((1ul << PG_EPOCH_BITS)-1));
+        assert(epoch != (((uint64_t)1 << PG_EPOCH_BITS)-1));
         epoch++;
     }
 }
