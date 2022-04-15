@@ -217,7 +217,7 @@ resume_2:
             // JSON output
             printf("%s\n", json11::Json(json11::Json::object {
                 { "etcd_alive", etcd_alive },
-                { "etcd_count", etcd_states.size() },
+                { "etcd_count", (uint64_t)etcd_states.size() },
                 { "etcd_db_size", etcd_db_size },
                 { "mon_count", mon_count },
                 { "mon_master", mon_master },
