@@ -67,28 +67,43 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
     klog.Infof("received node publish volume request %+v", protosanitizer.StripSecrets(req))
 
     targetPath := req.GetTargetPath()
+    isBlock := req.GetVolumeCapability().GetBlock() != nil
 
     // Check that it's not already mounted
-    free, error := mount.IsNotMountPoint(ns.mounter, targetPath)
+    _, error := mount.IsNotMountPoint(ns.mounter, targetPath)
     if (error != nil)
     {
         if (os.IsNotExist(error))
         {
-            error := os.MkdirAll(targetPath, 0777)
-            if (error != nil)
+            if (isBlock)
             {
-                return nil, status.Error(codes.Internal, error.Error())
+                pathFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_RDWR, 0o600)
+                if (err != nil)
+                {
+                    klog.Errorf("failed to create block device mount target %s with error: %v", targetPath, err)
+                    return nil, status.Error(codes.Internal, err.Error())
+                }
+                err = pathFile.Close()
+                if (err != nil)
+                {
+                    klog.Errorf("failed to close %s with error: %v", targetPath, err)
+                    return nil, status.Error(codes.Internal, err.Error())
+                }
             }
-            free = true
+            else
+            {
+                err := os.MkdirAll(targetPath, 0777)
+                if (err != nil)
+                {
+                    klog.Errorf("failed to create fs mount target %s with error: %v", targetPath, err)
+                    return nil, status.Error(codes.Internal, err.Error())
+                }
+            }
         }
         else
         {
             return nil, status.Error(codes.Internal, error.Error())
         }
-    }
-    if (!free)
-    {
-        return &csi.NodePublishVolumeResponse{}, nil
     }
 
     ctxVars := make(map[string]string)
@@ -149,7 +164,6 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 
     // Format the device (ext4 or xfs)
     fsType := req.GetVolumeCapability().GetMount().GetFsType()
-    isBlock := req.GetVolumeCapability().GetBlock() != nil
     opt := req.GetVolumeCapability().GetMount().GetMountFlags()
     opt = append(opt, "_netdev")
     if ((req.VolumeCapability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY ||
