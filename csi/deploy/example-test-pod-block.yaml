@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vitastor-test-block-pvc
+  namespace: default
+spec:
+  containers:
+  - name: vitastor-test-block-pvc
+    image: nginx
+    volumeDevices:
+      - name: data
+        devicePath: /dev/xvda
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: test-vitastor-pvc-block
+      readOnly: false

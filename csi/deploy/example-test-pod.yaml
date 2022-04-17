@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vitastor-test-nginx
+  namespace: default
+spec:
+  containers:
+   - name: vitastor-test-nginx
+     image: nginx
+     volumeMounts:
+       - mountPath: /usr/share/nginx/html/s3
+         name: data
+  volumes:
+   - name: data
+     persistentVolumeClaim:
+       claimName: test-vitastor-pvc
+       readOnly: false
