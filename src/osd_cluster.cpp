@@ -189,7 +189,7 @@ void osd_t::report_statistics()
     for (auto kv: bs->get_inode_space_stats())
     {
         pool_id_t pool_id = INODE_POOL(kv.first);
-        uint64_t only_inode_num = (kv.first & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1));
+        uint64_t only_inode_num = INODE_NO_POOL(kv.first);
         if (!last_pool || pool_id != last_pool)
         {
             if (last_pool)

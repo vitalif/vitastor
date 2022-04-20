@@ -131,6 +131,7 @@ resume_1:
     }
     // Skip superblock
     bs->meta_offset += bs->meta_block_size;
+    bs->meta_len -= bs->meta_block_size;
     prev_done = 0;
     done_len = 0;
     done_pos = 0;

@@ -224,15 +224,19 @@ const etcd_tree = {
             }, */
         },
         inodestats: {
-            /* <inode_t>: {
-                read: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
-                write: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
-                delete: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+            /* <pool_id>: {
+                <inode_t>: {
+                    read: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+                    write: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+                    delete: { count: uint64_t, usec: uint64_t, bytes: uint64_t },
+                },
             }, */
         },
         space: {
             /* <osd_num_t>: {
-                <inode_t>: uint64_t, // bytes
+                <pool_id>: {
+                    <inode_t>: uint64_t, // bytes
+                },
             }, */
         },
     },
