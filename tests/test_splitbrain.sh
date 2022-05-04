@@ -2,6 +2,7 @@
 
 OSD_COUNT=2
 PG_SIZE=2
+PG_MINSIZE=1
 SCHEME=replicated
 
 . `dirname $0`/run_3osds.sh
@@ -13,7 +14,7 @@ sleep 2
 
 # Write
 
-LD_PRELOAD=libasan.so.5 \
+LD_PRELOAD="build/src/libfio_vitastor.so" \
     fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4k -direct=1 -iodepth=1 -fsync=1 \
         -rw=randwrite -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -runtime=10 -number_ios=100
 

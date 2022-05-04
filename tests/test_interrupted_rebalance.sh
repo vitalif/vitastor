@@ -4,7 +4,7 @@
 
 IMG_SIZE=960
 
-LD_PRELOAD=libasan.so.5 \
+LD_PRELOAD="build/src/libfio_vitastor.so" \
 fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4M -direct=1 -iodepth=16 -fsync=16 -rw=write \
     -etcd=$ETCD_URL -pool=1 -inode=2 -size=${IMG_SIZE}M -cluster_log_level=10
 
