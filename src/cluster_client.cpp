@@ -9,6 +9,7 @@
 #define PART_SENT 1
 #define PART_DONE 2
 #define PART_ERROR 4
+#define PART_RETRY 8
 #define CACHE_DIRTY 1
 #define CACHE_FLUSHING 2
 #define CACHE_REPEATING 3
@@ -670,14 +671,17 @@ resume_2:
             if (!try_send(op, i))
             {
                 // We'll need to retry again
-                op->up_wait = true;
-                if (!retry_timeout_id)
+                if (op->parts[i].flags & PART_RETRY)
                 {
-                    retry_timeout_id = tfd->set_timer(up_wait_retry_interval, false, [this](int)
+                    op->up_wait = true;
+                    if (!retry_timeout_id)
                     {
-                        retry_timeout_id = 0;
-                        continue_ops(true);
-                    });
+                        retry_timeout_id = tfd->set_timer(up_wait_retry_interval, false, [this](int)
+                        {
+                            retry_timeout_id = 0;
+                            continue_ops(true);
+                        });
+                    }
                 }
                 op->state = 2;
             }
@@ -746,7 +750,7 @@ resume_3:
         {
             for (int i = 0; i < op->parts.size(); i++)
             {
-                op->parts[i].flags = 0;
+                op->parts[i].flags = PART_RETRY;
             }
             goto resume_2;
         }
