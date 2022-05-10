@@ -139,7 +139,7 @@ static int nfs3_getattr_proc(void *opaque, rpc_op_t *rop)
     }
     else
     {
-        uint64_t inode_num;
+        uint64_t inode_num = 0;
         auto inode_num_it = self->parent->inode_by_hash.find(dirhash);
         if (inode_num_it != self->parent->inode_by_hash.end())
             inode_num = inode_num_it->second;
@@ -206,7 +206,7 @@ static int nfs3_setattr_proc(void *opaque, rpc_op_t *rop)
             { "image", inode_cfg.name },
             { "resize", (uint64_t)args->new_attributes.size.size },
             { "force_size", true },
-        }), [self, rop](const cli_result_t & r)
+        }), [rop](const cli_result_t & r)
         {
             SETATTR3res *reply = (SETATTR3res*)rop->reply;
             *reply = (SETATTR3res){ .status = vitastor_nfs_map_err(r.err) };

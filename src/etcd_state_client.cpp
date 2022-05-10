@@ -89,7 +89,7 @@ void etcd_state_client_t::etcd_call_oneshot(std::string etcd_address, std::strin
         "Connection: close\r\n"
         "\r\n"+req;
     auto http_cli = http_init(tfd);
-    auto cb = [this, http_cli, callback](const http_response_t *response)
+    auto cb = [http_cli, callback](const http_response_t *response)
     {
         std::string err;
         json11::Json data;
