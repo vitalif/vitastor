@@ -827,8 +827,9 @@ int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg
     if (inmsg->body.cbody.rpcvers != RPC_MSG_VERSION)
     {
         // Bad RPC version
-        rpc_op_t *rop = (rpc_op_t*)malloc(sizeof(rpc_op_t));
-        *rop = {
+        rpc_op_t *rop = (rpc_op_t*)malloc_or_die(sizeof(rpc_op_t));
+        u_int x = RPC_MSG_VERSION;
+        *rop = (rpc_op_t){
             .client = this,
             .xdrs = xdrs,
             .out_msg = (rpc_msg){
@@ -840,7 +841,10 @@ int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg
                         .rreply = (rpc_rejected_reply){
                             .stat = RPC_MISMATCH,
                             .mismatch_info = (rpc_mismatch_info){
-                                .min_version = RPC_MSG_VERSION,
+                                // Without at least one reference to a non-constant value (local variable or something else),
+                                // with gcc 8 we get "internal compiler error: side-effects element in no-side-effects CONSTRUCTOR" here
+                                // FIXME: get rid of this after raising compiler requirement
+                                .min_version = x,
                                 .max_version = RPC_MSG_VERSION,
                             },
                         },
@@ -877,7 +881,7 @@ int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg
             max_vers = max_vers_it->vers;
         }
         rpc_op_t *rop = (rpc_op_t*)malloc_or_die(sizeof(rpc_op_t));
-        *rop = {
+        *rop = (rpc_op_t){
             .client = this,
             .xdrs = xdrs,
             .out_msg = (rpc_msg){
@@ -909,6 +913,7 @@ int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg
     rpc_op_t *rop = (rpc_op_t*)malloc_or_die(
         sizeof(rpc_op_t) + proc_it->req_size + proc_it->resp_size
     );
+    rpc_reply_stat x = RPC_MSG_ACCEPTED;
     *rop = (rpc_op_t){
         .client = this,
         .buffer = (uint8_t*)base_buf,
@@ -918,7 +923,10 @@ int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg
             .body = (rpc_msg_body){
                 .dir = RPC_REPLY,
                 .rbody = (rpc_reply_body){
-                    .stat = RPC_MSG_ACCEPTED,
+                    // Without at least one reference to a non-constant value (local variable or something else),
+                    // with gcc 8 we get "internal compiler error: side-effects element in no-side-effects CONSTRUCTOR" here
+                    // FIXME: get rid of this after raising compiler requirement
+                    .stat = x,
                 },
             },
         },

@@ -1152,11 +1152,15 @@ static int nfs3_pathconf_proc(void *opaque, rpc_op_t *rop)
     else
     {
         // Fill info
+        bool_t x = FALSE;
         *reply = (PATHCONF3res){
             .status = NFS3_OK,
             .resok = (PATHCONF3resok){
                 .obj_attributes = {
-                    .attributes_follow = FALSE,
+                    // Without at least one reference to a non-constant value (local variable or something else),
+                    // with gcc 8 we get "internal compiler error: side-effects element in no-side-effects CONSTRUCTOR" here
+                    // FIXME: get rid of this after raising compiler requirement
+                    .attributes_follow = x,
                 },
                 .linkmax = 0,
                 .name_max = 255,
@@ -1243,7 +1247,7 @@ static int mount3_export_proc(void *opaque, rpc_op_t *rop)
 {
     nfs_client_t *self = (nfs_client_t*)opaque;
     nfs_exports *reply = (nfs_exports*)rop->reply;
-    *reply = (struct nfs_exportnode*)malloc(sizeof(struct nfs_exportnode) + sizeof(struct nfs_groupnode));
+    *reply = (struct nfs_exportnode*)calloc_or_die(1, sizeof(struct nfs_exportnode) + sizeof(struct nfs_groupnode));
     xdr_add_malloc(rop->xdrs, *reply);
     (*reply)->ex_dir = xdr_copy_string(rop->xdrs, self->parent->export_root);
     (*reply)->ex_groups = (struct nfs_groupnode*)(reply+1);

@@ -12,7 +12,7 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent, cli_result_t *re
     {
         char buf[128];
         snprintf(buf, 128, "Inode 0x%lx disappeared", cur);
-        *result = { .err = EIO, .text = buf };
+        *result = (cli_result_t){ .err = EIO, .text = buf };
         return;
     }
     inode_config_t new_cfg = cur_cfg_it->second;
@@ -44,18 +44,18 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent, cli_result_t *re
     {
         if (err != "")
         {
-            *result = { .err = EIO, .text = "Error changing parent of "+cur_name+": "+err };
+            *result = (cli_result_t){ .err = EIO, .text = "Error changing parent of "+cur_name+": "+err };
         }
         else if (!res["succeeded"].bool_value())
         {
-            *result = { .err = EAGAIN, .text = "Image "+cur_name+" was modified during change" };
+            *result = (cli_result_t){ .err = EAGAIN, .text = "Image "+cur_name+" was modified during change" };
         }
         else if (new_parent)
         {
             auto new_parent_it = cli->st_cli.inode_config.find(new_parent);
             std::string new_parent_name = new_parent_it != cli->st_cli.inode_config.end()
                 ? new_parent_it->second.name : "<unknown>";
-            *result = {
+            *result = (cli_result_t){
                 .text = "Parent of layer "+cur_name+" (inode "+std::to_string(INODE_NO_POOL(cur))+
                     " in pool "+std::to_string(INODE_POOL(cur))+") changed to "+new_parent_name+
                     " (inode "+std::to_string(INODE_NO_POOL(new_parent))+" in pool "+std::to_string(INODE_POOL(new_parent))+")",
@@ -63,7 +63,7 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent, cli_result_t *re
         }
         else
         {
-            *result = {
+            *result = (cli_result_t){
                 .text = "Parent of layer "+cur_name+" (inode "+std::to_string(INODE_NO_POOL(cur))+
                     " in pool "+std::to_string(INODE_POOL(cur))+") detached",
             };
@@ -80,9 +80,9 @@ void cli_tool_t::etcd_txn(json11::Json txn)
     {
         waiting--;
         if (err != "")
-            etcd_err = { .err = EIO, .text = "Error communicating with etcd: "+err };
+            etcd_err = (cli_result_t){ .err = EIO, .text = "Error communicating with etcd: "+err };
         else
-            etcd_err = { .err = 0 };
+            etcd_err = (cli_result_t){ .err = 0 };
         etcd_result = res;
         ringloop->wakeup();
     });

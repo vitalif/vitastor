@@ -131,7 +131,7 @@ static std::string netid_tcp6 = "tcp6";
 static int pmap3_dump_proc(portmap_service_t *self, rpc_op_t *rop)
 {
     PMAP3DUMPres *reply = (PMAP3DUMPres *)rop->reply;
-    pmap3_mapping_list *list = (pmap3_mapping_list*)malloc(sizeof(pmap3_mapping_list*) * self->reg_ports.size());
+    pmap3_mapping_list *list = (pmap3_mapping_list*)malloc_or_die(sizeof(pmap3_mapping_list*) * self->reg_ports.size());
     xdr_add_malloc(rop->xdrs, list);
     int i = 0;
     for (auto it = self->reg_ports.begin(); it != self->reg_ports.end(); it++)
