@@ -7,7 +7,6 @@
 
 #define _XOPEN_SOURCE
 #include <limits.h>
-#include <sys/random.h>
 
 #include <netinet/tcp.h>
 #include <sys/epoll.h>
@@ -84,7 +83,10 @@ json11::Json::object nfs_proxy_t::parse_args(int narg, const char *args[])
 
 void nfs_proxy_t::run(json11::Json cfg)
 {
-    while (getrandom(&server_id, sizeof(server_id), 0) != sizeof(server_id)) {}
+    timespec tv;
+    clock_gettime(CLOCK_REALTIME, &tv);
+    srand48(tv.tv_sec*1000000000 + tv.tv_nsec);
+    server_id = (uint64_t)lrand48() | ((uint64_t)lrand48() << 31) | ((uint64_t)lrand48() << 62);
     // Parse options
     bind_address = cfg["bind"].string_value();
     if (bind_address == "")
