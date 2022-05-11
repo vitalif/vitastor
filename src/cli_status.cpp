@@ -146,7 +146,7 @@ resume_2:
             else
             {
                 down_raw += kv.value["size"].uint64_value();
-                free_down_raw += kv.value["size"].uint64_value();
+                free_down_raw += kv.value["free"].uint64_value();
             }
         }
         int pool_count = 0, pools_active = 0;
