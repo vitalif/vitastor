@@ -606,7 +606,7 @@ void nfs_client_t::handle_read(int result)
             {
                 // Read the tail and come back
                 submit_read(wanted-left);
-                break;
+                return;
             }
             else
             {
@@ -635,9 +635,10 @@ void nfs_client_t::handle_read(int result)
                 cur_buffer.parsed_pos = 0;
                 // Restart from the beginning
                 submit_read(wanted-left);
-                break;
+                return;
             }
         }
+        submit_read(0);
     }
 }
 
