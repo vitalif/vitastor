@@ -18,6 +18,13 @@ JSON format:
 }
 ```
 
+Pool configuration is also affected by:
+
+- [OSD Placement Tree](#placement-tree)
+- [Separate OSD settings](#osd-settings)
+
+Parameters:
+
 - [name](#name)
 - [scheme](#scheme)
 - [pg_size](#pg_size)
@@ -36,7 +43,57 @@ Examples:
 - [Replicated Pool](#replicated-pool)
 - [Erasure-coded Pool](#erasure-coded-pool)
 
-# Parameters
+# Placement Tree
+
+OSD placement tree is set in a separate etcd key `/vitastor/config/node_placement`
+in the following JSON format:
+
+`
+{
+  "<node name or OSD number>": {
+    "level": "<level>",
+    "parent": "<parent node name, if any>"
+  },
+  ...
+}
+`
+
+Here, if a node name is a number then it is assumed to refer to an OSD.
+Level of the OSD is always "osd" and cannot be overriden. You may only
+override parent node of the OSD which is its host by default.
+
+Non-numeric node names refer to other placement tree nodes like hosts, racks,
+datacenters and so on.
+
+Hosts of all OSDs are auto-created in the tree with level "host" and name
+equal to the host name reported by a corresponding OSD. You can refer to them
+without adding them to this JSON tree manually.
+
+Level may be "host", "osd" or refer to some other placement tree level
+from [placement_levels](monitor.en.md#placement_levels).
+
+Parent node reference is required for intermediate tree nodes.
+
+# OSD settings
+
+Separate OSD settings are set in etc keys `/vitastor/config/osd/<number>`
+in JSON format `{"<key>":<value>}`.
+
+As of now, there is only one setting:
+
+## reweight
+
+- Type: number, between 0 and 1
+- Default: 1
+
+Every OSD receives PGs proportional to its size. Reweight is a multiplier for
+OSD size used during PG distribution.
+
+This means an OSD configured with reweight lower than 1 receives less PGs than
+it normally would. An OSD with reweight = 0 won't store any data. You can set
+reweight to 0 to trigger rebalance and remove all data from an OSD.
+
+# Pool parameters
 
 ## name
 

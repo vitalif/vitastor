@@ -7,9 +7,10 @@
 # Configuration Reference
 
 Vitastor configuration consists of:
-- Configuration parameters (key-value), described here
+- [Configuration parameters (key-value)](#parameter-reference)
 - [Pool configuration](config/pool.en.md)
-- OSD placement tree configuration
+- [OSD placement tree configuration](config/pool.en.md#placement-tree)
+- [Separate OSD settings](config/pool.en.md#osd-settings)
 - [Inode configuration](config/inode.en.md) i.e. image metadata like name, size and parent reference
 
 Configuration parameters can be set in 3 places:
@@ -34,5 +35,3 @@ In the future, additional configuration methods may be added:
 - [OSD Disk Layout](config/layout-osd.en.md)
 - [OSD Runtime Parameters](config/osd.en.md)
 - [Monitor](config/monitor.en.md)
-- [Pool configuration](config/pool.en.md)
-- [Inode metadata in etcd](docs/config/inode.en.md)
