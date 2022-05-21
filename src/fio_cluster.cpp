@@ -36,6 +36,7 @@ struct sec_data
     /* The list of completed io_u structs. */
     std::vector<io_u*> completed;
     uint64_t inflight = 0;
+    int mirror_fd = -1;
     bool trace = false;
 };
 
@@ -46,6 +47,7 @@ struct sec_options
     char *etcd_host = NULL;
     char *etcd_prefix = NULL;
     char *image = NULL;
+    char *mirror_file = NULL;
     uint64_t pool = 0;
     uint64_t inode = 0;
     int cluster_log = 0;
@@ -133,6 +135,15 @@ static struct fio_option options[] = {
         .group  = FIO_OPT_G_FILENAME,
     },
     {
+        .name   = "mirror_file",
+        .lname  = "File name to mirror writes to",
+        .type   = FIO_OPT_STR_STORE,
+        .off1   = offsetof(struct sec_options, mirror_file),
+        .help   = "File name to mirror writes to (for debug purpose)",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
         .name   = "use_rdma",
         .lname  = "Use RDMA",
         .type   = FIO_OPT_BOOL,
@@ -212,6 +223,16 @@ static int sec_setup(struct thread_data *td)
         td->o.open_files++;
     }
 
+    if (o->mirror_file)
+    {
+        bsd->mirror_fd = open(o->mirror_file, O_CREAT|O_RDWR, 0666);
+        if (bsd->mirror_fd < 0)
+        {
+            td_verror(td, errno, "open mirror file");
+            return 1;
+        }
+    }
+
     if (!o->image)
     {
         if (!(o->inode & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1)))
@@ -265,6 +286,10 @@ static void sec_cleanup(struct thread_data *td)
     sec_data *bsd = (sec_data*)td->io_ops_data;
     if (bsd)
     {
+        if (bsd->mirror_fd >= 0)
+        {
+            close(bsd->mirror_fd);
+        }
         if (bsd->watch)
         {
             vitastor_c_close_watch(bsd->cli, bsd->watch);
@@ -325,6 +350,24 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
         bsd->last_sync = false;
         break;
     case DDIR_WRITE:
+        if (opt->mirror_file)
+        {
+            size_t done = 0;
+            while (done < io->xfer_buflen)
+            {
+                ssize_t r = pwrite(bsd->mirror_fd, io->xfer_buf+done, io->xfer_buflen-done, io->offset+done);
+                if (r < 0 && errno != EAGAIN)
+                {
+                    fprintf(stderr, "Error writing mirror file: %s\n", strerror(errno));
+                    io->error = errno;
+                    return FIO_Q_COMPLETED;
+                }
+                if (r > 0)
+                {
+                    done += r;
+                }
+            }
+        }
         if (opt->image && vitastor_c_inode_get_readonly(bsd->watch))
         {
             io->error = EROFS;
