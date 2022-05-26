@@ -233,6 +233,7 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                 else
                 {
                     // Fail it immediately
+                    subop->peer_fd = -1;
                     subop->reply.hdr.retval = -EPIPE;
                     subop->callback(subop);
                 }
@@ -321,7 +322,21 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
     osd_primary_op_data_t *op_data = cur_op->op_data;
     if (retval != expected)
     {
-        printf("%s subop failed: retval = %d (expected %d)\n", osd_op_names[opcode], retval, expected);
+        if (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE || opcode == OSD_OP_SEC_WRITE_STABLE)
+        {
+            printf(
+                "%s subop to %lx:%lx v%lu failed on peer %d: retval = %d (expected %d)\n",
+                osd_op_names[opcode], subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, subop->req.sec_rw.version,
+                subop->peer_fd, retval, expected
+            );
+        }
+        else
+        {
+            printf(
+                "%s subop failed on peer %d: retval = %d (expected %d)\n",
+                osd_op_names[opcode], subop->peer_fd, retval, expected
+            );
+        }
         if (retval == -EPIPE)
         {
             op_data->epipe++;
@@ -495,6 +510,7 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
             else
             {
                 // Fail it immediately
+                subops[i].peer_fd = -1;
                 subops[i].reply.hdr.retval = -EPIPE;
                 subops[i].callback(&subops[i]);
             }
@@ -609,6 +625,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
             else
             {
                 // Fail it immediately
+                subops[i].peer_fd = -1;
                 subops[i].reply.hdr.retval = -EPIPE;
                 subops[i].callback(&subops[i]);
             }

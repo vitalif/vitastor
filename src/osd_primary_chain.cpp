@@ -295,6 +295,7 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
                 else
                 {
                     // Fail it immediately
+                    subop->peer_fd = -1;
                     subop->reply.hdr.retval = -EPIPE;
                     subop->callback(subop);
                 }
