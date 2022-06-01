@@ -50,6 +50,10 @@ pkg_check_modules(IBVERBS libibverbs)
 if (IBVERBS_LIBRARIES)
 	add_definitions(-DWITH_RDMA)
 endif (IBVERBS_LIBRARIES)
+pkg_check_modules(ISAL REQUIRED libisal)
+if (ISAL_LIBRARIES)
+	add_definitions(-DWITH_ISAL)
+endif (ISAL_LIBRARIES)
 
 include_directories(
 	../
@@ -104,6 +108,7 @@ target_link_libraries(vitastor-osd
 	vitastor_common
 	vitastor_blk
 	Jerasure
+	${ISAL_LIBRARIES}
 	${IBVERBS_LIBRARIES}
 )
 
@@ -225,7 +230,7 @@ target_link_libraries(osd_test tcmalloc_minimal)
 
 # osd_rmw_test
 add_executable(osd_rmw_test osd_rmw_test.cpp allocator.cpp)
-target_link_libraries(osd_rmw_test Jerasure tcmalloc_minimal)
+target_link_libraries(osd_rmw_test Jerasure ${ISAL_LIBRARIES} tcmalloc_minimal)
 
 # stub_uring_osd
 add_executable(stub_uring_osd
