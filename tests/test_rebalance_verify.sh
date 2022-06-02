@@ -1,6 +1,8 @@
 #!/bin/bash -ex
 
-. `dirname $0`/run_7osds.sh
+OSD_COUNT=7
+PG_COUNT=32
+. `dirname $0`/run_3osds.sh
 
 IMG_SIZE=256
 

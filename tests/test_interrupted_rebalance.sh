@@ -1,6 +1,8 @@
 #!/bin/bash -ex
 
-. `dirname $0`/run_7osds.sh
+OSD_COUNT=7
+PG_COUNT=32
+. `dirname $0`/run_3osds.sh
 
 IMG_SIZE=960
 
@@ -38,7 +40,7 @@ fi
 
 # Check that no objects are lost !
 nobj=`$ETCDCTL get --prefix '/vitastor/pg/stats' --print-value-only | jq -s '[ .[].object_count ] | reduce .[] as $num (0; .+$num)'`
-if [ "$nobj" -ne $((IMG_SIZE*8)) ]; then
+if [ "$nobj" -ne $((IMG_SIZE*8/PG_DATA_SIZE)) ]; then
     format_error "Data lost after multiple interrupted rebalancings"
 fi
 

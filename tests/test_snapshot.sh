@@ -1,6 +1,7 @@
 #!/bin/bash -ex
 
 . `dirname $0`/run_3osds.sh
+check_qemu
 
 # Test basic write and snapshot
 

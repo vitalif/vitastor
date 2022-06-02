@@ -3,8 +3,10 @@
 # Kill OSDs while writing
 
 PG_SIZE=3
-
-. `dirname $0`/run_7osds.sh
+OSD_COUNT=7
+PG_COUNT=32
+. `dirname $0`/run_3osds.sh
+check_qemu
 
 IMG_SIZE=960
 

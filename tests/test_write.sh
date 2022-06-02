@@ -1,6 +1,7 @@
 #!/bin/bash -ex
 
 . `dirname $0`/run_3osds.sh
+check_qemu
 
 #LD_PRELOAD=libasan.so.5 \
 #    fio -thread -name=test -ioengine=build/src/libfio_vitastor_sec.so -bs=4k -fsync=128 `$ETCDCTL get /vitastor/osd/state/1 --print-value-only | jq -r '"-host="+.addresses[0]+" -port="+(.port|tostring)'` -rw=write -size=32M

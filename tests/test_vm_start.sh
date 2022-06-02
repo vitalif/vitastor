@@ -3,6 +3,7 @@
 OSD_SIZE=2048
 
 . `dirname $0`/run_3osds.sh
+check_qemu
 
 $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"debian9","size":'$((2048*1024*1024))'}'
 

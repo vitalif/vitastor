@@ -1,47 +1,103 @@
-#!/bin/bash -ex
+#!/bin/bash
 
 . `dirname $0`/common.sh
 
 OSD_SIZE=${OSD_SIZE:-1024}
 PG_COUNT=${PG_COUNT:-1}
-PG_SIZE=${PG_SIZE:-3}
-PG_MINSIZE=${PG_MINSIZE:-2}
-OSD_COUNT=${OSD_COUNT:-3}
-SCHEME=${SCHEME:-ec}
+# OSD_COUNT
+SCHEME=${SCHEME:-replicated}
+# OSD_ARGS
+# PG_SIZE
+# PG_MINSIZE
+
+if [ "$SCHEME" = "ec" ]; then
+    OSD_COUNT=${OSD_COUNT:-5}
+else
+    OSD_COUNT=${OSD_COUNT:-3}
+fi
+
+if [ "$IMMEDIATE_COMMIT" != "" ]; then
+    NO_SAME="--journal_no_same_sector_overwrites true --journal_sector_buffer_count 1024 --disable_data_fsync 1 --immediate_commit all --log_level 1"
+    $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"osd_out_time":1,"immediate_commit":"all"}'
+else
+    NO_SAME="--journal_sector_buffer_count 1024 --log_level 1"
+    $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"osd_out_time":1}'
+fi
+
+start_osd()
+{
+    local i=$1
+    build/src/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $NO_SAME $OSD_ARGS --etcd_address $ETCD_URL $(build/src/vitastor-cli simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) &>./testdata/osd$i.log &
+    eval OSD${i}_PID=$!
+}
 
 for i in $(seq 1 $OSD_COUNT); do
     dd if=/dev/zero of=./testdata/test_osd$i.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
-    build/src/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $OSD_ARGS --etcd_address $ETCD_URL $(build/src/vitastor-cli simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) &>./testdata/osd$i.log &
-    eval OSD${i}_PID=$!
+    start_osd $i
 done
 
 cd mon
 npm install
 cd ..
-node mon/mon-main.js --etcd_url $ETCD_URL --etcd_prefix "/vitastor" &>./testdata/mon.log &
+node mon/mon-main.js --etcd_url $ETCD_URL --etcd_prefix "/vitastor" --verbose 1 &>./testdata/mon.log &
 MON_PID=$!
 
-if [ -n "$GLOBAL_CONF" ]; then
-    $ETCDCTL put /vitastor/config/global "$GLOBAL_CONF"
-fi
-
-if [ "$SCHEME" = "replicated" ]; then
-    $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":'$PG_SIZE',"pg_minsize":'$PG_MINSIZE',"pg_count":'$PG_COUNT',"failure_domain":"osd"}}'
+if [ "$SCHEME" = "ec" ]; then
+    PG_SIZE=${PG_SIZE:-5}
+    PG_MINSIZE=${PG_MINSIZE:-3}
+    PG_DATA_SIZE=$PG_MINSIZE
+    POOLCFG='"scheme":"jerasure","parity_chunks":'$((PG_SIZE-PG_MINSIZE))
+elif [ "$SCHEME" = "xor" ]; then
+    PG_SIZE=${PG_SIZE:-3}
+    PG_MINSIZE=${PG_MINSIZE:-2}
+    PG_DATA_SIZE=$PG_MINSIZE
+    POOLCFG='"scheme":"xor","parity_chunks":'$((PG_SIZE-PG_MINSIZE))
 else
-    $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"xor","pg_size":'$PG_SIZE',"pg_minsize":'$PG_MINSIZE',"parity_chunks":1,"pg_count":'$PG_COUNT',"failure_domain":"osd"}}'
+    PG_SIZE=${PG_SIZE:-2}
+    PG_MINSIZE=${PG_MINSIZE:-2}
+    PG_DATA_SIZE=1
+    POOLCFG='"scheme":"replicated"'
+fi
+POOLCFG='"name":"testpool","failure_domain":"osd",'$POOLCFG
+$ETCDCTL put /vitastor/config/pools '{"1":{'$POOLCFG',"pg_size":'$PG_SIZE',"pg_minsize":'$PG_MINSIZE',"pg_count":'$PG_COUNT'}}'
+
+sleep 2
+
+if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(.[0].items["1"] | map((.osd_set | select(. > 0)) | length == '$PG_SIZE') | length) == '$PG_COUNT); then
+    format_error "FAILED: $PG_COUNT PGS NOT CONFIGURED"
 fi
 
-sleep 3
-
-if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(. | length) != 0 and ([ .[0].items["1"][] | select(((.osd_set | select(. != 0) | sort | unique) | length) == '$PG_SIZE') ] | length) == '$PG_COUNT); then
-    format_error "FAILED: $PG_COUNT PG(s) NOT CONFIGURED"
+if ! ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select(.state == ["active"]) ] | length) == '$PG_COUNT); then
+    format_error "FAILED: $PG_COUNT PGS NOT UP"
 fi
 
-if ! ($ETCDCTL get /vitastor/pg/state/1/ --prefix --print-value-only | jq -s -e '[ .[] | select(.state == ["active"]) ] | length == '$PG_COUNT); then
-    format_error "FAILED: $PG_COUNT PG(s) NOT UP"
-fi
+try_reweight()
+{
+    osd=$1
+    w=$2
+    $ETCDCTL put /vitastor/config/osd/$osd '{"reweight":'$w'}'
+    sleep 3
+}
 
-if ! cmp build/src/block-vitastor.so /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so; then
-    sudo rm -f /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so
-    sudo ln -s "$(realpath .)/build/src/block-vitastor.so" /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so
-fi
+wait_finish_rebalance()
+{
+    sec=$1
+    i=0
+    while [[ $i -lt $sec ]]; do
+        ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select(.state == ["active"]) ] | length) == 32') && \
+            break
+        if [ $i -eq 60 ]; then
+            format_error "Rebalance couldn't finish in $sec seconds"
+        fi
+        sleep 1
+        i=$((i+1))
+    done
+}
+
+check_qemu()
+{
+    if ! cmp build/src/block-vitastor.so /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so; then
+        sudo rm -f /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so
+        sudo ln -s "$(realpath .)/build/src/block-vitastor.so" /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so
+    fi
+}
