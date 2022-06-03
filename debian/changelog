@@ -1,4 +1,18 @@
+vitastor (0.7.1-1) unstable; urgency=medium
+
+  * Bugfixes
+
+ -- Vitaliy Filippov <vitalif@yourcmc.ru>  Fri, 03 Jun 2022 02:09:44 +0300
+
 vitastor (0.7.0-1) unstable; urgency=medium
+
+  * Implement NFS proxy
+  * Add documentation
+  * Bugfixes
+
+ -- Vitaliy Filippov <vitalif@yourcmc.ru>  Sun, 29 May 2022 23:39:13 +0300
+
+vitastor (0.6.3-1) unstable; urgency=medium
 
   * RDMA support
   * Bugfixes

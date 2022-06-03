@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <string.h>
 #include <assert.h>
-#include <jerasure/reed_sol.h>
+#include <reed_sol.h>
 #include <jerasure.h>
 #ifdef WITH_ISAL
 #include <isa-l/erasure_code.h>
@@ -155,9 +155,9 @@ struct reed_sol_matrix_t
     std::map<reed_sol_erased_t, void*> decodings;
 };
 
-std::map<uint64_t, reed_sol_matrix_t> matrices;
+static std::map<uint64_t, reed_sol_matrix_t> matrices;
 
-void use_jerasure(int pg_size, int pg_minsize, bool use)
+void use_ec(int pg_size, int pg_minsize, bool use)
 {
     uint64_t key = (uint64_t)pg_size | ((uint64_t)pg_minsize) << 32;
     auto rs_it = matrices.find(key);
@@ -202,7 +202,7 @@ void use_jerasure(int pg_size, int pg_minsize, bool use)
     }
 }
 
-reed_sol_matrix_t* get_jerasure_matrix(int pg_size, int pg_minsize)
+static reed_sol_matrix_t* get_ec_matrix(int pg_size, int pg_minsize)
 {
     uint64_t key = (uint64_t)pg_size | ((uint64_t)pg_minsize) << 32;
     auto rs_it = matrices.find(key);
@@ -228,7 +228,7 @@ static void* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size
             edd++;
     if (edd == 0)
         return NULL;
-    reed_sol_matrix_t *matrix = get_jerasure_matrix(pg_size, pg_minsize);
+    reed_sol_matrix_t *matrix = get_ec_matrix(pg_size, pg_minsize);
     auto dec_it = matrix->decodings.find((reed_sol_erased_t){ .data = erased, .size = pg_size });
     if (dec_it == matrix->decodings.end())
     {
@@ -293,7 +293,7 @@ static void* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size
 }
 
 #ifdef WITH_ISAL
-void reconstruct_stripes_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, uint32_t bitmap_size)
+void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, uint32_t bitmap_size)
 {
     uint8_t *dectable = (uint8_t*)get_jerasure_decoding_matrix(stripes, pg_size, pg_minsize);
     if (!dectable)
@@ -342,7 +342,7 @@ void reconstruct_stripes_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg
     }
 }
 #else
-void reconstruct_stripes_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, uint32_t bitmap_size)
+void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, uint32_t bitmap_size)
 {
     int *dm_ids = (int*)get_jerasure_decoding_matrix(stripes, pg_size, pg_minsize);
     if (!dm_ids)
@@ -792,12 +792,12 @@ void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_
     calc_rmw_parity_copy_parity(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, start, end);
 }
 
-void calc_rmw_parity_jerasure(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
+void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
     uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t bitmap_size)
 {
     uint32_t bitmap_granularity = bitmap_size > 0 ? chunk_size / bitmap_size / 8 : 0;
-    reed_sol_matrix_t *matrix = get_jerasure_matrix(pg_size, pg_minsize);
-    reconstruct_stripes_jerasure(stripes, pg_size, pg_minsize, bitmap_size);
+    reed_sol_matrix_t *matrix = get_ec_matrix(pg_size, pg_minsize);
+    reconstruct_stripes_ec(stripes, pg_size, pg_minsize, bitmap_size);
     uint32_t start = 0, end = 0;
     calc_rmw_parity_copy_mod(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, bitmap_granularity, start, end);
     if (end != 0)

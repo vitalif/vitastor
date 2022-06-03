@@ -22,7 +22,7 @@ RUN apt-get update
 RUN apt-get -y install fio liburing1 liburing-dev libgoogle-perftools-dev devscripts
 RUN apt-get -y build-dep fio
 RUN apt-get --download-only source fio
-RUN apt-get update && apt-get -y install libjerasure-dev cmake libibverbs-dev
+RUN apt-get update && apt-get -y install libjerasure-dev cmake libibverbs-dev libisal-dev
 
 ADD . /root/vitastor
 RUN set -e -x; \

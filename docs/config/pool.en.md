@@ -106,9 +106,10 @@ Pool name.
 
 - Type: string
 - Required
-- One of: "replicated", "xor" or "jerasure"
+- One of: "replicated", "xor", "ec" or "jerasure"
 
-Redundancy scheme used for data in this pool.
+Redundancy scheme used for data in this pool. "jerasure" is an alias for "ec",
+both use Reed-Solomon-Vandermonde codes.
 
 ## pg_size
 
@@ -243,7 +244,7 @@ of the OSDs containing a data chunk for a PG.
 {
   "2": {
     "name":"ecpool",
-    "scheme":"jerasure",
+    "scheme":"ec",
     "pg_size":3,
     "parity_chunks":1,
     "pg_minsize":2,

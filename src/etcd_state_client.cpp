@@ -673,18 +673,18 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 pc.scheme = POOL_SCHEME_REPLICATED;
             else if (pool_item.second["scheme"] == "xor")
                 pc.scheme = POOL_SCHEME_XOR;
-            else if (pool_item.second["scheme"] == "jerasure")
-                pc.scheme = POOL_SCHEME_JERASURE;
+            else if (pool_item.second["scheme"] == "ec" || pool_item.second["scheme"] == "jerasure")
+                pc.scheme = POOL_SCHEME_EC;
             else
             {
-                fprintf(stderr, "Pool %u has invalid coding scheme (one of \"xor\", \"replicated\" or \"jerasure\" required), skipping pool\n", pool_id);
+                fprintf(stderr, "Pool %u has invalid coding scheme (one of \"xor\", \"replicated\", \"ec\" or \"jerasure\" required), skipping pool\n", pool_id);
                 continue;
             }
             // PG Size
             pc.pg_size = pool_item.second["pg_size"].uint64_value();
             if (pc.pg_size < 1 ||
                 pool_item.second["pg_size"].uint64_value() < 3 &&
-                (pc.scheme == POOL_SCHEME_XOR || pc.scheme == POOL_SCHEME_JERASURE) ||
+                (pc.scheme == POOL_SCHEME_XOR || pc.scheme == POOL_SCHEME_EC) ||
                 pool_item.second["pg_size"].uint64_value() > 256)
             {
                 fprintf(stderr, "Pool %u has invalid pg_size, skipping pool\n", pool_id);
@@ -701,7 +701,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 }
                 pc.parity_chunks = 1;
             }
-            if (pc.scheme == POOL_SCHEME_JERASURE &&
+            if (pc.scheme == POOL_SCHEME_EC &&
                 (pc.parity_chunks < 1 || pc.parity_chunks > pc.pg_size-2))
             {
                 fprintf(stderr, "Pool %u has invalid parity_chunks (must be between 1 and pg_size-2), skipping pool\n", pool_id);
@@ -710,7 +710,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             // PG MinSize
             pc.pg_minsize = pool_item.second["pg_minsize"].uint64_value();
             if (pc.pg_minsize < 1 || pc.pg_minsize > pc.pg_size ||
-                (pc.scheme == POOL_SCHEME_XOR || pc.scheme == POOL_SCHEME_JERASURE) &&
+                (pc.scheme == POOL_SCHEME_XOR || pc.scheme == POOL_SCHEME_EC) &&
                 pc.pg_minsize < (pc.pg_size-pc.parity_chunks))
             {
                 fprintf(stderr, "Pool %u has invalid pg_minsize, skipping pool\n", pool_id);

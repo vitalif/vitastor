@@ -110,9 +110,9 @@ resume_1:
                         {
                             reconstruct_stripes_xor(local_stripes, pg.pg_size, clean_entry_bitmap_size);
                         }
-                        else if (pg.scheme == POOL_SCHEME_JERASURE)
+                        else if (pg.scheme == POOL_SCHEME_EC)
                         {
-                            reconstruct_stripes_jerasure(local_stripes, pg.pg_size, pg.pg_data_size, clean_entry_bitmap_size);
+                            reconstruct_stripes_ec(local_stripes, pg.pg_size, pg.pg_data_size, clean_entry_bitmap_size);
                         }
                         break;
                     }
@@ -506,9 +506,9 @@ void osd_t::send_chained_read_results(pg_t & pg, osd_op_t *cur_op)
             {
                 reconstruct_stripes_xor(stripes, pg.pg_size, clean_entry_bitmap_size);
             }
-            else if (op_data->scheme == POOL_SCHEME_JERASURE)
+            else if (op_data->scheme == POOL_SCHEME_EC)
             {
-                reconstruct_stripes_jerasure(stripes, pg.pg_size, pg.pg_data_size, clean_entry_bitmap_size);
+                reconstruct_stripes_ec(stripes, pg.pg_size, pg.pg_data_size, clean_entry_bitmap_size);
             }
         }
     }

@@ -127,7 +127,7 @@ resume_1:
             pool_stats[pool_cfg.id] = json11::Json::object {
                 { "name", pool_cfg.name },
                 { "pg_count", pool_cfg.pg_count },
-                { "scheme", pool_cfg.scheme == POOL_SCHEME_REPLICATED ? "replicated" : "jerasure" },
+                { "scheme", pool_cfg.scheme == POOL_SCHEME_REPLICATED ? "replicated" : "ec" },
                 { "scheme_name", pool_cfg.scheme == POOL_SCHEME_REPLICATED
                     ? std::to_string(pool_cfg.pg_size)+"/"+std::to_string(pool_cfg.pg_minsize)
                     : "EC "+std::to_string(pool_cfg.pg_size-pool_cfg.parity_chunks)+"+"+std::to_string(pool_cfg.parity_chunks) },

@@ -676,9 +676,9 @@ void osd_t::apply_pg_config()
                     .all_peers = std::vector<osd_num_t>(all_peers.begin(), all_peers.end()),
                     .target_set = pg_cfg.target_set,
                 };
-                if (pg.scheme == POOL_SCHEME_JERASURE)
+                if (pg.scheme == POOL_SCHEME_EC)
                 {
-                    use_jerasure(pg.pg_size, pg.pg_data_size, true);
+                    use_ec(pg.pg_size, pg.pg_data_size, true);
                 }
                 this->pg_state_dirty.insert({ .pool_id = pool_id, .pg_num = pg_num });
                 pg.print_state();
@@ -890,9 +890,9 @@ void osd_t::report_pg_states()
                     {
                         // Forget offline PGs after reporting their state
                         // (if the state wasn't changed again)
-                        if (pg_it->second.scheme == POOL_SCHEME_JERASURE)
+                        if (pg_it->second.scheme == POOL_SCHEME_EC)
                         {
-                            use_jerasure(pg_it->second.pg_size, pg_it->second.pg_data_size, false);
+                            use_ec(pg_it->second.pg_size, pg_it->second.pg_data_size, false);
                         }
                         this->pgs.erase(pg_it);
                     }

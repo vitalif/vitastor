@@ -5,7 +5,7 @@
 
 #define POOL_SCHEME_REPLICATED 1
 #define POOL_SCHEME_XOR 2
-#define POOL_SCHEME_JERASURE 3
+#define POOL_SCHEME_EC 3
 #define POOL_ID_MAX 0x10000
 #define POOL_ID_BITS 16
 #define INODE_POOL(inode) (pool_id_t)((inode) >> (64 - POOL_ID_BITS))

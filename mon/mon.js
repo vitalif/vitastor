@@ -147,11 +147,11 @@ const etcd_tree = {
         /* pools: {
             <id>: {
                 name: 'testpool',
-                // jerasure uses Reed-Solomon-Vandermonde codes
-                scheme: 'replicated' | 'xor' | 'jerasure',
+                // 'ec' uses Reed-Solomon-Vandermonde codes, 'jerasure' is an alias for 'ec'
+                scheme: 'replicated' | 'xor' | 'ec' | 'jerasure',
                 pg_size: 3,
                 pg_minsize: 2,
-                // number of parity chunks, required for jerasure
+                // number of parity chunks, required for EC
                 parity_chunks?: 1,
                 pg_count: 100,
                 failure_domain: 'host',
@@ -1013,14 +1013,15 @@ class Mon
                 console.log('Pool ID '+pool_id+' is invalid');
             return false;
         }
-        if (pool_cfg.scheme !== 'xor' && pool_cfg.scheme !== 'replicated' && pool_cfg.scheme !== 'jerasure')
+        if (pool_cfg.scheme !== 'xor' && pool_cfg.scheme !== 'replicated' &&
+            pool_cfg.scheme !== 'ec' && pool_cfg.scheme !== 'jerasure')
         {
             if (warn)
-                console.log('Pool '+pool_id+' has invalid coding scheme (one of "xor", "replicated" and "jerasure" required)');
+                console.log('Pool '+pool_id+' has invalid coding scheme (one of "xor", "replicated", "ec" and "jerasure" required)');
             return false;
         }
         if (!pool_cfg.pg_size || pool_cfg.pg_size < 1 || pool_cfg.pg_size > 256 ||
-            (pool_cfg.scheme === 'xor' || pool_cfg.scheme == 'jerasure') && pool_cfg.pg_size < 3)
+            pool_cfg.scheme !== 'replicated' && pool_cfg.pg_size < 3)
         {
             if (warn)
                 console.log('Pool '+pool_id+' has invalid pg_size');
@@ -1039,7 +1040,8 @@ class Mon
                 console.log('Pool '+pool_id+' has invalid parity_chunks (must be 1)');
             return false;
         }
-        if (pool_cfg.scheme === 'jerasure' && (pool_cfg.parity_chunks < 1 || pool_cfg.parity_chunks > pool_cfg.pg_size-2))
+        if ((pool_cfg.scheme === 'ec' || pool_cfg.scheme === 'jerasure') &&
+            (pool_cfg.parity_chunks < 1 || pool_cfg.parity_chunks > pool_cfg.pg_size-2))
         {
             if (warn)
                 console.log('Pool '+pool_id+' has invalid parity_chunks (must be between 1 and pg_size-2)');

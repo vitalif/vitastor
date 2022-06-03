@@ -132,9 +132,9 @@ resume_3:
         {
             calc_rmw_parity_xor(op_data->stripes, pg.pg_size, op_data->prev_set, pg.cur_set.data(), bs_block_size, clean_entry_bitmap_size);
         }
-        else if (pg.scheme == POOL_SCHEME_JERASURE)
+        else if (pg.scheme == POOL_SCHEME_EC)
         {
-            calc_rmw_parity_jerasure(op_data->stripes, pg.pg_size, op_data->pg_data_size, op_data->prev_set, pg.cur_set.data(), bs_block_size, clean_entry_bitmap_size);
+            calc_rmw_parity_ec(op_data->stripes, pg.pg_size, op_data->pg_data_size, op_data->prev_set, pg.cur_set.data(), bs_block_size, clean_entry_bitmap_size);
         }
     }
     // Send writes

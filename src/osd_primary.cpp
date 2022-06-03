@@ -241,9 +241,9 @@ resume_2:
         {
             reconstruct_stripes_xor(stripes, op_data->pg_size, clean_entry_bitmap_size);
         }
-        else if (op_data->scheme == POOL_SCHEME_JERASURE)
+        else if (op_data->scheme == POOL_SCHEME_EC)
         {
-            reconstruct_stripes_jerasure(stripes, op_data->pg_size, op_data->pg_data_size, clean_entry_bitmap_size);
+            reconstruct_stripes_ec(stripes, op_data->pg_size, op_data->pg_data_size, clean_entry_bitmap_size);
         }
         cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
         for (int role = 0; role < op_data->pg_size; role++)

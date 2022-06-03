@@ -587,14 +587,14 @@ void test12()
      input buffer: [ write0, write1 ],
      rmw buffer: [ write2, write3, read0, read1 ],
    }
-   then, after calc_rmw_parity_jerasure(): all the same
+   then, after calc_rmw_parity_ec(): all the same
    then simulate read with read_osd_set=[0,0,3,4] and check read0,read1 buffers
 
 ***/
 
 void test13()
 {
-    use_jerasure(4, 2, true);
+    use_ec(4, 2, true);
     osd_num_t osd_set[4] = { 1, 2, 0, 0 };
     osd_num_t write_osd_set[4] = { 1, 2, 3, 4 };
     osd_rmw_stripe_t stripes[4] = {};
@@ -628,7 +628,7 @@ void test13()
     set_pattern(write_buf, 8192, PATTERN3);
     set_pattern(stripes[0].read_buf, 128*1024-4096, PATTERN1);
     set_pattern(stripes[1].read_buf, 128*1024-4096, PATTERN2);
-    calc_rmw_parity_jerasure(stripes, 4, 2, osd_set, write_osd_set, 128*1024, 0);
+    calc_rmw_parity_ec(stripes, 4, 2, osd_set, write_osd_set, 128*1024, 0);
     assert(stripes[0].write_start == 128*1024-4096 && stripes[0].write_end == 128*1024);
     assert(stripes[1].write_start == 0 && stripes[1].write_end == 4096);
     assert(stripes[2].write_start == 0 && stripes[2].write_end == 128*1024);
@@ -663,7 +663,7 @@ void test13()
     assert(stripes[3].read_buf == (uint8_t*)read_buf+3*128*1024);
     memcpy((uint8_t*)read_buf+2*128*1024, rmw_buf, 128*1024);
     memcpy((uint8_t*)read_buf+3*128*1024, (uint8_t*)rmw_buf+128*1024, 128*1024);
-    reconstruct_stripes_jerasure(stripes, 4, 2, 0);
+    reconstruct_stripes_ec(stripes, 4, 2, 0);
     check_pattern(stripes[0].read_buf, 128*1024-4096, PATTERN1);
     check_pattern(stripes[0].read_buf+128*1024-4096, 4096, PATTERN3);
     check_pattern(stripes[1].read_buf, 4096, PATTERN3);
@@ -694,14 +694,14 @@ void test13()
     assert(stripes[3].read_buf == (uint8_t*)read_buf+2*128*1024);
     memcpy((uint8_t*)read_buf+128*1024, rmw_buf, 128*1024);
     memcpy((uint8_t*)read_buf+2*128*1024, (uint8_t*)rmw_buf+128*1024, 128*1024);
-    reconstruct_stripes_jerasure(stripes, 4, 2, 0);
+    reconstruct_stripes_ec(stripes, 4, 2, 0);
     check_pattern(stripes[0].read_buf, 128*1024-4096, PATTERN1);
     check_pattern(stripes[0].read_buf+128*1024-4096, 4096, PATTERN3);
     free(read_buf);
     // Huh done
     free(rmw_buf);
     free(write_buf);
-    use_jerasure(4, 2, false);
+    use_ec(4, 2, false);
 }
 
 /***
@@ -714,7 +714,7 @@ void test13()
      input buffer: [ write0, write1 ],
      rmw buffer: [ write2, read0, read1 ],
    }
-   then, after calc_rmw_parity_jerasure(): all the same
+   then, after calc_rmw_parity_ec(): all the same
    then simulate read with read_osd_set=[0,2,3] and check read0 buffer
 
 ***/
@@ -722,7 +722,7 @@ void test13()
 void test14()
 {
     const int bmp = 4;
-    use_jerasure(3, 2, true);
+    use_ec(3, 2, true);
     osd_num_t osd_set[3] = { 1, 2, 0 };
     osd_num_t write_osd_set[3] = { 1, 2, 3 };
     osd_rmw_stripe_t stripes[3] = {};
@@ -757,7 +757,7 @@ void test14()
     memset(stripes[0].bmp_buf, 0, bmp);
     memset(stripes[1].bmp_buf, 0, bmp);
     memset(stripes[2].bmp_buf, 0, bmp);
-    calc_rmw_parity_jerasure(stripes, 3, 2, osd_set, write_osd_set, 128*1024, bmp);
+    calc_rmw_parity_ec(stripes, 3, 2, osd_set, write_osd_set, 128*1024, bmp);
     assert(*(uint32_t*)stripes[0].bmp_buf == 0x80000000);
     assert(*(uint32_t*)stripes[1].bmp_buf == 0x00000001);
     assert(*(uint32_t*)stripes[2].bmp_buf == 0x80000001); // jerasure 2+1 is still just XOR
@@ -793,12 +793,12 @@ void test14()
     set_pattern(stripes[1].read_buf, 4096, PATTERN3);
     set_pattern(stripes[1].read_buf+4096, 128*1024-4096, PATTERN2);
     memcpy(stripes[2].read_buf, rmw_buf, 128*1024);
-    reconstruct_stripes_jerasure(stripes, 3, 2, bmp);
+    reconstruct_stripes_ec(stripes, 3, 2, bmp);
     check_pattern(stripes[0].read_buf, 128*1024-4096, PATTERN1);
     check_pattern(stripes[0].read_buf+128*1024-4096, 4096, PATTERN3);
     free(read_buf);
     // Huh done
     free(rmw_buf);
     free(write_buf);
-    use_jerasure(3, 2, false);
+    use_ec(3, 2, false);
 }
