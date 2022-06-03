@@ -92,10 +92,7 @@ void nfs_proxy_t::run(json11::Json cfg)
     if (bind_address == "")
         bind_address = "0.0.0.0";
     default_pool = cfg["pool"].as_string();
-    portmap_enabled = cfg.object_items().find("portmap") == cfg.object_items().end() ||
-        cfg["portmap"].uint64_value() ||
-        cfg["portmap"].string_value() == "yes" ||
-        cfg["portmap"].string_value() == "true";
+    portmap_enabled = !json_is_false(cfg["portmap"]);
     nfs_port = cfg["port"].uint64_value() & 0xffff;
     if (!nfs_port)
         nfs_port = 2049;

@@ -54,7 +54,7 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
             autosync_writes = max_autosync;
     }
 
-    if (this->config["osd_memlock"] == "true" || this->config["osd_memlock"] == "1" || this->config["osd_memlock"] == "yes")
+    if (json_is_true(this->config["osd_memlock"]))
     {
         // Lock all OSD memory if requested
         if (mlockall(MCL_CURRENT|MCL_FUTURE
@@ -127,11 +127,11 @@ void osd_t::parse_config(const json11::Json & config)
     etcd_report_interval = config["etcd_report_interval"].uint64_value();
     if (etcd_report_interval <= 0)
         etcd_report_interval = 5;
-    readonly = config["readonly"] == "true" || config["readonly"] == "1" || config["readonly"] == "yes";
-    run_primary = config["run_primary"] != "false" && config["run_primary"] != "0" && config["run_primary"] != "no";
-    no_rebalance = config["no_rebalance"] == "true" || config["no_rebalance"] == "1" || config["no_rebalance"] == "yes";
-    no_recovery = config["no_recovery"] == "true" || config["no_recovery"] == "1" || config["no_recovery"] == "yes";
-    allow_test_ops = config["allow_test_ops"] == "true" || config["allow_test_ops"] == "1" || config["allow_test_ops"] == "yes";
+    readonly = json_is_true(config["readonly"]);
+    run_primary = !json_is_false(config["run_primary"]);
+    no_rebalance = json_is_true(config["no_rebalance"]);
+    no_recovery = json_is_true(config["no_recovery"]);
+    allow_test_ops = json_is_true(config["allow_test_ops"]);
     if (config["immediate_commit"] == "all")
         immediate_commit = IMMEDIATE_ALL;
     else if (config["immediate_commit"] == "small")

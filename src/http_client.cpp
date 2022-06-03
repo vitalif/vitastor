@@ -758,3 +758,21 @@ static std::string trim(const std::string & in)
     int end = in.find_last_not_of(" \n\r\t");
     return in.substr(begin, end+1-begin);
 }
+
+bool json_is_true(const json11::Json & val)
+{
+    if (val.is_string())
+        return val == "true" || val == "yes" || val == "1";
+    return val.bool_value();
+}
+
+bool json_is_false(const json11::Json & val)
+{
+    if (val.is_string())
+        return val.string_value() == "false" || val.string_value() == "no" || val.string_value() == "0";
+    if (val.is_number())
+        return val.number_value() == 0;
+    if (val.is_bool())
+        return !val.bool_value();
+    return false;
+}

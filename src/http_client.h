@@ -52,3 +52,6 @@ void http_close(http_co_t *co);
 // Utils
 uint64_t stoull_full(const std::string & str, int base = 10);
 std::string strtolower(const std::string & in);
+// FIXME: move to json11
+bool json_is_true(const json11::Json & val);
+bool json_is_false(const json11::Json & val);
