@@ -111,6 +111,7 @@ public:
     etcd_state_client_t st_cli;
     osd_messenger_t msgr;
     json11::Json config;
+    json11::Json::object merged_config;
 
     cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config);
     ~cluster_client_t();

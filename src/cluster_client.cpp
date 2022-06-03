@@ -279,6 +279,11 @@ static uint32_t is_power_of_two(uint64_t value)
 
 void cluster_client_t::on_load_config_hook(json11::Json::object & config)
 {
+    this->merged_config = config;
+    for (auto & kv: this->config.object_items())
+    {
+        this->merged_config[kv.first] = kv.second;
+    }
     bs_block_size = config["block_size"].uint64_value();
     bs_bitmap_granularity = config["bitmap_granularity"].uint64_value();
     if (!bs_block_size)

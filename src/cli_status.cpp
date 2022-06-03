@@ -5,6 +5,7 @@
 #include "cluster_client.h"
 #include "base64.h"
 #include "pg_states.h"
+#include "http_client.h"
 
 // Print cluster status:
 // etcd, mon, osd states
@@ -207,6 +208,9 @@ resume_2:
         obj_n = agg_stats["object_counts"]["incomplete"].uint64_value();
         if (obj_n > 0)
             more_states += ", "+format_size(obj_n*object_size)+" incomplete";
+        bool readonly = json_is_true(parent->cli->merged_config["readonly"]);
+        bool no_recovery = json_is_true(parent->cli->merged_config["no_recovery"]);
+        bool no_rebalance = json_is_true(parent->cli->merged_config["no_rebalance"]);
         std::string recovery_io;
         {
             uint64_t deg_bps = agg_stats["recovery_stats"]["degraded"]["bps"].uint64_value();
@@ -214,9 +218,19 @@ resume_2:
             uint64_t misp_bps = agg_stats["recovery_stats"]["misplaced"]["bps"].uint64_value();
             uint64_t misp_iops = agg_stats["recovery_stats"]["misplaced"]["iops"].uint64_value();
             if (deg_iops > 0 || deg_bps > 0)
-                recovery_io += "    recovery:  "+format_size(deg_bps)+"/s, "+format_size(deg_iops, true)+" op/s\n";
+            {
+                recovery_io += "    recovery:  "+std::string(no_recovery ? "disabled, " : "")+
+                    format_size(deg_bps)+"/s, "+format_size(deg_iops, true)+" op/s\n";
+            }
+            else if (no_recovery)
+                recovery_io += "    recovery:  disabled\n";
             if (misp_iops > 0 || misp_bps > 0)
-                recovery_io += "    rebalance: "+format_size(misp_bps)+"/s, "+format_size(misp_iops, true)+" op/s\n";
+            {
+                recovery_io += "    rebalance: "+std::string(no_rebalance ? "disabled, " : "")+
+                    format_size(misp_bps)+"/s, "+format_size(misp_iops, true)+" op/s\n";
+            }
+            else if (no_rebalance)
+                recovery_io += "    rebalance: disabled\n";
         }
         if (parent->json_output)
         {
@@ -233,6 +247,9 @@ resume_2:
                 { "free_raw", free_raw },
                 { "down_raw", down_raw },
                 { "free_down_raw", free_down_raw },
+                { "readonly", readonly },
+                { "no_recovery", no_recovery },
+                { "no_rebalance", no_rebalance },
                 { "clean_data", agg_stats["object_counts"]["clean"].uint64_value() * object_size },
                 { "misplaced_data", agg_stats["object_counts"]["misplaced"].uint64_value() * object_size },
                 { "degraded_data", agg_stats["object_counts"]["degraded"].uint64_value() * object_size },
@@ -259,7 +276,7 @@ resume_2:
             "    pools: %d / %d active\n"
             "    pgs:   %s\n"
             "  \n"
-            "  io:\n"
+            "  io%s:\n"
             "    client:%s %s/s rd, %s op/s rd, %s/s wr, %s op/s wr\n"
             "%s",
             etcd_alive, etcd_states.size(), format_size(etcd_db_size).c_str(),
@@ -272,6 +289,7 @@ resume_2:
             format_size(agg_stats["object_counts"]["clean"].uint64_value() * object_size).c_str(), more_states.c_str(),
             pools_active, pool_count,
             pgs_by_state_str.c_str(),
+            readonly ? " (read-only mode)" : "",
             recovery_io.size() > 0 ? "   " : "",
             format_size(agg_stats["op_stats"]["primary_read"]["bps"].uint64_value()).c_str(),
             format_size(agg_stats["op_stats"]["primary_read"]["iops"].uint64_value(), true).c_str(),

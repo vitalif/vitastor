@@ -39,6 +39,7 @@ public:
     ring_loop_t *ringloop = NULL;
     epoll_manager_t *epmgr = NULL;
     cluster_client_t *cli = NULL;
+    bool no_recovery = false, no_rebalance = false, readonly = false;
 
     int waiting = 0;
     cli_result_t etcd_err;
