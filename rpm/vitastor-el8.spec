@@ -12,6 +12,7 @@ BuildRequires:  gperftools-devel
 BuildRequires:  gcc-toolset-9-gcc-c++
 BuildRequires:  nodejs >= 10
 BuildRequires:  jerasure-devel
+BuildRequires:  libisa-l-devel
 BuildRequires:  gf-complete-devel
 BuildRequires:  libibverbs-devel
 BuildRequires:  cmake
@@ -31,6 +32,7 @@ size with configurable redundancy (replication or erasure codes/XOR).
 %package -n vitastor-osd
 Summary:        Vitastor - OSD
 Requires:       libJerasure2
+Requires:       libisa-l
 Requires:       liburing >= 0.6
 Requires:       vitastor-client = %{version}-%{release}
 

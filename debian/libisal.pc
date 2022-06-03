@@ -1,0 +1,11 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${prefix}/lib/x86_64-linux-gnu
+includedir=${prefix}/include
+
+Name: libisal
+Description: Library for storage systems
+Version: 2.30.0
+Libs: -L${libdir} -lisal
+Libs.private:
+Cflags: -I${includedir}

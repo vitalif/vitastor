@@ -26,6 +26,7 @@ RUN apt-get update && apt-get -y install libjerasure-dev cmake libibverbs-dev li
 
 ADD . /root/vitastor
 RUN set -e -x; \
+    [ -e /usr/lib/x86_64-linux-gnu/pkgconfig/libisal.pc ] || cp /root/vitastor/debian/libisal.pc /usr/lib/x86_64-linux-gnu/pkgconfig; \
     mkdir -p /root/fio-build/; \
     cd /root/fio-build/; \
     rm -rf /root/fio-build/*; \
