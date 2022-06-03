@@ -390,7 +390,11 @@ void osd_t::acquire_lease()
         etcd_lease_id = data["ID"].string_value();
         create_osd_state();
     });
-    printf("[OSD %lu] reporting to etcd at %s every %d seconds\n", this->osd_num, config["etcd_address"].string_value().c_str(), etcd_report_interval);
+    printf(
+        "[OSD %lu] reporting to etcd at %s every %d seconds\n", this->osd_num,
+        (config["etcd_address"].is_string() ? config["etcd_address"].string_value() : config["etcd_address"].dump()).c_str(),
+        etcd_report_interval
+    );
     tfd->set_timer(etcd_report_interval*1000, true, [this](int timer_id)
     {
         renew_lease();
