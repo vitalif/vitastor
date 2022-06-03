@@ -1156,6 +1156,10 @@ class Mon
                     {
                         prev_pgs[pg-1] = this.state.config.pgs.items[pool_id][pg].osd_set;
                     }
+                    // Also delete pool statistics
+                    etcd_request.success.push({ requestDeleteRange: {
+                        key: b64(this.etcd_prefix+'/pool/stats/'+pool_id),
+                    } });
                     this.save_new_pgs_txn(etcd_request, pool_id, up_osds, osd_tree, prev_pgs, [], []);
                 }
             }
