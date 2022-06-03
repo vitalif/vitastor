@@ -64,8 +64,9 @@ struct rm_inode_t
             }
             rm->obj_pos = rm->objects.begin();
             lists.push_back(rm);
-            if (parent->list_first)
+            if (parent->list_first && !(status & INODE_LIST_DONE))
             {
+                // The listing object is dead when DONE => don't call next()
                 parent->cli->list_inode_next(lister, 1);
             }
             if (status & INODE_LIST_DONE)

@@ -153,16 +153,6 @@ void cluster_client_t::continue_listing(inode_list_t *lst)
 {
     if (lst->done_pgs >= lst->pgs.size())
     {
-        // All done
-        for (int i = 0; i < lists.size(); i++)
-        {
-            if (lists[i] == lst)
-            {
-                lists.erase(lists.begin()+i, lists.begin()+i+1);
-                break;
-            }
-        }
-        delete lst;
         return;
     }
     if (lst->want <= 0)
@@ -178,7 +168,7 @@ void cluster_client_t::continue_listing(inode_list_t *lst)
                 send_list(&lst->pgs[i]->list_osds[j]);
                 if (lst->want <= 0)
                 {
-                    break;
+                    return;
                 }
             }
         }
@@ -268,6 +258,24 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
             lst->callback(lst, std::move(pg->objects), pg->pg_num, pg->cur_primary, status);
             lst->pgs[pg->pos] = NULL;
             delete pg;
+            if (lst->done_pgs >= lst->pgs.size())
+            {
+                // All done
+                for (int i = 0; i < lists.size(); i++)
+                {
+                    if (lists[i] == lst)
+                    {
+                        lists.erase(lists.begin()+i, lists.begin()+i+1);
+                        break;
+                    }
+                }
+                delete lst;
+                return;
+            }
+        }
+        else
+        {
+            lst->want++;
         }
         continue_listing(lst);
     };
