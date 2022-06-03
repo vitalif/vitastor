@@ -168,6 +168,9 @@ void osd_t::parse_config(const json11::Json & config)
     slow_log_interval = config["slow_log_interval"].uint64_value();
     if (!slow_log_interval)
         slow_log_interval = 10;
+    inode_vanish_time = config["inode_vanish_time"].uint64_value();
+    if (!inode_vanish_time)
+        inode_vanish_time = 60;
 }
 
 void osd_t::bind_socket()

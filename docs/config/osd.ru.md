@@ -24,6 +24,7 @@
 - [no_rebalance](#no_rebalance)
 - [print_stats_interval](#print_stats_interval)
 - [slow_log_interval](#slow_log_interval)
+- [inode_vanish_time](#inode_vanish_time)
 - [max_write_iodepth](#max_write_iodepth)
 - [min_flusher_count](#min_flusher_count)
 - [max_flusher_count](#max_flusher_count)
@@ -168,6 +169,13 @@ OSD.
 Временной интервал, с которым OSD выводят в стандартный вывод список
 медленных или зависших операций, если таковые имеются. Также время, при
 превышении которого операция считается "медленной".
+
+## inode_vanish_time
+
+- Тип: секунды
+- Значение по умолчанию: 60
+
+Число секунд, через которое удалённые инод удаляется и из статистики OSD.
 
 ## max_write_iodepth
 

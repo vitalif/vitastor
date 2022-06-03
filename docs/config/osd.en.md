@@ -23,6 +23,7 @@ initialization and can be changed with an OSD restart.
 - [no_rebalance](#no_rebalance)
 - [print_stats_interval](#print_stats_interval)
 - [slow_log_interval](#slow_log_interval)
+- [inode_vanish_time](#inode_vanish_time)
 - [max_write_iodepth](#max_write_iodepth)
 - [min_flusher_count](#min_flusher_count)
 - [max_flusher_count](#max_flusher_count)
@@ -162,6 +163,13 @@ statistics on stdout.
 Time interval at which OSDs dump slow or stuck operations on stdout, if
 they're any. Also it's the time after which an operation is considered
 "slow".
+
+## inode_vanish_time
+
+- Type: seconds
+- Default: 60
+
+Number of seconds after which a deleted inode is removed from OSD statistics.
 
 ## max_write_iodepth
 

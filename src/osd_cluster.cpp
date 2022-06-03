@@ -186,7 +186,8 @@ void osd_t::report_statistics()
     json11::Json::object inode_space;
     json11::Json::object last_stat;
     pool_id_t last_pool = 0;
-    for (auto kv: bs->get_inode_space_stats())
+    auto & bs_inode_space = bs->get_inode_space_stats();
+    for (auto kv: bs_inode_space)
     {
         pool_id_t pool_id = INODE_POOL(kv.first);
         uint64_t only_inode_num = INODE_NO_POOL(kv.first);
@@ -204,8 +205,26 @@ void osd_t::report_statistics()
     last_stat = json11::Json::object();
     last_pool = 0;
     json11::Json::object inode_ops;
-    for (auto kv: inode_stats)
+    timespec tv_now;
+    for (auto st_it = inode_stats.begin(); st_it != inode_stats.end(); )
     {
+        auto & kv = *st_it;
+        if (!bs_inode_space[kv.first])
+        {
+            // Is it an empty inode?
+            if (!tv_now.tv_sec)
+                clock_gettime(CLOCK_REALTIME, &tv_now);
+            auto & tv_van = vanishing_inodes[kv.first];
+            if (!tv_van.tv_sec)
+                tv_van = tv_now;
+            else if (tv_van.tv_sec < tv_now.tv_sec-inode_vanish_time)
+            {
+                // Inode vanished <inode_vanish_time> seconds ago, remove it from stats
+                vanishing_inodes.erase(kv.first);
+                inode_stats.erase(st_it++);
+                continue;
+            }
+        }
         pool_id_t pool_id = INODE_POOL(kv.first);
         uint64_t only_inode_num = (kv.first & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1));
         if (!last_pool || pool_id != last_pool)
@@ -232,6 +251,7 @@ void osd_t::report_statistics()
                 { "bytes", kv.second.op_bytes[INODE_STATS_DELETE] },
             } },
         };
+        st_it++;
     }
     if (last_pool)
         inode_ops[std::to_string(last_pool)] = last_stat;

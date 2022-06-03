@@ -113,6 +113,7 @@ class osd_t
     int autosync_writes = DEFAULT_AUTOSYNC_WRITES;
     int recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
     int recovery_sync_batch = DEFAULT_RECOVERY_BATCH;
+    int inode_vanish_time = 60;
     int log_level = 0;
 
     // cluster state
@@ -165,6 +166,7 @@ class osd_t
     // op statistics
     osd_op_stats_t prev_stats;
     std::map<uint64_t, inode_stats_t> inode_stats;
+    std::map<uint64_t, timespec> vanishing_inodes;
     const char* recovery_stat_names[2] = { "degraded", "misplaced" };
     uint64_t recovery_stat_count[2][2] = {};
     uint64_t recovery_stat_bytes[2][2] = {};

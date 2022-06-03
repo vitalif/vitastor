@@ -158,6 +158,13 @@
     Временной интервал, с которым OSD выводят в стандартный вывод список
     медленных или зависших операций, если таковые имеются. Также время, при
     превышении которого операция считается "медленной".
+- name: inode_vanish_time
+  type: sec
+  default: 60
+  info: |
+    Number of seconds after which a deleted inode is removed from OSD statistics.
+  info_ru: |
+    Число секунд, через которое удалённые инод удаляется и из статистики OSD.
 - name: max_write_iodepth
   type: int
   default: 128
