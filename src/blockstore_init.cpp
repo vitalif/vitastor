@@ -912,7 +912,11 @@ void blockstore_init_journal::erase_dirty_object(blockstore_dirty_db_t::iterator
         ? clean_it->second.location : UINT64_MAX;
     if (exists && clean_loc == UINT64_MAX)
     {
-        bs->inode_space_stats[oid.inode] -= bs->block_size;
+        auto & sp = bs->inode_space_stats[oid.inode];
+        if (sp > bs->block_size)
+            sp -= bs->block_size;
+        else
+            bs->inode_space_stats.erase(oid.inode);
     }
     bs->erase_dirty(dirty_it, dirty_end, clean_loc);
     // Remove it from the flusher's queue, too

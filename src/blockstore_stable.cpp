@@ -200,7 +200,11 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
                 }
                 else if (IS_DELETE(dirty_it->second.state))
                 {
-                    inode_space_stats[dirty_it->first.oid.inode] -= block_size;
+                    auto & sp = inode_space_stats[dirty_it->first.oid.inode];
+                    if (sp > block_size)
+                        sp -= block_size;
+                    else
+                        inode_space_stats.erase(dirty_it->first.oid.inode);
                 }
             }
             if (forget_dirty && (IS_BIG_WRITE(dirty_it->second.state) ||
