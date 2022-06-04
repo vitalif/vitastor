@@ -4,11 +4,13 @@
 #include <stdexcept>
 #include <string.h>
 #include <assert.h>
+extern "C" {
 #include <reed_sol.h>
 #include <jerasure.h>
 #ifdef WITH_ISAL
 #include <isa-l/erasure_code.h>
 #endif
+}
 #include <map>
 #include "allocator.h"
 #include "xor.h"
