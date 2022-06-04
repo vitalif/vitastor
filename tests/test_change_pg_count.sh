@@ -5,7 +5,7 @@ PG_COUNT=16
 
 . `dirname $0`/run_3osds.sh
 
-NOBJ=$((128*8/PG_DATA_SIZE))
+NOBJ=$(((128*8+PG_DATA_SIZE-1)/PG_DATA_SIZE))
 
 LD_PRELOAD="build/src/libfio_vitastor.so" \
 fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write \

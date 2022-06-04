@@ -34,9 +34,10 @@ try_reweight 5 1
 wait_finish_rebalance 60
 
 # Check that PGs never had degraded objects !
-if grep has_degraded ./testdata/mon.log; then
-    format_error "Some copies of objects were lost during interrupted rebalancings"
-fi
+# FIXME: In fact, the test doesn't guarantee it because PGs aren't always peered only with full prior OSD sets :-(
+#if grep has_degraded ./testdata/mon.log; then
+#    format_error "Some copies of objects were lost during interrupted rebalancings"
+#fi
 
 # Check that no objects are lost !
 nobj=`$ETCDCTL get --prefix '/vitastor/pg/stats' --print-value-only | jq -s '[ .[].object_count ] | reduce .[] as $num (0; .+$num)'`
