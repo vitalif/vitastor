@@ -109,7 +109,9 @@ Pool name.
 - One of: "replicated", "xor", "ec" or "jerasure"
 
 Redundancy scheme used for data in this pool. "jerasure" is an alias for "ec",
-both use Reed-Solomon-Vandermonde codes.
+both use Reed-Solomon-Vandermonde codes based on ISA-L or jerasure libraries.
+Fast ISA-L based implementation is used automatically when it's available,
+slower jerasure version is used otherwise.
 
 ## pg_size
 
