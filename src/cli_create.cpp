@@ -276,7 +276,8 @@ resume_4:
             new_id = 1+INODE_NO_POOL(kv.value.uint64_value());
             max_id_mod_rev = kv.mod_revision;
         }
-        auto ino_it = parent->cli->st_cli.inode_config.lower_bound(INODE_WITH_POOL(new_pool_id, 0));
+        // Also check existing inodes - for the case when some inodes are created without changing /index/maxid
+        auto ino_it = parent->cli->st_cli.inode_config.lower_bound(INODE_WITH_POOL(new_pool_id+1, 0));
         if (ino_it != parent->cli->st_cli.inode_config.begin())
         {
             ino_it--;
