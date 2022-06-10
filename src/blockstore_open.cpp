@@ -109,25 +109,25 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     {
         disk_alignment = 4096;
     }
-    else if (disk_alignment % MEM_ALIGNMENT)
+    else if (disk_alignment % DIRECT_IO_ALIGNMENT)
     {
-        throw std::runtime_error("disk_alignment must be a multiple of "+std::to_string(MEM_ALIGNMENT));
+        throw std::runtime_error("disk_alignment must be a multiple of "+std::to_string(DIRECT_IO_ALIGNMENT));
     }
     if (!journal_block_size)
     {
         journal_block_size = 4096;
     }
-    else if (journal_block_size % MEM_ALIGNMENT)
+    else if (journal_block_size % DIRECT_IO_ALIGNMENT)
     {
-        throw std::runtime_error("journal_block_size must be a multiple of "+std::to_string(MEM_ALIGNMENT));
+        throw std::runtime_error("journal_block_size must be a multiple of "+std::to_string(DIRECT_IO_ALIGNMENT));
     }
     if (!meta_block_size)
     {
         meta_block_size = 4096;
     }
-    else if (meta_block_size % MEM_ALIGNMENT)
+    else if (meta_block_size % DIRECT_IO_ALIGNMENT)
     {
-        throw std::runtime_error("meta_block_size must be a multiple of "+std::to_string(MEM_ALIGNMENT));
+        throw std::runtime_error("meta_block_size must be a multiple of "+std::to_string(DIRECT_IO_ALIGNMENT));
     }
     if (data_offset % disk_alignment)
     {

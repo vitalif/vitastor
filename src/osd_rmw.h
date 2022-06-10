@@ -7,6 +7,7 @@
 #include "object_id.h"
 #include "osd_id.h"
 
+// Memory allocation alignment (page size is usually optimal)
 #ifndef MEM_ALIGNMENT
 #define MEM_ALIGNMENT 4096
 #endif

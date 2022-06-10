@@ -30,12 +30,18 @@
 #define OSD_OP_PING                 15
 #define OSD_OP_SEC_READ_BMP         16
 #define OSD_OP_MAX                  16
-// Alignment & limit for read/write operations
-#ifndef MEM_ALIGNMENT
-#define MEM_ALIGNMENT               512
-#endif
 #define OSD_RW_MAX                  64*1024*1024
 #define OSD_PROTOCOL_VERSION        1
+
+// Memory alignment for direct I/O (usually 512 bytes)
+#ifndef DIRECT_IO_ALIGNMENT
+#define DIRECT_IO_ALIGNMENT 512
+#endif
+
+// Memory allocation alignment (page size is usually optimal)
+#ifndef MEM_ALIGNMENT
+#define MEM_ALIGNMENT 4096
+#endif
 
 // common request and reply headers
 struct __attribute__((__packed__)) osd_op_header_t

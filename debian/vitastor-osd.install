@@ -1,2 +1,3 @@
 usr/bin/vitastor-osd
 usr/bin/vitastor-dump-journal
+usr/bin/vitastor-dump-meta

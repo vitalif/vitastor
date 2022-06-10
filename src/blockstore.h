@@ -19,7 +19,11 @@
 #include "timerfd_manager.h"
 
 // Memory alignment for direct I/O (usually 512 bytes)
-// All other alignments must be a multiple of this one
+#ifndef DIRECT_IO_ALIGNMENT
+#define DIRECT_IO_ALIGNMENT 512
+#endif
+
+// Memory allocation alignment (page size is usually optimal)
 #ifndef MEM_ALIGNMENT
 #define MEM_ALIGNMENT 4096
 #endif

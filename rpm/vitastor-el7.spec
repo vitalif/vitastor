@@ -113,6 +113,7 @@ cp -r mon %buildroot/usr/lib/vitastor
 %files -n vitastor-osd
 %_bindir/vitastor-osd
 %_bindir/vitastor-dump-journal
+%_bindir/vitastor-dump-meta
 
 
 %files -n vitastor-mon

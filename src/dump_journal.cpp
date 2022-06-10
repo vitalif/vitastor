@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
     self.journal_block = strtoul(argv[b+1], NULL, 10);
     self.journal_offset = strtoull(argv[b+2], NULL, 10);
     self.journal_len = strtoull(argv[b+3], NULL, 10);
-    if (self.journal_block < MEM_ALIGNMENT || (self.journal_block % MEM_ALIGNMENT) ||
+    if (self.journal_block < DIRECT_IO_ALIGNMENT || (self.journal_block % DIRECT_IO_ALIGNMENT) ||
         self.journal_block > 128*1024)
     {
         printf("Invalid journal block size\n");
