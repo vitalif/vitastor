@@ -3,15 +3,11 @@
 
 #define _LARGEFILE64_SOURCE
 #include <sys/types.h>
-#include <sys/ioctl.h>
-#include <sys/stat.h>
-#include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <malloc.h>
-#include <linux/fs.h>
-#include <string.h>
 #include <errno.h>
 #include <assert.h>
 #include <stdio.h>
@@ -121,7 +117,7 @@ int main(int argc, char *argv[])
                 {
                     printf(
 #define ENTRY_FMT "{\"block\":%lu,\"pool\":%u,\"inode\":%lu,\"stripe\":%lu,\"version\":%lu,\"bitmap\":\""
-                        (first ? (",\n" ENTRY_FMT) : ENTRY_FMT),
+                        (first ? ENTRY_FMT : (",\n" ENTRY_FMT)),
 #undef ENTRY_FMT
                         block_num, INODE_POOL(entry->oid.inode), INODE_NO_POOL(entry->oid.inode),
                         entry->oid.stripe, entry->version
@@ -158,7 +154,7 @@ int main(int argc, char *argv[])
                 {
                     printf(
 #define ENTRY_FMT "{\"block\":%lu,\"pool\":%u,\"inode\":%lu,\"stripe\":%lu,\"version\":%lu}"
-                        (first ? (",\n" ENTRY_FMT) : ENTRY_FMT),
+                        (first ? ENTRY_FMT : (",\n" ENTRY_FMT)),
 #undef ENTRY_FMT
                         block_num, INODE_POOL(entry->oid.inode), INODE_NO_POOL(entry->oid.inode),
                         entry->oid.stripe, entry->version
