@@ -90,13 +90,13 @@
 #include "blockstore_journal.h"
 
 // "VITAstor"
-#define BLOCKSTORE_META_MAGIC 0x726F747341544956l
-#define BLOCKSTORE_META_VERSION 1
+#define BLOCKSTORE_META_MAGIC_V1 0x726F747341544956l
+#define BLOCKSTORE_META_VERSION_V1 1
 
 // metadata header (superblock)
 // FIXME: After adding the OSD superblock, add a key to metadata
 // and journal headers to check if they belong to the same OSD
-struct __attribute__((__packed__)) blockstore_meta_header_t
+struct __attribute__((__packed__)) blockstore_meta_header_v1_t
 {
     uint64_t zero;
     uint64_t magic;

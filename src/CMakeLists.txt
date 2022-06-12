@@ -200,7 +200,7 @@ add_executable(vitastor-dump-journal
 
 # vitastor-dump-meta
 add_executable(vitastor-dump-meta
-	dump_meta.cpp
+	dump_meta.cpp rw_blocking.cpp
 )
 
 if (${WITH_QEMU})

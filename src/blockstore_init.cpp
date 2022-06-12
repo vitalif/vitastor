@@ -71,10 +71,10 @@ resume_1:
     if (iszero((uint64_t*)metadata_buffer, bs->meta_block_size / sizeof(uint64_t)))
     {
         {
-            blockstore_meta_header_t *hdr = (blockstore_meta_header_t *)metadata_buffer;
+            blockstore_meta_header_v1_t *hdr = (blockstore_meta_header_v1_t *)metadata_buffer;
             hdr->zero = 0;
-            hdr->magic = BLOCKSTORE_META_MAGIC;
-            hdr->version = BLOCKSTORE_META_VERSION;
+            hdr->magic = BLOCKSTORE_META_MAGIC_V1;
+            hdr->version = BLOCKSTORE_META_VERSION_V1;
             hdr->meta_block_size = bs->meta_block_size;
             hdr->data_block_size = bs->block_size;
             hdr->bitmap_granularity = bs->bitmap_granularity;
@@ -103,10 +103,10 @@ resume_1:
     }
     else
     {
-        blockstore_meta_header_t *hdr = (blockstore_meta_header_t *)metadata_buffer;
+        blockstore_meta_header_v1_t *hdr = (blockstore_meta_header_v1_t *)metadata_buffer;
         if (hdr->zero != 0 ||
-            hdr->magic != BLOCKSTORE_META_MAGIC ||
-            hdr->version != BLOCKSTORE_META_VERSION)
+            hdr->magic != BLOCKSTORE_META_MAGIC_V1 ||
+            hdr->version != BLOCKSTORE_META_VERSION_V1)
         {
             printf(
                 "Metadata is corrupt or old version.\n"
