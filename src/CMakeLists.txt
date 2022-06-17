@@ -193,14 +193,9 @@ target_link_libraries(vitastor-cli
 )
 configure_file(vitastor.pc.in vitastor.pc @ONLY)
 
-# vitastor-dump-journal
-add_executable(vitastor-dump-journal
-	dump_journal.cpp crc32c.c
-)
-
-# vitastor-dump-meta
-add_executable(vitastor-dump-meta
-	dump_meta.cpp rw_blocking.cpp
+# vitastor-disk
+add_executable(vitastor-disk
+	disk_tool.cpp crc32c.c rw_blocking.cpp
 )
 
 if (${WITH_QEMU})
@@ -280,7 +275,8 @@ target_include_directories(test_cluster_client PUBLIC ${CMAKE_SOURCE_DIR}/src/mo
 
 ### Install
 
-install(TARGETS vitastor-osd vitastor-dump-journal vitastor-dump-meta vitastor-nbd vitastor-nfs vitastor-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS vitastor-osd vitastor-disk vitastor-nbd vitastor-nfs vitastor-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install_symlink(vitastor-disk ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vitastor-dump-journal)
 install_symlink(vitastor-cli ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vitastor-rm)
 install_symlink(vitastor-cli ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vita)
 install(
