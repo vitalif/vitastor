@@ -76,7 +76,7 @@ resume_1:
             hdr->magic = BLOCKSTORE_META_MAGIC_V1;
             hdr->version = BLOCKSTORE_META_VERSION_V1;
             hdr->meta_block_size = bs->meta_block_size;
-            hdr->data_block_size = bs->block_size;
+            hdr->data_block_size = bs->data_block_size;
             hdr->bitmap_granularity = bs->bitmap_granularity;
         }
         if (bs->readonly)
@@ -116,7 +116,7 @@ resume_1:
             exit(1);
         }
         if (hdr->meta_block_size != bs->meta_block_size ||
-            hdr->data_block_size != bs->block_size ||
+            hdr->data_block_size != bs->data_block_size ||
             hdr->bitmap_granularity != bs->bitmap_granularity)
         {
             printf(
@@ -124,7 +124,7 @@ resume_1:
                 " (meta_block_size=%u, data_block_size=%u, bitmap_granularity=%u)"
                 " differs from OSD configuration (%lu/%u/%lu).\n",
                 hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity,
-                bs->meta_block_size, bs->block_size, bs->bitmap_granularity
+                bs->meta_block_size, bs->data_block_size, bs->bitmap_granularity
             );
             exit(1);
         }
@@ -240,7 +240,7 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
                 }
                 else
                 {
-                    bs->inode_space_stats[entry->oid.inode] += bs->block_size;
+                    bs->inode_space_stats[entry->oid.inode] += bs->data_block_size;
                 }
                 entries_loaded++;
 #ifdef BLOCKSTORE_DEBUG
@@ -913,8 +913,8 @@ void blockstore_init_journal::erase_dirty_object(blockstore_dirty_db_t::iterator
     if (exists && clean_loc == UINT64_MAX)
     {
         auto & sp = bs->inode_space_stats[oid.inode];
-        if (sp > bs->block_size)
-            sp -= bs->block_size;
+        if (sp > bs->data_block_size)
+            sp -= bs->data_block_size;
         else
             bs->inode_space_stats.erase(oid.inode);
     }

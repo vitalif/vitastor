@@ -84,7 +84,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::simple_offsets(json11::Json cfg)
         fprintf(stderr, "Invalid device block size specified: %lu\n", device_block_size);
         exit(1);
     }
-    if (object_size < device_block_size || object_size > MAX_BLOCK_SIZE ||
+    if (object_size < device_block_size || object_size > MAX_DATA_BLOCK_SIZE ||
         object_size & (object_size-1) != 0)
     {
         fprintf(stderr, "Invalid object size specified: %lu\n", object_size);

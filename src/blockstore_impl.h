@@ -219,7 +219,7 @@ class blockstore_impl_t
 {
     /******* OPTIONS *******/
     std::string data_device, meta_device, journal_device;
-    uint32_t block_size;
+    uint32_t data_block_size;
     uint64_t meta_offset;
     uint64_t data_offset;
     uint64_t cfg_journal_size, cfg_data_size;
@@ -274,8 +274,8 @@ class blockstore_impl_t
 
     int meta_fd;
     int data_fd;
-    uint64_t meta_size, meta_area, meta_len;
-    uint64_t data_size, data_len;
+    uint64_t meta_device_size, meta_len;
+    uint64_t data_device_size, data_len;
     uint64_t data_device_sect, meta_device_sect, journal_device_sect;
 
     void *metadata_buffer = NULL;
@@ -394,7 +394,7 @@ public:
     // Print diagnostics to stdout
     void dump_diagnostics();
 
-    inline uint32_t get_block_size() { return block_size; }
+    inline uint32_t get_block_size() { return data_block_size; }
     inline uint64_t get_block_count() { return block_count; }
     inline uint64_t get_free_block_count() { return data_alloc->get_free_count(); }
     inline uint32_t get_bitmap_granularity() { return disk_alignment; }

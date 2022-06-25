@@ -62,7 +62,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     cfg_data_size = strtoull(config["data_size"].c_str(), NULL, 10);
     meta_device = config["meta_device"];
     meta_offset = strtoull(config["meta_offset"].c_str(), NULL, 10);
-    block_size = strtoull(config["block_size"].c_str(), NULL, 10);
+    data_block_size = strtoull(config["block_size"].c_str(), NULL, 10);
     inmemory_meta = config["inmemory_metadata"] != "false";
     journal_device = config["journal_device"];
     journal.offset = strtoull(config["journal_offset"].c_str(), NULL, 10);
@@ -85,11 +85,11 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     throttle_target_parallelism = strtoull(config["throttle_target_parallelism"].c_str(), NULL, 10);
     throttle_threshold_us = strtoull(config["throttle_threshold_us"].c_str(), NULL, 10);
     // Validate
-    if (!block_size)
+    if (!data_block_size)
     {
-        block_size = (1 << DEFAULT_ORDER);
+        data_block_size = (1 << DEFAULT_DATA_BLOCK_ORDER);
     }
-    if ((block_order = is_power_of_two(block_size)) >= 64 || block_size < MIN_BLOCK_SIZE || block_size >= MAX_BLOCK_SIZE)
+    if ((block_order = is_power_of_two(data_block_size)) >= 64 || data_block_size < MIN_DATA_BLOCK_SIZE || data_block_size >= MAX_DATA_BLOCK_SIZE)
     {
         throw std::runtime_error("Bad block size");
     }
@@ -141,7 +141,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     {
         throw std::runtime_error("Sparse write tracking granularity must be a multiple of disk_alignment = "+std::to_string(disk_alignment));
     }
-    if (block_size % bitmap_granularity)
+    if (data_block_size % bitmap_granularity)
     {
         throw std::runtime_error("Block size must be a multiple of sparse write tracking granularity");
     }
@@ -202,7 +202,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
         throttle_threshold_us = 50;
     }
     // init some fields
-    clean_entry_bitmap_size = block_size / bitmap_granularity / 8;
+    clean_entry_bitmap_size = data_block_size / bitmap_granularity / 8;
     clean_entry_size = sizeof(clean_disk_entry) + 2*clean_entry_bitmap_size;
     journal.block_size = journal_block_size;
     journal.next_free = journal_block_size;
@@ -214,7 +214,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
 void blockstore_impl_t::calc_lengths()
 {
     // data
-    data_len = data_size - data_offset;
+    data_len = data_device_size - data_offset;
     if (data_fd == meta_fd && data_offset < meta_offset)
     {
         data_len = meta_offset - data_offset;
@@ -234,18 +234,18 @@ void blockstore_impl_t::calc_lengths()
         data_len = cfg_data_size;
     }
     // meta
-    meta_area = (meta_fd == data_fd ? data_size : meta_size) - meta_offset;
+    uint64_t meta_area_size = (meta_fd == data_fd ? data_device_size : meta_device_size) - meta_offset;
     if (meta_fd == data_fd && meta_offset <= data_offset)
     {
-        meta_area = data_offset - meta_offset;
+        meta_area_size = data_offset - meta_offset;
     }
     if (meta_fd == journal.fd && meta_offset <= journal.offset)
     {
-        meta_area = meta_area < journal.offset-meta_offset
-            ? meta_area : journal.offset-meta_offset;
+        meta_area_size = meta_area_size < journal.offset-meta_offset
+            ? meta_area_size : journal.offset-meta_offset;
     }
     // journal
-    journal.len = (journal.fd == data_fd ? data_size : (journal.fd == meta_fd ? meta_size : journal.device_size)) - journal.offset;
+    journal.len = (journal.fd == data_fd ? data_device_size : (journal.fd == meta_fd ? meta_device_size : journal.device_size)) - journal.offset;
     if (journal.fd == data_fd && journal.offset <= data_offset)
     {
         journal.len = data_offset - journal.offset;
@@ -256,9 +256,9 @@ void blockstore_impl_t::calc_lengths()
             ? journal.len : meta_offset-journal.offset;
     }
     // required metadata size
-    block_count = data_len / block_size;
+    block_count = data_len / data_block_size;
     meta_len = (1 + (block_count - 1 + meta_block_size / clean_entry_size) / (meta_block_size / clean_entry_size)) * meta_block_size;
-    if (meta_area < meta_len)
+    if (meta_area_size < meta_len)
     {
         throw std::runtime_error("Metadata area is too small, need at least "+std::to_string(meta_len)+" bytes");
     }
@@ -316,7 +316,7 @@ static void check_size(int fd, uint64_t *size, uint64_t *sectsize, std::string n
         if (ioctl(fd, BLKGETSIZE64, size) < 0 ||
             ioctl(fd, BLKSSZGET, &sect) < 0)
         {
-            throw std::runtime_error("failed to get "+name+" size or block size: "+strerror(errno));
+            throw std::runtime_error("Failed to get "+name+" size or block size: "+strerror(errno));
         }
         if (sectsize)
         {
@@ -336,7 +336,7 @@ void blockstore_impl_t::open_data()
     {
         throw std::runtime_error("Failed to open data device");
     }
-    check_size(data_fd, &data_size, &data_device_sect, "data device");
+    check_size(data_fd, &data_device_size, &data_device_sect, "data device");
     if (disk_alignment % data_device_sect)
     {
         throw std::runtime_error(
@@ -344,9 +344,9 @@ void blockstore_impl_t::open_data()
             ") is not a multiple of data device sector size ("+std::to_string(data_device_sect)+")"
         );
     }
-    if (data_offset >= data_size)
+    if (data_offset >= data_device_size)
     {
-        throw std::runtime_error("data_offset exceeds device size = "+std::to_string(data_size));
+        throw std::runtime_error("data_offset exceeds device size = "+std::to_string(data_device_size));
     }
     if (!disable_flock && flock(data_fd, LOCK_EX|LOCK_NB) != 0)
     {
@@ -364,10 +364,10 @@ void blockstore_impl_t::open_meta()
         {
             throw std::runtime_error("Failed to open metadata device");
         }
-        check_size(meta_fd, &meta_size, &meta_device_sect, "metadata device");
-        if (meta_offset >= meta_size)
+        check_size(meta_fd, &meta_device_size, &meta_device_sect, "metadata device");
+        if (meta_offset >= meta_device_size)
         {
-            throw std::runtime_error("meta_offset exceeds device size = "+std::to_string(meta_size));
+            throw std::runtime_error("meta_offset exceeds device size = "+std::to_string(meta_device_size));
         }
         if (!disable_flock && flock(meta_fd, LOCK_EX|LOCK_NB) != 0)
         {
@@ -378,10 +378,10 @@ void blockstore_impl_t::open_meta()
     {
         meta_fd = data_fd;
         meta_device_sect = data_device_sect;
-        meta_size = 0;
-        if (meta_offset >= data_size)
+        meta_device_size = 0;
+        if (meta_offset >= data_device_size)
         {
-            throw std::runtime_error("meta_offset exceeds device size = "+std::to_string(data_size));
+            throw std::runtime_error("meta_offset exceeds device size = "+std::to_string(data_device_size));
         }
     }
     if (meta_block_size % meta_device_sect)
@@ -413,7 +413,7 @@ void blockstore_impl_t::open_journal()
         journal.fd = meta_fd;
         journal_device_sect = meta_device_sect;
         journal.device_size = 0;
-        if (journal.offset >= data_size)
+        if (journal.offset >= data_device_size)
         {
             throw std::runtime_error("journal_offset exceeds device size");
         }

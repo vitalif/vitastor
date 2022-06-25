@@ -6,8 +6,8 @@
 #include "messenger.h"
 #include "etcd_state_client.h"
 
-#define MIN_BLOCK_SIZE 4*1024
-#define MAX_BLOCK_SIZE 128*1024*1024
+#define MIN_DATA_BLOCK_SIZE 4*1024
+#define MAX_DATA_BLOCK_SIZE 128*1024*1024
 #define DEFAULT_CLIENT_MAX_DIRTY_BYTES 32*1024*1024
 #define DEFAULT_CLIENT_MAX_DIRTY_OPS 1024
 #define INODE_LIST_DONE 1

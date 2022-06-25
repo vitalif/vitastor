@@ -13,7 +13,7 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *
     initialized = 0;
     data_fd = meta_fd = journal.fd = -1;
     parse_config(config);
-    zero_object = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, block_size);
+    zero_object = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, data_block_size);
     try
     {
         open_data();
@@ -343,8 +343,8 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
 {
     if (op->opcode < BS_OP_MIN || op->opcode > BS_OP_MAX ||
         ((op->opcode == BS_OP_READ || op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE) && (
-            op->offset >= block_size ||
-            op->len > block_size-op->offset ||
+            op->offset >= data_block_size ||
+            op->len > data_block_size-op->offset ||
             (op->len % disk_alignment)
         )) ||
         readonly && op->opcode != BS_OP_READ && op->opcode != BS_OP_LIST)
@@ -477,7 +477,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     uint64_t min_inode = op->oid.inode;
     uint64_t max_inode = op->version;
     // Check PG
-    if (pg_count != 0 && (pg_stripe_size < MIN_BLOCK_SIZE || list_pg > pg_count))
+    if (pg_count != 0 && (pg_stripe_size < MIN_DATA_BLOCK_SIZE || list_pg > pg_count))
     {
         op->retval = -EINVAL;
         FINISH_OP(op);

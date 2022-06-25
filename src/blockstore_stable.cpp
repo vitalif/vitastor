@@ -195,14 +195,14 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
                     }
                     if (!exists)
                     {
-                        inode_space_stats[dirty_it->first.oid.inode] += block_size;
+                        inode_space_stats[dirty_it->first.oid.inode] += data_block_size;
                     }
                 }
                 else if (IS_DELETE(dirty_it->second.state))
                 {
                     auto & sp = inode_space_stats[dirty_it->first.oid.inode];
-                    if (sp > block_size)
-                        sp -= block_size;
+                    if (sp > data_block_size)
+                        sp -= data_block_size;
                     else
                         inode_space_stats.erase(dirty_it->first.oid.inode);
                 }

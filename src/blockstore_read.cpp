@@ -186,7 +186,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         {
             if (!clean_entry_bitmap_size)
             {
-                if (!fulfill_read(read_op, fulfilled, 0, block_size, (BS_ST_BIG_WRITE | BS_ST_STABLE), 0, clean_it->second.location))
+                if (!fulfill_read(read_op, fulfilled, 0, data_block_size, (BS_ST_BIG_WRITE | BS_ST_STABLE), 0, clean_it->second.location))
                 {
                     // need to wait. undo added requests, don't dequeue op
                     PRIV(read_op)->read_vec.clear();
@@ -196,7 +196,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             else
             {
                 uint8_t *clean_entry_bitmap = get_clean_entry_bitmap(clean_it->second.location, 0);
-                uint64_t bmp_start = 0, bmp_end = 0, bmp_size = block_size/bitmap_granularity;
+                uint64_t bmp_start = 0, bmp_end = 0, bmp_size = data_block_size/bitmap_granularity;
                 while (bmp_start < bmp_size)
                 {
                     while (!(clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7))) && bmp_end < bmp_size)
@@ -233,7 +233,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
     else if (fulfilled < read_op->len)
     {
         // fill remaining parts with zeroes
-        assert(fulfill_read(read_op, fulfilled, 0, block_size, (BS_ST_DELETE | BS_ST_STABLE), 0, 0));
+        assert(fulfill_read(read_op, fulfilled, 0, data_block_size, (BS_ST_DELETE | BS_ST_STABLE), 0, 0));
     }
     assert(fulfilled == read_op->len);
     read_op->version = result_version;

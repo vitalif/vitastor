@@ -97,7 +97,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             return false;
         }
     }
-    if (wait_big && !is_del && !deleted && op->len < block_size &&
+    if (wait_big && !is_del && !deleted && op->len < data_block_size &&
         immediate_commit != IMMEDIATE_ALL)
     {
         // Issue an additional sync so that the previous big write can reach the journal
@@ -122,7 +122,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         state = BS_ST_DELETE | BS_ST_IN_FLIGHT;
     else
     {
-        state = (op->len == block_size || deleted ? BS_ST_BIG_WRITE : BS_ST_SMALL_WRITE);
+        state = (op->len == data_block_size || deleted ? BS_ST_BIG_WRITE : BS_ST_SMALL_WRITE);
         if (state == BS_ST_SMALL_WRITE && throttle_small_writes)
             clock_gettime(CLOCK_REALTIME, &PRIV(op)->tv_begin);
         if (wait_del)

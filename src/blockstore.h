@@ -29,9 +29,9 @@
 #endif
 
 // Default block size is 128 KB, current allowed range is 4K - 128M
-#define DEFAULT_ORDER 17
-#define MIN_BLOCK_SIZE 4*1024
-#define MAX_BLOCK_SIZE 128*1024*1024
+#define DEFAULT_DATA_BLOCK_ORDER 17
+#define MIN_DATA_BLOCK_SIZE 4*1024
+#define MAX_DATA_BLOCK_SIZE 128*1024*1024
 #define DEFAULT_BITMAP_GRANULARITY 4096
 
 #define BS_OP_MIN 1
@@ -193,7 +193,6 @@ public:
     // Print diagnostics to stdout
     void dump_diagnostics();
 
-    // FIXME rename to object_size
     uint32_t get_block_size();
     uint64_t get_block_count();
     uint64_t get_free_block_count();

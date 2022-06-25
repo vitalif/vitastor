@@ -296,7 +296,7 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & config)
     }
     bs_bitmap_size = bs_block_size / bs_bitmap_granularity / 8;
     uint32_t block_order;
-    if ((block_order = is_power_of_two(bs_block_size)) >= 64 || bs_block_size < MIN_BLOCK_SIZE || bs_block_size >= MAX_BLOCK_SIZE)
+    if ((block_order = is_power_of_two(bs_block_size)) >= 64 || bs_block_size < MIN_DATA_BLOCK_SIZE || bs_block_size >= MAX_DATA_BLOCK_SIZE)
     {
         throw std::runtime_error("Bad block size");
     }
