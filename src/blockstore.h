@@ -11,7 +11,6 @@
 
 #include <string>
 #include <map>
-#include <unordered_map>
 #include <functional>
 
 #include "object_id.h"
@@ -155,7 +154,7 @@ struct blockstore_op_t
     uint8_t private_data[BS_OP_PRIVATE_DATA_SIZE];
 };
 
-typedef std::unordered_map<std::string, std::string> blockstore_config_t;
+typedef std::map<std::string, std::string> blockstore_config_t;
 
 class blockstore_impl_t;
 
