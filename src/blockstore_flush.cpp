@@ -15,11 +15,11 @@ journal_flusher_t::journal_flusher_t(blockstore_impl_t *bs)
     active_flushers = 0;
     syncing_flushers = 0;
     // FIXME: allow to configure flusher_start_threshold and journal_trim_interval
-    flusher_start_threshold = bs->journal_block_size / sizeof(journal_entry_stable);
+    flusher_start_threshold = bs->dsk.journal_block_size / sizeof(journal_entry_stable);
     journal_trim_interval = 512;
     journal_trim_counter = bs->journal.flush_journal ? 1 : 0;
     trim_wanted = bs->journal.flush_journal ? 1 : 0;
-    journal_superblock = bs->journal.inmemory ? bs->journal.buffer : memalign_or_die(MEM_ALIGNMENT, bs->journal_block_size);
+    journal_superblock = bs->journal.inmemory ? bs->journal.buffer : memalign_or_die(MEM_ALIGNMENT, bs->dsk.journal_block_size);
     co = new journal_flusher_co[max_flusher_count];
     for (int i = 0; i < max_flusher_count; i++)
     {
@@ -486,28 +486,28 @@ resume_1:
             bs->ringloop->wakeup();
         }
         // Reads completed, submit writes and set bitmap bits
-        if (bs->clean_entry_bitmap_size)
+        if (bs->dsk.clean_entry_bitmap_size)
         {
             new_clean_bitmap = (bs->inmemory_meta
-                ? (uint8_t*)meta_new.buf + meta_new.pos*bs->clean_entry_size + sizeof(clean_disk_entry)
-                : (uint8_t*)bs->clean_bitmap + (clean_loc >> bs->block_order)*(2*bs->clean_entry_bitmap_size));
+                ? (uint8_t*)meta_new.buf + meta_new.pos*bs->dsk.clean_entry_size + sizeof(clean_disk_entry)
+                : (uint8_t*)bs->clean_bitmap + (clean_loc >> bs->dsk.block_order)*(2*bs->dsk.clean_entry_bitmap_size));
             if (clean_init_bitmap)
             {
-                memset(new_clean_bitmap, 0, bs->clean_entry_bitmap_size);
-                bitmap_set(new_clean_bitmap, clean_bitmap_offset, clean_bitmap_len, bs->bitmap_granularity);
+                memset(new_clean_bitmap, 0, bs->dsk.clean_entry_bitmap_size);
+                bitmap_set(new_clean_bitmap, clean_bitmap_offset, clean_bitmap_len, bs->dsk.bitmap_granularity);
             }
         }
         for (it = v.begin(); it != v.end(); it++)
         {
             if (new_clean_bitmap)
             {
-                bitmap_set(new_clean_bitmap, it->offset, it->len, bs->bitmap_granularity);
+                bitmap_set(new_clean_bitmap, it->offset, it->len, bs->dsk.bitmap_granularity);
             }
             await_sqe(4);
             data->iov = (struct iovec){ it->buf, (size_t)it->len };
             data->callback = simple_callback_w;
             my_uring_prep_writev(
-                sqe, bs->data_fd, &data->iov, 1, bs->data_offset + clean_loc + it->offset
+                sqe, bs->dsk.data_fd, &data->iov, 1, bs->dsk.data_offset + clean_loc + it->offset
             );
             wait_count++;
         }
@@ -536,35 +536,35 @@ resume_1:
                 return false;
             }
             // zero out old metadata entry
-            memset((uint8_t*)meta_old.buf + meta_old.pos*bs->clean_entry_size, 0, bs->clean_entry_size);
+            memset((uint8_t*)meta_old.buf + meta_old.pos*bs->dsk.clean_entry_size, 0, bs->dsk.clean_entry_size);
             await_sqe(15);
-            data->iov = (struct iovec){ meta_old.buf, bs->meta_block_size };
+            data->iov = (struct iovec){ meta_old.buf, bs->dsk.meta_block_size };
             data->callback = simple_callback_w;
             my_uring_prep_writev(
-                sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + meta_old.sector
+                sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + meta_old.sector
             );
             wait_count++;
         }
         if (has_delete)
         {
-            clean_disk_entry *new_entry = (clean_disk_entry*)((uint8_t*)meta_new.buf + meta_new.pos*bs->clean_entry_size);
+            clean_disk_entry *new_entry = (clean_disk_entry*)((uint8_t*)meta_new.buf + meta_new.pos*bs->dsk.clean_entry_size);
             if (new_entry->oid.inode != 0 && new_entry->oid != cur.oid)
             {
                 printf("Fatal error (metadata corruption or bug): tried to delete metadata entry %lu (%lx:%lx v%lu) while deleting %lx:%lx\n",
-                    clean_loc >> bs->block_order, new_entry->oid.inode, new_entry->oid.stripe,
+                    clean_loc >> bs->dsk.block_order, new_entry->oid.inode, new_entry->oid.stripe,
                     new_entry->version, cur.oid.inode, cur.oid.stripe);
                 exit(1);
             }
             // zero out new metadata entry
-            memset((uint8_t*)meta_new.buf + meta_new.pos*bs->clean_entry_size, 0, bs->clean_entry_size);
+            memset((uint8_t*)meta_new.buf + meta_new.pos*bs->dsk.clean_entry_size, 0, bs->dsk.clean_entry_size);
         }
         else
         {
-            clean_disk_entry *new_entry = (clean_disk_entry*)((uint8_t*)meta_new.buf + meta_new.pos*bs->clean_entry_size);
+            clean_disk_entry *new_entry = (clean_disk_entry*)((uint8_t*)meta_new.buf + meta_new.pos*bs->dsk.clean_entry_size);
             if (new_entry->oid.inode != 0 && new_entry->oid != cur.oid)
             {
                 printf("Fatal error (metadata corruption or bug): tried to overwrite non-zero metadata entry %lu (%lx:%lx v%lu) with %lx:%lx v%lu\n",
-                    clean_loc >> bs->block_order, new_entry->oid.inode, new_entry->oid.stripe, new_entry->version,
+                    clean_loc >> bs->dsk.block_order, new_entry->oid.inode, new_entry->oid.stripe, new_entry->version,
                     cur.oid.inode, cur.oid.stripe, cur.version);
                 exit(1);
             }
@@ -572,20 +572,20 @@ resume_1:
             new_entry->version = cur.version;
             if (!bs->inmemory_meta)
             {
-                memcpy(&new_entry->bitmap, new_clean_bitmap, bs->clean_entry_bitmap_size);
+                memcpy(&new_entry->bitmap, new_clean_bitmap, bs->dsk.clean_entry_bitmap_size);
             }
             // copy latest external bitmap/attributes
-            if (bs->clean_entry_bitmap_size)
+            if (bs->dsk.clean_entry_bitmap_size)
             {
-                void *bmp_ptr = bs->clean_entry_bitmap_size > sizeof(void*) ? dirty_end->second.bitmap : &dirty_end->second.bitmap;
-                memcpy((uint8_t*)(new_entry+1) + bs->clean_entry_bitmap_size, bmp_ptr, bs->clean_entry_bitmap_size);
+                void *bmp_ptr = bs->dsk.clean_entry_bitmap_size > sizeof(void*) ? dirty_end->second.bitmap : &dirty_end->second.bitmap;
+                memcpy((uint8_t*)(new_entry+1) + bs->dsk.clean_entry_bitmap_size, bmp_ptr, bs->dsk.clean_entry_bitmap_size);
             }
         }
         await_sqe(6);
-        data->iov = (struct iovec){ meta_new.buf, bs->meta_block_size };
+        data->iov = (struct iovec){ meta_new.buf, bs->dsk.meta_block_size };
         data->callback = simple_callback_w;
         my_uring_prep_writev(
-            sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + meta_new.sector
+            sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + meta_new.sector
         );
         wait_count++;
     resume_7:
@@ -669,9 +669,9 @@ resume_1:
                     .version = JOURNAL_VERSION,
                 };
                 ((journal_entry_start*)flusher->journal_superblock)->crc32 = je_crc32((journal_entry*)flusher->journal_superblock);
-                data->iov = (struct iovec){ flusher->journal_superblock, bs->journal_block_size };
+                data->iov = (struct iovec){ flusher->journal_superblock, bs->dsk.journal_block_size };
                 data->callback = simple_callback_w;
-                my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
+                my_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
                 wait_count++;
             resume_13:
                 if (wait_count > 0)
@@ -682,7 +682,7 @@ resume_1:
                 if (!bs->disable_journal_fsync)
                 {
                     await_sqe(20);
-                    my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
+                    my_uring_prep_fsync(sqe, bs->dsk.journal_fd, IORING_FSYNC_DATASYNC);
                     data->iov = { 0 };
                     data->callback = simple_callback_w;
                 resume_21:
@@ -774,7 +774,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
                             data->iov = (struct iovec){ it->buf, (size_t)submit_len };
                             data->callback = simple_callback_r;
                             my_uring_prep_readv(
-                                sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + submit_offset
+                                sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset + submit_offset
                             );
                             wait_count++;
                         }
@@ -825,8 +825,8 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
     // And yet another option is to use LSM trees for metadata, but it sophisticates everything a lot,
     // so I'll avoid it as long as I can.
     wr.submitted = false;
-    wr.sector = ((meta_loc >> bs->block_order) / (bs->meta_block_size / bs->clean_entry_size)) * bs->meta_block_size;
-    wr.pos = ((meta_loc >> bs->block_order) % (bs->meta_block_size / bs->clean_entry_size));
+    wr.sector = ((meta_loc >> bs->dsk.block_order) / (bs->dsk.meta_block_size / bs->dsk.clean_entry_size)) * bs->dsk.meta_block_size;
+    wr.pos = ((meta_loc >> bs->dsk.block_order) % (bs->dsk.meta_block_size / bs->dsk.clean_entry_size));
     if (bs->inmemory_meta)
     {
         wr.buf = (uint8_t*)bs->metadata_buffer + wr.sector;
@@ -836,20 +836,20 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
     if (wr.it == flusher->meta_sectors.end())
     {
         // Not in memory yet, read it
-        wr.buf = memalign_or_die(MEM_ALIGNMENT, bs->meta_block_size);
+        wr.buf = memalign_or_die(MEM_ALIGNMENT, bs->dsk.meta_block_size);
         wr.it = flusher->meta_sectors.emplace(wr.sector, (meta_sector_t){
             .offset = wr.sector,
-            .len = bs->meta_block_size,
+            .len = bs->dsk.meta_block_size,
             .state = 0, // 0 = not read yet
             .buf = wr.buf,
             .usage_count = 1,
         }).first;
         await_sqe(0);
-        data->iov = (struct iovec){ wr.it->second.buf, bs->meta_block_size };
+        data->iov = (struct iovec){ wr.it->second.buf, bs->dsk.meta_block_size };
         data->callback = simple_callback_r;
         wr.submitted = true;
         my_uring_prep_readv(
-            sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + wr.sector
+            sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + wr.sector
         );
         wait_count++;
     }
@@ -867,11 +867,11 @@ void journal_flusher_co::update_clean_db()
     {
 #ifdef BLOCKSTORE_DEBUG
         printf("Free block %lu from %lx:%lx v%lu (new location is %lu)\n",
-            old_clean_loc >> bs->block_order,
+            old_clean_loc >> bs->dsk.block_order,
             cur.oid.inode, cur.oid.stripe, cur.version,
-            clean_loc >> bs->block_order);
+            clean_loc >> bs->dsk.block_order);
 #endif
-        bs->data_alloc->set(old_clean_loc >> bs->block_order, false);
+        bs->data_alloc->set(old_clean_loc >> bs->dsk.block_order, false);
     }
     auto & clean_db = bs->clean_db_shard(cur.oid);
     if (has_delete)
@@ -880,10 +880,10 @@ void journal_flusher_co::update_clean_db()
         clean_db.erase(clean_it);
 #ifdef BLOCKSTORE_DEBUG
         printf("Free block %lu from %lx:%lx v%lu (delete)\n",
-            clean_loc >> bs->block_order,
+            clean_loc >> bs->dsk.block_order,
             cur.oid.inode, cur.oid.stripe, cur.version);
 #endif
-        bs->data_alloc->set(clean_loc >> bs->block_order, false);
+        bs->data_alloc->set(clean_loc >> bs->dsk.block_order, false);
         clean_loc = UINT64_MAX;
     }
     else
@@ -932,7 +932,7 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
                 await_sqe(0);
                 data->iov = { 0 };
                 data->callback = simple_callback_w;
-                my_uring_prep_fsync(sqe, fsync_meta ? bs->meta_fd : bs->data_fd, IORING_FSYNC_DATASYNC);
+                my_uring_prep_fsync(sqe, fsync_meta ? bs->dsk.meta_fd : bs->dsk.data_fd, IORING_FSYNC_DATASYNC);
                 cur_sync->state = 1;
                 wait_count++;
             resume_2:

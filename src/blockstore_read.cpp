@@ -32,9 +32,9 @@ int blockstore_impl_t::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_
     PRIV(op)->pending_ops++;
     my_uring_prep_readv(
         sqe,
-        IS_JOURNAL(item_state) ? journal.fd : data_fd,
+        IS_JOURNAL(item_state) ? dsk.journal_fd : dsk.data_fd,
         &data->iov, 1,
-        (IS_JOURNAL(item_state) ? journal.offset : data_offset) + offset
+        (IS_JOURNAL(item_state) ? dsk.journal_offset : dsk.data_offset) + offset
     );
     data->callback = [this, op](ring_data_t *data) { handle_read_event(data, op); };
     return 1;
@@ -97,15 +97,15 @@ endwhile:
 uint8_t* blockstore_impl_t::get_clean_entry_bitmap(uint64_t block_loc, int offset)
 {
     uint8_t *clean_entry_bitmap;
-    uint64_t meta_loc = block_loc >> block_order;
+    uint64_t meta_loc = block_loc >> dsk.block_order;
     if (inmemory_meta)
     {
-        uint64_t sector = (meta_loc / (meta_block_size / clean_entry_size)) * meta_block_size;
-        uint64_t pos = (meta_loc % (meta_block_size / clean_entry_size));
-        clean_entry_bitmap = ((uint8_t*)metadata_buffer + sector + pos*clean_entry_size + sizeof(clean_disk_entry) + offset);
+        uint64_t sector = (meta_loc / (dsk.meta_block_size / dsk.clean_entry_size)) * dsk.meta_block_size;
+        uint64_t pos = (meta_loc % (dsk.meta_block_size / dsk.clean_entry_size));
+        clean_entry_bitmap = ((uint8_t*)metadata_buffer + sector + pos*dsk.clean_entry_size + sizeof(clean_disk_entry) + offset);
     }
     else
-        clean_entry_bitmap = (uint8_t*)(clean_bitmap + meta_loc*2*clean_entry_bitmap_size + offset);
+        clean_entry_bitmap = (uint8_t*)(clean_bitmap + meta_loc*2*dsk.clean_entry_bitmap_size + offset);
     return clean_entry_bitmap;
 }
 
@@ -152,8 +152,8 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                     result_version = dirty_it->first.version;
                     if (read_op->bitmap)
                     {
-                        void *bmp_ptr = (clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap);
-                        memcpy(read_op->bitmap, bmp_ptr, clean_entry_bitmap_size);
+                        void *bmp_ptr = (dsk.clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap);
+                        memcpy(read_op->bitmap, bmp_ptr, dsk.clean_entry_bitmap_size);
                     }
                 }
                 if (!fulfill_read(read_op, fulfilled, dirty.offset, dirty.offset + dirty.len,
@@ -178,15 +178,15 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             result_version = clean_it->second.version;
             if (read_op->bitmap)
             {
-                void *bmp_ptr = get_clean_entry_bitmap(clean_it->second.location, clean_entry_bitmap_size);
-                memcpy(read_op->bitmap, bmp_ptr, clean_entry_bitmap_size);
+                void *bmp_ptr = get_clean_entry_bitmap(clean_it->second.location, dsk.clean_entry_bitmap_size);
+                memcpy(read_op->bitmap, bmp_ptr, dsk.clean_entry_bitmap_size);
             }
         }
         if (fulfilled < read_op->len)
         {
-            if (!clean_entry_bitmap_size)
+            if (!dsk.clean_entry_bitmap_size)
             {
-                if (!fulfill_read(read_op, fulfilled, 0, data_block_size, (BS_ST_BIG_WRITE | BS_ST_STABLE), 0, clean_it->second.location))
+                if (!fulfill_read(read_op, fulfilled, 0, dsk.data_block_size, (BS_ST_BIG_WRITE | BS_ST_STABLE), 0, clean_it->second.location))
                 {
                     // need to wait. undo added requests, don't dequeue op
                     PRIV(read_op)->read_vec.clear();
@@ -196,7 +196,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             else
             {
                 uint8_t *clean_entry_bitmap = get_clean_entry_bitmap(clean_it->second.location, 0);
-                uint64_t bmp_start = 0, bmp_end = 0, bmp_size = data_block_size/bitmap_granularity;
+                uint64_t bmp_start = 0, bmp_end = 0, bmp_size = dsk.data_block_size/dsk.bitmap_granularity;
                 while (bmp_start < bmp_size)
                 {
                     while (!(clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7))) && bmp_end < bmp_size)
@@ -206,8 +206,8 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                     if (bmp_end > bmp_start)
                     {
                         // fill with zeroes
-                        assert(fulfill_read(read_op, fulfilled, bmp_start * bitmap_granularity,
-                            bmp_end * bitmap_granularity, (BS_ST_DELETE | BS_ST_STABLE), 0, 0));
+                        assert(fulfill_read(read_op, fulfilled, bmp_start * dsk.bitmap_granularity,
+                            bmp_end * dsk.bitmap_granularity, (BS_ST_DELETE | BS_ST_STABLE), 0, 0));
                     }
                     bmp_start = bmp_end;
                     while (clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7)) && bmp_end < bmp_size)
@@ -216,9 +216,9 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                     }
                     if (bmp_end > bmp_start)
                     {
-                        if (!fulfill_read(read_op, fulfilled, bmp_start * bitmap_granularity,
-                            bmp_end * bitmap_granularity, (BS_ST_BIG_WRITE | BS_ST_STABLE), 0,
-                            clean_it->second.location + bmp_start * bitmap_granularity))
+                        if (!fulfill_read(read_op, fulfilled, bmp_start * dsk.bitmap_granularity,
+                            bmp_end * dsk.bitmap_granularity, (BS_ST_BIG_WRITE | BS_ST_STABLE), 0,
+                            clean_it->second.location + bmp_start * dsk.bitmap_granularity))
                         {
                             // need to wait. undo added requests, don't dequeue op
                             PRIV(read_op)->read_vec.clear();
@@ -233,7 +233,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
     else if (fulfilled < read_op->len)
     {
         // fill remaining parts with zeroes
-        assert(fulfill_read(read_op, fulfilled, 0, data_block_size, (BS_ST_DELETE | BS_ST_STABLE), 0, 0));
+        assert(fulfill_read(read_op, fulfilled, 0, dsk.data_block_size, (BS_ST_DELETE | BS_ST_STABLE), 0, 0));
     }
     assert(fulfilled == read_op->len);
     read_op->version = result_version;
@@ -288,8 +288,8 @@ int blockstore_impl_t::read_bitmap(object_id oid, uint64_t target_version, void 
                     *result_version = dirty_it->first.version;
                 if (bitmap)
                 {
-                    void *bmp_ptr = (clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap);
-                    memcpy(bitmap, bmp_ptr, clean_entry_bitmap_size);
+                    void *bmp_ptr = (dsk.clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap);
+                    memcpy(bitmap, bmp_ptr, dsk.clean_entry_bitmap_size);
                 }
                 return 0;
             }
@@ -306,14 +306,14 @@ int blockstore_impl_t::read_bitmap(object_id oid, uint64_t target_version, void 
             *result_version = clean_it->second.version;
         if (bitmap)
         {
-            void *bmp_ptr = get_clean_entry_bitmap(clean_it->second.location, clean_entry_bitmap_size);
-            memcpy(bitmap, bmp_ptr, clean_entry_bitmap_size);
+            void *bmp_ptr = get_clean_entry_bitmap(clean_it->second.location, dsk.clean_entry_bitmap_size);
+            memcpy(bitmap, bmp_ptr, dsk.clean_entry_bitmap_size);
         }
         return 0;
     }
     if (result_version)
         *result_version = 0;
     if (bitmap)
-        memset(bitmap, 0, clean_entry_bitmap_size);
+        memset(bitmap, 0, dsk.clean_entry_bitmap_size);
     return -ENOENT;
 }

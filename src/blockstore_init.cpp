@@ -57,9 +57,9 @@ int blockstore_init_meta::loop()
         throw std::runtime_error("Failed to allocate metadata read buffer");
     // Read superblock
     GET_SQE();
-    data->iov = { metadata_buffer, bs->meta_block_size };
+    data->iov = { metadata_buffer, bs->dsk.meta_block_size };
     data->callback = [this](ring_data_t *data) { handle_event(data); };
-    my_uring_prep_readv(sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset);
+    my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
     bs->ringloop->submit();
     submitted = 1;
 resume_1:
@@ -68,16 +68,16 @@ resume_1:
         wait_state = 1;
         return 1;
     }
-    if (iszero((uint64_t*)metadata_buffer, bs->meta_block_size / sizeof(uint64_t)))
+    if (iszero((uint64_t*)metadata_buffer, bs->dsk.meta_block_size / sizeof(uint64_t)))
     {
         {
             blockstore_meta_header_v1_t *hdr = (blockstore_meta_header_v1_t *)metadata_buffer;
             hdr->zero = 0;
             hdr->magic = BLOCKSTORE_META_MAGIC_V1;
             hdr->version = BLOCKSTORE_META_VERSION_V1;
-            hdr->meta_block_size = bs->meta_block_size;
-            hdr->data_block_size = bs->data_block_size;
-            hdr->bitmap_granularity = bs->bitmap_granularity;
+            hdr->meta_block_size = bs->dsk.meta_block_size;
+            hdr->data_block_size = bs->dsk.data_block_size;
+            hdr->bitmap_granularity = bs->dsk.bitmap_granularity;
         }
         if (bs->readonly)
         {
@@ -87,9 +87,9 @@ resume_1:
         {
             printf("Initializing metadata area\n");
             GET_SQE();
-            data->iov = (struct iovec){ metadata_buffer, bs->meta_block_size };
+            data->iov = (struct iovec){ metadata_buffer, bs->dsk.meta_block_size };
             data->callback = [this](ring_data_t *data) { handle_event(data); };
-            my_uring_prep_writev(sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset);
+            my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
             bs->ringloop->submit();
             submitted = 1;
         resume_3:
@@ -115,23 +115,23 @@ resume_1:
             );
             exit(1);
         }
-        if (hdr->meta_block_size != bs->meta_block_size ||
-            hdr->data_block_size != bs->data_block_size ||
-            hdr->bitmap_granularity != bs->bitmap_granularity)
+        if (hdr->meta_block_size != bs->dsk.meta_block_size ||
+            hdr->data_block_size != bs->dsk.data_block_size ||
+            hdr->bitmap_granularity != bs->dsk.bitmap_granularity)
         {
             printf(
                 "Configuration stored in metadata superblock"
                 " (meta_block_size=%u, data_block_size=%u, bitmap_granularity=%u)"
                 " differs from OSD configuration (%lu/%u/%lu).\n",
                 hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity,
-                bs->meta_block_size, bs->data_block_size, bs->bitmap_granularity
+                bs->dsk.meta_block_size, bs->dsk.data_block_size, bs->dsk.bitmap_granularity
             );
             exit(1);
         }
     }
     // Skip superblock
-    bs->meta_offset += bs->meta_block_size;
-    bs->meta_len -= bs->meta_block_size;
+    bs->dsk.meta_offset += bs->dsk.meta_block_size;
+    bs->dsk.meta_len -= bs->dsk.meta_block_size;
     prev_done = 0;
     done_len = 0;
     done_pos = 0;
@@ -145,23 +145,23 @@ resume_1:
             wait_state = 2;
             return 1;
         }
-        if (metadata_read < bs->meta_len)
+        if (metadata_read < bs->dsk.meta_len)
         {
             GET_SQE();
             data->iov = {
                 (uint8_t*)metadata_buffer + (bs->inmemory_meta
                     ? metadata_read
                     : (prev == 1 ? bs->metadata_buf_size : 0)),
-                bs->meta_len - metadata_read > bs->metadata_buf_size ? bs->metadata_buf_size : bs->meta_len - metadata_read,
+                bs->dsk.meta_len - metadata_read > bs->metadata_buf_size ? bs->metadata_buf_size : bs->dsk.meta_len - metadata_read,
             };
             data->callback = [this](ring_data_t *data) { handle_event(data); };
             if (!zero_on_init)
-                my_uring_prep_readv(sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + metadata_read);
+                my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + metadata_read);
             else
             {
                 // Fill metadata with zeroes
                 memset(data->iov.iov_base, 0, data->iov.iov_len);
-                my_uring_prep_writev(sqe, bs->meta_fd, &data->iov, 1, bs->meta_offset + metadata_read);
+                my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + metadata_read);
             }
             bs->ringloop->submit();
             submitted = (prev == 1 ? 2 : 1);
@@ -172,11 +172,11 @@ resume_1:
             void *done_buf = bs->inmemory_meta
                 ? ((uint8_t*)metadata_buffer + done_pos)
                 : ((uint8_t*)metadata_buffer + (prev_done == 2 ? bs->metadata_buf_size : 0));
-            unsigned count = bs->meta_block_size / bs->clean_entry_size;
-            for (int sector = 0; sector < done_len; sector += bs->meta_block_size)
+            unsigned count = bs->dsk.meta_block_size / bs->dsk.clean_entry_size;
+            for (int sector = 0; sector < done_len; sector += bs->dsk.meta_block_size)
             {
                 // handle <count> entries
-                handle_entries((uint8_t*)done_buf + sector, count, bs->block_order);
+                handle_entries((uint8_t*)done_buf + sector, count, bs->dsk.block_order);
                 done_cnt += count;
             }
             prev_done = 0;
@@ -188,7 +188,7 @@ resume_1:
         }
     }
     // metadata read finished
-    printf("Metadata entries loaded: %lu, free blocks: %lu / %lu\n", entries_loaded, bs->data_alloc->get_free_count(), bs->block_count);
+    printf("Metadata entries loaded: %lu, free blocks: %lu / %lu\n", entries_loaded, bs->data_alloc->get_free_count(), bs->dsk.block_count);
     if (!bs->inmemory_meta)
     {
         free(metadata_buffer);
@@ -197,7 +197,7 @@ resume_1:
     if (zero_on_init && !bs->disable_meta_fsync)
     {
         GET_SQE();
-        my_uring_prep_fsync(sqe, bs->meta_fd, IORING_FSYNC_DATASYNC);
+        my_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
         data->iov = { 0 };
         data->callback = [this](ring_data_t *data) { handle_event(data); };
         submitted = 1;
@@ -216,10 +216,10 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
 {
     for (unsigned i = 0; i < count; i++)
     {
-        clean_disk_entry *entry = (clean_disk_entry*)((uint8_t*)entries + i*bs->clean_entry_size);
-        if (!bs->inmemory_meta && bs->clean_entry_bitmap_size)
+        clean_disk_entry *entry = (clean_disk_entry*)((uint8_t*)entries + i*bs->dsk.clean_entry_size);
+        if (!bs->inmemory_meta && bs->dsk.clean_entry_bitmap_size)
         {
-            memcpy(bs->clean_bitmap + (done_cnt+i)*2*bs->clean_entry_bitmap_size, &entry->bitmap, 2*bs->clean_entry_bitmap_size);
+            memcpy(bs->clean_bitmap + (done_cnt+i)*2*bs->dsk.clean_entry_bitmap_size, &entry->bitmap, 2*bs->dsk.clean_entry_bitmap_size);
         }
         if (entry->oid.inode > 0)
         {
@@ -240,7 +240,7 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
                 }
                 else
                 {
-                    bs->inode_space_stats[entry->oid.inode] += bs->data_block_size;
+                    bs->inode_space_stats[entry->oid.inode] += bs->dsk.data_block_size;
                 }
                 entries_loaded++;
 #ifdef BLOCKSTORE_DEBUG
@@ -328,7 +328,7 @@ int blockstore_init_journal::loop()
     data = ((ring_data_t*)sqe->user_data);
     data->iov = { submitted_buf, bs->journal.block_size };
     data->callback = simple_callback;
-    my_uring_prep_readv(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
+    my_uring_prep_readv(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
     bs->ringloop->submit();
     wait_count = 1;
 resume_1:
@@ -367,7 +367,7 @@ resume_1:
             GET_SQE();
             data->iov = (struct iovec){ submitted_buf, 2*bs->journal.block_size };
             data->callback = simple_callback;
-            my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset);
+            my_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
             wait_count++;
             bs->ringloop->submit();
         resume_6:
@@ -379,7 +379,7 @@ resume_1:
             if (!bs->disable_journal_fsync)
             {
                 GET_SQE();
-                my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
+                my_uring_prep_fsync(sqe, bs->dsk.journal_fd, IORING_FSYNC_DATASYNC);
                 data->iov = { 0 };
                 data->callback = simple_callback;
                 wait_count++;
@@ -448,7 +448,7 @@ resume_1:
                     end - journal_pos < JOURNAL_BUFFER_SIZE ? end - journal_pos : JOURNAL_BUFFER_SIZE,
                 };
                 data->callback = [this](ring_data_t *data1) { handle_event(data1); };
-                my_uring_prep_readv(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + journal_pos);
+                my_uring_prep_readv(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset + journal_pos);
                 bs->ringloop->submit();
             }
             while (done.size() > 0)
@@ -463,7 +463,7 @@ resume_1:
                         GET_SQE();
                         data->iov = { init_write_buf, bs->journal.block_size };
                         data->callback = simple_callback;
-                        my_uring_prep_writev(sqe, bs->journal.fd, &data->iov, 1, bs->journal.offset + init_write_sector);
+                        my_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset + init_write_sector);
                         wait_count++;
                         bs->ringloop->submit();
                     resume_7:
@@ -477,7 +477,7 @@ resume_1:
                             GET_SQE();
                             data->iov = { 0 };
                             data->callback = simple_callback;
-                            my_uring_prep_fsync(sqe, bs->journal.fd, IORING_FSYNC_DATASYNC);
+                            my_uring_prep_fsync(sqe, bs->dsk.journal_fd, IORING_FSYNC_DATASYNC);
                             wait_count++;
                             bs->ringloop->submit();
                         }
@@ -544,7 +544,7 @@ resume_1:
             ? bs->journal.len-bs->journal.block_size - (bs->journal.next_free-bs->journal.used_start)
             : bs->journal.used_start - bs->journal.next_free),
         bs->journal.used_start, bs->journal.next_free,
-        bs->data_alloc->get_free_count(), bs->block_count
+        bs->data_alloc->get_free_count(), bs->dsk.block_count
     );
     bs->journal.crc32_last = crc32_last;
     return 0;
@@ -669,9 +669,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     };
                     void *bmp = NULL;
                     void *bmp_from = (uint8_t*)je + sizeof(journal_entry_small_write);
-                    if (bs->clean_entry_bitmap_size <= sizeof(void*))
+                    if (bs->dsk.clean_entry_bitmap_size <= sizeof(void*))
                     {
-                        memcpy(&bmp, bmp_from, bs->clean_entry_bitmap_size);
+                        memcpy(&bmp, bmp_from, bs->dsk.clean_entry_bitmap_size);
                     }
                     else
                     {
@@ -679,8 +679,8 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         // allocations for entry bitmaps. This can only be fixed by using
                         // a patched map with dynamic entry size, but not the btree_map,
                         // because it doesn't keep iterators valid all the time.
-                        bmp = malloc_or_die(bs->clean_entry_bitmap_size);
-                        memcpy(bmp, bmp_from, bs->clean_entry_bitmap_size);
+                        bmp = malloc_or_die(bs->dsk.clean_entry_bitmap_size);
+                        memcpy(bmp, bmp_from, bs->dsk.clean_entry_bitmap_size);
                     }
                     bs->dirty_db.emplace(ov, (dirty_entry){
                         .state = (BS_ST_SMALL_WRITE | BS_ST_SYNCED),
@@ -712,7 +712,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                 printf(
                     "je_big_write%s oid=%lx:%lx ver=%lu loc=%lu\n",
                     je->type == JE_BIG_WRITE_INSTANT ? "_instant" : "",
-                    je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location >> bs->block_order
+                    je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location >> bs->dsk.block_order
                 );
 #endif
                 auto dirty_it = bs->dirty_db.upper_bound((obj_ver_id){
@@ -750,9 +750,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     };
                     void *bmp = NULL;
                     void *bmp_from = (uint8_t*)je + sizeof(journal_entry_big_write);
-                    if (bs->clean_entry_bitmap_size <= sizeof(void*))
+                    if (bs->dsk.clean_entry_bitmap_size <= sizeof(void*))
                     {
-                        memcpy(&bmp, bmp_from, bs->clean_entry_bitmap_size);
+                        memcpy(&bmp, bmp_from, bs->dsk.clean_entry_bitmap_size);
                     }
                     else
                     {
@@ -760,8 +760,8 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         // allocations for entry bitmaps. This can only be fixed by using
                         // a patched map with dynamic entry size, but not the btree_map,
                         // because it doesn't keep iterators valid all the time.
-                        bmp = malloc_or_die(bs->clean_entry_bitmap_size);
-                        memcpy(bmp, bmp_from, bs->clean_entry_bitmap_size);
+                        bmp = malloc_or_die(bs->dsk.clean_entry_bitmap_size);
+                        memcpy(bmp, bmp_from, bs->dsk.clean_entry_bitmap_size);
                     }
                     auto dirty_it = bs->dirty_db.emplace(ov, (dirty_entry){
                         .state = (BS_ST_BIG_WRITE | BS_ST_SYNCED),
@@ -772,7 +772,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .journal_sector = proc_pos,
                         .bitmap = bmp,
                     }).first;
-                    if (bs->data_alloc->get(je->big_write.location >> bs->block_order))
+                    if (bs->data_alloc->get(je->big_write.location >> bs->dsk.block_order))
                     {
                         // This is probably a big_write that's already flushed and freed, but it may
                         // also indicate a bug. So we remember such entries and recheck them afterwards.
@@ -785,11 +785,11 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
 #ifdef BLOCKSTORE_DEBUG
                         printf(
                             "Allocate block (journal) %lu: %lx:%lx v%lu\n",
-                            je->big_write.location >> bs->block_order,
+                            je->big_write.location >> bs->dsk.block_order,
                             ov.oid.inode, ov.oid.stripe, ov.version
                         );
 #endif
-                        bs->data_alloc->set(je->big_write.location >> bs->block_order, true);
+                        bs->data_alloc->set(je->big_write.location >> bs->dsk.block_order, true);
                     }
                     bs->journal.used_sectors[proc_pos]++;
 #ifdef BLOCKSTORE_DEBUG
@@ -913,8 +913,8 @@ void blockstore_init_journal::erase_dirty_object(blockstore_dirty_db_t::iterator
     if (exists && clean_loc == UINT64_MAX)
     {
         auto & sp = bs->inode_space_stats[oid.inode];
-        if (sp > bs->data_block_size)
-            sp -= bs->data_block_size;
+        if (sp > bs->dsk.data_block_size)
+            sp -= bs->dsk.data_block_size;
         else
             bs->inode_space_stats.erase(oid.inode);
     }

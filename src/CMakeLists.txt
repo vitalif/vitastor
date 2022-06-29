@@ -64,7 +64,7 @@ include_directories(
 
 # libvitastor_blk.so
 add_library(vitastor_blk SHARED
-	allocator.cpp blockstore.cpp blockstore_impl.cpp blockstore_init.cpp blockstore_open.cpp blockstore_journal.cpp blockstore_read.cpp
+	allocator.cpp blockstore.cpp blockstore_impl.cpp blockstore_disk.cpp blockstore_init.cpp blockstore_open.cpp blockstore_journal.cpp blockstore_read.cpp
 	blockstore_write.cpp blockstore_sync.cpp blockstore_stable.cpp blockstore_rollback.cpp blockstore_flush.cpp crc32c.c ringloop.cpp
 )
 target_link_libraries(vitastor_blk

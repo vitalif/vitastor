@@ -11,25 +11,19 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *
     ring_consumer.loop = [this]() { loop(); };
     ringloop->register_consumer(&ring_consumer);
     initialized = 0;
-    data_fd = meta_fd = journal.fd = -1;
     parse_config(config);
-    zero_object = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, data_block_size);
+    zero_object = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.data_block_size);
     try
     {
-        open_data();
-        open_meta();
-        open_journal();
+        dsk.open_data();
+        dsk.open_meta();
+        dsk.open_journal();
         calc_lengths();
-        data_alloc = new allocator(block_count);
+        data_alloc = new allocator(dsk.block_count);
     }
     catch (std::exception & e)
     {
-        if (data_fd >= 0)
-            close(data_fd);
-        if (meta_fd >= 0 && meta_fd != data_fd)
-            close(meta_fd);
-        if (journal.fd >= 0 && journal.fd != meta_fd)
-            close(journal.fd);
+        dsk.close_all();
         throw;
     }
     flusher = new journal_flusher_t(this);
@@ -41,12 +35,7 @@ blockstore_impl_t::~blockstore_impl_t()
     delete flusher;
     free(zero_object);
     ringloop->unregister_consumer(&ring_consumer);
-    if (data_fd >= 0)
-        close(data_fd);
-    if (meta_fd >= 0 && meta_fd != data_fd)
-        close(meta_fd);
-    if (journal.fd >= 0 && journal.fd != meta_fd)
-        close(journal.fd);
+    dsk.close_all();
     if (metadata_buffer)
         free(metadata_buffer);
     if (clean_bitmap)
@@ -343,9 +332,9 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
 {
     if (op->opcode < BS_OP_MIN || op->opcode > BS_OP_MAX ||
         ((op->opcode == BS_OP_READ || op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE) && (
-            op->offset >= data_block_size ||
-            op->len > data_block_size-op->offset ||
-            (op->len % disk_alignment)
+            op->offset >= dsk.data_block_size ||
+            op->len > dsk.data_block_size-op->offset ||
+            (op->len % dsk.disk_alignment)
         )) ||
         readonly && op->opcode != BS_OP_READ && op->opcode != BS_OP_LIST)
     {

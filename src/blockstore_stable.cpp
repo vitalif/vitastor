@@ -137,7 +137,7 @@ resume_2:
     if (!disable_journal_fsync)
     {
         BS_SUBMIT_GET_SQE(sqe, data);
-        my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
+        my_uring_prep_fsync(sqe, dsk.journal_fd, IORING_FSYNC_DATASYNC);
         data->iov = { 0 };
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
@@ -195,14 +195,14 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
                     }
                     if (!exists)
                     {
-                        inode_space_stats[dirty_it->first.oid.inode] += data_block_size;
+                        inode_space_stats[dirty_it->first.oid.inode] += dsk.data_block_size;
                     }
                 }
                 else if (IS_DELETE(dirty_it->second.state))
                 {
                     auto & sp = inode_space_stats[dirty_it->first.oid.inode];
-                    if (sp > data_block_size)
-                        sp -= data_block_size;
+                    if (sp > dsk.data_block_size)
+                        sp -= dsk.data_block_size;
                     else
                         inode_space_stats.erase(dirty_it->first.oid.inode);
                 }

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "blockstore.h"
+#include "blockstore_disk.h"
 
 #include <sys/types.h>
 #include <sys/ioctl.h>
@@ -218,23 +219,10 @@ struct pool_shard_settings_t
 
 class blockstore_impl_t
 {
+    blockstore_disk_t dsk;
+
     /******* OPTIONS *******/
-    std::string data_device, meta_device, journal_device;
-    uint32_t data_block_size;
-    uint64_t meta_offset;
-    uint64_t data_offset;
-    uint64_t cfg_journal_size, cfg_data_size;
-    // Required write alignment and journal/metadata/data areas' location alignment
-    uint32_t disk_alignment = 4096;
-    // Journal block size - minimum_io_size of the journal device is the best choice
-    uint64_t journal_block_size = 4096;
-    // Metadata block size - minimum_io_size of the metadata device is the best choice
-    uint64_t meta_block_size = 4096;
-    // Sparse write tracking granularity. 4 KB is a good choice. Must be a multiple of disk_alignment
-    uint64_t bitmap_granularity = 4096;
     bool readonly = false;
-    // By default, Blockstore locks all opened devices exclusively. This option can be used to disable locking
-    bool disable_flock = false;
     // It is safe to disable fsync() if drive write cache is writethrough
     bool disable_data_fsync = false, disable_meta_fsync = false, disable_journal_fsync = false;
     // Enable if you want every operation to be executed with an "implicit fsync"
@@ -268,16 +256,6 @@ class blockstore_impl_t
     int unsynced_big_write_count = 0;
     allocator *data_alloc = NULL;
     uint8_t *zero_object;
-
-    uint32_t block_order;
-    uint64_t block_count;
-    uint32_t clean_entry_bitmap_size = 0, clean_entry_size = 0;
-
-    int meta_fd;
-    int data_fd;
-    uint64_t meta_device_size, meta_len;
-    uint64_t data_device_size, data_len;
-    uint64_t data_device_sect, meta_device_sect, journal_device_sect;
 
     void *metadata_buffer = NULL;
 
@@ -395,9 +373,9 @@ public:
     // Print diagnostics to stdout
     void dump_diagnostics();
 
-    inline uint32_t get_block_size() { return data_block_size; }
-    inline uint64_t get_block_count() { return block_count; }
+    inline uint32_t get_block_size() { return dsk.data_block_size; }
+    inline uint64_t get_block_count() { return dsk.block_count; }
     inline uint64_t get_free_block_count() { return data_alloc->get_free_count(); }
-    inline uint32_t get_bitmap_granularity() { return disk_alignment; }
-    inline uint64_t get_journal_size() { return journal.len; }
+    inline uint32_t get_bitmap_granularity() { return dsk.disk_alignment; }
+    inline uint64_t get_journal_size() { return dsk.journal_len; }
 };

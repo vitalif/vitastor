@@ -112,7 +112,7 @@ resume_2:
     if (!disable_journal_fsync)
     {
         BS_SUBMIT_GET_SQE(sqe, data);
-        my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
+        my_uring_prep_fsync(sqe, dsk.journal_fd, IORING_FSYNC_DATASYNC);
         data->iov = { 0 };
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
@@ -217,10 +217,10 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
             dirty_it->second.location != UINT64_MAX)
         {
 #ifdef BLOCKSTORE_DEBUG
-            printf("Free block %lu from %lx:%lx v%lu\n", dirty_it->second.location >> block_order,
+            printf("Free block %lu from %lx:%lx v%lu\n", dirty_it->second.location >> dsk.block_order,
                 dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
 #endif
-            data_alloc->set(dirty_it->second.location >> block_order, false);
+            data_alloc->set(dirty_it->second.location >> dsk.block_order, false);
         }
         int used = --journal.used_sectors[dirty_it->second.journal_sector];
 #ifdef BLOCKSTORE_DEBUG
@@ -233,7 +233,7 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
         {
             journal.used_sectors.erase(dirty_it->second.journal_sector);
         }
-        if (clean_entry_bitmap_size > sizeof(void*))
+        if (dsk.clean_entry_bitmap_size > sizeof(void*))
         {
             free(dirty_it->second.bitmap);
             dirty_it->second.bitmap = NULL;

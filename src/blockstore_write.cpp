@@ -10,9 +10,9 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     bool wait_big = false, wait_del = false;
     void *bmp = NULL;
     uint64_t version = 1;
-    if (!is_del && clean_entry_bitmap_size > sizeof(void*))
+    if (!is_del && dsk.clean_entry_bitmap_size > sizeof(void*))
     {
-        bmp = calloc_or_die(1, clean_entry_bitmap_size);
+        bmp = calloc_or_die(1, dsk.clean_entry_bitmap_size);
     }
     if (dirty_db.size() > 0)
     {
@@ -32,8 +32,8 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
                 : ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG);
             if (!is_del && !deleted)
             {
-                if (clean_entry_bitmap_size > sizeof(void*))
-                    memcpy(bmp, dirty_it->second.bitmap, clean_entry_bitmap_size);
+                if (dsk.clean_entry_bitmap_size > sizeof(void*))
+                    memcpy(bmp, dirty_it->second.bitmap, dsk.clean_entry_bitmap_size);
                 else
                     bmp = dirty_it->second.bitmap;
             }
@@ -48,8 +48,8 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             version = clean_it->second.version + 1;
             if (!is_del)
             {
-                void *bmp_ptr = get_clean_entry_bitmap(clean_it->second.location, clean_entry_bitmap_size);
-                memcpy((clean_entry_bitmap_size > sizeof(void*) ? bmp : &bmp), bmp_ptr, clean_entry_bitmap_size);
+                void *bmp_ptr = get_clean_entry_bitmap(clean_it->second.location, dsk.clean_entry_bitmap_size);
+                memcpy((dsk.clean_entry_bitmap_size > sizeof(void*) ? bmp : &bmp), bmp_ptr, dsk.clean_entry_bitmap_size);
             }
         }
         else
@@ -90,14 +90,14 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         {
             // Invalid version requested
             op->retval = -EEXIST;
-            if (!is_del && clean_entry_bitmap_size > sizeof(void*))
+            if (!is_del && dsk.clean_entry_bitmap_size > sizeof(void*))
             {
                 free(bmp);
             }
             return false;
         }
     }
-    if (wait_big && !is_del && !deleted && op->len < data_block_size &&
+    if (wait_big && !is_del && !deleted && op->len < dsk.data_block_size &&
         immediate_commit != IMMEDIATE_ALL)
     {
         // Issue an additional sync so that the previous big write can reach the journal
@@ -122,7 +122,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         state = BS_ST_DELETE | BS_ST_IN_FLIGHT;
     else
     {
-        state = (op->len == data_block_size || deleted ? BS_ST_BIG_WRITE : BS_ST_SMALL_WRITE);
+        state = (op->len == dsk.data_block_size || deleted ? BS_ST_BIG_WRITE : BS_ST_SMALL_WRITE);
         if (state == BS_ST_SMALL_WRITE && throttle_small_writes)
             clock_gettime(CLOCK_REALTIME, &PRIV(op)->tv_begin);
         if (wait_del)
@@ -136,9 +136,9 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         if (op->bitmap)
         {
             // Only allow to overwrite part of the object bitmap respective to the write's offset/len
-            uint8_t *bmp_ptr = (uint8_t*)(clean_entry_bitmap_size > sizeof(void*) ? bmp : &bmp);
-            uint32_t bit = op->offset/bitmap_granularity;
-            uint32_t bits_left = op->len/bitmap_granularity;
+            uint8_t *bmp_ptr = (uint8_t*)(dsk.clean_entry_bitmap_size > sizeof(void*) ? bmp : &bmp);
+            uint32_t bit = op->offset/dsk.bitmap_granularity;
+            uint32_t bits_left = op->len/dsk.bitmap_granularity;
             while (!(bit % 8) && bits_left > 8)
             {
                 // Copy bytes
@@ -175,7 +175,7 @@ void blockstore_impl_t::cancel_all_writes(blockstore_op_t *op, blockstore_dirty_
 {
     while (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
     {
-        if (clean_entry_bitmap_size > sizeof(void*))
+        if (dsk.clean_entry_bitmap_size > sizeof(void*))
             free(dirty_it->second.bitmap);
         dirty_db.erase(dirty_it++);
     }
@@ -251,7 +251,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     {
         blockstore_journal_check_t space_check(this);
         if (!space_check.check_available(op, unsynced_big_write_count + 1,
-            sizeof(journal_entry_big_write) + clean_entry_bitmap_size, JOURNAL_STABILIZE_RESERVATION))
+            sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size, JOURNAL_STABILIZE_RESERVATION))
         {
             return 0;
         }
@@ -271,7 +271,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         }
         BS_SUBMIT_GET_SQE(sqe, data);
         write_iodepth++;
-        dirty_it->second.location = loc << block_order;
+        dirty_it->second.location = loc << dsk.block_order;
         dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_SUBMITTED;
 #ifdef BLOCKSTORE_DEBUG
         printf(
@@ -280,9 +280,9 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         );
 #endif
         data_alloc->set(loc, true);
-        uint64_t stripe_offset = (op->offset % bitmap_granularity);
-        uint64_t stripe_end = (op->offset + op->len) % bitmap_granularity;
-        // Zero fill up to bitmap_granularity
+        uint64_t stripe_offset = (op->offset % dsk.bitmap_granularity);
+        uint64_t stripe_end = (op->offset + op->len) % dsk.bitmap_granularity;
+        // Zero fill up to dsk.bitmap_granularity
         int vcnt = 0;
         if (stripe_offset)
         {
@@ -291,13 +291,13 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ op->buf, op->len };
         if (stripe_end)
         {
-            stripe_end = bitmap_granularity - stripe_end;
+            stripe_end = dsk.bitmap_granularity - stripe_end;
             PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, stripe_end };
         }
         data->iov.iov_len = op->len + stripe_offset + stripe_end; // to check it in the callback
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         my_uring_prep_writev(
-            sqe, data_fd, PRIV(op)->iov_zerofill, vcnt, data_offset + (loc << block_order) + op->offset - stripe_offset
+            sqe, dsk.data_fd, PRIV(op)->iov_zerofill, vcnt, dsk.data_offset + (loc << dsk.block_order) + op->offset - stripe_offset
         );
         PRIV(op)->pending_ops = 1;
         PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
@@ -319,9 +319,9 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         blockstore_journal_check_t space_check(this);
         if (unsynced_big_write_count &&
             !space_check.check_available(op, unsynced_big_write_count,
-                sizeof(journal_entry_big_write) + clean_entry_bitmap_size, 0)
+                sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size, 0)
             || !space_check.check_available(op, 1,
-                sizeof(journal_entry_small_write) + clean_entry_bitmap_size, op->len + JOURNAL_STABILIZE_RESERVATION))
+                sizeof(journal_entry_small_write) + dsk.clean_entry_bitmap_size, op->len + JOURNAL_STABILIZE_RESERVATION))
         {
             return 0;
         }
@@ -329,7 +329,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         BS_SUBMIT_CHECK_SQES(
             // Write current journal sector only if it's dirty and full, or in the immediate_commit mode
             (immediate_commit != IMMEDIATE_NONE ||
-                !journal.entry_fits(sizeof(journal_entry_small_write) + clean_entry_bitmap_size) ? 1 : 0) +
+                !journal.entry_fits(sizeof(journal_entry_small_write) + dsk.clean_entry_bitmap_size) ? 1 : 0) +
             (op->len > 0 ? 1 : 0)
         );
         write_iodepth++;
@@ -337,7 +337,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         if (immediate_commit == IMMEDIATE_NONE)
         {
-            if (!journal.entry_fits(sizeof(journal_entry_small_write) + clean_entry_bitmap_size))
+            if (!journal.entry_fits(sizeof(journal_entry_small_write) + dsk.clean_entry_bitmap_size))
             {
                 prepare_journal_sector_write(journal.cur_sector, op);
             }
@@ -349,7 +349,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         // Then pre-fill journal entry
         journal_entry_small_write *je = (journal_entry_small_write*)prefill_single_journal_entry(
             journal, op->opcode == BS_OP_WRITE_STABLE ? JE_SMALL_WRITE_INSTANT : JE_SMALL_WRITE,
-            sizeof(journal_entry_small_write) + clean_entry_bitmap_size
+            sizeof(journal_entry_small_write) + dsk.clean_entry_bitmap_size
         );
         dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
@@ -361,14 +361,14 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         );
 #endif
         // Figure out where data will be
-        journal.next_free = (journal.next_free + op->len) <= journal.len ? journal.next_free : journal_block_size;
+        journal.next_free = (journal.next_free + op->len) <= journal.len ? journal.next_free : dsk.journal_block_size;
         je->oid = op->oid;
         je->version = op->version;
         je->offset = op->offset;
         je->len = op->len;
         je->data_offset = journal.next_free;
         je->crc32_data = crc32c(0, op->buf, op->len);
-        memcpy((void*)(je+1), (clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap), clean_entry_bitmap_size);
+        memcpy((void*)(je+1), (dsk.clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap), dsk.clean_entry_bitmap_size);
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
         if (immediate_commit != IMMEDIATE_NONE)
@@ -387,7 +387,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             data2->iov = (struct iovec){ op->buf, op->len };
             data2->callback = cb;
             my_uring_prep_writev(
-                sqe2, journal.fd, &data2->iov, 1, journal.offset + journal.next_free
+                sqe2, dsk.journal_fd, &data2->iov, 1, journal.offset + journal.next_free
             );
             PRIV(op)->pending_ops++;
         }
@@ -400,7 +400,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         journal.next_free += op->len;
         if (journal.next_free >= journal.len)
         {
-            journal.next_free = journal_block_size;
+            journal.next_free = dsk.journal_block_size;
         }
         if (!PRIV(op)->pending_ops)
         {
@@ -440,7 +440,7 @@ resume_2:
         assert(dirty_it != dirty_db.end());
         journal_entry_big_write *je = (journal_entry_big_write*)prefill_single_journal_entry(
             journal, op->opcode == BS_OP_WRITE_STABLE ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
-            sizeof(journal_entry_big_write) + clean_entry_bitmap_size
+            sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size
         );
         dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
@@ -456,7 +456,7 @@ resume_2:
         je->offset = op->offset;
         je->len = op->len;
         je->location = dirty_it->second.location;
-        memcpy((void*)(je+1), (clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap), clean_entry_bitmap_size);
+        memcpy((void*)(je+1), (dsk.clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap), dsk.clean_entry_bitmap_size);
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
         prepare_journal_sector_write(journal.cur_sector, op);
@@ -634,7 +634,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     // Write current journal sector only if it's dirty and full, or in the immediate_commit mode
     BS_SUBMIT_CHECK_SQES(
         (immediate_commit != IMMEDIATE_NONE ||
-            (journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_del) &&
+            (dsk.journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_del) &&
             journal.sector_info[journal.cur_sector].dirty) ? 1 : 0
     );
     if (write_iodepth >= max_write_iodepth)
@@ -645,7 +645,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     // Prepare journal sector write
     if (immediate_commit == IMMEDIATE_NONE)
     {
-        if ((journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_del) &&
+        if ((dsk.journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_del) &&
             journal.sector_info[journal.cur_sector].dirty)
         {
             prepare_journal_sector_write(journal.cur_sector, op);

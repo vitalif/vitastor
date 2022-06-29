@@ -175,7 +175,7 @@ void blockstore_impl_t::prepare_journal_sector_write(int cur_sector, blockstore_
         };
         data->callback = [this, flush_id = journal.submit_id](ring_data_t *data) { handle_journal_write(data, flush_id); };
         my_uring_prep_writev(
-            sqe, journal.fd, &data->iov, 1, journal.offset + journal.sector_info[cur_sector].offset
+            sqe, dsk.journal_fd, &data->iov, 1, journal.offset + journal.sector_info[cur_sector].offset
         );
     }
     journal.sector_info[cur_sector].dirty = false;

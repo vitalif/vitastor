@@ -60,7 +60,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
         if (!disable_data_fsync)
         {
             BS_SUBMIT_GET_SQE(sqe, data);
-            my_uring_prep_fsync(sqe, data_fd, IORING_FSYNC_DATASYNC);
+            my_uring_prep_fsync(sqe, dsk.data_fd, IORING_FSYNC_DATASYNC);
             data->iov = { 0 };
             data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
             PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
@@ -79,7 +79,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
         // Check space in the journal and journal memory buffers
         blockstore_journal_check_t space_check(this);
         if (!space_check.check_available(op, PRIV(op)->sync_big_writes.size(),
-            sizeof(journal_entry_big_write) + clean_entry_bitmap_size, JOURNAL_STABILIZE_RESERVATION))
+            sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size, JOURNAL_STABILIZE_RESERVATION))
         {
             return 0;
         }
@@ -90,7 +90,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
         int s = 0;
         while (it != PRIV(op)->sync_big_writes.end())
         {
-            if (!journal.entry_fits(sizeof(journal_entry_big_write) + clean_entry_bitmap_size) &&
+            if (!journal.entry_fits(sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size) &&
                 journal.sector_info[journal.cur_sector].dirty)
             {
                 prepare_journal_sector_write(journal.cur_sector, op);
@@ -99,7 +99,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
             auto & dirty_entry = dirty_db.at(*it);
             journal_entry_big_write *je = (journal_entry_big_write*)prefill_single_journal_entry(
                 journal, (dirty_entry.state & BS_ST_INSTANT) ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
-                sizeof(journal_entry_big_write) + clean_entry_bitmap_size
+                sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size
             );
             dirty_entry.journal_sector = journal.sector_info[journal.cur_sector].offset;
             journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
@@ -115,8 +115,8 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
             je->offset = dirty_entry.offset;
             je->len = dirty_entry.len;
             je->location = dirty_entry.location;
-            memcpy((void*)(je+1), (clean_entry_bitmap_size > sizeof(void*)
-                ? dirty_entry.bitmap : &dirty_entry.bitmap), clean_entry_bitmap_size);
+            memcpy((void*)(je+1), (dsk.clean_entry_bitmap_size > sizeof(void*)
+                ? dirty_entry.bitmap : &dirty_entry.bitmap), dsk.clean_entry_bitmap_size);
             je->crc32 = je_crc32((journal_entry*)je);
             journal.crc32_last = je->crc32;
             it++;
@@ -132,7 +132,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
         if (!disable_journal_fsync)
         {
             BS_SUBMIT_GET_SQE(sqe, data);
-            my_uring_prep_fsync(sqe, journal.fd, IORING_FSYNC_DATASYNC);
+            my_uring_prep_fsync(sqe, dsk.journal_fd, IORING_FSYNC_DATASYNC);
             data->iov = { 0 };
             data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
             PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;

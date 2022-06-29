@@ -164,7 +164,6 @@ inline bool operator < (const pending_journaling_t & a, const pending_journaling
 struct journal_t
 {
     int fd;
-    uint64_t device_size;
     bool inmemory = false;
     bool flush_journal = false;
     void *buffer = NULL;
