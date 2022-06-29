@@ -195,7 +195,7 @@ configure_file(vitastor.pc.in vitastor.pc @ONLY)
 
 # vitastor-disk
 add_executable(vitastor-disk
-	disk_tool.cpp crc32c.c rw_blocking.cpp allocator.cpp ringloop.cpp
+	disk_tool.cpp crc32c.c rw_blocking.cpp allocator.cpp ringloop.cpp blockstore_disk.cpp
 )
 target_link_libraries(vitastor-disk
 	tcmalloc_minimal
