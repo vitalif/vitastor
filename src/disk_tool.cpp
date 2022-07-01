@@ -124,6 +124,10 @@ int main(int argc, char *argv[])
             cmd.clear();
             cmd.push_back((char*)"help");
         }
+        else if (!strcmp(argv[i], "--force"))
+        {
+            self.options["force"] = "1";
+        }
         else if (argv[i][0] == '-' && argv[i][1] == '-')
         {
             char *key = argv[i]+2;
@@ -169,9 +173,31 @@ int main(int argc, char *argv[])
         printf(
             "USAGE:\n"
             "  %s dump-journal [--all] <journal_file> <journal_block_size> <offset> <size>\n"
+            "  Dump journal in human-readable format.\n"
+            "  Without --all, only actual part of the journal is dumped.\n"
+            "  With --all, the whole journal area is scanned for journal entries,\n"
+            "  some of which may be outdated.\n"
+            "\n"
             "  %s dump-meta <meta_file> <meta_block_size> <offset> <size>\n"
+            "  Dump metadata in JSON format.\n"
+            "\n"
+            "  %s resize <ALL_OSD_PARAMETERS> <NEW_PARAMETERS> [--iodepth 32]\n"
+            "  Resize data area and/or rewrite/move journal and metadata\n"
+            "  ALL_OSD_PARAMETERS must include all (at least all disk-related)\n"
+            "  parameters from OSD command line (i.e. from systemd unit).\n"
+            "  NEW_PARAMETERS include new disk layout parameters:\n"
+            "    [--new_data_offset <NUMBER>]     resize data area so it starts at <NUMBER>\n"
+            "    [--new_data_len <NUMBER>]        resize data area to <NUMBER> bytes\n"
+            "    [--new_meta_device <PATH>]       use <PATH> for new metadata\n"
+            "    [--new_meta_offset <NUMBER>]     make new metadata area start at <NUMBER>\n"
+            "    [--new_meta_len <NUMBER>]        make new metadata area <NUMBER> bytes long\n"
+            "    [--new_journal_device <PATH>]    use <PATH> for new journal\n"
+            "    [--new_journal_offset <NUMBER>]  make new journal area start at <NUMBER>\n"
+            "    [--new_journal_len <NUMBER>]     make new journal area <NUMBER> bytes long\n"
+            "  If any of the new layout parameter options are not specified, old values\n"
+            "  will be used.\n"
             ,
-            argv[0], argv[0]
+            argv[0], argv[0], argv[0]
         );
     }
     return 0;
@@ -598,6 +624,36 @@ int disk_tool_t::resize_parse_params()
     iodepth = strtoull(options["iodepth"].c_str(), NULL, 10);
     if (!iodepth)
         iodepth = 32;
+    new_meta_device = options.find("new_meta_device") != options.end()
+        ? options["new_meta_device"] : dsk.meta_device;
+    new_journal_device = options.find("new_journal_device") != options.end()
+        ? options["new_journal_device"] : dsk.journal_device;
+    new_data_offset = options.find("new_data_offset") != options.end()
+        ? strtoull(options["new_data_offset"].c_str(), NULL, 10) : dsk.data_offset;
+    new_data_len = options.find("new_data_len") != options.end()
+        ? strtoull(options["new_data_len"].c_str(), NULL, 10) : dsk.data_len;
+    new_meta_offset = options.find("new_meta_offset") != options.end()
+        ? strtoull(options["new_meta_offset"].c_str(), NULL, 10) : dsk.meta_offset;
+    new_meta_len = options.find("new_meta_len") != options.end()
+        ? strtoull(options["new_meta_len"].c_str(), NULL, 10) : 0; // will be calculated in resize_init()
+    new_journal_offset = options.find("new_journal_offset") != options.end()
+        ? strtoull(options["new_journal_offset"].c_str(), NULL, 10) : dsk.journal_offset;
+    new_journal_len = options.find("new_journal_len") != options.end()
+        ? strtoull(options["new_journal_len"].c_str(), NULL, 10) : dsk.journal_len;
+    if (new_meta_device == dsk.meta_device &&
+        new_journal_device == dsk.journal_device &&
+        new_data_offset == dsk.data_offset &&
+        new_data_len == dsk.data_len &&
+        new_meta_offset == dsk.meta_offset &&
+        (new_meta_len == dsk.meta_len || new_meta_len == 0) &&
+        new_journal_offset == dsk.journal_offset &&
+        new_journal_len == dsk.journal_len &&
+        options.find("force") == options.end())
+    {
+        // No difference
+        fprintf(stderr, "No difference, specify --force to rewrite journal and meta anyway\n");
+        return 1;
+    }
     return 0;
 }
 
@@ -626,9 +682,32 @@ void disk_tool_t::resize_init(blockstore_meta_header_v1_t *hdr)
     new_clean_entry_size = sizeof(clean_disk_entry) + 2 * new_clean_entry_bitmap_size;
     new_entries_per_block = dsk.meta_block_size/new_clean_entry_size;
     uint64_t new_meta_blocks = 1 + (new_data_len/dsk.data_block_size + new_entries_per_block-1) / new_entries_per_block;
+    if (!new_meta_len)
+    {
+        new_meta_len = dsk.meta_block_size*new_meta_blocks;
+    }
     if (new_meta_len < dsk.meta_block_size*new_meta_blocks)
     {
         fprintf(stderr, "New metadata area size is too small, should be at least %lu bytes\n", dsk.meta_block_size*new_meta_blocks);
+        exit(1);
+    }
+    // Check that new metadata, journal and data areas don't overlap
+    if (new_meta_device == dsk.data_device && new_meta_offset < new_data_offset+new_data_len &&
+        new_meta_offset+new_meta_len > new_data_offset)
+    {
+        fprintf(stderr, "New metadata area overlaps with data\n");
+        exit(1);
+    }
+    if (new_journal_device == dsk.data_device && new_journal_offset < new_data_offset+new_data_len &&
+        new_journal_offset+new_journal_len > new_data_offset)
+    {
+        fprintf(stderr, "New journal area overlaps with data\n");
+        exit(1);
+    }
+    if (new_journal_device == dsk.meta_device && new_journal_offset < new_meta_offset+new_meta_len &&
+        new_journal_offset+new_journal_len > new_meta_offset)
+    {
+        fprintf(stderr, "New journal area overlaps with metadata\n");
         exit(1);
     }
 }
