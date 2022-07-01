@@ -75,11 +75,11 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     {
         metadata_buf_size = 4*1024*1024;
     }
-    if (dsk.meta_device == "")
+    if (dsk.meta_device == dsk.data_device)
     {
         disable_meta_fsync = disable_data_fsync;
     }
-    if (dsk.journal_device == "")
+    if (dsk.journal_device == dsk.meta_device)
     {
         disable_journal_fsync = disable_meta_fsync;
     }

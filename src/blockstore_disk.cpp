@@ -92,13 +92,13 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     {
         throw std::runtime_error("Block size must be a multiple of sparse write tracking granularity");
     }
-    if (journal_device == meta_device || meta_device == "" && journal_device == data_device)
+    if (meta_device == "")
     {
-        journal_device = "";
+        meta_device = data_device;
     }
-    if (meta_device == data_device)
+    if (journal_device == "")
     {
-        meta_device = "";
+        journal_device = meta_device;
     }
     if (meta_offset % meta_block_size)
     {
@@ -239,7 +239,7 @@ void blockstore_disk_t::open_data()
 
 void blockstore_disk_t::open_meta()
 {
-    if (meta_device != "")
+    if (meta_device != data_device)
     {
         meta_offset = 0;
         meta_fd = open(meta_device.c_str(), O_DIRECT|O_RDWR);
@@ -278,7 +278,7 @@ void blockstore_disk_t::open_meta()
 
 void blockstore_disk_t::open_journal()
 {
-    if (journal_device != "")
+    if (journal_device != meta_device)
     {
         journal_fd = open(journal_device.c_str(), O_DIRECT|O_RDWR);
         if (journal_fd == -1)
