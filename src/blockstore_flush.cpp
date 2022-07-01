@@ -541,7 +541,7 @@ resume_1:
             data->iov = (struct iovec){ meta_old.buf, bs->dsk.meta_block_size };
             data->callback = simple_callback_w;
             my_uring_prep_writev(
-                sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + meta_old.sector
+                sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bs->dsk.meta_block_size + meta_old.sector
             );
             wait_count++;
         }
@@ -585,7 +585,7 @@ resume_1:
         data->iov = (struct iovec){ meta_new.buf, bs->dsk.meta_block_size };
         data->callback = simple_callback_w;
         my_uring_prep_writev(
-            sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + meta_new.sector
+            sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bs->dsk.meta_block_size + meta_new.sector
         );
         wait_count++;
     resume_7:
@@ -849,7 +849,7 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
         data->callback = simple_callback_r;
         wr.submitted = true;
         my_uring_prep_readv(
-            sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + wr.sector
+            sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bs->dsk.meta_block_size + wr.sector
         );
         wait_count++;
     }

@@ -130,12 +130,11 @@ resume_1:
         }
     }
     // Skip superblock
-    bs->dsk.meta_offset += bs->dsk.meta_block_size;
-    bs->dsk.meta_len -= bs->dsk.meta_block_size;
+    md_offset = bs->dsk.meta_block_size;
+    metadata_read = bs->dsk.meta_block_size;
     prev_done = 0;
     done_len = 0;
     done_pos = 0;
-    metadata_read = 0;
     // Read the rest of the metadata
     while (1)
     {
@@ -150,7 +149,7 @@ resume_1:
             GET_SQE();
             data->iov = {
                 (uint8_t*)metadata_buffer + (bs->inmemory_meta
-                    ? metadata_read
+                    ? metadata_read-md_offset
                     : (prev == 1 ? bs->metadata_buf_size : 0)),
                 bs->dsk.meta_len - metadata_read > bs->metadata_buf_size ? bs->metadata_buf_size : bs->dsk.meta_len - metadata_read,
             };
@@ -170,7 +169,7 @@ resume_1:
         if (prev_done)
         {
             void *done_buf = bs->inmemory_meta
-                ? ((uint8_t*)metadata_buffer + done_pos)
+                ? ((uint8_t*)metadata_buffer + done_pos-md_offset)
                 : ((uint8_t*)metadata_buffer + (prev_done == 2 ? bs->metadata_buf_size : 0));
             unsigned count = bs->dsk.meta_block_size / bs->dsk.clean_entry_size;
             for (int sector = 0; sector < done_len; sector += bs->dsk.meta_block_size)
