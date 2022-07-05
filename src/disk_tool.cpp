@@ -85,6 +85,8 @@ struct disk_tool_t
 
     /**** Methods ****/
 
+    ~disk_tool_t();
+
     void dump_journal_entry(int num, journal_entry *je);
     int process_journal(std::function<int(void*)> block_fn);
     int process_journal_block(void *buf, std::function<void(int, journal_entry*)> iter_fn);
@@ -203,6 +205,15 @@ int main(int argc, char *argv[])
     return 0;
 }
 
+disk_tool_t::~disk_tool_t()
+{
+    if (data_alloc)
+    {
+        delete data_alloc;
+        data_alloc = NULL;
+    }
+}
+
 int disk_tool_t::dump_journal()
 {
     if (dsk.journal_block_size < DIRECT_IO_ALIGNMENT || (dsk.journal_block_size % DIRECT_IO_ALIGNMENT) ||
@@ -211,14 +222,14 @@ int disk_tool_t::dump_journal()
         fprintf(stderr, "Invalid journal block size\n");
         return 1;
     }
-    dsk.journal_fd = open(dsk.journal_device.c_str(), O_DIRECT|O_RDONLY);
-    if (dsk.journal_fd < 0)
-    {
-        fprintf(stderr, "Failed to open journal device %s: %s\n", dsk.journal_device.c_str(), strerror(errno));
-        return 1;
-    }
     if (all)
     {
+        dsk.journal_fd = open(dsk.journal_device.c_str(), O_DIRECT|O_RDONLY);
+        if (dsk.journal_fd < 0)
+        {
+            fprintf(stderr, "Failed to open journal device %s: %s\n", dsk.journal_device.c_str(), strerror(errno));
+            return 1;
+        }
         void *journal_buf = memalign_or_die(MEM_ALIGNMENT, dsk.journal_block_size);
         journal_pos = 0;
         while (journal_pos < dsk.journal_len)
@@ -248,6 +259,8 @@ int disk_tool_t::dump_journal()
             }
         }
         free(journal_buf);
+        close(dsk.journal_fd);
+        dsk.journal_fd = -1;
     }
     else
     {
@@ -260,13 +273,17 @@ int disk_tool_t::dump_journal()
             return r;
         });
     }
-    close(dsk.journal_fd);
-    dsk.journal_fd = -1;
     return 0;
 }
 
 int disk_tool_t::process_journal(std::function<int(void*)> block_fn)
 {
+    dsk.journal_fd = open(dsk.journal_device.c_str(), O_DIRECT|O_RDONLY);
+    if (dsk.journal_fd < 0)
+    {
+        fprintf(stderr, "Failed to open journal device %s: %s\n", dsk.journal_device.c_str(), strerror(errno));
+        return 1;
+    }
     void *data = memalign_or_die(MEM_ALIGNMENT, dsk.journal_block_size);
     journal_pos = 0;
     int r = pread(dsk.journal_fd, data, dsk.journal_block_size, dsk.journal_offset+journal_pos);
@@ -275,12 +292,15 @@ int disk_tool_t::process_journal(std::function<int(void*)> block_fn)
     if (je->magic != JOURNAL_MAGIC || je->type != JE_START || je_crc32(je) != je->crc32)
     {
         fprintf(stderr, "offset %08lx: journal superblock is invalid\n", journal_pos);
-        return 1;
+        r = 1;
     }
     else
     {
+        started = false;
+        crc32_last = 0;
         block_fn(data);
         started = false;
+        crc32_last = 0;
         journal_pos = je->start.journal_start;
         while (1)
         {
@@ -293,8 +313,10 @@ int disk_tool_t::process_journal(std::function<int(void*)> block_fn)
                 break;
         }
     }
+    close(dsk.journal_fd);
+    dsk.journal_fd = -1;
     free(data);
-    return 0;
+    return r;
 }
 
 int disk_tool_t::process_journal_block(void *buf, std::function<void(int, journal_entry*)> iter_fn)
@@ -303,11 +325,11 @@ int disk_tool_t::process_journal_block(void *buf, std::function<void(int, journa
     journal_pos += dsk.journal_block_size;
     int entry = 0;
     bool wrapped = false;
-    while (pos < dsk.journal_block_size)
+    while (pos <= dsk.journal_block_size-JOURNAL_ENTRY_HEADER_SIZE)
     {
         journal_entry *je = (journal_entry*)((uint8_t*)buf + pos);
         if (je->magic != JOURNAL_MAGIC || je->type < JE_MIN || je->type > JE_MAX ||
-            !all && started && je->crc32_prev != crc32_last)
+            !all && started && je->crc32_prev != crc32_last || pos > dsk.journal_block_size-je->size)
         {
             break;
         }
@@ -455,9 +477,9 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v1_t *)>
             meta_pos += read_len;
             for (uint64_t blk = 0; blk < read_len; blk += dsk.meta_block_size)
             {
-                for (uint64_t ioff = 0; ioff < dsk.meta_block_size-dsk.clean_entry_size; ioff += dsk.clean_entry_size, block_num++)
+                for (uint64_t ioff = 0; ioff <= dsk.meta_block_size-dsk.clean_entry_size; ioff += dsk.clean_entry_size, block_num++)
                 {
-                    clean_disk_entry *entry = (clean_disk_entry*)(data + blk + ioff);
+                    clean_disk_entry *entry = (clean_disk_entry*)((uint8_t*)data + blk + ioff);
                     if (entry->oid.inode)
                     {
                         record_fn(block_num, entry, entry->bitmap);
@@ -482,7 +504,7 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v1_t *)>
             {
                 for (uint64_t ioff = 0; ioff < dsk.meta_block_size-dsk.clean_entry_size; ioff += dsk.clean_entry_size, block_num++)
                 {
-                    clean_disk_entry *entry = (clean_disk_entry*)(data + blk + ioff);
+                    clean_disk_entry *entry = (clean_disk_entry*)((uint8_t*)data + blk + ioff);
                     if (entry->oid.inode)
                     {
                         record_fn(block_num, entry, NULL);
@@ -512,13 +534,13 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v1_t *hdr)
     if (hdr)
     {
         printf(
-            "{\"version\":\"0.6\",\"dsk.meta_block_size\":%u,\"dsk.data_block_size\":%u,\"dsk.bitmap_granularity\":%u,\"entries\":[\n",
+            "{\"version\":\"0.6\",\"meta_block_size\":%u,\"data_block_size\":%u,\"bitmap_granularity\":%u,\"entries\":[\n",
             hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity
         );
     }
     else
     {
-        printf("{\"version\":\"0.5\",\"dsk.meta_block_size\":%lu,\"entries\":[\n", dsk.meta_block_size);
+        printf("{\"version\":\"0.5\",\"meta_block_size\":%lu,\"entries\":[\n", dsk.meta_block_size);
     }
     first = true;
 }
@@ -561,6 +583,8 @@ int disk_tool_t::resize_data()
     if (r != 0)
         return r;
     // Check parameters and fill allocator
+    fprintf(stderr, "Reading metadata\n");
+    data_alloc = new allocator((new_data_len < dsk.data_len ? dsk.data_len : new_data_len) / dsk.data_block_size);
     r = process_meta(
         [this](blockstore_meta_header_v1_t *hdr)
         {
@@ -573,6 +597,7 @@ int disk_tool_t::resize_data()
     );
     if (r != 0)
         return r;
+    fprintf(stderr, "Reading journal\n");
     r = process_journal([this](void *buf)
     {
         return process_journal_block(buf, [this](int num, journal_entry *je)
@@ -590,17 +615,21 @@ int disk_tool_t::resize_data()
     if (r != 0)
         return r;
     // Copy data blocks into new places
+    fprintf(stderr, "Moving data blocks\n");
     r = resize_copy_data();
     if (r != 0)
         return r;
     // Rewrite journal
+    fprintf(stderr, "Writing new journal\n");
     r = resize_rewrite_journal();
     if (r != 0)
         return r;
     // Rewrite metadata
+    fprintf(stderr, "Writing new metadata\n");
     r = resize_rewrite_meta();
     if (r != 0)
         return r;
+    fprintf(stderr, "Done\n");
     return 0;
 }
 
@@ -673,8 +702,8 @@ void disk_tool_t::resize_init(blockstore_meta_header_v1_t *hdr)
         fprintf(stderr, "Data alignment mismatch\n");
         exit(1);
     }
-    data_idx_diff = (new_data_offset-dsk.data_offset) / dsk.data_block_size;
-    free_first = new_data_offset > dsk.data_offset ? data_idx_diff : 0;
+    data_idx_diff = ((int64_t)(dsk.data_offset-new_data_offset)) / dsk.data_block_size;
+    free_first = new_data_offset > dsk.data_offset ? (new_data_offset-dsk.data_offset) / dsk.data_block_size : 0;
     free_last = (new_data_offset+new_data_len < dsk.data_offset+dsk.data_len)
         ? (dsk.data_offset+dsk.data_len-new_data_offset-new_data_len) / dsk.data_block_size
         : 0;
@@ -737,6 +766,7 @@ int disk_tool_t::resize_remap_blocks()
             fprintf(stderr, "Not enough space to move data\n");
             return 1;
         }
+        data_alloc->set(new_loc, true);
         data_remap[p.first] = new_loc;
     }
     return 0;
@@ -754,13 +784,14 @@ int disk_tool_t::resize_copy_data()
     {
         fprintf(stderr, "Failed to open data device %s: %s\n", dsk.data_device.c_str(), strerror(errno));
         delete ringloop;
+        ringloop = NULL;
         return 1;
     }
     moving_blocks = new resizer_data_moving_t[iodepth];
     moving_blocks[0].buf = memalign_or_die(MEM_ALIGNMENT, iodepth*dsk.data_block_size);
     for (int i = 1; i < iodepth; i++)
     {
-        moving_blocks[i].buf = moving_blocks[0].buf + i*dsk.data_block_size;
+        moving_blocks[i].buf = (uint8_t*)moving_blocks[0].buf + i*dsk.data_block_size;
     }
     remap_active = 1;
     remap_it = data_remap.begin();
@@ -845,6 +876,7 @@ int disk_tool_t::resize_copy_data()
     close(dsk.data_fd);
     dsk.data_fd = -1;
     delete ringloop;
+    ringloop = NULL;
     return 0;
 }
 
@@ -855,23 +887,26 @@ int disk_tool_t::resize_rewrite_journal()
     new_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_journal_len);
     new_journal_ptr = new_buf;
     new_journal_data = new_journal_ptr + dsk.journal_block_size;
+    new_journal_in_pos = 0;
     memset(new_buf, 0, new_journal_len);
     process_journal([this](void *buf)
     {
         return process_journal_block(buf, [this](int num, journal_entry *je)
         {
-            journal_entry *ne = (journal_entry*)(new_journal_ptr + new_journal_in_pos);
             if (je->type == JE_START)
             {
+                journal_entry *ne = (journal_entry*)(new_journal_ptr + new_journal_in_pos);
                 *((journal_entry_start*)ne) = (journal_entry_start){
                     .magic = JOURNAL_MAGIC,
                     .type = JE_START,
-                    .size = sizeof(ne->start),
+                    .size = sizeof(journal_entry_start),
                     .journal_start = dsk.journal_block_size,
                     .version = JOURNAL_VERSION,
                 };
                 ne->crc32 = je_crc32(ne);
                 new_journal_ptr += dsk.journal_block_size;
+                new_journal_data = new_journal_ptr+dsk.journal_block_size;
+                new_journal_in_pos = 0;
             }
             else
             {
@@ -883,7 +918,7 @@ int disk_tool_t::resize_rewrite_journal()
                         fprintf(stderr, "Error: live entries don't fit to the new journal\n");
                         exit(1);
                     }
-                    new_journal_data += dsk.journal_block_size;
+                    new_journal_data = new_journal_ptr+dsk.journal_block_size;
                     new_journal_in_pos = 0;
                     if (dsk.journal_block_size < je->size)
                     {
@@ -891,6 +926,7 @@ int disk_tool_t::resize_rewrite_journal()
                         exit(1);
                     }
                 }
+                journal_entry *ne = (journal_entry*)(new_journal_ptr + new_journal_in_pos);
                 memcpy(ne, je, je->size);
                 ne->crc32_prev = new_crc32_prev;
                 if (je->type == JE_BIG_WRITE || je->type == JE_BIG_WRITE_INSTANT)
@@ -901,7 +937,7 @@ int disk_tool_t::resize_rewrite_journal()
                     {
                         ne->big_write.location = remap_it->second * dsk.data_block_size;
                     }
-                    ne->big_write.location += data_idx_diff;
+                    ne->big_write.location += data_idx_diff * dsk.data_block_size;
                 }
                 else if (je->type == JE_SMALL_WRITE || je->type == JE_SMALL_WRITE_INSTANT)
                 {
@@ -957,7 +993,10 @@ int disk_tool_t::resize_rewrite_meta()
             if (remap_it != data_remap.end())
                 block_num = remap_it->second;
             if (block_num < free_first || block_num >= total_blocks-free_last)
-                return;
+            {
+                fprintf(stderr, "BUG: remapped block not in range\n");
+                exit(1);
+            }
             block_num += data_idx_diff;
             clean_disk_entry *new_entry = (clean_disk_entry*)(new_buf + dsk.meta_block_size +
                 dsk.meta_block_size*(block_num / new_entries_per_block) +

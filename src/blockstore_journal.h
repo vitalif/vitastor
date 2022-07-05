@@ -10,6 +10,7 @@
 #define JOURNAL_MAGIC 0x4A33
 #define JOURNAL_VERSION 1
 #define JOURNAL_BUFFER_SIZE 4*1024*1024
+#define JOURNAL_ENTRY_HEADER_SIZE 16
 
 // We reserve some extra space for future stabilize requests during writes
 // FIXME: This value should be dynamic i.e. Blockstore ideally shouldn't allow
