@@ -41,6 +41,7 @@ struct disk_tool_t
 
     std::map<std::string, std::string> options;
     bool all;
+    bool json;
     blockstore_disk_t dsk;
 
     // resize data and/or move metadata and journal
@@ -55,7 +56,7 @@ struct disk_tool_t
     uint64_t meta_pos;
     uint64_t journal_pos, journal_calc_data_pos;
 
-    bool first;
+    bool first, first2;
 
     allocator *data_alloc;
     std::map<uint64_t, uint64_t> data_remap;
@@ -87,7 +88,7 @@ struct disk_tool_t
 
     ~disk_tool_t();
 
-    void dump_journal_entry(int num, journal_entry *je);
+    void dump_journal_entry(int num, journal_entry *je, bool json);
     int process_journal(std::function<int(void*)> block_fn);
     int process_journal_block(void *buf, std::function<void(int, journal_entry*)> iter_fn);
     int process_meta(std::function<void(blockstore_meta_header_v1_t *)> hdr_fn,
@@ -121,6 +122,10 @@ int main(int argc, char *argv[])
         {
             self.all = true;
         }
+        else if (!strcmp(argv[i], "--json"))
+        {
+            self.json = true;
+        }
         else if (!strcmp(argv[i], "--help"))
         {
             cmd.clear();
@@ -144,7 +149,7 @@ int main(int argc, char *argv[])
     {
         if (cmd.size() < 5)
         {
-            fprintf(stderr, "USAGE: %s%s [--all] <journal_file> <journal_block_size> <offset> <size>\n", argv[0], aliased ? "" : " dump-journal");
+            fprintf(stderr, "USAGE: %s%s [--all] [--json] <journal_file> <journal_block_size> <offset> <size>\n", argv[0], aliased ? "" : " dump-journal");
             return 1;
         }
         self.dsk.journal_device = cmd[1];
@@ -174,8 +179,8 @@ int main(int argc, char *argv[])
     {
         printf(
             "USAGE:\n"
-            "  %s dump-journal [--all] <journal_file> <journal_block_size> <offset> <size>\n"
-            "  Dump journal in human-readable format.\n"
+            "  %s dump-journal [--all] [--json] <journal_file> <journal_block_size> <offset> <size>\n"
+            "  Dump journal in human-readable or JSON (if --json is specified) format.\n"
             "  Without --all, only actual part of the journal is dumped.\n"
             "  With --all, the whole journal area is scanned for journal entries,\n"
             "  some of which may be outdated.\n"
@@ -222,6 +227,9 @@ int disk_tool_t::dump_journal()
         fprintf(stderr, "Invalid journal block size\n");
         return 1;
     }
+    first = true;
+    if (json)
+        printf("[\n");
     if (all)
     {
         dsk.journal_fd = open(dsk.journal_device.c_str(), O_DIRECT|O_RDONLY);
@@ -242,19 +250,36 @@ int disk_tool_t::dump_journal()
                 if (*((uint64_t*)((uint8_t*)journal_buf+s)) != 0)
                     break;
             }
+            if (json)
+            {
+                printf("%s{\"offset\":\"0x%lx\"", first ? "" : ",\n", journal_pos);
+                first = false;
+            }
             if (s == dsk.journal_block_size)
             {
-                printf("offset %08lx: zeroes\n", journal_pos);
+                if (json)
+                    printf(",\"type\":\"zero\"}");
+                else
+                    printf("offset %08lx: zeroes\n", journal_pos);
                 journal_pos += dsk.journal_block_size;
             }
             else if (((journal_entry*)journal_buf)->magic == JOURNAL_MAGIC)
             {
-                printf("offset %08lx:\n", journal_pos);
-                process_journal_block(journal_buf, [this](int num, journal_entry *je) { dump_journal_entry(num, je); });
+                if (!json)
+                    printf("offset %08lx:\n", journal_pos);
+                else
+                    printf(",\"entries\":[\n");
+                first2 = true;
+                process_journal_block(journal_buf, [this](int num, journal_entry *je) { dump_journal_entry(num, je, json); });
+                if (json)
+                    printf(first2 ? "]}" : "\n]}");
             }
             else
             {
-                printf("offset %08lx: no magic in the beginning, looks like random data (pattern=%lx)\n", journal_pos, *((uint64_t*)journal_buf));
+                if (json)
+                    printf(",\"type\":\"data\",\"pattern\":\"%08lx\"}", *((uint64_t*)journal_buf));
+                else
+                    printf("offset %08lx: no magic in the beginning, looks like random data (pattern=%08lx)\n", journal_pos, *((uint64_t*)journal_buf));
                 journal_pos += dsk.journal_block_size;
             }
         }
@@ -266,13 +291,28 @@ int disk_tool_t::dump_journal()
     {
         process_journal([this](void *data)
         {
-            printf("offset %08lx:\n", journal_pos);
-            int r = process_journal_block(data, [this](int num, journal_entry *je) { dump_journal_entry(num, je); });
-            if (r <= 0)
+            first2 = true;
+            if (!json)
+                printf("offset %08lx:\n", journal_pos);
+            auto pos = journal_pos;
+            int r = process_journal_block(data, [this, pos](int num, journal_entry *je)
+            {
+                if (json && first2)
+                {
+                    printf("%s{\"offset\":\"0x%lx\",\"entries\":[\n", first ? "" : ",\n", pos);
+                    first = false;
+                }
+                dump_journal_entry(num, je, json);
+            });
+            if (json)
+                printf(first2 ? "" : "\n]}");
+            else if (r <= 0)
                 printf("end of the journal\n");
             return r;
         });
     }
+    if (json)
+        printf(first ? "]\n" : "\n]\n");
     return 0;
 }
 
@@ -375,17 +415,37 @@ int disk_tool_t::process_journal_block(void *buf, std::function<void(int, journa
     return entry;
 }
 
-void disk_tool_t::dump_journal_entry(int num, journal_entry *je)
+void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
 {
-    printf("entry % 3d: crc32=%08x %s prev=%08x ", num, je->crc32, (je_crc32(je) == je->crc32 ? "(valid)" : "(invalid)"), je->crc32_prev);
+    if (json)
+    {
+        if (!first2)
+            printf(",\n");
+        first2 = false;
+        printf(
+            "{\"crc32\":\"%08x\",\"valid\":%s,\"crc32_prev\":\"%08x\"",
+            je->crc32, (je_crc32(je) == je->crc32 ? "true" : "false"), je->crc32_prev
+        );
+    }
+    else
+    {
+        printf(
+            "entry % 3d: crc32=%08x %s prev=%08x ",
+            num, je->crc32, (je_crc32(je) == je->crc32 ? "(valid)" : "(invalid)"), je->crc32_prev
+        );
+    }
     if (je->type == JE_START)
     {
-        printf("je_start start=%08lx\n", je->start.journal_start);
+        printf(
+            json ? ",\"type\":\"start\",\"start\":\"0x%lx\"}" : "je_start start=%08lx\n",
+            je->start.journal_start
+        );
     }
     else if (je->type == JE_SMALL_WRITE || je->type == JE_SMALL_WRITE_INSTANT)
     {
         printf(
-            "je_small_write%s oid=%lx:%lx ver=%lu offset=%u len=%u loc=%08lx",
+            json ? ",\"type\":\"small_write%s\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\",\"offset\":%u,\"len\":%u,\"loc\":\"0x%lx\""
+                : "je_small_write%s oid=%lx:%lx ver=%lu offset=%u len=%u loc=%08lx",
             je->type == JE_SMALL_WRITE_INSTANT ? "_instant" : "",
             je->small_write.oid.inode, je->small_write.oid.stripe,
             je->small_write.version, je->small_write.offset, je->small_write.len,
@@ -393,33 +453,49 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je)
         );
         if (journal_calc_data_pos != je->small_write.data_offset)
         {
-            printf(" (mismatched, calculated = %lu)", journal_pos);
+            printf(json ? ",\"bad_loc\":true,\"calc_loc\":\"0x%lx\""
+                : " (mismatched, calculated = %lu)", journal_pos);
         }
         printf(
-            " data_crc32=%08x%s", je->small_write.crc32_data,
-            (data_crc32 != je->small_write.crc32_data) ? " (invalid)" : " (valid)"
+            json ? ",\"data_crc32\":\"%08x\",\"data_valid\":%s}" : " data_crc32=%08x%s\n",
+            je->small_write.crc32_data,
+            (data_crc32 != je->small_write.crc32_data
+                ? (json ? "false" : " (invalid)")
+                : (json ? "true" : " (valid)"))
         );
-        printf("\n");
     }
     else if (je->type == JE_BIG_WRITE || je->type == JE_BIG_WRITE_INSTANT)
     {
         printf(
-            "je_big_write%s oid=%lx:%lx ver=%lu loc=%08lx\n",
+            json ? ",\"type\":\"big_write%s\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\",\"loc\":\"0x%lx\"}"
+                : "je_big_write%s oid=%lx:%lx ver=%lu loc=%08lx\n",
             je->type == JE_BIG_WRITE_INSTANT ? "_instant" : "",
             je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location
         );
     }
     else if (je->type == JE_STABLE)
     {
-        printf("je_stable oid=%lx:%lx ver=%lu\n", je->stable.oid.inode, je->stable.oid.stripe, je->stable.version);
+        printf(
+            json ? ",\"type\":\"stable\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\"}"
+                : "je_stable oid=%lx:%lx ver=%lu\n",
+            je->stable.oid.inode, je->stable.oid.stripe, je->stable.version
+        );
     }
     else if (je->type == JE_ROLLBACK)
     {
-        printf("je_rollback oid=%lx:%lx ver=%lu\n", je->rollback.oid.inode, je->rollback.oid.stripe, je->rollback.version);
+        printf(
+            json ? ",\"type\":\"rollback\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\"}"
+                : "je_rollback oid=%lx:%lx ver=%lu\n",
+            je->rollback.oid.inode, je->rollback.oid.stripe, je->rollback.version
+        );
     }
     else if (je->type == JE_DELETE)
     {
-        printf("je_delete oid=%lx:%lx ver=%lu\n", je->del.oid.inode, je->del.oid.stripe, je->del.version);
+        printf(
+            json ? ",\"type\":\"delete\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\"}"
+                : "je_delete oid=%lx:%lx ver=%lu\n",
+            je->del.oid.inode, je->del.oid.stripe, je->del.version
+        );
     }
 }
 
