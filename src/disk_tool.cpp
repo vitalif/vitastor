@@ -64,7 +64,7 @@ struct disk_tool_t
     ring_loop_t *ringloop;
     ring_consumer_t ring_consumer;
     int remap_active;
-    uint8_t *new_buf, *new_journal_ptr, *new_journal_data;
+    uint8_t *new_journal_buf, *new_meta_buf, *new_journal_ptr, *new_journal_data;
     uint64_t new_journal_in_pos;
     int64_t data_idx_diff;
     uint64_t total_blocks, free_first, free_last;
@@ -101,7 +101,9 @@ struct disk_tool_t
     int resize_remap_blocks();
     int resize_copy_data();
     int resize_rewrite_journal();
+    int resize_write_new_journal();
     int resize_rewrite_meta();
+    int resize_write_new_meta();
 };
 
 int main(int argc, char *argv[])
@@ -696,13 +698,23 @@ int disk_tool_t::resize_data()
     if (r != 0)
         return r;
     // Rewrite journal
-    fprintf(stderr, "Writing new journal\n");
+    fprintf(stderr, "Rebuilding journal\n");
     r = resize_rewrite_journal();
     if (r != 0)
         return r;
     // Rewrite metadata
-    fprintf(stderr, "Writing new metadata\n");
+    fprintf(stderr, "Rebuilding metadata\n");
     r = resize_rewrite_meta();
+    if (r != 0)
+        return r;
+    // Write new journal
+    fprintf(stderr, "Writing new journal\n");
+    r = resize_write_new_journal();
+    if (r != 0)
+        return r;
+    // Write new metadata
+    fprintf(stderr, "Writing new metadata\n");
+    r = resize_write_new_meta();
     if (r != 0)
         return r;
     fprintf(stderr, "Done\n");
@@ -809,7 +821,7 @@ void disk_tool_t::resize_init(blockstore_meta_header_v1_t *hdr)
         fprintf(stderr, "New journal area overlaps with data\n");
         exit(1);
     }
-    if (new_journal_device == dsk.meta_device && new_journal_offset < new_meta_offset+new_meta_len &&
+    if (new_journal_device == new_meta_device && new_journal_offset < new_meta_offset+new_meta_len &&
         new_journal_offset+new_journal_len > new_meta_offset)
     {
         fprintf(stderr, "New journal area overlaps with metadata\n");
@@ -949,6 +961,7 @@ int disk_tool_t::resize_copy_data()
     ringloop->unregister_consumer(&ring_consumer);
     free(moving_blocks[0].buf);
     delete[] moving_blocks;
+    moving_blocks = NULL;
     close(dsk.data_fd);
     dsk.data_fd = -1;
     delete ringloop;
@@ -960,11 +973,11 @@ int disk_tool_t::resize_rewrite_journal()
 {
     // Simply overwriting on the fly may be impossible because old and new areas may overlap
     // For now, just build new journal data in memory
-    new_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_journal_len);
-    new_journal_ptr = new_buf;
+    new_journal_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_journal_len);
+    new_journal_ptr = new_journal_buf;
     new_journal_data = new_journal_ptr + dsk.journal_block_size;
     new_journal_in_pos = 0;
-    memset(new_buf, 0, new_journal_len);
+    memset(new_journal_buf, 0, new_journal_len);
     process_journal([this](void *buf)
     {
         return process_journal_block(buf, [this](int num, journal_entry *je)
@@ -989,7 +1002,7 @@ int disk_tool_t::resize_rewrite_journal()
                 if (dsk.journal_block_size < new_journal_in_pos+je->size)
                 {
                     new_journal_ptr = new_journal_data;
-                    if (new_journal_ptr-new_buf >= new_journal_len)
+                    if (new_journal_ptr-new_journal_buf >= new_journal_len)
                     {
                         fprintf(stderr, "Error: live entries don't fit to the new journal\n");
                         exit(1);
@@ -1017,7 +1030,7 @@ int disk_tool_t::resize_rewrite_journal()
                 }
                 else if (je->type == JE_SMALL_WRITE || je->type == JE_SMALL_WRITE_INSTANT)
                 {
-                    ne->small_write.data_offset = new_journal_data-new_buf;
+                    ne->small_write.data_offset = new_journal_data-new_journal_buf;
                     if (ne->small_write.data_offset + ne->small_write.len > new_journal_len)
                     {
                         fprintf(stderr, "Error: live entries don't fit to the new journal\n");
@@ -1032,7 +1045,11 @@ int disk_tool_t::resize_rewrite_journal()
             }
         });
     });
-    // FIXME: Write new journal and metadata with journaling if they overlap with old
+    return 0;
+}
+
+int disk_tool_t::resize_write_new_journal()
+{
     new_journal_fd = open(new_journal_device.c_str(), O_DIRECT|O_RDWR);
     if (new_journal_fd < 0)
     {
@@ -1040,22 +1057,23 @@ int disk_tool_t::resize_rewrite_journal()
         return 1;
     }
     lseek64(new_journal_fd, new_journal_offset, 0);
-    write_blocking(new_journal_fd, new_buf, new_journal_len);
+    write_blocking(new_journal_fd, new_journal_buf, new_journal_len);
     fsync(new_journal_fd);
     close(new_journal_fd);
     new_journal_fd = -1;
-    free(new_buf);
+    free(new_journal_buf);
+    new_journal_buf = NULL;
     return 0;
 }
 
 int disk_tool_t::resize_rewrite_meta()
 {
-    new_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_meta_len);
-    memset(new_buf, 0, new_meta_len);
+    new_meta_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_meta_len);
+    memset(new_meta_buf, 0, new_meta_len);
     int r = process_meta(
         [this](blockstore_meta_header_v1_t *hdr)
         {
-            blockstore_meta_header_v1_t *new_hdr = (blockstore_meta_header_v1_t *)new_buf;
+            blockstore_meta_header_v1_t *new_hdr = (blockstore_meta_header_v1_t *)new_meta_buf;
             new_hdr->zero = 0;
             new_hdr->magic = BLOCKSTORE_META_MAGIC_V1;
             new_hdr->version = BLOCKSTORE_META_VERSION_V1;
@@ -1074,7 +1092,7 @@ int disk_tool_t::resize_rewrite_meta()
                 exit(1);
             }
             block_num += data_idx_diff;
-            clean_disk_entry *new_entry = (clean_disk_entry*)(new_buf + dsk.meta_block_size +
+            clean_disk_entry *new_entry = (clean_disk_entry*)(new_meta_buf + dsk.meta_block_size +
                 dsk.meta_block_size*(block_num / new_entries_per_block) +
                 new_clean_entry_size*(block_num % new_entries_per_block));
             new_entry->oid = entry->oid;
@@ -1087,9 +1105,15 @@ int disk_tool_t::resize_rewrite_meta()
     );
     if (r != 0)
     {
-        free(new_buf);
+        free(new_meta_buf);
+        new_meta_buf = NULL;
         return r;
     }
+    return 0;
+}
+
+int disk_tool_t::resize_write_new_meta()
+{
     new_meta_fd = open(new_meta_device.c_str(), O_DIRECT|O_RDWR);
     if (new_meta_fd < 0)
     {
@@ -1097,10 +1121,11 @@ int disk_tool_t::resize_rewrite_meta()
         return 1;
     }
     lseek64(new_meta_fd, new_meta_offset, 0);
-    write_blocking(new_meta_fd, new_buf, new_meta_len);
+    write_blocking(new_meta_fd, new_meta_buf, new_meta_len);
     fsync(new_meta_fd);
     close(new_meta_fd);
     new_meta_fd = -1;
-    free(new_buf);
+    free(new_meta_buf);
+    new_meta_buf = NULL;
     return 0;
 }
