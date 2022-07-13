@@ -167,7 +167,7 @@ static void help()
 
 static int run(cli_tool_t *p, json11::Json::object cfg)
 {
-    cli_result_t result;
+    cli_result_t result = {};
     p->parse_config(cfg);
     json11::Json::array cmd = cfg["command"].array_items();
     cfg.erase("command");
