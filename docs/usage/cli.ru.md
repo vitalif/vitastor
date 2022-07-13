@@ -39,9 +39,9 @@ vitastor-cli - интерфейс командной строки для адм�
 
 `vitastor-cli status`
 
-Show cluster status.
+Показать состояние кластера.
 
-Example output:
+Пример вывода:
 
 ```
   cluster:
@@ -66,9 +66,9 @@ Example output:
 
 `vitastor-cli df`
 
-Show pool space statistics.
+Показать список пулов и занятое место.
 
-Example output:
+Пример вывода:
 
 ```
 NAME      SCHEME  PGS  TOTAL    USED    AVAILABLE  USED%   EFFICIENCY
@@ -77,26 +77,27 @@ size1     1/1     32   199.9 G  10 G    121.5 G    39.23%  100%
 kaveri    2/1     32   0 B      10 G    0 B        100%    0%
 ```
 
-In the example above, "kaveri" pool has "zero" efficiency because all its OSD are down.
+В примере у пула "kaveri" эффективность равна нулю, так как все OSD выключены.
 
 ## ls
 
 `vitastor-cli ls [-l] [-p POOL] [--sort FIELD] [-r] [-n N] [<glob> ...]`
 
-List images (only matching `<glob>` pattern(s) if passed).
+Показать список образов, если переданы шаблоны `<glob>`, то только с именами,
+соответствующими этим шаблонам (стандартные ФС-шаблоны с * и ?).
 
-Options:
+Опции:
 
 ```
--p|--pool POOL  Filter images by pool ID or name
--l|--long       Also report allocated size and I/O statistics
---del           Also include delete operation statistics
---sort FIELD    Sort by specified field (name, size, used_size, <read|write|delete>_<iops|bps|lat|queue>)
--r|--reverse    Sort in descending order
--n|--count N    Only list first N items
+-p|--pool POOL  Фильтровать образы по пулу (ID или имени)
+-l|--long       Также выводить статистику занятого места и ввода-вывода
+--del           Также выводить статистику операций удаления
+--sort FIELD    Сортировать по заданному полю (name, size, used_size, <read|write|delete>_<iops|bps|lat|queue>)
+-r|--reverse    Сортировать в обратном порядке
+-n|--count N    Показывать только первые N записей
 ```
 
-Example output:
+Пример вывода:
 
 ```
 NAME                 POOL      SIZE  USED    READ   IOPS  QUEUE  LAT   WRITE  IOPS  QUEUE  LAT   FLAGS  PARENT
@@ -113,85 +114,94 @@ bench-kaveri         kaveri    10 G  10 G    0 B/s  0     0      0 us  0 B/s  0 
 
 `vitastor-cli create -s|--size <size> [-p|--pool <id|name>] [--parent <parent_name>[@<snapshot>]] <name>`
 
-Create an image. You may use K/M/G/T suffixes for `<size>`. If `--parent` is specified,
-a copy-on-write image clone is created. Parent must be a snapshot (readonly image).
-Pool must be specified if there is more than one pool.
+Создать образ. Для размера `<size>` можно использовать суффиксы K/M/G/T (килобайт-мегабайт-гигабайт-терабайт).
+Если указана опция `--parent`, создаётся клон образа. Родитель `<parent_name>[@<snapshot>]` должен быть
+снимком (или просто немодифицируемым образом). Пул обязательно указывать, если в кластере больше одного пула.
 
 ```
 vitastor-cli create --snapshot <snapshot> [-p|--pool <id|name>] <image>
 vitastor-cli snap-create [-p|--pool <id|name>] <image>@<snapshot>
 ```
 
-Create a snapshot of image `<name>` (either form can be used). May be used live if only a single writer is active.
+Создать снимок образа `<name>` (можно использовать любую форму команды). Снимок можно создавать без остановки
+клиентов, если пишущий клиент максимум 1.
 
 ## modify
 
 `vitastor-cli modify <name> [--rename <new-name>] [--resize <size>] [--readonly | --readwrite] [-f|--force]`
 
-Rename, resize image or change its readonly status. Images with children can't be made read-write.
-If the new size is smaller than the old size, extra data will be purged.
-You should resize file system in the image, if present, before shrinking it.
+Изменить размер, имя образа или флаг "только для чтения". Снимать флаг "только для чтения"
+и уменьшать размер образов, у которых есть дочерние клоны, без `--force` нельзя.
+
+Если новый размер меньше старого, "лишние" данные будут удалены, поэтому перед уменьшением
+образа сначала уменьшите файловую систему в нём.
 
 ```
--f|--force  Proceed with shrinking or setting readwrite flag even if the image has children.
+-f|--force  Разрешить уменьшение или перевод в чтение-запись образа, у которого есть клоны.
 ```
 
 ## rm
 
 `vitastor-cli rm <from> [<to>] [--writers-stopped]`
 
-Remove `<from>` or all layers between `<from>` and `<to>` (`<to>` must be a child of `<from>`),
-rebasing all their children accordingly. --writers-stopped allows merging to be a bit
-more effective in case of a single 'slim' read-write child and 'fat' removed parent:
-the child is merged into parent and parent is renamed to child in that case.
-In other cases parent layers are always merged into children.
+Удалить образ `<from>` или все слои от `<from>` до `<to>` (`<to>` должен быть дочерним
+образом `<from>`), одновременно меняя родительские образы их клонов (если таковые есть).
+
+`--writers-stopped` позволяет чуть более эффективно удалять образы в частом случае, когда
+у удаляемой цепочки есть только один дочерний образ, содержащий небольшой объём данных.
+В этом случае дочерний образ вливается в родительский и удаляется, а родительский
+переименовывается в дочерний.
+
+В других случаях родительские слои вливаются в дочерние.
 
 ## flatten
 
 `vitastor-cli flatten <layer>`
 
-Flatten a layer, i.e. merge data and detach it from parents.
+Сделай образ `<layer>` плоским, то есть, скопировать в него данные и разорвать его
+соединение с родительскими.
 
 ## rm-data
 
 `vitastor-cli rm-data --pool <pool> --inode <inode> [--wait-list] [--min-offset <offset>]`
 
-Remove inode data without changing metadata.
+Удалить данные инода, не меняя метаданные образов.
 
 ```
---wait-list   Retrieve full objects listings before starting to remove objects.
-              Requires more memory, but allows to show correct removal progress.
---min-offset  Purge only data starting with specified offset.
+--wait-list   Сначала запросить полный листинг объектов, а потом начать удалять.
+              Требует больше памяти, но позволяет правильно печатать прогресс удаления.
+--min-offset  Удалять только данные, начиная с заданного смещения.
 ```
 
 ## merge-data
 
 `vitastor-cli merge-data <from> <to> [--target <target>]`
 
-Merge layer data without changing metadata. Merge `<from>`..`<to>` to `<target>`.
-`<to>` must be a child of `<from>` and `<target>` may be one of the layers between
-`<from>` and `<to>`, including `<from>` and `<to>`.
+Слить данные слоёв, не меняя метаданные. Вливает данные из слоёв от `<from>` до `<to>`
+в целевой образ `<target>`. `<to>` должен быть дочерним образом `<from>`, а `<target>`
+должен быть одним из слоёв между `<from>` и `<to>`, включая сами `<from>` и `<to>`.
 
 ## alloc-osd
 
 `vitastor-cli alloc-osd`
 
-Allocate a new OSD number and reserve it by creating empty `/osd/stats/<n>` key.
+Атомарно выделить новый номер OSD и зарезервировать его, создав в etcd пустой
+ключ `/osd/stats/<n>`.
 
 ## simple-offsets
 
 `vitastor-cli simple-offsets <device>`
 
-Calculate offsets for simple&stupid (no superblock) OSD deployment.
+Рассчитать смещения для простого и тупого создания OSD на диске (без суперблока).
 
-Options (see also [Cluster-Wide Disk Layout Parameters](../config/layout-cluster.en.md)):
+Опции (см. также [Дисковые параметры уровня кластера](../config/layout-cluster.ru.md)):
 
 ```
---object_size 128k       Set blockstore block size
---bitmap_granularity 4k  Set bitmap granularity
---journal_size 32M       Set journal size
---device_block_size 4k   Set device block size
---journal_offset 0       Set journal offset
---device_size 0          Set device size
---format text            Result format: json, options, env, or text
+--object_size 128k       Размер блока хранилища
+--bitmap_granularity 4k  Гранулярность битовых карт
+--journal_size 32M       Размер журнала
+--device_block_size 4k   Размер блока устройства
+--journal_offset 0       Смещение журнала
+--device_size 0          Размер устройства
+--format text            Формат результата: json, options, env или text
 ```
