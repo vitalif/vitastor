@@ -355,7 +355,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
             size_t done = 0;
             while (done < io->xfer_buflen)
             {
-                ssize_t r = pwrite(bsd->mirror_fd, io->xfer_buf+done, io->xfer_buflen-done, io->offset+done);
+                ssize_t r = pwrite(bsd->mirror_fd, (uint8_t*)io->xfer_buf+done, io->xfer_buflen-done, io->offset+done);
                 if (r < 0 && errno != EAGAIN)
                 {
                     fprintf(stderr, "Error writing mirror file: %s\n", strerror(errno));
