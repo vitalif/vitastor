@@ -140,15 +140,6 @@ static void help()
         "\n"
         "%s alloc-osd\n"
         "  Allocate a new OSD number and reserve it by creating empty /osd/stats/<n> key.\n"
-        "%s simple-offsets <device>\n"
-        "  Calculate offsets for simple&stupid (no superblock) OSD deployment. Options:\n"
-        "  --object_size 128k       Set blockstore block size\n"
-        "  --bitmap_granularity 4k  Set bitmap granularity\n"
-        "  --journal_size 16M       Set journal size\n"
-        "  --device_block_size 4k   Set device block size\n"
-        "  --journal_offset 0       Set journal offset\n"
-        "  --device_size 0          Set device size\n"
-        "  --format text            Result format: json, options, env, or text\n"
         "\n"
         "GLOBAL OPTIONS:\n"
         "  --etcd_address <etcd_address>\n"
@@ -159,7 +150,7 @@ static void help()
         "  --no-color          Disable colored output\n"
         "  --json              JSON output\n"
         ,
-        exe_name, exe_name, exe_name, exe_name, exe_name, exe_name, exe_name,
+        exe_name, exe_name, exe_name, exe_name, exe_name, exe_name,
         exe_name, exe_name, exe_name, exe_name, exe_name, exe_name
     );
     exit(0);
@@ -270,15 +261,6 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
     {
         // Allocate a new OSD number
         action_cb = p->start_alloc_osd(cfg);
-    }
-    else if (cmd[0] == "simple-offsets")
-    {
-        // Calculate offsets for simple & stupid OSD deployment without superblock
-        if (cmd.size() > 1)
-        {
-            cfg["device"] = cmd[1];
-        }
-        action_cb = p->simple_offsets(cfg);
     }
     else
     {

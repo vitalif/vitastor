@@ -16,6 +16,7 @@
 #include <assert.h>
 #include <stdio.h>
 
+#include "json11/json11.hpp"
 #include "blockstore_impl.h"
 #include "blockstore_disk.h"
 #include "osd_id.h"
@@ -106,6 +107,8 @@ struct disk_tool_t
     int resize_write_new_meta();
 };
 
+void disk_tool_simple_offsets(json11::Json cfg, bool json_output);
+
 int main(int argc, char *argv[])
 {
     disk_tool_t self = {};
@@ -177,20 +180,33 @@ int main(int argc, char *argv[])
     {
         return self.resize_data();
     }
+    else if (cmd.size() && !strcmp(cmd[0], "simple-offsets"))
+    {
+        // Calculate offsets for simple & stupid OSD deployment without superblock
+        if (cmd.size() > 1)
+        {
+            self.options["device"] = cmd[1];
+        }
+        disk_tool_simple_offsets(self.options, self.json);
+        return 0;
+    }
     else
     {
         printf(
+            "Vitastor disk management tool\n"
+            "(c) Vitaliy Filippov, 2022+ (VNPL-1.1)\n"
+            "\n"
             "USAGE:\n"
-            "  %s dump-journal [--all] [--json] <journal_file> <journal_block_size> <offset> <size>\n"
+            "%s dump-journal [--all] [--json] <journal_file> <journal_block_size> <offset> <size>\n"
             "  Dump journal in human-readable or JSON (if --json is specified) format.\n"
             "  Without --all, only actual part of the journal is dumped.\n"
             "  With --all, the whole journal area is scanned for journal entries,\n"
             "  some of which may be outdated.\n"
             "\n"
-            "  %s dump-meta <meta_file> <meta_block_size> <offset> <size>\n"
+            "%s dump-meta <meta_file> <meta_block_size> <offset> <size>\n"
             "  Dump metadata in JSON format.\n"
             "\n"
-            "  %s resize <ALL_OSD_PARAMETERS> <NEW_PARAMETERS> [--iodepth 32]\n"
+            "%s resize <ALL_OSD_PARAMETERS> <NEW_PARAMETERS> [--iodepth 32]\n"
             "  Resize data area and/or rewrite/move journal and metadata\n"
             "  ALL_OSD_PARAMETERS must include all (at least all disk-related)\n"
             "  parameters from OSD command line (i.e. from systemd unit).\n"
@@ -205,8 +221,18 @@ int main(int argc, char *argv[])
             "    [--new_journal_len <NUMBER>]     make new journal area <NUMBER> bytes long\n"
             "  If any of the new layout parameter options are not specified, old values\n"
             "  will be used.\n"
+            "\n"
+            "%s simple-offsets <device>\n"
+            "  Calculate offsets for simple&stupid (no superblock) OSD deployment. Options:\n"
+            "  --object_size 128k       Set blockstore block size\n"
+            "  --bitmap_granularity 4k  Set bitmap granularity\n"
+            "  --journal_size 16M       Set journal size\n"
+            "  --device_block_size 4k   Set device block size\n"
+            "  --journal_offset 0       Set journal offset\n"
+            "  --device_size 0          Set device size\n"
+            "  --format text            Result format: json, options, env, or text\n"
             ,
-            argv[0], argv[0], argv[0]
+            argv[0], argv[0], argv[0], argv[0]
         );
     }
     return 0;

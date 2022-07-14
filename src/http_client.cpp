@@ -14,6 +14,7 @@
 #include <stdexcept>
 
 #include "addr_util.h"
+#include "base64.h"
 #include "json11/json11.hpp"
 #include "http_client.h"
 #include "timerfd_manager.h"
@@ -601,21 +602,6 @@ void http_co_t::next_request()
         keepalive_queue.erase(keepalive_queue.begin(), keepalive_queue.begin()+1);
         next();
     }
-}
-
-uint64_t stoull_full(const std::string & str, int base)
-{
-    if (isspace(str[0]))
-    {
-        return 0;
-    }
-    char *end = NULL;
-    uint64_t r = strtoull(str.c_str(), &end, base);
-    if (end != str.c_str()+str.length())
-    {
-        return 0;
-    }
-    return r;
 }
 
 static void parse_http_headers(std::string & res, http_response_t *parsed)

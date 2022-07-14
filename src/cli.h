@@ -65,7 +65,6 @@ public:
     std::function<bool(cli_result_t &)> start_flatten(json11::Json);
     std::function<bool(cli_result_t &)> start_rm(json11::Json);
     std::function<bool(cli_result_t &)> start_alloc_osd(json11::Json cfg);
-    std::function<bool(cli_result_t &)> simple_offsets(json11::Json cfg);
 
     // Should be called like loop_and_wait(start_status(), <completion callback>)
     void loop_and_wait(std::function<bool(cli_result_t &)> loop_cb, std::function<void(const cli_result_t &)> complete_cb);
@@ -73,11 +72,7 @@ public:
     void etcd_txn(json11::Json txn);
 };
 
-uint64_t parse_size(std::string size_str);
-
 std::string print_table(json11::Json items, json11::Json header, bool use_esc);
-
-std::string format_size(uint64_t size, bool nobytes = false);
 
 std::string format_lat(uint64_t lat);
 

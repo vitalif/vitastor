@@ -23,13 +23,13 @@ for i in $(seq 1 $OSD_COUNT); do
 done
 
 for i in $(seq 1 $OSD_COUNT); do
-    offsets=$(build/src/vitastor-cli simple-offsets --format json ./testdata/test_osd$i.bin)
+    offsets=$(build/src/vitastor-disk simple-offsets --format json ./testdata/test_osd$i.bin)
     meta_offset=$(echo $offsets | jq -r .meta_offset)
     data_offset=$(echo $offsets | jq -r .data_offset)
     build/src/vitastor-disk dump-journal --json ./testdata/test_osd$i.bin 4096 0 $meta_offset >./testdata/journal_before_resize.json
     build/src/vitastor-disk dump-meta ./testdata/test_osd$i.bin 4096 $meta_offset $((data_offset-meta_offset)) >./testdata/meta_before_resize.json
     build/src/vitastor-disk resize \
-        $(build/src/vitastor-cli simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) \
+        $(build/src/vitastor-disk simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) \
         --new_meta_offset 0 \
         --new_meta_len $((1024*1024)) \
         --new_journal_offset $((1024*1024)) \

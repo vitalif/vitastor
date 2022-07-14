@@ -21,8 +21,8 @@ OSD_NUM=$(vitastor-cli alloc-osd)
 
 echo Creating OSD $OSD_NUM on $DEV
 
-OPT=$(vitastor-cli simple-offsets --format options $DEV | tr '\n' ' ')
-META=$(vitastor-cli simple-offsets --format json $DEV | jq .data_offset)
+OPT=$(vitastor-disk simple-offsets --format options $DEV | tr '\n' ' ')
+META=$(vitastor-disk simple-offsets --format json $DEV | jq .data_offset)
 dd if=/dev/zero of=$DEV bs=1048576 count=$(((META+1048575)/1048576)) oflag=direct
 
 mkdir -p /var/log/vitastor

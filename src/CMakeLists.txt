@@ -131,7 +131,6 @@ add_library(vitastor_client SHARED
 	vitastor_c.cpp
 	cli_common.cpp
 	cli_alloc_osd.cpp
-	cli_simple_offsets.cpp
 	cli_status.cpp
 	cli_df.cpp
 	cli_ls.cpp
@@ -195,7 +194,7 @@ configure_file(vitastor.pc.in vitastor.pc @ONLY)
 
 # vitastor-disk
 add_executable(vitastor-disk
-	disk_tool.cpp crc32c.c rw_blocking.cpp allocator.cpp ringloop.cpp blockstore_disk.cpp
+	disk_tool.cpp disk_simple_offsets.cpp crc32c.c base64.cpp ../json11/json11.cpp rw_blocking.cpp allocator.cpp ringloop.cpp blockstore_disk.cpp
 )
 target_link_libraries(vitastor-disk
 	tcmalloc_minimal

@@ -446,33 +446,6 @@ std::string print_table(json11::Json items, json11::Json header, bool use_esc)
     return str;
 }
 
-static uint64_t size_thresh[] = { (uint64_t)1024*1024*1024*1024, (uint64_t)1024*1024*1024, (uint64_t)1024*1024, 1024, 0 };
-static uint64_t size_thresh_d[] = { (uint64_t)1000000000000, (uint64_t)1000000000, (uint64_t)1000000, (uint64_t)1000, 0 };
-static const int size_thresh_n = sizeof(size_thresh)/sizeof(size_thresh[0]);
-static const char *size_unit = "TGMKB";
-
-std::string format_size(uint64_t size, bool nobytes)
-{
-    uint64_t *thr = nobytes ? size_thresh_d : size_thresh;
-    char buf[256];
-    for (int i = 0; i < size_thresh_n; i++)
-    {
-        if (size >= thr[i] || i >= size_thresh_n-1)
-        {
-            double value = thr[i] ? (double)size/thr[i] : size;
-            int l = snprintf(buf, sizeof(buf), "%.1f", value);
-            assert(l < sizeof(buf)-2);
-            if (buf[l-1] == '0')
-                l -= 2;
-            buf[l] = i == size_thresh_n-1 && nobytes ? 0 : ' ';
-            buf[l+1] = i == size_thresh_n-1 && nobytes ? 0 : size_unit[i];
-            buf[l+2] = 0;
-            break;
-        }
-    }
-    return std::string(buf);
-}
-
 std::string format_lat(uint64_t lat)
 {
     char buf[256];

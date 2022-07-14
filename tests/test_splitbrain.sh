@@ -21,7 +21,7 @@ LD_PRELOAD="build/src/libfio_vitastor.so" \
 # Kill OSD 2, start OSD 1
 
 kill $OSD2_PID
-build/src/vitastor-osd --osd_num 1 --bind_address 127.0.0.1 $OSD_ARGS --etcd_address $ETCD_URL $(build/src/vitastor-cli simple-offsets --format options --device ./testdata/test_osd2.bin 2>/dev/null) >>./testdata/osd2.log 2>&1 &
+build/src/vitastor-osd --osd_num 1 --bind_address 127.0.0.1 $OSD_ARGS --etcd_address $ETCD_URL $(build/src/vitastor-disk simple-offsets --format options --device ./testdata/test_osd2.bin 2>/dev/null) >>./testdata/osd2.log 2>&1 &
 sleep 2
 
 # Check PG state - it should NOT become active

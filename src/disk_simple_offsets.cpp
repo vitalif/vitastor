@@ -5,13 +5,14 @@
 #include <sys/ioctl.h>
 #include <ctype.h>
 #include <unistd.h>
-#include "cli.h"
-#include "cluster_client.h"
-#include "base64.h"
 #include <sys/stat.h>
 
+#include "json11/json11.hpp"
+#include "base64.h"
+#include "blockstore.h"
+
 // Calculate offsets for a block device and print OSD command line parameters
-std::function<bool(cli_result_t &)> cli_tool_t::simple_offsets(json11::Json cfg)
+void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
 {
     std::string device = cfg["device"].string_value();
     if (device == "")
@@ -29,7 +30,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::simple_offsets(json11::Json cfg)
     if (json_output)
         format = "json";
     if (!object_size)
-        object_size = DEFAULT_BLOCK_SIZE;
+        object_size = 1 << DEFAULT_DATA_BLOCK_ORDER;
     if (!bitmap_granularity)
         bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
     if (!journal_size)
@@ -145,5 +146,4 @@ std::function<bool(cli_result_t &)> cli_tool_t::simple_offsets(json11::Json cfg)
             device.c_str(), journal_offset, meta_offset, data_offset
         );
     }
-    return NULL;
 }

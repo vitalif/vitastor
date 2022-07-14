@@ -507,34 +507,6 @@ resume_3:
     }
 };
 
-uint64_t parse_size(std::string size_str)
-{
-    if (!size_str.length())
-    {
-        return 0;
-    }
-    uint64_t mul = 1;
-    char type_char = tolower(size_str[size_str.length()-1]);
-    if (type_char == 'k' || type_char == 'm' || type_char == 'g' || type_char == 't')
-    {
-        if (type_char == 'k')
-            mul = (uint64_t)1<<10;
-        else if (type_char == 'm')
-            mul = (uint64_t)1<<20;
-        else if (type_char == 'g')
-            mul = (uint64_t)1<<30;
-        else /*if (type_char == 't')*/
-            mul = (uint64_t)1<<40;
-        size_str = size_str.substr(0, size_str.length()-1);
-    }
-    uint64_t size = json11::Json(size_str).uint64_value() * mul;
-    if (size == 0 && size_str != "0" && (size_str != "" || mul != 1))
-    {
-        return UINT64_MAX;
-    }
-    return size;
-}
-
 std::function<bool(cli_result_t &)> cli_tool_t::start_create(json11::Json cfg)
 {
     auto image_creator = new image_creator_t();
