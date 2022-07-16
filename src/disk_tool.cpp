@@ -29,6 +29,18 @@
 #define DM_ST_TO_WRITE 3
 #define DM_ST_WRITING 4
 
+// vITADisk
+#define VITASTOR_DISK_MAGIC 0x6b73694441544976
+#define VITASTOR_DISK_MAX_SB_SIZE 128*1024
+
+struct __attribute__((__packed__)) vitastor_disk_superblock_t
+{
+    uint64_t magic;
+    uint32_t size;
+    uint32_t crc32c;
+    uint8_t json_data[];
+};
+
 struct resizer_data_moving_t
 {
     int state = 0;
@@ -105,6 +117,10 @@ struct disk_tool_t
     int resize_write_new_journal();
     int resize_rewrite_meta();
     int resize_write_new_meta();
+
+    int start_osd(std::string device);
+    int stop_osd(std::string device);
+    json11::Json read_osd_superblock(std::string device);
 };
 
 void disk_tool_simple_offsets(json11::Json cfg, bool json_output);
@@ -190,6 +206,21 @@ int main(int argc, char *argv[])
         disk_tool_simple_offsets(self.options, self.json);
         return 0;
     }
+    else if (cmd.size() && !strcmp(cmd[0], "start"))
+    {
+        if (cmd.size() == 1)
+        {
+            fprintf(stderr, "Device path is missing\n");
+            return 1;
+        }
+        for (int i = 1; i < cmd.size(); i++)
+        {
+            int r = self.start_osd(cmd[i]);
+            if (r)
+                return r;
+        }
+        return 0;
+    }
     else
     {
         printf(
@@ -231,8 +262,17 @@ int main(int argc, char *argv[])
             "  --journal_offset 0       Set journal offset\n"
             "  --device_size 0          Set device size\n"
             "  --format text            Result format: json, options, env, or text\n"
+            "\n"
+            "%s start <device>\n"
+            "%s restart <device>\n"
+            "  Configure systemd unit and start Vitastor OSD on <device> which should be\n"
+            "  a GPT Vitastor partition. Restart stops the corresponding OSD, reconfigures\n"
+            "  and restarts it.\n"
+            "\n"
+            "%s stop <device>\n"
+            "  Stop Vitastor OSD corresponding to device <device> using systemd.\n"
             ,
-            argv[0], argv[0], argv[0], argv[0]
+            argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]
         );
     }
     return 0;
@@ -1153,5 +1193,80 @@ int disk_tool_t::resize_write_new_meta()
     new_meta_fd = -1;
     free(new_meta_buf);
     new_meta_buf = NULL;
+    return 0;
+}
+
+int disk_tool_t::start_osd(std::string device)
+{
+    
+    return 0;
+}
+
+json11::Json disk_tool_t::read_osd_superblock(std::string device)
+{
+    vitastor_disk_superblock_t *sb = NULL;
+    uint8_t *buf = NULL;
+    json11::Json osd_params;
+    std::string json_err;
+    int r, fd = open(device.c_str(), O_DIRECT|O_RDWR);
+    if (fd < 0)
+    {
+        fprintf(stderr, "Failed to open device %s: %s\n", device.c_str(), strerror(errno));
+        return osd_params;
+    }
+    buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+    r = read_blocking(fd, buf, 4096);
+    if (r != 0)
+    {
+        fprintf(stderr, "Failed to read OSD superblock from %s: %s\n", device.c_str(), strerror(errno));
+        goto ex;
+    }
+    sb = (vitastor_disk_superblock_t*)buf;
+    if (sb->magic != VITASTOR_DISK_MAGIC)
+    {
+        fprintf(stderr, "Invalid OSD superblock on %s: magic number mismatch\n", device.c_str());
+        goto ex;
+    }
+    if (sb->size > VITASTOR_DISK_MAX_SB_SIZE ||
+        // +2 is minimal json: {}
+        sb->size < sizeof(vitastor_disk_superblock_t)+2)
+    {
+        fprintf(stderr, "Invalid OSD superblock on %s: invalid size\n", device.c_str());
+        goto ex;
+    }
+    if (sb->size > 4096)
+    {
+        uint64_t sb_size = ((sb->size+4095)/4096)*4096;
+        free(buf);
+        buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, sb_size);
+        lseek64(fd, 0, 0);
+        r = read_blocking(fd, buf, sb_size);
+        if (r != 0)
+        {
+            fprintf(stderr, "Failed to read OSD superblock from %s: %s\n", device.c_str(), strerror(errno));
+            goto ex;
+        }
+        sb = (vitastor_disk_superblock_t*)buf;
+    }
+    if (sb->crc32c != crc32c(0, buf, sb->size))
+    {
+        fprintf(stderr, "Invalid OSD superblock on %s: crc32 mismatch\n", device.c_str());
+        goto ex;
+    }
+    osd_params = json11::Json::parse(std::string((char*)sb->json_data, sb->size - sizeof(vitastor_disk_superblock_t)), json_err);
+    if (json_err != "")
+    {
+        fprintf(stderr, "Invalid OSD superblock on %s: invalid JSON\n", device.c_str());
+        goto ex;
+    }
+ex:
+    free(buf);
+    close(fd);
+    return osd_params;
+}
+
+int disk_tool_t::stop_osd(std::string device)
+{
+    
     return 0;
 }
