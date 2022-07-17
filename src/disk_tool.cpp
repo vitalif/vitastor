@@ -118,6 +118,7 @@ struct disk_tool_t
     int resize_rewrite_meta();
     int resize_write_new_meta();
 
+    int udev_import(std::string device);
     int start_osd(std::string device);
     int stop_osd(std::string device);
     json11::Json read_osd_superblock(std::string device);
@@ -206,6 +207,15 @@ int main(int argc, char *argv[])
         disk_tool_simple_offsets(self.options, self.json);
         return 0;
     }
+    else if (cmd.size() && !strcmp(cmd[0], "udev"))
+    {
+        if (cmd.size() != 2)
+        {
+            fprintf(stderr, "Exactly 1 device path argument is required\n");
+            return 1;
+        }
+        return self.udev_import(cmd[1]);
+    }
     else if (cmd.size() && !strcmp(cmd[0], "start"))
     {
         if (cmd.size() == 1)
@@ -213,13 +223,14 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Device path is missing\n");
             return 1;
         }
+        int res = 0;
         for (int i = 1; i < cmd.size(); i++)
         {
             int r = self.start_osd(cmd[i]);
             if (r)
-                return r;
+                res = r;
         }
-        return 0;
+        return res;
     }
     else
     {
@@ -1196,9 +1207,77 @@ int disk_tool_t::resize_write_new_meta()
     return 0;
 }
 
+static std::string udev_escape(std::string str)
+{
+    std::string r;
+    int p = str.find_first_of("\"\' \t\r\n"), prev = 0;
+    if (p == std::string::npos)
+    {
+        return str;
+    }
+    while (p != std::string::npos)
+    {
+        r += str.substr(prev, p-prev);
+        r += "\\";
+        prev = p;
+        p = str.find_first_of("\"\' \t\r\n", p+1);
+    }
+    r += str.substr(prev);
+    return r;
+}
+
+static std::string realpath_str(std::string path)
+{
+    char *p = realpath((char*)path.c_str(), NULL);
+    if (!p)
+    {
+        fprintf(stderr, "Failed to resolve %s: %s\n", path.c_str(), strerror(errno));
+        return path;
+    }
+    std::string rp(p);
+    free(p);
+    return rp;
+}
+
+int disk_tool_t::udev_import(std::string device)
+{
+    json11::Json params = read_osd_superblock(device);
+    if (params.is_null())
+    {
+        return 1;
+    }
+    uint64_t osd_num = params["osd_num"].uint64_value();
+    if (!osd_num)
+    {
+        fprintf(stderr, "OSD superblock on %s lacks osd_num\n", device.c_str());
+        return 1;
+    }
+    // Identify if it's data, meta or journal device
+    std::string real_device = realpath_str(device);
+    bool has_meta_device = params["meta_device"].string_value() != "" &&
+        params["meta_device"] != params["data_device"];
+    bool has_journal_device = params["journal_device"].string_value() != "" &&
+        params["journal_device"] != (params["meta_device"].string_value() != "" ? params["meta_device"] : params["data_device"]);
+    std::string device_type;
+    if (has_meta_device && real_device == realpath_str(params["meta_device"].string_value()))
+        device_type = "-meta";
+    else if (has_journal_device && real_device == realpath_str(params["journal_device"].string_value()))
+        device_type = "-journal";
+    else
+        device_type = "-data";
+    // Print variables for udev
+    printf("VITASTOR_OSD_NUM=%lu\n", osd_num);
+    printf("VITASTOR_ALIAS=osd%lu%s\n", osd_num, device_type.c_str());
+    printf("VITASTOR_DATA_DEVICE=%s\n", udev_escape(params["data_device"].string_value()).c_str());
+    if (has_meta_device)
+        printf("VITASTOR_META_DEVICE=%s\n", udev_escape(params["meta_device"].string_value()).c_str());
+    if (has_journal_device)
+        printf("VITASTOR_JOURNAL_DEVICE=%s\n", udev_escape(params["journal_device"].string_value()).c_str());
+    return 0;
+}
+
 int disk_tool_t::start_osd(std::string device)
 {
-    
     return 0;
 }
 
@@ -1216,7 +1295,7 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device)
     }
     buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
     r = read_blocking(fd, buf, 4096);
-    if (r != 0)
+    if (r != 4096)
     {
         fprintf(stderr, "Failed to read OSD superblock from %s: %s\n", device.c_str(), strerror(errno));
         goto ex;
@@ -1241,7 +1320,7 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device)
         buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, sb_size);
         lseek64(fd, 0, 0);
         r = read_blocking(fd, buf, sb_size);
-        if (r != 0)
+        if (r != sb_size)
         {
             fprintf(stderr, "Failed to read OSD superblock from %s: %s\n", device.c_str(), strerror(errno));
             goto ex;
