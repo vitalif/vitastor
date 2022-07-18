@@ -36,8 +36,8 @@
 struct __attribute__((__packed__)) vitastor_disk_superblock_t
 {
     uint64_t magic;
-    uint32_t size;
     uint32_t crc32c;
+    uint32_t size;
     uint8_t json_data[];
 };
 
@@ -119,9 +119,12 @@ struct disk_tool_t
     int resize_write_new_meta();
 
     int udev_import(std::string device);
+    int write_sb(std::string device);
     int start_osd(std::string device);
     int stop_osd(std::string device);
+
     json11::Json read_osd_superblock(std::string device);
+    uint32_t write_osd_superblock(std::string device, json11::Json params);
 };
 
 void disk_tool_simple_offsets(json11::Json cfg, bool json_output);
@@ -215,6 +218,15 @@ int main(int argc, char *argv[])
             return 1;
         }
         return self.udev_import(cmd[1]);
+    }
+    else if (cmd.size() && !strcmp(cmd[0], "write-sb"))
+    {
+        if (cmd.size() != 2)
+        {
+            fprintf(stderr, "Exactly 1 device path argument is required\n");
+            return 1;
+        }
+        return self.write_sb(cmd[1]);
     }
     else if (cmd.size() && !strcmp(cmd[0], "start"))
     {
@@ -1276,6 +1288,65 @@ int disk_tool_t::udev_import(std::string device)
     return 0;
 }
 
+int disk_tool_t::write_sb(std::string device)
+{
+    std::string input;
+    int r;
+    char buf[4096];
+    while (1)
+    {
+        r = read(0, buf, sizeof(buf));
+        if (r <= 0 && errno != EAGAIN)
+            break;
+        input += std::string(buf, r);
+    }
+    std::string json_err;
+    json11::Json params = json11::Json::parse(input, json_err);
+    if (json_err != "" || !params["osd_num"].uint64_value() || params["data_device"].string_value() == "")
+    {
+        fprintf(stderr, "Invalid JSON input\n");
+        return 1;
+    }
+    return !write_osd_superblock(device, params);
+}
+
+uint32_t disk_tool_t::write_osd_superblock(std::string device, json11::Json params)
+{
+    std::string json_data = params.dump();
+    uint32_t sb_size = sizeof(vitastor_disk_superblock_t)+json_data.size();
+    if (sb_size > VITASTOR_DISK_MAX_SB_SIZE)
+    {
+        fprintf(stderr, "JSON data for superblock is too large\n");
+        return 0;
+    }
+    uint64_t buf_len = ((sb_size+4095)/4096) * 4096;
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, buf_len);
+    memset(buf, 0, buf_len);
+    vitastor_disk_superblock_t *sb = (vitastor_disk_superblock_t*)buf;
+    sb->magic = VITASTOR_DISK_MAGIC;
+    sb->size = sb_size;
+    memcpy(sb->json_data, json_data.c_str(), json_data.size());
+    sb->crc32c = crc32c(0, &sb->size, sb->size - ((uint8_t*)&sb->size - buf));
+    int fd = open(device.c_str(), O_DIRECT|O_RDWR);
+    if (fd < 0)
+    {
+        fprintf(stderr, "Failed to open device %s: %s\n", device.c_str(), strerror(errno));
+        free(buf);
+        return 0;
+    }
+    int r = write_blocking(fd, buf, buf_len);
+    if (r < 0)
+    {
+        fprintf(stderr, "Failed to write to %s: %s\n", device.c_str(), strerror(errno));
+        close(fd);
+        free(buf);
+        return 0;
+    }
+    close(fd);
+    free(buf);
+    return sb_size;
+}
+
 int disk_tool_t::start_osd(std::string device)
 {
     return 0;
@@ -1327,7 +1398,7 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device)
         }
         sb = (vitastor_disk_superblock_t*)buf;
     }
-    if (sb->crc32c != crc32c(0, buf, sb->size))
+    if (sb->crc32c != crc32c(0, &sb->size, sb->size - ((uint8_t*)&sb->size - buf)))
     {
         fprintf(stderr, "Invalid OSD superblock on %s: crc32 mismatch\n", device.c_str());
         goto ex;
