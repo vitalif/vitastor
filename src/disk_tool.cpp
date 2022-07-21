@@ -120,10 +120,11 @@ struct disk_tool_t
 
     int udev_import(std::string device);
     int write_sb(std::string device);
+    int exec_osd(std::string device);
     int start_osd(std::string device);
     int stop_osd(std::string device);
 
-    json11::Json read_osd_superblock(std::string device);
+    json11::Json read_osd_superblock(std::string device, std::string & device_type);
     uint32_t write_osd_superblock(std::string device, json11::Json params);
 };
 
@@ -244,6 +245,15 @@ int main(int argc, char *argv[])
         }
         return res;
     }
+    else if (cmd.size() && !strcmp(cmd[0], "exec-osd"))
+    {
+        if (cmd.size() != 2)
+        {
+            fprintf(stderr, "Exactly 1 device path argument is required\n");
+            return 1;
+        }
+        return self.exec_osd(cmd[1]);
+    }
     else
     {
         printf(
@@ -286,6 +296,12 @@ int main(int argc, char *argv[])
             "  --device_size 0          Set device size\n"
             "  --format text            Result format: json, options, env, or text\n"
             "\n"
+            "%s udev <device>\n"
+            "  Try to read Vitastor OSD superblock from <device> and print variables for udev.\n"
+            "\n"
+            "%s exec-osd <device>\n"
+            "  Read Vitastor OSD superblock from <device> and start the OSD with parameters from it.\n"
+            "\n"
             "%s start <device>\n"
             "%s restart <device>\n"
             "  Configure systemd unit and start Vitastor OSD on <device> which should be\n"
@@ -295,7 +311,7 @@ int main(int argc, char *argv[])
             "%s stop <device>\n"
             "  Stop Vitastor OSD corresponding to device <device> using systemd.\n"
             ,
-            argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]
+            argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]
         );
     }
     return 0;
@@ -1253,38 +1269,21 @@ static std::string realpath_str(std::string path)
 
 int disk_tool_t::udev_import(std::string device)
 {
-    json11::Json params = read_osd_superblock(device);
-    if (params.is_null())
-    {
-        return 1;
-    }
-    uint64_t osd_num = params["osd_num"].uint64_value();
-    if (!osd_num)
-    {
-        fprintf(stderr, "OSD superblock on %s lacks osd_num\n", device.c_str());
-        return 1;
-    }
-    // Identify if it's data, meta or journal device
-    std::string real_device = realpath_str(device);
-    bool has_meta_device = params["meta_device"].string_value() != "" &&
-        params["meta_device"] != params["data_device"];
-    bool has_journal_device = params["journal_device"].string_value() != "" &&
-        params["journal_device"] != (params["meta_device"].string_value() != "" ? params["meta_device"] : params["data_device"]);
     std::string device_type;
-    if (has_meta_device && real_device == realpath_str(params["meta_device"].string_value()))
-        device_type = "-meta";
-    else if (has_journal_device && real_device == realpath_str(params["journal_device"].string_value()))
-        device_type = "-journal";
-    else
-        device_type = "-data";
+    json11::Json osd_params = read_osd_superblock(device, device_type);
+    if (osd_params.is_null())
+    {
+        return 1;
+    }
+    uint64_t osd_num = osd_params["osd_num"].uint64_value();
     // Print variables for udev
     printf("VITASTOR_OSD_NUM=%lu\n", osd_num);
     printf("VITASTOR_ALIAS=osd%lu%s\n", osd_num, device_type.c_str());
-    printf("VITASTOR_DATA_DEVICE=%s\n", udev_escape(params["data_device"].string_value()).c_str());
-    if (has_meta_device)
-        printf("VITASTOR_META_DEVICE=%s\n", udev_escape(params["meta_device"].string_value()).c_str());
-    if (has_journal_device)
-        printf("VITASTOR_JOURNAL_DEVICE=%s\n", udev_escape(params["journal_device"].string_value()).c_str());
+    printf("VITASTOR_DATA_DEVICE=%s\n", udev_escape(osd_params["data_device"].string_value()).c_str());
+    if (osd_params["meta_device"].string_value() != "" && osd_params["meta_device"] != osd_params["data_device"])
+        printf("VITASTOR_META_DEVICE=%s\n", udev_escape(osd_params["meta_device"].string_value()).c_str());
+    if (osd_params["journal_device"].string_value() != "" && osd_params["journal_device"] != osd_params["data_device"])
+        printf("VITASTOR_JOURNAL_DEVICE=%s\n", udev_escape(osd_params["journal_device"].string_value()).c_str());
     return 0;
 }
 
@@ -1347,17 +1346,13 @@ uint32_t disk_tool_t::write_osd_superblock(std::string device, json11::Json para
     return sb_size;
 }
 
-int disk_tool_t::start_osd(std::string device)
-{
-    return 0;
-}
-
-json11::Json disk_tool_t::read_osd_superblock(std::string device)
+json11::Json disk_tool_t::read_osd_superblock(std::string device, std::string & device_type)
 {
     vitastor_disk_superblock_t *sb = NULL;
     uint8_t *buf = NULL;
     json11::Json osd_params;
     std::string json_err;
+    std::string real_device;
     int r, fd = open(device.c_str(), O_DIRECT|O_RDWR);
     if (fd < 0)
     {
@@ -1409,10 +1404,76 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device)
         fprintf(stderr, "Invalid OSD superblock on %s: invalid JSON\n", device.c_str());
         goto ex;
     }
+    // Validate superblock
+    if (!osd_params["osd_num"].uint64_value())
+    {
+        fprintf(stderr, "OSD superblock on %s lacks osd_num\n", device.c_str());
+        osd_params = json11::Json::object{};
+        goto ex;
+    }
+    if (osd_params["data_device"].string_value() == "")
+    {
+        fprintf(stderr, "OSD superblock on %s lacks data_device\n", device.c_str());
+        osd_params = json11::Json::object{};
+        goto ex;
+    }
+    real_device = realpath_str(device);
+    if (real_device == realpath_str(osd_params["data_device"].string_value()))
+    {
+        device_type = "data";
+    }
+    else if (osd_params["meta_device"] != "" && real_device == realpath_str(osd_params["meta_device"].string_value()))
+    {
+        device_type = "meta";
+    }
+    else if (osd_params["journal_device"] != "" && real_device == realpath_str(osd_params["journal_device"].string_value()))
+    {
+        device_type = "journal";
+    }
+    else
+    {
+        fprintf(stderr, "Invalid OSD superblock on %s: does not refer to the device itself\n", device.c_str());
+        osd_params = json11::Json::object{};
+        goto ex;
+    }
 ex:
     free(buf);
     close(fd);
     return osd_params;
+}
+
+int disk_tool_t::start_osd(std::string device)
+{
+    return 0;
+}
+
+int disk_tool_t::exec_osd(std::string device)
+{
+    std::string device_type;
+    json11::Json osd_params = read_osd_superblock(device, device_type);
+    if (osd_params.is_null())
+    {
+        return 1;
+    }
+    std::string osd_binary = "/usr/bin/vitastor-osd";
+    if (options["osd-binary"] != "")
+    {
+        osd_binary = options["osd-binary"];
+    }
+    std::vector<std::string> argstr;
+    for (auto & kv: osd_params.object_items())
+    {
+        argstr.push_back("--"+kv.first);
+        argstr.push_back(kv.second.is_string() ? kv.second.string_value() : kv.second.dump());
+    }
+    char *argv[argstr.size()+1];
+    for (int i = 0; i < argstr.size(); i++)
+    {
+        argv[i] = (char*)argstr[i].c_str();
+    }
+    argv[argstr.size()] = 0;
+    execve(osd_binary.c_str(), argv, environ);
+    return 0;
 }
 
 int disk_tool_t::stop_osd(std::string device)
