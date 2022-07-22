@@ -53,8 +53,7 @@ struct disk_tool_t
     /**** Parameters ****/
 
     std::map<std::string, std::string> options;
-    bool all;
-    bool json;
+    bool all, json, now;
     blockstore_disk_t dsk;
 
     // resize data and/or move metadata and journal
@@ -121,8 +120,7 @@ struct disk_tool_t
     int udev_import(std::string device);
     int write_sb(std::string device);
     int exec_osd(std::string device);
-    int start_osd(std::string device);
-    int stop_osd(std::string device);
+    int systemd_start_stop_osds(std::vector<std::string> cmd, std::vector<std::string> devices);
 
     json11::Json read_osd_superblock(std::string device, std::string & device_type);
     uint32_t write_osd_superblock(std::string device, json11::Json params);
@@ -157,6 +155,10 @@ int main(int argc, char *argv[])
             cmd.clear();
             cmd.push_back((char*)"help");
         }
+        else if (!strcmp(argv[i], "--now"))
+        {
+            self.now = true;
+        }
         else if (!strcmp(argv[i], "--force"))
         {
             self.options["force"] = "1";
@@ -171,7 +173,11 @@ int main(int argc, char *argv[])
             cmd.push_back(argv[i]);
         }
     }
-    if (cmd.size() && !strcmp(cmd[0], "dump-journal"))
+    if (!cmd.size())
+    {
+        cmd.push_back((char*)"help");
+    }
+    if (!strcmp(cmd[0], "dump-journal"))
     {
         if (cmd.size() < 5)
         {
@@ -184,7 +190,7 @@ int main(int argc, char *argv[])
         self.dsk.journal_len = strtoull(cmd[4], NULL, 10);
         return self.dump_journal();
     }
-    else if (cmd.size() && !strcmp(cmd[0], "dump-meta"))
+    else if (!strcmp(cmd[0], "dump-meta"))
     {
         if (cmd.size() < 5)
         {
@@ -197,11 +203,11 @@ int main(int argc, char *argv[])
         self.dsk.meta_len = strtoull(cmd[4], NULL, 10);
         return self.dump_meta();
     }
-    else if (cmd.size() && !strcmp(cmd[0], "resize"))
+    else if (!strcmp(cmd[0], "resize"))
     {
         return self.resize_data();
     }
-    else if (cmd.size() && !strcmp(cmd[0], "simple-offsets"))
+    else if (!strcmp(cmd[0], "simple-offsets"))
     {
         // Calculate offsets for simple & stupid OSD deployment without superblock
         if (cmd.size() > 1)
@@ -211,7 +217,7 @@ int main(int argc, char *argv[])
         disk_tool_simple_offsets(self.options, self.json);
         return 0;
     }
-    else if (cmd.size() && !strcmp(cmd[0], "udev"))
+    else if (!strcmp(cmd[0], "udev"))
     {
         if (cmd.size() != 2)
         {
@@ -220,7 +226,7 @@ int main(int argc, char *argv[])
         }
         return self.udev_import(cmd[1]);
     }
-    else if (cmd.size() && !strcmp(cmd[0], "write-sb"))
+    else if (!strcmp(cmd[0], "write-sb"))
     {
         if (cmd.size() != 2)
         {
@@ -229,23 +235,18 @@ int main(int argc, char *argv[])
         }
         return self.write_sb(cmd[1]);
     }
-    else if (cmd.size() && !strcmp(cmd[0], "start"))
+    else if (!strcmp(cmd[0], "start") || !strcmp(cmd[0], "stop") ||
+        !strcmp(cmd[0], "restart") || !strcmp(cmd[0], "enable") || !strcmp(cmd[0], "disable"))
     {
-        if (cmd.size() == 1)
+        std::vector<std::string> systemd_cmd;
+        systemd_cmd.push_back(cmd[0]);
+        if (self.now && (!strcmp(cmd[0], "enable") || !strcmp(cmd[0], "disable")))
         {
-            fprintf(stderr, "Device path is missing\n");
-            return 1;
+            systemd_cmd.push_back("--now");
         }
-        int res = 0;
-        for (int i = 1; i < cmd.size(); i++)
-        {
-            int r = self.start_osd(cmd[i]);
-            if (r)
-                res = r;
-        }
-        return res;
+        return self.systemd_start_stop_osds(systemd_cmd, std::vector<std::string>(cmd.begin()+1, cmd.end()));
     }
-    else if (cmd.size() && !strcmp(cmd[0], "exec-osd"))
+    else if (!strcmp(cmd[0], "exec-osd"))
     {
         if (cmd.size() != 2)
         {
@@ -302,16 +303,12 @@ int main(int argc, char *argv[])
             "%s exec-osd <device>\n"
             "  Read Vitastor OSD superblock from <device> and start the OSD with parameters from it.\n"
             "\n"
-            "%s start <device>\n"
-            "%s restart <device>\n"
-            "  Configure systemd unit and start Vitastor OSD on <device> which should be\n"
-            "  a GPT Vitastor partition. Restart stops the corresponding OSD, reconfigures\n"
-            "  and restarts it.\n"
-            "\n"
-            "%s stop <device>\n"
-            "  Stop Vitastor OSD corresponding to device <device> using systemd.\n"
+            "%s start|stop|restart|enable|disable [--now] <device> [device2 device3 ...]\n"
+            "  Manipulate Vitastor OSDs using systemd by their device paths.\n"
+            "  Commands are passed to systemctl with vitastor-osd@<num> units as arguments.\n"
+            "  When --now is added to enable/disable, OSDs are also immediately started/stopped.\n"
             ,
-            argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]
+            argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]
         );
     }
     return 0;
@@ -1442,8 +1439,39 @@ ex:
     return osd_params;
 }
 
-int disk_tool_t::start_osd(std::string device)
+int disk_tool_t::systemd_start_stop_osds(std::vector<std::string> cmd, std::vector<std::string> devices)
 {
+    if (!devices.size())
+    {
+        fprintf(stderr, "Device path is missing\n");
+        return 1;
+    }
+    std::vector<std::string> svcs;
+    for (auto & device: devices)
+    {
+        std::string device_type;
+        json11::Json osd_params = read_osd_superblock(device, device_type);
+        if (!osd_params.is_null())
+        {
+            svcs.push_back("vitastor-osd@"+osd_params["osd_num"].as_string());
+        }
+    }
+    if (!svcs.size())
+    {
+        return 1;
+    }
+    std::vector<char*> argv;
+    argv.push_back((char*)"systemctl");
+    for (auto & s: cmd)
+    {
+        argv.push_back((char*)s.c_str());
+    }
+    for (auto & s: svcs)
+    {
+        argv.push_back((char*)s.c_str());
+    }
+    argv.push_back(NULL);
+    execvpe("systemctl", argv.data(), environ);
     return 0;
 }
 
@@ -1455,12 +1483,13 @@ int disk_tool_t::exec_osd(std::string device)
     {
         return 1;
     }
-    std::string osd_binary = "/usr/bin/vitastor-osd";
+    std::string osd_binary = "vitastor-osd";
     if (options["osd-binary"] != "")
     {
         osd_binary = options["osd-binary"];
     }
     std::vector<std::string> argstr;
+    argstr.push_back(osd_binary.c_str());
     for (auto & kv: osd_params.object_items())
     {
         argstr.push_back("--"+kv.first);
@@ -1471,13 +1500,7 @@ int disk_tool_t::exec_osd(std::string device)
     {
         argv[i] = (char*)argstr[i].c_str();
     }
-    argv[argstr.size()] = 0;
-    execve(osd_binary.c_str(), argv, environ);
-    return 0;
-}
-
-int disk_tool_t::stop_osd(std::string device)
-{
-    
+    argv[argstr.size()] = NULL;
+    execvpe(osd_binary.c_str(), argv, environ);
     return 0;
 }
