@@ -3,6 +3,7 @@
 
 #define _LARGEFILE64_SOURCE
 #include <sys/types.h>
+#include <dirent.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -121,8 +122,9 @@ struct disk_tool_t
     int write_sb(std::string device);
     int exec_osd(std::string device);
     int systemd_start_stop_osds(std::vector<std::string> cmd, std::vector<std::string> devices);
+    int pre_exec_osd(std::string device);
 
-    json11::Json read_osd_superblock(std::string device, std::string & device_type);
+    json11::Json read_osd_superblock(std::string device);
     uint32_t write_osd_superblock(std::string device, json11::Json params);
 };
 
@@ -297,18 +299,24 @@ int main(int argc, char *argv[])
             "  --device_size 0          Set device size\n"
             "  --format text            Result format: json, options, env, or text\n"
             "\n"
+            "%s start|stop|restart|enable|disable [--now] <device> [device2 device3 ...]\n"
+            "  Manipulate Vitastor OSDs using systemd by their device paths.\n"
+            "  Commands are passed to systemctl with vitastor-osd@<num> units as arguments.\n"
+            "  When --now is added to enable/disable, OSDs are also immediately started/stopped.\n"
+            "\n"
             "%s udev <device>\n"
             "  Try to read Vitastor OSD superblock from <device> and print variables for udev.\n"
             "\n"
             "%s exec-osd <device>\n"
             "  Read Vitastor OSD superblock from <device> and start the OSD with parameters from it.\n"
+            "  Intended for use from startup scripts (i.e. from systemd units).\n"
             "\n"
-            "%s start|stop|restart|enable|disable [--now] <device> [device2 device3 ...]\n"
-            "  Manipulate Vitastor OSDs using systemd by their device paths.\n"
-            "  Commands are passed to systemctl with vitastor-osd@<num> units as arguments.\n"
-            "  When --now is added to enable/disable, OSDs are also immediately started/stopped.\n"
+            "%s pre-exec <device>\n"
+            "  Read Vitastor OSD superblock from <device> and perform pre-start checks for the OSD.\n"
+            "  For now, this only checks that device cache is in write-through mode if fsync is disabled.\n"
+            "  Intended for use from startup scripts (i.e. from systemd units).\n"
             ,
-            argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]
+            argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]
         );
     }
     return 0;
@@ -1266,21 +1274,20 @@ static std::string realpath_str(std::string path)
 
 int disk_tool_t::udev_import(std::string device)
 {
-    std::string device_type;
-    json11::Json osd_params = read_osd_superblock(device, device_type);
-    if (osd_params.is_null())
+    json11::Json sb = read_osd_superblock(device);
+    if (sb.is_null())
     {
         return 1;
     }
-    uint64_t osd_num = osd_params["osd_num"].uint64_value();
+    uint64_t osd_num = sb["params"]["osd_num"].uint64_value();
     // Print variables for udev
     printf("VITASTOR_OSD_NUM=%lu\n", osd_num);
-    printf("VITASTOR_ALIAS=osd%lu%s\n", osd_num, device_type.c_str());
-    printf("VITASTOR_DATA_DEVICE=%s\n", udev_escape(osd_params["data_device"].string_value()).c_str());
-    if (osd_params["meta_device"].string_value() != "" && osd_params["meta_device"] != osd_params["data_device"])
-        printf("VITASTOR_META_DEVICE=%s\n", udev_escape(osd_params["meta_device"].string_value()).c_str());
-    if (osd_params["journal_device"].string_value() != "" && osd_params["journal_device"] != osd_params["data_device"])
-        printf("VITASTOR_JOURNAL_DEVICE=%s\n", udev_escape(osd_params["journal_device"].string_value()).c_str());
+    printf("VITASTOR_ALIAS=osd%lu%s\n", osd_num, sb["device_type"].string_value().c_str());
+    printf("VITASTOR_DATA_DEVICE=%s\n", udev_escape(sb["params"]["data_device"].string_value()).c_str());
+    if (sb["real_meta_device"].string_value() != "" && sb["real_meta_device"] != sb["real_data_device"])
+        printf("VITASTOR_META_DEVICE=%s\n", udev_escape(sb["params"]["meta_device"].string_value()).c_str());
+    if (sb["real_journal_device"].string_value() != "" && sb["real_journal_device"] != sb["real_meta_device"])
+        printf("VITASTOR_JOURNAL_DEVICE=%s\n", udev_escape(sb["params"]["journal_device"].string_value()).c_str());
     return 0;
 }
 
@@ -1343,13 +1350,13 @@ uint32_t disk_tool_t::write_osd_superblock(std::string device, json11::Json para
     return sb_size;
 }
 
-json11::Json disk_tool_t::read_osd_superblock(std::string device, std::string & device_type)
+json11::Json disk_tool_t::read_osd_superblock(std::string device)
 {
     vitastor_disk_superblock_t *sb = NULL;
     uint8_t *buf = NULL;
     json11::Json osd_params;
     std::string json_err;
-    std::string real_device;
+    std::string real_device, device_type, real_data, real_meta, real_journal;
     int r, fd = open(device.c_str(), O_DIRECT|O_RDWR);
     if (fd < 0)
     {
@@ -1415,15 +1422,28 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device, std::string & 
         goto ex;
     }
     real_device = realpath_str(device);
-    if (real_device == realpath_str(osd_params["data_device"].string_value()))
+    real_data = realpath_str(osd_params["data_device"].string_value());
+    real_meta = osd_params["meta_device"] != "" && osd_params["meta_device"] != osd_params["data_device"]
+        ? realpath_str(osd_params["meta_device"].string_value()) : "";
+    real_journal = osd_params["journal_device"] != "" && osd_params["journal_device"] != osd_params["meta_device"]
+        ? realpath_str(osd_params["journal_device"].string_value()) : "";
+    if (real_journal == real_meta)
+    {
+        real_journal = "";
+    }
+    if (real_meta == real_data)
+    {
+        real_meta = "";
+    }
+    if (real_device == real_data)
     {
         device_type = "data";
     }
-    else if (osd_params["meta_device"] != "" && real_device == realpath_str(osd_params["meta_device"].string_value()))
+    else if (real_device == real_meta)
     {
         device_type = "meta";
     }
-    else if (osd_params["journal_device"] != "" && real_device == realpath_str(osd_params["journal_device"].string_value()))
+    else if (real_device == real_journal)
     {
         device_type = "journal";
     }
@@ -1433,6 +1453,13 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device, std::string & 
         osd_params = json11::Json::object{};
         goto ex;
     }
+    osd_params = json11::Json::object{
+        { "params", osd_params },
+        { "device_type", device_type },
+        { "real_data_device", real_data },
+        { "real_meta_device", real_meta },
+        { "real_journal_device", real_journal },
+    };
 ex:
     free(buf);
     close(fd);
@@ -1449,11 +1476,10 @@ int disk_tool_t::systemd_start_stop_osds(std::vector<std::string> cmd, std::vect
     std::vector<std::string> svcs;
     for (auto & device: devices)
     {
-        std::string device_type;
-        json11::Json osd_params = read_osd_superblock(device, device_type);
-        if (!osd_params.is_null())
+        json11::Json sb = read_osd_superblock(device);
+        if (!sb.is_null())
         {
-            svcs.push_back("vitastor-osd@"+osd_params["osd_num"].as_string());
+            svcs.push_back("vitastor-osd@"+sb["params"]["osd_num"].as_string());
         }
     }
     if (!svcs.size())
@@ -1477,9 +1503,8 @@ int disk_tool_t::systemd_start_stop_osds(std::vector<std::string> cmd, std::vect
 
 int disk_tool_t::exec_osd(std::string device)
 {
-    std::string device_type;
-    json11::Json osd_params = read_osd_superblock(device, device_type);
-    if (osd_params.is_null())
+    json11::Json sb = read_osd_superblock(device);
+    if (sb.is_null())
     {
         return 1;
     }
@@ -1490,7 +1515,7 @@ int disk_tool_t::exec_osd(std::string device)
     }
     std::vector<std::string> argstr;
     argstr.push_back(osd_binary.c_str());
-    for (auto & kv: osd_params.object_items())
+    for (auto & kv: sb["params"].object_items())
     {
         argstr.push_back("--"+kv.first);
         argstr.push_back(kv.second.is_string() ? kv.second.string_value() : kv.second.dump());
@@ -1502,5 +1527,163 @@ int disk_tool_t::exec_osd(std::string device)
     }
     argv[argstr.size()] = NULL;
     execvpe(osd_binary.c_str(), argv, environ);
+    return 0;
+}
+
+static std::string read_file(std::string file)
+{
+    char buf[64];
+    int fd = open(file.c_str(), O_RDONLY), r;
+    if (fd < 0 || (r = read(fd, buf, sizeof(buf))) < 0)
+    {
+        if (fd >= 0)
+            close(fd);
+        fprintf(stderr, "Can't read %s: %s\n", file.c_str(), strerror(errno));
+        return "";
+    }
+    close(fd);
+    return std::string(buf, r);
+}
+
+static int check_queue_cache(std::string dev, std::string parent_dev)
+{
+    auto r = read_file("/sys/block/"+dev+"/queue/write_cache");
+    if (r == "")
+        r = read_file("/sys/block/"+parent_dev+"/queue/write_cache");
+    if (r == "")
+        return 1;
+    return r == "write through" ? 0 : -1;
+}
+
+// returns 1 = warning, -1 = error, 0 = success
+static int disable_cache(std::string dev)
+{
+    if (dev.substr(0, 5) != "/dev/")
+    {
+        fprintf(stderr, "%s is outside /dev/\n", dev.c_str());
+        return 1;
+    }
+    dev = dev.substr(5);
+    int i = dev.size();
+    while (i > 0 && isdigit(dev[i-1]))
+        i--;
+    // Check if it's a partition
+    if (i >= 2 && dev[i-1] == 'p' && isdigit(dev[i-2]))
+        i--;
+    auto parent_dev = dev.substr(0, i);
+    auto scsi_disk = "/sys/block/"+parent_dev+"/device/scsi_disk";
+    DIR *dir = opendir(scsi_disk.c_str());
+    if (!dir)
+    {
+        if (errno == ENOENT)
+        {
+            // Not a SCSI/SATA device, just check /sys/block/.../queue/write_cache
+            return check_queue_cache(dev, parent_dev);
+        }
+        else
+        {
+            fprintf(stderr, "Can't read directory %s: %s\n", scsi_disk.c_str(), strerror(errno));
+            return 1;
+        }
+    }
+    else
+    {
+        dirent *de = readdir(dir);
+        while (de && de->d_name[0] == '.' && (de->d_name[1] == 0 || de->d_name[1] == '.' && de->d_name[2] == 0))
+            de = readdir(dir);
+        if (!de)
+        {
+            // Not a SCSI/SATA device, just check /sys/block/.../queue/write_cache
+            closedir(dir);
+            return check_queue_cache(dev, parent_dev);
+        }
+        scsi_disk += "/";
+        scsi_disk += de->d_name;
+        if (readdir(dir) != NULL)
+        {
+            // Error, multiple scsi_disk/* entries
+            closedir(dir);
+            fprintf(stderr, "Multiple entries in %s found\n", scsi_disk.c_str());
+            return 1;
+        }
+        closedir(dir);
+        // Check cache_type
+        scsi_disk += "/cache_type";
+        std::string cache_type = read_file(scsi_disk);
+        if (cache_type == "")
+            return 1;
+        if (cache_type == "write back")
+        {
+            int fd = open(scsi_disk.c_str(), O_WRONLY);
+            if (fd < 0 || write_blocking(fd, (void*)"write through", strlen("write through")) != strlen("write through"))
+            {
+                if (fd >= 0)
+                    close(fd);
+                fprintf(stderr, "Can't write to %s: %s\n", scsi_disk.c_str(), strerror(errno));
+                return -1;
+            }
+            close(fd);
+        }
+    }
+    return 0;
+}
+
+static int check_disabled_cache(std::string dev)
+{
+    int r = disable_cache(dev);
+    if (r == 1)
+    {
+        fprintf(
+            stderr, "Warning: fsync is disabled for %s, but cache status check failed."
+            " Ensure that cache is in write-through mode yourself or you may lose data.\n", dev.c_str()
+        );
+    }
+    else if (r == -1)
+    {
+        fprintf(
+            stderr, "Error: fsync is disabled for %s, but its cache is in write-back mode"
+            " and we failed to make it write-through. Data loss is presumably possible."
+            " Either switch the cache to write-through mode yourself or disable the check"
+            " using skip_cache_check=1 in the superblock.\n", dev.c_str()
+        );
+        return 1;
+    }
+    return 0;
+}
+
+static bool json_is_true(const json11::Json & val)
+{
+    if (val.is_string())
+        return val == "true" || val == "yes" || val == "1";
+    return val.bool_value();
+}
+
+int disk_tool_t::pre_exec_osd(std::string device)
+{
+    json11::Json sb = read_osd_superblock(device);
+    if (sb.is_null())
+    {
+        return 1;
+    }
+    if (!sb["params"]["skip_cache_check"].uint64_value())
+    {
+        if (json_is_true(sb["params"]["disable_data_fsync"]) &&
+            check_disabled_cache(sb["real_data_device"].string_value()) != 0)
+        {
+            return 1;
+        }
+        if (json_is_true(sb["params"]["disable_meta_fsync"]) &&
+            sb["real_meta_device"].string_value() != "" && sb["real_meta_device"] != sb["real_data_device"] &&
+            check_disabled_cache(sb["real_meta_device"].string_value()) != 0)
+        {
+            return 1;
+        }
+        if (json_is_true(sb["params"]["disable_journal_fsync"]) &&
+            sb["real_journal_device"].string_value() != "" && sb["real_journal_device"] != sb["real_meta_device"] &&
+            check_disabled_cache(sb["real_journal_device"].string_value()) != 0)
+        {
+            return 1;
+        }
+    }
     return 0;
 }
