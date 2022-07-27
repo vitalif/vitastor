@@ -119,6 +119,7 @@ struct disk_tool_t
     int resize_write_new_meta();
 
     int udev_import(std::string device);
+    int read_sb(std::string device);
     int write_sb(std::string device);
     int exec_osd(std::string device);
     int systemd_start_stop_osds(std::vector<std::string> cmd, std::vector<std::string> devices);
@@ -228,6 +229,15 @@ int main(int argc, char *argv[])
         }
         return self.udev_import(cmd[1]);
     }
+    else if (!strcmp(cmd[0], "read-sb"))
+    {
+        if (cmd.size() != 2)
+        {
+            fprintf(stderr, "Exactly 1 device path argument is required\n");
+            return 1;
+        }
+        return self.read_sb(cmd[1]);
+    }
     else if (!strcmp(cmd[0], "write-sb"))
     {
         if (cmd.size() != 2)
@@ -264,15 +274,6 @@ int main(int argc, char *argv[])
             "(c) Vitaliy Filippov, 2022+ (VNPL-1.1)\n"
             "\n"
             "USAGE:\n"
-            "%s dump-journal [--all] [--json] <journal_file> <journal_block_size> <offset> <size>\n"
-            "  Dump journal in human-readable or JSON (if --json is specified) format.\n"
-            "  Without --all, only actual part of the journal is dumped.\n"
-            "  With --all, the whole journal area is scanned for journal entries,\n"
-            "  some of which may be outdated.\n"
-            "\n"
-            "%s dump-meta <meta_file> <meta_block_size> <offset> <size>\n"
-            "  Dump metadata in JSON format.\n"
-            "\n"
             "%s resize <ALL_OSD_PARAMETERS> <NEW_PARAMETERS> [--iodepth 32]\n"
             "  Resize data area and/or rewrite/move journal and metadata\n"
             "  ALL_OSD_PARAMETERS must include all (at least all disk-related)\n"
@@ -289,20 +290,16 @@ int main(int argc, char *argv[])
             "  If any of the new layout parameter options are not specified, old values\n"
             "  will be used.\n"
             "\n"
-            "%s simple-offsets <device>\n"
-            "  Calculate offsets for simple&stupid (no superblock) OSD deployment. Options:\n"
-            "  --object_size 128k       Set blockstore block size\n"
-            "  --bitmap_granularity 4k  Set bitmap granularity\n"
-            "  --journal_size 16M       Set journal size\n"
-            "  --device_block_size 4k   Set device block size\n"
-            "  --journal_offset 0       Set journal offset\n"
-            "  --device_size 0          Set device size\n"
-            "  --format text            Result format: json, options, env, or text\n"
-            "\n"
             "%s start|stop|restart|enable|disable [--now] <device> [device2 device3 ...]\n"
             "  Manipulate Vitastor OSDs using systemd by their device paths.\n"
             "  Commands are passed to systemctl with vitastor-osd@<num> units as arguments.\n"
             "  When --now is added to enable/disable, OSDs are also immediately started/stopped.\n"
+            "\n"
+            "%s read-sb <device>\n"
+            "  Try to read Vitastor OSD superblock from <device> and print it in JSON format.\n"
+            "\n"
+            "%s write-sb <device>\n"
+            "  Read JSON from STDIN and write it into Vitastor OSD superblock on <device>.\n"
             "\n"
             "%s udev <device>\n"
             "  Try to read Vitastor OSD superblock from <device> and print variables for udev.\n"
@@ -315,8 +312,27 @@ int main(int argc, char *argv[])
             "  Read Vitastor OSD superblock from <device> and perform pre-start checks for the OSD.\n"
             "  For now, this only checks that device cache is in write-through mode if fsync is disabled.\n"
             "  Intended for use from startup scripts (i.e. from systemd units).\n"
+            "\n"
+            "%s dump-journal [--all] [--json] <journal_file> <journal_block_size> <offset> <size>\n"
+            "  Dump journal in human-readable or JSON (if --json is specified) format.\n"
+            "  Without --all, only actual part of the journal is dumped.\n"
+            "  With --all, the whole journal area is scanned for journal entries,\n"
+            "  some of which may be outdated.\n"
+            "\n"
+            "%s dump-meta <meta_file> <meta_block_size> <offset> <size>\n"
+            "  Dump metadata in JSON format.\n"
+            "\n"
+            "%s simple-offsets <device>\n"
+            "  Calculate offsets for old simple&stupid (no superblock) OSD deployment. Options:\n"
+            "  --object_size 128k       Set blockstore block size\n"
+            "  --bitmap_granularity 4k  Set bitmap granularity\n"
+            "  --journal_size 16M       Set journal size\n"
+            "  --device_block_size 4k   Set device block size\n"
+            "  --journal_offset 0       Set journal offset\n"
+            "  --device_size 0          Set device size\n"
+            "  --format text            Result format: json, options, env, or text\n"
             ,
-            argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]
+            argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]
         );
     }
     return 0;
@@ -1288,6 +1304,17 @@ int disk_tool_t::udev_import(std::string device)
         printf("VITASTOR_META_DEVICE=%s\n", udev_escape(sb["params"]["meta_device"].string_value()).c_str());
     if (sb["real_journal_device"].string_value() != "" && sb["real_journal_device"] != sb["real_meta_device"])
         printf("VITASTOR_JOURNAL_DEVICE=%s\n", udev_escape(sb["params"]["journal_device"].string_value()).c_str());
+    return 0;
+}
+
+int disk_tool_t::read_sb(std::string device)
+{
+    json11::Json sb = read_osd_superblock(device);
+    if (sb.is_null())
+    {
+        return 1;
+    }
+    printf("%s\n", sb["params"].dump().c_str());
     return 0;
 }
 
