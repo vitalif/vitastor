@@ -2,6 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include <assert.h>
+#include <string.h>
 #include "base64.h"
 
 std::string base64_encode(const std::string &in)
@@ -123,4 +124,82 @@ std::string format_size(uint64_t size, bool nobytes)
         }
     }
     return std::string(buf);
+}
+
+void print_help(const char *help_text, std::string exe_name, std::string cmd, bool all)
+{
+    if (cmd == "" && all)
+    {
+        fwrite(help_text, strlen(help_text), 1, stdout);
+        exit(0);
+    }
+    std::string filtered_text = "";
+    const char *head_end = strstr(help_text, "COMMANDS:\n");
+    if (head_end)
+    {
+        filtered_text += std::string(help_text, head_end-help_text);
+        head_end += strlen("COMMANDS:\n");
+    }
+    const char *next_line = head_end ? head_end : help_text;
+    if (cmd != "")
+    {
+        const char *cmd_start = NULL;
+        bool matched = false, started = true, found = false;
+        while ((next_line = strchr(next_line, '\n')))
+        {
+            next_line++;
+            if (*next_line && !strncmp(next_line, exe_name.c_str(), exe_name.size()))
+            {
+                if (started)
+                {
+                    if (cmd_start && matched)
+                        filtered_text += std::string(cmd_start, next_line-cmd_start);
+                    cmd_start = next_line;
+                    matched = started = false;
+                }
+                const char *var_start = next_line+exe_name.size()+1;
+                const char *var_end = var_start;
+                while (*var_end && !isspace(*var_end))
+                    var_end++;
+                if ((std::string(var_start, var_end-var_start)+"|").find(cmd+"|") != std::string::npos)
+                    found = matched = true;
+            }
+            else if (*next_line && isspace(*next_line))
+                started = true;
+            else if (cmd_start && matched)
+                filtered_text += std::string(cmd_start, next_line-cmd_start);
+        }
+        while (filtered_text.size() > 1 &&
+            filtered_text[filtered_text.size()-1] == '\n' &&
+            filtered_text[filtered_text.size()-2] == '\n')
+        {
+            filtered_text.resize(filtered_text.size()-1);
+        }
+        if (!found)
+        {
+            filtered_text = "Unknown command: "+cmd+". Use "+exe_name+" --help for usage\n";
+        }
+    }
+    else
+    {
+        filtered_text += "COMMANDS:\n\n";
+        while ((next_line = strchr(next_line, '\n')))
+        {
+            next_line++;
+            if (*next_line && !strncmp(next_line, exe_name.c_str(), exe_name.size()))
+            {
+                const char *line_end = strchr(next_line, '\n');
+                line_end = line_end ? line_end : next_line+strlen(next_line);
+                filtered_text += "  "+(line_end ? std::string(next_line, line_end-next_line) : std::string(next_line));
+                filtered_text += "\n";
+            }
+            else if (*next_line && !isspace(next_line[0]))
+            {
+                filtered_text += "\n"+std::string(next_line);
+                break;
+            }
+        }
+    }
+    fwrite(filtered_text.data(), filtered_text.size(), 1, stdout);
+    exit(0);
 }

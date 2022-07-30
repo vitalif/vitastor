@@ -10,3 +10,4 @@ std::string base64_decode(const std::string &in);
 uint64_t parse_size(std::string size_str);
 uint64_t stoull_full(const std::string & str, int base = 0);
 std::string format_size(uint64_t size, bool nobytes = false);
+void print_help(const char *help_text, std::string exe_name, std::string cmd, bool all);

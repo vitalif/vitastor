@@ -16,7 +16,77 @@
 
 static const char *exe_name = NULL;
 
-static void help();
+static const char* help_text =
+    "Vitastor command-line tool\n"
+    "(c) Vitaliy Filippov, 2019+ (VNPL-1.1)\n"
+    "\n"
+    "COMMANDS:\n"
+    "\n"
+    "vitastor-cli status\n"
+    "  Show cluster status\n"
+    "\n"
+    "vitastor-cli df\n"
+    "  Show pool space statistics\n"
+    "\n"
+    "vitastor-cli ls [-l] [-p POOL] [--sort FIELD] [-r] [-n N] [<glob> ...]\n"
+    "  List images (only matching <glob> patterns if passed).\n"
+    "  -p|--pool POOL  Filter images by pool ID or name\n"
+    "  -l|--long       Also report allocated size and I/O statistics\n"
+    "  --del           Also include delete operation statistics\n"
+    "  --sort FIELD    Sort by specified field (name, size, used_size, <read|write|delete>_<iops|bps|lat|queue>)\n"
+    "  -r|--reverse    Sort in descending order\n"
+    "  -n|--count N    Only list first N items\n"
+    "\n"
+    "vitastor-cli create -s|--size <size> [-p|--pool <id|name>] [--parent <parent_name>[@<snapshot>]] <name>\n"
+    "  Create an image. You may use K/M/G/T suffixes for <size>. If --parent is specified,\n"
+    "  a copy-on-write image clone is created. Parent must be a snapshot (readonly image).\n"
+    "  Pool must be specified if there is more than one pool.\n"
+    "\n"
+    "vitastor-cli create --snapshot <snapshot> [-p|--pool <id|name>] <image>\n"
+    "vitastor-cli snap-create [-p|--pool <id|name>] <image>@<snapshot>\n"
+    "  Create a snapshot of image <name>. May be used live if only a single writer is active.\n"
+    "\n"
+    "vitastor-cli modify <name> [--rename <new-name>] [--resize <size>] [--readonly | --readwrite] [-f|--force]\n"
+    "  Rename, resize image or change its readonly status. Images with children can't be made read-write.\n"
+    "  If the new size is smaller than the old size, extra data will be purged.\n"
+    "  You should resize file system in the image, if present, before shrinking it.\n"
+    "  -f|--force  Proceed with shrinking or setting readwrite flag even if the image has children.\n"
+    "\n"
+    "vitastor-cli rm <from> [<to>] [--writers-stopped]\n"
+    "  Remove <from> or all layers between <from> and <to> (<to> must be a child of <from>),\n"
+    "  rebasing all their children accordingly. --writers-stopped allows merging to be a bit\n"
+    "  more effective in case of a single 'slim' read-write child and 'fat' removed parent:\n"
+    "  the child is merged into parent and parent is renamed to child in that case.\n"
+    "  In other cases parent layers are always merged into children.\n"
+    "\n"
+    "vitastor-cli flatten <layer>\n"
+    "  Flatten a layer, i.e. merge data and detach it from parents.\n"
+    "\n"
+    "vitastor-cli rm-data --pool <pool> --inode <inode> [--wait-list] [--min-offset <offset>]\n"
+    "  Remove inode data without changing metadata.\n"
+    "  --wait-list   Retrieve full objects listings before starting to remove objects.\n"
+    "                Requires more memory, but allows to show correct removal progress.\n"
+    "  --min-offset  Purge only data starting with specified offset.\n"
+    "\n"
+    "vitastor-cli merge-data <from> <to> [--target <target>]\n"
+    "  Merge layer data without changing metadata. Merge <from>..<to> to <target>.\n"
+    "  <to> must be a child of <from> and <target> may be one of the layers between\n"
+    "  <from> and <to>, including <from> and <to>.\n"
+    "\n"
+    "vitastor-cli alloc-osd\n"
+    "  Allocate a new OSD number and reserve it by creating empty /osd/stats/<n> key.\n"
+    "\n"
+    "Use vitastor-cli --help <command> for command details or vitastor-cli --help --all for all details.\n"
+    "\n"
+    "GLOBAL OPTIONS:\n"
+    "  --etcd_address <etcd_address>\n"
+    "  --iodepth N         Send N operations in parallel to each OSD when possible (default 32)\n"
+    "  --parallel_osds M   Work with M osds in parallel when possible (default 4)\n"
+    "  --progress 1|0      Report progress (default 1)\n"
+    "  --cas 1|0           Use CAS writes for flatten, merge, rm (default is decide automatically)\n"
+    "  --no-color          Disable colored output\n"
+    "  --json              JSON output\n"
+;
 
 static json11::Json::object parse_args(int narg, const char *args[])
 {
@@ -25,9 +95,9 @@ static json11::Json::object parse_args(int narg, const char *args[])
     cfg["progress"] = "1";
     for (int i = 1; i < narg; i++)
     {
-        if (!strcmp(args[i], "-h") || !strcmp(args[i], "--help"))
+        if (args[i][0] == '-' && args[i][1] == 'h')
         {
-            help();
+            cfg["help"] = "1";
         }
         else if (args[i][0] == '-' && args[i][1] == 'l')
         {
@@ -60,6 +130,7 @@ static json11::Json::object parse_args(int narg, const char *args[])
                 !strcmp(opt, "long") || !strcmp(opt, "del") || !strcmp(opt, "no-color") ||
                 !strcmp(opt, "readonly") || !strcmp(opt, "readwrite") ||
                 !strcmp(opt, "force") || !strcmp(opt, "reverse") ||
+                !strcmp(opt, "help") || !strcmp(opt, "all") ||
                 !strcmp(opt, "writers-stopped") && strcmp("1", args[i+1]) != 0
                 ? "1" : args[++i];
         }
@@ -67,6 +138,10 @@ static json11::Json::object parse_args(int narg, const char *args[])
         {
             cmd.push_back(std::string(args[i]));
         }
+    }
+    if (cfg["help"].bool_value())
+    {
+        print_help(help_text, "vitastor-cli", cmd.size() ? cmd[0].string_value() : "", cfg["all"].bool_value());
     }
     if (!cmd.size())
     {
@@ -78,82 +153,6 @@ static json11::Json::object parse_args(int narg, const char *args[])
     }
     cfg["command"] = cmd;
     return cfg;
-}
-
-static void help()
-{
-    printf(
-        "Vitastor command-line tool\n"
-        "(c) Vitaliy Filippov, 2019+ (VNPL-1.1)\n"
-        "\n"
-        "USAGE:\n"
-        "%s status\n"
-        "  Show cluster status\n"
-        "\n"
-        "%s df\n"
-        "  Show pool space statistics\n"
-        "\n"
-        "%s ls [-l] [-p POOL] [--sort FIELD] [-r] [-n N] [<glob> ...]\n"
-        "  List images (only matching <glob> patterns if passed).\n"
-        "  -p|--pool POOL  Filter images by pool ID or name\n"
-        "  -l|--long       Also report allocated size and I/O statistics\n"
-        "  --del           Also include delete operation statistics\n"
-        "  --sort FIELD    Sort by specified field (name, size, used_size, <read|write|delete>_<iops|bps|lat|queue>)\n"
-        "  -r|--reverse    Sort in descending order\n"
-        "  -n|--count N    Only list first N items\n"
-        "\n"
-        "%s create -s|--size <size> [-p|--pool <id|name>] [--parent <parent_name>[@<snapshot>]] <name>\n"
-        "  Create an image. You may use K/M/G/T suffixes for <size>. If --parent is specified,\n"
-        "  a copy-on-write image clone is created. Parent must be a snapshot (readonly image).\n"
-        "  Pool must be specified if there is more than one pool.\n"
-        "\n"
-        "%s create --snapshot <snapshot> [-p|--pool <id|name>] <image>\n"
-        "%s snap-create [-p|--pool <id|name>] <image>@<snapshot>\n"
-        "  Create a snapshot of image <name>. May be used live if only a single writer is active.\n"
-        "\n"
-        "%s modify <name> [--rename <new-name>] [--resize <size>] [--readonly | --readwrite] [-f|--force]\n"
-        "  Rename, resize image or change its readonly status. Images with children can't be made read-write.\n"
-        "  If the new size is smaller than the old size, extra data will be purged.\n"
-        "  You should resize file system in the image, if present, before shrinking it.\n"
-        "  -f|--force  Proceed with shrinking or setting readwrite flag even if the image has children.\n"
-        "\n"
-        "%s rm <from> [<to>] [--writers-stopped]\n"
-        "  Remove <from> or all layers between <from> and <to> (<to> must be a child of <from>),\n"
-        "  rebasing all their children accordingly. --writers-stopped allows merging to be a bit\n"
-        "  more effective in case of a single 'slim' read-write child and 'fat' removed parent:\n"
-        "  the child is merged into parent and parent is renamed to child in that case.\n"
-        "  In other cases parent layers are always merged into children.\n"
-        "\n"
-        "%s flatten <layer>\n"
-        "  Flatten a layer, i.e. merge data and detach it from parents.\n"
-        "\n"
-        "%s rm-data --pool <pool> --inode <inode> [--wait-list] [--min-offset <offset>]\n"
-        "  Remove inode data without changing metadata.\n"
-        "  --wait-list   Retrieve full objects listings before starting to remove objects.\n"
-        "                Requires more memory, but allows to show correct removal progress.\n"
-        "  --min-offset  Purge only data starting with specified offset.\n"
-        "\n"
-        "%s merge-data <from> <to> [--target <target>]\n"
-        "  Merge layer data without changing metadata. Merge <from>..<to> to <target>.\n"
-        "  <to> must be a child of <from> and <target> may be one of the layers between\n"
-        "  <from> and <to>, including <from> and <to>.\n"
-        "\n"
-        "%s alloc-osd\n"
-        "  Allocate a new OSD number and reserve it by creating empty /osd/stats/<n> key.\n"
-        "\n"
-        "GLOBAL OPTIONS:\n"
-        "  --etcd_address <etcd_address>\n"
-        "  --iodepth N         Send N operations in parallel to each OSD when possible (default 32)\n"
-        "  --parallel_osds M   Work with M osds in parallel when possible (default 4)\n"
-        "  --progress 1|0      Report progress (default 1)\n"
-        "  --cas 1|0           Use CAS writes for flatten, merge, rm (default is decide automatically)\n"
-        "  --no-color          Disable colored output\n"
-        "  --json              JSON output\n"
-        ,
-        exe_name, exe_name, exe_name, exe_name, exe_name, exe_name,
-        exe_name, exe_name, exe_name, exe_name, exe_name, exe_name
-    );
-    exit(0);
 }
 
 static int run(cli_tool_t *p, json11::Json::object cfg)

@@ -21,6 +21,7 @@
 #include "blockstore_impl.h"
 #include "blockstore_disk.h"
 #include "osd_id.h"
+#include "base64.h"
 #include "crc32c.h"
 #include "rw_blocking.h"
 
@@ -48,6 +49,73 @@ struct resizer_data_moving_t
     void *buf = NULL;
     uint64_t old_loc, new_loc;
 };
+
+static const char *help_text =
+    "Vitastor disk management tool\n"
+    "(c) Vitaliy Filippov, 2022+ (VNPL-1.1)\n"
+    "\n"
+    "COMMANDS:\n"
+    "\n"
+    "vitastor-disk resize <ALL_OSD_PARAMETERS> <NEW_LAYOUT> [--iodepth 32]\n"
+    "  Resize data area and/or rewrite/move journal and metadata\n"
+    "  ALL_OSD_PARAMETERS must include all (at least all disk-related)\n"
+    "  parameters from OSD command line (i.e. from systemd unit).\n"
+    "  NEW_LAYOUT may include new disk layout parameters:\n"
+    "    [--new_data_offset <NUMBER>]     resize data area so it starts at <NUMBER>\n"
+    "    [--new_data_len <NUMBER>]        resize data area to <NUMBER> bytes\n"
+    "    [--new_meta_device <PATH>]       use <PATH> for new metadata\n"
+    "    [--new_meta_offset <NUMBER>]     make new metadata area start at <NUMBER>\n"
+    "    [--new_meta_len <NUMBER>]        make new metadata area <NUMBER> bytes long\n"
+    "    [--new_journal_device <PATH>]    use <PATH> for new journal\n"
+    "    [--new_journal_offset <NUMBER>]  make new journal area start at <NUMBER>\n"
+    "    [--new_journal_len <NUMBER>]     make new journal area <NUMBER> bytes long\n"
+    "  If any of the new layout parameter options are not specified, old values\n"
+    "  will be used.\n"
+    "\n"
+    "vitastor-disk start|stop|restart|enable|disable [--now] <device> [device2 device3 ...]\n"
+    "  Manipulate Vitastor OSDs using systemd by their device paths.\n"
+    "  Commands are passed to systemctl with vitastor-osd@<num> units as arguments.\n"
+    "  When --now is added to enable/disable, OSDs are also immediately started/stopped.\n"
+    "\n"
+    "vitastor-disk read-sb <device>\n"
+    "  Try to read Vitastor OSD superblock from <device> and print it in JSON format.\n"
+    "\n"
+    "vitastor-disk write-sb <device>\n"
+    "  Read JSON from STDIN and write it into Vitastor OSD superblock on <device>.\n"
+    "\n"
+    "vitastor-disk udev <device>\n"
+    "  Try to read Vitastor OSD superblock from <device> and print variables for udev.\n"
+    "\n"
+    "vitastor-disk exec-osd <device>\n"
+    "  Read Vitastor OSD superblock from <device> and start the OSD with parameters from it.\n"
+    "  Intended for use from startup scripts (i.e. from systemd units).\n"
+    "\n"
+    "vitastor-disk pre-exec <device>\n"
+    "  Read Vitastor OSD superblock from <device> and perform pre-start checks for the OSD.\n"
+    "  For now, this only checks that device cache is in write-through mode if fsync is disabled.\n"
+    "  Intended for use from startup scripts (i.e. from systemd units).\n"
+    "\n"
+    "vitastor-disk dump-journal [--all] [--json] <journal_file> <journal_block_size> <offset> <size>\n"
+    "  Dump journal in human-readable or JSON (if --json is specified) format.\n"
+    "  Without --all, only actual part of the journal is dumped.\n"
+    "  With --all, the whole journal area is scanned for journal entries,\n"
+    "  some of which may be outdated.\n"
+    "\n"
+    "vitastor-disk dump-meta <meta_file> <meta_block_size> <offset> <size>\n"
+    "  Dump metadata in JSON format.\n"
+    "\n"
+    "vitastor-disk simple-offsets <device>\n"
+    "  Calculate offsets for old simple&stupid (no superblock) OSD deployment. Options:\n"
+    "  --object_size 128k       Set blockstore block size\n"
+    "  --bitmap_granularity 4k  Set bitmap granularity\n"
+    "  --journal_size 16M       Set journal size\n"
+    "  --device_block_size 4k   Set device block size\n"
+    "  --journal_offset 0       Set journal offset\n"
+    "  --device_size 0          Set device size\n"
+    "  --format text            Result format: json, options, env, or text\n"
+    "\n"
+    "Use vitastor-disk --help <command> for command details or vitastor-disk --help --all for all details.\n"
+;
 
 struct disk_tool_t
 {
@@ -155,8 +223,7 @@ int main(int argc, char *argv[])
         }
         else if (!strcmp(argv[i], "--help"))
         {
-            cmd.clear();
-            cmd.push_back((char*)"help");
+            cmd.insert(cmd.begin(), (char*)"help");
         }
         else if (!strcmp(argv[i], "--now"))
         {
@@ -269,71 +336,7 @@ int main(int argc, char *argv[])
     }
     else
     {
-        printf(
-            "Vitastor disk management tool\n"
-            "(c) Vitaliy Filippov, 2022+ (VNPL-1.1)\n"
-            "\n"
-            "USAGE:\n"
-            "%s resize <ALL_OSD_PARAMETERS> <NEW_PARAMETERS> [--iodepth 32]\n"
-            "  Resize data area and/or rewrite/move journal and metadata\n"
-            "  ALL_OSD_PARAMETERS must include all (at least all disk-related)\n"
-            "  parameters from OSD command line (i.e. from systemd unit).\n"
-            "  NEW_PARAMETERS include new disk layout parameters:\n"
-            "    [--new_data_offset <NUMBER>]     resize data area so it starts at <NUMBER>\n"
-            "    [--new_data_len <NUMBER>]        resize data area to <NUMBER> bytes\n"
-            "    [--new_meta_device <PATH>]       use <PATH> for new metadata\n"
-            "    [--new_meta_offset <NUMBER>]     make new metadata area start at <NUMBER>\n"
-            "    [--new_meta_len <NUMBER>]        make new metadata area <NUMBER> bytes long\n"
-            "    [--new_journal_device <PATH>]    use <PATH> for new journal\n"
-            "    [--new_journal_offset <NUMBER>]  make new journal area start at <NUMBER>\n"
-            "    [--new_journal_len <NUMBER>]     make new journal area <NUMBER> bytes long\n"
-            "  If any of the new layout parameter options are not specified, old values\n"
-            "  will be used.\n"
-            "\n"
-            "%s start|stop|restart|enable|disable [--now] <device> [device2 device3 ...]\n"
-            "  Manipulate Vitastor OSDs using systemd by their device paths.\n"
-            "  Commands are passed to systemctl with vitastor-osd@<num> units as arguments.\n"
-            "  When --now is added to enable/disable, OSDs are also immediately started/stopped.\n"
-            "\n"
-            "%s read-sb <device>\n"
-            "  Try to read Vitastor OSD superblock from <device> and print it in JSON format.\n"
-            "\n"
-            "%s write-sb <device>\n"
-            "  Read JSON from STDIN and write it into Vitastor OSD superblock on <device>.\n"
-            "\n"
-            "%s udev <device>\n"
-            "  Try to read Vitastor OSD superblock from <device> and print variables for udev.\n"
-            "\n"
-            "%s exec-osd <device>\n"
-            "  Read Vitastor OSD superblock from <device> and start the OSD with parameters from it.\n"
-            "  Intended for use from startup scripts (i.e. from systemd units).\n"
-            "\n"
-            "%s pre-exec <device>\n"
-            "  Read Vitastor OSD superblock from <device> and perform pre-start checks for the OSD.\n"
-            "  For now, this only checks that device cache is in write-through mode if fsync is disabled.\n"
-            "  Intended for use from startup scripts (i.e. from systemd units).\n"
-            "\n"
-            "%s dump-journal [--all] [--json] <journal_file> <journal_block_size> <offset> <size>\n"
-            "  Dump journal in human-readable or JSON (if --json is specified) format.\n"
-            "  Without --all, only actual part of the journal is dumped.\n"
-            "  With --all, the whole journal area is scanned for journal entries,\n"
-            "  some of which may be outdated.\n"
-            "\n"
-            "%s dump-meta <meta_file> <meta_block_size> <offset> <size>\n"
-            "  Dump metadata in JSON format.\n"
-            "\n"
-            "%s simple-offsets <device>\n"
-            "  Calculate offsets for old simple&stupid (no superblock) OSD deployment. Options:\n"
-            "  --object_size 128k       Set blockstore block size\n"
-            "  --bitmap_granularity 4k  Set bitmap granularity\n"
-            "  --journal_size 16M       Set journal size\n"
-            "  --device_block_size 4k   Set device block size\n"
-            "  --journal_offset 0       Set journal offset\n"
-            "  --device_size 0          Set device size\n"
-            "  --format text            Result format: json, options, env, or text\n"
-            ,
-            argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]
-        );
+        print_help(help_text, "vitastor-disk", cmd.size() > 1 ? cmd[1] : "", self.all);
     }
     return 0;
 }
