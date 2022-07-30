@@ -3,7 +3,7 @@
 
 #include "cli.h"
 #include "cluster_client.h"
-#include "base64.h"
+#include "str_util.h"
 
 // List pools with space statistics
 struct pool_lister_t

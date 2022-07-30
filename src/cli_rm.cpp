@@ -4,7 +4,7 @@
 #include <fcntl.h>
 #include "cli.h"
 #include "cluster_client.h"
-#include "base64.h"
+#include "str_util.h"
 
 // Remove layer(s): similar to merge, but alters metadata and processes multiple merge targets
 //

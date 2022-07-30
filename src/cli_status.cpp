@@ -3,7 +3,7 @@
 
 #include "cli.h"
 #include "cluster_client.h"
-#include "base64.h"
+#include "str_util.h"
 #include "pg_states.h"
 #include "http_client.h"
 

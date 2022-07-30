@@ -14,7 +14,7 @@
 #include <stdexcept>
 
 #include "addr_util.h"
-#include "base64.h"
+#include "str_util.h"
 #include "json11/json11.hpp"
 #include "http_client.h"
 #include "timerfd_manager.h"

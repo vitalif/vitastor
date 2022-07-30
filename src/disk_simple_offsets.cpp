@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 
 #include "json11/json11.hpp"
-#include "base64.h"
+#include "str_util.h"
 #include "blockstore.h"
 
 // Calculate offsets for a block device and print OSD command line parameters

@@ -2,7 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include "osd.h"
-#include "base64.h"
+#include "str_util.h"
 #include "etcd_state_client.h"
 #include "http_client.h"
 #include "osd_rmw.h"

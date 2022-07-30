@@ -12,7 +12,7 @@
 #include "malloc_or_die.h"
 #include "nfs_portmap.h"
 #include "sha256.h"
-#include "base64.h"
+#include "str_util.h"
 
 /*
  * The NULL procedure. All protocols/versions must provide a NULL procedure

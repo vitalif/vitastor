@@ -4,7 +4,7 @@
 #include <ctype.h>
 #include "cli.h"
 #include "cluster_client.h"
-#include "base64.h"
+#include "str_util.h"
 
 // Create an image, snapshot or clone
 //

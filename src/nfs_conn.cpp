@@ -5,7 +5,7 @@
 
 #include <sys/time.h>
 
-#include "base64.h"
+#include "str_util.h"
 
 #include "nfs_proxy.h"
 

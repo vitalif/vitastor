@@ -6,7 +6,7 @@
 
 #include <algorithm>
 
-#include "base64.h"
+#include "str_util.h"
 #include "osd.h"
 
 // Peering loop

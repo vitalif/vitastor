@@ -19,7 +19,7 @@
 #include "nfs/portmap.h"
 
 #include "addr_util.h"
-#include "base64.h"
+#include "str_util.h"
 #include "nfs_proxy.h"
 #include "http_client.h"
 #include "cli.h"

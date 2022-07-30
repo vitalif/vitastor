@@ -94,7 +94,7 @@ endif (IBVERBS_LIBRARIES)
 add_library(vitastor_common STATIC
 	epoll_manager.cpp etcd_state_client.cpp messenger.cpp addr_util.cpp
 	msgr_stop.cpp msgr_op.cpp msgr_send.cpp msgr_receive.cpp ringloop.cpp ../json11/json11.cpp
-	http_client.cpp osd_ops.cpp pg_states.cpp timerfd_manager.cpp base64.cpp ${MSGR_RDMA}
+	http_client.cpp osd_ops.cpp pg_states.cpp timerfd_manager.cpp str_util.cpp ${MSGR_RDMA}
 )
 target_compile_options(vitastor_common PUBLIC -fPIC)
 
@@ -194,7 +194,7 @@ configure_file(vitastor.pc.in vitastor.pc @ONLY)
 
 # vitastor-disk
 add_executable(vitastor-disk
-	disk_tool.cpp disk_simple_offsets.cpp crc32c.c base64.cpp ../json11/json11.cpp rw_blocking.cpp allocator.cpp ringloop.cpp blockstore_disk.cpp
+	disk_tool.cpp disk_simple_offsets.cpp crc32c.c str_util.cpp ../json11/json11.cpp rw_blocking.cpp allocator.cpp ringloop.cpp blockstore_disk.cpp
 )
 target_link_libraries(vitastor-disk
 	tcmalloc_minimal

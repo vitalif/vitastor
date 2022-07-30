@@ -4,7 +4,7 @@
 #include <algorithm>
 #include "cli.h"
 #include "cluster_client.h"
-#include "base64.h"
+#include "str_util.h"
 
 // List existing images
 //

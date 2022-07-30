@@ -1,7 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#include "base64.h"
+#include "str_util.h"
 #include "cluster_client.h"
 #include "cli.h"
 

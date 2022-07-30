@@ -12,7 +12,7 @@
 #include "epoll_manager.h"
 #include "cluster_client.h"
 #include "pg_states.h"
-#include "base64.h"
+#include "str_util.h"
 
 static const char *exe_name = NULL;
 

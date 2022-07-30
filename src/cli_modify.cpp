@@ -3,7 +3,7 @@
 
 #include "cli.h"
 #include "cluster_client.h"
-#include "base64.h"
+#include "str_util.h"
 
 // Rename, resize image (and purge extra data on shrink) or change its readonly status
 struct image_changer_t

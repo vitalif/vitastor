@@ -21,7 +21,7 @@
 #include "blockstore_impl.h"
 #include "blockstore_disk.h"
 #include "osd_id.h"
-#include "base64.h"
+#include "str_util.h"
 #include "crc32c.h"
 #include "rw_blocking.h"
 

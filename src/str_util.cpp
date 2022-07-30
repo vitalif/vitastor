@@ -3,7 +3,7 @@
 
 #include <assert.h>
 #include <string.h>
-#include "base64.h"
+#include "str_util.h"
 
 std::string base64_encode(const std::string &in)
 {

@@ -7,7 +7,7 @@
 #ifndef __MOCK__
 #include "addr_util.h"
 #include "http_client.h"
-#include "base64.h"
+#include "str_util.h"
 #endif
 
 etcd_state_client_t::~etcd_state_client_t()
