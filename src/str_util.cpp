@@ -56,6 +56,25 @@ std::string base64_decode(const std::string &in)
     return out;
 }
 
+std::string strtolower(const std::string & in)
+{
+    std::string s = in;
+    for (int i = 0; i < s.length(); i++)
+    {
+        s[i] = tolower(s[i]);
+    }
+    return s;
+}
+
+std::string trim(const std::string & in)
+{
+    int begin = in.find_first_not_of(" \n\r\t");
+    if (begin == -1)
+        return "";
+    int end = in.find_last_not_of(" \n\r\t");
+    return in.substr(begin, end+1-begin);
+}
+
 uint64_t stoull_full(const std::string & str, int base)
 {
     if (isspace(str[0]))

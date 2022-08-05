@@ -37,6 +37,6 @@ struct blockstore_disk_t
     void open_data();
     void open_meta();
     void open_journal();
-    void calc_lengths();
+    void calc_lengths(bool skip_meta_check = false);
     void close_all();
 };

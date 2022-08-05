@@ -21,7 +21,6 @@
 
 #define READ_BUFFER_SIZE 9000
 
-static std::string trim(const std::string & in);
 static std::string ws_format_frame(int type, uint64_t size);
 static bool ws_parse_frame(std::string & buf, int & type, std::string & res);
 static void parse_http_headers(std::string & res, http_response_t *parsed);
@@ -726,25 +725,7 @@ static bool ws_parse_frame(std::string & buf, int & type, std::string & res)
     return true;
 }
 
-std::string strtolower(const std::string & in)
-{
-    std::string s = in;
-    for (int i = 0; i < s.length(); i++)
-    {
-        s[i] = tolower(s[i]);
-    }
-    return s;
-}
-
-static std::string trim(const std::string & in)
-{
-    int begin = in.find_first_not_of(" \n\r\t");
-    if (begin == -1)
-        return "";
-    int end = in.find_last_not_of(" \n\r\t");
-    return in.substr(begin, end+1-begin);
-}
-
+// FIXME: move to utils
 bool json_is_true(const json11::Json & val)
 {
     if (val.is_string())

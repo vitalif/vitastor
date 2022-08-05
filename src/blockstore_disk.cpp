@@ -112,7 +112,7 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     clean_entry_size = sizeof(clean_disk_entry) + 2*clean_entry_bitmap_size;
 }
 
-void blockstore_disk_t::calc_lengths()
+void blockstore_disk_t::calc_lengths(bool skip_meta_check)
 {
     // data
     data_len = data_device_size - data_offset;
@@ -159,12 +159,12 @@ void blockstore_disk_t::calc_lengths()
     // required metadata size
     block_count = data_len / data_block_size;
     meta_len = (1 + (block_count - 1 + meta_block_size / clean_entry_size) / (meta_block_size / clean_entry_size)) * meta_block_size;
-    if (meta_area_size < meta_len)
+    if (!skip_meta_check && meta_area_size < meta_len)
     {
         throw std::runtime_error("Metadata area is too small, need at least "+std::to_string(meta_len)+" bytes");
     }
     // requested journal size
-    if (cfg_journal_size > journal_len)
+    if (!skip_meta_check && cfg_journal_size > journal_len)
     {
         throw std::runtime_error("Requested journal_size is too large");
     }

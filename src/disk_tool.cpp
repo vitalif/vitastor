@@ -3,6 +3,7 @@
 
 #define _LARGEFILE64_SOURCE
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <dirent.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
@@ -55,6 +56,37 @@ static const char *help_text =
     "(c) Vitaliy Filippov, 2022+ (VNPL-1.1)\n"
     "\n"
     "COMMANDS:\n"
+    "\n"
+    "vitastor-disk prepare [OPTIONS] [devices...]\n"
+    "  Initialize disk(s) for Vitastor OSD(s).\n"
+    "  There are two forms of this command. In the first form, you pass <devices> which\n"
+    "  must be raw disks (not partitions). They are partitioned automatically and OSDs\n"
+    "  are initialized on all of them.\n"
+    "  In the second form, you omit <devices> and pass --data_device, --journal_device\n"
+    "  and/or --meta_device which must be already existing partitions. In this case\n"
+    "  a single OSD is created.\n"
+    "  OPTIONS may include:\n"
+    "    --hybrid\n"
+    "      Prepare hybrid (HDD+SSD) OSDs using provided devices. SSDs will be used for\n"
+    "      journals and metadata, HDDs will be used for data. Partitions for journals and\n"
+    "      metadata will be created automatically. SSD/HDD are found by the `rotational`\n"
+    "      flag of devices. In hybrid mode, object size is 1 MB instead of 128 KB by\n"
+    "      default, and journal size is 1 GB instead of 32 MB by default.\n"
+    "    --data_device <DEV>        Create a single OSD using partition <DEV> for data\n"
+    "    --meta_device <DEV>        Create a single OSD using partition <DEV> for metadata\n"
+    "    --journal_device <DEV>     Create a single OSD using partition <DEV> for journal\n"
+    "    --journal_size 1G/32M      Set journal size\n"
+    "    --object_size 1M/128k      Set blockstore object size\n"
+    "    --disable_ssd_cache 1      Disable cache and fsyncs for SSD journal and metadata\n"
+    "    --disable_hdd_cache 1      Disable cache and fsyncs for HDD data\n"
+    "    --bitmap_granularity 4k    Set bitmap granularity\n"
+    "    --data_device_block 4k     Override data device block size\n"
+    "    --meta_device_block 4k     Override metadata device block size\n"
+    "    --journal_device_block 4k  Override journal device block size\n"
+    "    --meta_reserve 2x,1G\n"
+    "      New metadata partitions in --hybrid mode are created larger than actual\n"
+    "      metadata size to ease possible future extension. The default is to allocate\n"
+    "      2 times more space and at least 1G. Use this option to override.\n"
     "\n"
     "vitastor-disk resize <ALL_OSD_PARAMETERS> <NEW_LAYOUT> [--iodepth 32]\n"
     "  Resize data area and/or rewrite/move journal and metadata\n"
@@ -193,8 +225,11 @@ struct disk_tool_t
     int systemd_start_stop_osds(std::vector<std::string> cmd, std::vector<std::string> devices);
     int pre_exec_osd(std::string device);
 
-    json11::Json read_osd_superblock(std::string device);
+    json11::Json read_osd_superblock(std::string device, bool expect_exist = true);
     uint32_t write_osd_superblock(std::string device, json11::Json params);
+
+    int prepare_one(std::map<std::string, std::string> options);
+    int prepare(std::vector<std::string> devices);
 };
 
 void disk_tool_simple_offsets(json11::Json cfg, bool json_output);
@@ -220,6 +255,10 @@ int main(int argc, char *argv[])
         else if (!strcmp(argv[i], "--json"))
         {
             self.json = true;
+        }
+        else if (!strcmp(argv[i], "--hybrid"))
+        {
+            self.options["hybrid"] = "1";
         }
         else if (!strcmp(argv[i], "--help"))
         {
@@ -1278,13 +1317,13 @@ static std::string udev_escape(std::string str)
     return r;
 }
 
-static std::string realpath_str(std::string path)
+static std::string realpath_str(std::string path, bool nofail = true)
 {
     char *p = realpath((char*)path.c_str(), NULL);
     if (!p)
     {
         fprintf(stderr, "Failed to resolve %s: %s\n", path.c_str(), strerror(errno));
-        return path;
+        return nofail ? path : "";
     }
     std::string rp(p);
     free(p);
@@ -1380,7 +1419,7 @@ uint32_t disk_tool_t::write_osd_superblock(std::string device, json11::Json para
     return sb_size;
 }
 
-json11::Json disk_tool_t::read_osd_superblock(std::string device)
+json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_exist)
 {
     vitastor_disk_superblock_t *sb = NULL;
     uint8_t *buf = NULL;
@@ -1403,14 +1442,16 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device)
     sb = (vitastor_disk_superblock_t*)buf;
     if (sb->magic != VITASTOR_DISK_MAGIC)
     {
-        fprintf(stderr, "Invalid OSD superblock on %s: magic number mismatch\n", device.c_str());
+        if (expect_exist)
+            fprintf(stderr, "Invalid OSD superblock on %s: magic number mismatch\n", device.c_str());
         goto ex;
     }
     if (sb->size > VITASTOR_DISK_MAX_SB_SIZE ||
         // +2 is minimal json: {}
         sb->size < sizeof(vitastor_disk_superblock_t)+2)
     {
-        fprintf(stderr, "Invalid OSD superblock on %s: invalid size\n", device.c_str());
+        if (expect_exist)
+            fprintf(stderr, "Invalid OSD superblock on %s: invalid size\n", device.c_str());
         goto ex;
     }
     if (sb->size > 4096)
@@ -1429,26 +1470,30 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device)
     }
     if (sb->crc32c != crc32c(0, &sb->size, sb->size - ((uint8_t*)&sb->size - buf)))
     {
-        fprintf(stderr, "Invalid OSD superblock on %s: crc32 mismatch\n", device.c_str());
+        if (expect_exist)
+            fprintf(stderr, "Invalid OSD superblock on %s: crc32 mismatch\n", device.c_str());
         goto ex;
     }
     osd_params = json11::Json::parse(std::string((char*)sb->json_data, sb->size - sizeof(vitastor_disk_superblock_t)), json_err);
     if (json_err != "")
     {
-        fprintf(stderr, "Invalid OSD superblock on %s: invalid JSON\n", device.c_str());
+        if (expect_exist)
+            fprintf(stderr, "Invalid OSD superblock on %s: invalid JSON\n", device.c_str());
         goto ex;
     }
     // Validate superblock
     if (!osd_params["osd_num"].uint64_value())
     {
-        fprintf(stderr, "OSD superblock on %s lacks osd_num\n", device.c_str());
-        osd_params = json11::Json::object{};
+        if (expect_exist)
+            fprintf(stderr, "OSD superblock on %s lacks osd_num\n", device.c_str());
+        osd_params = json11::Json();
         goto ex;
     }
     if (osd_params["data_device"].string_value() == "")
     {
-        fprintf(stderr, "OSD superblock on %s lacks data_device\n", device.c_str());
-        osd_params = json11::Json::object{};
+        if (expect_exist)
+            fprintf(stderr, "OSD superblock on %s lacks data_device\n", device.c_str());
+        osd_params = json11::Json();
         goto ex;
     }
     real_device = realpath_str(device);
@@ -1479,8 +1524,9 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device)
     }
     else
     {
-        fprintf(stderr, "Invalid OSD superblock on %s: does not refer to the device itself\n", device.c_str());
-        osd_params = json11::Json::object{};
+        if (expect_exist)
+            fprintf(stderr, "Invalid OSD superblock on %s: does not refer to the device itself\n", device.c_str());
+        osd_params = json11::Json();
         goto ex;
     }
     osd_params = json11::Json::object{
@@ -1560,11 +1606,28 @@ int disk_tool_t::exec_osd(std::string device)
     return 0;
 }
 
+static std::string read_all_fd(int fd)
+{
+    int res_size = 0;
+    std::string res;
+    while (1)
+    {
+        res.resize(res_size+1024);
+        int r = read(fd, res.data()+res_size, res.size()-res_size);
+        if (r > 0)
+            res_size += r;
+        else if (!r || errno != EAGAIN && errno != EINTR)
+            break;
+    }
+    res.resize(res_size);
+    return res;
+}
+
 static std::string read_file(std::string file)
 {
-    char buf[64];
-    int fd = open(file.c_str(), O_RDONLY), r;
-    if (fd < 0 || (r = read(fd, buf, sizeof(buf))) < 0)
+    std::string res;
+    int fd = open(file.c_str(), O_RDONLY);
+    if (fd < 0 || (res = read_all_fd(fd)) == "")
     {
         if (fd >= 0)
             close(fd);
@@ -1572,7 +1635,7 @@ static std::string read_file(std::string file)
         return "";
     }
     close(fd);
-    return std::string(buf, r);
+    return res;
 }
 
 static int check_queue_cache(std::string dev, std::string parent_dev)
@@ -1585,22 +1648,42 @@ static int check_queue_cache(std::string dev, std::string parent_dev)
     return r == "write through" ? 0 : -1;
 }
 
-// returns 1 = warning, -1 = error, 0 = success
-static int disable_cache(std::string dev)
+static std::string get_parent_device(std::string dev)
 {
     if (dev.substr(0, 5) != "/dev/")
     {
         fprintf(stderr, "%s is outside /dev/\n", dev.c_str());
-        return 1;
+        return "";
     }
     dev = dev.substr(5);
     int i = dev.size();
     while (i > 0 && isdigit(dev[i-1]))
         i--;
-    // Check if it's a partition
-    if (i >= 2 && dev[i-1] == 'p' && isdigit(dev[i-2]))
+    if (i >= 1 && dev[i-1] == '-') // dm-0, dm-1
+        return dev;
+    else if (i >= 2 && dev[i-1] == 'p' && isdigit(dev[i-2])) // nvme0n1p1
         i--;
-    auto parent_dev = dev.substr(0, i);
+    // Check that such block device exists
+    struct stat st;
+    auto chk = "/sys/block/"+dev.substr(0, i);
+    if (stat(chk.c_str(), &st) < 0)
+    {
+        if (errno != ENOENT)
+        {
+            fprintf(stderr, "Failed to stat %s: %s\n", chk.c_str(), strerror(errno));
+            return "";
+        }
+        return dev;
+    }
+    return dev.substr(0, i);
+}
+
+// returns 1 = warning, -1 = error, 0 = success
+static int disable_cache(std::string dev)
+{
+    auto parent_dev = get_parent_device(dev);
+    if (parent_dev == "")
+        return 1;
     auto scsi_disk = "/sys/block/"+parent_dev+"/device/scsi_disk";
     DIR *dir = opendir(scsi_disk.c_str());
     if (!dir)
@@ -1715,5 +1798,228 @@ int disk_tool_t::pre_exec_osd(std::string device)
             return 1;
         }
     }
+    return 0;
+}
+
+// FIXME: Move to utils
+static int shell_exec(const std::vector<std::string> & cmd, const std::string & in, std::string *out, std::string *err)
+{
+    int child_stdin[2], child_stdout[2], child_stderr[2];
+    pid_t pid;
+    if (pipe(child_stdin) == -1)
+        goto err_pipe1;
+    if (pipe(child_stdout) == -1)
+        goto err_pipe2;
+    if (pipe(child_stderr) == -1)
+        goto err_pipe3;
+    if ((pid = fork()) == -1)
+        goto err_fork;
+    if (pid)
+    {
+        // Parent
+        // We should do select() to do something serious, but this is for simple cases
+        close(child_stdin[0]);
+        close(child_stdout[1]);
+        close(child_stderr[1]);
+        write_blocking(child_stdin[1], (void*)in.data(), in.size());
+        close(child_stdin[1]);
+        std::string s;
+        s = read_all_fd(child_stdout[0]);
+        if (out)
+            out->swap(s);
+        close(child_stdout[0]);
+        s = read_all_fd(child_stderr[0]);
+        if (err)
+            err->swap(s);
+        close(child_stderr[0]);
+        int wstatus = 0;
+        waitpid(pid, &wstatus, 0);
+        return WEXITSTATUS(wstatus);
+    }
+    else
+    {
+        // Child
+        dup2(child_stdin[0], 0);
+        dup2(child_stdout[1], 1);
+        if (err)
+            dup2(child_stderr[1], 2);
+        close(child_stdin[0]);
+        close(child_stdin[1]);
+        close(child_stdout[0]);
+        close(child_stdout[1]);
+        close(child_stderr[0]);
+        close(child_stderr[1]);
+        //char *argv[] = { (char*)"/bin/sh", (char*)"-c", (char*)cmd.c_str(), NULL };
+        char *argv[cmd.size()+1];
+        for (int i = 0; i < cmd.size(); i++)
+        {
+            argv[i] = (char*)cmd[i].c_str();
+        }
+        argv[cmd.size()-1] = NULL;
+        execv(argv[0], argv);
+        std::string full_cmd;
+        for (int i = 0; i < cmd.size(); i++)
+        {
+            full_cmd += cmd[i];
+            full_cmd += " ";
+        }
+        full_cmd.resize(full_cmd.size() > 0 ? full_cmd.size()-1 : 0);
+        fprintf(stderr, "error running %s: %s", full_cmd.c_str(), strerror(errno));
+        exit(1);
+    }
+err_fork:
+    close(child_stderr[1]);
+    close(child_stderr[0]);
+err_pipe3:
+    close(child_stdout[1]);
+    close(child_stdout[0]);
+err_pipe2:
+    close(child_stdin[1]);
+    close(child_stdin[0]);
+err_pipe1:
+    return 1;
+}
+
+int disk_tool_t::prepare_one(std::map<std::string, std::string> options)
+{
+    static const char *allow_additional_params[] = {
+        "max_write_iodepth",
+        "max_write_iodepth",
+        "min_flusher_count",
+        "max_flusher_count",
+        "inmemory_metadata",
+        "inmemory_journal",
+        "journal_sector_buffer_count",
+        "journal_no_same_sector_overwrites",
+        "throttle_small_writes",
+        "throttle_target_iops",
+        "throttle_target_mbs",
+        "throttle_target_parallelism",
+        "throttle_threshold_us",
+    };
+    if (options.find("force") == options.end())
+    {
+        for (auto dev: std::vector<std::string>{ options["data_device"], options["meta_device"], options["journal_device"] })
+        {
+            if (dev == "")
+                continue;
+            std::string real_dev = realpath_str(dev, false);
+            if (real_dev == "")
+                return 1;
+            std::string parent_dev = get_parent_device(real_dev);
+            if (parent_dev == "")
+                return 1;
+            if (parent_dev == real_dev)
+            {
+                fprintf(stderr, "%s is not a partition, not creating OSD without --force\n", dev.c_str());
+                return 1;
+            }
+            std::string out;
+            if (shell_exec({ "/sbin/blkid", "-p", dev }, "", &out, NULL))
+            {
+                fprintf(stderr, "%s contains data, not creating OSD without --force. blkid -p says:\n%s", dev.c_str(), out.c_str());
+                return 1;
+            }
+            json11::Json sb = read_osd_superblock(dev, false);
+            if (!sb.is_null())
+            {
+                fprintf(stderr, "%s already contains Vitastor OSD superblock, not creating OSD without --force\n", dev.c_str());
+                return 1;
+            }
+        }
+    }
+    // FIXME: Different default block_size for HDD
+    // FIXME: Set block_size at first call with HDD
+    // Calculate offsets if the same device is used for two or more of data, meta, and journal
+    if (options["journal_device"] == "" && options["journal_size"] == "")
+    {
+        options["journal_size"] = "32M";
+    }
+    json11::Json::object sb;
+    try
+    {
+        blockstore_disk_t dsk;
+        dsk.parse_config(options);
+        dsk.open_data();
+        dsk.open_meta();
+        dsk.open_journal();
+        dsk.calc_lengths(true);
+        dsk.close_all();
+        sb = json11::Json::object {
+            { "data_device", options["data_device"] },
+            { "meta_device", options["meta_device"] },
+            { "journal_device", options["journal_device"] },
+            { "block_size", (uint64_t)dsk.data_block_size },
+            { "meta_block_size", dsk.meta_block_size },
+            { "journal_block_size", dsk.journal_block_size },
+            { "data_size", dsk.cfg_data_size },
+            { "disk_alignment", (uint64_t)dsk.disk_alignment },
+            { "bitmap_granularity", dsk.bitmap_granularity },
+            { "disable_device_lock", dsk.disable_flock },
+            { "journal_offset", 4096 },
+            { "meta_offset", 4096 + (dsk.meta_device == dsk.journal_device ? dsk.journal_len : 0) },
+            { "data_offset", 4096 + (dsk.data_device == dsk.meta_device ? dsk.meta_len : 0) +
+                (dsk.data_device == dsk.journal_device ? dsk.journal_len : 0) },
+            { "journal_no_same_sector_overwrites", true },
+            { "journal_sector_buffer_count", 1024 },
+            { "disable_data_fsync", json_is_true(options["disable_data_fsync"]) },
+            { "disable_meta_fsync", json_is_true(options["disable_meta_fsync"]) },
+            { "disable_journal_fsync", json_is_true(options["disable_journal_fsync"]) },
+            { "immediate_commit", json_is_true(options["disable_data_fsync"])
+                ? (json_is_true(options["disable_journal_fsync"]) ? "all" : "small") : "none" },
+        };
+        for (int i = 0; i < sizeof(allow_additional_params)/sizeof(allow_additional_params[0]); i++)
+        {
+            auto it = options.find(allow_additional_params[i]);
+            if (it != options.end())
+            {
+                sb[it->first] = it->second;
+            }
+        }
+    }
+    catch (std::exception & e)
+    {
+        fprintf(stderr, "%s\n", e.what());
+        return 1;
+    }
+    std::string osd_num_str;
+    if (shell_exec({ "vitastor-cli", "alloc-osd" }, "", &osd_num_str, NULL) != 0)
+    {
+        return 1;
+    }
+    osd_num_t osd_num = stoull_full(trim(osd_num_str), 10);
+    if (!osd_num)
+    {
+        fprintf(stderr, "Could not create OSD. vitastor-cli alloc-osd didn't return a valid OSD number:\n%s", osd_num_str.c_str());
+        return 1;
+    }
+    sb["osd_num"] = osd_num;
+    write_osd_superblock(options["data_device"], sb);
+    if (options["meta_device"] != "" &&
+        options["meta_device"] != options["data_device"])
+    {
+        write_osd_superblock(options["meta_device"], sb);
+    }
+    if (options["journal_device"] != "" &&
+        options["journal_device"] != options["data_device"] &&
+        options["journal_device"] != options["meta_device"])
+    {
+        write_osd_superblock(options["journal_device"], sb);
+    }
+    return 0;
+}
+
+int disk_tool_t::prepare(std::vector<std::string> devices)
+{
+    if (options.find("data_device") != options.end() && options["data_device"] != "")
+    {
+        if (options.find("hybrid") != options.end() || devices.size())
+        {
+            fprintf(stderr, "Device list (positional arguments) and --hybrid are incompatible with --data_device\n");
+            return 1;
+        }
+        return prepare_one(options);
+    }
+    // FIXME: Implement the second (automatic) form of the command
     return 0;
 }

@@ -104,7 +104,7 @@ async function collect_devices(devices_to_check)
         if (has_partition_table != 0)
         {
             // Check if the device has any data
-            const [ has_data, out ] = await system(`blkid ${dev}`);
+            const [ has_data, out ] = await system(`blkid -p ${dev}`);
             if (has_data == 0)
             {
                 console.log(`${dev} contains data, skipping:\n  ${out.trim().replace(/\n/g, '\n  ')}`);
