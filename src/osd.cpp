@@ -38,13 +38,12 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
     this->config = msgr.read_config(config).object_items();
     if (this->config.find("log_level") == this->config.end())
         this->config["log_level"] = 1;
-    parse_config(this->config);
+    parse_config(this->config, true);
 
     epmgr = new epoll_manager_t(ringloop);
     // FIXME: Use timerfd_interval based directly on io_uring
     this->tfd = epmgr->tfd;
 
-    // FIXME: Create Blockstore from on-disk superblock config and check it against the OSD cluster config
     auto bs_cfg = json_to_bs(this->config);
     this->bs = new blockstore_t(bs_cfg, ringloop, tfd);
     {
@@ -81,6 +80,7 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
     msgr.ringloop = this->ringloop;
     msgr.exec_op = [this](osd_op_t *op) { exec_op(op); };
     msgr.repeer_pgs = [this](osd_num_t peer_osd) { repeer_pgs(peer_osd); };
+    msgr.check_config_hook = [this](osd_client_t *cl, json11::Json conf) { return check_peer_config(cl, conf); };
     msgr.init();
 
     init_cluster();
@@ -98,23 +98,33 @@ osd_t::~osd_t()
     free(zero_buffer);
 }
 
-void osd_t::parse_config(const json11::Json & config)
+void osd_t::parse_config(const json11::Json & config, bool allow_disk_params)
 {
     st_cli.parse_config(config);
     msgr.parse_config(config);
-    // OSD number
-    osd_num = config["osd_num"].uint64_value();
-    if (!osd_num)
-        throw std::runtime_error("osd_num is required in the configuration");
-    msgr.osd_num = osd_num;
-    // Vital Blockstore parameters
-    bs_block_size = config["block_size"].uint64_value();
-    if (!bs_block_size)
-        bs_block_size = DEFAULT_BLOCK_SIZE;
-    bs_bitmap_granularity = config["bitmap_granularity"].uint64_value();
-    if (!bs_bitmap_granularity)
-        bs_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
-    clean_entry_bitmap_size = bs_block_size / bs_bitmap_granularity / 8;
+    if (allow_disk_params)
+    {
+        // OSD number
+        osd_num = config["osd_num"].uint64_value();
+        if (!osd_num)
+            throw std::runtime_error("osd_num is required in the configuration");
+        msgr.osd_num = osd_num;
+        // Vital Blockstore parameters
+        bs_block_size = config["block_size"].uint64_value();
+        if (!bs_block_size)
+            bs_block_size = DEFAULT_BLOCK_SIZE;
+        bs_bitmap_granularity = config["bitmap_granularity"].uint64_value();
+        if (!bs_bitmap_granularity)
+            bs_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
+        clean_entry_bitmap_size = bs_block_size / bs_bitmap_granularity / 8;
+        // immediate_commit
+        if (config["immediate_commit"] == "all")
+            immediate_commit = IMMEDIATE_ALL;
+        else if (config["immediate_commit"] == "small")
+            immediate_commit = IMMEDIATE_SMALL;
+        else
+            immediate_commit = IMMEDIATE_NONE;
+    }
     // Bind address
     bind_address = config["bind_address"].string_value();
     if (bind_address == "")
@@ -132,12 +142,6 @@ void osd_t::parse_config(const json11::Json & config)
     no_rebalance = json_is_true(config["no_rebalance"]);
     no_recovery = json_is_true(config["no_recovery"]);
     allow_test_ops = json_is_true(config["allow_test_ops"]);
-    if (config["immediate_commit"] == "all")
-        immediate_commit = IMMEDIATE_ALL;
-    else if (config["immediate_commit"] == "small")
-        immediate_commit = IMMEDIATE_SMALL;
-    else
-        immediate_commit = IMMEDIATE_NONE;
     if (!config["autosync_interval"].is_null())
     {
         // Allow to set it to 0

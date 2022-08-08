@@ -534,11 +534,18 @@ void etcd_state_client_t::load_global_config()
                 global_config = kv.value.object_items();
             }
         }
-        bs_block_size = global_config["block_size"].uint64_value();
-        if (!bs_block_size)
+        global_block_size = global_config["block_size"].uint64_value();
+        if (!global_block_size)
         {
-            bs_block_size = DEFAULT_BLOCK_SIZE;
+            global_block_size = DEFAULT_BLOCK_SIZE;
         }
+        global_bitmap_granularity = global_config["bitmap_granularity"].uint64_value();
+        if (!global_bitmap_granularity)
+        {
+            global_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
+        }
+        global_immediate_commit = global_config["immediate_commit"].string_value() == "all"
+            ? IMMEDIATE_ALL : (global_config["immediate_commit"].string_value() == "small" ? IMMEDIATE_SMALL : IMMEDIATE_NONE);
         on_load_config_hook(global_config);
     });
 }
@@ -732,9 +739,35 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 fprintf(stderr, "Pool %u has invalid max_osd_combinations (must be at least 100), skipping pool\n", pool_id);
                 continue;
             }
+            // Data Block Size
+            pc.data_block_size = pool_item.second["block_size"].uint64_value();
+            if (!pc.data_block_size)
+                pc.data_block_size = global_block_size;
+            if ((pc.data_block_size & (pc.data_block_size-1)) ||
+                pc.data_block_size < MIN_DATA_BLOCK_SIZE || pc.data_block_size > MAX_DATA_BLOCK_SIZE)
+            {
+                fprintf(stderr, "Pool %u has invalid block_size (must be a power of two between %u and %u), skipping pool\n",
+                    pool_id, MIN_DATA_BLOCK_SIZE, MAX_DATA_BLOCK_SIZE);
+                continue;
+            }
+            // Bitmap Granularity
+            pc.bitmap_granularity = pool_item.second["bitmap_granularity"].uint64_value();
+            if (!pc.bitmap_granularity)
+                pc.bitmap_granularity = global_bitmap_granularity;
+            if (!pc.bitmap_granularity || pc.data_block_size % pc.bitmap_granularity)
+            {
+                fprintf(stderr, "Pool %u has invalid bitmap_granularity (must divide block_size), skipping pool\n", pool_id);
+                continue;
+            }
+            // Immediate Commit Mode
+            pc.immediate_commit = pool_item.second["immediate_commit"].is_string()
+                ? (pool_item.second["immediate_commit"].string_value() == "all"
+                    ? IMMEDIATE_ALL : (pool_item.second["immediate_commit"].string_value() == "small"
+                        ? IMMEDIATE_SMALL : IMMEDIATE_NONE))
+                : global_immediate_commit;
             // PG Stripe Size
             pc.pg_stripe_size = pool_item.second["pg_stripe_size"].uint64_value();
-            uint64_t min_stripe_size = bs_block_size * (pc.scheme == POOL_SCHEME_REPLICATED ? 1 : (pc.pg_size-pc.parity_chunks));
+            uint64_t min_stripe_size = pc.data_block_size * (pc.scheme == POOL_SCHEME_REPLICATED ? 1 : (pc.pg_size-pc.parity_chunks));
             if (pc.pg_stripe_size < min_stripe_size)
                 pc.pg_stripe_size = min_stripe_size;
             // Save

@@ -9,33 +9,33 @@
 These parameters apply to clients and OSDs, are fixed at the moment of OSD drive
 initialization and can't be changed after it without losing data.
 
+OSDs with different values of these parameters (for example, SSD and SSD+HDD
+OSDs) can coexist in one Vitastor cluster within different pools. Each pool can
+only include OSDs with identical settings of these parameters.
+
+These parameters, when set to a non-default value, must also be specified in
+etcd for clients to be aware of their values, either in /vitastor/config/global
+or in pool configuration. Pool configuration overrides the global setting.
+If the value for a pool in etcd doesn't match on-disk OSD configuration, the
+OSD will refuse to start PGs of that pool.
+
 - [block_size](#block_size)
 - [bitmap_granularity](#bitmap_granularity)
 - [immediate_commit](#immediate_commit)
-- [client_dirty_limit](#client_dirty_limit)
 
 ## block_size
 
 - Type: integer
 - Default: 131072
 
-Size of objects (data blocks) into which all physical and virtual drives are
-subdivided in Vitastor. One of current main settings in Vitastor, affects
-memory usage, write amplification and I/O load distribution effectiveness.
+Size of objects (data blocks) into which all physical and virtual drives
+(within a pool) are subdivided in Vitastor. One of current main settings
+in Vitastor, affects memory usage, write amplification and I/O load
+distribution effectiveness.
 
 Recommended default block size is 128 KB for SSD and 4 MB for HDD. In fact,
 it's possible to use 4 MB for SSD too - it will lower memory usage, but
 may increase average WA and reduce linear performance.
-
-OSDs with different block sizes (for example, SSD and SSD+HDD OSDs) can
-currently coexist in one etcd instance only within separate Vitastor
-clusters with different etcd_prefix'es.
-
-Also block size can't be changed after OSD initialization without losing
-data.
-
-You must always specify block_size in etcd in /vitastor/config/global if
-you change it so all clients can know about it.
 
 OSD memory usage is roughly (SIZE / BLOCK * 68 bytes) which is roughly
 544 MB per 1 TB of used disk space with the default 128 KB block size.
@@ -50,12 +50,7 @@ of disk_alignment. It's called bitmap granularity because Vitastor tracks
 an allocation bitmap for each object containing 2 bits per each
 (bitmap_granularity) bytes.
 
-This parameter can't be changed after OSD initialization without losing
-data. Also it's fixed for the whole Vitastor cluster i.e. two different
-values can't be used in a single Vitastor cluster.
-
-Clients MUST be aware of this parameter value, so put it into etcd key
-/vitastor/config/global if you change it for any reason.
+Can't be smaller than the OSD data device sector.
 
 ## immediate_commit
 
@@ -99,26 +94,12 @@ unsafe to change by hand). The same may apply to newer HDDs with internal
 SSD cache or "media-cache" - for example, a lot of Seagate EXOS drives have
 it (they have internal SSD cache even though it's not stated in datasheets).
 
-This parameter must be set both in etcd in /vitastor/config/global and in
-OSD command line or configuration. Setting it to "all" or "small" requires
-enabling disable_journal_fsync and disable_meta_fsync, setting it to "all"
-also requires enabling disable_data_fsync.
+Setting this parameter to "all" or "small" in OSD parameters requires enabling
+disable_journal_fsync and disable_meta_fsync, setting it to "all" also requires
+enabling disable_data_fsync.
 
 TLDR: For optimal performance, set immediate_commit to "all" if you only use
 SSDs with supercapacitor-based power loss protection (nonvolatile
 write-through cache) for both data and journals in the whole Vitastor
 cluster. Set it to "small" if you only use such SSDs for journals. Leave
 empty if your drives have write-back cache.
-
-## client_dirty_limit
-
-- Type: integer
-- Default: 33554432
-
-Without immediate_commit=all this parameter sets the limit of "dirty"
-(not committed by fsync) data allowed by the client before forcing an
-additional fsync and committing the data. Also note that the client always
-holds a copy of uncommitted data in memory so this setting also affects
-RAM usage of clients.
-
-This parameter doesn't affect OSDs themselves.

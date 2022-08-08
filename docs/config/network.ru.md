@@ -29,6 +29,7 @@
 - [etcd_slow_timeout](#etcd_slow_timeout)
 - [etcd_keepalive_timeout](#etcd_keepalive_timeout)
 - [etcd_ws_keepalive_timeout](#etcd_ws_keepalive_timeout)
+- [client_dirty_limit](#client_dirty_limit)
 
 ## tcp_header_buffer_size
 
@@ -222,3 +223,16 @@ etcd_report_interval, чтобы keepalive гарантированно рабо
 - Значение по умолчанию: 30
 
 Интервал проверки живости вебсокет-подключений к etcd.
+
+## client_dirty_limit
+
+- Тип: целое число
+- Значение по умолчанию: 33554432
+
+При работе без immediate_commit=all - это лимит объёма "грязных" (не
+зафиксированных fsync-ом) данных, при достижении которого клиент будет
+принудительно вызывать fsync и фиксировать данные. Также стоит иметь в виду,
+что в этом случае до момента fsync клиент хранит копию незафиксированных
+данных в памяти, то есть, настройка влияет на потребление памяти клиентами.
+
+Параметр не влияет на сами OSD.

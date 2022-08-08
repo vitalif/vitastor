@@ -6,8 +6,6 @@
 #include "messenger.h"
 #include "etcd_state_client.h"
 
-#define MIN_DATA_BLOCK_SIZE 4*1024
-#define MAX_DATA_BLOCK_SIZE 128*1024*1024
 #define DEFAULT_CLIENT_MAX_DIRTY_BYTES 32*1024*1024
 #define DEFAULT_CLIENT_MAX_DIRTY_OPS 1024
 #define INODE_LIST_DONE 1
@@ -79,11 +77,7 @@ class cluster_client_t
     timerfd_manager_t *tfd;
     ring_loop_t *ringloop;
 
-    uint64_t bs_block_size = 0;
-    uint32_t bs_bitmap_granularity = 0, bs_bitmap_size = 0;
     std::map<pool_id_t, uint64_t> pg_counts;
-    // WARNING: initially true so execute() doesn't create fake sync
-    bool immediate_commit = true;
     // FIXME: Implement inmemory_commit mode. Note that it requires to return overlapping reads from memory.
     uint64_t client_max_dirty_bytes = 0;
     uint64_t client_max_dirty_ops = 0;
@@ -119,7 +113,7 @@ public:
     bool is_ready();
     void on_ready(std::function<void(void)> fn);
 
-    bool get_immediate_commit();
+    bool get_immediate_commit(uint64_t inode);
 
     static void copy_write(cluster_op_t *op, std::map<object_id, cluster_buffer_t> & dirty_buffers);
     void continue_ops(bool up_retry = false);
@@ -127,8 +121,8 @@ public:
         std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback);
     int list_pg_count(inode_list_t *lst);
     void list_inode_next(inode_list_t *lst, int next_pgs);
-    inline uint32_t get_bs_bitmap_granularity() { return bs_bitmap_granularity; }
-    inline uint64_t get_bs_block_size() { return bs_block_size; }
+    //inline uint32_t get_bs_bitmap_granularity() { return st_cli.global_bitmap_granularity; }
+    //inline uint64_t get_bs_block_size() { return st_cli.global_block_size; }
     uint64_t next_op_id();
 
 protected:

@@ -47,6 +47,7 @@ struct snap_merger_t
     int state = 0;
     int lists_todo = 0;
     uint64_t target_block_size = 0;
+    uint32_t target_bitmap_granularity = 0;
     btree::safe_btree_set<uint64_t> merge_offsets;
     btree::safe_btree_set<uint64_t>::iterator oit;
     std::map<inode_t, std::vector<uint64_t>> layer_lists;
@@ -101,7 +102,7 @@ struct snap_merger_t
         std::vector<inode_t> chain_list;
         inode_config_t *cur = to_cfg;
         chain_list.push_back(cur->num);
-        layer_block_size[cur->num] = get_block_size(cur->num);
+        layer_block_size[cur->num] = get_block_size(cur->num, NULL);
         while (cur->parent_id != from_cfg->num &&
             cur->parent_id != to_cfg->num &&
             cur->parent_id != 0)
@@ -124,7 +125,7 @@ struct snap_merger_t
             }
             cur = &it->second;
             chain_list.push_back(cur->num);
-            layer_block_size[cur->num] = get_block_size(cur->num);
+            layer_block_size[cur->num] = get_block_size(cur->num, NULL);
         }
         if (cur->parent_id != from_cfg->num)
         {
@@ -133,7 +134,7 @@ struct snap_merger_t
             return;
         }
         chain_list.push_back(from_cfg->num);
-        layer_block_size[from_cfg->num] = get_block_size(from_cfg->num);
+        layer_block_size[from_cfg->num] = get_block_size(from_cfg->num, NULL);
         int i = chain_list.size()-1;
         for (inode_t item: chain_list)
         {
@@ -204,14 +205,16 @@ struct snap_merger_t
                 use_cas ? " online (with CAS)" : "", INODE_NO_POOL(target), INODE_POOL(target)
             );
         }
-        target_block_size = get_block_size(target);
+        target_block_size = get_block_size(target, &target_bitmap_granularity);
     }
 
-    uint64_t get_block_size(inode_t inode)
+    uint64_t get_block_size(inode_t inode, uint32_t *bitmap_granularity)
     {
         auto & pool_cfg = parent->cli->st_cli.pool_config.at(INODE_POOL(inode));
         uint64_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
-        return parent->cli->get_bs_block_size() * pg_data_size;
+        if (bitmap_granularity)
+            *bitmap_granularity = pool_cfg.bitmap_granularity;
+        return pool_cfg.data_block_size * pg_data_size;
     }
 
     void continue_merge_reent()
@@ -409,7 +412,7 @@ struct snap_merger_t
             }
             else
             {
-                uint64_t bitmap_bytes = target_block_size/parent->cli->get_bs_bitmap_granularity()/8;
+                uint64_t bitmap_bytes = target_block_size/target_bitmap_granularity/8;
                 int i;
                 for (i = 0; i < bitmap_bytes; i++)
                 {
@@ -469,7 +472,7 @@ struct snap_merger_t
     {
         // Write each non-empty range using an individual operation
         // FIXME: Allow to use single write with "holes" (OSDs don't allow it yet)
-        uint32_t gran = parent->cli->get_bs_bitmap_granularity();
+        uint32_t gran = target_bitmap_granularity;
         uint64_t bitmap_size = target_block_size / gran;
         while (rwo->end < bitmap_size && !rwo->error_code)
         {

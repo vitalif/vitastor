@@ -29,6 +29,7 @@ between clients, OSDs and etcd.
 - [etcd_slow_timeout](#etcd_slow_timeout)
 - [etcd_keepalive_timeout](#etcd_keepalive_timeout)
 - [etcd_ws_keepalive_timeout](#etcd_ws_keepalive_timeout)
+- [client_dirty_limit](#client_dirty_limit)
 
 ## tcp_header_buffer_size
 
@@ -212,3 +213,16 @@ etcd_report_interval to guarantee that keepalive actually works.
 
 etcd websocket ping interval required to keep the connection alive and
 detect disconnections quickly.
+
+## client_dirty_limit
+
+- Type: integer
+- Default: 33554432
+
+Without immediate_commit=all this parameter sets the limit of "dirty"
+(not committed by fsync) data allowed by the client before forcing an
+additional fsync and committing the data. Also note that the client always
+holds a copy of uncommitted data in memory so this setting also affects
+RAM usage of clients.
+
+This parameter doesn't affect OSDs themselves.

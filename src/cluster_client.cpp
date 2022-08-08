@@ -14,6 +14,7 @@
 #define CACHE_FLUSHING 2
 #define CACHE_REPEATING 3
 #define OP_FLUSH_BUFFER 0x02
+#define OP_IMMEDIATE_COMMIT 0x04
 
 cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config)
 {
@@ -127,26 +128,26 @@ void cluster_client_t::calc_wait(cluster_op_t *op)
                 op->prev_wait++;
             }
         }
-        if (!op->prev_wait && pgs_loaded)
+        if (!op->prev_wait)
             continue_rw(op);
     }
     else if (op->opcode == OSD_OP_SYNC)
     {
         for (auto prev = op->prev; prev; prev = prev->prev)
         {
-            if (prev->opcode == OSD_OP_SYNC || prev->opcode == OSD_OP_WRITE)
+            if (prev->opcode == OSD_OP_SYNC || prev->opcode == OSD_OP_WRITE && !(prev->flags & OP_IMMEDIATE_COMMIT))
             {
                 op->prev_wait++;
             }
         }
-        if (!op->prev_wait && pgs_loaded)
+        if (!op->prev_wait)
             continue_sync(op);
     }
     else /* if (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP) */
     {
         for (auto prev = op_queue_head; prev && prev != op; prev = prev->next)
         {
-            if (prev->opcode == OSD_OP_WRITE && prev->flags & OP_FLUSH_BUFFER)
+            if (prev->opcode == OSD_OP_WRITE && (prev->flags & OP_FLUSH_BUFFER))
             {
                 op->prev_wait++;
             }
@@ -156,7 +157,7 @@ void cluster_client_t::calc_wait(cluster_op_t *op)
                 break;
             }
         }
-        if (!op->prev_wait && pgs_loaded)
+        if (!op->prev_wait)
             continue_rw(op);
     }
 }
@@ -168,7 +169,7 @@ void cluster_client_t::inc_wait(uint64_t opcode, uint64_t flags, cluster_op_t *n
         while (next)
         {
             auto n2 = next->next;
-            if (next->opcode == OSD_OP_SYNC ||
+            if (next->opcode == OSD_OP_SYNC && !(flags & OP_IMMEDIATE_COMMIT) ||
                 next->opcode == OSD_OP_WRITE && (flags & OP_FLUSH_BUFFER) && !(next->flags & OP_FLUSH_BUFFER) ||
                 (next->opcode == OSD_OP_READ || next->opcode == OSD_OP_READ_BITMAP) && (flags & OP_FLUSH_BUFFER))
             {
@@ -221,7 +222,7 @@ void cluster_client_t::erase_op(cluster_op_t *op)
         op_queue_tail = op->prev;
     op->next = op->prev = NULL;
     std::function<void(cluster_op_t*)>(op->callback)(op);
-    if (!immediate_commit)
+    if (!(flags & OP_IMMEDIATE_COMMIT))
         inc_wait(opcode, flags, next, -1);
 }
 
@@ -262,21 +263,6 @@ restart:
     continuing_ops = 0;
 }
 
-static uint32_t is_power_of_two(uint64_t value)
-{
-    uint32_t l = 0;
-    while (value > 1)
-    {
-        if (value & 1)
-        {
-            return 64;
-        }
-        value = value >> 1;
-        l++;
-    }
-    return l;
-}
-
 void cluster_client_t::on_load_config_hook(json11::Json::object & config)
 {
     this->merged_config = config;
@@ -284,24 +270,6 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & config)
     {
         this->merged_config[kv.first] = kv.second;
     }
-    bs_block_size = config["block_size"].uint64_value();
-    bs_bitmap_granularity = config["bitmap_granularity"].uint64_value();
-    if (!bs_block_size)
-    {
-        bs_block_size = DEFAULT_BLOCK_SIZE;
-    }
-    if (!bs_bitmap_granularity)
-    {
-        bs_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
-    }
-    bs_bitmap_size = bs_block_size / bs_bitmap_granularity / 8;
-    uint32_t block_order;
-    if ((block_order = is_power_of_two(bs_block_size)) >= 64 || bs_block_size < MIN_DATA_BLOCK_SIZE || bs_block_size >= MAX_DATA_BLOCK_SIZE)
-    {
-        throw std::runtime_error("Bad block size");
-    }
-    // Cluster-wide immediate_commit mode
-    immediate_commit = (config["immediate_commit"] == "all");
     if (config.find("client_max_dirty_bytes") != config.end())
     {
         client_max_dirty_bytes = config["client_max_dirty_bytes"].uint64_value();
@@ -379,9 +347,15 @@ void cluster_client_t::on_change_hook(std::map<std::string, etcd_kv_t> & changes
     continue_ops();
 }
 
-bool cluster_client_t::get_immediate_commit()
+bool cluster_client_t::get_immediate_commit(uint64_t inode)
 {
-    return immediate_commit;
+    pool_id_t pool_id = INODE_POOL(inode);
+    if (!pool_id)
+        return true;
+    auto pool_it = st_cli.pool_config.find(pool_id);
+    if (pool_it == st_cli.pool_config.end())
+        return true;
+    return pool_it->second.immediate_commit == IMMEDIATE_ALL;
 }
 
 void cluster_client_t::on_change_osd_state_hook(uint64_t peer_osd)
@@ -439,9 +413,45 @@ void cluster_client_t::execute(cluster_op_t *op)
         std::function<void(cluster_op_t*)>(op->callback)(op);
         return;
     }
+    if (!pgs_loaded)
+    {
+        offline_ops.push_back(op);
+        return;
+    }
     op->cur_inode = op->inode;
     op->retval = 0;
-    if (op->opcode == OSD_OP_WRITE && !immediate_commit)
+    op->flags = op->flags & OSD_OP_IGNORE_READONLY; // single allowed flag
+    if (op->opcode != OSD_OP_SYNC)
+    {
+        pool_id_t pool_id = INODE_POOL(op->cur_inode);
+        if (!pool_id)
+        {
+            op->retval = -EINVAL;
+            std::function<void(cluster_op_t*)>(op->callback)(op);
+            return;
+        }
+        auto pool_it = st_cli.pool_config.find(pool_id);
+        if (pool_it == st_cli.pool_config.end() || pool_it->second.real_pg_count == 0)
+        {
+            // Pools are loaded, but this one is unknown
+            op->retval = -EINVAL;
+            std::function<void(cluster_op_t*)>(op->callback)(op);
+            return;
+        }
+        // Check alignment
+        if ((op->opcode == OSD_OP_READ || op->opcode == OSD_OP_WRITE) && !op->len ||
+            op->offset % pool_it->second.bitmap_granularity || op->len % pool_it->second.bitmap_granularity)
+        {
+            op->retval = -EINVAL;
+            std::function<void(cluster_op_t*)>(op->callback)(op);
+            return;
+        }
+        if (pool_it->second.immediate_commit == IMMEDIATE_ALL)
+        {
+            op->flags |= OP_IMMEDIATE_COMMIT;
+        }
+    }
+    if (op->opcode == OSD_OP_WRITE && !(op->flags & OP_IMMEDIATE_COMMIT))
     {
         if (dirty_bytes >= client_max_dirty_bytes || dirty_ops >= client_max_dirty_ops)
         {
@@ -480,9 +490,9 @@ void cluster_client_t::execute(cluster_op_t *op)
     }
     else
         op_queue_tail = op_queue_head = op;
-    if (!immediate_commit)
+    if (!(op->flags & OP_IMMEDIATE_COMMIT))
         calc_wait(op);
-    else if (pgs_loaded)
+    else
     {
         if (op->opcode == OSD_OP_SYNC)
             continue_sync(op);
@@ -610,28 +620,6 @@ int cluster_client_t::continue_rw(cluster_op_t *op)
     else if (op->state == 3)
         goto resume_3;
 resume_0:
-    if ((op->opcode == OSD_OP_READ || op->opcode == OSD_OP_WRITE) && !op->len ||
-        op->offset % bs_bitmap_granularity || op->len % bs_bitmap_granularity)
-    {
-        op->retval = -EINVAL;
-        erase_op(op);
-        return 1;
-    }
-    {
-        pool_id_t pool_id = INODE_POOL(op->cur_inode);
-        if (!pool_id)
-        {
-            op->retval = -EINVAL;
-            erase_op(op);
-            return 1;
-        }
-        if (st_cli.pool_config.find(pool_id) == st_cli.pool_config.end() ||
-            st_cli.pool_config[pool_id].real_pg_count == 0)
-        {
-            // Postpone operations to unknown pools
-            return 0;
-        }
-    }
     if (op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE)
     {
         if (!(op->flags & OSD_OP_IGNORE_READONLY))
@@ -644,7 +632,7 @@ resume_0:
                 return 1;
             }
         }
-        if (op->opcode == OSD_OP_WRITE && !immediate_commit && !(op->flags & OP_FLUSH_BUFFER))
+        if (op->opcode == OSD_OP_WRITE && !(op->flags & OP_IMMEDIATE_COMMIT) && !(op->flags & OP_FLUSH_BUFFER))
         {
             copy_write(op, dirty_buffers);
         }
@@ -814,7 +802,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
     // Primary OSDs still operate individual stripes, but their size is multiplied by PG minsize in case of EC
     auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(op->cur_inode));
     uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
-    uint64_t pg_block_size = bs_block_size * pg_data_size;
+    uint64_t pg_block_size = pool_cfg.data_block_size * pg_data_size;
     uint64_t first_stripe = (op->offset / pg_block_size) * pg_block_size;
     uint64_t last_stripe = op->len > 0 ? ((op->offset + op->len - 1) / pg_block_size) * pg_block_size : first_stripe;
     op->retval = 0;
@@ -822,9 +810,9 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
     if (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP)
     {
         // Allocate memory for the bitmap
-        unsigned object_bitmap_size = (((op->opcode == OSD_OP_READ_BITMAP ? pg_block_size : op->len) / bs_bitmap_granularity + 7) / 8);
+        unsigned object_bitmap_size = (((op->opcode == OSD_OP_READ_BITMAP ? pg_block_size : op->len) / pool_cfg.bitmap_granularity + 7) / 8);
         object_bitmap_size = (object_bitmap_size < 8 ? 8 : object_bitmap_size);
-        unsigned bitmap_mem = object_bitmap_size + (bs_bitmap_size * pg_data_size) * op->parts.size();
+        unsigned bitmap_mem = object_bitmap_size + (pool_cfg.data_block_size / pool_cfg.bitmap_granularity / 8 * pg_data_size) * op->parts.size();
         if (op->bitmap_buf_size < bitmap_mem)
         {
             op->bitmap_buf = realloc_or_die(op->bitmap_buf, bitmap_mem);
@@ -854,7 +842,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
             bool skip_prev = true;
             while (cur < end)
             {
-                unsigned bmp_loc = (cur - op->offset)/bs_bitmap_granularity;
+                unsigned bmp_loc = (cur - op->offset)/pool_cfg.bitmap_granularity;
                 bool skip = (((*((uint8_t*)op->bitmap_buf + bmp_loc/8)) >> (bmp_loc%8)) & 0x1);
                 if (skip_prev != skip)
                 {
@@ -872,7 +860,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
                     skip_prev = skip;
                     prev = cur;
                 }
-                cur += bs_bitmap_granularity;
+                cur += pool_cfg.bitmap_granularity;
             }
             assert(cur > prev);
             if (skip_prev)
@@ -904,7 +892,7 @@ bool cluster_client_t::affects_osd(uint64_t inode, uint64_t offset, uint64_t len
 {
     auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(inode));
     uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
-    uint64_t pg_block_size = bs_block_size * pg_data_size;
+    uint64_t pg_block_size = pool_cfg.data_block_size * pg_data_size;
     uint64_t first_stripe = (offset / pg_block_size) * pg_block_size;
     uint64_t last_stripe = len > 0 ? ((offset + len - 1) / pg_block_size) * pg_block_size : first_stripe;
     for (uint64_t stripe = first_stripe; stripe <= last_stripe; stripe += pg_block_size)
@@ -935,7 +923,7 @@ bool cluster_client_t::try_send(cluster_op_t *op, int i)
             part->osd_num = primary_osd;
             part->flags |= PART_SENT;
             op->inflight_count++;
-            uint64_t pg_bitmap_size = bs_bitmap_size * (
+            uint64_t pg_bitmap_size = (pool_cfg.data_block_size / pool_cfg.bitmap_granularity / 8) * (
                 pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks
             );
             uint64_t meta_rev = 0;
@@ -983,7 +971,7 @@ int cluster_client_t::continue_sync(cluster_op_t *op)
 {
     if (op->state == 1)
         goto resume_1;
-    if (immediate_commit || !dirty_osds.size())
+    if (!dirty_osds.size())
     {
         // Sync is not required in the immediate_commit mode or if there are no dirty_osds
         op->retval = 0;
@@ -1140,7 +1128,8 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
     else
     {
         // OK
-        dirty_osds.insert(part->osd_num);
+        if (!(op->flags & OP_IMMEDIATE_COMMIT))
+            dirty_osds.insert(part->osd_num);
         part->flags |= PART_DONE;
         op->done_count++;
         if (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP)
@@ -1162,12 +1151,12 @@ void cluster_client_t::copy_part_bitmap(cluster_op_t *op, cluster_op_part_t *par
 {
     // Copy (OR) bitmap
     auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(op->cur_inode));
-    uint32_t pg_block_size = bs_block_size * (
+    uint32_t pg_block_size = pool_cfg.data_block_size * (
         pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks
     );
-    uint32_t object_offset = (part->op.req.rw.offset - op->offset) / bs_bitmap_granularity;
-    uint32_t part_offset = (part->op.req.rw.offset % pg_block_size) / bs_bitmap_granularity;
-    uint32_t part_len = (op->opcode == OSD_OP_READ_BITMAP ? pg_block_size : part->op.req.rw.len) / bs_bitmap_granularity;
+    uint32_t object_offset = (part->op.req.rw.offset - op->offset) / pool_cfg.bitmap_granularity;
+    uint32_t part_offset = (part->op.req.rw.offset % pg_block_size) / pool_cfg.bitmap_granularity;
+    uint32_t part_len = (op->opcode == OSD_OP_READ_BITMAP ? pg_block_size : part->op.req.rw.len) / pool_cfg.bitmap_granularity;
     if (!(object_offset & 0x7) && !(part_offset & 0x7) && (part_len >= 8))
     {
         // Copy bytes

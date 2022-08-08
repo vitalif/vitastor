@@ -314,7 +314,12 @@ static int nfs3_read_proc(void *opaque, rpc_op_t *rop)
         rpc_queue_reply(rop);
         return 0;
     }
-    uint64_t alignment = self->parent->cli->get_bs_bitmap_granularity();
+    uint64_t alignment = self->parent->cli->st_cli.global_bitmap_granularity;
+    auto pool_cfg = self->parent->cli->st_cli.pool_config.find(INODE_POOL(ino_it->second));
+    if (pool_cfg != self->parent->cli->st_cli.pool_config.end())
+    {
+        alignment = pool_cfg->second.bitmap_granularity;
+    }
     uint64_t aligned_offset = args->offset - (args->offset % alignment);
     uint64_t aligned_count = args->offset + args->count;
     if (aligned_count % alignment)
@@ -375,7 +380,12 @@ static int nfs3_write_proc(void *opaque, rpc_op_t *rop)
         return 0;
     }
     uint64_t count = args->count > args->data.size ? args->data.size : args->count;
-    uint64_t alignment = self->parent->cli->get_bs_bitmap_granularity();
+    uint64_t alignment = self->parent->cli->st_cli.global_bitmap_granularity;
+    auto pool_cfg = self->parent->cli->st_cli.pool_config.find(INODE_POOL(ino_it->second));
+    if (pool_cfg != self->parent->cli->st_cli.pool_config.end())
+    {
+        alignment = pool_cfg->second.bitmap_granularity;
+    }
     // Pre-fill reply
     *reply = (WRITE3res){
         .status = NFS3_OK,
@@ -471,6 +481,7 @@ static void nfs_do_write(nfs_client_t *self, rpc_op_t *rop, uint64_t inode, uint
     op->iov.push_back(buf, count);
     op->callback = [self, rop](cluster_op_t *op)
     {
+        uint64_t inode = op->inode;
         WRITE3args *args = (WRITE3args*)rop->request;
         WRITE3res *reply = (WRITE3res*)rop->reply;
         if (op->retval != op->len)
@@ -483,8 +494,8 @@ static void nfs_do_write(nfs_client_t *self, rpc_op_t *rop, uint64_t inode, uint
         {
             *(uint64_t*)reply->resok.verf = self->parent->server_id;
             delete op;
-            if (!self->parent->cli->get_immediate_commit() &&
-                args->stable != UNSTABLE)
+            if (args->stable != UNSTABLE &&
+                !self->parent->cli->get_immediate_commit(inode))
             {
                 // Client requested a stable write. Add an fsync
                 op = new cluster_op_t;
@@ -1179,25 +1190,17 @@ static int nfs3_commit_proc(void *opaque, rpc_op_t *rop)
 {
     nfs_client_t *self = (nfs_client_t*)opaque;
     //COMMIT3args *args = (COMMIT3args*)rop->request;
-    if (!self->parent->cli->get_immediate_commit())
+    cluster_op_t *op = new cluster_op_t;
+    // fsync. we don't know how to fsync a single inode, so just fsync everything
+    op->opcode = OSD_OP_SYNC;
+    op->callback = [rop](cluster_op_t *op)
     {
-        cluster_op_t *op = new cluster_op_t;
-        // fsync. we don't know how to fsync a single inode, so just fsync everything
-        op->opcode = OSD_OP_SYNC;
-        op->callback = [rop](cluster_op_t *op)
-        {
-            COMMIT3res *reply = (COMMIT3res*)rop->reply;
-            *reply = (COMMIT3res){ .status = vitastor_nfs_map_err(op->retval) };
-            rpc_queue_reply(rop);
-        };
-        self->parent->cli->execute(op);
-        return 1;
-    }
-    // pretend we just did an fsync
-    COMMIT3res *reply = (COMMIT3res*)rop->reply;
-    *reply = (COMMIT3res){ .status = NFS3_OK };
-    rpc_queue_reply(rop);
-    return 0;
+        COMMIT3res *reply = (COMMIT3res*)rop->reply;
+        *reply = (COMMIT3res){ .status = vitastor_nfs_map_err(op->retval) };
+        rpc_queue_reply(rop);
+    };
+    self->parent->cli->execute(op);
+    return 1;
 }
 
 static int mount3_mnt_proc(void *opaque, rpc_op_t *rop)

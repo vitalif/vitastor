@@ -2,45 +2,27 @@
   type: int
   default: 131072
   info: |
-    Size of objects (data blocks) into which all physical and virtual drives are
-    subdivided in Vitastor. One of current main settings in Vitastor, affects
-    memory usage, write amplification and I/O load distribution effectiveness.
+    Size of objects (data blocks) into which all physical and virtual drives
+    (within a pool) are subdivided in Vitastor. One of current main settings
+    in Vitastor, affects memory usage, write amplification and I/O load
+    distribution effectiveness.
 
     Recommended default block size is 128 KB for SSD and 4 MB for HDD. In fact,
     it's possible to use 4 MB for SSD too - it will lower memory usage, but
     may increase average WA and reduce linear performance.
 
-    OSDs with different block sizes (for example, SSD and SSD+HDD OSDs) can
-    currently coexist in one etcd instance only within separate Vitastor
-    clusters with different etcd_prefix'es.
-
-    Also block size can't be changed after OSD initialization without losing
-    data.
-
-    You must always specify block_size in etcd in /vitastor/config/global if
-    you change it so all clients can know about it.
-
     OSD memory usage is roughly (SIZE / BLOCK * 68 bytes) which is roughly
     544 MB per 1 TB of used disk space with the default 128 KB block size.
   info_ru: |
     Размер объектов (блоков данных), на которые делятся физические и виртуальные
-    диски в Vitastor. Одна из ключевых на данный момент настроек, влияет на
-    потребление памяти, объём избыточной записи (write amplification) и
-    эффективность распределения нагрузки по OSD.
+    диски в Vitastor (в рамках каждого пула). Одна из ключевых на данный момент
+    настроек, влияет на потребление памяти, объём избыточной записи (write
+    amplification) и эффективность распределения нагрузки по OSD.
 
     Рекомендуемые по умолчанию размеры блока - 128 килобайт для SSD и 4
     мегабайта для HDD. В принципе, для SSD можно тоже использовать 4 мегабайта,
     это понизит использование памяти, но ухудшит распределение нагрузки и в
     среднем увеличит WA.
-
-    OSD с разными размерами блока (например, SSD и SSD+HDD OSD) на данный
-    момент могут сосуществовать в рамках одного etcd только в виде двух независимых
-    кластеров Vitastor с разными etcd_prefix.
-
-    Также размер блока нельзя менять после инициализации OSD без потери данных.
-
-    Если вы меняете размер блока, обязательно прописывайте его в etcd в
-    /vitastor/config/global, дабы все клиенты его знали.
 
     Потребление памяти OSD составляет примерно (РАЗМЕР / БЛОК * 68 байт),
     т.е. примерно 544 МБ памяти на 1 ТБ занятого места на диске при
@@ -54,25 +36,14 @@
     an allocation bitmap for each object containing 2 bits per each
     (bitmap_granularity) bytes.
 
-    This parameter can't be changed after OSD initialization without losing
-    data. Also it's fixed for the whole Vitastor cluster i.e. two different
-    values can't be used in a single Vitastor cluster.
-
-    Clients MUST be aware of this parameter value, so put it into etcd key
-    /vitastor/config/global if you change it for any reason.
+    Can't be smaller than the OSD data device sector.
   info_ru: |
     Требуемое выравнивание записи на виртуальные диски (размер их "сектора").
     Должен быть кратен disk_alignment. Называется гранулярностью битовой карты
     потому, что Vitastor хранит битовую карту для каждого объекта, содержащую
     по 2 бита на каждые (bitmap_granularity) байт.
 
-    Данный параметр нельзя менять после инициализации OSD без потери данных.
-    Также он фиксирован для всего кластера Vitastor, т.е. разные значения
-    не могут сосуществовать в одном кластере.
-
-    Клиенты ДОЛЖНЫ знать правильное значение этого параметра, так что если вы
-    его меняете, обязательно прописывайте изменённое значение в etcd в ключ
-    /vitastor/config/global.
+    Не может быть меньше размера сектора дисков данных OSD.
 - name: immediate_commit
   type: string
   default: false
@@ -114,10 +85,9 @@
     SSD cache or "media-cache" - for example, a lot of Seagate EXOS drives have
     it (they have internal SSD cache even though it's not stated in datasheets).
 
-    This parameter must be set both in etcd in /vitastor/config/global and in
-    OSD command line or configuration. Setting it to "all" or "small" requires
-    enabling disable_journal_fsync and disable_meta_fsync, setting it to "all"
-    also requires enabling disable_data_fsync.
+    Setting this parameter to "all" or "small" in OSD parameters requires enabling
+    disable_journal_fsync and disable_meta_fsync, setting it to "all" also requires
+    enabling disable_data_fsync.
 
     TLDR: For optimal performance, set immediate_commit to "all" if you only use
     SSDs with supercapacitor-based power loss protection (nonvolatile
@@ -168,8 +138,7 @@
     многих дисках Seagate EXOS (у них есть внутренний SSD-кэш, хотя это и не
     указано в спецификациях).
 
-    Данный параметр нужно указывать и в etcd в /vitastor/config/global, и в
-    командной строке или конфигурации OSD. Значения "all" и "small" требуют
+    Указание "all" или "small" в настройках / командной строке OSD требует
     включения disable_journal_fsync и disable_meta_fsync, значение "all" также
     требует включения disable_data_fsync.
 
@@ -179,22 +148,3 @@
     такие SSD для всех журналов, но не для данных - можете установить параметр
     в "small". Если и какие-то из дисков журналов имеют волатильный кэш записи -
     оставьте параметр пустым.
-- name: client_dirty_limit
-  type: int
-  default: 33554432
-  info: |
-    Without immediate_commit=all this parameter sets the limit of "dirty"
-    (not committed by fsync) data allowed by the client before forcing an
-    additional fsync and committing the data. Also note that the client always
-    holds a copy of uncommitted data in memory so this setting also affects
-    RAM usage of clients.
-
-    This parameter doesn't affect OSDs themselves.
-  info_ru: |
-    При работе без immediate_commit=all - это лимит объёма "грязных" (не
-    зафиксированных fsync-ом) данных, при достижении которого клиент будет
-    принудительно вызывать fsync и фиксировать данные. Также стоит иметь в виду,
-    что в этом случае до момента fsync клиент хранит копию незафиксированных
-    данных в памяти, то есть, настройка влияет на потребление памяти клиентами.
-
-    Параметр не влияет на сами OSD.

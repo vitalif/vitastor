@@ -223,3 +223,22 @@
     detect disconnections quickly.
   info_ru: |
     Интервал проверки живости вебсокет-подключений к etcd.
+- name: client_dirty_limit
+  type: int
+  default: 33554432
+  info: |
+    Without immediate_commit=all this parameter sets the limit of "dirty"
+    (not committed by fsync) data allowed by the client before forcing an
+    additional fsync and committing the data. Also note that the client always
+    holds a copy of uncommitted data in memory so this setting also affects
+    RAM usage of clients.
+
+    This parameter doesn't affect OSDs themselves.
+  info_ru: |
+    При работе без immediate_commit=all - это лимит объёма "грязных" (не
+    зафиксированных fsync-ом) данных, при достижении которого клиент будет
+    принудительно вызывать fsync и фиксировать данные. Также стоит иметь в виду,
+    что в этом случае до момента fsync клиент хранит копию незафиксированных
+    данных в памяти, то есть, настройка влияет на потребление памяти клиентами.
+
+    Параметр не влияет на сами OSD.

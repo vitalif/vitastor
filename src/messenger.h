@@ -33,7 +33,6 @@
 #define PEER_RDMA 4
 #define PEER_STOPPED 5
 
-#define DEFAULT_BITMAP_GRANULARITY 4096
 #define VITASTOR_CONFIG_PATH "/etc/vitastor/vitastor.conf"
 
 #define MSGR_SENDP_HDR 1
@@ -160,6 +159,7 @@ public:
     void outbox_push(osd_op_t *cur_op);
     std::function<void(osd_op_t*)> exec_op;
     std::function<void(osd_num_t)> repeer_pgs;
+    std::function<bool(osd_client_t*, json11::Json)> check_config_hook;
     void read_requests();
     void send_replies();
     void accept_connections(int listen_fd);

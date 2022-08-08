@@ -108,6 +108,52 @@ void osd_t::parse_test_peer(std::string peer)
     msgr.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
 }
 
+bool osd_t::check_peer_config(osd_client_t *cl, json11::Json conf)
+{
+    // Check block_size, bitmap_granularity and immediate_commit of the peer
+    if (conf["block_size"].is_null() ||
+        conf["bitmap_granularity"].is_null() ||
+        conf["immediate_commit"].is_null())
+    {
+        printf(
+            "[OSD %lu] Warning: peer OSD %lu does not report block_size/bitmap_granularity/immediate_commit."
+            " Is it older than 0.6.3?\n", this->osd_num, cl->osd_num
+        );
+    }
+    else
+    {
+        int peer_immediate_commit = (conf["immediate_commit"].string_value() == "all"
+            ? IMMEDIATE_ALL : (conf["immediate_commit"].string_value() == "small" ? IMMEDIATE_SMALL : IMMEDIATE_NONE));
+        if (immediate_commit == IMMEDIATE_ALL && peer_immediate_commit != IMMEDIATE_ALL ||
+            immediate_commit == IMMEDIATE_SMALL && peer_immediate_commit == IMMEDIATE_NONE)
+        {
+            printf(
+                "[OSD %lu] My immediate_commit is \"%s\", but peer OSD %lu has \"%s\". We can't work together\n",
+                this->osd_num, immediate_commit == IMMEDIATE_ALL ? "all" : "small",
+                cl->osd_num, conf["immediate_commit"].string_value().c_str()
+            );
+            return true;
+        }
+        else if (conf["block_size"].uint64_value() != (uint64_t)this->bs_block_size)
+        {
+            printf(
+                "[OSD %lu] My block_size is %u, but peer OSD %lu has %lu. We can't work together\n",
+                this->osd_num, this->bs_block_size, cl->osd_num, conf["block_size"].uint64_value()
+            );
+            return true;
+        }
+        else if (conf["bitmap_granularity"].uint64_value() != (uint64_t)this->bs_bitmap_granularity)
+        {
+            printf(
+                "[OSD %lu] My bitmap_granularity is %u, but peer OSD %lu has %lu. We can't work together\n",
+                this->osd_num, this->bs_bitmap_granularity, cl->osd_num, conf["bitmap_granularity"].uint64_value()
+            );
+            return true;
+        }
+    }
+    return true;
+}
+
 json11::Json osd_t::get_osd_state()
 {
     std::vector<char> hostname;
@@ -137,6 +183,7 @@ json11::Json osd_t::get_statistics()
     sprintf(time_str, "%ld.%03ld", ts.tv_sec, ts.tv_nsec/1000000);
     st["time"] = time_str;
     st["blockstore_ready"] = bs->is_started();
+    st["data_block_size"] = (uint64_t)bs->get_block_size();
     if (bs)
     {
         st["size"] = bs->get_block_count() * bs->get_block_size();
@@ -365,7 +412,7 @@ void osd_t::on_load_config_hook(json11::Json::object & global_config)
     for (auto & kv: global_config)
         if (osd_config.find(kv.first) == osd_config.end())
             osd_config[kv.first] = kv.second;
-    parse_config(osd_config);
+    parse_config(osd_config, false);
     bind_socket();
     acquire_lease();
 }
@@ -598,6 +645,7 @@ void osd_t::apply_pg_config()
     bool all_applied = true;
     for (auto & pool_item: st_cli.pool_config)
     {
+        bool warned_block_size = false;
         auto pool_id = pool_item.first;
         for (auto & kv: pool_item.second.pg_config)
         {
@@ -607,6 +655,22 @@ void osd_t::apply_pg_config()
                 !pg_cfg.pause && (!pg_cfg.cur_primary || pg_cfg.cur_primary == this->osd_num);
             auto pg_it = this->pgs.find({ .pool_id = pool_id, .pg_num = pg_num });
             bool currently_taken = pg_it != this->pgs.end() && pg_it->second.state != PG_OFFLINE;
+            // Check pool block size and bitmap granularity
+            if (this->bs_block_size != pool_item.second.data_block_size ||
+                this->bs_bitmap_granularity != pool_item.second.bitmap_granularity)
+            {
+                if (!warned_block_size)
+                {
+                    printf(
+                        "[OSD %lu] My block_size and bitmap_granularity are %u/%u"
+                        ", but pool has %u/%u. Refusing to start PGs of this pool\n",
+                        this->osd_num, bs_block_size, bs_bitmap_granularity,
+                        pool_item.second.data_block_size, pool_item.second.bitmap_granularity
+                    );
+                }
+                warned_block_size = true;
+                take = false;
+            }
             if (currently_taken && !take)
             {
                 // Stop this PG

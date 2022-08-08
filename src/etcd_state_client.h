@@ -13,6 +13,13 @@
 #define ETCD_OSD_STATE_WATCH_ID 4
 
 #define DEFAULT_BLOCK_SIZE 128*1024
+#define MIN_DATA_BLOCK_SIZE 4*1024
+#define MAX_DATA_BLOCK_SIZE 128*1024*1024
+#define DEFAULT_BITMAP_GRANULARITY 4096
+
+#define IMMEDIATE_NONE 0
+#define IMMEDIATE_SMALL 1
+#define IMMEDIATE_ALL 2
 
 struct etcd_kv_t
 {
@@ -41,6 +48,7 @@ struct pool_config_t
     std::string name;
     uint64_t scheme;
     uint64_t pg_size, pg_minsize, parity_chunks;
+    uint32_t data_block_size, bitmap_granularity, immediate_commit;
     uint64_t pg_count;
     uint64_t real_pg_count;
     std::string failure_domain;
@@ -83,7 +91,6 @@ protected:
     int ws_keepalive_timer = -1;
     int ws_alive = 0;
     bool rand_initialized = false;
-    uint64_t bs_block_size = DEFAULT_BLOCK_SIZE;
     void add_etcd_url(std::string);
     void pick_next_etcd();
 public:
@@ -92,6 +99,9 @@ public:
     int max_etcd_attempts = 5;
     int etcd_quick_timeout = 1000;
     int etcd_slow_timeout = 5000;
+    uint64_t global_block_size = DEFAULT_BLOCK_SIZE;
+    uint32_t global_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
+    uint32_t global_immediate_commit = IMMEDIATE_NONE;
 
     std::string etcd_prefix;
     int log_level = 0;

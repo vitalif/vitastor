@@ -157,7 +157,12 @@ const etcd_tree = {
                 pg_count: 100,
                 failure_domain: 'host',
                 max_osd_combinations: 10000,
-                pg_stripe_size: 4194304,
+                // block_size, bitmap_granularity, immediate_commit must match all OSDs used in that pool
+                data_block_size: 131072,
+                bitmap_granularity: 4096,
+                // 'all'/'small'/'none', same as in OSD options
+                immediate_commit: 'none',
+                pg_stripe_size: 0,
                 root_node?: 'rack1',
                 // restrict pool to OSDs having all of these tags
                 osd_tags?: 'nvme' | [ 'nvme', ... ],
@@ -319,6 +324,13 @@ const etcd_tree = {
         },
         object_counts: {
             object: uint64_t,
+            clean: uint64_t,
+            misplaced: uint64_t,
+            degraded: uint64_t,
+            incomplete: uint64_t,
+        },
+        object_bytes: {
+            total: uint64_t,
             clean: uint64_t,
             misplaced: uint64_t,
             degraded: uint64_t,
@@ -1438,8 +1450,23 @@ class Mon
     sum_object_counts()
     {
         const object_counts = { object: 0n, clean: 0n, misplaced: 0n, degraded: 0n, incomplete: 0n };
+        const object_bytes = { object: 0n, clean: 0n, misplaced: 0n, degraded: 0n, incomplete: 0n };
         for (const pool_id in this.state.pg.stats)
         {
+            let object_size = 0;
+            for (const osd_num of this.state.pg.stats[pool_id].write_osd_set||[])
+            {
+                if (osd_num && this.state.osd.stats[osd_num] && this.state.osd.stats[osd_num].block_size)
+                {
+                    object_size = this.state.osd.stats[osd_num].block_size;
+                    break;
+                }
+            }
+            if (!object_size)
+            {
+                object_size = this.config['block_size'];
+            }
+            object_size = BigInt(object_size);
             for (const pg_num in this.state.pg.stats[pool_id])
             {
                 const st = this.state.pg.stats[pool_id][pg_num];
@@ -1450,12 +1477,13 @@ class Mon
                         if (st[k+'_count'])
                         {
                             object_counts[k] += BigInt(st[k+'_count']);
+                            object_bytes[k] += BigInt(st[k+'_count']) * object_size;
                         }
                     }
                 }
             }
         }
-        return object_counts;
+        return { object_counts, object_bytes };
     }
 
     sum_inode_stats(prev_stats, timestamp, prev_timestamp)
@@ -1568,7 +1596,7 @@ class Mon
     {
         const txn = [];
         const timestamp = Date.now();
-        const object_counts = this.sum_object_counts();
+        const { object_counts, object_bytes } = this.sum_object_counts();
         let stats = this.sum_op_stats(timestamp, this.prev_stats);
         let inode_stats = this.sum_inode_stats(
             this.prev_stats ? this.prev_stats.inode_stats : null,
@@ -1576,6 +1604,7 @@ class Mon
         );
         this.prev_stats = { timestamp, ...stats, inode_stats };
         stats.object_counts = object_counts;
+        stats.object_bytes = object_bytes;
         stats = this.serialize_bigints(stats);
         inode_stats = this.serialize_bigints(inode_stats);
         txn.push({ requestPut: { key: b64(this.etcd_prefix+'/stats'), value: b64(JSON.stringify(stats)) } });

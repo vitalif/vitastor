@@ -427,6 +427,10 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
                     cl->osd_num, config["protocol_version"].uint64_value(), OSD_PROTOCOL_VERSION
                 );
             }
+            if (check_config_hook)
+            {
+                err = !check_config_hook(cl, config);
+            }
         }
         if (err)
         {

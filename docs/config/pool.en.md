@@ -33,6 +33,9 @@ Parameters:
 - [pg_count](#pg_count)
 - [failure_domain](#failure_domain)
 - [max_osd_combinations](#max_osd_combinations)
+- [block_size](#block_size)
+- [bitmap_granularity](#bitmap_granularity)
+- [immediate_commit](#immediate_commit)
 - [pg_stripe_size](#pg_stripe_size)
 - [root_node](#root_node)
 - [osd_tags](#osd_tags)
@@ -185,6 +188,43 @@ which are fed to it are generated ramdonly. This parameter specifies the maximum
 number of combinations to generate when optimising PG placement.
 
 This parameter usually doesn't require to be changed.
+
+## block_size
+
+- Type: integer
+- Default: 131072
+
+Block size for this pool. The value from /vitastor/config/global is used when
+unspecified. If your cluster has OSDs with different block sizes then pool must
+be restricted by [osd_tags](#osd_tags) to only include OSDs with matching block
+size.
+
+Read more about this parameter in [Cluster-Wide Disk Layout Parameters](layout-cluster.en.md#block_size).
+
+## bitmap_granularity
+
+- Type: integer
+- Default: 4096
+
+"Sector" size of virtual disks in this pool. The value from
+/vitastor/config/global is used when unspecified. Similar to block_size, the
+pool must be restricted by [osd_tags](#osd_tags) to only include OSDs with
+matching bitmap_granularity.
+
+Read more about this parameter in [Cluster-Wide Disk Layout Parameters](layout-cluster.en.md#bitmap_granularity).
+
+## immediate_commit
+
+- Type: string, one of "all", "small" and "none"
+- Default: none
+
+Immediate commit setting for this pool. The value from /vitastor/config/global
+is used when unspecified. Similar to block_size, the pool must be restricted by
+[osd_tags](#osd_tags) to only include OSDs with compatible immediate_commit.
+Compatible means that a pool with non-immediate commit will work with OSDs with
+immediate commit enabled, but not vice versa.
+
+Read more about this parameter in [Cluster-Wide Disk Layout Parameters](layout-cluster.en.md#immediate_commit).
 
 ## pg_stripe_size
 

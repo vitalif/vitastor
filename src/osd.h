@@ -29,10 +29,6 @@
 #define OSD_FLUSHING_PGS 0x08
 #define OSD_RECOVERING 0x10
 
-#define IMMEDIATE_NONE 0
-#define IMMEDIATE_SMALL 1
-#define IMMEDIATE_ALL 2
-
 #define MAX_AUTOSYNC_INTERVAL 3600
 #define DEFAULT_AUTOSYNC_INTERVAL 5
 #define DEFAULT_AUTOSYNC_WRITES 128
@@ -172,7 +168,7 @@ class osd_t
     uint64_t recovery_stat_bytes[2][2] = {};
 
     // cluster connection
-    void parse_config(const json11::Json & config);
+    void parse_config(const json11::Json & config, bool allow_disk_params);
     void init_cluster();
     void on_change_osd_state_hook(osd_num_t peer_osd);
     void on_change_pg_history_hook(pool_id_t pool_id, pg_num_t pg_num);
@@ -201,6 +197,7 @@ class osd_t
     // peer handling (primary OSD logic)
     void parse_test_peer(std::string peer);
     void handle_peers();
+    bool check_peer_config(osd_client_t *cl, json11::Json conf);
     void repeer_pgs(osd_num_t osd_num);
     void start_pg_peering(pg_t & pg);
     void submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *ps);

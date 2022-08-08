@@ -7,6 +7,8 @@
 #include "pg_states.h"
 #include "http_client.h"
 
+static const char *obj_states[] = { "clean", "misplaced", "degraded", "incomplete" };
+
 // Print cluster status:
 // etcd, mon, osd states
 // raw/used space, object states, pool states, pg states
@@ -196,21 +198,57 @@ resume_2:
             }
             pgs_by_state_str += std::to_string(kv.second)+" "+kv.first;
         }
-        uint64_t object_size = parent->cli->get_bs_block_size();
-        std::string more_states;
-        uint64_t obj_n;
-        obj_n = agg_stats["object_counts"]["misplaced"].uint64_value();
-        if (obj_n > 0)
-            more_states += ", "+format_size(obj_n*object_size)+" misplaced";
-        obj_n = agg_stats["object_counts"]["degraded"].uint64_value();
-        if (obj_n > 0)
-            more_states += ", "+format_size(obj_n*object_size)+" degraded";
-        obj_n = agg_stats["object_counts"]["incomplete"].uint64_value();
-        if (obj_n > 0)
-            more_states += ", "+format_size(obj_n*object_size)+" incomplete";
         bool readonly = json_is_true(parent->cli->merged_config["readonly"]);
         bool no_recovery = json_is_true(parent->cli->merged_config["no_recovery"]);
         bool no_rebalance = json_is_true(parent->cli->merged_config["no_rebalance"]);
+        if (parent->json_output)
+        {
+            // JSON output
+            auto json_status = json11::Json::object {
+                { "etcd_alive", etcd_alive },
+                { "etcd_count", (uint64_t)etcd_states.size() },
+                { "etcd_db_size", etcd_db_size },
+                { "mon_count", mon_count },
+                { "mon_master", mon_master },
+                { "osd_up", osd_up },
+                { "osd_count", osd_count },
+                { "total_raw", total_raw },
+                { "free_raw", free_raw },
+                { "down_raw", down_raw },
+                { "free_down_raw", free_down_raw },
+                { "readonly", readonly },
+                { "no_recovery", no_recovery },
+                { "no_rebalance", no_rebalance },
+                { "pool_count", pool_count },
+                { "active_pool_count", pools_active },
+                { "pg_states", pgs_by_state },
+                { "op_stats", agg_stats["op_stats"] },
+                { "recovery_stats", agg_stats["recovery_stats"] },
+                { "object_counts", agg_stats["object_counts"] },
+            };
+            for (int i = 0; i < sizeof(obj_states)/sizeof(obj_states[0]); i++)
+            {
+                std::string str(obj_states[i]);
+                uint64_t obj_n = agg_stats["object_bytes"][str].uint64_value();
+                if (!obj_n)
+                    obj_n = agg_stats["object_counts"][str].uint64_value() * parent->cli->st_cli.global_block_size;
+                json_status[str+"_data"] = obj_n;
+            }
+            printf("%s\n", json11::Json(json_status).dump().c_str());
+            state = 100;
+            return;
+        }
+        std::string more_states;
+        for (int i = 0; i < sizeof(obj_states)/sizeof(obj_states[0]); i++)
+        {
+            std::string str(obj_states[i]);
+            uint64_t obj_n = agg_stats["object_bytes"][str].uint64_value();
+            if (!obj_n)
+                obj_n = agg_stats["object_counts"][str].uint64_value() * parent->cli->st_cli.global_block_size;
+            if (!i || obj_n > 0)
+                more_states += format_size(obj_n)+" "+str+", ";
+        }
+        more_states.resize(more_states.size()-2);
         std::string recovery_io;
         {
             uint64_t deg_bps = agg_stats["recovery_stats"]["degraded"]["bps"].uint64_value();
@@ -232,38 +270,6 @@ resume_2:
             else if (no_rebalance)
                 recovery_io += "    rebalance: disabled\n";
         }
-        if (parent->json_output)
-        {
-            // JSON output
-            printf("%s\n", json11::Json(json11::Json::object {
-                { "etcd_alive", etcd_alive },
-                { "etcd_count", (uint64_t)etcd_states.size() },
-                { "etcd_db_size", etcd_db_size },
-                { "mon_count", mon_count },
-                { "mon_master", mon_master },
-                { "osd_up", osd_up },
-                { "osd_count", osd_count },
-                { "total_raw", total_raw },
-                { "free_raw", free_raw },
-                { "down_raw", down_raw },
-                { "free_down_raw", free_down_raw },
-                { "readonly", readonly },
-                { "no_recovery", no_recovery },
-                { "no_rebalance", no_rebalance },
-                { "clean_data", agg_stats["object_counts"]["clean"].uint64_value() * object_size },
-                { "misplaced_data", agg_stats["object_counts"]["misplaced"].uint64_value() * object_size },
-                { "degraded_data", agg_stats["object_counts"]["degraded"].uint64_value() * object_size },
-                { "incomplete_data", agg_stats["object_counts"]["incomplete"].uint64_value() * object_size },
-                { "pool_count", pool_count },
-                { "active_pool_count", pools_active },
-                { "pg_states", pgs_by_state },
-                { "op_stats", agg_stats["op_stats"] },
-                { "recovery_stats", agg_stats["recovery_stats"] },
-                { "object_counts", agg_stats["object_counts"] },
-            }).dump().c_str());
-            state = 100;
-            return;
-        }
         printf(
             "  cluster:\n"
             "    etcd: %d / %ld up, %s database size\n"
@@ -272,7 +278,7 @@ resume_2:
             "  \n"
             "  data:\n"
             "    raw:   %s used, %s / %s available%s\n"
-            "    state: %s clean%s\n"
+            "    state: %s\n"
             "    pools: %d / %d active\n"
             "    pgs:   %s\n"
             "  \n"
@@ -286,7 +292,7 @@ resume_2:
             format_size(free_raw-free_down_raw).c_str(),
             format_size(total_raw-down_raw).c_str(),
             (down_raw > 0 ? (", "+format_size(down_raw)+" down").c_str() : ""),
-            format_size(agg_stats["object_counts"]["clean"].uint64_value() * object_size).c_str(), more_states.c_str(),
+            more_states.c_str(),
             pools_active, pool_count,
             pgs_by_state_str.c_str(),
             readonly ? " (read-only mode)" : "",
