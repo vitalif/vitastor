@@ -228,7 +228,8 @@ struct disk_tool_t
     json11::Json read_osd_superblock(std::string device, bool expect_exist = true);
     uint32_t write_osd_superblock(std::string device, json11::Json params);
 
-    int prepare_one(std::map<std::string, std::string> options);
+    int prepare_one(std::map<std::string, std::string> options, int is_hdd = -1);
+    json11::Json::array collect_devices(const std::vector<std::string> & devices);
     int prepare(std::vector<std::string> devices);
 };
 
@@ -1856,7 +1857,7 @@ static int shell_exec(const std::vector<std::string> & cmd, const std::string & 
             argv[i] = (char*)cmd[i].c_str();
         }
         argv[cmd.size()-1] = NULL;
-        execv(argv[0], argv);
+        execvp(argv[0], argv);
         std::string full_cmd;
         for (int i = 0; i < cmd.size(); i++)
         {
@@ -1865,7 +1866,7 @@ static int shell_exec(const std::vector<std::string> & cmd, const std::string & 
         }
         full_cmd.resize(full_cmd.size() > 0 ? full_cmd.size()-1 : 0);
         fprintf(stderr, "error running %s: %s", full_cmd.c_str(), strerror(errno));
-        exit(1);
+        exit(255);
     }
 err_fork:
     close(child_stderr[1]);
@@ -1877,10 +1878,10 @@ err_pipe2:
     close(child_stdin[1]);
     close(child_stdin[0]);
 err_pipe1:
-    return 1;
+    return 255;
 }
 
-int disk_tool_t::prepare_one(std::map<std::string, std::string> options)
+int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_hdd)
 {
     static const char *allow_additional_params[] = {
         "max_write_iodepth",
@@ -1899,8 +1900,10 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options)
     };
     if (options.find("force") == options.end())
     {
-        for (auto dev: std::vector<std::string>{ options["data_device"], options["meta_device"], options["journal_device"] })
+        std::vector<std::string> all_devs = { options["data_device"], options["meta_device"], options["journal_device"] };
+        for (int i = 0; i < all_devs.size(); i++)
         {
+            const auto & dev = all_devs[i];
             if (dev == "")
                 continue;
             std::string real_dev = realpath_str(dev, false);
@@ -1914,10 +1917,12 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options)
                 fprintf(stderr, "%s is not a partition, not creating OSD without --force\n", dev.c_str());
                 return 1;
             }
+            if (i == 0 && is_hdd == -1)
+                is_hdd = read_file("/sys/block/"+parent_dev+"/queue/rotational") == "0";
             std::string out;
-            if (shell_exec({ "/sbin/blkid", "-p", dev }, "", &out, NULL))
+            if (shell_exec({ "/sbin/blkid", "-D", "-p", dev }, "", &out, NULL) == 0)
             {
-                fprintf(stderr, "%s contains data, not creating OSD without --force. blkid -p says:\n%s", dev.c_str(), out.c_str());
+                fprintf(stderr, "%s contains data, not creating OSD without --force. blkid -D -p says:\n%s", dev.c_str(), out.c_str());
                 return 1;
             }
             json11::Json sb = read_osd_superblock(dev, false);
@@ -1928,12 +1933,20 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options)
             }
         }
     }
-    // FIXME: Different default block_size for HDD
-    // FIXME: Set block_size at first call with HDD
     // Calculate offsets if the same device is used for two or more of data, meta, and journal
-    if (options["journal_device"] == "" && options["journal_size"] == "")
+    if (options["journal_size"] == "")
     {
-        options["journal_size"] = "32M";
+        if (options["journal_device"] == "")
+            options["journal_size"] = "32M";
+        else if (is_hdd)
+            options["journal_size"] = "1G";
+    }
+    if (is_hdd)
+    {
+        if (options["block_size"] == "")
+            options["block_size"] = "1M";
+        if (options["throttle_small_writes"] == "")
+            options["throttle_small_writes"] = "1";
     }
     json11::Json::object sb;
     try
@@ -2009,6 +2022,79 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options)
     return 0;
 }
 
+json11::Json::array disk_tool_t::collect_devices(const std::vector<std::string> & devices)
+{
+    json11::Json::array devinfo;
+    for (auto & dev: devices)
+    {
+        // Check if the device is a whole disk
+        if (dev.substr(0, 5) != "/dev/")
+        {
+            fprintf(stderr, "%s does not start with /dev/, ignoring\n", dev.c_str());
+            continue;
+        }
+        struct stat st;
+        if (stat(("/sys/block/"+dev.substr(5)).c_str(), &st) < 0)
+        {
+            if (errno == ENOENT)
+            {
+                fprintf(stderr, "%s is probably a partition (no entry in /sys/block/), ignoring\n", dev.c_str());
+                continue;
+            }
+            fprintf(stderr, "Error checking /sys/block/%s: %s\n", dev.c_str()+5, strerror(errno));
+            return {};
+        }
+        // Check if the device is an SSD
+        bool is_hdd = read_file("/sys/block/"+dev.substr(5)+"/queue/rotational") == "0";
+        // Check if it has a partition table
+        std::string part_dump;
+        int r = shell_exec({ "/sbin/sfdisk", "--dump", dev, "--json" }, "", &part_dump, NULL);
+        if (r != 0)
+        {
+            if (r == 255)
+            {
+                fprintf(stderr, "Error running /sbin/sfdisk --dump %s --json\n", dev.c_str());
+                return {};
+            }
+            // No partition table
+            r = shell_exec({ "/sbin/blkid", "-p", dev }, "", &part_dump, NULL);
+            if (r == 0)
+            {
+                fprintf(stderr, "%s contains data, skipping:\n  %s\n", dev.c_str(), str_replace(trim(part_dump), "\n", "\n  ").c_str());
+                continue;
+            }
+            part_dump = "";
+        }
+        // Decode partition table
+        json11::Json parts;
+        if (part_dump != "")
+        {
+            std::string err;
+            parts = json11::Json::parse(part_dump, err);
+            if (err != "")
+            {
+                fprintf(stderr, "sfdisk --dump %s --json returned bad JSON: %s\n", dev.c_str(), part_dump.c_str());
+                return {};
+            }
+            parts = parts["partitiontable"];
+            if (parts.is_object() && parts["label"].string_value() != "gpt")
+            {
+                fprintf(stderr, "%s contains \"%s\" partition table, only GPT is supported, skipping\n", dev.c_str(), parts["label"].string_value().c_str());
+                return {};
+            }
+        }
+        devinfo.push_back(json11::Json::object {
+            { "is_hdd", is_hdd },
+            { "parts", parts },
+        });
+    }
+    if (!devinfo.size())
+    {
+        fprintf(stderr, "No suitable devices found\n");
+    }
+    return devinfo;
+}
+
 int disk_tool_t::prepare(std::vector<std::string> devices)
 {
     if (options.find("data_device") != options.end() && options["data_device"] != "")
@@ -2020,6 +2106,10 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
         }
         return prepare_one(options);
     }
-    // FIXME: Implement the second (automatic) form of the command
+    json11::Json::array devinfo = collect_devices(devices);
+    if (!devinfo.size())
+    {
+        return 1;
+    }
     return 0;
 }

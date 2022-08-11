@@ -7,6 +7,7 @@
 
 #include "blockstore_impl.h"
 #include "blockstore_disk.h"
+#include "str_util.h"
 
 static uint32_t is_power_of_two(uint64_t value)
 {
@@ -30,15 +31,15 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     {
         disable_flock = true;
     }
-    cfg_journal_size = strtoull(config["journal_size"].c_str(), NULL, 10);
+    cfg_journal_size = parse_size(config["journal_size"]);
     data_device = config["data_device"];
-    data_offset = strtoull(config["data_offset"].c_str(), NULL, 10);
-    cfg_data_size = strtoull(config["data_size"].c_str(), NULL, 10);
+    data_offset = parse_size(config["data_offset"]);
+    cfg_data_size = parse_size(config["data_size"]);
     meta_device = config["meta_device"];
-    meta_offset = strtoull(config["meta_offset"].c_str(), NULL, 10);
-    data_block_size = strtoull(config["block_size"].c_str(), NULL, 10);
+    meta_offset = parse_size(config["meta_offset"]);
+    data_block_size = parse_size(config["block_size"]);
     journal_device = config["journal_device"];
-    journal_offset = strtoull(config["journal_offset"].c_str(), NULL, 10);
+    journal_offset = parse_size(config["journal_offset"]);
     disk_alignment = strtoull(config["disk_alignment"].c_str(), NULL, 10);
     journal_block_size = strtoull(config["journal_block_size"].c_str(), NULL, 10);
     meta_block_size = strtoull(config["meta_block_size"].c_str(), NULL, 10);
@@ -178,6 +179,7 @@ void blockstore_disk_t::calc_lengths(bool skip_meta_check)
     }
 }
 
+// FIXME: Move to utils
 static void check_size(int fd, uint64_t *size, uint64_t *sectsize, std::string name)
 {
     int sect;

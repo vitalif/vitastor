@@ -75,6 +75,23 @@ std::string trim(const std::string & in)
     return in.substr(begin, end+1-begin);
 }
 
+std::string str_replace(const std::string & in, const std::string & needle, const std::string & replacement)
+{
+    std::string res;
+    int pos = 0, p2;
+    while ((p2 = in.find(needle, pos)) >= 0)
+    {
+        res += in.substr(pos, p2-pos);
+        res += replacement;
+        pos = p2 + replacement.size();
+    }
+    if (!pos)
+    {
+        return in;
+    }
+    return res + in.substr(pos);
+}
+
 uint64_t stoull_full(const std::string & str, int base)
 {
     if (isspace(str[0]))
