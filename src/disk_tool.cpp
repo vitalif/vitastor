@@ -35,6 +35,8 @@
 // vITADisk
 #define VITASTOR_DISK_MAGIC 0x6b73694441544976
 #define VITASTOR_DISK_MAX_SB_SIZE 128*1024
+#define VITASTOR_PART_TYPE "e7009fac-a5a1-4d72-af72-53de13059903"
+#define DEFAULT_HYBRID_JOURNAL "1G"
 
 struct __attribute__((__packed__)) vitastor_disk_superblock_t
 {
@@ -72,6 +74,7 @@ static const char *help_text =
     "      metadata will be created automatically. SSD/HDD are found by the `rotational`\n"
     "      flag of devices. In hybrid mode, object size is 1 MB instead of 128 KB by\n"
     "      default, and journal size is 1 GB instead of 32 MB by default.\n"
+    "    --osd_per_disk <N>         Create <N> OSDs on each disk (default 1)\n"
     "    --data_device <DEV>        Create a single OSD using partition <DEV> for data\n"
     "    --meta_device <DEV>        Create a single OSD using partition <DEV> for metadata\n"
     "    --journal_device <DEV>     Create a single OSD using partition <DEV> for journal\n"
@@ -87,6 +90,9 @@ static const char *help_text =
     "      New metadata partitions in --hybrid mode are created larger than actual\n"
     "      metadata size to ease possible future extension. The default is to allocate\n"
     "      2 times more space and at least 1G. Use this option to override.\n"
+    "    --max_other 10%\n"
+    "      Use disks for OSD data even if they already have non-Vitastor partitions,\n"
+    "      but only if these take up no more than this percent of disk space.\n"
     "\n"
     "vitastor-disk resize <ALL_OSD_PARAMETERS> <NEW_LAYOUT> [--iodepth 32]\n"
     "  Resize data area and/or rewrite/move journal and metadata\n"
@@ -148,6 +154,16 @@ static const char *help_text =
     "\n"
     "Use vitastor-disk --help <command> for command details or vitastor-disk --help --all for all details.\n"
 ;
+
+struct vitastor_dev_info_t
+{
+    std::string path;
+    bool is_hdd;
+    json11::Json pt; // pt = partition table
+    int osd_part_count;
+    uint64_t size;
+    uint64_t free;
+};
 
 struct disk_tool_t
 {
@@ -229,8 +245,11 @@ struct disk_tool_t
     uint32_t write_osd_superblock(std::string device, json11::Json params);
 
     int prepare_one(std::map<std::string, std::string> options, int is_hdd = -1);
-    json11::Json::array collect_devices(const std::vector<std::string> & devices);
     int prepare(std::vector<std::string> devices);
+    std::vector<vitastor_dev_info_t> collect_devices(const std::vector<std::string> & devices);
+    json11::Json add_partitions(vitastor_dev_info_t & devinfo, std::vector<std::string> sizes);
+    std::vector<std::string> get_new_data_parts(vitastor_dev_info_t & dev, uint64_t osd_per_disk, uint64_t max_other_percent);
+    int get_meta_partition(std::vector<vitastor_dev_info_t> & ssds, std::map<std::string, std::string> & options);
 };
 
 void disk_tool_simple_offsets(json11::Json cfg, bool json_output);
@@ -1881,6 +1900,30 @@ err_pipe1:
     return 255;
 }
 
+// FIXME: Move to utils
+static int write_zero(int fd, uint64_t offset, uint64_t size)
+{
+    uint64_t buf_len = 1024*1024;
+    void *zero_buf = memalign_or_die(MEM_ALIGNMENT, buf_len);
+    ssize_t r;
+    while (size > 0)
+    {
+        r = pwrite(fd, zero_buf, size > buf_len ? buf_len : size, offset);
+        if (r > 0)
+        {
+            size -= r;
+            offset += r;
+        }
+        else if (errno != EAGAIN && errno != EINTR)
+        {
+            free(zero_buf);
+            return -1;
+        }
+    }
+    free(zero_buf);
+    return 0;
+}
+
 int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_hdd)
 {
     static const char *allow_additional_params[] = {
@@ -1918,7 +1961,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
                 return 1;
             }
             if (i == 0 && is_hdd == -1)
-                is_hdd = read_file("/sys/block/"+parent_dev+"/queue/rotational") == "0";
+                is_hdd = read_file("/sys/block/"+parent_dev+"/queue/rotational") == "1";
             std::string out;
             if (shell_exec({ "/sbin/blkid", "-D", "-p", dev }, "", &out, NULL) == 0)
             {
@@ -1939,7 +1982,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         if (options["journal_device"] == "")
             options["journal_size"] = "32M";
         else if (is_hdd)
-            options["journal_size"] = "1G";
+            options["journal_size"] = DEFAULT_HYBRID_JOURNAL;
     }
     if (is_hdd)
     {
@@ -1949,15 +1992,14 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
             options["throttle_small_writes"] = "1";
     }
     json11::Json::object sb;
+    blockstore_disk_t dsk;
     try
     {
-        blockstore_disk_t dsk;
         dsk.parse_config(options);
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
         dsk.calc_lengths(true);
-        dsk.close_all();
         sb = json11::Json::object {
             { "data_device", options["data_device"] },
             { "meta_device", options["meta_device"] },
@@ -1992,39 +2034,94 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     }
     catch (std::exception & e)
     {
+        dsk.close_all();
         fprintf(stderr, "%s\n", e.what());
         return 1;
     }
     std::string osd_num_str;
     if (shell_exec({ "vitastor-cli", "alloc-osd" }, "", &osd_num_str, NULL) != 0)
     {
+        dsk.close_all();
         return 1;
     }
     osd_num_t osd_num = stoull_full(trim(osd_num_str), 10);
     if (!osd_num)
     {
+        dsk.close_all();
         fprintf(stderr, "Could not create OSD. vitastor-cli alloc-osd didn't return a valid OSD number:\n%s", osd_num_str.c_str());
         return 1;
     }
     sb["osd_num"] = osd_num;
-    write_osd_superblock(options["data_device"], sb);
-    if (options["meta_device"] != "" &&
-        options["meta_device"] != options["data_device"])
+    // Zero out metadata and journal
+    if (write_zero(dsk.meta_fd, dsk.meta_offset, dsk.meta_len) != 0 ||
+        write_zero(dsk.journal_fd, dsk.journal_offset, dsk.journal_len) != 0)
     {
-        write_osd_superblock(options["meta_device"], sb);
+        fprintf(stderr, "Failed to zero out metadata or journal: %s\n", strerror(errno));
+        dsk.close_all();
+        return 1;
     }
-    if (options["journal_device"] != "" &&
+    dsk.close_all();
+    // Write superblocks
+    if (!write_osd_superblock(options["data_device"], sb) ||
+        options["meta_device"] != "" &&
+        options["meta_device"] != options["data_device"] &&
+        write_osd_superblock(options["meta_device"], sb) ||
+        options["journal_device"] != "" &&
         options["journal_device"] != options["data_device"] &&
-        options["journal_device"] != options["meta_device"])
+        options["journal_device"] != options["meta_device"] &&
+        !write_osd_superblock(options["journal_device"], sb))
     {
-        write_osd_superblock(options["journal_device"], sb);
+        return 1;
     }
     return 0;
 }
 
-json11::Json::array disk_tool_t::collect_devices(const std::vector<std::string> & devices)
+// Returns false in case of an error
+// Returns null if there is no partition table
+static json11::Json read_parttable(std::string dev)
 {
-    json11::Json::array devinfo;
+    std::string part_dump;
+    int r = shell_exec({ "/sbin/sfdisk", "--dump", dev, "--json" }, "", &part_dump, NULL);
+    if (r == 255)
+    {
+        fprintf(stderr, "Error running /sbin/sfdisk --dump %s --json\n", dev.c_str());
+        return json11::Json(false);
+    }
+    // Decode partition table
+    json11::Json pt;
+    if (part_dump != "")
+    {
+        std::string err;
+        pt = json11::Json::parse(part_dump, err);
+        if (err != "")
+        {
+            fprintf(stderr, "sfdisk --dump %s --json returned bad JSON: %s\n", dev.c_str(), part_dump.c_str());
+            return json11::Json(false);
+        }
+        pt = pt["partitiontable"];
+        if (pt.is_object() && pt["label"].string_value() != "gpt")
+        {
+            fprintf(stderr, "%s contains \"%s\" partition table, only GPT is supported, skipping\n", dev.c_str(), pt["label"].string_value().c_str());
+            return json11::Json(false);
+        }
+    }
+    return pt;
+}
+
+static uint64_t free_from_parttable(json11::Json pt)
+{
+    uint64_t free = pt["lastlba"].uint64_value() + 1 - pt["firstlba"].uint64_value();
+    for (const auto & part: pt["partitions"].array_items())
+    {
+        free -= part["size"].uint64_value();
+    }
+    free *= pt["sectorsize"].uint64_value();
+    return free;
+}
+
+std::vector<vitastor_dev_info_t> disk_tool_t::collect_devices(const std::vector<std::string> & devices)
+{
+    std::vector<vitastor_dev_info_t> devinfo;
     for (auto & dev: devices)
     {
         // Check if the device is a whole disk
@@ -2033,8 +2130,18 @@ json11::Json::array disk_tool_t::collect_devices(const std::vector<std::string> 
             fprintf(stderr, "%s does not start with /dev/, ignoring\n", dev.c_str());
             continue;
         }
-        struct stat st;
-        if (stat(("/sys/block/"+dev.substr(5)).c_str(), &st) < 0)
+        struct stat dev_st, sys_st;
+        if (stat(dev.c_str(), &dev_st) < 0)
+        {
+            if (errno == ENOENT)
+            {
+                fprintf(stderr, "%s does not exist, skipping\n", dev.c_str());
+                return {};
+            }
+            fprintf(stderr, "Error checking %s: %s\n", dev.c_str(), strerror(errno));
+            return {};
+        }
+        if (stat(("/sys/block/"+dev.substr(5)).c_str(), &sys_st) < 0)
         {
             if (errno == ENOENT)
             {
@@ -2045,47 +2152,36 @@ json11::Json::array disk_tool_t::collect_devices(const std::vector<std::string> 
             return {};
         }
         // Check if the device is an SSD
-        bool is_hdd = read_file("/sys/block/"+dev.substr(5)+"/queue/rotational") == "0";
+        bool is_hdd = read_file("/sys/block/"+dev.substr(5)+"/queue/rotational") == "1";
         // Check if it has a partition table
-        std::string part_dump;
-        int r = shell_exec({ "/sbin/sfdisk", "--dump", dev, "--json" }, "", &part_dump, NULL);
-        if (r != 0)
+        json11::Json pt = read_parttable(dev);
+        if (pt.is_bool() && !pt.bool_value())
         {
-            if (r == 255)
-            {
-                fprintf(stderr, "Error running /sbin/sfdisk --dump %s --json\n", dev.c_str());
-                return {};
-            }
+            // Error reading table
+            return {};
+        }
+        if (pt.is_null())
+        {
             // No partition table
-            r = shell_exec({ "/sbin/blkid", "-p", dev }, "", &part_dump, NULL);
+            std::string out;
+            int r = shell_exec({ "/sbin/blkid", "-p", dev }, "", &out, NULL);
             if (r == 0)
             {
-                fprintf(stderr, "%s contains data, skipping:\n  %s\n", dev.c_str(), str_replace(trim(part_dump), "\n", "\n  ").c_str());
+                fprintf(stderr, "%s contains data, skipping:\n  %s\n", dev.c_str(), str_replace(trim(out), "\n", "\n  ").c_str());
                 continue;
             }
-            part_dump = "";
         }
-        // Decode partition table
-        json11::Json parts;
-        if (part_dump != "")
-        {
-            std::string err;
-            parts = json11::Json::parse(part_dump, err);
-            if (err != "")
-            {
-                fprintf(stderr, "sfdisk --dump %s --json returned bad JSON: %s\n", dev.c_str(), part_dump.c_str());
-                return {};
-            }
-            parts = parts["partitiontable"];
-            if (parts.is_object() && parts["label"].string_value() != "gpt")
-            {
-                fprintf(stderr, "%s contains \"%s\" partition table, only GPT is supported, skipping\n", dev.c_str(), parts["label"].string_value().c_str());
-                return {};
-            }
-        }
-        devinfo.push_back(json11::Json::object {
-            { "is_hdd", is_hdd },
-            { "parts", parts },
+        int osds = 0;
+        for (const auto & p: pt["partitions"].array_items())
+            if (strtolower(p["type"].string_value()) == VITASTOR_PART_TYPE)
+                osds++;
+        devinfo.push_back((vitastor_dev_info_t){
+            .path = dev,
+            .is_hdd = is_hdd,
+            .pt = pt,
+            .osd_part_count = osds,
+            .size = (uint64_t)dev_st.st_size,
+            .free = !pt.is_null() ? free_from_parttable(pt) : dev_st.st_size,
         });
     }
     if (!devinfo.size())
@@ -2095,21 +2191,276 @@ json11::Json::array disk_tool_t::collect_devices(const std::vector<std::string> 
     return devinfo;
 }
 
+// Return null in case of an error
+json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vector<std::string> sizes)
+{
+    std::string script = "label: gpt\n\n";
+    std::set<std::string> is_old;
+    for (auto part: devinfo.pt["partitions"].array_items())
+    {
+        // Old partitions
+        is_old.insert(part["uuid"].string_value());
+        script += part["node"].string_value()+": ";
+        int n = 0;
+        for (auto & kv: part.object_items())
+        {
+            if (kv.first != "node")
+            {
+                script += kv.first+"="+(kv.second.is_string() ? kv.second.string_value() : kv.second.dump());
+                if (n++)
+                    script += ", ";
+            }
+        }
+        script += "\n";
+    }
+    for (auto size: sizes)
+    {
+        script += "+ "+size+" "+std::string(VITASTOR_PART_TYPE)+"\n";
+    }
+    if (shell_exec({ "/sbin/sfdisk", devinfo.path }, script, NULL, NULL) != 0)
+    {
+        fprintf(stderr, "Failed to add %lu partition(s) with sfdisk\n", sizes.size());
+        return {};
+    }
+    // Get new partition table and find created partitions
+    json11::Json newpt = read_parttable(devinfo.path);
+    json11::Json::array new_parts;
+    for (const auto & part: newpt["partitions"].array_items())
+    {
+        if (is_old.find(part["uuid"].string_value()) == is_old.end())
+        {
+            new_parts.push_back(part);
+        }
+    }
+    if (new_parts.size() != sizes.size())
+    {
+        fprintf(stderr, "Failed to add %lu partition(s) with sfdisk: new partitions not found in table\n", sizes.size());
+        return {};
+    }
+    // Wait until device symlinks in /dev/disk/by-partuuid/ appear
+    bool exists = false;
+    int iter = 0;
+    while (!exists && iter < 300) // max 30 sec
+    {
+        exists = true;
+        for (const auto & part: newpt["partitions"].array_items())
+        {
+            std::string link_path = "/dev/disk/by-partuuid/"+strtolower(part["uuid"].string_value());
+            struct stat st;
+            if (lstat(link_path.c_str(), &st) < 0)
+            {
+                if (errno == ENOENT)
+                    exists = false;
+                else
+                {
+                    fprintf(stderr, "Failed to lstat %s: %s\n", link_path.c_str(), strerror(errno));
+                    return {};
+                }
+            }
+        }
+        if (!exists)
+        {
+            struct timespec ts = { .tv_sec = 0, .tv_nsec = 100000000 }; // 100ms
+            iter += (nanosleep(&ts, NULL) == 0);
+        }
+    }
+    devinfo.pt = newpt;
+    devinfo.osd_part_count += sizes.size();
+    devinfo.free = free_from_parttable(newpt);
+    return new_parts;
+}
+
+std::vector<std::string> disk_tool_t::get_new_data_parts(vitastor_dev_info_t & dev,
+    uint64_t osd_per_disk, uint64_t max_other_percent)
+{
+    std::vector<std::string> use_parts;
+    uint64_t want_parts = 0;
+    if (dev.pt.is_null())
+    {
+        want_parts = osd_per_disk;
+    }
+    else if (dev.pt["partitions"].array_items().size() > 0)
+    {
+        // Disk already has partitions. If these are empty Vitastor OSD partitions, we can use them
+        uint64_t osds_exist = 0, osds_size = 0;
+        for (const auto & part: dev.pt["partitions"].array_items())
+        {
+            if (strtolower(part["type"].string_value()) == VITASTOR_PART_TYPE)
+            {
+                // Check if an existing Vitastor partition is empty
+                json11::Json sb = read_osd_superblock(part["node"].string_value(), false);
+                if (sb.is_null())
+                {
+                    // Use this partition
+                    use_parts.push_back(part["uuid"].string_value());
+                }
+                else
+                {
+                    fprintf(
+                        stderr, "%s is already initialized for OSD %lu, skipping\n",
+                        part["node"].string_value().c_str(), sb["params"]["osd_num"].uint64_value()
+                    );
+                    osds_exist++;
+                    osds_size += part["size"].uint64_value()*dev.pt["sectorsize"].uint64_value();
+                }
+            }
+        }
+        // Still create OSD(s) if a disk has no more than (max_other_percent) other data
+        if (osds_exist >= osd_per_disk || (dev.free+osds_size) < dev.size*(100-max_other_percent)/100)
+            fprintf(stderr, "%s is already partitioned, skipping\n", dev.path.c_str());
+        else
+            want_parts = osd_per_disk-osds_exist;
+    }
+    if (want_parts > 0)
+    {
+        // Disk is not partitioned yet - create OSD partition(s)
+        std::vector<std::string> sizes;
+        auto each_size = std::to_string((dev.free - 1048576) / 1048576 / want_parts)+"MiB";
+        for (uint64_t i = 0; i < want_parts-1; i++)
+            sizes.push_back(each_size);
+        sizes.push_back("+");
+        auto new_parts = add_partitions(dev, sizes);
+        for (const auto & part: new_parts.array_items())
+            use_parts.push_back(part["uuid"].string_value());
+    }
+    return use_parts;
+}
+
+int disk_tool_t::get_meta_partition(std::vector<vitastor_dev_info_t> & ssds, std::map<std::string, std::string> & options)
+{
+    uint64_t journal_size = parse_size(options["journal_size"]);
+    journal_size = ((journal_size+1024*1024-1)/1024/1024)*1024*1024;
+    // Calculate metadata size
+    uint64_t meta_size = 0;
+    try
+    {
+        blockstore_disk_t dsk;
+        dsk.parse_config(options);
+        dsk.open_data();
+        dsk.open_meta();
+        dsk.open_journal();
+        dsk.calc_lengths(true);
+        dsk.close_all();
+        meta_size = dsk.meta_len;
+    }
+    catch (std::exception & e)
+    {
+        fprintf(stderr, "%s\n", e.what());
+        return 1;
+    }
+    // Leave some extra space for future metadata formats and round metadata area size to multiples of 1 MB
+    uint64_t meta_reserve_multiple = 2, min_meta_size = (uint64_t)1024*1024*1024;
+    if (options.find("meta_reserve") != options.end())
+    {
+        int p1 = options["meta_reserve"].find("x"), p2 = options["meta_reserve"].find(",");
+        if (p1 >= 0 && p2 >= 0)
+        {
+            meta_reserve_multiple = stoull_full(options["meta_reserve"].substr(p1 < p2 ? 0 : p2, p1 - (p1 < p2 ? 0 : p2)));
+            min_meta_size = parse_size(options["meta_reserve"].substr(p1 < p2 ? p2 : 0, p1 < p2 ? options["meta_reserve"].size()-p2 : p2));
+        }
+        else if (p1 >= 0)
+            meta_reserve_multiple = stoull_full(options["meta_reserve"].substr(0, p1));
+        else
+            min_meta_size = parse_size(options["meta_reserve"]);
+    }
+    meta_size = ((meta_size+1024*1024-1)/1024/1024)*1024*1024;
+    meta_size *= meta_reserve_multiple;
+    if (meta_size < min_meta_size)
+        meta_size = min_meta_size;
+    // Pick an SSD for journal&meta, balancing the number of serviced OSDs across SSDs
+    int sel = -1;
+    for (int i = 0; i < ssds.size(); i++)
+        if (ssds[i].free >= (meta_size+journal_size+4096*2) && (sel == -1 || ssds[sel].osd_part_count > ssds[i].osd_part_count))
+            sel = i;
+    if (sel < 0)
+    {
+        fprintf(
+            stderr, "Could not find free space for new SSD journal and metadata (need %lu + %lu MiB)\n",
+            meta_size/1024/1024, journal_size/1024/1024
+        );
+        return 1;
+    }
+    // Create partitions
+    auto new_parts = add_partitions(ssds[sel], {
+        std::to_string(journal_size/1024/1024)+"MiB",
+        std::to_string(meta_size/1024/1024)+"MiB"
+    });
+    if (new_parts.is_null())
+    {
+        return 1;
+    }
+    ssds[sel].osd_part_count += 2;
+    options["journal_device"] = "/dev/disk/by-partuuid/"+strtolower(new_parts[0]["uuid"].string_value());
+    options["meta_device"] = "/dev/disk/by-partuuid/"+strtolower(new_parts[1]["uuid"].string_value());
+    return 0;
+}
+
 int disk_tool_t::prepare(std::vector<std::string> devices)
 {
     if (options.find("data_device") != options.end() && options["data_device"] != "")
     {
-        if (options.find("hybrid") != options.end() || devices.size())
+        if (options.find("hybrid") != options.end() || options.find("osd_per_disk") != options.end() || devices.size())
         {
             fprintf(stderr, "Device list (positional arguments) and --hybrid are incompatible with --data_device\n");
             return 1;
         }
         return prepare_one(options);
     }
-    json11::Json::array devinfo = collect_devices(devices);
+    if (!devices.size())
+    {
+        fprintf(stderr, "Device list missing\n");
+        return 1;
+    }
+    options.erase("data_device");
+    options.erase("meta_device");
+    options.erase("journal_device");
+    auto devinfo = collect_devices(devices);
     if (!devinfo.size())
     {
         return 1;
+    }
+    bool hybrid = options.find("hybrid") != options.end();
+    uint64_t osd_per_disk = stoull_full(options["osd_per_disk"]);
+    if (!osd_per_disk)
+        osd_per_disk = 1;
+    uint64_t max_other_percent = stoull_full(trim(options["max_other"], " \n\r\t%"));
+    if (max_other_percent > 100)
+        max_other_percent = 100;
+    std::vector<vitastor_dev_info_t> ssds;
+    if (hybrid)
+    {
+        for (auto & dev: devinfo)
+            if (!dev.is_hdd)
+                ssds.push_back(dev);
+        if (!ssds.size())
+        {
+            fprintf(stderr, "No SSDs found\n");
+            return 1;
+        }
+        if (options["journal_size"] == "")
+            options["journal_size"] = DEFAULT_HYBRID_JOURNAL;
+    }
+    for (auto & dev: devinfo)
+    {
+        if (!hybrid || dev.is_hdd)
+        {
+            // Select new partitions and create an OSD on each of them
+            for (const auto & uuid: get_new_data_parts(dev, osd_per_disk, max_other_percent))
+            {
+                options["force"] = true;
+                options["data_device"] = "/dev/disk/by-uuid/"+strtolower(uuid);
+                if (hybrid)
+                {
+                    // Select/create journal and metadata partitions
+                    int r = get_meta_partition(ssds, options);
+                    if (r != 0)
+                    {
+                        return 1;
+                    }
+                }
+                prepare_one(options, dev.is_hdd ? 1 : 0);
+            }
+        }
     }
     return 0;
 }

@@ -66,12 +66,12 @@ std::string strtolower(const std::string & in)
     return s;
 }
 
-std::string trim(const std::string & in)
+std::string trim(const std::string & in, const char *rm_chars)
 {
-    int begin = in.find_first_not_of(" \n\r\t");
+    int begin = in.find_first_not_of(rm_chars);
     if (begin == -1)
         return "";
-    int end = in.find_last_not_of(" \n\r\t");
+    int end = in.find_last_not_of(rm_chars);
     return in.substr(begin, end+1-begin);
 }
 
