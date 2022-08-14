@@ -5,6 +5,7 @@
 
 #include "disk_tool.h"
 #include "rw_blocking.h"
+#include "str_util.h"
 
 std::string realpath_str(std::string path, bool nofail)
 {
@@ -36,15 +37,17 @@ std::string read_all_fd(int fd)
     return res;
 }
 
-std::string read_file(std::string file)
+std::string read_file(std::string file, bool allow_enoent)
 {
     std::string res;
     int fd = open(file.c_str(), O_RDONLY);
     if (fd < 0 || (res = read_all_fd(fd)) == "")
     {
+        int err = errno;
         if (fd >= 0)
             close(fd);
-        fprintf(stderr, "Can't read %s: %s\n", file.c_str(), strerror(errno));
+        if (!allow_enoent || err != ENOENT)
+            fprintf(stderr, "Can't read %s: %s\n", file.c_str(), strerror(err));
         return "";
     }
     close(fd);
@@ -53,12 +56,12 @@ std::string read_file(std::string file)
 
 int check_queue_cache(std::string dev, std::string parent_dev)
 {
-    auto r = read_file("/sys/block/"+dev+"/queue/write_cache");
+    auto r = read_file("/sys/block/"+dev+"/queue/write_cache", true);
     if (r == "")
         r = read_file("/sys/block/"+parent_dev+"/queue/write_cache");
     if (r == "")
         return 1;
-    return r == "write through" ? 0 : -1;
+    return trim(r) == "write through" ? 0 : -1;
 }
 
 std::string get_parent_device(std::string dev)

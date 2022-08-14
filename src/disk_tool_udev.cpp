@@ -43,7 +43,7 @@ int disk_tool_t::udev_import(std::string device)
     uint64_t osd_num = sb["params"]["osd_num"].uint64_value();
     // Print variables for udev
     printf("VITASTOR_OSD_NUM=%lu\n", osd_num);
-    printf("VITASTOR_ALIAS=osd%lu%s\n", osd_num, sb["device_type"].string_value().c_str());
+    printf("VITASTOR_ALIAS=osd%lu-%s\n", osd_num, sb["device_type"].string_value().c_str());
     printf("VITASTOR_DATA_DEVICE=%s\n", udev_escape(sb["params"]["data_device"].string_value()).c_str());
     if (sb["real_meta_device"].string_value() != "" && sb["real_meta_device"] != sb["real_data_device"])
         printf("VITASTOR_META_DEVICE=%s\n", udev_escape(sb["params"]["meta_device"].string_value()).c_str());
@@ -201,9 +201,9 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_ex
     }
     real_device = realpath_str(device);
     real_data = realpath_str(osd_params["data_device"].string_value());
-    real_meta = osd_params["meta_device"] != "" && osd_params["meta_device"] != osd_params["data_device"]
+    real_meta = osd_params["meta_device"].string_value() != "" && osd_params["meta_device"] != osd_params["data_device"]
         ? realpath_str(osd_params["meta_device"].string_value()) : "";
-    real_journal = osd_params["journal_device"] != "" && osd_params["journal_device"] != osd_params["meta_device"]
+    real_journal = osd_params["journal_device"].string_value() != "" && osd_params["journal_device"] != osd_params["meta_device"]
         ? realpath_str(osd_params["journal_device"].string_value()) : "";
     if (real_journal == real_meta)
     {
@@ -322,7 +322,7 @@ static int disable_cache(std::string dev)
         if (errno == ENOENT)
         {
             // Not a SCSI/SATA device, just check /sys/block/.../queue/write_cache
-            return check_queue_cache(dev, parent_dev);
+            return check_queue_cache(dev.substr(5), parent_dev);
         }
         else
         {
@@ -339,7 +339,7 @@ static int disable_cache(std::string dev)
         {
             // Not a SCSI/SATA device, just check /sys/block/.../queue/write_cache
             closedir(dir);
-            return check_queue_cache(dev, parent_dev);
+            return check_queue_cache(dev.substr(5), parent_dev);
         }
         scsi_disk += "/";
         scsi_disk += de->d_name;

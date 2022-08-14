@@ -2,3 +2,6 @@ SUBSYSTEM=="block", ENV{ID_PART_ENTRY_TYPE}=="e7009fac-a5a1-4d72-af72-53de130599
     OWNER="vitastor", GROUP="vitastor", \
     IMPORT{program}="/usr/bin/vitastor-disk udev $devnode", \
     SYMLINK+="vitastor/$env{VITASTOR_ALIAS}"
+
+ENV{VITASTOR_OSD_NUM}!="", ACTION=="add", RUN{program}+="/usr/bin/systemctl enable --now vitastor-osd@$env{VITASTOR_OSD_NUM}"
+ENV{VITASTOR_OSD_NUM}!="", ACTION=="remove", RUN{program}+="/usr/bin/systemctl disable --now vitastor-osd@$env{VITASTOR_OSD_NUM}"

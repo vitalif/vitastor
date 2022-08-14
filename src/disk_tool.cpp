@@ -254,6 +254,15 @@ int main(int argc, char *argv[])
         }
         return self.exec_osd(cmd[1]);
     }
+    else if (!strcmp(cmd[0], "pre-exec"))
+    {
+        if (cmd.size() != 2)
+        {
+            fprintf(stderr, "Exactly 1 device path argument is required\n");
+            return 1;
+        }
+        return self.pre_exec_osd(cmd[1]);
+    }
     else
     {
         print_help(help_text, "vitastor-disk", cmd.size() > 1 ? cmd[1] : "", self.all);

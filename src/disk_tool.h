@@ -126,7 +126,7 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output);
 
 std::string realpath_str(std::string path, bool nofail = true);
 std::string read_all_fd(int fd);
-std::string read_file(std::string file);
+std::string read_file(std::string file, bool allow_enoent = false);
 int check_queue_cache(std::string dev, std::string parent_dev);
 std::string get_parent_device(std::string dev);
 bool json_is_true(const json11::Json & val);

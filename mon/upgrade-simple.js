@@ -2,6 +2,7 @@
 // Upgrade tool for OSD units generated with make-osd.sh and make-osd-hybrid.js
 
 const fsp = require('fs').promises;
+const child_process = require('child_process');
 
 upgrade_osd(process.argv[2]).catch(e =>
 {
@@ -19,10 +20,10 @@ async function upgrade_osd(unit)
     service_name = service_name[1];
     // Parse the unit
     const text = await fsp.readFile(unit, { encoding: 'utf-8' });
-    let cmd = /\nExecStart\s*=[^\n]+vitastor-osd\s*(([^\n&>\d]+|\\[ \t\r]*\n|\d[^>])+)/.exec(text);
+    let cmd = /\nExecStart\s*=[^\n]+vitastor-osd\s*(([^\\\n&>\d]+|\\[ \t\r]*\n|\d[^>])+)/.exec(text);
     if (!cmd)
         throw new Error('Failed to extract ExecStart command from '+unit);
-    cmd = cmd[1].replace(/\\[ \t\r]*\n/g, '');
+    cmd = cmd[1].replace(/\\[ \t\r]*\n/g, '').split(/\s+/);
     const options = {};
     for (let i = 0; i < cmd.length-1; i += 2)
     {
@@ -43,7 +44,7 @@ async function upgrade_osd(unit)
         );
     }
     // Stop and disable the service
-    system_or_die("systemctl disable --now "+service_name);
+    await system_or_die("systemctl disable --now "+service_name);
     const j_o = BigInt(options['journal_offset'] || 0);
     const m_o = BigInt(options['meta_offset'] || 0);
     const d_o = BigInt(options['data_offset'] || 0);
@@ -72,36 +73,35 @@ async function upgrade_osd(unit)
         if (!j_is_d && !j_is_m && j_o < 4096)
             resize.new_journal_offset = j_o+4096n;
         const resize_opts = Object.keys(resize).map(k => ` --${k} ${resize[k]}`).join('');
-        console.log('Resize options:'+resize_opts);
-        await system_or_die(
-            'vitastor-disk resize'+
-            Object.keys(options).map(k => ` --${k} ${options[k]}`).join('')+resize_opts
-        );
+        const resize_cmd = 'vitastor-disk resize'+
+            Object.keys(options).map(k => ` --${k} ${options[k]}`).join('')+resize_opts;
+        await system_or_die(resize_cmd, { no_cmd_on_err: true });
         for (let k in resize)
-            options[k.substr(4)] = resize[k];
+            options[k.substr(4)] = ''+resize[k];
     }
     // Write superblock
     const sb = JSON.stringify(options);
-    await system_or_die('vitastor-disk write-sb '+options['data_device'], sb);
+    await system_or_die('vitastor-disk write-sb '+options['data_device'], { input: sb });
     if (!m_is_d)
-        await system_or_die('vitastor-disk write-sb '+options['meta_device'], sb);
+        await system_or_die('vitastor-disk write-sb '+options['meta_device'], { input: sb });
     if (!j_is_d && !j_is_m)
-        await system_or_die('vitastor-disk write-sb '+options['journal_device'], sb);
+        await system_or_die('vitastor-disk write-sb '+options['journal_device'], { input: sb });
     // Change partition type
-    fix_partition_type(options['data_device']);
+    await fix_partition_type(options['data_device']);
     if (!m_is_d)
-        fix_partition_type(options['meta_device']);
+        await fix_partition_type(options['meta_device']);
     if (!j_is_d && !j_is_m)
-        fix_partition_type(options['journal_device']);
+        await fix_partition_type(options['journal_device']);
     // Enable the new unit
-    system_or_die("systemctl enable --now vitastor-osd@"+options['osd_num']);
+    await system_or_die("systemctl enable --now vitastor-osd@"+options['osd_num']);
+    console.log('\nOK: Converted OSD '+options['osd_num']+' to the new scheme. The new service name is vitastor-osd@'+options['osd_num']);
 }
 
 async function fix_partition_type(dev)
 {
     const uuid = dev.replace(/^.*\//, '').toLowerCase();
     const parent_dev = (await fsp.realpath(dev)).replace(/((\d)p|(\D))?\d+$/, '$2$3');
-    const pt = JSON.parse(await system_or_die('sfdisk --dump '+parent_dev+' --json')).partitiontable;
+    const pt = JSON.parse(await system_or_die('sfdisk --dump '+parent_dev+' --json', { get_out: true })).partitiontable;
     let script = 'label: gpt\n\n';
     for (const part of pt.partitions)
     {
@@ -109,33 +109,34 @@ async function fix_partition_type(dev)
             part.type = 'e7009fac-a5a1-4d72-af72-53de13059903';
         script += part.node+': '+Object.keys(part).map(k => k == 'node' ? '' : k+'='+part[k]).filter(k => k).join(', ')+'\n';
     }
-    await system_or_die('sfdisk '+dev.path, script);
+    await system_or_die('sfdisk --force '+parent_dev, { input: script, get_out: true });
 }
 
-async function system_or_die(cmd, input = '')
+async function system_or_die(cmd, options = {})
 {
-    let [ exitcode, stdout, stderr ] = await system(cmd, input);
+    let [ exitcode, stdout, stderr ] = await system(cmd, options);
     if (exitcode != 0)
-        throw new Error(cmd+' failed: '+stderr);
+        throw new Error((!options.no_cmd_on_err ? cmd : 'Command')+' failed'+(options.get_err ? ': '+stderr : ''));
     return stdout;
 }
 
-async function system(cmd, input = '')
+async function system(cmd, options = {})
 {
-    if (options.debug)
-    {
-        process.stderr.write('+ '+cmd+(input ? " <<EOF\n"+input.replace(/\s*$/, '\n')+"EOF" : '')+'\n');
-    }
-    const cp = child_process.spawn(cmd, { shell: true });
+    process.stderr.write('Running: '+cmd+(options.input != null ? " <<EOF\n"+options.input.replace(/\s*$/, '\n')+"EOF" : '')+'\n');
+    const cp = child_process.spawn(cmd, {
+        shell: true,
+        stdio: [ 'pipe', options.get_out ? 'pipe' : 1, options.get_err ? 'pipe' : 1 ],
+    });
     let stdout = '', stderr = '', finish_cb;
-    cp.stdout.on('data', buf => stdout += buf.toString());
-    cp.stderr.on('data', buf => stderr += buf.toString());
+    if (options.get_out)
+        cp.stdout.on('data', buf => stdout += buf.toString());
+    if (options.get_err)
+        cp.stderr.on('data', buf => stderr += buf.toString());
     cp.on('exit', () => finish_cb && finish_cb());
-    cp.stdin.write(input);
+    if (options.input != null)
+        cp.stdin.write(options.input);
     cp.stdin.end();
     if (cp.exitCode == null)
-    {
         await new Promise(ok => finish_cb = ok);
-    }
     return [ cp.exitCode, stdout, stderr ];
 }
