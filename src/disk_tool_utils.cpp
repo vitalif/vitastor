@@ -26,7 +26,7 @@ std::string read_all_fd(int fd)
     while (1)
     {
         res.resize(res_size+1024);
-        int r = read(fd, res.data()+res_size, res.size()-res_size);
+        int r = read(fd, (char*)res.data()+res_size, res.size()-res_size);
         if (r > 0)
             res_size += r;
         else if (!r || errno != EAGAIN && errno != EINTR)
