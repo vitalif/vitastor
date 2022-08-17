@@ -18,6 +18,7 @@ static const char *help_text =
     "  In the second form, you omit <devices> and pass --data_device, --journal_device\n"
     "  and/or --meta_device which must be already existing partitions. In this case\n"
     "  a single OSD is created.\n"
+    "  Requires `vitastor-cli`, `blkid` and `sfdisk` utilities.\n"
     "  OPTIONS may include:\n"
     "    --hybrid\n"
     "      Prepare hybrid (HDD+SSD) OSDs using provided devices. SSDs will be used for\n"
@@ -44,6 +45,13 @@ static const char *help_text =
     "    --max_other 10%\n"
     "      Use disks for OSD data even if they already have non-Vitastor partitions,\n"
     "      but only if these take up no more than this percent of disk space.\n"
+    "\n"
+    "vitastor-disk upgrade-simple <UNIT_FILE|OSD_NUMBER>\n"
+    "  Upgrade an OSD created by old (0.7.1 and older) make-osd.sh or make-osd-hybrid.js scripts.\n"
+    "  Adds superblocks to OSD devices, disables old vitastor-osdN unit and replaces it with vitastor-osd@N.\n"
+    "  UNIT_FILE must be /etc/systemd/system/vitastor-osd<OSD_NUMBER>.service.\n"
+    "  Note that the procedure isn't atomic and may ruin OSD data if an error happens.\n"
+    "  Requires the `sfdisk` utility.\n"
     "\n"
     "vitastor-disk resize <ALL_OSD_PARAMETERS> <NEW_LAYOUT> [--iodepth 32]\n"
     "  Resize data area and/or rewrite/move journal and metadata\n"
@@ -262,6 +270,24 @@ int main(int argc, char *argv[])
             return 1;
         }
         return self.pre_exec_osd(cmd[1]);
+    }
+    else if (!strcmp(cmd[0], "prepare"))
+    {
+        std::vector<std::string> devs;
+        for (int i = 1; i < cmd.size(); i++)
+        {
+            devs.push_back(cmd[i]);
+        }
+        return self.prepare(devs);
+    }
+    else if (!strcmp(cmd[0], "upgrade-simple"))
+    {
+        if (cmd.size() != 2)
+        {
+            fprintf(stderr, "Exactly 1 OSD number or systemd unit path is required\n");
+            return 1;
+        }
+        return self.upgrade_simple_unit(cmd[1]);
     }
     else
     {

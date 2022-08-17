@@ -120,6 +120,8 @@ struct disk_tool_t
     json11::Json add_partitions(vitastor_dev_info_t & devinfo, std::vector<std::string> sizes);
     std::vector<std::string> get_new_data_parts(vitastor_dev_info_t & dev, uint64_t osd_per_disk, uint64_t max_other_percent);
     int get_meta_partition(std::vector<vitastor_dev_info_t> & ssds, std::map<std::string, std::string> & options);
+
+    int upgrade_simple_unit(std::string unit);
 };
 
 void disk_tool_simple_offsets(json11::Json cfg, bool json_output);

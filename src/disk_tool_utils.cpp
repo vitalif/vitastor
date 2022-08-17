@@ -148,13 +148,12 @@ int shell_exec(const std::vector<std::string> & cmd, const std::string & in, std
         close(child_stdout[1]);
         close(child_stderr[0]);
         close(child_stderr[1]);
-        //char *argv[] = { (char*)"/bin/sh", (char*)"-c", (char*)cmd.c_str(), NULL };
         char *argv[cmd.size()+1];
         for (int i = 0; i < cmd.size(); i++)
         {
             argv[i] = (char*)cmd[i].c_str();
         }
-        argv[cmd.size()-1] = NULL;
+        argv[cmd.size()] = NULL;
         execvp(argv[0], argv);
         std::string full_cmd;
         for (int i = 0; i < cmd.size(); i++)

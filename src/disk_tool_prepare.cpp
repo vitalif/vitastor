@@ -255,7 +255,7 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
     {
         script += "+ "+size+" "+std::string(VITASTOR_PART_TYPE)+"\n";
     }
-    if (shell_exec({ "/sbin/sfdisk", devinfo.path }, script, NULL, NULL) != 0)
+    if (shell_exec({ "/sbin/sfdisk", "--force", devinfo.path }, script, NULL, NULL) != 0)
     {
         fprintf(stderr, "Failed to add %lu partition(s) with sfdisk\n", sizes.size());
         return {};

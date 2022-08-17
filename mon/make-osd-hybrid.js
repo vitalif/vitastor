@@ -1,4 +1,5 @@
 #!/usr/bin/nodejs
+// DEPRECATED, DO NOT USE - use vitastor-disk prepare instead
 // systemd unit generator for hybrid (HDD+SSD) vitastor OSDs
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1

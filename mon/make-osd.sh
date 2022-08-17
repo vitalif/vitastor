@@ -1,6 +1,6 @@
 #!/bin/bash
+# DEPRECATED, DO NOT USE - use vitastor-disk prepare instead
 # Very simple systemd unit generator for vitastor-osd services
-# Not the final solution yet, mostly for tests
 # Copyright (c) Vitaliy Filippov, 2019+
 # License: MIT
 
