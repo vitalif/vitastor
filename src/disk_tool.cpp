@@ -18,7 +18,7 @@ static const char *help_text =
     "  In the second form, you omit <devices> and pass --data_device, --journal_device\n"
     "  and/or --meta_device which must be already existing partitions. In this case\n"
     "  a single OSD is created.\n"
-    "  Requires `vitastor-cli`, `blkid` and `sfdisk` utilities.\n"
+    "  Requires `vitastor-cli`, `blkid`, `sfdisk` and `partprobe` (from parted) utilities.\n"
     "  OPTIONS may include:\n"
     "    --hybrid\n"
     "      Prepare hybrid (HDD+SSD) OSDs using provided devices. SSDs will be used for\n"

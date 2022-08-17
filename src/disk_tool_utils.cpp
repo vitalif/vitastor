@@ -206,10 +206,10 @@ int write_zero(int fd, uint64_t offset, uint64_t size)
 json11::Json read_parttable(std::string dev)
 {
     std::string part_dump;
-    int r = shell_exec({ "/sbin/sfdisk", "--dump", dev, "--json" }, "", &part_dump, NULL);
+    int r = shell_exec({ "sfdisk", "--dump", dev, "--json" }, "", &part_dump, NULL);
     if (r == 255)
     {
-        fprintf(stderr, "Error running /sbin/sfdisk --dump %s --json\n", dev.c_str());
+        fprintf(stderr, "Error running sfdisk --dump %s --json\n", dev.c_str());
         return json11::Json(false);
     }
     // Decode partition table

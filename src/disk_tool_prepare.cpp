@@ -44,7 +44,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
             if (i == 0 && is_hdd == -1)
                 is_hdd = read_file("/sys/block/"+parent_dev+"/queue/rotational") == "1";
             std::string out;
-            if (shell_exec({ "/sbin/blkid", "-D", "-p", dev }, "", &out, NULL) == 0)
+            if (shell_exec({ "blkid", "-D", "-p", dev }, "", &out, NULL) == 0)
             {
                 fprintf(stderr, "%s contains data, not creating OSD without --force. blkid -D -p says:\n%s", dev.c_str(), out.c_str());
                 return 1;
@@ -202,7 +202,7 @@ std::vector<vitastor_dev_info_t> disk_tool_t::collect_devices(const std::vector<
         {
             // No partition table
             std::string out;
-            int r = shell_exec({ "/sbin/blkid", "-p", dev }, "", &out, NULL);
+            int r = shell_exec({ "blkid", "-p", dev }, "", &out, NULL);
             if (r == 0)
             {
                 fprintf(stderr, "%s contains data, skipping:\n  %s\n", dev.c_str(), str_replace(trim(out), "\n", "\n  ").c_str());
@@ -255,7 +255,7 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
     {
         script += "+ "+size+" "+std::string(VITASTOR_PART_TYPE)+"\n";
     }
-    if (shell_exec({ "/sbin/sfdisk", "--force", devinfo.path }, script, NULL, NULL) != 0)
+    if (shell_exec({ "sfdisk", "--force", devinfo.path }, script, NULL, NULL) != 0)
     {
         fprintf(stderr, "Failed to add %lu partition(s) with sfdisk\n", sizes.size());
         return {};
@@ -275,13 +275,48 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
         fprintf(stderr, "Failed to add %lu partition(s) with sfdisk: new partitions not found in table\n", sizes.size());
         return {};
     }
+    // Check if new nodes exist and run partprobe if not
+    // FIXME: We could use parted instead of sfdisk because partprobe is already a part of parted
+    int iter = 0, r;
+    while (true)
+    {
+        for (const auto & part: new_parts)
+        {
+            struct stat st;
+            if (stat(part["node"].string_value().c_str(), &st) < 0)
+            {
+                if (errno == ENOENT)
+                {
+                    iter++;
+                    // Run partprobe
+                    if (iter > 1 || (r = shell_exec({ "partprobe", devinfo.path }, "", NULL, NULL)) != 0)
+                    {
+                        fprintf(
+                            stderr, iter == 1 && r == 255
+                                ? "partprobe utility is required to reread partition table while disk %s is in use\n"
+                                : "partprobe failed to re-read partition table while disk %s is in use\n",
+                            devinfo.path.c_str()
+                        );
+                        return {};
+                    }
+                    break;
+                }
+                else
+                {
+                    fprintf(stderr, "Failed to lstat %s: %s\n", part["node"].string_value().c_str(), strerror(errno));
+                    return {};
+                }
+            }
+        }
+        break;
+    }
     // Wait until device symlinks in /dev/disk/by-partuuid/ appear
     bool exists = false;
-    int iter = 0;
+    iter = 0;
     while (!exists && iter < 300) // max 30 sec
     {
         exists = true;
-        for (const auto & part: newpt["partitions"].array_items())
+        for (const auto & part: new_parts)
         {
             std::string link_path = "/dev/disk/by-partuuid/"+strtolower(part["uuid"].string_value());
             struct stat st;

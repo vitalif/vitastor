@@ -71,7 +71,7 @@ static int fix_partition_type(std::string dev_by_uuid)
         }
         script += "\n";
     }
-    return shell_exec({ "/sbin/sfdisk", "--no-reread", "--force", "/dev/"+parent_dev }, script, NULL, NULL);
+    return shell_exec({ "sfdisk", "--no-reread", "--force", "/dev/"+parent_dev }, script, NULL, NULL);
 }
 
 int disk_tool_t::upgrade_simple_unit(std::string unit)
