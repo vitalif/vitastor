@@ -30,6 +30,12 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
             const auto & dev = all_devs[i];
             if (dev == "")
                 continue;
+            if (dev.substr(0, 22) != "/dev/disk/by-partuuid/")
+            {
+                // Partitions should be identified by GPT partition UUID
+                fprintf(stderr, "%s does not start with /dev/disk/by-partuuid/. Partitions should be identified by GPT partition UUIDs\n", dev.c_str());
+                return 1;
+            }
             std::string real_dev = realpath_str(dev, false);
             if (real_dev == "")
                 return 1;
@@ -42,11 +48,11 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
                 return 1;
             }
             if (i == 0 && is_hdd == -1)
-                is_hdd = read_file("/sys/block/"+parent_dev+"/queue/rotational") == "1";
+                is_hdd = trim(read_file("/sys/block/"+parent_dev+"/queue/rotational")) == "1";
             std::string out;
-            if (shell_exec({ "blkid", "-D", "-p", dev }, "", &out, NULL) == 0)
+            if (shell_exec({ "wipefs", dev }, "", &out, NULL) != 0 || out != "")
             {
-                fprintf(stderr, "%s contains data, not creating OSD without --force. blkid -D -p says:\n%s", dev.c_str(), out.c_str());
+                fprintf(stderr, "%s contains data, not creating OSD without --force. wipefs shows:\n%s", dev.c_str(), out.c_str());
                 return 1;
             }
             json11::Json sb = read_osd_superblock(dev, false);
@@ -143,15 +149,26 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     }
     dsk.close_all();
     // Write superblocks
-    if (!write_osd_superblock(options["data_device"], sb) ||
-        options["meta_device"] != "" &&
-        options["meta_device"] != options["data_device"] &&
-        write_osd_superblock(options["meta_device"], sb) ||
-        options["journal_device"] != "" &&
+    bool sep_m = options["meta_device"] != "" &&
+        options["meta_device"] != options["data_device"];
+    bool sep_j = options["journal_device"] != "" &&
         options["journal_device"] != options["data_device"] &&
-        options["journal_device"] != options["meta_device"] &&
-        !write_osd_superblock(options["journal_device"], sb))
+        options["journal_device"] != options["meta_device"];
+    if (!write_osd_superblock(options["data_device"], sb) ||
+        sep_m && !write_osd_superblock(options["meta_device"], sb) ||
+        sep_j && !write_osd_superblock(options["journal_device"], sb))
     {
+        return 1;
+    }
+    auto desc = realpath_str(options["data_device"]);
+    if (sep_m)
+        desc += " with metadata on "+realpath_str(options["meta_device"]);
+    if (sep_j)
+        desc += (sep_m ? " and journal on " : " with journal on ") + realpath_str(options["journal_device"]);
+    fprintf(stderr, "Initialized OSD %lu on %s\n", osd_num, desc.c_str());
+    if (shell_exec({ "systemctl", "enable", "--now", "vitastor-osd@"+std::to_string(osd_num) }, "", NULL, NULL) != 0)
+    {
+        fprintf(stderr, "Failed to enable systemd unit vitastor-osd@%lu\n", osd_num);
         return 1;
     }
     return 0;
@@ -190,7 +207,7 @@ std::vector<vitastor_dev_info_t> disk_tool_t::collect_devices(const std::vector<
             return {};
         }
         // Check if the device is an SSD
-        bool is_hdd = read_file("/sys/block/"+dev.substr(5)+"/queue/rotational") == "1";
+        bool is_hdd = trim(read_file("/sys/block/"+dev.substr(5)+"/queue/rotational")) == "1";
         // Check if it has a partition table
         json11::Json pt = read_parttable(dev);
         if (pt.is_bool() && !pt.bool_value())
@@ -202,8 +219,8 @@ std::vector<vitastor_dev_info_t> disk_tool_t::collect_devices(const std::vector<
         {
             // No partition table
             std::string out;
-            int r = shell_exec({ "blkid", "-p", dev }, "", &out, NULL);
-            if (r == 0)
+            int r = shell_exec({ "wipefs", dev }, "", &out, NULL);
+            if (r != 0 || out != "")
             {
                 fprintf(stderr, "%s contains data, skipping:\n  %s\n", dev.c_str(), str_replace(trim(out), "\n", "\n  ").c_str());
                 continue;
@@ -244,9 +261,9 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
         {
             if (kv.first != "node")
             {
-                script += kv.first+"="+(kv.second.is_string() ? kv.second.string_value() : kv.second.dump());
                 if (n++)
                     script += ", ";
+                script += kv.first+"="+(kv.second.is_string() ? kv.second.string_value() : kv.second.dump());
             }
         }
         script += "\n";
@@ -510,6 +527,11 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
             fprintf(stderr, "No SSDs found\n");
             return 1;
         }
+        else if (ssds.size() == devinfo.size())
+        {
+            fprintf(stderr, "No HDDs found\n");
+            return 1;
+        }
         if (options["journal_size"] == "")
             options["journal_size"] = DEFAULT_HYBRID_JOURNAL;
     }
@@ -521,7 +543,7 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
             for (const auto & uuid: get_new_data_parts(dev, osd_per_disk, max_other_percent))
             {
                 options["force"] = true;
-                options["data_device"] = "/dev/disk/by-uuid/"+strtolower(uuid);
+                options["data_device"] = "/dev/disk/by-partuuid/"+strtolower(uuid);
                 if (hybrid)
                 {
                     // Select/create journal and metadata partitions

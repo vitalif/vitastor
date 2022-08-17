@@ -12,13 +12,13 @@ static const char *help_text =
     "\n"
     "vitastor-disk prepare [OPTIONS] [devices...]\n"
     "  Initialize disk(s) for Vitastor OSD(s).\n"
-    "  There are two forms of this command. In the first form, you pass <devices> which\n"
+    "  There are two modes of this command. In the first mode, you pass <devices> which\n"
     "  must be raw disks (not partitions). They are partitioned automatically and OSDs\n"
     "  are initialized on all of them.\n"
-    "  In the second form, you omit <devices> and pass --data_device, --journal_device\n"
-    "  and/or --meta_device which must be already existing partitions. In this case\n"
-    "  a single OSD is created.\n"
-    "  Requires `vitastor-cli`, `blkid`, `sfdisk` and `partprobe` (from parted) utilities.\n"
+    "  In the second mode, you omit <devices> and pass --data_device, --journal_device\n"
+    "  and/or --meta_device which must be already existing partitions identified by their\n"
+    "  GPT partition UUIDs. In this case a single OSD is created.\n"
+    "  Requires `vitastor-cli`, `wipefs`, `sfdisk` and `partprobe` (from parted) utilities.\n"
     "  OPTIONS may include:\n"
     "    --hybrid\n"
     "      Prepare hybrid (HDD+SSD) OSDs using provided devices. SSDs will be used for\n"
@@ -30,6 +30,7 @@ static const char *help_text =
     "    --data_device <DEV>        Create a single OSD using partition <DEV> for data\n"
     "    --meta_device <DEV>        Create a single OSD using partition <DEV> for metadata\n"
     "    --journal_device <DEV>     Create a single OSD using partition <DEV> for journal\n"
+    "    --force                    Bypass checks on data/meta/journal partitions\n"
     "    --journal_size 1G/32M      Set journal size\n"
     "    --object_size 1M/128k      Set blockstore object size\n"
     "    --disable_ssd_cache 1      Disable cache and fsyncs for SSD journal and metadata\n"
@@ -43,8 +44,8 @@ static const char *help_text =
     "      metadata size to ease possible future extension. The default is to allocate\n"
     "      2 times more space and at least 1G. Use this option to override.\n"
     "    --max_other 10%\n"
-    "      Use disks for OSD data even if they already have non-Vitastor partitions,\n"
-    "      but only if these take up no more than this percent of disk space.\n"
+    "      In the automatic mode, use disks for OSD data even if they already have non-Vitastor\n"
+    "      partitions, but only if these take up no more than this percent of disk space.\n"
     "\n"
     "vitastor-disk upgrade-simple <UNIT_FILE|OSD_NUMBER>\n"
     "  Upgrade an OSD created by old (0.7.1 and older) make-osd.sh or make-osd-hybrid.js scripts.\n"
@@ -149,7 +150,7 @@ int main(int argc, char *argv[])
         {
             self.options["hybrid"] = "1";
         }
-        else if (!strcmp(argv[i], "--help"))
+        else if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h"))
         {
             cmd.insert(cmd.begin(), (char*)"help");
         }

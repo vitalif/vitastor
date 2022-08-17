@@ -110,11 +110,6 @@ uint32_t disk_tool_t::write_osd_superblock(std::string device, json11::Json para
         free(buf);
         return 0;
     }
-    // Lock the file
-    if (flock(fd, LOCK_EX|LOCK_NB) < 0)
-    {
-        fprintf(stderr, "Warning: Failed to lock %s with flock - udev autodetection may fail. Error: %s\n", device.c_str(), strerror(errno));
-    }
     int r = write_blocking(fd, buf, buf_len);
     if (r < 0)
     {
@@ -125,6 +120,7 @@ uint32_t disk_tool_t::write_osd_superblock(std::string device, json11::Json para
     }
     close(fd);
     free(buf);
+    shell_exec({ "udevadm", "trigger", "--settle", device }, "", NULL, NULL);
     return sb_size;
 }
 

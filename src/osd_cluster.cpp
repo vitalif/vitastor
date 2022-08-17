@@ -663,9 +663,9 @@ void osd_t::apply_pg_config()
                 {
                     printf(
                         "[OSD %lu] My block_size and bitmap_granularity are %u/%u"
-                        ", but pool has %u/%u. Refusing to start PGs of this pool\n",
+                        ", but pool %u has %u/%u. Refusing to start PGs of this pool\n",
                         this->osd_num, bs_block_size, bs_bitmap_granularity,
-                        pool_item.second.data_block_size, pool_item.second.bitmap_granularity
+                        pool_id, pool_item.second.data_block_size, pool_item.second.bitmap_granularity
                     );
                 }
                 warned_block_size = true;

@@ -219,7 +219,7 @@ void blockstore_disk_t::open_data()
     data_fd = open(data_device.c_str(), O_DIRECT|O_RDWR);
     if (data_fd == -1)
     {
-        throw std::runtime_error("Failed to open data device");
+        throw std::runtime_error("Failed to open data device "+data_device+": "+std::string(strerror(errno)));
     }
     check_size(data_fd, &data_device_size, &data_device_sect, "data device");
     if (disk_alignment % data_device_sect)
@@ -243,11 +243,10 @@ void blockstore_disk_t::open_meta()
 {
     if (meta_device != data_device)
     {
-        meta_offset = 0;
         meta_fd = open(meta_device.c_str(), O_DIRECT|O_RDWR);
         if (meta_fd == -1)
         {
-            throw std::runtime_error("Failed to open metadata device");
+            throw std::runtime_error("Failed to open metadata device "+meta_device+": "+std::string(strerror(errno)));
         }
         check_size(meta_fd, &meta_device_size, &meta_device_sect, "metadata device");
         if (meta_offset >= meta_device_size)
@@ -285,7 +284,7 @@ void blockstore_disk_t::open_journal()
         journal_fd = open(journal_device.c_str(), O_DIRECT|O_RDWR);
         if (journal_fd == -1)
         {
-            throw std::runtime_error("Failed to open journal device");
+            throw std::runtime_error("Failed to open journal device "+journal_device+": "+std::string(strerror(errno)));
         }
         check_size(journal_fd, &journal_device_size, &journal_device_sect, "journal device");
         if (!disable_flock && flock(journal_fd, LOCK_EX|LOCK_NB) != 0)
