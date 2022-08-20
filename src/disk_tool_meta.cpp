@@ -156,3 +156,46 @@ void disk_tool_t::dump_meta_entry(uint64_t block_num, clean_disk_entry *entry, u
     }
     first = false;
 }
+
+int disk_tool_t::write_json_meta(json11::Json meta)
+{
+    new_meta_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_meta_len);
+    memset(new_meta_buf, 0, new_meta_len);
+    blockstore_meta_header_v1_t *new_hdr = (blockstore_meta_header_v1_t *)new_meta_buf;
+    new_hdr->zero = 0;
+    new_hdr->magic = BLOCKSTORE_META_MAGIC_V1;
+    new_hdr->version = BLOCKSTORE_META_VERSION_V1;
+    new_hdr->meta_block_size = meta["meta_block_size"].uint64_value()
+        ? meta["meta_block_size"].uint64_value() : 4096;
+    new_hdr->data_block_size = meta["data_block_size"].uint64_value()
+        ? meta["data_block_size"].uint64_value() : 131072;
+    new_hdr->bitmap_granularity = meta["bitmap_granularity"].uint64_value()
+        ? meta["bitmap_granularity"].uint64_value() : 4096;
+    new_clean_entry_bitmap_size = new_hdr->data_block_size / new_hdr->bitmap_granularity / 8;
+    new_clean_entry_size = sizeof(clean_disk_entry) + 2*new_clean_entry_bitmap_size;
+    new_entries_per_block = new_hdr->meta_block_size / new_clean_entry_size;
+    for (const auto & e: meta["entries"].array_items())
+    {
+        uint64_t data_block = e["block"].uint64_value();
+        uint64_t mb = 1 + data_block/new_entries_per_block;
+        if (mb >= new_meta_len/new_hdr->meta_block_size)
+        {
+            free(new_meta_buf);
+            new_meta_buf = NULL;
+            fprintf(stderr, "Metadata (data block %lu) doesn't fit into the new area\n", data_block);
+            return 1;
+        }
+        clean_disk_entry *new_entry = (clean_disk_entry*)(new_meta_buf +
+            new_hdr->meta_block_size*mb +
+            new_clean_entry_size*(data_block % new_entries_per_block));
+        new_entry->oid.inode = (sscanf_json(NULL, e["pool"]) << (64-POOL_ID_BITS)) | sscanf_json(NULL, e["inode"]);
+        new_entry->oid.stripe = sscanf_json(NULL, e["stripe"]);
+        new_entry->version = sscanf_json(NULL, e["version"]);
+        fromhexstr(e["bitmap"].string_value(), new_clean_entry_bitmap_size, ((uint8_t*)new_entry) + sizeof(clean_disk_entry));
+        fromhexstr(e["ext_bitmap"].string_value(), new_clean_entry_bitmap_size, ((uint8_t*)new_entry) + sizeof(clean_disk_entry) + new_clean_entry_bitmap_size);
+    }
+    int r = resize_write_new_meta();
+    free(new_meta_buf);
+    new_meta_buf = NULL;
+    return r;
+}

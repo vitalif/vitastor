@@ -317,35 +317,6 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
     }
 }
 
-static uint64_t sscanf_num(const char *fmt, const std::string & str)
-{
-    uint64_t value = 0;
-    sscanf(str.c_str(), fmt, &value);
-    return value;
-}
-
-static int fromhex(char c)
-{
-    if (c >= '0' && c <= '9')
-        return (c-'0');
-    else if (c >= 'a' && c <= 'f')
-        return (c-'a'+10);
-    else if (c >= 'A' && c <= 'F')
-        return (c-'A'+10);
-    return -1;
-}
-
-static void fromhexstr(const std::string & from, int bytes, uint8_t *to)
-{
-    for (int i = 0; i < from.size() && i < bytes; i++)
-    {
-        int x = fromhex(from[2*i]), y = fromhex(from[2*i+1]);
-        if (x < 0 || y < 0)
-            break;
-        to[i] = x*16 + y;
-    }
-}
-
 int disk_tool_t::write_json_journal(json11::Json entries)
 {
     new_journal_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_journal_len);
@@ -363,6 +334,18 @@ int disk_tool_t::write_json_journal(json11::Json entries)
         { "delete", JE_DELETE },
         { "rollback", JE_ROLLBACK },
     };
+    // Write start entry into the first block
+    *((journal_entry_start*)new_journal_buf) = (journal_entry_start){
+        .magic = JOURNAL_MAGIC,
+        .type = JE_START,
+        .size = sizeof(journal_entry_start),
+        .journal_start = dsk.journal_block_size,
+        .version = JOURNAL_VERSION,
+    };
+    ((journal_entry*)new_journal_buf)->crc32 = je_crc32((journal_entry*)new_journal_buf);
+    new_journal_ptr += dsk.journal_block_size;
+    new_journal_data = new_journal_ptr+dsk.journal_block_size;
+    new_journal_in_pos = 0;
     for (const auto & rec: entries.array_items())
     {
         auto t_it = type_by_name.find(rec["type"].string_value());
@@ -372,6 +355,8 @@ int disk_tool_t::write_json_journal(json11::Json entries)
             continue;
         }
         uint16_t type = t_it->second;
+        if (type == JE_START)
+            continue;
         uint32_t entry_size = (type == JE_START
             ? sizeof(journal_entry_start)
             : (type == JE_SMALL_WRITE || type == JE_SMALL_WRITE_INSTANT
@@ -398,20 +383,7 @@ int disk_tool_t::write_json_journal(json11::Json entries)
             }
         }
         journal_entry *ne = (journal_entry*)(new_journal_ptr + new_journal_in_pos);
-        if (type == JE_START)
-        {
-            *((journal_entry_start*)ne) = (journal_entry_start){
-                .magic = JOURNAL_MAGIC,
-                .type = type,
-                .size = entry_size,
-                .journal_start = dsk.journal_block_size,
-                .version = JOURNAL_VERSION,
-            };
-            new_journal_ptr += dsk.journal_block_size;
-            new_journal_data = new_journal_ptr+dsk.journal_block_size;
-            new_journal_in_pos = 0;
-        }
-        else if (type == JE_SMALL_WRITE || type == JE_SMALL_WRITE_INSTANT)
+        if (type == JE_SMALL_WRITE || type == JE_SMALL_WRITE_INSTANT)
         {
             if (new_journal_data - new_journal_buf + ne->small_write.len > new_journal_len)
             {
@@ -425,14 +397,14 @@ int disk_tool_t::write_json_journal(json11::Json entries)
                 .size = entry_size,
                 .crc32_prev = new_crc32_prev,
                 .oid = {
-                    .inode = sscanf_num("0x%lx", rec["inode"].string_value()),
-                    .stripe = sscanf_num("0x%lx", rec["stripe"].string_value()),
+                    .inode = sscanf_json(NULL, rec["inode"]),
+                    .stripe = sscanf_json(NULL, rec["stripe"]),
                 },
                 .version = rec["ver"].uint64_value(),
                 .offset = (uint32_t)rec["offset"].uint64_value(),
                 .len = (uint32_t)rec["len"].uint64_value(),
                 .data_offset = (uint64_t)(new_journal_data-new_journal_buf),
-                .crc32_data = (uint32_t)sscanf_num("%x", rec["data_crc32"].string_value()),
+                .crc32_data = (uint32_t)sscanf_json("%x", rec["data_crc32"]),
             };
             fromhexstr(rec["bitmap"].string_value(), dsk.clean_entry_bitmap_size, ((uint8_t*)ne) + sizeof(journal_entry_small_write));
             fromhexstr(rec["data"].string_value(), ne->small_write.len, new_journal_data);
@@ -448,11 +420,11 @@ int disk_tool_t::write_json_journal(json11::Json entries)
                 .size = entry_size,
                 .crc32_prev = new_crc32_prev,
                 .oid = {
-                    .inode = sscanf_num("0x%lx", rec["inode"].string_value()),
-                    .stripe = sscanf_num("0x%lx", rec["stripe"].string_value()),
+                    .inode = sscanf_json(NULL, rec["inode"]),
+                    .stripe = sscanf_json(NULL, rec["stripe"]),
                 },
                 .version = rec["ver"].uint64_value(),
-                .location = sscanf_num("0x%lx", rec["loc"].string_value()),
+                .location = sscanf_json(NULL, rec["loc"]),
             };
             fromhexstr(rec["bitmap"].string_value(), dsk.clean_entry_bitmap_size, ((uint8_t*)ne) + sizeof(journal_entry_big_write));
         }
@@ -464,8 +436,8 @@ int disk_tool_t::write_json_journal(json11::Json entries)
                 .size = entry_size,
                 .crc32_prev = new_crc32_prev,
                 .oid = {
-                    .inode = sscanf_num("0x%lx", rec["inode"].string_value()),
-                    .stripe = sscanf_num("0x%lx", rec["stripe"].string_value()),
+                    .inode = sscanf_json(NULL, rec["inode"]),
+                    .stripe = sscanf_json(NULL, rec["stripe"]),
                 },
                 .version = rec["ver"].uint64_value(),
             };

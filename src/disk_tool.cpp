@@ -107,6 +107,10 @@ static const char *help_text =
     "vitastor-disk dump-meta <meta_file> <meta_block_size> <offset> <size>\n"
     "  Dump metadata in JSON format.\n"
     "\n"
+    "vitastor-disk write-meta <meta_file> <offset> <size>\n"
+    "  Write metadata from JSON taken from standard input in the same format as produced by\n"
+    "  dump-meta --json.\n"
+    "\n"
     "vitastor-disk simple-offsets <device>\n"
     "  Calculate offsets for old simple&stupid (no superblock) OSD deployment. Options:\n"
     "  --object_size 128k       Set blockstore block size\n"
@@ -185,7 +189,7 @@ int main(int argc, char *argv[])
     {
         if (cmd.size() < 5)
         {
-            print_help(help_text, "vitastor-disk", cmd[0], false);
+            print_help(help_text, aliased ? "vitastor-dump-journal" : "vitastor-disk", cmd[0], false);
             return 1;
         }
         self.dsk.journal_device = cmd[1];
@@ -227,6 +231,25 @@ int main(int argc, char *argv[])
         self.dsk.meta_offset = strtoull(cmd[3], NULL, 10);
         self.dsk.meta_len = strtoull(cmd[4], NULL, 10);
         return self.dump_meta();
+    }
+    else if (!strcmp(cmd[0], "write-meta"))
+    {
+        if (cmd.size() < 4)
+        {
+            print_help(help_text, "vitastor-disk", cmd[0], false);
+            return 1;
+        }
+        self.new_meta_device = cmd[1];
+        self.new_meta_offset = strtoull(cmd[2], NULL, 10);
+        self.new_meta_len = strtoull(cmd[3], NULL, 10);
+        std::string json_err;
+        json11::Json meta = json11::Json::parse(read_all_fd(0), json_err);
+        if (json_err != "")
+        {
+            fprintf(stderr, "Invalid JSON: %s\n", json_err.c_str());
+            return 1;
+        }
+        return self.write_json_meta(meta);
     }
     else if (!strcmp(cmd[0], "resize"))
     {

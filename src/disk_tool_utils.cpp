@@ -7,6 +7,40 @@
 #include "rw_blocking.h"
 #include "str_util.h"
 
+uint64_t sscanf_json(const char *fmt, const json11::Json & str)
+{
+    uint64_t value = 0;
+    if (fmt)
+        sscanf(str.string_value().c_str(), "%lx", &value);
+    else if (str.string_value().size() > 2 && (str.string_value()[0] == '0' && str.string_value()[1] == 'x'))
+        sscanf(str.string_value().c_str(), "0x%lx", &value);
+    else
+        value = str.uint64_value();
+    return value;
+}
+
+static int fromhex(char c)
+{
+    if (c >= '0' && c <= '9')
+        return (c-'0');
+    else if (c >= 'a' && c <= 'f')
+        return (c-'a'+10);
+    else if (c >= 'A' && c <= 'F')
+        return (c-'A'+10);
+    return -1;
+}
+
+void fromhexstr(const std::string & from, int bytes, uint8_t *to)
+{
+    for (int i = 0; i < from.size() && i < bytes; i++)
+    {
+        int x = fromhex(from[2*i]), y = fromhex(from[2*i+1]);
+        if (x < 0 || y < 0)
+            break;
+        to[i] = x*16 + y;
+    }
+}
+
 std::string realpath_str(std::string path, bool nofail)
 {
     char *p = realpath((char*)path.c_str(), NULL);

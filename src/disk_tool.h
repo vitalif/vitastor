@@ -92,6 +92,7 @@ struct disk_tool_t
     void dump_meta_entry(uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap);
 
     int write_json_journal(json11::Json entries);
+    int write_json_meta(json11::Json meta);
 
     int resize_data();
     int resize_parse_params();
@@ -125,6 +126,8 @@ struct disk_tool_t
 
 void disk_tool_simple_offsets(json11::Json cfg, bool json_output);
 
+uint64_t sscanf_json(const char *fmt, const json11::Json & str);
+void fromhexstr(const std::string & from, int bytes, uint8_t *to);
 std::string realpath_str(std::string path, bool nofail = true);
 std::string read_all_fd(int fd);
 std::string read_file(std::string file, bool allow_enoent = false);
