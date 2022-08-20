@@ -93,11 +93,16 @@ static const char *help_text =
     "  For now, this only checks that device cache is in write-through mode if fsync is disabled.\n"
     "  Intended for use from startup scripts (i.e. from systemd units).\n"
     "\n"
-    "vitastor-disk dump-journal [--all] [--json] <journal_file> <journal_block_size> <offset> <size>\n"
+    "vitastor-disk dump-journal [--all] [--json [--format entries|blocks|data]] <journal_file> <journal_block_size> <offset> <size>\n"
     "  Dump journal in human-readable or JSON (if --json is specified) format.\n"
     "  Without --all, only actual part of the journal is dumped.\n"
     "  With --all, the whole journal area is scanned for journal entries,\n"
     "  some of which may be outdated.\n"
+    "  In JSON mode, the journal by default is dumped with --format entries.\n"
+    "\n"
+    "vitastor-disk write-journal <journal_file> <journal_block_size> <bitmap_size> <offset> <size>\n"
+    "  Write journal from JSON taken from standard input in the same format as produced by\n"
+    "  dump-journal --json --format data.\n"
     "\n"
     "vitastor-disk dump-meta <meta_file> <meta_block_size> <offset> <size>\n"
     "  Dump metadata in JSON format.\n"
@@ -180,7 +185,7 @@ int main(int argc, char *argv[])
     {
         if (cmd.size() < 5)
         {
-            fprintf(stderr, "USAGE: %s%s [--all] [--json] <journal_file> <journal_block_size> <offset> <size>\n", argv[0], aliased ? "" : " dump-journal");
+            print_help(help_text, "vitastor-disk", cmd[0], false);
             return 1;
         }
         self.dsk.journal_device = cmd[1];
@@ -189,11 +194,32 @@ int main(int argc, char *argv[])
         self.dsk.journal_len = strtoull(cmd[4], NULL, 10);
         return self.dump_journal();
     }
+    else if (!strcmp(cmd[0], "write-journal"))
+    {
+        if (cmd.size() < 6)
+        {
+            print_help(help_text, "vitastor-disk", cmd[0], false);
+            return 1;
+        }
+        self.new_journal_device = cmd[1];
+        self.dsk.journal_block_size = strtoul(cmd[2], NULL, 10);
+        self.dsk.clean_entry_bitmap_size = strtoul(cmd[3], NULL, 10);
+        self.new_journal_offset = strtoull(cmd[4], NULL, 10);
+        self.new_journal_len = strtoull(cmd[5], NULL, 10);
+        std::string json_err;
+        json11::Json entries = json11::Json::parse(read_all_fd(0), json_err);
+        if (json_err != "")
+        {
+            fprintf(stderr, "Invalid JSON: %s\n", json_err.c_str());
+            return 1;
+        }
+        return self.write_json_journal(entries);
+    }
     else if (!strcmp(cmd[0], "dump-meta"))
     {
         if (cmd.size() < 5)
         {
-            fprintf(stderr, "USAGE: %s dump-meta <meta_file> <meta_block_size> <offset> <size>\n", argv[0]);
+            print_help(help_text, "vitastor-disk", cmd[0], false);
             return 1;
         }
         self.dsk.meta_device = cmd[1];

@@ -41,6 +41,7 @@ struct disk_tool_t
 
     std::map<std::string, std::string> options;
     bool all, json, now;
+    bool dump_with_blocks, dump_with_data;
     blockstore_disk_t dsk;
 
     // resize data and/or move metadata and journal
@@ -77,24 +78,22 @@ struct disk_tool_t
     uint32_t crc32_last;
     uint32_t new_crc32_prev;
 
-    /**** Commands ****/
-
-    int dump_journal();
-    int dump_meta();
-    int resize_data();
-
-    /**** Methods ****/
-
     ~disk_tool_t();
 
+    int dump_journal();
     void dump_journal_entry(int num, journal_entry *je, bool json);
     int process_journal(std::function<int(void*)> block_fn);
     int process_journal_block(void *buf, std::function<void(int, journal_entry*)> iter_fn);
     int process_meta(std::function<void(blockstore_meta_header_v1_t *)> hdr_fn,
         std::function<void(uint64_t, clean_disk_entry*, uint8_t*)> record_fn);
+
+    int dump_meta();
     void dump_meta_header(blockstore_meta_header_v1_t *hdr);
     void dump_meta_entry(uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap);
 
+    int write_json_journal(json11::Json entries);
+
+    int resize_data();
     int resize_parse_params();
     void resize_init(blockstore_meta_header_v1_t *hdr);
     int resize_remap_blocks();
