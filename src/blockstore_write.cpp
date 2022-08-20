@@ -269,6 +269,22 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             cancel_all_writes(op, dirty_it, -ENOSPC);
             return 2;
         }
+        if (inmemory_meta)
+        {
+            // Check once more that metadata entry is zeroed (the reverse means a bug or corruption)
+            uint64_t sector = (loc / (dsk.meta_block_size / dsk.clean_entry_size)) * dsk.meta_block_size;
+            uint64_t pos = (loc % (dsk.meta_block_size / dsk.clean_entry_size));
+            clean_disk_entry *entry = (clean_disk_entry*)((uint8_t*)metadata_buffer + sector + pos*dsk.clean_entry_size);
+            if (entry->oid.inode || entry->oid.stripe || entry->version)
+            {
+                printf(
+                    "Fatal error (metadata corruption or bug): tried to write object %lx:%lx v%lu"
+                    " over a non-zero metadata entry %lu with %lx:%lx v%lu\n", op->oid.inode,
+                    op->oid.stripe, op->version, loc, entry->oid.inode, entry->oid.stripe, entry->version
+                );
+                exit(1);
+            }
+        }
         BS_SUBMIT_GET_SQE(sqe, data);
         write_iodepth++;
         dirty_it->second.location = loc << dsk.block_order;

@@ -211,8 +211,9 @@ resume_1:
     return 0;
 }
 
-void blockstore_init_meta::handle_entries(void* entries, unsigned count, int block_order)
+bool blockstore_init_meta::handle_entries(void* entries, unsigned count, int block_order)
 {
+    bool updated = false;
     for (unsigned i = 0; i < count; i++)
     {
         clean_disk_entry *entry = (clean_disk_entry*)((uint8_t*)entries + i*bs->dsk.clean_entry_size);
@@ -229,6 +230,11 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
                 if (clean_it != clean_db.end())
                 {
                     // free the previous block
+                    // here we have to zero out the entry because otherwise we'll hit
+                    // "tried to overwrite non-zero metadata entry" later
+                    // FIXME: Write it back if modified with inmemory_meta == false
+                    updated = true;
+                    memset(entry, 0, bs->dsk.clean_entry_size);
 #ifdef BLOCKSTORE_DEBUG
                     printf("Free block %lu from %lx:%lx v%lu (new location is %lu)\n",
                         clean_it->second.location >> block_order,
@@ -253,12 +259,16 @@ void blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
             }
             else
             {
+                // here we also have to zero out the entry
+                updated = true;
+                memset(entry, 0, bs->dsk.clean_entry_size);
 #ifdef BLOCKSTORE_DEBUG
                 printf("Old clean entry %lu: %lx:%lx v%lu\n", done_cnt+i, entry->oid.inode, entry->oid.stripe, entry->version);
 #endif
             }
         }
     }
+    return updated;
 }
 
 blockstore_init_journal::blockstore_init_journal(blockstore_impl_t *bs)
