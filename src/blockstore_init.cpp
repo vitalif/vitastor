@@ -22,20 +22,19 @@ blockstore_init_meta::blockstore_init_meta(blockstore_impl_t *bs)
     this->bs = bs;
 }
 
-void blockstore_init_meta::handle_event(ring_data_t *data)
+void blockstore_init_meta::handle_event(ring_data_t *data, int buf_num)
 {
     if (data->res < 0)
     {
         throw std::runtime_error(
-            std::string("read metadata failed at offset ") + std::to_string(metadata_read) +
+            std::string("read metadata failed at offset ") + std::to_string(bufs[buf_num].offset) +
             std::string(": ") + strerror(-data->res)
         );
     }
-    prev_done = data->res > 0 ? submitted : 0;
-    done_len = data->res;
-    done_pos = metadata_read;
-    metadata_read += data->res;
-    submitted = 0;
+    if (buf_num >= 0)
+        bufs[buf_num].state = 2;
+    submitted--;
+    bs->ringloop->wakeup();
 }
 
 int blockstore_init_meta::loop()
@@ -58,12 +57,12 @@ int blockstore_init_meta::loop()
     // Read superblock
     GET_SQE();
     data->iov = { metadata_buffer, bs->dsk.meta_block_size };
-    data->callback = [this](ring_data_t *data) { handle_event(data); };
+    data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
     my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
     bs->ringloop->submit();
-    submitted = 1;
+    submitted++;
 resume_1:
-    if (submitted)
+    if (submitted > 0)
     {
         wait_state = 1;
         return 1;
@@ -88,10 +87,10 @@ resume_1:
             printf("Initializing metadata area\n");
             GET_SQE();
             data->iov = (struct iovec){ metadata_buffer, bs->dsk.meta_block_size };
-            data->callback = [this](ring_data_t *data) { handle_event(data); };
+            data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
             my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
             bs->ringloop->submit();
-            submitted = 1;
+            submitted++;
         resume_3:
             if (submitted > 0)
             {
@@ -131,60 +130,63 @@ resume_1:
     }
     // Skip superblock
     md_offset = bs->dsk.meta_block_size;
-    metadata_read = bs->dsk.meta_block_size;
-    prev_done = 0;
-    done_len = 0;
-    done_pos = 0;
+    next_offset = md_offset;
     // Read the rest of the metadata
-    while (1)
+resume_2:
+    if (next_offset < bs->dsk.meta_len && submitted == 0)
     {
-    resume_2:
-        if (submitted)
+        // Submit one read
+        for (int i = 0; i < 2; i++)
         {
-            wait_state = 2;
-            return 1;
-        }
-        if (metadata_read < bs->dsk.meta_len)
-        {
-            GET_SQE();
-            data->iov = {
-                (uint8_t*)metadata_buffer + (bs->inmemory_meta
-                    ? metadata_read-md_offset
-                    : (prev == 1 ? bs->metadata_buf_size : 0)),
-                bs->dsk.meta_len - metadata_read > bs->metadata_buf_size ? bs->metadata_buf_size : bs->dsk.meta_len - metadata_read,
-            };
-            data->callback = [this](ring_data_t *data) { handle_event(data); };
-            if (!zero_on_init)
-                my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + metadata_read);
-            else
+            if (!bufs[i].state)
             {
-                // Fill metadata with zeroes
-                memset(data->iov.iov_base, 0, data->iov.iov_len);
-                my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + metadata_read);
+                bufs[i].buf = (uint8_t*)metadata_buffer + (bs->inmemory_meta
+                    ? next_offset-md_offset
+                    : i*bs->metadata_buf_size);
+                bufs[i].offset = next_offset;
+                bufs[i].size = bs->dsk.meta_len-next_offset > bs->metadata_buf_size
+                    ? bs->metadata_buf_size : bs->dsk.meta_len-next_offset;
+                bufs[i].state = 1;
+                submitted++;
+                next_offset += bufs[i].size;
+                GET_SQE();
+                data->iov = { bufs[i].buf, bufs[i].size };
+                data->callback = [this, i](ring_data_t *data) { handle_event(data, i); };
+                if (!zero_on_init)
+                    my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
+                else
+                {
+                    // Fill metadata with zeroes
+                    memset(data->iov.iov_base, 0, data->iov.iov_len);
+                    my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
+                }
+                bs->ringloop->submit();
+                break;
             }
-            bs->ringloop->submit();
-            submitted = (prev == 1 ? 2 : 1);
-            prev = submitted;
         }
-        if (prev_done)
+    }
+    for (int i = 0; i < 2; i++)
+    {
+        if (bufs[i].state == 2)
         {
-            void *done_buf = bs->inmemory_meta
-                ? ((uint8_t*)metadata_buffer + done_pos-md_offset)
-                : ((uint8_t*)metadata_buffer + (prev_done == 2 ? bs->metadata_buf_size : 0));
-            unsigned count = bs->dsk.meta_block_size / bs->dsk.clean_entry_size;
-            for (int sector = 0; sector < done_len; sector += bs->dsk.meta_block_size)
+            // Handle result
+            unsigned entries_per_block = bs->dsk.meta_block_size / bs->dsk.clean_entry_size;
+            for (uint64_t sector = 0; sector < bufs[i].size; sector += bs->dsk.meta_block_size)
             {
                 // handle <count> entries
-                handle_entries((uint8_t*)done_buf + sector, count, bs->dsk.block_order);
-                done_cnt += count;
+                handle_entries(
+                    bufs[i].buf + sector, entries_per_block,
+                    ((bufs[i].offset + sector - md_offset) / bs->dsk.meta_block_size) * entries_per_block
+                );
             }
-            prev_done = 0;
-            done_len = 0;
+            bufs[i].state = 0;
+            bs->ringloop->wakeup();
         }
-        if (!submitted)
-        {
-            break;
-        }
+    }
+    if (submitted > 0)
+    {
+        wait_state = 2;
+        return 1;
     }
     // metadata read finished
     printf("Metadata entries loaded: %lu, free blocks: %lu / %lu\n", entries_loaded, bs->data_alloc->get_free_count(), bs->dsk.block_count);
@@ -198,8 +200,8 @@ resume_1:
         GET_SQE();
         my_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
         data->iov = { 0 };
-        data->callback = [this](ring_data_t *data) { handle_event(data); };
-        submitted = 1;
+        data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
+        submitted++;
         bs->ringloop->submit();
     resume_4:
         if (submitted > 0)
@@ -211,12 +213,12 @@ resume_1:
     return 0;
 }
 
-bool blockstore_init_meta::handle_entries(void* entries, unsigned count, int block_order)
+bool blockstore_init_meta::handle_entries(uint8_t *buf, uint64_t count, uint64_t done_cnt)
 {
     bool updated = false;
-    for (unsigned i = 0; i < count; i++)
+    for (uint64_t i = 0; i < count; i++)
     {
-        clean_disk_entry *entry = (clean_disk_entry*)((uint8_t*)entries + i*bs->dsk.clean_entry_size);
+        clean_disk_entry *entry = (clean_disk_entry*)(buf + i*bs->dsk.clean_entry_size);
         if (!bs->inmemory_meta && bs->dsk.clean_entry_bitmap_size)
         {
             memcpy(bs->clean_bitmap + (done_cnt+i)*2*bs->dsk.clean_entry_bitmap_size, &entry->bitmap, 2*bs->dsk.clean_entry_bitmap_size);
@@ -237,11 +239,11 @@ bool blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
                     memset(entry, 0, bs->dsk.clean_entry_size);
 #ifdef BLOCKSTORE_DEBUG
                     printf("Free block %lu from %lx:%lx v%lu (new location is %lu)\n",
-                        clean_it->second.location >> block_order,
+                        clean_it->second.location >> bs->dsk.block_order,
                         clean_it->first.inode, clean_it->first.stripe, clean_it->second.version,
                         done_cnt+i);
 #endif
-                    bs->data_alloc->set(clean_it->second.location >> block_order, false);
+                    bs->data_alloc->set(clean_it->second.location >> bs->dsk.block_order, false);
                 }
                 else
                 {
@@ -254,7 +256,7 @@ bool blockstore_init_meta::handle_entries(void* entries, unsigned count, int blo
                 bs->data_alloc->set(done_cnt+i, true);
                 clean_db[entry->oid] = (struct clean_entry){
                     .version = entry->version,
-                    .location = (done_cnt+i) << block_order,
+                    .location = (done_cnt+i) << bs->dsk.block_order,
                 };
             }
             else
