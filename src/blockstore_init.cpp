@@ -3,6 +3,11 @@
 
 #include "blockstore_impl.h"
 
+#define INIT_META_EMPTY 0
+#define INIT_META_READING 1
+#define INIT_META_READ_DONE 2
+#define INIT_META_WRITING 3
+
 #define GET_SQE() \
     sqe = bs->get_sqe();\
     if (!sqe)\
@@ -32,7 +37,11 @@ void blockstore_init_meta::handle_event(ring_data_t *data, int buf_num)
         );
     }
     if (buf_num >= 0)
-        bufs[buf_num].state = 2;
+    {
+        bufs[buf_num].state = (bufs[buf_num].state == INIT_META_READING
+            ? INIT_META_READ_DONE
+            : INIT_META_EMPTY);
+    }
     submitted--;
     bs->ringloop->wakeup();
 }
@@ -146,7 +155,7 @@ resume_2:
                 bufs[i].offset = next_offset;
                 bufs[i].size = bs->dsk.meta_len-next_offset > bs->metadata_buf_size
                     ? bs->metadata_buf_size : bs->dsk.meta_len-next_offset;
-                bufs[i].state = 1;
+                bufs[i].state = INIT_META_READING;
                 submitted++;
                 next_offset += bufs[i].size;
                 GET_SQE();
@@ -167,19 +176,33 @@ resume_2:
     }
     for (int i = 0; i < 2; i++)
     {
-        if (bufs[i].state == 2)
+        if (bufs[i].state == INIT_META_READ_DONE)
         {
             // Handle result
             unsigned entries_per_block = bs->dsk.meta_block_size / bs->dsk.clean_entry_size;
+            bool changed = false;
             for (uint64_t sector = 0; sector < bufs[i].size; sector += bs->dsk.meta_block_size)
             {
                 // handle <count> entries
-                handle_entries(
+                changed = changed || handle_entries(
                     bufs[i].buf + sector, entries_per_block,
                     ((bufs[i].offset + sector - md_offset) / bs->dsk.meta_block_size) * entries_per_block
                 );
             }
-            bufs[i].state = 0;
+            if (changed && !bs->inmemory_meta)
+            {
+                // write the modified buffer back
+                GET_SQE();
+                data->iov = { bufs[i].buf, bufs[i].size };
+                data->callback = [this, i](ring_data_t *data) { handle_event(data, i); };
+                my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
+                bufs[i].state = INIT_META_WRITING;
+                submitted++;
+            }
+            else
+            {
+                bufs[i].state = 0;
+            }
             bs->ringloop->wakeup();
         }
     }
@@ -234,7 +257,6 @@ bool blockstore_init_meta::handle_entries(uint8_t *buf, uint64_t count, uint64_t
                     // free the previous block
                     // here we have to zero out the entry because otherwise we'll hit
                     // "tried to overwrite non-zero metadata entry" later
-                    // FIXME: Write it back if modified with inmemory_meta == false
                     updated = true;
                     memset(entry, 0, bs->dsk.clean_entry_size);
 #ifdef BLOCKSTORE_DEBUG
