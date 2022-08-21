@@ -105,9 +105,9 @@ int disk_tool_t::upgrade_simple_unit(std::string unit)
     {
         return 1;
     }
-    uint64_t j_o = stoull_full(options["journal_offset"]);
-    uint64_t m_o = stoull_full(options["meta_offset"]);
-    uint64_t d_o = stoull_full(options["data_offset"]);
+    uint64_t j_o = parse_size(options["journal_offset"]);
+    uint64_t m_o = parse_size(options["meta_offset"]);
+    uint64_t d_o = parse_size(options["data_offset"]);
     bool m_is_d = options["meta_device"] == "" || options["meta_device"] == options["data_device"];
     bool j_is_m = options["journal_device"] == "" || options["journal_device"] == options["meta_device"];
     bool j_is_d = j_is_m && m_is_d || options["journal_device"] == options["data_device"];

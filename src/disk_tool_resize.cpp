@@ -3,6 +3,7 @@
 
 #include "disk_tool.h"
 #include "rw_blocking.h"
+#include "str_util.h"
 
 #define DM_ST_EMPTY 0
 #define DM_ST_TO_READ 1
@@ -110,17 +111,17 @@ int disk_tool_t::resize_parse_params()
     new_journal_device = options.find("new_journal_device") != options.end()
         ? options["new_journal_device"] : dsk.journal_device;
     new_data_offset = options.find("new_data_offset") != options.end()
-        ? strtoull(options["new_data_offset"].c_str(), NULL, 10) : dsk.data_offset;
+        ? parse_size(options["new_data_offset"]) : dsk.data_offset;
     new_data_len = options.find("new_data_len") != options.end()
-        ? strtoull(options["new_data_len"].c_str(), NULL, 10) : dsk.data_len;
+        ? parse_size(options["new_data_len"]) : dsk.data_len;
     new_meta_offset = options.find("new_meta_offset") != options.end()
-        ? strtoull(options["new_meta_offset"].c_str(), NULL, 10) : dsk.meta_offset;
+        ? parse_size(options["new_meta_offset"]) : dsk.meta_offset;
     new_meta_len = options.find("new_meta_len") != options.end()
-        ? strtoull(options["new_meta_len"].c_str(), NULL, 10) : 0; // will be calculated in resize_init()
+        ? parse_size(options["new_meta_len"]) : 0; // will be calculated in resize_init()
     new_journal_offset = options.find("new_journal_offset") != options.end()
-        ? strtoull(options["new_journal_offset"].c_str(), NULL, 10) : dsk.journal_offset;
+        ? parse_size(options["new_journal_offset"]) : dsk.journal_offset;
     new_journal_len = options.find("new_journal_len") != options.end()
-        ? strtoull(options["new_journal_len"].c_str(), NULL, 10) : dsk.journal_len;
+        ? parse_size(options["new_journal_len"]) : dsk.journal_len;
     if (new_meta_device == dsk.meta_device &&
         new_journal_device == dsk.journal_device &&
         new_data_offset == dsk.data_offset &&

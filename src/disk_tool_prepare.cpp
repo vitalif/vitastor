@@ -517,8 +517,13 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
     if (max_other_percent > 100)
         max_other_percent = 100;
     std::vector<vitastor_dev_info_t> ssds;
+    if (options.find("disable_data_fsync") == options.end())
+        options["disable_data_fsync"] = "1";
     if (hybrid)
     {
+        if (options.find("disable_meta_fsync") == options.end())
+            options["disable_meta_fsync"] = "1";
+        options["disable_journal_fsync"] = options["disable_meta_fsync"];
         for (auto & dev: devinfo)
             if (!dev.is_hdd)
                 ssds.push_back(dev);
@@ -534,6 +539,11 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
         }
         if (options["journal_size"] == "")
             options["journal_size"] = DEFAULT_HYBRID_JOURNAL;
+    }
+    else
+    {
+        options.erase("disable_meta_fsync");
+        options.erase("disable_journal_fsync");
     }
     for (auto & dev: devinfo)
     {

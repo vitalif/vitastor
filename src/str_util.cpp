@@ -107,10 +107,12 @@ uint64_t stoull_full(const std::string & str, int base)
     return r;
 }
 
-uint64_t parse_size(std::string size_str)
+uint64_t parse_size(std::string size_str, bool *ok)
 {
     if (!size_str.length())
     {
+        if (ok)
+            *ok = false;
         return 0;
     }
     uint64_t mul = 1;
@@ -130,7 +132,8 @@ uint64_t parse_size(std::string size_str)
     uint64_t size = stoull_full(size_str, 0) * mul;
     if (size == 0 && size_str != "0" && (size_str != "" || mul != 1))
     {
-        return UINT64_MAX;
+        if (ok)
+            *ok = false;
     }
     return size;
 }

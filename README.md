@@ -58,6 +58,7 @@ Read more details below in the documentation.
   - [Image metadata in etcd](docs/config/inode.en.md)
 - Usage
   - [vitastor-cli](docs/usage/cli.en.md) (command-line interface)
+  - [vitastor-disk](docs/usage/disk.en.md) (disk management tool)
   - [fio](docs/usage/fio.en.md) for benchmarks
   - [NBD](docs/usage/nbd.en.md) for kernel mounts
   - [QEMU and qemu-img](docs/usage/qemu.en.md)

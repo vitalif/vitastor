@@ -20,7 +20,6 @@ It supports the following commands:
 - [rm-data](#rm-data)
 - [merge-data](#merge-data)
 - [alloc-osd](#alloc-osd)
-- [simple-offsets](#simple-offsets)
 
 Global options:
 
@@ -176,21 +175,3 @@ Merge layer data without changing metadata. Merge `<from>`..`<to>` to `<target>`
 `vitastor-cli alloc-osd`
 
 Allocate a new OSD number and reserve it by creating empty `/osd/stats/<n>` key.
-
-## simple-offsets
-
-`vitastor-cli simple-offsets <device>`
-
-Calculate offsets for simple&stupid (no superblock) OSD deployment.
-
-Options (see also [Cluster-Wide Disk Layout Parameters](../config/layout-cluster.en.md)):
-
-```
---object_size 128k       Set blockstore block size
---bitmap_granularity 4k  Set bitmap granularity
---journal_size 32M       Set journal size
---device_block_size 4k   Set device block size
---journal_offset 0       Set journal offset
---device_size 0          Set device size
---format text            Result format: json, options, env, or text
-```

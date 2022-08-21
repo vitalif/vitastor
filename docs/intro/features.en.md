@@ -34,6 +34,7 @@
 
 - [Debian and CentOS packages](../installation/packages.en.md)
 - [Image management CLI (vitastor-cli)](../usage/cli.en.md)
+- [Disk management CLI (vitastor-disk)](docs/usage/disk.en.md)
 - Generic user-space client library
 - [Native QEMU driver](../usage/qemu.en.md)
 - [Loadable fio engine for benchmarks](../usage/fio.en.md)
@@ -47,7 +48,6 @@
 
 The following features are planned for the future:
 
-- Better OSD creation and auto-start tools
 - Other administrative tools
 - Web GUI
 - OpenNebula plugin

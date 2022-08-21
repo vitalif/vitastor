@@ -526,8 +526,9 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_create(json11::Json cfg)
     image_creator->new_parent = cfg["parent"].string_value();
     if (cfg["size"].string_value() != "")
     {
-        image_creator->size = parse_size(cfg["size"].string_value());
-        if (image_creator->size == UINT64_MAX)
+        bool ok;
+        image_creator->size = parse_size(cfg["size"].string_value(), &ok);
+        if (!ok)
         {
             return [size = cfg["size"].string_value()](cli_result_t & result)
             {

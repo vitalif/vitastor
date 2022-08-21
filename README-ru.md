@@ -58,6 +58,7 @@ Vitastor поддерживает QEMU-драйвер, протоколы NBD и
   - [Метаданные образов в etcd](docs/config/inode.ru.md)
 - Использование
   - [vitastor-cli](docs/usage/cli.ru.md) (консольный интерфейс)
+  - [vitastor-disk](docs/usage/disk.ru.md) (управление дисками)
   - [fio](docs/usage/fio.ru.md) для тестов производительности
   - [NBD](docs/usage/nbd.ru.md) для монтирования ядром
   - [QEMU и qemu-img](docs/usage/qemu.ru.md)
