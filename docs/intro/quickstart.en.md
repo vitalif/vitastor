@@ -40,11 +40,9 @@ On the monitor hosts:
   }
   ```
 - Initialize OSDs:
-  - Simplest, SSD-only: `/usr/lib/vitastor/mon/make-osd.sh /dev/disk/by-partuuid/XXX [/dev/disk/by-partuuid/YYY ...]`
-    **Warning!** This very simple script by default makes units for server-grade SSDs with write-through cache!
-    If it's not your case, you MUST remove disable_data_fsync and immediate_commit from systemd units.
-  - Hybrid, HDD+SSD: `/usr/lib/vitastor/mon/make-osd-hybrid.js /dev/sda /dev/sdb ...` &mdash; pass all your
-    devices (HDD and SSD) to this script &mdash; it will partition disks and initialize journals on its own.
+  - SSD-only: `vitastor-disk prepare /dev/sdXXX [/dev/sdYYY ...]`
+  - Hybrid, SSD+HDD: `vitastor-disk prepare --hybrid /dev/sdXXX [/dev/sdYYY ...]`.
+    Pass all your devices (HDD and SSD) to this script &mdash; it will partition disks and initialize journals on its own.
     This script skips HDDs which are already partitioned so if you want to use non-empty disks for
     Vitastor you should first wipe them with `wipefs -a`. SSDs with GPT partition table are not skipped,
     but some free unpartitioned space must be available because the script creates new partitions for journals.

@@ -18,7 +18,7 @@ Description: Vitastor, a fast software-defined clustered block storage
 
 Package: vitastor-osd
 Architecture: amd64
-Depends: ${shlibs:Depends}, ${misc:Depends}, vitastor-client (= ${binary:Version})
+Depends: ${shlibs:Depends}, ${misc:Depends}, vitastor-client (= ${binary:Version}), fdisk, util-linux, parted
 Description: Vitastor, a fast software-defined clustered block storage - object storage daemon
  Vitastor object storage daemon, i.e. server program that stores data.
 

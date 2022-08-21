@@ -4,4 +4,3 @@ usr/bin/vitastor-rm
 usr/bin/vitastor-nbd
 usr/bin/vitastor-nfs
 usr/lib/*/libvitastor*.so*
-mon/make-osd.sh /usr/lib/vitastor

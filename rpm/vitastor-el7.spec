@@ -36,6 +36,8 @@ Requires:       libJerasure2
 Requires:       libisa-l
 Requires:       liburing >= 0.6
 Requires:       vitastor-client = %{version}-%{release}
+Requires:       util-linux
+Requires:       parted
 
 
 %description -n vitastor-osd
@@ -102,8 +104,11 @@ cd mon
 npm install
 cd ..
 mkdir -p %buildroot/usr/lib/vitastor
-cp mon/make-osd.sh %buildroot/usr/lib/vitastor
 cp -r mon %buildroot/usr/lib/vitastor
+mkdir -p %buildroot/lib/systemd/system
+cp mon/vitastor-osd@.service %buildroot/lib/systemd/system
+mkdir -p %buildroot/lib/udev/rules.d
+cp mon/90-vitastor.rules %buildroot/lib/udev/rules.d
 
 
 %files
@@ -114,6 +119,8 @@ cp -r mon %buildroot/usr/lib/vitastor
 %_bindir/vitastor-osd
 %_bindir/vitastor-disk
 %_bindir/vitastor-dump-journal
+/lib/systemd/system/vitastor-osd@.service
+/lib/udev/rules.d/90-vitastor.rules
 
 
 %files -n vitastor-mon
@@ -128,7 +135,6 @@ cp -r mon %buildroot/usr/lib/vitastor
 %_bindir/vita
 %_libdir/libvitastor_blk.so*
 %_libdir/libvitastor_client.so*
-/usr/lib/vitastor/make-osd.sh
 
 
 %files -n vitastor-client-devel
