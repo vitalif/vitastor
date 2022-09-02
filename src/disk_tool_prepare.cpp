@@ -390,9 +390,9 @@ std::vector<std::string> disk_tool_t::get_new_data_parts(vitastor_dev_info_t & d
                         stderr, "%s is already initialized for OSD %lu, skipping\n",
                         part["node"].string_value().c_str(), sb["params"]["osd_num"].uint64_value()
                     );
-                    osds_exist++;
                     osds_size += part["size"].uint64_value()*dev.pt["sectorsize"].uint64_value();
                 }
+                osds_exist++;
             }
         }
         // Still create OSD(s) if a disk has no more than (max_other_percent) other data
