@@ -1,1 +1,2 @@
 mon usr/lib/vitastor
+mon/vitastor-mon.service /lib/systemd/system

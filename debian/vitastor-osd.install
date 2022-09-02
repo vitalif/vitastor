@@ -2,4 +2,5 @@ usr/bin/vitastor-osd
 usr/bin/vitastor-disk
 usr/bin/vitastor-dump-journal
 mon/vitastor-osd@.service /lib/systemd/system
+mon/vitastor.target /lib/systemd/system
 mon/90-vitastor.rules /lib/udev/rules.d

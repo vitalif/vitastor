@@ -106,7 +106,7 @@ cd ..
 mkdir -p %buildroot/usr/lib/vitastor
 cp -r mon %buildroot/usr/lib/vitastor
 mkdir -p %buildroot/lib/systemd/system
-cp mon/vitastor-osd@.service %buildroot/lib/systemd/system
+cp mon/vitastor.target mon/vitastor-mon.service mon/vitastor-osd@.service %buildroot/lib/systemd/system
 mkdir -p %buildroot/lib/udev/rules.d
 cp mon/90-vitastor.rules %buildroot/lib/udev/rules.d
 
@@ -120,11 +120,24 @@ cp mon/90-vitastor.rules %buildroot/lib/udev/rules.d
 %_bindir/vitastor-disk
 %_bindir/vitastor-dump-journal
 /lib/systemd/system/vitastor-osd@.service
+/lib/systemd/system/vitastor.target
 /lib/udev/rules.d/90-vitastor.rules
+
+
+%pre -n vitastor-osd
+groupadd -r -f vitastor 2>/dev/null ||:
+useradd -r -g vitastor -s /sbin/nologin -c "Vitastor daemons" -M -d /nonexistent vitastor 2>/dev/null ||:
+install -o vitastor -g vitastor -d /var/log/vitastor
 
 
 %files -n vitastor-mon
 /usr/lib/vitastor/mon
+/lib/systemd/system/vitastor-mon.service
+
+
+%pre -n vitastor-mon
+groupadd -r -f vitastor 2>/dev/null ||:
+useradd -r -g vitastor -s /sbin/nologin -c "Vitastor daemons" -M -d /nonexistent vitastor 2>/dev/null ||:
 
 
 %files -n vitastor-client

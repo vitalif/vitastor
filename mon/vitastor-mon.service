@@ -1,0 +1,18 @@
+[Unit]
+Description=Vitastor monitor
+After=network-online.target local-fs.target time-sync.target
+Wants=network-online.target local-fs.target time-sync.target
+
+[Service]
+Restart=always
+ExecStart=node /usr/lib/vitastor/mon/mon-main.js
+WorkingDirectory=/
+User=vitastor
+PrivateTmp=false
+TasksMax=infinity
+Restart=always
+StartLimitInterval=0
+RestartSec=10
+
+[Install]
+WantedBy=vitastor.target

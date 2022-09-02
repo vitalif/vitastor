@@ -12,7 +12,7 @@ for (let i = 2; i < process.argv.length; i++)
     if (process.argv[i] === '-h' || process.argv[i] === '--help')
     {
         console.error('USAGE: '+process.argv[0]+' '+process.argv[1]+' [--verbose 1]'+
-            ' [--etcd_address "http://127.0.0.1:2379,..."] [--config_file /etc/vitastor/vitastor.conf]'+
+            ' [--etcd_address "http://127.0.0.1:2379,..."] [--config_path /etc/vitastor/vitastor.conf]'+
             ' [--etcd_prefix "/vitastor"] [--etcd_start_timeout 5]');
         process.exit();
     }
