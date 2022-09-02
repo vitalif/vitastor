@@ -2,7 +2,6 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include <sys/file.h>
-#include <dirent.h>
 
 #include "disk_tool.h"
 #include "rw_blocking.h"
@@ -308,69 +307,6 @@ int disk_tool_t::exec_osd(std::string device)
     }
     argv[argstr.size()] = NULL;
     execvpe(osd_binary.c_str(), argv, environ);
-    return 0;
-}
-
-// returns 1 = warning, -1 = error, 0 = success
-static int disable_cache(std::string dev)
-{
-    auto parent_dev = get_parent_device(dev);
-    if (parent_dev == "")
-        return 1;
-    auto scsi_disk = "/sys/block/"+parent_dev+"/device/scsi_disk";
-    DIR *dir = opendir(scsi_disk.c_str());
-    if (!dir)
-    {
-        if (errno == ENOENT)
-        {
-            // Not a SCSI/SATA device, just check /sys/block/.../queue/write_cache
-            return check_queue_cache(dev.substr(5), parent_dev);
-        }
-        else
-        {
-            fprintf(stderr, "Can't read directory %s: %s\n", scsi_disk.c_str(), strerror(errno));
-            return 1;
-        }
-    }
-    else
-    {
-        dirent *de = readdir(dir);
-        while (de && de->d_name[0] == '.' && (de->d_name[1] == 0 || de->d_name[1] == '.' && de->d_name[2] == 0))
-            de = readdir(dir);
-        if (!de)
-        {
-            // Not a SCSI/SATA device, just check /sys/block/.../queue/write_cache
-            closedir(dir);
-            return check_queue_cache(dev.substr(5), parent_dev);
-        }
-        scsi_disk += "/";
-        scsi_disk += de->d_name;
-        if (readdir(dir) != NULL)
-        {
-            // Error, multiple scsi_disk/* entries
-            closedir(dir);
-            fprintf(stderr, "Multiple entries in %s found\n", scsi_disk.c_str());
-            return 1;
-        }
-        closedir(dir);
-        // Check cache_type
-        scsi_disk += "/cache_type";
-        std::string cache_type = read_file(scsi_disk);
-        if (cache_type == "")
-            return 1;
-        if (cache_type == "write back")
-        {
-            int fd = open(scsi_disk.c_str(), O_WRONLY);
-            if (fd < 0 || write_blocking(fd, (void*)"write through", strlen("write through")) != strlen("write through"))
-            {
-                if (fd >= 0)
-                    close(fd);
-                fprintf(stderr, "Can't write to %s: %s\n", scsi_disk.c_str(), strerror(errno));
-                return -1;
-            }
-            close(fd);
-        }
-    }
     return 0;
 }
 

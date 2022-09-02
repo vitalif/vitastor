@@ -63,6 +63,21 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
             }
         }
     }
+    for (auto dev: std::vector<std::string>{"data", "meta", "journal"})
+    {
+        if (options[dev+"_device"] != "" && options["disable_"+dev+"_fsync"] == "auto")
+        {
+            int r = disable_cache(realpath_str(options[dev+"_device"], false));
+            if (r != 0)
+            {
+                if (r == 1)
+                    fprintf(stderr, "Warning: disable_%s_fsync is auto, but cache status check failed. Leaving fsync on\n", dev.c_str());
+                options["disable_"+dev+"_fsync"] = "0";
+            }
+            else
+                options["disable_"+dev+"_fsync"] = "1";
+        }
+    }
     // Calculate offsets if the same device is used for two or more of data, meta, and journal
     if (options["journal_size"] == "")
     {
@@ -107,6 +122,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
             { "disable_data_fsync", json_is_true(options["disable_data_fsync"]) },
             { "disable_meta_fsync", json_is_true(options["disable_meta_fsync"]) },
             { "disable_journal_fsync", json_is_true(options["disable_journal_fsync"]) },
+            { "skip_cache_check", json_is_true(options["skip_cache_check"]) },
             { "immediate_commit", json_is_true(options["disable_data_fsync"])
                 ? (json_is_true(options["disable_journal_fsync"]) ? "all" : "small") : "none" },
         };
@@ -518,11 +534,11 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
         max_other_percent = 100;
     std::vector<vitastor_dev_info_t> ssds;
     if (options.find("disable_data_fsync") == options.end())
-        options["disable_data_fsync"] = "1";
+        options["disable_data_fsync"] = "auto";
     if (hybrid)
     {
         if (options.find("disable_meta_fsync") == options.end())
-            options["disable_meta_fsync"] = "1";
+            options["disable_meta_fsync"] = "auto";
         options["disable_journal_fsync"] = options["disable_meta_fsync"];
         for (auto & dev: devinfo)
             if (!dev.is_hdd)

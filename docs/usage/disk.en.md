@@ -54,10 +54,10 @@ Options (automatic mode):
   by the `/sys/block/.../queue/rotational` flag. In hybrid mode, default object
   size is 1 MB instead of 128 KB, default journal size is 1 GB instead of 32 MB,
   and throttle_small_writes is enabled by default.
---disable_data_fsync 1
-  Disable data device cache and fsync (1/yes/true = on, default on)
---disable_meta_fsync 1
-  Disable metadata/journal device cache and fsync (default on)
+--disable_data_fsync auto
+  Disable data device cache and fsync (1/yes/true = on, default auto)
+--disable_meta_fsync auto
+  Disable metadata/journal device cache and fsync (default auto)
 --meta_reserve 2x,1G
   New metadata partitions in --hybrid mode are created larger than actual
   metadata size to ease possible future extension. The default is to allocate
