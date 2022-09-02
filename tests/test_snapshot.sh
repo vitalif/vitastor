@@ -36,7 +36,7 @@ qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testimg" \
     -O raw ./testdata/layer1.bin
 
-node mon/merge.js ./testdata/layer0.bin ./testdata/layer1.bin ./testdata/check.bin
+node tests/merge.js ./testdata/layer0.bin ./testdata/layer1.bin ./testdata/check.bin
 
 cmp ./testdata/merged.bin ./testdata/check.bin
 
