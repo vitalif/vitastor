@@ -26,16 +26,14 @@
 ## Настройте мониторы
 
 На хостах, выделенных под мониторы:
-- Пропишите нужные вам значения в файле `/usr/lib/vitastor/mon/make-units.sh`
-- Создайте юниты systemd для etcd и мониторов: `/usr/lib/vitastor/mon/make-units.sh`
-- Запустите etcd и мониторы: `systemctl start etcd vitastor-mon`
-- Пропишите etcd_address и osd_network в `/etc/vitastor/vitastor.conf`. Например:
+- Пропишите одинаковые etcd_address в `/etc/vitastor/vitastor.conf`. Например:
   ```
   {
-    "etcd_address": ["10.200.1.10:2379","10.200.1.11:2379","10.200.1.12:2379"],
-    "osd_network": "10.200.1.0/24"
+    "etcd_address": ["10.200.1.10:2379","10.200.1.11:2379","10.200.1.12:2379"]
   }
   ```
+- Инициализируйте сервисы etcd, запустив `/usr/lib/vitastor/mon/make-etcd`
+- Запустите etcd и мониторы: `systemctl enable --now etcd vitastor-mon`
 
 ## Настройте OSD
 

@@ -26,9 +26,14 @@
 ## Configure monitors
 
 On the monitor hosts:
-- Edit variables at the top of `/usr/lib/vitastor/mon/make-units.sh` to desired values.
-- Create systemd units for the monitor and etcd: `/usr/lib/vitastor/mon/make-units.sh`
-- Start etcd and monitors: `systemctl start etcd vitastor-mon`
+- Put identical etcd_address into `/etc/vitastor/vitastor.conf`. Example:
+  ```
+  {
+    "etcd_address": ["10.200.1.10:2379","10.200.1.11:2379","10.200.1.12:2379"]
+  }
+  ```
+- Create systemd units for etcd by running: `/usr/lib/vitastor/mon/make-etcd`
+- Start etcd and monitors: `systemctl enable --now etcd vitastor-mon`
 
 ## Configure OSDs
 

@@ -1,0 +1,110 @@
+#!/usr/bin/node
+// Simple systemd unit generator for etcd
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: MIT
+
+// USAGE:
+// 1) Put the same etcd_address into /etc/vitastor/vitastor.conf on all monitor nodes
+// 2) Run ./make-etcd.js. It will create the etcd service on one of specified IPs
+
+const child_process = require('child_process');
+const fs = require('fs');
+const os = require('os');
+
+run().catch(e => { console.error(e); process.exit(1); });
+
+async function run()
+{
+    const config_path = process.argv[2] || '/etc/vitastor/vitastor.conf';
+    if (config_path == '-h' || config_path == '--help')
+    {
+        console.log(
+            'Initialize systemd etcd service for Vitastor\n'+
+            '(c) Vitaliy Filippov, 2019+ (MIT)\n'+
+            '\n'+
+            'USAGE:\n'+
+            '1) Put the same etcd_address into /etc/vitastor/vitastor.conf on all monitor nodes\n'+
+            '2) Run '+process.argv[1]+' [config_path]\n'
+        );
+        process.exit(0);
+    }
+    if (!fs.existsSync(config_path))
+    {
+        console.log(config_path+' is missing');
+        process.exit(1);
+    }
+    if (fs.existsSync("/etc/systemd/system/etcd.service"))
+    {
+        console.log("/etc/systemd/system/etcd.service already exists");
+        process.exit(1);
+    }
+    const config = JSON.parse(fs.readFileSync(config_path, { encoding: 'utf-8' }));
+    if (!config.etcd_address)
+    {
+        console.log("etcd_address is missing in "+config_path);
+        process.exit(1);
+    }
+    const etcds = (config.etcd_address instanceof Array ? config.etcd_address : (''+config.etcd_address).split(/,/))
+        .map(s => (''+s).replace(/^https?:\/\/\[?|\]?(:\d+)?\/.*$/g, '').toLowerCase());
+    const num = select_local_etcd(etcds);
+    if (num < 0)
+    {
+        console.log('No matching IPs in etcd_address from '+config_path);
+        process.exit(0);
+    }
+    const etcd_cluster = etcds.map((e, i) => `etcd${i}=http://${e}:2380`).join(',');
+    await system(`mkdir -p /var/lib/etcd${num}.etcd`);
+    fs.writeFileSync(
+        "/etc/systemd/system/etcd.service",
+`[Unit]
+Description=etcd for vitastor
+After=network-online.target local-fs.target time-sync.target
+Wants=network-online.target local-fs.target time-sync.target
+
+[Service]
+Restart=always
+ExecStart=/usr/local/bin/etcd -name etcd${num} --data-dir /var/lib/etcd${num}.etcd \\
+    --advertise-client-urls http://${etcds[num]}:2379 --listen-client-urls http://${etcds[num]}:2379 \\
+    --initial-advertise-peer-urls http://${etcds[num]}:2380 --listen-peer-urls http://${etcds[num]}:2380 \\
+    --initial-cluster-token vitastor-etcd-1 --initial-cluster ${etcd_cluster} \\
+    --initial-cluster-state new --max-txn-ops=100000 --max-request-bytes=104857600 \\
+    --auto-compaction-retention=10 --auto-compaction-mode=revision
+WorkingDirectory=/var/lib/etcd${num}.etcd
+ExecStartPre=+chown -R etcd /var/lib/etcd${num}.etcd
+User=etcd
+PrivateTmp=false
+TasksMax=infinity
+Restart=always
+StartLimitInterval=0
+RestartSec=10
+
+[Install]
+WantedBy=local.target
+`);
+    await system(`useradd etcd`);
+    await system(`systemctl daemon-reload`);
+    await system(`systemctl enable etcd`);
+    await system(`systemctl start etcd`);
+    process.exit(0);
+}
+
+function select_local_etcd(etcds)
+{
+    const ifaces = os.networkInterfaces();
+    for (const ifname in ifaces)
+        for (const iface of ifaces[ifname])
+            for (let i = 0; i < etcds.length; i++)
+                if (etcds[i] == iface.address.toLowerCase())
+                    return i;
+    return -1;
+}
+
+async function system(cmd)
+{
+    const cp = child_process.spawn(cmd, { shell: true, stdio: [ 0, 1, 2 ] });
+    let finish_cb;
+    cp.on('exit', () => finish_cb && finish_cb());
+    if (cp.exitCode == null)
+        await new Promise(ok => finish_cb = ok);
+    return cp.exitCode;
+}
