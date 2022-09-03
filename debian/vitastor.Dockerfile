@@ -34,8 +34,8 @@ RUN set -e -x; \
     mkdir -p /root/packages/vitastor-$REL; \
     rm -rf /root/packages/vitastor-$REL/*; \
     cd /root/packages/vitastor-$REL; \
-    cp -r /root/vitastor vitastor-0.7.1; \
-    cd vitastor-0.7.1; \
+    cp -r /root/vitastor vitastor-0.8.0; \
+    cd vitastor-0.8.0; \
     ln -s /root/fio-build/fio-*/ ./fio; \
     FIO=$(head -n1 fio/debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
     ls /usr/include/linux/raw.h || cp ./debian/raw.h /usr/include/linux/raw.h; \
@@ -48,8 +48,8 @@ RUN set -e -x; \
     rm -rf a b; \
     echo "dep:fio=$FIO" > debian/fio_version; \
     cd /root/packages/vitastor-$REL; \
-    tar --sort=name --mtime='2020-01-01' --owner=0 --group=0 --exclude=debian -cJf vitastor_0.7.1.orig.tar.xz vitastor-0.7.1; \
-    cd vitastor-0.7.1; \
+    tar --sort=name --mtime='2020-01-01' --owner=0 --group=0 --exclude=debian -cJf vitastor_0.8.0.orig.tar.xz vitastor-0.8.0; \
+    cd vitastor-0.8.0; \
     V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
     DEBFULLNAME="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v "$V""$REL" "Rebuild for $REL"; \
     DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto -sa; \
