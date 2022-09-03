@@ -125,6 +125,7 @@ cp mon/90-vitastor.rules %buildroot/lib/udev/rules.d
 groupadd -r -f vitastor 2>/dev/null ||:
 useradd -r -g vitastor -s /sbin/nologin -c "Vitastor daemons" -M -d /nonexistent vitastor 2>/dev/null ||:
 install -o vitastor -g vitastor -d /var/log/vitastor
+mkdir -p /etc/vitastor
 
 
 %files -n vitastor-mon
@@ -135,6 +136,7 @@ install -o vitastor -g vitastor -d /var/log/vitastor
 %pre -n vitastor-mon
 groupadd -r -f vitastor 2>/dev/null ||:
 useradd -r -g vitastor -s /sbin/nologin -c "Vitastor daemons" -M -d /nonexistent vitastor 2>/dev/null ||:
+mkdir -p /etc/vitastor
 
 
 %files -n vitastor-client

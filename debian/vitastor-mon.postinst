@@ -5,4 +5,5 @@ set -e
 if [ "$1" = "configure" ]; then
 	addgroup --system --quiet vitastor
 	adduser --system --quiet --ingroup vitastor --no-create-home --home /nonexistent vitastor
+	mkdir -p /etc/vitastor
 fi
