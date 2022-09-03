@@ -158,7 +158,7 @@ const etcd_tree = {
                 failure_domain: 'host',
                 max_osd_combinations: 10000,
                 // block_size, bitmap_granularity, immediate_commit must match all OSDs used in that pool
-                data_block_size: 131072,
+                block_size: 131072,
                 bitmap_granularity: 4096,
                 // 'all'/'small'/'none', same as in OSD options
                 immediate_commit: 'none',
@@ -1464,7 +1464,8 @@ class Mon
             }
             if (!object_size)
             {
-                object_size = this.config['block_size'];
+                object_size = (this.state.config.pools[pool_id]||{}).block_size ||
+                    this.config.block_size || 131072;
             }
             object_size = BigInt(object_size);
             for (const pg_num in this.state.pg.stats[pool_id])
