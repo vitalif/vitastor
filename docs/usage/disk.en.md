@@ -83,7 +83,7 @@ Options (both modes):
 
 ```
 --journal_size 1G/32M      Set journal size (area or partition size)
---object_size 1M/128k      Set blockstore object size
+--block_size 1M/128k       Set blockstore object size
 --bitmap_granularity 4k    Set bitmap granularity
 --data_device_block 4k     Override data device block size
 --meta_device_block 4k     Override metadata device block size

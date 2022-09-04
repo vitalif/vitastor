@@ -56,7 +56,7 @@ static const char *help_text =
     "  \n"
     "  Options (both modes):\n"
     "    --journal_size 1G/32M      Set journal size (area or partition size)\n"
-    "    --object_size 1M/128k      Set blockstore object size\n"
+    "    --block_size 1M/128k       Set blockstore object size\n"
     "    --bitmap_granularity 4k    Set bitmap granularity\n"
     "    --data_device_block 4k     Override data device block size\n"
     "    --meta_device_block 4k     Override metadata device block size\n"
