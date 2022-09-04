@@ -130,11 +130,8 @@ uint64_t parse_size(std::string size_str, bool *ok)
         size_str = size_str.substr(0, size_str.length()-1);
     }
     uint64_t size = stoull_full(size_str, 0) * mul;
-    if (size == 0 && size_str != "0" && (size_str != "" || mul != 1))
-    {
-        if (ok)
-            *ok = false;
-    }
+    if (ok)
+        *ok = !(size == 0 && size_str != "0" && (size_str != "" || mul != 1));
     return size;
 }
 
