@@ -207,10 +207,27 @@ std::vector<vitastor_dev_info_t> disk_tool_t::collect_devices(const std::vector<
             if (errno == ENOENT)
             {
                 fprintf(stderr, "%s does not exist, skipping\n", dev.c_str());
-                return {};
+                continue;
             }
             fprintf(stderr, "Error checking %s: %s\n", dev.c_str(), strerror(errno));
             return {};
+        }
+        uint64_t dev_size = dev_st.st_size;
+        if (S_ISBLK(dev_st.st_mode))
+        {
+            int fd = open(dev.c_str(), O_DIRECT|O_RDWR);
+            if (fd < 0)
+            {
+                fprintf(stderr, "Failed to open %s: %s\n", dev.c_str(), strerror(errno));
+                return {};
+            }
+            if (ioctl(fd, BLKGETSIZE64, &dev_size) < 0)
+            {
+                fprintf(stderr, "Failed to get %s size: %s\n", dev.c_str(), strerror(errno));
+                close(fd);
+                return {};
+            }
+            close(fd);
         }
         if (stat(("/sys/block/"+dev.substr(5)).c_str(), &sys_st) < 0)
         {
@@ -251,8 +268,8 @@ std::vector<vitastor_dev_info_t> disk_tool_t::collect_devices(const std::vector<
             .is_hdd = is_hdd,
             .pt = pt,
             .osd_part_count = osds,
-            .size = (uint64_t)dev_st.st_size,
-            .free = !pt.is_null() ? free_from_parttable(pt) : dev_st.st_size,
+            .size = !pt.is_null() ? dev_size_from_parttable(pt) : dev_size,
+            .free = !pt.is_null() ? free_from_parttable(pt) : dev_size,
         });
     }
     if (!devinfo.size())
@@ -385,7 +402,7 @@ std::vector<std::string> disk_tool_t::get_new_data_parts(vitastor_dev_info_t & d
     {
         want_parts = osd_per_disk;
     }
-    else if (dev.pt["partitions"].array_items().size() > 0)
+    else
     {
         // Disk already has partitions. If these are empty Vitastor OSD partitions, we can use them
         uint64_t osds_exist = 0, osds_size = 0;
@@ -529,9 +546,13 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
     uint64_t osd_per_disk = stoull_full(options["osd_per_disk"]);
     if (!osd_per_disk)
         osd_per_disk = 1;
-    uint64_t max_other_percent = stoull_full(trim(options["max_other"], " \n\r\t%"));
-    if (max_other_percent > 100)
-        max_other_percent = 100;
+    uint64_t max_other_percent = 10;
+    if (options.find("max_other") != options.end())
+    {
+        max_other_percent = stoull_full(trim(options["max_other"], " \n\r\t%"));
+        if (max_other_percent > 100)
+            max_other_percent = 100;
+    }
     std::vector<vitastor_dev_info_t> ssds;
     if (options.find("disable_data_fsync") == options.end())
         options["disable_data_fsync"] = "auto";

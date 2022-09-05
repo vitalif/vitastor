@@ -137,4 +137,5 @@ bool json_is_true(const json11::Json & val);
 int shell_exec(const std::vector<std::string> & cmd, const std::string & in, std::string *out, std::string *err);
 int write_zero(int fd, uint64_t offset, uint64_t size);
 json11::Json read_parttable(std::string dev);
+uint64_t dev_size_from_parttable(json11::Json pt);
 uint64_t free_from_parttable(json11::Json pt);

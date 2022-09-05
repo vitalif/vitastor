@@ -333,13 +333,24 @@ json11::Json read_parttable(std::string dev)
     return pt;
 }
 
+uint64_t dev_size_from_parttable(json11::Json pt)
+{
+    uint64_t free = pt["lastlba"].uint64_value() + 1 - pt["firstlba"].uint64_value();
+    if (!pt["sectorsize"].uint64_value())
+        free *= 512;
+    else
+        free *= pt["sectorsize"].uint64_value();
+    return free;
+}
+
 uint64_t free_from_parttable(json11::Json pt)
 {
     uint64_t free = pt["lastlba"].uint64_value() + 1 - pt["firstlba"].uint64_value();
     for (const auto & part: pt["partitions"].array_items())
-    {
         free -= part["size"].uint64_value();
-    }
-    free *= pt["sectorsize"].uint64_value();
+    if (!pt["sectorsize"].uint64_value())
+        free *= 512;
+    else
+        free *= pt["sectorsize"].uint64_value();
     return free;
 }
