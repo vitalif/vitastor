@@ -78,6 +78,18 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
                 options["disable_"+dev+"_fsync"] = "1";
         }
     }
+    if (options["meta_device"] == "" || options["meta_device"] == options["data_device"])
+    {
+        options["disable_meta_fsync"] = options["disable_data_fsync"];
+    }
+    if (options["journal_device"] == "" || options["journal_device"] == options["meta_device"])
+    {
+        options["disable_journal_fsync"] = options["disable_meta_fsync"];
+    }
+    else if (options["journal_device"] == options["data_device"])
+    {
+        options["disable_journal_fsync"] = options["disable_data_fsync"];
+    }
     // Calculate offsets if the same device is used for two or more of data, meta, and journal
     if (options["journal_size"] == "")
     {
