@@ -40,10 +40,23 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     data_block_size = parse_size(config["block_size"]);
     journal_device = config["journal_device"];
     journal_offset = parse_size(config["journal_offset"]);
-    disk_alignment = strtoull(config["disk_alignment"].c_str(), NULL, 10);
-    journal_block_size = strtoull(config["journal_block_size"].c_str(), NULL, 10);
-    meta_block_size = strtoull(config["meta_block_size"].c_str(), NULL, 10);
-    bitmap_granularity = strtoull(config["bitmap_granularity"].c_str(), NULL, 10);
+    disk_alignment = parse_size(config["disk_alignment"]);
+    journal_block_size = parse_size(config["journal_block_size"]);
+    meta_block_size = parse_size(config["meta_block_size"]);
+    bitmap_granularity = parse_size(config["bitmap_granularity"]);
+    if (config["data_csum_type"] == "crc32c")
+    {
+        data_csum_type = BLOCKSTORE_CSUM_CRC32C;
+    }
+    else if (config["data_csum_type"] == "" || config["data_csum_type"] == "none")
+    {
+        data_csum_type = BLOCKSTORE_CSUM_NONE;
+    }
+    else
+    {
+        throw std::runtime_error("data_csum_type="+config["data_csum_type"]+" is unsupported, only \"crc32c\" and \"none\" are supported");
+    }
+    csum_block_size = parse_size(config["csum_block_size"]);
     // Validate
     if (!data_block_size)
     {
@@ -91,7 +104,28 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     }
     if (data_block_size % bitmap_granularity)
     {
-        throw std::runtime_error("Block size must be a multiple of sparse write tracking granularity");
+        throw std::runtime_error("Data block size must be a multiple of sparse write tracking granularity");
+    }
+    if (!data_csum_type)
+    {
+        csum_block_size = 0;
+    }
+    else if (!csum_block_size)
+    {
+        csum_block_size = bitmap_granularity;
+    }
+    if (csum_block_size && (csum_block_size % bitmap_granularity))
+    {
+        throw std::runtime_error("Checksum block size must be a multiple of sparse write tracking granularity");
+    }
+    if (csum_block_size && (data_block_size % csum_block_size))
+    {
+        throw std::runtime_error("Checksum block size must be a divisor of data block size");
+    }
+    if (csum_block_size && csum_block_size != bitmap_granularity)
+    {
+        // FIXME: Support other checksum block sizes (with read-modify-write)
+        throw std::runtime_error("Checksum block sizes other than bitmap_granularity are not supported yet");
     }
     if (meta_device == "")
     {
@@ -110,7 +144,8 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
         throw std::runtime_error("journal_offset must be a multiple of journal_block_size = "+std::to_string(journal_block_size));
     }
     clean_entry_bitmap_size = data_block_size / bitmap_granularity / 8;
-    clean_entry_size = sizeof(clean_disk_entry) + 2*clean_entry_bitmap_size;
+    clean_dyn_size = clean_entry_bitmap_size + dirty_dyn_size(data_block_size);
+    clean_entry_size = sizeof(clean_disk_entry) + clean_dyn_size + 4 /*entry_csum*/;
 }
 
 void blockstore_disk_t::calc_lengths(bool skip_meta_check)

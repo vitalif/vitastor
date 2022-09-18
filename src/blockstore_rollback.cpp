@@ -227,11 +227,7 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
             journal.used_sectors.erase(dirty_it->second.journal_sector);
             flusher->mark_trim_possible();
         }
-        if (dsk.clean_entry_bitmap_size > sizeof(void*))
-        {
-            free(dirty_it->second.bitmap);
-            dirty_it->second.bitmap = NULL;
-        }
+        free_dirty_dyn_data(dirty_it->second);
         if (dirty_it == dirty_start)
         {
             break;
@@ -239,4 +235,21 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
         dirty_it--;
     }
     dirty_db.erase(dirty_start, dirty_end);
+}
+
+void blockstore_impl_t::free_dirty_dyn_data(dirty_entry & e)
+{
+    if (e.dyn_data)
+    {
+        size_t dyn_size = dsk.dirty_dyn_size(e.len);
+        if (dyn_size > sizeof(void*) &&
+            (!journal.inmemory || e.dyn_data < journal.buffer ||
+            e.dyn_data >= journal.buffer + journal.len))
+        {
+            // dyn_data contains the bitmap and checksums
+            // free it if it doesn't refer to the in-memory journal
+            free(e.dyn_data);
+        }
+        e.dyn_data = NULL;
+    }
 }

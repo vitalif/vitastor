@@ -135,19 +135,25 @@ void blockstore_impl_t::calc_lengths()
     {
         metadata_buffer = memalign(MEM_ALIGNMENT, dsk.meta_len);
         if (!metadata_buffer)
-            throw std::runtime_error("Failed to allocate memory for the metadata");
+            throw std::runtime_error("Failed to allocate memory for the metadata ("+std::to_string(dsk.meta_len/1024/1024)+" MB)");
     }
-    else if (dsk.clean_entry_bitmap_size)
+    else if (dsk.clean_entry_bitmap_size || dsk.data_csum_type)
     {
-        clean_bitmap = (uint8_t*)malloc(dsk.block_count * 2*dsk.clean_entry_bitmap_size);
-        if (!clean_bitmap)
-            throw std::runtime_error("Failed to allocate memory for the metadata sparse write bitmap");
+        // FIXME: allow to store bitmap, but read checksums from the disk
+        clean_dyn_data = (uint8_t*)malloc(dsk.block_count * dsk.clean_dyn_size);
+        if (!clean_dyn_data)
+        {
+            throw std::runtime_error(
+                "Failed to allocate memory for the metadata sparse write bitmap ("+
+                std::to_string(dsk.block_count * dsk.clean_dyn_size / 1024 / 1024)+" MB)"
+            );
+        }
     }
     if (journal.inmemory)
     {
         journal.buffer = memalign(MEM_ALIGNMENT, journal.len);
         if (!journal.buffer)
-            throw std::runtime_error("Failed to allocate memory for journal");
+            throw std::runtime_error("Failed to allocate memory for journal ("+std::to_string(journal.len/1024/1024)+" MB)");
     }
     else
     {

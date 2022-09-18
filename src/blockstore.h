@@ -77,6 +77,7 @@ Output:
   -EINVAL = invalid input parameters
   -ENOENT = requested object/version does not exist for reads
   -ENOSPC = no space left in the store for writes
+  -EDOM = checksum error.
 - version = the version actually read or written
 
 ## BS_OP_DELETE

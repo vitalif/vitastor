@@ -4,7 +4,7 @@
 
 OSD_SIZE=1024
 OSD_COUNT=5
-OSD_ARGS=
+OSD_ARGS="$OSD_ARGS"
 for i in $(seq 1 $OSD_COUNT); do
     dd if=/dev/zero of=./testdata/test_osd$i.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
     build/src/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $OSD_ARGS --etcd_address $ETCD_URL $(build/src/vitastor-disk simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) >>./testdata/osd$i.log 2>&1 &

@@ -64,17 +64,19 @@ struct disk_tool_t
     ring_loop_t *ringloop;
     ring_consumer_t ring_consumer;
     int remap_active;
+    journal_entry_start je_start;
     uint8_t *new_journal_buf, *new_meta_buf, *new_journal_ptr, *new_journal_data;
     uint64_t new_journal_in_pos;
     int64_t data_idx_diff;
     uint64_t total_blocks, free_first, free_last;
-    uint64_t new_clean_entry_bitmap_size, new_clean_entry_size, new_entries_per_block;
+    uint64_t new_clean_entry_bitmap_size, new_data_csum_size, new_clean_entry_size, new_entries_per_block;
     int new_journal_fd, new_meta_fd;
     resizer_data_moving_t *moving_blocks;
 
     bool started;
     void *small_write_data;
     uint32_t data_crc32;
+    bool data_csum_valid;
     uint32_t crc32_last;
     uint32_t new_crc32_prev;
 
@@ -84,11 +86,11 @@ struct disk_tool_t
     void dump_journal_entry(int num, journal_entry *je, bool json);
     int process_journal(std::function<int(void*)> block_fn);
     int process_journal_block(void *buf, std::function<void(int, journal_entry*)> iter_fn);
-    int process_meta(std::function<void(blockstore_meta_header_v1_t *)> hdr_fn,
+    int process_meta(std::function<void(blockstore_meta_header_v2_t *)> hdr_fn,
         std::function<void(uint64_t, clean_disk_entry*, uint8_t*)> record_fn);
 
     int dump_meta();
-    void dump_meta_header(blockstore_meta_header_v1_t *hdr);
+    void dump_meta_header(blockstore_meta_header_v2_t *hdr);
     void dump_meta_entry(uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap);
 
     int write_json_journal(json11::Json entries);
@@ -96,7 +98,7 @@ struct disk_tool_t
 
     int resize_data();
     int resize_parse_params();
-    void resize_init(blockstore_meta_header_v1_t *hdr);
+    void resize_init(blockstore_meta_header_v2_t *hdr);
     int resize_remap_blocks();
     int resize_copy_data();
     int resize_rewrite_journal();
@@ -141,3 +143,5 @@ json11::Json read_parttable(std::string dev);
 uint64_t dev_size_from_parttable(json11::Json pt);
 uint64_t free_from_parttable(json11::Json pt);
 int fix_partition_type(std::string dev_by_uuid);
+std::string csum_type_str(uint32_t data_csum_type);
+uint32_t csum_type_from_str(std::string data_csum_type);

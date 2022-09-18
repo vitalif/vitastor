@@ -374,3 +374,22 @@ int fix_partition_type(std::string dev_by_uuid)
     std::string out;
     return shell_exec({ "sfdisk", "--no-reread", "--force", "/dev/"+parent_dev }, script, &out, NULL);
 }
+
+std::string csum_type_str(uint32_t data_csum_type)
+{
+    std::string csum_type;
+    if (data_csum_type == BLOCKSTORE_CSUM_NONE)
+        csum_type = "none";
+    else if (data_csum_type == BLOCKSTORE_CSUM_CRC32C)
+        csum_type = "crc32c";
+    else
+        csum_type = std::to_string(data_csum_type);
+    return csum_type;
+}
+
+uint32_t csum_type_from_str(std::string data_csum_type)
+{
+    if (data_csum_type == "crc32c")
+        return BLOCKSTORE_CSUM_CRC32C;
+    return stoull_full(data_csum_type, 0);
+}

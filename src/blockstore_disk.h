@@ -8,6 +8,10 @@
 #include <string>
 #include <map>
 
+#define BLOCKSTORE_CSUM_NONE 0
+// Lower byte of checksum type is its length
+#define BLOCKSTORE_CSUM_CRC32C 0x104
+
 struct blockstore_disk_t
 {
     std::string data_device, meta_device, journal_device;
@@ -21,6 +25,10 @@ struct blockstore_disk_t
     uint64_t meta_block_size = 4096;
     // Sparse write tracking granularity. 4 KB is a good choice. Must be a multiple of disk_alignment
     uint64_t bitmap_granularity = 4096;
+    // Data checksum type, BLOCKSTORE_CSUM_NONE or BLOCKSTORE_CSUM_CRC32C
+    uint32_t data_csum_type = BLOCKSTORE_CSUM_NONE;
+    // Checksum block size, must be a multiple of bitmap_granularity
+    uint32_t csum_block_size = 4096;
     // By default, Blockstore locks all opened devices exclusively. This option can be used to disable locking
     bool disable_flock = false;
 
@@ -31,7 +39,7 @@ struct blockstore_disk_t
 
     uint32_t block_order;
     uint64_t block_count;
-    uint32_t clean_entry_bitmap_size = 0, clean_entry_size = 0;
+    uint32_t clean_entry_bitmap_size = 0, clean_entry_size = 0, clean_dyn_size = 0;
 
     void parse_config(std::map<std::string, std::string> & config);
     void open_data();
@@ -39,4 +47,9 @@ struct blockstore_disk_t
     void open_journal();
     void calc_lengths(bool skip_meta_check = false);
     void close_all();
+
+    inline uint64_t dirty_dyn_size(uint64_t len)
+    {
+        return clean_entry_bitmap_size + (csum_block_size ? len/csum_block_size * (data_csum_type & 0xFF) : 0);
+    }
 };

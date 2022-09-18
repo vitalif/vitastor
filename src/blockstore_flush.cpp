@@ -479,22 +479,42 @@ resume_1:
             bs->ringloop->wakeup();
         }
         // Reads completed, submit writes and set bitmap bits
-        if (bs->dsk.clean_entry_bitmap_size)
+        if (bs->dsk.clean_entry_bitmap_size || bs->dsk.csum_block_size)
         {
             new_clean_bitmap = (bs->inmemory_meta
                 ? (uint8_t*)meta_new.buf + meta_new.pos*bs->dsk.clean_entry_size + sizeof(clean_disk_entry)
-                : (uint8_t*)bs->clean_bitmap + (clean_loc >> bs->dsk.block_order)*(2*bs->dsk.clean_entry_bitmap_size));
-            if (clean_init_bitmap)
+                : (uint8_t*)bs->clean_dyn_data + (clean_loc >> bs->dsk.block_order)*bs->dsk.clean_dyn_size);
+            if (bs->dsk.clean_entry_bitmap_size && clean_init_bitmap)
             {
+                // Initial internal bitmap bits from the big write
                 memset(new_clean_bitmap, 0, bs->dsk.clean_entry_bitmap_size);
                 bitmap_set(new_clean_bitmap, clean_bitmap_offset, clean_bitmap_len, bs->dsk.bitmap_granularity);
             }
         }
+        // Copy initial (big_write) data checksums
+        if (bs->dsk.csum_block_size && clean_init_bitmap)
+        {
+            uint8_t *new_clean_data_csum = (uint8_t*)new_clean_bitmap + 2*bs->dsk.clean_entry_bitmap_size +
+                clean_bitmap_offset / bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF);
+            uint64_t dyn_size = bs->dsk.dirty_dyn_size(clean_bitmap_len);
+            uint8_t *dyn_ptr = dyn_size > sizeof(void*) ? clean_init_data_csum : (uint8_t*)&clean_init_data_csum;
+            uint64_t csum_len = clean_bitmap_len / bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF);
+            memcpy(new_clean_data_csum, dyn_ptr + bs->dsk.clean_entry_bitmap_size, csum_len);
+        }
         for (it = v.begin(); it != v.end(); it++)
         {
+            // Set internal bitmap bits
             if (new_clean_bitmap)
             {
                 bitmap_set(new_clean_bitmap, it->offset, it->len, bs->dsk.bitmap_granularity);
+            }
+            // Copy small_write data checksums
+            if (bs->dsk.csum_block_size)
+            {
+                uint8_t *new_clean_data_csum = (uint8_t*)new_clean_bitmap + 2*bs->dsk.clean_entry_bitmap_size +
+                    it->offset / bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF);
+                uint64_t csum_len = it->len / bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF);
+                memcpy(new_clean_data_csum, it->csum_buf, csum_len);
             }
             await_sqe(4);
             data->iov = (struct iovec){ it->buf, (size_t)it->len };
@@ -590,9 +610,14 @@ resume_1:
             // copy latest external bitmap/attributes
             if (bs->dsk.clean_entry_bitmap_size)
             {
-                void *bmp_ptr = bs->dsk.clean_entry_bitmap_size > sizeof(void*) ? dirty_end->second.bitmap : &dirty_end->second.bitmap;
-                memcpy((uint8_t*)(new_entry+1) + bs->dsk.clean_entry_bitmap_size, bmp_ptr, bs->dsk.clean_entry_bitmap_size);
+                uint64_t dyn_size = bs->dsk.dirty_dyn_size(dirty_end->second.len);
+                void *dyn_ptr = dyn_size > sizeof(void*) ? dirty_end->second.dyn_data : &dirty_end->second.dyn_data;
+                // copy bitmap
+                memcpy((uint8_t*)(new_entry+1) + bs->dsk.clean_entry_bitmap_size, dyn_ptr, bs->dsk.clean_entry_bitmap_size);
             }
+            // calculate metadata entry checksum
+            uint32_t *new_entry_csum = (uint32_t*)((uint8_t*)new_entry + bs->dsk.clean_entry_size - 4);
+            *new_entry_csum = crc32c(0, new_entry, bs->dsk.clean_entry_size - 4);
         }
         await_sqe(6);
         data->iov = (struct iovec){ meta_new.buf, bs->dsk.meta_block_size };
@@ -688,7 +713,9 @@ resume_1:
                         .size = sizeof(journal_entry_start),
                         .reserved = 0,
                         .journal_start = new_trim_pos,
-                        .version = JOURNAL_VERSION,
+                        .version = JOURNAL_VERSION_V2,
+                        .data_csum_type = bs->dsk.data_csum_type,
+                        .csum_block_size = bs->dsk.csum_block_size,
                     };
                     ((journal_entry_start*)flusher->journal_superblock)->crc32 = je_crc32((journal_entry*)flusher->journal_superblock);
                     data->iov = (struct iovec){ flusher->journal_superblock, bs->dsk.journal_block_size };
@@ -791,6 +818,16 @@ bool journal_flusher_co::scan_dirty(int wait_base)
                         submit_len = it == v.end() || it->offset >= end_offset ? end_offset-offset : it->offset-offset;
                         it = v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len });
                         copy_count++;
+                        if (bs->dsk.csum_block_size)
+                        {
+                            uint64_t dyn_size = bs->dsk.dirty_dyn_size(dirty_it->second.len);
+                            // FIXME Remove this > sizeof(void*) inline perversion from everywhere.
+                            // I think it doesn't matter but I couldn't stop myself from implementing it :)
+                            uint8_t *dyn_from = (uint8_t*)(dyn_size > sizeof(void*) ? dirty_it->second.dyn_data : &dirty_it->second.dyn_data) +
+                                bs->dsk.clean_entry_bitmap_size +
+                                (offset - dirty_it->second.offset) / bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF);
+                            it->csum_buf = dyn_from;
+                        }
                         if (bs->journal.inmemory)
                         {
                             // Take it from memory, don't copy it
@@ -823,6 +860,7 @@ bool journal_flusher_co::scan_dirty(int wait_base)
             clean_init_bitmap = true;
             clean_bitmap_offset = dirty_it->second.offset;
             clean_bitmap_len = dirty_it->second.len;
+            clean_init_data_csum = (uint8_t*)dirty_it->second.dyn_data;
             skip_copy = true;
         }
         else if (IS_DELETE(dirty_it->second.state) && !skip_copy)

@@ -115,8 +115,8 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             je->offset = dirty_entry.offset;
             je->len = dirty_entry.len;
             je->location = dirty_entry.location;
-            memcpy((void*)(je+1), (dsk.clean_entry_bitmap_size > sizeof(void*)
-                ? dirty_entry.bitmap : &dirty_entry.bitmap), dsk.clean_entry_bitmap_size);
+            uint64_t dyn_size = dsk.dirty_dyn_size(dirty_entry.len);
+            memcpy((void*)(je+1), (dyn_size > sizeof(void*) ? dirty_entry.dyn_data : &dirty_entry.dyn_data), dyn_size);
             je->crc32 = je_crc32((journal_entry*)je);
             journal.crc32_last = je->crc32;
             it++;

@@ -29,7 +29,7 @@ int disk_tool_t::resize_data()
     fprintf(stderr, "Reading metadata\n");
     data_alloc = new allocator((new_data_len < dsk.data_len ? dsk.data_len : new_data_len) / dsk.data_block_size);
     r = process_meta(
-        [this](blockstore_meta_header_v1_t *hdr)
+        [this](blockstore_meta_header_v2_t *hdr)
         {
             resize_init(hdr);
         },
@@ -139,7 +139,7 @@ int disk_tool_t::resize_parse_params()
     return 0;
 }
 
-void disk_tool_t::resize_init(blockstore_meta_header_v1_t *hdr)
+void disk_tool_t::resize_init(blockstore_meta_header_v2_t *hdr)
 {
     if (hdr && dsk.data_block_size != hdr->data_block_size)
     {
@@ -148,6 +148,15 @@ void disk_tool_t::resize_init(blockstore_meta_header_v1_t *hdr)
             fprintf(stderr, "Using data block size of %u bytes from metadata superblock\n", hdr->data_block_size);
         }
         dsk.data_block_size = hdr->data_block_size;
+    }
+    if (hdr && (dsk.data_csum_type != hdr->data_csum_type || dsk.csum_block_size != hdr->csum_block_size))
+    {
+        if (dsk.data_csum_type)
+        {
+            fprintf(stderr, "Using data checksum type %s from metadata superblock\n", csum_type_str(hdr->data_csum_type).c_str());
+        }
+        dsk.data_csum_type = hdr->data_csum_type;
+        dsk.csum_block_size = hdr->csum_block_size;
     }
     if (((new_data_len-dsk.data_len) % dsk.data_block_size) ||
         ((new_data_offset-dsk.data_offset) % dsk.data_block_size))
@@ -160,8 +169,12 @@ void disk_tool_t::resize_init(blockstore_meta_header_v1_t *hdr)
     free_last = (new_data_offset+new_data_len < dsk.data_offset+dsk.data_len)
         ? (dsk.data_offset+dsk.data_len-new_data_offset-new_data_len) / dsk.data_block_size
         : 0;
+    uint32_t new_clean_entry_header_size = sizeof(clean_disk_entry) + 4 /*entry_csum*/;
     new_clean_entry_bitmap_size = dsk.data_block_size / (hdr ? hdr->bitmap_granularity : 4096) / 8;
-    new_clean_entry_size = sizeof(clean_disk_entry) + 2 * new_clean_entry_bitmap_size;
+    new_data_csum_size = (dsk.data_csum_type
+        ? ((dsk.data_block_size+dsk.csum_block_size-1)/dsk.csum_block_size*(dsk.data_csum_type & 0xFF))
+        : 0);
+    new_clean_entry_size = new_clean_entry_header_size + 2*new_clean_entry_bitmap_size + new_data_csum_size;
     new_entries_per_block = dsk.meta_block_size/new_clean_entry_size;
     uint64_t new_meta_blocks = 1 + (new_data_len/dsk.data_block_size + new_entries_per_block-1) / new_entries_per_block;
     if (!new_meta_len)
@@ -349,13 +362,25 @@ int disk_tool_t::resize_rewrite_journal()
         {
             if (je->type == JE_START)
             {
+                if (je_start.data_csum_type != dsk.data_csum_type ||
+                    je_start.csum_block_size != dsk.csum_block_size)
+                {
+                    fprintf(
+                        stderr, "Error: journal header has different checksum parameters: %s/%u vs %s/%u\n",
+                        csum_type_str(je_start.data_csum_type).c_str(), je_start.csum_block_size,
+                        csum_type_str(dsk.data_csum_type).c_str(), dsk.csum_block_size
+                    );
+                    exit(1);
+                }
                 journal_entry *ne = (journal_entry*)(new_journal_ptr + new_journal_in_pos);
                 *((journal_entry_start*)ne) = (journal_entry_start){
                     .magic = JOURNAL_MAGIC,
                     .type = JE_START,
                     .size = sizeof(journal_entry_start),
                     .journal_start = dsk.journal_block_size,
-                    .version = JOURNAL_VERSION,
+                    .version = JOURNAL_VERSION_V2,
+                    .data_csum_type = dsk.data_csum_type,
+                    .csum_block_size = dsk.csum_block_size,
                 };
                 ne->crc32 = je_crc32(ne);
                 new_journal_ptr += dsk.journal_block_size;
@@ -436,15 +461,17 @@ int disk_tool_t::resize_rewrite_meta()
     new_meta_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_meta_len);
     memset(new_meta_buf, 0, new_meta_len);
     int r = process_meta(
-        [this](blockstore_meta_header_v1_t *hdr)
+        [this](blockstore_meta_header_v2_t *hdr)
         {
-            blockstore_meta_header_v1_t *new_hdr = (blockstore_meta_header_v1_t *)new_meta_buf;
+            blockstore_meta_header_v2_t *new_hdr = (blockstore_meta_header_v2_t *)new_meta_buf;
             new_hdr->zero = 0;
             new_hdr->magic = BLOCKSTORE_META_MAGIC_V1;
             new_hdr->version = BLOCKSTORE_META_VERSION_V1;
             new_hdr->meta_block_size = dsk.meta_block_size;
             new_hdr->data_block_size = dsk.data_block_size;
             new_hdr->bitmap_granularity = dsk.bitmap_granularity ? dsk.bitmap_granularity : 4096;
+            new_hdr->data_csum_type = dsk.data_csum_type;
+            new_hdr->csum_block_size = dsk.csum_block_size;
         },
         [this](uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap)
         {
@@ -463,7 +490,7 @@ int disk_tool_t::resize_rewrite_meta()
             new_entry->oid = entry->oid;
             new_entry->version = entry->version;
             if (bitmap)
-                memcpy(new_entry->bitmap, bitmap, 2*new_clean_entry_bitmap_size);
+                memcpy(new_entry->bitmap, bitmap, 2*new_clean_entry_bitmap_size + new_data_csum_size);
             else
                 memset(new_entry->bitmap, 0xff, 2*new_clean_entry_bitmap_size);
         }

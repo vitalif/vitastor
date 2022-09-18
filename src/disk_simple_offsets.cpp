@@ -10,6 +10,7 @@
 #include "json11/json11.hpp"
 #include "str_util.h"
 #include "blockstore.h"
+#include "blockstore_disk.h"
 
 // Calculate offsets for a block device and print OSD command line parameters
 void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
@@ -20,23 +21,39 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
         fprintf(stderr, "Device path is missing\n");
         exit(1);
     }
-    uint64_t object_size = parse_size(cfg["object_size"].string_value());
+    uint64_t data_block_size = parse_size(cfg["object_size"].string_value());
     uint64_t bitmap_granularity = parse_size(cfg["bitmap_granularity"].string_value());
     uint64_t journal_size = parse_size(cfg["journal_size"].string_value());
     uint64_t device_block_size = parse_size(cfg["device_block_size"].string_value());
     uint64_t journal_offset = parse_size(cfg["journal_offset"].string_value());
     uint64_t device_size = parse_size(cfg["device_size"].string_value());
+    uint32_t csum_block_size = parse_size(cfg["csum_block_size"].string_value());
+    uint32_t data_csum_type = BLOCKSTORE_CSUM_NONE;
+    if (cfg["data_csum_type"] == "crc32c")
+        data_csum_type = BLOCKSTORE_CSUM_CRC32C;
+    else if (cfg["data_csum_type"].string_value() != "" && cfg["data_csum_type"].string_value() != "none")
+    {
+        fprintf(
+            stderr, "data_csum_type=%s is unsupported, only \"crc32c\" and \"none\" are supported",
+            cfg["data_csum_type"].string_value().c_str()
+        );
+        exit(1);
+    }
     std::string format = cfg["format"].string_value();
     if (json_output)
         format = "json";
-    if (!object_size)
-        object_size = 1 << DEFAULT_DATA_BLOCK_ORDER;
+    if (!data_block_size)
+        data_block_size = 1 << DEFAULT_DATA_BLOCK_ORDER;
     if (!bitmap_granularity)
         bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
     if (!journal_size)
         journal_size = 16*1024*1024;
     if (!device_block_size)
         device_block_size = 4096;
+    if (!data_csum_type)
+        csum_block_size = 0;
+    else if (!csum_block_size)
+        csum_block_size = bitmap_granularity;
     uint64_t orig_device_size = device_size;
     if (!device_size)
     {
@@ -85,22 +102,30 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
         fprintf(stderr, "Invalid device block size specified: %lu\n", device_block_size);
         exit(1);
     }
-    if (object_size < device_block_size || object_size > MAX_DATA_BLOCK_SIZE ||
-        object_size & (object_size-1) != 0)
+    if (data_block_size < device_block_size || data_block_size > MAX_DATA_BLOCK_SIZE ||
+        data_block_size & (data_block_size-1) != 0)
     {
-        fprintf(stderr, "Invalid object size specified: %lu\n", object_size);
+        fprintf(stderr, "Invalid object size specified: %lu\n", data_block_size);
         exit(1);
     }
-    if (bitmap_granularity < device_block_size || bitmap_granularity > object_size ||
+    if (bitmap_granularity < device_block_size || bitmap_granularity > data_block_size ||
         bitmap_granularity & (bitmap_granularity-1) != 0)
     {
         fprintf(stderr, "Invalid bitmap granularity specified: %lu\n", bitmap_granularity);
         exit(1);
     }
+    if (csum_block_size && (data_block_size % csum_block_size))
+    {
+        fprintf(stderr, "csum_block_size must be a divisor of data_block_size\n");
+        exit(1);
+    }
     journal_offset = ((journal_offset+device_block_size-1)/device_block_size)*device_block_size;
     uint64_t meta_offset = journal_offset + ((journal_size+device_block_size-1)/device_block_size)*device_block_size;
-    uint64_t entries_per_block = (device_block_size / (24 + 2*object_size/bitmap_granularity/8));
-    uint64_t object_count = ((device_size-meta_offset)/object_size);
+    uint64_t data_csum_size = (data_csum_type ? data_block_size/csum_block_size*(data_csum_type & 0xFF) : 0);
+    uint64_t clean_entry_bitmap_size = data_block_size/bitmap_granularity/8;
+    uint64_t clean_entry_size = 24 /*sizeof(clean_disk_entry)*/ + 2*clean_entry_bitmap_size + data_csum_size + 4 /*entry_csum*/;
+    uint64_t entries_per_block = device_block_size / clean_entry_size;
+    uint64_t object_count = ((device_size-meta_offset)/data_block_size);
     uint64_t meta_size = (1 + (object_count+entries_per_block-1)/entries_per_block) * device_block_size;
     uint64_t data_offset = meta_offset + meta_size;
     if (format == "json")

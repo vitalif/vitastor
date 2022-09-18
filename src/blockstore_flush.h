@@ -5,6 +5,7 @@ struct copy_buffer_t
 {
     uint64_t offset, len;
     void *buf;
+    uint8_t *csum_buf;
 };
 
 struct meta_sector_t
@@ -56,6 +57,7 @@ class journal_flusher_co
     flusher_meta_write_t meta_old, meta_new;
     bool clean_init_bitmap;
     uint64_t clean_bitmap_offset, clean_bitmap_len;
+    uint8_t *clean_init_data_csum;
     void *new_clean_bitmap;
 
     uint64_t new_trim_pos;

@@ -8,7 +8,8 @@
 
 #define MIN_JOURNAL_SIZE 4*1024*1024
 #define JOURNAL_MAGIC 0x4A33
-#define JOURNAL_VERSION 1
+#define JOURNAL_VERSION_V1 1
+#define JOURNAL_VERSION_V2 2
 #define JOURNAL_BUFFER_SIZE 4*1024*1024
 #define JOURNAL_ENTRY_HEADER_SIZE 16
 
@@ -32,7 +33,7 @@
 #define JE_BIG_WRITE_INSTANT   0x08
 #define JE_MAX         0x08
 
-// crc32c comes first to ease calculation and is equal to crc32()
+// crc32c comes first to ease calculation
 struct __attribute__((__packed__)) journal_entry_start
 {
     uint32_t crc32;
@@ -42,8 +43,12 @@ struct __attribute__((__packed__)) journal_entry_start
     uint32_t reserved;
     uint64_t journal_start;
     uint64_t version;
+    uint32_t data_csum_type;
+    uint32_t csum_block_size;
 };
-#define JE_START_LEGACY_SIZE 24
+#define JE_START_V0_SIZE 24
+#define JE_START_V1_SIZE 32
+#define JE_START_V2_SIZE 40
 
 struct __attribute__((__packed__)) journal_entry_small_write
 {
@@ -59,10 +64,12 @@ struct __attribute__((__packed__)) journal_entry_small_write
     // small_write entries contain <len> bytes of data which is stored in next sectors
     // data_offset is its offset within journal
     uint64_t data_offset;
-    uint32_t crc32_data;
+    uint32_t crc32_data; // zero when data_csum_type != 0
     // small_write and big_write entries are followed by the "external" bitmap
     // its size is dynamic and included in journal entry's <size> field
     uint8_t bitmap[];
+    // and then data checksums if data_csum_type != 0
+    // uint32_t data_crc32c[];
 };
 
 struct __attribute__((__packed__)) journal_entry_big_write
@@ -80,6 +87,8 @@ struct __attribute__((__packed__)) journal_entry_big_write
     // small_write and big_write entries are followed by the "external" bitmap
     // its size is dynamic and included in journal entry's <size> field
     uint8_t bitmap[];
+    // and then data checksums if data_csum_type != 0
+    // uint32_t data_crc32c[];
 };
 
 struct __attribute__((__packed__)) journal_entry_stable

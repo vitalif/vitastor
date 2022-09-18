@@ -270,6 +270,19 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Invalid JSON: %s\n", json_err.c_str());
             return 1;
         }
+        if (entries[0]["type"] == "start")
+        {
+            self.dsk.data_csum_type = csum_type_from_str(entries[0]["data_csum_type"].string_value());
+            self.dsk.csum_block_size = entries[0]["csum_block_size"].uint64_value();
+        }
+        if (self.options["data_csum_type"] != "")
+        {
+            self.dsk.data_csum_type = csum_type_from_str(self.options["data_csum_type"]);
+        }
+        if (self.options["csum_block_size"] != "")
+        {
+            self.dsk.csum_block_size = stoull_full(self.options["csum_block_size"], 0);
+        }
         return self.write_json_journal(entries);
     }
     else if (!strcmp(cmd[0], "dump-meta"))

@@ -38,8 +38,8 @@ blockstore_impl_t::~blockstore_impl_t()
     dsk.close_all();
     if (metadata_buffer)
         free(metadata_buffer);
-    if (clean_bitmap)
-        free(clean_bitmap);
+    if (clean_dyn_data)
+        free(clean_dyn_data);
 }
 
 bool blockstore_impl_t::is_started()

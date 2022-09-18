@@ -50,6 +50,7 @@ class blockstore_init_journal
     uint64_t next_free;
     std::vector<bs_init_journal_done> done;
     std::vector<obj_ver_id> double_allocs;
+    std::vector<iovec> small_write_data;
     uint64_t journal_pos = 0;
     uint64_t continue_pos = 0;
     void *init_write_buf = NULL;

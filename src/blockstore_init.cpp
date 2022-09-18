@@ -77,13 +77,17 @@ resume_1:
     if (iszero((uint64_t*)metadata_buffer, bs->dsk.meta_block_size / sizeof(uint64_t)))
     {
         {
-            blockstore_meta_header_v1_t *hdr = (blockstore_meta_header_v1_t *)metadata_buffer;
+            blockstore_meta_header_v2_t *hdr = (blockstore_meta_header_v2_t *)metadata_buffer;
             hdr->zero = 0;
             hdr->magic = BLOCKSTORE_META_MAGIC_V1;
-            hdr->version = BLOCKSTORE_META_VERSION_V1;
+            hdr->version = BLOCKSTORE_META_VERSION_V2;
             hdr->meta_block_size = bs->dsk.meta_block_size;
             hdr->data_block_size = bs->dsk.data_block_size;
             hdr->bitmap_granularity = bs->dsk.bitmap_granularity;
+            hdr->data_csum_type = bs->dsk.data_csum_type;
+            hdr->csum_block_size = bs->dsk.csum_block_size;
+            hdr->header_csum = 0;
+            hdr->header_csum = crc32c(0, hdr, sizeof(*hdr));
         }
         if (bs->readonly)
         {
@@ -109,21 +113,46 @@ resume_1:
     }
     else
     {
-        blockstore_meta_header_v1_t *hdr = (blockstore_meta_header_v1_t *)metadata_buffer;
-        if (hdr->zero != 0 ||
-            hdr->magic != BLOCKSTORE_META_MAGIC_V1 ||
-            hdr->version != BLOCKSTORE_META_VERSION_V1)
+        blockstore_meta_header_v2_t *hdr = (blockstore_meta_header_v2_t *)metadata_buffer;
+        if (hdr->zero != 0 || hdr->magic != BLOCKSTORE_META_MAGIC_V1 || hdr->version < BLOCKSTORE_META_VERSION_V1)
         {
             printf(
-                "Metadata is corrupt or old version.\n"
-                " If this is a new OSD please zero out the metadata area before starting it.\n"
-                " If you need to upgrade from 0.5.x please request it via the issue tracker.\n"
+                "Metadata is corrupt or too old (pre-0.6.x).\n"
+                " If this is a new OSD, please zero out the metadata area before starting it.\n"
+                " If you need to upgrade from 0.5.x, convert metadata with vitastor-disk.\n"
+            );
+            exit(1);
+        }
+        if (hdr->version == BLOCKSTORE_META_VERSION_V2)
+        {
+            uint32_t csum = hdr->header_csum;
+            hdr->header_csum = 0;
+            if (crc32c(0, hdr, sizeof(*hdr)) != csum)
+            {
+                printf("Metadata header is corrupt (CRC mismatch).\n");
+                exit(1);
+            }
+            hdr->header_csum = csum;
+        }
+        else if (hdr->version == BLOCKSTORE_META_VERSION_V1)
+        {
+            hdr->data_csum_type = 0;
+            hdr->csum_block_size = 0;
+            hdr->header_csum = 0;
+        }
+        else if (hdr->version > BLOCKSTORE_META_VERSION_V2)
+        {
+            printf(
+                "Metadata format is too new for me (stored version is %lu, max supported %u).\n",
+                hdr->version, BLOCKSTORE_META_VERSION_V2
             );
             exit(1);
         }
         if (hdr->meta_block_size != bs->dsk.meta_block_size ||
             hdr->data_block_size != bs->dsk.data_block_size ||
-            hdr->bitmap_granularity != bs->dsk.bitmap_granularity)
+            hdr->bitmap_granularity != bs->dsk.bitmap_granularity ||
+            hdr->data_csum_type != bs->dsk.data_csum_type ||
+            hdr->csum_block_size != bs->dsk.csum_block_size)
         {
             printf(
                 "Configuration stored in metadata superblock"
@@ -279,12 +308,19 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
     for (uint64_t i = 0; i < max_i; i++)
     {
         clean_disk_entry *entry = (clean_disk_entry*)(buf + i*bs->dsk.clean_entry_size);
-        if (!bs->inmemory_meta && bs->dsk.clean_entry_bitmap_size)
-        {
-            memcpy(bs->clean_bitmap + (done_cnt+i)*2*bs->dsk.clean_entry_bitmap_size, &entry->bitmap, 2*bs->dsk.clean_entry_bitmap_size);
-        }
         if (entry->oid.inode > 0)
         {
+            // Check entry crc32
+            uint32_t *entry_csum = (uint32_t*)((uint8_t*)entry + bs->dsk.clean_entry_size - 4);
+            if (*entry_csum != crc32c(0, entry, bs->dsk.clean_entry_size - 4))
+            {
+                printf("Metadata entry %lu is corrupt (checksum mismatch), skipping\n", done_cnt+i);
+                continue;
+            }
+            if (!bs->inmemory_meta && bs->dsk.clean_entry_bitmap_size)
+            {
+                memcpy(bs->clean_dyn_data + (done_cnt+i)*bs->dsk.clean_dyn_size, &entry->bitmap, bs->dsk.clean_dyn_size);
+            }
             auto & clean_db = bs->clean_db_shard(entry->oid);
             auto clean_it = clean_db.find(entry->oid);
             if (clean_it == clean_db.end() || clean_it->second.version < entry->version)
@@ -440,7 +476,9 @@ resume_1:
             .size = sizeof(journal_entry_start),
             .reserved = 0,
             .journal_start = bs->journal.block_size,
-            .version = JOURNAL_VERSION,
+            .version = JOURNAL_VERSION_V2,
+            .data_csum_type = bs->dsk.data_csum_type,
+            .csum_block_size = bs->dsk.csum_block_size,
         };
         ((journal_entry_start*)submitted_buf)->crc32 = je_crc32((journal_entry*)submitted_buf);
         if (bs->readonly)
@@ -492,18 +530,19 @@ resume_1:
         if (je_start->magic != JOURNAL_MAGIC ||
             je_start->type != JE_START ||
             je_crc32((journal_entry*)je_start) != je_start->crc32 ||
-            je_start->size != sizeof(journal_entry_start) && je_start->size != JE_START_LEGACY_SIZE)
+            je_start->size != JE_START_V0_SIZE && je_start->size != JE_START_V1_SIZE && je_start->size != JE_START_V2_SIZE)
         {
             // Entry is corrupt
-            fprintf(stderr, "First entry of the journal is corrupt\n");
+            fprintf(stderr, "First entry of the journal is corrupt or unsupported\n");
             exit(1);
         }
-        if (je_start->size == JE_START_LEGACY_SIZE || je_start->version != JOURNAL_VERSION)
+        if (je_start->size == JE_START_V0_SIZE || je_start->version != JOURNAL_VERSION_V2)
         {
+            // FIXME: Support v1 too
             fprintf(
                 stderr, "The code only supports journal version %d, but it is %lu on disk."
-                    " Please use the previous version to flush the journal before upgrading OSD\n",
-                JOURNAL_VERSION, je_start->size == JE_START_LEGACY_SIZE ? 0 : je_start->version
+                    " Please use vitastor-disk to rewrite the journal\n",
+                JOURNAL_VERSION_V2, je_start->size == JE_START_V0_SIZE ? 0 : je_start->version
             );
             exit(1);
         }
@@ -705,11 +744,14 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     snprintf(err, 1024, "BUG: calculated journal data offset (%08lx) != stored journal data offset (%08lx)", location, je->small_write.data_offset);
                     throw std::runtime_error(err);
                 }
-                uint32_t data_crc32 = 0;
+                small_write_data.clear();
                 if (location >= done_pos && location+je->small_write.len <= done_pos+len)
                 {
                     // data is within this buffer
-                    data_crc32 = crc32c(0, (uint8_t*)buf + location - done_pos, je->small_write.len);
+                    small_write_data.push_back((iovec){
+                        .iov_base = (uint8_t*)buf + location - done_pos,
+                        .iov_len = je->small_write.len,
+                    });
                 }
                 else
                 {
@@ -724,7 +766,10 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                                 ? location+je->small_write.len : done[i].pos+done[i].len);
                             uint64_t part_begin = (location < done[i].pos ? done[i].pos : location);
                             covered += part_end - part_begin;
-                            data_crc32 = crc32c(data_crc32, (uint8_t*)done[i].buf + part_begin - done[i].pos, part_end - part_begin);
+                            small_write_data.push_back((iovec){
+                                .iov_base = (uint8_t*)done[i].buf + part_begin - done[i].pos,
+                                .iov_len = part_end - part_begin,
+                            });
                         }
                     }
                     if (covered < je->small_write.len)
@@ -734,12 +779,60 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         return 2;
                     }
                 }
-                if (data_crc32 != je->small_write.crc32_data)
+                bool data_csum_valid = true;
+                if (!bs->dsk.csum_block_size)
+                {
+                    uint32_t data_crc32 = 0;
+                    for (auto & sd: small_write_data)
+                    {
+                        data_crc32 = crc32c(data_crc32, sd.iov_base, sd.iov_len);
+                    }
+                    data_csum_valid = data_crc32 == je->small_write.crc32_data;
+                    if (!data_csum_valid)
+                    {
+                        printf("Journal entry data is corrupt (data crc32 %x != %x)\n", data_crc32, je->small_write.crc32_data);
+                    }
+                }
+                else
+                {
+                    uint32_t *block_csums = (uint32_t*)((uint8_t*)je + sizeof(journal_entry_small_write) + bs->dsk.clean_entry_bitmap_size);
+                    uint32_t block_crc32 = 0;
+                    int sd_num = 0;
+                    size_t sd_pos = 0;
+                    for (uint64_t pos = 0; pos < je->small_write.len; pos += bs->dsk.csum_block_size, block_csums++)
+                    {
+                        size_t block_left = bs->dsk.csum_block_size;
+                        block_crc32 = 0;
+                        while (block_left > 0)
+                        {
+                            if (small_write_data[sd_num].iov_len >= sd_pos+block_left)
+                            {
+                                block_crc32 = crc32c(block_crc32, small_write_data[sd_num].iov_base+sd_pos, block_left);
+                                sd_pos += block_left;
+                                break;
+                            }
+                            else
+                            {
+                                block_crc32 = crc32c(block_crc32, small_write_data[sd_num].iov_base+sd_pos, small_write_data[sd_num].iov_len-sd_pos);
+                                block_left -= (small_write_data[sd_num].iov_len-sd_pos);
+                                sd_pos = 0;
+                                sd_num++;
+                            }
+                        }
+                        if (block_crc32 != *block_csums)
+                        {
+                            printf("Journal entry data is corrupt (block %lu crc32 %x != %x)\n",
+                                pos / bs->dsk.csum_block_size, block_crc32, *block_csums);
+                            data_csum_valid = false;
+                            break;
+                        }
+                    }
+                }
+                if (!data_csum_valid)
                 {
                     // journal entry is corrupt, stop here
                     // interesting thing is that we must clear the corrupt entry if we're not readonly,
                     // because we don't write next entries in the same journal block
-                    printf("Journal entry data is corrupt (data crc32 %x != %x)\n", data_crc32, je->small_write.crc32_data);
                     memset((uint8_t*)buf + proc_pos - done_pos + pos, 0, bs->journal.block_size - pos);
                     bs->journal.next_free = prev_free;
                     init_write_buf = (uint8_t*)buf + proc_pos - done_pos;
@@ -755,11 +848,19 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .oid = je->small_write.oid,
                         .version = je->small_write.version,
                     };
-                    void *bmp = NULL;
-                    void *bmp_from = (uint8_t*)je + sizeof(journal_entry_small_write);
-                    if (bs->dsk.clean_entry_bitmap_size <= sizeof(void*))
+                    uint64_t dyn_size = bs->dsk.dirty_dyn_size(je->small_write.len);
+                    void *dyn = NULL;
+                    void *dyn_from = (uint8_t*)je + sizeof(journal_entry_small_write);
+                    if (dyn_size <= sizeof(void*))
                     {
-                        memcpy(&bmp, bmp_from, bs->dsk.clean_entry_bitmap_size);
+                        // Bitmap without checksum is only 4 bytes for 128k objects, save it inline
+                        // It can even contain 4 byte bitmap + 4 byte CRC32 for 4 kb writes :)
+                        memcpy(&dyn, dyn_from, dyn_size);
+                    }
+                    else if (bs->journal.inmemory)
+                    {
+                        // Journal is kept in memory, refer to it instead of allocating a buffer
+                        dyn = dyn_from;
                     }
                     else
                     {
@@ -767,8 +868,8 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         // allocations for entry bitmaps. This can only be fixed by using
                         // a patched map with dynamic entry size, but not the btree_map,
                         // because it doesn't keep iterators valid all the time.
-                        bmp = malloc_or_die(bs->dsk.clean_entry_bitmap_size);
-                        memcpy(bmp, bmp_from, bs->dsk.clean_entry_bitmap_size);
+                        dyn = malloc_or_die(dyn_size);
+                        memcpy(dyn, dyn_from, dyn_size);
                     }
                     bs->dirty_db.emplace(ov, (dirty_entry){
                         .state = (BS_ST_SMALL_WRITE | BS_ST_SYNCED),
@@ -777,7 +878,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .offset = je->small_write.offset,
                         .len = je->small_write.len,
                         .journal_sector = proc_pos,
-                        .bitmap = bmp,
+                        .dyn_data = dyn,
                     });
                     bs->journal.used_sectors[proc_pos]++;
 #ifdef BLOCKSTORE_DEBUG
@@ -836,11 +937,18 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .oid = je->big_write.oid,
                         .version = je->big_write.version,
                     };
-                    void *bmp = NULL;
-                    void *bmp_from = (uint8_t*)je + sizeof(journal_entry_big_write);
-                    if (bs->dsk.clean_entry_bitmap_size <= sizeof(void*))
+                    uint64_t dyn_size = bs->dsk.dirty_dyn_size(je->big_write.len);
+                    void *dyn = NULL;
+                    void *dyn_from = (uint8_t*)je + sizeof(journal_entry_big_write);
+                    if (dyn_size <= sizeof(void*))
                     {
-                        memcpy(&bmp, bmp_from, bs->dsk.clean_entry_bitmap_size);
+                        // Bitmap without checksum is only 4 bytes for 128k objects, save it inline
+                        memcpy(&dyn, dyn_from, dyn_size);
+                    }
+                    else if (bs->journal.inmemory)
+                    {
+                        // Journal is kept in memory, refer to it instead of allocating a buffer
+                        dyn = dyn_from;
                     }
                     else
                     {
@@ -848,8 +956,8 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         // allocations for entry bitmaps. This can only be fixed by using
                         // a patched map with dynamic entry size, but not the btree_map,
                         // because it doesn't keep iterators valid all the time.
-                        bmp = malloc_or_die(bs->dsk.clean_entry_bitmap_size);
-                        memcpy(bmp, bmp_from, bs->dsk.clean_entry_bitmap_size);
+                        dyn = malloc_or_die(dyn_size);
+                        memcpy(dyn, dyn_from, dyn_size);
                     }
                     auto dirty_it = bs->dirty_db.emplace(ov, (dirty_entry){
                         .state = (BS_ST_BIG_WRITE | BS_ST_SYNCED),
@@ -858,7 +966,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .offset = je->big_write.offset,
                         .len = je->big_write.len,
                         .journal_sector = proc_pos,
-                        .bitmap = bmp,
+                        .dyn_data = dyn,
                     }).first;
                     if (bs->data_alloc->get(je->big_write.location >> bs->dsk.block_order))
                     {

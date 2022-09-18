@@ -94,10 +94,9 @@
 // "VITAstor"
 #define BLOCKSTORE_META_MAGIC_V1 0x726F747341544956l
 #define BLOCKSTORE_META_VERSION_V1 1
+#define BLOCKSTORE_META_VERSION_V2 2
 
 // metadata header (superblock)
-// FIXME: After adding the OSD superblock, add a key to metadata
-// and journal headers to check if they belong to the same OSD
 struct __attribute__((__packed__)) blockstore_meta_header_v1_t
 {
     uint64_t zero;
@@ -108,14 +107,29 @@ struct __attribute__((__packed__)) blockstore_meta_header_v1_t
     uint32_t bitmap_granularity;
 };
 
+struct __attribute__((__packed__)) blockstore_meta_header_v2_t
+{
+    uint64_t zero;
+    uint64_t magic;
+    uint64_t version;
+    uint32_t meta_block_size;
+    uint32_t data_block_size;
+    uint32_t bitmap_granularity;
+    uint32_t data_csum_type;
+    uint32_t csum_block_size;
+    uint32_t header_csum;
+};
+
 // 32 bytes = 24 bytes + block bitmap (4 bytes by default) + external attributes (also bitmap, 4 bytes by default)
 // per "clean" entry on disk with fixed metadata tables
-// FIXME: maybe add crc32's to metadata
 struct __attribute__((__packed__)) clean_disk_entry
 {
     object_id oid;
     uint64_t version;
     uint8_t bitmap[];
+    // Two more fields come after bitmap in metadata version 2:
+    // uint32_t data_csum[];
+    // uint32_t entry_csum;
 };
 
 // 32 = 16 + 16 bytes per "clean" entry in memory (object_id => clean_entry)
@@ -125,7 +139,7 @@ struct __attribute__((__packed__)) clean_entry
     uint64_t location;
 };
 
-// 64 = 24 + 40 bytes per dirty entry in memory (obj_ver_id => dirty_entry)
+// 64 = 24 + 40 bytes per dirty entry in memory (obj_ver_id => dirty_entry). Plus checksums
 struct __attribute__((__packed__)) dirty_entry
 {
     uint32_t state;
@@ -134,7 +148,7 @@ struct __attribute__((__packed__)) dirty_entry
     uint32_t offset;   // data offset within object (stripe)
     uint32_t len;      // data length
     uint64_t journal_sector; // journal sector used for this entry
-    void* bitmap;   // either external bitmap itself when it fits, or a pointer to it when it doesn't
+    void* dyn_data;    // dynamic data: external bitmap and data block checksums. may be a pointer to the in-memory journal
 };
 
 // - Sync must be submitted after previous writes/deletes (not before!)
@@ -167,6 +181,9 @@ struct fulfill_read_t
 {
     uint64_t offset, len;
     uint64_t journal_sector; // sector+1 if used and !journal.inmemory, otherwise 0
+    uint32_t item_state;
+    uint64_t disk_offset;
+    void *csum;
 };
 
 #define PRIV(op) ((blockstore_op_private_t*)(op)->private_data)
@@ -253,7 +270,7 @@ class blockstore_impl_t
 
     std::map<pool_id_t, pool_shard_settings_t> clean_db_settings;
     std::map<pool_pg_id_t, blockstore_clean_db_t> clean_db_shards;
-    uint8_t *clean_bitmap = NULL;
+    uint8_t *clean_dyn_data = NULL;
     blockstore_dirty_db_t dirty_db;
     std::vector<blockstore_op_t*> submit_queue;
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
@@ -311,7 +328,7 @@ class blockstore_impl_t
     // Read
     int dequeue_read(blockstore_op_t *read_op);
     int fulfill_read(blockstore_op_t *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
-        uint32_t item_state, uint64_t item_version, uint64_t item_location, uint64_t journal_sector);
+        uint32_t item_state, uint64_t item_version, uint64_t item_location, uint64_t journal_sector, uint8_t *csum);
     int fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offset, uint64_t len,
         uint32_t item_state, uint64_t item_version);
     void handle_read_event(ring_data_t *data, blockstore_op_t *op);
@@ -342,6 +359,7 @@ class blockstore_impl_t
     int continue_rollback(blockstore_op_t *op);
     void mark_rolled_back(const obj_ver_id & ov);
     void erase_dirty(blockstore_dirty_db_t::iterator dirty_start, blockstore_dirty_db_t::iterator dirty_end, uint64_t clean_loc);
+    void free_dirty_dyn_data(dirty_entry & e);
 
     // List
     void process_list(blockstore_op_t *op);

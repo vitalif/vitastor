@@ -8,12 +8,18 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     // Check or assign version number
     bool found = false, deleted = false, unsynced = false, is_del = (op->opcode == BS_OP_DELETE);
     bool wait_big = false, wait_del = false;
-    void *bmp = NULL;
-    uint64_t version = 1;
-    if (!is_del && dsk.clean_entry_bitmap_size > sizeof(void*))
+    void *dyn = NULL;
+    if (is_del)
     {
-        bmp = calloc_or_die(1, dsk.clean_entry_bitmap_size);
+        op->len = 0;
     }
+    size_t dyn_size = dsk.dirty_dyn_size(op->len);
+    if (!is_del && dyn_size > sizeof(void*))
+    {
+        dyn = calloc_or_die(1, dyn_size);
+    }
+    uint8_t *dyn_ptr = (uint8_t*)(dyn_size > sizeof(void*) ? dyn : &dyn);
+    uint64_t version = 1;
     if (dirty_db.size() > 0)
     {
         auto dirty_it = dirty_db.upper_bound((obj_ver_id){
@@ -33,10 +39,9 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
                 : ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG);
             if (!is_del && !deleted)
             {
-                if (dsk.clean_entry_bitmap_size > sizeof(void*))
-                    memcpy(bmp, dirty_it->second.bitmap, dsk.clean_entry_bitmap_size);
-                else
-                    bmp = dirty_it->second.bitmap;
+                void *dyn_from = dsk.dirty_dyn_size(dirty_it->second.len) > sizeof(void*)
+                    ? dirty_it->second.dyn_data : &dirty_it->second.dyn_data;
+                memcpy(dyn_ptr, dyn_from, dsk.clean_entry_bitmap_size);
             }
         }
     }
@@ -50,7 +55,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             if (!is_del)
             {
                 void *bmp_ptr = get_clean_entry_bitmap(clean_it->second.location, dsk.clean_entry_bitmap_size);
-                memcpy((dsk.clean_entry_bitmap_size > sizeof(void*) ? bmp : &bmp), bmp_ptr, dsk.clean_entry_bitmap_size);
+                memcpy((dyn_size > sizeof(void*) ? dyn : &dyn), bmp_ptr, dsk.clean_entry_bitmap_size);
             }
         }
         else
@@ -112,9 +117,9 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             printf("Write %lx:%lx v%lu requested, but we already have v%lu\n", op->oid.inode, op->oid.stripe, op->version, version);
 #endif
             op->retval = -EEXIST;
-            if (!is_del && dsk.clean_entry_bitmap_size > sizeof(void*))
+            if (!is_del && dyn_size > sizeof(void*))
             {
-                free(bmp);
+                free(dyn);
             }
             return false;
         }
@@ -158,24 +163,34 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         if (op->bitmap)
         {
             // Only allow to overwrite part of the object bitmap respective to the write's offset/len
-            uint8_t *bmp_ptr = (uint8_t*)(dsk.clean_entry_bitmap_size > sizeof(void*) ? bmp : &bmp);
+            // FIXME Don't merge bitmaps here - parallel writes into one object may break the bitmap
             uint32_t bit = op->offset/dsk.bitmap_granularity;
             uint32_t bits_left = op->len/dsk.bitmap_granularity;
             while (!(bit % 8) && bits_left >= 8)
             {
                 // Copy bytes
-                bmp_ptr[bit/8] = ((uint8_t*)op->bitmap)[bit/8];
+                dyn_ptr[bit/8] = ((uint8_t*)op->bitmap)[bit/8];
                 bit += 8;
                 bits_left -= 8;
             }
             while (bits_left > 0)
             {
                 // Copy bits
-                bmp_ptr[bit/8] = (bmp_ptr[bit/8] & ~(1 << (bit%8)))
+                dyn_ptr[bit/8] = (dyn_ptr[bit/8] & ~(1 << (bit%8)))
                     | (((uint8_t*)op->bitmap)[bit/8] & (1 << bit%8));
                 bit++;
                 bits_left--;
             }
+        }
+    }
+    // Calculate checksums
+    // FIXME: Allow to receive them from outside
+    if (dsk.data_csum_type)
+    {
+        uint32_t *data_csum = (uint32_t*)(dyn_ptr + dsk.clean_entry_bitmap_size);
+        for (uint32_t i = 0; i < op->len / dsk.csum_block_size; i++)
+        {
+            data_csum[i] = crc32c(0, op->buf + i*dsk.csum_block_size, dsk.csum_block_size);
         }
     }
     dirty_db.emplace((obj_ver_id){
@@ -188,7 +203,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         .offset = is_del ? 0 : op->offset,
         .len = is_del ? 0 : op->len,
         .journal_sector = 0,
-        .bitmap = bmp,
+        .dyn_data = dyn,
     });
     return true;
 }
@@ -197,8 +212,7 @@ void blockstore_impl_t::cancel_all_writes(blockstore_op_t *op, blockstore_dirty_
 {
     while (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
     {
-        if (dsk.clean_entry_bitmap_size > sizeof(void*))
-            free(dirty_it->second.bitmap);
+        free_dirty_dyn_data(dirty_it->second);
         dirty_db.erase(dirty_it++);
     }
     bool found = false;
@@ -395,9 +409,10 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             }
         }
         // Then pre-fill journal entry
+        uint64_t dyn_size = dsk.dirty_dyn_size(op->len);
         journal_entry_small_write *je = (journal_entry_small_write*)prefill_single_journal_entry(
             journal, op->opcode == BS_OP_WRITE_STABLE ? JE_SMALL_WRITE_INSTANT : JE_SMALL_WRITE,
-            sizeof(journal_entry_small_write) + dsk.clean_entry_bitmap_size
+            sizeof(journal_entry_small_write) + dyn_size
         );
         dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
@@ -431,8 +446,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         je->offset = op->offset;
         je->len = op->len;
         je->data_offset = journal.next_free;
-        je->crc32_data = crc32c(0, op->buf, op->len);
-        memcpy((void*)(je+1), (dsk.clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap), dsk.clean_entry_bitmap_size);
+        je->crc32_data = dsk.csum_block_size ? 0 : crc32c(0, op->buf, op->len);
+        memcpy((void*)(je+1), (dyn_size > sizeof(void*) ? dirty_it->second.dyn_data : &dirty_it->second.dyn_data), dyn_size);
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
         if (immediate_commit != IMMEDIATE_NONE)
@@ -509,9 +524,15 @@ resume_2:
             return 0;
         }
         BS_SUBMIT_CHECK_SQES(1);
+        auto dirty_it = dirty_db.find((obj_ver_id){
+            .oid = op->oid,
+            .version = op->version,
+        });
+        assert(dirty_it != dirty_db.end());
+        uint64_t dyn_size = dsk.dirty_dyn_size(op->len);
         journal_entry_big_write *je = (journal_entry_big_write*)prefill_single_journal_entry(
             journal, op->opcode == BS_OP_WRITE_STABLE ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
-            sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size
+            sizeof(journal_entry_big_write) + dyn_size
         );
         dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
@@ -527,7 +548,7 @@ resume_2:
         je->offset = op->offset;
         je->len = op->len;
         je->location = dirty_it->second.location;
-        memcpy((void*)(je+1), (dsk.clean_entry_bitmap_size > sizeof(void*) ? dirty_it->second.bitmap : &dirty_it->second.bitmap), dsk.clean_entry_bitmap_size);
+        memcpy((void*)(je+1), (dyn_size > sizeof(void*) ? dirty_it->second.dyn_data : &dirty_it->second.dyn_data), dyn_size);
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
         prepare_journal_sector_write(journal.cur_sector, op);
