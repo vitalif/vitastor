@@ -102,7 +102,7 @@ spec:
             - "--health-port=9898"
           env:
             - name: CSI_ENDPOINT
-              value: unix://csi/csi.sock
+              value: unix:///csi/csi.sock
           volumeMounts:
           - mountPath: /csi
             name: socket-dir
