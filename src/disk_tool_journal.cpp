@@ -424,6 +424,7 @@ int disk_tool_t::write_json_journal(json11::Json entries)
                     .stripe = sscanf_json(NULL, rec["stripe"]),
                 },
                 .version = rec["ver"].uint64_value(),
+                .len = (uint32_t)rec["len"].uint64_value(),
                 .location = sscanf_json(NULL, rec["loc"]),
             };
             fromhexstr(rec["bitmap"].string_value(), dsk.clean_entry_bitmap_size, ((uint8_t*)ne) + sizeof(journal_entry_big_write));
