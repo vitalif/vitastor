@@ -615,7 +615,11 @@ resume_1:
         }
         for (it = v.begin(); it != v.end(); it++)
         {
-            free(it->buf);
+            // Free it if it's not taken from the journal
+            if (it->buf && (!bs->journal.inmemory || it->buf < bs->journal.buffer || it->buf >= bs->journal.buffer + bs->journal.len))
+            {
+                free(it->buf);
+            }
         }
         v.clear();
         // And sync metadata (in batches - not per each operation!)
@@ -760,16 +764,17 @@ bool journal_flusher_co::scan_dirty(int wait_base)
                     {
                         submit_offset = dirty_it->second.location + offset - dirty_it->second.offset;
                         submit_len = it == v.end() || it->offset >= end_offset ? end_offset-offset : it->offset-offset;
-                        it = v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len, .buf = memalign_or_die(MEM_ALIGNMENT, submit_len) });
+                        it = v.insert(it, (copy_buffer_t){ .offset = offset, .len = submit_len });
                         copy_count++;
                         if (bs->journal.inmemory)
                         {
-                            // Take it from memory
-                            memcpy(it->buf, (uint8_t*)bs->journal.buffer + submit_offset, submit_len);
+                            // Take it from memory, don't copy it
+                            it->buf = (uint8_t*)bs->journal.buffer + submit_offset;
                         }
                         else
                         {
                             // Read it from disk
+                            it->buf = memalign_or_die(MEM_ALIGNMENT, submit_len);
                             await_sqe(0);
                             data->iov = (struct iovec){ it->buf, (size_t)submit_len };
                             data->callback = simple_callback_r;
