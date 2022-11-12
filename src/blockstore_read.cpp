@@ -156,6 +156,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                         memcpy(read_op->bitmap, bmp_ptr, dsk.clean_entry_bitmap_size);
                     }
                 }
+                // FIXME (BUG): Make flushers wait until reads are completed when inmemory_journal is false!
                 if (!fulfill_read(read_op, fulfilled, dirty.offset, dirty.offset + dirty.len,
                     dirty.state, dirty_it->first.version, dirty.location + (IS_JOURNAL(dirty.state) ? 0 : dirty.offset)))
                 {
