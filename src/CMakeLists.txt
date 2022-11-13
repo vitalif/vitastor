@@ -263,6 +263,14 @@ target_link_libraries(test_cas
 	vitastor_client
 )
 
+# test_crc32
+add_executable(test_crc32
+	test_crc32.cpp
+)
+target_link_libraries(test_crc32
+	vitastor_blk
+)
+
 # test_cluster_client
 add_executable(test_cluster_client
 	test_cluster_client.cpp
