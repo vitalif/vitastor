@@ -221,9 +221,11 @@ void cluster_client_t::erase_op(cluster_op_t *op)
     if (op_queue_tail == op)
         op_queue_tail = op->prev;
     op->next = op->prev = NULL;
-    std::function<void(cluster_op_t*)>(op->callback)(op);
     if (!(flags & OP_IMMEDIATE_COMMIT))
         inc_wait(opcode, flags, next, -1);
+    // Call callback at the end to avoid inconsistencies in prev_wait
+    // if the callback adds more operations itself
+    std::function<void(cluster_op_t*)>(op->callback)(op);
 }
 
 void cluster_client_t::continue_ops(bool up_retry)
