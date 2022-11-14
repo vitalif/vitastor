@@ -18,15 +18,19 @@ ENV CSI_ENDPOINT=""
 
 RUN apt-get update && \
     apt-get install -y wget && \
-    wget -q -O /etc/apt/trusted.gpg.d/vitastor.gpg https://vitastor.io/debian/pubkey.gpg && \
-    (echo deb http://vitastor.io/debian buster main > /etc/apt/sources.list.d/vitastor.list) && \
     (echo deb http://deb.debian.org/debian buster-backports main > /etc/apt/sources.list.d/backports.list) && \
     (echo "APT::Install-Recommends false;" > /etc/apt/apt.conf) && \
     apt-get update && \
-    apt-get install -y e2fsprogs xfsprogs vitastor kmod && \
+    apt-get install -y e2fsprogs xfsprogs kmod && \
     apt-get clean && \
     (echo options nbd nbds_max=128 > /etc/modprobe.d/nbd.conf)
 
 COPY --from=build /app/vitastor-csi /bin/
+
+RUN (echo deb http://vitastor.io/debian buster main > /etc/apt/sources.list.d/vitastor.list) && \
+    wget -q -O /etc/apt/trusted.gpg.d/vitastor.gpg https://vitastor.io/debian/pubkey.gpg && \
+    apt-get update && \
+    apt-get install -y vitastor-client && \
+    apt-get clean
 
 ENTRYPOINT ["/bin/vitastor-csi"]
