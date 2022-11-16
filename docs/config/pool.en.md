@@ -82,7 +82,7 @@ Parent node reference is required for intermediate tree nodes.
 Separate OSD settings are set in etc keys `/vitastor/config/osd/<number>`
 in JSON format `{"<key>":<value>}`.
 
-As of now, there is only one setting:
+As of now, two settings are supported:
 
 ## reweight
 
@@ -95,6 +95,15 @@ OSD size used during PG distribution.
 This means an OSD configured with reweight lower than 1 receives less PGs than
 it normally would. An OSD with reweight = 0 won't store any data. You can set
 reweight to 0 to trigger rebalance and remove all data from an OSD.
+
+## tags
+
+- Type: string or array of strings
+
+Sets tag or multiple tags for this OSD. Tags can be used to group OSDs into
+subsets and then use a specific subset for pool instead of all OSDs.
+For example you can mark SSD OSDs with tag "ssd" and HDD OSDs with "hdd" and
+such tags will work as device classes.
 
 # Pool parameters
 
