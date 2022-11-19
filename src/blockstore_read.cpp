@@ -42,7 +42,7 @@ int blockstore_impl_t::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_
 
 // FIXME I've seen a bug here so I want some tests
 int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
-    uint32_t item_state, uint64_t item_version, uint64_t item_location)
+    uint32_t item_state, uint64_t item_version, uint64_t item_location, uint64_t journal_sector)
 {
     uint32_t cur_start = item_start;
     if (cur_start < read_op->offset + read_op->len && item_end > read_op->offset)
@@ -72,6 +72,7 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op, uint64_t &fulfille
                 fulfill_read_t el = {
                     .offset = cur_start,
                     .len = it == PRIV(read_op)->read_vec.end() || it->offset >= item_end ? item_end-cur_start : it->offset-cur_start,
+                    .journal_sector = journal_sector,
                 };
                 it = PRIV(read_op)->read_vec.insert(it, el);
                 if (!fulfill_read_push(read_op,
@@ -156,9 +157,10 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                         memcpy(read_op->bitmap, bmp_ptr, dsk.clean_entry_bitmap_size);
                     }
                 }
-                // FIXME (BUG): Make flushers wait until reads are completed when inmemory_journal is false!
+                // If inmemory_journal is false, journal trim will have to wait until the read is completed
                 if (!fulfill_read(read_op, fulfilled, dirty.offset, dirty.offset + dirty.len,
-                    dirty.state, dirty_it->first.version, dirty.location + (IS_JOURNAL(dirty.state) ? 0 : dirty.offset)))
+                    dirty.state, dirty_it->first.version, dirty.location + (IS_JOURNAL(dirty.state) ? 0 : dirty.offset),
+                    (IS_JOURNAL(dirty.state) ? dirty.journal_sector+1 : 0)))
                 {
                     // need to wait. undo added requests, don't dequeue op
                     PRIV(read_op)->read_vec.clear();
@@ -187,7 +189,8 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         {
             if (!dsk.clean_entry_bitmap_size)
             {
-                if (!fulfill_read(read_op, fulfilled, 0, dsk.data_block_size, (BS_ST_BIG_WRITE | BS_ST_STABLE), 0, clean_it->second.location))
+                if (!fulfill_read(read_op, fulfilled, 0, dsk.data_block_size,
+                    (BS_ST_BIG_WRITE | BS_ST_STABLE), 0, clean_it->second.location, 0))
                 {
                     // need to wait. undo added requests, don't dequeue op
                     PRIV(read_op)->read_vec.clear();
@@ -208,7 +211,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                     {
                         // fill with zeroes
                         assert(fulfill_read(read_op, fulfilled, bmp_start * dsk.bitmap_granularity,
-                            bmp_end * dsk.bitmap_granularity, (BS_ST_DELETE | BS_ST_STABLE), 0, 0));
+                            bmp_end * dsk.bitmap_granularity, (BS_ST_DELETE | BS_ST_STABLE), 0, 0, 0));
                     }
                     bmp_start = bmp_end;
                     while (clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7)) && bmp_end < bmp_size)
@@ -219,7 +222,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                     {
                         if (!fulfill_read(read_op, fulfilled, bmp_start * dsk.bitmap_granularity,
                             bmp_end * dsk.bitmap_granularity, (BS_ST_BIG_WRITE | BS_ST_STABLE), 0,
-                            clean_it->second.location + bmp_start * dsk.bitmap_granularity))
+                            clean_it->second.location + bmp_start * dsk.bitmap_granularity, 0))
                         {
                             // need to wait. undo added requests, don't dequeue op
                             PRIV(read_op)->read_vec.clear();
@@ -234,7 +237,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
     else if (fulfilled < read_op->len)
     {
         // fill remaining parts with zeroes
-        assert(fulfill_read(read_op, fulfilled, 0, dsk.data_block_size, (BS_ST_DELETE | BS_ST_STABLE), 0, 0));
+        assert(fulfill_read(read_op, fulfilled, 0, dsk.data_block_size, (BS_ST_DELETE | BS_ST_STABLE), 0, 0, 0));
     }
     assert(fulfilled == read_op->len);
     read_op->version = result_version;
@@ -249,6 +252,15 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         read_op->retval = read_op->len;
         FINISH_OP(read_op);
         return 2;
+    }
+    if (!journal.inmemory)
+    {
+        // Journal trim has to wait until the read is completed - record journal sector usage
+        for (auto & rv: PRIV(read_op)->read_vec)
+        {
+            if (rv.journal_sector)
+                journal.used_sectors[rv.journal_sector-1]++;
+        }
     }
     read_op->retval = 0;
     return 2;
@@ -265,6 +277,19 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
     }
     if (PRIV(op)->pending_ops == 0)
     {
+        if (!journal.inmemory)
+        {
+            // Release journal sector usage
+            for (auto & rv: PRIV(op)->read_vec)
+            {
+                if (rv.journal_sector)
+                {
+                    auto used = --journal.used_sectors[rv.journal_sector-1];
+                    if (used == 0)
+                        journal.used_sectors.erase(rv.journal_sector-1);
+                }
+            }
+        }
         if (op->retval == 0)
             op->retval = op->len;
         FINISH_OP(op);

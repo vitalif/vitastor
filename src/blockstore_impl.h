@@ -166,6 +166,7 @@ struct __attribute__((__packed__)) dirty_entry
 struct fulfill_read_t
 {
     uint64_t offset, len;
+    uint64_t journal_sector; // sector+1 if used and !journal.inmemory, otherwise 0
 };
 
 #define PRIV(op) ((blockstore_op_private_t*)(op)->private_data)
@@ -305,7 +306,7 @@ class blockstore_impl_t
     // Read
     int dequeue_read(blockstore_op_t *read_op);
     int fulfill_read(blockstore_op_t *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
-        uint32_t item_state, uint64_t item_version, uint64_t item_location);
+        uint32_t item_state, uint64_t item_version, uint64_t item_location, uint64_t journal_sector);
     int fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offset, uint64_t len,
         uint32_t item_state, uint64_t item_version);
     void handle_read_event(ring_data_t *data, blockstore_op_t *op);
