@@ -478,15 +478,18 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
     {
         if (write_osd_set[role] != 0)
         {
-            write_parity = 1;
+            write_parity++;
             if (write_osd_set[role] != read_osd_set[role])
             {
                 start = 0;
                 end = chunk_size;
                 for (int r2 = pg_minsize; r2 < role; r2++)
                 {
-                    stripes[r2].write_start = start;
-                    stripes[r2].write_end = end;
+                    if (write_osd_set[r2] != 0)
+                    {
+                        stripes[r2].write_start = start;
+                        stripes[r2].write_end = end;
+                    }
                 }
             }
             stripes[role].write_start = start;
@@ -555,7 +558,7 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
         }
     }
     // Allocate read buffers
-    void *rmw_buf = alloc_read_buffer(stripes, pg_size, (write_parity ? pg_size-pg_minsize : 0) * (end - start));
+    void *rmw_buf = alloc_read_buffer(stripes, pg_size, write_parity * (end - start));
     // Position write buffers
     uint64_t buf_pos = 0, in_pos = 0;
     for (int role = 0; role < pg_size; role++)
@@ -804,13 +807,11 @@ void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
     calc_rmw_parity_copy_mod(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, bitmap_granularity, start, end);
     if (end != 0)
     {
-        int i;
-        for (i = pg_minsize; i < pg_size; i++)
-        {
+        int write_parity = 0;
+        for (int i = pg_minsize; i < pg_size; i++)
             if (write_osd_set[i] != 0)
-                break;
-        }
-        if (i < pg_size)
+                write_parity++;
+        if (write_parity > 0)
         {
             // Calculate new coding chunks
             buf_len_t bufs[pg_size][3];
@@ -830,8 +831,11 @@ void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
             }
             for (int i = pg_minsize; i < pg_size; i++)
             {
-                bufs[i][nbuf[i]++] = { .buf = stripes[i].write_buf, .len = end-start };
-                positions[i] = start;
+                if (write_osd_set[i] != 0)
+                {
+                    bufs[i][nbuf[i]++] = { .buf = stripes[i].write_buf, .len = end-start };
+                    positions[i] = start;
+                }
             }
             uint32_t pos = start;
             while (pos < end)
@@ -839,31 +843,37 @@ void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
                 uint32_t next_end = end;
                 for (int i = 0; i < pg_size; i++)
                 {
-                    assert(curbuf[i] < nbuf[i]);
-                    assert(bufs[i][curbuf[i]].buf);
-                    data_ptrs[i] = (uint8_t*)bufs[i][curbuf[i]].buf + pos-positions[i];
-                    uint32_t this_end = bufs[i][curbuf[i]].len + positions[i];
-                    if (next_end > this_end)
-                        next_end = this_end;
+                    if (i < pg_minsize || write_osd_set[i] != 0)
+                    {
+                        assert(curbuf[i] < nbuf[i]);
+                        assert(bufs[i][curbuf[i]].buf);
+                        data_ptrs[i] = (uint8_t*)bufs[i][curbuf[i]].buf + pos-positions[i];
+                        uint32_t this_end = bufs[i][curbuf[i]].len + positions[i];
+                        if (next_end > this_end)
+                            next_end = this_end;
+                    }
                 }
                 assert(next_end > pos);
                 for (int i = 0; i < pg_size; i++)
                 {
-                    uint32_t this_end = bufs[i][curbuf[i]].len + positions[i];
-                    if (next_end >= this_end)
+                    if (i < pg_minsize || write_osd_set[i] != 0)
                     {
-                        positions[i] += bufs[i][curbuf[i]].len;
-                        curbuf[i]++;
+                        uint32_t this_end = bufs[i][curbuf[i]].len + positions[i];
+                        if (next_end >= this_end)
+                        {
+                            positions[i] += bufs[i][curbuf[i]].len;
+                            curbuf[i]++;
+                        }
                     }
                 }
 #ifdef WITH_ISAL
                 ec_encode_data(
-                    next_end-pos, pg_minsize, pg_size-pg_minsize, matrix->isal_data,
+                    next_end-pos, pg_minsize, write_parity, matrix->isal_data,
                     (uint8_t**)data_ptrs, (uint8_t**)data_ptrs+pg_minsize
                 );
 #else
                 jerasure_matrix_encode(
-                    pg_minsize, pg_size-pg_minsize, OSD_JERASURE_W, matrix->je_data,
+                    pg_minsize, write_parity, OSD_JERASURE_W, matrix->je_data,
                     (char**)data_ptrs, (char**)data_ptrs+pg_minsize, next_end-pos
                 );
 #endif
@@ -871,16 +881,19 @@ void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
             }
             for (int i = 0; i < pg_size; i++)
             {
-                data_ptrs[i] = stripes[i].bmp_buf;
+                if (i < pg_minsize || write_osd_set[i] != 0)
+                {
+                    data_ptrs[i] = stripes[i].bmp_buf;
+                }
             }
 #ifdef WITH_ISAL
             ec_encode_data(
-                bitmap_size, pg_minsize, pg_size-pg_minsize, matrix->isal_data,
+                bitmap_size, pg_minsize, write_parity, matrix->isal_data,
                 (uint8_t**)data_ptrs, (uint8_t**)data_ptrs+pg_minsize
             );
 #else
             jerasure_matrix_encode(
-                pg_minsize, pg_size-pg_minsize, OSD_JERASURE_W, matrix->je_data,
+                pg_minsize, write_parity, OSD_JERASURE_W, matrix->je_data,
                 (char**)data_ptrs, (char**)data_ptrs+pg_minsize, bitmap_size
             );
 #endif
