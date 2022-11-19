@@ -449,6 +449,12 @@ int blockstore_impl_t::continue_write(blockstore_op_t *op)
 resume_2:
     // Only for the immediate_commit mode: prepare and submit big_write journal entry
     {
+        blockstore_journal_check_t space_check(this);
+        if (!space_check.check_available(op, 1,
+            sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size, JOURNAL_STABILIZE_RESERVATION))
+        {
+            return 0;
+        }
         BS_SUBMIT_CHECK_SQES(1);
         auto dirty_it = dirty_db.find((obj_ver_id){
             .oid = op->oid,
