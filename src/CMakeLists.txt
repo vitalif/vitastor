@@ -15,7 +15,7 @@ if("${CMAKE_INSTALL_PREFIX}" MATCHES "^/usr/local/?$")
 	set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
 endif()
 
-add_definitions(-DVERSION="0.8.0")
+add_definitions(-DVERSION="0.8.1")
 add_definitions(-Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fdiagnostics-color=always -I ${CMAKE_SOURCE_DIR}/src)
 if (${WITH_ASAN})
 	add_definitions(-fsanitize=address -fno-omit-frame-pointer)
