@@ -78,7 +78,23 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         // 2nd step: Data device is synced, prepare & write journal entries
         // Check space in the journal and journal memory buffers
         blockstore_journal_check_t space_check(this);
-        if (!space_check.check_available(op, PRIV(op)->sync_big_writes.size(),
+        if (dsk.csum_block_size)
+        {
+            // More complex check because all journal entries have different lengths
+            int left = PRIV(op)->sync_big_writes.size();
+            for (auto & sbw: PRIV(op)->sync_big_writes)
+            {
+                left--;
+                auto & dirty_entry = dirty_db.at(sbw);
+                uint64_t dyn_size = dsk.dirty_dyn_size(dirty_entry.offset, dirty_entry.len);
+                if (!space_check.check_available(op, 1, sizeof(journal_entry_big_write) + dyn_size,
+                    left == 0 ? JOURNAL_STABILIZE_RESERVATION : 0))
+                {
+                    return 0;
+                }
+            }
+        }
+        else if (!space_check.check_available(op, PRIV(op)->sync_big_writes.size(),
             sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size, JOURNAL_STABILIZE_RESERVATION))
         {
             return 0;
@@ -90,16 +106,17 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         int s = 0;
         while (it != PRIV(op)->sync_big_writes.end())
         {
-            if (!journal.entry_fits(sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size) &&
+            auto & dirty_entry = dirty_db.at(*it);
+            uint64_t dyn_size = dsk.dirty_dyn_size(dirty_entry.offset, dirty_entry.len);
+            if (!journal.entry_fits(sizeof(journal_entry_big_write) + dyn_size) &&
                 journal.sector_info[journal.cur_sector].dirty)
             {
                 prepare_journal_sector_write(journal.cur_sector, op);
                 s++;
             }
-            auto & dirty_entry = dirty_db.at(*it);
             journal_entry_big_write *je = (journal_entry_big_write*)prefill_single_journal_entry(
                 journal, (dirty_entry.state & BS_ST_INSTANT) ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
-                sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size
+                sizeof(journal_entry_big_write) + dyn_size
             );
             dirty_entry.journal_sector = journal.sector_info[journal.cur_sector].offset;
             journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
@@ -115,7 +132,6 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             je->offset = dirty_entry.offset;
             je->len = dirty_entry.len;
             je->location = dirty_entry.location;
-            uint64_t dyn_size = dsk.dirty_dyn_size(dirty_entry.len);
             memcpy((void*)(je+1), (dyn_size > sizeof(void*) ? dirty_entry.dyn_data : &dirty_entry.dyn_data), dyn_size);
             je->crc32 = je_crc32((journal_entry*)je);
             journal.crc32_last = je->crc32;

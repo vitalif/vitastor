@@ -17,6 +17,7 @@ blockstore_journal_check_t::blockstore_journal_check_t(blockstore_impl_t *bs)
 // Check if we can write <required> entries of <size> bytes and <data_after> data bytes after them to the journal
 int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries_required, int size, int data_after)
 {
+    uint64_t prev_next = next_sector;
     int required = entries_required;
     while (1)
     {
@@ -35,11 +36,19 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
             }
             required -= fits;
             next_in_pos += fits * size;
-            sectors_to_write++;
+            if (next_sector != prev_next || !sectors_to_write)
+            {
+                // Except the previous call to this function
+                sectors_to_write++;
+            }
         }
         else if (bs->journal.sector_info[next_sector].dirty)
         {
-            sectors_to_write++;
+            if (next_sector != prev_next || !sectors_to_write)
+            {
+                // Except the previous call to this function
+                sectors_to_write++;
+            }
         }
         if (required <= 0)
         {
@@ -288,4 +297,32 @@ void journal_t::dump_diagnostics()
         journal_used_it == used_sectors.end() ? 0 : journal_used_it->first,
         journal_used_it == used_sectors.end() ? 0 : journal_used_it->second
     );
+}
+
+static uint64_t zero_page[4096];
+
+uint32_t crc32c_pad(uint32_t prev_crc, const void *buf, size_t len, size_t left_pad, size_t right_pad)
+{
+    uint32_t r = prev_crc;
+    while (left_pad >= 4096)
+    {
+        r = crc32c(r, zero_page, 4096);
+        left_pad -= 4096;
+    }
+    if (left_pad > 0)
+        r = crc32c(r, zero_page, left_pad);
+    r = crc32c(r, buf, len);
+    while (right_pad >= 4096)
+    {
+        r = crc32c(r, zero_page, 4096);
+        right_pad -= 4096;
+    }
+    if (left_pad > 0)
+        r = crc32c(r, zero_page, right_pad);
+    return r;
+}
+
+uint32_t crc32c_nopad(uint32_t prev_crc, const void *buf, size_t len, size_t left_pad, size_t right_pad)
+{
+    return crc32c(0, buf, len);
 }

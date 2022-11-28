@@ -12,6 +12,7 @@ PG_COUNT=32
 . `dirname $0`/run_3osds.sh
 check_qemu
 
+# FIXME: Fix space rebalance priorities :)
 IMG_SIZE=960
 
 $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testimg","size":'$((IMG_SIZE*1024*1024))'}'
@@ -24,6 +25,7 @@ kill_osds()
 {
     sleep 5
 
+    echo Killing OSD 1
     kill -9 $OSD1_PID
     $ETCDCTL del /vitastor/osd/state/1
 
@@ -38,6 +40,7 @@ kill_osds()
     done
 
     sleep 5
+    echo Starting OSD 7
     start_osd 7
 
     sleep 5

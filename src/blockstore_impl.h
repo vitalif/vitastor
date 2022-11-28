@@ -177,14 +177,22 @@ struct __attribute__((__packed__)) dirty_entry
 // Suspend operation until there is some free space on the data device
 #define WAIT_FREE 5
 
-struct fulfill_read_t
+struct used_clean_obj_t
 {
-    uint64_t offset, len;
-    uint64_t journal_sector; // sector+1 if used and !journal.inmemory, otherwise 0
-    uint32_t item_state;
-    uint64_t disk_offset;
-    void *csum;
+    int refs;
+    uint64_t freed_block; // block+1 if freed, otherwise 0
+    uint8_t *meta; // metadata copy
 };
+
+// https://github.com/algorithm-ninja/cpp-btree
+// https://github.com/greg7mdp/sparsepp/ was used previously, but it was TERRIBLY slow after resizing
+// with sparsepp, random reads dropped to ~700 iops very fast with just as much as ~32k objects in the DB
+typedef btree::btree_map<object_id, clean_entry> blockstore_clean_db_t;
+typedef std::map<obj_ver_id, dirty_entry> blockstore_dirty_db_t;
+
+#include "blockstore_init.h"
+
+#include "blockstore_flush.h"
 
 #define PRIV(op) ((blockstore_op_private_t*)(op)->private_data)
 #define FINISH_OP(op) PRIV(op)->~blockstore_op_private_t(); std::function<void (blockstore_op_t*)>(op->callback)(op)
@@ -198,7 +206,8 @@ struct blockstore_op_private_t
     int op_state;
 
     // Read
-    std::vector<fulfill_read_t> read_vec;
+    uint64_t clean_version_used;
+    std::vector<copy_buffer_t> read_vec;
 
     // Sync, write
     int min_flushed_journal_sector, max_flushed_journal_sector;
@@ -213,16 +222,6 @@ struct blockstore_op_private_t
     std::vector<obj_ver_id> sync_big_writes, sync_small_writes;
     int sync_small_checked, sync_big_checked;
 };
-
-// https://github.com/algorithm-ninja/cpp-btree
-// https://github.com/greg7mdp/sparsepp/ was used previously, but it was TERRIBLY slow after resizing
-// with sparsepp, random reads dropped to ~700 iops very fast with just as much as ~32k objects in the DB
-typedef btree::btree_map<object_id, clean_entry> blockstore_clean_db_t;
-typedef std::map<obj_ver_id, dirty_entry> blockstore_dirty_db_t;
-
-#include "blockstore_init.h"
-
-#include "blockstore_flush.h"
 
 typedef uint32_t pool_id_t;
 typedef uint64_t pool_pg_id_t;
@@ -285,6 +284,9 @@ class blockstore_impl_t
     int big_to_flush = 0;
     int write_iodepth = 0;
 
+    // clean data blocks referenced by read operations
+    std::map<obj_ver_id, used_clean_obj_t> used_clean_objects;
+
     bool live = false, queue_stall = false;
     ring_loop_t *ringloop;
     timerfd_manager_t *tfd;
@@ -327,8 +329,21 @@ class blockstore_impl_t
 
     // Read
     int dequeue_read(blockstore_op_t *read_op);
-    int fulfill_read(blockstore_op_t *read_op, uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
+    void find_holes(std::vector<copy_buffer_t> & read_vec, uint32_t item_start, uint32_t item_end,
+        std::function<int(int, bool, uint32_t, uint32_t)> callback);
+    int fulfill_read(blockstore_op_t *read_op, uint64_t & fulfilled, uint32_t item_start, uint32_t item_end,
         uint32_t item_state, uint64_t item_version, uint64_t item_location, uint64_t journal_sector, uint8_t *csum);
+    int fill_partial_checksum_blocks(std::vector<copy_buffer_t> & rv, uint64_t & fulfilled,
+        uint8_t *clean_entry_bitmap, uint8_t *read_buf, uint64_t read_offset, uint64_t read_end);
+    bool read_range_fulfilled(std::vector<copy_buffer_t> & rv, uint64_t & fulfilled, uint8_t *read_buf,
+        uint8_t *clean_entry_bitmap, uint32_t item_start, uint32_t item_end);
+    bool read_clean_checksum_block(blockstore_op_t *op, int rv_pos,
+        uint64_t &fulfilled, uint64_t clean_loc, uint32_t item_start, uint32_t item_end);
+    bool verify_padded_checksums(uint8_t *clean_entry_bitmap, uint32_t offset,
+        iovec *iov, int n_iov, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb);
+    bool verify_journal_checksums(uint8_t *csums, uint32_t offset,
+        iovec *iov, int n_iov, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb);
+    bool verify_read_padded_checksums(blockstore_op_t *op, uint64_t clean_loc, iovec *iov, int n_iov);
     int fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offset, uint64_t len,
         uint32_t item_state, uint64_t item_version);
     void handle_read_event(ring_data_t *data, blockstore_op_t *op);

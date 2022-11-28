@@ -122,11 +122,6 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     {
         throw std::runtime_error("Checksum block size must be a divisor of data block size");
     }
-    if (csum_block_size && csum_block_size != bitmap_granularity)
-    {
-        // FIXME: Support other checksum block sizes (with read-modify-write)
-        throw std::runtime_error("Checksum block sizes other than bitmap_granularity are not supported yet");
-    }
     if (meta_device == "")
     {
         meta_device = data_device;
@@ -144,7 +139,8 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
         throw std::runtime_error("journal_offset must be a multiple of journal_block_size = "+std::to_string(journal_block_size));
     }
     clean_entry_bitmap_size = data_block_size / bitmap_granularity / 8;
-    clean_dyn_size = clean_entry_bitmap_size + dirty_dyn_size(data_block_size);
+    clean_dyn_size = clean_entry_bitmap_size*2 + (csum_block_size
+        ? data_block_size/csum_block_size*(data_csum_type & 0xFF) : 0);
     clean_entry_size = sizeof(clean_disk_entry) + clean_dyn_size + 4 /*entry_csum*/;
 }
 

@@ -13,7 +13,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     {
         op->len = 0;
     }
-    size_t dyn_size = dsk.dirty_dyn_size(op->len);
+    size_t dyn_size = dsk.dirty_dyn_size(op->offset, op->len);
     if (!is_del && dyn_size > sizeof(void*))
     {
         dyn = calloc_or_die(1, dyn_size);
@@ -39,7 +39,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
                 : ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG);
             if (!is_del && !deleted)
             {
-                void *dyn_from = dsk.dirty_dyn_size(dirty_it->second.len) > sizeof(void*)
+                void *dyn_from = dsk.dirty_dyn_size(dirty_it->second.offset, dirty_it->second.len) > sizeof(void*)
                     ? dirty_it->second.dyn_data : &dirty_it->second.dyn_data;
                 memcpy(dyn_ptr, dyn_from, dsk.clean_entry_bitmap_size);
             }
@@ -163,7 +163,6 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         if (op->bitmap)
         {
             // Only allow to overwrite part of the object bitmap respective to the write's offset/len
-            // FIXME Don't merge bitmaps here - parallel writes into one object may break the bitmap
             uint32_t bit = op->offset/dsk.bitmap_granularity;
             uint32_t bits_left = op->len/dsk.bitmap_granularity;
             while (!(bit % 8) && bits_left >= 8)
@@ -184,13 +183,25 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         }
     }
     // Calculate checksums
-    // FIXME: Allow to receive them from outside
-    if (dsk.data_csum_type)
+    // FIXME: Allow to receive checksums from outside?
+    if (!is_del && dsk.data_csum_type && op->len > 0)
     {
-        uint32_t *data_csum = (uint32_t*)(dyn_ptr + dsk.clean_entry_bitmap_size);
-        for (uint32_t i = 0; i < op->len / dsk.csum_block_size; i++)
+        uint32_t *data_csums = (uint32_t*)(dyn_ptr + dsk.clean_entry_bitmap_size);
+        uint32_t start = op->offset / dsk.csum_block_size;
+        uint32_t end = (op->offset+op->len-1) / dsk.csum_block_size;
+        auto fn = state & BS_ST_BIG_WRITE ? crc32c_pad : crc32c_nopad;
+        if (start == end)
+            data_csums[0] = fn(0, op->buf, op->len, op->offset - start*dsk.csum_block_size, end*dsk.csum_block_size - (op->offset+op->len));
+        else
         {
-            data_csum[i] = crc32c(0, op->buf + i*dsk.csum_block_size, dsk.csum_block_size);
+            data_csums[0] = fn(0, op->buf, dsk.csum_block_size*(start+1)-op->offset, op->offset - start*dsk.csum_block_size, 0);
+            for (uint32_t i = start+1; i < end; i++)
+                data_csums[i-start] = crc32c(0, (uint8_t*)op->buf + dsk.csum_block_size*i-op->offset, dsk.csum_block_size);
+            data_csums[end-start] = fn(
+                0, (uint8_t*)op->buf + end*dsk.csum_block_size - op->offset,
+                op->offset+op->len - end*dsk.csum_block_size,
+                0, (end+1)*dsk.csum_block_size - (op->offset+op->len)
+            );
         }
     }
     dirty_db.emplace((obj_ver_id){
@@ -377,12 +388,13 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     {
         // Small (journaled) write
         // First check if the journal has sufficient space
+        uint64_t dyn_size = dsk.dirty_dyn_size(op->offset, op->len);
         blockstore_journal_check_t space_check(this);
         if (unsynced_big_write_count &&
             !space_check.check_available(op, unsynced_big_write_count,
-                sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size, 0)
+                sizeof(journal_entry_big_write) + dsk.dirty_dyn_size(0, dsk.data_block_size), 0)
             || !space_check.check_available(op, 1,
-                sizeof(journal_entry_small_write) + dsk.clean_entry_bitmap_size,
+                sizeof(journal_entry_small_write) + dyn_size,
                 op->len + ((dirty_it->second.state & BS_ST_INSTANT) ? JOURNAL_INSTANT_RESERVATION : JOURNAL_STABILIZE_RESERVATION)))
         {
             return 0;
@@ -391,7 +403,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         BS_SUBMIT_CHECK_SQES(
             // Write current journal sector only if it's dirty and full, or in the immediate_commit mode
             (immediate_commit != IMMEDIATE_NONE ||
-                !journal.entry_fits(sizeof(journal_entry_small_write) + dsk.clean_entry_bitmap_size) ? 1 : 0) +
+                !journal.entry_fits(sizeof(journal_entry_small_write) + dyn_size) ? 1 : 0) +
             (op->len > 0 ? 1 : 0)
         );
         write_iodepth++;
@@ -399,7 +411,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         if (immediate_commit == IMMEDIATE_NONE)
         {
-            if (!journal.entry_fits(sizeof(journal_entry_small_write) + dsk.clean_entry_bitmap_size))
+            if (!journal.entry_fits(sizeof(journal_entry_small_write) + dyn_size))
             {
                 prepare_journal_sector_write(journal.cur_sector, op);
             }
@@ -409,7 +421,6 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             }
         }
         // Then pre-fill journal entry
-        uint64_t dyn_size = dsk.dirty_dyn_size(op->len);
         journal_entry_small_write *je = (journal_entry_small_write*)prefill_single_journal_entry(
             journal, op->opcode == BS_OP_WRITE_STABLE ? JE_SMALL_WRITE_INSTANT : JE_SMALL_WRITE,
             sizeof(journal_entry_small_write) + dyn_size
@@ -516,20 +527,14 @@ resume_2:
             .version = op->version,
         });
         assert(dirty_it != dirty_db.end());
+        uint64_t dyn_size = dsk.dirty_dyn_size(op->offset, op->len);
         blockstore_journal_check_t space_check(this);
-        if (!space_check.check_available(op, 1,
-            sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size,
+        if (!space_check.check_available(op, 1, sizeof(journal_entry_big_write) + dyn_size,
             ((dirty_it->second.state & BS_ST_INSTANT) ? JOURNAL_INSTANT_RESERVATION : JOURNAL_STABILIZE_RESERVATION)))
         {
             return 0;
         }
         BS_SUBMIT_CHECK_SQES(1);
-        auto dirty_it = dirty_db.find((obj_ver_id){
-            .oid = op->oid,
-            .version = op->version,
-        });
-        assert(dirty_it != dirty_db.end());
-        uint64_t dyn_size = dsk.dirty_dyn_size(op->len);
         journal_entry_big_write *je = (journal_entry_big_write*)prefill_single_journal_entry(
             journal, op->opcode == BS_OP_WRITE_STABLE ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
             sizeof(journal_entry_big_write) + dyn_size

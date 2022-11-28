@@ -796,24 +796,32 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                 else
                 {
                     uint32_t *block_csums = (uint32_t*)((uint8_t*)je + sizeof(journal_entry_small_write) + bs->dsk.clean_entry_bitmap_size);
-                    uint32_t block_crc32 = 0;
+                    uint32_t start = je->small_write.offset / bs->dsk.csum_block_size;
+                    uint32_t end = (je->small_write.offset+je->small_write.len-1) / bs->dsk.csum_block_size;
                     int sd_num = 0;
                     size_t sd_pos = 0;
-                    for (uint64_t pos = 0; pos < je->small_write.len; pos += bs->dsk.csum_block_size, block_csums++)
+                    for (uint32_t pos = start; pos <= end; pos++, block_csums++)
                     {
-                        size_t block_left = bs->dsk.csum_block_size;
-                        block_crc32 = 0;
+                        size_t block_left = (pos == start
+                            ? (start == end
+                                ? je->small_write.len
+                                : bs->dsk.csum_block_size - je->small_write.offset%bs->dsk.csum_block_size)
+                            : (pos < end
+                                ? bs->dsk.csum_block_size
+                                : (je->small_write.offset + je->small_write.len)%bs->dsk.csum_block_size));
+                        uint32_t block_crc32 = 0;
                         while (block_left > 0)
                         {
+                            assert(sd_num < small_write_data.size());
                             if (small_write_data[sd_num].iov_len >= sd_pos+block_left)
                             {
-                                block_crc32 = crc32c(block_crc32, small_write_data[sd_num].iov_base+sd_pos, block_left);
+                                block_crc32 = crc32c(block_crc32, (uint8_t*)small_write_data[sd_num].iov_base+sd_pos, block_left);
                                 sd_pos += block_left;
                                 break;
                             }
                             else
                             {
-                                block_crc32 = crc32c(block_crc32, small_write_data[sd_num].iov_base+sd_pos, small_write_data[sd_num].iov_len-sd_pos);
+                                block_crc32 = crc32c(block_crc32, (uint8_t*)small_write_data[sd_num].iov_base+sd_pos, small_write_data[sd_num].iov_len-sd_pos);
                                 block_left -= (small_write_data[sd_num].iov_len-sd_pos);
                                 sd_pos = 0;
                                 sd_num++;
@@ -821,8 +829,8 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         }
                         if (block_crc32 != *block_csums)
                         {
-                            printf("Journal entry data is corrupt (block %lu crc32 %x != %x)\n",
-                                pos / bs->dsk.csum_block_size, block_crc32, *block_csums);
+                            printf("Journal entry data is corrupt (block %u crc32 %x != %x)\n",
+                                pos, block_crc32, *block_csums);
                             data_csum_valid = false;
                             break;
                         }
@@ -848,7 +856,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .oid = je->small_write.oid,
                         .version = je->small_write.version,
                     };
-                    uint64_t dyn_size = bs->dsk.dirty_dyn_size(je->small_write.len);
+                    uint64_t dyn_size = bs->dsk.dirty_dyn_size(je->small_write.offset, je->small_write.len);
                     void *dyn = NULL;
                     void *dyn_from = (uint8_t*)je + sizeof(journal_entry_small_write);
                     if (dyn_size <= sizeof(void*))
@@ -937,7 +945,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .oid = je->big_write.oid,
                         .version = je->big_write.version,
                     };
-                    uint64_t dyn_size = bs->dsk.dirty_dyn_size(je->big_write.len);
+                    uint64_t dyn_size = bs->dsk.dirty_dyn_size(je->big_write.offset, je->big_write.len);
                     void *dyn = NULL;
                     void *dyn_from = (uint8_t*)je + sizeof(journal_entry_big_write);
                     if (dyn_size <= sizeof(void*))

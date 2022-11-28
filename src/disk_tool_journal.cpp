@@ -205,7 +205,7 @@ int disk_tool_t::process_journal_block(void *buf, std::function<void(int, journa
                 uint32_t *block_csums = (uint32_t*)((uint8_t*)je + je->size - data_csum_size);
                 for (uint32_t pos = 0; pos < je->small_write.len; pos += je_start.csum_block_size, block_csums++)
                 {
-                    if (crc32c(0, small_write_data + pos, je_start.csum_block_size) != *block_csums)
+                    if (crc32c(0, (uint8_t*)small_write_data + pos, je_start.csum_block_size) != *block_csums)
                     {
                         data_csum_valid = false;
                         break;
