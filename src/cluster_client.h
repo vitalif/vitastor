@@ -85,7 +85,6 @@ class cluster_client_t
     int up_wait_retry_interval = 500; // ms
 
     int retry_timeout_id = 0;
-    uint64_t op_id = 1;
     std::vector<cluster_op_t*> offline_ops;
     cluster_op_t *op_queue_head = NULL, *op_queue_tail = NULL;
     std::map<object_id, cluster_buffer_t> dirty_buffers;

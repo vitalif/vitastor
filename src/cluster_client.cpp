@@ -941,7 +941,7 @@ bool cluster_client_t::try_send(cluster_op_t *op, int i)
                 .req = { .rw = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
-                        .id = op_id++,
+                        .id = next_op_id(),
                         .opcode = op->opcode == OSD_OP_READ_BITMAP ? OSD_OP_READ : op->opcode,
                     },
                     .inode = op->cur_inode,
@@ -1069,7 +1069,7 @@ void cluster_client_t::send_sync(cluster_op_t *op, cluster_op_part_t *part)
         .req = {
             .hdr = {
                 .magic = SECONDARY_OSD_OP_MAGIC,
-                .id = op_id++,
+                .id = next_op_id(),
                 .opcode = OSD_OP_SYNC,
             },
         },
@@ -1181,5 +1181,5 @@ void cluster_client_t::copy_part_bitmap(cluster_op_t *op, cluster_op_part_t *par
 
 uint64_t cluster_client_t::next_op_id()
 {
-    return op_id++;
+    return msgr.next_subop_id++;
 }
