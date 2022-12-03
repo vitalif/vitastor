@@ -80,12 +80,20 @@ void osd_messenger_t::init()
                     };
                     op->callback = [this, cl](osd_op_t *op)
                     {
+                        auto cl_it = clients.find(op->peer_fd);
+                        if (cl_it == clients.end() || cl_it->second != cl)
+                        {
+                            // client is already dropped
+                            delete op;
+                            return;
+                        }
                         int fail_fd = (op->reply.hdr.retval != 0 ? op->peer_fd : -1);
+                        auto fail_osd_num = cl->osd_num;
                         cl->ping_time_remaining = 0;
                         delete op;
                         if (fail_fd >= 0)
                         {
-                            fprintf(stderr, "Ping failed for OSD %lu (client %d), disconnecting peer\n", cl->osd_num, cl->peer_fd);
+                            fprintf(stderr, "Ping failed for OSD %lu (client %d), disconnecting peer\n", fail_osd_num, fail_fd);
                             stop_client(fail_fd, true);
                         }
                     };
