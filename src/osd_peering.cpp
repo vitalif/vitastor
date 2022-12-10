@@ -336,8 +336,8 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
             ps->list_ops.erase(role_osd);
             submit_list_subop(role_osd, ps);
         };
-        bs->enqueue_op(op->bs_op);
         ps->list_ops[role_osd] = op;
+        bs->enqueue_op(op->bs_op);
     }
     else
     {
@@ -371,8 +371,8 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
             ps->list_ops.erase(role_osd);
             submit_list_subop(role_osd, ps);
         };
-        msgr.outbox_push(op);
         ps->list_ops[role_osd] = op;
+        msgr.outbox_push(op);
     }
 }
 
@@ -415,8 +415,8 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
             op->bs_op = NULL;
             delete op;
         };
-        bs->enqueue_op(op->bs_op);
         ps->list_ops[role_osd] = op;
+        bs->enqueue_op(op->bs_op);
     }
     else
     {
@@ -463,8 +463,8 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
             ps->list_ops.erase(role_osd);
             delete op;
         };
-        msgr.outbox_push(op);
         ps->list_ops[role_osd] = op;
+        msgr.outbox_push(op);
     }
 }
 
