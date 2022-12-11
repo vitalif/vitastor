@@ -160,8 +160,6 @@ struct __attribute__((__packed__)) dirty_entry
 #define WAIT_JOURNAL 3
 // Suspend operation until the next journal sector buffer is free
 #define WAIT_JOURNAL_BUFFER 4
-// Suspend operation until there is some free space on the data device
-#define WAIT_FREE 5
 
 struct fulfill_read_t
 {
