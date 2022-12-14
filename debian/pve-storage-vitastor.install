@@ -1,1 +1,1 @@
-patches/PVE_VitastorPlugin.pm usr/share/perl5/PVE/Storage/Custom/VitastorPlugin.pm
+patches/VitastorPlugin.pm usr/share/perl5/PVE/Storage/Custom/
