@@ -206,6 +206,25 @@ static void coroutine_fn vitastor_co_get_metadata(VitastorRPC *task)
     }
 }
 
+static void vitastor_aio_set_fd_handler(void *ctx, int fd, int unused1, IOHandler *fd_read, IOHandler *fd_write, void *unused2, void *opaque)
+{
+    aio_set_fd_handler(ctx, fd,
+#if QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 5 || QEMU_VERSION_MAJOR >= 3
+        0 /*is_external*/,
+#endif
+        fd_read, fd_write,
+#if QEMU_VERSION_MAJOR == 1 && QEMU_VERSION_MINOR <= 6 || QEMU_VERSION_MAJOR < 1
+        NULL /*io_flush*/,
+#endif
+#if QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 9 || QEMU_VERSION_MAJOR >= 3
+        NULL /*io_poll*/,
+#endif
+#if QEMU_VERSION_MAJOR >= 7
+        NULL /*io_poll_ready*/,
+#endif
+        opaque);
+}
+
 static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, Error **errp)
 {
     VitastorClient *client = bs->opaque;
@@ -221,7 +240,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     client->rdma_gid_index = qdict_get_try_int(options, "rdma-gid-index", 0);
     client->rdma_mtu = qdict_get_try_int(options, "rdma-mtu", 0);
     client->proxy = vitastor_c_create_qemu(
-        (QEMUSetFDHandler*)aio_set_fd_handler, bdrv_get_aio_context(bs), client->config_path, client->etcd_host, client->etcd_prefix,
+        vitastor_aio_set_fd_handler, bdrv_get_aio_context(bs), client->config_path, client->etcd_host, client->etcd_prefix,
         client->use_rdma, client->rdma_device, client->rdma_port_num, client->rdma_gid_index, client->rdma_mtu, 0
     );
     client->image = g_strdup(qdict_get_try_str(options, "image"));
@@ -238,9 +257,9 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
         }
         else
         {
-            qemu_coroutine_enter(qemu_coroutine_create((void(*)(void*))vitastor_co_get_metadata, &task));
+            bdrv_coroutine_enter(bs, qemu_coroutine_create((void(*)(void*))vitastor_co_get_metadata, &task));
+            BDRV_POLL_WHILE(bs, !task.complete);
         }
-        BDRV_POLL_WHILE(bs, !task.complete);
         client->watch = (void*)task.ret;
         client->readonly = client->readonly || vitastor_c_inode_get_readonly(client->watch);
         client->size = vitastor_c_inode_get_size(client->watch);
@@ -428,7 +447,13 @@ static void vitastor_co_read_cb(void *opaque, long retval, uint64_t version)
     vitastor_co_generic_bh_cb(opaque, retval);
 }
 
-static int coroutine_fn vitastor_co_preadv(BlockDriverState *bs, uint64_t offset, uint64_t bytes, QEMUIOVector *iov, int flags)
+static int coroutine_fn vitastor_co_preadv(BlockDriverState *bs,
+#if QEMU_VERSION_MAJOR >= 7 || QEMU_VERSION_MAJOR == 6 && QEMU_VERSION_MINOR >= 2
+    int64_t offset, int64_t bytes, QEMUIOVector *iov, BdrvRequestFlags flags
+#else
+    uint64_t offset, uint64_t bytes, QEMUIOVector *iov, int flags
+#endif
+)
 {
     VitastorClient *client = bs->opaque;
     VitastorRPC task;
@@ -448,7 +473,13 @@ static int coroutine_fn vitastor_co_preadv(BlockDriverState *bs, uint64_t offset
     return task.ret;
 }
 
-static int coroutine_fn vitastor_co_pwritev(BlockDriverState *bs, uint64_t offset, uint64_t bytes, QEMUIOVector *iov, int flags)
+static int coroutine_fn vitastor_co_pwritev(BlockDriverState *bs,
+#if QEMU_VERSION_MAJOR >= 7 || QEMU_VERSION_MAJOR == 6 && QEMU_VERSION_MINOR >= 2
+    int64_t offset, int64_t bytes, QEMUIOVector *iov, BdrvRequestFlags flags
+#else
+    uint64_t offset, uint64_t bytes, QEMUIOVector *iov, int flags
+#endif
+)
 {
     VitastorClient *client = bs->opaque;
     VitastorRPC task;

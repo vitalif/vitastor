@@ -24,6 +24,7 @@ typedef void VitastorIOHandler(void *opaque, long retval);
 
 // QEMU
 typedef void IOHandler(void *opaque);
+// is_external and poll_fn are not required, but are here for compatibility
 typedef void QEMUSetFDHandler(void *ctx, int fd, int is_external, IOHandler *fd_read, IOHandler *fd_write, void *poll_fn, void *opaque);
 
 vitastor_c *vitastor_c_create_qemu(QEMUSetFDHandler *aio_set_fd_handler, void *aio_context,
