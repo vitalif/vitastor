@@ -130,7 +130,7 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v1_t *hdr)
 void disk_tool_t::dump_meta_entry(uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap)
 {
     printf(
-#define ENTRY_FMT "{\"block\":%lu,\"pool\":%u,\"inode\":%lu,\"stripe\":%lu,\"version\":%lu"
+#define ENTRY_FMT "{\"block\":%lu,\"pool\":%u,\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"version\":%lu"
         (first ? ENTRY_FMT : (",\n" ENTRY_FMT)),
 #undef ENTRY_FMT
         block_num, INODE_POOL(entry->oid.inode), INODE_NO_POOL(entry->oid.inode),
