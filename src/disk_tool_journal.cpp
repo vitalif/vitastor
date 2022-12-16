@@ -83,10 +83,15 @@ int disk_tool_t::dump_journal()
             auto pos = journal_pos;
             int r = process_journal_block(data, [this, pos](int num, journal_entry *je)
             {
-                if (json && first2)
+                if (json)
                 {
                     if (dump_with_blocks)
-                        printf("%s{\"offset\":\"0x%lx\",\"entries\":[\n", first ? "" : ",\n", pos);
+                    {
+                        if (first2)
+                            printf("%s{\"offset\":\"0x%lx\",\"entries\":[\n", first ? "" : ",\n", pos);
+                    }
+                    else if (!first)
+                        printf("%s", ",\n");
                     first = false;
                 }
                 dump_journal_entry(num, je, json);
