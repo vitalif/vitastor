@@ -54,7 +54,7 @@ int disk_tool_t::udev_import(std::string device)
 
 int disk_tool_t::read_sb(std::string device)
 {
-    json11::Json sb = read_osd_superblock(device);
+    json11::Json sb = read_osd_superblock(device, true, options.find("force") != options.end());
     if (sb.is_null())
     {
         return 1;
@@ -123,7 +123,7 @@ uint32_t disk_tool_t::write_osd_superblock(std::string device, json11::Json para
     return sb_size;
 }
 
-json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_exist)
+json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_exist, bool ignore_nonref)
 {
     vitastor_disk_superblock_t *sb = NULL;
     uint8_t *buf = NULL;
@@ -226,7 +226,7 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_ex
     {
         device_type = "journal";
     }
-    else
+    else if (!ignore_nonref)
     {
         if (expect_exist)
             fprintf(stderr, "Invalid OSD superblock on %s: does not refer to the device itself\n", device.c_str());

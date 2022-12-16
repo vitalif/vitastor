@@ -111,7 +111,7 @@ struct disk_tool_t
     int systemd_start_stop_osds(std::vector<std::string> cmd, std::vector<std::string> devices);
     int pre_exec_osd(std::string device);
 
-    json11::Json read_osd_superblock(std::string device, bool expect_exist = true);
+    json11::Json read_osd_superblock(std::string device, bool expect_exist = true, bool ignore_nonref = false);
     uint32_t write_osd_superblock(std::string device, json11::Json params);
 
     int prepare_one(std::map<std::string, std::string> options, int is_hdd = -1);
