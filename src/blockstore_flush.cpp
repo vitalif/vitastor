@@ -306,6 +306,8 @@ bool journal_flusher_co::loop()
         goto resume_20;
     else if (wait_state == 21)
         goto resume_21;
+    else if (wait_state == 22)
+        goto resume_22;
 resume_0:
     if (flusher->flush_queue.size() < flusher->min_flusher_count && !flusher->trim_wanted ||
         !flusher->flush_queue.size() || !flusher->dequeuing)
@@ -511,6 +513,13 @@ resume_1:
             );
             wait_count++;
         }
+        // Wait for data writes before fsyncing it
+    resume_22:
+        if (wait_count > 0)
+        {
+            wait_state = 22;
+            return false;
+        }
         // Sync data before writing metadata
     resume_16:
     resume_17:
@@ -521,7 +530,7 @@ resume_1:
             return false;
         }
     resume_5:
-        // And metadata writes, but only after data writes complete
+        // Submit metadata writes, but only when data is written and fsynced
         if (!bs->inmemory_meta && meta_new.it->second.state == 0 || wait_count > 0)
         {
             // metadata sector is still being read or data is still being written, wait for it
