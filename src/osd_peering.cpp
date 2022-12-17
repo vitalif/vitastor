@@ -9,6 +9,8 @@
 #include "str_util.h"
 #include "osd.h"
 
+#define SELF_FD -1
+
 // Peering loop
 void osd_t::handle_peers()
 {
@@ -317,7 +319,7 @@ void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *p
         // Self
         osd_op_t *op = new osd_op_t();
         op->op_type = 0;
-        op->peer_fd = -1;
+        op->peer_fd = SELF_FD;
         clock_gettime(CLOCK_REALTIME, &op->tv_begin);
         op->bs_op = new blockstore_op_t();
         op->bs_op->opcode = BS_OP_SYNC;
@@ -383,7 +385,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         // Self
         osd_op_t *op = new osd_op_t();
         op->op_type = 0;
-        op->peer_fd = -1;
+        op->peer_fd = SELF_FD;
         clock_gettime(CLOCK_REALTIME, &op->tv_begin);
         op->bs_op = new blockstore_op_t();
         op->bs_op->opcode = BS_OP_LIST;
@@ -470,7 +472,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
 
 void osd_t::discard_list_subop(osd_op_t *list_op)
 {
-    if (list_op->peer_fd == 0)
+    if (list_op->peer_fd == SELF_FD)
     {
         // Self
         list_op->bs_op->callback = [list_op](blockstore_op_t *bs_op)
