@@ -676,3 +676,16 @@ void blockstore_impl_t::dump_diagnostics()
     journal.dump_diagnostics();
     flusher->dump_diagnostics();
 }
+
+void blockstore_impl_t::disk_error_abort(const char *op, int retval, int expected)
+{
+    if (retval == -EAGAIN)
+    {
+        fprintf(stderr, "EAGAIN error received from a disk %s during flush."
+            " It must never happen with io_uring and indicates a kernel bug."
+            " Please upgrade your kernel. Aborting.\n", op);
+        exit(1);
+    }
+    fprintf(stderr, "Disk %s failed: result is %d, expected %d. Can't continue, sorry :-(\n", op, retval, expected);
+    exit(1);
+}

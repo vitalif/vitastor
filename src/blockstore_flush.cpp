@@ -35,24 +35,14 @@ journal_flusher_co::journal_flusher_co()
     {
         bs->live = true;
         if (data->res != data->iov.iov_len)
-        {
-            throw std::runtime_error(
-                "data read operation failed during flush ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
-                "). can't continue, sorry :-("
-            );
-        }
+            bs->disk_error_abort("read operation during flush", data->res, data->iov.iov_len);
         wait_count--;
     };
     simple_callback_w = [this](ring_data_t* data)
     {
         bs->live = true;
         if (data->res != data->iov.iov_len)
-        {
-            throw std::runtime_error(
-                "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
-                "). state "+std::to_string(wait_state)+". in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
-            );
-        }
+            bs->disk_error_abort("write operation during flush", data->res, data->iov.iov_len);
         wait_count--;
     };
 }

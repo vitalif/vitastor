@@ -198,10 +198,7 @@ void blockstore_impl_t::handle_journal_write(ring_data_t *data, uint64_t flush_i
     if (data->res != data->iov.iov_len)
     {
         // FIXME: our state becomes corrupted after a write error. maybe do something better than just die
-        throw std::runtime_error(
-            "journal write failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
-            "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
-        );
+        disk_error_abort("journal write", data->res, data->iov.iov_len);
     }
     auto fl_it = journal.flushing_ops.upper_bound((pending_journaling_t){ .flush_id = flush_id });
     if (fl_it != journal.flushing_ops.end() && fl_it->flush_id == flush_id)

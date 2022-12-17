@@ -292,6 +292,7 @@ class blockstore_impl_t
     // Journaling
     void prepare_journal_sector_write(int sector, blockstore_op_t *op);
     void handle_journal_write(ring_data_t *data, uint64_t flush_id);
+    void disk_error_abort(const char *op, int retval, int expected);
 
     // Asynchronous init
     int initialized;

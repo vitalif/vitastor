@@ -586,10 +586,7 @@ void blockstore_impl_t::handle_write_event(ring_data_t *data, blockstore_op_t *o
     if (data->res != data->iov.iov_len)
     {
         // FIXME: our state becomes corrupted after a write error. maybe do something better than just die
-        throw std::runtime_error(
-            "write operation failed ("+std::to_string(data->res)+" != "+std::to_string(data->iov.iov_len)+
-            "). in-memory state is corrupted. AAAAAAAaaaaaaaaa!!!111"
-        );
+        disk_error_abort("data write", data->res, data->iov.iov_len);
     }
     PRIV(op)->pending_ops--;
     assert(PRIV(op)->pending_ops >= 0);
