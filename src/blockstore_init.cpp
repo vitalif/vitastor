@@ -230,7 +230,7 @@ resume_5:
             for (; i < j; i++)
             {
                 uint64_t pos = (entries_to_zero[i] % entries_per_block);
-                memset(metadata_buffer + pos*bs->dsk.clean_entry_size, 0, bs->dsk.clean_entry_size);
+                memset((uint8_t*)metadata_buffer + pos*bs->dsk.clean_entry_size, 0, bs->dsk.clean_entry_size);
             }
             GET_SQE();
             data->iov = { metadata_buffer, bs->dsk.meta_block_size };
@@ -300,7 +300,7 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
                     {
                         uint64_t sector = (old_clean_loc / entries_per_block) * bs->dsk.meta_block_size;
                         uint64_t pos = (old_clean_loc % entries_per_block);
-                        clean_disk_entry *old_entry = (clean_disk_entry*)(bs->metadata_buffer + sector + pos*bs->dsk.clean_entry_size);
+                        clean_disk_entry *old_entry = (clean_disk_entry*)((uint8_t*)bs->metadata_buffer + sector + pos*bs->dsk.clean_entry_size);
                         memset(old_entry, 0, bs->dsk.clean_entry_size);
                     }
                     else if (old_clean_loc >= done_cnt)

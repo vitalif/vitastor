@@ -615,7 +615,8 @@ resume_1:
         for (it = v.begin(); it != v.end(); it++)
         {
             // Free it if it's not taken from the journal
-            if (it->buf && (!bs->journal.inmemory || it->buf < bs->journal.buffer || it->buf >= bs->journal.buffer + bs->journal.len))
+            if (it->buf && (!bs->journal.inmemory || it->buf < bs->journal.buffer ||
+                it->buf >= (uint8_t*)bs->journal.buffer + bs->journal.len))
             {
                 free(it->buf);
             }
