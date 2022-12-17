@@ -182,10 +182,9 @@ resume_2:
             for (uint64_t sector = 0; sector < bufs[i].size; sector += bs->dsk.meta_block_size)
             {
                 // handle <count> entries
-                changed = changed || handle_meta_block(
-                    bufs[i].buf + sector, entries_per_block,
-                    ((bufs[i].offset + sector - md_offset) / bs->dsk.meta_block_size) * entries_per_block
-                );
+                if (handle_meta_block(bufs[i].buf + sector, entries_per_block,
+                    ((bufs[i].offset + sector - md_offset) / bs->dsk.meta_block_size) * entries_per_block))
+                    changed = true;
             }
             if (changed && !bs->inmemory_meta && !bs->readonly)
             {
