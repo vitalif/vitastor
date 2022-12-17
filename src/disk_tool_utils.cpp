@@ -145,10 +145,10 @@ int disable_cache(std::string dev)
         closedir(dir);
         // Check cache_type
         scsi_disk += "/cache_type";
-        std::string cache_type = read_file(scsi_disk);
+        std::string cache_type = trim(read_file(scsi_disk));
         if (cache_type == "")
             return 1;
-        if (cache_type == "write back")
+        if (cache_type != "write through")
         {
             int fd = open(scsi_disk.c_str(), O_WRONLY);
             if (fd < 0 || write_blocking(fd, (void*)"write through", strlen("write through")) != strlen("write through"))
