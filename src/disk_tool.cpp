@@ -52,11 +52,12 @@ static const char *help_text =
     "    --disable_data_fsync 0     Disable data device cache and fsync (default off)\n"
     "    --disable_meta_fsync 0     Disable metadata device cache and fsync (default off)\n"
     "    --disable_journal_fsync 0  Disable journal device cache and fsync (default off)\n"
+    "    --hdd                      Enable HDD defaults (1M block, 1G journal, throttling)\n"
     "    --force                    Bypass partition safety checks (for emptiness and so on)\n"
     "  \n"
     "  Options (both modes):\n"
-    "    --journal_size 1G/32M      Set journal size (area or partition size)\n"
-    "    --block_size 1M/128k       Set blockstore object size\n"
+    "    --journal_size 32M/1G      Set journal size (area or partition size)\n"
+    "    --block_size 128k/1M       Set blockstore object size\n"
     "    --bitmap_granularity 4k    Set bitmap granularity\n"
     "    --data_device_block 4k     Override data device block size\n"
     "    --meta_device_block 4k     Override metadata device block size\n"
@@ -195,6 +196,10 @@ int main(int argc, char *argv[])
         else if (!strcmp(argv[i], "--hybrid"))
         {
             self.options["hybrid"] = "1";
+        }
+        else if (!strcmp(argv[i], "--hdd"))
+        {
+            self.options["hdd"] = "1";
         }
         else if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h"))
         {

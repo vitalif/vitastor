@@ -539,7 +539,7 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
             fprintf(stderr, "Device list (positional arguments) and --hybrid are incompatible with --data_device\n");
             return 1;
         }
-        return prepare_one(options);
+        return prepare_one(options, options.find("hdd") != options.end() ? 1 : 0);
     }
     if (!devices.size())
     {
@@ -549,12 +549,12 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
     options.erase("data_device");
     options.erase("meta_device");
     options.erase("journal_device");
+    bool hybrid = options.find("hybrid") != options.end();
     auto devinfo = collect_devices(devices);
     if (!devinfo.size())
     {
         return 1;
     }
-    bool hybrid = options.find("hybrid") != options.end();
     uint64_t osd_per_disk = stoull_full(options["osd_per_disk"]);
     if (!osd_per_disk)
         osd_per_disk = 1;
@@ -612,7 +612,8 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
                         return 1;
                     }
                 }
-                prepare_one(options, dev.is_hdd ? 1 : 0);
+                // Treat all disks as SSDs if not in the hybrid mode
+                prepare_one(options, hybrid && dev.is_hdd ? 1 : 0);
             }
         }
     }
