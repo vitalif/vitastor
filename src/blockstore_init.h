@@ -24,7 +24,10 @@ class blockstore_init_meta
     uint64_t md_offset = 0;
     uint64_t next_offset = 0;
     uint64_t entries_loaded = 0;
-    bool handle_entries(uint8_t *buf, uint64_t count, uint64_t done_cnt);
+    unsigned entries_per_block = 0;
+    int i = 0, j = 0;
+    std::vector<uint64_t> entries_to_zero;
+    bool handle_meta_block(uint8_t *buf, uint64_t count, uint64_t done_cnt);
     void handle_event(ring_data_t *data, int buf_num);
 public:
     blockstore_init_meta(blockstore_impl_t *bs);

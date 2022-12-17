@@ -48,14 +48,12 @@ void blockstore_init_meta::handle_event(ring_data_t *data, int buf_num)
 
 int blockstore_init_meta::loop()
 {
-    if (wait_state == 1)
-        goto resume_1;
-    else if (wait_state == 2)
-        goto resume_2;
-    else if (wait_state == 3)
-        goto resume_3;
-    else if (wait_state == 4)
-        goto resume_4;
+    if (wait_state == 1)      goto resume_1;
+    else if (wait_state == 2) goto resume_2;
+    else if (wait_state == 3) goto resume_3;
+    else if (wait_state == 4) goto resume_4;
+    else if (wait_state == 5) goto resume_5;
+    else if (wait_state == 6) goto resume_6;
     printf("Reading blockstore metadata\n");
     if (bs->inmemory_meta)
         metadata_buffer = bs->metadata_buffer;
@@ -140,6 +138,7 @@ resume_1:
     // Skip superblock
     md_offset = bs->dsk.meta_block_size;
     next_offset = md_offset;
+    entries_per_block = bs->dsk.meta_block_size / bs->dsk.clean_entry_size;
     // Read the rest of the metadata
 resume_2:
     if (next_offset < bs->dsk.meta_len && submitted == 0)
@@ -179,17 +178,16 @@ resume_2:
         if (bufs[i].state == INIT_META_READ_DONE)
         {
             // Handle result
-            unsigned entries_per_block = bs->dsk.meta_block_size / bs->dsk.clean_entry_size;
             bool changed = false;
             for (uint64_t sector = 0; sector < bufs[i].size; sector += bs->dsk.meta_block_size)
             {
                 // handle <count> entries
-                changed = changed || handle_entries(
+                changed = changed || handle_meta_block(
                     bufs[i].buf + sector, entries_per_block,
                     ((bufs[i].offset + sector - md_offset) / bs->dsk.meta_block_size) * entries_per_block
                 );
             }
-            if (changed && !bs->inmemory_meta)
+            if (changed && !bs->inmemory_meta && !bs->readonly)
             {
                 // write the modified buffer back
                 GET_SQE();
@@ -210,6 +208,43 @@ resume_2:
     {
         wait_state = 2;
         return 1;
+    }
+    if (entries_to_zero.size() && !bs->inmemory_meta && !bs->readonly)
+    {
+        // we have to zero out additional entries
+        for (i = 0; i < entries_to_zero.size(); )
+        {
+            next_offset = entries_to_zero[i]/entries_per_block;
+            for (j = i; j < entries_to_zero.size() && entries_to_zero[j]/entries_per_block == next_offset; j++) {}
+            GET_SQE();
+            data->iov = { metadata_buffer, bs->dsk.meta_block_size };
+            data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
+            my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (1+next_offset)*bs->dsk.meta_block_size);
+            submitted++;
+resume_5:
+            if (submitted > 0)
+            {
+                wait_state = 5;
+                return 1;
+            }
+            for (; i < j; i++)
+            {
+                uint64_t pos = (entries_to_zero[i] % entries_per_block);
+                memset(metadata_buffer + pos*bs->dsk.clean_entry_size, 0, bs->dsk.clean_entry_size);
+            }
+            GET_SQE();
+            data->iov = { metadata_buffer, bs->dsk.meta_block_size };
+            data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
+            my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (1+next_offset)*bs->dsk.meta_block_size);
+            submitted++;
+resume_6:
+            if (submitted > 0)
+            {
+                wait_state = 6;
+                return 1;
+            }
+        }
+        entries_to_zero.clear();
     }
     // metadata read finished
     printf("Metadata entries loaded: %lu, free blocks: %lu / %lu\n", entries_loaded, bs->data_alloc->get_free_count(), bs->dsk.block_count);
@@ -236,10 +271,13 @@ resume_2:
     return 0;
 }
 
-bool blockstore_init_meta::handle_entries(uint8_t *buf, uint64_t count, uint64_t done_cnt)
+bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_block, uint64_t done_cnt)
 {
     bool updated = false;
-    for (uint64_t i = 0; i < count; i++)
+    uint64_t max_i = entries_per_block;
+    if (max_i > bs->dsk.block_count-done_cnt)
+        max_i = bs->dsk.block_count-done_cnt;
+    for (uint64_t i = 0; i < max_i; i++)
     {
         clean_disk_entry *entry = (clean_disk_entry*)(buf + i*bs->dsk.clean_entry_size);
         if (!bs->inmemory_meta && bs->dsk.clean_entry_bitmap_size)
@@ -255,17 +293,35 @@ bool blockstore_init_meta::handle_entries(uint8_t *buf, uint64_t count, uint64_t
                 if (clean_it != clean_db.end())
                 {
                     // free the previous block
-                    // here we have to zero out the entry because otherwise we'll hit
+                    // here we have to zero out the previous entry because otherwise we'll hit
                     // "tried to overwrite non-zero metadata entry" later
-                    updated = true;
-                    memset(entry, 0, bs->dsk.clean_entry_size);
+                    uint64_t old_clean_loc = clean_it->second.location >> bs->dsk.block_order;
+                    if (bs->inmemory_meta)
+                    {
+                        uint64_t sector = (old_clean_loc / entries_per_block) * bs->dsk.meta_block_size;
+                        uint64_t pos = (old_clean_loc % entries_per_block);
+                        clean_disk_entry *old_entry = (clean_disk_entry*)(bs->metadata_buffer + sector + pos*bs->dsk.clean_entry_size);
+                        memset(old_entry, 0, bs->dsk.clean_entry_size);
+                    }
+                    else if (old_clean_loc >= done_cnt)
+                    {
+                        updated = true;
+                        uint64_t sector = ((old_clean_loc - done_cnt) / entries_per_block) * bs->dsk.meta_block_size;
+                        uint64_t pos = (old_clean_loc % entries_per_block);
+                        clean_disk_entry *old_entry = (clean_disk_entry*)(buf + sector + pos*bs->dsk.clean_entry_size);
+                        memset(old_entry, 0, bs->dsk.clean_entry_size);
+                    }
+                    else
+                    {
+                        entries_to_zero.push_back(clean_it->second.location >> bs->dsk.block_order);
+                    }
 #ifdef BLOCKSTORE_DEBUG
                     printf("Free block %lu from %lx:%lx v%lu (new location is %lu)\n",
-                        clean_it->second.location >> bs->dsk.block_order,
+                        old_clean_loc,
                         clean_it->first.inode, clean_it->first.stripe, clean_it->second.version,
                         done_cnt+i);
 #endif
-                    bs->data_alloc->set(clean_it->second.location >> bs->dsk.block_order, false);
+                    bs->data_alloc->set(old_clean_loc, false);
                 }
                 else
                 {
