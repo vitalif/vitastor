@@ -58,7 +58,7 @@
 +BuildRequires: gperftools-devel
 +BuildRequires: libusbx-devel >= 1.0.21
  %if %{have_usbredir}
- BuildRequires: usbredir-devel >= 0.8.1
+ BuildRequires: usbredir-devel >= 0.8.2
  %endif
 @@ -856,12 +861,13 @@ BuildRequires: virglrenderer-devel
  # For smartcard NSS support
