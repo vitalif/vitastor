@@ -139,7 +139,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         while (dirty_it->first.oid == read_op->oid)
         {
             dirty_entry& dirty = dirty_it->second;
-            bool version_ok = read_op->version >= dirty_it->first.version;
+            bool version_ok = !IS_IN_FLIGHT(dirty.state) && read_op->version >= dirty_it->first.version;
             if (IS_SYNCED(dirty.state))
             {
                 if (!version_ok && read_op->version != 0)
@@ -174,7 +174,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             dirty_it--;
         }
     }
-    if (clean_it != clean_db.end())
+    if (clean_found)
     {
         if (!result_version)
         {

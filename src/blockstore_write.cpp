@@ -139,7 +139,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             uint8_t *bmp_ptr = (uint8_t*)(dsk.clean_entry_bitmap_size > sizeof(void*) ? bmp : &bmp);
             uint32_t bit = op->offset/dsk.bitmap_granularity;
             uint32_t bits_left = op->len/dsk.bitmap_granularity;
-            while (!(bit % 8) && bits_left > 8)
+            while (!(bit % 8) && bits_left >= 8)
             {
                 // Copy bytes
                 bmp_ptr[bit/8] = ((uint8_t*)op->bitmap)[bit/8];
