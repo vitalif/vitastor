@@ -13,7 +13,7 @@ int disk_tool_t::dump_journal()
         fprintf(stderr, "Invalid journal block size\n");
         return 1;
     }
-    first = true;
+    first_block = true;
     if (json)
         printf("[\n");
     if (all)
@@ -38,8 +38,8 @@ int disk_tool_t::dump_journal()
             }
             if (json)
             {
-                printf("%s{\"offset\":\"0x%lx\"", first ? "" : ",\n", journal_pos);
-                first = false;
+                printf("%s{\"offset\":\"0x%lx\"", first_block ? "" : ",\n", journal_pos);
+                first_block = false;
             }
             if (s == dsk.journal_block_size)
             {
@@ -55,10 +55,10 @@ int disk_tool_t::dump_journal()
                     printf("offset %08lx:\n", journal_pos);
                 else
                     printf(",\"entries\":[\n");
-                first2 = true;
+                first_entry = true;
                 process_journal_block(journal_buf, [this](int num, journal_entry *je) { dump_journal_entry(num, je, json); });
                 if (json)
-                    printf(first2 ? "]}" : "\n]}");
+                    printf(first_entry ? "]}" : "\n]}");
             }
             else
             {
@@ -75,39 +75,30 @@ int disk_tool_t::dump_journal()
     }
     else
     {
+        first_entry = true;
         process_journal([this](void *data)
         {
-            first2 = true;
+            if (json && dump_with_blocks)
+                first_entry = true;
             if (!json)
                 printf("offset %08lx:\n", journal_pos);
             auto pos = journal_pos;
             int r = process_journal_block(data, [this, pos](int num, journal_entry *je)
             {
-                if (json)
-                {
-                    if (dump_with_blocks)
-                    {
-                        if (first2)
-                            printf("%s{\"offset\":\"0x%lx\",\"entries\":[\n", first ? "" : ",\n", pos);
-                    }
-                    else if (!first)
-                        printf("%s", ",\n");
-                    first = false;
-                }
+                if (json && dump_with_blocks && first_entry)
+                    printf("%s{\"offset\":\"0x%lx\",\"entries\":[\n", first_block ? "" : ",\n", pos);
                 dump_journal_entry(num, je, json);
+                first_block = false;
             });
-            if (json)
-            {
-                if (dump_with_blocks && !first2)
-                    printf("\n]}");
-            }
-            else if (r <= 0)
+            if (json && dump_with_blocks && !first_entry)
+                printf("\n]}");
+            else if (!json && r <= 0)
                 printf("end of the journal\n");
             return r;
         });
     }
     if (json)
-        printf(first ? "]\n" : "\n]\n");
+        printf(first_block ? "]\n" : "\n]\n");
     return 0;
 }
 
@@ -214,9 +205,9 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
 {
     if (json)
     {
-        if (!first2)
+        if (!first_entry)
             printf(",\n");
-        first2 = false;
+        first_entry = false;
         printf(
             "{\"crc32\":\"%08x\",\"valid\":%s,\"crc32_prev\":\"%08x\"",
             je->crc32, (je_crc32(je) == je->crc32 ? "true" : "false"), je->crc32_prev
@@ -280,10 +271,12 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
     else if (je->type == JE_BIG_WRITE || je->type == JE_BIG_WRITE_INSTANT)
     {
         printf(
-            json ? ",\"type\":\"big_write%s\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\",\"loc\":\"0x%lx\""
-                : "je_big_write%s oid=%lx:%lx ver=%lu loc=%08lx",
+            json ? ",\"type\":\"big_write%s\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\",\"offset\":%u,\"len\":%u,\"loc\":\"0x%lx\""
+                : "je_big_write%s oid=%lx:%lx ver=%lu offset=%u len=%u loc=%08lx",
             je->type == JE_BIG_WRITE_INSTANT ? "_instant" : "",
-            je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location
+            je->big_write.oid.inode, je->big_write.oid.stripe,
+            je->big_write.version, je->big_write.offset, je->big_write.len,
+            je->big_write.location
         );
         if (je->big_write.size > sizeof(journal_entry_big_write))
         {
@@ -429,6 +422,7 @@ int disk_tool_t::write_json_journal(json11::Json entries)
                     .stripe = sscanf_json(NULL, rec["stripe"]),
                 },
                 .version = rec["ver"].uint64_value(),
+                .offset = (uint32_t)rec["offset"].uint64_value(),
                 .len = (uint32_t)rec["len"].uint64_value(),
                 .location = sscanf_json(NULL, rec["loc"]),
             };

@@ -56,7 +56,7 @@ struct disk_tool_t
     uint64_t meta_pos;
     uint64_t journal_pos, journal_calc_data_pos;
 
-    bool first, first2;
+    bool first_block, first_entry;
 
     allocator *data_alloc;
     std::map<uint64_t, uint64_t> data_remap;

@@ -124,14 +124,14 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v1_t *hdr)
     {
         printf("{\"version\":\"0.5\",\"meta_block_size\":%lu,\"entries\":[\n", dsk.meta_block_size);
     }
-    first = true;
+    first_entry = true;
 }
 
 void disk_tool_t::dump_meta_entry(uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap)
 {
     printf(
 #define ENTRY_FMT "{\"block\":%lu,\"pool\":%u,\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"version\":%lu"
-        (first ? ENTRY_FMT : (",\n" ENTRY_FMT)),
+        (first_entry ? ENTRY_FMT : (",\n" ENTRY_FMT)),
 #undef ENTRY_FMT
         block_num, INODE_POOL(entry->oid.inode), INODE_NO_POOL(entry->oid.inode),
         entry->oid.stripe, entry->version
@@ -154,7 +154,7 @@ void disk_tool_t::dump_meta_entry(uint64_t block_num, clean_disk_entry *entry, u
     {
         printf("}");
     }
-    first = false;
+    first_entry = false;
 }
 
 int disk_tool_t::write_json_meta(json11::Json meta)
