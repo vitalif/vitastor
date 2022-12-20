@@ -138,6 +138,7 @@ resume_3:
         }
     }
     // Send writes
+    op_data->orig_ver = op_data->fact_ver;
     if ((op_data->fact_ver >> (64-PG_EPOCH_BITS)) < pg.epoch)
     {
         op_data->target_ver = ((uint64_t)pg.epoch << (64-PG_EPOCH_BITS)) | 1;
@@ -194,7 +195,7 @@ resume_7:
     {
         return;
     }
-    if (op_data->fact_ver == 1)
+    if (op_data->orig_ver == 0)
     {
         // Object is created
         pg.clean_count++;
