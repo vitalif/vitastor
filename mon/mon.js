@@ -1693,6 +1693,7 @@ class Mon
             // Do not clear these to null
             kv.value = kv.value || {};
         }
+        const old = cur[key_parts[key_parts.length-1]];
         cur[key_parts[key_parts.length-1]] = kv.value;
         if (key === 'config/global')
         {
@@ -1717,6 +1718,11 @@ class Mon
         }
         else if (key_parts[0] === 'osd' && key_parts[1] === 'stats')
         {
+            // Recheck OSD tree on OSD addition/deletion
+            if ((!old) != (!kv.value) || old && kv.value && (old.size != kv.value.size || old.time != kv.value.time))
+            {
+                this.schedule_recheck();
+            }
             // Recheck PGs <osd_out_time> later
             this.schedule_next_recheck_at(
                 !this.state.osd.stats[key[2]] ? 0 : this.state.osd.stats[key[2]].time+this.config.osd_out_time
