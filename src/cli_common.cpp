@@ -100,9 +100,20 @@ inode_config_t* cli_tool_t::get_inode_cfg(const std::string & name)
     return NULL;
 }
 
-void cli_tool_t::parse_config(json11::Json cfg)
+void cli_tool_t::parse_config(json11::Json::object & cfg)
 {
-    color = !cfg["no-color"].bool_value();
+    for (auto kv_it = cfg.begin(); kv_it != cfg.end();)
+    {
+        // Translate all options with - to _
+        if (kv_it->first.find("-") != std::string::npos)
+        {
+            cfg[str_replace(kv_it->first, "-", "_")] = kv_it->second;
+            cfg.erase(kv_it++);
+        }
+        else
+            kv_it++;
+    }
+    color = !cfg["no_color"].bool_value();
     json_output = cfg["json"].bool_value();
     iodepth = cfg["iodepth"].uint64_value();
     if (!iodepth)
@@ -112,7 +123,7 @@ void cli_tool_t::parse_config(json11::Json cfg)
         parallel_osds = 4;
     log_level = cfg["log_level"].int64_value();
     progress = cfg["progress"].uint64_value() ? true : false;
-    list_first = cfg["wait-list"].uint64_value() ? true : false;
+    list_first = cfg["wait_list"].uint64_value() ? true : false;
 }
 
 struct cli_result_looper_t

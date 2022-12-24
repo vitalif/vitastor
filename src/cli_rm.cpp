@@ -639,7 +639,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_rm(json11::Json cfg)
     snap_remover->parent = this;
     snap_remover->from_name = cfg["from"].string_value();
     snap_remover->to_name = cfg["to"].string_value();
-    snap_remover->fsync_interval = cfg["fsync-interval"].uint64_value();
+    snap_remover->fsync_interval = cfg["fsync_interval"].uint64_value();
     if (!snap_remover->fsync_interval)
         snap_remover->fsync_interval = 128;
     if (!cfg["cas"].is_null())

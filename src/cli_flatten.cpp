@@ -133,7 +133,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_flatten(json11::Json cfg)
     auto flattener = new snap_flattener_t();
     flattener->parent = this;
     flattener->target_name = cfg["image"].string_value();
-    flattener->fsync_interval = cfg["fsync-interval"].uint64_value();
+    flattener->fsync_interval = cfg["fsync_interval"].uint64_value();
     if (!flattener->fsync_interval)
         flattener->fsync_interval = 128;
     if (!cfg["cas"].is_null())

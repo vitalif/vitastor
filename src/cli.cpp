@@ -73,11 +73,14 @@ static const char* help_text =
     "  <to> must be a child of <from> and <target> may be one of the layers between\n"
     "  <from> and <to>, including <from> and <to>.\n"
     "\n"
-    "vitastor-cli rm-osd <osd_id> [osd_id...]\n"
-    "  Remove metadata and configuration for specified OSD(s) from etcd.\n"
-    "\n"
     "vitastor-cli alloc-osd\n"
     "  Allocate a new OSD number and reserve it by creating empty /osd/stats/<n> key.\n"
+    "\n"
+    "vitastor-cli rm-osd [--force] [--allow-data-loss] [--dry-run] <osd_id> [osd_id...]\n"
+    "  Remove metadata and configuration for specified OSD(s) from etcd.\n"
+    "  Refuses to remove OSDs with data without --force and --allow-data-loss.\n"
+    "  With --dry-run only checks if deletion is possible without data loss and\n"
+    "  redundancy degradation.\n"
     "\n"
     "Use vitastor-cli --help <command> for command details or vitastor-cli --help --all for all details.\n"
     "\n"
@@ -98,43 +101,47 @@ static json11::Json::object parse_args(int narg, const char *args[])
     cfg["progress"] = "1";
     for (int i = 1; i < narg; i++)
     {
-        if (args[i][0] == '-' && args[i][1] == 'h')
+        if (args[i][0] == '-' && args[i][1] == 'h' && args[i][2] == 0)
         {
             cfg["help"] = "1";
         }
-        else if (args[i][0] == '-' && args[i][1] == 'l')
+        else if (args[i][0] == '-' && args[i][1] == 'l' && args[i][2] == 0)
         {
             cfg["long"] = "1";
         }
-        else if (args[i][0] == '-' && args[i][1] == 'n')
+        else if (args[i][0] == '-' && args[i][1] == 'n' && args[i][2] == 0)
         {
             cfg["count"] = args[++i];
         }
-        else if (args[i][0] == '-' && args[i][1] == 'p')
+        else if (args[i][0] == '-' && args[i][1] == 'p' && args[i][2] == 0)
         {
             cfg["pool"] = args[++i];
         }
-        else if (args[i][0] == '-' && args[i][1] == 's')
+        else if (args[i][0] == '-' && args[i][1] == 's' && args[i][2] == 0)
         {
             cfg["size"] = args[++i];
         }
-        else if (args[i][0] == '-' && args[i][1] == 'r')
+        else if (args[i][0] == '-' && args[i][1] == 'r' && args[i][2] == 0)
         {
             cfg["reverse"] = "1";
         }
-        else if (args[i][0] == '-' && args[i][1] == 'f')
+        else if (args[i][0] == '-' && args[i][1] == 'f' && args[i][2] == 0)
         {
             cfg["force"] = "1";
         }
         else if (args[i][0] == '-' && args[i][1] == '-')
         {
             const char *opt = args[i]+2;
-            cfg[opt] = i == narg-1 || !strcmp(opt, "json") || !strcmp(opt, "wait-list") ||
-                !strcmp(opt, "long") || !strcmp(opt, "del") || !strcmp(opt, "no-color") ||
+            cfg[opt] = i == narg-1 || !strcmp(opt, "json") ||
+                !strcmp(opt, "wait-list") || !strcmp(opt, "wait_list") ||
+                !strcmp(opt, "long") || !strcmp(opt, "del") ||
+                !strcmp(opt, "no-color") || !strcmp(opt, "no_color") ||
                 !strcmp(opt, "readonly") || !strcmp(opt, "readwrite") ||
                 !strcmp(opt, "force") || !strcmp(opt, "reverse") ||
+                !strcmp(opt, "allow-data-loss") || !strcmp(opt, "allow_data_loss") ||
+                !strcmp(opt, "dry-run") || !strcmp(opt, "dry_run") ||
                 !strcmp(opt, "help") || !strcmp(opt, "all") ||
-                !strcmp(opt, "writers-stopped") && strcmp("1", args[i+1]) != 0
+                (!strcmp(opt, "writers-stopped") || !strcmp(opt, "writers_stopped")) && strcmp("1", args[i+1]) != 0
                 ? "1" : args[++i];
         }
         else

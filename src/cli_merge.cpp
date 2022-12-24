@@ -631,8 +631,8 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_merge(json11::Json cfg)
     merger->from_name = cfg["from"].string_value();
     merger->to_name = cfg["to"].string_value();
     merger->target_name = cfg["target"].string_value();
-    merger->delete_source = cfg["delete-source"].string_value() != "";
-    merger->fsync_interval = cfg["fsync-interval"].uint64_value();
+    merger->delete_source = cfg["delete_source"].string_value() != "";
+    merger->fsync_interval = cfg["fsync_interval"].uint64_value();
     if (!merger->fsync_interval)
         merger->fsync_interval = 128;
     if (!cfg["cas"].is_null())

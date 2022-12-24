@@ -45,7 +45,7 @@ public:
     cli_result_t etcd_err;
     json11::Json etcd_result;
 
-    void parse_config(json11::Json cfg);
+    void parse_config(json11::Json::object & cfg);
 
     void change_parent(inode_t cur, inode_t new_parent, cli_result_t *result);
     inode_config_t* get_inode_cfg(const std::string & name);

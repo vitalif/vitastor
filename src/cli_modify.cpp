@@ -236,7 +236,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_modify(json11::Json cfg)
     changer->force = cfg["force"].bool_value();
     changer->set_readonly = cfg["readonly"].bool_value();
     changer->set_readwrite = cfg["readwrite"].bool_value();
-    changer->fsync_interval = cfg["fsync-interval"].uint64_value();
+    changer->fsync_interval = cfg["fsync_interval"].uint64_value();
     if (!changer->fsync_interval)
         changer->fsync_interval = 128;
     // FIXME Check that the image doesn't have children when shrinking

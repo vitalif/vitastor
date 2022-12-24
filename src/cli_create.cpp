@@ -517,7 +517,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_create(json11::Json cfg)
     image_creator->force_size = cfg["force_size"].bool_value();
     if (cfg["image_meta"].is_object())
     {
-        image_creator->new_meta = cfg["image-meta"];
+        image_creator->new_meta = cfg["image_meta"];
     }
     if (cfg["snapshot"].string_value() != "")
     {

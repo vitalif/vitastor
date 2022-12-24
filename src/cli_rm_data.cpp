@@ -218,7 +218,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_rm_data(json11::Json cfg)
         remover->inode = (remover->inode & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1)) | (((uint64_t)remover->pool_id) << (64-POOL_ID_BITS));
     }
     remover->pool_id = INODE_POOL(remover->inode);
-    remover->min_offset = cfg["min-offset"].uint64_value();
+    remover->min_offset = cfg["min_offset"].uint64_value();
     return [remover](cli_result_t & result)
     {
         remover->loop();

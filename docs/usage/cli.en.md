@@ -20,6 +20,7 @@ It supports the following commands:
 - [rm-data](#rm-data)
 - [merge-data](#merge-data)
 - [alloc-osd](#alloc-osd)
+- [rm-osd](#rm-osd)
 
 Global options:
 
@@ -175,3 +176,14 @@ Merge layer data without changing metadata. Merge `<from>`..`<to>` to `<target>`
 `vitastor-cli alloc-osd`
 
 Allocate a new OSD number and reserve it by creating empty `/osd/stats/<n>` key.
+
+## rm-osd
+
+`vitastor-cli rm-osd [--force] [--allow-data-loss] [--dry-run] <osd_id> [osd_id...]`
+
+Remove metadata and configuration for specified OSD(s) from etcd.
+
+Refuses to remove OSDs with data without `--force` and `--allow-data-loss`.
+
+With `--dry-run` only checks if deletion is possible without data loss and
+redundancy degradation.

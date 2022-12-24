@@ -56,6 +56,16 @@ std::string base64_decode(const std::string &in)
     return out;
 }
 
+std::string strtoupper(const std::string & in)
+{
+    std::string s = in;
+    for (int i = 0; i < s.length(); i++)
+    {
+        s[i] = toupper(s[i]);
+    }
+    return s;
+}
+
 std::string strtolower(const std::string & in)
 {
     std::string s = in;
