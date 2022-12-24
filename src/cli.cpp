@@ -149,10 +149,6 @@ static json11::Json::object parse_args(int narg, const char *args[])
             cmd.push_back(std::string(args[i]));
         }
     }
-    if (cfg["help"].bool_value())
-    {
-        print_help(help_text, "vitastor-cli", cmd.size() ? cmd[0].string_value() : "", cfg["all"].bool_value());
-    }
     if (!cmd.size())
     {
         std::string exe(exe_name);
@@ -160,6 +156,10 @@ static json11::Json::object parse_args(int narg, const char *args[])
         {
             cmd.push_back("rm-data");
         }
+    }
+    if (!cmd.size() || cfg["help"].bool_value())
+    {
+        print_help(help_text, "vitastor-cli", cmd.size() ? cmd[0].string_value() : "", cfg["all"].bool_value());
     }
     cfg["command"] = cmd;
     return cfg;
