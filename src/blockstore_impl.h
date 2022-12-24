@@ -240,8 +240,6 @@ class blockstore_impl_t
     int throttle_target_parallelism = 1;
     // Minimum difference in microseconds between target and real execution times to throttle the response
     int throttle_threshold_us = 50;
-    // Maximum number of LIST operations to be processed between
-    int single_tick_list_limit = 1;
     /******* END OF OPTIONS *******/
 
     struct ring_consumer_t ring_consumer;
