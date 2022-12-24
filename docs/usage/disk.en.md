@@ -14,6 +14,7 @@ It supports the following commands:
 - [upgrade-simple](#upgrade-simple)
 - [resize](#resize)
 - [start/stop/restart/enable/disable](#start/stop/restart/enable/disable)
+- [purge](#purge)
 - [read-sb](#read-sb)
 - [write-sb](#write-sb)
 - [udev](#udev)
@@ -155,11 +156,22 @@ Commands are passed to `systemctl` with `vitastor-osd@<num>` units as arguments.
 
 When `--now` is added to enable/disable, OSDs are also immediately started/stopped.
 
+## purge
+
+`vitastor-disk purge [--force] [--allow-data-loss] <device> [device2 device3 ...]`
+
+Purge Vitastor OSD(s) on specified device(s). Uses `vitastor-cli rm-osd` to check
+if deletion is possible without data loss and to actually remove metadata from etcd.
+`--force` and `--allow-data-loss` options may be used to ignore safety check results.
+
+Requires `vitastor-cli` and `wipefs` utilities.
+
 ## read-sb
 
-`vitastor-disk read-sb <device>`
+`vitastor-disk read-sb [--force] <device>`
 
 Try to read Vitastor OSD superblock from `<device>` and print it in JSON format.
+`--force` allows to bypass "does not refer to the device itself" errors.
 
 ## write-sb
 

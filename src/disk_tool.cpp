@@ -110,6 +110,13 @@ static const char *help_text =
     "  Commands are passed to systemctl with vitastor-osd@<num> units as arguments.\n"
     "  When --now is added to enable/disable, OSDs are also immediately started/stopped.\n"
     "\n"
+    "vitastor-disk purge [--force] [--allow-data-loss] <device> [device2 device3 ...]\n"
+    "  Purge Vitastor OSD(s) on specified device(s). Uses vitastor-cli rm-osd to check\n"
+    "  if deletion is possible without data loss and to actually remove metadata from etcd.\n"
+    "  --force and --allow-data-loss options may be used to ignore safety check results.\n"
+    "  \n"
+    "  Requires `vitastor-cli` and `wipefs` utilities.\n"
+    "\n"
     "vitastor-disk read-sb [--force] <device>\n"
     "  Try to read Vitastor OSD superblock from <device> and print it in JSON format.\n"
     "  --force allows to bypass \"does not refer to the device itself\" errors.\n"
@@ -212,6 +219,10 @@ int main(int argc, char *argv[])
         else if (!strcmp(argv[i], "--force"))
         {
             self.options["force"] = "1";
+        }
+        else if (!strcmp(argv[i], "--allow-data-loss"))
+        {
+            self.options["allow_data_loss"] = "1";
         }
         else if (argv[i][0] == '-' && argv[i][1] == '-')
         {
@@ -344,6 +355,10 @@ int main(int argc, char *argv[])
             systemd_cmd.push_back("--now");
         }
         return self.systemd_start_stop_osds(systemd_cmd, std::vector<std::string>(cmd.begin()+1, cmd.end()));
+    }
+    else if (!strcmp(cmd[0], "purge"))
+    {
+        return self.purge_devices(std::vector<std::string>(cmd.begin()+1, cmd.end()));
     }
     else if (!strcmp(cmd[0], "exec-osd"))
     {

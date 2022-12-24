@@ -35,7 +35,7 @@ fi
 sleep 1
 kill -9 $OSD4_PID
 sleep 1
-build/src/vitastor-cli --etcd_address $ETCD_URL rm-osd 4
+build/src/vitastor-cli --etcd_address $ETCD_URL rm-osd --force 4
 
 sleep 2
 

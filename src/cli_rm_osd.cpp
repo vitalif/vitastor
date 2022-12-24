@@ -150,15 +150,9 @@ struct rm_osd_t
             else if (!is_dataloss && !is_warning && dry_run)
                 error += "OSDs can be deleted without data loss.\n";
             result.text = error;
-            if (is_dataloss && !force_dataloss || is_warning && !force_warning)
+            if (dry_run || is_dataloss && !force_dataloss || is_warning && !force_warning)
             {
-                result.err = EBUSY;
-                state = 100;
-                return;
-            }
-            if (dry_run)
-            {
-                result.err = 0;
+                result.err = is_dataloss || is_warning ? EBUSY : 0;
                 state = 100;
                 return;
             }

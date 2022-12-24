@@ -108,8 +108,10 @@ struct disk_tool_t
     int read_sb(std::string device);
     int write_sb(std::string device);
     int exec_osd(std::string device);
-    int systemd_start_stop_osds(std::vector<std::string> cmd, std::vector<std::string> devices);
+    int systemd_start_stop_osds(const std::vector<std::string> & cmd, const std::vector<std::string> & devices);
+    int call_systemctl(const std::vector<std::string> & cmd, const std::vector<uint64_t> & osd_numbers);
     int pre_exec_osd(std::string device);
+    int purge_devices(const std::vector<std::string> & devices);
 
     json11::Json read_osd_superblock(std::string device, bool expect_exist = true, bool ignore_nonref = false);
     uint32_t write_osd_superblock(std::string device, json11::Json params);

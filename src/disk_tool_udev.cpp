@@ -246,25 +246,35 @@ ex:
     return osd_params;
 }
 
-int disk_tool_t::systemd_start_stop_osds(std::vector<std::string> cmd, std::vector<std::string> devices)
+int disk_tool_t::systemd_start_stop_osds(const std::vector<std::string> & cmd, const std::vector<std::string> & devices)
 {
     if (!devices.size())
     {
         fprintf(stderr, "Device path is missing\n");
         return 1;
     }
-    std::vector<std::string> svcs;
+    std::vector<uint64_t> osd_numbers;
     for (auto & device: devices)
     {
         json11::Json sb = read_osd_superblock(device);
         if (!sb.is_null())
         {
-            svcs.push_back("vitastor-osd@"+sb["params"]["osd_num"].as_string());
+            osd_numbers.push_back(sb["params"]["osd_num"].uint64_value());
         }
     }
-    if (!svcs.size())
+    return call_systemctl(cmd, osd_numbers);
+}
+
+int disk_tool_t::call_systemctl(const std::vector<std::string> & cmd, const std::vector<uint64_t> & osd_numbers)
+{
+    if (!osd_numbers.size())
     {
         return 1;
+    }
+    std::vector<std::string> svcs;
+    for (auto osd_num: osd_numbers)
+    {
+        svcs.push_back("vitastor-osd@"+std::to_string(osd_num));
     }
     std::vector<char*> argv;
     argv.push_back((char*)"systemctl");
@@ -360,5 +370,106 @@ int disk_tool_t::pre_exec_osd(std::string device)
             return 1;
         }
     }
+    return 0;
+}
+
+int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
+{
+    std::vector<uint64_t> osd_numbers;
+    json11::Json::array superblocks;
+    for (auto & device: devices)
+    {
+        json11::Json sb = read_osd_superblock(device);
+        if (!sb.is_null())
+        {
+            uint64_t osd_num = sb["params"]["osd_num"].uint64_value();
+            osd_numbers.push_back(osd_num);
+            superblocks.push_back(sb);
+        }
+    }
+    if (!osd_numbers.size())
+    {
+        return 0;
+    }
+    std::vector<std::string> rm_osd_cli = { "vitastor-cli", "rm-osd" };
+    for (auto osd_num: osd_numbers)
+    {
+        rm_osd_cli.push_back(std::to_string(osd_num));
+    }
+    // Check for data loss
+    rm_osd_cli.push_back("--dry-run");
+    std::string dry_run_ignore_stdout;
+    if (shell_exec(rm_osd_cli, "", &dry_run_ignore_stdout, NULL) != 0)
+    {
+        return 1;
+    }
+    // Disable & stop OSDs
+    if (call_systemctl({ "disable", "--now" }, osd_numbers) != 0)
+    {
+        return 1;
+    }
+    // Remove OSD metadata
+    rm_osd_cli.pop_back();
+    if (options["force"] != "")
+    {
+        rm_osd_cli.push_back("--force");
+    }
+    else if (options["allow_data_loss"] != "")
+    {
+        rm_osd_cli.push_back("--allow-data-loss");
+    }
+    if (shell_exec(rm_osd_cli, "", NULL, NULL) != 0)
+    {
+        return 1;
+    }
+    // Destroy OSD superblocks
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+    for (auto & sb: superblocks)
+    {
+        for (auto dev_type: std::vector<std::string>{ "data", "meta", "journal" })
+        {
+            auto dev = sb["real_"+dev_type+"_device"].string_value();
+            if (dev != "")
+            {
+                int fd = -1, r = open(dev.c_str(), O_DIRECT|O_RDWR);
+                if (r >= 0)
+                {
+                    fd = r;
+                    r = read_blocking(fd, buf, 4096);
+                    if (r == 4096)
+                    {
+                        // Clear magic and CRC
+                        memset(buf, 0, 12);
+                        r = lseek64(fd, 0, 0);
+                        if (r == 0)
+                        {
+                            r = write_blocking(fd, buf, 4096);
+                            if (r == 4096)
+                                r = 0;
+                        }
+                    }
+                }
+                if (fd >= 0)
+                    close(fd);
+                if (r != 0)
+                {
+                    fprintf(stderr, "Failed to clear OSD %lu %s device %s superblock: %s\n",
+                        sb["params"]["osd_num"].uint64_value(), dev_type.c_str(), dev.c_str(), strerror(errno));
+                }
+                else
+                {
+                    fprintf(stderr, "OSD %lu %s device %s superblock cleared\n",
+                        sb["params"]["osd_num"].uint64_value(), dev_type.c_str(), dev.c_str());
+                }
+                if (sb["params"][dev_type+"_device"].string_value().substr(0, 22) == "/dev/disk/by-partuuid/")
+                {
+                    // Delete the partition itself
+                    shell_exec({ "wipefs", "-af", dev }, "", NULL, NULL);
+                }
+            }
+        }
+    }
+    free(buf);
+    buf = NULL;
     return 0;
 }

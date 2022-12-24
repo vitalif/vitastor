@@ -14,6 +14,7 @@ vitastor-disk - инструмент командной строки для уп
 - [upgrade-simple](#upgrade-simple)
 - [resize](#resize)
 - [start/stop/restart/enable/disable](#start/stop/restart/enable/disable)
+- [purge](#purge)
 - [read-sb](#read-sb)
 - [write-sb](#write-sb)
 - [udev](#udev)
@@ -158,11 +159,24 @@ throttle_target_mbs, throttle_target_parallelism, throttle_threshold_us.
 Когда к командам включения/выключения добавляется параметр `--now`, OSD также сразу
 запускаются/останавливаются.
 
+## purge
+
+`vitastor-disk purge [--force] [--allow-data-loss] <device> [device2 device3 ...]`
+
+Удалить OSD на заданном диске/дисках. Использует `vitastor-cli rm-osd` для проверки
+возможности удаления без потери данных и для удаления OSD из etcd. Опции `--force`
+и `--allow-data-loss` служат для обхода данной защиты в случае необходимости.
+
+Команде требуются утилиты `vitastor-cli` и `wipefs`.
+
 ## read-sb
 
-`vitastor-disk read-sb <device>`
+`vitastor-disk read-sb [--force] <device>`
 
 Прочитать суперблок OSD с диска `<device>` и вывести его в формате JSON.
+
+Опция `--force` позволяет читать суперблок, даже если он считается некорректным
+из-за того, что не ссылается на устройство, с которого прочитан.
 
 ## write-sb
 
