@@ -61,15 +61,31 @@ fi
 POOLCFG='"name":"testpool","failure_domain":"osd",'$POOLCFG
 $ETCDCTL put /vitastor/config/pools '{"1":{'$POOLCFG',"pg_size":'$PG_SIZE',"pg_minsize":'$PG_MINSIZE',"pg_count":'$PG_COUNT'}}'
 
-sleep 2
+wait_up()
+{
+    local sec=$1
+    local i=0
+    local configured=0
+    while [[ $i -lt $sec ]]; do
+        if $ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(. | length) != 0 and ([ .[0].items["1"][] |
+            select(((.osd_set | select(. != 0) | sort | unique) | length) == '$PG_SIZE') ] | length) == '$PG_COUNT; then
+            configured=1
+            if $ETCDCTL get /vitastor/pg/state/1/ --prefix --print-value-only | jq -s -e '[ .[] | select(.state == ["active"]) ] | length == '$PG_COUNT; then
+                break
+            fi
+        fi
+        sleep 1
+        i=$((i+1))
+        if [ $i -eq $sec ]; then
+            if [[ $configured -ne 0 ]]; then
+                format_error "FAILED: $PG_COUNT PG(s) NOT CONFIGURED"
+            fi
+            format_error "FAILED: $PG_COUNT PG(s) NOT UP"
+        fi
+    done
+}
 
-if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(.[0].items["1"] | map((.osd_set | select(. > 0)) | length == '$PG_SIZE') | length) == '$PG_COUNT); then
-    format_error "FAILED: $PG_COUNT PGS NOT CONFIGURED"
-fi
-
-if ! ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select(.state == ["active"]) ] | length) == '$PG_COUNT); then
-    format_error "FAILED: $PG_COUNT PGS NOT UP"
-fi
+wait_up 60
 
 try_reweight()
 {
