@@ -140,6 +140,7 @@ add_library(vitastor_client SHARED
 	cli_merge.cpp
 	cli_rm_data.cpp
 	cli_rm.cpp
+	cli_rm_osd.cpp
 )
 set_target_properties(vitastor_client PROPERTIES PUBLIC_HEADER "vitastor_c.h")
 target_link_libraries(vitastor_client

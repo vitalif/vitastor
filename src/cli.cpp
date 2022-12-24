@@ -73,6 +73,9 @@ static const char* help_text =
     "  <to> must be a child of <from> and <target> may be one of the layers between\n"
     "  <from> and <to>, including <from> and <to>.\n"
     "\n"
+    "vitastor-cli rm-osd <osd_id> [osd_id...]\n"
+    "  Remove metadata and configuration for specified OSD(s) from etcd.\n"
+    "\n"
     "vitastor-cli alloc-osd\n"
     "  Allocate a new OSD number and reserve it by creating empty /osd/stats/<n> key.\n"
     "\n"
@@ -224,6 +227,16 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
     {
         // Delete inode data
         action_cb = p->start_rm_data(cfg);
+    }
+    else if (cmd[0] == "rm-osd")
+    {
+        // Delete OSD metadata from etcd
+        if (cmd.size() > 1)
+        {
+            cmd.erase(cmd.begin(), cmd.begin()+1);
+            cfg["osd_id"] = cmd;
+        }
+        action_cb = p->start_rm_osd(cfg);
     }
     else if (cmd[0] == "merge-data")
     {

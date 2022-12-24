@@ -64,6 +64,7 @@ public:
     std::function<bool(cli_result_t &)> start_merge(json11::Json);
     std::function<bool(cli_result_t &)> start_flatten(json11::Json);
     std::function<bool(cli_result_t &)> start_rm(json11::Json);
+    std::function<bool(cli_result_t &)> start_rm_osd(json11::Json cfg);
     std::function<bool(cli_result_t &)> start_alloc_osd(json11::Json cfg);
 
     // Should be called like loop_and_wait(start_status(), <completion callback>)

@@ -33,12 +33,9 @@ if ! ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '(
 fi
 
 sleep 1
-kill $OSD4_PID
+kill -9 $OSD4_PID
 sleep 1
-$ETCDCTL del /vitastor/osd/state/4
-$ETCDCTL del /vitastor/osd/stats/4
-$ETCDCTL del /vitastor/osd/inodestats/4
-$ETCDCTL del /vitastor/osd/space/4
+build/src/vitastor-cli --etcd_address $ETCD_URL rm-osd 4
 
 sleep 2
 
