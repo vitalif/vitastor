@@ -164,14 +164,14 @@ Purge Vitastor OSD(s) on specified device(s). Uses `vitastor-cli rm-osd` to chec
 if deletion is possible without data loss and to actually remove metadata from etcd.
 `--force` and `--allow-data-loss` options may be used to ignore safety check results.
 
-Requires `vitastor-cli` and `wipefs` utilities.
+Requires `vitastor-cli`, `sfdisk` and `partprobe` (from parted) utilities.
 
 ## read-sb
 
 `vitastor-disk read-sb [--force] <device>`
 
 Try to read Vitastor OSD superblock from `<device>` and print it in JSON format.
-`--force` allows to bypass "does not refer to the device itself" errors.
+`--force` allows to ignore validation errors.
 
 ## write-sb
 

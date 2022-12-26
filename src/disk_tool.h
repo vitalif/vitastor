@@ -109,7 +109,6 @@ struct disk_tool_t
     int write_sb(std::string device);
     int exec_osd(std::string device);
     int systemd_start_stop_osds(const std::vector<std::string> & cmd, const std::vector<std::string> & devices);
-    int call_systemctl(const std::vector<std::string> & cmd, const std::vector<uint64_t> & osd_numbers);
     int pre_exec_osd(std::string device);
     int purge_devices(const std::vector<std::string> & devices);
 
@@ -141,3 +140,4 @@ int write_zero(int fd, uint64_t offset, uint64_t size);
 json11::Json read_parttable(std::string dev);
 uint64_t dev_size_from_parttable(json11::Json pt);
 uint64_t free_from_parttable(json11::Json pt);
+int fix_partition_type(std::string dev_by_uuid);

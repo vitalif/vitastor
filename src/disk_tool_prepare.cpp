@@ -61,6 +61,11 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
                 fprintf(stderr, "%s already contains Vitastor OSD superblock, not creating OSD without --force\n", dev.c_str());
                 return 1;
             }
+            if (fix_partition_type(dev) != 0)
+            {
+                fprintf(stderr, "%s has incorrect type and we failed to change it to Vitastor type\n", dev.c_str());
+                return 1;
+            }
         }
     }
     for (auto dev: std::vector<std::string>{"data", "meta", "journal"})
@@ -317,7 +322,8 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
     {
         script += "+ "+size+" "+std::string(VITASTOR_PART_TYPE)+"\n";
     }
-    if (shell_exec({ "sfdisk", "--force", devinfo.path }, script, NULL, NULL) != 0)
+    std::string out;
+    if (shell_exec({ "sfdisk", "--no-reread", "--force", devinfo.path }, script, &out, NULL) != 0)
     {
         fprintf(stderr, "Failed to add %lu partition(s) with sfdisk\n", sizes.size());
         return {};
@@ -351,7 +357,8 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
                 {
                     iter++;
                     // Run partprobe
-                    if (iter > 1 || (r = shell_exec({ "partprobe", devinfo.path }, "", NULL, NULL)) != 0)
+                    std::string out;
+                    if (iter > 1 || (r = shell_exec({ "partprobe", devinfo.path }, "", &out, NULL)) != 0)
                     {
                         fprintf(
                             stderr, iter == 1 && r == 255

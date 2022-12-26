@@ -5,6 +5,7 @@
 
 #include "disk_tool.h"
 #include "rw_blocking.h"
+#include "str_util.h"
 
 struct __attribute__((__packed__)) vitastor_disk_superblock_t
 {
@@ -123,7 +124,7 @@ uint32_t disk_tool_t::write_osd_superblock(std::string device, json11::Json para
     return sb_size;
 }
 
-json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_exist, bool ignore_nonref)
+json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_exist, bool ignore_errors)
 {
     vitastor_disk_superblock_t *sb = NULL;
     uint8_t *buf = NULL;
@@ -144,7 +145,7 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_ex
         goto ex;
     }
     sb = (vitastor_disk_superblock_t*)buf;
-    if (sb->magic != VITASTOR_DISK_MAGIC)
+    if (sb->magic != VITASTOR_DISK_MAGIC && !ignore_errors)
     {
         if (expect_exist)
             fprintf(stderr, "Invalid OSD superblock on %s: magic number mismatch\n", device.c_str());
@@ -172,7 +173,7 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_ex
         }
         sb = (vitastor_disk_superblock_t*)buf;
     }
-    if (sb->crc32c != crc32c(0, &sb->size, sb->size - ((uint8_t*)&sb->size - buf)))
+    if (sb->crc32c != crc32c(0, &sb->size, sb->size - ((uint8_t*)&sb->size - buf)) && !ignore_errors)
     {
         if (expect_exist)
             fprintf(stderr, "Invalid OSD superblock on %s: crc32 mismatch\n", device.c_str());
@@ -186,14 +187,14 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_ex
         goto ex;
     }
     // Validate superblock
-    if (!osd_params["osd_num"].uint64_value())
+    if (!osd_params["osd_num"].uint64_value() && !ignore_errors)
     {
         if (expect_exist)
             fprintf(stderr, "OSD superblock on %s lacks osd_num\n", device.c_str());
         osd_params = json11::Json();
         goto ex;
     }
-    if (osd_params["data_device"].string_value() == "")
+    if (osd_params["data_device"].string_value() == "" && !ignore_errors)
     {
         if (expect_exist)
             fprintf(stderr, "OSD superblock on %s lacks data_device\n", device.c_str());
@@ -226,7 +227,7 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_ex
     {
         device_type = "journal";
     }
-    else if (!ignore_nonref)
+    else if (!ignore_errors)
     {
         if (expect_exist)
             fprintf(stderr, "Invalid OSD superblock on %s: does not refer to the device itself\n", device.c_str());
@@ -253,28 +254,18 @@ int disk_tool_t::systemd_start_stop_osds(const std::vector<std::string> & cmd, c
         fprintf(stderr, "Device path is missing\n");
         return 1;
     }
-    std::vector<uint64_t> osd_numbers;
+    std::vector<std::string> svcs;
     for (auto & device: devices)
     {
         json11::Json sb = read_osd_superblock(device);
         if (!sb.is_null())
         {
-            osd_numbers.push_back(sb["params"]["osd_num"].uint64_value());
+            svcs.push_back("vitastor-osd@"+sb["params"]["osd_num"].as_string());
         }
     }
-    return call_systemctl(cmd, osd_numbers);
-}
-
-int disk_tool_t::call_systemctl(const std::vector<std::string> & cmd, const std::vector<uint64_t> & osd_numbers)
-{
-    if (!osd_numbers.size())
+    if (!svcs.size())
     {
         return 1;
-    }
-    std::vector<std::string> svcs;
-    for (auto osd_num: osd_numbers)
-    {
-        svcs.push_back("vitastor-osd@"+std::to_string(osd_num));
     }
     std::vector<char*> argv;
     argv.push_back((char*)"systemctl");
@@ -316,8 +307,7 @@ int disk_tool_t::exec_osd(std::string device)
         argv[i] = (char*)argstr[i].c_str();
     }
     argv[argstr.size()] = NULL;
-    execvpe(osd_binary.c_str(), argv, environ);
-    return 0;
+    return execvpe(osd_binary.c_str(), argv, environ);
 }
 
 static int check_disabled_cache(std::string dev)
@@ -404,7 +394,12 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
         return 1;
     }
     // Disable & stop OSDs
-    if (call_systemctl({ "disable", "--now" }, osd_numbers) != 0)
+    std::vector<std::string> systemctl_cli = { "systemctl", "disable", "--now" };
+    for (auto osd_num: osd_numbers)
+    {
+        systemctl_cli.push_back("vitastor-osd@"+std::to_string(osd_num));
+    }
+    if (shell_exec(systemctl_cli, "", NULL, NULL) != 0)
     {
         return 1;
     }
@@ -464,7 +459,38 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
                 if (sb["params"][dev_type+"_device"].string_value().substr(0, 22) == "/dev/disk/by-partuuid/")
                 {
                     // Delete the partition itself
-                    shell_exec({ "wipefs", "-af", dev }, "", NULL, NULL);
+                    auto uuid_to_del = strtolower(sb["params"][dev_type+"_device"].string_value().substr(22));
+                    auto parent_dev = get_parent_device(dev);
+                    if (parent_dev == "" || parent_dev == dev)
+                    {
+                        fprintf(stderr, "Failed to delete partition %s: failed to find parent device\n", dev.c_str());
+                        continue;
+                    }
+                    auto pt = read_parttable("/dev/"+parent_dev);
+                    if (!pt.is_object())
+                        continue;
+                    json11::Json::array newpt = pt["partitions"].array_items();
+                    for (int i = 0; i < newpt.size(); i++)
+                    {
+                        if (strtolower(newpt[i]["uuid"].string_value()) == uuid_to_del)
+                        {
+                            auto old_part = newpt[i];
+                            newpt.erase(newpt.begin()+i, newpt.begin()+i+1);
+                            vitastor_dev_info_t devinfo = {
+                                .path = "/dev/"+parent_dev,
+                                .pt = json11::Json::object{ { "partitions", newpt } },
+                            };
+                            add_partitions(devinfo, {});
+                            struct stat st;
+                            if (stat(old_part["node"].string_value().c_str(), &st) == 0 ||
+                                errno != ENOENT)
+                            {
+                                std::string out;
+                                shell_exec({ "partprobe", "/dev/"+parent_dev }, "", &out, NULL);
+                            }
+                            break;
+                        }
+                    }
                 }
             }
         }

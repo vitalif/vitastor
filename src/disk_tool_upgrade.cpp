@@ -38,42 +38,6 @@ static std::map<std::string, std::string> read_vitastor_unit(std::string unit)
     return r;
 }
 
-static int fix_partition_type(std::string dev_by_uuid)
-{
-    auto uuid = strtolower(dev_by_uuid.substr(dev_by_uuid.rfind('/')+1));
-    std::string parent_dev = get_parent_device(realpath_str(dev_by_uuid, false));
-    if (parent_dev == "")
-        return 1;
-    auto pt = read_parttable("/dev/"+parent_dev);
-    if (pt.is_null())
-        return 1;
-    std::string script = "label: gpt\n\n";
-    for (const auto & part: pt["partitions"].array_items())
-    {
-        bool this_part = (strtolower(part["uuid"].string_value()) == uuid);
-        if (this_part && strtolower(part["type"].string_value()) == "e7009fac-a5a1-4d72-af72-53de13059903")
-        {
-            // Already correct type
-            return 0;
-        }
-        script += part["node"].string_value()+": ";
-        bool first = true;
-        for (const auto & kv: part.object_items())
-        {
-            if (kv.first != "node")
-            {
-                script += (first ? "" : ", ")+kv.first+"="+
-                    (kv.first == "type" && this_part
-                        ? "e7009fac-a5a1-4d72-af72-53de13059903"
-                        : (kv.second.is_string() ? kv.second.string_value() : kv.second.dump()));
-                first = false;
-            }
-        }
-        script += "\n";
-    }
-    return shell_exec({ "sfdisk", "--no-reread", "--force", "/dev/"+parent_dev }, script, NULL, NULL);
-}
-
 int disk_tool_t::upgrade_simple_unit(std::string unit)
 {
     if (stoull_full(unit) != 0)

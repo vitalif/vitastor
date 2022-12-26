@@ -239,7 +239,8 @@ int shell_exec(const std::vector<std::string> & cmd, const std::string & in, std
     {
         // Child
         dup2(child_stdin[0], 0);
-        dup2(child_stdout[1], 1);
+        if (out)
+            dup2(child_stdout[1], 1);
         if (err)
             dup2(child_stderr[1], 2);
         close(child_stdin[0]);
@@ -250,9 +251,7 @@ int shell_exec(const std::vector<std::string> & cmd, const std::string & in, std
         close(child_stderr[1]);
         char *argv[cmd.size()+1];
         for (int i = 0; i < cmd.size(); i++)
-        {
             argv[i] = (char*)cmd[i].c_str();
-        }
         argv[cmd.size()] = NULL;
         execvp(argv[0], argv);
         std::string full_cmd;
@@ -353,4 +352,41 @@ uint64_t free_from_parttable(json11::Json pt)
     else
         free *= pt["sectorsize"].uint64_value();
     return free;
+}
+
+int fix_partition_type(std::string dev_by_uuid)
+{
+    auto uuid = strtolower(dev_by_uuid.substr(dev_by_uuid.rfind('/')+1));
+    std::string parent_dev = get_parent_device(realpath_str(dev_by_uuid, false));
+    if (parent_dev == "")
+        return 1;
+    auto pt = read_parttable("/dev/"+parent_dev);
+    if (pt.is_null() || pt.is_bool())
+        return 1;
+    std::string script = "label: gpt\n\n";
+    for (const auto & part: pt["partitions"].array_items())
+    {
+        bool this_part = (strtolower(part["uuid"].string_value()) == uuid);
+        if (this_part && strtolower(part["type"].string_value()) == "e7009fac-a5a1-4d72-af72-53de13059903")
+        {
+            // Already correct type
+            return 0;
+        }
+        script += part["node"].string_value()+": ";
+        bool first = true;
+        for (const auto & kv: part.object_items())
+        {
+            if (kv.first != "node")
+            {
+                script += (first ? "" : ", ")+kv.first+"="+
+                    (kv.first == "type" && this_part
+                        ? "e7009fac-a5a1-4d72-af72-53de13059903"
+                        : (kv.second.is_string() ? kv.second.string_value() : kv.second.dump()));
+                first = false;
+            }
+        }
+        script += "\n";
+    }
+    std::string out;
+    return shell_exec({ "sfdisk", "--no-reread", "--force", "/dev/"+parent_dev }, script, &out, NULL);
 }

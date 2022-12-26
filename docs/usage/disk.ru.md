@@ -167,7 +167,7 @@ throttle_target_mbs, throttle_target_parallelism, throttle_threshold_us.
 возможности удаления без потери данных и для удаления OSD из etcd. Опции `--force`
 и `--allow-data-loss` служат для обхода данной защиты в случае необходимости.
 
-Команде требуются утилиты `vitastor-cli` и `wipefs`.
+Команде требуются утилиты `vitastor-cli`, `sfdisk` и `partprobe` (из состава parted).
 
 ## read-sb
 
@@ -176,7 +176,7 @@ throttle_target_mbs, throttle_target_parallelism, throttle_threshold_us.
 Прочитать суперблок OSD с диска `<device>` и вывести его в формате JSON.
 
 Опция `--force` позволяет читать суперблок, даже если он считается некорректным
-из-за того, что не ссылается на устройство, с которого прочитан.
+из-за ошибок валидации.
 
 ## write-sb
 
