@@ -77,7 +77,7 @@ void journal_flusher_t::loop()
             cur_flusher_count--;
         }
     }
-    for (int i = 0; (active_flushers > 0 || dequeuing) && i < cur_flusher_count; i++)
+    for (int i = 0; (active_flushers > 0 || dequeuing || trim_wanted > 0) && i < cur_flusher_count; i++)
         co[i].loop();
 }
 
