@@ -5,6 +5,7 @@
 #include "cli.h"
 #include "cluster_client.h"
 #include "str_util.h"
+#include "epoll_manager.h"
 
 #include <algorithm>
 
@@ -14,13 +15,19 @@ struct rm_osd_t
     cli_tool_t *parent;
 
     bool dry_run, force_warning, force_dataloss;
+    uint64_t etcd_tx_retry_ms = 500;
+    uint64_t etcd_tx_retries = 10000;
     std::vector<uint64_t> osd_ids;
 
     int state = 0;
     cli_result_t result;
 
     std::set<uint64_t> to_remove;
+    std::set<uint64_t> to_restart;
     json11::Json::array pool_effects;
+    json11::Json::array history_updates, history_checks;
+    uint64_t cur_retry = 0;
+    uint64_t retry_wait = 0;
     bool is_warning, is_dataloss;
 
     bool is_done()
@@ -32,6 +39,10 @@ struct rm_osd_t
     {
         if (state == 1)
             goto resume_1;
+        else if (state == 2)
+            goto resume_2;
+        else if (state == 3)
+            goto resume_3;
         if (!osd_ids.size())
         {
             result = (cli_result_t){ .err = EINVAL, .text = "OSD numbers are not specified" };
@@ -190,6 +201,45 @@ struct rm_osd_t
             state = 100;
             return;
         }
+        // Remove old OSD from PG all_peers to prevent left_on_dead and from
+        // target_history to prevent INCOMPLETE if --allow-data-loss is specified
+        for (auto & rsp: parent->etcd_result["responses"].array_items())
+        {
+            if (rsp["response_delete_range"]["deleted"].uint64_value() > 0)
+            {
+                // Wait for mon_change_timeout before updating PG history, or the monitor's change will likely interfere with ours
+                retry_wait = parent->cli->merged_config["mon_change_timeout"].uint64_value();
+                if (!retry_wait)
+                    retry_wait = 1000;
+            }
+        }
+        while (1)
+        {
+    resume_2:
+            if (!remove_osds_from_history(2))
+                return;
+    resume_3:
+            state = 3;
+            if (parent->waiting > 0)
+                return;
+            if (parent->etcd_err.err)
+            {
+                result = parent->etcd_err;
+                state = 100;
+                return;
+            }
+            if (parent->etcd_result["succeeded"].bool_value())
+                break;
+            if ((++cur_retry) >= etcd_tx_retries)
+            {
+                result.err = EAGAIN;
+                result.text += "Failed to remove OSDs from PG history due to update conflicts."
+                    " Some PGs may remain left_on_dead or incomplete. Please retry later\n";
+                state = 100;
+                return;
+            }
+            retry_wait = etcd_tx_retry_ms;
+        }
         std::string ids = "";
         for (auto osd_id: osd_ids)
         {
@@ -200,6 +250,104 @@ struct rm_osd_t
         result.text = (result.text != "" ? ids+"\n"+result.text : ids);
         result.err = 0;
     }
+
+    bool remove_osds_from_history(int base_state)
+    {
+        if (state == base_state+0)
+            goto resume_0;
+        history_updates.clear();
+        history_checks.clear();
+        for (auto & pp: parent->cli->st_cli.pool_config)
+        {
+            bool update_pg_history = false;
+            auto & pool_cfg = pp.second;
+            for (auto & pgp: pool_cfg.pg_config)
+            {
+                auto pg_num = pgp.first;
+                auto & pg_cfg = pgp.second;
+                for (int i = 0; i < pg_cfg.all_peers.size(); i++)
+                {
+                    if (to_remove.find(pg_cfg.all_peers[i]) != to_remove.end())
+                    {
+                        update_pg_history = true;
+                        pg_cfg.all_peers.erase(pg_cfg.all_peers.begin()+i, pg_cfg.all_peers.begin()+i+1);
+                        i--;
+                    }
+                }
+                for (int i = 0; i < pg_cfg.target_history.size(); i++)
+                {
+                    int hist_size = 0, hist_rm = 0;
+                    for (auto & old_osd: pg_cfg.target_history[i])
+                    {
+                        if (old_osd != 0)
+                        {
+                            hist_size++;
+                            if (to_remove.find(old_osd) != to_remove.end())
+                            {
+                                hist_rm++;
+                                old_osd = 0;
+                            }
+                        }
+                    }
+                    if (hist_rm > 0)
+                    {
+                        if (hist_size-hist_rm == 0)
+                        {
+                            pg_cfg.target_history.erase(pg_cfg.target_history.begin()+i, pg_cfg.target_history.begin()+i+1);
+                            i--;
+                        }
+                        update_pg_history = true;
+                    }
+                }
+                if (update_pg_history)
+                {
+                    std::string history_key = base64_encode(
+                        parent->cli->st_cli.etcd_prefix+"/pg/history/"+
+                        std::to_string(pool_cfg.id)+"/"+std::to_string(pg_num)
+                    );
+                    history_updates.push_back(json11::Json::object {
+                        { "request_put", json11::Json::object {
+                            { "key", history_key },
+                            { "value", base64_encode(json11::Json(json11::Json::object {
+                                { "epoch", pg_cfg.epoch },
+                                { "all_peers", pg_cfg.all_peers },
+                                { "osd_sets", pg_cfg.target_history },
+                            }).dump()) },
+                        } },
+                    });
+                    history_checks.push_back(json11::Json::object {
+                        { "target", "MOD" },
+                        { "key", history_key },
+                        { "result", "LESS" },
+                        { "mod_revision", parent->cli->st_cli.etcd_watch_revision+1 },
+                    });
+                }
+            }
+        }
+        if (history_updates.size())
+        {
+            if (retry_wait)
+            {
+                parent->waiting++;
+                parent->epmgr->tfd->set_timer(retry_wait, false, [this](int timer_id)
+                {
+                    parent->waiting--;
+                    parent->ringloop->wakeup();
+                });
+    resume_0:
+                state = base_state+0;
+                if (parent->waiting > 0)
+                    return false;
+            }
+            parent->etcd_txn(json11::Json::object {
+                { "success", history_updates },
+                { "compare", history_checks },
+            });
+        }
+        else
+            parent->etcd_result = json11::Json::object{ { "succeeded", true } };
+        return true;
+    }
 };
 
 std::function<bool(cli_result_t &)> cli_tool_t::start_rm_osd(json11::Json cfg)
@@ -209,6 +357,14 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_rm_osd(json11::Json cfg)
     rm_osd->dry_run = cfg["dry_run"].bool_value();
     rm_osd->force_dataloss = cfg["allow_data_loss"].bool_value();
     rm_osd->force_warning = rm_osd->force_dataloss || cfg["force"].bool_value();
+    if (!cfg["etcd_tx_retries"].is_null())
+        rm_osd->etcd_tx_retries = cfg["etcd_tx_retries"].uint64_value();
+    if (!cfg["etcd_tx_retry_ms"].is_null())
+    {
+        rm_osd->etcd_tx_retry_ms = cfg["etcd_tx_retry_ms"].uint64_value();
+        if (rm_osd->etcd_tx_retry_ms < 100)
+            rm_osd->etcd_tx_retry_ms = 100;
+    }
     if (cfg["osd_id"].is_number() || cfg["osd_id"].is_string())
         rm_osd->osd_ids.push_back(cfg["osd_id"].uint64_value());
     else
