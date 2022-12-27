@@ -26,6 +26,8 @@ struct rm_osd_t
     std::set<uint64_t> to_restart;
     json11::Json::array pool_effects;
     json11::Json::array history_updates, history_checks;
+    json11::Json new_pgs, new_clean_pgs;
+    uint64_t new_pgs_mod_rev, new_clean_pgs_mod_rev;
     uint64_t cur_retry = 0;
     uint64_t retry_wait = 0;
     bool is_warning, is_dataloss;
@@ -43,6 +45,8 @@ struct rm_osd_t
             goto resume_2;
         else if (state == 3)
             goto resume_3;
+        else if (state == 4)
+            goto resume_4;
         if (!osd_ids.size())
         {
             result = (cli_result_t){ .err = EINVAL, .text = "OSD numbers are not specified" };
@@ -168,9 +172,43 @@ struct rm_osd_t
                 return;
             }
         }
+        parent->etcd_txn(json11::Json::object { { "success", json11::Json::array {
+            json11::Json::object {
+                { "request_range", json11::Json::object {
+                    { "key", base64_encode(
+                        parent->cli->st_cli.etcd_prefix+"/config/pgs"
+                    ) },
+                } },
+            },
+            json11::Json::object {
+                { "request_range", json11::Json::object {
+                    { "key", base64_encode(
+                        parent->cli->st_cli.etcd_prefix+"/history/last_clean_pgs"
+                    ) },
+                } },
+            },
+        } } });
+    resume_4:
+        state = 4;
+        if (parent->waiting > 0)
+            return;
+        if (parent->etcd_err.err)
+        {
+            result = parent->etcd_err;
+            state = 100;
+            return;
+        }
+        {
+            auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
+            new_pgs = remove_osds_from_pgs(kv);
+            new_pgs_mod_rev = kv.mod_revision;
+            kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][1]["response_range"]["kvs"][0]);
+            new_clean_pgs = remove_osds_from_pgs(kv);
+            new_clean_pgs_mod_rev = kv.mod_revision;
+        }
         // Remove keys from etcd
         {
-            json11::Json::array rm_items;
+            json11::Json::array rm_items, rm_checks;
             for (auto osd_id: osd_ids)
             {
                 rm_items.push_back("/config/osd/"+std::to_string(osd_id));
@@ -189,7 +227,39 @@ struct rm_osd_t
                     } },
                 };
             }
-            parent->etcd_txn(json11::Json::object { { "success", rm_items } });
+            if (!new_pgs.is_null())
+            {
+                auto pgs_key = base64_encode(parent->cli->st_cli.etcd_prefix+"/config/pgs");
+                rm_items.push_back(json11::Json::object {
+                    { "request_put", json11::Json::object {
+                        { "key", pgs_key },
+                        { "value", base64_encode(new_pgs.dump()) },
+                    } },
+                });
+                rm_checks.push_back(json11::Json::object {
+                    { "target", "MOD" },
+                    { "key", pgs_key },
+                    { "result", "LESS" },
+                    { "mod_revision", new_pgs_mod_rev+1 },
+                });
+            }
+            if (!new_clean_pgs.is_null())
+            {
+                auto pgs_key = base64_encode(parent->cli->st_cli.etcd_prefix+"/history/last_clean_pgs");
+                rm_items.push_back(json11::Json::object {
+                    { "request_put", json11::Json::object {
+                        { "key", pgs_key },
+                        { "value", base64_encode(new_clean_pgs.dump()) },
+                    } },
+                });
+                rm_checks.push_back(json11::Json::object {
+                    { "target", "MOD" },
+                    { "key", pgs_key },
+                    { "result", "LESS" },
+                    { "mod_revision", new_clean_pgs_mod_rev+1 },
+                });
+            }
+            parent->etcd_txn(json11::Json::object { { "success", rm_items }, { "checks", rm_checks } });
         }
     resume_1:
         state = 1;
@@ -211,6 +281,7 @@ struct rm_osd_t
                 retry_wait = parent->cli->merged_config["mon_change_timeout"].uint64_value();
                 if (!retry_wait)
                     retry_wait = 1000;
+                retry_wait += etcd_tx_retry_ms;
             }
         }
         while (1)
@@ -249,6 +320,40 @@ struct rm_osd_t
         state = 100;
         result.text = (result.text != "" ? ids+"\n"+result.text : ids);
         result.err = 0;
+    }
+
+    json11::Json remove_osds_from_pgs(const etcd_kv_t & kv)
+    {
+        if (kv.value.is_null())
+        {
+            return kv.value;
+        }
+        json11::Json::object new_pgs;
+        for (auto & pp: kv.value["items"].object_items())
+        {
+            if (pp.second.is_object())
+            {
+                json11::Json::object new_pool;
+                for (auto & pgp: pp.second.object_items())
+                {
+                    json11::Json::array osd_set;
+                    for (auto & osd_json: pgp.second["osd_set"].array_items())
+                    {
+                        uint64_t osd_num = osd_json.uint64_value();
+                        osd_set.push_back(osd_num == 0 || to_remove.find(osd_num) != to_remove.end() ? 0 : osd_num);
+                    }
+                    json11::Json::object new_pg = pgp.second.object_items();
+                    new_pg["osd_set"] = osd_set;
+                    new_pool[pgp.first] = new_pg;
+                }
+                new_pgs[pp.first] = new_pool;
+            }
+            else
+                new_pgs[pp.first] = pp.second;
+        }
+        auto res = kv.value.object_items();
+        res["items"] = new_pgs;
+        return res;
     }
 
     bool remove_osds_from_history(int base_state)
