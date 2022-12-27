@@ -152,7 +152,7 @@ struct rm_osd_t
             result.text = error;
             if (dry_run || is_dataloss && !force_dataloss || is_warning && !force_warning)
             {
-                result.err = is_dataloss || is_warning ? EBUSY : 0;
+                result.err = is_dataloss && !force_dataloss || is_warning && !force_warning ? EBUSY : 0;
                 state = 100;
                 return;
             }

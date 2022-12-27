@@ -387,6 +387,14 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
         rm_osd_cli.push_back(std::to_string(osd_num));
     }
     // Check for data loss
+    if (options["force"] != "")
+    {
+        rm_osd_cli.push_back("--force");
+    }
+    else if (options["allow_data_loss"] != "")
+    {
+        rm_osd_cli.push_back("--allow-data-loss");
+    }
     rm_osd_cli.push_back("--dry-run");
     std::string dry_run_ignore_stdout;
     if (shell_exec(rm_osd_cli, "", &dry_run_ignore_stdout, NULL) != 0)
@@ -405,14 +413,6 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
     }
     // Remove OSD metadata
     rm_osd_cli.pop_back();
-    if (options["force"] != "")
-    {
-        rm_osd_cli.push_back("--force");
-    }
-    else if (options["allow_data_loss"] != "")
-    {
-        rm_osd_cli.push_back("--allow-data-loss");
-    }
     if (shell_exec(rm_osd_cli, "", NULL, NULL) != 0)
     {
         return 1;
