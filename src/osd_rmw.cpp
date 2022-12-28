@@ -302,6 +302,47 @@ static void* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size
     return dec_it->second;
 }
 
+#ifndef WITH_ISAL
+#define JERASURE_ALIGNMENT 16
+
+// jerasure requires 16-byte alignment for SSE...
+// FIXME: jerasure/gf-complete should probably be patched to automatically choose non-sse version for unaligned buffers
+static void jerasure_matrix_encode_unaligned(int k, int m, int w, int *matrix, char **data_ptrs, char **coding_ptrs, int size)
+{
+    bool unaligned = false;
+    for (int i = 0; i < k; i++)
+        if (((unsigned long)data_ptrs[i]) % JERASURE_ALIGNMENT)
+            unaligned = true;
+    for (int i = 0; i < m; i++)
+        if (((unsigned long)coding_ptrs[i]) % JERASURE_ALIGNMENT)
+            unaligned = true;
+    if (!unaligned)
+    {
+        jerasure_matrix_encode(k, m, w, matrix, data_ptrs, coding_ptrs, size);
+        return;
+    }
+    int aligned_size = ((size+JERASURE_ALIGNMENT-1)/JERASURE_ALIGNMENT)*JERASURE_ALIGNMENT;
+    int copy_size = aligned_size*(k+m);
+    char local_data[copy_size > 4096 ? 0 : copy_size];
+    char *data_copy = copy_size > 4096 || (unsigned long)local_data % JERASURE_ALIGNMENT
+        ? (char*)memalign_or_die(JERASURE_ALIGNMENT, aligned_size*(k+m))
+        : local_data;
+    char *aligned_ptrs[k+m];
+    for (int i = 0; i < k; i++)
+    {
+        memcpy(data_copy + i*aligned_size, data_ptrs[i], size);
+        aligned_ptrs[i] = data_copy + i*aligned_size;
+    }
+    for (int i = 0; i < m; i++)
+        aligned_ptrs[k+i] = data_copy + (k+i)*aligned_size;
+    jerasure_matrix_encode(k, m, w, matrix, aligned_ptrs, aligned_ptrs+k, size);
+    for (int i = 0; i < m; i++)
+        memcpy(coding_ptrs[i], aligned_ptrs[k+i], size);
+    if (copy_size > 4096 || (unsigned long)local_data % JERASURE_ALIGNMENT)
+        free(data_copy);
+}
+#endif
+
 #ifdef WITH_ISAL
 void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, uint32_t bitmap_size)
 {
@@ -365,10 +406,12 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
     {
         data_ptrs[role] = NULL;
     }
+    bool recovered = false;
     for (int role = 0; role < pg_minsize; role++)
     {
         if (stripes[role].read_end != 0 && stripes[role].missing)
         {
+            recovered = true;
             if (stripes[role].read_end > stripes[role].read_start)
             {
                 for (int other = 0; other < pg_size; other++)
@@ -386,18 +429,64 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
                     data_ptrs, data_ptrs+pg_minsize, stripes[role].read_end - stripes[role].read_start
                 );
             }
-            for (int other = 0; other < pg_size; other++)
+        }
+    }
+    if (recovered && bitmap_size > 0)
+    {
+        bool unaligned = false;
+        for (int role = 0; role < pg_size; role++)
+        {
+            if (stripes[role].read_end != 0)
             {
-                if (stripes[other].read_end != 0 && !stripes[other].missing)
+                data_ptrs[role] = (char*)stripes[role].bmp_buf;
+                if (((unsigned long)stripes[role].bmp_buf) % JERASURE_ALIGNMENT)
+                    unaligned = true;
+            }
+        }
+        if (!unaligned)
+        {
+            for (int role = 0; role < pg_minsize; role++)
+            {
+                if (stripes[role].read_end != 0 && stripes[role].missing)
                 {
-                    data_ptrs[other] = (char*)(stripes[other].bmp_buf);
+                    jerasure_matrix_dotprod(
+                        pg_minsize, OSD_JERASURE_W, decoding_matrix+(role*pg_minsize), dm_ids, role,
+                        data_ptrs, data_ptrs+pg_minsize, bitmap_size
+                    );
                 }
             }
-            data_ptrs[role] = (char*)stripes[role].bmp_buf;
-            jerasure_matrix_dotprod(
-                pg_minsize, OSD_JERASURE_W, decoding_matrix+(role*pg_minsize), dm_ids, role,
-                data_ptrs, data_ptrs+pg_minsize, bitmap_size
-            );
+        }
+        else
+        {
+            // jerasure_matrix_dotprod requires 16-byte alignment for SSE...
+            int aligned_size = ((bitmap_size+JERASURE_ALIGNMENT-1)/JERASURE_ALIGNMENT)*JERASURE_ALIGNMENT;
+            int copy_size = aligned_size*pg_size;
+            char local_data[copy_size > 4096 ? 0 : copy_size];
+            bool alloc_copy = copy_size > 4096 || (unsigned long)local_data % JERASURE_ALIGNMENT;
+            char *data_copy = alloc_copy
+                ? (char*)memalign_or_die(JERASURE_ALIGNMENT, copy_size)
+                : local_data;
+            for (int role = 0; role < pg_size; role++)
+            {
+                if (stripes[role].read_end != 0)
+                {
+                    data_ptrs[role] = data_copy + role*aligned_size;
+                    memcpy(data_ptrs[role], stripes[role].bmp_buf, bitmap_size);
+                }
+            }
+            for (int role = 0; role < pg_size; role++)
+            {
+                if (stripes[role].read_end != 0 && stripes[role].missing)
+                {
+                    jerasure_matrix_dotprod(
+                        pg_minsize, OSD_JERASURE_W, decoding_matrix+(role*pg_minsize), dm_ids, role,
+                        data_ptrs, data_ptrs+pg_minsize, bitmap_size
+                    );
+                    memcpy(stripes[role].bmp_buf, data_ptrs[role], bitmap_size);
+                }
+            }
+            if (alloc_copy)
+                free(data_copy);
         }
     }
 }
@@ -943,7 +1032,7 @@ void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
                 (uint8_t**)data_ptrs, (uint8_t**)data_ptrs+pg_minsize
             );
 #else
-            jerasure_matrix_encode(
+            jerasure_matrix_encode_unaligned(
                 pg_minsize, write_parity, OSD_JERASURE_W, (int*)matrix_data,
                 (char**)data_ptrs, (char**)data_ptrs+pg_minsize, bitmap_size
             );
