@@ -21,6 +21,7 @@ void test12();
 void test13();
 void test14();
 void test15();
+void test16();
 
 int main(int narg, char *args[])
 {
@@ -50,6 +51,8 @@ int main(int narg, char *args[])
     test14();
     // Test 15
     test15();
+    // Test 16
+    test16();
     // End
     printf("all ok\n");
     return 0;
@@ -871,6 +874,109 @@ void test15()
     assert(stripes[2].write_buf == rmw_buf);
     assert(stripes[3].write_buf == NULL);
     check_pattern(stripes[2].write_buf, 4*1024, PATTERN1^PATTERN2); // first parity is always xor :)
+    // Done
+    free(rmw_buf);
+    free(write_buf);
+    use_ec(3, 2, false);
+}
+
+/***
+
+16. EC 2+2 write one parity block with another missing
+   calc_rmw(offset=0, len=0, osd_set=[1,2,0,0], write_set=[1,2,0,3])
+   = {
+     read: [ [ 0, 128K ], [ 0, 128K ], [ 0, 0 ], [ 0, 0 ] ],
+     write: [ [ 0, 0 ], [ 0, 0 ], [ 0, 0 ], [ 0, 128K ] ],
+     input buffer: [],
+     rmw buffer: [ write3, read0, read1 ],
+   }
+
+***/
+
+void test16()
+{
+    const int bmp = 128*1024 / 4096 / 8;
+    use_ec(4, 2, true);
+    osd_num_t osd_set[4] = { 1, 2, 0, 0 };
+    osd_num_t write_osd_set[4] = { 1, 2, 0, 3 };
+    osd_rmw_stripe_t stripes[4] = {};
+    unsigned bitmaps[4] = { 0 };
+    // Test 16.0
+    void *write_buf = NULL;
+    split_stripes(2, 128*1024, 0, 0, stripes);
+    assert(stripes[0].req_start == 0 && stripes[0].req_end == 0);
+    assert(stripes[1].req_start == 0 && stripes[1].req_end == 0);
+    assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
+    assert(stripes[3].req_start == 0 && stripes[3].req_end == 0);
+    // Test 16.1
+    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 4, 2, 3, write_osd_set, 128*1024, bmp);
+    for (int i = 0; i < 4; i++)
+        stripes[i].bmp_buf = bitmaps+i;
+    assert(rmw_buf);
+    assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
+    assert(stripes[1].read_start == 0 && stripes[1].read_end == 128*1024);
+    assert(stripes[2].read_start == 0 && stripes[2].read_end == 0);
+    assert(stripes[3].read_start == 0 && stripes[3].read_end == 0);
+    assert(stripes[0].write_start == 0 && stripes[0].write_end == 0);
+    assert(stripes[1].write_start == 0 && stripes[1].write_end == 0);
+    assert(stripes[2].write_start == 0 && stripes[2].write_end == 0);
+    assert(stripes[3].write_start == 0 && stripes[3].write_end == 128*1024);
+    assert(stripes[0].read_buf == (uint8_t*)rmw_buf+128*1024);
+    assert(stripes[1].read_buf == (uint8_t*)rmw_buf+256*1024);
+    assert(stripes[2].read_buf == NULL);
+    assert(stripes[3].read_buf == NULL);
+    assert(stripes[0].write_buf == NULL);
+    assert(stripes[1].write_buf == NULL);
+    assert(stripes[2].write_buf == NULL);
+    assert(stripes[3].write_buf == rmw_buf);
+    // Test 16.2 - encode
+    set_pattern(stripes[0].read_buf, 128*1024, PATTERN1);
+    set_pattern(stripes[1].read_buf, 128*1024, PATTERN2);
+    memset(stripes[0].bmp_buf, 0xff, bmp);
+    memset(stripes[1].bmp_buf, 0xff, bmp);
+    calc_rmw_parity_ec(stripes, 4, 2, osd_set, write_osd_set, 128*1024, bmp);
+    assert(*(uint32_t*)stripes[2].bmp_buf == 0);
+    assert(*(uint32_t*)stripes[3].bmp_buf == 0xF1F1F1F1);
+    assert(stripes[0].write_start == 0 && stripes[0].write_end == 0);
+    assert(stripes[1].write_start == 0 && stripes[1].write_end == 0);
+    assert(stripes[2].write_start == 0 && stripes[2].write_end == 0);
+    assert(stripes[3].write_start == 0 && stripes[3].write_end == 128*1024);
+    assert(stripes[0].write_buf == NULL);
+    assert(stripes[1].write_buf == NULL);
+    assert(stripes[2].write_buf == NULL);
+    assert(stripes[3].write_buf == rmw_buf);
+    check_pattern(stripes[3].write_buf, 128*1024, 0x7eb9ae9cd8e652c3); // 2nd EC chunk
+    // Test 16.3 - decode and verify
+    osd_num_t read_osd_set[4] = { 0, 2, 0, 3 };
+    memset(stripes, 0, sizeof(stripes));
+    split_stripes(2, 128*1024, 0, 256*1024, stripes);
+    assert(stripes[0].req_start == 0 && stripes[0].req_end == 128*1024);
+    assert(stripes[1].req_start == 0 && stripes[1].req_end == 128*1024);
+    assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
+    assert(stripes[3].req_start == 0 && stripes[3].req_end == 0);
+    for (int role = 0; role < 4; role++)
+    {
+        stripes[role].read_start = stripes[role].req_start;
+        stripes[role].read_end = stripes[role].req_end;
+    }
+    assert(extend_missing_stripes(stripes, read_osd_set, 2, 4) == 0);
+    assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
+    assert(stripes[1].read_start == 0 && stripes[1].read_end == 128*1024);
+    assert(stripes[2].read_start == 0 && stripes[2].read_end == 0);
+    assert(stripes[3].read_start == 0 && stripes[3].read_end == 128*1024);
+    void *read_buf = alloc_read_buffer(stripes, 4, 0);
+    for (int i = 0; i < 4; i++)
+        stripes[i].bmp_buf = bitmaps+i;
+    assert(read_buf);
+    assert(stripes[0].read_buf == read_buf);
+    assert(stripes[1].read_buf == (uint8_t*)read_buf+128*1024);
+    assert(stripes[3].read_buf == (uint8_t*)read_buf+2*128*1024);
+    set_pattern(stripes[1].read_buf, 128*1024, PATTERN2);
+    memcpy(stripes[3].read_buf, rmw_buf, 128*1024);
+    reconstruct_stripes_ec(stripes, 4, 2, bmp);
+    assert(bitmaps[0] == 0xFFFFFFFF);
+    check_pattern(stripes[0].read_buf, 128*1024, PATTERN1);
+    free(read_buf);
     // Done
     free(rmw_buf);
     free(write_buf);
