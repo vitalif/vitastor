@@ -263,9 +263,11 @@ void osd_t::handle_primary_bs_subop(osd_op_t *subop)
     blockstore_op_t *bs_op = subop->bs_op;
     int expected = bs_op->opcode == BS_OP_READ || bs_op->opcode == BS_OP_WRITE
         || bs_op->opcode == BS_OP_WRITE_STABLE ? bs_op->len : 0;
-    if (bs_op->retval != expected && bs_op->opcode != BS_OP_READ)
+    if (bs_op->retval != expected && bs_op->opcode != BS_OP_READ &&
+        (bs_op->opcode != BS_OP_WRITE && bs_op->opcode != BS_OP_WRITE_STABLE ||
+        bs_op->retval != -ENOSPC))
     {
-        // die
+        // die on any error except ENOSPC
         throw std::runtime_error(
             "local blockstore modification failed (opcode = "+std::to_string(bs_op->opcode)+
             " retval = "+std::to_string(bs_op->retval)+")"
@@ -276,6 +278,8 @@ void osd_t::handle_primary_bs_subop(osd_op_t *subop)
     subop->reply.hdr.retval = bs_op->retval;
     if (bs_op->opcode == BS_OP_READ || bs_op->opcode == BS_OP_WRITE || bs_op->opcode == BS_OP_WRITE_STABLE)
     {
+        subop->req.sec_rw.oid = bs_op->oid;
+        subop->req.sec_rw.version = bs_op->version;
         subop->req.sec_rw.len = bs_op->len;
         subop->reply.sec_rw.version = bs_op->version;
     }
@@ -342,9 +346,10 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
             op_data->epipe++;
         }
         op_data->errors++;
-        if (subop->peer_fd >= 0)
+        if (subop->peer_fd >= 0 && (opcode != OSD_OP_SEC_WRITE && opcode != OSD_OP_SEC_WRITE_STABLE ||
+            retval != -ENOSPC))
         {
-            // Drop connection on any error
+            // Drop connection on any error expect ENOSPC
             msgr.stop_client(subop->peer_fd);
         }
     }
