@@ -154,6 +154,8 @@ struct reed_sol_matrix_t
     int refs = 0;
     int *je_data;
     uint8_t *isal_data;
+    // 32 bytes = 256/8 = max pg_size/8
+    std::map<std::array<uint8_t, 32>, void*> subdata;
     std::map<reed_sol_erased_t, void*> decodings;
 };
 
@@ -194,6 +196,12 @@ void use_ec(int pg_size, int pg_minsize, bool use)
         free(rs_it->second.je_data);
         if (rs_it->second.isal_data)
             free(rs_it->second.isal_data);
+        for (auto sub_it = rs_it->second.subdata.begin(); sub_it != rs_it->second.subdata.end();)
+        {
+            void *data = sub_it->second;
+            rs_it->second.subdata.erase(sub_it++);
+            free(data);
+        }
         for (auto dec_it = rs_it->second.decodings.begin(); dec_it != rs_it->second.decodings.end();)
         {
             void *data = dec_it->second;
@@ -808,11 +816,56 @@ void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
     if (end != 0)
     {
         int write_parity = 0;
-        for (int i = pg_minsize; i < pg_size; i++)
+        bool is_seq = true;
+        for (int i = pg_size-1; i >= pg_minsize; i--)
+        {
             if (write_osd_set[i] != 0)
                 write_parity++;
+            else if (write_parity != 0)
+                is_seq = false;
+        }
         if (write_parity > 0)
         {
+            // First get the coding matrix or sub-matrix
+            void *matrix_data =
+#ifdef WITH_ISAL
+                matrix->isal_data;
+#else
+                matrix->je_data;
+#endif
+            if (!is_seq)
+            {
+                // We need a coding sub-matrix
+                std::array<uint8_t, 32> missing_parity = {};
+                for (int i = pg_minsize; i < pg_size; i++)
+                {
+                    if (!write_osd_set[i])
+                        missing_parity[(i-pg_minsize) >> 3] |= (1 << ((i-pg_minsize) & 0x7));
+                }
+                auto sub_it = matrix->subdata.find(missing_parity);
+                if (sub_it == matrix->subdata.end())
+                {
+                    int item_size =
+#ifdef WITH_ISAL
+                        32;
+#else
+                        sizeof(int);
+#endif
+                    void *subm = malloc_or_die(item_size * write_parity * pg_minsize);
+                    for (int i = pg_minsize, j = 0; i < pg_size; i++)
+                    {
+                        if (write_osd_set[i])
+                        {
+                            memcpy(subm + item_size*pg_minsize*j, matrix_data + item_size*pg_minsize*(i-pg_minsize), item_size*pg_minsize);
+                            j++;
+                        }
+                    }
+                    matrix->subdata[missing_parity] = subm;
+                    matrix_data = subm;
+                }
+                else
+                    matrix_data = sub_it->second;
+            }
             // Calculate new coding chunks
             buf_len_t bufs[pg_size][3];
             int nbuf[pg_size], curbuf[pg_size];
@@ -841,13 +894,13 @@ void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
             while (pos < end)
             {
                 uint32_t next_end = end;
-                for (int i = 0; i < pg_size; i++)
+                for (int i = 0, j = 0; i < pg_size; i++)
                 {
                     if (i < pg_minsize || write_osd_set[i] != 0)
                     {
                         assert(curbuf[i] < nbuf[i]);
                         assert(bufs[i][curbuf[i]].buf);
-                        data_ptrs[i] = (uint8_t*)bufs[i][curbuf[i]].buf + pos-positions[i];
+                        data_ptrs[j++] = (uint8_t*)bufs[i][curbuf[i]].buf + pos-positions[i];
                         uint32_t this_end = bufs[i][curbuf[i]].len + positions[i];
                         if (next_end > this_end)
                             next_end = this_end;
@@ -868,32 +921,30 @@ void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
                 }
 #ifdef WITH_ISAL
                 ec_encode_data(
-                    next_end-pos, pg_minsize, write_parity, matrix->isal_data,
+                    next_end-pos, pg_minsize, write_parity, (uint8_t*)matrix_data,
                     (uint8_t**)data_ptrs, (uint8_t**)data_ptrs+pg_minsize
                 );
 #else
                 jerasure_matrix_encode(
-                    pg_minsize, write_parity, OSD_JERASURE_W, matrix->je_data,
+                    pg_minsize, write_parity, OSD_JERASURE_W, (int*)matrix_data,
                     (char**)data_ptrs, (char**)data_ptrs+pg_minsize, next_end-pos
                 );
 #endif
                 pos = next_end;
             }
-            for (int i = 0; i < pg_size; i++)
+            for (int i = 0, j = 0; i < pg_size; i++)
             {
                 if (i < pg_minsize || write_osd_set[i] != 0)
-                {
-                    data_ptrs[i] = stripes[i].bmp_buf;
-                }
+                    data_ptrs[j++] = stripes[i].bmp_buf;
             }
 #ifdef WITH_ISAL
             ec_encode_data(
-                bitmap_size, pg_minsize, write_parity, matrix->isal_data,
+                bitmap_size, pg_minsize, write_parity, (uint8_t*)matrix_data,
                 (uint8_t**)data_ptrs, (uint8_t**)data_ptrs+pg_minsize
             );
 #else
             jerasure_matrix_encode(
-                pg_minsize, write_parity, OSD_JERASURE_W, matrix->je_data,
+                pg_minsize, write_parity, OSD_JERASURE_W, (int*)matrix_data,
                 (char**)data_ptrs, (char**)data_ptrs+pg_minsize, bitmap_size
             );
 #endif
