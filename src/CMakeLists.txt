@@ -235,8 +235,15 @@ add_executable(osd_test osd_test.cpp rw_blocking.cpp addr_util.cpp)
 target_link_libraries(osd_test tcmalloc_minimal)
 
 # osd_rmw_test
+# FIXME: Move to tests
 add_executable(osd_rmw_test osd_rmw_test.cpp allocator.cpp)
 target_link_libraries(osd_rmw_test Jerasure ${ISAL_LIBRARIES} tcmalloc_minimal)
+
+if (ISAL_LIBRARIES)
+	add_executable(osd_rmw_test_je osd_rmw_test.cpp allocator.cpp)
+	target_compile_definitions(osd_rmw_test_je PUBLIC -DNO_ISAL)
+	target_link_libraries(osd_rmw_test_je Jerasure tcmalloc_minimal)
+endif (ISAL_LIBRARIES)
 
 # stub_uring_osd
 add_executable(stub_uring_osd

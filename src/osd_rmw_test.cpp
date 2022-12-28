@@ -3,6 +3,10 @@
 
 #define RMW_DEBUG
 
+#ifdef NO_ISAL
+#undef WITH_ISAL
+#endif
+
 #include <string.h>
 #include "osd_rmw.cpp"
 #include "test_pattern.h"
