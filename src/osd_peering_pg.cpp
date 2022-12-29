@@ -440,6 +440,30 @@ void pg_t::calc_object_states(int log_level)
         assert(epoch != (((uint64_t)1 << PG_EPOCH_BITS)-1));
         epoch++;
     }
+    if (log_level > 0)
+    {
+        std::string osd_set_desc;
+        for (auto & osd_num: target_set)
+        {
+            osd_set_desc += (osd_set_desc == "" ? "" : ", ")+std::to_string(osd_num);
+        }
+        printf(
+            "[PG %u/%u] %lu clean objects on target OSD set %s\n",
+            pool_id, pg_num, clean_count, osd_set_desc.c_str()
+        );
+        for (auto & stp: state_dict)
+        {
+            osd_set_desc = "";
+            for (auto & loc: stp.first)
+            {
+                osd_set_desc += (osd_set_desc == "" ? "" : ", ")+
+                    std::to_string(loc.osd_num)+
+                    (st.replicated ? "" : "("+std::to_string(loc.role)+")")+
+                    (loc.outdated ? "(old)" : "");
+            }
+            printf("[PG %u/%u] %lu objects on OSD set %s\n", pool_id, pg_num, stp.second.object_count, osd_set_desc.c_str());
+        }
+    }
 }
 
 void pg_t::print_state()
