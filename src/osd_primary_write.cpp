@@ -93,7 +93,7 @@ resume_2:
 resume_3:
     if (op_data->errors > 0)
     {
-        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
         return;
     }
     // Check CAS version
@@ -178,7 +178,7 @@ resume_5:
     }
     if (op_data->errors > 0)
     {
-        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
         return;
     }
     if (op_data->object_state)
@@ -255,7 +255,7 @@ resume_8:
 resume_9:
                 if (op_data->errors > 0)
                 {
-                    pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+                    pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
                     return;
                 }
             }
@@ -337,7 +337,7 @@ resume_7:
             op_data->unstable_write_osds = NULL;
             if (op_data->errors > 0)
             {
-                pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+                pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
                 return false;
             }
         }

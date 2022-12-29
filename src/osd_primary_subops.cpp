@@ -122,7 +122,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, const ui
         zero_read = -1;
     osd_op_t *subops = new osd_op_t[n_subops];
     op_data->fact_ver = 0;
-    op_data->done = op_data->errors = 0;
+    op_data->done = op_data->errors = op_data->errcode = 0;
     op_data->n_subops = n_subops;
     op_data->subops = subops;
     int sent = submit_primary_subop_batch(submit_type, op_data->oid.inode, op_version, op_data->stripes, osd_set, cur_op, 0, zero_read);
@@ -341,9 +341,11 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
                 osd_op_names[opcode], subop->peer_fd, retval, expected
             );
         }
-        if (retval == -EPIPE)
+        // Error priority: EIO > ENOSPC > EPIPE
+        if (op_data->errcode == 0 || retval == -EIO ||
+            retval == -ENOSPC && op_data->errcode == -EPIPE)
         {
-            op_data->epipe++;
+            op_data->errcode = retval;
         }
         op_data->errors++;
         if (subop->peer_fd >= 0 && (opcode != OSD_OP_SEC_WRITE && opcode != OSD_OP_SEC_WRITE_STABLE ||
@@ -413,7 +415,8 @@ void osd_t::cancel_primary_write(osd_op_t *cur_op)
         // are sent to peer OSDs, so we can't just throw them away.
         // Mark them with an extra EPIPE.
         cur_op->op_data->errors++;
-        cur_op->op_data->epipe++;
+        if (cur_op->op_data->errcode == 0)
+            cur_op->op_data->errcode = -EPIPE;
         cur_op->op_data->done--; // Caution: `done` must be signed because may become -1 here
     }
     else
@@ -465,7 +468,7 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     op_data->n_subops = chunks_to_delete_count;
-    op_data->done = op_data->errors = 0;
+    op_data->done = op_data->errors = op_data->errcode = 0;
     if (!op_data->n_subops)
     {
         return;
@@ -528,7 +531,7 @@ int osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
     osd_primary_op_data_t *op_data = cur_op->op_data;
     int n_osds = op_data->dirty_osd_count;
     osd_op_t *subops = new osd_op_t[n_osds];
-    op_data->done = op_data->errors = 0;
+    op_data->done = op_data->errors = op_data->errcode = 0;
     op_data->n_subops = n_osds;
     op_data->subops = subops;
     std::map<uint64_t, int>::iterator peer_it;
@@ -584,7 +587,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
     osd_primary_op_data_t *op_data = cur_op->op_data;
     int n_osds = op_data->unstable_write_osds->size();
     osd_op_t *subops = new osd_op_t[n_osds];
-    op_data->done = op_data->errors = 0;
+    op_data->done = op_data->errors = op_data->errcode = 0;
     op_data->n_subops = n_osds;
     op_data->subops = subops;
     for (int i = 0; i < n_osds; i++)

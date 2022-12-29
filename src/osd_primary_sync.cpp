@@ -240,7 +240,7 @@ resume_8:
     }
     if (op_data->errors > 0)
     {
-        finish_op(cur_op, op_data->epipe > 0 ? -EPIPE : -EIO);
+        finish_op(cur_op, op_data->errcode);
     }
     else
     {

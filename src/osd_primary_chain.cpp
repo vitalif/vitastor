@@ -42,7 +42,7 @@ resume_4:
     {
         free(op_data->chain_reads);
         op_data->chain_reads = NULL;
-        finish_op(cur_op, op_data->epipe > 0 ? -EPIPE : -EIO);
+        finish_op(cur_op, op_data->errcode);
         return;
     }
     send_chained_read_results(pg, cur_op);

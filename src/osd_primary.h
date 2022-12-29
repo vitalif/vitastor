@@ -24,7 +24,7 @@ struct osd_primary_op_data_t
     uint64_t target_ver;
     uint64_t orig_ver = 0, fact_ver = 0;
     uint64_t scheme = 0;
-    int n_subops = 0, done = 0, errors = 0, epipe = 0;
+    int n_subops = 0, done = 0, errors = 0, errcode = 0;
     int degraded = 0, pg_size, pg_data_size;
     osd_rmw_stripe_t *stripes;
     osd_op_t *subops = NULL;

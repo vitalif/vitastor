@@ -228,7 +228,7 @@ resume_1:
 resume_2:
     if (op_data->errors > 0)
     {
-        finish_op(cur_op, op_data->epipe > 0 ? -EPIPE : -EIO);
+        finish_op(cur_op, op_data->errcode);
         return;
     }
     cur_op->reply.rw.version = op_data->fact_ver;
@@ -350,7 +350,7 @@ resume_2:
 resume_3:
     if (op_data->errors > 0)
     {
-        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
         return;
     }
     // Check CAS version
@@ -371,7 +371,7 @@ resume_4:
 resume_5:
     if (op_data->errors > 0)
     {
-        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->epipe > 0 ? -EPIPE : -EIO);
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
         return;
     }
     // Remove version override
