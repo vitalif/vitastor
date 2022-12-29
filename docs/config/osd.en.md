@@ -17,6 +17,7 @@ initialization and can be changed with an OSD restart.
 - [autosync_interval](#autosync_interval)
 - [autosync_writes](#autosync_writes)
 - [recovery_queue_depth](#recovery_queue_depth)
+- [recovery_pg_switch](#recovery_pg_switch)
 - [recovery_sync_batch](#recovery_sync_batch)
 - [readonly](#readonly)
 - [no_recovery](#no_recovery)
@@ -114,6 +115,16 @@ operations before issuing an fsync operation internally.
 Maximum recovery operations per one primary OSD at any given moment of time.
 Currently it's the only parameter available to tune the speed or recovery
 and rebalancing, but it's planned to implement more.
+
+## recovery_pg_switch
+
+- Type: integer
+- Default: 128
+
+Number of recovery operations before switching to recovery of the next PG.
+The idea is to mix all PGs during recovery for more even space and load
+distribution but still benefit from recovery queue depth greater than 1.
+Degraded PGs are anyway scanned first.
 
 ## recovery_sync_batch
 

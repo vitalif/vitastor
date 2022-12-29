@@ -34,6 +34,7 @@
 #define DEFAULT_AUTOSYNC_WRITES 128
 #define MAX_RECOVERY_QUEUE 2048
 #define DEFAULT_RECOVERY_QUEUE 4
+#define DEFAULT_RECOVERY_PG_SWITCH 128
 #define DEFAULT_RECOVERY_BATCH 16
 
 //#define OSD_STUB
@@ -108,6 +109,7 @@ class osd_t
     int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // "emergency" sync every 5 seconds
     int autosync_writes = DEFAULT_AUTOSYNC_WRITES;
     int recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
+    int recovery_pg_switch = DEFAULT_RECOVERY_PG_SWITCH;
     int recovery_sync_batch = DEFAULT_RECOVERY_BATCH;
     int inode_vanish_time = 60;
     int log_level = 0;
@@ -135,7 +137,10 @@ class osd_t
     uint64_t misplaced_objects = 0, degraded_objects = 0, incomplete_objects = 0;
     int peering_state = 0;
     std::map<object_id, osd_recovery_op_t> recovery_ops;
-    int recovery_done = 0;
+    bool recovery_last_degraded = true;
+    pool_pg_num_t recovery_last_pg;
+    object_id recovery_last_oid;
+    int recovery_pg_done = 0, recovery_done = 0;
     osd_op_t *autosync_op = NULL;
 
     // Unstable writes

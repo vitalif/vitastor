@@ -226,42 +226,51 @@ bool osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
 
 bool osd_t::pick_next_recovery(osd_recovery_op_t &op)
 {
-    if (!no_recovery)
+    if (!pgs.size())
     {
-        for (auto pg_it = pgs.begin(); pg_it != pgs.end(); pg_it++)
-        {
-            if ((pg_it->second.state & (PG_ACTIVE | PG_HAS_DEGRADED)) == (PG_ACTIVE | PG_HAS_DEGRADED))
-            {
-                for (auto obj_it = pg_it->second.degraded_objects.begin(); obj_it != pg_it->second.degraded_objects.end(); obj_it++)
-                {
-                    if (recovery_ops.find(obj_it->first) == recovery_ops.end())
-                    {
-                        op.degraded = true;
-                        op.oid = obj_it->first;
-                        return true;
-                    }
-                }
-            }
-        }
+        return false;
     }
-    if (!no_rebalance)
+    // Restart scanning from the same degraded/misplaced status as the last time
+    for (int tried_degraded = 0; tried_degraded < 2; tried_degraded++)
     {
-        for (auto pg_it = pgs.begin(); pg_it != pgs.end(); pg_it++)
+        if (recovery_last_degraded ? !no_recovery : !no_rebalance)
         {
             // Don't try to "recover" misplaced objects if "recovery" would make them degraded
-            if ((pg_it->second.state & (PG_ACTIVE | PG_DEGRADED | PG_HAS_MISPLACED)) == (PG_ACTIVE | PG_HAS_MISPLACED))
+            auto mask = recovery_last_degraded ? (PG_ACTIVE | PG_HAS_DEGRADED) : (PG_ACTIVE | PG_DEGRADED | PG_HAS_MISPLACED);
+            auto check = recovery_last_degraded ? (PG_ACTIVE | PG_HAS_DEGRADED) : (PG_ACTIVE | PG_HAS_MISPLACED);
+            // Restart scanning from the same PG as the last time
+            for (auto pg_it = pgs.lower_bound(recovery_last_pg); pg_it != pgs.end(); pg_it++)
             {
-                for (auto obj_it = pg_it->second.misplaced_objects.begin(); obj_it != pg_it->second.misplaced_objects.end(); obj_it++)
+                if ((pg_it->second.state & mask) == check)
                 {
-                    if (recovery_ops.find(obj_it->first) == recovery_ops.end())
+                    auto & src = recovery_last_degraded ? pg_it->second.degraded_objects : pg_it->second.misplaced_objects;
+                    assert(src.size() > 0);
+                    // Restart scanning from the next object
+                    for (auto obj_it = src.upper_bound(recovery_last_oid); obj_it != src.end(); obj_it++)
                     {
-                        op.degraded = false;
-                        op.oid = obj_it->first;
-                        return true;
+                        if (recovery_ops.find(obj_it->first) == recovery_ops.end())
+                        {
+                            op.degraded = recovery_last_degraded;
+                            recovery_last_oid = op.oid = obj_it->first;
+                            recovery_pg_done++;
+                            // Switch to another PG after recovery_pg_switch operations
+                            // to always mix all PGs during recovery but still benefit
+                            // from recovery queue depth greater than 1
+                            if (recovery_pg_done >= recovery_pg_switch)
+                            {
+                                recovery_pg_done = 0;
+                                recovery_last_pg.pg_num++;
+                                recovery_last_oid = {};
+                            }
+                            return true;
+                        }
                     }
                 }
             }
         }
+        recovery_last_degraded = !recovery_last_degraded;
+        recovery_last_pg = {};
+        recovery_last_oid = {};
     }
     return false;
 }

@@ -28,3 +28,13 @@ inline bool operator < (const pool_pg_num_t & a, const pool_pg_num_t & b)
 {
     return a.pool_id < b.pool_id || a.pool_id == b.pool_id && a.pg_num < b.pg_num;
 }
+
+inline bool operator == (const pool_pg_num_t & a, const pool_pg_num_t & b)
+{
+    return a.pool_id == b.pool_id && a.pg_num == b.pg_num;
+}
+
+inline bool operator != (const pool_pg_num_t & a, const pool_pg_num_t & b)
+{
+    return a.pool_id != b.pool_id || a.pg_num != b.pg_num;
+}

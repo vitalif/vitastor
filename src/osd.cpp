@@ -163,6 +163,9 @@ void osd_t::parse_config(const json11::Json & config, bool allow_disk_params)
     recovery_queue_depth = config["recovery_queue_depth"].uint64_value();
     if (recovery_queue_depth < 1 || recovery_queue_depth > MAX_RECOVERY_QUEUE)
         recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
+    recovery_pg_switch = config["recovery_pg_switch"].uint64_value();
+    if (recovery_pg_switch < 1)
+        recovery_pg_switch = DEFAULT_RECOVERY_PG_SWITCH;
     recovery_sync_batch = config["recovery_sync_batch"].uint64_value();
     if (recovery_sync_batch < 1 || recovery_sync_batch > MAX_RECOVERY_QUEUE)
         recovery_sync_batch = DEFAULT_RECOVERY_BATCH;

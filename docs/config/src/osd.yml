@@ -102,6 +102,20 @@
     момент времени. На данный момент единственный параметр, который можно менять
     для ускорения или замедления восстановления и перебалансировки данных, но
     в планах реализация других параметров.
+- name: recovery_pg_switch
+  type: int
+  default: 128
+  info: |
+    Number of recovery operations before switching to recovery of the next PG.
+    The idea is to mix all PGs during recovery for more even space and load
+    distribution but still benefit from recovery queue depth greater than 1.
+    Degraded PGs are anyway scanned first.
+  info_ru: |
+    Число операций восстановления перед переключением на восстановление другой PG.
+    Идея заключается в том, чтобы восстанавливать все PG одновременно для более
+    равномерного распределения места и нагрузки, но при этом всё равно выигрывать
+    от глубины очереди восстановления, большей, чем 1. Деградированные PG в любом
+    случае сканируются первыми.
 - name: recovery_sync_batch
   type: int
   default: 16
