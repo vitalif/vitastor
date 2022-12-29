@@ -127,7 +127,6 @@ resume_4:
     {
         mark_rolled_back(*v);
     }
-    flusher->mark_trim_possible();
     // Acknowledge op
     op->retval = 0;
     FINISH_OP(op);
@@ -232,6 +231,7 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
         if (used == 0)
         {
             journal.used_sectors.erase(dirty_it->second.journal_sector);
+            flusher->mark_trim_possible();
         }
         if (dsk.clean_entry_bitmap_size > sizeof(void*))
         {

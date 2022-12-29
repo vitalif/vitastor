@@ -286,7 +286,10 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                 {
                     auto used = --journal.used_sectors[rv.journal_sector-1];
                     if (used == 0)
+                    {
                         journal.used_sectors.erase(rv.journal_sector-1);
+                        flusher->mark_trim_possible();
+                    }
                 }
             }
         }

@@ -162,7 +162,8 @@ void journal_flusher_t::mark_trim_possible()
     if (trim_wanted > 0)
     {
         dequeuing = true;
-        journal_trim_counter++;
+        if (!journal_trim_counter)
+            journal_trim_counter = journal_trim_interval;
         bs->ringloop->wakeup();
     }
 }
