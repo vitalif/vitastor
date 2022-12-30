@@ -560,13 +560,17 @@ void osd_t::report_pg_state(pg_t & pg)
         pg.history_changed = true;
         pg.target_history.clear();
         pg.all_peers = pg.target_set;
+        std::sort(pg.all_peers.begin(), pg.all_peers.end());
         pg.cur_peers = pg.target_set;
     }
     else if (pg.state == (PG_ACTIVE|PG_LEFT_ON_DEAD))
     {
         // Clear history of active+left_on_dead PGs, but leave dead OSDs in all_peers
-        pg.history_changed = true;
-        pg.target_history.clear();
+        if (pg.target_history.size())
+        {
+            pg.history_changed = true;
+            pg.target_history.clear();
+        }
         std::set<osd_num_t> dead_peers;
         for (auto pg_osd: pg.all_peers)
         {
@@ -583,8 +587,12 @@ void osd_t::report_pg_state(pg_t & pg)
                 dead_peers.insert(pg_osd);
             }
         }
-        pg.all_peers.clear();
-        pg.all_peers.insert(pg.all_peers.begin(), dead_peers.begin(), dead_peers.end());
+        auto new_all_peers = std::vector<osd_num_t>(dead_peers.begin(), dead_peers.end());
+        if (pg.all_peers != new_all_peers)
+        {
+            pg.history_changed = true;
+            pg.all_peers = new_all_peers;
+        }
         pg.cur_peers.clear();
         for (auto pg_osd: pg.target_set)
         {

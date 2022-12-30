@@ -885,6 +885,7 @@ void osd_t::report_pg_states()
             if (pg.history_changed)
             {
                 // Prevent race conditions (for the case when the monitor is updating this key at the same time)
+                // FIXME: target_history updates may be lost on PG re-peering
                 pg.history_changed = false;
                 std::string history_key = base64_encode(st_cli.etcd_prefix+"/pg/history/"+std::to_string(pg.pool_id)+"/"+std::to_string(pg.pg_num));
                 json11::Json::object history_value = {

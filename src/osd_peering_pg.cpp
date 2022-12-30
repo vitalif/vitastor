@@ -92,12 +92,15 @@ void pg_obj_state_check_t::walk()
         for (auto peer_osd: pg->cur_set)
         {
             if (peer_osd != 0)
-            {
                 history_set.push_back(peer_osd);
-            }
         }
-        pg->target_history.push_back(history_set);
-        pg->history_changed = true;
+        std::sort(history_set.begin(), history_set.end());
+        auto it = std::lower_bound(pg->target_history.begin(), pg->target_history.end(), history_set);
+        if (it == pg->target_history.end() || *it != history_set)
+        {
+            pg->target_history.insert(it, history_set);
+            pg->history_changed = true;
+        }
     }
     else
     {

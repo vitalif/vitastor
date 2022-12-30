@@ -871,19 +871,33 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             pg_cfg.target_history.clear();
             pg_cfg.all_peers.clear();
             // Refuse to start PG if any set of the <osd_sets> has no live OSDs
-            for (auto hist_item: value["osd_sets"].array_items())
+            for (auto & hist_item: value["osd_sets"].array_items())
             {
                 std::vector<osd_num_t> history_set;
-                for (auto pg_osd: hist_item.array_items())
+                for (auto & pg_osd: hist_item.array_items())
                 {
-                    history_set.push_back(pg_osd.uint64_value());
+                    osd_num_t pg_osd_num = pg_osd.uint64_value();
+                    if (pg_osd_num != 0)
+                    {
+                        auto it = std::lower_bound(history_set.begin(), history_set.end(), pg_osd_num);
+                        if (it == history_set.end() || *it != pg_osd_num)
+                            history_set.insert(it, pg_osd_num);
+                    }
                 }
-                pg_cfg.target_history.push_back(history_set);
+                auto it = std::lower_bound(pg_cfg.target_history.begin(), pg_cfg.target_history.end(), history_set);
+                if (it == pg_cfg.target_history.end() || *it != history_set)
+                    pg_cfg.target_history.insert(it, history_set);
             }
             // Include these additional OSDs when peering the PG
             for (auto pg_osd: value["all_peers"].array_items())
             {
-                pg_cfg.all_peers.push_back(pg_osd.uint64_value());
+                osd_num_t pg_osd_num = pg_osd.uint64_value();
+                if (pg_osd_num != 0)
+                {
+                    auto it = std::lower_bound(pg_cfg.all_peers.begin(), pg_cfg.all_peers.end(), pg_osd_num);
+                    if (it == pg_cfg.all_peers.end() || *it != pg_osd_num)
+                        pg_cfg.all_peers.insert(it, pg_osd_num);
+                }
             }
             // Read epoch
             pg_cfg.epoch = value["epoch"].uint64_value();
