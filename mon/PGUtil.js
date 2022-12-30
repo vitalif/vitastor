@@ -21,7 +21,7 @@ function add_pg_history(new_pg_history, new_pg, prev_pgs, prev_pg_history, old_p
     {
         for (const pg of oh.osd_sets)
         {
-            nh.osd_sets[pg.join(' ')] = pg;
+            nh.osd_sets[pg.join(' ')] = pg.map(osd_num => Number(osd_num));
         }
     }
     if (oh && oh.all_peers && oh.all_peers.length)
