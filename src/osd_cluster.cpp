@@ -132,7 +132,7 @@ bool osd_t::check_peer_config(osd_client_t *cl, json11::Json conf)
                 this->osd_num, immediate_commit == IMMEDIATE_ALL ? "all" : "small",
                 cl->osd_num, conf["immediate_commit"].string_value().c_str()
             );
-            return true;
+            return false;
         }
         else if (conf["block_size"].uint64_value() != (uint64_t)this->bs_block_size)
         {
@@ -140,7 +140,7 @@ bool osd_t::check_peer_config(osd_client_t *cl, json11::Json conf)
                 "[OSD %lu] My block_size is %u, but peer OSD %lu has %lu. We can't work together\n",
                 this->osd_num, this->bs_block_size, cl->osd_num, conf["block_size"].uint64_value()
             );
-            return true;
+            return false;
         }
         else if (conf["bitmap_granularity"].uint64_value() != (uint64_t)this->bs_bitmap_granularity)
         {
@@ -148,7 +148,7 @@ bool osd_t::check_peer_config(osd_client_t *cl, json11::Json conf)
                 "[OSD %lu] My bitmap_granularity is %u, but peer OSD %lu has %lu. We can't work together\n",
                 this->osd_num, this->bs_bitmap_granularity, cl->osd_num, conf["bitmap_granularity"].uint64_value()
             );
-            return true;
+            return false;
         }
     }
     return true;
