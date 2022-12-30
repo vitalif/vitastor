@@ -680,13 +680,16 @@ void osd_t::apply_pg_config()
                         }
                     }
                 }
+                auto vec_all_peers = std::vector<osd_num_t>(all_peers.begin(), all_peers.end());
                 if (currently_taken)
                 {
                     if (pg_it->second.state & (PG_ACTIVE | PG_INCOMPLETE | PG_PEERING | PG_REPEERING | PG_PEERED))
                     {
-                        if (pg_it->second.target_set == pg_cfg.target_set)
+                        if (pg_it->second.target_set == pg_cfg.target_set &&
+                            pg_it->second.target_history == pg_cfg.target_history &&
+                            pg_it->second.all_peers == vec_all_peers)
                         {
-                            // No change in osd_set; history changes are ignored
+                            // No change in osd_set and history
                             continue;
                         }
                         else
@@ -737,7 +740,7 @@ void osd_t::apply_pg_config()
                     .pg_num = pg_num,
                     .reported_epoch = pg_cfg.epoch,
                     .target_history = pg_cfg.target_history,
-                    .all_peers = std::vector<osd_num_t>(all_peers.begin(), all_peers.end()),
+                    .all_peers = vec_all_peers,
                     .target_set = pg_cfg.target_set,
                 };
                 if (pg.scheme == POOL_SCHEME_EC)
