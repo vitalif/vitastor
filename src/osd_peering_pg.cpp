@@ -86,21 +86,9 @@ void pg_obj_state_check_t::walk()
     }
     if (pg->pg_cursize < pg->pg_size)
     {
-        // Report PG history and activate
+        // Activate as degraded
+        // Current OSD set will be added into target_history on first write
         pg->state |= PG_DEGRADED | PG_PEERED;
-        std::vector<osd_num_t> history_set;
-        for (auto peer_osd: pg->cur_set)
-        {
-            if (peer_osd != 0)
-                history_set.push_back(peer_osd);
-        }
-        std::sort(history_set.begin(), history_set.end());
-        auto it = std::lower_bound(pg->target_history.begin(), pg->target_history.end(), history_set);
-        if (it == pg->target_history.end() || *it != history_set)
-        {
-            pg->target_history.insert(it, history_set);
-            pg->history_changed = true;
-        }
     }
     else
     {
@@ -438,7 +426,7 @@ void pg_t::calc_object_states(int log_level)
     std::sort(st.list.begin(), st.list.end());
     // Walk over it and check object states
     st.walk();
-    if (this->state & (PG_DEGRADED|PG_LEFT_ON_DEAD))
+    if (this->state != PG_ACTIVE)
     {
         assert(epoch != (((uint64_t)1 << PG_EPOCH_BITS)-1));
         epoch++;
