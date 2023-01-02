@@ -193,6 +193,7 @@ void blockstore_impl_t::loop()
             }
             if (wr_st == 2)
             {
+                submit_queue[op_idx] = NULL;
                 new_idx--;
             }
             if (wr_st == 0)

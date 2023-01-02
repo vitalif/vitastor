@@ -182,9 +182,15 @@ void blockstore_impl_t::cancel_all_writes(blockstore_op_t *op, blockstore_dirty_
     bool found = false;
     for (auto other_op: submit_queue)
     {
-        // <op> may be present in queue multiple times due to moving operations in submit_queue
-        if (other_op == op)
+        if (!other_op)
+        {
+            // freed operations during submitting are zeroed
+        }
+        else if (other_op == op)
+        {
+            // <op> may be present in queue multiple times due to moving operations in submit_queue
             found = true;
+        }
         else if (found && other_op->oid == op->oid &&
             (other_op->opcode == BS_OP_WRITE || other_op->opcode == BS_OP_WRITE_STABLE))
         {
