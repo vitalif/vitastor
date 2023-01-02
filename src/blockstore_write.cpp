@@ -115,8 +115,8 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     else if (!wait_del)
         printf("Write %lx:%lx v%lu offset=%u len=%u\n", op->oid.inode, op->oid.stripe, op->version, op->offset, op->len);
 #endif
-    // FIXME No strict need to add it into dirty_db here, it's just left
-    // from the previous implementation where reads waited for writes
+    // No strict need to add it into dirty_db here except maybe for listings to return
+    // correct data when there are inflight operations in the queue
     uint32_t state;
     if (is_del)
         state = BS_ST_DELETE | BS_ST_IN_FLIGHT;

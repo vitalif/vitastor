@@ -311,80 +311,9 @@ void osd_t::start_pg_peering(pg_t & pg)
         {
             continue;
         }
-        submit_sync_and_list_subop(peer_osd, pg.peering_state);
+        submit_list_subop(peer_osd, pg.peering_state);
     }
     ringloop->wakeup();
-}
-
-void osd_t::submit_sync_and_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
-{
-    // Sync before listing, if not readonly
-    if (readonly)
-    {
-        submit_list_subop(role_osd, ps);
-    }
-    else if (role_osd == this->osd_num)
-    {
-        // Self
-        osd_op_t *op = new osd_op_t();
-        op->op_type = 0;
-        op->peer_fd = SELF_FD;
-        clock_gettime(CLOCK_REALTIME, &op->tv_begin);
-        op->bs_op = new blockstore_op_t();
-        op->bs_op->opcode = BS_OP_SYNC;
-        op->bs_op->callback = [this, ps, op, role_osd](blockstore_op_t *bs_op)
-        {
-            if (bs_op->retval < 0)
-            {
-                printf("Local OP_SYNC failed: %d (%s)\n", bs_op->retval, strerror(-bs_op->retval));
-                force_stop(1);
-                return;
-            }
-            add_bs_subop_stats(op);
-            delete op->bs_op;
-            op->bs_op = NULL;
-            delete op;
-            ps->list_ops.erase(role_osd);
-            submit_list_subop(role_osd, ps);
-        };
-        ps->list_ops[role_osd] = op;
-        bs->enqueue_op(op->bs_op);
-    }
-    else
-    {
-        // Peer
-        auto & cl = msgr.clients.at(msgr.osd_peer_fds.at(role_osd));
-        osd_op_t *op = new osd_op_t();
-        op->op_type = OSD_OP_OUT;
-        op->peer_fd = cl->peer_fd;
-        op->req = (osd_any_op_t){
-            .sec_sync = {
-                .header = {
-                    .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = msgr.next_subop_id++,
-                    .opcode = OSD_OP_SEC_SYNC,
-                },
-            },
-        };
-        op->callback = [this, ps, role_osd](osd_op_t *op)
-        {
-            if (op->reply.hdr.retval < 0)
-            {
-                // FIXME: Mark peer as failed and don't reconnect immediately after dropping the connection
-                printf("Failed to sync OSD %lu: %ld (%s), disconnecting peer\n", role_osd, op->reply.hdr.retval, strerror(-op->reply.hdr.retval));
-                int fail_fd = op->peer_fd;
-                ps->list_ops.erase(role_osd);
-                delete op;
-                msgr.stop_client(fail_fd);
-                return;
-            }
-            delete op;
-            ps->list_ops.erase(role_osd);
-            submit_list_subop(role_osd, ps);
-        };
-        ps->list_ops[role_osd] = op;
-        msgr.outbox_push(op);
-    }
 }
 
 void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)

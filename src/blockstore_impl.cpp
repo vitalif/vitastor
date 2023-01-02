@@ -583,7 +583,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
                         replace_stable(dirty_it->first.oid, 0, clean_stable_count, stable_count, stable);
                     }
                 }
-                else if (IS_STABLE(dirty_it->second.state))
+                else if (IS_STABLE(dirty_it->second.state) || (dirty_it->second.state & BS_ST_INSTANT))
                 {
                     // First try to replace a clean stable version in the first part of the list
                     if (!replace_stable(dirty_it->first.oid, dirty_it->first.version, 0, clean_stable_count, stable))
