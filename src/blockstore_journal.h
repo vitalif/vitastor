@@ -16,6 +16,7 @@
 // FIXME: This value should be dynamic i.e. Blockstore ideally shouldn't allow
 // writing more than can be stabilized afterwards
 #define JOURNAL_STABILIZE_RESERVATION 65536
+#define JOURNAL_INSTANT_RESERVATION 131072
 
 // Journal entries
 // Journal entries are linked to each other by their crc32 value

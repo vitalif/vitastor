@@ -89,6 +89,9 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         else
         {
             // Invalid version requested
+#ifdef BLOCKSTORE_DEBUG
+            printf("Write %lx:%lx v%lu requested, but we already have v%lu\n", op->oid.inode, op->oid.stripe, op->version, version);
+#endif
             op->retval = -EEXIST;
             if (!is_del && dsk.clean_entry_bitmap_size > sizeof(void*))
             {
@@ -258,7 +261,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     {
         blockstore_journal_check_t space_check(this);
         if (!space_check.check_available(op, unsynced_big_write_count + 1,
-            sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size, JOURNAL_STABILIZE_RESERVATION))
+            sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size,
+            (dirty_it->second.state & BS_ST_INSTANT) ? JOURNAL_INSTANT_RESERVATION : JOURNAL_STABILIZE_RESERVATION))
         {
             return 0;
         }
@@ -338,7 +342,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             !space_check.check_available(op, unsynced_big_write_count,
                 sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size, 0)
             || !space_check.check_available(op, 1,
-                sizeof(journal_entry_small_write) + dsk.clean_entry_bitmap_size, op->len + JOURNAL_STABILIZE_RESERVATION))
+                sizeof(journal_entry_small_write) + dsk.clean_entry_bitmap_size,
+                op->len + ((dirty_it->second.state & BS_ST_INSTANT) ? JOURNAL_INSTANT_RESERVATION : JOURNAL_STABILIZE_RESERVATION)))
         {
             return 0;
         }
@@ -449,18 +454,19 @@ int blockstore_impl_t::continue_write(blockstore_op_t *op)
 resume_2:
     // Only for the immediate_commit mode: prepare and submit big_write journal entry
     {
-        blockstore_journal_check_t space_check(this);
-        if (!space_check.check_available(op, 1,
-            sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size, JOURNAL_STABILIZE_RESERVATION))
-        {
-            return 0;
-        }
-        BS_SUBMIT_CHECK_SQES(1);
         auto dirty_it = dirty_db.find((obj_ver_id){
             .oid = op->oid,
             .version = op->version,
         });
         assert(dirty_it != dirty_db.end());
+        blockstore_journal_check_t space_check(this);
+        if (!space_check.check_available(op, 1,
+            sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size,
+            ((dirty_it->second.state & BS_ST_INSTANT) ? JOURNAL_INSTANT_RESERVATION : JOURNAL_STABILIZE_RESERVATION)))
+        {
+            return 0;
+        }
+        BS_SUBMIT_CHECK_SQES(1);
         journal_entry_big_write *je = (journal_entry_big_write*)prefill_single_journal_entry(
             journal, op->opcode == BS_OP_WRITE_STABLE ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
             sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size
@@ -647,7 +653,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     });
     assert(dirty_it != dirty_db.end());
     blockstore_journal_check_t space_check(this);
-    if (!space_check.check_available(op, 1, sizeof(journal_entry_del), JOURNAL_STABILIZE_RESERVATION))
+    if (!space_check.check_available(op, 1, sizeof(journal_entry_del), JOURNAL_INSTANT_RESERVATION))
     {
         return 0;
     }
