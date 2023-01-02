@@ -663,12 +663,15 @@ class Mon
     async save_last_clean()
     {
         // last_clean_pgs is used to avoid extra data move when observing a series of changes in the cluster
+        const new_clean_pgs = { items: {} };
+    next_pool:
         for (const pool_id in this.state.config.pools)
         {
+            new_clean_pgs.items[pool_id] = (this.state.history.last_clean_pgs.items||{})[pool_id];
             const pool_cfg = this.state.config.pools[pool_id];
             if (!this.validate_pool_cfg(pool_id, pool_cfg, false))
             {
-                continue;
+                continue next_pool;
             }
             for (let pg_num = 1; pg_num <= pool_cfg.pg_count; pg_num++)
             {
@@ -677,17 +680,18 @@ class Mon
                     !(this.state.pg.state[pool_id][pg_num].state instanceof Array))
                 {
                     // Unclean
-                    return;
+                    continue next_pool;
                 }
                 let st = this.state.pg.state[pool_id][pg_num].state.join(',');
                 if (st != 'active' && st != 'active,left_on_dead' && st != 'left_on_dead,active')
                 {
                     // Unclean
-                    return;
+                    continue next_pool;
                 }
             }
+            new_clean_pgs.items[pool_id] = this.state.config.pgs.items[pool_id];
         }
-        this.state.history.last_clean_pgs = JSON.parse(JSON.stringify(this.state.config.pgs));
+        this.state.history.last_clean_pgs = new_clean_pgs;
         await this.etcd_call('/kv/txn', {
             success: [ { requestPut: {
                 key: b64(this.etcd_prefix+'/history/last_clean_pgs'),
