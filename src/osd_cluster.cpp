@@ -382,30 +382,6 @@ void osd_t::on_change_etcd_state_hook(std::map<std::string, etcd_kv_t> & changes
     }
 }
 
-void osd_t::on_change_pg_history_hook(pool_id_t pool_id, pg_num_t pg_num)
-{
-    auto pg_it = pgs.find({
-        .pool_id = pool_id,
-        .pg_num = pg_num,
-    });
-    if (pg_it != pgs.end() && pg_it->second.epoch > pg_it->second.reported_epoch &&
-        st_cli.pool_config[pool_id].pg_config[pg_num].epoch >= pg_it->second.epoch)
-    {
-        pg_it->second.reported_epoch = st_cli.pool_config[pool_id].pg_config[pg_num].epoch;
-        object_id oid = { 0 };
-        bool first = true;
-        for (auto op: pg_it->second.write_queue)
-        {
-            if (first || oid != op.first)
-            {
-                oid = op.first;
-                first = false;
-                continue_primary_write(op.second);
-            }
-        }
-    }
-}
-
 void osd_t::on_load_config_hook(json11::Json::object & global_config)
 {
     json11::Json::object osd_config = this->config;

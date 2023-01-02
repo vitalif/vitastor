@@ -174,7 +174,8 @@ resume_3:
 resume_10:
         if (pg.epoch > pg.reported_epoch)
         {
-            op_data->st = 10;
+#define PG_EPOCH_WAIT_STATE 10
+            op_data->st = PG_EPOCH_WAIT_STATE;
             return;
         }
     }
@@ -302,6 +303,50 @@ continue_others:
     {
         // Continue next write to the same object
         continue_primary_write(next_op);
+    }
+}
+
+void osd_t::on_change_pg_history_hook(pool_id_t pool_id, pg_num_t pg_num)
+{
+    auto pg_it = pgs.find({
+        .pool_id = pool_id,
+        .pg_num = pg_num,
+    });
+    if (pg_it == pgs.end())
+    {
+        return;
+    }
+    auto & pg = pg_it->second;
+    if (pg.epoch > pg.reported_epoch &&
+        st_cli.pool_config[pool_id].pg_config[pg_num].epoch >= pg.epoch)
+    {
+        pg.reported_epoch = st_cli.pool_config[pool_id].pg_config[pg_num].epoch;
+        std::vector<object_id> resume_oids;
+        for (auto & op: pg.write_queue)
+        {
+            if (op.second->op_data->st == PG_EPOCH_WAIT_STATE)
+            {
+                // Run separately to prevent side effects
+                resume_oids.push_back(op.first);
+            }
+        }
+        for (auto & oid: resume_oids)
+        {
+            auto pg_it = pgs.find({
+                .pool_id = pool_id,
+                .pg_num = pg_num,
+            });
+            if (pg_it != pgs.end())
+            {
+                auto & pg = pg_it->second;
+                auto op_it = pg.write_queue.find(oid);
+                if (op_it != pg.write_queue.end() &&
+                    op_it->second->op_data->st == PG_EPOCH_WAIT_STATE)
+                {
+                    continue_primary_write(op_it->second);
+                }
+            }
+        }
     }
 }
 
