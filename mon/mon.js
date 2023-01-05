@@ -1378,16 +1378,14 @@ class Mon
     // This is required for multiple change events to trigger at most 1 recheck in 1s
     schedule_recheck()
     {
-        if (this.recheck_timer)
+        if (!this.recheck_timer)
         {
-            clearTimeout(this.recheck_timer);
-            this.recheck_timer = null;
+            this.recheck_timer = setTimeout(() =>
+            {
+                this.recheck_timer = null;
+                this.recheck_pgs().catch(this.die);
+            }, this.config.mon_change_timeout || 1000);
         }
-        this.recheck_timer = setTimeout(() =>
-        {
-            this.recheck_timer = null;
-            this.recheck_pgs().catch(this.die);
-        }, this.config.mon_change_timeout || 1000);
     }
 
     sum_op_stats(timestamp, prev_stats)
