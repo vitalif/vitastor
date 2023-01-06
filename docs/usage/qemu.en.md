@@ -46,3 +46,40 @@ qemu-img convert -f qcow2 debian10.qcow2 -p -O raw 'vitastor:etcd_host=192.168.7
 
 You can also specify `:pool=<POOL>:inode=<INODE>:size=<SIZE>` instead of `:image=<IMAGE>`
 if you don't want to use inode metadata.
+
+### Exporting snapshots
+
+Starting with 0.8.4, you can also export individual layers (snapshot diffs) using `qemu-img`.
+
+Suppose you have an image `testimg` and a snapshot `testimg@0` created with `vitastor-cli snap-create testimg@0`.
+
+Then you can export the `testimg@0` snapshot and the data written to `testimg` after creating
+the snapshot separately using the following commands (key points are using `skip-parents=1` and
+`-B backing_file` option):
+
+```
+qemu-img convert -f raw 'vitastor:etcd_host=192.168.7.2\:2379/v3:image=testimg@0' \
+    -O qcow2 testimg_0.qcow2
+
+qemu-img convert -f raw 'vitastor:etcd_host=192.168.7.2\:2379/v3:image=testimg:skip-parents=1' \
+    -O qcow2 -o 'cluster_size=4k' -B testimg_0.qcow2 testimg.qcow2
+```
+
+In fact, with `cluster_size=4k` any QCOW2 file can be used instead `-B testimg_0.qcow2`, even an empty one.
+
+QCOW2 `cluster_size=4k` option is required if you want `testimg.qcow2` to contain only the data
+overwritten  **exactly** in the child layer. With the default 64 KB QCOW2 cluster size you'll
+get a bit of extra data from parent layers, i.e. a 4 KB overwrite will result in `testimg.qcow2`
+containing 64 KB of data. And this extra data will be taken by `qemu-img` from the file passed
+in `-B` option, so you really need 4 KB cluster if you use an empty image in `-B`.
+
+After this procedure you'll get two chained QCOW2 images. To detach `testimg.qcow2` from
+its parent, run:
+
+```
+qemu-img rebase -u -b '' testimg.qcow2
+```
+
+This can be used for backups. Just note that exporting an image that is currently being written to
+is of course unsafe and doesn't produce a consistent result, so only export snapshots if you do this
+on a live VM.

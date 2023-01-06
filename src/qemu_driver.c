@@ -53,6 +53,7 @@ typedef struct VitastorClient
     char *etcd_host;
     char *etcd_prefix;
     char *image;
+    int skip_parents;
     uint64_t inode;
     uint64_t pool;
     uint64_t size;
@@ -63,6 +64,10 @@ typedef struct VitastorClient
     int rdma_gid_index;
     int rdma_mtu;
     QemuMutex mutex;
+
+    uint64_t last_bitmap_inode, last_bitmap_offset, last_bitmap_len;
+    uint32_t last_bitmap_granularity;
+    uint8_t *last_bitmap;
 } VitastorClient;
 
 typedef struct VitastorRPC
@@ -72,6 +77,9 @@ typedef struct VitastorRPC
     QEMUIOVector *iov;
     long ret;
     int complete;
+    uint64_t inode, offset, len;
+    uint32_t bitmap_granularity;
+    uint8_t *bitmap;
 } VitastorRPC;
 
 static void vitastor_co_init_task(BlockDriverState *bs, VitastorRPC *task);
@@ -147,6 +155,7 @@ static void vitastor_parse_filename(const char *filename, QDict *options, Error 
         if (!strcmp(name, "inode") ||
             !strcmp(name, "pool") ||
             !strcmp(name, "size") ||
+            !strcmp(name, "skip-parents") ||
             !strcmp(name, "use-rdma") ||
             !strcmp(name, "rdma-port_num") ||
             !strcmp(name, "rdma-gid-index") ||
@@ -227,13 +236,16 @@ static void vitastor_aio_set_fd_handler(void *ctx, int fd, int unused1, IOHandle
 
 static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, Error **errp)
 {
+    VitastorRPC task;
     VitastorClient *client = bs->opaque;
+    void *image = NULL;
     int64_t ret = 0;
     qemu_mutex_init(&client->mutex);
     client->config_path = g_strdup(qdict_get_try_str(options, "config-path"));
     // FIXME: Rename to etcd_address
     client->etcd_host = g_strdup(qdict_get_try_str(options, "etcd-host"));
     client->etcd_prefix = g_strdup(qdict_get_try_str(options, "etcd-prefix"));
+    client->skip_parents = qdict_get_try_int(options, "skip-parents", 0);
     client->use_rdma = qdict_get_try_int(options, "use-rdma", -1);
     client->rdma_device = g_strdup(qdict_get_try_str(options, "rdma-device"));
     client->rdma_port_num = qdict_get_try_int(options, "rdma-port-num", 0);
@@ -243,23 +255,25 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
         vitastor_aio_set_fd_handler, bdrv_get_aio_context(bs), client->config_path, client->etcd_host, client->etcd_prefix,
         client->use_rdma, client->rdma_device, client->rdma_port_num, client->rdma_gid_index, client->rdma_mtu, 0
     );
-    client->image = g_strdup(qdict_get_try_str(options, "image"));
+    image = client->image = g_strdup(qdict_get_try_str(options, "image"));
     client->readonly = (flags & BDRV_O_RDWR) ? 1 : 0;
+    // Get image metadata (size and readonly flag) or just wait until the client is ready
+    if (!image)
+        client->image = "x";
+    task.complete = 0;
+    task.bs = bs;
+    if (qemu_in_coroutine())
+    {
+        vitastor_co_get_metadata(&task);
+    }
+    else
+    {
+        bdrv_coroutine_enter(bs, qemu_coroutine_create((void(*)(void*))vitastor_co_get_metadata, &task));
+        BDRV_POLL_WHILE(bs, !task.complete);
+    }
+    client->image = image;
     if (client->image)
     {
-        // Get image metadata (size and readonly flag)
-        VitastorRPC task;
-        task.complete = 0;
-        task.bs = bs;
-        if (qemu_in_coroutine())
-        {
-            vitastor_co_get_metadata(&task);
-        }
-        else
-        {
-            bdrv_coroutine_enter(bs, qemu_coroutine_create((void(*)(void*))vitastor_co_get_metadata, &task));
-            BDRV_POLL_WHILE(bs, !task.complete);
-        }
         client->watch = (void*)task.ret;
         client->readonly = client->readonly || vitastor_c_inode_get_readonly(client->watch);
         client->size = vitastor_c_inode_get_size(client->watch);
@@ -284,6 +298,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
             client->inode = (client->inode & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1)) | (client->pool << (64-POOL_ID_BITS));
         }
         client->size = qdict_get_try_int(options, "size", 0);
+        vitastor_c_close_watch(client->proxy, (void*)task.ret);
     }
     if (!client->size)
     {
@@ -305,6 +320,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     qdict_del(options, "inode");
     qdict_del(options, "pool");
     qdict_del(options, "size");
+    qdict_del(options, "skip-parents");
     return ret;
 }
 
@@ -321,6 +337,8 @@ static void vitastor_close(BlockDriverState *bs)
         g_free(client->etcd_prefix);
     if (client->image)
         g_free(client->image);
+    free(client->last_bitmap);
+    client->last_bitmap = NULL;
 }
 
 #if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 2
@@ -486,6 +504,13 @@ static int coroutine_fn vitastor_co_pwritev(BlockDriverState *bs,
     vitastor_co_init_task(bs, &task);
     task.iov = iov;
 
+    if (client->last_bitmap)
+    {
+        // Invalidate last bitmap on write
+        free(client->last_bitmap);
+        client->last_bitmap = NULL;
+    }
+
     uint64_t inode = client->watch ? vitastor_c_inode_get_num(client->watch) : client->inode;
     qemu_mutex_lock(&client->mutex);
     vitastor_c_write(client->proxy, inode, offset, bytes, 0, iov->iov, iov->niov, vitastor_co_generic_bh_cb, &task);
@@ -498,6 +523,140 @@ static int coroutine_fn vitastor_co_pwritev(BlockDriverState *bs,
 
     return task.ret;
 }
+
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 1
+#if QEMU_VERSION_MAJOR >= 2 || QEMU_VERSION_MAJOR == 1 && QEMU_VERSION_MINOR >= 7
+static void vitastor_co_read_bitmap_cb(void *opaque, long retval, uint8_t *bitmap)
+{
+    VitastorRPC *task = opaque;
+    VitastorClient *client = task->bs->opaque;
+    task->ret = retval;
+    task->complete = 1;
+    if (retval >= 0)
+    {
+        task->bitmap = bitmap;
+        if (client->last_bitmap_inode == task->inode &&
+            client->last_bitmap_offset == task->offset &&
+            client->last_bitmap_len == task->len)
+        {
+            free(client->last_bitmap);
+            client->last_bitmap = bitmap;
+        }
+    }
+    if (qemu_coroutine_self() != task->co)
+    {
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 8
+        aio_co_wake(task->co);
+#else
+        qemu_coroutine_enter(task->co, NULL);
+        qemu_aio_release(task);
+#endif
+    }
+}
+
+static int coroutine_fn vitastor_co_block_status(
+    BlockDriverState *bs, bool want_zero, int64_t offset, int64_t bytes,
+    int64_t *pnum, int64_t *map, BlockDriverState **file)
+{
+    // Allocated => return BDRV_BLOCK_DATA|BDRV_BLOCK_OFFSET_VALID
+    // Not allocated => return 0
+    // Error => return -errno
+    // Set pnum to length of the extent, `*map` = `offset`, `*file` = `bs`
+    VitastorRPC task;
+    VitastorClient *client = bs->opaque;
+    uint64_t inode = client->watch ? vitastor_c_inode_get_num(client->watch) : client->inode;
+    uint8_t bit = 0;
+    if (client->last_bitmap && client->last_bitmap_inode == inode &&
+        client->last_bitmap_offset <= offset &&
+        client->last_bitmap_offset+client->last_bitmap_len >= (want_zero ? offset+1 : offset+bytes))
+    {
+        // Use the previously read bitmap
+        task.bitmap_granularity = client->last_bitmap_granularity;
+        task.offset = client->last_bitmap_offset;
+        task.len = client->last_bitmap_len;
+        task.bitmap = client->last_bitmap;
+    }
+    else
+    {
+        // Read bitmap from this position, rounding to full inode PG blocks
+        uint32_t block_size = vitastor_c_inode_get_block_size(client->proxy, inode);
+        if (!block_size)
+            return -EAGAIN;
+        // Init coroutine
+        vitastor_co_init_task(bs, &task);
+        free(client->last_bitmap);
+        task.inode = client->last_bitmap_inode = inode;
+        task.bitmap_granularity = client->last_bitmap_granularity = vitastor_c_inode_get_bitmap_granularity(client->proxy, inode);
+        task.offset = client->last_bitmap_offset = offset / block_size * block_size;
+        task.len = client->last_bitmap_len = (offset+bytes+block_size-1) / block_size * block_size - task.offset;
+        task.bitmap = client->last_bitmap = NULL;
+        qemu_mutex_lock(&client->mutex);
+        vitastor_c_read_bitmap(client->proxy, task.inode, task.offset, task.len, !client->skip_parents, vitastor_co_read_bitmap_cb, &task);
+        qemu_mutex_unlock(&client->mutex);
+        while (!task.complete)
+        {
+            qemu_coroutine_yield();
+        }
+        if (task.ret < 0)
+        {
+            // Error
+            return task.ret;
+        }
+    }
+    if (want_zero)
+    {
+        // Get precise mapping with all holes
+        uint64_t bmp_pos = (offset-task.offset) / task.bitmap_granularity;
+        uint64_t bmp_len = task.len / task.bitmap_granularity;
+        uint64_t bmp_end = bmp_pos+1;
+        bit = (task.bitmap[bmp_pos >> 3] >> (bmp_pos & 0x7)) & 1;
+        while (bmp_end < bmp_len && ((task.bitmap[bmp_end >> 3] >> (bmp_end & 0x7)) & 1) == bit)
+        {
+            bmp_end++;
+        }
+        *pnum = (bmp_end-bmp_pos) * task.bitmap_granularity;
+    }
+    else
+    {
+        // Get larger allocated extents, possibly with false positives
+        uint64_t bmp_pos = (offset-task.offset) / task.bitmap_granularity;
+        uint64_t bmp_end = (offset+bytes-task.offset) / task.bitmap_granularity - bmp_pos;
+        while (bmp_pos < bmp_end)
+        {
+            if (!(bmp_pos & 7) && bmp_end >= bmp_pos+8)
+            {
+                bit = bit || task.bitmap[bmp_pos >> 3];
+                bmp_pos += 8;
+            }
+            else
+            {
+                bit = bit || ((task.bitmap[bmp_pos >> 3] >> (bmp_pos & 0x7)) & 1);
+                bmp_pos++;
+            }
+        }
+        *pnum = bytes;
+    }
+    if (bit)
+    {
+        *map = offset;
+        *file = bs;
+    }
+    return (bit ? (BDRV_BLOCK_DATA|BDRV_BLOCK_OFFSET_VALID) : 0);
+}
+#endif
+#if QEMU_VERSION_MAJOR == 1 && QEMU_VERSION_MINOR >= 7 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR < 12
+// QEMU 1.7-2.11
+static int64_t coroutine_fn vitastor_co_get_block_status(BlockDriverState *bs,
+    int64_t sector_num, int nb_sectors, int *pnum, BlockDriverState **file)
+{
+    int64_t map = 0;
+    int64_t pnumbytes = 0;
+    int r = vitastor_co_block_status(bs, 1, sector_num*BDRV_SECTOR_SIZE, nb_sectors*BDRV_SECTOR_SIZE, &pnumbytes, &map, &file);
+    *pnum = pnumbytes/BDRV_SECTOR_SIZE;
+    return r;
+}
+#endif
+#endif
 
 #if !( QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 7 )
 static int coroutine_fn vitastor_co_readv(BlockDriverState *bs, int64_t sector_num, int nb_sectors, QEMUIOVector *iov)
@@ -604,6 +763,15 @@ static BlockDriver bdrv_vitastor = {
 
 #if QEMU_VERSION_MAJOR >= 3
     .bdrv_co_truncate               = vitastor_co_truncate,
+#endif
+
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 1
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 12
+    // For snapshot export
+    .bdrv_co_block_status           = vitastor_co_block_status,
+#elif QEMU_VERSION_MAJOR == 1 && QEMU_VERSION_MINOR >= 7 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR < 12
+    .bdrv_co_get_block_status       = vitastor_co_get_block_status,
+#endif
 #endif
 
 #if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 7

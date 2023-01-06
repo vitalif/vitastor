@@ -403,7 +403,7 @@ struct snap_merger_t
         op->opcode = OSD_OP_READ_BITMAP;
         op->inode = target;
         op->offset = offset;
-        op->len = 0;
+        op->len = target_block_size;
         op->callback = [this](cluster_op_t *op)
         {
             if (op->retval < 0)

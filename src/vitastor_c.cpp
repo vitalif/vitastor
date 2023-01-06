@@ -207,6 +207,28 @@ void vitastor_c_write(vitastor_c *client, uint64_t inode, uint64_t offset, uint6
     client->cli->execute(op);
 }
 
+void vitastor_c_read_bitmap(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
+    int with_parents, VitastorReadBitmapHandler cb, void *opaque)
+{
+    cluster_op_t *op = new cluster_op_t;
+    op->opcode = with_parents ? OSD_OP_READ_CHAIN_BITMAP : OSD_OP_READ_BITMAP;
+    op->inode = inode;
+    op->offset = offset;
+    op->len = len;
+    op->callback = [cb, opaque](cluster_op_t *op)
+    {
+        uint8_t *bitmap = NULL;
+        if (op->retval >= 0)
+        {
+            bitmap = (uint8_t*)op->bitmap_buf;
+            op->bitmap_buf = NULL;
+        }
+        cb(opaque, op->retval, bitmap);
+        delete op;
+    };
+    client->cli->execute(op);
+}
+
 void vitastor_c_sync(vitastor_c *client, VitastorIOHandler cb, void *opaque)
 {
     cluster_op_t *op = new cluster_op_t;
@@ -243,6 +265,25 @@ uint64_t vitastor_c_inode_get_num(void *handle)
 {
     inode_watch_t *watch = (inode_watch_t*)handle;
     return watch->cfg.num;
+}
+
+uint32_t vitastor_c_inode_get_block_size(vitastor_c *client, uint64_t inode_num)
+{
+    auto pool_it = client->cli->st_cli.pool_config.find(INODE_POOL(inode_num));
+    if (pool_it == client->cli->st_cli.pool_config.end())
+        return 0;
+    auto & pool_cfg = pool_it->second;
+    uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+    return pool_cfg.data_block_size * pg_data_size;
+}
+
+uint32_t vitastor_c_inode_get_bitmap_granularity(vitastor_c *client, uint64_t inode_num)
+{
+    auto pool_it = client->cli->st_cli.pool_config.find(INODE_POOL(inode_num));
+    if (pool_it == client->cli->st_cli.pool_config.end())
+        return 0;
+    // FIXME: READ_BITMAP may fails if parent bitmap granularity differs from inode bitmap granularity
+    return pool_it->second.bitmap_granularity;
 }
 
 int vitastor_c_inode_get_readonly(void *handle)

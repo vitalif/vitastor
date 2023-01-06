@@ -10,7 +10,8 @@
 #define DEFAULT_CLIENT_MAX_DIRTY_OPS 1024
 #define INODE_LIST_DONE 1
 #define INODE_LIST_HAS_UNSTABLE 2
-#define OSD_OP_READ_BITMAP OSD_OP_SEC_READ_BMP
+#define OSD_OP_READ_BITMAP 0x101
+#define OSD_OP_READ_CHAIN_BITMAP 0x102
 
 #define OSD_OP_IGNORE_READONLY 0x08
 
@@ -30,7 +31,7 @@ struct cluster_op_part_t
 
 struct cluster_op_t
 {
-    uint64_t opcode; // OSD_OP_READ, OSD_OP_WRITE, OSD_OP_SYNC, OSD_OP_DELETE, OSD_OP_READ_BITMAP
+    uint64_t opcode; // OSD_OP_READ, OSD_OP_WRITE, OSD_OP_SYNC, OSD_OP_DELETE, OSD_OP_READ_BITMAP, OSD_OP_READ_CHAIN_BITMAP
     uint64_t inode;
     uint64_t offset;
     uint64_t len;
@@ -39,9 +40,13 @@ struct cluster_op_t
     uint64_t version = 0;
     // now only OSD_OP_IGNORE_READONLY is supported
     uint64_t flags = 0;
+    // negative retval is an error number
+    // write and read return len on success
+    // sync and delete return 0 on success
+    // read_bitmap and read_chain_bitmap return the length of bitmap in bits(!)
     int retval;
     osd_op_buf_list_t iov;
-    // READ and READ_BITMAP return the bitmap here
+    // READ, READ_BITMAP, READ_CHAIN_BITMAP return the bitmap here
     void *bitmap_buf = NULL;
     std::function<void(cluster_op_t*)> callback;
     ~cluster_op_t();

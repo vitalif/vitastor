@@ -14,6 +14,7 @@ It supports the following commands:
 - [df](#df)
 - [ls](#ls)
 - [create](#create)
+- [snap-create](#create)
 - [modify](#modify)
 - [rm](#rm)
 - [flatten](#flatten)
@@ -122,6 +123,8 @@ vitastor-cli snap-create [-p|--pool <id|name>] <image>@<snapshot>
 ```
 
 Create a snapshot of image `<name>` (either form can be used). May be used live if only a single writer is active.
+
+See also about [how to export snapshots](qemu.en.md#exporting-snapshots).
 
 ## modify
 
