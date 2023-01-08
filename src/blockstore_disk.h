@@ -33,7 +33,7 @@ struct blockstore_disk_t
     bool disable_flock = false;
 
     int meta_fd = -1, data_fd = -1, journal_fd = -1;
-    uint64_t meta_offset, meta_device_sect, meta_device_size, meta_len;
+    uint64_t meta_offset, meta_device_sect, meta_device_size, meta_len, meta_version = 0;
     uint64_t data_offset, data_device_sect, data_device_size, data_len;
     uint64_t journal_offset, journal_device_sect, journal_device_size, journal_len;
 

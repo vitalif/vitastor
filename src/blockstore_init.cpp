@@ -123,6 +123,14 @@ resume_1:
             );
             exit(1);
         }
+        if (bs->dsk.meta_version && bs->dsk.meta_version != hdr->version)
+        {
+            printf(
+                "Metadata format version is %lu on disk, but %lu is currently selected in OSD configuration.\n"
+                " Please upgrade using vitastor-disk.\n", hdr->version, bs->dsk.meta_version
+            );
+            exit(1);
+        }
         if (hdr->version == BLOCKSTORE_META_VERSION_V2)
         {
             uint32_t csum = hdr->header_csum;
@@ -133,12 +141,18 @@ resume_1:
                 exit(1);
             }
             hdr->header_csum = csum;
+            bs->dsk.meta_version = BLOCKSTORE_META_VERSION_V2;
         }
         else if (hdr->version == BLOCKSTORE_META_VERSION_V1)
         {
             hdr->data_csum_type = 0;
             hdr->csum_block_size = 0;
             hdr->header_csum = 0;
+            // Enable compatibility mode - entries without checksums
+            bs->dsk.clean_entry_size = sizeof(clean_disk_entry) + bs->dsk.clean_entry_bitmap_size*2;
+            bs->dsk.meta_len = (1 + (bs->dsk.block_count - 1 + bs->dsk.meta_block_size / bs->dsk.clean_entry_size)
+                / (bs->dsk.meta_block_size / bs->dsk.clean_entry_size)) * bs->dsk.meta_block_size;
+            bs->dsk.meta_version = BLOCKSTORE_META_VERSION_V1;
         }
         else if (hdr->version > BLOCKSTORE_META_VERSION_V2)
         {
@@ -156,10 +170,12 @@ resume_1:
         {
             printf(
                 "Configuration stored in metadata superblock"
-                " (meta_block_size=%u, data_block_size=%u, bitmap_granularity=%u)"
-                " differs from OSD configuration (%lu/%u/%lu).\n",
+                " (meta_block_size=%u, data_block_size=%u, bitmap_granularity=%u, data_csum_type=%u, csum_block_size=%u)"
+                " differs from OSD configuration (%lu/%u/%lu, %u/%u).\n",
                 hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity,
-                bs->dsk.meta_block_size, bs->dsk.data_block_size, bs->dsk.bitmap_granularity
+                hdr->data_csum_type, hdr->csum_block_size,
+                bs->dsk.meta_block_size, bs->dsk.data_block_size, bs->dsk.bitmap_granularity,
+                bs->dsk.data_csum_type, bs->dsk.csum_block_size
             );
             exit(1);
         }
@@ -310,12 +326,15 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
         clean_disk_entry *entry = (clean_disk_entry*)(buf + i*bs->dsk.clean_entry_size);
         if (entry->oid.inode > 0)
         {
-            // Check entry crc32
-            uint32_t *entry_csum = (uint32_t*)((uint8_t*)entry + bs->dsk.clean_entry_size - 4);
-            if (*entry_csum != crc32c(0, entry, bs->dsk.clean_entry_size - 4))
+            if (bs->dsk.meta_version >= BLOCKSTORE_META_VERSION_V2)
             {
-                printf("Metadata entry %lu is corrupt (checksum mismatch), skipping\n", done_cnt+i);
-                continue;
+                // Check entry crc32
+                uint32_t *entry_csum = (uint32_t*)((uint8_t*)entry + bs->dsk.clean_entry_size - 4);
+                if (*entry_csum != crc32c(0, entry, bs->dsk.clean_entry_size - 4))
+                {
+                    printf("Metadata entry %lu is corrupt (checksum mismatch), skipping\n", done_cnt+i);
+                    continue;
+                }
             }
             if (!bs->inmemory_meta && bs->dsk.clean_entry_bitmap_size)
             {
@@ -536,13 +555,30 @@ resume_1:
             fprintf(stderr, "First entry of the journal is corrupt or unsupported\n");
             exit(1);
         }
-        if (je_start->size == JE_START_V0_SIZE || je_start->version != JOURNAL_VERSION_V2)
+        if (je_start->size == JE_START_V0_SIZE ||
+            (je_start->version != JOURNAL_VERSION_V1 || je_start->size != JE_START_V1_SIZE) &&
+            (je_start->version != JOURNAL_VERSION_V2 || je_start->size != JE_START_V2_SIZE))
         {
-            // FIXME: Support v1 too
             fprintf(
-                stderr, "The code only supports journal version %d, but it is %lu on disk."
+                stderr, "The code only supports journal versions 2 and 1, but it is %lu on disk."
                     " Please use vitastor-disk to rewrite the journal\n",
-                JOURNAL_VERSION_V2, je_start->size == JE_START_V0_SIZE ? 0 : je_start->version
+                je_start->size == JE_START_V0_SIZE ? 0 : je_start->version
+            );
+            exit(1);
+        }
+        if (je_start->version == JOURNAL_VERSION_V1)
+        {
+            je_start->data_csum_type = 0;
+            je_start->csum_block_size = 0;
+        }
+        if (je_start->data_csum_type != bs->dsk.data_csum_type ||
+            je_start->csum_block_size != bs->dsk.csum_block_size)
+        {
+            printf(
+                "Configuration stored in journal superblock (data_csum_type=%u, csum_block_size=%u)"
+                " differs from OSD configuration (%u/%u).\n",
+                je_start->data_csum_type, je_start->csum_block_size,
+                bs->dsk.data_csum_type, bs->dsk.csum_block_size
             );
             exit(1);
         }

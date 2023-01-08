@@ -665,9 +665,12 @@ void journal_flusher_co::update_metadata_entry()
         new_entry->version = cur.version;
         if (!bs->inmemory_meta)
             memcpy(&new_entry->bitmap, new_clean_bitmap, bs->dsk.clean_dyn_size);
-        // Calculate metadata entry checksum
-        uint32_t *new_entry_csum = (uint32_t*)((uint8_t*)new_entry + bs->dsk.clean_entry_size - 4);
-        *new_entry_csum = crc32c(0, new_entry, bs->dsk.clean_entry_size - 4);
+        if (bs->dsk.meta_version >= BLOCKSTORE_META_VERSION_V2)
+        {
+            // Calculate metadata entry checksum
+            uint32_t *new_entry_csum = (uint32_t*)((uint8_t*)new_entry + bs->dsk.clean_entry_size - 4);
+            *new_entry_csum = crc32c(0, new_entry, bs->dsk.clean_entry_size - 4);
+        }
     }
 }
 
@@ -807,9 +810,12 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
             calc_block_checksums(new_data_csums, true);
             if (!bs->inmemory_meta)
                 memcpy(&new_entry->bitmap, new_clean_bitmap, bs->dsk.clean_dyn_size);
-            // calculate metadata entry checksum
-            uint32_t *new_entry_csum = (uint32_t*)((uint8_t*)new_entry + bs->dsk.clean_entry_size - 4);
-            *new_entry_csum = crc32c(0, new_entry, bs->dsk.clean_entry_size - 4);
+            if (bs->dsk.meta_version >= BLOCKSTORE_META_VERSION_V2)
+            {
+                // calculate metadata entry checksum
+                uint32_t *new_entry_csum = (uint32_t*)((uint8_t*)new_entry + bs->dsk.clean_entry_size - 4);
+                *new_entry_csum = crc32c(0, new_entry, bs->dsk.clean_entry_size - 4);
+            }
         }
         // Write and fsync the modified metadata entry
     resume_2:
@@ -1364,7 +1370,8 @@ bool journal_flusher_co::trim_journal(int wait_base)
                 .crc32 = 0,
                 .magic = JOURNAL_MAGIC,
                 .type = JE_START,
-                .size = sizeof(journal_entry_start),
+                .size = ((!bs->dsk.data_csum_type && ((journal_entry_start*)flusher->journal_superblock)->version == JOURNAL_VERSION_V1)
+                    ? (uint32_t)JE_START_V1_SIZE : (uint32_t)JE_START_V2_SIZE),
                 .reserved = 0,
                 .journal_start = new_trim_pos,
                 .version = JOURNAL_VERSION_V2,
