@@ -550,8 +550,8 @@ function random_combinations(osd_tree, pg_size, count, ordered)
         seed ^= seed << 5;
         return seed + 2147483648;
     };
-    const hosts = Object.keys(osd_tree).sort();
     const osds = Object.keys(osd_tree).reduce((a, c) => { a[c] = Object.keys(osd_tree[c]).sort(); return a; }, {});
+    const hosts = Object.keys(osd_tree).sort().filter(h => osds[h].length > 0);
     const r = {};
     // Generate random combinations including each OSD at least once
     for (let h = 0; h < hosts.length; h++)
