@@ -16,6 +16,11 @@ use PVE::Tools qw(run_command);
 
 use base qw(PVE::Storage::Plugin);
 
+if (@PVE::Storage::Plugin::SHARED_STORAGE)
+{
+    push @PVE::Storage::Plugin::SHARED_STORAGE, 'vitastor';
+}
+
 sub api
 {
     # Trick it :)
@@ -133,9 +138,10 @@ sub properties
 sub options
 {
     return {
+        shared => { optional => 1 },
         nodes => { optional => 1 },
         disable => { optional => 1 },
-        vitastor_etcd_address => { optional => 1},
+        vitastor_etcd_address => { optional => 1 },
         vitastor_etcd_prefix => { optional => 1 },
         vitastor_config_path => { optional => 1 },
         vitastor_prefix => { optional => 1 },
