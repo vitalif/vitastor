@@ -9,7 +9,7 @@
 ## Debian
 
 - Trust Vitastor package signing key:
-  `wget -q -O - https://vitastor.io/debian/pubkey | sudo apt-key add -`
+  `wget https://vitastor.io/debian/pubkey.gpg -O /etc/apt/trusted.gpg.d/vitastor.gpg`
 - Add Vitastor package repository to your /etc/apt/sources.list:
   - Debian 11 (Bullseye/Sid): `deb https://vitastor.io/debian bullseye main`
   - Debian 10 (Buster): `deb https://vitastor.io/debian buster main`
