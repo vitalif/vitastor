@@ -259,7 +259,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     client->readonly = (flags & BDRV_O_RDWR) ? 1 : 0;
     // Get image metadata (size and readonly flag) or just wait until the client is ready
     if (!image)
-        client->image = "x";
+        client->image = (char*)"x";
     task.complete = 0;
     task.bs = bs;
     if (qemu_in_coroutine())
