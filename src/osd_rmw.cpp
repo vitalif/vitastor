@@ -945,7 +945,7 @@ void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
                     {
                         if (write_osd_set[i])
                         {
-                            memcpy(subm + item_size*pg_minsize*j, matrix_data + item_size*pg_minsize*(i-pg_minsize), item_size*pg_minsize);
+                            memcpy((uint8_t*)subm + item_size*pg_minsize*j, (uint8_t*)matrix_data + item_size*pg_minsize*(i-pg_minsize), item_size*pg_minsize);
                             j++;
                         }
                     }
