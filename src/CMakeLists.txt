@@ -145,7 +145,6 @@ add_library(vitastor_client SHARED
 set_target_properties(vitastor_client PROPERTIES PUBLIC_HEADER "vitastor_c.h")
 target_link_libraries(vitastor_client
 	vitastor_common
-	tcmalloc_minimal
 	${LIBURING_LIBRARIES}
 	${IBVERBS_LIBRARIES}
 )
