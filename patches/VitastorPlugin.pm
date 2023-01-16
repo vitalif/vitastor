@@ -139,6 +139,7 @@ sub options
 {
     return {
         shared => { optional => 1 },
+        content => { optional => 1 },
         nodes => { optional => 1 },
         disable => { optional => 1 },
         vitastor_etcd_address => { optional => 1 },
