@@ -199,16 +199,44 @@ int disk_tool_t::process_journal_block(void *buf, std::function<void(int, journa
             assert(pread(dsk.journal_fd, small_write_data, je->small_write.len, dsk.journal_offset+je->small_write.data_offset) == je->small_write.len);
             data_crc32 = je_start.csum_block_size ? 0 : crc32c(0, small_write_data, je->small_write.len);
             data_csum_valid = (data_crc32 == je->small_write.crc32_data);
-            if (je_start.csum_block_size)
+            if (je_start.csum_block_size && je->small_write.len > 0)
             {
-                uint32_t data_csum_size = je->small_write.len/je_start.csum_block_size*(je_start.data_csum_type & 0xFF);
-                uint32_t *block_csums = (uint32_t*)((uint8_t*)je + je->size - data_csum_size);
-                for (uint32_t pos = 0; pos < je->small_write.len; pos += je_start.csum_block_size, block_csums++)
+                // like in enqueue_write()
+                uint32_t start = je->small_write.offset / je_start.csum_block_size;
+                uint32_t end = (je->small_write.offset+je->small_write.len-1) / je_start.csum_block_size;
+                uint32_t data_csum_size = (end-start+1) * (je_start.data_csum_type & 0xFF);
+                if (je->size < sizeof(journal_entry_small_write) + data_csum_size)
                 {
-                    if (crc32c(0, (uint8_t*)small_write_data + pos, je_start.csum_block_size) != *block_csums)
+                    data_csum_valid = false;
+                }
+                else
+                {
+                    uint32_t calc_csum = 0;
+                    uint32_t *block_csums = (uint32_t*)((uint8_t*)je + je->size - data_csum_size);
+                    if (start == end)
                     {
-                        data_csum_valid = false;
-                        break;
+                        calc_csum = crc32c(0, (uint8_t*)small_write_data, je->small_write.len);
+                        data_csum_valid = data_csum_valid && (calc_csum == *block_csums++);
+                    }
+                    else
+                    {
+                        // First block
+                        calc_csum = crc32c(0, (uint8_t*)small_write_data,
+                            je_start.csum_block_size*(start+1)-je->small_write.offset);
+                        data_csum_valid = data_csum_valid && (calc_csum == *block_csums++);
+                        // Intermediate blocks
+                        for (uint32_t i = start+1; i < end; i++)
+                        {
+                            calc_csum = crc32c(0, (uint8_t*)small_write_data +
+                                je_start.csum_block_size*i-je->small_write.offset, je_start.csum_block_size);
+                            data_csum_valid = data_csum_valid && (calc_csum == *block_csums++);
+                        }
+                        // Last block
+                        calc_csum = crc32c(
+                            0, (uint8_t*)small_write_data + end*je_start.csum_block_size - je->small_write.offset,
+                            je->small_write.offset+je->small_write.len - end*je_start.csum_block_size
+                        );
+                        data_csum_valid = data_csum_valid && (calc_csum == *block_csums++);
                     }
                 }
             }
@@ -265,20 +293,22 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
     }
     else if (je->type == JE_SMALL_WRITE || je->type == JE_SMALL_WRITE_INSTANT)
     {
+        auto & sw = je->small_write;
         printf(
             json ? ",\"type\":\"small_write%s\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\",\"offset\":%u,\"len\":%u,\"loc\":\"0x%lx\""
                 : "je_small_write%s oid=%lx:%lx ver=%lu offset=%u len=%u loc=%08lx",
             je->type == JE_SMALL_WRITE_INSTANT ? "_instant" : "",
-            je->small_write.oid.inode, je->small_write.oid.stripe,
-            je->small_write.version, je->small_write.offset, je->small_write.len,
-            je->small_write.data_offset
+            sw.oid.inode, sw.oid.stripe, sw.version, sw.offset, sw.len, sw.data_offset
         );
-        if (journal_calc_data_pos != je->small_write.data_offset)
+        if (journal_calc_data_pos != sw.data_offset)
         {
             printf(json ? ",\"bad_loc\":true,\"calc_loc\":\"0x%lx\""
                 : " (mismatched, calculated = %lu)", journal_pos);
         }
-        uint32_t data_csum_size = (!je_start.csum_block_size ? 0 : je->small_write.len/je_start.csum_block_size*(je_start.data_csum_type & 0xFF));
+        uint32_t data_csum_size = (!je_start.csum_block_size
+            ? 0
+            : ((sw.offset + sw.len - 1)/je_start.csum_block_size - sw.offset/je_start.csum_block_size + 1)
+                *(je_start.data_csum_type & 0xFF));
         if (je->size > sizeof(journal_entry_small_write) + data_csum_size)
         {
             printf(json ? ",\"bitmap\":\"" : " (bitmap: ");
@@ -291,13 +321,13 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
         if (dump_with_data)
         {
             printf(json ? ",\"data\":\"" : " (data: ");
-            for (int i = 0; i < je->small_write.len; i++)
+            for (int i = 0; i < sw.len; i++)
             {
                 printf("%02x", ((uint8_t*)small_write_data)[i]);
             }
             printf(json ? "\"" : ")");
         }
-        if (data_csum_size > 0)
+        if (data_csum_size > 0 && je->size >= sizeof(journal_entry_small_write) + data_csum_size)
         {
             printf(json ? ",\"block_csums\":\"" : " block_csums=");
             uint8_t *block_csums = (uint8_t*)je + je->size - data_csum_size;
@@ -307,27 +337,29 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
         }
         else
         {
-            printf(json ? ",\"data_crc32\":\"%08x\"" : " data_crc32=%08x", je->small_write.crc32_data);
+            printf(json ? ",\"data_crc32\":\"%08x\"" : " data_crc32=%08x", sw.crc32_data);
         }
         printf(
             json ? ",\"data_valid\":%s}" : "%s\n",
             (data_csum_valid
-                ? (json ? "false" : " (invalid)")
-                : (json ? "true" : " (valid)"))
+                ? (json ? "true" : " (valid)")
+                : (json ? "false" : " (invalid)"))
         );
     }
     else if (je->type == JE_BIG_WRITE || je->type == JE_BIG_WRITE_INSTANT)
     {
+        auto & bw = je->big_write;
         printf(
             json ? ",\"type\":\"big_write%s\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\",\"offset\":%u,\"len\":%u,\"loc\":\"0x%lx\""
                 : "je_big_write%s oid=%lx:%lx ver=%lu offset=%u len=%u loc=%08lx",
             je->type == JE_BIG_WRITE_INSTANT ? "_instant" : "",
-            je->big_write.oid.inode, je->big_write.oid.stripe,
-            je->big_write.version, je->big_write.offset, je->big_write.len,
-            je->big_write.location
+            bw.oid.inode, bw.oid.stripe, bw.version, bw.offset, bw.len, bw.location
         );
-        uint32_t data_csum_size = (!je_start.csum_block_size ? 0 : je->big_write.len/je_start.csum_block_size*(je_start.data_csum_type & 0xFF));
-        if (data_csum_size > 0)
+        uint32_t data_csum_size = (!je_start.csum_block_size
+            ? 0
+            : ((bw.offset + bw.len - 1)/je_start.csum_block_size - bw.offset/je_start.csum_block_size + 1)
+                *(je_start.data_csum_type & 0xFF));
+        if (data_csum_size > 0 && je->size >= sizeof(journal_entry_big_write) + data_csum_size)
         {
             printf(json ? ",\"block_csums\":\"" : " block_csums=");
             uint8_t *block_csums = (uint8_t*)je + je->size - data_csum_size;
@@ -335,10 +367,10 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
                 printf("%02x", block_csums[i]);
             printf(json ? "\"" : "");
         }
-        if (je->big_write.size > sizeof(journal_entry_big_write) + data_csum_size)
+        if (bw.size > sizeof(journal_entry_big_write) + data_csum_size)
         {
             printf(json ? ",\"bitmap\":\"" : " (bitmap: ");
-            for (int i = sizeof(journal_entry_big_write); i < je->big_write.size - data_csum_size; i++)
+            for (int i = sizeof(journal_entry_big_write); i < bw.size - data_csum_size; i++)
             {
                 printf("%02x", ((uint8_t*)je)[i]);
             }

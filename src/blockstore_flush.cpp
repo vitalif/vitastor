@@ -475,7 +475,7 @@ resume_2:
         if (copy_count && !bs->journal.inmemory && wait_journal_count > 0)
         {
             wait_state = wait_base+12;
-            goto resume_12;
+            return false;
         }
         // Submit data writes
         for (it = v.begin(); it != v.end(); it++)
@@ -952,11 +952,6 @@ void journal_flusher_co::scan_dirty()
                         }
                         if (bs->dsk.csum_block_size)
                         {
-                            if (offset % bs->dsk.csum_block_size || submit_len % bs->dsk.csum_block_size)
-                            {
-                                // Small write not aligned for checksums. We may have to pad it
-                                fill_incomplete = true;
-                            }
                             // FIXME Remove this > sizeof(void*) inline perversion from everywhere.
                             // I think it doesn't matter but I couldn't stop myself from implementing it :)
                             uint64_t dyn_size = bs->dsk.dirty_dyn_size(dirty_it->second.offset, dirty_it->second.len);
@@ -964,38 +959,15 @@ void journal_flusher_co::scan_dirty()
                                 bs->dsk.clean_entry_bitmap_size;
                             it->csum_buf = dyn_from + (it->offset/bs->dsk.csum_block_size -
                                 dirty_it->second.offset/bs->dsk.csum_block_size) * (bs->dsk.data_csum_type & 0xFF);
-                            if (!bs->journal.inmemory)
+                            if (offset % bs->dsk.csum_block_size || submit_len % bs->dsk.csum_block_size)
                             {
-                                if (offset < blk_end)
+                                // Small write not aligned for checksums. We may have to pad it
+                                fill_incomplete = true;
+                                if (!bs->journal.inmemory)
                                 {
-                                    // Already being read as a part of the previous checksum block series
-                                    it->buf = blk_buf + offset - blk_begin;
-                                    it->copy_flags |= COPY_BUF_COALESCED;
-                                    if (offset+submit_len > blk_end)
-                                        it->len = blk_end-offset;
-                                }
-                                else if (offset % bs->dsk.csum_block_size || submit_len % bs->dsk.csum_block_size)
-                                {
-                                    // We don't use fill_partial_checksum_blocks for journal because journal writes never have holes (internal bitmap)
-                                    blk_begin = (offset/bs->dsk.csum_block_size) * bs->dsk.csum_block_size;
-                                    blk_begin = blk_begin < dirty_it->second.offset ? dirty_it->second.offset : blk_begin;
-                                    blk_end = ((offset+submit_len-1)/bs->dsk.csum_block_size + 1) * bs->dsk.csum_block_size;
-                                    blk_end = blk_end > end_offset ? end_offset : blk_end;
-                                    if (blk_begin < offset || blk_end > offset+submit_len)
-                                    {
-                                        blk_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, blk_end-blk_begin);
-                                        it->buf = blk_buf + offset - blk_begin;
-                                        it->copy_flags |= COPY_BUF_COALESCED;
-                                        v.push_back((copy_buffer_t){
-                                            .copy_flags = COPY_BUF_JOURNAL|COPY_BUF_CSUM_FILL,
-                                            .offset = blk_begin,
-                                            .len = blk_end-blk_begin,
-                                            .disk_offset = dirty_it->second.location + blk_begin - dirty_it->second.offset,
-                                            .buf = blk_buf,
-                                            .csum_buf = (dyn_from + (blk_begin/bs->dsk.csum_block_size -
-                                                dirty_it->second.offset/bs->dsk.csum_block_size) * (bs->dsk.data_csum_type & 0xFF)),
-                                        });
-                                    }
+                                    bs->pad_journal_read(v, *it, dirty_it->second.offset,
+                                        dirty_it->second.offset + dirty_it->second.len, dirty_it->second.location,
+                                        dyn_from, offset, submit_len, blk_begin, blk_end, blk_buf);
                                 }
                             }
                         }
@@ -1036,6 +1008,23 @@ void journal_flusher_co::scan_dirty()
     if (fill_incomplete && !clean_init_bitmap)
     {
         // Rescan and fill incomplete writes with old data to calculate checksums
+        if (old_clean_loc == UINT64_MAX)
+        {
+            // May happen if the metadata entry is corrupt, but journal isn't
+            // FIXME: Report corrupted object to the upper layer (OSD)
+            printf(
+                "Warning: object %lx:%lx has overwrites, but doesn't have a clean version."
+                " Metadata is likely corrupted. Dropping object from the DB.\n",
+                cur.oid.inode, cur.oid.stripe
+            );
+            v.clear();
+            has_writes = false;
+            has_delete = skip_copy = true;
+            copy_count = 0;
+            fill_incomplete = false;
+            read_to_fill_incomplete = 0;
+            return;
+        }
         uint8_t *bmp_ptr = bs->get_clean_entry_bitmap(old_clean_loc, 0);
         uint64_t fulfilled = 0;
         read_to_fill_incomplete = bs->fill_partial_checksum_blocks(

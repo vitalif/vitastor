@@ -33,14 +33,14 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
     {
         if (hdr->version == BLOCKSTORE_META_VERSION_V1)
         {
-            // Vitastor 0.6-0.7 - static array of clean_disk_entry with bitmaps
+            // Vitastor 0.6-0.8 - static array of clean_disk_entry with bitmaps
             hdr->data_csum_type = 0;
             hdr->csum_block_size = 0;
             hdr->header_csum = 0;
         }
         else if (hdr->version == BLOCKSTORE_META_VERSION_V2)
         {
-            // Vitastor 0.8 - static array of clean_disk_entry with bitmaps and checksums
+            // Vitastor 0.9 - static array of clean_disk_entry with bitmaps and checksums
             if (hdr->data_csum_type != 0 &&
                 hdr->data_csum_type != BLOCKSTORE_CSUM_CRC32C)
             {
@@ -169,7 +169,7 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v2_t *hdr)
         else if (hdr->version == BLOCKSTORE_META_VERSION_V2)
         {
             printf(
-                "{\"version\":\"0.8\",\"meta_block_size\":%u,\"data_block_size\":%u,\"bitmap_granularity\":%u,"
+                "{\"version\":\"0.9\",\"meta_block_size\":%u,\"data_block_size\":%u,\"bitmap_granularity\":%u,"
                 "\"data_csum_type\":%s,\"csum_block_size\":%u,\"entries\":[\n",
                 hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity,
                 csum_type_str(hdr->data_csum_type).c_str(), hdr->csum_block_size

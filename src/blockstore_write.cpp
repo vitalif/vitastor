@@ -194,9 +194,12 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             data_csums[0] = fn(0, op->buf, op->len, op->offset - start*dsk.csum_block_size, end*dsk.csum_block_size - (op->offset+op->len));
         else
         {
+            // First block
             data_csums[0] = fn(0, op->buf, dsk.csum_block_size*(start+1)-op->offset, op->offset - start*dsk.csum_block_size, 0);
+            // Intermediate blocks
             for (uint32_t i = start+1; i < end; i++)
                 data_csums[i-start] = crc32c(0, (uint8_t*)op->buf + dsk.csum_block_size*i-op->offset, dsk.csum_block_size);
+            // Last block
             data_csums[end-start] = fn(
                 0, (uint8_t*)op->buf + end*dsk.csum_block_size - op->offset,
                 op->offset+op->len - end*dsk.csum_block_size,

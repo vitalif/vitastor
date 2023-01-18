@@ -9,12 +9,7 @@ int blockstore_impl_t::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_
 {
     if (!len)
     {
-        // Zero-length version - skip
-        return 1;
-    }
-    else if (IS_IN_FLIGHT(item_state))
-    {
-        // Write not finished yet - skip
+        // Zero-length read
         return 1;
     }
     else if (IS_DELETE(item_state))
@@ -23,6 +18,7 @@ int blockstore_impl_t::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_
         memset(buf, 0, len);
         return 1;
     }
+    assert(!IS_IN_FLIGHT(item_state));
     if (journal.inmemory && IS_JOURNAL(item_state))
     {
         memcpy(buf, (uint8_t*)journal.buffer + offset, len);
@@ -97,18 +93,21 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op,
     uint32_t cur_start = item_start;
     if (cur_start < read_op->offset + read_op->len && item_end > read_op->offset)
     {
+        uint64_t blk_begin = 0, blk_end = 0;
+        uint8_t *blk_buf = NULL;
+        auto & rv = PRIV(read_op)->read_vec;
         cur_start = cur_start < read_op->offset ? read_op->offset : cur_start;
         item_end = item_end > read_op->offset + read_op->len ? read_op->offset + read_op->len : item_end;
-        find_holes(PRIV(read_op)->read_vec, cur_start, item_end, [&](int pos, bool alloc, uint32_t start, uint32_t end)
+        find_holes(rv, cur_start, item_end, [&](int pos, bool alloc, uint32_t start, uint32_t end)
         {
-            if (alloc)
+            if (!r || alloc)
                 return 0;
             copy_buffer_t el = {
                 .copy_flags = (IS_JOURNAL(item_state) ? COPY_BUF_JOURNAL : COPY_BUF_DATA),
                 .offset = start,
                 .len = end-start,
                 .disk_offset = item_location + el.offset - item_start,
-                .journal_sector = journal_sector,
+                .journal_sector = (IS_JOURNAL(item_state) ? journal_sector : 0),
                 .csum_buf = !csum ? NULL : (csum + (cur_start - item_start) / dsk.csum_block_size * (dsk.data_csum_type & 0xFF)),
             };
             if (IS_BIG_WRITE(item_state))
@@ -118,17 +117,27 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op,
                 // Very improbable, but possible
                 PRIV(read_op)->clean_version_used = 1;
             }
-            PRIV(read_op)->read_vec.insert(PRIV(read_op)->read_vec.begin() + pos, el);
+            rv.insert(rv.begin() + pos, el);
+            if (!journal.inmemory && dsk.csum_block_size > dsk.bitmap_granularity && IS_JOURNAL(item_state) && !IS_DELETE(item_state))
+            {
+                int pad_state = pad_journal_read(rv, rv[pos], item_start, item_end, item_location,
+                    csum, start, end-start, blk_begin, blk_end, blk_buf);
+                if (pad_state == 2)
+                    return 1;
+                else if (pad_state == 1)
+                {
+                    // Submit the journal checksum block read
+                    if (!read_checksum_block(read_op, 1, fulfilled, item_location))
+                        r = 0;
+                    return 1;
+                }
+            }
+            fulfilled += el.len;
             if (!fulfill_read_push(read_op,
                 (uint8_t*)read_op->buf + el.offset - read_op->offset,
                 item_location + el.offset - item_start,
                 el.len, item_state, item_version))
-            {
-                PRIV(read_op)->read_vec.clear();
                 r = 0;
-                return 0;
-            }
-            fulfilled += el.len;
             return 1;
         });
     }
@@ -240,10 +249,11 @@ bool blockstore_impl_t::read_range_fulfilled(std::vector<copy_buffer_t> & rv, ui
     return all_done;
 }
 
-bool blockstore_impl_t::read_clean_checksum_block(blockstore_op_t *op, int rv_pos,
-    uint64_t &fulfilled, uint64_t clean_loc, uint32_t item_start, uint32_t item_end)
+bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uint64_t &fulfilled, uint64_t clean_loc)
 {
     auto & rv = PRIV(op)->read_vec;
+    auto *vi = &rv[rv.size()-rv_pos];
+    uint32_t item_start = vi->offset, item_end = vi->offset+vi->len;
     uint32_t fill_size = 0;
     int n_iov = 0;
     find_holes(rv, item_start, item_end, [&](int pos, bool alloc, uint32_t cur_start, uint32_t cur_end)
@@ -271,31 +281,32 @@ bool blockstore_impl_t::read_clean_checksum_block(blockstore_op_t *op, int rv_po
                 .copy_flags = COPY_BUF_DATA,
                 .offset = cur_start,
                 .len = cur_end-cur_start,
-                .disk_offset = clean_loc,
             });
             fulfilled += cur_end-cur_start;
             return 1;
         }
         return 0;
     });
+    vi = &rv[rv.size()-rv_pos];
     // Save buf into read_vec too but in a creepy way
     // FIXME: Shit, something else should be invented %)
-    rv[rv.size()-rv_pos] = (copy_buffer_t){
-        .copy_flags = COPY_BUF_CSUM_FILL,
+    *vi = (copy_buffer_t){
+        .copy_flags = vi->copy_flags,
         .offset = 0xffffffff,
         .len = ((uint64_t)n_iov << 32) | fill_size,
         .disk_offset = clean_loc + item_start,
-        .csum_buf = (uint8_t*)buf,
+        .buf = (uint8_t*)buf,
+        .csum_buf = vi->csum_buf,
     };
+    int submit_fd = (vi->copy_flags & COPY_BUF_JOURNAL ? dsk.journal_fd : dsk.data_fd);
+    uint64_t submit_offset = (vi->copy_flags & COPY_BUF_JOURNAL ? journal.offset : dsk.data_offset);
     uint32_t d_pos = 0;
     for (int n_pos = 0; n_pos < n_iov; n_pos += IOV_MAX)
     {
         int n_cur = n_iov-n_pos < IOV_MAX ? n_iov-n_pos : IOV_MAX;
         BS_SUBMIT_GET_SQE(sqe, data);
         PRIV(op)->pending_ops++;
-        my_uring_prep_readv(
-            sqe, dsk.data_fd, iov + n_pos, n_cur, dsk.data_offset + clean_loc + d_pos
-        );
+        my_uring_prep_readv(sqe, submit_fd, iov + n_pos, n_cur, submit_offset + clean_loc + d_pos);
         data->callback = [this, op](ring_data_t *data) { handle_read_event(data, op); };
         if (n_pos > 0 || n_pos + IOV_MAX < n_iov)
         {
@@ -308,14 +319,17 @@ bool blockstore_impl_t::read_clean_checksum_block(blockstore_op_t *op, int rv_po
         else
             data->iov.iov_len = item_end-item_start;
     }
-    // Reading may race with flushing.
-    // - Flushing happens in 3 steps: (2) punch holes in meta -> (4) update data -> (6) update meta
-    // - Reading may start/end at: 1/3, 1/5, 1/7, 3/5, 3/7, 5/7
-    // - 1/3, 1/5, 3/5 are not a problem because we'll check data using punched bitmap and CRCs
-    // - For 1/7, 3/7 and 5/7 to finish correctly we need a copy of punched metadata
-    //   otherwise the checksum may not match
-    // So flushers save a copy of punched metadata if the object is being read during (6).
-    PRIV(op)->clean_version_used = 1;
+    if (!(vi->copy_flags & COPY_BUF_JOURNAL))
+    {
+        // Reading may race with flushing.
+        // - Flushing happens in 3 steps: (2) punch holes in meta -> (4) update data -> (6) update meta
+        // - Reading may start/end at: 1/3, 1/5, 1/7, 3/5, 3/7, 5/7
+        // - 1/3, 1/5, 3/5 are not a problem because we'll check data using punched bitmap and CRCs
+        // - For 1/7, 3/7 and 5/7 to finish correctly we need a copy of punched metadata
+        //   otherwise the checksum may not match
+        // So flushers save a copy of punched metadata if the object is being read during (6).
+        PRIV(op)->clean_version_used = 1;
+    }
     return true;
 }
 
@@ -341,6 +355,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
     uint64_t fulfilled = 0;
     PRIV(read_op)->pending_ops = 0;
     PRIV(read_op)->clean_version_used = 0;
+    auto & rv = PRIV(read_op)->read_vec;
     uint64_t result_version = 0;
     if (dirty_found)
     {
@@ -369,15 +384,23 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                     }
                 }
                 // If inmemory_journal is false, journal trim will have to wait until the read is completed
-                // FIXME: Verify checksums when reading from journal disk
-                if (!fulfill_read(read_op, fulfilled, dirty.offset, dirty.offset + dirty.len,
-                    dirty.state, dirty_it->first.version, dirty.location + (IS_JOURNAL(dirty.state) ? 0 : dirty.offset),
-                    (IS_JOURNAL(dirty.state) ? dirty.journal_sector+1 : 0),
-                    journal.inmemory ? NULL : bmp_ptr+dsk.clean_entry_bitmap_size))
+                if (!IS_JOURNAL(dirty.state))
                 {
-                    // need to wait. undo added requests, don't dequeue op
-                    PRIV(read_op)->read_vec.clear();
-                    return 0;
+                    // Read from data disk, possibly checking checksums
+                    if (!fulfill_clean_read(read_op, fulfilled, bmp_ptr, dirty.location, dirty_it->first.version))
+                    {
+                        goto undo_read;
+                    }
+                }
+                else
+                {
+                    // Copy from memory or read from journal, possibly checking checksums
+                    if (!fulfill_read(read_op, fulfilled, dirty.offset, dirty.offset + dirty.len,
+                        dirty.state, dirty_it->first.version, dirty.location, dirty.journal_sector+1,
+                        journal.inmemory ? NULL : bmp_ptr+dsk.clean_entry_bitmap_size))
+                    {
+                        goto undo_read;
+                    }
                 }
             }
             if (fulfilled == read_op->len || dirty_it == dirty_db.begin())
@@ -401,84 +424,9 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         if (fulfilled < read_op->len)
         {
             uint8_t *clean_entry_bitmap = get_clean_entry_bitmap(clean_it->second.location, 0);
-            if (!dsk.clean_entry_bitmap_size)
+            if (!fulfill_clean_read(read_op, fulfilled, clean_entry_bitmap, clean_it->second.location, clean_it->second.version))
             {
-                if (!fulfill_read(read_op, fulfilled, 0, dsk.data_block_size,
-                    (BS_ST_BIG_WRITE | BS_ST_STABLE), 0, clean_it->second.location, 0,
-                    clean_entry_bitmap + 2*dsk.clean_entry_bitmap_size))
-                {
-                    // need to wait. undo added requests, don't dequeue op
-                    PRIV(read_op)->read_vec.clear();
-                    return 0;
-                }
-            }
-            else if (dsk.csum_block_size > dsk.bitmap_granularity)
-            {
-                auto & rv = PRIV(read_op)->read_vec;
-                int req = fill_partial_checksum_blocks(rv, fulfilled, clean_entry_bitmap,
-                    (uint8_t*)read_op->buf, read_op->offset, read_op->offset+read_op->len);
-                for (int i = req; i > 0; i--)
-                {
-                    auto & vi = rv[rv.size()-i];
-                    if (!read_clean_checksum_block(read_op, i, fulfilled, clean_it->second.location, vi.offset, vi.offset+vi.len))
-                    {
-                        // need to wait. undo added requests, don't dequeue op
-                        for (auto & vec: rv)
-                        {
-                            if (vec.copy_flags == COPY_BUF_CSUM_FILL && vec.csum_buf)
-                            {
-                                free(vec.csum_buf);
-                                vec.csum_buf = NULL;
-                            }
-                        }
-                        rv.clear();
-                        return 0;
-                    }
-                }
-            }
-            else
-            {
-                uint64_t bmp_start = 0, bmp_end = 0, bmp_size = dsk.data_block_size/dsk.bitmap_granularity;
-                while (bmp_start < bmp_size)
-                {
-                    while (!(clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7))) && bmp_end < bmp_size)
-                    {
-                        bmp_end++;
-                    }
-                    if (bmp_end > bmp_start)
-                    {
-                        // fill with zeroes
-                        assert(fulfill_read(read_op, fulfilled, bmp_start * dsk.bitmap_granularity,
-                            bmp_end * dsk.bitmap_granularity, (BS_ST_DELETE | BS_ST_STABLE), 0, 0, 0, NULL));
-                    }
-                    bmp_start = bmp_end;
-                    while (clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7)) && bmp_end < bmp_size)
-                    {
-                        bmp_end++;
-                    }
-                    if (bmp_end > bmp_start)
-                    {
-                        uint8_t *csum = !dsk.csum_block_size ? 0 : (clean_entry_bitmap +
-                            2*dsk.clean_entry_bitmap_size +
-                            bmp_start*dsk.bitmap_granularity/dsk.csum_block_size*(dsk.data_csum_type & 0xFF));
-                        if (!fulfill_read(read_op, fulfilled, bmp_start * dsk.bitmap_granularity,
-                            bmp_end * dsk.bitmap_granularity, (BS_ST_BIG_WRITE | BS_ST_STABLE), 0,
-                            clean_it->second.location + bmp_start * dsk.bitmap_granularity, 0, csum))
-                        {
-                            // need to wait. undo added requests, don't dequeue op
-                            PRIV(read_op)->read_vec.clear();
-                            return 0;
-                        }
-                        bmp_start = bmp_end;
-                    }
-                }
-            }
-            // Increment counter if clean data is being read from the disk
-            if (PRIV(read_op)->clean_version_used)
-            {
-                obj_ver_id ov = { .oid = read_op->oid, .version = clean_it->second.version };
-                used_clean_objects[ov].refs++;
-                PRIV(read_op)->clean_version_used = ov.version;
+                goto undo_read;
             }
         }
     }
@@ -490,11 +438,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         FINISH_OP(read_op);
         return 2;
     }
-    if (fulfilled < read_op->len)
-    {
-        assert(fulfill_read(read_op, fulfilled, 0, dsk.data_block_size, (BS_ST_DELETE | BS_ST_STABLE), 0, 0, 0, NULL));
-        assert(fulfilled == read_op->len);
-    }
+    assert(fulfilled == read_op->len);
     read_op->version = result_version;
     if (!PRIV(read_op)->pending_ops)
     {
@@ -519,6 +463,127 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
     }
     read_op->retval = 0;
     return 2;
+undo_read:
+    // need to wait. undo added requests, don't dequeue op
+    if (dsk.csum_block_size > dsk.bitmap_granularity)
+    {
+        for (auto & vec: rv)
+        {
+            if ((vec.copy_flags & COPY_BUF_CSUM_FILL) && vec.buf)
+            {
+                free(vec.buf);
+                vec.buf = NULL;
+            }
+        }
+    }
+    rv.clear();
+    return 0;
+}
+
+int blockstore_impl_t::pad_journal_read(std::vector<copy_buffer_t> & rv, copy_buffer_t & cp,
+    // FIXME Passing dirty_entry& would be nicer
+    uint64_t dirty_offset, uint64_t dirty_end, uint64_t dirty_loc, uint8_t *csum_ptr,
+    uint64_t offset, uint64_t submit_len, uint64_t & blk_begin, uint64_t & blk_end, uint8_t* & blk_buf)
+{
+    if (offset % dsk.csum_block_size || submit_len % dsk.csum_block_size)
+    {
+        if (offset < blk_end)
+        {
+            // Already being read as a part of the previous checksum block series
+            cp.buf = blk_buf + offset - blk_begin;
+            cp.copy_flags |= COPY_BUF_COALESCED;
+            if (offset+submit_len > blk_end)
+                cp.len = blk_end-offset;
+            return 2;
+        }
+        else
+        {
+            // We don't use fill_partial_checksum_blocks for journal because journal writes never have holes (internal bitmap)
+            blk_begin = (offset/dsk.csum_block_size) * dsk.csum_block_size;
+            blk_begin = blk_begin < dirty_offset ? dirty_offset : blk_begin;
+            blk_end = ((offset+submit_len-1)/dsk.csum_block_size + 1) * dsk.csum_block_size;
+            blk_end = blk_end > dirty_end ? dirty_end : blk_end;
+            if (blk_begin < offset || blk_end > offset+submit_len)
+            {
+                blk_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, blk_end-blk_begin);
+                cp.buf = blk_buf + offset - blk_begin;
+                cp.copy_flags |= COPY_BUF_COALESCED;
+                rv.push_back((copy_buffer_t){
+                    .copy_flags = COPY_BUF_JOURNAL|COPY_BUF_CSUM_FILL,
+                    .offset = blk_begin,
+                    .len = blk_end-blk_begin,
+                    .disk_offset = dirty_loc + blk_begin - dirty_offset,
+                    .buf = blk_buf,
+                    .csum_buf = (csum_ptr + (blk_begin/dsk.csum_block_size -
+                        dirty_offset/dsk.csum_block_size) * (dsk.data_csum_type & 0xFF)),
+                });
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & fulfilled,
+    uint8_t *clean_entry_bitmap, uint64_t clean_loc, uint64_t clean_ver)
+{
+    if (dsk.csum_block_size > dsk.bitmap_granularity)
+    {
+        auto & rv = PRIV(read_op)->read_vec;
+        int req = fill_partial_checksum_blocks(rv, fulfilled, clean_entry_bitmap,
+            (uint8_t*)read_op->buf, read_op->offset, read_op->offset+read_op->len);
+        for (int i = req; i > 0; i--)
+        {
+            if (!read_checksum_block(read_op, i, fulfilled, clean_loc))
+            {
+                return false;
+            }
+        }
+        PRIV(read_op)->clean_version_used = req > 0;
+    }
+    else
+    {
+        uint64_t bmp_start = 0, bmp_end = 0, bmp_size = dsk.data_block_size/dsk.bitmap_granularity;
+        while (bmp_start < bmp_size)
+        {
+            while (!(clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7))) && bmp_end < bmp_size)
+            {
+                bmp_end++;
+            }
+            if (bmp_end > bmp_start)
+            {
+                // fill with zeroes
+                assert(fulfill_read(read_op, fulfilled, bmp_start * dsk.bitmap_granularity,
+                    bmp_end * dsk.bitmap_granularity, (BS_ST_DELETE | BS_ST_STABLE), 0, 0, 0, NULL));
+            }
+            bmp_start = bmp_end;
+            while (clean_entry_bitmap[bmp_end >> 3] & (1 << (bmp_end & 0x7)) && bmp_end < bmp_size)
+            {
+                bmp_end++;
+            }
+            if (bmp_end > bmp_start)
+            {
+                uint8_t *csum = !dsk.csum_block_size ? 0 : (clean_entry_bitmap +
+                    2*dsk.clean_entry_bitmap_size +
+                    bmp_start*dsk.bitmap_granularity/dsk.csum_block_size*(dsk.data_csum_type & 0xFF));
+                if (!fulfill_read(read_op, fulfilled, bmp_start * dsk.bitmap_granularity,
+                    bmp_end * dsk.bitmap_granularity, (BS_ST_BIG_WRITE | BS_ST_STABLE), 0,
+                    clean_loc + bmp_start * dsk.bitmap_granularity, 0, csum))
+                {
+                    return false;
+                }
+                bmp_start = bmp_end;
+            }
+        }
+    }
+    // Increment reference counter if clean data is being read from the disk
+    if (PRIV(read_op)->clean_version_used)
+    {
+        obj_ver_id ov = { .oid = read_op->oid, .version = clean_ver };
+        used_clean_objects[ov].refs++;
+        PRIV(read_op)->clean_version_used = ov.version;
+    }
+    return true;
 }
 
 bool blockstore_impl_t::verify_padded_checksums(uint8_t *clean_entry_bitmap, uint32_t offset,
@@ -646,13 +711,16 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
             auto & rv = PRIV(op)->read_vec;
             if (dsk.csum_block_size > dsk.bitmap_granularity)
             {
-                for (int i = rv.size()-1; i >= 0 && rv[i].copy_flags == COPY_BUF_CSUM_FILL; i--)
+                for (int i = rv.size()-1; i >= 0 && (rv[i].copy_flags & COPY_BUF_CSUM_FILL); i--)
                 {
-                    struct iovec *iov = (struct iovec*)(rv[i].csum_buf + (rv[i].len & 0xFFFFFFFF));
-                    if (!verify_read_padded_checksums(op, rv[i].disk_offset, iov, rv[i].len >> 32))
+                    struct iovec *iov = (struct iovec*)(rv[i].buf + (rv[i].len & 0xFFFFFFFF));
+                    int n_iov = rv[i].len >> 32;
+                    if (!((rv[i].copy_flags & COPY_BUF_JOURNAL)
+                        ? verify_journal_checksums(rv[i].csum_buf, rv[i].disk_offset % dsk.data_block_size, iov, n_iov, NULL)
+                        : verify_read_padded_checksums(op, rv[i].disk_offset, iov, n_iov)))
                         op->retval = -EDOM;
-                    free(rv[i].csum_buf);
-                    rv[i].csum_buf = NULL;
+                    free(rv[i].buf);
+                    rv[i].buf = NULL;
                 }
             }
             else

@@ -137,7 +137,7 @@ resume_1:
             hdr->header_csum = 0;
             if (crc32c(0, hdr, sizeof(*hdr)) != csum)
             {
-                printf("Metadata header is corrupt (CRC mismatch).\n");
+                printf("Metadata header is corrupt (checksum mismatch).\n");
                 exit(1);
             }
             hdr->header_csum = csum;
@@ -153,6 +153,7 @@ resume_1:
             bs->dsk.meta_len = (1 + (bs->dsk.block_count - 1 + bs->dsk.meta_block_size / bs->dsk.clean_entry_size)
                 / (bs->dsk.meta_block_size / bs->dsk.clean_entry_size)) * bs->dsk.meta_block_size;
             bs->dsk.meta_version = BLOCKSTORE_META_VERSION_V1;
+            printf("Warning: Starting with metadata in the old format without checksums, as stored on disk\n");
         }
         else if (hdr->version > BLOCKSTORE_META_VERSION_V2)
         {
@@ -829,7 +830,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         printf("Journal entry data is corrupt (data crc32 %x != %x)\n", data_crc32, je->small_write.crc32_data);
                     }
                 }
-                else
+                else if (je->small_write.len > 0)
                 {
                     uint32_t *block_csums = (uint32_t*)((uint8_t*)je + sizeof(journal_entry_small_write) + bs->dsk.clean_entry_bitmap_size);
                     uint32_t start = je->small_write.offset / bs->dsk.csum_block_size;
