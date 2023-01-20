@@ -337,6 +337,8 @@ void osd_t::report_statistics()
         pg_stats["misplaced_count"] = pg.misplaced_objects.size();
         pg_stats["degraded_count"] = pg.degraded_objects.size();
         pg_stats["incomplete_count"] = pg.incomplete_objects.size();
+        if (pg.corrupted_count)
+            pg_stats["corrupted_count"] = pg.corrupted_count;
         pg_stats["write_osd_set"] = pg.cur_set;
         txn.push_back(json11::Json::object {
             { "request_put", json11::Json::object {

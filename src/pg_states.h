@@ -22,7 +22,8 @@
 #define PG_HAS_MISPLACED (1<<10)
 #define PG_HAS_UNCLEAN (1<<11)
 #define PG_HAS_INVALID (1<<12)
-#define PG_LEFT_ON_DEAD (1<<13)
+#define PG_HAS_CORRUPTED (1<<13)
+#define PG_LEFT_ON_DEAD (1<<14)
 
 // Lower bits that represent object role (EC 0/1/2... or always 0 with replication)
 // 12 bits is a safe default that doesn't depend on pg_stripe_size or pg_block_size
@@ -32,6 +33,8 @@
 #define OBJ_DEGRADED 0x02
 #define OBJ_INCOMPLETE 0x04
 #define OBJ_MISPLACED 0x08
+// OBJ_CORRUPTED is always set with one of OBJ_INCOMPLETE/OBJ_DEGRADED/OBJ_MISPLACED
+#define OBJ_CORRUPTED 0x10
 #define OBJ_NEEDS_STABLE 0x10000
 #define OBJ_NEEDS_ROLLBACK 0x20000
 

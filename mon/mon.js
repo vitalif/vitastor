@@ -266,7 +266,7 @@ const etcd_tree = {
                 <pg_id>: {
                     primary: osd_num_t,
                     state: ("starting"|"peering"|"incomplete"|"active"|"repeering"|"stopping"|"offline"|
-                        "degraded"|"has_incomplete"|"has_degraded"|"has_misplaced"|"has_unclean"|
+                        "degraded"|"has_corrupted"|"has_incomplete"|"has_degraded"|"has_misplaced"|"has_unclean"|
                         "has_invalid"|"left_on_dead")[],
                 }
             }, */

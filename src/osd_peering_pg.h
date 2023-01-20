@@ -13,11 +13,14 @@
 
 #define PG_EPOCH_BITS 48
 
+#define LOC_OUTDATED 1
+#define LOC_CORRUPTED 2
+
 struct pg_obj_loc_t
 {
     uint64_t role;
     osd_num_t osd_num;
-    bool outdated;
+    uint32_t loc_bad; // LOC_OUTDATED / LOC_CORRUPTED
 };
 
 typedef std::vector<pg_obj_loc_t> pg_osd_set_t;
@@ -106,6 +109,7 @@ struct pg_t
     // it may consume up to ~ (raw storage / object size) * 24 bytes in the worst case scenario
     // which is up to ~192 MB per 1 TB in the worst case scenario
     std::map<pg_osd_set_t, pg_osd_set_state_t> state_dict;
+    uint64_t corrupted_count;
     btree::btree_map<object_id, pg_osd_set_state_t*> incomplete_objects, misplaced_objects, degraded_objects;
     std::map<obj_piece_id_t, flush_action_t> flush_actions;
     std::vector<obj_ver_osd_t> copies_to_delete_after_sync;
@@ -122,9 +126,9 @@ struct pg_t
 
 inline bool operator < (const pg_obj_loc_t &a, const pg_obj_loc_t &b)
 {
-    return a.outdated < b.outdated ||
-        a.outdated == b.outdated && a.role < b.role ||
-        a.outdated == b.outdated && a.role == b.role && a.osd_num < b.osd_num;
+    return a.loc_bad < b.loc_bad ||
+        a.loc_bad == b.loc_bad && a.role < b.role ||
+        a.loc_bad == b.loc_bad && a.role == b.role && a.osd_num < b.osd_num;
 }
 
 inline bool operator == (const obj_piece_id_t & a, const obj_piece_id_t & b)

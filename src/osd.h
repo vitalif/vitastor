@@ -135,7 +135,7 @@ class osd_t
     std::set<pool_pg_num_t> dirty_pgs;
     std::set<osd_num_t> dirty_osds;
     int copies_to_delete_after_sync_count = 0;
-    uint64_t misplaced_objects = 0, degraded_objects = 0, incomplete_objects = 0;
+    uint64_t misplaced_objects = 0, degraded_objects = 0, incomplete_objects = 0, corrupted_objects = 0;
     int peering_state = 0;
     std::map<object_id, osd_recovery_op_t> recovery_ops;
     bool recovery_last_degraded = true;

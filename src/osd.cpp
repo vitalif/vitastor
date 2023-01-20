@@ -431,6 +431,10 @@ void osd_t::print_stats()
             recovery_stat_bytes[1][i] = recovery_stat_bytes[0][i];
         }
     }
+    if (corrupted_objects > 0)
+    {
+        printf("[OSD %lu] %lu object(s) corrupted\n", osd_num, corrupted_objects);
+    }
     if (incomplete_objects > 0)
     {
         printf("[OSD %lu] %lu object(s) incomplete\n", osd_num, incomplete_objects);

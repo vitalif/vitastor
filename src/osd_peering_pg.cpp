@@ -280,7 +280,7 @@ void pg_obj_state_check_t::finish_object()
             osd_set.push_back((pg_obj_loc_t){
                 .role = (list[i].oid.stripe & STRIPE_MASK),
                 .osd_num = list[i].osd_num,
-                .outdated = false,
+                .loc_bad = 0,
             });
         }
     }
@@ -302,7 +302,7 @@ void pg_obj_state_check_t::finish_object()
                 osd_set.push_back((pg_obj_loc_t){
                     .role = (list[i].oid.stripe & STRIPE_MASK),
                     .osd_num = list[i].osd_num,
-                    .outdated = true,
+                    .loc_bad = LOC_OUTDATED,
                 });
                 if (!(state & (OBJ_INCOMPLETE | OBJ_DEGRADED)))
                 {
@@ -330,7 +330,7 @@ void pg_obj_state_check_t::finish_object()
             {
                 for (auto & o: osd_set)
                 {
-                    if (!o.outdated)
+                    if (!(o.loc_bad & LOC_OUTDATED))
                     {
                         read_target.push_back(o.osd_num);
                     }
@@ -350,7 +350,7 @@ void pg_obj_state_check_t::finish_object()
                 }
                 for (auto & o: osd_set)
                 {
-                    if (!o.outdated)
+                    if (!(o.loc_bad & LOC_OUTDATED))
                     {
                         read_target[o.role] = o.osd_num;
                     }
@@ -446,7 +446,8 @@ void pg_t::calc_object_states(int log_level)
                 osd_set_desc += (osd_set_desc == "" ? "" : ", ")+
                     std::to_string(loc.osd_num)+
                     (st.replicated ? "" : "("+std::to_string(loc.role)+")")+
-                    (loc.outdated ? "(old)" : "");
+                    (loc.loc_bad & LOC_OUTDATED ? "(old)" : "")+
+                    (loc.loc_bad & LOC_CORRUPTED ? "(corrupted)" : "");
             }
             printf("[PG %u/%u] %lu objects on OSD set %s\n", pool_id, pg_num, stp.second.object_count, osd_set_desc.c_str());
         }
@@ -456,7 +457,7 @@ void pg_t::calc_object_states(int log_level)
 void pg_t::print_state()
 {
     printf(
-        "[PG %u/%u] is %s%s%s%s%s%s%s%s%s%s%s%s%s%s (%lu objects)\n", pool_id, pg_num,
+        "[PG %u/%u] is %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s (%lu objects)\n", pool_id, pg_num,
         (state & PG_STARTING) ? "starting" : "",
         (state & PG_OFFLINE) ? "offline" : "",
         (state & PG_PEERING) ? "peering" : "",
@@ -465,6 +466,7 @@ void pg_t::print_state()
         (state & PG_REPEERING) ? "repeering" : "",
         (state & PG_STOPPING) ? "stopping" : "",
         (state & PG_DEGRADED) ? " + degraded" : "",
+        (state & PG_HAS_CORRUPTED) ? " + has_corrupted" : "",
         (state & PG_HAS_INCOMPLETE) ? " + has_incomplete" : "",
         (state & PG_HAS_DEGRADED) ? " + has_degraded" : "",
         (state & PG_HAS_MISPLACED) ? " + has_misplaced" : "",

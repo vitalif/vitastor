@@ -128,9 +128,11 @@ void osd_t::reset_pg(pg_t & pg)
     pg.state_dict.clear();
     copies_to_delete_after_sync_count -= pg.copies_to_delete_after_sync.size();
     pg.copies_to_delete_after_sync.clear();
+    corrupted_objects -= pg.corrupted_count;
     incomplete_objects -= pg.incomplete_objects.size();
     misplaced_objects -= pg.misplaced_objects.size();
     degraded_objects -= pg.degraded_objects.size();
+    pg.corrupted_count = 0;
     pg.incomplete_objects.clear();
     pg.misplaced_objects.clear();
     pg.degraded_objects.clear();
@@ -206,7 +208,7 @@ void osd_t::start_pg_peering(pg_t & pg)
             pg.cur_loc_set.push_back({
                 .role = (uint64_t)role,
                 .osd_num = pg.cur_set[role],
-                .outdated = false,
+                .loc_bad = 0,
             });
         }
     }
