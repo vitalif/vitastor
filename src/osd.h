@@ -240,8 +240,8 @@ class osd_t
     void continue_primary_sync(osd_op_t *cur_op);
     void continue_primary_del(osd_op_t *cur_op);
     bool check_write_queue(osd_op_t *cur_op, pg_t & pg);
-    void remove_object_from_state(object_id & oid, pg_osd_set_state_t *object_state, pg_t &pg);
-    void free_object_state(pg_t & pg, pg_osd_set_state_t **object_state);
+    void remove_object_from_state(object_id & oid, pg_osd_set_state_t **object_state, pg_t &pg);
+    void deref_object_state(pg_t & pg, pg_osd_set_state_t **object_state, bool deref);
     bool remember_unstable_write(osd_op_t *cur_op, pg_t & pg, pg_osd_set_t & loc_set, int base_state);
     void handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op);
     void handle_primary_bs_subop(osd_op_t *subop);

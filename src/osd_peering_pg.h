@@ -33,6 +33,7 @@ struct pg_osd_set_state_t
     pg_osd_set_t osd_set;
     uint64_t state = 0;
     uint64_t object_count = 0;
+    uint64_t ref_count = 0;
 };
 
 struct pg_list_result_t
@@ -120,6 +121,7 @@ struct pg_t
     int inflight = 0; // including write_queue
     std::multimap<object_id, osd_op_t*> write_queue;
 
+    pg_osd_set_state_t* add_object_to_state(const object_id oid, const uint64_t state, const pg_osd_set_t & osd_set);
     void calc_object_states(int log_level);
     void print_state();
 };

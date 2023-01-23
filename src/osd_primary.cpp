@@ -279,9 +279,23 @@ resume_2:
 }
 
 // Decrement pg_osd_set_state_t's object_count and change PG state accordingly
-void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t *object_state, pg_t & pg)
+void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **object_state, pg_t & pg)
 {
-    if (object_state->state & OBJ_INCOMPLETE)
+    if (!*object_state)
+    {
+        return;
+    }
+    pg_osd_set_state_t *recheck_state = NULL;
+    get_object_osd_set(pg, oid, NULL, &recheck_state);
+    if (recheck_state != *object_state)
+    {
+        recheck_state->ref_count++;
+        (*object_state)->ref_count--;
+        *object_state = recheck_state;
+        return;
+    }
+    (*object_state)->object_count--;
+    if ((*object_state)->state & OBJ_INCOMPLETE)
     {
         // Successful write means that object is not incomplete anymore
         this->incomplete_objects--;
@@ -292,7 +306,7 @@ void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t *object
             report_pg_state(pg);
         }
     }
-    else if (object_state->state & OBJ_DEGRADED)
+    else if ((*object_state)->state & OBJ_DEGRADED)
     {
         this->degraded_objects--;
         pg.degraded_objects.erase(oid);
@@ -302,7 +316,7 @@ void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t *object
             report_pg_state(pg);
         }
     }
-    else if (object_state->state & OBJ_MISPLACED)
+    else if ((*object_state)->state & OBJ_MISPLACED)
     {
         this->misplaced_objects--;
         pg.misplaced_objects.erase(oid);
@@ -314,16 +328,23 @@ void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t *object
     }
     else
     {
-        throw std::runtime_error("BUG: Invalid object state: "+std::to_string(object_state->state));
+        throw std::runtime_error("BUG: Invalid object state: "+std::to_string((*object_state)->state));
     }
 }
 
-void osd_t::free_object_state(pg_t & pg, pg_osd_set_state_t **object_state)
+void osd_t::deref_object_state(pg_t & pg, pg_osd_set_state_t **object_state, bool deref)
 {
-    if (*object_state && !(--(*object_state)->object_count))
+    if (*object_state)
     {
-        pg.state_dict.erase((*object_state)->osd_set);
-        *object_state = NULL;
+        if (deref)
+        {
+            (*object_state)->ref_count--;
+        }
+        if (!(*object_state)->object_count && !(*object_state)->ref_count)
+        {
+            pg.state_dict.erase((*object_state)->osd_set);
+            *object_state = NULL;
+        }
     }
 }
 
@@ -354,6 +375,10 @@ void osd_t::continue_primary_del(osd_op_t *cur_op)
 resume_1:
     // Determine which OSDs contain this object and delete it
     op_data->prev_set = get_object_osd_set(pg, op_data->oid, pg.cur_set.data(), &op_data->object_state);
+    if (op_data->object_state)
+    {
+        op_data->object_state->ref_count++;
+    }
     // Submit 1 read to determine the actual version number
     submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, op_data->prev_set, cur_op);
 resume_2:
@@ -362,12 +387,14 @@ resume_2:
 resume_3:
     if (op_data->errors > 0)
     {
+        deref_object_state(pg, &op_data->object_state, true);
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
         return;
     }
     // Check CAS version
     if (cur_op->req.rw.version && op_data->fact_ver != (cur_op->req.rw.version-1))
     {
+        deref_object_state(pg, &op_data->object_state, true);
         cur_op->reply.hdr.retval = -EINTR;
         cur_op->reply.rw.version = op_data->fact_ver;
         goto continue_others;
@@ -383,6 +410,7 @@ resume_4:
 resume_5:
     if (op_data->errors > 0)
     {
+        deref_object_state(pg, &op_data->object_state, true);
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
         return;
     }
@@ -395,8 +423,8 @@ resume_5:
     }
     else
     {
-        remove_object_from_state(op_data->oid, op_data->object_state, pg);
-        free_object_state(pg, &op_data->object_state);
+        remove_object_from_state(op_data->oid, &op_data->object_state, pg);
+        deref_object_state(pg, &op_data->object_state, true);
     }
     pg.total_count--;
     cur_op->reply.hdr.retval = 0;

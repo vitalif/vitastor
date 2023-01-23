@@ -59,6 +59,11 @@ resume_1:
     // Missing chunks are allowed to be overwritten even in incomplete objects
     // FIXME: Allow to do small writes to the old (degraded/misplaced) OSD set for lower performance impact
     op_data->prev_set = get_object_osd_set(pg, op_data->oid, pg.cur_set.data(), &op_data->object_state);
+    if (op_data->object_state)
+    {
+        // Protect object_state from being freed by a parallel read operation changing it
+        op_data->object_state->ref_count++;
+    }
     if (op_data->scheme == POOL_SCHEME_REPLICATED)
     {
         // Simplified algorithm
@@ -93,12 +98,14 @@ resume_2:
 resume_3:
     if (op_data->errors > 0)
     {
+        deref_object_state(pg, &op_data->object_state, true);
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
         return;
     }
     // Check CAS version
     if (cur_op->req.rw.version && op_data->fact_ver != (cur_op->req.rw.version-1))
     {
+        deref_object_state(pg, &op_data->object_state, true);
         cur_op->reply.hdr.retval = -EINTR;
         cur_op->reply.rw.version = op_data->fact_ver;
         goto continue_others;
@@ -182,6 +189,7 @@ resume_10:
     // Recheck PG state after reporting history - maybe it's already stopping/restarting
     if (pg.state & (PG_STOPPING|PG_REPEERING))
     {
+        deref_object_state(pg, &op_data->object_state, true);
         pg_cancel_write_queue(pg, cur_op, op_data->oid, -EPIPE);
         return;
     }
@@ -202,6 +210,7 @@ resume_5:
         // to overwrite the same version number which will result in EEXIST.
         // To fix it, we should mark the object as degraded for replicas,
         // and rollback successful part updates in case of EC.
+        deref_object_state(pg, &op_data->object_state, true);
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
         return;
     }
@@ -210,7 +219,7 @@ resume_5:
         // We must forget the unclean state of the object before deleting it
         // so the next reads don't accidentally read a deleted version
         // And it should be done at the same time as the removal of the version override
-        remove_object_from_state(op_data->oid, op_data->object_state, pg);
+        remove_object_from_state(op_data->oid, &op_data->object_state, pg);
         pg.clean_count++;
     }
 resume_6:
@@ -265,12 +274,12 @@ resume_7:
                     copies_to_delete_after_sync_count++;
                 }
             }
-            free_object_state(pg, &op_data->object_state);
+            deref_object_state(pg, &op_data->object_state, true);
         }
         else
         {
             submit_primary_del_subops(cur_op, pg.cur_set.data(), pg.pg_size, op_data->object_state->osd_set);
-            free_object_state(pg, &op_data->object_state);
+            deref_object_state(pg, &op_data->object_state, true);
             if (op_data->n_subops > 0)
             {
 resume_8:

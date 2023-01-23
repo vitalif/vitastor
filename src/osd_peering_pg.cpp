@@ -322,65 +322,71 @@ void pg_obj_state_check_t::finish_object()
     }
     else
     {
-        auto it = pg->state_dict.find(osd_set);
-        if (it == pg->state_dict.end())
-        {
-            std::vector<uint64_t> read_target;
-            if (replicated)
-            {
-                for (auto & o: osd_set)
-                {
-                    if (!(o.loc_bad & LOC_OUTDATED))
-                    {
-                        read_target.push_back(o.osd_num);
-                    }
-                }
-                while (read_target.size() < pg->pg_size)
-                {
-                    // FIXME: This is because we then use .data() and assume it's at least <pg_size> long
-                    read_target.push_back(0);
-                }
-            }
-            else
-            {
-                read_target.resize(pg->pg_size);
-                for (int i = 0; i < pg->pg_size; i++)
-                {
-                    read_target[i] = 0;
-                }
-                for (auto & o: osd_set)
-                {
-                    if (!(o.loc_bad & LOC_OUTDATED))
-                    {
-                        read_target[o.role] = o.osd_num;
-                    }
-                }
-            }
-            pg->state_dict[osd_set] = {
-                .read_target = read_target,
-                .osd_set = osd_set,
-                .state = state,
-                .object_count = 1,
-            };
-            it = pg->state_dict.find(osd_set);
-        }
-        else
-        {
-            it->second.object_count++;
-        }
-        if (state & OBJ_INCOMPLETE)
-        {
-            pg->incomplete_objects[oid] = &it->second;
-        }
-        else if (state & OBJ_DEGRADED)
-        {
-            pg->degraded_objects[oid] = &it->second;
-        }
-        else
-        {
-            pg->misplaced_objects[oid] = &it->second;
-        }
+        pg->add_object_to_state(oid, state, osd_set);
     }
+}
+
+pg_osd_set_state_t* pg_t::add_object_to_state(const object_id oid, const uint64_t state, const pg_osd_set_t & osd_set)
+{
+    auto it = state_dict.find(osd_set);
+    if (it == state_dict.end())
+    {
+        std::vector<osd_num_t> read_target;
+        if (scheme == POOL_SCHEME_REPLICATED)
+        {
+            for (auto & o: osd_set)
+            {
+                if (!(o.loc_bad & LOC_OUTDATED))
+                {
+                    read_target.push_back(o.osd_num);
+                }
+            }
+            while (read_target.size() < pg_size)
+            {
+                // FIXME: This is because we then use .data() and assume it's at least <pg_size> long
+                read_target.push_back(0);
+            }
+        }
+        else
+        {
+            read_target.resize(pg_size);
+            for (int i = 0; i < pg_size; i++)
+            {
+                read_target[i] = 0;
+            }
+            for (auto & o: osd_set)
+            {
+                if (!o.loc_bad)
+                {
+                    read_target[o.role] = o.osd_num;
+                }
+            }
+        }
+        state_dict[osd_set] = {
+            .read_target = read_target,
+            .osd_set = osd_set,
+            .state = state,
+            .object_count = 1,
+        };
+        it = state_dict.find(osd_set);
+    }
+    else
+    {
+        it->second.object_count++;
+    }
+    if (state & OBJ_INCOMPLETE)
+    {
+        incomplete_objects[oid] = &it->second;
+    }
+    else if (state & OBJ_DEGRADED)
+    {
+        degraded_objects[oid] = &it->second;
+    }
+    else
+    {
+        misplaced_objects[oid] = &it->second;
+    }
+    return &it->second;
 }
 
 // FIXME: Write at least some tests for this function
