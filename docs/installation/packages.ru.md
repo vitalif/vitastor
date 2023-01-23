@@ -20,8 +20,8 @@
 ## CentOS
 
 - Добавьте в систему репозиторий Vitastor:
-  - CentOS 7: `yum install https://vitastor.io/rpms/centos/7/vitastor-release-1.0-1.el7.noarch.rpm`
-  - CentOS 8: `dnf install https://vitastor.io/rpms/centos/8/vitastor-release-1.0-1.el8.noarch.rpm`
+  - CentOS 7: `yum install https://vitastor.io/rpms/centos/7/vitastor-release.rpm`
+  - CentOS 8: `dnf install https://vitastor.io/rpms/centos/8/vitastor-release.rpm`
 - Включите EPEL: `yum/dnf install epel-release`
 - Включите дополнительные репозитории CentOS:
   - CentOS 7: `yum install centos-release-scl`
