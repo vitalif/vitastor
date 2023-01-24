@@ -168,8 +168,8 @@ resume_3:
             auto it = std::lower_bound(pg.target_history.begin(), pg.target_history.end(), history_set);
             if (it == pg.target_history.end() || *it != history_set)
                 pg.target_history.insert(it, history_set);
-            pg.history_changed = true;
         }
+        pg.history_changed = true;
         report_pg_states();
 resume_10:
         if (pg.epoch > pg.reported_epoch)
