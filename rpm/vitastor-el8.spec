@@ -34,6 +34,7 @@ Summary:        Vitastor - OSD
 Requires:       libJerasure2
 Requires:       libisa-l
 Requires:       liburing >= 0.6
+Requires:       liburing < 2
 Requires:       vitastor-client = %{version}-%{release}
 Requires:       util-linux
 Requires:       parted
@@ -57,6 +58,7 @@ scheduling cluster-level operations.
 %package -n vitastor-client
 Summary:        Vitastor - client
 Requires:       liburing >= 0.6
+Requires:       liburing < 2
 
 
 %description -n vitastor-client
