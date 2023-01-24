@@ -79,7 +79,7 @@ StartLimitInterval=0
 RestartSec=10
 
 [Install]
-WantedBy=local.target
+WantedBy=multi-user.target
 `);
     await system(`useradd etcd`);
     await system(`systemctl daemon-reload`);
