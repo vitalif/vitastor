@@ -757,7 +757,10 @@ resume_3:
         {
             for (int i = 0; i < op->parts.size(); i++)
             {
-                op->parts[i].flags = PART_RETRY;
+                if (!(op->parts[i].flags & PART_DONE))
+                {
+                    op->parts[i].flags = PART_RETRY;
+                }
             }
             goto resume_2;
         }
