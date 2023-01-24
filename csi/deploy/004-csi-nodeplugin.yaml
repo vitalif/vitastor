@@ -49,7 +49,7 @@ spec:
             capabilities:
               add: ["SYS_ADMIN"]
             allowPrivilegeEscalation: true
-          image: vitalif/vitastor-csi:v0.8.4
+          image: vitalif/vitastor-csi:v0.8.5
           args:
             - "--node=$(NODE_ID)"
             - "--endpoint=$(CSI_ENDPOINT)"
