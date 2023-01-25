@@ -121,8 +121,7 @@ resume_1:
             }
             if (pool_cfg.scheme != POOL_SCHEME_REPLICATED)
             {
-                uint64_t pg_real_size = pool_stats[pool_cfg.id]["pg_real_size"].uint64_value();
-                pool_avail = pg_real_size > 0 ? pool_avail * (pool_cfg.pg_size - pool_cfg.parity_chunks) / pg_real_size : 0;
+                pool_avail *= (pool_cfg.pg_size - pool_cfg.parity_chunks);
             }
             pool_stats[pool_cfg.id] = json11::Json::object {
                 { "name", pool_cfg.name },
