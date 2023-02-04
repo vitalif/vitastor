@@ -8,7 +8,6 @@
 
 void configure_single_pg_pool(cluster_client_t *cli)
 {
-    cli->st_cli.on_load_pgs_hook(true);
     cli->st_cli.parse_state((etcd_kv_t){
         .key = "/config/pools",
         .value = json11::Json::object {
@@ -43,6 +42,7 @@ void configure_single_pg_pool(cluster_client_t *cli)
             { "state", json11::Json::array { "active" } },
         },
     });
+    cli->st_cli.on_load_pgs_hook(true);
     std::map<std::string, etcd_kv_t> changes;
     cli->st_cli.on_change_hook(changes);
 }
@@ -188,7 +188,6 @@ void test1()
     int *r1 = test_write(cli, 0, 4096, 0x55);
     configure_single_pg_pool(cli);
     pretend_connected(cli, 1);
-    cli->continue_ops(true);
     can_complete(r1);
     check_op_count(cli, 1, 1);
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 4096), 0);
@@ -196,8 +195,6 @@ void test1()
     pretend_disconnected(cli, 1);
     int *r2 = test_sync(cli);
     pretend_connected(cli, 1);
-    check_op_count(cli, 1, 0);
-    cli->continue_ops(true);
     check_op_count(cli, 1, 1);
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 4096), 0);
     check_op_count(cli, 1, 1);
@@ -303,8 +300,6 @@ void test1()
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), -EPIPE);
     check_disconnected(cli, 1);
     pretend_connected(cli, 1);
-    check_op_count(cli, 1, 0);
-    cli->continue_ops(true);
     check_op_count(cli, 1, 1);
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), 0);
     check_op_count(cli, 1, 1);
