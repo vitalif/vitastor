@@ -297,7 +297,7 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
                     // Fail it immediately
                     subop->peer_fd = -1;
                     subop->reply.hdr.retval = -EPIPE;
-                    subop->callback(subop);
+                    ringloop->set_immediate([subop]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
                 }
                 subop_idx++;
             }

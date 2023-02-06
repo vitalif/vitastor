@@ -119,6 +119,7 @@ struct ring_consumer_t
 
 class ring_loop_t
 {
+    std::vector<std::function<void()>> immediate_queue, immediate_queue2;
     std::vector<ring_consumer_t*> consumers;
     struct ring_data_t *ring_datas;
     int *free_ring_data;
@@ -142,6 +143,10 @@ public:
             io_uring_sqe_set_data(sqe, ring_datas + free_ring_data[--free_ring_data_ptr]);
         }
         return sqe;
+    }
+    inline void set_immediate(const std::function<void()> cb)
+    {
+        immediate_queue.push_back(cb);
     }
     inline int submit()
     {

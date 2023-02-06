@@ -235,7 +235,7 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                     // Fail it immediately
                     subop->peer_fd = -1;
                     subop->reply.hdr.retval = -EPIPE;
-                    subop->callback(subop);
+                    ringloop->set_immediate([subop]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
                 }
             }
             i++;
@@ -520,7 +520,7 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
                 // Fail it immediately
                 subops[i].peer_fd = -1;
                 subops[i].reply.hdr.retval = -EPIPE;
-                subops[i].callback(&subops[i]);
+                ringloop->set_immediate([subop = &subops[i]]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
             }
         }
     }
@@ -635,7 +635,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
                 // Fail it immediately
                 subops[i].peer_fd = -1;
                 subops[i].reply.hdr.retval = -EPIPE;
-                subops[i].callback(&subops[i]);
+                ringloop->set_immediate([subop = &subops[i]]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
             }
         }
     }

@@ -138,6 +138,7 @@ protected:
 
     std::vector<int> read_ready_clients;
     std::vector<int> write_ready_clients;
+    // We don't use ringloop->set_immediate here because we may have no ringloop in client :)
     std::vector<std::function<void()>> set_immediate;
 
 public:

@@ -88,6 +88,13 @@ void ring_loop_t::loop()
         for (int i = 0; i < consumers.size(); i++)
         {
             consumers[i]->loop();
+            if (immediate_queue.size())
+            {
+                immediate_queue2.swap(immediate_queue);
+                for (auto & cb: immediate_queue2)
+                    cb();
+                immediate_queue2.clear();
+            }
         }
     } while (loop_again);
 }
