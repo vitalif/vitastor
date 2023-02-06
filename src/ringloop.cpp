@@ -25,7 +25,6 @@ ring_loop_t::ring_loop_t(int qd)
     {
         free_ring_data[i] = i;
     }
-    wait_sqe_id = 1;
 }
 
 ring_loop_t::~ring_loop_t()
@@ -82,11 +81,6 @@ void ring_loop_t::loop()
             free_ring_data[free_ring_data_ptr++] = d - ring_datas;
         }
         io_uring_cqe_seen(&ring, cqe);
-    }
-    while (get_sqe_queue.size() > 0)
-    {
-        (get_sqe_queue[0].second)();
-        get_sqe_queue.erase(get_sqe_queue.begin());
     }
     do
     {

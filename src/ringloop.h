@@ -119,11 +119,9 @@ struct ring_consumer_t
 
 class ring_loop_t
 {
-    std::vector<std::pair<int,std::function<void()>>> get_sqe_queue;
     std::vector<ring_consumer_t*> consumers;
     struct ring_data_t *ring_datas;
     int *free_ring_data;
-    int wait_sqe_id;
     unsigned free_ring_data_ptr;
     bool loop_again;
     struct io_uring ring;
@@ -144,21 +142,6 @@ public:
             io_uring_sqe_set_data(sqe, ring_datas + free_ring_data[--free_ring_data_ptr]);
         }
         return sqe;
-    }
-    inline int wait_sqe(std::function<void()> cb)
-    {
-        get_sqe_queue.push_back({ wait_sqe_id, cb });
-        return wait_sqe_id++;
-    }
-    inline void cancel_wait_sqe(int wait_id)
-    {
-        for (int i = 0; i < get_sqe_queue.size(); i++)
-        {
-            if (get_sqe_queue[i].first == wait_id)
-            {
-                get_sqe_queue.erase(get_sqe_queue.begin()+i, get_sqe_queue.begin()+i+1);
-            }
-        }
     }
     inline int submit()
     {
