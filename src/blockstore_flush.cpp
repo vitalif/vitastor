@@ -648,13 +648,13 @@ void journal_flusher_co::update_metadata_entry()
         // Copy initial (big_write) data checksums
         if (bs->dsk.csum_block_size && clean_init_bitmap)
         {
-            uint8_t *new_clean_data_csum = new_clean_bitmap + 2*bs->dsk.clean_entry_bitmap_size +
-                clean_bitmap_offset / bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF);
+            uint8_t *new_clean_data_csum = new_clean_bitmap + 2*bs->dsk.clean_entry_bitmap_size;
             // big_write partial checksums are calculated from a padded csum_block_size, we can just copy them
             memset(new_clean_data_csum, 0, bs->dsk.data_block_size / bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF));
             uint64_t dyn_size = bs->dsk.dirty_dyn_size(clean_bitmap_offset, clean_bitmap_len);
             uint32_t *csums = (uint32_t*)(clean_init_dyn_ptr + bs->dsk.clean_entry_bitmap_size);
-            memcpy(new_clean_data_csum, csums, dyn_size - bs->dsk.clean_entry_bitmap_size);
+            memcpy(new_clean_data_csum + clean_bitmap_offset / bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF),
+                csums, dyn_size - bs->dsk.clean_entry_bitmap_size);
         }
         // Calculate or copy small_write checksums
         uint32_t *new_data_csums = (uint32_t*)(new_clean_bitmap + 2*bs->dsk.clean_entry_bitmap_size);
@@ -758,7 +758,7 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
             {
                 assert(!(v[i].offset % bs->dsk.csum_block_size));
                 assert(!(v[i].len % bs->dsk.csum_block_size));
-                bs->verify_padded_checksums(new_clean_bitmap, v[i].offset, &iov, 1, [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
+                bs->verify_padded_checksums(new_clean_bitmap, false, v[i].offset, &iov, 1, [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
                 {
                     printf("Checksum mismatch in object %lx:%lx v%lu in data area at offset 0x%lx+0x%x: got %08x, expected %08x\n",
                         cur.oid.inode, cur.oid.stripe, old_clean_ver, old_clean_loc, bad_block, calc_csum, stored_csum);
@@ -1028,7 +1028,7 @@ void journal_flusher_co::scan_dirty()
         uint8_t *bmp_ptr = bs->get_clean_entry_bitmap(old_clean_loc, 0);
         uint64_t fulfilled = 0;
         read_to_fill_incomplete = bs->fill_partial_checksum_blocks(
-            v, fulfilled, bmp_ptr, NULL, v[0].offset/bs->dsk.csum_block_size * bs->dsk.csum_block_size,
+            v, fulfilled, bmp_ptr, false, NULL, v[0].offset/bs->dsk.csum_block_size * bs->dsk.csum_block_size,
             ((v[v.size()-1].offset+v[v.size()-1].len-1) / bs->dsk.csum_block_size + 1) * bs->dsk.csum_block_size
         );
     }

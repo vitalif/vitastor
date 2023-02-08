@@ -336,18 +336,18 @@ class blockstore_impl_t
     bool fulfill_clean_read(blockstore_op_t *read_op, uint64_t & fulfilled,
         uint8_t *clean_entry_bitmap, uint64_t clean_loc, uint64_t clean_ver);
     int fill_partial_checksum_blocks(std::vector<copy_buffer_t> & rv, uint64_t & fulfilled,
-        uint8_t *clean_entry_bitmap, uint8_t *read_buf, uint64_t read_offset, uint64_t read_end);
+        uint8_t *clean_entry_bitmap, bool from_journal, uint8_t *read_buf, uint64_t read_offset, uint64_t read_end);
     int pad_journal_read(std::vector<copy_buffer_t> & rv, copy_buffer_t & cp,
         uint64_t dirty_offset, uint64_t dirty_end, uint64_t dirty_loc, uint8_t *csum_ptr,
         uint64_t offset, uint64_t submit_len, uint64_t & blk_begin, uint64_t & blk_end, uint8_t* & blk_buf);
     bool read_range_fulfilled(std::vector<copy_buffer_t> & rv, uint64_t & fulfilled, uint8_t *read_buf,
         uint8_t *clean_entry_bitmap, uint32_t item_start, uint32_t item_end);
     bool read_checksum_block(blockstore_op_t *op, int rv_pos, uint64_t &fulfilled, uint64_t clean_loc);
-    bool verify_padded_checksums(uint8_t *clean_entry_bitmap, uint32_t offset,
+    bool verify_padded_checksums(uint8_t *clean_entry_bitmap, bool is_journal, uint32_t offset,
         iovec *iov, int n_iov, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb);
     bool verify_journal_checksums(uint8_t *csums, uint32_t offset,
         iovec *iov, int n_iov, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb);
-    bool verify_read_padded_checksums(blockstore_op_t *op, uint64_t clean_loc, iovec *iov, int n_iov);
+    bool verify_clean_padded_checksums(blockstore_op_t *op, uint64_t clean_loc, iovec *iov, int n_iov);
     int fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offset, uint64_t len,
         uint32_t item_state, uint64_t item_version);
     void handle_read_event(ring_data_t *data, blockstore_op_t *op);
