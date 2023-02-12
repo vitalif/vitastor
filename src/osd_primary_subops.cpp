@@ -9,6 +9,7 @@ void osd_t::autosync()
     {
         autosync_op = new osd_op_t();
         autosync_op->op_type = OSD_OP_IN;
+        autosync_op->peer_fd = -1;
         autosync_op->req = (osd_any_op_t){
             .sync = {
                 .header = {
@@ -142,7 +143,7 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
     for (int role = 0; role < op_data->pg_size; role++)
     {
         // We always submit zero-length writes to all replicas, even if the stripe is not modified
-        if (!(wr || !rep && stripes[role].read_end != 0 || zero_read == role))
+        if (!(wr || !rep && stripes[role].read_end != 0 || zero_read == role || submit_type == SUBMIT_SCRUB_READ))
         {
             continue;
         }
@@ -429,6 +430,10 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
         else if (cur_op->req.hdr.opcode == OSD_OP_DELETE)
         {
             continue_primary_del(cur_op);
+        }
+        else if (cur_op->req.hdr.opcode == OSD_OP_SCRUB)
+        {
+            continue_primary_scrub(cur_op);
         }
         else
         {

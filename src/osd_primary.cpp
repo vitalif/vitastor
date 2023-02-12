@@ -52,7 +52,9 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         finish_op(cur_op, -EINVAL);
         return false;
     }
-    int stripe_count = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_size);
+    // Scrub is similar to r/w, so it's also handled here
+    int stripe_count = (pool_cfg.scheme == POOL_SCHEME_REPLICATED
+        && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? 1 : pg_it->second.pg_size);
     int chain_size = 0;
     if (cur_op->req.hdr.opcode == OSD_OP_READ && cur_op->req.rw.meta_revision > 0)
     {

@@ -320,7 +320,8 @@ void osd_t::exec_op(osd_op_t *cur_op)
             cur_op->req.hdr.opcode == OSD_OP_DELETE) &&
             (cur_op->req.rw.len > OSD_RW_MAX ||
             cur_op->req.rw.len % bs_bitmap_granularity ||
-            cur_op->req.rw.offset % bs_bitmap_granularity)))
+            cur_op->req.rw.offset % bs_bitmap_granularity)) ||
+        cur_op->req.hdr.opcode == OSD_OP_SCRUB && cur_op->peer_fd != -1)
     {
         // Bad command
         finish_op(cur_op, -EINVAL);
@@ -337,6 +338,7 @@ void osd_t::exec_op(osd_op_t *cur_op)
         cur_op->req.hdr.opcode != OSD_OP_SEC_LIST &&
         cur_op->req.hdr.opcode != OSD_OP_READ &&
         cur_op->req.hdr.opcode != OSD_OP_SEC_READ_BMP &&
+        cur_op->req.hdr.opcode != OSD_OP_SCRUB &&
         cur_op->req.hdr.opcode != OSD_OP_SHOW_CONFIG)
     {
         // Readonly mode
@@ -366,6 +368,10 @@ void osd_t::exec_op(osd_op_t *cur_op)
     else if (cur_op->req.hdr.opcode == OSD_OP_DELETE)
     {
         continue_primary_del(cur_op);
+    }
+    else if (cur_op->req.hdr.opcode == OSD_OP_SCRUB)
+    {
+        continue_primary_scrub(cur_op);
     }
     else
     {

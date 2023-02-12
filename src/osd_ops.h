@@ -29,7 +29,8 @@
 #define OSD_OP_DELETE               14
 #define OSD_OP_PING                 15
 #define OSD_OP_SEC_READ_BMP         16
-#define OSD_OP_MAX                  16
+#define OSD_OP_SCRUB                17
+#define OSD_OP_MAX                  17
 #define OSD_RW_MAX                  64*1024*1024
 #define OSD_PROTOCOL_VERSION        1
 

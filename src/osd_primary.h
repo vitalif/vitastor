@@ -9,6 +9,7 @@
 #define SUBMIT_READ 0
 #define SUBMIT_RMW_READ 1
 #define SUBMIT_WRITE 2
+#define SUBMIT_SCRUB_READ 3
 
 struct unstable_osd_num_t
 {

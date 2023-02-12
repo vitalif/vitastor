@@ -111,7 +111,7 @@ target_compile_options(vitastor_common PUBLIC -fPIC)
 add_executable(vitastor-osd
 	osd_main.cpp osd.cpp osd_secondary.cpp osd_peering.cpp osd_flush.cpp osd_peering_pg.cpp
 	osd_primary.cpp osd_primary_chain.cpp osd_primary_sync.cpp osd_primary_write.cpp osd_primary_subops.cpp
-	osd_cluster.cpp osd_rmw.cpp
+	osd_cluster.cpp osd_rmw.cpp osd_scrub.cpp
 )
 target_link_libraries(vitastor-osd
 	vitastor_common

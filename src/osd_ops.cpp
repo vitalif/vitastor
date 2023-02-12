@@ -21,4 +21,5 @@ const char* osd_op_names[] = {
     "primary_delete",
     "ping",
     "sec_read_bmp",
+    "scrub",
 };
