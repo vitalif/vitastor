@@ -122,11 +122,14 @@ Output:
 Get a list of all objects in this Blockstore.
 
 Input:
-- oid.stripe = PG alignment
-- len = PG count or 0 to list all objects
-- offset = PG number
-- oid.inode = min inode number or 0 to list all inodes
-- version = max inode number or 0 to list all inodes
+- pg_alignment = PG alignment
+- pg_count = PG count or 0 to list all objects
+- pg_number = PG number
+- list_stable_limit = max number of clean objects in the reply
+  it's guaranteed that dirty objects are returned from the same interval,
+  i.e. from (min_oid .. min(max_oid, max(returned stable OIDs)))
+- min_oid = min inode/stripe or 0 to list all objects
+- max_oid = max inode/stripe or 0 to list all objects
 
 Output:
 - retval = total obj_ver_id count
@@ -143,10 +146,27 @@ struct blockstore_op_t
     uint64_t opcode;
     // finish callback
     std::function<void (blockstore_op_t*)> callback;
-    object_id oid;
-    uint64_t version;
-    uint32_t offset;
-    uint32_t len;
+    union
+    {
+        // R/W
+        struct
+        {
+            object_id oid;
+            uint64_t version;
+            uint32_t offset;
+            uint32_t len;
+        };
+        // List
+        struct __attribute__((__packed__))
+        {
+            object_id min_oid;
+            object_id max_oid;
+            uint32_t pg_alignment;
+            uint32_t pg_count;
+            uint32_t pg_number;
+            uint32_t list_stable_limit;
+        };
+    };
     void *buf;
     void *bitmap;
     int retval;

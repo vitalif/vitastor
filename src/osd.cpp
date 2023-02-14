@@ -502,10 +502,11 @@ void osd_t::print_slow()
                 else if (op->req.hdr.opcode == OSD_OP_SEC_LIST)
                 {
                     bufprintf(
-                        " inode=%lx-%lx pg=%u/%u, stripe=%lu",
-                        op->req.sec_list.min_inode, op->req.sec_list.max_inode,
+                        " oid=%lx/%lx-%lx/%lx pg=%u/%u, stripe=%lu, limit=%u",
+                        op->req.sec_list.min_inode, op->req.sec_list.min_stripe,
+                        op->req.sec_list.max_inode, op->req.sec_list.max_stripe,
                         op->req.sec_list.list_pg, op->req.sec_list.pg_count,
-                        op->req.sec_list.pg_stripe_size
+                        op->req.sec_list.pg_stripe_size, op->req.sec_list.stable_limit
                     );
                 }
                 else if (op->req.hdr.opcode == OSD_OP_READ || op->req.hdr.opcode == OSD_OP_WRITE ||

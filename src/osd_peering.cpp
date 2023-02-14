@@ -321,11 +321,12 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         clock_gettime(CLOCK_REALTIME, &op->tv_begin);
         op->bs_op = new blockstore_op_t();
         op->bs_op->opcode = BS_OP_LIST;
-        op->bs_op->oid.stripe = st_cli.pool_config[ps->pool_id].pg_stripe_size;
-        op->bs_op->oid.inode = ((uint64_t)ps->pool_id << (64 - POOL_ID_BITS));
-        op->bs_op->version = ((uint64_t)(ps->pool_id+1) << (64 - POOL_ID_BITS)) - 1;
-        op->bs_op->len = pg_counts[ps->pool_id];
-        op->bs_op->offset = ps->pg_num-1;
+        op->bs_op->pg_alignment = st_cli.pool_config[ps->pool_id].pg_stripe_size;
+        op->bs_op->min_oid.inode = ((uint64_t)ps->pool_id << (64 - POOL_ID_BITS));
+        op->bs_op->max_oid.inode = ((uint64_t)(ps->pool_id+1) << (64 - POOL_ID_BITS)) - 1;
+        op->bs_op->max_oid.stripe = UINT64_MAX;
+        op->bs_op->pg_count = pg_counts[ps->pool_id];
+        op->bs_op->pg_number = ps->pg_num-1;
         op->bs_op->callback = [this, ps, op, role_osd](blockstore_op_t *bs_op)
         {
             if (op->bs_op->retval < 0)

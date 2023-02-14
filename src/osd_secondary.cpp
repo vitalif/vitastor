@@ -125,11 +125,18 @@ void osd_t::exec_secondary(osd_op_t *cur_op)
             secondary_op_callback(cur_op);
             return;
         }
-        cur_op->bs_op->oid.stripe = cur_op->req.sec_list.pg_stripe_size;
-        cur_op->bs_op->len = cur_op->req.sec_list.pg_count;
-        cur_op->bs_op->offset = cur_op->req.sec_list.list_pg - 1;
-        cur_op->bs_op->oid.inode = cur_op->req.sec_list.min_inode;
-        cur_op->bs_op->version = cur_op->req.sec_list.max_inode;
+        cur_op->bs_op->pg_alignment = cur_op->req.sec_list.pg_stripe_size;
+        cur_op->bs_op->pg_count = cur_op->req.sec_list.pg_count;
+        cur_op->bs_op->pg_number = cur_op->req.sec_list.list_pg - 1;
+        cur_op->bs_op->min_oid.inode = cur_op->req.sec_list.min_inode;
+        cur_op->bs_op->min_oid.stripe = cur_op->req.sec_list.min_stripe;
+        cur_op->bs_op->max_oid.inode = cur_op->req.sec_list.max_inode;
+        if (cur_op->req.sec_list.max_inode && cur_op->req.sec_list.max_stripe != UINT64_MAX)
+        {
+            cur_op->bs_op->max_oid.stripe = cur_op->req.sec_list.max_stripe
+                ? cur_op->req.sec_list.max_stripe : UINT64_MAX;
+        }
+        cur_op->bs_op->list_stable_limit = cur_op->req.sec_list.stable_limit;
 #ifdef OSD_STUB
         cur_op->bs_op->retval = 0;
         cur_op->bs_op->buf = NULL;

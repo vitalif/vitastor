@@ -462,11 +462,11 @@ void blockstore_impl_t::reshard_clean_db(pool_id_t pool, uint32_t pg_count, uint
 
 void blockstore_impl_t::process_list(blockstore_op_t *op)
 {
-    uint32_t list_pg = op->offset+1;
-    uint32_t pg_count = op->len;
-    uint64_t pg_stripe_size = op->oid.stripe;
-    uint64_t min_inode = op->oid.inode;
-    uint64_t max_inode = op->version;
+    uint32_t list_pg = op->pg_number+1;
+    uint32_t pg_count = op->pg_count;
+    uint64_t pg_stripe_size = op->pg_alignment;
+    uint64_t min_inode = op->min_oid.inode;
+    uint64_t max_inode = op->max_oid.inode;
     // Check PG
     if (pg_count != 0 && (pg_stripe_size < MIN_DATA_BLOCK_SIZE || list_pg > pg_count))
     {
@@ -513,7 +513,13 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
             stable_alloc += clean_db.size();
         }
     }
-    else
+    if (op->list_stable_limit > 0)
+    {
+        stable_alloc = op->list_stable_limit;
+        if (stable_alloc > 1024*1024)
+            stable_alloc = 1024*1024;
+    }
+    if (stable_alloc < 32768)
     {
         stable_alloc = 32768;
     }
@@ -524,22 +530,22 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
         FINISH_OP(op);
         return;
     }
+    auto max_oid = op->max_oid;
+    bool limited = false;
+    pool_pg_id_t last_shard_id = 0;
     for (auto shard_it = clean_db_shards.lower_bound(first_shard);
         shard_it != clean_db_shards.end() && shard_it->first <= last_shard;
         shard_it++)
     {
         auto & clean_db = shard_it->second;
         auto clean_it = clean_db.begin(), clean_end = clean_db.end();
-        if ((min_inode != 0 || max_inode != 0) && min_inode <= max_inode)
+        if (op->min_oid.inode != 0 || op->min_oid.stripe != 0)
         {
-            clean_it = clean_db.lower_bound({
-                .inode = min_inode,
-                .stripe = 0,
-            });
-            clean_end = clean_db.upper_bound({
-                .inode = max_inode,
-                .stripe = UINT64_MAX,
-            });
+            clean_it = clean_db.lower_bound(op->min_oid);
+        }
+        if ((max_oid.inode != 0 || max_oid.stripe != 0) && !(max_oid < op->min_oid))
+        {
+            clean_end = clean_db.upper_bound(max_oid);
         }
         for (; clean_it != clean_end; clean_it++)
         {
@@ -558,11 +564,29 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
                 .oid = clean_it->first,
                 .version = clean_it->second.version,
             };
+            if (op->list_stable_limit > 0 && stable_count >= op->list_stable_limit)
+            {
+                if (!limited)
+                {
+                    limited = true;
+                    max_oid = stable[stable_count-1].oid;
+                }
+                break;
+            }
         }
+        if (op->list_stable_limit > 0)
+        {
+            // To maintain the order, we have to include objects in the same range from other shards
+            if (last_shard_id != 0 && last_shard_id != shard_it->first)
+                std::sort(stable, stable+stable_count);
+            if (stable_count > op->list_stable_limit)
+                stable_count = op->list_stable_limit;
+        }
+        last_shard_id = shard_it->first;
     }
-    if (first_shard != last_shard)
+    if (op->list_stable_limit == 0 && first_shard != last_shard)
     {
-        // If that's not a per-PG listing, sort clean entries
+        // If that's not a per-PG listing, sort clean entries (already sorted if list_stable_limit != 0)
         std::sort(stable, stable+stable_count);
     }
     int clean_stable_count = stable_count;
@@ -571,20 +595,17 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     obj_ver_id *unstable = NULL;
     {
         auto dirty_it = dirty_db.begin(), dirty_end = dirty_db.end();
-        if ((min_inode != 0 || max_inode != 0) && min_inode <= max_inode)
+        if (op->min_oid.inode != 0 || op->min_oid.stripe != 0)
         {
             dirty_it = dirty_db.lower_bound({
-                .oid = {
-                    .inode = min_inode,
-                    .stripe = 0,
-                },
+                .oid = op->min_oid,
                 .version = 0,
             });
+        }
+        if ((max_oid.inode != 0 || max_oid.stripe != 0) && !(max_oid < op->min_oid))
+        {
             dirty_end = dirty_db.upper_bound({
-                .oid = {
-                    .inode = max_inode,
-                    .stripe = UINT64_MAX,
-                },
+                .oid = max_oid,
                 .version = UINT64_MAX,
             });
         }
@@ -627,6 +648,11 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
                             }
                             stable[stable_count++] = dirty_it->first;
                         }
+                    }
+                    if (op->list_stable_limit > 0 && stable_count >= op->list_stable_limit)
+                    {
+                        // Stop here
+                        break;
                     }
                 }
                 else

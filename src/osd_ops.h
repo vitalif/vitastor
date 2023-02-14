@@ -173,6 +173,11 @@ struct __attribute__((__packed__)) osd_op_sec_list_t
     uint64_t pg_stripe_size;
     // inode range (used to select pools)
     uint64_t min_inode, max_inode;
+    // min/max oid stripe, added after inodes for backwards compatibility
+    // also for backwards compatibility, max_stripe=UINT64_MAX means 0 and 0 means UINT64_MAX O_o
+    uint64_t min_stripe, max_stripe;
+    // max stable object count
+    uint32_t stable_limit;
 };
 
 struct __attribute__((__packed__)) osd_reply_sec_list_t

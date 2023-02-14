@@ -168,19 +168,21 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
             {
                 clock_gettime(CLOCK_REALTIME, &subop->tv_begin);
                 subop->op_type = (uint64_t)cur_op;
-                subop->bs_op = new blockstore_op_t({
+                subop->bs_op = new blockstore_op_t((blockstore_op_t){
                     .opcode = (uint64_t)(wr ? (rep ? BS_OP_WRITE_STABLE : BS_OP_WRITE) : BS_OP_READ),
                     .callback = [subop, this](blockstore_op_t *bs_subop)
                     {
                         handle_primary_bs_subop(subop);
                     },
-                    .oid = {
-                        .inode = inode,
-                        .stripe = op_data->oid.stripe | stripe_num,
+                    {
+                        .oid = (object_id){
+                            .inode = inode,
+                            .stripe = op_data->oid.stripe | stripe_num,
+                        },
+                        .version = op_version,
+                        .offset = wr ? stripes[stripe_num].write_start : stripes[stripe_num].read_start,
+                        .len = subop_len,
                     },
-                    .version = op_version,
-                    .offset = wr ? stripes[stripe_num].write_start : stripes[stripe_num].read_start,
-                    .len = subop_len,
                     .buf = wr ? stripes[stripe_num].write_buf : stripes[stripe_num].read_buf,
                     .bitmap = stripes[stripe_num].bmp_buf,
                 });
@@ -631,7 +633,9 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
                 {
                     handle_primary_bs_subop(subop);
                 },
-                .len = (uint32_t)stab_osd.len,
+                {
+                    .len = (uint32_t)stab_osd.len,
+                },
                 .buf = (void*)(op_data->unstable_writes + stab_osd.start),
             });
             bs->enqueue_op(subops[i].bs_op);
