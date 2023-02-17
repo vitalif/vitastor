@@ -59,7 +59,6 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         delete op;
     };
     msgr.parse_config(this->config);
-    msgr.init();
 
     st_cli.tfd = tfd;
     st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
@@ -73,17 +72,6 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
 
     scrap_buffer_size = SCRAP_BUFFER_SIZE;
     scrap_buffer = malloc_or_die(scrap_buffer_size);
-
-    if (ringloop)
-    {
-        consumer.loop = [this]()
-        {
-            msgr.read_requests();
-            msgr.send_replies();
-            this->ringloop->submit();
-        };
-        ringloop->register_consumer(&consumer);
-    }
 }
 
 cluster_client_t::~cluster_client_t()
@@ -112,6 +100,24 @@ cluster_op_t::~cluster_op_t()
         free(bitmap_buf);
         part_bitmaps = NULL;
         bitmap_buf = NULL;
+    }
+}
+
+void cluster_client_t::init_msgr()
+{
+    if (msgr_initialized)
+        return;
+    msgr.init();
+    msgr_initialized = true;
+    if (ringloop)
+    {
+        consumer.loop = [this]()
+        {
+            msgr.read_requests();
+            msgr.send_replies();
+            this->ringloop->submit();
+        };
+        ringloop->register_consumer(&consumer);
     }
 }
 
@@ -921,6 +927,10 @@ bool cluster_client_t::affects_osd(uint64_t inode, uint64_t offset, uint64_t len
 
 bool cluster_client_t::try_send(cluster_op_t *op, int i)
 {
+    if (!msgr_initialized)
+    {
+        init_msgr();
+    }
     auto part = &op->parts[i];
     auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(op->cur_inode));
     auto pg_it = pool_cfg.pg_config.find(part->pg_num);

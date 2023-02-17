@@ -92,6 +92,7 @@ struct rm_inode_t
 
     void send_ops(rm_pg_t *cur_list)
     {
+        parent->cli->init_msgr();
         if (parent->cli->msgr.osd_peer_fds.find(cur_list->rm_osd_num) ==
             parent->cli->msgr.osd_peer_fds.end())
         {

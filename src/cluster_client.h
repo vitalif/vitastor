@@ -104,10 +104,14 @@ class cluster_client_t
     std::vector<std::function<void(void)>> on_ready_hooks;
     std::vector<inode_list_t*> lists;
     int continuing_ops = 0;
+    bool msgr_initialized = false;
 
 public:
     etcd_state_client_t st_cli;
+
     osd_messenger_t msgr;
+    void init_msgr();
+
     json11::Json config;
     json11::Json::object merged_config;
 
