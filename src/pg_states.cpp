@@ -3,9 +3,9 @@
 
 #include "pg_states.h"
 
-const int pg_state_bit_count = 15;
+const int pg_state_bit_count = 16;
 
-const int pg_state_bits[15] = {
+const int pg_state_bits[16] = {
     PG_STARTING,
     PG_PEERING,
     PG_INCOMPLETE,
@@ -21,9 +21,10 @@ const int pg_state_bits[15] = {
     PG_HAS_UNCLEAN,
     PG_HAS_INVALID,
     PG_LEFT_ON_DEAD,
+    PG_SCRUBBING,
 };
 
-const char *pg_state_names[15] = {
+const char *pg_state_names[16] = {
     "starting",
     "peering",
     "incomplete",
@@ -39,4 +40,5 @@ const char *pg_state_names[15] = {
     "has_unclean",
     "has_invalid",
     "left_on_dead",
+    "scrubbing",
 };

@@ -24,6 +24,7 @@ void osd_t::handle_peers()
                 if (!p.second.peering_state->list_ops.size())
                 {
                     p.second.calc_object_states(log_level);
+                    schedule_scrub(p.second);
                     report_pg_state(p.second);
                     incomplete_objects += p.second.incomplete_objects.size();
                     misplaced_objects += p.second.misplaced_objects.size();
@@ -81,6 +82,13 @@ void osd_t::handle_peers()
         if (!continue_recovery())
         {
             peering_state = peering_state & ~OSD_RECOVERING;
+        }
+    }
+    if (peering_state & OSD_SCRUBBING)
+    {
+        if (!continue_scrub())
+        {
+            peering_state = peering_state & ~OSD_SCRUBBING;
         }
     }
 }

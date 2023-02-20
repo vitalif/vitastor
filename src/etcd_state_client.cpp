@@ -7,8 +7,8 @@
 #ifndef __MOCK__
 #include "addr_util.h"
 #include "http_client.h"
-#include "str_util.h"
 #endif
+#include "str_util.h"
 
 etcd_state_client_t::~etcd_state_client_t()
 {
@@ -777,6 +777,10 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 fprintf(stderr, "Pool %u has invalid bitmap_granularity (must divide block_size), skipping pool\n", pool_id);
                 continue;
             }
+            // Scrub Interval
+            pc.scrub_interval = parse_time(pool_item.second["scrub_interval"].string_value());
+            if (!pc.scrub_interval)
+                pc.scrub_interval = 0;
             // Immediate Commit Mode
             pc.immediate_commit = pool_item.second["immediate_commit"].is_string()
                 ? (pool_item.second["immediate_commit"].string_value() == "all"
@@ -919,6 +923,8 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             }
             // Read epoch
             pg_cfg.epoch = value["epoch"].uint64_value();
+            // Scrub timestamp
+            pg_cfg.scrub_ts = parse_time(value["scrub_ts"].string_value());
             if (on_change_pg_history_hook != NULL)
             {
                 on_change_pg_history_hook(pool_id, pg_num);

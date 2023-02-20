@@ -39,6 +39,7 @@ struct pg_config_t
     osd_num_t cur_primary;
     int cur_state;
     uint64_t epoch;
+    uint64_t scrub_ts;
 };
 
 struct pool_config_t
@@ -55,6 +56,7 @@ struct pool_config_t
     uint64_t max_osd_combinations;
     uint64_t pg_stripe_size;
     std::map<pg_num_t, pg_config_t> pg_config;
+    uint64_t scrub_interval;
 };
 
 struct inode_config_t

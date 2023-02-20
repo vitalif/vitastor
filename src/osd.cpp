@@ -207,6 +207,16 @@ void osd_t::parse_config(bool init)
     inode_vanish_time = config["inode_vanish_time"].uint64_value();
     if (!inode_vanish_time)
         inode_vanish_time = 60;
+    global_scrub_interval = config["scrub_interval"].uint64_value();
+    if (!global_scrub_interval)
+        global_scrub_interval = 30*86400;
+    scrub_queue_depth = config["scrub_queue_depth"].uint64_value();
+    if (scrub_queue_depth < 1 || scrub_queue_depth > MAX_RECOVERY_QUEUE)
+        scrub_queue_depth = 1;
+    scrub_sleep_ms = config["scrub_sleep"].uint64_value();
+    scrub_list_limit = config["scrub_list_limit"].uint64_value();
+    if (!scrub_list_limit)
+        scrub_list_limit = 1000;
     if ((old_no_rebalance && !no_rebalance || old_no_recovery && !no_recovery) &&
         !(peering_state & (OSD_RECOVERING | OSD_FLUSHING_PGS)))
     {

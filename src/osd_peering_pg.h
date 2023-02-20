@@ -95,6 +95,8 @@ struct pg_t
     // target history and all potential peers
     std::vector<std::vector<osd_num_t>> target_history;
     std::vector<osd_num_t> all_peers;
+    // last scrub time
+    uint64_t scrub_ts = 0;
     bool history_changed = false;
     // peer list from the last peering event
     std::vector<osd_num_t> cur_peers;

@@ -299,7 +299,7 @@ add_executable(test_cluster_client
 	EXCLUDE_FROM_ALL
 	test_cluster_client.cpp
 	pg_states.cpp osd_ops.cpp cluster_client.cpp cluster_client_list.cpp msgr_op.cpp mock/messenger.cpp msgr_stop.cpp
-	etcd_state_client.cpp timerfd_manager.cpp ../json11/json11.cpp
+	etcd_state_client.cpp timerfd_manager.cpp str_util.cpp ../json11/json11.cpp
 )
 target_compile_definitions(test_cluster_client PUBLIC -D__MOCK__)
 target_include_directories(test_cluster_client PUBLIC ${CMAKE_SOURCE_DIR}/src/mock)

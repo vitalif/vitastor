@@ -28,6 +28,7 @@
 #define OSD_PEERING_PGS 0x04
 #define OSD_FLUSHING_PGS 0x08
 #define OSD_RECOVERING 0x10
+#define OSD_SCRUBBING 0x20
 
 #define MAX_AUTOSYNC_INTERVAL 3600
 #define DEFAULT_AUTOSYNC_INTERVAL 5
@@ -113,6 +114,10 @@ class osd_t
     int recovery_sync_batch = DEFAULT_RECOVERY_BATCH;
     int inode_vanish_time = 60;
     int log_level = 0;
+    uint64_t global_scrub_interval = 30*86400;
+    uint64_t scrub_queue_depth = 1;
+    uint64_t scrub_sleep_ms = 0;
+    uint32_t scrub_list_limit = 1000;
 
     // cluster state
 
@@ -138,11 +143,20 @@ class osd_t
     uint64_t misplaced_objects = 0, degraded_objects = 0, incomplete_objects = 0, corrupted_objects = 0;
     int peering_state = 0;
     std::map<object_id, osd_recovery_op_t> recovery_ops;
+    std::map<object_id, osd_op_t*> scrub_ops;
     bool recovery_last_degraded = true;
     pool_pg_num_t recovery_last_pg;
     object_id recovery_last_oid;
     int recovery_pg_done = 0, recovery_done = 0;
     osd_op_t *autosync_op = NULL;
+
+    // Scrubbing
+    uint64_t scrub_nearest_ts = 0;
+    int scrub_timer_id = -1;
+    pool_pg_num_t scrub_last_pg;
+    osd_op_t *scrub_list_op;
+    pg_list_result_t scrub_cur_list = {};
+    uint64_t scrub_list_pos = 0;
 
     // Unstable writes
     uint64_t unstable_write_count = 0;
@@ -220,6 +234,13 @@ class osd_t
     void submit_recovery_op(osd_recovery_op_t *op);
     bool continue_recovery();
     pg_osd_set_state_t* change_osd_set(pg_osd_set_state_t *st, pg_t *pg);
+
+    // scrub
+    void scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oid);
+    bool pick_next_scrub(object_id & next_oid);
+    void submit_scrub_op(object_id oid);
+    bool continue_scrub();
+    void schedule_scrub(pg_t & pg);
 
     // op execution
     void exec_op(osd_op_t *cur_op);

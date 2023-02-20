@@ -249,3 +249,35 @@ void print_help(const char *help_text, std::string exe_name, std::string cmd, bo
     fwrite(filtered_text.data(), filtered_text.size(), 1, stdout);
     exit(0);
 }
+
+uint64_t parse_time(std::string time_str, bool *ok)
+{
+    if (!time_str.length())
+    {
+        if (ok)
+            *ok = false;
+        return 0;
+    }
+    uint64_t mul = 1;
+    char type_char = tolower(time_str[time_str.length()-1]);
+    if (type_char == 's' || type_char == 'm' || type_char == 'h' || type_char == 'd' || type_char == 'y')
+    {
+        if (type_char == 's')
+            mul = 1;
+        else if (time_str[time_str.length()-1] == 'M')
+            mul = 30*86400;
+        else if (type_char == 'm')
+            mul = 60;
+        else if (type_char == 'h')
+            mul = 3600;
+        else if (type_char == 'd')
+            mul = 86400;
+        else /*if (type_char == 'y')*/
+            mul = 86400*365;
+        time_str = time_str.substr(0, time_str.length()-1);
+    }
+    uint64_t ts = stoull_full(time_str, 0) * mul;
+    if (ok)
+        *ok = !(ts == 0 && time_str != "0" && (time_str != "" || mul != 1));
+    return ts;
+}

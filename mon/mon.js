@@ -110,6 +110,10 @@ const etcd_tree = {
             print_stats_interval: 3,
             slow_log_interval: 10,
             inode_vanish_time: 60,
+            scrub_interval: '30d', // 1s/1m/1h/1d
+            scrub_queue_depth: 1,
+            scrub_sleep: 0, // milliseconds
+            scrub_list_limit: 1000, // objects to list on one scrub iteration
             // blockstore - fixed in superblock
             block_size,
             disk_alignment,
@@ -172,6 +176,8 @@ const etcd_tree = {
                 osd_tags?: 'nvme' | [ 'nvme', ... ],
                 // prefer to put primary on OSD with these tags
                 primary_affinity_tags?: 'nvme' | [ 'nvme', ... ],
+                // scrub interval
+                scrub_interval?: '30d',
             },
             ...
         }, */
@@ -267,7 +273,7 @@ const etcd_tree = {
                     primary: osd_num_t,
                     state: ("starting"|"peering"|"incomplete"|"active"|"repeering"|"stopping"|"offline"|
                         "degraded"|"has_corrupted"|"has_incomplete"|"has_degraded"|"has_misplaced"|"has_unclean"|
-                        "has_invalid"|"left_on_dead")[],
+                        "has_invalid"|"left_on_dead"|"scrubbing")[],
                 }
             }, */
         },
@@ -289,6 +295,7 @@ const etcd_tree = {
                     osd_sets: osd_num_t[][],
                     all_peers: osd_num_t[],
                     epoch: uint64_t,
+                    scrub_ts: uint64_t,
                 },
             }, */
         },

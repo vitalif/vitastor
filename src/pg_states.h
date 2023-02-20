@@ -24,6 +24,7 @@
 #define PG_HAS_INVALID (1<<12)
 #define PG_HAS_CORRUPTED (1<<13)
 #define PG_LEFT_ON_DEAD (1<<14)
+#define PG_SCRUBBING (1<<15)
 
 // Lower bits that represent object role (EC 0/1/2... or always 0 with replication)
 // 12 bits is a safe default that doesn't depend on pg_stripe_size or pg_block_size

@@ -410,14 +410,17 @@ struct rm_osd_t
                         parent->cli->st_cli.etcd_prefix+"/pg/history/"+
                         std::to_string(pool_cfg.id)+"/"+std::to_string(pg_num)
                     );
+                    auto hist = json11::Json::object {
+                        { "epoch", pg_cfg.epoch },
+                        { "all_peers", pg_cfg.all_peers },
+                        { "osd_sets", pg_cfg.target_history },
+                    };
+                    if (pg_cfg.scrub_ts)
+                        hist["scrub_ts"] = pg_cfg.scrub_ts;
                     history_updates.push_back(json11::Json::object {
                         { "request_put", json11::Json::object {
                             { "key", history_key },
-                            { "value", base64_encode(json11::Json(json11::Json::object {
-                                { "epoch", pg_cfg.epoch },
-                                { "all_peers", pg_cfg.all_peers },
-                                { "osd_sets", pg_cfg.target_history },
-                            }).dump()) },
+                            { "value", base64_encode(json11::Json(hist).dump()) },
                         } },
                     });
                     history_checks.push_back(json11::Json::object {
