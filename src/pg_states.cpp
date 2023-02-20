@@ -3,12 +3,11 @@
 
 #include "pg_states.h"
 
-const int pg_state_bit_count = 16;
+const int pg_state_bit_count = 14;
 
-const int pg_state_bits[16] = {
+const int pg_state_bits[14] = {
     PG_STARTING,
     PG_PEERING,
-    PG_PEERED,
     PG_INCOMPLETE,
     PG_ACTIVE,
     PG_REPEERING,
@@ -23,10 +22,9 @@ const int pg_state_bits[16] = {
     PG_LEFT_ON_DEAD,
 };
 
-const char *pg_state_names[16] = {
+const char *pg_state_names[14] = {
     "starting",
     "peering",
-    "peered",
     "incomplete",
     "active",
     "repeering",

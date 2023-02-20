@@ -4,27 +4,25 @@
 #pragma once
 
 // Placement group states
-// STARTING -> [acquire lock] -> PEERING -> PEERED
-// PEERED -> [report history if required!] -> INCOMPLETE|ACTIVE
+// STARTING -> [acquire lock] -> PEERING -> INCOMPLETE|ACTIVE
 // ACTIVE -> REPEERING -> PEERING
 // ACTIVE -> STOPPING -> OFFLINE -> [release lock]
 // Exactly one of these:
 #define PG_STARTING (1<<0)
 #define PG_PEERING (1<<1)
-#define PG_PEERED (1<<2)
-#define PG_INCOMPLETE (1<<3)
-#define PG_ACTIVE (1<<4)
-#define PG_REPEERING (1<<5)
-#define PG_STOPPING (1<<6)
-#define PG_OFFLINE (1<<7)
+#define PG_INCOMPLETE (1<<2)
+#define PG_ACTIVE (1<<3)
+#define PG_REPEERING (1<<4)
+#define PG_STOPPING (1<<5)
+#define PG_OFFLINE (1<<6)
 // Plus any of these:
-#define PG_DEGRADED (1<<8)
-#define PG_HAS_INCOMPLETE (1<<9)
-#define PG_HAS_DEGRADED (1<<10)
-#define PG_HAS_MISPLACED (1<<11)
-#define PG_HAS_UNCLEAN (1<<12)
-#define PG_HAS_INVALID (1<<13)
-#define PG_LEFT_ON_DEAD (1<<14)
+#define PG_DEGRADED (1<<7)
+#define PG_HAS_INCOMPLETE (1<<8)
+#define PG_HAS_DEGRADED (1<<9)
+#define PG_HAS_MISPLACED (1<<10)
+#define PG_HAS_UNCLEAN (1<<11)
+#define PG_HAS_INVALID (1<<12)
+#define PG_LEFT_ON_DEAD (1<<13)
 
 // Lower bits that represent object role (EC 0/1/2... or always 0 with replication)
 // 12 bits is a safe default that doesn't depend on pg_stripe_size or pg_block_size

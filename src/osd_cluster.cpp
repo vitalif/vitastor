@@ -683,7 +683,7 @@ void osd_t::apply_pg_config()
                 auto vec_all_peers = std::vector<osd_num_t>(all_peers.begin(), all_peers.end());
                 if (currently_taken)
                 {
-                    if (pg_it->second.state & (PG_ACTIVE | PG_INCOMPLETE | PG_PEERING | PG_REPEERING | PG_PEERED))
+                    if (pg_it->second.state & (PG_ACTIVE | PG_INCOMPLETE | PG_PEERING | PG_REPEERING))
                     {
                         if (pg_it->second.target_set == pg_cfg.target_set &&
                             pg_it->second.target_history == pg_cfg.target_history &&
@@ -962,13 +962,6 @@ void osd_t::report_pg_states()
                             use_ec(pg_it->second.pg_size, pg_it->second.pg_data_size, false);
                         }
                         this->pgs.erase(pg_it);
-                    }
-                    else if (pg_it->second.state & PG_PEERED)
-                    {
-                        // Activate PG after PG PEERED state is reported along with history
-                        // (if the state wasn't changed again)
-                        pg_it->second.state = pg_it->second.state & ~PG_PEERED | PG_ACTIVE;
-                        report_pg_state(pg_it->second);
                     }
                 }
             }

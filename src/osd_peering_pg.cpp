@@ -88,13 +88,9 @@ void pg_obj_state_check_t::walk()
     {
         // Activate as degraded
         // Current OSD set will be added into target_history on first write
-        pg->state |= PG_DEGRADED | PG_PEERED;
+        pg->state |= PG_DEGRADED;
     }
-    else
-    {
-        // Just activate
-        pg->state |= PG_ACTIVE;
-    }
+    pg->state |= PG_ACTIVE;
     if (pg->state == PG_ACTIVE && pg->cur_peers.size() < pg->all_peers.size())
     {
         pg->state |= PG_LEFT_ON_DEAD;
@@ -460,11 +456,10 @@ void pg_t::calc_object_states(int log_level)
 void pg_t::print_state()
 {
     printf(
-        "[PG %u/%u] is %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s (%lu objects)\n", pool_id, pg_num,
+        "[PG %u/%u] is %s%s%s%s%s%s%s%s%s%s%s%s%s%s (%lu objects)\n", pool_id, pg_num,
         (state & PG_STARTING) ? "starting" : "",
         (state & PG_OFFLINE) ? "offline" : "",
         (state & PG_PEERING) ? "peering" : "",
-        (state & PG_PEERED) ? "peered" : "",
         (state & PG_INCOMPLETE) ? "incomplete" : "",
         (state & PG_ACTIVE) ? "active" : "",
         (state & PG_REPEERING) ? "repeering" : "",
