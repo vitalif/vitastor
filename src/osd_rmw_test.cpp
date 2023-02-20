@@ -881,7 +881,7 @@ void test15()
     // Done
     free(rmw_buf);
     free(write_buf);
-    use_ec(3, 2, false);
+    use_ec(4, 2, false);
 }
 
 /***
@@ -984,5 +984,5 @@ void test16()
     // Done
     free(rmw_buf);
     free(write_buf);
-    use_ec(3, 2, false);
+    use_ec(4, 2, false);
 }

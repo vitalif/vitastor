@@ -54,5 +54,6 @@ int main(int argc, char *argv[])
     {
         printf("dev: state=%lx\n", it.second.state);
     }
+    delete pg.peering_state;
     return 0;
 }

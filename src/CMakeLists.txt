@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 2.8)
 project(vitastor)
 
 include(GNUInstallDirs)
+include(CTest)
 
 set(WITH_QEMU false CACHE BOOL "Build QEMU driver inside Vitastor source tree")
 set(WITH_FIO true CACHE BOOL "Build FIO driver")
@@ -54,6 +55,14 @@ pkg_check_modules(ISAL libisal)
 if (ISAL_LIBRARIES)
 	add_definitions(-DWITH_ISAL)
 endif (ISAL_LIBRARIES)
+
+add_custom_target(build_tests)
+add_custom_target(test
+	COMMAND
+	echo leak:tcmalloc > ${CMAKE_CURRENT_BINARY_DIR}/lsan-suppress.txt &&
+	env LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_BINARY_DIR}/lsan-suppress.txt ${CMAKE_CTEST_COMMAND}
+)
+add_dependencies(test build_tests)
 
 include_directories(
 	../
@@ -234,14 +243,17 @@ add_executable(osd_test osd_test.cpp rw_blocking.cpp addr_util.cpp)
 target_link_libraries(osd_test tcmalloc_minimal)
 
 # osd_rmw_test
-# FIXME: Move to tests
-add_executable(osd_rmw_test osd_rmw_test.cpp allocator.cpp)
+add_executable(osd_rmw_test EXCLUDE_FROM_ALL osd_rmw_test.cpp allocator.cpp)
 target_link_libraries(osd_rmw_test Jerasure ${ISAL_LIBRARIES} tcmalloc_minimal)
+add_dependencies(build_tests osd_rmw_test)
+add_test(NAME osd_rmw_test COMMAND osd_rmw_test)
 
 if (ISAL_LIBRARIES)
-	add_executable(osd_rmw_test_je osd_rmw_test.cpp allocator.cpp)
+	add_executable(osd_rmw_test_je EXCLUDE_FROM_ALL osd_rmw_test.cpp allocator.cpp)
 	target_compile_definitions(osd_rmw_test_je PUBLIC -DNO_ISAL)
 	target_link_libraries(osd_rmw_test_je Jerasure tcmalloc_minimal)
+	add_dependencies(build_tests osd_rmw_test_je)
+	add_test(NAME osd_rmw_test_jerasure COMMAND osd_rmw_test_je)
 endif (ISAL_LIBRARIES)
 
 # stub_uring_osd
@@ -256,11 +268,15 @@ target_link_libraries(stub_uring_osd
 )
 
 # osd_peering_pg_test
-add_executable(osd_peering_pg_test osd_peering_pg_test.cpp osd_peering_pg.cpp)
+add_executable(osd_peering_pg_test EXCLUDE_FROM_ALL osd_peering_pg_test.cpp osd_peering_pg.cpp)
 target_link_libraries(osd_peering_pg_test tcmalloc_minimal)
+add_dependencies(build_tests osd_peering_pg_test)
+add_test(NAME osd_peering_pg_test COMMAND osd_peering_pg_test)
 
 # test_allocator
-add_executable(test_allocator test_allocator.cpp allocator.cpp)
+add_executable(test_allocator EXCLUDE_FROM_ALL test_allocator.cpp allocator.cpp)
+add_dependencies(build_tests test_allocator)
+add_test(NAME test_allocator COMMAND test_allocator)
 
 # test_cas
 add_executable(test_cas
@@ -280,12 +296,15 @@ target_link_libraries(test_crc32
 
 # test_cluster_client
 add_executable(test_cluster_client
+	EXCLUDE_FROM_ALL
 	test_cluster_client.cpp
 	pg_states.cpp osd_ops.cpp cluster_client.cpp cluster_client_list.cpp msgr_op.cpp mock/messenger.cpp msgr_stop.cpp
 	etcd_state_client.cpp timerfd_manager.cpp ../json11/json11.cpp
 )
 target_compile_definitions(test_cluster_client PUBLIC -D__MOCK__)
 target_include_directories(test_cluster_client PUBLIC ${CMAKE_SOURCE_DIR}/src/mock)
+add_dependencies(build_tests test_cluster_client)
+add_test(NAME test_cluster_client COMMAND test_cluster_client)
 
 ## test_blockstore, test_shit
 #add_executable(test_blockstore test_blockstore.cpp)
