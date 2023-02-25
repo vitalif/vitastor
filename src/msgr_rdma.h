@@ -49,7 +49,7 @@ struct msgr_rdma_connection_t
     uint64_t max_msg = 0;
 
     int send_pos = 0, send_buf_pos = 0;
-    int recv_pos = 0, recv_buf_pos = 0;
+    int next_recv_buf = 0;
     std::vector<void*> recv_buffers;
 
     ~msgr_rdma_connection_t();

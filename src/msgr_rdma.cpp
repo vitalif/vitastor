@@ -410,13 +410,18 @@ bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
     return true;
 }
 
-static void try_recv_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
+static void try_recv_rdma_wr(osd_client_t *cl, void *buf)
 {
+    ibv_sge sge = {
+        .addr = (uintptr_t)buf,
+        .length = (uint32_t)cl->rdma_conn->max_msg,
+        .lkey = cl->rdma_conn->ctx->mr->lkey,
+    };
     ibv_recv_wr *bad_wr = NULL;
     ibv_recv_wr wr = {
         .wr_id = (uint64_t)(cl->peer_fd*2),
-        .sg_list = sge,
-        .num_sge = op_sge,
+        .sg_list = &sge,
+        .num_sge = 1,
     };
     int err = ibv_post_recv(cl->rdma_conn->qp, &wr, &bad_wr);
     if (err || bad_wr)
@@ -434,12 +439,7 @@ bool osd_messenger_t::try_recv_rdma(osd_client_t *cl)
     {
         void *buf = malloc_or_die(rc->max_msg);
         rc->recv_buffers.push_back(buf);
-        ibv_sge sge = {
-            .addr = (uintptr_t)buf,
-            .length = (uint32_t)rc->max_msg,
-            .lkey = rc->ctx->mr->lkey,
-        };
-        try_recv_rdma_wr(cl, &sge, 1);
+        try_recv_rdma_wr(cl, buf);
     }
     return true;
 }
@@ -490,14 +490,13 @@ void osd_messenger_t::handle_rdma_events()
             if (!is_send)
             {
                 cl->rdma_conn->cur_recv--;
-                if (!handle_read_buffer(cl, cl->rdma_conn->recv_buffers[0], wc[i].byte_len))
+                if (!handle_read_buffer(cl, cl->rdma_conn->recv_buffers[cl->rdma_conn->next_recv_buf], wc[i].byte_len))
                 {
                     // handle_read_buffer may stop the client
                     continue;
                 }
-                free(cl->rdma_conn->recv_buffers[0]);
-                cl->rdma_conn->recv_buffers.erase(cl->rdma_conn->recv_buffers.begin(), cl->rdma_conn->recv_buffers.begin()+1);
-                try_recv_rdma(cl);
+                try_recv_rdma_wr(cl, cl->rdma_conn->recv_buffers[cl->rdma_conn->next_recv_buf]);
+                cl->rdma_conn->next_recv_buf = (cl->rdma_conn->next_recv_buf+1) % cl->rdma_conn->recv_buffers.size();
             }
             else
             {
