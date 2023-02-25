@@ -51,6 +51,7 @@ struct msgr_rdma_connection_t
     int send_pos = 0, send_buf_pos = 0;
     int next_recv_buf = 0;
     std::vector<void*> recv_buffers;
+    std::vector<uint64_t> send_sizes;
 
     ~msgr_rdma_connection_t();
     static msgr_rdma_connection_t *create(msgr_rdma_context_t *ctx, uint32_t max_send, uint32_t max_recv, uint32_t max_sge, uint32_t max_msg);
