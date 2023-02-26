@@ -90,6 +90,8 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         chain_size * (
             // - copy of the chain
             sizeof(inode_t) +
+            // - object states for every chain item
+            sizeof(void*) +
             // - bitmap buffers for chained read
             stripe_count * clean_entry_bitmap_size +
             // - 'missing' flags for chained reads
@@ -117,6 +119,8 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     {
         op_data->read_chain = (inode_t*)data_buf;
         data_buf = (uint8_t*)data_buf + sizeof(inode_t) * chain_size;
+        op_data->chain_states = (pg_osd_set_state_t**)data_buf;
+        data_buf = (uint8_t*)data_buf + sizeof(pg_osd_set_state_t*) * chain_size;
         op_data->snapshot_bitmaps = data_buf;
         data_buf = (uint8_t*)data_buf + chain_size * stripe_count * clean_entry_bitmap_size;
         op_data->missing_flags = (uint8_t*)data_buf;
@@ -131,6 +135,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
             inode_it->second.parent_id != cur_op->req.rw.inode)
         {
             op_data->read_chain[chain_num++] = inode_it->second.parent_id;
+            op_data->chain_states[chain_num++] = NULL;
             inode_it = st_cli.inode_config.find(inode_it->second.parent_id);
         }
     }
@@ -138,12 +143,12 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     return true;
 }
 
-uint64_t* osd_t::get_object_osd_set(pg_t &pg, object_id &oid, uint64_t *def, pg_osd_set_state_t **object_state)
+uint64_t* osd_t::get_object_osd_set(pg_t &pg, object_id &oid, pg_osd_set_state_t **object_state)
 {
     if (!(pg.state & (PG_HAS_INCOMPLETE | PG_HAS_DEGRADED | PG_HAS_MISPLACED)))
     {
         *object_state = NULL;
-        return def;
+        return pg.cur_set.data();
     }
     auto st_it = pg.incomplete_objects.find(oid);
     if (st_it != pg.incomplete_objects.end())
@@ -164,7 +169,7 @@ uint64_t* osd_t::get_object_osd_set(pg_t &pg, object_id &oid, uint64_t *def, pg_
         return st_it->second->read_target.data();
     }
     *object_state = NULL;
-    return def;
+    return pg.cur_set.data();
 }
 
 void osd_t::continue_primary_read(osd_op_t *cur_op)
@@ -183,6 +188,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         goto resume_1;
     else if (op_data->st == 2)
         goto resume_2;
+resume_0:
     cur_op->reply.rw.bitmap_len = 0;
     {
         auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
@@ -206,15 +212,17 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         // Determine version
         auto vo_it = pg.ver_override.find(op_data->oid);
         op_data->target_ver = vo_it != pg.ver_override.end() ? vo_it->second : UINT64_MAX;
-        op_data->prev_set = pg.cur_set.data();
-        if (pg.state != PG_ACTIVE)
-        {
-            // PG may be degraded or have misplaced objects
-            op_data->prev_set = get_object_osd_set(pg, op_data->oid, pg.cur_set.data(), &op_data->object_state);
-        }
+        // PG may have degraded or misplaced objects
+        op_data->prev_set = get_object_osd_set(pg, op_data->oid, &op_data->object_state);
         if (pg.state == PG_ACTIVE || op_data->scheme == POOL_SCHEME_REPLICATED)
         {
             // Fast happy-path
+            if (op_data->scheme == POOL_SCHEME_REPLICATED &&
+                op_data->object_state && (op_data->object_state->state & OBJ_INCOMPLETE))
+            {
+                finish_op(cur_op, -EIO);
+                return;
+            }
             cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->pg_data_size, 0);
             submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, op_data->prev_set, cur_op);
             op_data->st = 1;
@@ -240,6 +248,14 @@ resume_1:
 resume_2:
     if (op_data->errors > 0)
     {
+        if (op_data->errcode == -EIO || op_data->errcode == -EDOM)
+        {
+            // I/O or checksum error
+            auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
+            // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
+            op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, false);
+            goto resume_0;
+        }
         finish_op(cur_op, op_data->errcode);
         return;
     }
@@ -278,15 +294,129 @@ resume_2:
     finish_op(cur_op, cur_op->req.rw.len);
 }
 
+pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state, osd_rmw_stripe_t *stripes, bool ref)
+{
+    pg_osd_set_state_t *object_state = NULL;
+    get_object_osd_set(pg, oid, &object_state);
+    if (prev_object_state != object_state)
+    {
+        // Object state changed in between by a parallel I/O operation, skip marking as failed
+        if (ref)
+        {
+            deref_object_state(pg, &prev_object_state, ref);
+            if (object_state)
+                object_state->ref_count++;
+        }
+        return object_state;
+    }
+    pg_osd_set_t corrupted_set;
+    if (object_state)
+    {
+        corrupted_set = object_state->osd_set;
+    }
+    else
+    {
+        for (int i = 0; i < pg.cur_set.size(); i++)
+        {
+            corrupted_set.push_back((pg_obj_loc_t){
+                .role = (pg.scheme == POOL_SCHEME_REPLICATED ? 0 : (uint64_t)i),
+                .osd_num = pg.cur_set[i],
+            });
+        }
+    }
+    // Mark object chunk(s) as corrupted
+    uint64_t has_roles = 0, n_roles = 0, n_copies = 0, n_corrupted = 0;
+    for (auto & chunk: corrupted_set)
+    {
+        bool corrupted = stripes[chunk.role].osd_num == chunk.osd_num && stripes[chunk.role].read_error;
+        if (corrupted && !(chunk.loc_bad & LOC_CORRUPTED))
+            n_corrupted++;
+        chunk.loc_bad = chunk.loc_bad | (corrupted ? LOC_CORRUPTED : 0);
+        if (!chunk.loc_bad)
+        {
+            if (pg.scheme == POOL_SCHEME_REPLICATED)
+                n_roles = 1;
+            else if (!(has_roles & (1 << chunk.role)))
+            {
+                n_roles++;
+                has_roles |= (1 << chunk.role);
+            }
+            n_copies++;
+        }
+    }
+    if (!n_corrupted)
+    {
+        // No chunks newly marked as corrupted - object is already marked or moved
+        return object_state;
+    }
+    int old_pg_state = pg.state;
+    if (object_state)
+    {
+        remove_object_from_state(oid, &object_state, pg, false);
+        deref_object_state(pg, &object_state, ref);
+    }
+    // Calculate object state
+    uint64_t obj_state = OBJ_CORRUPTED;
+    int pg_state_bits = PG_HAS_CORRUPTED;
+    this->corrupted_objects++;
+    pg.corrupted_count++;
+    if (log_level > 1)
+    {
+        printf("Marking object %lx:%lx corrupted: %lu chunks / %lu copies available, %lu corrupted\n",
+            oid.inode, oid.stripe, n_roles, n_copies, n_corrupted);
+    }
+    if (n_roles < pg.pg_data_size)
+    {
+        this->incomplete_objects++;
+        obj_state |= OBJ_INCOMPLETE;
+        pg_state_bits = PG_HAS_INCOMPLETE;
+    }
+    else if (n_roles < pg.pg_cursize)
+    {
+        this->degraded_objects++;
+        obj_state |= OBJ_DEGRADED;
+        pg_state_bits = PG_HAS_DEGRADED;
+    }
+    else
+    {
+        this->misplaced_objects++;
+        obj_state |= OBJ_MISPLACED;
+        pg_state_bits = PG_HAS_MISPLACED;
+    }
+    pg.state |= pg_state_bits;
+    if (pg.state != old_pg_state)
+    {
+        report_pg_state(pg);
+        if ((pg.state & (PG_HAS_DEGRADED | PG_HAS_MISPLACED)) !=
+            (old_pg_state & (PG_HAS_DEGRADED | PG_HAS_MISPLACED)))
+        {
+            peering_state = peering_state | OSD_RECOVERING;
+            if ((pg.state & PG_HAS_DEGRADED) != (old_pg_state & PG_HAS_DEGRADED))
+            {
+                // Restart recovery from degraded objects
+                recovery_last_degraded = true;
+                recovery_last_pg = {};
+                recovery_last_oid = {};
+            }
+            ringloop->wakeup();
+        }
+    }
+    // Insert object into the new state and retry
+    object_state = pg.add_object_to_state(oid, obj_state, corrupted_set);
+    if (ref)
+        object_state->ref_count++;
+    return object_state;
+}
+
 // Decrement pg_osd_set_state_t's object_count and change PG state accordingly
-void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **object_state, pg_t & pg)
+void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **object_state, pg_t & pg, bool report)
 {
     if (!*object_state)
     {
         return;
     }
     pg_osd_set_state_t *recheck_state = NULL;
-    get_object_osd_set(pg, oid, NULL, &recheck_state);
+    get_object_osd_set(pg, oid, &recheck_state);
     if (recheck_state != *object_state)
     {
         recheck_state->ref_count++;
@@ -295,6 +425,12 @@ void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **objec
         return;
     }
     (*object_state)->object_count--;
+    if ((*object_state)->state & OBJ_CORRUPTED)
+    {
+        this->corrupted_objects--;
+        pg.corrupted_count--;
+    }
+    bool changed = false;
     if ((*object_state)->state & OBJ_INCOMPLETE)
     {
         // Successful write means that object is not incomplete anymore
@@ -303,7 +439,7 @@ void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **objec
         if (!pg.incomplete_objects.size())
         {
             pg.state = pg.state & ~PG_HAS_INCOMPLETE;
-            report_pg_state(pg);
+            changed = true;
         }
     }
     else if ((*object_state)->state & OBJ_DEGRADED)
@@ -313,7 +449,7 @@ void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **objec
         if (!pg.degraded_objects.size())
         {
             pg.state = pg.state & ~PG_HAS_DEGRADED;
-            report_pg_state(pg);
+            changed = true;
         }
     }
     else if ((*object_state)->state & OBJ_MISPLACED)
@@ -323,12 +459,16 @@ void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **objec
         if (!pg.misplaced_objects.size())
         {
             pg.state = pg.state & ~PG_HAS_MISPLACED;
-            report_pg_state(pg);
+            changed = true;
         }
     }
     else
     {
         throw std::runtime_error("BUG: Invalid object state: "+std::to_string((*object_state)->state));
+    }
+    if (changed && report)
+    {
+        report_pg_state(pg);
     }
 }
 
@@ -374,13 +514,14 @@ void osd_t::continue_primary_del(osd_op_t *cur_op)
     }
 resume_1:
     // Determine which OSDs contain this object and delete it
-    op_data->prev_set = get_object_osd_set(pg, op_data->oid, pg.cur_set.data(), &op_data->object_state);
+    op_data->prev_set = get_object_osd_set(pg, op_data->oid, &op_data->object_state);
     if (op_data->object_state)
     {
         op_data->object_state->ref_count++;
     }
     // Submit 1 read to determine the actual version number
     submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, op_data->prev_set, cur_op);
+    op_data->prev_set = NULL;
 resume_2:
     op_data->st = 2;
     return;

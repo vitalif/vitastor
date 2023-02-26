@@ -310,20 +310,17 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
         if (osd_op->reply.hdr.retval < 0)
         {
             // Error recovering object
-            if (osd_op->reply.hdr.retval == -EPIPE)
-            {
-                // PG is stopped or one of the OSDs is gone, error is harmless
-                printf(
-                    "[PG %u/%u] Recovery operation failed with object %lx:%lx\n",
-                    INODE_POOL(op->oid.inode),
-                    map_to_pg(op->oid, st_cli.pool_config.at(INODE_POOL(op->oid.inode)).pg_stripe_size),
-                    op->oid.inode, op->oid.stripe
-                );
-            }
-            else
-            {
-                throw std::runtime_error("Failed to recover an object");
-            }
+            // EPIPE is totally harmless (peer is gone), others like EIO/EDOM may be not
+            printf(
+                "[PG %u/%u] Recovery operation failed with object %lx:%lx: error %ld\n",
+                INODE_POOL(op->oid.inode),
+                map_to_pg(op->oid, st_cli.pool_config.at(INODE_POOL(op->oid.inode)).pg_stripe_size),
+                op->oid.inode, op->oid.stripe, osd_op->reply.hdr.retval
+            );
+        }
+        else if (log_level > 2)
+        {
+            printf("Recovery operation done for %lx:%lx\n", op->oid.inode, op->oid.stripe);
         }
         // CAREFUL! op = &recovery_ops[op->oid]. Don't access op->* after recovery_ops.erase()
         op->osd_op = NULL;

@@ -58,12 +58,13 @@ resume_1:
     // Determine blocks to read and write
     // Missing chunks are allowed to be overwritten even in incomplete objects
     // FIXME: Allow to do small writes to the old (degraded/misplaced) OSD set for lower performance impact
-    op_data->prev_set = get_object_osd_set(pg, op_data->oid, pg.cur_set.data(), &op_data->object_state);
+    op_data->prev_set = get_object_osd_set(pg, op_data->oid, &op_data->object_state);
     if (op_data->object_state)
     {
         // Protect object_state from being freed by a parallel read operation changing it
         op_data->object_state->ref_count++;
     }
+retry_1:
     if (op_data->scheme == POOL_SCHEME_REPLICATED)
     {
         // Simplified algorithm
@@ -73,6 +74,12 @@ resume_1:
         if (pg.cur_set.data() != op_data->prev_set && (op_data->stripes[0].write_start != 0 ||
             op_data->stripes[0].write_end != bs_block_size))
         {
+            if (op_data->object_state->state & OBJ_INCOMPLETE)
+            {
+                // Refuse partial overwrite of an incomplete (corrupted) object
+                cur_op->reply.hdr.retval = -EIO;
+                goto continue_others;
+            }
             // Object is degraded/misplaced and will be moved to <write_osd_set>
             op_data->stripes[0].read_start = 0;
             op_data->stripes[0].read_end = bs_block_size;
@@ -91,13 +98,53 @@ resume_1:
         }
     }
     // Read required blocks
-    submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, op_data->prev_set, cur_op);
+    {
+        if (op_data->object_state && (op_data->object_state->state & OBJ_INCOMPLETE))
+        {
+            // Allow to read version number (just version number!) from corrupted chunks
+            // to allow full overwrite of a corrupted object
+            bool found = false;
+            for (int role = 0; role < op_data->pg_size; role++)
+            {
+                if (op_data->prev_set[role] != 0 || op_data->stripes[role].read_end > op_data->stripes[role].read_start)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                osd_num_t corrupted_target[op_data->pg_size];
+                for (int role = 0; role < op_data->pg_size; role++)
+                {
+                    corrupted_target[role] = 0;
+                }
+                for (auto & loc: op_data->object_state->osd_set)
+                {
+                    if (!(loc.loc_bad & LOC_OUTDATED) && !corrupted_target[loc.role])
+                    {
+                        corrupted_target[loc.role] = loc.osd_num;
+                    }
+                }
+                submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, corrupted_target, cur_op);
+                goto resume_2;
+            }
+        }
+        submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, op_data->prev_set, cur_op);
+    }
 resume_2:
     op_data->st = 2;
     return;
 resume_3:
     if (op_data->errors > 0)
     {
+        if (op_data->errcode == -EIO || op_data->errcode == -EDOM)
+        {
+            // Mark object corrupted and retry
+            op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, true);
+            op_data->prev_set = op_data->object_state ? op_data->object_state->read_target.data() : pg.cur_set.data();
+            goto retry_1;
+        }
         deref_object_state(pg, &op_data->object_state, true);
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
         return;

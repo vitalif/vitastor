@@ -40,10 +40,24 @@ resume_3:
 resume_4:
     if (op_data->errors > 0)
     {
-        free(op_data->chain_reads);
-        op_data->chain_reads = NULL;
-        finish_op(cur_op, op_data->errcode);
-        return;
+        if (op_data->errcode == -EIO || op_data->errcode == -EDOM)
+        {
+            // Handle corrupted reads and retry...
+            check_corrupted_chained(pg, cur_op);
+            free(cur_op->buf);
+            cur_op->buf = NULL;
+            free(op_data->chain_reads);
+            op_data->chain_reads = NULL;
+            // FIXME: We can in theory retry only specific parts instead of the whole operation
+            goto resume_1;
+        }
+        else
+        {
+            free(op_data->chain_reads);
+            op_data->chain_reads = NULL;
+            finish_op(cur_op, op_data->errcode);
+            return;
+        }
     }
     send_chained_read_results(pg, cur_op);
     finish_op(cur_op, cur_op->req.rw.len);
@@ -131,8 +145,7 @@ int osd_t::collect_bitmap_requests(osd_op_t *cur_op, pg_t & pg, std::vector<bitm
         object_id cur_oid = { .inode = op_data->read_chain[chain_num], .stripe = op_data->oid.stripe };
         auto vo_it = pg.ver_override.find(cur_oid);
         uint64_t target_version = vo_it != pg.ver_override.end() ? vo_it->second : UINT64_MAX;
-        pg_osd_set_state_t *object_state;
-        uint64_t* cur_set = get_object_osd_set(pg, cur_oid, pg.cur_set.data(), &object_state);
+        uint64_t* cur_set = get_object_osd_set(pg, cur_oid, &op_data->chain_states[chain_num]);
         if (pg.scheme == POOL_SCHEME_REPLICATED)
         {
             osd_num_t read_target = 0;
@@ -247,6 +260,7 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
                 osd_op_t *subop = op_data->subops+subop_idx;
                 subop->op_type = OSD_OP_OUT;
                 // FIXME: Use the pre-allocated buffer
+                assert(!subop->buf);
                 subop->buf = malloc_or_die(sizeof(obj_ver_id)*(i+1-prev));
                 subop->req = (osd_any_op_t){
                     .sec_read_bmp = {
@@ -375,6 +389,8 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
     op_data->chain_read_count = chain_reads.size();
     op_data->chain_reads = (osd_chain_read_t*)calloc_or_die(
         1, sizeof(osd_chain_read_t) * chain_reads.size()
+        // FIXME: Allocate only <chain_reads.size()> instead of <chain_size> stripes
+        // (but it's slightly harder to handle in send_chained_read_results())
         + sizeof(osd_rmw_stripe_t) * stripe_count * op_data->chain_size
     );
     osd_rmw_stripe_t *chain_stripes = (osd_rmw_stripe_t*)(
@@ -403,8 +419,7 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
         uint64_t *cur_set = pg.cur_set.data();
         if (pg.state != PG_ACTIVE)
         {
-            pg_osd_set_state_t *object_state;
-            cur_set = get_object_osd_set(pg, cur_oid, pg.cur_set.data(), &object_state);
+            cur_set = get_object_osd_set(pg, cur_oid, &op_data->chain_states[chain_reads[cri].chain_pos]);
             if (op_data->scheme != POOL_SCHEME_REPLICATED)
             {
                 if (extend_missing_stripes(stripes, cur_set, pg.pg_data_size, pg.pg_size) < 0)
@@ -415,6 +430,17 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
                     return -1;
                 }
                 op_data->degraded = 1;
+            }
+            else
+            {
+                auto cur_state = op_data->chain_states[chain_reads[cri].chain_pos];
+                if (cur_state && (cur_state->state & OBJ_INCOMPLETE))
+                {
+                    free(op_data->chain_reads);
+                    op_data->chain_reads = NULL;
+                    finish_op(cur_op, -EIO);
+                    return -1;
+                }
             }
         }
         if (op_data->scheme == POOL_SCHEME_REPLICATED)
@@ -433,6 +459,7 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
             }
         }
     }
+    assert(!cur_op->buf);
     cur_op->buf = memalign_or_die(MEM_ALIGNMENT, read_buffer_size);
     void *cur_buf = cur_op->buf;
     for (int cri = 0; cri < chain_reads.size(); cri++)
@@ -468,12 +495,8 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
         object_id cur_oid = { .inode = chain_reads[cri].inode, .stripe = op_data->oid.stripe };
         auto vo_it = pg.ver_override.find(cur_oid);
         uint64_t target_ver = vo_it != pg.ver_override.end() ? vo_it->second : UINT64_MAX;
-        uint64_t *cur_set = pg.cur_set.data();
-        if (pg.state != PG_ACTIVE)
-        {
-            pg_osd_set_state_t *object_state;
-            cur_set = get_object_osd_set(pg, cur_oid, pg.cur_set.data(), &object_state);
-        }
+        auto cur_state = op_data->chain_states[chain_reads[cri].chain_pos];
+        uint64_t *cur_set = (pg.state != PG_ACTIVE && cur_state ? cur_state->read_target.data() : pg.cur_set.data());
         int zero_read = -1;
         if (op_data->scheme == POOL_SCHEME_REPLICATED)
         {
@@ -485,6 +508,33 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
     }
     assert(cur_subops == n_subops);
     return 0;
+}
+
+void osd_t::check_corrupted_chained(pg_t & pg, osd_op_t *cur_op)
+{
+    osd_primary_op_data_t *op_data = cur_op->op_data;
+    int stripe_count = (pg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_size);
+    osd_rmw_stripe_t *chain_stripes = (osd_rmw_stripe_t*)(
+        (uint8_t*)op_data->chain_reads + sizeof(osd_chain_read_t) * op_data->chain_read_count
+    );
+    for (int cri = 0; cri < op_data->chain_read_count; cri++)
+    {
+        object_id cur_oid = { .inode = op_data->chain_reads[cri].inode, .stripe = op_data->oid.stripe };
+        osd_rmw_stripe_t *stripes = chain_stripes + op_data->chain_reads[cri].chain_pos*stripe_count;
+        bool corrupted = false;
+        for (int i = 0; i < stripe_count; i++)
+        {
+            if (stripes[i].read_error)
+            {
+                corrupted = true;
+                break;
+            }
+        }
+        if (corrupted)
+        {
+            mark_object_corrupted(pg, cur_oid, op_data->chain_states[op_data->chain_reads[cri].chain_pos], stripes, false);
+        }
+    }
 }
 
 void osd_t::send_chained_read_results(pg_t & pg, osd_op_t *cur_op)

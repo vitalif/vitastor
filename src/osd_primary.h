@@ -50,6 +50,7 @@ struct osd_primary_op_data_t
             // for read_bitmaps
             void *snapshot_bitmaps;
             inode_t *read_chain;
+            pg_osd_set_state_t **chain_states;
             uint8_t *missing_flags;
             int chain_size;
             osd_chain_read_t *chain_reads;

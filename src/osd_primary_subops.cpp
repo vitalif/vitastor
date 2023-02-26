@@ -147,9 +147,9 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
             continue;
         }
         osd_num_t role_osd_num = osd_set[role];
+        int stripe_num = rep ? 0 : role;
         if (role_osd_num != 0)
         {
-            int stripe_num = rep ? 0 : role;
             osd_op_t *subop = op_data->subops + i;
             uint32_t subop_len = wr
                 ? stripes[stripe_num].write_end - stripes[stripe_num].write_start
@@ -158,12 +158,16 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
             {
                 subop_len = 0;
             }
+            stripes[stripe_num].osd_num = role_osd_num;
+            stripes[stripe_num].read_error = false;
+            subop->bitmap = stripes[stripe_num].bmp_buf;
+            subop->bitmap_len = clean_entry_bitmap_size;
+            // Using rmw_buf to pass pointer to stripes. Dirty but should work
+            subop->rmw_buf = stripes+stripe_num;
             if (role_osd_num == this->osd_num)
             {
                 clock_gettime(CLOCK_REALTIME, &subop->tv_begin);
                 subop->op_type = (uint64_t)cur_op;
-                subop->bitmap = stripes[stripe_num].bmp_buf;
-                subop->bitmap_len = clean_entry_bitmap_size;
                 subop->bs_op = new blockstore_op_t({
                     .opcode = (uint64_t)(wr ? (rep ? BS_OP_WRITE_STABLE : BS_OP_WRITE) : BS_OP_READ),
                     .callback = [subop, this](blockstore_op_t *bs_subop)
@@ -192,8 +196,6 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
             else
             {
                 subop->op_type = OSD_OP_OUT;
-                subop->bitmap = stripes[stripe_num].bmp_buf;
-                subop->bitmap_len = clean_entry_bitmap_size;
                 subop->req.sec_rw = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
@@ -249,6 +251,10 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                 }
             }
             i++;
+        }
+        else
+        {
+            stripes[stripe_num].osd_num = 0;
         }
     }
     return i-subop_idx;
@@ -339,9 +345,11 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
         if (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE || opcode == OSD_OP_SEC_WRITE_STABLE)
         {
             printf(
-                "%s subop to %lx:%lx v%lu failed on peer %d: retval = %d (expected %d)\n",
+                subop->peer_fd >= 0
+                    ? "%1$s subop to %2$lx:%3$lx v%4$lu failed on peer %7$d: retval = %5$d (expected %6$d)\n"
+                    : "%1$s subop to %2$lx:%3$lx v%4$lu failed locally: retval = %5$d (expected %6$d)\n",
                 osd_op_names[opcode], subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, subop->req.sec_rw.version,
-                subop->peer_fd, retval, expected
+                retval, expected, subop->peer_fd
             );
         }
         else
@@ -351,22 +359,32 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
                 osd_op_names[opcode], subop->peer_fd, retval, expected
             );
         }
-        // Error priority: EIO > ENOSPC > EPIPE
-        if (op_data->errcode == 0 || retval == -EIO ||
+        if (opcode == OSD_OP_SEC_READ && (retval == -EIO || retval == -EDOM))
+        {
+            // We'll retry reads from other replica(s) on EIO/EDOM and mark object as corrupted
+            ((osd_rmw_stripe_t*)subop->rmw_buf)->read_error = true;
+        }
+        subop->rmw_buf = NULL;
+        // Error priority: EIO > EDOM > ENOSPC > EPIPE
+        if (op_data->errcode == 0 ||
+            retval == -EIO ||
+            retval == -EDOM && (op_data->errcode == -ENOSPC || op_data->errcode == -EPIPE) ||
             retval == -ENOSPC && op_data->errcode == -EPIPE)
         {
             op_data->errcode = retval;
         }
         op_data->errors++;
-        if (subop->peer_fd >= 0 && (opcode != OSD_OP_SEC_WRITE && opcode != OSD_OP_SEC_WRITE_STABLE ||
-            retval != -ENOSPC))
+        if (subop->peer_fd >= 0 && retval != -EDOM &&
+            (retval != -ENOSPC || opcode != OSD_OP_SEC_WRITE && opcode != OSD_OP_SEC_WRITE_STABLE) &&
+            (retval != -EIO || opcode != OSD_OP_SEC_READ))
         {
-            // Drop connection on any error expect ENOSPC
+            // Drop connection on unexpected errors
             msgr.stop_client(subop->peer_fd);
         }
     }
     else
     {
+        subop->rmw_buf = NULL;
         op_data->done++;
         if (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE || opcode == OSD_OP_SEC_WRITE_STABLE)
         {

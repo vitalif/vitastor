@@ -336,7 +336,7 @@ pg_osd_set_state_t* pg_t::add_object_to_state(const object_id oid, const uint64_
         {
             for (auto & o: osd_set)
             {
-                if (!(o.loc_bad & LOC_OUTDATED))
+                if (!o.loc_bad)
                 {
                     read_target.push_back(o.osd_num);
                 }

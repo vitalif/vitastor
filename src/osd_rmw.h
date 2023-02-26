@@ -26,7 +26,9 @@ struct osd_rmw_stripe_t
     // read_end=UINT32_MAX means to only read bitmap, but not data
     uint32_t read_start, read_end;
     uint32_t write_start, write_end;
-    bool missing;
+    osd_num_t osd_num;
+    bool missing: 1;
+    bool read_error: 1;
 };
 
 // Here pg_minsize is the number of data chunks, not the minimum number of alive OSDs for the PG to operate
