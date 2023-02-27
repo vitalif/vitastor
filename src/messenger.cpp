@@ -157,10 +157,10 @@ void osd_messenger_t::parse_config(const json11::Json & config)
         this->rdma_max_sge = 128;
     this->rdma_max_send = config["rdma_max_send"].uint64_value();
     if (!this->rdma_max_send)
-        this->rdma_max_send = 64;
+        this->rdma_max_send = 8;
     this->rdma_max_recv = config["rdma_max_recv"].uint64_value();
     if (!this->rdma_max_recv)
-        this->rdma_max_recv = 128;
+        this->rdma_max_recv = 16;
     this->rdma_max_msg = config["rdma_max_msg"].uint64_value();
     if (!this->rdma_max_msg || this->rdma_max_msg > 128*1024*1024)
         this->rdma_max_msg = 129*1024;

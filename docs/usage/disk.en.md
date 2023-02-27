@@ -1,4 +1,4 @@
-[Documentation](../../README.md#documentation) → Usage → Disk Tool
+[Documentation](../../README.md#documentation) → Usage → Disk management tool
 
 -----
 

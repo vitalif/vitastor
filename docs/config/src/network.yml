@@ -53,6 +53,12 @@
     to work. For example, Mellanox ConnectX-3 and older adapters don't have
     Implicit ODP, so they're unsupported by Vitastor. Run `ibv_devinfo -v` as
     root to list available RDMA devices and their features.
+
+    Remember that you also have to configure your network switches if you use
+    RoCE/RoCEv2, otherwise you may experience unstable performance. Refer to
+    the manual of your network vendor for details about setting up the switch
+    for RoCEv2 correctly. Usually it means setting up Lossless Ethernet with
+    PFC (Priority Flow Control) and ECN (Explicit Congestion Notification).
   info_ru: |
     Название RDMA-устройства для связи с Vitastor OSD (например, "rocep5s0f0").
     Имейте в виду, что поддержка RDMA в Vitastor требует функций устройства
@@ -61,6 +67,13 @@
     потому не поддерживаются в Vitastor. Запустите `ibv_devinfo -v` от имени
     суперпользователя, чтобы посмотреть список доступных RDMA-устройств, их
     параметры и возможности.
+
+    Обратите внимание, что если вы используете RoCE/RoCEv2, вам также необходимо
+    правильно настроить для него коммутаторы, иначе вы можете столкнуться с
+    нестабильной производительностью. Подробную информацию о настройке
+    коммутатора для RoCEv2 ищите в документации производителя. Обычно это
+    подразумевает настройку сети без потерь на основе PFC (Priority Flow
+    Control) и ECN (Explicit Congestion Notification).
 - name: rdma_port_num
   type: int
   default: 1
@@ -114,26 +127,39 @@
     так что менять этот параметр обычно не нужно.
 - name: rdma_max_msg
   type: int
-  default: 1048576
+  default: 132096
   info: Maximum size of a single RDMA send or receive operation in bytes.
   info_ru: Максимальный размер одной RDMA-операции отправки или приёма.
 - name: rdma_max_recv
   type: int
+  default: 16
+  info: |
+    Maximum number of RDMA receive buffers per connection (RDMA requires
+    preallocated buffers to receive data). Each buffer is `rdma_max_msg` bytes
+    in size. So this setting directly affects memory usage: a single Vitastor
+    RDMA client uses `rdma_max_recv * rdma_max_msg * OSD_COUNT` bytes of memory.
+    Default is roughly 2 MB * number of OSDs.
+  info_ru: |
+    Максимальное число буферов для RDMA-приёма данных на одно соединение
+    (RDMA требует заранее выделенных буферов для приёма данных). Каждый буфер
+    имеет размер `rdma_max_msg` байт. Таким образом, настройка прямо влияет на
+    потребление памяти - один Vitastor-клиент с RDMA использует
+    `rdma_max_recv * rdma_max_msg * ЧИСЛО_OSD` байт памяти, по умолчанию -
+    примерно 2 МБ * число OSD.
+- name: rdma_max_send
+  type: int
   default: 8
   info: |
-    Maximum number of parallel RDMA receive operations. Note that this number
-    of receive buffers `rdma_max_msg` in size are allocated for each client,
-    so this setting actually affects memory usage. This is because RDMA receive
-    operations are (sadly) still not zero-copy in Vitastor. It may be fixed in
-    later versions.
+    Maximum number of outstanding RDMA send operations per connection. Should be
+    less than `rdma_max_recv` so the receiving side doesn't run out of buffers.
+    Doesn't affect memory usage - additional memory isn't allocated for send
+    operations.
   info_ru: |
-    Максимальное число параллельных RDMA-операций получения данных. Следует
-    иметь в виду, что данное число буферов размером `rdma_max_msg` выделяется
-    для каждого подключённого клиентского соединения, так что данная настройка
-    влияет на потребление памяти. Это так потому, что RDMA-приём данных в
-    Vitastor, увы, всё равно не является zero-copy, т.е. всё равно 1 раз
-    копирует данные в памяти. Данная особенность, возможно, будет исправлена в
-    более новых версиях Vitastor.
+    Максимальное число RDMA-операций отправки, отправляемых в очередь одного
+    соединения. Желательно, чтобы оно было меньше `rdma_max_recv`, чтобы
+    у принимающей стороны в процессе работы не заканчивались буферы на приём.
+    Не влияет на потребление памяти - дополнительная память на операции отправки
+    не выделяется.
 - name: peer_connect_interval
   type: sec
   min: 1

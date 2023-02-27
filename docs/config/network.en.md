@@ -19,6 +19,7 @@ between clients, OSDs and etcd.
 - [rdma_max_sge](#rdma_max_sge)
 - [rdma_max_msg](#rdma_max_msg)
 - [rdma_max_recv](#rdma_max_recv)
+- [rdma_max_send](#rdma_max_send)
 - [peer_connect_interval](#peer_connect_interval)
 - [peer_connect_timeout](#peer_connect_timeout)
 - [osd_idle_timeout](#osd_idle_timeout)
@@ -74,6 +75,12 @@ to work. For example, Mellanox ConnectX-3 and older adapters don't have
 Implicit ODP, so they're unsupported by Vitastor. Run `ibv_devinfo -v` as
 root to list available RDMA devices and their features.
 
+Remember that you also have to configure your network switches if you use
+RoCE/RoCEv2, otherwise you may experience unstable performance. Refer to
+the manual of your network vendor for details about setting up the switch
+for RoCEv2 correctly. Usually it means setting up Lossless Ethernet with
+PFC (Priority Flow Control) and ECN (Explicit Congestion Notification).
+
 ## rdma_port_num
 
 - Type: integer
@@ -116,20 +123,30 @@ required to change this parameter.
 ## rdma_max_msg
 
 - Type: integer
-- Default: 1048576
+- Default: 132096
 
 Maximum size of a single RDMA send or receive operation in bytes.
 
 ## rdma_max_recv
 
 - Type: integer
+- Default: 16
+
+Maximum number of RDMA receive buffers per connection (RDMA requires
+preallocated buffers to receive data). Each buffer is `rdma_max_msg` bytes
+in size. So this setting directly affects memory usage: a single Vitastor
+RDMA client uses `rdma_max_recv * rdma_max_msg * OSD_COUNT` bytes of memory.
+Default is roughly 2 MB * number of OSDs.
+
+## rdma_max_send
+
+- Type: integer
 - Default: 8
 
-Maximum number of parallel RDMA receive operations. Note that this number
-of receive buffers `rdma_max_msg` in size are allocated for each client,
-so this setting actually affects memory usage. This is because RDMA receive
-operations are (sadly) still not zero-copy in Vitastor. It may be fixed in
-later versions.
+Maximum number of outstanding RDMA send operations per connection. Should be
+less than `rdma_max_recv` so the receiving side doesn't run out of buffers.
+Doesn't affect memory usage - additional memory isn't allocated for send
+operations.
 
 ## peer_connect_interval
 
