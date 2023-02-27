@@ -759,7 +759,18 @@ static void calc_rmw_parity_copy_mod(osd_rmw_stripe_t *stripes, int pg_size, int
     uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t bitmap_granularity,
     uint32_t &start, uint32_t &end)
 {
-    if (write_osd_set[pg_minsize] != 0 || write_osd_set != read_osd_set)
+    bool required = false;
+    for (int role = pg_minsize; role < pg_size; role++)
+    {
+        if (write_osd_set[role] != 0)
+        {
+            // Whole parity chunk is needed when we move the object
+            if (write_osd_set[role] != read_osd_set[role])
+                end = chunk_size;
+            required = true;
+        }
+    }
+    if (required && end != chunk_size)
     {
         // start & end are required for calc_rmw_parity
         for (int role = 0; role < pg_minsize; role++)
@@ -768,14 +779,6 @@ static void calc_rmw_parity_copy_mod(osd_rmw_stripe_t *stripes, int pg_size, int
             {
                 start = !end || stripes[role].req_start < start ? stripes[role].req_start : start;
                 end = std::max(stripes[role].req_end, end);
-            }
-        }
-        for (int role = pg_minsize; role < pg_size; role++)
-        {
-            if (write_osd_set[role] != 0 && write_osd_set[role] != read_osd_set[role])
-            {
-                start = 0;
-                end = chunk_size;
             }
         }
     }
