@@ -35,15 +35,24 @@ Write amplification for 4 KB blocks is usually 3-5 in Vitastor:
 If you manage to get an SSD which handles 512 byte blocks well (Optane?) you may
 lower 1, 3 and 4 to 512 bytes (1/8 of data size) and get WA as low as 2.375.
 
+Implemented NVDIMM support can basically eliminate WA at all - all extra writes will
+go to DRAM memory. But this requires a test cluster with NVDIMM - please contact me
+if you want to provide me with such cluster for tests.
+
 Lazy fsync also reduces WA for parallel workloads because journal blocks are only
 written when they fill up or fsync is requested.
 
 ## In Practice
 
-In practice, using tests from [Understanding Performance](understanding.en.md)
-and good server-grade SSD/NVMe drives, you should head for:
+In practice, using tests from [Understanding Performance](understanding.en.md), decent TCP network,
+good server-grade SSD/NVMe drives and disabled CPU power saving, you should head for:
 - At least 5000 T1Q1 replicated read and write iops (maximum 0.2ms latency)
+- At least 5000 T1Q1 EC read IOPS and at least 2200 EC write IOPS (maximum 0.45ms latency)
 - At least ~80k parallel read iops or ~30k write iops per 1 core (1 OSD)
 - Disk-speed or wire-speed linear reads and writes, whichever is the bottleneck in your case
 
 Lower results may mean that you have bad drives, bad network or some kind of misconfiguration.
+
+Current latency records:
+- 9668 T1Q1 replicated write iops (0.103 ms latency) with TCP and NVMe
+- 9143 T1Q1 replicated read iops (0.109 ms latency) with TCP and NVMe
