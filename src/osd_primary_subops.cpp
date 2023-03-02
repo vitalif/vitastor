@@ -53,7 +53,10 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
         inode_stats[cur_op->req.rw.inode].op_count[inode_st_op]++;
         inode_stats[cur_op->req.rw.inode].op_sum[inode_st_op] += usec;
         if (cur_op->req.hdr.opcode == OSD_OP_DELETE)
-            inode_stats[cur_op->req.rw.inode].op_bytes[inode_st_op] += cur_op->op_data->pg_data_size * bs_block_size;
+        {
+            if (cur_op->op_data)
+                inode_stats[cur_op->req.rw.inode].op_bytes[inode_st_op] += cur_op->op_data->pg_data_size * bs_block_size;
+        }
         else
             inode_stats[cur_op->req.rw.inode].op_bytes[inode_st_op] += cur_op->req.rw.len;
     }
