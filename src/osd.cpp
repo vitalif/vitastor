@@ -169,6 +169,8 @@ void osd_t::parse_config(bool init)
     no_rebalance = json_is_true(config["no_rebalance"]);
     auto old_no_recovery = no_recovery;
     no_recovery = json_is_true(config["no_recovery"]);
+    auto old_no_scrub = no_scrub;
+    no_scrub = json_is_true(config["no_scrub"]);
     auto old_autosync_interval = autosync_interval;
     if (!config["autosync_interval"].is_null())
     {
@@ -219,6 +221,14 @@ void osd_t::parse_config(bool init)
     scrub_list_limit = config["scrub_list_limit"].uint64_value();
     if (!scrub_list_limit)
         scrub_list_limit = 1000;
+    if (old_no_scrub && !no_scrub)
+    {
+        // Wakeup scrubbing
+        for (auto & pgp: pgs)
+        {
+            schedule_scrub(pgp.second);
+        }
+    }
     if ((old_no_rebalance && !no_rebalance || old_no_recovery && !no_recovery) &&
         !(peering_state & (OSD_RECOVERING | OSD_FLUSHING_PGS)))
     {

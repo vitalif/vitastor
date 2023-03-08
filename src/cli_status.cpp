@@ -201,6 +201,7 @@ resume_2:
         bool readonly = json_is_true(parent->cli->config["readonly"]);
         bool no_recovery = json_is_true(parent->cli->config["no_recovery"]);
         bool no_rebalance = json_is_true(parent->cli->config["no_rebalance"]);
+        bool no_scrub = json_is_true(parent->cli->config["no_scrub"]);
         if (parent->json_output)
         {
             // JSON output
@@ -219,6 +220,7 @@ resume_2:
                 { "readonly", readonly },
                 { "no_recovery", no_recovery },
                 { "no_rebalance", no_rebalance },
+                { "no_scrub", no_scrub },
                 { "pool_count", pool_count },
                 { "active_pool_count", pools_active },
                 { "pg_states", pgs_by_state },

@@ -285,6 +285,27 @@ bool osd_t::continue_scrub()
     {
         return true;
     }
+    if (no_scrub)
+    {
+        // Return false = no more scrub work to do
+        scrub_cur_list = {};
+        scrub_last_pg = {};
+        scrub_nearest_ts = 0;
+        if (scrub_timer_id >= 0)
+        {
+            tfd->clear_timer(scrub_timer_id);
+            scrub_timer_id = -1;
+        }
+        for (auto pg_it = pgs.begin(); pg_it != pgs.end(); pg_it++)
+        {
+            if (pg_it->second.state & PG_SCRUBBING)
+            {
+                pg_it->second.state = pg_it->second.state & ~PG_SCRUBBING;
+                report_pg_state(pg_it->second);
+            }
+        }
+        return false;
+    }
     while (scrub_ops.size() < scrub_queue_depth)
     {
         object_id oid;
@@ -299,7 +320,7 @@ bool osd_t::continue_scrub()
 
 void osd_t::schedule_scrub(pg_t & pg)
 {
-    if (pg.next_scrub && (!scrub_nearest_ts || scrub_nearest_ts > pg.next_scrub))
+    if (!no_scrub && pg.next_scrub && (!scrub_nearest_ts || scrub_nearest_ts > pg.next_scrub))
     {
         scrub_nearest_ts = pg.next_scrub;
         timespec tv_now;
