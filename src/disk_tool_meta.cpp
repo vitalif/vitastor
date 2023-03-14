@@ -26,7 +26,7 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v1_t *)>
         buf_size = dsk.meta_len;
     void *data = memalign_or_die(MEM_ALIGNMENT, buf_size);
     lseek64(dsk.meta_fd, dsk.meta_offset, 0);
-    read_blocking(dsk.meta_fd, data, buf_size);
+    read_blocking(dsk.meta_fd, data, dsk.meta_block_size);
     // Check superblock
     blockstore_meta_header_v1_t *hdr = (blockstore_meta_header_v1_t *)data;
     if (hdr->zero == 0 &&
@@ -41,8 +41,11 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v1_t *)>
             if (buf_size % dsk.meta_block_size)
             {
                 buf_size = 8*dsk.meta_block_size;
+                void *new_data = memalign_or_die(MEM_ALIGNMENT, buf_size);
+                memcpy(new_data, data, dsk.meta_block_size);
                 free(data);
-                data = memalign_or_die(MEM_ALIGNMENT, buf_size);
+                data = new_data;
+                hdr = (blockstore_meta_header_v1_t *)data;
             }
         }
         dsk.bitmap_granularity = hdr->bitmap_granularity;
