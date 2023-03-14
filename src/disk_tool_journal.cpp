@@ -281,7 +281,7 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
         if (je->big_write.size > sizeof(journal_entry_big_write))
         {
             printf(json ? ",\"bitmap\":\"" : " (bitmap: ");
-            for (int i = sizeof(journal_entry_big_write); i < je->small_write.size; i++)
+            for (int i = sizeof(journal_entry_big_write); i < je->big_write.size; i++)
             {
                 printf("%02x", ((uint8_t*)je)[i]);
             }
