@@ -182,10 +182,10 @@ json11::Json osd_t::get_statistics()
     char time_str[50] = { 0 };
     sprintf(time_str, "%ld.%03ld", ts.tv_sec, ts.tv_nsec/1000000);
     st["time"] = time_str;
-    st["blockstore_ready"] = bs->is_started();
-    st["data_block_size"] = (uint64_t)bs->get_block_size();
     if (bs)
     {
+        st["blockstore_ready"] = bs->is_started();
+        st["data_block_size"] = (uint64_t)bs->get_block_size();
         st["size"] = bs->get_block_count() * bs->get_block_size();
         st["free"] = bs->get_free_block_count() * bs->get_block_size();
     }
@@ -233,7 +233,8 @@ void osd_t::report_statistics()
     json11::Json::object inode_space;
     json11::Json::object last_stat;
     pool_id_t last_pool = 0;
-    auto & bs_inode_space = bs->get_inode_space_stats();
+    std::map<uint64_t, uint64_t> bs_empty_space;
+    auto & bs_inode_space = bs ? bs->get_inode_space_stats() : bs_empty_space;
     for (auto kv: bs_inode_space)
     {
         pool_id_t pool_id = INODE_POOL(kv.first);

@@ -44,9 +44,10 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
     // FIXME: Use timerfd_interval based directly on io_uring
     this->tfd = epmgr->tfd;
 
-    auto bs_cfg = json_to_bs(this->config);
-    this->bs = new blockstore_t(bs_cfg, ringloop, tfd);
+    if (!json_is_true(this->config["disable_blockstore"]))
     {
+        auto bs_cfg = json_to_bs(this->config);
+        this->bs = new blockstore_t(bs_cfg, ringloop, tfd);
         // Autosync based on the number of unstable writes to prevent stalls due to insufficient journal space
         uint64_t max_autosync = bs->get_journal_size() / bs->get_block_size() / 2;
         if (autosync_writes > max_autosync)
@@ -93,7 +94,8 @@ osd_t::~osd_t()
 {
     ringloop->unregister_consumer(&consumer);
     delete epmgr;
-    delete bs;
+    if (bs)
+        delete bs;
     close(listen_fd);
     free(zero_buffer);
 }
@@ -475,7 +477,7 @@ void osd_t::print_slow()
             }
         }
     }
-    if (has_slow)
+    if (has_slow && bs)
     {
         bs->dump_diagnostics();
     }
