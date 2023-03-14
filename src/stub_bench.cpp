@@ -83,6 +83,7 @@ int connect_stub(const char *server_address, int server_port)
     if (connect(connect_fd, (sockaddr*)&addr, sizeof(addr)) < 0)
     {
         perror("connect");
+        close(connect_fd);
         return -1;
     }
     int one = 1;

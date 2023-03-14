@@ -150,6 +150,7 @@ int connect_osd(const char *osd_address, int osd_port)
     if (connect(connect_fd, (sockaddr*)&addr, sizeof(addr)) < 0)
     {
         perror("connect");
+        close(connect_fd);
         return -1;
     }
     int one = 1;
