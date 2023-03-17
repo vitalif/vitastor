@@ -6,6 +6,7 @@ package vitastor
 import (
     "context"
     "encoding/json"
+    "fmt"
     "strings"
     "bytes"
     "strconv"
@@ -178,7 +179,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
     }
 
     // Create image using vitastor-cli
-    _, err := invokeCLI(ctxVars, []string{ "create", volName, "-s", string(volSize), "--pool", string(poolId) })
+    _, err := invokeCLI(ctxVars, []string{ "create", volName, "-s", fmt.Sprintf("%v", volSize), "--pool", fmt.Sprintf("%v", poolId) })
     if (err != nil)
     {
         if (strings.Index(err.Error(), "already exists") > 0)
