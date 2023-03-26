@@ -198,9 +198,9 @@ resume_2:
             }
             pgs_by_state_str += std::to_string(kv.second)+" "+kv.first;
         }
-        bool readonly = json_is_true(parent->cli->merged_config["readonly"]);
-        bool no_recovery = json_is_true(parent->cli->merged_config["no_recovery"]);
-        bool no_rebalance = json_is_true(parent->cli->merged_config["no_rebalance"]);
+        bool readonly = json_is_true(parent->cli->config["readonly"]);
+        bool no_recovery = json_is_true(parent->cli->config["no_recovery"]);
+        bool no_rebalance = json_is_true(parent->cli->config["no_rebalance"]);
         if (parent->json_output)
         {
             // JSON output

@@ -4,8 +4,54 @@
 #include <sys/file.h>
 #include "blockstore_impl.h"
 
-void blockstore_impl_t::parse_config(blockstore_config_t & config)
+void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
 {
+    // Online-configurable options:
+    max_flusher_count = strtoull(config["max_flusher_count"].c_str(), NULL, 10);
+    if (!max_flusher_count)
+    {
+        max_flusher_count = strtoull(config["flusher_count"].c_str(), NULL, 10);
+    }
+    min_flusher_count = strtoull(config["min_flusher_count"].c_str(), NULL, 10);
+    max_write_iodepth = strtoull(config["max_write_iodepth"].c_str(), NULL, 10);
+    throttle_small_writes = config["throttle_small_writes"] == "true" || config["throttle_small_writes"] == "1" || config["throttle_small_writes"] == "yes";
+    throttle_target_iops = strtoull(config["throttle_target_iops"].c_str(), NULL, 10);
+    throttle_target_mbs = strtoull(config["throttle_target_mbs"].c_str(), NULL, 10);
+    throttle_target_parallelism = strtoull(config["throttle_target_parallelism"].c_str(), NULL, 10);
+    throttle_threshold_us = strtoull(config["throttle_threshold_us"].c_str(), NULL, 10);
+    if (!max_flusher_count)
+    {
+        max_flusher_count = 256;
+    }
+    if (!min_flusher_count || journal.flush_journal)
+    {
+        min_flusher_count = 1;
+    }
+    if (!max_write_iodepth)
+    {
+        max_write_iodepth = 128;
+    }
+    if (!throttle_target_iops)
+    {
+        throttle_target_iops = 100;
+    }
+    if (!throttle_target_mbs)
+    {
+        throttle_target_mbs = 100;
+    }
+    if (!throttle_target_parallelism)
+    {
+        throttle_target_parallelism = 1;
+    }
+    if (!throttle_threshold_us)
+    {
+        throttle_threshold_us = 50;
+    }
+    if (!init)
+    {
+        return;
+    }
+    // Offline-configurable options:
     // Common disk options
     dsk.parse_config(config);
     // Parse
@@ -44,29 +90,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     journal.no_same_sector_overwrites = config["journal_no_same_sector_overwrites"] == "true" ||
         config["journal_no_same_sector_overwrites"] == "1" || config["journal_no_same_sector_overwrites"] == "yes";
     journal.inmemory = config["inmemory_journal"] != "false";
-    max_flusher_count = strtoull(config["max_flusher_count"].c_str(), NULL, 10);
-    if (!max_flusher_count)
-        max_flusher_count = strtoull(config["flusher_count"].c_str(), NULL, 10);
-    min_flusher_count = strtoull(config["min_flusher_count"].c_str(), NULL, 10);
-    max_write_iodepth = strtoull(config["max_write_iodepth"].c_str(), NULL, 10);
-    throttle_small_writes = config["throttle_small_writes"] == "true" || config["throttle_small_writes"] == "1" || config["throttle_small_writes"] == "yes";
-    throttle_target_iops = strtoull(config["throttle_target_iops"].c_str(), NULL, 10);
-    throttle_target_mbs = strtoull(config["throttle_target_mbs"].c_str(), NULL, 10);
-    throttle_target_parallelism = strtoull(config["throttle_target_parallelism"].c_str(), NULL, 10);
-    throttle_threshold_us = strtoull(config["throttle_threshold_us"].c_str(), NULL, 10);
     // Validate
-    if (!max_flusher_count)
-    {
-        max_flusher_count = 256;
-    }
-    if (!min_flusher_count || journal.flush_journal)
-    {
-        min_flusher_count = 1;
-    }
-    if (!max_write_iodepth)
-    {
-        max_write_iodepth = 128;
-    }
     if (journal.sector_count < 2)
     {
         journal.sector_count = 32;
@@ -90,22 +114,6 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config)
     if (immediate_commit == IMMEDIATE_ALL && !disable_data_fsync)
     {
         throw std::runtime_error("immediate_commit=all requires disable_journal_fsync and disable_data_fsync");
-    }
-    if (!throttle_target_iops)
-    {
-        throttle_target_iops = 100;
-    }
-    if (!throttle_target_mbs)
-    {
-        throttle_target_mbs = 100;
-    }
-    if (!throttle_target_parallelism)
-    {
-        throttle_target_parallelism = 1;
-    }
-    if (!throttle_threshold_us)
-    {
-        throttle_threshold_us = 50;
     }
     // init some fields
     journal.block_size = dsk.journal_block_size;

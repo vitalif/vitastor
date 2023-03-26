@@ -18,11 +18,12 @@
 
 cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config)
 {
-    config = osd_messenger_t::read_config(config);
+    cli_config = config.object_items();
+    file_config = osd_messenger_t::read_config(config);
+    config = osd_messenger_t::merge_configs(cli_config, file_config, etcd_global_config, {});
 
     this->ringloop = ringloop;
     this->tfd = tfd;
-    this->config = config;
 
     msgr.osd_num = 0;
     msgr.tfd = tfd;
@@ -58,7 +59,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         msgr.stop_client(op->peer_fd);
         delete op;
     };
-    msgr.parse_config(this->config);
+    msgr.parse_config(config);
 
     st_cli.tfd = tfd;
     st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
@@ -276,13 +277,10 @@ restart:
     continuing_ops = 0;
 }
 
-void cluster_client_t::on_load_config_hook(json11::Json::object & config)
+void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_config)
 {
-    this->merged_config = config;
-    for (auto & kv: this->config.object_items())
-    {
-        this->merged_config[kv.first] = kv.second;
-    }
+    this->etcd_global_config = etcd_global_config;
+    config = osd_messenger_t::merge_configs(cli_config, file_config, etcd_global_config, {});
     if (config.find("client_max_dirty_bytes") != config.end())
     {
         client_max_dirty_bytes = config["client_max_dirty_bytes"].uint64_value();
@@ -292,14 +290,13 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & config)
         // Old name
         client_max_dirty_bytes = config["client_dirty_limit"].uint64_value();
     }
-    if (config.find("client_max_dirty_ops") != config.end())
-    {
-        client_max_dirty_ops = config["client_max_dirty_ops"].uint64_value();
-    }
+    else
+        client_max_dirty_bytes = 0;
     if (!client_max_dirty_bytes)
     {
         client_max_dirty_bytes = DEFAULT_CLIENT_MAX_DIRTY_BYTES;
     }
+    client_max_dirty_ops = config["client_max_dirty_ops"].uint64_value();
     if (!client_max_dirty_ops)
     {
         client_max_dirty_ops = DEFAULT_CLIENT_MAX_DIRTY_OPS;
@@ -314,7 +311,7 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & config)
         up_wait_retry_interval = 50;
     }
     msgr.parse_config(config);
-    msgr.parse_config(this->config);
+    st_cli.parse_config(config);
     st_cli.load_pgs();
 }
 

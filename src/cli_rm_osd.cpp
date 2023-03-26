@@ -278,7 +278,7 @@ struct rm_osd_t
             if (rsp["response_delete_range"]["deleted"].uint64_value() > 0)
             {
                 // Wait for mon_change_timeout before updating PG history, or the monitor's change will likely interfere with ours
-                retry_wait = parent->cli->merged_config["mon_change_timeout"].uint64_value();
+                retry_wait = parent->cli->config["mon_change_timeout"].uint64_value();
                 if (!retry_wait)
                     retry_wait = 1000;
                 retry_wait += etcd_tx_retry_ms;

@@ -75,7 +75,7 @@ void osd_t::init_cluster()
     }
     if (run_primary && autosync_interval > 0)
     {
-        this->tfd->set_timer(autosync_interval*1000, true, [this](int timer_id)
+        autosync_timer_id = this->tfd->set_timer(autosync_interval*1000, true, [this](int timer_id)
         {
             autosync();
         });
@@ -375,7 +375,11 @@ void osd_t::on_change_osd_state_hook(osd_num_t peer_osd)
 
 void osd_t::on_change_etcd_state_hook(std::map<std::string, etcd_kv_t> & changes)
 {
-    // FIXME apply config changes in runtime (maybe, some)
+    if (changes.find(st_cli.etcd_prefix+"/config/global") != changes.end())
+    {
+        etcd_global_config = changes[st_cli.etcd_prefix+"/config/global"].value.object_items();
+        parse_config(false);
+    }
     if (run_primary)
     {
         apply_pg_count();
@@ -385,11 +389,8 @@ void osd_t::on_change_etcd_state_hook(std::map<std::string, etcd_kv_t> & changes
 
 void osd_t::on_load_config_hook(json11::Json::object & global_config)
 {
-    json11::Json::object osd_config = this->config;
-    for (auto & kv: global_config)
-        if (osd_config.find(kv.first) == osd_config.end())
-            osd_config[kv.first] = kv.second;
-    parse_config(osd_config, false);
+    etcd_global_config = global_config;
+    parse_config(true);
     bind_socket();
     acquire_lease();
 }

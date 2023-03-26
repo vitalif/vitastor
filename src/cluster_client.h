@@ -112,8 +112,8 @@ public:
     osd_messenger_t msgr;
     void init_msgr();
 
-    json11::Json config;
-    json11::Json::object merged_config;
+    json11::Json::object cli_config, file_config, etcd_global_config;
+    json11::Json::object config;
 
     cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config);
     ~cluster_client_t();

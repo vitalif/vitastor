@@ -13,6 +13,11 @@ blockstore_t::~blockstore_t()
     delete impl;
 }
 
+void blockstore_t::parse_config(blockstore_config_t & config)
+{
+    impl->parse_config(config, false);
+}
+
 void blockstore_t::loop()
 {
     impl->loop();

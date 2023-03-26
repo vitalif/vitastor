@@ -166,7 +166,11 @@ public:
     void accept_connections(int listen_fd);
     ~osd_messenger_t();
 
-    static json11::Json read_config(const json11::Json & config);
+    static json11::Json::object read_config(const json11::Json & config);
+    static json11::Json::object merge_configs(const json11::Json::object & cli_config,
+        const json11::Json::object & file_config,
+        const json11::Json::object & etcd_global_config,
+        const json11::Json::object & etcd_osd_config);
 
 #ifdef WITH_RDMA
     bool is_rdma_enabled();

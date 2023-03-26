@@ -165,6 +165,9 @@ public:
     blockstore_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd);
     ~blockstore_t();
 
+    // Update configuration
+    void parse_config(blockstore_config_t & config);
+
     // Event loop
     void loop();
 

@@ -277,7 +277,6 @@ class blockstore_impl_t
     friend class journal_flusher_t;
     friend class journal_flusher_co;
 
-    void parse_config(blockstore_config_t & config);
     void calc_lengths();
     void open_data();
     void open_meta();
@@ -340,6 +339,8 @@ public:
 
     blockstore_impl_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd);
     ~blockstore_impl_t();
+
+    void parse_config(blockstore_config_t & config, bool init);
 
     // Event loop
     void loop();

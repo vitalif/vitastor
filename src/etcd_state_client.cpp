@@ -18,12 +18,8 @@ etcd_state_client_t::~etcd_state_client_t()
     }
     watches.clear();
     etcd_watches_initialised = -1;
-    if (ws_keepalive_timer >= 0)
-    {
-        tfd->clear_timer(ws_keepalive_timer);
-        ws_keepalive_timer = -1;
-    }
 #ifndef __MOCK__
+    stop_ws_keepalive();
     if (etcd_watch_ws)
     {
         http_close(etcd_watch_ws);
@@ -245,6 +241,7 @@ void etcd_state_client_t::parse_config(const json11::Json & config)
         if (this->etcd_keepalive_timeout < 30)
             this->etcd_keepalive_timeout = 30;
     }
+    auto old_etcd_ws_keepalive_interval = this->etcd_ws_keepalive_interval;
     this->etcd_ws_keepalive_interval = config["etcd_ws_keepalive_interval"].uint64_value();
     if (this->etcd_ws_keepalive_interval <= 0)
     {
@@ -264,6 +261,13 @@ void etcd_state_client_t::parse_config(const json11::Json & config)
     if (this->etcd_quick_timeout <= 0)
     {
         this->etcd_quick_timeout = 1000;
+    }
+    if (this->etcd_ws_keepalive_interval != old_etcd_ws_keepalive_interval && ws_keepalive_timer >= 0)
+    {
+#ifndef __MOCK__
+        stop_ws_keepalive();
+        start_ws_keepalive();
+#endif
     }
 }
 
@@ -478,6 +482,20 @@ void etcd_state_client_t::start_etcd_watcher()
     {
         on_start_watcher_hook(etcd_watch_ws);
     }
+    start_ws_keepalive();
+}
+
+void etcd_state_client_t::stop_ws_keepalive()
+{
+    if (ws_keepalive_timer >= 0)
+    {
+        tfd->clear_timer(ws_keepalive_timer);
+        ws_keepalive_timer = -1;
+    }
+}
+
+void etcd_state_client_t::start_ws_keepalive()
+{
     if (ws_keepalive_timer < 0)
     {
         ws_keepalive_timer = tfd->set_timer(etcd_ws_keepalive_interval*1000, true, [this](int)

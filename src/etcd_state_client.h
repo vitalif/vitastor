@@ -132,6 +132,8 @@ public:
     void etcd_txn(json11::Json txn, int timeout, int retries, int interval, std::function<void(std::string, json11::Json)> callback);
     void etcd_txn_slow(json11::Json txn, std::function<void(std::string, json11::Json)> callback);
     void start_etcd_watcher();
+    void stop_ws_keepalive();
+    void start_ws_keepalive();
     void load_global_config();
     void load_pgs();
     void parse_state(const etcd_kv_t & kv);

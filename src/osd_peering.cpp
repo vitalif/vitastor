@@ -76,7 +76,7 @@ void osd_t::handle_peers()
             peering_state = peering_state & ~OSD_FLUSHING_PGS | OSD_RECOVERING;
         }
     }
-    if ((peering_state & OSD_RECOVERING) && !readonly)
+    if (!(peering_state & OSD_FLUSHING_PGS) && (peering_state & OSD_RECOVERING) && !readonly)
     {
         if (!continue_recovery())
         {

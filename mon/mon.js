@@ -51,8 +51,9 @@ const etcd_tree = {
             // THIS IS JUST A POOR MAN'S CONFIG DOCUMENTATION
             // etcd connection
             config_path: "/etc/vitastor/vitastor.conf",
-            etcd_address: "10.0.115.10:2379/v3",
             etcd_prefix: "/vitastor",
+            // etcd connection - configurable online
+            etcd_address: "10.0.115.10:2379/v3",
             // mon
             etcd_mon_ttl: 30, // min: 10
             etcd_mon_timeout: 1000, // ms. min: 0
@@ -73,11 +74,12 @@ const etcd_tree = {
             rdma_max_send: 8,
             rdma_max_recv: 16,
             rdma_max_msg: 132096,
-            log_level: 0,
             block_size: 131072,
             disk_alignment: 4096,
             bitmap_granularity: 4096,
             immediate_commit: false, // 'all' or 'small'
+            // client and osd - configurable online
+            log_level: 0,
             client_dirty_limit: 33554432,
             peer_connect_interval: 5, // seconds. min: 1
             peer_connect_timeout: 5, // seconds. min: 1
@@ -95,18 +97,19 @@ const etcd_tree = {
             osd_network: null, // "192.168.7.0/24" or an array of masks
             bind_address: "0.0.0.0",
             bind_port: 0,
+            readonly: false,
+            osd_memlock: false,
+            // osd - configurable online
             autosync_interval: 5,
             autosync_writes: 128,
             client_queue_depth: 128, // unused
             recovery_queue_depth: 4,
             recovery_sync_batch: 16,
-            readonly: false,
             no_recovery: false,
             no_rebalance: false,
             print_stats_interval: 3,
             slow_log_interval: 10,
             inode_vanish_time: 60,
-            osd_memlock: false,
             // blockstore - fixed in superblock
             block_size,
             disk_alignment,
@@ -125,14 +128,15 @@ const etcd_tree = {
             meta_offset,
             disable_meta_fsync,
             disable_device_lock,
-            // blockstore - configurable
-            max_write_iodepth,
-            min_flusher_count: 1,
-            max_flusher_count: 256,
+            // blockstore - configurable offline
             inmemory_metadata,
             inmemory_journal,
             journal_sector_buffer_count,
             journal_no_same_sector_overwrites,
+            // blockstore - configurable online
+            max_write_iodepth,
+            min_flusher_count: 1,
+            max_flusher_count: 256,
             throttle_small_writes: false,
             throttle_target_iops: 100,
             throttle_target_mbs: 100,

@@ -43,7 +43,15 @@ void osd_messenger_t::send_replies()
 {
 }
 
-json11::Json osd_messenger_t::read_config(const json11::Json & config)
+json11::Json::object osd_messenger_t::read_config(const json11::Json & config)
 {
-    return config;
+    return json11::Json::object();
+}
+
+json11::Json::object osd_messenger_t::merge_configs(const json11::Json::object & cli_config,
+    const json11::Json::object & file_config,
+    const json11::Json::object & etcd_global_config,
+    const json11::Json::object & etcd_osd_config)
+{
+    return cli_config;
 }

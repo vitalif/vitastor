@@ -35,10 +35,9 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
 
     this->ringloop = ringloop;
 
-    this->config = msgr.read_config(config).object_items();
-    if (this->config.find("log_level") == this->config.end())
-        this->config["log_level"] = 1;
-    parse_config(this->config, true);
+    this->cli_config = config.object_items();
+    this->file_config = msgr.read_config(this->cli_config);
+    parse_config(true);
 
     epmgr = new epoll_manager_t(ringloop);
     // FIXME: Use timerfd_interval based directly on io_uring
@@ -68,11 +67,11 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
         }
     }
 
-    this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
+    print_stats_timer_id = this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
     {
         print_stats();
     });
-    this->tfd->set_timer(slow_log_interval*1000, true, [this](int timer_id)
+    slow_log_timer_id = this->tfd->set_timer(slow_log_interval*1000, true, [this](int timer_id)
     {
         print_slow();
     });
@@ -92,6 +91,21 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
 
 osd_t::~osd_t()
 {
+    if (slow_log_timer_id >= 0)
+    {
+        tfd->clear_timer(slow_log_timer_id);
+        slow_log_timer_id = -1;
+    }
+    if (print_stats_timer_id >= 0)
+    {
+        tfd->clear_timer(print_stats_timer_id);
+        print_stats_timer_id = -1;
+    }
+    if (autosync_timer_id >= 0)
+    {
+        tfd->clear_timer(autosync_timer_id);
+        autosync_timer_id = -1;
+    }
     ringloop->unregister_consumer(&consumer);
     delete epmgr;
     if (bs)
@@ -100,11 +114,19 @@ osd_t::~osd_t()
     free(zero_buffer);
 }
 
-void osd_t::parse_config(const json11::Json & config, bool allow_disk_params)
+void osd_t::parse_config(bool init)
 {
+    config = msgr.merge_configs(cli_config, file_config, etcd_global_config, etcd_osd_config);
+    if (config.find("log_level") == this->config.end())
+        config["log_level"] = 1;
+    if (bs)
+    {
+        auto bs_cfg = json_to_bs(config);
+        bs->parse_config(bs_cfg);
+    }
     st_cli.parse_config(config);
     msgr.parse_config(config);
-    if (allow_disk_params)
+    if (init)
     {
         // OSD number
         osd_num = config["osd_num"].uint64_value();
@@ -126,24 +148,27 @@ void osd_t::parse_config(const json11::Json & config, bool allow_disk_params)
             immediate_commit = IMMEDIATE_SMALL;
         else
             immediate_commit = IMMEDIATE_NONE;
+        // Bind address
+        bind_address = config["bind_address"].string_value();
+        if (bind_address == "")
+            bind_address = "0.0.0.0";
+        bind_port = config["bind_port"].uint64_value();
+        if (bind_port <= 0 || bind_port > 65535)
+            bind_port = 0;
+        // OSD configuration
+        etcd_report_interval = config["etcd_report_interval"].uint64_value();
+        if (etcd_report_interval <= 0)
+            etcd_report_interval = 5;
+        readonly = json_is_true(config["readonly"]);
+        run_primary = !json_is_false(config["run_primary"]);
+        allow_test_ops = json_is_true(config["allow_test_ops"]);
     }
-    // Bind address
-    bind_address = config["bind_address"].string_value();
-    if (bind_address == "")
-        bind_address = "0.0.0.0";
-    bind_port = config["bind_port"].uint64_value();
-    if (bind_port <= 0 || bind_port > 65535)
-        bind_port = 0;
-    // OSD configuration
     log_level = config["log_level"].uint64_value();
-    etcd_report_interval = config["etcd_report_interval"].uint64_value();
-    if (etcd_report_interval <= 0)
-        etcd_report_interval = 5;
-    readonly = json_is_true(config["readonly"]);
-    run_primary = !json_is_false(config["run_primary"]);
+    auto old_no_rebalance = no_rebalance;
     no_rebalance = json_is_true(config["no_rebalance"]);
+    auto old_no_recovery = no_recovery;
     no_recovery = json_is_true(config["no_recovery"]);
-    allow_test_ops = json_is_true(config["allow_test_ops"]);
+    auto old_autosync_interval = autosync_interval;
     if (!config["autosync_interval"].is_null())
     {
         // Allow to set it to 0
@@ -171,15 +196,46 @@ void osd_t::parse_config(const json11::Json & config, bool allow_disk_params)
     recovery_sync_batch = config["recovery_sync_batch"].uint64_value();
     if (recovery_sync_batch < 1 || recovery_sync_batch > MAX_RECOVERY_QUEUE)
         recovery_sync_batch = DEFAULT_RECOVERY_BATCH;
+    auto old_print_stats_interval = print_stats_interval;
     print_stats_interval = config["print_stats_interval"].uint64_value();
     if (!print_stats_interval)
         print_stats_interval = 3;
+    auto old_slow_log_interval = slow_log_interval;
     slow_log_interval = config["slow_log_interval"].uint64_value();
     if (!slow_log_interval)
         slow_log_interval = 10;
     inode_vanish_time = config["inode_vanish_time"].uint64_value();
     if (!inode_vanish_time)
         inode_vanish_time = 60;
+    if ((old_no_rebalance && !no_rebalance || old_no_recovery && !no_recovery) &&
+        !(peering_state & (OSD_RECOVERING | OSD_FLUSHING_PGS)))
+    {
+        peering_state = peering_state | OSD_RECOVERING;
+    }
+    if (old_autosync_interval != autosync_interval && autosync_timer_id >= 0)
+    {
+        this->tfd->clear_timer(autosync_timer_id);
+        autosync_timer_id = this->tfd->set_timer(autosync_interval*1000, true, [this](int timer_id)
+        {
+            autosync();
+        });
+    }
+    if (old_print_stats_interval != print_stats_interval && print_stats_timer_id >= 0)
+    {
+        tfd->clear_timer(print_stats_timer_id);
+        print_stats_timer_id = this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
+        {
+            print_stats();
+        });
+    }
+    if (old_slow_log_interval != slow_log_interval && slow_log_timer_id >= 0)
+    {
+        tfd->clear_timer(slow_log_timer_id);
+        slow_log_timer_id = this->tfd->set_timer(slow_log_interval*1000, true, [this](int timer_id)
+        {
+            print_slow();
+        });
+    }
 }
 
 void osd_t::bind_socket()

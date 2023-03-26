@@ -90,7 +90,7 @@ class osd_t
 {
     // config
 
-    json11::Json::object config;
+    json11::Json::object cli_config, file_config, etcd_global_config, etcd_osd_config, config;
     int etcd_report_interval = 5;
 
     bool readonly = false;
@@ -126,6 +126,7 @@ class osd_t
     bool pg_config_applied = false;
     bool etcd_reporting_pg_state = false;
     bool etcd_reporting_stats = false;
+    int autosync_timer_id = -1, print_stats_timer_id = -1, slow_log_timer_id = -1;
 
     // peers and PGs
 
@@ -173,7 +174,7 @@ class osd_t
     uint64_t recovery_stat_bytes[2][2] = {};
 
     // cluster connection
-    void parse_config(const json11::Json & config, bool allow_disk_params);
+    void parse_config(bool init);
     void init_cluster();
     void on_change_osd_state_hook(osd_num_t peer_osd);
     void on_change_pg_history_hook(pool_id_t pool_id, pg_num_t pg_num);

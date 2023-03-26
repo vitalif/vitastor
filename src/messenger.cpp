@@ -534,8 +534,9 @@ bool osd_messenger_t::is_rdma_enabled()
 }
 #endif
 
-json11::Json osd_messenger_t::read_config(const json11::Json & config)
+json11::Json::object osd_messenger_t::read_config(const json11::Json & config)
 {
+    json11::Json::object file_config;
     const char *config_path = config["config_path"].string_value() != ""
         ? config["config_path"].string_value().c_str() : VITASTOR_CONFIG_PATH;
     int fd = open(config_path, O_RDONLY);
@@ -543,14 +544,14 @@ json11::Json osd_messenger_t::read_config(const json11::Json & config)
     {
         if (errno != ENOENT)
             fprintf(stderr, "Error reading %s: %s\n", config_path, strerror(errno));
-        return config;
+        return file_config;
     }
     struct stat st;
     if (fstat(fd, &st) != 0)
     {
         fprintf(stderr, "Error reading %s: %s\n", config_path, strerror(errno));
         close(fd);
-        return config;
+        return file_config;
     }
     std::string buf;
     buf.resize(st.st_size);
@@ -562,23 +563,125 @@ json11::Json osd_messenger_t::read_config(const json11::Json & config)
         {
             fprintf(stderr, "Error reading %s: %s\n", config_path, strerror(errno));
             close(fd);
-            return config;
+            return file_config;
         }
         done += r;
     }
     close(fd);
     std::string json_err;
-    json11::Json::object file_config = json11::Json::parse(buf, json_err).object_items();
+    file_config = json11::Json::parse(buf, json_err).object_items();
     if (json_err != "")
     {
         fprintf(stderr, "Invalid JSON in %s: %s\n", config_path, json_err.c_str());
-        return config;
-    }
-    file_config.erase("config_path");
-    file_config.erase("osd_num");
-    for (auto kv: config.object_items())
-    {
-        file_config[kv.first] = kv.second;
     }
     return file_config;
+}
+
+static const char* cli_only_params[] = {
+    // The list has to be sorted
+    "bitmap_granularity",
+    "block_size",
+    "data_device",
+    "data_offset",
+    "data_size",
+    "disable_data_fsync",
+    "disable_device_lock",
+    "disable_journal_fsync",
+    "disable_meta_fsync",
+    "disk_alignment",
+    "flush_journal",
+    "immediate_commit",
+    "inmemory_journal",
+    "inmemory_metadata",
+    "journal_block_size",
+    "journal_device",
+    "journal_no_same_sector_overwrites",
+    "journal_offset",
+    "journal_sector_buffer_count",
+    "journal_size",
+    "meta_block_size",
+    "meta_buf_size",
+    "meta_device",
+    "meta_offset",
+    "osd_num",
+    "readonly",
+};
+
+static const char **cli_only_end = cli_only_params + (sizeof(cli_only_params)/sizeof(cli_only_params[0]));
+
+static const char* local_only_params[] = {
+    // The list has to be sorted
+    "config_path",
+    "rdma_device",
+    "rdma_gid_index",
+    "rdma_max_msg",
+    "rdma_max_recv",
+    "rdma_max_send",
+    "rdma_max_sge",
+    "rdma_mtu",
+    "rdma_port_num",
+    "tcp_header_buffer_size",
+    "use_rdma",
+    "use_sync_send_recv",
+};
+
+static const char **local_only_end = local_only_params + (sizeof(local_only_params)/sizeof(local_only_params[0]));
+
+// Basically could be replaced by std::lower_bound()...
+static int find_str_array(const char **start, const char **end, const std::string & s)
+{
+    int min = 0, max = end-start;
+    while (max-min >= 2)
+    {
+        int mid = (min+max)/2;
+        int r = strcmp(s.c_str(), start[mid]);
+        if (r < 0)
+            max = mid;
+        else if (r > 0)
+            min = mid;
+        else
+            return mid;
+    }
+    if (min < end-start && !strcmp(s.c_str(), start[min]))
+        return min;
+    return -1;
+}
+
+json11::Json::object osd_messenger_t::merge_configs(const json11::Json::object & cli_config,
+    const json11::Json::object & file_config,
+    const json11::Json::object & etcd_global_config,
+    const json11::Json::object & etcd_osd_config)
+{
+    // Priority: most important -> less important:
+    // etcd_osd_config -> cli_config -> etcd_global_config -> file_config
+    json11::Json::object res = file_config;
+    for (auto & kv: file_config)
+    {
+        int cli_only = find_str_array(cli_only_params, cli_only_end, kv.first);
+        if (cli_only < 0)
+        {
+            res[kv.first] = kv.second;
+        }
+    }
+    for (auto & kv: etcd_global_config)
+    {
+        int local_only = find_str_array(local_only_params, local_only_end, kv.first);
+        if (local_only < 0)
+        {
+            res[kv.first] = kv.second;
+        }
+    }
+    for (auto & kv: cli_config)
+    {
+        res[kv.first] = kv.second;
+    }
+    for (auto & kv: etcd_osd_config)
+    {
+        int local_only = find_str_array(local_only_params, local_only_end, kv.first);
+        if (local_only < 0)
+        {
+            res[kv.first] = kv.second;
+        }
+    }
+    return res;
 }
