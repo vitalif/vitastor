@@ -12,7 +12,7 @@
 #define SYNC_JOURNAL_SYNC_SENT 7
 #define SYNC_DONE 8
 
-int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_progress_sync)
+int blockstore_impl_t::continue_sync(blockstore_op_t *op)
 {
     if (immediate_commit == IMMEDIATE_ALL)
     {
@@ -145,7 +145,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op, bool queue_has_in_prog
             PRIV(op)->op_state = SYNC_DONE;
         }
     }
-    if (PRIV(op)->op_state == SYNC_DONE && !queue_has_in_progress_sync)
+    if (PRIV(op)->op_state == SYNC_DONE)
     {
         ack_sync(op);
         return 2;

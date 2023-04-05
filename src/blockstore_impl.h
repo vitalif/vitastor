@@ -216,6 +216,11 @@ struct pool_shard_settings_t
     uint32_t pg_stripe_size;
 };
 
+#define STAB_SPLIT_DONE 1
+#define STAB_SPLIT_WAIT 2
+#define STAB_SPLIT_SYNC 3
+#define STAB_SPLIT_TODO 4
+
 class blockstore_impl_t
 {
     blockstore_disk_t dsk;
@@ -298,6 +303,7 @@ class blockstore_impl_t
     blockstore_init_journal* journal_init_reader;
 
     void check_wait(blockstore_op_t *op);
+    void init_op(blockstore_op_t *op);
 
     // Read
     int dequeue_read(blockstore_op_t *read_op);
@@ -317,7 +323,7 @@ class blockstore_impl_t
     void handle_write_event(ring_data_t *data, blockstore_op_t *op);
 
     // Sync
-    int continue_sync(blockstore_op_t *op, bool queue_has_in_progress_sync);
+    int continue_sync(blockstore_op_t *op);
     void ack_sync(blockstore_op_t *op);
 
     // Stabilize
@@ -325,6 +331,8 @@ class blockstore_impl_t
     int continue_stable(blockstore_op_t *op);
     void mark_stable(const obj_ver_id & ov, bool forget_dirty = false);
     void stabilize_object(object_id oid, uint64_t max_ver);
+    blockstore_op_t* selective_sync(blockstore_op_t *op);
+    int split_stab_op(blockstore_op_t *op, std::function<int(obj_ver_id v)> decider);
 
     // Rollback
     int dequeue_rollback(blockstore_op_t *op);

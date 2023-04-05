@@ -9,48 +9,39 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
     {
         return continue_rollback(op);
     }
-    obj_ver_id *v, *nv;
-    int i, todo = op->len;
-    for (i = 0, v = (obj_ver_id*)op->buf, nv = (obj_ver_id*)op->buf; i < op->len; i++, v++, nv++)
+    int r = split_stab_op(op, [this](obj_ver_id ov)
     {
-        if (nv != v)
-        {
-            *nv = *v;
-        }
         // Check that there are some versions greater than v->version (which may be zero),
         // check that they're unstable, synced, and not currently written to
         auto dirty_it = dirty_db.lower_bound((obj_ver_id){
-            .oid = v->oid,
+            .oid = ov.oid,
             .version = UINT64_MAX,
         });
         if (dirty_it == dirty_db.begin())
         {
-skip_ov:
             // Already rolled back, skip this object version
-            todo--;
-            nv--;
-            continue;
+            return STAB_SPLIT_DONE;
         }
         else
         {
             dirty_it--;
-            if (dirty_it->first.oid != v->oid || dirty_it->first.version < v->version)
+            if (dirty_it->first.oid != ov.oid || dirty_it->first.version < ov.version)
             {
-                goto skip_ov;
+                // Already rolled back, skip this object version
+                return STAB_SPLIT_DONE;
             }
-            while (dirty_it->first.oid == v->oid && dirty_it->first.version > v->version)
+            while (dirty_it->first.oid == ov.oid && dirty_it->first.version > ov.version)
             {
                 if (IS_IN_FLIGHT(dirty_it->second.state))
                 {
                     // Object write is still in progress. Wait until the write request completes
-                    return 0;
+                    return STAB_SPLIT_WAIT;
                 }
                 else if (!IS_SYNCED(dirty_it->second.state) ||
                     IS_STABLE(dirty_it->second.state))
                 {
-                    op->retval = -EBUSY;
-                    FINISH_OP(op);
-                    return 2;
+                    // Sync the object
+                    return STAB_SPLIT_SYNC;
                 }
                 if (dirty_it == dirty_db.begin())
                 {
@@ -58,19 +49,16 @@ skip_ov:
                 }
                 dirty_it--;
             }
+            return STAB_SPLIT_TODO;
         }
-    }
-    op->len = todo;
-    if (!todo)
+    });
+    if (r != 1)
     {
-        // Already rolled back
-        op->retval = 0;
-        FINISH_OP(op);
-        return 2;
+        return r;
     }
     // Check journal space
     blockstore_journal_check_t space_check(this);
-    if (!space_check.check_available(op, todo, sizeof(journal_entry_rollback), 0))
+    if (!space_check.check_available(op, op->len, sizeof(journal_entry_rollback), 0))
     {
         return 0;
     }
@@ -78,7 +66,8 @@ skip_ov:
     BS_SUBMIT_CHECK_SQES(space_check.sectors_to_write);
     // Prepare and submit journal entries
     int s = 0;
-    for (i = 0, v = (obj_ver_id*)op->buf; i < op->len; i++, v++)
+    auto v = (obj_ver_id*)op->buf;
+    for (int i = 0; i < op->len; i++, v++)
     {
         if (!journal.entry_fits(sizeof(journal_entry_rollback)) &&
             journal.sector_info[journal.cur_sector].dirty)

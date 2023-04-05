@@ -39,6 +39,11 @@ struct __attribute__((__packed__)) obj_ver_id
     uint64_t version;
 };
 
+inline bool operator == (const obj_ver_id & a, const obj_ver_id & b)
+{
+    return a.oid == b.oid && a.version == b.version;
+}
+
 inline bool operator < (const obj_ver_id & a, const obj_ver_id & b)
 {
     return a.oid < b.oid || a.oid == b.oid && a.version < b.version;

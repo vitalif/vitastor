@@ -171,7 +171,7 @@ void blockstore_impl_t::loop()
                     // Can't submit SYNC before previous writes
                     continue;
                 }
-                wr_st = continue_sync(op, false);
+                wr_st = continue_sync(op);
                 if (wr_st != 2)
                 {
                     has_writes = wr_st > 0 ? 1 : 2;
@@ -371,13 +371,18 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
         ringloop->set_immediate([op]() { std::function<void (blockstore_op_t*)>(op->callback)(op); });
         return;
     }
+    init_op(op);
+    submit_queue.push_back(op);
+    ringloop->wakeup();
+}
+
+void blockstore_impl_t::init_op(blockstore_op_t *op)
+{
     // Call constructor without allocating memory. We'll call destructor before returning op back
     new ((void*)op->private_data) blockstore_op_private_t;
     PRIV(op)->wait_for = 0;
     PRIV(op)->op_state = 0;
     PRIV(op)->pending_ops = 0;
-    submit_queue.push_back(op);
-    ringloop->wakeup();
 }
 
 static bool replace_stable(object_id oid, uint64_t version, int search_start, int search_end, obj_ver_id* list)
