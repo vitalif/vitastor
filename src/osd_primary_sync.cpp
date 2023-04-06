@@ -166,7 +166,7 @@ resume_6:
                 for (int i = 0; i < unstable_osd.len; i++)
                 {
                     // Except those from peered PGs
-                    auto & w = op_data->unstable_writes[i];
+                    auto & w = op_data->unstable_writes[unstable_osd.start + i];
                     pool_pg_num_t wpg = {
                         .pool_id = INODE_POOL(w.oid.inode),
                         .pg_num = map_to_pg(w.oid, st_cli.pool_config.at(INODE_POOL(w.oid.inode)).pg_stripe_size),
