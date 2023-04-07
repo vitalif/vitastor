@@ -126,7 +126,6 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
                             pool_id, pg_num, (uint64_t)wr_it->second, wr_it->first.inode, wr_it->first.stripe);
                     }
                     continue_ops.push_back(wr_it->second);
-                    pg.write_queue.erase(wr_it);
                 }
             }
             if (it == pg.flush_actions.end() || !it->second.submitted)

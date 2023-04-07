@@ -12,6 +12,7 @@ bool osd_t::check_write_queue(osd_op_t *cur_op, pg_t & pg)
         .oid = op_data->oid,
         .osd_num = 0,
     });
+    op_data->st = 1;
     if (act_it != pg.flush_actions.end() &&
         act_it->first.oid.inode == op_data->oid.inode &&
         (act_it->first.oid.stripe & ~STRIPE_MASK) == op_data->oid.stripe)
@@ -23,7 +24,6 @@ bool osd_t::check_write_queue(osd_op_t *cur_op, pg_t & pg)
     auto vo_it = pg.write_queue.find(op_data->oid);
     if (vo_it != pg.write_queue.end())
     {
-        op_data->st = 1;
         pg.write_queue.emplace(op_data->oid, cur_op);
         return false;
     }
