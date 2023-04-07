@@ -1118,6 +1118,24 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
     if (part->op.reply.hdr.retval != expected)
     {
         // Operation failed, retry
+        part->flags |= PART_ERROR;
+        if (!op->retval || op->retval == -EPIPE)
+        {
+            // Don't overwrite other errors with -EPIPE
+            op->retval = part->op.reply.hdr.retval;
+        }
+        int stop_fd = -1;
+        if (op->retval != -EINTR && op->retval != -EIO)
+        {
+            stop_fd = part->op.peer_fd;
+            fprintf(
+                stderr, "%s operation failed on OSD %lu: retval=%ld (expected %d), dropping connection\n",
+                osd_op_names[part->op.req.hdr.opcode], part->osd_num, part->op.reply.hdr.retval, expected
+            );
+        }
+        // All next things like timer, continue_sync/rw and stop_client may affect the operation again
+        // So do all these things after modifying operation state, otherwise we may hit reenterability bugs
+        // FIXME postpone such things to set_immediate here to avoid bugs
         if (part->op.reply.hdr.retval == -EPIPE)
         {
             // Mark op->up_wait = true before stopping the client
@@ -1131,20 +1149,17 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
                 });
             }
         }
-        if (!op->retval || op->retval == -EPIPE)
+        if (op->inflight_count == 0)
         {
-            // Don't overwrite other errors with -EPIPE
-            op->retval = part->op.reply.hdr.retval;
+            if (op->opcode == OSD_OP_SYNC)
+                continue_sync(op);
+            else
+                continue_rw(op);
         }
-        if (op->retval != -EINTR && op->retval != -EIO)
+        if (stop_fd >= 0)
         {
-            fprintf(
-                stderr, "%s operation failed on OSD %lu: retval=%ld (expected %d), dropping connection\n",
-                osd_op_names[part->op.req.hdr.opcode], part->osd_num, part->op.reply.hdr.retval, expected
-            );
-            msgr.stop_client(part->op.peer_fd);
+            msgr.stop_client(stop_fd);
         }
-        part->flags |= PART_ERROR;
     }
     else
     {
@@ -1158,13 +1173,13 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             copy_part_bitmap(op, part);
             op->version = op->parts.size() == 1 ? part->op.reply.rw.version : 0;
         }
-    }
-    if (op->inflight_count == 0)
-    {
-        if (op->opcode == OSD_OP_SYNC)
-            continue_sync(op);
-        else
-            continue_rw(op);
+        if (op->inflight_count == 0)
+        {
+            if (op->opcode == OSD_OP_SYNC)
+                continue_sync(op);
+            else
+                continue_rw(op);
+        }
     }
 }
 
