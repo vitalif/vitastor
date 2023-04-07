@@ -64,6 +64,11 @@ void osd_t::submit_pg_flush_ops(pg_t & pg)
 
 void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t peer_osd, int retval)
 {
+    if (log_level > 2)
+    {
+        printf("[PG %u/%u] flush batch %lx completed on OSD %lu with result %d\n",
+            pool_id, pg_num, (uint64_t)fb, peer_osd, retval);
+    }
     pool_pg_num_t pg_id = { .pool_id = pool_id, .pg_num = pg_num };
     if (pgs.find(pg_id) == pgs.end() || pgs[pg_id].flush_batch != fb)
     {
@@ -115,6 +120,11 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
                 });
                 if (wr_it != pg.write_queue.end())
                 {
+                    if (log_level > 2)
+                    {
+                        printf("[PG %u/%u] continuing write %lx to object %lx:%lx after flush\n",
+                            pool_id, pg_num, (uint64_t)wr_it->second, wr_it->first.inode, wr_it->first.stripe);
+                    }
                     continue_ops.push_back(wr_it->second);
                     pg.write_queue.erase(wr_it);
                 }
@@ -157,6 +167,18 @@ bool osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
     // Copy buffer so it gets freed along with the operation
     op->buf = malloc_or_die(sizeof(obj_ver_id) * count);
     memcpy(op->buf, data, sizeof(obj_ver_id) * count);
+    if (log_level > 2)
+    {
+        printf(
+            "[PG %u/%u] flush batch %lx on OSD %lu: %s objects: ",
+            pool_id, pg_num, (uint64_t)fb, peer_osd, rollback ? "rollback" : "stabilize"
+        );
+        for (int i = 0; i < count; i++)
+        {
+            printf(i > 0 ? ", %lx:%lx v%lu" : "%lx:%lx v%lu", data[i].oid.inode, data[i].oid.stripe, data[i].version);
+        }
+        printf("\n");
+    }
     if (peer_osd == this->osd_num)
     {
         // local
@@ -293,9 +315,10 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
             {
                 // PG is stopped or one of the OSDs is gone, error is harmless
                 printf(
-                    "Recovery operation failed with object %lx:%lx (PG %u/%u)\n",
-                    op->oid.inode, op->oid.stripe, INODE_POOL(op->oid.inode),
-                    map_to_pg(op->oid, st_cli.pool_config.at(INODE_POOL(op->oid.inode)).pg_stripe_size)
+                    "[PG %u/%u] Recovery operation failed with object %lx:%lx\n",
+                    INODE_POOL(op->oid.inode),
+                    map_to_pg(op->oid, st_cli.pool_config.at(INODE_POOL(op->oid.inode)).pg_stripe_size),
+                    op->oid.inode, op->oid.stripe
                 );
             }
             else
