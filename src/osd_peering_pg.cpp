@@ -91,7 +91,7 @@ void pg_obj_state_check_t::walk()
         pg->state |= PG_DEGRADED;
     }
     pg->state |= PG_ACTIVE;
-    if (pg->state == PG_ACTIVE && pg->cur_peers.size() < pg->all_peers.size())
+    if (pg->cur_peers.size() < pg->all_peers.size())
     {
         pg->state |= PG_LEFT_ON_DEAD;
     }
