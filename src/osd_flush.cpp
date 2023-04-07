@@ -99,10 +99,9 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
         std::vector<osd_op_t*> continue_ops;
         auto & pg = pgs.at(pg_id);
         auto it = pg.flush_actions.begin(), prev_it = it;
-        auto erase_start = it;
         while (1)
         {
-            if (it == pg.flush_actions.end() ||
+            if (it == pg.flush_actions.end() || !it->second.submitted ||
                 it->first.oid.inode != prev_it->first.oid.inode ||
                 (it->first.oid.stripe & ~STRIPE_MASK) != (prev_it->first.oid.stripe & ~STRIPE_MASK))
             {
@@ -120,25 +119,15 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
                     pg.write_queue.erase(wr_it);
                 }
             }
-            if ((it == pg.flush_actions.end() || !it->second.submitted) &&
-                erase_start != it)
+            if (it == pg.flush_actions.end() || !it->second.submitted)
             {
-                pg.flush_actions.erase(erase_start, it);
-            }
-            if (it == pg.flush_actions.end())
-            {
+                if (it != pg.flush_actions.begin())
+                {
+                    pg.flush_actions.erase(pg.flush_actions.begin(), it);
+                }
                 break;
             }
-            prev_it = it;
-            if (!it->second.submitted)
-            {
-                it++;
-                erase_start = it;
-            }
-            else
-            {
-                it++;
-            }
+            prev_it = it++;
         }
         delete fb;
         pg.flush_batch = NULL;
