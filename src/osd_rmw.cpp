@@ -677,11 +677,11 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
 static void get_old_new_buffers(osd_rmw_stripe_t & stripe, uint32_t wr_start, uint32_t wr_end, buf_len_t *bufs, int & nbufs)
 {
     uint32_t ns = 0, ne = 0, os = 0, oe = 0;
-    if (stripe.req_end > wr_start &&
-        stripe.req_start < wr_end)
+    if (stripe.write_end > wr_start &&
+        stripe.write_start < wr_end)
     {
-        ns = std::max(stripe.req_start, wr_start);
-        ne = std::min(stripe.req_end, wr_end);
+        ns = std::max(stripe.write_start, wr_start);
+        ne = std::min(stripe.write_end, wr_end);
     }
     if (stripe.read_end > wr_start &&
         stripe.read_start < wr_end)
@@ -692,7 +692,7 @@ static void get_old_new_buffers(osd_rmw_stripe_t & stripe, uint32_t wr_start, ui
     if (ne && (!oe || ns <= os))
     {
         // NEW or NEW->OLD
-        bufs[nbufs++] = { .buf = (uint8_t*)stripe.write_buf + ns - stripe.req_start, .len = ne-ns };
+        bufs[nbufs++] = { .buf = (uint8_t*)stripe.write_buf + ns - stripe.write_start, .len = ne-ns };
         if (os < ne)
             os = ne;
         if (oe > os)
@@ -708,7 +708,7 @@ static void get_old_new_buffers(osd_rmw_stripe_t & stripe, uint32_t wr_start, ui
         {
             // OLD->NEW or OLD->NEW->OLD
             bufs[nbufs++] = { .buf = (uint8_t*)stripe.read_buf + os - stripe.read_start, .len = ns-os };
-            bufs[nbufs++] = { .buf = (uint8_t*)stripe.write_buf + ns - stripe.req_start, .len = ne-ns };
+            bufs[nbufs++] = { .buf = (uint8_t*)stripe.write_buf + ns - stripe.write_start, .len = ne-ns };
             if (oe > ne)
             {
                 // OLD->NEW->OLD
