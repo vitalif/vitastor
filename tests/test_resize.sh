@@ -53,7 +53,7 @@ for i in $(seq 1 $OSD_COUNT); do
         --data_device ./testdata/test_osd$i.bin \
         --meta_offset 0 \
         --journal_offset $((1024*1024)) \
-        --data_offset $((128*1024*1024)) &>./testdata/osd$i.log &
+        --data_offset $((128*1024*1024)) >>./testdata/osd$i.log 2>&1 &
     eval OSD${i}_PID=$!
 done
 

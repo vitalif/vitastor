@@ -17,17 +17,17 @@ else
 fi
 
 if [ "$IMMEDIATE_COMMIT" != "" ]; then
-    NO_SAME="--journal_no_same_sector_overwrites true --journal_sector_buffer_count 1024 --disable_data_fsync 1 --immediate_commit all --log_level 1"
+    NO_SAME="--journal_no_same_sector_overwrites true --journal_sector_buffer_count 1024 --disable_data_fsync 1 --immediate_commit all --log_level 10"
     $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"osd_out_time":1,"immediate_commit":"all"}'
 else
-    NO_SAME="--journal_sector_buffer_count 1024 --log_level 1"
+    NO_SAME="--journal_sector_buffer_count 1024 --log_level 10"
     $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"osd_out_time":1}'
 fi
 
 start_osd()
 {
     local i=$1
-    build/src/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $NO_SAME $OSD_ARGS --etcd_address $ETCD_URL $(build/src/vitastor-disk simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) &>./testdata/osd$i.log &
+    build/src/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $NO_SAME $OSD_ARGS --etcd_address $ETCD_URL $(build/src/vitastor-disk simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) >>./testdata/osd$i.log 2>&1 &
     eval OSD${i}_PID=$!
 }
 

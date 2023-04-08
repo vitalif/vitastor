@@ -43,7 +43,7 @@ kill_osds &
 
 LD_PRELOAD="build/src/libfio_vitastor.so" \
     fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4k -direct=1 -iodepth=16 -fsync=256 -rw=randwrite \
-        -mirror_file=./testdata/mirror.bin -etcd=$ETCD_URL -image=testimg -loops=10 -runtime=120 2>/dev/null
+        -mirror_file=./testdata/mirror.bin -etcd=$ETCD_URL -image=testimg -loops=10 -runtime=120
 
 qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testimg" \

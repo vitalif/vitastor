@@ -64,4 +64,4 @@ echo leak:librbd >> testdata/lsan-suppress.txt
 echo leak:_M_mutate >> testdata/lsan-suppress.txt
 echo leak:_M_assign >> testdata/lsan-suppress.txt
 export LSAN_OPTIONS=report_objects=true:suppressions=`pwd`/testdata/lsan-suppress.txt
-export ASAN_OPTIONS=verify_asan_link_order=false
+export ASAN_OPTIONS=verify_asan_link_order=false:abort_on_error=1
