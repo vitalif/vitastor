@@ -23,8 +23,9 @@
 #define PG_HAS_UNCLEAN (1<<11)
 #define PG_HAS_INVALID (1<<12)
 #define PG_HAS_CORRUPTED (1<<13)
-#define PG_LEFT_ON_DEAD (1<<14)
-#define PG_SCRUBBING (1<<15)
+#define PG_HAS_INCONSISTENT (1<<14)
+#define PG_LEFT_ON_DEAD (1<<15)
+#define PG_SCRUBBING (1<<16)
 
 // Lower bits that represent object role (EC 0/1/2... or always 0 with replication)
 // 12 bits is a safe default that doesn't depend on pg_stripe_size or pg_block_size
@@ -36,9 +37,16 @@
 #define OBJ_MISPLACED 0x08
 // OBJ_CORRUPTED is always set with one of OBJ_INCOMPLETE/OBJ_DEGRADED/OBJ_MISPLACED
 #define OBJ_CORRUPTED 0x10
+// OBJ_INCONSISTENT is when its replicas don't match, but it's unclear which one is correct
+// OBJ_INCONSISTENT may be set with CORRUPTED, but never with other states
+#define OBJ_INCONSISTENT 0x20
 #define OBJ_NEEDS_STABLE 0x10000
 #define OBJ_NEEDS_ROLLBACK 0x20000
 
 extern const int pg_state_bits[];
 extern const char *pg_state_names[];
 extern const int pg_state_bit_count;
+
+extern const int object_state_bits[];
+extern const char *object_state_names[];
+extern const int object_state_bit_count;

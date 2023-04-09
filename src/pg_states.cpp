@@ -3,9 +3,9 @@
 
 #include "pg_states.h"
 
-const int pg_state_bit_count = 16;
+const int pg_state_bit_count = 17;
 
-const int pg_state_bits[16] = {
+const int pg_state_bits[17] = {
     PG_STARTING,
     PG_PEERING,
     PG_INCOMPLETE,
@@ -14,6 +14,7 @@ const int pg_state_bits[16] = {
     PG_STOPPING,
     PG_OFFLINE,
     PG_DEGRADED,
+    PG_HAS_INCONSISTENT,
     PG_HAS_CORRUPTED,
     PG_HAS_INCOMPLETE,
     PG_HAS_DEGRADED,
@@ -24,7 +25,7 @@ const int pg_state_bits[16] = {
     PG_SCRUBBING,
 };
 
-const char *pg_state_names[16] = {
+const char *pg_state_names[17] = {
     "starting",
     "peering",
     "incomplete",
@@ -33,6 +34,7 @@ const char *pg_state_names[16] = {
     "stopping",
     "offline",
     "degraded",
+    "has_inconsistent",
     "has_corrupted",
     "has_incomplete",
     "has_degraded",
@@ -41,4 +43,28 @@ const char *pg_state_names[16] = {
     "has_invalid",
     "left_on_dead",
     "scrubbing",
+};
+
+const int object_state_bit_count = 8;
+
+const int object_state_bits[8] = {
+    OBJ_DEGRADED,
+    OBJ_INCOMPLETE,
+    OBJ_MISPLACED,
+    OBJ_CORRUPTED,
+    OBJ_INCONSISTENT,
+    OBJ_NEEDS_STABLE,
+    OBJ_NEEDS_ROLLBACK,
+    0,
+};
+
+const char *object_state_names[8] = {
+    "degraded",
+    "incomplete",
+    "misplaced",
+    "corrupted",
+    "inconsistent",
+    "needs_stable",
+    "needs_rollback",
+    "clean",
 };

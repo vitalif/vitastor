@@ -217,6 +217,9 @@ void osd_t::parse_config(bool init)
     scrub_queue_depth = config["scrub_queue_depth"].uint64_value();
     if (scrub_queue_depth < 1 || scrub_queue_depth > MAX_RECOVERY_QUEUE)
         scrub_queue_depth = 1;
+    scrub_ec_max_bruteforce = config["scrub_ec_max_bruteforce"].uint64_value();
+    if (scrub_ec_max_bruteforce < 1)
+        scrub_ec_max_bruteforce = 100;
     scrub_sleep_ms = config["scrub_sleep"].uint64_value();
     scrub_list_limit = config["scrub_list_limit"].uint64_value();
     if (!scrub_list_limit)

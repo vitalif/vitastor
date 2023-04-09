@@ -115,6 +115,7 @@ const etcd_tree = {
             scrub_queue_depth: 1,
             scrub_sleep: 0, // milliseconds
             scrub_list_limit: 1000, // objects to list on one scrub iteration
+            scrub_ec_max_bruteforce: 100, // maximum EC error locator brute-force iterators
             // blockstore - fixed in superblock
             block_size,
             disk_alignment,
@@ -273,8 +274,8 @@ const etcd_tree = {
                 <pg_id>: {
                     primary: osd_num_t,
                     state: ("starting"|"peering"|"incomplete"|"active"|"repeering"|"stopping"|"offline"|
-                        "degraded"|"has_corrupted"|"has_incomplete"|"has_degraded"|"has_misplaced"|"has_unclean"|
-                        "has_invalid"|"left_on_dead"|"scrubbing")[],
+                        "degraded"|"has_incomplete"|"has_degraded"|"has_misplaced"|"has_unclean"|
+                        "has_invalid"|"has_inconsistent"|"has_corrupted"|"left_on_dead"|"scrubbing")[],
                 }
             }, */
         },

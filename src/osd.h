@@ -120,6 +120,7 @@ class osd_t
     uint64_t scrub_queue_depth = 1;
     uint64_t scrub_sleep_ms = 0;
     uint32_t scrub_list_limit = 1000;
+    uint64_t scrub_ec_max_bruteforce = 100;
 
     // cluster state
 
@@ -142,7 +143,7 @@ class osd_t
     std::set<pool_pg_num_t> dirty_pgs;
     std::set<osd_num_t> dirty_osds;
     int copies_to_delete_after_sync_count = 0;
-    uint64_t misplaced_objects = 0, degraded_objects = 0, incomplete_objects = 0, corrupted_objects = 0;
+    uint64_t misplaced_objects = 0, degraded_objects = 0, incomplete_objects = 0, inconsistent_objects = 0, corrupted_objects = 0;
     int peering_state = 0;
     std::map<object_id, osd_recovery_op_t> recovery_ops;
     std::map<object_id, osd_op_t*> scrub_ops;
@@ -264,8 +265,11 @@ class osd_t
     void continue_primary_sync(osd_op_t *cur_op);
     void continue_primary_del(osd_op_t *cur_op);
     bool check_write_queue(osd_op_t *cur_op, pg_t & pg);
+    pg_osd_set_state_t* add_object_to_set(pg_t & pg, const object_id oid, const pg_osd_set_t & osd_set,
+        uint64_t old_pg_state, int log_at_level);
     void remove_object_from_state(object_id & oid, pg_osd_set_state_t **object_state, pg_t &pg, bool report = true);
-    pg_osd_set_state_t *mark_object_corrupted(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state, osd_rmw_stripe_t *stripes, bool ref);
+    pg_osd_set_state_t *mark_object_corrupted(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state,
+        osd_rmw_stripe_t *stripes, bool ref, bool inconsistent);
     void deref_object_state(pg_t & pg, pg_osd_set_state_t **object_state, bool deref);
     bool remember_unstable_write(osd_op_t *cur_op, pg_t & pg, pg_osd_set_t & loc_set, int base_state);
     void handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op);

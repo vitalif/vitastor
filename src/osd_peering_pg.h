@@ -15,12 +15,13 @@
 
 #define LOC_OUTDATED 1
 #define LOC_CORRUPTED 2
+#define LOC_INCONSISTENT 4
 
 struct pg_obj_loc_t
 {
     uint64_t role;
     osd_num_t osd_num;
-    uint32_t loc_bad; // LOC_OUTDATED / LOC_CORRUPTED
+    uint32_t loc_bad; // LOC_OUTDATED / LOC_CORRUPTED / LOC_INCONSISTENT
 };
 
 typedef std::vector<pg_obj_loc_t> pg_osd_set_t;
@@ -113,7 +114,7 @@ struct pg_t
     // which is up to ~192 MB per 1 TB in the worst case scenario
     std::map<pg_osd_set_t, pg_osd_set_state_t> state_dict;
     uint64_t corrupted_count;
-    btree::btree_map<object_id, pg_osd_set_state_t*> incomplete_objects, misplaced_objects, degraded_objects;
+    btree::btree_map<object_id, pg_osd_set_state_t*> inconsistent_objects, incomplete_objects, misplaced_objects, degraded_objects;
     std::map<obj_piece_id_t, flush_action_t> flush_actions;
     std::vector<obj_ver_osd_t> copies_to_delete_after_sync;
     btree::btree_map<object_id, uint64_t> ver_override;

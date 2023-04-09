@@ -255,7 +255,7 @@ resume_2:
             // I/O or checksum error
             auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
             // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
-            op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, false);
+            op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, false, false);
             goto resume_0;
         }
         finish_op(cur_op, op_data->errcode);
@@ -296,7 +296,8 @@ resume_2:
     finish_op(cur_op, cur_op->req.rw.len);
 }
 
-pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state, osd_rmw_stripe_t *stripes, bool ref)
+pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state,
+    osd_rmw_stripe_t *stripes, bool ref, bool inconsistent)
 {
     pg_osd_set_state_t *object_state = NULL;
     get_object_osd_set(pg, oid, &object_state);
@@ -327,26 +328,24 @@ pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_os
         }
     }
     // Mark object chunk(s) as corrupted
-    uint64_t has_roles = 0, n_roles = 0, n_copies = 0, n_corrupted = 0;
+    int changes = 0;
     for (auto & chunk: corrupted_set)
     {
         bool corrupted = stripes[chunk.role].osd_num == chunk.osd_num && stripes[chunk.role].read_error;
-        if (corrupted && !(chunk.loc_bad & LOC_CORRUPTED))
-            n_corrupted++;
-        chunk.loc_bad = chunk.loc_bad | (corrupted ? LOC_CORRUPTED : 0);
-        if (!chunk.loc_bad)
+        if (corrupted)
         {
-            if (pg.scheme == POOL_SCHEME_REPLICATED)
-                n_roles = 1;
-            else if (!(has_roles & (1 << chunk.role)))
-            {
-                n_roles++;
-                has_roles |= (1 << chunk.role);
-            }
-            n_copies++;
+            if (!(chunk.loc_bad & LOC_CORRUPTED))
+                changes++;
+            chunk.loc_bad |= LOC_CORRUPTED;
+        }
+        else if (inconsistent && !(chunk.loc_bad & LOC_OUTDATED))
+        {
+            if (!(chunk.loc_bad & LOC_INCONSISTENT))
+                changes++;
+            chunk.loc_bad |= LOC_INCONSISTENT;
         }
     }
-    if (!n_corrupted)
+    if (!changes)
     {
         // No chunks newly marked as corrupted - object is already marked or moved
         return object_state;
@@ -357,17 +356,82 @@ pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_os
         remove_object_from_state(oid, &object_state, pg, false);
         deref_object_state(pg, &object_state, ref);
     }
-    // Calculate object state
-    uint64_t obj_state = OBJ_CORRUPTED;
-    int pg_state_bits = PG_HAS_CORRUPTED;
-    this->corrupted_objects++;
-    pg.corrupted_count++;
-    if (log_level > 1)
+    // Insert object into the new state and retry
+    object_state = add_object_to_set(pg, oid, corrupted_set, old_pg_state, 2);
+    if (ref)
     {
-        printf("Marking object %lx:%lx corrupted: %lu chunks / %lu copies available, %lu corrupted\n",
-            oid.inode, oid.stripe, n_roles, n_copies, n_corrupted);
+        object_state->ref_count++;
     }
-    if (n_roles < pg.pg_data_size)
+    return object_state;
+}
+
+pg_osd_set_state_t* osd_t::add_object_to_set(pg_t & pg, const object_id oid, const pg_osd_set_t & osd_set,
+    uint64_t old_pg_state, int log_at_level)
+{
+    // Object state will be calculated from <osd_set>
+    uint64_t has_roles = 0, n_roles = 0, n_copies = 0, n_invalid = 0, n_outdated = 0,
+        n_misplaced = 0, n_corrupted = 0, n_inconsistent = 0;
+    for (auto & chunk: osd_set)
+    {
+        if (chunk.role >= (pg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_size))
+        {
+            n_invalid++;
+        }
+        else if (chunk.loc_bad & LOC_OUTDATED)
+        {
+            n_outdated++;
+        }
+        else
+        {
+            if (chunk.loc_bad & LOC_INCONSISTENT)
+            {
+                n_inconsistent++;
+            }
+            if (chunk.loc_bad & LOC_CORRUPTED)
+            {
+                n_corrupted++;
+            }
+            else if (pg.scheme == POOL_SCHEME_REPLICATED)
+            {
+                n_roles = 1;
+                int i;
+                for (i = 0; i < pg.cur_set.size() && pg.cur_set[i] != chunk.osd_num; i++) {}
+                if (i == pg.cur_set.size())
+                {
+                    n_misplaced++;
+                }
+            }
+            else
+            {
+                if (!(has_roles & (1 << chunk.role)))
+                {
+                    n_roles++;
+                    has_roles |= (1 << chunk.role);
+                }
+                if (pg.cur_set[chunk.role] != chunk.osd_num)
+                {
+                    n_misplaced++;
+                }
+            }
+            n_copies++;
+        }
+    }
+    uint64_t obj_state = 0;
+    int pg_state_bits = 0;
+    if (n_corrupted > 0)
+    {
+        this->corrupted_objects++;
+        pg.corrupted_count++;
+        obj_state |= OBJ_CORRUPTED;
+        pg_state_bits |= PG_HAS_CORRUPTED;
+    }
+    if (n_invalid > 0 || n_inconsistent > 0)
+    {
+        this->inconsistent_objects++;
+        obj_state |= OBJ_INCONSISTENT;
+        pg_state_bits |= PG_HAS_INCONSISTENT;
+    }
+    else if (n_roles < pg.pg_data_size)
     {
         this->incomplete_objects++;
         obj_state |= OBJ_INCOMPLETE;
@@ -379,11 +443,51 @@ pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_os
         obj_state |= OBJ_DEGRADED;
         pg_state_bits = PG_HAS_DEGRADED;
     }
-    else
+    else if (n_misplaced > 0 || n_outdated > 0)
     {
         this->misplaced_objects++;
         obj_state |= OBJ_MISPLACED;
         pg_state_bits = PG_HAS_MISPLACED;
+    }
+    if (this->log_level >= log_at_level)
+    {
+        printf("Marking object %lx:%lx ", oid.inode, oid.stripe);
+        for (int i = 0, j = 0; i < object_state_bit_count; i++)
+        {
+            if ((obj_state & object_state_bits[i]) || object_state_bits[i] == 0 && obj_state == 0)
+            {
+                printf((j++) ? "+%s" : "%s", object_state_names[i]);
+            }
+        }
+        if (pg.scheme == POOL_SCHEME_REPLICATED)
+        {
+            printf(": %lu copies available", n_copies);
+        }
+        else
+        {
+            printf(": %lu parts / %lu copies available", n_roles, n_copies);
+        }
+        if (n_invalid > 0)
+        {
+            printf(", %lu invalid", n_invalid);
+        }
+        if (n_outdated > 0)
+        {
+            printf(", %lu outdated", n_outdated);
+        }
+        if (n_misplaced > 0)
+        {
+            printf(", %lu misplaced", n_misplaced);
+        }
+        if (n_corrupted > 0)
+        {
+            printf(", %lu corrupted", n_corrupted);
+        }
+        if (n_inconsistent > 0)
+        {
+            printf(", %lu inconsistent", n_inconsistent);
+        }
+        printf("\n");
     }
     pg.state |= pg_state_bits;
     if (pg.state != old_pg_state)
@@ -403,11 +507,13 @@ pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_os
             ringloop->wakeup();
         }
     }
+    if (!obj_state)
+    {
+        // Object is clean
+        return NULL;
+    }
     // Insert object into the new state and retry
-    object_state = pg.add_object_to_state(oid, obj_state, corrupted_set);
-    if (ref)
-        object_state->ref_count++;
-    return object_state;
+    return pg.add_object_to_state(oid, obj_state, osd_set);
 }
 
 // Decrement pg_osd_set_state_t's object_count and change PG state accordingly
@@ -426,14 +532,29 @@ void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **objec
         *object_state = recheck_state;
         return;
     }
+    bool changed = false;
     (*object_state)->object_count--;
     if ((*object_state)->state & OBJ_CORRUPTED)
     {
         this->corrupted_objects--;
         pg.corrupted_count--;
+        if (!pg.corrupted_count)
+        {
+            pg.state = pg.state & ~PG_HAS_CORRUPTED;
+            changed = true;
+        }
     }
-    bool changed = false;
-    if ((*object_state)->state & OBJ_INCOMPLETE)
+    if ((*object_state)->state & OBJ_INCONSISTENT)
+    {
+        this->inconsistent_objects--;
+        pg.inconsistent_objects.erase(oid);
+        if (!pg.inconsistent_objects.size())
+        {
+            pg.state = pg.state & ~PG_HAS_INCONSISTENT;
+            changed = true;
+        }
+    }
+    else if ((*object_state)->state & OBJ_INCOMPLETE)
     {
         // Successful write means that object is not incomplete anymore
         this->incomplete_objects--;

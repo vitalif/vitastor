@@ -336,7 +336,7 @@ pg_osd_set_state_t* pg_t::add_object_to_state(const object_id oid, const uint64_
         {
             for (auto & o: osd_set)
             {
-                if (!o.loc_bad)
+                if (!(o.loc_bad & (LOC_OUTDATED | LOC_CORRUPTED)))
                 {
                     read_target.push_back(o.osd_num);
                 }
@@ -356,7 +356,7 @@ pg_osd_set_state_t* pg_t::add_object_to_state(const object_id oid, const uint64_
             }
             for (auto & o: osd_set)
             {
-                if (!o.loc_bad)
+                if (!(o.loc_bad & (LOC_OUTDATED | LOC_CORRUPTED)))
                 {
                     read_target[o.role] = o.osd_num;
                 }
@@ -374,7 +374,11 @@ pg_osd_set_state_t* pg_t::add_object_to_state(const object_id oid, const uint64_
     {
         it->second.object_count++;
     }
-    if (state & OBJ_INCOMPLETE)
+    if (state & OBJ_INCONSISTENT)
+    {
+        inconsistent_objects[oid] = &it->second;
+    }
+    else if (state & OBJ_INCOMPLETE)
     {
         incomplete_objects[oid] = &it->second;
     }
@@ -453,7 +457,8 @@ void pg_t::calc_object_states(int log_level)
                     std::to_string(loc.osd_num)+
                     (st.replicated ? "" : "("+std::to_string(loc.role)+")")+
                     (loc.loc_bad & LOC_OUTDATED ? "(old)" : "")+
-                    (loc.loc_bad & LOC_CORRUPTED ? "(corrupted)" : "");
+                    (loc.loc_bad & LOC_CORRUPTED ? "(corrupted)" : "")+
+                    (loc.loc_bad & LOC_INCONSISTENT ? "(inconsistent)" : "");
             }
             printf("[PG %u/%u] %lu objects on OSD set %s\n", pool_id, pg_num, stp.second.object_count, osd_set_desc.c_str());
         }
@@ -463,7 +468,7 @@ void pg_t::calc_object_states(int log_level)
 void pg_t::print_state()
 {
     printf(
-        "[PG %u/%u] is %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s (%lu objects)\n", pool_id, pg_num,
+        "[PG %u/%u] is %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s (%lu objects)\n", pool_id, pg_num,
         (state & PG_STARTING) ? "starting" : "",
         (state & PG_OFFLINE) ? "offline" : "",
         (state & PG_PEERING) ? "peering" : "",
@@ -472,6 +477,7 @@ void pg_t::print_state()
         (state & PG_REPEERING) ? "repeering" : "",
         (state & PG_STOPPING) ? "stopping" : "",
         (state & PG_DEGRADED) ? " + degraded" : "",
+        (state & PG_HAS_INCONSISTENT) ? " + has_inconsistent" : "",
         (state & PG_HAS_CORRUPTED) ? " + has_corrupted" : "",
         (state & PG_HAS_INCOMPLETE) ? " + has_incomplete" : "",
         (state & PG_HAS_DEGRADED) ? " + has_degraded" : "",

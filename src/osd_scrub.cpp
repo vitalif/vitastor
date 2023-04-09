@@ -377,9 +377,13 @@ void osd_t::continue_primary_scrub(osd_op_t *cur_op)
             {
                 n_copies++;
             }
-            else if (op_data->scheme != POOL_SCHEME_REPLICATED && role < op_data->pg_data_size)
+            else
             {
-                op_data->degraded = true;
+                op_data->stripes[role].missing = true;
+                if (op_data->scheme != POOL_SCHEME_REPLICATED && role < op_data->pg_data_size)
+                {
+                    op_data->degraded = true;
+                }
             }
         }
         if (n_copies <= op_data->pg_data_size)
@@ -388,8 +392,7 @@ void osd_t::continue_primary_scrub(osd_op_t *cur_op)
             finish_op(cur_op, 0);
             return;
         }
-        cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->pg_size,
-            op_data->scheme != POOL_SCHEME_REPLICATED ? bs_block_size*(op_data->pg_size-op_data->pg_data_size) : 0);
+        cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->pg_size, 0);
         // Submit reads
         osd_op_t *subops = new osd_op_t[n_copies];
         op_data->fact_ver = 0;
@@ -412,8 +415,15 @@ resume_2:
             int n_copies = 0;
             for (int role = 0; role < op_data->pg_size; role++)
             {
-                if (op_data->stripes[role].read_end != 0 &&
-                    !op_data->stripes[role].read_error)
+                if (op_data->stripes[role].read_error)
+                {
+                    op_data->stripes[role].missing = true;
+                    if (op_data->scheme != POOL_SCHEME_REPLICATED && role < op_data->pg_data_size)
+                    {
+                        op_data->degraded = true;
+                    }
+                }
+                else if (!op_data->stripes[role].missing)
                 {
                     n_copies++;
                 }
@@ -423,7 +433,7 @@ resume_2:
                 // Nothing to compare, just mark the object as corrupted
                 auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
                 // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
-                op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, false);
+                op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, false, false);
                 // Operation is treated as unsuccessful only if the object becomes unreadable
                 finish_op(cur_op, n_copies < op_data->pg_data_size ? op_data->errcode : 0);
                 return;
@@ -436,6 +446,7 @@ resume_2:
             return;
         }
     }
+    bool inconsistent = false;
     if (op_data->scheme == POOL_SCHEME_REPLICATED)
     {
         // Check that all chunks have returned the same data
@@ -475,7 +486,6 @@ resume_2:
         }
         if (best >= 0 && votes[best] < total)
         {
-            // FIXME Add a flag to allow to skip such objects and not recover them automatically
             bool unknown = false;
             for (int role = 0; role < op_data->pg_size; role++)
             {
@@ -484,9 +494,10 @@ resume_2:
                 if (votes[role] > 0 && votes[role] < votes[best])
                 {
                     printf(
-                        "[PG %u/%u] Object %lx:%lx copy on OSD %lu doesn't match %d other copies, marking it as corrupted\n",
+                        "[PG %u/%u] Object %lx:%lx v%lu copy on OSD %lu doesn't match %d other copies, marking it as corrupted\n",
                         INODE_POOL(op_data->oid.inode), op_data->pg_num,
-                        op_data->oid.inode, op_data->oid.stripe, op_data->stripes[role].osd_num, votes[best]
+                        op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver,
+                        op_data->stripes[role].osd_num, votes[best]
                     );
                     op_data->stripes[role].read_error = true;
                 }
@@ -494,63 +505,67 @@ resume_2:
             if (unknown)
             {
                 // It's unknown which replica is good. There are multiple versions with no majority
+                // Mark all good replicas as ambiguous
                 best = -1;
+                inconsistent = true;
+                printf(
+                    "[PG %u/%u] Object %lx:%lx v%lu is inconsistent: copies don't match. Use vitastor-cli fix to fix it\n",
+                    INODE_POOL(op_data->oid.inode), op_data->pg_num,
+                    op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver
+                );
             }
         }
     }
     else
     {
         assert(op_data->scheme == POOL_SCHEME_EC || op_data->scheme == POOL_SCHEME_XOR);
-        if (op_data->degraded)
+        auto good_subset = ec_find_good(
+            op_data->stripes, op_data->pg_size, op_data->pg_data_size, op_data->scheme == POOL_SCHEME_XOR,
+            bs_block_size, clean_entry_bitmap_size, scrub_ec_max_bruteforce
+        );
+        if (!good_subset.size())
         {
-            // Reconstruct missing stripes
-            // XOR shouldn't come here as it only has 1 parity chunk
-            assert(op_data->scheme == POOL_SCHEME_EC);
-            reconstruct_stripes_ec(op_data->stripes, op_data->pg_size, op_data->pg_data_size, clean_entry_bitmap_size);
+            inconsistent = true;
+            printf(
+                "[PG %u/%u] Object %lx:%lx v%lu is inconsistent: parity chunks don't match data. Use vitastor-cli fix to fix it\n",
+                INODE_POOL(op_data->oid.inode), op_data->pg_num,
+                op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver
+            );
         }
-        // Generate parity chunks and compare them with actual data
-        osd_num_t fake_osd_set[op_data->pg_size];
-        for (int i = 0; i < op_data->pg_size; i++)
+        else
         {
-            fake_osd_set[i] = 1;
-            op_data->stripes[i].write_buf = i >= op_data->pg_data_size
-                ? ((uint8_t*)cur_op->buf + (i-op_data->pg_data_size)*bs_block_size)
-                : op_data->stripes[i].read_buf;
-        }
-        if (op_data->scheme == POOL_SCHEME_XOR)
-        {
-            calc_rmw_parity_xor(op_data->stripes, op_data->pg_size, fake_osd_set, fake_osd_set, bs_block_size, clean_entry_bitmap_size);
-        }
-        else if (op_data->scheme == POOL_SCHEME_EC)
-        {
-            calc_rmw_parity_ec(op_data->stripes, op_data->pg_size, op_data->pg_data_size, fake_osd_set, fake_osd_set, bs_block_size, clean_entry_bitmap_size);
-        }
-        // Now compare that write_buf == read_buf
-        for (int role = op_data->pg_data_size; role < op_data->pg_size; role++)
-        {
-            if (op_data->stripes[role].osd_num != 0 && !op_data->stripes[role].read_error &&
-                memcmp(op_data->stripes[role].read_buf, op_data->stripes[role].write_buf, bs_block_size) != 0)
+            for (int role = 0; role < op_data->pg_size; role++)
             {
-                // Chunks don't match - something's wrong... but we don't know what :D
-                // FIXME: Try to locate errors (may be possible with >= 2 parity chunks)
-                printf(
-                    "[PG %u/%u] Object %lx:%lx parity chunk %d on OSD %lu doesn't match data, marking it as corrupted\n",
-                    INODE_POOL(op_data->oid.inode), op_data->pg_num,
-                    op_data->oid.inode, op_data->oid.stripe,
-                    role-op_data->pg_data_size, op_data->stripes[role].osd_num
-                );
-                op_data->stripes[role].read_error = true;
+                if (!op_data->stripes[role].missing)
+                    op_data->stripes[role].read_error = true;
+            }
+            for (int role: good_subset)
+            {
+                op_data->stripes[role].read_error = false;
+            }
+            for (int role = 0; role < op_data->pg_size; role++)
+            {
+                if (!op_data->stripes[role].missing && op_data->stripes[role].read_error)
+                {
+                    op_data->stripes[role].read_error = true;
+                    printf(
+                        "[PG %u/%u] Object %lx:%lx v%lu chunk %d on OSD %lu doesn't match data, marking it as corrupted\n",
+                        INODE_POOL(op_data->oid.inode), op_data->pg_num,
+                        op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver,
+                        role, op_data->stripes[role].osd_num
+                    );
+                }
             }
         }
     }
     for (int role = 0; role < op_data->pg_size; role++)
     {
-        if (op_data->stripes[role].osd_num != 0 && !op_data->stripes[role].read_error)
+        if (op_data->stripes[role].osd_num != 0 && op_data->stripes[role].read_error || inconsistent)
         {
             // Got at least 1 read error or mismatch, mark the object as corrupted
             auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
             // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
-            op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, false);
+            op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, false, inconsistent);
             break;
         }
     }
