@@ -142,11 +142,11 @@ inline bool operator < (const reed_sol_erased_t &a, const reed_sol_erased_t &b)
     for (int i = 0; i < a.size && i < b.size; i++)
     {
         if (a.data[i] < b.data[i])
-            return -1;
+            return true;
         else if (a.data[i] > b.data[i])
-            return 1;
+            return false;
     }
-    return 0;
+    return false;
 }
 
 struct reed_sol_matrix_t
