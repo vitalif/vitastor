@@ -4,6 +4,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <vector>
 #include "object_id.h"
 #include "osd_id.h"
 
@@ -54,3 +55,6 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
 
 void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
     uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t bitmap_size);
+
+std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, bool is_xor,
+    uint32_t chunk_size, uint32_t bitmap_size, int max_bruteforce);

@@ -1084,3 +1084,162 @@ void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
     }
     calc_rmw_parity_copy_parity(stripes, pg_size, pg_minsize, read_osd_set, write_osd_set, chunk_size, start, end);
 }
+
+// Generate subsets of k items each in {0..n-1}
+static bool first_combination(int *subset, int k, int n)
+{
+    if (k > n)
+        return false;
+    for (int i = 0; i < k; i++)
+        subset[i] = i;
+    return true;
+}
+
+static bool next_combination(int *subset, int k, int n)
+{
+    int pos = k-1;
+    while (true)
+    {
+        subset[pos]++;
+        if (subset[pos] >= n-(k-1-pos))
+        {
+            if (pos == 0)
+                return false;
+            pos--;
+        }
+        else
+            break;
+    }
+    for (pos++; pos < k; pos++)
+    {
+        subset[pos] = subset[pos-1]+1;
+    }
+    return true;
+}
+
+static int c_n_k(int n, int k)
+{
+    int c = 1;
+    for (int i = n; i > k; i--)
+        c *= i;
+    for (int i = 2; i <= (n-k); i++)
+        c /= i;
+    return c;
+}
+
+std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, bool is_xor,
+    uint32_t chunk_size, uint32_t bitmap_size, int max_bruteforce)
+{
+    std::vector<int> found_valid;
+    int cur_live[pg_size], live_count = 0;
+    osd_num_t fake_osd_set[pg_size];
+    for (int role = 0; role < pg_size; role++)
+    {
+        if (!stripes[role].missing)
+        {
+            cur_live[live_count++] = role;
+            fake_osd_set[role] = role+1;
+        }
+    }
+    if (live_count <= pg_minsize)
+    {
+        return std::vector<int>();
+    }
+    // Try to locate errors using brute force if there isn't too many combinations
+    osd_rmw_stripe_t brute_stripes[pg_size];
+    int out_count = live_count-pg_minsize;
+    bool brute_force = out_count > 1 && c_n_k(live_count-1, out_count-1) <= max_bruteforce;
+    int subset[pg_minsize], outset[out_count];
+    // Select all combinations with items except the last one (== anything to compare)
+    first_combination(subset, pg_minsize, live_count-1);
+    uint8_t *tmp_buf = (uint8_t*)malloc_or_die(pg_size*chunk_size);
+    do
+    {
+        memcpy(brute_stripes, stripes, sizeof(osd_rmw_stripe_t)*pg_size);
+        int i = 0, j = 0, k = 0;
+        for (; i < pg_minsize; i++, j++)
+            while (j < subset[i])
+                outset[k++] = j++;
+        while (j < pg_size)
+            outset[k++] = j++;
+        for (int i = 0; i < out_count; i++)
+        {
+            brute_stripes[cur_live[outset[i]]].missing = true;
+            brute_stripes[cur_live[outset[i]]].read_buf = tmp_buf+cur_live[outset[i]]*chunk_size;
+        }
+        for (int i = 0; i < pg_minsize; i++)
+        {
+            brute_stripes[i].write_buf = brute_stripes[i].read_buf;
+            brute_stripes[i].req_start = 0;
+            brute_stripes[i].req_end = chunk_size;
+        }
+        for (int i = pg_minsize; i < pg_size; i++)
+        {
+            brute_stripes[i].write_buf = tmp_buf+i*chunk_size;
+        }
+        if (is_xor)
+        {
+            assert(pg_size == pg_minsize+1);
+            reconstruct_stripes_xor(brute_stripes, pg_size, bitmap_size);
+        }
+        else
+        {
+            reconstruct_stripes_ec(brute_stripes, pg_size, pg_minsize, bitmap_size);
+            calc_rmw_parity_ec(brute_stripes, pg_size, pg_minsize, fake_osd_set, fake_osd_set, chunk_size, bitmap_size);
+        }
+        for (int i = pg_minsize; i < pg_size; i++)
+        {
+            brute_stripes[i].read_buf = brute_stripes[i].write_buf;
+        }
+        int max_live = 0;
+        for (int i = 0; i < pg_size; i++)
+        {
+            if (!brute_stripes[i].missing)
+            {
+                max_live = i;
+            }
+        }
+        int valid_count = 0;
+        for (int i = 0; i < out_count; i++)
+        {
+            // Only compare with chunks after the last one so first N + each 1 after them don't repeat
+            // I.e. compare (1,2,3,4) with (5,6) and (1,2,3,5) only with (6) and so on
+            if (cur_live[outset[i]] > max_live &&
+                memcmp(brute_stripes[cur_live[outset[i]]].read_buf,
+                    stripes[cur_live[outset[i]]].read_buf, chunk_size) == 0)
+            {
+                brute_stripes[cur_live[outset[i]]].missing = false;
+                valid_count++;
+            }
+        }
+        if (valid_count > 0)
+        {
+            if (found_valid.size())
+            {
+                // Ambiguity: we found multiple valid sets and don't know which one is correct
+                found_valid.clear();
+                break;
+            }
+            for (int i = 0; i < pg_size; i++)
+            {
+                if (!brute_stripes[i].missing)
+                {
+                    found_valid.push_back(i);
+                }
+            }
+            if (valid_count == out_count)
+            {
+                // All chunks are good
+                break;
+            }
+        }
+        if (!brute_force)
+        {
+            // Do not attempt brute force if there are too many combinations because even
+            // if we find it we won't be able to check that it's the only good one
+            break;
+        }
+    } while (out_count > 1 && next_combination(subset, pg_minsize, live_count-1));
+    free(tmp_buf);
+    return found_valid;
+}
