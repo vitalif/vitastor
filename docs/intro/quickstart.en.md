@@ -70,7 +70,7 @@ For EC pools the configuration should look like the following:
 
 ```
 etcdctl --endpoints=... put /vitastor/config/pools '{"2":{"name":"ecpool",
-  "scheme":"ec","pg_size":4,"parity_chunks":2,"pg_minsize":2,"pg_count":256,"failure_domain":"host"}'
+  "scheme":"ec","pg_size":4,"parity_chunks":2,"pg_minsize":2,"pg_count":256,"failure_domain":"host"}}'
 ```
 
 After you do this, one of the monitors will configure PGs and OSDs will start them.
