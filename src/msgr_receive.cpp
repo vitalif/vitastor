@@ -251,10 +251,6 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
         }
         cl->read_remaining = cur_op->req.sec_read_bmp.len;
     }
-    else if (cur_op->req.hdr.opcode == OSD_OP_READ)
-    {
-        cl->read_remaining = 0;
-    }
     else if (cur_op->req.hdr.opcode == OSD_OP_WRITE)
     {
         if (cur_op->req.rw.len > 0)
@@ -274,6 +270,12 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
         }
         cl->read_remaining = cur_op->req.show_conf.json_len;
     }
+    /*else if (cur_op->req.hdr.opcode == OSD_OP_READ ||
+        cur_op->req.hdr.opcode == OSD_OP_SCRUB ||
+        cur_op->req.hdr.opcode == OSD_OP_DESCRIBE)
+    {
+        cl->read_remaining = 0;
+    }*/
     if (cl->read_remaining > 0)
     {
         // Read data
@@ -366,6 +368,16 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         free(op->buf);
         op->buf = malloc_or_die(op->reply.hdr.retval);
         cl->recv_list.push_back(op->buf, op->reply.hdr.retval);
+    }
+    else if (op->reply.hdr.opcode == OSD_OP_DESCRIBE && op->reply.hdr.retval > 0)
+    {
+        delete cl->read_op;
+        cl->read_op = op;
+        cl->read_state = CL_READ_REPLY_DATA;
+        cl->read_remaining = op->reply.describe.result_bytes;
+        free(op->buf);
+        op->buf = malloc_or_die(op->reply.describe.result_bytes);
+        cl->recv_list.push_back(op->buf, op->reply.describe.result_bytes);
     }
     else
     {

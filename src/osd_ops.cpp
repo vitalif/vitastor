@@ -22,4 +22,5 @@ const char* osd_op_names[] = {
     "ping",
     "sec_read_bmp",
     "scrub",
+    "describe",
 };

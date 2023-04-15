@@ -30,7 +30,8 @@
 #define OSD_OP_PING                 15
 #define OSD_OP_SEC_READ_BMP         16
 #define OSD_OP_SCRUB                17
-#define OSD_OP_MAX                  17
+#define OSD_OP_DESCRIBE             18
+#define OSD_OP_MAX                  18
 #define OSD_RW_MAX                  64*1024*1024
 #define OSD_PROTOCOL_VERSION        1
 
@@ -43,6 +44,11 @@
 #ifndef MEM_ALIGNMENT
 #define MEM_ALIGNMENT 4096
 #endif
+
+// Constants for osd_reply_describe_item_t.loc_bad
+#define LOC_OUTDATED 1
+#define LOC_CORRUPTED 2
+#define LOC_INCONSISTENT 4
 
 // common request and reply headers
 struct __attribute__((__packed__)) osd_op_header_t
@@ -229,6 +235,36 @@ struct __attribute__((__packed__)) osd_reply_sync_t
     osd_reply_header_t header;
 };
 
+// describe unclean object states in detail
+struct __attribute__((__packed__)) osd_op_describe_t
+{
+    osd_op_header_t header;
+    // state mask to filter objects by state (0 or 0xfff..ff = all objects)
+    uint64_t object_state;
+    // minimum inode and offset
+    uint64_t min_inode, min_offset;
+    // maximum inode and offset
+    uint64_t max_inode, max_offset;
+    // limit
+    uint64_t limit;
+};
+
+struct __attribute__((__packed__)) osd_reply_describe_t
+{
+    osd_reply_header_t header;
+    // size of the resulting <osd_reply_describe_item_t> array in bytes
+    uint64_t result_bytes;
+};
+
+struct __attribute__((__packed__)) osd_reply_describe_item_t
+{
+    uint64_t inode;
+    uint64_t stripe;
+    uint32_t role;      // part number: 0 for replicas, 0..pg_size-1 for EC
+    uint32_t loc_bad;   // LOC_OUTDATED / LOC_CORRUPTED / LOC_INCONSISTENT
+    osd_num_t osd_num;  // OSD number
+};
+
 // FIXME it would be interesting to try to unify blockstore_op and osd_op formats
 union osd_any_op_t
 {
@@ -242,6 +278,7 @@ union osd_any_op_t
     osd_op_show_config_t show_conf;
     osd_op_rw_t rw;
     osd_op_sync_t sync;
+    osd_op_describe_t describe;
     uint8_t buf[OSD_PACKET_SIZE];
 };
 
@@ -257,6 +294,7 @@ union osd_any_reply_t
     osd_reply_show_config_t show_conf;
     osd_reply_rw_t rw;
     osd_reply_sync_t sync;
+    osd_reply_describe_t describe;
     uint8_t buf[OSD_PACKET_SIZE];
 };
 

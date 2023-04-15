@@ -363,6 +363,7 @@ void osd_t::exec_op(osd_op_t *cur_op)
         cur_op->req.hdr.opcode != OSD_OP_READ &&
         cur_op->req.hdr.opcode != OSD_OP_SEC_READ_BMP &&
         cur_op->req.hdr.opcode != OSD_OP_SCRUB &&
+        cur_op->req.hdr.opcode != OSD_OP_DESCRIBE &&
         cur_op->req.hdr.opcode != OSD_OP_SHOW_CONFIG)
     {
         // Readonly mode
@@ -396,6 +397,10 @@ void osd_t::exec_op(osd_op_t *cur_op)
     else if (cur_op->req.hdr.opcode == OSD_OP_SCRUB)
     {
         continue_primary_scrub(cur_op);
+    }
+    else if (cur_op->req.hdr.opcode == OSD_OP_DESCRIBE)
+    {
+        continue_primary_describe(cur_op);
     }
     else
     {

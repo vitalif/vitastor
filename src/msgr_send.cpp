@@ -73,7 +73,8 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
         ? (cur_op->req.hdr.opcode == OSD_OP_READ ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_READ ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_LIST ||
-        cur_op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)
+        cur_op->req.hdr.opcode == OSD_OP_SHOW_CONFIG ||
+        cur_op->req.hdr.opcode == OSD_OP_DESCRIBE)
         : (cur_op->req.hdr.opcode == OSD_OP_WRITE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE ||

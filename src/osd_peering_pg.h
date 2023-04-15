@@ -13,10 +13,6 @@
 
 #define PG_EPOCH_BITS 48
 
-#define LOC_OUTDATED 1
-#define LOC_CORRUPTED 2
-#define LOC_INCONSISTENT 4
-
 struct pg_obj_loc_t
 {
     uint64_t role;
