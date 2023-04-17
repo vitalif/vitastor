@@ -73,6 +73,20 @@ static const char* help_text =
     "  <to> must be a child of <from> and <target> may be one of the layers between\n"
     "  <from> and <to>, including <from> and <to>.\n"
     "\n"
+    "vitastor-cli describe [--osds <osds>] [--object-state <states>] [--pool <pool>] [--inode <ino>] [--min-inode <ino>] [--max-inode <ino>] [--min-offset <offset>] [--max-offset <offset>]\n"
+    "  Describe unclean object locations in the cluster.\n"
+    "  --osds <osds>\n"
+    "      Only list objects from master OSD(s) <osds>.\n"
+    "  --object-state <states>\n"
+    "      Only list objects in given state(s). State(s) may include:\n"
+    "      degraded, misplaced, incomplete, corrupted, inconsistent.\n"
+    "  --pool <pool name or number>\n"
+    "      Only list objects in the given pool.\n"
+    "  --inode, --min-inode, --max-inode\n"
+    "      Restrict listing to specific inode numbers.\n"
+    "  --min-offset, --max-offset\n"
+    "      Restrict listing to specific offsets inside inodes.\n"
+    "\n"
     "vitastor-cli alloc-osd\n"
     "  Allocate a new OSD number and reserve it by creating empty /osd/stats/<n> key.\n"
     "\n"
@@ -168,6 +182,7 @@ static json11::Json::object parse_args(int narg, const char *args[])
 static int run(cli_tool_t *p, json11::Json::object cfg)
 {
     cli_result_t result = {};
+    p->is_command_line = true;
     p->parse_config(cfg);
     json11::Json::array cmd = cfg["command"].array_items();
     cfg.erase("command");
@@ -275,6 +290,11 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
                 cfg["to"] = cmd[2];
         }
         action_cb = p->start_rm(cfg);
+    }
+    else if (cmd[0] == "describe")
+    {
+        // Describe unclean objects
+        action_cb = p->start_describe(cfg);
     }
     else if (cmd[0] == "alloc-osd")
     {

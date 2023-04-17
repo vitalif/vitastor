@@ -35,6 +35,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
             // peer_osd just connected
             continue_ops();
             continue_lists();
+            continue_raw_ops(peer_osd);
         }
         else if (dirty_buffers.size())
         {
@@ -101,6 +102,19 @@ cluster_op_t::~cluster_op_t()
         free(bitmap_buf);
         part_bitmaps = NULL;
         bitmap_buf = NULL;
+    }
+}
+
+void cluster_client_t::continue_raw_ops(osd_num_t peer_osd)
+{
+    auto it = raw_ops.find(peer_osd);
+    while (it != raw_ops.end() && it->first == peer_osd)
+    {
+        auto op = it->second;
+        op->op_type = OSD_OP_OUT;
+        op->peer_fd = msgr.osd_peer_fds.at(peer_osd);
+        msgr.outbox_push(op);
+        raw_ops.erase(it++);
     }
 }
 
@@ -509,6 +523,23 @@ void cluster_client_t::execute(cluster_op_t *op)
             continue_sync(op);
         else
             continue_rw(op);
+    }
+}
+
+void cluster_client_t::execute_raw(osd_num_t osd_num, osd_op_t *op)
+{
+    auto fd_it = msgr.osd_peer_fds.find(osd_num);
+    if (fd_it != msgr.osd_peer_fds.end())
+    {
+        op->op_type = OSD_OP_OUT;
+        op->peer_fd = fd_it->second;
+        msgr.outbox_push(op);
+    }
+    else
+    {
+        if (msgr.wanted_peers.find(osd_num) == msgr.wanted_peers.end())
+            msgr.connect_peer(osd_num, st_cli.peer_states[osd_num]);
+        raw_ops.emplace(osd_num, op);
     }
 }
 

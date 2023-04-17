@@ -34,6 +34,7 @@ public:
     bool list_first = false;
     bool json_output = false;
     int log_level = 0;
+    bool is_command_line = false;
     bool color = false;
 
     ring_loop_t *ringloop = NULL;
@@ -55,6 +56,7 @@ public:
     friend struct snap_remover_t;
 
     std::function<bool(cli_result_t &)> start_status(json11::Json);
+    std::function<bool(cli_result_t &)> start_describe(json11::Json);
     std::function<bool(cli_result_t &)> start_df(json11::Json);
     std::function<bool(cli_result_t &)> start_ls(json11::Json);
     std::function<bool(cli_result_t &)> start_create(json11::Json);

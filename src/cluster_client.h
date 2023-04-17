@@ -103,6 +103,7 @@ class cluster_client_t
     ring_consumer_t consumer;
     std::vector<std::function<void(void)>> on_ready_hooks;
     std::vector<inode_list_t*> lists;
+    std::multimap<osd_num_t, osd_op_t*> raw_ops;
     int continuing_ops = 0;
     bool msgr_initialized = false;
 
@@ -118,6 +119,7 @@ public:
     cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config);
     ~cluster_client_t();
     void execute(cluster_op_t *op);
+    void execute_raw(osd_num_t osd_num, osd_op_t *op);
     bool is_ready();
     void on_ready(std::function<void(void)> fn);
 
@@ -153,4 +155,5 @@ protected:
     void continue_lists();
     void continue_listing(inode_list_t *lst);
     void send_list(inode_list_osd_t *cur_list);
+    void continue_raw_ops(osd_num_t peer_osd);
 };
