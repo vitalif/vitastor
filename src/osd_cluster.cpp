@@ -694,11 +694,10 @@ void osd_t::apply_pg_config()
                             pg_it->second.all_peers == vec_all_peers)
                         {
                             // No change in osd_set and history
-                            if (pg_it->second.scrub_ts != pg_cfg.scrub_ts)
+                            if (pg_it->second.next_scrub != pg_cfg.next_scrub)
                             {
-                                pg_it->second.scrub_ts = pg_cfg.scrub_ts;
-                                peering_state = peering_state | OSD_SCRUBBING;
-                                ringloop->wakeup();
+                                pg_it->second.next_scrub = pg_cfg.next_scrub;
+                                schedule_scrub(pg_it->second);
                             }
                             continue;
                         }
@@ -751,7 +750,7 @@ void osd_t::apply_pg_config()
                     .reported_epoch = pg_cfg.epoch,
                     .target_history = pg_cfg.target_history,
                     .all_peers = vec_all_peers,
-                    .scrub_ts = pg_cfg.scrub_ts,
+                    .next_scrub = pg_cfg.next_scrub,
                     .target_set = pg_cfg.target_set,
                 };
                 if (pg.scheme == POOL_SCHEME_EC)
@@ -892,8 +891,8 @@ void osd_t::report_pg_states()
                     { "all_peers", pg.all_peers },
                     { "osd_sets", pg.target_history },
                 };
-                if (pg.scrub_ts)
-                    history_value["scrub_ts"] = pg.scrub_ts;
+                if (pg.next_scrub)
+                    history_value["next_scrub"] = pg.next_scrub;
                 checks.push_back(json11::Json::object {
                     { "target", "MOD" },
                     { "key", history_key },

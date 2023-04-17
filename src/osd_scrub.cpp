@@ -23,7 +23,10 @@ void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oi
         if (min_oid.inode != 0 || min_oid.stripe != 0)
             op->bs_op->min_oid = min_oid;
         else
+        {
             op->bs_op->min_oid.inode = ((uint64_t)pool_id << (64 - POOL_ID_BITS));
+            op->bs_op->min_oid.stripe = 0;
+        }
         op->bs_op->max_oid.inode = ((uint64_t)(pool_id+1) << (64 - POOL_ID_BITS)) - 1;
         op->bs_op->max_oid.stripe = UINT64_MAX;
         op->bs_op->list_stable_limit = scrub_list_limit;
@@ -100,7 +103,7 @@ void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oi
     }
 }
 
-bool osd_t::pick_next_scrub(object_id & next_oid)
+int osd_t::pick_next_scrub(object_id & next_oid)
 {
     if (!pgs.size())
     {
@@ -110,86 +113,88 @@ bool osd_t::pick_next_scrub(object_id & next_oid)
             scrub_cur_list = {};
             scrub_last_pg = {};
         }
-        return false;
+        return 0;
     }
     timespec tv_now;
     clock_gettime(CLOCK_REALTIME, &tv_now);
     bool rescan = scrub_last_pg.pool_id != 0 || scrub_last_pg.pg_num != 0;
     // Restart scanning from the same PG as the last time
     auto pg_it = pgs.lower_bound(scrub_last_pg);
+    if (pg_it == pgs.end() && rescan)
+    {
+        pg_it = pgs.begin();
+        rescan = false;
+    }
     while (pg_it != pgs.end())
     {
-        if (pg_it->second.state & PG_ACTIVE)
+        if ((pg_it->second.state & PG_ACTIVE) && pg_it->second.next_scrub && pg_it->second.next_scrub < tv_now.tv_sec)
         {
-            auto & pool_cfg = st_cli.pool_config.at(pg_it->first.pool_id);
-            auto interval = pool_cfg.scrub_interval ? pool_cfg.scrub_interval : global_scrub_interval;
-            if (pg_it->second.scrub_ts < tv_now.tv_sec-interval)
+            // Continue scrubbing from the next object
+            if (scrub_last_pg == pg_it->first)
             {
-                // Continue scrubbing from the next object
-                if (scrub_last_pg == pg_it->first)
+                while (scrub_list_pos < scrub_cur_list.total_count)
                 {
-                    while (scrub_list_pos < scrub_cur_list.total_count)
+                    auto oid = scrub_cur_list.buf[scrub_list_pos].oid;
+                    oid.stripe &= ~STRIPE_MASK;
+                    scrub_list_pos++;
+                    if (recovery_ops.find(oid) == recovery_ops.end() &&
+                        scrub_ops.find(oid) == scrub_ops.end() &&
+                        pg_it->second.write_queue.find(oid) == pg_it->second.write_queue.end())
                     {
-                        auto oid = scrub_cur_list.buf[scrub_list_pos].oid;
-                        oid.stripe &= ~STRIPE_MASK;
-                        scrub_list_pos++;
-                        if (recovery_ops.find(oid) == recovery_ops.end() &&
-                            scrub_ops.find(oid) == scrub_ops.end())
+                        next_oid = oid;
+                        if (!(pg_it->second.state & PG_SCRUBBING))
                         {
-                            next_oid = oid;
-                            if (!(pg_it->second.state & PG_SCRUBBING))
-                            {
-                                // Currently scrubbing this PG
-                                pg_it->second.state = pg_it->second.state | PG_SCRUBBING;
-                                report_pg_state(pg_it->second);
-                            }
-                            return true;
+                            // Currently scrubbing this PG
+                            pg_it->second.state = pg_it->second.state | PG_SCRUBBING;
+                            report_pg_state(pg_it->second);
                         }
+                        return 2;
                     }
                 }
-                if (scrub_last_pg == pg_it->first &&
-                    scrub_cur_list.total_count && scrub_list_pos >= scrub_cur_list.total_count &&
-                    scrub_cur_list.stable_count < scrub_list_limit)
+            }
+            if (scrub_last_pg == pg_it->first &&
+                scrub_list_pos >= scrub_cur_list.total_count &&
+                scrub_cur_list.stable_count < scrub_list_limit)
+            {
+                // End of the list, mark this PG as scrubbed and go to the next PG
+            }
+            else
+            {
+                // Continue listing
+                object_id scrub_last_oid = {};
+                if (scrub_last_pg == pg_it->first && scrub_cur_list.stable_count > 0)
                 {
-                    // End of the list, mark this PG as scrubbed and go to the next PG
+                    scrub_last_oid = scrub_cur_list.buf[scrub_cur_list.stable_count-1].oid;
+                    scrub_last_oid.stripe++;
                 }
-                else
+                osd_num_t scrub_osd = 0;
+                for (osd_num_t pg_osd: pg_it->second.cur_set)
                 {
-                    // Continue listing
-                    object_id scrub_last_oid;
-                    if (scrub_last_pg != pg_it->first)
-                        scrub_last_oid = (object_id){};
-                    else if (scrub_cur_list.stable_count > 0)
-                    {
-                        scrub_last_oid = scrub_cur_list.buf[scrub_cur_list.stable_count-1].oid;
-                        scrub_last_oid.stripe++;
-                    }
-                    osd_num_t scrub_osd = 0;
-                    for (osd_num_t pg_osd: pg_it->second.cur_set)
-                    {
-                        if (pg_osd == this->osd_num || scrub_osd == 0)
-                            scrub_osd = pg_osd;
-                    }
-                    if (!(pg_it->second.state & PG_SCRUBBING))
-                    {
-                        // Currently scrubbing this PG
-                        pg_it->second.state = pg_it->second.state | PG_SCRUBBING;
-                        report_pg_state(pg_it->second);
-                    }
-                    if (scrub_cur_list.buf)
-                    {
-                        free(scrub_cur_list.buf);
-                        scrub_cur_list = {};
-                        scrub_last_oid = {};
-                    }
-                    scrub_last_pg = pg_it->first;
-                    scrub_list(pg_it->first, scrub_osd, scrub_last_oid);
-                    return true;
+                    if (pg_osd == this->osd_num || scrub_osd == 0)
+                        scrub_osd = pg_osd;
                 }
+                if (!(pg_it->second.state & PG_SCRUBBING))
+                {
+                    // Currently scrubbing this PG
+                    pg_it->second.state = pg_it->second.state | PG_SCRUBBING;
+                    report_pg_state(pg_it->second);
+                }
+                if (scrub_cur_list.buf)
+                {
+                    free(scrub_cur_list.buf);
+                    scrub_cur_list = {};
+                    scrub_list_pos = 0;
+                }
+                scrub_last_pg = pg_it->first;
+                scrub_list(pg_it->first, scrub_osd, scrub_last_oid);
+                return 1;
             }
             if (pg_it->second.state & PG_SCRUBBING)
             {
-                pg_it->second.scrub_ts = tv_now.tv_sec;
+                scrub_last_pg = {};
+                auto & pool_cfg = st_cli.pool_config.at(pg_it->first.pool_id);
+                auto interval = pool_cfg.scrub_interval ? pool_cfg.scrub_interval : global_scrub_interval;
+                pg_it->second.next_scrub = auto_scrub ? tv_now.tv_sec + interval : 0;
                 pg_it->second.state = pg_it->second.state & ~PG_SCRUBBING;
                 pg_it->second.history_changed = true;
                 report_pg_state(pg_it->second);
@@ -211,13 +216,14 @@ bool osd_t::pick_next_scrub(object_id & next_oid)
         }
     }
     // Scanned all PGs - no more scrubs to do
-    return false;
+    return 0;
 }
 
 void osd_t::submit_scrub_op(object_id oid)
 {
     auto osd_op = new osd_op_t();
     osd_op->op_type = OSD_OP_OUT;
+    osd_op->peer_fd = -1;
     osd_op->req = (osd_any_op_t){
         .rw = {
             .header = {
@@ -249,7 +255,7 @@ void osd_t::submit_scrub_op(object_id oid)
         }
         else if (log_level > 2)
         {
-            printf("Scrubbed %lx:%lx OK\n", oid.inode, oid.stripe);
+            printf("Scrubbed %lx:%lx\n", oid.inode, oid.stripe);
         }
         delete osd_op;
         if (scrub_sleep_ms)
@@ -282,21 +288,20 @@ bool osd_t::continue_scrub()
     while (scrub_ops.size() < scrub_queue_depth)
     {
         object_id oid;
-        if (pick_next_scrub(oid))
+        int r = pick_next_scrub(oid);
+        if (r == 2)
             submit_scrub_op(oid);
         else
-            return false;
+            return r;
     }
     return true;
 }
 
 void osd_t::schedule_scrub(pg_t & pg)
 {
-    auto & pool_cfg = st_cli.pool_config.at(pg.pool_id);
-    auto interval = pool_cfg.scrub_interval ? pool_cfg.scrub_interval : global_scrub_interval;
-    if (!scrub_nearest_ts || scrub_nearest_ts > pg.scrub_ts+interval)
+    if (pg.next_scrub && (!scrub_nearest_ts || scrub_nearest_ts > pg.next_scrub))
     {
-        scrub_nearest_ts = pg.scrub_ts+interval;
+        scrub_nearest_ts = pg.next_scrub;
         timespec tv_now;
         clock_gettime(CLOCK_REALTIME, &tv_now);
         if (scrub_timer_id >= 0)
@@ -344,6 +349,7 @@ void osd_t::continue_primary_scrub(osd_op_t *cur_op)
         op_data->degraded = false;
         for (int role = 0; role < op_data->pg_size; role++)
         {
+            op_data->stripes[role].write_buf = NULL;
             op_data->stripes[role].read_start = 0;
             op_data->stripes[role].read_end = bs_block_size;
             if (op_data->prev_set[role] != 0)
@@ -417,7 +423,7 @@ resume_2:
         for (int role = 0; role < op_data->pg_size; role++)
         {
             eq_to[role] = -1;
-            if (op_data->stripes[role].read_end != 0 && !op_data->stripes[role].read_error)
+            if (op_data->stripes[role].read_end != 0 && !op_data->stripes[role].missing)
             {
                 total++;
                 eq_to[role] = role;
@@ -443,10 +449,10 @@ resume_2:
         int best = -1;
         for (int role = 0; role < op_data->pg_size; role++)
         {
-            if (best < 0 && votes[role] > 0 || votes[role] > votes[best])
+            if (votes[role] > (best >= 0 ? votes[best] : 0))
                 best = role;
         }
-        if (best > 0 && votes[best] < total)
+        if (best >= 0 && votes[best] < total)
         {
             // FIXME Add a flag to allow to skip such objects and not recover them automatically
             bool unknown = false;

@@ -110,6 +110,7 @@ const etcd_tree = {
             print_stats_interval: 3,
             slow_log_interval: 10,
             inode_vanish_time: 60,
+            auto_scrub: false,
             scrub_interval: '30d', // 1s/1m/1h/1d
             scrub_queue_depth: 1,
             scrub_sleep: 0, // milliseconds
@@ -295,7 +296,7 @@ const etcd_tree = {
                     osd_sets: osd_num_t[][],
                     all_peers: osd_num_t[],
                     epoch: uint64_t,
-                    scrub_ts: uint64_t,
+                    next_scrub: uint64_t,
                 },
             }, */
         },

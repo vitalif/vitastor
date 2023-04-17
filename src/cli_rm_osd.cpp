@@ -415,8 +415,8 @@ struct rm_osd_t
                         { "all_peers", pg_cfg.all_peers },
                         { "osd_sets", pg_cfg.target_history },
                     };
-                    if (pg_cfg.scrub_ts)
-                        hist["scrub_ts"] = pg_cfg.scrub_ts;
+                    if (pg_cfg.next_scrub)
+                        hist["next_scrub"] = pg_cfg.next_scrub;
                     history_updates.push_back(json11::Json::object {
                         { "request_put", json11::Json::object {
                             { "key", history_key },

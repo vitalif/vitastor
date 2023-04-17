@@ -114,6 +114,7 @@ class osd_t
     int recovery_sync_batch = DEFAULT_RECOVERY_BATCH;
     int inode_vanish_time = 60;
     int log_level = 0;
+    bool auto_scrub = false;
     uint64_t global_scrub_interval = 30*86400;
     uint64_t scrub_queue_depth = 1;
     uint64_t scrub_sleep_ms = 0;
@@ -153,8 +154,8 @@ class osd_t
     // Scrubbing
     uint64_t scrub_nearest_ts = 0;
     int scrub_timer_id = -1;
-    pool_pg_num_t scrub_last_pg;
-    osd_op_t *scrub_list_op;
+    pool_pg_num_t scrub_last_pg = {};
+    osd_op_t *scrub_list_op = NULL;
     pg_list_result_t scrub_cur_list = {};
     uint64_t scrub_list_pos = 0;
 
@@ -237,7 +238,7 @@ class osd_t
 
     // scrub
     void scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oid);
-    bool pick_next_scrub(object_id & next_oid);
+    int pick_next_scrub(object_id & next_oid);
     void submit_scrub_op(object_id oid);
     bool continue_scrub();
     void schedule_scrub(pg_t & pg);

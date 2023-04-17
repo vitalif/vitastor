@@ -307,6 +307,7 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
     {
         printf("Submitting recovery operation for %lx:%lx\n", op->oid.inode, op->oid.stripe);
     }
+    op->osd_op->peer_fd = -1;
     op->osd_op->callback = [this, op](osd_op_t *osd_op)
     {
         if (osd_op->reply.hdr.retval < 0)

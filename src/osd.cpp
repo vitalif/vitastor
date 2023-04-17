@@ -13,6 +13,7 @@
 #include "osd_primary.h"
 #include "osd.h"
 #include "http_client.h"
+#include "str_util.h"
 
 static blockstore_config_t json_to_bs(const json11::Json::object & config)
 {
@@ -207,7 +208,8 @@ void osd_t::parse_config(bool init)
     inode_vanish_time = config["inode_vanish_time"].uint64_value();
     if (!inode_vanish_time)
         inode_vanish_time = 60;
-    global_scrub_interval = config["scrub_interval"].uint64_value();
+    auto_scrub = json_is_true(config["auto_scrub"]);
+    global_scrub_interval = parse_time(config["scrub_interval"].string_value());
     if (!global_scrub_interval)
         global_scrub_interval = 30*86400;
     scrub_queue_depth = config["scrub_queue_depth"].uint64_value();
@@ -330,8 +332,7 @@ void osd_t::exec_op(osd_op_t *cur_op)
             cur_op->req.hdr.opcode == OSD_OP_DELETE) &&
             (cur_op->req.rw.len > OSD_RW_MAX ||
             cur_op->req.rw.len % bs_bitmap_granularity ||
-            cur_op->req.rw.offset % bs_bitmap_granularity)) ||
-        cur_op->req.hdr.opcode == OSD_OP_SCRUB && cur_op->peer_fd != -1)
+            cur_op->req.rw.offset % bs_bitmap_granularity)))
     {
         // Bad command
         finish_op(cur_op, -EINVAL);

@@ -81,7 +81,11 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
         free(cur_op->op_data);
         cur_op->op_data = NULL;
     }
-    if (!cur_op->peer_fd)
+    cur_op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
+    cur_op->reply.hdr.id = cur_op->req.hdr.id;
+    cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
+    cur_op->reply.hdr.retval = retval;
+    if (cur_op->peer_fd == -1)
     {
         // Copy lambda to be unaffected by `delete op`
         std::function<void(osd_op_t*)>(cur_op->callback)(cur_op);
@@ -92,10 +96,6 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
         auto cl_it = msgr.clients.find(cur_op->peer_fd);
         if (cl_it != msgr.clients.end())
         {
-            cur_op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
-            cur_op->reply.hdr.id = cur_op->req.hdr.id;
-            cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
-            cur_op->reply.hdr.retval = retval;
             msgr.outbox_push(cur_op);
         }
         else
@@ -149,22 +149,23 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
         }
         osd_num_t role_osd_num = osd_set[role];
         int stripe_num = rep ? 0 : role;
+        osd_rmw_stripe_t *si = stripes + (submit_type == SUBMIT_SCRUB_READ ? role : stripe_num);
         if (role_osd_num != 0)
         {
             osd_op_t *subop = op_data->subops + i;
             uint32_t subop_len = wr
-                ? stripes[stripe_num].write_end - stripes[stripe_num].write_start
-                : stripes[stripe_num].read_end - stripes[stripe_num].read_start;
-            if (!wr && stripes[stripe_num].read_end == UINT32_MAX)
+                ? si->write_end - si->write_start
+                : si->read_end - si->read_start;
+            if (!wr && si->read_end == UINT32_MAX)
             {
                 subop_len = 0;
             }
-            stripes[stripe_num].osd_num = role_osd_num;
-            stripes[stripe_num].read_error = false;
-            subop->bitmap = stripes[stripe_num].bmp_buf;
+            si->osd_num = role_osd_num;
+            si->read_error = false;
+            subop->bitmap = si->bmp_buf;
             subop->bitmap_len = clean_entry_bitmap_size;
             // Using rmw_buf to pass pointer to stripes. Dirty but should work
-            subop->rmw_buf = stripes+stripe_num;
+            subop->rmw_buf = si;
             if (role_osd_num == this->osd_num)
             {
                 clock_gettime(CLOCK_REALTIME, &subop->tv_begin);
@@ -181,11 +182,11 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                             .stripe = op_data->oid.stripe | stripe_num,
                         },
                         .version = op_version,
-                        .offset = wr ? stripes[stripe_num].write_start : stripes[stripe_num].read_start,
+                        .offset = wr ? si->write_start : si->read_start,
                         .len = subop_len,
                     },
-                    .buf = wr ? stripes[stripe_num].write_buf : stripes[stripe_num].read_buf,
-                    .bitmap = stripes[stripe_num].bmp_buf,
+                    .buf = wr ? si->write_buf : si->read_buf,
+                    .bitmap = si->bmp_buf,
                 });
 #ifdef OSD_DEBUG
                 printf(
@@ -210,7 +211,7 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                         .stripe = op_data->oid.stripe | stripe_num,
                     },
                     .version = op_version,
-                    .offset = wr ? stripes[stripe_num].write_start : stripes[stripe_num].read_start,
+                    .offset = wr ? si->write_start : si->read_start,
                     .len = subop_len,
                     .attr_len = wr ? clean_entry_bitmap_size : 0,
                 };
@@ -223,16 +224,16 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
 #endif
                 if (wr)
                 {
-                    if (stripes[stripe_num].write_end > stripes[stripe_num].write_start)
+                    if (si->write_end > si->write_start)
                     {
-                        subop->iov.push_back(stripes[stripe_num].write_buf, stripes[stripe_num].write_end - stripes[stripe_num].write_start);
+                        subop->iov.push_back(si->write_buf, si->write_end - si->write_start);
                     }
                 }
                 else
                 {
                     if (subop_len > 0)
                     {
-                        subop->iov.push_back(stripes[stripe_num].read_buf, subop_len);
+                        subop->iov.push_back(si->read_buf, subop_len);
                     }
                 }
                 subop->callback = [cur_op, this](osd_op_t *subop)
@@ -257,7 +258,7 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
         }
         else
         {
-            stripes[stripe_num].osd_num = 0;
+            si->osd_num = 0;
         }
     }
     return i-subop_idx;

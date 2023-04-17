@@ -923,8 +923,8 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             }
             // Read epoch
             pg_cfg.epoch = value["epoch"].uint64_value();
-            // Scrub timestamp
-            pg_cfg.scrub_ts = parse_time(value["scrub_ts"].string_value());
+            // Next scrub timestamp (0 or empty = scrub is not needed)
+            pg_cfg.next_scrub = value["next_scrub"].uint64_value();
             if (on_change_pg_history_hook != NULL)
             {
                 on_change_pg_history_hook(pool_id, pg_num);

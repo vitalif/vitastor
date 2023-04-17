@@ -39,7 +39,7 @@ struct pg_config_t
     osd_num_t cur_primary;
     int cur_state;
     uint64_t epoch;
-    uint64_t scrub_ts;
+    uint64_t next_scrub;
 };
 
 struct pool_config_t
