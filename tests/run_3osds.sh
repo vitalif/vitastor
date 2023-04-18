@@ -95,19 +95,29 @@ try_reweight()
     sleep 3
 }
 
+wait_condition()
+{
+    sec=$1
+    check=$2
+    proc=$3
+    i=0
+    while [[ $i -lt $sec ]]; do
+        eval "$check" && break
+        if [ $i -eq $sec ]; then
+            format_error "$proc couldn't finish in $sec seconds"
+        fi
+        sleep 1
+        i=$((i+1))
+    done
+}
+
 wait_finish_rebalance()
 {
     sec=$1
-    i=0
-    while [[ $i -lt $sec ]]; do
-        ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select(.state == ["active"] or .state == ["active", "left_on_dead"]) ] | length) == '$PG_COUNT) && \
-            break
-        sleep 1
-        i=$((i+1))
-        if [ $i -eq $sec ]; then
-            format_error "Rebalance couldn't finish in $sec seconds"
-        fi
-    done
+    check=$2
+    check=${check:-'.state == ["active"] or .state == ["active", "left_on_dead"]'}
+    check="$ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select($check) ] | length) == $PG_COUNT'"
+    wait_condition "$sec" "$check" Rebalance
 }
 
 check_qemu()

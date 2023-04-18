@@ -46,3 +46,10 @@ SCHEME=xor ./test_write.sh
 
 PG_SIZE=2 ./test_heal.sh
 SCHEME=ec ./test_heal.sh
+
+./test_scrub.sh
+ZERO_OSD=2 ./test_scrub.sh
+SCHEME=xor ./test_scrub.sh
+PG_SIZE=3 ./test_scrub.sh
+PG_SIZE=6 PG_MINSIZE=4 OSD_COUNT=6 SCHEME=ec ./test_scrub.sh
+SCHEME=ec ./test_scrub.sh
