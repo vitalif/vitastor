@@ -736,7 +736,7 @@ void osd_t::apply_pg_config()
                     .pg_cursize = 0,
                     .pg_size = pool_item.second.pg_size,
                     .pg_minsize = pool_item.second.pg_minsize,
-                    .pg_data_size = pg.scheme == POOL_SCHEME_REPLICATED
+                    .pg_data_size = pool_item.second.scheme == POOL_SCHEME_REPLICATED
                          ? 1 : pool_item.second.pg_size - pool_item.second.parity_chunks,
                     .pool_id = pool_id,
                     .pg_num = pg_num,
