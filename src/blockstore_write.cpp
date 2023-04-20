@@ -6,7 +6,7 @@
 bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 {
     // Check or assign version number
-    bool found = false, deleted = false, is_del = (op->opcode == BS_OP_DELETE);
+    bool found = false, deleted = false, unsynced = false, is_del = (op->opcode == BS_OP_DELETE);
     bool wait_big = false, wait_del = false;
     void *bmp = NULL;
     uint64_t version = 1;
@@ -26,6 +26,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             found = true;
             version = dirty_it->first.version + 1;
             deleted = IS_DELETE(dirty_it->second.state);
+            unsynced = !IS_SYNCED(dirty_it->second.state);
             wait_del = ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_DEL);
             wait_big = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE
                 ? !IS_SYNCED(dirty_it->second.state)
@@ -81,10 +82,28 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             wait_del = true;
             PRIV(op)->real_version = op->version;
             op->version = version;
-            flusher->unshift_flush((obj_ver_id){
-                .oid = op->oid,
-                .version = version-1,
-            }, true);
+            if (unsynced)
+            {
+                // Issue an additional sync so the delete reaches the journal
+                blockstore_op_t *sync_op = new blockstore_op_t;
+                sync_op->opcode = BS_OP_SYNC;
+                sync_op->callback = [this, op](blockstore_op_t *sync_op)
+                {
+                    flusher->unshift_flush((obj_ver_id){
+                        .oid = op->oid,
+                        .version = op->version-1,
+                    }, true);
+                    delete sync_op;
+                };
+                enqueue_op(sync_op);
+            }
+            else
+            {
+                flusher->unshift_flush((obj_ver_id){
+                    .oid = op->oid,
+                    .version = version-1,
+                }, true);
+            }
         }
         else
         {
