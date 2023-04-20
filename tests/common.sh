@@ -7,7 +7,7 @@ fi
 
 format_error()
 {
-    echo $(echo -n -e "\033[1;31m")"$1"$(echo -n -e "\033[m")
+    echo $(echo -n -e "\033[1;31m")"$0 $1"$(echo -n -e "\033[m")
     $ETCDCTL get --prefix /vitastor > ./testdata/etcd-dump.txt
     exit 1
 }

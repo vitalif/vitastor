@@ -44,21 +44,22 @@ if [[ ($SCHEME = replicated && $PG_SIZE < 3) || ($SCHEME != replicated && $((PG_
     # Check that objects are marked as inconsistent if 2 replicas or EC/XOR 2+1
     build/src/vitastor-cli describe --etcd_address $ETCD_URL --json | jq -e '[ .[] | select(.inconsistent) ] | length == '$((IMG_SIZE * 8 * PG_SIZE / (SCHEME = replicated ? 1 : PG_DATA_SIZE)))
 
-    # Fix objects
-
-    # Read everything back
+    # Fix objects using vitastor-cli fix
+    build/src/vitastor-cli describe --etcd_address $ETCD_URL --json | \
+        jq -s '[ .[0][] | select(.inconsistent and .osd_num == '$ZERO_OSD') ]' | \
+        build/src/vitastor-cli fix --etcd_address $ETCD_URL --bad_osds $ZERO_OSD
 elif [[ ($SCHEME = replicated && $PG_SIZE > 2) || ($SCHEME != replicated && $((PG_SIZE-PG_DATA_SIZE)) > 1) ]]; then
     # Check that everything heals
     wait_finish_rebalance 60
 
     build/src/vitastor-cli describe --etcd_address $ETCD_URL --json | jq -e '. | length == 0'
-
-    # Read everything back
-    qemu-img convert -S 4096 -p \
-        -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testimg" \
-        -O raw ./testdata/read.bin
-
-    diff ./testdata/read.bin ./testdata/mirror.bin
 fi
+
+# Read everything back
+qemu-img convert -S 4096 -p \
+    -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testimg" \
+    -O raw ./testdata/read.bin
+
+diff ./testdata/read.bin ./testdata/mirror.bin
 
 format_green OK
