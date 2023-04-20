@@ -1,24 +1,10 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#include "cli.h"
+#include "cli_fix.h"
 #include "cluster_client.h"
 #include "pg_states.h"
 #include "str_util.h"
-
-void remove_duplicates(std::vector<uint64_t> & ret)
-{
-    if (!ret.size())
-        return;
-    std::sort(ret.begin(), ret.end());
-    int j = 0;
-    for (int i = 1; i < ret.size(); i++)
-    {
-        if (ret[i] != ret[j])
-            ret[++j] = ret[i];
-    }
-    ret.resize(j+1);
-}
 
 std::vector<uint64_t> parse_uint64_list(json11::Json val)
 {

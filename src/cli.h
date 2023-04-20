@@ -57,6 +57,7 @@ public:
 
     std::function<bool(cli_result_t &)> start_status(json11::Json);
     std::function<bool(cli_result_t &)> start_describe(json11::Json);
+    std::function<bool(cli_result_t &)> start_fix(json11::Json);
     std::function<bool(cli_result_t &)> start_df(json11::Json);
     std::function<bool(cli_result_t &)> start_ls(json11::Json);
     std::function<bool(cli_result_t &)> start_create(json11::Json);

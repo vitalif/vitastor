@@ -142,6 +142,7 @@ add_library(vitastor_client SHARED
 	cli_alloc_osd.cpp
 	cli_status.cpp
 	cli_describe.cpp
+	cli_fix.cpp
 	cli_df.cpp
 	cli_ls.cpp
 	cli_create.cpp

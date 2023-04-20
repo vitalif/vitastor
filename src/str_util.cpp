@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <string.h>
+#include <unistd.h>
 #include "str_util.h"
 
 std::string base64_encode(const std::string &in)
@@ -280,4 +281,22 @@ uint64_t parse_time(std::string time_str, bool *ok)
     if (ok)
         *ok = !(ts == 0 && time_str != "0" && (time_str != "" || mul != 1));
     return ts;
+}
+
+std::string read_all_fd(int fd)
+{
+    int res_size = 0, res_alloc = 0;
+    std::string res;
+    while (1)
+    {
+        if (res_size >= res_alloc)
+            res.resize((res_alloc = (res_alloc ? res_alloc*2 : 1024)));
+        int r = read(fd, (char*)res.data()+res_size, res_alloc-res_size);
+        if (r > 0)
+            res_size += r;
+        else if (!r || errno != EAGAIN && errno != EINTR)
+            break;
+    }
+    res.resize(res_size);
+    return res;
 }

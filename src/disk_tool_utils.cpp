@@ -55,23 +55,6 @@ std::string realpath_str(std::string path, bool nofail)
     return rp;
 }
 
-std::string read_all_fd(int fd)
-{
-    int res_size = 0;
-    std::string res;
-    while (1)
-    {
-        res.resize(res_size+1024);
-        int r = read(fd, (char*)res.data()+res_size, res.size()-res_size);
-        if (r > 0)
-            res_size += r;
-        else if (!r || errno != EAGAIN && errno != EINTR)
-            break;
-    }
-    res.resize(res_size);
-    return res;
-}
-
 std::string read_file(std::string file, bool allow_enoent)
 {
     std::string res;

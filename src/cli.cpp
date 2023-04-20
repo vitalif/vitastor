@@ -87,6 +87,23 @@ static const char* help_text =
     "  --min-offset, --max-offset\n"
     "      Restrict listing to specific offsets inside inodes.\n"
     "\n"
+    "vitastor-cli fix [--objects <objects>] [--bad-osds <osds>] [--check no]\n"
+    "  Fix inconsistent objects in the cluster by deleting some copies.\n"
+    "  --objects <objects>\n"
+    "      Objects to fix, either in plain text or JSON format. If not specified,\n"
+    "      object list will be read from STDIN in one of the same formats.\n"
+    "      Plain text format: 0x<inode>:0x<stripe> <any delimiter> 0x<inode>:0x<stripe> ...\n"
+    "      JSON format: [{\"inode\":\"0x...\",\"stripe\":\"0x...\"},...]\n"
+    "  --bad-osds <osds>\n"
+    "      Remove inconsistent copies/parts of objects from these OSDs,\n"
+    "      effectively marking them bad and allowing Vitastor to recover.\n"
+    "  --part <number>\n"
+    "      Only remove EC part <number>, required for extreme edge cases\n"
+    "      where one OSD has multiple parts of a EC object.\n"
+    "  --check no\n"
+    "      Do not recheck that requested objects are actually inconsistent,\n"
+    "      delete requested copies/parts anyway.\n"
+    "\n"
     "vitastor-cli alloc-osd\n"
     "  Allocate a new OSD number and reserve it by creating empty /osd/stats/<n> key.\n"
     "\n"
@@ -295,6 +312,11 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
     {
         // Describe unclean objects
         action_cb = p->start_describe(cfg);
+    }
+    else if (cmd[0] == "fix")
+    {
+        // Fix inconsistent objects (by deleting some copies)
+        action_cb = p->start_fix(cfg);
     }
     else if (cmd[0] == "alloc-osd")
     {
