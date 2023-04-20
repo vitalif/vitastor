@@ -344,6 +344,13 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
     else
         expected = 0;
     osd_primary_op_data_t *op_data = cur_op->op_data;
+    if (retval == -ENOENT && opcode == OSD_OP_SEC_READ)
+    {
+        // ENOENT is not an error for almost all reads, except scrub
+        retval = expected;
+        memset(((osd_rmw_stripe_t*)subop->rmw_buf)->read_buf, 0, expected);
+        ((osd_rmw_stripe_t*)subop->rmw_buf)->not_exists = true;
+    }
     if (retval == expected && (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE || opcode == OSD_OP_SEC_WRITE_STABLE))
     {
         uint64_t version = subop->reply.sec_rw.version;

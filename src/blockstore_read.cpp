@@ -124,10 +124,8 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
     bool dirty_found = (dirty_it != dirty_db.end() && dirty_it->first.oid == read_op->oid);
     if (!clean_found && !dirty_found)
     {
-        // region is not allocated - return zeroes
-        memset(read_op->buf, 0, read_op->len);
         read_op->version = 0;
-        read_op->retval = read_op->len;
+        read_op->retval = -ENOENT;
         FINISH_OP(read_op);
         return 2;
     }
@@ -149,8 +147,10 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                 if (IS_DELETE(dirty.state))
                 {
                     assert(!result_version);
-                    clean_found = false;
-                    break;
+                    read_op->version = 0;
+                    read_op->retval = -ENOENT;
+                    FINISH_OP(read_op);
+                    return 2;
                 }
                 if (!result_version)
                 {
@@ -238,12 +238,19 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             }
         }
     }
-    else if (fulfilled < read_op->len)
+    if (!result_version)
     {
-        // fill remaining parts with zeroes
-        assert(fulfill_read(read_op, fulfilled, 0, dsk.data_block_size, (BS_ST_DELETE | BS_ST_STABLE), 0, 0, 0));
+        // May happen if there are entries in dirty_db but all of them are !version_ok
+        read_op->version = 0;
+        read_op->retval = -ENOENT;
+        FINISH_OP(read_op);
+        return 2;
     }
-    assert(fulfilled == read_op->len);
+    if (fulfilled < read_op->len)
+    {
+        assert(fulfill_read(read_op, fulfilled, 0, dsk.data_block_size, (BS_ST_DELETE | BS_ST_STABLE), 0, 0, 0));
+        assert(fulfilled == read_op->len);
+    }
     read_op->version = result_version;
     if (!PRIV(read_op)->pending_ops)
     {

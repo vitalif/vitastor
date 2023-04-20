@@ -329,21 +329,40 @@ pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_os
     }
     // Mark object chunk(s) as corrupted
     int changes = 0;
-    for (auto & chunk: corrupted_set)
+    for (auto chunk_it = corrupted_set.begin(); chunk_it != corrupted_set.end(); )
     {
-        bool corrupted = stripes[chunk.role].osd_num == chunk.osd_num && stripes[chunk.role].read_error;
-        if (corrupted)
+        auto & chunk = *chunk_it;
+        if (stripes[chunk.role].osd_num == chunk.osd_num)
         {
-            if (!(chunk.loc_bad & LOC_CORRUPTED))
+            if (stripes[chunk.role].not_exists)
+            {
                 changes++;
-            chunk.loc_bad |= LOC_CORRUPTED;
+                corrupted_set.erase(chunk_it, chunk_it+1);
+                continue;
+            }
+            if (stripes[chunk.role].read_error && chunk.loc_bad != LOC_CORRUPTED)
+            {
+                changes++;
+                chunk.loc_bad = LOC_CORRUPTED;
+            }
+            else if (stripes[chunk.role].read_end > 0 && !stripes[chunk.role].missing &&
+                (chunk.loc_bad & LOC_CORRUPTED))
+            {
+                changes++;
+                chunk.loc_bad &= ~LOC_CORRUPTED;
+            }
         }
-        else if (inconsistent && !(chunk.loc_bad & LOC_OUTDATED))
+        if (inconsistent && !chunk.loc_bad)
         {
-            if (!(chunk.loc_bad & LOC_INCONSISTENT))
-                changes++;
+            changes++;
             chunk.loc_bad |= LOC_INCONSISTENT;
         }
+        else if (!inconsistent && (chunk.loc_bad & LOC_INCONSISTENT))
+        {
+            changes++;
+            chunk.loc_bad &= ~LOC_INCONSISTENT;
+        }
+        chunk_it++;
     }
     if (!changes)
     {

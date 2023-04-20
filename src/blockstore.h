@@ -73,7 +73,10 @@ Input:
   write request is copied into the metadata area bitwise and stored there.
 
 Output:
-- retval = number of bytes actually read/written or negative error number (-EINVAL or -ENOSPC)
+- retval = number of bytes actually read/written or negative error number
+  -EINVAL = invalid input parameters
+  -ENOENT = requested object/version does not exist for reads
+  -ENOSPC = no space left in the store for writes
 - version = the version actually read or written
 
 ## BS_OP_DELETE

@@ -1131,12 +1131,14 @@ std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int pg_size, int pg_min
     uint32_t chunk_size, uint32_t bitmap_size, int max_bruteforce)
 {
     std::vector<int> found_valid;
-    int cur_live[pg_size], live_count = 0;
+    int cur_live[pg_size], live_count = 0, exists_count = 0;
     osd_num_t fake_osd_set[pg_size];
     for (int role = 0; role < pg_size; role++)
     {
         if (!stripes[role].missing)
         {
+            if (!stripes[role].not_exists)
+                exists_count++;
             cur_live[live_count++] = role;
             fake_osd_set[role] = role+1;
         }
@@ -1144,6 +1146,14 @@ std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int pg_size, int pg_min
     if (live_count <= pg_minsize)
     {
         return std::vector<int>();
+    }
+    if (exists_count <= pg_minsize)
+    {
+        // Special case: user manually deleted some chunks
+        for (int role = 0; role < pg_size; role++)
+            if (!stripes[role].missing && !stripes[role].not_exists)
+                found_valid.push_back(role);
+        return found_valid;
     }
     // Try to locate errors using brute force if there isn't too many combinations
     osd_rmw_stripe_t brute_stripes[pg_size];

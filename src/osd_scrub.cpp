@@ -455,7 +455,8 @@ resume_2:
         for (int role = 0; role < op_data->pg_size; role++)
         {
             eq_to[role] = -1;
-            if (op_data->stripes[role].read_end != 0 && !op_data->stripes[role].missing)
+            if (op_data->stripes[role].read_end != 0 && !op_data->stripes[role].missing &&
+                !op_data->stripes[role].not_exists)
             {
                 total++;
                 eq_to[role] = role;
@@ -560,7 +561,9 @@ resume_2:
     }
     for (int role = 0; role < op_data->pg_size; role++)
     {
-        if (op_data->stripes[role].osd_num != 0 && op_data->stripes[role].read_error || inconsistent)
+        if (op_data->stripes[role].osd_num != 0 &&
+            (op_data->stripes[role].read_error || op_data->stripes[role].not_exists) ||
+            inconsistent)
         {
             // Got at least 1 read error or mismatch, mark the object as corrupted
             auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });

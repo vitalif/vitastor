@@ -30,6 +30,7 @@ struct osd_rmw_stripe_t
     osd_num_t osd_num;
     bool missing: 1;
     bool read_error: 1;
+    bool not_exists: 1;
 };
 
 // Here pg_minsize is the number of data chunks, not the minimum number of alive OSDs for the PG to operate
