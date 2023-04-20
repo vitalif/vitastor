@@ -344,6 +344,28 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
     else
         expected = 0;
     osd_primary_op_data_t *op_data = cur_op->op_data;
+    if (retval == expected && (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE || opcode == OSD_OP_SEC_WRITE_STABLE))
+    {
+        uint64_t version = subop->reply.sec_rw.version;
+#ifdef OSD_DEBUG
+        uint64_t peer_osd = msgr.clients.find(subop->peer_fd) != msgr.clients.end()
+            ? msgr.clients[subop->peer_fd]->osd_num : osd_num;
+        printf("subop %lu from osd %lu: version = %lu\n", opcode, peer_osd, version);
+#endif
+        if (op_data->fact_ver != UINT64_MAX)
+        {
+            if (op_data->fact_ver != 0 && op_data->fact_ver != version)
+            {
+                fprintf(
+                    stderr, "different fact_versions returned from %s subops: %lu vs %lu\n",
+                    osd_op_names[opcode], version, op_data->fact_ver
+                );
+                retval = -ERANGE;
+            }
+            else
+                op_data->fact_ver = version;
+        }
+    }
     if (retval != expected)
     {
         if (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE || opcode == OSD_OP_SEC_WRITE_STABLE)
@@ -369,16 +391,16 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
             ((osd_rmw_stripe_t*)subop->rmw_buf)->read_error = true;
         }
         subop->rmw_buf = NULL;
-        // Error priority: EIO > EDOM > ENOSPC > EPIPE
+        // Error priority: ENOSPC and others > EIO > EDOM > EPIPE
         if (op_data->errcode == 0 ||
-            retval == -EIO ||
-            retval == -EDOM && (op_data->errcode == -ENOSPC || op_data->errcode == -EPIPE) ||
-            retval == -ENOSPC && op_data->errcode == -EPIPE)
+            retval == -EIO && (op_data->errcode == -EDOM || op_data->errcode == -EPIPE) ||
+            retval == -EDOM && (op_data->errcode == -EPIPE) ||
+            retval != -EIO && retval != -EDOM && retval != -EPIPE)
         {
             op_data->errcode = retval;
         }
         op_data->errors++;
-        if (subop->peer_fd >= 0 && retval != -EDOM &&
+        if (subop->peer_fd >= 0 && retval != -EDOM && retval != -ERANGE &&
             (retval != -ENOSPC || opcode != OSD_OP_SEC_WRITE && opcode != OSD_OP_SEC_WRITE_STABLE) &&
             (retval != -EIO || opcode != OSD_OP_SEC_READ))
         {
@@ -390,26 +412,6 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
     {
         subop->rmw_buf = NULL;
         op_data->done++;
-        if (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE || opcode == OSD_OP_SEC_WRITE_STABLE)
-        {
-            uint64_t version = subop->reply.sec_rw.version;
-#ifdef OSD_DEBUG
-            uint64_t peer_osd = msgr.clients.find(subop->peer_fd) != msgr.clients.end()
-                ? msgr.clients[subop->peer_fd]->osd_num : osd_num;
-            printf("subop %lu from osd %lu: version = %lu\n", opcode, peer_osd, version);
-#endif
-            if (op_data->fact_ver != UINT64_MAX)
-            {
-                if (op_data->fact_ver != 0 && op_data->fact_ver != version)
-                {
-                    throw std::runtime_error(
-                        "different fact_versions returned from "+std::string(osd_op_names[opcode])+
-                        " subops: "+std::to_string(version)+" vs "+std::to_string(op_data->fact_ver)
-                    );
-                }
-                op_data->fact_ver = version;
-            }
-        }
     }
     if ((op_data->errors + op_data->done) >= op_data->n_subops)
     {
