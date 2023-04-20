@@ -66,6 +66,7 @@
 - name: autosync_interval
   type: sec
   default: 5
+  online: true
   info: |
     Time interval at which automatic fsyncs/flushes are issued by each OSD when
     the immediate_commit mode if disabled. fsyncs are required because without
@@ -83,6 +84,7 @@
 - name: autosync_writes
   type: int
   default: 128
+  online: true
   info: |
     Same as autosync_interval, but sets the maximum number of uncommitted write
     operations before issuing an fsync operation internally.
@@ -93,6 +95,7 @@
 - name: recovery_queue_depth
   type: int
   default: 4
+  online: true
   info: |
     Maximum recovery operations per one primary OSD at any given moment of time.
     Currently it's the only parameter available to tune the speed or recovery
@@ -105,6 +108,7 @@
 - name: recovery_pg_switch
   type: int
   default: 128
+  online: true
   info: |
     Number of recovery operations before switching to recovery of the next PG.
     The idea is to mix all PGs during recovery for more even space and load
@@ -119,6 +123,7 @@
 - name: recovery_sync_batch
   type: int
   default: 16
+  online: true
   info: Maximum number of recovery operations before issuing an additional fsync.
   info_ru: Максимальное число операций восстановления перед дополнительным fsync.
 - name: readonly
@@ -133,6 +138,7 @@
 - name: no_recovery
   type: bool
   default: false
+  online: true
   info: |
     Disable automatic background recovery of objects. Note that it doesn't
     affect implicit recovery of objects happening during writes - a write is
@@ -145,6 +151,7 @@
 - name: no_rebalance
   type: bool
   default: false
+  online: true
   info: |
     Disable background movement of data between different OSDs. Disabling it
     means that PGs in the `has_misplaced` state will be left in it indefinitely.
@@ -155,6 +162,7 @@
 - name: print_stats_interval
   type: sec
   default: 3
+  online: true
   info: |
     Time interval at which OSDs print simple human-readable operation
     statistics on stdout.
@@ -164,6 +172,7 @@
 - name: slow_log_interval
   type: sec
   default: 10
+  online: true
   info: |
     Time interval at which OSDs dump slow or stuck operations on stdout, if
     they're any. Also it's the time after which an operation is considered
@@ -175,6 +184,7 @@
 - name: inode_vanish_time
   type: sec
   default: 60
+  online: true
   info: |
     Number of seconds after which a deleted inode is removed from OSD statistics.
   info_ru: |
@@ -182,6 +192,7 @@
 - name: max_write_iodepth
   type: int
   default: 128
+  online: true
   info: |
     Parallel client write operation limit per one OSD. Operations that exceed
     this limit are pushed to a temporary queue instead of being executed
@@ -193,6 +204,7 @@
 - name: min_flusher_count
   type: int
   default: 1
+  online: true
   info: |
     Flusher is a micro-thread that moves data from the journal to the data
     area of the device. Their number is auto-tuned between minimum and maximum.
@@ -204,6 +216,7 @@
 - name: max_flusher_count
   type: int
   default: 256
+  online: true
   info: |
     Maximum number of journal flushers (see above min_flusher_count).
   info_ru: |
@@ -284,6 +297,7 @@
 - name: throttle_small_writes
   type: bool
   default: false
+  online: true
   info: |
     Enable soft throttling of small journaled writes. Useful for hybrid OSDs
     with fast journal/metadata devices and slow data devices. The idea is that
@@ -312,6 +326,7 @@
 - name: throttle_target_iops
   type: int
   default: 100
+  online: true
   info: |
     Target maximum number of throttled operations per second under the condition
     of full journal. Set it to approximate random write iops of your data devices
@@ -324,6 +339,7 @@
 - name: throttle_target_mbs
   type: int
   default: 100
+  online: true
   info: |
     Target maximum bandwidth in MB/s of throttled operations per second under
     the condition of full journal. Set it to approximate linear write
@@ -336,6 +352,7 @@
 - name: throttle_target_parallelism
   type: int
   default: 1
+  online: true
   info: |
     Target maximum parallelism of throttled operations under the condition of
     full journal. Set it to approximate internal parallelism of your data
@@ -348,6 +365,7 @@
 - name: throttle_threshold_us
   type: us
   default: 50
+  online: true
   info: |
     Minimal computed delay to be applied to throttled operations. Usually
     doesn't need to be changed.

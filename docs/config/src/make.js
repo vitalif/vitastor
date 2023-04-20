@@ -14,6 +14,7 @@ const L = {
         toc_config: '[Configuration](../config.en.md)',
         toc_usage: 'Usage',
         toc_performance: 'Performance',
+        online: 'Can be changed online: yes',
     },
     ru: {
         Documentation: 'Документация',
@@ -28,6 +29,7 @@ const L = {
         toc_config: '[Конфигурация](../config.ru.md)',
         toc_usage: 'Использование',
         toc_performance: 'Производительность',
+        online: 'Можно менять на лету: да',
     },
 };
 const types = {
@@ -70,6 +72,8 @@ for (const file of params_files)
                 out += `- ${L[lang]['Default'] || 'Default'}: ${c.default}\n`;
             if (c.min !== undefined)
                 out += `- ${L[lang]['Minimum'] || 'Minimum'}: ${c.min}\n`;
+            if (c.online)
+                out += `- ${L[lang]['online'] || 'Can be changed online: yes'}\n`;
             out += `\n`+(c["info_"+lang] || c["info"]).replace(/\s+$/, '');
         }
         const head = fs.readFileSync(__dirname+'/'+file+'.'+lang+'.md', { encoding: 'utf-8' });

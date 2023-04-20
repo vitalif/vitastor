@@ -25,10 +25,15 @@ running if required parameters are specified.
 ## etcd_address
 
 - Type: string or array of strings
+- Can be changed online: yes
 
 etcd connection endpoint(s). Multiple endpoints may be delimited by "," or
 specified in a JSON array `["10.0.115.10:2379/v3","10.0.115.11:2379/v3"]`.
 Note that https is not supported for etcd connections yet.
+
+etcd connection endpoints can be changed online by updating global
+configuration in etcd itself - this allows to switch the cluster to new
+etcd addresses without downtime.
 
 ## etcd_prefix
 
@@ -42,5 +47,6 @@ example, use a single etcd cluster for multiple Vitastor clusters.
 
 - Type: integer
 - Default: 0
+- Can be changed online: yes
 
 Log level. Raise if you want more verbose output.

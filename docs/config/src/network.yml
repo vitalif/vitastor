@@ -164,18 +164,21 @@
   type: sec
   min: 1
   default: 5
+  online: true
   info: Interval before attempting to reconnect to an unavailable OSD.
   info_ru: Время ожидания перед повторной попыткой соединиться с недоступным OSD.
 - name: peer_connect_timeout
   type: sec
   min: 1
   default: 5
+  online: true
   info: Timeout for OSD connection attempts.
   info_ru: Максимальное время ожидания попытки соединения с OSD.
 - name: osd_idle_timeout
   type: sec
   min: 1
   default: 5
+  online: true
   info: |
     OSD connection inactivity time after which clients and other OSDs send
     keepalive requests to check state of the connection.
@@ -186,6 +189,7 @@
   type: sec
   min: 1
   default: 5
+  online: true
   info: |
     Maximum time to wait for OSD keepalive responses. If an OSD doesn't respond
     within this time, the connection to it is dropped and a reconnection attempt
@@ -198,6 +202,7 @@
   type: ms
   min: 50
   default: 500
+  online: true
   info: |
     OSDs respond to clients with a special error code when they receive I/O
     requests for a PG that's not synchronized and started. This parameter sets
@@ -211,6 +216,7 @@
 - name: max_etcd_attempts
   type: int
   default: 5
+  online: true
   info: |
     Maximum number of attempts for etcd requests which can't be retried
     indefinitely.
@@ -220,6 +226,7 @@
 - name: etcd_quick_timeout
   type: ms
   default: 1000
+  online: true
   info: |
     Timeout for etcd requests which should complete quickly, like lease refresh.
   info_ru: |
@@ -228,6 +235,7 @@
 - name: etcd_slow_timeout
   type: ms
   default: 5000
+  online: true
   info: Timeout for etcd requests which are allowed to wait for some time.
   info_ru: |
     Максимальное время выполнения запросов к etcd, для которых не обязательно
@@ -235,6 +243,7 @@
 - name: etcd_keepalive_timeout
   type: sec
   default: max(30, etcd_report_interval*2)
+  online: true
   info: |
     Timeout for etcd connection HTTP Keep-Alive. Should be higher than
     etcd_report_interval to guarantee that keepalive actually works.
@@ -244,6 +253,7 @@
 - name: etcd_ws_keepalive_timeout
   type: sec
   default: 30
+  online: true
   info: |
     etcd websocket ping interval required to keep the connection alive and
     detect disconnections quickly.
@@ -252,6 +262,7 @@
 - name: client_dirty_limit
   type: int
   default: 33554432
+  online: true
   info: |
     Without immediate_commit=all this parameter sets the limit of "dirty"
     (not committed by fsync) data allowed by the client before forcing an

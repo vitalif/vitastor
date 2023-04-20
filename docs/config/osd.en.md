@@ -7,7 +7,8 @@
 # Runtime OSD Parameters
 
 These parameters only apply to OSDs, are not fixed at the moment of OSD drive
-initialization and can be changed with an OSD restart.
+initialization and can be changed - either with an OSD restart or, for some of
+them, even without restarting by updating configuration in etcd.
 
 - [etcd_report_interval](#etcd_report_interval)
 - [run_primary](#run_primary)
@@ -91,6 +92,7 @@ OSD by hand.
 
 - Type: seconds
 - Default: 5
+- Can be changed online: yes
 
 Time interval at which automatic fsyncs/flushes are issued by each OSD when
 the immediate_commit mode if disabled. fsyncs are required because without
@@ -103,6 +105,7 @@ issue fsyncs at all.
 
 - Type: integer
 - Default: 128
+- Can be changed online: yes
 
 Same as autosync_interval, but sets the maximum number of uncommitted write
 operations before issuing an fsync operation internally.
@@ -111,6 +114,7 @@ operations before issuing an fsync operation internally.
 
 - Type: integer
 - Default: 4
+- Can be changed online: yes
 
 Maximum recovery operations per one primary OSD at any given moment of time.
 Currently it's the only parameter available to tune the speed or recovery
@@ -120,6 +124,7 @@ and rebalancing, but it's planned to implement more.
 
 - Type: integer
 - Default: 128
+- Can be changed online: yes
 
 Number of recovery operations before switching to recovery of the next PG.
 The idea is to mix all PGs during recovery for more even space and load
@@ -130,6 +135,7 @@ Degraded PGs are anyway scanned first.
 
 - Type: integer
 - Default: 16
+- Can be changed online: yes
 
 Maximum number of recovery operations before issuing an additional fsync.
 
@@ -145,6 +151,7 @@ the underlying device. This may be useful for recovery purposes.
 
 - Type: boolean
 - Default: false
+- Can be changed online: yes
 
 Disable automatic background recovery of objects. Note that it doesn't
 affect implicit recovery of objects happening during writes - a write is
@@ -154,6 +161,7 @@ always made to a full set of at least pg_minsize OSDs.
 
 - Type: boolean
 - Default: false
+- Can be changed online: yes
 
 Disable background movement of data between different OSDs. Disabling it
 means that PGs in the `has_misplaced` state will be left in it indefinitely.
@@ -162,6 +170,7 @@ means that PGs in the `has_misplaced` state will be left in it indefinitely.
 
 - Type: seconds
 - Default: 3
+- Can be changed online: yes
 
 Time interval at which OSDs print simple human-readable operation
 statistics on stdout.
@@ -170,6 +179,7 @@ statistics on stdout.
 
 - Type: seconds
 - Default: 10
+- Can be changed online: yes
 
 Time interval at which OSDs dump slow or stuck operations on stdout, if
 they're any. Also it's the time after which an operation is considered
@@ -179,6 +189,7 @@ they're any. Also it's the time after which an operation is considered
 
 - Type: seconds
 - Default: 60
+- Can be changed online: yes
 
 Number of seconds after which a deleted inode is removed from OSD statistics.
 
@@ -186,6 +197,7 @@ Number of seconds after which a deleted inode is removed from OSD statistics.
 
 - Type: integer
 - Default: 128
+- Can be changed online: yes
 
 Parallel client write operation limit per one OSD. Operations that exceed
 this limit are pushed to a temporary queue instead of being executed
@@ -195,6 +207,7 @@ immediately.
 
 - Type: integer
 - Default: 1
+- Can be changed online: yes
 
 Flusher is a micro-thread that moves data from the journal to the data
 area of the device. Their number is auto-tuned between minimum and maximum.
@@ -204,6 +217,7 @@ Minimum number is set by this parameter.
 
 - Type: integer
 - Default: 256
+- Can be changed online: yes
 
 Maximum number of journal flushers (see above min_flusher_count).
 
@@ -260,6 +274,7 @@ Most (99%) other SSDs don't need this option.
 
 - Type: boolean
 - Default: false
+- Can be changed online: yes
 
 Enable soft throttling of small journaled writes. Useful for hybrid OSDs
 with fast journal/metadata devices and slow data devices. The idea is that
@@ -277,6 +292,7 @@ fills up.
 
 - Type: integer
 - Default: 100
+- Can be changed online: yes
 
 Target maximum number of throttled operations per second under the condition
 of full journal. Set it to approximate random write iops of your data devices
@@ -286,6 +302,7 @@ of full journal. Set it to approximate random write iops of your data devices
 
 - Type: integer
 - Default: 100
+- Can be changed online: yes
 
 Target maximum bandwidth in MB/s of throttled operations per second under
 the condition of full journal. Set it to approximate linear write
@@ -295,6 +312,7 @@ performance of your data devices (HDDs).
 
 - Type: integer
 - Default: 1
+- Can be changed online: yes
 
 Target maximum parallelism of throttled operations under the condition of
 full journal. Set it to approximate internal parallelism of your data
@@ -304,6 +322,7 @@ devices (1 for HDDs, 4-8 for SSDs).
 
 - Type: microseconds
 - Default: 50
+- Can be changed online: yes
 
 Minimal computed delay to be applied to throttled operations. Usually
 doesn't need to be changed.

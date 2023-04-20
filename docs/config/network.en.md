@@ -153,6 +153,7 @@ operations.
 - Type: seconds
 - Default: 5
 - Minimum: 1
+- Can be changed online: yes
 
 Interval before attempting to reconnect to an unavailable OSD.
 
@@ -161,6 +162,7 @@ Interval before attempting to reconnect to an unavailable OSD.
 - Type: seconds
 - Default: 5
 - Minimum: 1
+- Can be changed online: yes
 
 Timeout for OSD connection attempts.
 
@@ -169,6 +171,7 @@ Timeout for OSD connection attempts.
 - Type: seconds
 - Default: 5
 - Minimum: 1
+- Can be changed online: yes
 
 OSD connection inactivity time after which clients and other OSDs send
 keepalive requests to check state of the connection.
@@ -178,6 +181,7 @@ keepalive requests to check state of the connection.
 - Type: seconds
 - Default: 5
 - Minimum: 1
+- Can be changed online: yes
 
 Maximum time to wait for OSD keepalive responses. If an OSD doesn't respond
 within this time, the connection to it is dropped and a reconnection attempt
@@ -188,6 +192,7 @@ is scheduled.
 - Type: milliseconds
 - Default: 500
 - Minimum: 50
+- Can be changed online: yes
 
 OSDs respond to clients with a special error code when they receive I/O
 requests for a PG that's not synchronized and started. This parameter sets
@@ -197,6 +202,7 @@ the time for the clients to wait before re-attempting such I/O requests.
 
 - Type: integer
 - Default: 5
+- Can be changed online: yes
 
 Maximum number of attempts for etcd requests which can't be retried
 indefinitely.
@@ -205,6 +211,7 @@ indefinitely.
 
 - Type: milliseconds
 - Default: 1000
+- Can be changed online: yes
 
 Timeout for etcd requests which should complete quickly, like lease refresh.
 
@@ -212,6 +219,7 @@ Timeout for etcd requests which should complete quickly, like lease refresh.
 
 - Type: milliseconds
 - Default: 5000
+- Can be changed online: yes
 
 Timeout for etcd requests which are allowed to wait for some time.
 
@@ -219,6 +227,7 @@ Timeout for etcd requests which are allowed to wait for some time.
 
 - Type: seconds
 - Default: max(30, etcd_report_interval*2)
+- Can be changed online: yes
 
 Timeout for etcd connection HTTP Keep-Alive. Should be higher than
 etcd_report_interval to guarantee that keepalive actually works.
@@ -227,6 +236,7 @@ etcd_report_interval to guarantee that keepalive actually works.
 
 - Type: seconds
 - Default: 30
+- Can be changed online: yes
 
 etcd websocket ping interval required to keep the connection alive and
 detect disconnections quickly.
@@ -235,6 +245,7 @@ detect disconnections quickly.
 
 - Type: integer
 - Default: 33554432
+- Can be changed online: yes
 
 Without immediate_commit=all this parameter sets the limit of "dirty"
 (not committed by fsync) data allowed by the client before forcing an
