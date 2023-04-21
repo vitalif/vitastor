@@ -111,6 +111,7 @@ const etcd_tree = {
             print_stats_interval: 3,
             slow_log_interval: 10,
             inode_vanish_time: 60,
+            no_scrub: false,
             auto_scrub: false,
             scrub_interval: '30d', // 1s/1m/1h/1d
             scrub_queue_depth: 1,

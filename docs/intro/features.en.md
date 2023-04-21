@@ -29,6 +29,7 @@
 - Snapshots and copy-on-write image clones
 - [Write throttling to smooth random write workloads in SSD+HDD configurations](../config/osd.en.md#throttle_small_writes)
 - [RDMA/RoCEv2 support via libibverbs](../config/network.en.md#rdma_device)
+- [Scrubbing without checksums](../config/osd.en.md#no_scrub) (verification of copies)
 
 ## Plugins and tools
 
@@ -54,7 +55,6 @@ The following features are planned for the future:
 - iSCSI proxy
 - Multi-threaded client
 - Faster failover
-- Scrubbing without checksums (verification of replicas)
 - Checksums
 - Tiered storage (SSD caching)
 - NVDIMM support

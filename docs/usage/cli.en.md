@@ -20,6 +20,8 @@ It supports the following commands:
 - [flatten](#flatten)
 - [rm-data](#rm-data)
 - [merge-data](#merge-data)
+- [describe](#describe)
+- [fix](#fix)
 - [alloc-osd](#alloc-osd)
 - [rm-osd](#rm-osd)
 
@@ -173,6 +175,51 @@ Remove inode data without changing metadata.
 Merge layer data without changing metadata. Merge `<from>`..`<to>` to `<target>`.
 `<to>` must be a child of `<from>` and `<target>` may be one of the layers between
 `<from>` and `<to>`, including `<from>` and `<to>`.
+
+## describe
+
+`vitastor-cli describe [--osds <osds>] [--object-state <states>] [--pool <pool>]
+    [--inode <ino>] [--min-inode <ino>] [--max-inode <ino>]
+    [--min-offset <offset>] [--max-offset <offset>]`
+
+Describe unclean object locations in the cluster.
+
+```
+--osds <osds>
+    Only list objects from primary OSD(s) <osds>.
+--object-state <states>
+    Only list objects in given state(s). State(s) may include:
+    degraded, misplaced, incomplete, corrupted, inconsistent.
+--pool <pool name or number>
+    Only list objects in the given pool.
+--inode, --min-inode, --max-inode
+    Restrict listing to specific inode numbers.
+--min-offset, --max-offset
+    Restrict listing to specific offsets inside inodes.
+```
+
+## fix
+
+`vitastor-cli fix [--objects <objects>] [--bad-osds <osds>] [--part <part>] [--check no]`
+
+Fix inconsistent objects in the cluster by deleting some copies.
+
+```
+--objects <objects>
+    Objects to fix, either in plain text or JSON format. If not specified,
+    object list will be read from STDIN in one of the same formats.
+    Plain text format: 0x<inode>:0x<stripe> <any delimiter> 0x<inode>:0x<stripe> ...
+    JSON format: [{"inode":"0x...","stripe":"0x..."},...]
+--bad-osds <osds>
+    Remove inconsistent copies/parts of objects from these OSDs, effectively
+    marking them bad and allowing Vitastor to recover objects from other copies.
+--part <number>
+    Only remove EC part <number> (from 0 to pg_size-1), required for extreme
+    edge cases where one OSD has multiple parts of a EC object.
+--check no
+    Do not recheck that requested objects are actually inconsistent,
+    delete requested copies/parts anyway.
+```
 
 ## alloc-osd
 

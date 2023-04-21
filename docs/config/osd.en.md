@@ -39,6 +39,13 @@ them, even without restarting by updating configuration in etcd.
 - [throttle_target_parallelism](#throttle_target_parallelism)
 - [throttle_threshold_us](#throttle_threshold_us)
 - [osd_memlock](#osd_memlock)
+- [no_scrub](#no_scrub)
+- [auto_scrub](#auto_scrub)
+- [scrub_interval](#scrub_interval)
+- [scrub_queue_depth](#scrub_queue_depth)
+- [scrub_sleep](#scrub_sleep)
+- [scrub_list_limit](#scrub_list_limit)
+- [scrub_ec_max_bruteforce](#scrub_ec_max_bruteforce)
 
 ## etcd_report_interval
 
@@ -332,4 +339,81 @@ doesn't need to be changed.
 - Type: boolean
 - Default: false
 
-Lock all OSD memory to prevent it from being unloaded into swap with mlockall(). Requires sufficient ulimit -l (max locked memory).
+Lock all OSD memory to prevent it from being unloaded into swap with
+mlockall(). Requires sufficient ulimit -l (max locked memory).
+
+## no_scrub
+
+- Type: boolean
+- Default: false
+- Can be changed online: yes
+
+Disable data scrubbing (background consistency check), even if it is scheduled.
+
+## auto_scrub
+
+- Type: boolean
+- Default: false
+- Can be changed online: yes
+
+Schedule data scrubbing to run every `scrub_interval` automatically. You can
+start/schedule scrubbing manually by updating `next_scrub` key in
+`/pg/history/...` values in etcd if it is disabled.
+
+## scrub_interval
+
+- Type: string
+- Default: 30d
+- Can be changed online: yes
+
+Default automatic scrubbing interval for all pools. Numbers without suffix
+are treated as seconds, possible unit suffixes include 's' (seconds),
+'m' (minutes), 'h' (hours), 'd' (days), 'M' (months) and 'y' (years).
+
+## scrub_queue_depth
+
+- Type: integer
+- Default: 1
+- Can be changed online: yes
+
+Number of parallel scrubbing operations per one OSD.
+
+## scrub_sleep
+
+- Type: milliseconds
+- Default: 0
+- Can be changed online: yes
+
+Additional interval between two consecutive scrubbing operations on one OSD.
+Can be used to slow down scrubbing if it affects user load too much.
+
+## scrub_list_limit
+
+- Type: integer
+- Default: 1000
+- Can be changed online: yes
+
+Number of objects to list in one listing operation during scrub.
+
+## scrub_ec_max_bruteforce
+
+- Type: integer
+- Default: 100
+- Can be changed online: yes
+
+Vitastor can locate corrupted chunks in EC setups with more than 1 parity
+chunk by brute-forcing all possible error locations. This configuration
+value limits the maximum number of checked combinations. You can try to
+increase it if you have EC N+K setup with N and K large enough for
+combination count `C(N+K-1, K-1) = (N+K-1)! / (K-1)! / N!` to be greater
+than the default 100.
+
+If there are too many possible combinations or if multiple combinations give
+correct results then objects are marked inconsistent and aren't recovered
+automatically.
+
+In replicated setups bruteforcing isn't needed, Vitastor just assumes that
+the variant with most available equal copies is correct. For example, if
+you have 3 replicas and 1 of them differs, this one is considered to be
+corrupted. But if there is no "best" version with more copies than all
+others have then the object is also marked as inconsistent.

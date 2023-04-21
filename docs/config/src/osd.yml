@@ -375,10 +375,112 @@
 - name: osd_memlock
   type: bool
   default: false
-  info: >
+  info: |
     Lock all OSD memory to prevent it from being unloaded into swap with
     mlockall(). Requires sufficient ulimit -l (max locked memory).
-  info_ru: >
+  info_ru: |
     Блокировать всю память OSD с помощью mlockall, чтобы запретить её выгрузку
     в пространство подкачки. Требует достаточного значения ulimit -l (лимита
     заблокированной памяти).
+- name: no_scrub
+  type: bool
+  default: false
+  online: true
+  info: |
+    Disable data scrubbing (background consistency check), even if it is scheduled.
+  info_ru: |
+    Отключить скрабы (фоновую проверку данных), даже если она запланирована.
+- name: auto_scrub
+  type: bool
+  default: false
+  online: true
+  info: |
+    Schedule data scrubbing to run every `scrub_interval` automatically. You can
+    start/schedule scrubbing manually by updating `next_scrub` key in
+    `/pg/history/...` values in etcd if it is disabled.
+  info_ru: |
+    Автоматически планировать фоновую проверку данных раз в `scrub_interval`. Вы
+    можете запустить или запланировать проверку вручную, обновляя значение ключа
+    `next_scrub` внутри значений `/pg/history/...` в etcd, если автоматическое
+    планирование отключено.
+- name: scrub_interval
+  type: string
+  default: 30d
+  online: true
+  info: |
+    Default automatic scrubbing interval for all pools. Numbers without suffix
+    are treated as seconds, possible unit suffixes include 's' (seconds),
+    'm' (minutes), 'h' (hours), 'd' (days), 'M' (months) and 'y' (years).
+  info_ru: |
+    Интервал автоматической фоновой проверки по умолчанию для всех пулов.
+    Значения без указанной единицы измерения считаются в секундах, допустимые
+    символы единиц измерения в конце: 's' (секунды),
+    'm' (минуты), 'h' (часы), 'd' (дни), 'M' (месяца) или 'y' (годы).
+- name: scrub_queue_depth
+  type: int
+  default: 1
+  online: true
+  info: |
+    Number of parallel scrubbing operations per one OSD.
+  info_ru: |
+    Число параллельных операций фоновой проверки на один OSD.
+- name: scrub_sleep
+  type: ms
+  default: 0
+  online: true
+  info: |
+    Additional interval between two consecutive scrubbing operations on one OSD.
+    Can be used to slow down scrubbing if it affects user load too much.
+  info_ru: |
+    Дополнительный интервал ожидания после фоновой проверки каждого объекта на
+    одном OSD. Может использоваться для замедления скраба, если он слишком
+    сильно влияет на пользовательскую нагрузку.
+- name: scrub_list_limit
+  type: int
+  default: 1000
+  online: true
+  info: |
+    Number of objects to list in one listing operation during scrub.
+  info_ru: |
+    Размер загружаемых за одну операцию списков объектов в процессе фоновой
+    проверки.
+- name: scrub_ec_max_bruteforce
+  type: int
+  default: 100
+  online: true
+  info: |
+    Vitastor can locate corrupted chunks in EC setups with more than 1 parity
+    chunk by brute-forcing all possible error locations. This configuration
+    value limits the maximum number of checked combinations. You can try to
+    increase it if you have EC N+K setup with N and K large enough for
+    combination count `C(N+K-1, K-1) = (N+K-1)! / (K-1)! / N!` to be greater
+    than the default 100.
+
+    If there are too many possible combinations or if multiple combinations give
+    correct results then objects are marked inconsistent and aren't recovered
+    automatically.
+
+    In replicated setups bruteforcing isn't needed, Vitastor just assumes that
+    the variant with most available equal copies is correct. For example, if
+    you have 3 replicas and 1 of them differs, this one is considered to be
+    corrupted. But if there is no "best" version with more copies than all
+    others have then the object is also marked as inconsistent.
+  info_ru: |
+    Vitastor старается определить повреждённые части объектов при использовании
+    EC (кодов коррекции ошибок) с более, чем 1 диском чётности, путём перебора
+    всех возможных комбинаций ошибочных частей. Данное значение конфигурации
+    ограничивает число перебираемых комбинаций. Вы можете попробовать поднять
+    его, если используете схему кодирования EC N+K с N и K, достаточно большими
+    для того, чтобы число сочетаний `C(N+K-1, K-1) = (N+K-1)! / (K-1)! / N!`
+    было больше, чем стандартное значение 100.
+
+    Если возможных комбинаций слишком много или если корректная комбинаций не
+    определяется однозначно, объекты помечаются неконсистентными (inconsistent)
+    и не восстанавливаются автоматически.
+
+    При использовании репликации перебор не нужен, Vitastor просто предполагает,
+    что вариант объекта с наибольшим количеством одинаковых копий корректен.
+    Например, если вы используете 3 реплики и 1 из них отличается, эта 1 копия
+    считается некорректной. Однако, если "лучшую" версию с числом доступных
+    копий большим, чем у всех других версий, найти невозможно, то объект тоже
+    маркируется неконсистентным.

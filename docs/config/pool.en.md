@@ -40,6 +40,7 @@ Parameters:
 - [root_node](#root_node)
 - [osd_tags](#osd_tags)
 - [primary_affinity_tags](#primary_affinity_tags)
+- [scrub_interval](#scrub_interval)
 
 Examples:
 
@@ -271,6 +272,13 @@ only OSDs having all of these tags will be used for this pool.
 Specifies OSD tags to prefer putting primary OSDs in this pool to.
 Note that for EC/XOR pools Vitastor always prefers to put primary OSD on one
 of the OSDs containing a data chunk for a PG.
+
+## scrub_interval
+
+- Type: time interval (number + unit s/m/h/d/M/y)
+
+Automatic scrubbing interval for this pool. Overrides
+[global scrub_interval setting](osd.en.md#scrub_interval).
 
 # Examples
 
