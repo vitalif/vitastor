@@ -210,6 +210,7 @@ void osd_t::parse_config(bool init)
     inode_vanish_time = config["inode_vanish_time"].uint64_value();
     if (!inode_vanish_time)
         inode_vanish_time = 60;
+    auto old_auto_scrub = auto_scrub;
     auto_scrub = json_is_true(config["auto_scrub"]);
     global_scrub_interval = parse_time(config["scrub_interval"].string_value());
     if (!global_scrub_interval)
@@ -224,6 +225,14 @@ void osd_t::parse_config(bool init)
     scrub_list_limit = config["scrub_list_limit"].uint64_value();
     if (!scrub_list_limit)
         scrub_list_limit = 1000;
+    if (!old_auto_scrub && auto_scrub)
+    {
+        // Schedule scrubbing
+        for (auto & pgp: pgs)
+        {
+            plan_scrub(pgp.second);
+        }
+    }
     if (old_no_scrub && !no_scrub)
     {
         // Wakeup scrubbing

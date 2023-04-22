@@ -24,8 +24,8 @@ void osd_t::handle_peers()
                 if (!p.second.peering_state->list_ops.size())
                 {
                     p.second.calc_object_states(log_level);
-                    schedule_scrub(p.second);
                     report_pg_state(p.second);
+                    schedule_scrub(p.second);
                     incomplete_objects += p.second.incomplete_objects.size();
                     misplaced_objects += p.second.misplaced_objects.size();
                     // FIXME: degraded objects may currently include misplaced, too! Report them separately?
@@ -494,6 +494,7 @@ void osd_t::report_pg_state(pg_t & pg)
         pg.all_peers = pg.target_set;
         std::sort(pg.all_peers.begin(), pg.all_peers.end());
         pg.cur_peers = pg.target_set;
+        plan_scrub(pg, false);
         // Change pg_config at the same time, otherwise our PG reconciling loop may try to apply the old metadata
         auto & pg_cfg = st_cli.pool_config[pg.pool_id].pg_config[pg.pg_num];
         pg_cfg.target_history = pg.target_history;
@@ -537,6 +538,7 @@ void osd_t::report_pg_state(pg_t & pg)
                 pg.cur_peers.push_back(pg_osd);
             }
         }
+        plan_scrub(pg, false);
         auto & pg_cfg = st_cli.pool_config[pg.pool_id].pg_config[pg.pg_num];
         pg_cfg.target_history = pg.target_history;
         pg_cfg.all_peers = pg.all_peers;

@@ -192,13 +192,10 @@ int osd_t::pick_next_scrub(object_id & next_oid)
             if (pg_it->second.state & PG_SCRUBBING)
             {
                 scrub_last_pg = {};
-                auto & pool_cfg = st_cli.pool_config.at(pg_it->first.pool_id);
-                auto interval = pool_cfg.scrub_interval ? pool_cfg.scrub_interval : global_scrub_interval;
-                pg_it->second.next_scrub = auto_scrub ? tv_now.tv_sec + interval : 0;
                 pg_it->second.state = pg_it->second.state & ~PG_SCRUBBING;
+                pg_it->second.next_scrub = 0;
                 pg_it->second.history_changed = true;
                 report_pg_state(pg_it->second);
-                schedule_scrub(pg_it->second);
             }
             // The list is definitely not needed anymore
             if (scrub_cur_list.buf)
@@ -316,6 +313,25 @@ bool osd_t::continue_scrub()
             return r;
     }
     return true;
+}
+
+void osd_t::plan_scrub(pg_t & pg, bool report_state)
+{
+    if ((pg.state & PG_ACTIVE) && !pg.next_scrub && auto_scrub)
+    {
+        timespec tv_now;
+        clock_gettime(CLOCK_REALTIME, &tv_now);
+        auto & pool_cfg = st_cli.pool_config.at(pg.pool_id);
+        auto interval = pool_cfg.scrub_interval ? pool_cfg.scrub_interval : global_scrub_interval;
+        if (pg.next_scrub != tv_now.tv_sec + interval)
+        {
+            pool_cfg.pg_config[pg.pg_num].next_scrub = pg.next_scrub = tv_now.tv_sec + interval;
+            pg.history_changed = true;
+            if (report_state)
+                report_pg_state(pg);
+        }
+        schedule_scrub(pg);
+    }
 }
 
 void osd_t::schedule_scrub(pg_t & pg)

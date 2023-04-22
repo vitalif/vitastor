@@ -243,6 +243,7 @@ class osd_t
     int pick_next_scrub(object_id & next_oid);
     void submit_scrub_op(object_id oid);
     bool continue_scrub();
+    void plan_scrub(pg_t & pg, bool report_state = true);
     void schedule_scrub(pg_t & pg);
 
     // op execution
