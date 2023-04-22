@@ -483,6 +483,10 @@ void osd_t::report_pg_state(pg_t & pg)
         pg.all_peers = pg.target_set;
         std::sort(pg.all_peers.begin(), pg.all_peers.end());
         pg.cur_peers = pg.target_set;
+        // Change pg_config at the same time, otherwise our PG reconciling loop may try to apply the old metadata
+        auto & pg_cfg = st_cli.pool_config[pg.pool_id].pg_config[pg.pg_num];
+        pg_cfg.target_history = pg.target_history;
+        pg_cfg.all_peers = pg.all_peers;
     }
     else if (pg.state == (PG_ACTIVE|PG_LEFT_ON_DEAD))
     {
@@ -522,6 +526,9 @@ void osd_t::report_pg_state(pg_t & pg)
                 pg.cur_peers.push_back(pg_osd);
             }
         }
+        auto & pg_cfg = st_cli.pool_config[pg.pool_id].pg_config[pg.pg_num];
+        pg_cfg.target_history = pg.target_history;
+        pg_cfg.all_peers = pg.all_peers;
     }
     if (pg.state == PG_OFFLINE && !this->pg_config_applied)
     {

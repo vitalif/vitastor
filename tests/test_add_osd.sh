@@ -28,9 +28,7 @@ if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only |\
     format_error "FAILED: OSD NOT ADDED INTO DISTRIBUTION"
 fi
 
-if ! ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select(.state == ["active"]) ] | length) == '$PG_COUNT''); then
-    format_error "FAILED: $PG_COUNT PGS NOT ACTIVE"
-fi
+wait_finish_rebalance 10
 
 sleep 1
 kill -9 $OSD4_PID
@@ -52,8 +50,6 @@ if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only |\
     format_error "FAILED: OSD NOT REMOVED FROM DISTRIBUTION"
 fi
 
-if ! ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select(.state == ["active"] or .state == ["active", "left_on_dead"]) ] | length) == '$PG_COUNT''); then
-    format_error "FAILED: $PG_COUNT PGS NOT ACTIVE"
-fi
+wait_finish_rebalance 10
 
 format_green OK
