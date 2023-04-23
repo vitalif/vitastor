@@ -313,17 +313,18 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
             stop_client(cl->peer_fd);
             return false;
         }
-        if (op->reply.hdr.retval >= 0 && bmp_len > 0)
+        if (bmp_len > 0)
         {
             assert(op->bitmap);
             cl->recv_list.push_back(op->bitmap, bmp_len);
+            cl->read_remaining += bmp_len;
         }
         if (op->reply.hdr.retval > 0)
         {
             assert(op->iov.count > 0);
             cl->recv_list.append(op->iov);
+            cl->read_remaining += op->reply.hdr.retval;
         }
-        cl->read_remaining = op->reply.hdr.retval + bmp_len;
         if (cl->read_remaining == 0)
         {
             goto reuse;
