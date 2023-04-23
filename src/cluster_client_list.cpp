@@ -43,6 +43,7 @@ struct inode_list_t
 inode_list_t* cluster_client_t::list_inode_start(inode_t inode,
     std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback)
 {
+    init_msgr();
     int skipped_pgs = 0;
     pool_id_t pool_id = INODE_POOL(inode);
     if (!pool_id || st_cli.pool_config.find(pool_id) == st_cli.pool_config.end())
