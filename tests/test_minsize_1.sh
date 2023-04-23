@@ -10,7 +10,7 @@ kill -INT $OSD2_PID
 
 sleep 5
 
-if ! ($ETCDCTL get /vitastor/pg/state/1/ --prefix --print-value-only | jq -s -e '[ .[] | select(.state == ["active", "degraded"]) ] | length == '$PG_COUNT); then
+if ! ($ETCDCTL get /vitastor/pg/state/1/ --prefix --print-value-only | jq -s -e '[ .[] | select(.state == ["active", "degraded", "left_on_dead"]) ] | length == '$PG_COUNT); then
     format_error "FAILED: $PG_COUNT PG(s) NOT ACTIVE+DEGRADED"
 fi
 
