@@ -30,7 +30,7 @@ qemu-img create -f qcow2 ./testdata/empty.qcow2 32M
 
 qemu-img convert -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:pool=1:inode=3:size=$((32*1024*1024)):skip-parents=1" \
-    -O qcow2 -o 'cluster_size=4k' -B empty.qcow2 ./testdata/layer1.qcow2
+    -O qcow2 -o 'cluster_size=4k,backing_fmt=qcow2' -B empty.qcow2 ./testdata/layer1.qcow2
 
 qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:pool=1:inode=3:size=$((32*1024*1024))" \
@@ -64,7 +64,7 @@ cmp ./testdata/merged.bin ./testdata/merged-by-tool.bin
 
 # Test merge by qemu-img
 
-qemu-img rebase -u -b layer0.qcow2 ./testdata/layer1.qcow2
+qemu-img rebase -u -b layer0.qcow2 -F qcow2 ./testdata/layer1.qcow2
 
 qemu-img convert -S 4096 -f qcow2 ./testdata/layer1.qcow2 -O raw ./testdata/rebased.bin
 
