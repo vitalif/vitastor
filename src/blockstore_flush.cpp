@@ -932,7 +932,7 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
     resume_1:
         if (!cur_sync->state)
         {
-            if (flusher->syncing_flushers >= flusher->cur_flusher_count || !flusher->flush_queue.size())
+            if (flusher->syncing_flushers >= flusher->active_flushers || !flusher->flush_queue.size())
             {
                 // Sync batch is ready. Do it.
                 await_sqe(0);
