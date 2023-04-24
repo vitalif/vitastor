@@ -9,6 +9,9 @@
 #endif
 #include "qemu/osdep.h"
 #include "qemu/main-loop.h"
+#if QEMU_VERSION_MAJOR >= 8
+#include "block/block-io.h"
+#endif
 #include "block/block_int.h"
 #include "qapi/error.h"
 #include "qapi/qmp/qdict.h"
@@ -268,7 +271,13 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     }
     else
     {
+#if QEMU_VERSION_MAJOR >= 8
+        aio_co_enter(bdrv_get_aio_context(bs), qemu_coroutine_create((void(*)(void*))vitastor_co_get_metadata, &task));
+#elif QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 9 || QEMU_VERSION_MAJOR >= 3
         bdrv_coroutine_enter(bs, qemu_coroutine_create((void(*)(void*))vitastor_co_get_metadata, &task));
+#else
+        qemu_coroutine_enter(qemu_coroutine_create((void(*)(void*))vitastor_co_get_metadata, &task));
+#endif
         BDRV_POLL_WHILE(bs, !task.complete);
     }
     client->image = image;
@@ -732,8 +741,13 @@ static BlockDriver bdrv_vitastor = {
     .bdrv_parse_filename            = vitastor_parse_filename,
 
     .bdrv_has_zero_init             = bdrv_has_zero_init_1,
+#if QEMU_VERSION_MAJOR >= 8
+    .bdrv_co_get_info               = vitastor_get_info,
+    .bdrv_co_getlength              = vitastor_getlength,
+#else
     .bdrv_get_info                  = vitastor_get_info,
     .bdrv_getlength                 = vitastor_getlength,
+#endif
 #if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 2
     .bdrv_probe_blocksizes          = vitastor_probe_blocksizes,
 #endif
