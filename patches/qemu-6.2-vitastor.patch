@@ -1,0 +1,148 @@
+diff --git a/block/meson.build b/block/meson.build
+index deb73ca389..e269f599a1 100644
+--- a/block/meson.build
++++ b/block/meson.build
+@@ -78,6 +78,7 @@ foreach m : [
+   [libnfs, 'nfs', files('nfs.c')],
+   [libssh, 'ssh', files('ssh.c')],
+   [rbd, 'rbd', files('rbd.c')],
++  [vitastor, 'vitastor', files('vitastor.c')],
+ ]
+   if m[0].found()
+     module_ss = ss.source_set()
+diff --git a/meson.build b/meson.build
+index 96de1a6ef9..2e3994777d 100644
+--- a/meson.build
++++ b/meson.build
+@@ -838,6 +838,26 @@ if not get_option('rbd').auto() or have_block
+   endif
+ endif
+ 
++vitastor = not_found
++if not get_option('vitastor').auto() or have_block
++  libvitastor_client = cc.find_library('vitastor_client', has_headers: ['vitastor_c.h'],
++    required: get_option('vitastor'), kwargs: static_kwargs)
++  if libvitastor_client.found()
++    if cc.links('''
++      #include <vitastor_c.h>
++      int main(void) {
++        vitastor_c_create_qemu(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
++        return 0;
++      }''', dependencies: libvitastor_client)
++      vitastor = declare_dependency(dependencies: libvitastor_client)
++    elif get_option('vitastor').enabled()
++      error('could not link libvitastor_client')
++    else
++      warning('could not link libvitastor_client, disabling')
++    endif
++  endif
++endif
++
+ glusterfs = not_found
+ glusterfs_ftruncate_has_stat = false
+ glusterfs_iocb_has_stat = false
+@@ -1455,6 +1475,7 @@ config_host_data.set('CONFIG_LINUX_AIO', libaio.found())
+ config_host_data.set('CONFIG_LINUX_IO_URING', linux_io_uring.found())
+ config_host_data.set('CONFIG_LIBPMEM', libpmem.found())
+ config_host_data.set('CONFIG_RBD', rbd.found())
++config_host_data.set('CONFIG_VITASTOR', vitastor.found())
+ config_host_data.set('CONFIG_SDL', sdl.found())
+ config_host_data.set('CONFIG_SDL_IMAGE', sdl_image.found())
+ config_host_data.set('CONFIG_SECCOMP', seccomp.found())
+@@ -3412,6 +3433,7 @@ if spice_protocol.found()
+   summary_info += {'  spice server support': spice}
+ endif
+ summary_info += {'rbd support':       rbd}
++summary_info += {'vitastor support':  vitastor}
+ summary_info += {'xfsctl support':    config_host.has_key('CONFIG_XFS')}
+ summary_info += {'smartcard support': cacard}
+ summary_info += {'U2F support':       u2f}
+diff --git a/meson_options.txt b/meson_options.txt
+index e392323732..5b56007475 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -121,6 +121,8 @@ option('lzo', type : 'feature', value : 'auto',
+        description: 'lzo compression support')
+ option('rbd', type : 'feature', value : 'auto',
+        description: 'Ceph block device driver')
++option('vitastor', type : 'feature', value : 'auto',
++       description: 'Vitastor block device driver')
+ option('gtk', type : 'feature', value : 'auto',
+        description: 'GTK+ user interface')
+ option('sdl', type : 'feature', value : 'auto',
+diff --git a/qapi/block-core.json b/qapi/block-core.json
+index 1d3dd9cb48..88453405e5 100644
+--- a/qapi/block-core.json
++++ b/qapi/block-core.json
+@@ -2930,7 +2930,7 @@
+             'luks', 'nbd', 'nfs', 'null-aio', 'null-co', 'nvme', 'parallels',
+             'preallocate', 'qcow', 'qcow2', 'qed', 'quorum', 'raw', 'rbd',
+             { 'name': 'replication', 'if': 'CONFIG_REPLICATION' },
+-            'ssh', 'throttle', 'vdi', 'vhdx', 'vmdk', 'vpc', 'vvfat' ] }
++            'ssh', 'throttle', 'vdi', 'vhdx', 'vitastor', 'vmdk', 'vpc', 'vvfat' ] }
+ 
+ ##
+ # @BlockdevOptionsFile:
+@@ -3864,6 +3864,28 @@
+             '*key-secret': 'str',
+             '*server': ['InetSocketAddressBase'] } }
+ 
++##
++# @BlockdevOptionsVitastor:
++#
++# Driver specific block device options for vitastor
++#
++# @image:       Image name
++# @inode:       Inode number
++# @pool:        Pool ID
++# @size:        Desired image size in bytes
++# @config-path: Path to Vitastor configuration
++# @etcd-host:   etcd connection address(es)
++# @etcd-prefix: etcd key/value prefix
++##
++{ 'struct': 'BlockdevOptionsVitastor',
++  'data': { '*inode': 'uint64',
++            '*pool': 'uint64',
++            '*size': 'uint64',
++            '*image': 'str',
++            '*config-path': 'str',
++            '*etcd-host': 'str',
++            '*etcd-prefix': 'str' } }
++
+ ##
+ # @ReplicationMode:
+ #
+@@ -4259,6 +4281,7 @@
+       'throttle':   'BlockdevOptionsThrottle',
+       'vdi':        'BlockdevOptionsGenericFormat',
+       'vhdx':       'BlockdevOptionsGenericFormat',
++      'vitastor':   'BlockdevOptionsVitastor',
+       'vmdk':       'BlockdevOptionsGenericCOWFormat',
+       'vpc':        'BlockdevOptionsGenericFormat',
+       'vvfat':      'BlockdevOptionsVVFAT'
+@@ -4647,6 +4670,17 @@
+             '*cluster-size' :   'size',
+             '*encrypt' :        'RbdEncryptionCreateOptions' } }
+ 
++##
++# @BlockdevCreateOptionsVitastor:
++#
++# Driver specific image creation options for Vitastor.
++#
++# @size: Size of the virtual disk in bytes
++##
++{ 'struct': 'BlockdevCreateOptionsVitastor',
++  'data': { 'location':         'BlockdevOptionsVitastor',
++            'size':             'size' } }
++
+ ##
+ # @BlockdevVmdkSubformat:
+ #
+@@ -4846,6 +4880,7 @@
+       'ssh':            'BlockdevCreateOptionsSsh',
+       'vdi':            'BlockdevCreateOptionsVdi',
+       'vhdx':           'BlockdevCreateOptionsVhdx',
++      'vitastor':       'BlockdevCreateOptionsVitastor',
+       'vmdk':           'BlockdevCreateOptionsVmdk',
+       'vpc':            'BlockdevCreateOptionsVpc'
+   } }
