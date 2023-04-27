@@ -460,7 +460,7 @@ void osd_t::print_slow()
                 int l = sizeof(alloc), n;
                 char *buf = alloc;
 #define bufprintf(s, ...) { n = snprintf(buf, l, s, __VA_ARGS__); n = n < 0 ? 0 : n; buf += n; l -= n; }
-                bufprintf("[OSD %lu] Slow op %lx", osd_num, op);
+                bufprintf("[OSD %lu] Slow op %lx", osd_num, (unsigned long)op);
                 if (kv.second->osd_num)
                 {
                     bufprintf(" from peer OSD %lu (client %d)", kv.second->osd_num, kv.second->peer_fd);

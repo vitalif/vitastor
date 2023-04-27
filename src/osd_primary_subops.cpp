@@ -472,7 +472,7 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
     osd_primary_op_data_t *op_data = cur_op->op_data;
     op_data->n_subops = chunks_to_delete_count;
     op_data->done = op_data->errors = op_data->errcode = 0;
-    if (!op_data->n_subops)
+    if (op_data->n_subops <= 0)
     {
         return;
     }

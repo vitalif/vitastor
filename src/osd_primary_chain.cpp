@@ -219,7 +219,7 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
             op_data->n_subops++;
         }
     }
-    if (op_data->n_subops)
+    if (op_data->n_subops > 0)
     {
         op_data->fact_ver = 0;
         op_data->done = op_data->errors = 0;
