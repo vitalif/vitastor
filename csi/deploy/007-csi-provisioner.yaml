@@ -116,7 +116,7 @@ spec:
             privileged: true
             capabilities:
               add: ["SYS_ADMIN"]
-          image: vitalif/vitastor-csi:v0.8.7
+          image: vitalif/vitastor-csi:v0.8.8
           args:
             - "--node=$(NODE_ID)"
             - "--endpoint=$(CSI_ENDPOINT)"
