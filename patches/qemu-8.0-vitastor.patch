@@ -167,3 +167,24 @@ index 6e8983f39c..1b0b9fcf3e 100755
  --enable-rdma \
  --enable-seccomp \
  --enable-snappy \
+diff --git a/scripts/meson-buildoptions.sh b/scripts/meson-buildoptions.sh
+index 009fab1515..95914e6ebc 100644
+--- a/scripts/meson-buildoptions.sh
++++ b/scripts/meson-buildoptions.sh
+@@ -142,6 +142,7 @@ meson_options_help() {
+   printf "%s\n" '  qed             qed image format support'
+   printf "%s\n" '  qga-vss         build QGA VSS support (broken with MinGW)'
+   printf "%s\n" '  rbd             Ceph block device driver'
++  printf "%s\n" '  vitastor        Vitastor block device driver'
+   printf "%s\n" '  rdma            Enable RDMA-based migration'
+   printf "%s\n" '  replication     replication support'
+   printf "%s\n" '  sdl             SDL user interface'
+@@ -388,6 +389,8 @@ _meson_option_parse() {
+     --disable-qom-cast-debug) printf "%s" -Dqom_cast_debug=false ;;
+     --enable-rbd) printf "%s" -Drbd=enabled ;;
+     --disable-rbd) printf "%s" -Drbd=disabled ;;
++    --enable-vitastor) printf "%s" -Dvitastor=enabled ;;
++    --disable-vitastor) printf "%s" -Dvitastor=disabled ;;
+     --enable-rdma) printf "%s" -Drdma=enabled ;;
+     --disable-rdma) printf "%s" -Drdma=disabled ;;
+     --enable-replication) printf "%s" -Dreplication=enabled ;;
