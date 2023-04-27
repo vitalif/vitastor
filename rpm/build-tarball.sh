@@ -7,13 +7,12 @@ set -e
 VITASTOR=$(dirname $0)
 VITASTOR=$(realpath "$VITASTOR/..")
 
-if [ -d /opt/rh/gcc-toolset-9 ]; then
+EL=$(rpm --eval '%dist')
+if [ "$EL" = ".el8" ]; then
     # CentOS 8
-    EL=8
     . /opt/rh/gcc-toolset-9/enable
-else
+elif [ "$EL" = ".el7" ]; then
     # CentOS 7
-    EL=7
     . /opt/rh/devtoolset-9/enable
 fi
 cd ~/rpmbuild/SPECS
