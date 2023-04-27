@@ -22,14 +22,17 @@
 - Add Vitastor package repository:
   - CentOS 7: `yum install https://vitastor.io/rpms/centos/7/vitastor-release.rpm`
   - CentOS 8: `dnf install https://vitastor.io/rpms/centos/8/vitastor-release.rpm`
+  - AlmaLinux 9 and other RHEL 9 clones (Rocky, Oracle...): `dnf install https://vitastor.io/rpms/centos/9/vitastor-release.rpm`
 - Enable EPEL: `yum/dnf install epel-release`
 - Enable additional CentOS repositories:
   - CentOS 7: `yum install centos-release-scl`
   - CentOS 8: `dnf install centos-release-advanced-virtualization`
+  - RHEL 9 clones: not required
 - Enable elrepo-kernel:
   - CentOS 7: `yum install https://www.elrepo.org/elrepo-release-7.el7.elrepo.noarch.rpm`
   - CentOS 8: `dnf install https://www.elrepo.org/elrepo-release-8.el8.elrepo.noarch.rpm`
-- Install packages: `yum/dnf install vitastor lpsolve etcd kernel-ml qemu-kvm`
+  - RHEL 9 clones: optional, not required: `dnf install https://www.elrepo.org/elrepo-release-9.el9.elrepo.noarch.rpm`
+- Install packages: `yum/dnf install vitastor lpsolve etcd qemu-kvm` and optionally `kernel-ml` if you use elrepo-kernel
 
 ## Installation requirements
 
