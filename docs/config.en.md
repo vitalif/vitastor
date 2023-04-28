@@ -17,14 +17,16 @@ Configuration parameters can be set in 3 places:
 - Configuration file (`/etc/vitastor/vitastor.conf` or other path)
 - etcd key `/vitastor/config/global`. Most variables can be set there, but etcd
   connection parameters should obviously be set in the configuration file.
-- Command line of Vitastor components: OSD, mon, fio and QEMU options,
-  OpenStack/Proxmox/etc configuration. The latter doesn't allow to set all
-  variables directly, but it allows to override the configuration file and
-  set everything you need inside it.
+- Command line of Vitastor components: OSD (when you run it without vitastor-disk),
+  mon, fio and QEMU options, OpenStack/Proxmox/etc configuration. The latter
+  doesn't allow to set all variables directly, but it allows to override the
+  configuration file and set everything you need inside it.
+- OSD superblocks created by [vitastor-disk](../usage/disk.en.md) contain
+  primarily disk layout parameters of specific OSDs. In fact, these parameters
+  are automatically passed into the command line of vitastor-osd process, so
+  they have the same "status" as command-line parameters.
 
 In the future, additional configuration methods may be added:
-- OSD superblock which will, by design, contain parameters related to the disk
-  layout and to one specific OSD.
 - OSD-specific keys in etcd like `/vitastor/config/osd/<number>`.
 
 ## Parameter Reference

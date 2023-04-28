@@ -45,7 +45,9 @@ On the monitor hosts:
   }
   ```
 - Initialize OSDs:
-  - SSD-only: `vitastor-disk prepare /dev/sdXXX [/dev/sdYYY ...]`
+  - SSD-only: `vitastor-disk prepare /dev/sdXXX [/dev/sdYYY ...]`. You can add
+    `--disable_data_fsync off` to leave disk cache enabled if you use desktop
+    SSDs without capacitors.
   - Hybrid, SSD+HDD: `vitastor-disk prepare --hybrid /dev/sdXXX [/dev/sdYYY ...]`.
     Pass all your devices (HDD and SSD) to this script &mdash; it will partition disks and initialize journals on its own.
     This script skips HDDs which are already partitioned so if you want to use non-empty disks for
@@ -53,7 +55,9 @@ On the monitor hosts:
     but some free unpartitioned space must be available because the script creates new partitions for journals.
 - You can change OSD configuration in units or in `vitastor.conf`.
   Check [Configuration Reference](../config.en.md) for parameter descriptions.
-- If all your drives have capacitors, create global configuration in etcd: \
+- If all your drives have capacitors, and even if not, but if you ran `vitastor-disk`
+  without `--disable_data_fsync off` at the first step, then put the following
+  setting into etcd: \
   `etcdctl --endpoints=... put /vitastor/config/global '{"immediate_commit":"all"}'`
 - Start all OSDs: `systemctl start vitastor.target`
 
@@ -74,6 +78,10 @@ etcdctl --endpoints=... put /vitastor/config/pools '{"2":{"name":"ecpool",
 ```
 
 After you do this, one of the monitors will configure PGs and OSDs will start them.
+
+If you use HDDs you should also add `"block_size": 1048576` to pool configuration.
+The other option is to add it into /vitastor/config/global, in this case it will
+apply to all pools by default.
 
 ## Check cluster status
 
