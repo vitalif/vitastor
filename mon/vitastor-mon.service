@@ -15,4 +15,4 @@ StartLimitInterval=0
 RestartSec=10
 
 [Install]
-WantedBy=vitastor.target
+WantedBy=multi-user.target
