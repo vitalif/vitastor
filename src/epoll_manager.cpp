@@ -54,6 +54,13 @@ void epoll_manager_t::set_fd_handler(int fd, bool wr, std::function<void(int, in
         ev.events = (wr ? EPOLLOUT : 0) | EPOLLIN | EPOLLRDHUP | EPOLLET;
         if (epoll_ctl(epoll_fd, exists ? EPOLL_CTL_MOD : EPOLL_CTL_ADD, fd, &ev) < 0)
         {
+            if (errno == ENOENT)
+            {
+                // The FD is probably already closed
+                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+                epoll_handlers.erase(fd);
+                return;
+            }
             throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
         }
         epoll_handlers[fd] = handler;
