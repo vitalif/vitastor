@@ -27,6 +27,7 @@ void test13();
 void test14();
 void test15(bool second);
 void test16();
+void test_recover_22_d2();
 
 int main(int narg, char *args[])
 {
@@ -61,6 +62,8 @@ int main(int narg, char *args[])
     test15(true);
     // Test 16
     test16();
+    // Test 17
+    test_recover_22_d2();
     // End
     printf("all ok\n");
     return 0;
@@ -1057,5 +1060,49 @@ void test16()
     // Done
     free(rmw_buf);
     free(write_buf);
+    use_ec(4, 2, false);
+}
+
+/***
+
+17. EC 2+2 recover second data block
+
+***/
+
+void test_recover_22_d2()
+{
+    const int bmp = 128*1024 / 4096 / 8;
+    use_ec(4, 2, true);
+    osd_num_t osd_set[4] = { 1, 0, 3, 4 };
+    osd_rmw_stripe_t stripes[4] = {};
+    unsigned bitmaps[4] = { 0 };
+    // Read 0-256K
+    split_stripes(2, 128*1024, 0, 256*1024, stripes);
+    assert(stripes[0].req_start == 0 && stripes[0].req_end == 128*1024);
+    assert(stripes[1].req_start == 0 && stripes[1].req_end == 128*1024);
+    assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
+    assert(stripes[3].req_start == 0 && stripes[3].req_end == 0);
+    uint8_t *data_buf = (uint8_t*)malloc_or_die(128*1024*4);
+    for (int i = 0; i < 4; i++)
+    {
+        stripes[i].read_start = stripes[i].req_start;
+        stripes[i].read_end = stripes[i].req_end;
+        stripes[i].read_buf = data_buf + i*128*1024;
+        stripes[i].bmp_buf = bitmaps + i;
+    }
+    // Read using parity
+    assert(extend_missing_stripes(stripes, osd_set, 2, 4) == 0);
+    assert(stripes[2].read_start == 0 && stripes[2].read_end == 128*1024);
+    assert(stripes[3].read_start == 0 && stripes[3].read_end == 0);
+    bitmaps[0] = 0xffffffff;
+    bitmaps[2] = 0;
+    set_pattern(stripes[0].read_buf, 128*1024, PATTERN1);
+    set_pattern(stripes[2].read_buf, 128*1024, PATTERN1^PATTERN2);
+    // Reconstruct
+    reconstruct_stripes_ec(stripes, 4, 2, bmp);
+    check_pattern(stripes[1].read_buf, 128*1024, PATTERN2);
+    assert(bitmaps[1] == 0xFFFFFFFF);
+    free(data_buf);
+    // Done
     use_ec(4, 2, false);
 }
