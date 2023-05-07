@@ -1045,7 +1045,12 @@ void test16()
     assert(stripes[3].read_buf == (uint8_t*)read_buf+2*128*1024);
     set_pattern(stripes[1].read_buf, 128*1024, PATTERN2);
     memcpy(stripes[3].read_buf, rmw_buf, 128*1024);
+    memset(stripes[0].bmp_buf, 0xa8, bmp);
+    memset(stripes[2].bmp_buf, 0xb7, bmp);
+    assert(bitmaps[1] == 0xFFFFFFFF);
+    assert(bitmaps[3] == 0xF1F1F1F1);
     reconstruct_stripes_ec(stripes, 4, 2, bmp);
+    assert(*(uint32_t*)stripes[3].bmp_buf == 0xF1F1F1F1);
     assert(bitmaps[0] == 0xFFFFFFFF);
     check_pattern(stripes[0].read_buf, 128*1024, PATTERN1);
     free(read_buf);

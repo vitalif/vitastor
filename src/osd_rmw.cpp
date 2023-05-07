@@ -357,7 +357,7 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
     auto recover_seq = [&]()
     {
         int orig = 0;
-        for (int other = 0; other < pg_size; other++)
+        for (int other = 0; other < pg_size && orig < pg_minsize; other++)
         {
             if (stripes[other].read_end != 0 && !stripes[other].missing)
             {
@@ -390,6 +390,32 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
     if (wanted > 0)
     {
         recover_seq();
+    }
+    // Recover bitmaps
+    if (bitmap_size > 0)
+    {
+        for (int role = 0; role < pg_minsize; role++)
+        {
+            if (stripes[role].read_end != 0 && stripes[role].missing)
+            {
+                data_ptrs[pg_minsize + (wanted++)] = (uint8_t*)stripes[role].bmp_buf;
+            }
+        }
+        if (wanted > 0)
+        {
+            int orig = 0;
+            for (int other = 0; other < pg_size && orig < pg_minsize; other++)
+            {
+                if (stripes[other].read_end != 0 && !stripes[other].missing)
+                {
+                    data_ptrs[orig++] = (uint8_t*)stripes[other].bmp_buf;
+                }
+            }
+            ec_encode_data(
+                bitmap_size, pg_minsize, wanted, dectable,
+                data_ptrs, data_ptrs + pg_minsize
+            );
+        }
     }
 }
 #else
