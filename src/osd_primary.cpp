@@ -186,10 +186,22 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
     cur_op->reply.rw.bitmap_len = 0;
     {
         auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
-        for (int role = 0; role < op_data->pg_data_size; role++)
+        if (cur_op->req.rw.len == 0)
         {
-            op_data->stripes[role].read_start = op_data->stripes[role].req_start;
-            op_data->stripes[role].read_end = op_data->stripes[role].req_end;
+            // len=0 => bitmap read
+            for (int role = 0; role < op_data->pg_data_size; role++)
+            {
+                op_data->stripes[role].read_start = 0;
+                op_data->stripes[role].read_end = UINT32_MAX;
+            }
+        }
+        else
+        {
+            for (int role = 0; role < op_data->pg_data_size; role++)
+            {
+                op_data->stripes[role].read_start = op_data->stripes[role].req_start;
+                op_data->stripes[role].read_end = op_data->stripes[role].req_end;
+            }
         }
         // Determine version
         auto vo_it = pg.ver_override.find(op_data->oid);

@@ -151,6 +151,13 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
         {
             int stripe_num = rep ? 0 : role;
             osd_op_t *subop = op_data->subops + i;
+            uint32_t subop_len = wr
+                ? stripes[stripe_num].write_end - stripes[stripe_num].write_start
+                : stripes[stripe_num].read_end - stripes[stripe_num].read_start;
+            if (!wr && stripes[stripe_num].read_end == UINT32_MAX)
+            {
+                subop_len = 0;
+            }
             if (role_osd_num == this->osd_num)
             {
                 clock_gettime(CLOCK_REALTIME, &subop->tv_begin);
@@ -169,7 +176,7 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                     },
                     .version = op_version,
                     .offset = wr ? stripes[stripe_num].write_start : stripes[stripe_num].read_start,
-                    .len = wr ? stripes[stripe_num].write_end - stripes[stripe_num].write_start : stripes[stripe_num].read_end - stripes[stripe_num].read_start,
+                    .len = subop_len,
                     .buf = wr ? stripes[stripe_num].write_buf : stripes[stripe_num].read_buf,
                     .bitmap = stripes[stripe_num].bmp_buf,
                 });
@@ -199,7 +206,7 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                     },
                     .version = op_version,
                     .offset = wr ? stripes[stripe_num].write_start : stripes[stripe_num].read_start,
-                    .len = wr ? stripes[stripe_num].write_end - stripes[stripe_num].write_start : stripes[stripe_num].read_end - stripes[stripe_num].read_start,
+                    .len = subop_len,
                     .attr_len = wr ? clean_entry_bitmap_size : 0,
                 };
 #ifdef OSD_DEBUG
@@ -218,9 +225,9 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                 }
                 else
                 {
-                    if (stripes[stripe_num].read_end > stripes[stripe_num].read_start)
+                    if (subop_len > 0)
                     {
-                        subop->iov.push_back(stripes[stripe_num].read_buf, stripes[stripe_num].read_end - stripes[stripe_num].read_start);
+                        subop->iov.push_back(stripes[stripe_num].read_buf, subop_len);
                     }
                 }
                 subop->callback = [cur_op, this](osd_op_t *subop)

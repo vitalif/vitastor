@@ -191,7 +191,7 @@ struct __attribute__((__packed__)) osd_op_rw_t
     uint64_t inode;
     // offset
     uint64_t offset;
-    // length
+    // length. 0 means to read all bitmaps of the specified range, but no data.
     uint32_t len;
     // flags (for future)
     uint32_t flags;

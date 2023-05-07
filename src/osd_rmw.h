@@ -23,6 +23,7 @@ struct osd_rmw_stripe_t
     void *read_buf, *write_buf;
     void *bmp_buf;
     uint32_t req_start, req_end;
+    // read_end=UINT32_MAX means to only read bitmap, but not data
     uint32_t read_start, read_end;
     uint32_t write_start, write_end;
     bool missing;

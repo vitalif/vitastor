@@ -28,7 +28,9 @@ static inline void extend_read(uint32_t start, uint32_t end, osd_rmw_stripe_t & 
     }
     else
     {
-        if (stripe.read_end < end)
+        if (stripe.read_end < end && end != UINT32_MAX ||
+            // UINT32_MAX means that stripe only needs bitmap, end != 0 => needs also data
+            stripe.read_end == UINT32_MAX && end != 0)
             stripe.read_end = end;
         if (stripe.read_start > start)
             stripe.read_start = start;
@@ -105,24 +107,30 @@ void reconstruct_stripes_xor(osd_rmw_stripe_t *stripes, int pg_size, uint32_t bi
                     }
                     else if (prev >= 0)
                     {
-                        assert(stripes[role].read_start >= stripes[prev].read_start &&
-                            stripes[role].read_start >= stripes[other].read_start);
-                        memxor(
-                            (uint8_t*)stripes[prev].read_buf + (stripes[role].read_start - stripes[prev].read_start),
-                            (uint8_t*)stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
-                            stripes[role].read_buf, stripes[role].read_end - stripes[role].read_start
-                        );
+                        if (stripes[role].read_end != UINT32_MAX)
+                        {
+                            assert(stripes[role].read_start >= stripes[prev].read_start &&
+                                stripes[role].read_start >= stripes[other].read_start);
+                            memxor(
+                                (uint8_t*)stripes[prev].read_buf + (stripes[role].read_start - stripes[prev].read_start),
+                                (uint8_t*)stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
+                                stripes[role].read_buf, stripes[role].read_end - stripes[role].read_start
+                            );
+                        }
                         memxor(stripes[prev].bmp_buf, stripes[other].bmp_buf, stripes[role].bmp_buf, bitmap_size);
                         prev = -1;
                     }
                     else
                     {
-                        assert(stripes[role].read_start >= stripes[other].read_start);
-                        memxor(
-                            stripes[role].read_buf,
-                            (uint8_t*)stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
-                            stripes[role].read_buf, stripes[role].read_end - stripes[role].read_start
-                        );
+                        if (stripes[role].read_end != UINT32_MAX)
+                        {
+                            assert(stripes[role].read_start >= stripes[other].read_start);
+                            memxor(
+                                stripes[role].read_buf,
+                                (uint8_t*)stripes[other].read_buf + (stripes[role].read_start - stripes[other].read_start),
+                                stripes[role].read_buf, stripes[role].read_end - stripes[role].read_start
+                            );
+                        }
                         memxor(stripes[role].bmp_buf, stripes[other].bmp_buf, stripes[role].bmp_buf, bitmap_size);
                     }
                 }
@@ -356,20 +364,23 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
     uint64_t read_start = 0, read_end = 0;
     auto recover_seq = [&]()
     {
-        int orig = 0;
-        for (int other = 0; other < pg_size && orig < pg_minsize; other++)
+        if (read_end != UINT32_MAX)
         {
-            if (stripes[other].read_end != 0 && !stripes[other].missing)
+            int orig = 0;
+            for (int other = 0; other < pg_size && orig < pg_minsize; other++)
             {
-                assert(stripes[other].read_start <= read_start);
-                assert(stripes[other].read_end >= read_end);
-                data_ptrs[orig++] = (uint8_t*)stripes[other].read_buf + (read_start - stripes[other].read_start);
+                if (stripes[other].read_end != 0 && !stripes[other].missing)
+                {
+                    assert(stripes[other].read_start <= read_start);
+                    assert(stripes[other].read_end >= read_end);
+                    data_ptrs[orig++] = (uint8_t*)stripes[other].read_buf + (read_start - stripes[other].read_start);
+                }
             }
+            ec_encode_data(
+                read_end-read_start, pg_minsize, wanted, dectable + wanted_base*32*pg_minsize,
+                data_ptrs, data_ptrs + pg_minsize
+            );
         }
-        ec_encode_data(
-            read_end-read_start, pg_minsize, wanted, dectable + wanted_base*32*pg_minsize,
-            data_ptrs, data_ptrs + pg_minsize
-        );
         wanted_base += wanted;
         wanted = 0;
     };
@@ -438,7 +449,8 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
         if (stripes[role].read_end != 0 && stripes[role].missing)
         {
             recovered = true;
-            if (stripes[role].read_end > stripes[role].read_start)
+            if (stripes[role].read_end > stripes[role].read_start &&
+                stripes[role].read_end != UINT32_MAX)
             {
                 for (int other = 0; other < pg_size; other++)
                 {
@@ -557,7 +569,8 @@ void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t ad
     uint64_t buf_size = add_size;
     for (int role = 0; role < read_pg_size; role++)
     {
-        if (stripes[role].read_end != 0)
+        if (stripes[role].read_end != 0 &&
+            stripes[role].read_end != UINT32_MAX)
         {
             buf_size += stripes[role].read_end - stripes[role].read_start;
         }
@@ -567,7 +580,8 @@ void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t ad
     uint64_t buf_pos = add_size;
     for (int role = 0; role < read_pg_size; role++)
     {
-        if (stripes[role].read_end != 0)
+        if (stripes[role].read_end != 0 &&
+            stripes[role].read_end != UINT32_MAX)
         {
             stripes[role].read_buf = (uint8_t*)buf + buf_pos;
             buf_pos += stripes[role].read_end - stripes[role].read_start;
