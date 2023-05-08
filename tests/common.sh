@@ -36,12 +36,12 @@ for i in $(seq 2 $ETCD_COUNT); do
     ETCD_URL="$ETCD_URL,http://$ETCD_IP:$((ETCD_PORT+2*i-2))"
     ETCD_CLUSTER="$ETCD_CLUSTER,etcd$i=http://$ETCD_IP:$((ETCD_PORT+2*i-1))"
 done
-ETCDCTL="${ETCD}ctl --endpoints=$ETCD_URL"
+ETCDCTL="${ETCD}ctl --endpoints=$ETCD_URL --dial-timeout=5s --command-timeout=10s"
 
 start_etcd()
 {
     local i=$1
-    $ETCD -name etcd$i --data-dir ./testdata/etcd$i \
+    ionice -c2 -n0 $ETCD -name etcd$i --data-dir ./testdata/etcd$i \
         --advertise-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) --listen-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) \
         --initial-advertise-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) --listen-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) \
         --initial-cluster-token vitastor-tests-etcd --initial-cluster-state new \
@@ -53,8 +53,11 @@ start_etcd()
 for i in $(seq 1 $ETCD_COUNT); do
     start_etcd $i
 done
-if [ $ETCD_COUNT -gt 1 ]; then
-    sleep 1
+for i in {1..10}; do
+    ${ETCD}ctl --endpoints=$ETCD_URL --dial-timeout=1s --command-timeout=1s member list >/dev/null && break
+done
+if [[ $i = 10 ]]; then
+    format_error "Failed to start etcd"
 fi
 
 echo leak:fio >> testdata/lsan-suppress.txt
