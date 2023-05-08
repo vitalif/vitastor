@@ -100,13 +100,13 @@ wait_finish_rebalance()
     sec=$1
     i=0
     while [[ $i -lt $sec ]]; do
-        ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select(.state == ["active"]) ] | length) == 32') && \
+        ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select(.state == ["active"] or .state == ["active", "left_on_dead"]) ] | length) == '$PG_COUNT) && \
             break
-        if [ $i -eq 60 ]; then
-            format_error "Rebalance couldn't finish in $sec seconds"
-        fi
         sleep 1
         i=$((i+1))
+        if [ $i -eq $sec ]; then
+            format_error "Rebalance couldn't finish in $sec seconds"
+        fi
     done
 }
 
