@@ -117,3 +117,14 @@ check_qemu()
         sudo ln -s "$(realpath .)/build/src/block-vitastor.so" /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so
     fi
 }
+
+check_nbd()
+{
+    if [[ -d /sys/module/nbd && ! -e /dev/nbd0 ]]; then
+        max_part=$(cat /sys/module/nbd/parameters/max_part)
+        nbds_max=$(cat /sys/module/nbd/parameters/nbds_max)
+        for i in $(seq 1 $nbds_max); do
+            mknod /dev/nbd$((i-1)) b 43 $(((i-1)*(max_part+1)))
+        done
+    fi
+}

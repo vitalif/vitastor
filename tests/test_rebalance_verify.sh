@@ -4,6 +4,8 @@ OSD_COUNT=7
 PG_COUNT=32
 . `dirname $0`/run_3osds.sh
 
+check_nbd
+
 IMG_SIZE=256
 
 $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testimg","size":'$((IMG_SIZE*1024*1024))'}'
