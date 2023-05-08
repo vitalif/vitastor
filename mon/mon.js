@@ -1235,7 +1235,7 @@ class Mon
                             return;
                         }
                         const new_pg_history = [];
-                        PGUtil.scale_pg_count(prev_pgs, pg_history, new_pg_history, pool_cfg.pg_count);
+                        PGUtil.scale_pg_count(prev_pgs, real_prev_pgs, pg_history, new_pg_history, pool_cfg.pg_count);
                         pg_history = new_pg_history;
                     }
                     for (const pg of prev_pgs)

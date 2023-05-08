@@ -43,16 +43,16 @@ function finish_pg_history(merged_history)
     merged_history.all_peers = Object.values(merged_history.all_peers);
 }
 
-function scale_pg_count(prev_pgs, prev_pg_history, new_pg_history, new_pg_count)
+function scale_pg_count(prev_pgs, real_prev_pgs, prev_pg_history, new_pg_history, new_pg_count)
 {
-    const old_pg_count = prev_pgs.length;
+    const old_pg_count = real_prev_pgs.length;
     // Add all possibly intersecting PGs to the history of new PGs
     if (!(new_pg_count % old_pg_count))
     {
         // New PG count is a multiple of old PG count
         for (let i = 0; i < new_pg_count; i++)
         {
-            add_pg_history(new_pg_history, i, prev_pgs, prev_pg_history, i % old_pg_count);
+            add_pg_history(new_pg_history, i, real_prev_pgs, prev_pg_history, i % old_pg_count);
             finish_pg_history(new_pg_history[i]);
         }
     }
@@ -64,7 +64,7 @@ function scale_pg_count(prev_pgs, prev_pg_history, new_pg_history, new_pg_count)
         {
             for (let j = 0; j < mul; j++)
             {
-                add_pg_history(new_pg_history, i, prev_pgs, prev_pg_history, i+j*new_pg_count);
+                add_pg_history(new_pg_history, i, real_prev_pgs, prev_pg_history, i+j*new_pg_count);
             }
             finish_pg_history(new_pg_history[i]);
         }
@@ -76,7 +76,7 @@ function scale_pg_count(prev_pgs, prev_pg_history, new_pg_history, new_pg_count)
         let merged_history = {};
         for (let i = 0; i < old_pg_count; i++)
         {
-            add_pg_history(merged_history, 1, prev_pgs, prev_pg_history, i);
+            add_pg_history(merged_history, 1, real_prev_pgs, prev_pg_history, i);
         }
         finish_pg_history(merged_history[1]);
         for (let i = 0; i < new_pg_count; i++)
@@ -90,15 +90,15 @@ function scale_pg_count(prev_pgs, prev_pg_history, new_pg_history, new_pg_count)
         new_pg_history[i] = null;
     }
     // Just for the lp_solve optimizer - pick a "previous" PG for each "new" one
-    if (old_pg_count < new_pg_count)
+    if (prev_pgs.length < new_pg_count)
     {
-        for (let i = old_pg_count; i < new_pg_count; i++)
+        for (let i = prev_pgs.length; i < new_pg_count; i++)
         {
-            prev_pgs[i] = prev_pgs[i % old_pg_count];
+            prev_pgs[i] = prev_pgs[i % prev_pgs.length];
         }
     }
-    else if (old_pg_count > new_pg_count)
+    else if (prev_pgs.length > new_pg_count)
     {
-        prev_pgs.splice(new_pg_count, old_pg_count-new_pg_count);
+        prev_pgs.splice(new_pg_count, prev_pgs.length-new_pg_count);
     }
 }
