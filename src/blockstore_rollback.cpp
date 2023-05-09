@@ -201,6 +201,11 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
     }
     while (1)
     {
+        if ((IS_BIG_WRITE(dirty_it->second.state) || IS_DELETE(dirty_it->second.state)) &&
+            IS_STABLE(dirty_it->second.state))
+        {
+            big_to_flush--;
+        }
         if (IS_BIG_WRITE(dirty_it->second.state) && dirty_it->second.location != clean_loc &&
             dirty_it->second.location != UINT64_MAX)
         {

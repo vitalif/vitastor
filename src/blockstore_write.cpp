@@ -271,6 +271,13 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (loc == UINT64_MAX)
         {
             // no space
+            if (big_to_flush > 0)
+            {
+                // hope that some space will be available after flush
+                flusher->request_trim();
+                PRIV(op)->wait_for = WAIT_FREE;
+                return 0;
+            }
             cancel_all_writes(op, dirty_it, -ENOSPC);
             return 2;
         }

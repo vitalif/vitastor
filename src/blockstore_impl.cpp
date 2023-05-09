@@ -307,6 +307,18 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
         }
         PRIV(op)->wait_for = 0;
     }
+    else if (PRIV(op)->wait_for == WAIT_FREE)
+    {
+        if (!data_alloc->get_free_count() && big_to_flush > 0)
+        {
+#ifdef BLOCKSTORE_DEBUG
+            printf("Still waiting for free space on the data device\n");
+#endif
+            return;
+        }
+        flusher->release_trim();
+        PRIV(op)->wait_for = 0;
+    }
     else
     {
         throw std::runtime_error("BUG: op->wait_for value is unexpected");

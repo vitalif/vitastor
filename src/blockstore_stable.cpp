@@ -446,6 +446,7 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
                     {
                         inode_space_stats[dirty_it->first.oid.inode] += dsk.data_block_size;
                     }
+                    big_to_flush++;
                 }
                 else if (IS_DELETE(dirty_it->second.state))
                 {
@@ -454,6 +455,7 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
                         sp -= dsk.data_block_size;
                     else
                         inode_space_stats.erase(dirty_it->first.oid.inode);
+                    big_to_flush++;
                 }
             }
             if (forget_dirty && (IS_BIG_WRITE(dirty_it->second.state) ||
