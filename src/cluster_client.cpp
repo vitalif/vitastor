@@ -743,15 +743,16 @@ resume_3:
         erase_op(op);
         return 1;
     }
-    else if (op->retval != 0 && op->retval != -EPIPE)
+    else if (op->retval != 0 && op->retval != -EPIPE && op->retval != -EIO && op->retval != -ENOSPC)
     {
-        // Fatal error (not -EPIPE)
+        // Fatal error (neither -EPIPE, -EIO nor -ENOSPC)
+        // FIXME: Add a parameter to allow to not wait for EIOs (incomplete or corrupted objects) to heal
         erase_op(op);
         return 1;
     }
     else
     {
-        // -EPIPE - clear the error and retry
+        // Non-fatal error - clear the error and retry
         op->retval = 0;
         if (op->needs_reslice)
         {
@@ -1048,7 +1049,7 @@ resume_1:
                 uw_it->second.state = CACHE_DIRTY;
             }
         }
-        if (op->retval == -EPIPE)
+        if (op->retval == -EPIPE || op->retval == -EIO || op->retval == -ENOSPC)
         {
             // Retry later
             op->parts.clear();
@@ -1119,13 +1120,13 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
     {
         // Operation failed, retry
         part->flags |= PART_ERROR;
-        if (!op->retval || op->retval == -EPIPE)
+        if (!op->retval || op->retval == -EPIPE || part->op.reply.hdr.retval == -EIO)
         {
-            // Don't overwrite other errors with -EPIPE
+            // Error priority: EIO > ENOSPC > EPIPE
             op->retval = part->op.reply.hdr.retval;
         }
         int stop_fd = -1;
-        if (op->retval != -EINTR && op->retval != -EIO)
+        if (op->retval != -EINTR && op->retval != -EIO && op->retval != -ENOSPC)
         {
             stop_fd = part->op.peer_fd;
             fprintf(
@@ -1133,21 +1134,25 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
                 osd_op_names[part->op.req.hdr.opcode], part->osd_num, part->op.reply.hdr.retval, expected
             );
         }
+        else
+        {
+            fprintf(
+                stderr, "%s operation failed on OSD %lu: retval=%ld (expected %d)\n",
+                osd_op_names[part->op.req.hdr.opcode], part->osd_num, part->op.reply.hdr.retval, expected
+            );
+        }
         // All next things like timer, continue_sync/rw and stop_client may affect the operation again
         // So do all these things after modifying operation state, otherwise we may hit reenterability bugs
         // FIXME postpone such things to set_immediate here to avoid bugs
-        if (part->op.reply.hdr.retval == -EPIPE)
+        // Mark op->up_wait = true to retry operation after a short pause (not immediately)
+        op->up_wait = true;
+        if (!retry_timeout_id)
         {
-            // Mark op->up_wait = true before stopping the client
-            op->up_wait = true;
-            if (!retry_timeout_id)
+            retry_timeout_id = tfd->set_timer(up_wait_retry_interval, false, [this](int)
             {
-                retry_timeout_id = tfd->set_timer(up_wait_retry_interval, false, [this](int)
-                {
-                    retry_timeout_id = 0;
-                    continue_ops(true);
-                });
-            }
+                retry_timeout_id = 0;
+                continue_ops(true);
+            });
         }
         if (op->inflight_count == 0)
         {

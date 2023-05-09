@@ -81,7 +81,7 @@ resume_1:
         if (!cur_op->rmw_buf)
         {
             // Refuse partial overwrite of an incomplete object
-            cur_op->reply.hdr.retval = -EINVAL;
+            cur_op->reply.hdr.retval = -EIO;
             goto continue_others;
         }
     }
