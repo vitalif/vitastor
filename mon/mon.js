@@ -1823,6 +1823,7 @@ function POST(url, body, timeout)
             clearTimeout(timer_id);
             let res_body = '';
             res.setEncoding('utf8');
+            res.on('error', (error) => ok({ error }));
             res.on('data', chunk => { res_body += chunk; });
             res.on('end', () =>
             {
@@ -1842,6 +1843,8 @@ function POST(url, body, timeout)
                 }
             });
         });
+        req.on('error', (error) => ok({ error }));
+        req.on('close', () => ok({ error: new Error('Connection closed prematurely') }));
         req.write(body_text);
         req.end();
     });
