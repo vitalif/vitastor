@@ -103,7 +103,10 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
             cl->recv_list.eat(result);
             if (cl->recv_list.done >= cl->recv_list.count)
             {
-                handle_finished_read(cl);
+                if (!handle_finished_read(cl))
+                {
+                    goto fin;
+                }
             }
         }
         if (result >= cl->read_iov.iov_len)
