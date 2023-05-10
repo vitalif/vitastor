@@ -44,5 +44,5 @@ SCHEME=xor ./test_write.sh
 
 ./test_write_no_same.sh
 
-./test_heal.sh
-SCHEME=ec PG_MINSIZE=2 ./test_heal.sh
+PG_SIZE=2 ./test_heal.sh
+SCHEME=ec ./test_heal.sh

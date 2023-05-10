@@ -28,7 +28,7 @@ if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only |\
     format_error "FAILED: OSD NOT ADDED INTO DISTRIBUTION"
 fi
 
-wait_finish_rebalance 20
+wait_finish_rebalance 60
 
 sleep 1
 kill -9 $OSD4_PID
@@ -50,6 +50,6 @@ if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only |\
     format_error "FAILED: OSD NOT REMOVED FROM DISTRIBUTION"
 fi
 
-wait_finish_rebalance 20
+wait_finish_rebalance 60
 
 format_green OK

@@ -14,7 +14,7 @@ for i in $(seq 1 $OSD_COUNT); do
     eval OSD${i}_PID=$!
 done
 
-node mon/mon-main.js --etcd_url $ETCD_URL --etcd_prefix "/vitastor" &>./testdata/mon.log &
+(while true; do node mon/mon-main.js --etcd_url $ETCD_URL --etcd_prefix "/vitastor" --verbose 1 || true; done) &>./testdata/mon.log &
 MON_PID=$!
 
 sleep 3

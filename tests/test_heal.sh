@@ -2,7 +2,11 @@
 
 # Kill OSDs while writing
 
-PG_SIZE=3
+PG_SIZE=${PG_SIZE:-3}
+if [[ "$SCHEME" = "ec" ]]; then
+    PG_DATA_SIZE=${PG_DATA_SIZE:-2}
+    PG_MINSIZE=${PG_MINSIZE:-3}
+fi
 OSD_COUNT=7
 PG_COUNT=32
 . `dirname $0`/run_3osds.sh

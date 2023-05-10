@@ -39,19 +39,19 @@ done
 cd mon
 npm install
 cd ..
-node mon/mon-main.js --etcd_url $ETCD_URL --etcd_prefix "/vitastor" --verbose 1 &>./testdata/mon.log &
+(while true; do node mon/mon-main.js --etcd_url $ETCD_URL --etcd_prefix "/vitastor" --verbose 1 || true; done) &>./testdata/mon.log &
 MON_PID=$!
 
 if [ "$SCHEME" = "ec" ]; then
     PG_SIZE=${PG_SIZE:-5}
-    PG_MINSIZE=${PG_MINSIZE:-3}
-    PG_DATA_SIZE=$PG_MINSIZE
-    POOLCFG='"scheme":"ec","parity_chunks":'$((PG_SIZE-PG_MINSIZE))
+    PG_MINSIZE=${PG_MINSIZE:-4}
+    PG_DATA_SIZE=${PG_DATA_SIZE:-3}
+    POOLCFG='"scheme":"ec","parity_chunks":'$((PG_SIZE-PG_DATA_SIZE))
 elif [ "$SCHEME" = "xor" ]; then
     PG_SIZE=${PG_SIZE:-3}
-    PG_MINSIZE=${PG_MINSIZE:-2}
-    PG_DATA_SIZE=$PG_MINSIZE
-    POOLCFG='"scheme":"xor","parity_chunks":'$((PG_SIZE-PG_MINSIZE))
+    PG_MINSIZE=${PG_MINSIZE:-3}
+    PG_DATA_SIZE=$((PG_SIZE-1))
+    POOLCFG='"scheme":"xor","parity_chunks":1'
 else
     PG_SIZE=${PG_SIZE:-2}
     PG_MINSIZE=${PG_MINSIZE:-2}

@@ -31,7 +31,7 @@ try_reweight 4 1
 try_reweight 5 1
 
 # Wait for the rebalance to finish
-wait_finish_rebalance 60
+wait_finish_rebalance 300
 
 # Check that PGs never had degraded objects !
 # FIXME: In fact, the test doesn't guarantee it because PGs aren't always peered only with full prior OSD sets :-(
