@@ -15,11 +15,14 @@ $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicate
 
 $ETCDCTL put /vitastor/config/pgs '{"items":{"1":{"1":{"osd_set":[1,0],"primary":1}}}}'
 
-sleep 2
-
-if ! ($ETCDCTL get /vitastor/pg/state/1/1 --print-value-only | jq -s -e '(. | length) != 0 and .[0].state == ["active","degraded"]'); then
-    format_error "Failed to start the PG active+degraded"
-fi
+for i in {1..30}; do
+    sleep 1
+    if ($ETCDCTL get /vitastor/pg/state/1/1 --print-value-only | jq -s -e '(. | length) != 0 and .[0].state == ["active","degraded"]'); then
+        break
+    elif [[ $i = 30 ]]; then
+        format_error "Failed to start the PG active+degraded"
+    fi
+done
 
 LD_PRELOAD="build/src/libfio_vitastor.so" \
 fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write \
@@ -27,45 +30,60 @@ fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4M -direct=1 -
 
 $ETCDCTL put /vitastor/config/pgs '{"items":{"1":{"1":{"osd_set":[1,0],"primary":0}}}}'
 
-sleep 2
-
-if [ "`$ETCDCTL get /vitastor/pg/state/1/1 --print-value-only`" != "" ]; then
-    format_error "Failed to stop the PG"
-fi
+for i in {1..30}; do
+    sleep 1
+    if [[ "`$ETCDCTL get /vitastor/pg/state/1/1 --print-value-only`" = "" ]]; then
+        break
+    elif [[ $i = 30 ]]; then
+        format_error "Failed to stop the PG"
+    fi
+done
 
 $ETCDCTL put /vitastor/pg/history/1/1 '{"all_peers":[1,2,3]}'
 
 $ETCDCTL put /vitastor/config/pgs '{"items":{"1":{"1":{"osd_set":[4,5],"primary":4}}}}'
 
 sleep 5
-
-if ! ($ETCDCTL get /vitastor/pg/state/1/1 --print-value-only | jq -s -e '(. | length) != 0 and .[0].state == ["active"]'); then
-    format_error "Failed to move degraded objects to the clean OSD set"
-fi
+for i in {1..30}; do
+    sleep 1
+    if ($ETCDCTL get /vitastor/pg/state/1/1 --print-value-only | jq -s -e '(. | length) != 0 and .[0].state == ["active"]'); then
+        break
+    elif [[ $i = 30 ]]; then
+        format_error "Failed to move degraded objects to the clean OSD set"
+    fi
+done
 
 $ETCDCTL put /vitastor/config/pgs '{"items":{"1":{"1":{"osd_set":[4,5],"primary":0}}}}'
 
 $ETCDCTL put /vitastor/pg/history/1/1 '{"all_peers":[1,2,3]}'
 
-sleep 2
-
-if [ "`$ETCDCTL get /vitastor/pg/state/1/1 --print-value-only`" != "" ]; then
-    format_error "Failed to stop the PG after degraded recovery"
-fi
+for i in {1..30}; do
+    sleep 1
+    if [ "`$ETCDCTL get /vitastor/pg/state/1/1 --print-value-only`" = "" ]; then
+        break
+    elif [[ $i = 30 ]]; then
+        format_error "Failed to stop the PG after degraded recovery"
+    fi
+done
 
 cp testdata/osd4.log testdata/osd4_pre.log
 >testdata/osd4.log
 
 $ETCDCTL put /vitastor/config/pgs '{"items":{"1":{"1":{"osd_set":[4,5],"primary":4}}}}'
 
-sleep 2
-
-if grep -q 'PG 1/1.*is.*has_' testdata/osd4.log; then
-    format_error "PG has degraded or misplaced objects after a full re-peer following a degraded recovery"
-fi
-
-if ! ($ETCDCTL get /vitastor/pg/state/1/1 --print-value-only | jq -s -e '(. | length) != 0 and .[0].state == ["active"]'); then
-    format_error "PG not active+clean after a full re-peer following a degraded recovery"
-fi
+for i in {1..30}; do
+    sleep 1
+    if grep -q 'PG 1/1.*is.*has_' testdata/osd4.log; then
+        if [[ $i = 30 ]]; then
+            format_error "PG has degraded or misplaced objects after a full re-peer following a degraded recovery"
+        fi
+    elif ! ($ETCDCTL get /vitastor/pg/state/1/1 --print-value-only | jq -s -e '(. | length) != 0 and .[0].state == ["active"]'); then
+        if [[ $i = 30 ]]; then
+            format_error "PG not active+clean after a full re-peer following a degraded recovery"
+        fi
+    else
+        break
+    fi
+done
 
 format_green OK
