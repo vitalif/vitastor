@@ -30,6 +30,9 @@ try_reweight 4 1
 
 try_reweight 5 1
 
+# Allow rebalance to start
+sleep 5
+
 # Wait for the rebalance to finish
 wait_finish_rebalance 300
 

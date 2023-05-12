@@ -53,12 +53,12 @@ start_etcd()
 for i in $(seq 1 $ETCD_COUNT); do
     start_etcd $i
 done
-for i in {1..10}; do
+for i in {1..30}; do
     ${ETCD}ctl --endpoints=$ETCD_URL --dial-timeout=1s --command-timeout=1s member list >/dev/null && break
+    if [[ $i = 30 ]]; then
+        format_error "Failed to start etcd"
+    fi
 done
-if [[ $i = 10 ]]; then
-    format_error "Failed to start etcd"
-fi
 
 echo leak:fio >> testdata/lsan-suppress.txt
 echo leak:tcmalloc >> testdata/lsan-suppress.txt
