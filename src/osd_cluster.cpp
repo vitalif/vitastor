@@ -812,11 +812,21 @@ void osd_t::report_pg_states()
                     pg_it->second.cur_state != 0)
                 {
                     pg_state_exists = true;
+                    if (pg.state == PG_OFFLINE && pg_it->second.cur_primary != this->osd_num)
+                    {
+                        // Nothing to check or report, PG is already taken over by another OSD
+                        continue;
+                    }
                 }
             }
         }
         if (!pg_state_exists)
         {
+            if (pg.state == PG_OFFLINE)
+            {
+                // Nothing to check or report, PG is already stopped
+                continue;
+            }
             // Check that the PG key does not exist
             // Failed check indicates an unsuccessful PG lock attempt in this case
             checks.push_back(json11::Json::object {
@@ -900,6 +910,15 @@ void osd_t::report_pg_states()
     }, st_cli.etcd_quick_timeout, 0, 0, [this, reporting_pgs](std::string err, json11::Json data)
     {
         etcd_reporting_pg_state = false;
+        if (!data["succeeded"].bool_value())
+        {
+            std::string rpgnames = "";
+            for (auto pp: reporting_pgs)
+            {
+                rpgnames += (rpgnames.size() ? ", " : "")+std::to_string(pp.pool_pg_num.pool_id)+"/"+std::to_string(pp.pool_pg_num.pg_num);
+            }
+            printf("Error reporting PG %s states, will repeat the attempt: %s\n", rpgnames.c_str(), err.c_str());
+        }
         if (!data["succeeded"].bool_value())
         {
             // One of PG state updates failed, put dirty flags back
