@@ -10,7 +10,7 @@ IMG_SIZE=256
 
 $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testimg","size":'$((IMG_SIZE*1024*1024))'}'
 
-NBD_DEV=$(sudo build/src/vitastor-nbd map --etcd_address $ETCD_URL --image testimg --logfile ./testdata/nbd.log &)
+NBD_DEV=$(sudo build/src/vitastor-nbd map --nbd_timeout 180 --etcd_address $ETCD_URL --image testimg --logfile ./testdata/nbd.log &)
 
 trap "sudo build/src/vitastor-nbd unmap $NBD_DEV"'; kill -9 $(jobs -p)' EXIT
 
