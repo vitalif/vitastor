@@ -197,6 +197,11 @@ resume_5:
     }
     if (op_data->errors > 0)
     {
+        // FIXME: Handle ENOSPC. If one of the subops fail with ENOSPC here,
+        // next writes to the same object will also fail because they'll try
+        // to overwrite the same version number which will result in EEXIST.
+        // To fix it, we should mark the object as degraded for replicas,
+        // and rollback successful part updates in case of EC.
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
         return;
     }
