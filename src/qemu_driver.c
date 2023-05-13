@@ -218,6 +218,7 @@ static void coroutine_fn vitastor_co_get_metadata(VitastorRPC *task)
     }
 }
 
+// FIXME: Fix thread safety of the driver - now it segfaults when iothread is enabled in QEMU
 static void vitastor_aio_set_fd_handler(void *ctx, int fd, int unused1, IOHandler *fd_read, IOHandler *fd_write, void *unused2, void *opaque)
 {
     aio_set_fd_handler(ctx, fd,
