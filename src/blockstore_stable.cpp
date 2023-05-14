@@ -103,7 +103,7 @@ blockstore_op_t* blockstore_impl_t::selective_sync(blockstore_op_t *op)
     blockstore_op_t *sync_op = new blockstore_op_t;
     sync_op->opcode = BS_OP_SYNC;
     sync_op->buf = NULL;
-    sync_op->callback = [this](blockstore_op_t *sync_op)
+    sync_op->callback = [](blockstore_op_t *sync_op)
     {
         delete sync_op;
     };
@@ -244,7 +244,7 @@ int blockstore_impl_t::split_stab_op(blockstore_op_t *op, std::function<int(obj_
         // Make a wrapped callback
         int *split_op_counter = (int*)malloc_or_die(sizeof(int));
         *split_op_counter = (sync_op ? 1 : 0) + (split_stab_op ? 1 : 0) + (todo ? 1 : 0);
-        auto cb = [this, op, good_items = good_vers.items,
+        auto cb = [op, good_items = good_vers.items,
             bad_items = bad_vers.items, split_op_counter,
             orig_buf, real_cb = op->callback](blockstore_op_t *split_op)
         {
