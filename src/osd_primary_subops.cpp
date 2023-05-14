@@ -176,7 +176,7 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                     {
                         handle_primary_bs_subop(subop);
                     },
-                    {
+                    { {
                         .oid = (object_id){
                             .inode = inode,
                             .stripe = op_data->oid.stripe | stripe_num,
@@ -184,7 +184,7 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                         .version = op_version,
                         .offset = wr ? si->write_start : si->read_start,
                         .len = subop_len,
-                    },
+                    } },
                     .buf = wr ? si->write_buf : si->read_buf,
                     .bitmap = si->bmp_buf,
                 });
@@ -533,8 +533,10 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
                 {
                     handle_primary_bs_subop(subop);
                 },
-                .oid = chunk.oid,
-                .version = chunk.version,
+                { {
+                    .oid = chunk.oid,
+                    .version = chunk.version,
+                } },
             });
             bs->enqueue_op(subops[i].bs_op);
         }

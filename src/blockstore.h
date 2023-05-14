@@ -149,10 +149,10 @@ struct blockstore_op_t
     uint64_t opcode;
     // finish callback
     std::function<void (blockstore_op_t*)> callback;
-    union
+    union __attribute__((__packed__))
     {
         // R/W
-        struct
+        struct __attribute__((__packed__))
         {
             object_id oid;
             uint64_t version;

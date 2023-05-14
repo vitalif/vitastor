@@ -178,11 +178,11 @@ struct cli_describe_t
                     {
                         if (!parent->json_output || parent->is_command_line)
                         {
-#define FMT "{\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"part\":%u,\"osd_num\":%u%s%s%s}"
+#define FMT "{\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"part\":%u,\"osd_num\":%lu%s%s%s}"
                             printf(
                                 (parent->json_output
                                     ? (count > 0 ? ",\n  " FMT : "  " FMT)
-                                    : "%lx:%lx part %u on OSD %u%s%s%s\n"),
+                                    : "%lx:%lx part %u on OSD %lu%s%s%s\n"),
 #undef FMT
                                 items[i].inode, items[i].stripe,
                                 items[i].role, items[i].osd_num,

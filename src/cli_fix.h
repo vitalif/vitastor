@@ -4,6 +4,7 @@
 #pragma once
 
 #include "cli.h"
+#include <algorithm>
 
 std::vector<uint64_t> parse_uint64_list(json11::Json val);
 
