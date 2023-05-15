@@ -31,8 +31,8 @@
 - Enable elrepo-kernel:
   - CentOS 7: `yum install https://www.elrepo.org/elrepo-release-7.el7.elrepo.noarch.rpm`
   - CentOS 8: `dnf install https://www.elrepo.org/elrepo-release-8.el8.elrepo.noarch.rpm`
-  - RHEL 9 clones: optional, not required: `dnf install https://www.elrepo.org/elrepo-release-9.el9.elrepo.noarch.rpm`
-- Install packages: `yum/dnf install vitastor lpsolve etcd qemu-kvm` and optionally `kernel-ml` if you use elrepo-kernel
+  - RHEL 9 clones: `dnf install https://www.elrepo.org/elrepo-release-9.el9.elrepo.noarch.rpm`
+- Install packages: `yum/dnf install vitastor lpsolve etcd kernel-ml qemu-kvm`
 
 ## Installation requirements
 
