@@ -848,7 +848,7 @@ class Mon
         }
         for (const node_id in tree)
         {
-            if (node_id === '')
+            if (node_id === '' || tree[node_id].level === 'osd' && (!tree[node_id].size || tree[node_id].size <= 0))
             {
                 continue;
             }
