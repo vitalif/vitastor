@@ -958,7 +958,7 @@ class Mon
 
     save_new_pgs_txn(save_to, request, pool_id, up_osds, osd_tree, prev_pgs, new_pgs, pg_history)
     {
-        const aff_osds = this.get_affinity_osds(this.state.config.pools[pool_id], up_osds, osd_tree);
+        const aff_osds = this.get_affinity_osds(this.state.config.pools[pool_id] || {}, up_osds, osd_tree);
         const pg_items = {};
         this.reset_rng();
         new_pgs.map((osd_set, i) =>
