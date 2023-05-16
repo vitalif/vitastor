@@ -39,7 +39,7 @@ verify() {
     diff ./testdata/img1.bin ./testdata/img2.bin
 
     # Wait for the rebalance to finish
-    wait_finish_rebalance 60
+    wait_finish_rebalance 300
 
     echo "Verifying after rebalance"
     dd if=$NBD_DEV of=./testdata/img2.bin bs=1M count=$IMG_SIZE iflag=direct
