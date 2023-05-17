@@ -27,7 +27,6 @@ verify() {
 
     $ETCDCTL put /vitastor/config/osd/1 '{"reweight":'$1'}'
     $ETCDCTL put /vitastor/config/osd/2 '{"reweight":'$1'}'
-    $ETCDCTL put /vitastor/config/osd/3 '{"reweight":'$1'}'
     sleep 1
 
     for i in {1..10000}; do
