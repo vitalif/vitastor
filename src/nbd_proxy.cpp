@@ -137,12 +137,19 @@ public:
             "OPTIONS:\n"
             "  All usual Vitastor config options like --etcd_address <etcd_address> plus NBD-specific:\n"
             "  --nbd_timeout 30\n"
-            "    timeout in seconds after which the kernel will stop the device\n"
-            "    you can set it to 0, but beware that you won't be able to stop the device at all\n"
-            "    if vitastor-nbd process dies\n"
+            "    Timeout for I/O operations in seconds after exceeding which the kernel stops\n"
+            "    the device. You can set it to 0 to disable the timeout, but beware that you\n"
+            "    won't be able to stop the device at all if vitastor-nbd process dies.\n"
             "  --nbd_max_devices 64 --nbd_max_part 3\n"
-            "    options for the \"nbd\" kernel module when modprobing it (nbds_max and max_part).\n"
-            "    note that maximum allowed (nbds_max)*(1+max_part) is 256.\n",
+            "    Options for the \"nbd\" kernel module when modprobing it (nbds_max and max_part).\n"
+            "    note that maximum allowed (nbds_max)*(1+max_part) is 256.\n"
+            "  --logfile /path/to/log/file.txt\n"
+            "    Wite log messages to the specified file instead of dropping them (in background mode)\n"
+            "    or printing them to the standard output (in foreground mode).\n"
+            "  --dev_num N\n"
+            "    Use the specified device /dev/nbdN instead of automatic selection.\n"
+            "  --foreground 1\n"
+            "    Stay in foreground, do not daemonize.n",
             exe_name, exe_name, exe_name
         );
         exit(0);
