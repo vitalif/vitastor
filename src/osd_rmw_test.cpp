@@ -28,7 +28,7 @@ void test14();
 void test15(bool second);
 void test16();
 void test_recover_22_d2();
-void test_ec42_error_bruteforce();
+void test_ec43_error_bruteforce();
 
 int main(int narg, char *args[])
 {
@@ -66,7 +66,7 @@ int main(int narg, char *args[])
     // Test 17
     test_recover_22_d2();
     // Error bruteforce
-    test_ec42_error_bruteforce();
+    test_ec43_error_bruteforce();
     // End
     printf("all ok\n");
     return 0;
@@ -1116,7 +1116,7 @@ EC 4+2 error location bruteforce
 
 ***/
 
-static void assert_eq_vec(const std::vector<int> & a, const std::vector<int> & b)
+static void assert_eq_vec(const std::vector<int> & b, const std::vector<int> & a)
 {
     printf("Expect [");
     for (int i = 0; i < a.size(); i++)
@@ -1128,25 +1128,27 @@ static void assert_eq_vec(const std::vector<int> & a, const std::vector<int> & b
     assert(a == b);
 }
 
-void test_ec42_error_bruteforce()
+void test_ec43_error_bruteforce()
 {
-    use_ec(6, 4, true);
-    osd_num_t osd_set[6] = { 1, 2, 3, 4, 5, 6 };
-    osd_rmw_stripe_t stripes[6] = {};
+    use_ec(7, 4, true);
+    osd_num_t osd_set[7] = { 1, 2, 3, 4, 5, 6, 7 };
+    osd_rmw_stripe_t stripes[7] = {};
     split_stripes(4, 4096, 0, 4096 * 4, stripes);
-    uint8_t *write_buf = (uint8_t*)malloc_or_die(4096 * 6);
+    uint8_t *write_buf = (uint8_t*)malloc_or_die(4096 * 7);
     set_pattern(write_buf+0*4096, 4096, PATTERN0);
     set_pattern(write_buf+1*4096, 4096, PATTERN1);
     set_pattern(write_buf+2*4096, 4096, PATTERN2);
     set_pattern(write_buf+3*4096, 4096, PATTERN3);
-    uint8_t *rmw_buf = (uint8_t*)calc_rmw(write_buf, stripes, osd_set, 6, 4, 6, osd_set, 4096, 0);
-    calc_rmw_parity_ec(stripes, 6, 4, osd_set, osd_set, 4096, 0);
+    uint8_t *rmw_buf = (uint8_t*)calc_rmw(write_buf, stripes, osd_set, 7, 4, 7, osd_set, 4096, 0);
+    calc_rmw_parity_ec(stripes, 7, 4, osd_set, osd_set, 4096, 0);
     check_pattern(stripes[4].write_buf, 4096, PATTERN0^PATTERN1^PATTERN2^PATTERN3);
-    check_pattern(stripes[5].write_buf, 4096, 0x139274739ae6f387); // 2nd EC chunk
+    check_pattern(stripes[5].write_buf, 4096, 0xfcee568ba36371ac); // 2nd EC chunk
+    check_pattern(stripes[6].write_buf, 4096, 0x139274739ae6f387); // 3rd EC chunk
     memcpy(write_buf+4*4096, stripes[4].write_buf, 4096);
     memcpy(write_buf+5*4096, stripes[5].write_buf, 4096);
+    memcpy(write_buf+6*4096, stripes[6].write_buf, 4096);
     // Try to locate errors
-    for (int i = 0; i < 6; i++)
+    for (int i = 0; i < 7; i++)
     {
         stripes[i].read_start = 0;
         stripes[i].read_end = 4096;
@@ -1154,19 +1156,25 @@ void test_ec42_error_bruteforce()
         stripes[i].write_buf = NULL;
     }
     // All good chunks
-    auto res = ec_find_good(stripes, 6, 4, false, 4096, 0, 100);
-    assert_eq_vec(res, std::vector<int>({0, 1, 2, 3, 4, 5}));
+    auto res = ec_find_good(stripes, 7, 4, false, 4096, 0, 100);
+    assert_eq_vec(res, std::vector<int>({0, 1, 2, 3, 4, 5, 6}));
     // 1 missing chunk
     set_pattern(write_buf+1*4096, 4096, 0);
-    res = ec_find_good(stripes, 6, 4, false, 4096, 0, 100);
-    assert_eq_vec(res, std::vector<int>({0, 2, 3, 4, 5}));
+    res = ec_find_good(stripes, 7, 4, false, 4096, 0, 100);
+    assert_eq_vec(res, std::vector<int>({0, 2, 3, 4, 5, 6}));
     // 2 missing chunks
     set_pattern(write_buf+1*4096, 4096, 0);
     set_pattern(write_buf+5*4096, 4096, 0);
-    res = ec_find_good(stripes, 6, 4, false, 4096, 0, 100);
+    res = ec_find_good(stripes, 7, 4, false, 4096, 0, 100);
+    assert_eq_vec(res, std::vector<int>({0, 2, 3, 4, 6}));
+    // 3 missing chunks
+    set_pattern(write_buf+1*4096, 4096, 0);
+    set_pattern(write_buf+5*4096, 4096, 0);
+    set_pattern(write_buf+6*4096, 4096, 0);
+    res = ec_find_good(stripes, 7, 4, false, 4096, 0, 100);
     assert_eq_vec(res, std::vector<int>());
     // Done
     free(rmw_buf);
     free(write_buf);
-    use_ec(6, 4, false);
+    use_ec(7, 4, false);
 }

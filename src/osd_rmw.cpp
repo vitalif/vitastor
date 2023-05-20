@@ -1201,21 +1201,10 @@ std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int pg_size, int pg_min
         {
             brute_stripes[i].read_buf = brute_stripes[i].write_buf;
         }
-        int max_live = 0;
-        for (int i = 0; i < pg_size; i++)
-        {
-            if (!brute_stripes[i].missing)
-            {
-                max_live = i;
-            }
-        }
         int valid_count = 0;
         for (int i = 0; i < out_count; i++)
         {
-            // Only compare with chunks after the last one so first N + each 1 after them don't repeat
-            // I.e. compare (1,2,3,4) with (5,6) and (1,2,3,5) only with (6) and so on
-            if (cur_live[outset[i]] > max_live &&
-                memcmp(brute_stripes[cur_live[outset[i]]].read_buf,
+            if (memcmp(brute_stripes[cur_live[outset[i]]].read_buf,
                     stripes[cur_live[outset[i]]].read_buf, chunk_size) == 0)
             {
                 brute_stripes[cur_live[outset[i]]].missing = false;
@@ -1226,15 +1215,34 @@ std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int pg_size, int pg_min
         {
             if (found_valid.size())
             {
-                // Ambiguity: we found multiple valid sets and don't know which one is correct
-                found_valid.clear();
-                break;
-            }
-            for (int i = 0; i < pg_size; i++)
-            {
-                if (!brute_stripes[i].missing)
+                // Check if we found the same set from the different point of view,
+                // like 1 2 3 -> valid 4 5 and 1 3 4 -> valid 2 5
+                for (int i = 0, j = 0; i < pg_size; i++)
                 {
-                    found_valid.push_back(i);
+                    if (!brute_stripes[i].missing)
+                    {
+                        if (j >= found_valid.size() || found_valid[j] != i)
+                        {
+                            // Ambiguity: we found multiple valid sets and don't know which one is correct
+                            found_valid.clear();
+                            break;
+                        }
+                        j++;
+                    }
+                }
+                if (!found_valid.size())
+                {
+                    break;
+                }
+            }
+            else
+            {
+                for (int i = 0; i < pg_size; i++)
+                {
+                    if (!brute_stripes[i].missing)
+                    {
+                        found_valid.push_back(i);
+                    }
                 }
             }
             if (valid_count == out_count)
