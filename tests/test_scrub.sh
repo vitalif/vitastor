@@ -18,7 +18,7 @@ $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testimg","size":'$((IMG_SIZE*1
 # Write
 LD_PRELOAD="build/src/libfio_vitastor.so" \
     fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=1M -direct=1 -iodepth=4 \
-        -mirror_file=./testdata/mirror.bin -end_fsync=1 -rw=write -etcd=$ETCD_URL -image=testimg -runtime=10
+        -mirror_file=./testdata/mirror.bin -end_fsync=1 -rw=write -etcd=$ETCD_URL -image=testimg
 
 # Intentionally corrupt OSD data and restart it
 zero_osd_pid=OSD${ZERO_OSD}_PID
