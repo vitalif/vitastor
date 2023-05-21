@@ -45,3 +45,10 @@
 - etcd 3.4.15 or newer. Earlier versions won't work because of various bugs,
   for example [#12402](https://github.com/etcd-io/etcd/pull/12402).
 - node.js 10 or newer
+
+## Version archive
+
+All previous Vitastor and other components (QEMU, etcd...) package builds
+can be found here:
+
+https://vitastor.io/archive/
