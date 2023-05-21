@@ -31,7 +31,7 @@
 - Снапшоты и copy-on-write клоны
 - [Сглаживание производительности случайной записи в SSD+HDD конфигурациях](../config/osd.ru.md#throttle_small_writes)
 - [Поддержка RDMA/RoCEv2 через libibverbs](../config/network.ru.md#rdma_device)
-- [Фоновая проверка целостности без контрольных сумм](../config/osd.ru.md#no_scrub) (сверка копий)
+- [Фоновая проверка целостности без контрольных сумм](../config/osd.ru.md#auto_scrub) (сверка копий)
 
 ## Драйверы и инструменты
 

@@ -39,8 +39,8 @@ them, even without restarting by updating configuration in etcd.
 - [throttle_target_parallelism](#throttle_target_parallelism)
 - [throttle_threshold_us](#throttle_threshold_us)
 - [osd_memlock](#osd_memlock)
-- [no_scrub](#no_scrub)
 - [auto_scrub](#auto_scrub)
+- [no_scrub](#no_scrub)
 - [scrub_interval](#scrub_interval)
 - [scrub_queue_depth](#scrub_queue_depth)
 - [scrub_sleep](#scrub_sleep)
@@ -343,23 +343,28 @@ doesn't need to be changed.
 Lock all OSD memory to prevent it from being unloaded into swap with
 mlockall(). Requires sufficient ulimit -l (max locked memory).
 
-## no_scrub
-
-- Type: boolean
-- Default: false
-- Can be changed online: yes
-
-Disable data scrubbing (background consistency check), even if it is scheduled.
-
 ## auto_scrub
 
 - Type: boolean
 - Default: false
 - Can be changed online: yes
 
-Schedule data scrubbing to run every `scrub_interval` automatically. You can
-start/schedule scrubbing manually by updating `next_scrub` key in
-`/pg/history/...` values in etcd if it is disabled.
+Data scrubbing is the process of background verification of copies to find
+and repair corrupted blocks. It's not run automatically by default since
+it's a new feature. Set this parameter to true to enable automatic scrubs.
+
+This parameter makes OSDs automatically schedule data scrubbing of clean PGs
+every `scrub_interval` (see below). You can also start/schedule scrubbing
+manually by setting `next_scrub` JSON key to the desired UNIX time of the
+next scrub in `/pg/history/...` values in etcd.
+
+## no_scrub
+
+- Type: boolean
+- Default: false
+- Can be changed online: yes
+
+Temporarily disable scrubbing and stop running scrubs.
 
 ## scrub_interval
 

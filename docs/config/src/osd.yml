@@ -382,27 +382,38 @@
     Блокировать всю память OSD с помощью mlockall, чтобы запретить её выгрузку
     в пространство подкачки. Требует достаточного значения ulimit -l (лимита
     заблокированной памяти).
-- name: no_scrub
-  type: bool
-  default: false
-  online: true
-  info: |
-    Disable data scrubbing (background consistency check), even if it is scheduled.
-  info_ru: |
-    Отключить скрабы (фоновую проверку данных), даже если она запланирована.
 - name: auto_scrub
   type: bool
   default: false
   online: true
   info: |
-    Schedule data scrubbing to run every `scrub_interval` automatically. You can
-    start/schedule scrubbing manually by updating `next_scrub` key in
-    `/pg/history/...` values in etcd if it is disabled.
+    Data scrubbing is the process of background verification of copies to find
+    and repair corrupted blocks. It's not run automatically by default since
+    it's a new feature. Set this parameter to true to enable automatic scrubs.
+
+    This parameter makes OSDs automatically schedule data scrubbing of clean PGs
+    every `scrub_interval` (see below). You can also start/schedule scrubbing
+    manually by setting `next_scrub` JSON key to the desired UNIX time of the
+    next scrub in `/pg/history/...` values in etcd.
   info_ru: |
-    Автоматически планировать фоновую проверку данных раз в `scrub_interval`. Вы
-    можете запустить или запланировать проверку вручную, обновляя значение ключа
-    `next_scrub` внутри значений `/pg/history/...` в etcd, если автоматическое
-    планирование отключено.
+    Скраб - процесс фоновой проверки копий данных, предназначенный, чтобы
+    находить и исправлять повреждённые блоки. По умолчанию эти проверки ещё не
+    запускаются автоматически, так как являются новой функцией. Чтобы включить
+    автоматическое планирование скрабов, установите данный параметр в true.
+
+    Включённый параметр заставляет OSD автоматически планировать фоновую
+    проверку чистых PG раз в `scrub_interval` (см. ниже). Вы также можете
+    запустить или запланировать проверку вручную, установив значение ключа JSON
+    `next_scrub` внутри ключей etcd `/pg/history/...` в UNIX-время следующей
+    желаемой проверки.
+- name: no_scrub
+  type: bool
+  default: false
+  online: true
+  info: |
+    Temporarily disable scrubbing and stop running scrubs.
+  info_ru: |
+    Временно отключить и остановить запущенные скрабы.
 - name: scrub_interval
   type: string
   default: 30d

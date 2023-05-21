@@ -29,7 +29,7 @@
 - Snapshots and copy-on-write image clones
 - [Write throttling to smooth random write workloads in SSD+HDD configurations](../config/osd.en.md#throttle_small_writes)
 - [RDMA/RoCEv2 support via libibverbs](../config/network.en.md#rdma_device)
-- [Scrubbing without checksums](../config/osd.en.md#no_scrub) (verification of copies)
+- [Scrubbing without checksums](../config/osd.en.md#auto_scrub) (verification of copies)
 
 ## Plugins and tools
 
