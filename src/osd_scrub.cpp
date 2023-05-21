@@ -507,17 +507,27 @@ resume_2:
             for (int role = 0; role < op_data->pg_size; role++)
             {
                 if (role != best && votes[role] == votes[best])
+                {
                     unknown = true;
+                }
                 if (votes[role] > 0 && votes[role] < votes[best])
                 {
                     printf(
-                        "[PG %u/%u] Object %lx:%lx v%lu copy on OSD %lu doesn't match %d other copies, marking it as corrupted\n",
+                        "[PG %u/%u] Object %lx:%lx v%lu copy on OSD %lu doesn't match %d other copies%s\n",
                         INODE_POOL(op_data->oid.inode), op_data->pg_num,
                         op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver,
-                        op_data->stripes[role].osd_num, votes[best]
+                        op_data->stripes[role].osd_num, votes[best],
+                        scrub_find_best ? ", marking it as corrupted" : ""
                     );
-                    op_data->stripes[role].read_error = true;
+                    if (scrub_find_best)
+                    {
+                        op_data->stripes[role].read_error = true;
+                    }
                 }
+            }
+            if (!scrub_find_best)
+            {
+                unknown = true;
             }
             if (unknown)
             {
@@ -551,10 +561,14 @@ resume_2:
         }
         else
         {
+            int total = 0;
             for (int role = 0; role < op_data->pg_size; role++)
             {
                 if (!op_data->stripes[role].missing)
+                {
+                    total++;
                     op_data->stripes[role].read_error = true;
+                }
             }
             for (int role: good_subset)
             {
@@ -564,13 +578,30 @@ resume_2:
             {
                 if (!op_data->stripes[role].missing && op_data->stripes[role].read_error)
                 {
-                    op_data->stripes[role].read_error = true;
                     printf(
-                        "[PG %u/%u] Object %lx:%lx v%lu chunk %d on OSD %lu doesn't match data, marking it as corrupted\n",
+                        "[PG %u/%u] Object %lx:%lx v%lu chunk %d on OSD %lu doesn't match other chunks%s\n",
                         INODE_POOL(op_data->oid.inode), op_data->pg_num,
                         op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver,
-                        role, op_data->stripes[role].osd_num
+                        role, op_data->stripes[role].osd_num,
+                        scrub_find_best ? ", marking it as corrupted" : ""
                     );
+                }
+            }
+            if (!scrub_find_best && good_subset.size() < total)
+            {
+                inconsistent = true;
+                printf(
+                    "[PG %u/%u] Object %lx:%lx v%lu is marked as inconsistent because scrub_find_best is turned off. Use vitastor-cli fix to fix it\n",
+                    INODE_POOL(op_data->oid.inode), op_data->pg_num,
+                    op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver
+                );
+                for (int role = 0; role < op_data->pg_size; role++)
+                {
+                    if (!op_data->stripes[role].missing && op_data->stripes[role].read_error)
+                    {
+                        // Undo error locator marking chunk as bad
+                        op_data->stripes[role].read_error = false;
+                    }
                 }
             }
         }

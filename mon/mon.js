@@ -117,6 +117,7 @@ const etcd_tree = {
             scrub_queue_depth: 1,
             scrub_sleep: 0, // milliseconds
             scrub_list_limit: 1000, // objects to list on one scrub iteration
+            scrub_find_best: true,
             scrub_ec_max_bruteforce: 100, // maximum EC error locator brute-force iterators
             // blockstore - fixed in superblock
             block_size,

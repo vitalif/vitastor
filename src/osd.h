@@ -120,6 +120,7 @@ class osd_t
     uint64_t scrub_queue_depth = 1;
     uint64_t scrub_sleep_ms = 0;
     uint32_t scrub_list_limit = 1000;
+    bool scrub_find_best = true;
     uint64_t scrub_ec_max_bruteforce = 100;
 
     // cluster state

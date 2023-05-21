@@ -444,6 +444,34 @@
   info_ru: |
     Размер загружаемых за одну операцию списков объектов в процессе фоновой
     проверки.
+- name: scrub_find_best
+  type: bool
+  default: true
+  online: true
+  info: |
+    Find and automatically restore best versions of objects with unmatched
+    copies. In replicated setups, the best version is the version with most
+    matching replicas. In EC setups, the best version is the subset of data
+    and parity chunks without mismatches.
+
+    The hypothetical situation where you might want to disable it is when
+    you have 3 replicas and you are paranoid that 2 HDDs out of 3 may silently
+    corrupt an object in the same way (for example, zero it out) and only
+    1 HDD will remain good. In this case disabling scrub_find_best may help
+    you to recover the data! See also scrub_ec_max_bruteforce below.
+  info_ru: |
+    Находить и автоматически восстанавливать "лучшие версии" объектов с
+    несовпадающими копиями/частями. При использовании репликации "лучшая"
+    версия - версия, доступная в большем числе экземпляров, чем другие. При
+    использовании кодов коррекции ошибок "лучшая" весрия - это подмножество
+    частей данных и чётности, полностью соответствующих друг другу.
+
+    Гипотетическая ситуация, в которой вы можете захотеть отключить этот
+    поиск - это если у вас 3 реплики и вы боитесь, что 2 диска из 3 могут
+    незаметно и одинаково повредить данные одного и того же объекта, например,
+    занулив его, и только 1 диск останется неповреждённым. В этой ситуации
+    отключение этого параметра поможет вам восстановить данные! Смотрите также
+    описание следующего параметра - scrub_ec_max_bruteforce.
 - name: scrub_ec_max_bruteforce
   type: int
   default: 100

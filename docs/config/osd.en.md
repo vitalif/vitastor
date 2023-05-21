@@ -45,6 +45,7 @@ them, even without restarting by updating configuration in etcd.
 - [scrub_queue_depth](#scrub_queue_depth)
 - [scrub_sleep](#scrub_sleep)
 - [scrub_list_limit](#scrub_list_limit)
+- [scrub_find_best](#scrub_find_best)
 - [scrub_ec_max_bruteforce](#scrub_ec_max_bruteforce)
 
 ## etcd_report_interval
@@ -394,6 +395,23 @@ Can be used to slow down scrubbing if it affects user load too much.
 - Can be changed online: yes
 
 Number of objects to list in one listing operation during scrub.
+
+## scrub_find_best
+
+- Type: boolean
+- Default: true
+- Can be changed online: yes
+
+Find and automatically restore best versions of objects with unmatched
+copies. In replicated setups, the best version is the version with most
+matching replicas. In EC setups, the best version is the subset of data
+and parity chunks without mismatches.
+
+The hypothetical situation where you might want to disable it is when
+you have 3 replicas and you are paranoid that 2 HDDs out of 3 may silently
+corrupt an object in the same way (for example, zero it out) and only
+1 HDD will remain good. In this case disabling scrub_find_best may help
+you to recover the data! See also scrub_ec_max_bruteforce below.
 
 ## scrub_ec_max_bruteforce
 
