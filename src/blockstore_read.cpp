@@ -308,7 +308,7 @@ bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uin
         int n_cur = n_iov-n_pos < IOV_MAX ? n_iov-n_pos : IOV_MAX;
         BS_SUBMIT_GET_SQE(sqe, data);
         PRIV(op)->pending_ops++;
-        my_uring_prep_readv(sqe, submit_fd, iov + n_pos, n_cur, submit_offset + clean_loc + d_pos);
+        my_uring_prep_readv(sqe, submit_fd, iov + n_pos, n_cur, submit_offset + clean_loc + item_start + d_pos);
         data->callback = [this, op](ring_data_t *data) { handle_read_event(data, op); };
         if (n_pos > 0 || n_pos + IOV_MAX < n_iov)
         {
