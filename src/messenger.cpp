@@ -251,6 +251,10 @@ void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer
         return;
     }
     clients[peer_fd] = new osd_client_t();
+    if (log_level > 0)
+    {
+        fprintf(stderr, "Connecting to OSD %lu at %s:%d (client %d)\n", peer_osd, peer_host, peer_port, peer_fd);
+    }
     clients[peer_fd]->peer_addr = addr;
     clients[peer_fd]->peer_port = peer_port;
     clients[peer_fd]->peer_fd = peer_fd;
@@ -313,7 +317,10 @@ void osd_messenger_t::handle_peer_epoll(int peer_fd, int epoll_events)
     if (epoll_events & EPOLLRDHUP)
     {
         // Stop client
-        fprintf(stderr, "[OSD %lu] client %d disconnected\n", this->osd_num, peer_fd);
+        if (log_level > 0)
+        {
+            fprintf(stderr, "[OSD %lu] client %d disconnected\n", this->osd_num, peer_fd);
+        }
         stop_client(peer_fd, true);
     }
     else if (epoll_events & EPOLLIN)

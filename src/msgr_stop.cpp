@@ -122,17 +122,6 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
         // Cancel outbound operations
         cancel_osd_ops(cl);
     }
-#ifndef __MOCK__
-    // And close the FD only when everything is done
-    // ...because peer_fd number can get reused after close()
-    close(peer_fd);
-#ifdef WITH_RDMA
-    if (cl->rdma_conn)
-    {
-        delete cl->rdma_conn;
-    }
-#endif
-#endif
     // Find the item again because it can be invalidated at this point
     it = clients.find(peer_fd);
     if (it != clients.end())
@@ -144,4 +133,26 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
     {
         delete cl;
     }
+}
+
+osd_client_t::~osd_client_t()
+{
+    free(in_buf);
+    in_buf = NULL;
+    if (peer_fd >= 0)
+    {
+        // Close the FD only when the client is actually destroyed
+        // Which only happens when all references are cleared
+        close(peer_fd);
+        peer_fd = -1;
+    }
+#ifndef __MOCK__
+#ifdef WITH_RDMA
+    if (rdma_conn)
+    {
+        delete rdma_conn;
+        rdma_conn = NULL;
+    }
+#endif
+#endif
 }

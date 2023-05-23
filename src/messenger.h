@@ -50,7 +50,7 @@ struct osd_client_t
 
     sockaddr_storage peer_addr;
     int peer_port;
-    int peer_fd;
+    int peer_fd = -1;
     int peer_state;
     int connect_timeout_id = -1;
     int ping_time_remaining = 0;
@@ -87,11 +87,7 @@ struct osd_client_t
     std::vector<iovec> send_list, next_send_list;
     std::vector<msgr_sendp_t> outbox, next_outbox;
 
-    ~osd_client_t()
-    {
-        free(in_buf);
-        in_buf = NULL;
-    }
+    ~osd_client_t();
 };
 
 struct osd_wanted_peer_t
