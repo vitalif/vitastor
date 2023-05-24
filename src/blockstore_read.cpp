@@ -42,46 +42,35 @@ void blockstore_impl_t::find_holes(std::vector<copy_buffer_t> & read_vec,
     std::function<int(int, bool, uint32_t, uint32_t)> callback)
 {
     auto cur_start = item_start;
-    auto alloc_start = item_start;
     int i = 0;
-    while (1)
+    while (cur_start < item_end)
     {
         // COPY_BUF_CSUM_FILL items are fake items inserted in the end, their offsets aren't in order
-        for (; i < read_vec.size() && !(read_vec[i].copy_flags & COPY_BUF_CSUM_FILL); i++)
+        if (i >= read_vec.size() || read_vec[i].copy_flags & COPY_BUF_CSUM_FILL || read_vec[i].offset >= item_end)
         {
-            if (read_vec[i].offset >= cur_start)
-                break;
-            else if (read_vec[i].offset + read_vec[i].len > cur_start)
-            {
-                // Allocated: cur_start .. read_vec[i].offset + read_vec[i].len
-                cur_start = read_vec[i].offset + read_vec[i].len;
-                if (cur_start >= item_end)
-                    goto endwhile;
-            }
+            // Hole (at end): cur_start .. item_end
+            i += callback(i, false, cur_start, item_end);
+            break;
         }
-        if (i < read_vec.size() && !(read_vec[i].copy_flags & COPY_BUF_CSUM_FILL) && read_vec[i].offset == cur_start)
+        else if (read_vec[i].offset > cur_start)
         {
-            // Allocated - don't move alloc_start
+            // Hole: cur_start .. min(read_vec[i].offset, item_end)
+            auto cur_end = read_vec[i].offset > item_end ? item_end : read_vec[i].offset;
+            i += callback(i, false, cur_start, cur_end);
+            cur_start = cur_end;
+        }
+        else if (read_vec[i].offset + read_vec[i].len > cur_start)
+        {
+            // Allocated: cur_start .. min(read_vec[i].offset + read_vec[i].len, item_end)
+            auto cur_end = read_vec[i].offset + read_vec[i].len;
+            cur_end = cur_end > item_end ? item_end : cur_end;
+            i += callback(i, true, cur_start, cur_end);
+            cur_start = cur_end;
+            i++;
         }
         else
-        {
-            // Hole
-            uint32_t cur_end = (i == read_vec.size() || (read_vec[i].copy_flags & COPY_BUF_CSUM_FILL) || read_vec[i].offset >= item_end
-                ? item_end : read_vec[i].offset);
-            if (alloc_start < cur_start)
-                i += callback(i, true, alloc_start, cur_start);
-            i += callback(i, false, cur_start, cur_end);
-            alloc_start = cur_end;
-        }
-        if (i >= read_vec.size() || (read_vec[i].copy_flags & COPY_BUF_CSUM_FILL))
-            break;
-        cur_start = read_vec[i].offset + read_vec[i].len;
-        if (cur_start >= item_end)
-            break;
+            i++;
     }
-endwhile:
-    if (alloc_start < cur_start)
-        i += callback(i, true, alloc_start, cur_start);
 }
 
 int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op,
