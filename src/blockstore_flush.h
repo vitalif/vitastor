@@ -12,7 +12,7 @@ struct copy_buffer_t
     int copy_flags;
     uint64_t offset, len, disk_offset;
     uint64_t journal_sector; // only for reads: sector+1 if used and !journal.inmemory, otherwise 0
-    void *buf; // only for writes: new checksum data
+    void *buf;
     uint8_t *csum_buf;
 };
 

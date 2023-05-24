@@ -79,15 +79,14 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op,
     uint64_t journal_sector, uint8_t *csum)
 {
     int r = 1;
-    uint32_t cur_start = item_start;
-    if (cur_start < read_op->offset + read_op->len && item_end > read_op->offset)
+    if (item_start < read_op->offset + read_op->len && item_end > read_op->offset)
     {
         uint64_t blk_begin = 0, blk_end = 0;
         uint8_t *blk_buf = NULL;
         auto & rv = PRIV(read_op)->read_vec;
-        cur_start = cur_start < read_op->offset ? read_op->offset : cur_start;
+        auto rd_start = item_start < read_op->offset ? read_op->offset : item_start;
         item_end = item_end > read_op->offset + read_op->len ? read_op->offset + read_op->len : item_end;
-        find_holes(rv, cur_start, item_end, [&](int pos, bool alloc, uint32_t start, uint32_t end)
+        find_holes(rv, rd_start, item_end, [&](int pos, bool alloc, uint32_t start, uint32_t end)
         {
             if (!r || alloc)
                 return 0;
@@ -95,9 +94,9 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op,
                 .copy_flags = (IS_JOURNAL(item_state) ? COPY_BUF_JOURNAL : COPY_BUF_DATA),
                 .offset = start,
                 .len = end-start,
-                .disk_offset = item_location + el.offset - item_start,
+                .disk_offset = item_location + start - item_start,
                 .journal_sector = (IS_JOURNAL(item_state) ? journal_sector : 0),
-                .csum_buf = !csum ? NULL : (csum + (cur_start - item_start) / dsk.csum_block_size * (dsk.data_csum_type & 0xFF)),
+                .csum_buf = !csum ? NULL : (csum + (start - item_start) / dsk.csum_block_size * (dsk.data_csum_type & 0xFF)),
             };
             if (IS_BIG_WRITE(item_state))
             {
@@ -561,7 +560,7 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
             if (bmp_end > bmp_start)
             {
                 uint8_t *csum = !dsk.csum_block_size ? 0 : (clean_entry_bitmap +
-                    2*dsk.clean_entry_bitmap_size +
+                    (from_journal ? dsk.clean_entry_bitmap_size : 2*dsk.clean_entry_bitmap_size) +
                     bmp_start*dsk.bitmap_granularity/dsk.csum_block_size*(dsk.data_csum_type & 0xFF));
                 if (!fulfill_read(read_op, fulfilled, bmp_start * dsk.bitmap_granularity,
                     bmp_end * dsk.bitmap_granularity, (BS_ST_BIG_WRITE | BS_ST_STABLE), 0,
@@ -752,16 +751,16 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                     if (vec.csum_buf)
                     {
                         uint32_t *csum = (uint32_t*)vec.csum_buf;
-                        for (size_t p = 0; p < data->iov.iov_len; p += dsk.csum_block_size, csum++)
+                        for (size_t p = 0; p < vec.len; p += dsk.csum_block_size, csum++)
                         {
-                            if (crc32c(0, (uint8_t*)data->iov.iov_base + p, dsk.csum_block_size) != *csum)
+                            if (crc32c(0, (uint8_t*)op->buf + vec.offset - op->offset + p, dsk.csum_block_size) != *csum)
                             {
                                 // checksum error
                                 printf(
-                                    "Checksum mismatch in object %lx:%lx v%lu in %s area at offset 0x%lx: %08x vs %08x\n",
+                                    "Checksum mismatch in object %lx:%lx v%lu in %s area at offset 0x%lx+0x%lx: %08x vs %08x\n",
                                     op->oid.inode, op->oid.stripe, op->version,
-                                    (vec.copy_flags & COPY_BUF_JOURNAL) ? "journal" : "data", vec.disk_offset,
-                                    crc32c(0, (uint8_t*)data->iov.iov_base + p, dsk.csum_block_size), *csum
+                                    (vec.copy_flags & COPY_BUF_JOURNAL) ? "journal" : "data", vec.disk_offset, p,
+                                    crc32c(0, (uint8_t*)op->buf + vec.offset + p, dsk.csum_block_size), *csum
                                 );
                                 op->retval = -EDOM;
                                 break;
