@@ -7,7 +7,8 @@ for my $line (<>)
     if ($line =~ /\.\/(test_[^\.]+)/s)
     {
         chomp $line;
-        my $test_name = $1;
+        my $base_name = $1;
+        my $test_name = $base_name;
         my $timeout = 3;
         if ($test_name eq 'test_etcd_fail' || $test_name eq 'test_heal' || $test_name eq 'test_add_osd' ||
             $test_name eq 'test_interrupted_rebalance' || $test_name eq 'test_rebalance_verify')
@@ -16,7 +17,12 @@ for my $line (<>)
         }
         while ($line =~ /([^\s=]+)=(\S+)/gs)
         {
-            if ($1 eq 'SCHEME' && $2 eq 'ec')
+            if ($1 eq 'TEST_NAME')
+            {
+                $test_name = $base_name.'_'.$2;
+                last;
+            }
+            elsif ($1 eq 'SCHEME' && $2 eq 'ec')
             {
                 $test_name .= '_ec';
             }

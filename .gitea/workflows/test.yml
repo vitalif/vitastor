@@ -622,6 +622,114 @@ jobs:
           echo ""
         done
 
+  test_heal_csum_32k_dmj:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 10
+      run: TEST_NAME=csum_32k_dmj OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k --inmemory_metadata false --inmemory_journal false" OFFSET_ARGS=$OSD_ARGS /root/vitastor/tests/test_heal.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_heal_csum_32k_dj:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 10
+      run: TEST_NAME=csum_32k_dj  OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k --inmemory_journal false" OFFSET_ARGS=$OSD_ARGS /root/vitastor/tests/test_heal.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_heal_csum_32k:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 10
+      run: TEST_NAME=csum_32k     OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k" OFFSET_ARGS=$OSD_ARGS /root/vitastor/tests/test_heal.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_heal_csum_4k_dmj:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 10
+      run: TEST_NAME=csum_4k_dmj  OSD_ARGS="--data_csum_type crc32c --inmemory_metadata false --inmemory_journal false" OFFSET_ARGS=$OSD_ARGS /root/vitastor/tests/test_heal.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_heal_csum_4k_dj:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 10
+      run: TEST_NAME=csum_4k_dj   OSD_ARGS="--data_csum_type crc32c --inmemory_journal false" OFFSET_ARGS=$OSD_ARGS /root/vitastor/tests/test_heal.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_heal_csum_4k:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 10
+      run: TEST_NAME=csum_4k      OSD_ARGS="--data_csum_type crc32c" OFFSET_ARGS=$OSD_ARGS /root/vitastor/tests/test_heal.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
   test_scrub:
     runs-on: ubuntu-latest
     needs: build
