@@ -472,7 +472,7 @@ resume_2:
             return false;
         // Wait for journal data reads if the journal is not inmemory
     resume_12:
-        if (copy_count && !bs->journal.inmemory && wait_journal_count > 0)
+        if (wait_journal_count > 0)
         {
             wait_state = wait_base+12;
             return false;
@@ -1058,7 +1058,7 @@ bool journal_flusher_co::read_dirty(int wait_base)
 {
     if (wait_state == wait_base)        goto resume_0;
     else if (wait_state == wait_base+1) goto resume_1;
-    wait_count = 0;
+    wait_count = wait_journal_count = 0;
     if (bs->journal.inmemory && !read_to_fill_incomplete)
     {
         // Happy path: nothing to read :)
