@@ -305,7 +305,7 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
     };
     if (log_level > 2)
     {
-        printf("Submitting recovery operation for %lx:%lx\n", op->oid.inode, op->oid.stripe);
+        printf("Submitting recovery operation for %lx:%lx (%s)\n", op->oid.inode, op->oid.stripe, op->degraded ? "degraded" : "misplaced");
     }
     op->osd_op->peer_fd = -1;
     op->osd_op->callback = [this, op](osd_op_t *osd_op)

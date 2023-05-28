@@ -255,7 +255,7 @@ void pg_obj_state_check_t::finish_object()
     }
     else if (n_mismatched > 0)
     {
-        if (log_level > 2 && (replicated || n_roles >= pg->pg_cursize))
+        if (log_level > 2)
         {
             printf("Object is misplaced: %lx:%lx version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
         }

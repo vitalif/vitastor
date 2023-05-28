@@ -357,7 +357,7 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
 #ifdef OSD_DEBUG
         uint64_t peer_osd = msgr.clients.find(subop->peer_fd) != msgr.clients.end()
             ? msgr.clients[subop->peer_fd]->osd_num : osd_num;
-        printf("subop %lu from osd %lu: version = %lu\n", opcode, peer_osd, version);
+        printf("subop %s %lx:%lx from osd %lu: version = %lu\n", osd_op_names[opcode], subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, peer_osd, version);
 #endif
         if (op_data->fact_ver != UINT64_MAX)
         {
