@@ -536,14 +536,27 @@ resume_1:
                 return false;
             }
             // zero out old metadata entry
+            {
+                clean_disk_entry *old_entry = (clean_disk_entry*)((uint8_t*)meta_old.buf + meta_old.pos*bs->dsk.clean_entry_size);
+                if (old_entry->oid.inode != 0 && old_entry->oid != cur.oid)
+                {
+                    printf("Fatal error (metadata corruption or bug): tried to wipe metadata entry %lu (%lx:%lx v%lu) as old location of %lx:%lx\n",
+                        old_clean_loc >> bs->dsk.block_order, old_entry->oid.inode, old_entry->oid.stripe,
+                        old_entry->version, cur.oid.inode, cur.oid.stripe);
+                    exit(1);
+                }
+            }
             memset((uint8_t*)meta_old.buf + meta_old.pos*bs->dsk.clean_entry_size, 0, bs->dsk.clean_entry_size);
-            await_sqe(15);
-            data->iov = (struct iovec){ meta_old.buf, bs->dsk.meta_block_size };
-            data->callback = simple_callback_w;
-            my_uring_prep_writev(
-                sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bs->dsk.meta_block_size + meta_old.sector
-            );
-            wait_count++;
+            if (meta_old.sector != meta_new.sector)
+            {
+                await_sqe(15);
+                data->iov = (struct iovec){ meta_old.buf, bs->dsk.meta_block_size };
+                data->callback = simple_callback_w;
+                my_uring_prep_writev(
+                    sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bs->dsk.meta_block_size + meta_old.sector
+                );
+                wait_count++;
+            }
         }
         if (has_delete)
         {
