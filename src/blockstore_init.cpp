@@ -80,14 +80,17 @@ resume_1:
             blockstore_meta_header_v2_t *hdr = (blockstore_meta_header_v2_t *)metadata_buffer;
             hdr->zero = 0;
             hdr->magic = BLOCKSTORE_META_MAGIC_V1;
-            hdr->version = BLOCKSTORE_META_FORMAT_V2;
+            hdr->version = bs->dsk.meta_format;
             hdr->meta_block_size = bs->dsk.meta_block_size;
             hdr->data_block_size = bs->dsk.data_block_size;
             hdr->bitmap_granularity = bs->dsk.bitmap_granularity;
-            hdr->data_csum_type = bs->dsk.data_csum_type;
-            hdr->csum_block_size = bs->dsk.csum_block_size;
-            hdr->header_csum = 0;
-            hdr->header_csum = crc32c(0, hdr, sizeof(*hdr));
+            if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_V2)
+            {
+                hdr->data_csum_type = bs->dsk.data_csum_type;
+                hdr->csum_block_size = bs->dsk.csum_block_size;
+                hdr->header_csum = 0;
+                hdr->header_csum = crc32c(0, hdr, sizeof(*hdr));
+            }
         }
         if (bs->readonly)
         {
@@ -120,14 +123,6 @@ resume_1:
                 "Metadata is corrupt or too old (pre-0.6.x).\n"
                 " If this is a new OSD, please zero out the metadata area before starting it.\n"
                 " If you need to upgrade from 0.5.x, convert metadata with vitastor-disk.\n"
-            );
-            exit(1);
-        }
-        if (bs->dsk.meta_format && bs->dsk.meta_format != hdr->version)
-        {
-            printf(
-                "Metadata format version is %lu on disk, but %lu is currently selected in OSD configuration.\n"
-                " Please upgrade using vitastor-disk.\n", hdr->version, bs->dsk.meta_format
             );
             exit(1);
         }
