@@ -138,10 +138,6 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         {
             dirty_entry& dirty = dirty_it->second;
             bool version_ok = !IS_IN_FLIGHT(dirty.state) && read_op->version >= dirty_it->first.version;
-            if (IS_SYNCED(dirty.state))
-            {
-                version_ok = true;
-            }
             if (version_ok)
             {
                 if (IS_DELETE(dirty.state))
