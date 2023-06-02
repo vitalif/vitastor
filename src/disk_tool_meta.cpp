@@ -74,6 +74,7 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
                 hdr = (blockstore_meta_header_v2_t *)data;
             }
         }
+        dsk.meta_version = hdr->version;
         dsk.data_block_size = hdr->data_block_size;
         dsk.csum_block_size = hdr->csum_block_size;
         dsk.data_csum_type = hdr->data_csum_type;
@@ -83,9 +84,11 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
             + (hdr->data_csum_type
                 ? ((hdr->data_block_size+hdr->csum_block_size-1)/hdr->csum_block_size
                     *(hdr->data_csum_type & 0xff))
-                : 0) + 4 /*entry_csum*/;
+                : 0)
+            + (dsk.meta_version == BLOCKSTORE_META_VERSION_V2 ? 4 /*entry_csum*/ : 0);
         uint64_t block_num = 0;
         hdr_fn(hdr);
+        hdr = NULL;
         meta_pos = dsk.meta_block_size;
         lseek64(dsk.meta_fd, dsk.meta_offset+meta_pos, 0);
         while (meta_pos < dsk.meta_len)
@@ -100,11 +103,14 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
                     clean_disk_entry *entry = (clean_disk_entry*)((uint8_t*)data + blk + ioff);
                     if (entry->oid.inode)
                     {
-                        uint32_t *entry_csum = (uint32_t*)((uint8_t*)entry + dsk.clean_entry_size - 4);
-                        if (*entry_csum != crc32c(0, entry, dsk.clean_entry_size - 4))
+                        if (dsk.data_csum_type)
                         {
-                            fprintf(stderr, "Metadata entry %lu is corrupt (checksum mismatch), skipping\n", block_num);
-                            continue;
+                            uint32_t *entry_csum = (uint32_t*)((uint8_t*)entry + dsk.clean_entry_size - 4);
+                            if (*entry_csum != crc32c(0, entry, dsk.clean_entry_size - 4))
+                            {
+                                fprintf(stderr, "Metadata entry %lu is corrupt (checksum mismatch), skipping\n", block_num);
+                                continue;
+                            }
                         }
                         record_fn(block_num, entry, entry->bitmap);
                     }

@@ -191,7 +191,6 @@ void blockstore_disk_t::calc_lengths(bool skip_meta_check)
     // required metadata size
     block_count = data_len / data_block_size;
     meta_len = (1 + (block_count - 1 + meta_block_size / clean_entry_size) / (meta_block_size / clean_entry_size)) * meta_block_size;
-    meta_version = BLOCKSTORE_META_VERSION_V2;
     if (!skip_meta_check && meta_area_size < meta_len)
     {
         if (!data_csum_type && !meta_version)
