@@ -466,7 +466,7 @@ int disk_tool_t::resize_rewrite_meta()
             blockstore_meta_header_v2_t *new_hdr = (blockstore_meta_header_v2_t *)new_meta_buf;
             new_hdr->zero = 0;
             new_hdr->magic = BLOCKSTORE_META_MAGIC_V1;
-            new_hdr->version = BLOCKSTORE_META_VERSION_V1;
+            new_hdr->version = BLOCKSTORE_META_FORMAT_V1;
             new_hdr->meta_block_size = dsk.meta_block_size;
             new_hdr->data_block_size = dsk.data_block_size;
             new_hdr->bitmap_granularity = dsk.bitmap_granularity ? dsk.bitmap_granularity : 4096;

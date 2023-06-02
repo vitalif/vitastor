@@ -665,7 +665,7 @@ void journal_flusher_co::update_metadata_entry()
         new_entry->version = cur.version;
         if (!bs->inmemory_meta)
             memcpy(&new_entry->bitmap, new_clean_bitmap, bs->dsk.clean_dyn_size);
-        if (bs->dsk.meta_version >= BLOCKSTORE_META_VERSION_V2)
+        if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_V2)
         {
             // Calculate metadata entry checksum
             uint32_t *new_entry_csum = (uint32_t*)((uint8_t*)new_entry + bs->dsk.clean_entry_size - 4);
@@ -810,7 +810,7 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
             calc_block_checksums(new_data_csums, true);
             if (!bs->inmemory_meta)
                 memcpy(&new_entry->bitmap, new_clean_bitmap, bs->dsk.clean_dyn_size);
-            if (bs->dsk.meta_version >= BLOCKSTORE_META_VERSION_V2)
+            if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_V2)
             {
                 // calculate metadata entry checksum
                 uint32_t *new_entry_csum = (uint32_t*)((uint8_t*)new_entry + bs->dsk.clean_entry_size - 4);

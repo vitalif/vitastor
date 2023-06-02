@@ -93,8 +93,8 @@
 
 // "VITAstor"
 #define BLOCKSTORE_META_MAGIC_V1 0x726F747341544956l
-#define BLOCKSTORE_META_VERSION_V1 1
-#define BLOCKSTORE_META_VERSION_V2 2
+#define BLOCKSTORE_META_FORMAT_V1 1
+#define BLOCKSTORE_META_FORMAT_V2 2
 
 // metadata header (superblock)
 struct __attribute__((__packed__)) blockstore_meta_header_v1_t

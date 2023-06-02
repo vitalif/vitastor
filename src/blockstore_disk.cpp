@@ -193,7 +193,7 @@ void blockstore_disk_t::calc_lengths(bool skip_meta_check)
     meta_len = (1 + (block_count - 1 + meta_block_size / clean_entry_size) / (meta_block_size / clean_entry_size)) * meta_block_size;
     if (!skip_meta_check && meta_area_size < meta_len)
     {
-        if (!data_csum_type && !meta_version)
+        if (!data_csum_type && !meta_format)
         {
             uint64_t clean_entry_v0_size = sizeof(clean_disk_entry) + 2*clean_entry_bitmap_size;
             uint64_t meta_v0_len = (1 + (block_count - 1 + meta_block_size / clean_entry_v0_size)
@@ -204,7 +204,7 @@ void blockstore_disk_t::calc_lengths(bool skip_meta_check)
                 printf("Warning: Forcing metadata format without checksums because the new format doesn't fit into provided area\n");
                 clean_entry_size = clean_entry_v0_size;
                 meta_len = meta_v0_len;
-                meta_version = BLOCKSTORE_META_VERSION_V1;
+                meta_format = BLOCKSTORE_META_FORMAT_V1;
             }
         }
         if (meta_area_size < meta_len)

@@ -80,7 +80,7 @@ resume_1:
             blockstore_meta_header_v2_t *hdr = (blockstore_meta_header_v2_t *)metadata_buffer;
             hdr->zero = 0;
             hdr->magic = BLOCKSTORE_META_MAGIC_V1;
-            hdr->version = BLOCKSTORE_META_VERSION_V2;
+            hdr->version = BLOCKSTORE_META_FORMAT_V2;
             hdr->meta_block_size = bs->dsk.meta_block_size;
             hdr->data_block_size = bs->dsk.data_block_size;
             hdr->bitmap_granularity = bs->dsk.bitmap_granularity;
@@ -114,7 +114,7 @@ resume_1:
     else
     {
         blockstore_meta_header_v2_t *hdr = (blockstore_meta_header_v2_t *)metadata_buffer;
-        if (hdr->zero != 0 || hdr->magic != BLOCKSTORE_META_MAGIC_V1 || hdr->version < BLOCKSTORE_META_VERSION_V1)
+        if (hdr->zero != 0 || hdr->magic != BLOCKSTORE_META_MAGIC_V1 || hdr->version < BLOCKSTORE_META_FORMAT_V1)
         {
             printf(
                 "Metadata is corrupt or too old (pre-0.6.x).\n"
@@ -123,15 +123,15 @@ resume_1:
             );
             exit(1);
         }
-        if (bs->dsk.meta_version && bs->dsk.meta_version != hdr->version)
+        if (bs->dsk.meta_format && bs->dsk.meta_format != hdr->version)
         {
             printf(
                 "Metadata format version is %lu on disk, but %lu is currently selected in OSD configuration.\n"
-                " Please upgrade using vitastor-disk.\n", hdr->version, bs->dsk.meta_version
+                " Please upgrade using vitastor-disk.\n", hdr->version, bs->dsk.meta_format
             );
             exit(1);
         }
-        if (hdr->version == BLOCKSTORE_META_VERSION_V2)
+        if (hdr->version == BLOCKSTORE_META_FORMAT_V2)
         {
             uint32_t csum = hdr->header_csum;
             hdr->header_csum = 0;
@@ -141,9 +141,9 @@ resume_1:
                 exit(1);
             }
             hdr->header_csum = csum;
-            bs->dsk.meta_version = BLOCKSTORE_META_VERSION_V2;
+            bs->dsk.meta_format = BLOCKSTORE_META_FORMAT_V2;
         }
-        else if (hdr->version == BLOCKSTORE_META_VERSION_V1)
+        else if (hdr->version == BLOCKSTORE_META_FORMAT_V1)
         {
             hdr->data_csum_type = 0;
             hdr->csum_block_size = 0;
@@ -152,14 +152,14 @@ resume_1:
             bs->dsk.clean_entry_size = sizeof(clean_disk_entry) + bs->dsk.clean_entry_bitmap_size*2;
             bs->dsk.meta_len = (1 + (bs->dsk.block_count - 1 + bs->dsk.meta_block_size / bs->dsk.clean_entry_size)
                 / (bs->dsk.meta_block_size / bs->dsk.clean_entry_size)) * bs->dsk.meta_block_size;
-            bs->dsk.meta_version = BLOCKSTORE_META_VERSION_V1;
+            bs->dsk.meta_format = BLOCKSTORE_META_FORMAT_V1;
             printf("Warning: Starting with metadata in the old format without checksums, as stored on disk\n");
         }
-        else if (hdr->version > BLOCKSTORE_META_VERSION_V2)
+        else if (hdr->version > BLOCKSTORE_META_FORMAT_V2)
         {
             printf(
                 "Metadata format is too new for me (stored version is %lu, max supported %u).\n",
-                hdr->version, BLOCKSTORE_META_VERSION_V2
+                hdr->version, BLOCKSTORE_META_FORMAT_V2
             );
             exit(1);
         }
@@ -327,7 +327,7 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
         clean_disk_entry *entry = (clean_disk_entry*)(buf + i*bs->dsk.clean_entry_size);
         if (entry->oid.inode > 0)
         {
-            if (bs->dsk.meta_version >= BLOCKSTORE_META_VERSION_V2)
+            if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_V2)
             {
                 // Check entry crc32
                 uint32_t *entry_csum = (uint32_t*)((uint8_t*)entry + bs->dsk.clean_entry_size - 4);

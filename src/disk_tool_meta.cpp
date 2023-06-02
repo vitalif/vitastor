@@ -31,14 +31,14 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
     blockstore_meta_header_v2_t *hdr = (blockstore_meta_header_v2_t *)data;
     if (hdr->zero == 0 && hdr->magic == BLOCKSTORE_META_MAGIC_V1)
     {
-        if (hdr->version == BLOCKSTORE_META_VERSION_V1)
+        if (hdr->version == BLOCKSTORE_META_FORMAT_V1)
         {
             // Vitastor 0.6-0.8 - static array of clean_disk_entry with bitmaps
             hdr->data_csum_type = 0;
             hdr->csum_block_size = 0;
             hdr->header_csum = 0;
         }
-        else if (hdr->version == BLOCKSTORE_META_VERSION_V2)
+        else if (hdr->version == BLOCKSTORE_META_FORMAT_V2)
         {
             // Vitastor 0.9 - static array of clean_disk_entry with bitmaps and checksums
             if (hdr->data_csum_type != 0 &&
@@ -54,7 +54,7 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
         else
         {
             // Unsupported version
-            fprintf(stderr, "Metadata format is too new for me (stored version is %lu, max supported %u).\n", hdr->version, BLOCKSTORE_META_VERSION_V2);
+            fprintf(stderr, "Metadata format is too new for me (stored version is %lu, max supported %u).\n", hdr->version, BLOCKSTORE_META_FORMAT_V2);
             free(data);
             close(dsk.meta_fd);
             dsk.meta_fd = -1;
@@ -74,7 +74,7 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
                 hdr = (blockstore_meta_header_v2_t *)data;
             }
         }
-        dsk.meta_version = hdr->version;
+        dsk.meta_format = hdr->version;
         dsk.data_block_size = hdr->data_block_size;
         dsk.csum_block_size = hdr->csum_block_size;
         dsk.data_csum_type = hdr->data_csum_type;
@@ -85,7 +85,7 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
                 ? ((hdr->data_block_size+hdr->csum_block_size-1)/hdr->csum_block_size
                     *(hdr->data_csum_type & 0xff))
                 : 0)
-            + (dsk.meta_version == BLOCKSTORE_META_VERSION_V2 ? 4 /*entry_csum*/ : 0);
+            + (dsk.meta_format == BLOCKSTORE_META_FORMAT_V2 ? 4 /*entry_csum*/ : 0);
         uint64_t block_num = 0;
         hdr_fn(hdr);
         hdr = NULL;
@@ -164,7 +164,7 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v2_t *hdr)
 {
     if (hdr)
     {
-        if (hdr->version == BLOCKSTORE_META_VERSION_V1)
+        if (hdr->version == BLOCKSTORE_META_FORMAT_V1)
         {
             printf(
                 "{\"version\":\"0.6\",\"meta_block_size\":%u,\"data_block_size\":%u,\"bitmap_granularity\":%u,"
@@ -172,7 +172,7 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v2_t *hdr)
                 hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity
             );
         }
-        else if (hdr->version == BLOCKSTORE_META_VERSION_V2)
+        else if (hdr->version == BLOCKSTORE_META_FORMAT_V2)
         {
             printf(
                 "{\"version\":\"0.9\",\"meta_block_size\":%u,\"data_block_size\":%u,\"bitmap_granularity\":%u,"
@@ -235,8 +235,8 @@ int disk_tool_t::write_json_meta(json11::Json meta)
     blockstore_meta_header_v2_t *new_hdr = (blockstore_meta_header_v2_t *)new_meta_buf;
     new_hdr->zero = 0;
     new_hdr->magic = BLOCKSTORE_META_MAGIC_V1;
-    new_hdr->version = meta["version"].uint64_value() == BLOCKSTORE_META_VERSION_V1
-        ? BLOCKSTORE_META_VERSION_V1 : BLOCKSTORE_META_VERSION_V2;
+    new_hdr->version = meta["version"].uint64_value() == BLOCKSTORE_META_FORMAT_V1
+        ? BLOCKSTORE_META_FORMAT_V1 : BLOCKSTORE_META_FORMAT_V2;
     new_hdr->meta_block_size = meta["meta_block_size"].uint64_value()
         ? meta["meta_block_size"].uint64_value() : 4096;
     new_hdr->data_block_size = meta["data_block_size"].uint64_value()
@@ -249,7 +249,7 @@ int disk_tool_t::write_json_meta(json11::Json meta)
             ? BLOCKSTORE_CSUM_CRC32C
             : BLOCKSTORE_CSUM_NONE);
     new_hdr->csum_block_size = meta["csum_block_size"].uint64_value();
-    uint32_t new_clean_entry_header_size = (new_hdr->version == BLOCKSTORE_META_VERSION_V1
+    uint32_t new_clean_entry_header_size = (new_hdr->version == BLOCKSTORE_META_FORMAT_V1
         ? sizeof(clean_disk_entry) : sizeof(clean_disk_entry) + 4 /*entry_csum*/);
     new_clean_entry_bitmap_size = (new_hdr->data_block_size / new_hdr->bitmap_granularity + 7) / 8;
     new_data_csum_size = (new_hdr->data_csum_type
@@ -278,7 +278,7 @@ int disk_tool_t::write_json_meta(json11::Json meta)
             ((uint8_t*)new_entry) + sizeof(clean_disk_entry));
         fromhexstr(e["ext_bitmap"].string_value(), new_clean_entry_bitmap_size,
             ((uint8_t*)new_entry) + sizeof(clean_disk_entry) + new_clean_entry_bitmap_size);
-        if (new_hdr->version == BLOCKSTORE_META_VERSION_V2)
+        if (new_hdr->version == BLOCKSTORE_META_FORMAT_V2)
         {
             if (new_hdr->data_csum_type != 0)
             {
