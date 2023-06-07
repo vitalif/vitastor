@@ -249,8 +249,29 @@ bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uin
     find_holes(rv, item_start, item_end, [&](int pos, bool alloc, uint32_t cur_start, uint32_t cur_end)
     {
         if (alloc)
+        {
             fill_size += cur_end-cur_start;
-        n_iov++;
+            n_iov++;
+        }
+        else
+        {
+            if (cur_start < op->offset)
+            {
+                fill_size += op->offset-cur_start;
+                n_iov++;
+                cur_start = op->offset;
+            }
+            if (cur_end > op->offset+op->len)
+            {
+                fill_size += cur_end-(op->offset+op->len);
+                n_iov++;
+                cur_end = op->offset+op->len;
+            }
+            if (cur_end > cur_start)
+            {
+                n_iov++;
+            }
+        }
         return 0;
     });
     void *buf = memalign_or_die(MEM_ALIGNMENT, fill_size + n_iov*sizeof(struct iovec));
@@ -259,6 +280,7 @@ bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uin
     fill_size = 0;
     find_holes(rv, item_start, item_end, [&](int pos, bool alloc, uint32_t cur_start, uint32_t cur_end)
     {
+        int res = 0;
         if (alloc)
         {
             iov[n_iov++] = (struct iovec){ (uint8_t*)buf+fill_size, cur_end-cur_start };
@@ -266,16 +288,32 @@ bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uin
         }
         else
         {
-            iov[n_iov++] = (struct iovec){ (uint8_t*)op->buf+cur_start-op->offset, cur_end-cur_start };
-            rv.insert(rv.begin() + pos, (copy_buffer_t){
-                .copy_flags = COPY_BUF_DATA,
-                .offset = cur_start,
-                .len = cur_end-cur_start,
-            });
-            fulfilled += cur_end-cur_start;
-            return 1;
+            if (cur_start < op->offset)
+            {
+                iov[n_iov++] = (struct iovec){ (uint8_t*)buf+fill_size, op->offset-cur_start };
+                fill_size += op->offset-cur_start;
+                cur_start = op->offset;
+            }
+            auto lim_end = cur_end > op->offset+op->len ? op->offset+op->len : cur_end;
+            if (lim_end > cur_start)
+            {
+                iov[n_iov++] = (struct iovec){ (uint8_t*)op->buf+cur_start-op->offset, lim_end-cur_start };
+                rv.insert(rv.begin() + pos, (copy_buffer_t){
+                    .copy_flags = COPY_BUF_DATA,
+                    .offset = cur_start,
+                    .len = lim_end-cur_start,
+                });
+                fulfilled += lim_end-cur_start;
+                res++;
+            }
+            if (cur_end > op->offset+op->len)
+            {
+                iov[n_iov++] = (struct iovec){ (uint8_t*)buf+fill_size, cur_end - (op->offset+op->len) };
+                fill_size += cur_end - (op->offset+op->len);
+                cur_end = op->offset+op->len;
+            }
         }
-        return 0;
+        return res;
     });
     vi = &rv[rv.size()-rv_pos];
     // Save buf into read_vec too but in a creepy way
