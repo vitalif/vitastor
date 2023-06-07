@@ -388,8 +388,6 @@ sub unmap_volume
     my ($class, $storeid, $scfg, $volname, $snapname) = @_;
     my $prefix = defined $scfg->{vitastor_prefix} ? $scfg->{vitastor_prefix} : 'pve/';
 
-    return 1 if !$scfg->{vitastor_nbd};
-
     my ($vtype, $name, $vmid) = $class->parse_volname($volname);
     $name .= '@'.$snapname if $snapname;
 
@@ -413,7 +411,7 @@ sub activate_volume
 sub deactivate_volume
 {
     my ($class, $storeid, $scfg, $volname, $snapname, $cache) = @_;
-    $class->unmap_volume($storeid, $scfg, $volname, $snapname);
+    $class->unmap_volume($storeid, $scfg, $volname, $snapname) if $scfg->{vitastor_nbd};
     return 1;
 }
 
