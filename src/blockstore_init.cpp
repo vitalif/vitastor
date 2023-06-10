@@ -847,6 +847,11 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                             : (pos < end
                                 ? bs->dsk.csum_block_size
                                 : (je->small_write.offset + je->small_write.len)%bs->dsk.csum_block_size));
+                        if (pos > start && pos == end && block_left == 0)
+                        {
+                            // full last block
+                            block_left = bs->dsk.csum_block_size;
+                        }
                         uint32_t block_crc32 = 0;
                         while (block_left > 0)
                         {
