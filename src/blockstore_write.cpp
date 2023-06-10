@@ -16,9 +16,12 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     size_t dyn_size = dsk.dirty_dyn_size(op->offset, op->len);
     if (!is_del && dyn_size > sizeof(void*))
     {
-        dyn = calloc_or_die(1, dyn_size);
+        // FIXME: Working with `dyn_data` has to be refactored somehow but I first have to decide how :)
+        // +sizeof(int) = refcount
+        dyn = calloc_or_die(1, dyn_size+sizeof(int));
+        *((int*)dyn) = 1;
     }
-    uint8_t *dyn_ptr = (uint8_t*)(dyn_size > sizeof(void*) ? dyn : &dyn);
+    uint8_t *dyn_ptr = (uint8_t*)(dyn_size > sizeof(void*) ? dyn+sizeof(int) : &dyn);
     uint64_t version = 1;
     if (dirty_db.size() > 0)
     {
@@ -40,7 +43,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             if (!is_del && !deleted)
             {
                 void *dyn_from = dsk.dirty_dyn_size(dirty_it->second.offset, dirty_it->second.len) > sizeof(void*)
-                    ? dirty_it->second.dyn_data : &dirty_it->second.dyn_data;
+                    ? (uint8_t*)dirty_it->second.dyn_data + sizeof(int) : (uint8_t*)&dirty_it->second.dyn_data;
                 memcpy(dyn_ptr, dyn_from, dsk.clean_entry_bitmap_size);
             }
         }
@@ -55,7 +58,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             if (!is_del)
             {
                 void *bmp_ptr = get_clean_entry_bitmap(clean_it->second.location, dsk.clean_entry_bitmap_size);
-                memcpy((dyn_size > sizeof(void*) ? dyn : &dyn), bmp_ptr, dsk.clean_entry_bitmap_size);
+                memcpy(dyn_ptr, bmp_ptr, dsk.clean_entry_bitmap_size);
             }
         }
         else
@@ -461,7 +464,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         je->len = op->len;
         je->data_offset = journal.next_free;
         je->crc32_data = dsk.csum_block_size ? 0 : crc32c(0, op->buf, op->len);
-        memcpy((void*)(je+1), (dyn_size > sizeof(void*) ? dirty_it->second.dyn_data : &dirty_it->second.dyn_data), dyn_size);
+        memcpy((void*)(je+1), (dyn_size > sizeof(void*)
+            ? (uint8_t*)dirty_it->second.dyn_data+sizeof(int) : (uint8_t*)&dirty_it->second.dyn_data), dyn_size);
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
         if (immediate_commit != IMMEDIATE_NONE)
@@ -556,7 +560,8 @@ resume_2:
         je->offset = op->offset;
         je->len = op->len;
         je->location = dirty_it->second.location;
-        memcpy((void*)(je+1), (dyn_size > sizeof(void*) ? dirty_it->second.dyn_data : &dirty_it->second.dyn_data), dyn_size);
+        memcpy((void*)(je+1), (dyn_size > sizeof(void*)
+            ? (uint8_t*)dirty_it->second.dyn_data+sizeof(int) : (uint8_t*)&dirty_it->second.dyn_data), dyn_size);
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
         prepare_journal_sector_write(journal.cur_sector, op);

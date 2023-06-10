@@ -908,8 +908,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         // allocations for entry bitmaps. This can only be fixed by using
                         // a patched map with dynamic entry size, but not the btree_map,
                         // because it doesn't keep iterators valid all the time.
-                        dyn = malloc_or_die(dyn_size);
-                        memcpy(dyn, dyn_from, dyn_size);
+                        dyn = malloc_or_die(dyn_size+sizeof(int));
+                        *((int*)dyn) = 1;
+                        memcpy((uint8_t*)dyn+sizeof(int), dyn_from, dyn_size);
                     }
                     bs->dirty_db.emplace(ov, (dirty_entry){
                         .state = (BS_ST_SMALL_WRITE | BS_ST_SYNCED),
@@ -996,8 +997,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         // allocations for entry bitmaps. This can only be fixed by using
                         // a patched map with dynamic entry size, but not the btree_map,
                         // because it doesn't keep iterators valid all the time.
-                        dyn = malloc_or_die(dyn_size);
-                        memcpy(dyn, dyn_from, dyn_size);
+                        dyn = malloc_or_die(dyn_size+sizeof(int));
+                        *((int*)dyn) = 1;
+                        memcpy((uint8_t*)dyn+sizeof(int), dyn_from, dyn_size);
                     }
                     auto dirty_it = bs->dirty_db.emplace(ov, (dirty_entry){
                         .state = (BS_ST_BIG_WRITE | BS_ST_SYNCED),

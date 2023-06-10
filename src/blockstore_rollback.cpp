@@ -244,7 +244,8 @@ void blockstore_impl_t::free_dirty_dyn_data(dirty_entry & e)
         size_t dyn_size = dsk.dirty_dyn_size(e.offset, e.len);
         if (dyn_size > sizeof(void*) &&
             (!journal.inmemory || e.dyn_data < journal.buffer ||
-            e.dyn_data >= (uint8_t*)journal.buffer + journal.len))
+            e.dyn_data >= (uint8_t*)journal.buffer + journal.len) &&
+            --*((int*)e.dyn_data) == 0) // refcount
         {
             // dyn_data contains the bitmap and checksums
             // free it if it doesn't refer to the in-memory journal

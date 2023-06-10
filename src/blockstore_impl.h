@@ -331,14 +331,17 @@ class blockstore_impl_t
     int dequeue_read(blockstore_op_t *read_op);
     void find_holes(std::vector<copy_buffer_t> & read_vec, uint32_t item_start, uint32_t item_end,
         std::function<int(int, bool, uint32_t, uint32_t)> callback);
-    int fulfill_read(blockstore_op_t *read_op, uint64_t & fulfilled, uint32_t item_start, uint32_t item_end,
-        uint32_t item_state, uint64_t item_version, uint64_t item_location, uint64_t journal_sector, uint8_t *csum);
+    int fulfill_read(blockstore_op_t *read_op,
+        uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
+        uint32_t item_state, uint64_t item_version, uint64_t item_location,
+        uint64_t journal_sector, uint8_t *csum, int *dyn_data);
     bool fulfill_clean_read(blockstore_op_t *read_op, uint64_t & fulfilled,
-        uint8_t *clean_entry_bitmap, uint32_t item_start, uint32_t item_end, uint64_t clean_loc, uint64_t clean_ver);
+        uint8_t *clean_entry_bitmap, int *dyn_data,
+        uint32_t item_start, uint32_t item_end, uint64_t clean_loc, uint64_t clean_ver);
     int fill_partial_checksum_blocks(std::vector<copy_buffer_t> & rv, uint64_t & fulfilled,
-        uint8_t *clean_entry_bitmap, bool from_journal, uint8_t *read_buf, uint64_t read_offset, uint64_t read_end);
+        uint8_t *clean_entry_bitmap, int *dyn_data, bool from_journal, uint8_t *read_buf, uint64_t read_offset, uint64_t read_end);
     int pad_journal_read(std::vector<copy_buffer_t> & rv, copy_buffer_t & cp,
-        uint64_t dirty_offset, uint64_t dirty_end, uint64_t dirty_loc, uint8_t *csum_ptr,
+        uint64_t dirty_offset, uint64_t dirty_end, uint64_t dirty_loc, uint8_t *csum_ptr, int *dyn_data,
         uint64_t offset, uint64_t submit_len, uint64_t & blk_begin, uint64_t & blk_end, uint8_t* & blk_buf);
     bool read_range_fulfilled(std::vector<copy_buffer_t> & rv, uint64_t & fulfilled, uint8_t *read_buf,
         uint8_t *clean_entry_bitmap, uint32_t item_start, uint32_t item_end);

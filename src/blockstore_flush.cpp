@@ -642,7 +642,8 @@ void journal_flusher_co::update_metadata_entry()
         // Copy latest external bitmap/attributes
         {
             uint64_t dyn_size = bs->dsk.dirty_dyn_size(dirty_end->second.offset, dirty_end->second.len);
-            void *dyn_ptr = dyn_size > sizeof(void*) ? dirty_end->second.dyn_data : &dirty_end->second.dyn_data;
+            void *dyn_ptr = dyn_size > sizeof(void*)
+                ? (uint8_t*)dirty_end->second.dyn_data+sizeof(int) : (uint8_t*)&dirty_end->second.dyn_data;
             memcpy(new_clean_bitmap + bs->dsk.clean_entry_bitmap_size, dyn_ptr, bs->dsk.clean_entry_bitmap_size);
         }
         // Copy initial (big_write) data checksums
@@ -955,7 +956,8 @@ void journal_flusher_co::scan_dirty()
                             // FIXME Remove this > sizeof(void*) inline perversion from everywhere.
                             // I think it doesn't matter but I couldn't stop myself from implementing it :)
                             uint64_t dyn_size = bs->dsk.dirty_dyn_size(dirty_it->second.offset, dirty_it->second.len);
-                            uint8_t* dyn_from = (uint8_t*)(dyn_size > sizeof(void*) ? dirty_it->second.dyn_data : &dirty_it->second.dyn_data) +
+                            uint8_t* dyn_from = (uint8_t*)(dyn_size > sizeof(void*)
+                                ? (uint8_t*)dirty_it->second.dyn_data+sizeof(int) : (uint8_t*)&dirty_it->second.dyn_data) +
                                 bs->dsk.clean_entry_bitmap_size;
                             it->csum_buf = dyn_from + (it->offset/bs->dsk.csum_block_size -
                                 dirty_it->second.offset/bs->dsk.csum_block_size) * (bs->dsk.data_csum_type & 0xFF);
@@ -967,7 +969,7 @@ void journal_flusher_co::scan_dirty()
                                 {
                                     bs->pad_journal_read(v, *it, dirty_it->second.offset,
                                         dirty_it->second.offset + dirty_it->second.len, dirty_it->second.location,
-                                        dyn_from, offset, submit_len, blk_begin, blk_end, blk_buf);
+                                        dyn_from, NULL, offset, submit_len, blk_begin, blk_end, blk_buf);
                                 }
                             }
                         }
@@ -985,7 +987,7 @@ void journal_flusher_co::scan_dirty()
             clean_bitmap_offset = dirty_it->second.offset;
             clean_bitmap_len = dirty_it->second.len;
             clean_init_dyn_ptr = bs->dsk.dirty_dyn_size(clean_bitmap_offset, clean_bitmap_len) > sizeof(void*)
-                ? (uint8_t*)dirty_it->second.dyn_data : (uint8_t*)&dirty_it->second.dyn_data;
+                ? (uint8_t*)dirty_it->second.dyn_data+sizeof(int) : (uint8_t*)&dirty_it->second.dyn_data;
             skip_copy = true;
         }
         else if (IS_DELETE(dirty_it->second.state) && !skip_copy)
@@ -1028,7 +1030,7 @@ void journal_flusher_co::scan_dirty()
         uint8_t *bmp_ptr = bs->get_clean_entry_bitmap(old_clean_loc, 0);
         uint64_t fulfilled = 0;
         read_to_fill_incomplete = bs->fill_partial_checksum_blocks(
-            v, fulfilled, bmp_ptr, false, NULL, v[0].offset/bs->dsk.csum_block_size * bs->dsk.csum_block_size,
+            v, fulfilled, bmp_ptr, NULL, false, NULL, v[0].offset/bs->dsk.csum_block_size * bs->dsk.csum_block_size,
             ((v[v.size()-1].offset+v[v.size()-1].len-1) / bs->dsk.csum_block_size + 1) * bs->dsk.csum_block_size
         );
     }

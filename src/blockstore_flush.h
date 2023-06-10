@@ -14,6 +14,7 @@ struct copy_buffer_t
     uint64_t journal_sector; // only for reads: sector+1 if used and !journal.inmemory, otherwise 0
     void *buf;
     uint8_t *csum_buf;
+    int *dyn_data;
 };
 
 struct meta_sector_t
