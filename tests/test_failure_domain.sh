@@ -15,9 +15,6 @@ $ETCDCTL put /vitastor/osd/stats/7 '{"host":"host4","size":1073741824,"time":"'$
 $ETCDCTL put /vitastor/osd/stats/8 '{"host":"host4","size":1073741824,"time":"'$TIME'"}'
 $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":4,"failure_domain":"rack"}}'
 
-cd mon
-npm install
-cd ..
 node mon/mon-main.js --etcd_url $ETCD_URL --etcd_prefix "/vitastor" &>./testdata/mon.log &
 MON_PID=$!
 

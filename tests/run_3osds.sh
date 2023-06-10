@@ -36,9 +36,6 @@ for i in $(seq 1 $OSD_COUNT); do
     start_osd $i
 done
 
-cd mon
-npm install
-cd ..
 (while true; do node mon/mon-main.js --etcd_url $ETCD_URL --etcd_prefix "/vitastor" --verbose 1 || true; done) &>./testdata/mon.log &
 MON_PID=$!
 

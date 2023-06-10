@@ -10,6 +10,9 @@ RUN set -e -x; \
     ln -s /root/fio-build/fio-*/ ./fio; \
     ln -s /root/qemu-build/qemu-*/ ./qemu; \
     ls /usr/include/linux/raw.h || cp ./debian/raw.h /usr/include/linux/raw.h; \
+    cd mon; \
+    npm install; \
+    cd ..; \
     mkdir build; \
     cd build; \
     cmake .. -DWITH_ASAN=yes -DWITH_QEMU=yes; \
