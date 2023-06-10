@@ -822,7 +822,13 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     data_csum_valid = data_crc32 == je->small_write.crc32_data;
                     if (!data_csum_valid)
                     {
-                        printf("Journal entry data is corrupt (data crc32 %x != %x)\n", data_crc32, je->small_write.crc32_data);
+                        printf(
+                            "Journal entry data is corrupt for small_write%s oid=%lx:%lx ver=%lu offset=%u len=%u - data crc32 %x != %x\n",
+                            je->type == JE_SMALL_WRITE_INSTANT ? "_instant" : "",
+                            je->small_write.oid.inode, je->small_write.oid.stripe, je->small_write.version,
+                            je->small_write.offset, je->small_write.len,
+                            data_crc32, je->small_write.crc32_data
+                        );
                     }
                 }
                 else if (je->small_write.len > 0)
@@ -861,8 +867,13 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         }
                         if (block_crc32 != *block_csums)
                         {
-                            printf("Journal entry data is corrupt (block %u crc32 %x != %x)\n",
-                                pos, block_crc32, *block_csums);
+                            printf(
+                                "Journal entry data is corrupt for small_write%s oid=%lx:%lx ver=%lu offset=%u len=%u - block %u crc32 %x != %x\n",
+                                je->type == JE_SMALL_WRITE_INSTANT ? "_instant" : "",
+                                je->small_write.oid.inode, je->small_write.oid.stripe, je->small_write.version,
+                                je->small_write.offset, je->small_write.len,
+                                pos, block_crc32, *block_csums
+                            );
                             data_csum_valid = false;
                             break;
                         }
