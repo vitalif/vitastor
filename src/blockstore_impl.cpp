@@ -13,6 +13,7 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *
     initialized = 0;
     parse_config(config, true);
     zero_object = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.data_block_size);
+    alloc_dyn_data = dsk.clean_dyn_size > sizeof(void*) || dsk.csum_block_size > 0;
     try
     {
         dsk.open_data();

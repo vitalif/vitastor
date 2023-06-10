@@ -14,14 +14,14 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         op->len = 0;
     }
     size_t dyn_size = dsk.dirty_dyn_size(op->offset, op->len);
-    if (!is_del && dyn_size > sizeof(void*))
+    if (!is_del && alloc_dyn_data)
     {
         // FIXME: Working with `dyn_data` has to be refactored somehow but I first have to decide how :)
         // +sizeof(int) = refcount
         dyn = calloc_or_die(1, dyn_size+sizeof(int));
         *((int*)dyn) = 1;
     }
-    uint8_t *dyn_ptr = (uint8_t*)(dyn_size > sizeof(void*) ? dyn+sizeof(int) : &dyn);
+    uint8_t *dyn_ptr = (uint8_t*)(alloc_dyn_data ? dyn+sizeof(int) : &dyn);
     uint64_t version = 1;
     if (dirty_db.size() > 0)
     {
@@ -42,7 +42,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
                 : ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG);
             if (!is_del && !deleted)
             {
-                void *dyn_from = dsk.dirty_dyn_size(dirty_it->second.offset, dirty_it->second.len) > sizeof(void*)
+                void *dyn_from = alloc_dyn_data
                     ? (uint8_t*)dirty_it->second.dyn_data + sizeof(int) : (uint8_t*)&dirty_it->second.dyn_data;
                 memcpy(dyn_ptr, dyn_from, dsk.clean_entry_bitmap_size);
             }
@@ -120,7 +120,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             printf("Write %lx:%lx v%lu requested, but we already have v%lu\n", op->oid.inode, op->oid.stripe, op->version, version);
 #endif
             op->retval = -EEXIST;
-            if (!is_del && dyn_size > sizeof(void*))
+            if (!is_del && alloc_dyn_data)
             {
                 free(dyn);
             }
@@ -464,7 +464,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         je->len = op->len;
         je->data_offset = journal.next_free;
         je->crc32_data = dsk.csum_block_size ? 0 : crc32c(0, op->buf, op->len);
-        memcpy((void*)(je+1), (dyn_size > sizeof(void*)
+        memcpy((void*)(je+1), (alloc_dyn_data
             ? (uint8_t*)dirty_it->second.dyn_data+sizeof(int) : (uint8_t*)&dirty_it->second.dyn_data), dyn_size);
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
@@ -560,7 +560,7 @@ resume_2:
         je->offset = op->offset;
         je->len = op->len;
         je->location = dirty_it->second.location;
-        memcpy((void*)(je+1), (dyn_size > sizeof(void*)
+        memcpy((void*)(je+1), (alloc_dyn_data
             ? (uint8_t*)dirty_it->second.dyn_data+sizeof(int) : (uint8_t*)&dirty_it->second.dyn_data), dyn_size);
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;

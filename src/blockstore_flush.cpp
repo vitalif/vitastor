@@ -641,8 +641,7 @@ void journal_flusher_co::update_metadata_entry()
         }
         // Copy latest external bitmap/attributes
         {
-            uint64_t dyn_size = bs->dsk.dirty_dyn_size(dirty_end->second.offset, dirty_end->second.len);
-            void *dyn_ptr = dyn_size > sizeof(void*)
+            void *dyn_ptr = bs->alloc_dyn_data
                 ? (uint8_t*)dirty_end->second.dyn_data+sizeof(int) : (uint8_t*)&dirty_end->second.dyn_data;
             memcpy(new_clean_bitmap + bs->dsk.clean_entry_bitmap_size, dyn_ptr, bs->dsk.clean_entry_bitmap_size);
         }
@@ -955,8 +954,7 @@ void journal_flusher_co::scan_dirty()
                         {
                             // FIXME Remove this > sizeof(void*) inline perversion from everywhere.
                             // I think it doesn't matter but I couldn't stop myself from implementing it :)
-                            uint64_t dyn_size = bs->dsk.dirty_dyn_size(dirty_it->second.offset, dirty_it->second.len);
-                            uint8_t* dyn_from = (uint8_t*)(dyn_size > sizeof(void*)
+                            uint8_t* dyn_from = (uint8_t*)(bs->alloc_dyn_data
                                 ? (uint8_t*)dirty_it->second.dyn_data+sizeof(int) : (uint8_t*)&dirty_it->second.dyn_data) +
                                 bs->dsk.clean_entry_bitmap_size;
                             it->csum_buf = dyn_from + (it->offset/bs->dsk.csum_block_size -
@@ -986,7 +984,7 @@ void journal_flusher_co::scan_dirty()
             clean_init_bitmap = true;
             clean_bitmap_offset = dirty_it->second.offset;
             clean_bitmap_len = dirty_it->second.len;
-            clean_init_dyn_ptr = bs->dsk.dirty_dyn_size(clean_bitmap_offset, clean_bitmap_len) > sizeof(void*)
+            clean_init_dyn_ptr = bs->alloc_dyn_data
                 ? (uint8_t*)dirty_it->second.dyn_data+sizeof(int) : (uint8_t*)&dirty_it->second.dyn_data;
             skip_copy = true;
         }

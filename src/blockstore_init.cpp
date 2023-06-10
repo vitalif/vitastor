@@ -891,16 +891,11 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     uint64_t dyn_size = bs->dsk.dirty_dyn_size(je->small_write.offset, je->small_write.len);
                     void *dyn = NULL;
                     void *dyn_from = (uint8_t*)je + sizeof(journal_entry_small_write);
-                    if (dyn_size <= sizeof(void*))
+                    if (!bs->alloc_dyn_data)
                     {
                         // Bitmap without checksum is only 4 bytes for 128k objects, save it inline
                         // It can even contain 4 byte bitmap + 4 byte CRC32 for 4 kb writes :)
                         memcpy(&dyn, dyn_from, dyn_size);
-                    }
-                    else if (bs->journal.inmemory)
-                    {
-                        // Journal is kept in memory, refer to it instead of allocating a buffer
-                        dyn = dyn_from;
                     }
                     else
                     {
@@ -981,15 +976,10 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     uint64_t dyn_size = bs->dsk.dirty_dyn_size(je->big_write.offset, je->big_write.len);
                     void *dyn = NULL;
                     void *dyn_from = (uint8_t*)je + sizeof(journal_entry_big_write);
-                    if (dyn_size <= sizeof(void*))
+                    if (!bs->alloc_dyn_data)
                     {
                         // Bitmap without checksum is only 4 bytes for 128k objects, save it inline
                         memcpy(&dyn, dyn_from, dyn_size);
-                    }
-                    else if (bs->journal.inmemory)
-                    {
-                        // Journal is kept in memory, refer to it instead of allocating a buffer
-                        dyn = dyn_from;
                     }
                     else
                     {

@@ -283,6 +283,7 @@ class blockstore_impl_t
     journal_flusher_t *flusher;
     int big_to_flush = 0;
     int write_iodepth = 0;
+    bool alloc_dyn_data = false;
 
     // clean data blocks referenced by read operations
     std::map<obj_ver_id, used_clean_obj_t> used_clean_objects;

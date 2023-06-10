@@ -412,9 +412,8 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                     FINISH_OP(read_op);
                     return 2;
                 }
-                size_t dyn_size = dsk.dirty_dyn_size(dirty.offset, dirty.len);
-                int *dyn_data = (int*)(dsk.csum_block_size > 0 && dyn_size > sizeof(void*) ? dirty.dyn_data : NULL);
-                uint8_t *bmp_ptr = (dyn_size > sizeof(void*)
+                int *dyn_data = (int*)(dsk.csum_block_size > 0 && alloc_dyn_data ? dirty.dyn_data : NULL);
+                uint8_t *bmp_ptr = (alloc_dyn_data
                     ? (uint8_t*)dirty.dyn_data + sizeof(int) : (uint8_t*)&dirty.dyn_data);
                 if (!result_version)
                 {
@@ -951,8 +950,7 @@ int blockstore_impl_t::read_bitmap(object_id oid, uint64_t target_version, void 
                     *result_version = dirty_it->first.version;
                 if (bitmap)
                 {
-                    size_t dyn_size = dsk.dirty_dyn_size(dirty_it->second.offset, dirty_it->second.len);
-                    void *dyn_ptr = (dyn_size > sizeof(void*)
+                    void *dyn_ptr = (alloc_dyn_data
                         ? (uint8_t*)dirty_it->second.dyn_data + sizeof(int) : (uint8_t*)&dirty_it->second.dyn_data);
                     memcpy(bitmap, dyn_ptr, dsk.clean_entry_bitmap_size);
                 }
