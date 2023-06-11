@@ -731,7 +731,7 @@ bool blockstore_impl_t::verify_journal_checksums(uint8_t *csums, uint32_t offset
             if (block_csum != ((uint32_t*)csums)[block_num])
             {
                 if (bad_block_cb)
-                    bad_block_cb(block_num*dsk.csum_block_size - (offset%dsk.csum_block_size), block_csum, ((uint32_t*)csums)[block_num]);
+                    bad_block_cb(block_num*dsk.csum_block_size, block_csum, ((uint32_t*)csums)[block_num]);
                 else
                     return false;
             }
@@ -749,7 +749,7 @@ bool blockstore_impl_t::verify_journal_checksums(uint8_t *csums, uint32_t offset
     if (block_done > 0 && block_csum != ((uint32_t*)csums)[block_num])
     {
         if (bad_block_cb)
-            bad_block_cb(block_num*dsk.csum_block_size - (offset%dsk.csum_block_size), block_csum, ((uint32_t*)csums)[block_num]);
+            bad_block_cb(block_num*dsk.csum_block_size, block_csum, ((uint32_t*)csums)[block_num]);
         else
             return false;
     }

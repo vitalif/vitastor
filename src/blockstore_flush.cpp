@@ -773,13 +773,17 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
             {
                 bs->verify_journal_checksums(v[i].csum_buf, v[i].offset, &iov, 1, [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
                 {
-                    printf("Checksum mismatch in object %lx:%lx v%lu in journal at offset 0x%lx+0x%x: got %08x, expected %08x\n",
+                    printf("Checksum mismatch in object %lx:%lx v%lu in journal at offset 0x%lx+0x%x (block offset 0x%lx): got %08x, expected %08x\n",
                         cur.oid.inode, cur.oid.stripe, old_clean_ver,
-                        v[i].disk_offset, bad_block, calc_csum, stored_csum);
-                    uint32_t bad_block_end = ((bad_block/bs->dsk.csum_block_size)+1)*bs->dsk.csum_block_size -
-                        v[i].offset % bs->dsk.csum_block_size;
+                        v[i].disk_offset, bad_block, v[i].offset, calc_csum, stored_csum);
+                    bad_block += (v[i].offset/bs->dsk.csum_block_size) * bs->dsk.csum_block_size;
+                    uint32_t bad_block_end = bad_block + bs->dsk.csum_block_size + (v[i].offset/bs->dsk.csum_block_size) * bs->dsk.csum_block_size;
+                    if (bad_block < v[i].offset)
+                        bad_block = v[i].offset;
                     if (bad_block_end > v[i].offset+v[i].len)
                         bad_block_end = v[i].offset+v[i].len;
+                    bad_block -= v[i].offset;
+                    bad_block_end -= v[i].offset;
                     for (uint32_t j = bad_block; j < bad_block_end; j += bs->dsk.bitmap_granularity)
                     {
                         // Simplest method of mangling: flip one byte in every sector
