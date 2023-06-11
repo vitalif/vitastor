@@ -1040,9 +1040,12 @@ void journal_flusher_co::scan_dirty()
         }
         uint8_t *bmp_ptr = bs->get_clean_entry_bitmap(old_clean_loc, 0);
         uint64_t fulfilled = 0;
+        int last = v.size()-1;
+        while (last >= 0 && (v[last].copy_flags & COPY_BUF_CSUM_FILL))
+            last--;
         read_to_fill_incomplete = bs->fill_partial_checksum_blocks(
             v, fulfilled, bmp_ptr, NULL, false, NULL, v[0].offset/bs->dsk.csum_block_size * bs->dsk.csum_block_size,
-            ((v[v.size()-1].offset+v[v.size()-1].len-1) / bs->dsk.csum_block_size + 1) * bs->dsk.csum_block_size
+            ((v[last].offset+v[last].len-1) / bs->dsk.csum_block_size + 1) * bs->dsk.csum_block_size
         );
     }
     else if (fill_incomplete && clean_init_bitmap)
