@@ -58,4 +58,8 @@ qemu-img convert -S 4096 -p \
 
 diff ./testdata/read.bin ./testdata/mirror.bin
 
+if grep -q 'Checksum mismatch' ./testdata/osd*.log; then
+    format_error Checksum mismatches detected during test
+fi
+
 format_green OK
