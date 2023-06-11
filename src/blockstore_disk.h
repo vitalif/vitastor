@@ -51,7 +51,7 @@ struct blockstore_disk_t
     inline uint64_t dirty_dyn_size(uint64_t offset, uint64_t len)
     {
         // Checksums may be partial if write is not aligned with csum_block_size
-        return clean_entry_bitmap_size + (csum_block_size
+        return clean_entry_bitmap_size + (csum_block_size && len > 0
             ? ((offset+len+csum_block_size-1)/csum_block_size - offset/csum_block_size)
                 * (data_csum_type & 0xFF)
             : 0);
