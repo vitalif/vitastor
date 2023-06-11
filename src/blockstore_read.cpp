@@ -74,22 +74,45 @@ void blockstore_impl_t::find_holes(std::vector<copy_buffer_t> & read_vec,
 }
 
 int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op,
-    uint64_t &fulfilled, uint32_t item_start, uint32_t item_end,
+    uint64_t &fulfilled, uint32_t item_start, uint32_t item_end, // FIXME: Rename item_* to dirty_*
     uint32_t item_state, uint64_t item_version, uint64_t item_location,
     uint64_t journal_sector, uint8_t *csum, int *dyn_data)
 {
     int r = 1;
     if (item_start < read_op->offset + read_op->len && item_end > read_op->offset)
     {
-        uint64_t blk_begin = 0, blk_end = 0;
-        uint8_t *blk_buf = NULL;
         auto & rv = PRIV(read_op)->read_vec;
         auto rd_start = item_start < read_op->offset ? read_op->offset : item_start;
-        item_end = item_end > read_op->offset + read_op->len ? read_op->offset + read_op->len : item_end;
-        find_holes(rv, rd_start, item_end, [&](int pos, bool alloc, uint32_t start, uint32_t end)
+        auto rd_end = item_end > read_op->offset + read_op->len ? read_op->offset + read_op->len : item_end;
+        find_holes(rv, rd_start, rd_end, [&](int pos, bool alloc, uint32_t start, uint32_t end)
         {
             if (!r || alloc)
                 return 0;
+            if (!journal.inmemory && dsk.csum_block_size > dsk.bitmap_granularity && IS_JOURNAL(item_state) && !IS_DELETE(item_state))
+            {
+                uint32_t blk_begin = (start/dsk.csum_block_size) * dsk.csum_block_size;
+                blk_begin = blk_begin < item_start ? item_start : blk_begin;
+                uint32_t blk_end = ((end-1) / dsk.csum_block_size + 1) * dsk.csum_block_size;
+                blk_end = blk_end > item_end ? item_end : blk_end;
+                rv.push_back((copy_buffer_t){
+                    .copy_flags = COPY_BUF_JOURNAL|COPY_BUF_CSUM_FILL,
+                    .offset = blk_begin,
+                    .len = blk_end-blk_begin,
+                    .csum_buf = (csum + (blk_begin/dsk.csum_block_size -
+                        item_start/dsk.csum_block_size) * (dsk.data_csum_type & 0xFF)),
+                    .dyn_data = dyn_data,
+                });
+                if (dyn_data)
+                {
+                    (*dyn_data)++;
+                }
+                // Submit the journal checksum block read
+                if (!read_checksum_block(read_op, 1, fulfilled, item_location - item_start))
+                {
+                    r = 0;
+                }
+                return 0;
+            }
             copy_buffer_t el = {
                 .copy_flags = (IS_JOURNAL(item_state) ? COPY_BUF_JOURNAL : COPY_BUF_DATA),
                 .offset = start,
@@ -111,26 +134,14 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op,
                 PRIV(read_op)->clean_version_used = 1;
             }
             rv.insert(rv.begin() + pos, el);
-            if (!journal.inmemory && dsk.csum_block_size > dsk.bitmap_granularity && IS_JOURNAL(item_state) && !IS_DELETE(item_state))
-            {
-                int pad_state = pad_journal_read(rv, rv[pos], item_start, item_end, item_location,
-                    csum, dyn_data, start, end-start, blk_begin, blk_end, blk_buf);
-                if (pad_state == 2)
-                    return 1;
-                else if (pad_state == 1)
-                {
-                    // Submit the journal checksum block read
-                    if (!read_checksum_block(read_op, 1, fulfilled, item_location))
-                        r = 0;
-                    return 1;
-                }
-            }
             fulfilled += el.len;
             if (!fulfill_read_push(read_op,
                 (uint8_t*)read_op->buf + el.offset - read_op->offset,
                 item_location + el.offset - item_start,
                 el.len, item_state, item_version))
+            {
                 r = 0;
+            }
             return 1;
         });
     }
@@ -330,7 +341,7 @@ bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uin
     // FIXME: Shit, something else should be invented %)
     *vi = (copy_buffer_t){
         .copy_flags = vi->copy_flags,
-        .offset = 0xffffffff,
+        .offset = vi->offset,
         .len = ((uint64_t)n_iov << 32) | fill_size,
         .disk_offset = clean_loc + item_start,
         .buf = (uint8_t*)buf,
@@ -789,7 +800,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
             auto & rv = PRIV(op)->read_vec;
             if (dsk.csum_block_size > dsk.bitmap_granularity)
             {
-                bool ok;
+                bool ok = true;
                 for (int i = rv.size()-1; i >= 0 && (rv[i].copy_flags & COPY_BUF_CSUM_FILL); i--)
                 {
                     struct iovec *iov = (struct iovec*)((uint8_t*)rv[i].buf + (rv[i].len & 0xFFFFFFFF));
@@ -797,7 +808,18 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                     if (rv[i].copy_flags & COPY_BUF_JOURNAL)
                     {
                         // SMALL_WRITE from journal
-                        ok = verify_journal_checksums(rv[i].csum_buf, rv[i].disk_offset % dsk.data_block_size, iov, n_iov, NULL);
+                        verify_journal_checksums(
+                            rv[i].csum_buf, rv[i].offset, iov, n_iov,
+                            [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
+                            {
+                                ok = false;
+                                printf(
+                                    "Checksum mismatch in object %lx:%lx v%lu in journal at block #%u: got %08x, expected %08x\n",
+                                    op->oid.inode, op->oid.stripe, op->version,
+                                    bad_block / dsk.csum_block_size, calc_csum, stored_csum
+                                );
+                            }
+                        );
                     }
                     else if (rv[i].csum_buf)
                     {
