@@ -55,6 +55,23 @@ int disk_tool_t::dump_journal()
                     printf("offset %08lx:\n", journal_pos);
                 else
                     printf(",\"entries\":[\n");
+                if (journal_pos == 0)
+                {
+                    // Fill journal header to know checksum type & size
+                    journal_entry *je = (journal_entry*)journal_buf;
+                    if (je->magic == JOURNAL_MAGIC && je->type == JE_START &&
+                        (je->start.version == JOURNAL_VERSION_V1 || je->start.version == JOURNAL_VERSION_V2))
+                    {
+                        memcpy(&je_start, je, sizeof(je_start));
+                        if (je_start.size == JE_START_V0_SIZE)
+                            je_start.version = 0;
+                        if (je_start.version < JOURNAL_VERSION_V2)
+                        {
+                            je_start.data_csum_type = 0;
+                            je_start.csum_block_size = 0;
+                        }
+                    }
+                }
                 first_entry = true;
                 process_journal_block(journal_buf, [this](int num, journal_entry *je) { dump_journal_entry(num, je, json); });
                 if (json)
