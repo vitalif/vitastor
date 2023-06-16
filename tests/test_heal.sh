@@ -56,10 +56,12 @@ qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testimg" \
     -O raw ./testdata/read.bin
 
-diff ./testdata/read.bin ./testdata/mirror.bin
+if ! diff -q ./testdata/read.bin ./testdata/mirror.bin; then
+    format_error Data lost during self-heal
+fi
 
-if grep -q 'Checksum mismatch' ./testdata/osd*.log; then
-    format_error Checksum mismatches detected during test
+if grep -qP 'Checksum mismatch|BUG' ./testdata/osd*.log; then
+    format_error Checksum mismatches or BUGs detected during test
 fi
 
 format_green OK
