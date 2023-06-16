@@ -311,7 +311,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     {
         blockstore_journal_check_t space_check(this);
         if (!space_check.check_available(op, unsynced_big_write_count + 1,
-            sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size,
+            sizeof(journal_entry_big_write) + dsk.clean_dyn_size,
             (dirty_it->second.state & BS_ST_INSTANT) ? JOURNAL_INSTANT_RESERVATION : JOURNAL_STABILIZE_RESERVATION))
         {
             return 0;
@@ -398,7 +398,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         blockstore_journal_check_t space_check(this);
         if (unsynced_big_write_count &&
             !space_check.check_available(op, unsynced_big_write_count,
-                sizeof(journal_entry_big_write) + dsk.dirty_dyn_size(0, dsk.data_block_size), 0)
+                sizeof(journal_entry_big_write) + dsk.clean_dyn_size, 0)
             || !space_check.check_available(op, 1,
                 sizeof(journal_entry_small_write) + dyn_size,
                 op->len + ((dirty_it->second.state & BS_ST_INSTANT) ? JOURNAL_INSTANT_RESERVATION : JOURNAL_STABILIZE_RESERVATION)))
