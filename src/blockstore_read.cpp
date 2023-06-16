@@ -824,7 +824,17 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                     else if (rv[i].csum_buf)
                     {
                         // BIG_WRITE from journal
-                        ok = verify_padded_checksums(rv[i].csum_buf, true, rv[i].disk_offset % dsk.data_block_size, iov, n_iov, NULL);
+                        verify_padded_checksums(rv[i].csum_buf, true, rv[i].disk_offset % dsk.data_block_size, iov, n_iov,
+                            [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
+                            {
+                                ok = false;
+                                printf(
+                                    "Checksum mismatch in object %lx:%lx v%lu in RoW data at block #%u: got %08x, expected %08x\n",
+                                    op->oid.inode, op->oid.stripe, op->version,
+                                    bad_block / dsk.csum_block_size, calc_csum, stored_csum
+                                );
+                            }
+                        );
                     }
                     else
                     {
