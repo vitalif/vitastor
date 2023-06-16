@@ -240,21 +240,20 @@ void osd_t::start_pg_peering(pg_t & pg)
         // (PG history is kept up to the latest active+clean state)
         for (auto & history_set: pg.target_history)
         {
-            bool found = true;
+            int nonzero = 0, found = 0;
             for (auto history_osd: history_set)
             {
                 if (history_osd != 0)
                 {
-                    found = false;
+                    nonzero++;
                     if (history_osd == this->osd_num ||
                         msgr.osd_peer_fds.find(history_osd) != msgr.osd_peer_fds.end())
                     {
-                        found = true;
-                        break;
+                        found++;
                     }
                 }
             }
-            if (!found)
+            if (found < (nonzero >= pg.pg_data_size ? pg.pg_data_size : 1))
             {
                 pg.state = PG_INCOMPLETE;
                 report_pg_state(pg);
