@@ -409,7 +409,23 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         );
 #endif
         // Figure out where data will be
-        journal.next_free = (journal.next_free + op->len) <= journal.len ? journal.next_free : dsk.journal_block_size;
+        auto next_next_free = (journal.next_free + op->len) <= journal.len ? journal.next_free : dsk.journal_block_size;
+        if (op->len > 0)
+        {
+            auto journal_used_it = journal.used_sectors.lower_bound(next_next_free);
+            if (journal_used_it != journal.used_sectors.end() &&
+                journal_used_it->first < next_next_free + op->len)
+            {
+                printf(
+                    "BUG: Attempt to overwrite used offset (%lx, %lu refs) of the journal with the object %lx:%lx v%lu: data at %lx, len %x!"
+                    " Journal used_start=%08lx (%lu refs), next_free=%08lx, dirty_start=%08lx\n",
+                    journal_used_it->first, journal_used_it->second, op->oid.inode, op->oid.stripe, op->version, next_next_free, op->len,
+                    journal.used_start, journal.used_sectors[journal.used_start], journal.next_free, journal.dirty_start
+                );
+                exit(1);
+            }
+        }
+        journal.next_free = next_next_free;
         je->oid = op->oid;
         je->version = op->version;
         je->offset = op->offset;

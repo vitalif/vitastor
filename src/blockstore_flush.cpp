@@ -675,52 +675,57 @@ resume_1:
                     return false;
                 }
                 flusher->trimming = true;
-                // First update journal "superblock" and only then update <used_start> in memory
-                await_sqe(12);
-                *((journal_entry_start*)flusher->journal_superblock) = {
-                    .crc32 = 0,
-                    .magic = JOURNAL_MAGIC,
-                    .type = JE_START,
-                    .size = sizeof(journal_entry_start),
-                    .reserved = 0,
-                    .journal_start = new_trim_pos,
-                    .version = JOURNAL_VERSION,
-                };
-                ((journal_entry_start*)flusher->journal_superblock)->crc32 = je_crc32((journal_entry*)flusher->journal_superblock);
-                data->iov = (struct iovec){ flusher->journal_superblock, bs->dsk.journal_block_size };
-                data->callback = simple_callback_w;
-                my_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
-                wait_count++;
-            resume_13:
-                if (wait_count > 0)
+                // Recheck the position with the "lock" taken
+                new_trim_pos = bs->journal.get_trim_pos();
+                if (new_trim_pos != bs->journal.used_start)
                 {
-                    wait_state = 13;
-                    return false;
-                }
-                if (!bs->disable_journal_fsync)
-                {
-                    await_sqe(20);
-                    my_uring_prep_fsync(sqe, bs->dsk.journal_fd, IORING_FSYNC_DATASYNC);
-                    data->iov = { 0 };
+                    // First update journal "superblock" and only then update <used_start> in memory
+                    await_sqe(12);
+                    *((journal_entry_start*)flusher->journal_superblock) = {
+                        .crc32 = 0,
+                        .magic = JOURNAL_MAGIC,
+                        .type = JE_START,
+                        .size = sizeof(journal_entry_start),
+                        .reserved = 0,
+                        .journal_start = new_trim_pos,
+                        .version = JOURNAL_VERSION,
+                    };
+                    ((journal_entry_start*)flusher->journal_superblock)->crc32 = je_crc32((journal_entry*)flusher->journal_superblock);
+                    data->iov = (struct iovec){ flusher->journal_superblock, bs->dsk.journal_block_size };
                     data->callback = simple_callback_w;
-                resume_21:
+                    my_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
+                    wait_count++;
+                resume_13:
                     if (wait_count > 0)
                     {
-                        wait_state = 21;
+                        wait_state = 13;
                         return false;
                     }
-                }
-                bs->journal.used_start = new_trim_pos;
+                    if (!bs->disable_journal_fsync)
+                    {
+                        await_sqe(20);
+                        my_uring_prep_fsync(sqe, bs->dsk.journal_fd, IORING_FSYNC_DATASYNC);
+                        data->iov = { 0 };
+                        data->callback = simple_callback_w;
+                    resume_21:
+                        if (wait_count > 0)
+                        {
+                            wait_state = 21;
+                            return false;
+                        }
+                    }
+                    bs->journal.used_start = new_trim_pos;
 #ifdef BLOCKSTORE_DEBUG
-                printf("Journal trimmed to %08lx (next_free=%08lx)\n", bs->journal.used_start, bs->journal.next_free);
+                    printf("Journal trimmed to %08lx (next_free=%08lx)\n", bs->journal.used_start, bs->journal.next_free);
 #endif
+                    if (bs->journal.flush_journal && !flusher->flush_queue.size())
+                    {
+                        assert(bs->journal.used_start == bs->journal.next_free);
+                        printf("Journal flushed\n");
+                        exit(0);
+                    }
+                }
                 flusher->trimming = false;
-            }
-            if (bs->journal.flush_journal && !flusher->flush_queue.size())
-            {
-                assert(bs->journal.used_start == bs->journal.next_free);
-                printf("Journal flushed\n");
-                exit(0);
             }
         }
         // All done

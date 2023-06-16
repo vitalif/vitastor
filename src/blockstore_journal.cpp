@@ -236,14 +236,6 @@ journal_t::~journal_t()
 uint64_t journal_t::get_trim_pos()
 {
     auto journal_used_it = used_sectors.lower_bound(used_start);
-#ifdef BLOCKSTORE_DEBUG
-    printf(
-        "Trimming journal (used_start=%08lx, next_free=%08lx, dirty_start=%08lx, new_start=%08lx, new_refcount=%ld)\n",
-        used_start, next_free, dirty_start,
-        journal_used_it == used_sectors.end() ? 0 : journal_used_it->first,
-        journal_used_it == used_sectors.end() ? 0 : journal_used_it->second
-    );
-#endif
     if (journal_used_it == used_sectors.end())
     {
         // Journal is cleared to its end, restart from the beginning
@@ -256,12 +248,26 @@ uint64_t journal_t::get_trim_pos()
         else
         {
             // next_free does not need updating during trim
+#ifdef BLOCKSTORE_DEBUG
+            printf(
+                "Trimming journal (used_start=%08lx, next_free=%08lx, dirty_start=%08lx, new_start=%08lx, new_refcount=%ld)\n",
+                used_start, next_free, dirty_start,
+                journal_used_it->first, journal_used_it->second
+            );
+#endif
             return journal_used_it->first;
         }
     }
     else if (journal_used_it->first > used_start)
     {
         // Journal is cleared up to <journal_used_it>
+#ifdef BLOCKSTORE_DEBUG
+        printf(
+            "Trimming journal (used_start=%08lx, next_free=%08lx, dirty_start=%08lx, new_start=%08lx, new_refcount=%ld)\n",
+            used_start, next_free, dirty_start,
+            journal_used_it->first, journal_used_it->second
+        );
+#endif
         return journal_used_it->first;
     }
     // Can't trim journal
