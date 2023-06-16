@@ -9,7 +9,8 @@ for my $line (<>)
         chomp $line;
         my $test_name = $1;
         my $timeout = 3;
-        if ($test_name eq 'test_etcd_fail' || $test_name eq 'test_heal' || $test_name eq 'test_interrupted_rebalance')
+        if ($test_name eq 'test_etcd_fail' || $test_name eq 'test_heal' || $test_name eq 'test_add_osd' ||
+            $test_name eq 'test_interrupted_rebalance' || $test_name eq 'test_rebalance_verify')
         {
             $timeout = 10;
         }

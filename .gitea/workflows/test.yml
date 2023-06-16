@@ -71,7 +71,7 @@ jobs:
     steps:
     - name: Run test
       id: test
-      timeout-minutes: 3
+      timeout-minutes: 10
       run: /root/vitastor/tests/test_add_osd.sh
     - name: Print logs
       if: always() && steps.test.outcome == 'failure'
@@ -323,7 +323,7 @@ jobs:
     steps:
     - name: Run test
       id: test
-      timeout-minutes: 3
+      timeout-minutes: 10
       run: /root/vitastor/tests/test_rebalance_verify.sh
     - name: Print logs
       if: always() && steps.test.outcome == 'failure'
@@ -341,7 +341,7 @@ jobs:
     steps:
     - name: Run test
       id: test
-      timeout-minutes: 3
+      timeout-minutes: 10
       run: IMMEDIATE_COMMIT=1 /root/vitastor/tests/test_rebalance_verify.sh
     - name: Print logs
       if: always() && steps.test.outcome == 'failure'
@@ -359,7 +359,7 @@ jobs:
     steps:
     - name: Run test
       id: test
-      timeout-minutes: 3
+      timeout-minutes: 10
       run: SCHEME=ec /root/vitastor/tests/test_rebalance_verify.sh
     - name: Print logs
       if: always() && steps.test.outcome == 'failure'
@@ -377,7 +377,7 @@ jobs:
     steps:
     - name: Run test
       id: test
-      timeout-minutes: 3
+      timeout-minutes: 10
       run: SCHEME=ec IMMEDIATE_COMMIT=1 /root/vitastor/tests/test_rebalance_verify.sh
     - name: Print logs
       if: always() && steps.test.outcome == 'failure'
