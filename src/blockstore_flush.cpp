@@ -933,29 +933,20 @@ void journal_flusher_co::scan_dirty()
             has_writes = true;
             if (dirty_it->second.len != 0)
             {
-                uint64_t offset = dirty_it->second.offset;
-                uint64_t end_offset = dirty_it->second.offset + dirty_it->second.len;
                 uint64_t blk_begin = 0, blk_end = 0;
                 uint8_t *blk_buf = NULL;
-                auto it = v.begin();
-                while (end_offset > offset)
-                {
-                    for (; it != v.end() && !(it->copy_flags & COPY_BUF_CSUM_FILL); it++)
-                        if (it->offset+it->len > offset)
-                            break;
-                    // If all items end before offset or if the found item starts after end_offset, just insert the buffer
-                    // If (offset < it->offset < end_offset) insert (offset..it->offset) part
-                    // If (it->offset <= offset <= it->offset+it->len) then just skip to it->offset+it->len
-                    if (it == v.end() || (it->copy_flags & COPY_BUF_CSUM_FILL) || it->offset > offset)
+                bs->find_holes(
+                    v, dirty_it->second.offset, dirty_it->second.offset + dirty_it->second.len,
+                    [&](int pos, bool alloc, uint32_t cur_start, uint32_t cur_end)
                     {
-                        uint64_t submit_len = it == v.end() || (it->copy_flags & COPY_BUF_CSUM_FILL) ||
-                            it->offset >= end_offset ? end_offset-offset : it->offset-offset;
-                        uint64_t submit_offset = dirty_it->second.location + offset - dirty_it->second.offset;
+                        if (alloc)
+                            return 0;
                         copy_count++;
-                        it = v.insert(it, (copy_buffer_t){
+                        uint64_t submit_offset = dirty_it->second.location + cur_start - dirty_it->second.offset;
+                        auto it = v.insert(v.begin()+pos, (copy_buffer_t){
                             .copy_flags = COPY_BUF_JOURNAL,
-                            .offset = offset,
-                            .len = submit_len,
+                            .offset = cur_start,
+                            .len = cur_end-cur_start,
                             .disk_offset = submit_offset,
                         });
                         if (bs->journal.inmemory)
@@ -972,7 +963,7 @@ void journal_flusher_co::scan_dirty()
                                 bs->dsk.clean_entry_bitmap_size;
                             it->csum_buf = dyn_from + (it->offset/bs->dsk.csum_block_size -
                                 dirty_it->second.offset/bs->dsk.csum_block_size) * (bs->dsk.data_csum_type & 0xFF);
-                            if (offset % bs->dsk.csum_block_size || submit_len % bs->dsk.csum_block_size)
+                            if (cur_start % bs->dsk.csum_block_size || cur_end % bs->dsk.csum_block_size)
                             {
                                 // Small write not aligned for checksums. We may have to pad it
                                 fill_incomplete = true;
@@ -980,13 +971,13 @@ void journal_flusher_co::scan_dirty()
                                 {
                                     bs->pad_journal_read(v, *it, dirty_it->second.offset,
                                         dirty_it->second.offset + dirty_it->second.len, dirty_it->second.location,
-                                        dyn_from, NULL, offset, submit_len, blk_begin, blk_end, blk_buf);
+                                        dyn_from, NULL, cur_start, cur_end-cur_start, blk_begin, blk_end, blk_buf);
                                 }
                             }
                         }
+                        return 0;
                     }
-                    offset = it->offset+it->len;
-                }
+                );
             }
         }
         else if (IS_BIG_WRITE(dirty_it->second.state) && !skip_copy)
