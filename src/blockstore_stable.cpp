@@ -458,6 +458,16 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
                     big_to_flush++;
                 }
             }
+            else if (IS_IN_FLIGHT(dirty_it->second.state))
+            {
+                // mark_stable should never be called for in-flight or submitted writes
+                printf(
+                    "BUG: Attempt to mark_stable object %lx:%lx v%lu state of which is %x\n",
+                    dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version,
+                    dirty_it->second.state
+                );
+                exit(1);
+            }
             if (forget_dirty && (IS_BIG_WRITE(dirty_it->second.state) ||
                 IS_DELETE(dirty_it->second.state)))
             {
