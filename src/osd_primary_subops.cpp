@@ -87,6 +87,7 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     cur_op->reply.hdr.retval = retval;
     if (cur_op->peer_fd == -1)
     {
+        msgr.measure_exec(cur_op);
         // Copy lambda to be unaffected by `delete op`
         std::function<void(osd_op_t*)>(cur_op->callback)(cur_op);
     }

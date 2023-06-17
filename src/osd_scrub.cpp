@@ -380,6 +380,7 @@ void osd_t::continue_primary_scrub(osd_op_t *cur_op)
         goto resume_2;
     {
         auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
+        cur_op->req.rw.len = bs_block_size * pg.pg_data_size;
         // Determine version
         auto vo_it = pg.ver_override.find(op_data->oid);
         op_data->target_ver = vo_it != pg.ver_override.end() ? vo_it->second : UINT64_MAX;

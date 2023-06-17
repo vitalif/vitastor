@@ -150,8 +150,10 @@ void osd_messenger_t::measure_exec(osd_op_t *cur_op)
         (cur_op->tv_end.tv_nsec - cur_op->tv_begin.tv_nsec)/1000
     );
     if (cur_op->req.hdr.opcode == OSD_OP_READ ||
-        cur_op->req.hdr.opcode == OSD_OP_WRITE)
+        cur_op->req.hdr.opcode == OSD_OP_WRITE ||
+        cur_op->req.hdr.opcode == OSD_OP_SCRUB)
     {
+        // req.rw.len is internally set to the full object size for scrubs
         stats.op_stat_bytes[cur_op->req.hdr.opcode] += cur_op->req.rw.len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ ||

@@ -173,6 +173,8 @@ public:
     bool connect_rdma(int peer_fd, std::string rdma_address, uint64_t client_max_msg);
 #endif
 
+    void measure_exec(osd_op_t *cur_op);
+
 protected:
     void try_connect_peer(uint64_t osd_num);
     void try_connect_peer_addr(osd_num_t peer_osd, const char *peer_host, int peer_port);
@@ -184,7 +186,6 @@ protected:
     void cancel_op(osd_op_t *op);
 
     bool try_send(osd_client_t *cl);
-    void measure_exec(osd_op_t *cur_op);
     void handle_send(int result, osd_client_t *cl);
 
     bool handle_read(int result, osd_client_t *cl);
