@@ -131,7 +131,7 @@ int osd_t::pick_next_scrub(object_id & next_oid)
     }
     while (pg_it != pgs.end())
     {
-        if ((pg_it->second.state & PG_ACTIVE) && pg_it->second.next_scrub && pg_it->second.next_scrub < tv_now.tv_sec)
+        if ((pg_it->second.state & PG_ACTIVE) && pg_it->second.next_scrub && pg_it->second.next_scrub <= tv_now.tv_sec)
         {
             // Continue scrubbing from the next object
             if (scrub_last_pg == pg_it->first)
@@ -350,7 +350,7 @@ void osd_t::schedule_scrub(pg_t & pg)
             tfd->clear_timer(scrub_timer_id);
             scrub_timer_id = -1;
         }
-        if (tv_now.tv_sec > scrub_nearest_ts)
+        if (tv_now.tv_sec >= scrub_nearest_ts)
         {
             scrub_nearest_ts = 0;
             peering_state = peering_state | OSD_SCRUBBING;

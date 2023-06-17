@@ -485,6 +485,10 @@ void osd_t::report_pg_state(pg_t & pg)
 {
     pg.print_state();
     this->pg_state_dirty.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
+    if (pg.state & PG_ACTIVE)
+    {
+        plan_scrub(pg, false);
+    }
     if (pg.state == PG_ACTIVE && (pg.target_history.size() > 0 || pg.all_peers.size() > pg.target_set.size()))
     {
         // Clear history of active+clean PGs
@@ -493,7 +497,6 @@ void osd_t::report_pg_state(pg_t & pg)
         pg.all_peers = pg.target_set;
         std::sort(pg.all_peers.begin(), pg.all_peers.end());
         pg.cur_peers = pg.target_set;
-        plan_scrub(pg, false);
         // Change pg_config at the same time, otherwise our PG reconciling loop may try to apply the old metadata
         auto & pg_cfg = st_cli.pool_config[pg.pool_id].pg_config[pg.pg_num];
         pg_cfg.target_history = pg.target_history;
@@ -537,7 +540,6 @@ void osd_t::report_pg_state(pg_t & pg)
                 pg.cur_peers.push_back(pg_osd);
             }
         }
-        plan_scrub(pg, false);
         auto & pg_cfg = st_cli.pool_config[pg.pool_id].pg_config[pg.pg_num];
         pg_cfg.target_history = pg.target_history;
         pg_cfg.all_peers = pg.all_peers;
