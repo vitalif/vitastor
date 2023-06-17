@@ -115,6 +115,10 @@ int osd_t::pick_next_scrub(object_id & next_oid)
         }
         return 0;
     }
+    if (scrub_list_op)
+    {
+        return 1;
+    }
     timespec tv_now;
     clock_gettime(CLOCK_REALTIME, &tv_now);
     bool rescan = scrub_last_pg.pool_id != 0 || scrub_last_pg.pg_num != 0;
