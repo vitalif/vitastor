@@ -391,6 +391,7 @@ class Mon
         this.etcd_start_timeout = (config.etcd_start_timeout || 5) * 1000;
         this.state = JSON.parse(JSON.stringify(this.constructor.etcd_tree));
         this.signals_set = false;
+        this.stat_time = Date.now();
         this.ws = null;
         this.ws_alive = false;
         this.ws_keepalive_timer = null;
@@ -1410,65 +1411,75 @@ class Mon
         }
     }
 
+    derive_osd_stats(st, prev)
+    {
+        const zero_stats = { op: { bps: 0n, iops: 0n, lat: 0n }, subop: { iops: 0n, lat: 0n }, recovery: { bps: 0n, iops: 0n } };
+        const diff = { op_stats: {}, subop_stats: {}, recovery_stats: {} };
+        if (!st || !st.time || prev && (prev.time || this.stat_time/1000) >= st.time)
+        {
+            return diff;
+        }
+        const timediff = BigInt(st.time*1000 - (prev && prev.time*1000 || this.stat_time));
+        for (const op in st.op_stats||{})
+        {
+            const pr = prev && prev.op_stats && prev.op_stats[op];
+            let c = st.op_stats[op];
+            c = { bytes: BigInt(c.bytes||0), usec: BigInt(c.usec||0), count: BigInt(c.count||0) };
+            const b = c.bytes - BigInt(pr && pr.bytes||0);
+            const us = c.usec - BigInt(pr && pr.usec||0);
+            const n = c.count - BigInt(pr && pr.count||0);
+            if (n > 0)
+                diff.op_stats[op] = { ...c, bps: b*1000n/timediff, iops: n*1000n/timediff, lat: us/n };
+        }
+        for (const op in st.subop_stats||{})
+        {
+            const pr = prev && prev.subop_stats && prev.subop_stats[op];
+            let c = st.subop_stats[op];
+            c = { usec: BigInt(c.usec||0), count: BigInt(c.count||0) };
+            const us = c.usec - BigInt(pr && pr.usec||0);
+            const n = c.count - BigInt(pr && pr.count||0);
+            if (n > 0)
+                diff.subop_stats[op] = { ...c, iops: n*1000n/timediff, lat: us/n };
+        }
+        for (const op in st.recovery_stats||{})
+        {
+            const pr = prev && prev.recovery_stats && prev.recovery_stats[op];
+            let c = st.recovery_stats[op];
+            c = { bytes: BigInt(c.bytes||0), count: BigInt(c.count||0) };
+            const b = c.bytes - BigInt(pr && pr.bytes||0);
+            const n = c.count - BigInt(pr && pr.count||0);
+            if (n > 0)
+                diff.recovery_stats[op] = { ...c, bps: b*1000n/timediff, iops: n*1000n/timediff };
+        }
+        return diff;
+    }
+
     sum_op_stats(timestamp, prev_stats)
     {
-        const op_stats = {}, subop_stats = {}, recovery_stats = {};
+        const sum_diff = { op_stats: {}, subop_stats: {}, recovery_stats: {} };
+        if (!prev_stats || prev_stats.timestamp >= timestamp)
+        {
+            return sum_diff;
+        }
+        const tm = BigInt(timestamp - (prev_stats.timestamp || 0));
+        // Sum derived values instead of deriving summed
         for (const osd in this.state.osd.stats)
         {
-            const st = this.state.osd.stats[osd]||{};
-            for (const op in st.op_stats||{})
+            const derived = this.derive_osd_stats(this.state.osd.stats[osd],
+                this.prev_stats && this.prev_stats.osd_stats && this.prev_stats.osd_stats[osd]);
+            for (const type in derived)
             {
-                op_stats[op] = op_stats[op] || { count: 0n, usec: 0n, bytes: 0n };
-                op_stats[op].count += BigInt(st.op_stats[op].count||0);
-                op_stats[op].usec += BigInt(st.op_stats[op].usec||0);
-                op_stats[op].bytes += BigInt(st.op_stats[op].bytes||0);
-            }
-            for (const op in st.subop_stats||{})
-            {
-                subop_stats[op] = subop_stats[op] || { count: 0n, usec: 0n };
-                subop_stats[op].count += BigInt(st.subop_stats[op].count||0);
-                subop_stats[op].usec += BigInt(st.subop_stats[op].usec||0);
-            }
-            for (const op in st.recovery_stats||{})
-            {
-                recovery_stats[op] = recovery_stats[op] || { count: 0n, bytes: 0n };
-                recovery_stats[op].count += BigInt(st.recovery_stats[op].count||0);
-                recovery_stats[op].bytes += BigInt(st.recovery_stats[op].bytes||0);
+                for (const op in derived[type])
+                {
+                    for (const k in derived[type][op])
+                    {
+                        sum_diff[type][op] = sum_diff[type][op] || {};
+                        sum_diff[type][op][k] = (sum_diff[type][op][k] || 0n) + derived[type][op][k];
+                    }
+                }
             }
         }
-        if (prev_stats && prev_stats.timestamp >= timestamp)
-        {
-            prev_stats = null;
-        }
-        const tm = prev_stats ? BigInt(timestamp - prev_stats.timestamp) : 0;
-        for (const op in op_stats)
-        {
-            if (prev_stats && prev_stats.op_stats && prev_stats.op_stats[op])
-            {
-                op_stats[op].bps = (op_stats[op].bytes - prev_stats.op_stats[op].bytes) * 1000n / tm;
-                op_stats[op].iops = (op_stats[op].count - prev_stats.op_stats[op].count) * 1000n / tm;
-                op_stats[op].lat = (op_stats[op].usec - prev_stats.op_stats[op].usec)
-                    / ((op_stats[op].count - prev_stats.op_stats[op].count) || 1n);
-            }
-        }
-        for (const op in subop_stats)
-        {
-            if (prev_stats && prev_stats.subop_stats && prev_stats.subop_stats[op])
-            {
-                subop_stats[op].iops = (subop_stats[op].count - prev_stats.subop_stats[op].count) * 1000n / tm;
-                subop_stats[op].lat = (subop_stats[op].usec - prev_stats.subop_stats[op].usec)
-                    / ((subop_stats[op].count - prev_stats.subop_stats[op].count) || 1n);
-            }
-        }
-        for (const op in recovery_stats)
-        {
-            if (prev_stats && prev_stats.recovery_stats && prev_stats.recovery_stats[op])
-            {
-                recovery_stats[op].bps = (recovery_stats[op].bytes - prev_stats.recovery_stats[op].bytes) * 1000n / tm;
-                recovery_stats[op].iops = (recovery_stats[op].count - prev_stats.recovery_stats[op].count) * 1000n / tm;
-            }
-        }
-        return { op_stats, subop_stats, recovery_stats };
+        return sum_diff;
     }
 
     sum_object_counts()
@@ -1627,7 +1638,8 @@ class Mon
             this.prev_stats ? this.prev_stats.inode_stats : null,
             timestamp, this.prev_stats ? this.prev_stats.timestamp : null
         );
-        this.prev_stats = { timestamp, ...stats, inode_stats };
+        this.prev_stats = { timestamp, inode_stats, osd_stats: { ...this.state.osd.stats } };
+        this.stat_time = Date.now();
         stats.object_counts = object_counts;
         stats.object_bytes = object_bytes;
         stats = this.serialize_bigints(stats);
@@ -1743,13 +1755,14 @@ class Mon
         else if (key_parts[0] === 'osd' && key_parts[1] === 'stats')
         {
             // Recheck OSD tree on OSD addition/deletion
+            const osd_num = key_parts[2];
             if ((!old) != (!kv.value) || old && kv.value && old.size != kv.value.size)
             {
                 this.schedule_recheck();
             }
             // Recheck PGs <osd_out_time> after last OSD statistics report
             this.schedule_next_recheck_at(
-                !this.state.osd.stats[key[2]] ? 0 : this.state.osd.stats[key[2]].time+this.config.osd_out_time
+                !this.state.osd.stats[osd_num] ? 0 : this.state.osd.stats[osd_num].time+this.config.osd_out_time
             );
         }
     }

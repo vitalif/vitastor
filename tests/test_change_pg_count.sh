@@ -85,7 +85,7 @@ try_change 16
 
 # Monitor should report non-zero overall statistics at least once
 
-if ! (grep /vitastor/stats ./testdata/mon.log | jq -s -e '[ .[] | select((.kv.value.op_stats.primary_write.count | tonumber) > 0) ] | length > 0'); then
+if ! (grep /vitastor/stats ./testdata/mon.log | jq -s -e '[ .[] | select((.kv.value.op_stats.primary_write.count // 0 | tonumber) > 0) ] | length > 0'); then
     format_error "FAILED: monitor doesn't aggregate stats"
 fi
 
