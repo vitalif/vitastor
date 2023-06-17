@@ -12,7 +12,7 @@ static const char *obj_states[] = { "clean", "misplaced", "degraded", "incomplet
 // Print cluster status:
 // etcd, mon, osd states
 // raw/used space, object states, pool states, pg states
-// client io, recovery io, rebalance io
+// client io, recovery io, rebalance io, scrub io
 struct status_printer_t
 {
     cli_tool_t *parent;
@@ -252,18 +252,25 @@ resume_2:
         }
         more_states.resize(more_states.size()-2);
         std::string recovery_io;
+        int io_indent = 0;
         {
             uint64_t deg_bps = agg_stats["recovery_stats"]["degraded"]["bps"].uint64_value();
             uint64_t deg_iops = agg_stats["recovery_stats"]["degraded"]["iops"].uint64_value();
             uint64_t misp_bps = agg_stats["recovery_stats"]["misplaced"]["bps"].uint64_value();
             uint64_t misp_iops = agg_stats["recovery_stats"]["misplaced"]["iops"].uint64_value();
+            uint64_t scrub_bps = agg_stats["op_stats"]["scrub"]["bps"].uint64_value();
+            uint64_t scrub_iops = agg_stats["op_stats"]["scrub"]["iops"].uint64_value();
+            if (misp_iops > 0 || misp_bps > 0 || no_rebalance)
+                io_indent = 3;
+            else if (deg_iops > 0 || deg_bps > 0 || no_recovery)
+                io_indent = 2;
             if (deg_iops > 0 || deg_bps > 0)
             {
-                recovery_io += "    recovery:  "+std::string(no_recovery ? "disabled, " : "")+
+                recovery_io += "    recovery: "+str_repeat(" ", io_indent-2)+std::string(no_recovery ? "disabled, " : "")+
                     format_size(deg_bps)+"/s, "+format_size(deg_iops, true)+" op/s\n";
             }
             else if (no_recovery)
-                recovery_io += "    recovery:  disabled\n";
+                recovery_io += "    recovery: disabled\n";
             if (misp_iops > 0 || misp_bps > 0)
             {
                 recovery_io += "    rebalance: "+std::string(no_rebalance ? "disabled, " : "")+
@@ -271,6 +278,13 @@ resume_2:
             }
             else if (no_rebalance)
                 recovery_io += "    rebalance: disabled\n";
+            if (scrub_iops > 0 || scrub_bps > 0)
+            {
+                recovery_io += "    scrub: "+str_repeat(" ", io_indent+1)+std::string(no_scrub ? "disabled, " : "")+
+                    format_size(scrub_bps)+"/s, "+format_size(scrub_iops, true)+" op/s\n";
+            }
+            else if (no_scrub)
+                recovery_io += "    scrub: "+str_repeat(" ", io_indent+1)+"disabled\n";
         }
         printf(
             "  cluster:\n"
@@ -298,7 +312,7 @@ resume_2:
             pools_active, pool_count,
             pgs_by_state_str.c_str(),
             readonly ? " (read-only mode)" : "",
-            recovery_io.size() > 0 ? "   " : "",
+            str_repeat(" ", io_indent).c_str(),
             format_size(agg_stats["op_stats"]["primary_read"]["bps"].uint64_value()).c_str(),
             format_size(agg_stats["op_stats"]["primary_read"]["iops"].uint64_value(), true).c_str(),
             format_size(agg_stats["op_stats"]["primary_write"]["bps"].uint64_value()).c_str(),

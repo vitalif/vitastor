@@ -300,3 +300,11 @@ std::string read_all_fd(int fd)
     res.resize(res_size);
     return res;
 }
+
+std::string str_repeat(const std::string & str, int times)
+{
+    std::string r;
+    for (int i = 0; i < times; i++)
+        r += str;
+    return r;
+}
