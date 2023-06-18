@@ -11,7 +11,8 @@
 - Добавьте ключ репозитория Vitastor:
   `wget https://vitastor.io/debian/pubkey.gpg -O /etc/apt/trusted.gpg.d/vitastor.gpg`
 - Добавьте репозиторий Vitastor в /etc/apt/sources.list:
-  - Debian 11 (Bullseye/Sid): `deb https://vitastor.io/debian bullseye main`
+  - Debian 12 (Bookworm/Sid): `deb https://vitastor.io/debian bookworm main`
+  - Debian 11 (Bullseye): `deb https://vitastor.io/debian bullseye main`
   - Debian 10 (Buster): `deb https://vitastor.io/debian buster main`
 - Для Debian 10 (Buster) также включите репозиторий backports:
   `deb http://deb.debian.org/debian buster-backports main`
