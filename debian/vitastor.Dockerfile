@@ -1,4 +1,4 @@
-# Build Vitastor packages for Debian Buster or Bullseye/Sid inside a container
+# Build Vitastor packages for Debian inside a container
 # cd ..; podman build --build-arg REL=bullseye -v `pwd`/packages:/root/packages -f debian/vitastor.Dockerfile .
 
 ARG REL=
@@ -15,11 +15,12 @@ RUN if [ "$REL" = "buster" -o "$REL" = "bullseye" ]; then \
         echo 'Pin-Priority: 500' >> /etc/apt/preferences; \
     fi; \
     grep '^deb ' /etc/apt/sources.list | perl -pe 's/^deb/deb-src/' >> /etc/apt/sources.list; \
+    perl -i -pe 's/Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources || true; \
     echo 'APT::Install-Recommends false;' >> /etc/apt/apt.conf; \
     echo 'APT::Install-Suggests false;' >> /etc/apt/apt.conf
 
 RUN apt-get update
-RUN apt-get -y install fio liburing1 liburing-dev libgoogle-perftools-dev devscripts
+RUN apt-get -y install fio liburing-dev libgoogle-perftools-dev devscripts
 RUN apt-get -y build-dep fio
 RUN apt-get --download-only source fio
 RUN apt-get update && apt-get -y install libjerasure-dev cmake libibverbs-dev libisal-dev
