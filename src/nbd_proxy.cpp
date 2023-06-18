@@ -149,7 +149,7 @@ public:
             "  --dev_num N\n"
             "    Use the specified device /dev/nbdN instead of automatic selection.\n"
             "  --foreground 1\n"
-            "    Stay in foreground, do not daemonize.n",
+            "    Stay in foreground, do not daemonize.\n",
             exe_name, exe_name, exe_name
         );
         exit(0);
