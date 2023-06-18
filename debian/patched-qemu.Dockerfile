@@ -20,7 +20,7 @@ RUN if [ "$REL" = "buster" -o "$REL" = "bullseye" ]; then \
     echo 'APT::Install-Suggests false;' >> /etc/apt/apt.conf
 
 RUN apt-get update
-RUN apt-get -y install qemu fio liburing-dev libgoogle-perftools-dev devscripts
+RUN apt-get -y install fio liburing-dev libgoogle-perftools-dev devscripts
 RUN apt-get -y build-dep qemu
 # To build a custom version
 #RUN cp /root/packages/qemu-orig/* /root
@@ -40,8 +40,9 @@ RUN set -e; \
     cd /root/packages/qemu-$REL; \
     dpkg-source -x /root/qemu*.dsc; \
     QEMU_VER=$(ls -d qemu*/ | perl -pe 's!^.*(\d+\.\d+).*!$1!'); \
-    cp /root/vitastor/patches/qemu-$QEMU_VER-vitastor.patch qemu-*/debian/patches; \
-    echo qemu-$QEMU_VER-vitastor.patch >> qemu-*/debian/patches/series; \
+    D=$(ls -d qemu*/); \
+    cp /root/vitastor/patches/qemu-$QEMU_VER-vitastor.patch ./qemu-*/debian/patches; \
+    echo qemu-$QEMU_VER-vitastor.patch >> $D/debian/patches/series; \
     cd /root/packages/qemu-$REL/qemu-*/; \
     quilt push -a; \
     quilt add block/vitastor.c; \
