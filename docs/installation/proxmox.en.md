@@ -35,5 +35,5 @@ vitastor: vitastor
     vitastor_nbd 0
 ```
 
-\* Note: you can also manually copy [patches/VitastorPlugin.pm](patches/VitastorPlugin.pm) to Proxmox hosts
+\* Note: you can also manually copy [patches/VitastorPlugin.pm](../../patches/VitastorPlugin.pm) to Proxmox hosts
 as `/usr/share/perl5/PVE/Storage/Custom/VitastorPlugin.pm` instead of installing pve-storage-vitastor.

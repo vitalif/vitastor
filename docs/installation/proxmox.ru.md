@@ -4,7 +4,7 @@
 
 [Read in English](proxmox.en.md)
 
-# Proxmox
+# Proxmox VE
 
 Чтобы подключить Vitastor к Proxmox Virtual Environment (поддерживаются версии 6.4-7.4):
 
@@ -35,5 +35,5 @@ vitastor: vitastor
 ```
 
 \* Примечание: вместо установки пакета pve-storage-vitastor вы можете вручную скопировать файл
-[patches/VitastorPlugin.pm](patches/VitastorPlugin.pm) на хосты Proxmox как
+[patches/VitastorPlugin.pm](../../patches/VitastorPlugin.pm) на хосты Proxmox как
 `/usr/share/perl5/PVE/Storage/Custom/VitastorPlugin.pm`.

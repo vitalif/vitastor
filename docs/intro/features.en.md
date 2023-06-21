@@ -35,7 +35,7 @@
 
 - [Debian and CentOS packages](../installation/packages.en.md)
 - [Image management CLI (vitastor-cli)](../usage/cli.en.md)
-- [Disk management CLI (vitastor-disk)](docs/usage/disk.en.md)
+- [Disk management CLI (vitastor-disk)](../usage/disk.en.md)
 - Generic user-space client library
 - [Native QEMU driver](../usage/qemu.en.md)
 - [Loadable fio engine for benchmarks](../usage/fio.en.md)

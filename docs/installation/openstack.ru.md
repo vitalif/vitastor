@@ -36,5 +36,5 @@ image_upload_use_cinder_backend = True
 ```
 
 Чтобы помещать в Vitastor Glance-образы, нужно использовать
-[https://docs.openstack.org/cinder/pike/admin/blockstorage-volume-backed-image.html](образы на основе томов Cinder),
+[образы на основе томов Cinder](https://docs.openstack.org/cinder/pike/admin/blockstorage-volume-backed-image.html),
 однако, поддержка этой функции ещё не проверялась.

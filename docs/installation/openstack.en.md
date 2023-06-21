@@ -36,5 +36,5 @@ vitastor_pool_id = 1
 image_upload_use_cinder_backend = True
 ```
 
-To put Glance images in Vitastor, use [https://docs.openstack.org/cinder/pike/admin/blockstorage-volume-backed-image.html](volume-backed images),
+To put Glance images in Vitastor, use [volume-backed images](https://docs.openstack.org/cinder/pike/admin/blockstorage-volume-backed-image.html),
 although the support has not been verified yet.

@@ -21,7 +21,7 @@ Configuration parameters can be set in 3 places:
   mon, fio and QEMU options, OpenStack/Proxmox/etc configuration. The latter
   doesn't allow to set all variables directly, but it allows to override the
   configuration file and set everything you need inside it.
-- OSD superblocks created by [vitastor-disk](../usage/disk.en.md) contain
+- OSD superblocks created by [vitastor-disk](usage/disk.en.md) contain
   primarily disk layout parameters of specific OSDs. In fact, these parameters
   are automatically passed into the command line of vitastor-osd process, so
   they have the same "status" as command-line parameters.

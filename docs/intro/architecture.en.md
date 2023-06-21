@@ -44,7 +44,7 @@
   depends linearly on drive capacity and data store block size which is 128 KB by default.
   With 128 KB blocks metadata takes around 512 MB per 1 TB (which is still less than Ceph wants).
   Journal is also kept in memory by default, but in SSD-only clusters it's only 32 MB, and in SSD+HDD
-  clusters, where it's beneficial to increase it, [inmemory_journal](docs/config/osd.en.md#inmemory_journal) can be disabled.
+  clusters, where it's beneficial to increase it, [inmemory_journal](../config/osd.en.md#inmemory_journal) can be disabled.
 - Vitastor storage layer doesn't have internal copy-on-write or redirect-write. I know that maybe
   it's possible to create a good copy-on-write storage, but it's much harder and makes performance
   less deterministic, so CoW isn't used in Vitastor.
