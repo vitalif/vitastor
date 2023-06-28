@@ -16,28 +16,31 @@ SCHEME=ec ./test_change_pg_count.sh
 
 ./test_etcd_fail.sh
 
-./test_failure_domain.sh
-
 ./test_interrupted_rebalance.sh
 IMMEDIATE_COMMIT=1 ./test_interrupted_rebalance.sh
 SCHEME=ec ./test_interrupted_rebalance.sh
 SCHEME=ec IMMEDIATE_COMMIT=1 ./test_interrupted_rebalance.sh
 
+./test_failure_domain.sh
+
+./test_snapshot.sh
+SCHEME=ec ./test_snapshot.sh
+
 ./test_minsize_1.sh
 
 ./test_move_reappear.sh
+
+./test_rm.sh
+
+./test_snapshot_chain.sh
+SCHEME=ec ./test_snapshot_chain.sh
+
+./test_splitbrain.sh
 
 ./test_rebalance_verify.sh
 IMMEDIATE_COMMIT=1 ./test_rebalance_verify.sh
 SCHEME=ec ./test_rebalance_verify.sh
 SCHEME=ec IMMEDIATE_COMMIT=1 ./test_rebalance_verify.sh
-
-./test_rm.sh
-
-./test_snapshot.sh
-SCHEME=ec ./test_snapshot.sh
-
-./test_splitbrain.sh
 
 ./test_write.sh
 SCHEME=xor ./test_write.sh

@@ -190,24 +190,6 @@ jobs:
           echo ""
         done
 
-  test_failure_domain:
-    runs-on: ubuntu-latest
-    needs: build
-    container: ${{env.TEST_IMAGE}}:${{github.sha}}
-    steps:
-    - name: Run test
-      id: test
-      timeout-minutes: 3
-      run: /root/vitastor/tests/test_failure_domain.sh
-    - name: Print logs
-      if: always() && steps.test.outcome == 'failure'
-      run: |
-        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
-          echo "-------- $i --------"
-          cat $i
-          echo ""
-        done
-
   test_interrupted_rebalance:
     runs-on: ubuntu-latest
     needs: build
@@ -280,6 +262,60 @@ jobs:
           echo ""
         done
 
+  test_failure_domain:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: /root/vitastor/tests/test_failure_domain.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_snapshot:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: /root/vitastor/tests/test_snapshot.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_snapshot_ec:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: SCHEME=ec /root/vitastor/tests/test_snapshot.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
   test_minsize_1:
     runs-on: ubuntu-latest
     needs: build
@@ -307,6 +343,78 @@ jobs:
       id: test
       timeout-minutes: 3
       run: /root/vitastor/tests/test_move_reappear.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_rm:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: /root/vitastor/tests/test_rm.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_snapshot_chain:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: /root/vitastor/tests/test_snapshot_chain.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_snapshot_chain_ec:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: SCHEME=ec /root/vitastor/tests/test_snapshot_chain.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_splitbrain:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: /root/vitastor/tests/test_splitbrain.sh
     - name: Print logs
       if: always() && steps.test.outcome == 'failure'
       run: |
@@ -379,78 +487,6 @@ jobs:
       id: test
       timeout-minutes: 10
       run: SCHEME=ec IMMEDIATE_COMMIT=1 /root/vitastor/tests/test_rebalance_verify.sh
-    - name: Print logs
-      if: always() && steps.test.outcome == 'failure'
-      run: |
-        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
-          echo "-------- $i --------"
-          cat $i
-          echo ""
-        done
-
-  test_rm:
-    runs-on: ubuntu-latest
-    needs: build
-    container: ${{env.TEST_IMAGE}}:${{github.sha}}
-    steps:
-    - name: Run test
-      id: test
-      timeout-minutes: 3
-      run: /root/vitastor/tests/test_rm.sh
-    - name: Print logs
-      if: always() && steps.test.outcome == 'failure'
-      run: |
-        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
-          echo "-------- $i --------"
-          cat $i
-          echo ""
-        done
-
-  test_snapshot:
-    runs-on: ubuntu-latest
-    needs: build
-    container: ${{env.TEST_IMAGE}}:${{github.sha}}
-    steps:
-    - name: Run test
-      id: test
-      timeout-minutes: 3
-      run: /root/vitastor/tests/test_snapshot.sh
-    - name: Print logs
-      if: always() && steps.test.outcome == 'failure'
-      run: |
-        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
-          echo "-------- $i --------"
-          cat $i
-          echo ""
-        done
-
-  test_snapshot_ec:
-    runs-on: ubuntu-latest
-    needs: build
-    container: ${{env.TEST_IMAGE}}:${{github.sha}}
-    steps:
-    - name: Run test
-      id: test
-      timeout-minutes: 3
-      run: SCHEME=ec /root/vitastor/tests/test_snapshot.sh
-    - name: Print logs
-      if: always() && steps.test.outcome == 'failure'
-      run: |
-        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
-          echo "-------- $i --------"
-          cat $i
-          echo ""
-        done
-
-  test_splitbrain:
-    runs-on: ubuntu-latest
-    needs: build
-    container: ${{env.TEST_IMAGE}}:${{github.sha}}
-    steps:
-    - name: Run test
-      id: test
-      timeout-minutes: 3
-      run: /root/vitastor/tests/test_splitbrain.sh
     - name: Print logs
       if: always() && steps.test.outcome == 'failure'
       run: |
