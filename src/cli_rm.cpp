@@ -338,7 +338,11 @@ resume_100:
             }
             for (auto inode_result: data["responses"].array_items())
             {
-                auto kv = parent->cli->st_cli.parse_etcd_kv(inode_result["kvs"][0]);
+                if (inode_result["response_range"]["kvs"].array_items().size() == 0)
+                {
+                    continue;
+                }
+                auto kv = parent->cli->st_cli.parse_etcd_kv(inode_result["response_range"]["kvs"][0]);
                 pool_id_t pool_id = 0;
                 inode_t inode = 0;
                 char null_byte = 0;

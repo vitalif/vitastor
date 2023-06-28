@@ -41,7 +41,7 @@ struct snap_merger_t
     int fsync_interval = 128;
 
     // -- STATE --
-    inode_t target;
+    inode_t target, to_num;
     int target_rank;
     bool inside_continue = false;
     int state = 0;
@@ -98,6 +98,7 @@ struct snap_merger_t
             state = 100;
             return;
         }
+        to_num = to_cfg->num;
         // Check that to_cfg is actually a child of from_cfg and target_cfg is somewhere between them
         std::vector<inode_t> chain_list;
         inode_config_t *cur = to_cfg;
@@ -451,7 +452,7 @@ struct snap_merger_t
     {
         cluster_op_t *op = &rwo->op;
         op->opcode = OSD_OP_READ;
-        op->inode = target;
+        op->inode = to_num;
         op->offset = rwo->offset;
         op->len = target_block_size;
         op->iov.push_back(rwo->buf, target_block_size);
@@ -483,7 +484,7 @@ struct snap_merger_t
                 {
                     // write start->end
                     rwo->todo++;
-                    write_subop(rwo, rwo->start*gran, rwo->end*gran, use_cas ? 1+rwo->op.version : 0);
+                    write_subop(rwo, rwo->start*gran, rwo->end*gran, use_cas && to_num == target ? 1+rwo->op.version : 0);
                     rwo->start = rwo->end;
                     if (use_cas)
                     {
@@ -502,7 +503,7 @@ struct snap_merger_t
         {
             // write start->end
             rwo->todo++;
-            write_subop(rwo, rwo->start*gran, rwo->end*gran, use_cas ? 1+rwo->op.version : 0);
+            write_subop(rwo, rwo->start*gran, rwo->end*gran, use_cas && to_num == target ? 1+rwo->op.version : 0);
             rwo->start = rwo->end;
             if (use_cas)
             {
