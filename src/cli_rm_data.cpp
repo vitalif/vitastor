@@ -183,6 +183,18 @@ struct rm_inode_t
         }
         if (lists_done && !lists.size())
         {
+            if (parent->progress && total_count > 0)
+            {
+                fprintf(stderr, "\n");
+            }
+            if (parent->progress && (total_done < total_count || inactive_osds.size() > 0))
+            {
+                fprintf(
+                    stderr, "Warning: Pool:%u,ID:%lu inode data may not have been fully removed.\n"
+                    " Use `vitastor-cli rm-data --pool %u --inode %lu` if you encounter it in listings.\n",
+                    pool_id, INODE_NO_POOL(inode), pool_id, INODE_NO_POOL(inode)
+                );
+            }
             result = (cli_result_t){
                 .err = error_count > 0 ? EIO : 0,
                 .text = error_count > 0 ? "Some blocks were not removed" : (
@@ -195,10 +207,6 @@ struct rm_inode_t
                 },
             };
             state = 100;
-            if (parent->progress && total_count > 0)
-            {
-                fprintf(stderr, "\n");
-            }
         }
     }
 
