@@ -137,6 +137,8 @@ resume_2:
                 state = 100;
                 return;
             }
+            else if (parent->progress)
+                printf("%s\n", result.text.c_str());
             parent->change_parent(merge_children[current_child], new_parent, &result);
             state = 3;
 resume_3:
@@ -168,6 +170,8 @@ resume_4:
                 state = 100;
                 return;
             }
+            else if (parent->progress)
+                printf("%s\n", result.text.c_str());
             // Delete "inverse" child data
             start_delete_source(inverse_child);
             if (state == 100)
@@ -184,6 +188,8 @@ resume_5:
                 state = 100;
                 return;
             }
+            else if (parent->progress)
+                printf("%s\n", result.text.c_str());
             // Delete "inverse" child metadata, rename parent over it,
             // and also change parent links of the previous "inverse" child
             rename_inverse_parent();
@@ -212,6 +218,8 @@ resume_7:
                 state = 100;
                 return;
             }
+            else if (parent->progress)
+                printf("%s\n", result.text.c_str());
             delete_inode_config(chain_list[current_child]);
             if (state == 100)
                 return;
