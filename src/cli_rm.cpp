@@ -65,6 +65,9 @@ struct snap_remover_t
     int current_child = 0;
     std::function<bool(cli_result_t &)> cb;
 
+    std::vector<std::string> rebased_images, deleted_images;
+    std::vector<uint64_t> deleted_ids;
+    std::string inverse_child_name, inverse_parent_name;
     cli_result_t result;
 
     bool is_done()
@@ -122,6 +125,7 @@ resume_1:
         {
             if (merge_children[current_child] == inverse_child)
                 continue;
+            rebased_images.push_back(parent->cli->st_cli.inode_config.at(merge_children[current_child]).name);
             start_merge_child(merge_children[current_child], merge_children[current_child]);
             if (state == 100)
                 return;
@@ -134,6 +138,7 @@ resume_2:
             cb = NULL;
             if (result.err)
             {
+                result.data = my_result(result.data);
                 state = 100;
                 return;
             }
@@ -146,6 +151,7 @@ resume_3:
                 return;
             if (result.err)
             {
+                result.data = my_result(result.data);
                 state = 100;
                 return;
             }
@@ -167,6 +173,7 @@ resume_4:
             cb = NULL;
             if (result.err)
             {
+                result.data = my_result(result.data);
                 state = 100;
                 return;
             }
@@ -185,6 +192,7 @@ resume_5:
             cb = NULL;
             if (result.err)
             {
+                result.data = my_result(result.data);
                 state = 100;
                 return;
             }
@@ -205,6 +213,12 @@ resume_6:
         {
             if (chain_list[current_child] == inverse_parent)
                 continue;
+            {
+                auto parent_it = parent->cli->st_cli.inode_config.find(chain_list[current_child]);
+                if (parent_it != parent->cli->st_cli.inode_config.end())
+                    deleted_images.push_back(parent_it->second.name);
+                deleted_ids.push_back(chain_list[current_child]);
+            }
             start_delete_source(chain_list[current_child]);
 resume_7:
             while (!cb(result))
@@ -215,6 +229,7 @@ resume_7:
             cb = NULL;
             if (result.err)
             {
+                result.data = my_result(result.data);
                 state = 100;
                 return;
             }
@@ -229,9 +244,24 @@ resume_8:
                 return;
         }
         state = 100;
+        result = (cli_result_t){
+            .text = "",
+            .data = my_result(result.data),
+        };
 resume_100:
         // Done
         return;
+    }
+
+    json11::Json my_result(json11::Json src)
+    {
+        auto obj = src.object_items();
+        obj["deleted_ids"] = deleted_ids;
+        obj["deleted_images"] = deleted_images;
+        obj["rebased_images"] = rebased_images;
+        obj["renamed_from"] = inverse_parent_name;
+        obj["renamed_to"] = inverse_child_name;
+        return obj;
     }
 
     void get_merge_children()
@@ -425,8 +455,8 @@ resume_100:
         }
         inode_config_t *child_cfg = &child_it->second;
         inode_config_t *target_cfg = &target_it->second;
-        std::string child_name = child_cfg->name;
-        std::string target_name = target_cfg->name;
+        inverse_child_name = child_cfg->name;
+        inverse_parent_name = target_cfg->name;
         std::string child_cfg_key = base64_encode(
             parent->cli->st_cli.etcd_prefix+
             "/config/inode/"+std::to_string(INODE_POOL(inverse_child))+
@@ -438,7 +468,7 @@ resume_100:
             "/"+std::to_string(INODE_NO_POOL(inverse_parent))
         );
         std::string target_idx_key = base64_encode(
-            parent->cli->st_cli.etcd_prefix+"/index/image/"+target_name
+            parent->cli->st_cli.etcd_prefix+"/index/image/"+inverse_parent_name
         );
         // Fill new configuration
         inode_config_t new_cfg = *child_cfg;
@@ -515,12 +545,12 @@ resume_100:
         parent->cli->st_cli.etcd_txn_slow(json11::Json::object {
             { "compare", cmp },
             { "success", txn },
-        }, [this, target_name, child_name](std::string err, json11::Json res)
+        }, [this](std::string err, json11::Json res)
         {
             parent->waiting--;
             if (err != "")
             {
-                result = (cli_result_t){ .err = EIO, .text = "Error renaming "+target_name+" to "+child_name+": "+err };
+                result = (cli_result_t){ .err = EIO, .text = "Error renaming "+inverse_parent_name+" to "+inverse_child_name+": "+err };
                 state = 100;
                 return;
             }
@@ -528,14 +558,14 @@ resume_100:
             {
                 result = (cli_result_t){
                     .err = EAGAIN,
-                    .text = "Parent ("+target_name+"), child ("+child_name+"), or one of its children"
+                    .text = "Parent ("+inverse_parent_name+"), child ("+inverse_child_name+"), or one of its children"
                         " configuration was modified during rename",
                 };
                 state = 100;
                 return;
             }
             if (parent->progress)
-                printf("Layer %s renamed to %s\n", target_name.c_str(), child_name.c_str());
+                printf("Layer %s renamed to %s\n", inverse_parent_name.c_str(), inverse_child_name.c_str());
             parent->ringloop->wakeup();
         });
     }
