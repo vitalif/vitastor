@@ -1209,6 +1209,10 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             copy_part_bitmap(op, part);
             op->version = op->parts.size() == 1 ? part->op.reply.rw.version : 0;
         }
+        else if (op->opcode == OSD_OP_WRITE)
+        {
+            op->version = op->parts.size() == 1 ? part->op.reply.rw.version : 0;
+        }
         if (op->inflight_count == 0)
         {
             if (op->opcode == OSD_OP_SYNC)

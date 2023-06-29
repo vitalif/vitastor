@@ -533,7 +533,7 @@ struct snap_merger_t
                 if (use_cas && subop->retval == -EINTR)
                 {
                     // CAS failure - reread and repeat optimistically
-                    rwo->start = subop->offset - rwo->offset;
+                    rwo->start = rwo->end = 0;
                     rwo_read(rwo);
                     delete subop;
                     return;
@@ -543,7 +543,7 @@ struct snap_merger_t
                 rwo->error_read = false;
             }
             // Increment CAS version
-            rwo->op.version++;
+            rwo->op.version = subop->version;
             if (use_cas)
                 next_write(rwo);
             else
