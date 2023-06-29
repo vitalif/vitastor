@@ -63,7 +63,7 @@ Wants=network-online.target local-fs.target time-sync.target
 
 [Service]
 Restart=always
-ExecStart=/usr/local/bin/etcd -name etcd${num} --data-dir /var/lib/etcd${num}.etcd \\
+ExecStart=etcd -name etcd${num} --data-dir /var/lib/etcd${num}.etcd \\
     --advertise-client-urls http://${etcds[num]}:2379 --listen-client-urls http://${etcds[num]}:2379 \\
     --initial-advertise-peer-urls http://${etcds[num]}:2380 --listen-peer-urls http://${etcds[num]}:2380 \\
     --initial-cluster-token vitastor-etcd-1 --initial-cluster ${etcd_cluster} \\
