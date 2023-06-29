@@ -389,7 +389,7 @@ resume_100:
             inode_t child = cp.first;
             uint64_t child_used = inode_used[child];
             int rank = cp.second;
-            for (int i = chain_list.size()-rank; i < chain_list.size(); i++)
+            for (int i = chain_list.size()-1-rank; i < chain_list.size(); i++)
             {
                 inode_t parent = chain_list[i];
                 uint64_t parent_used = inode_used[parent];
