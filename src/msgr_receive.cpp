@@ -369,7 +369,7 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         op->buf = malloc_or_die(op->reply.hdr.retval);
         cl->recv_list.push_back(op->buf, op->reply.hdr.retval);
     }
-    else if (op->reply.hdr.opcode == OSD_OP_DESCRIBE && op->reply.hdr.retval > 0)
+    else if (op->reply.hdr.opcode == OSD_OP_DESCRIBE && op->reply.describe.result_bytes > 0)
     {
         delete cl->read_op;
         cl->read_op = op;

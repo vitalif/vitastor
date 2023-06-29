@@ -9,6 +9,10 @@ osd_op_t::~osd_op_t()
 {
     assert(!bs_op);
     assert(!op_data);
+    if (bitmap_buf)
+    {
+        free(bitmap_buf);
+    }
     if (rmw_buf)
     {
         free(rmw_buf);

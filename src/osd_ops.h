@@ -220,7 +220,7 @@ struct __attribute__((__packed__)) osd_reply_rw_t
     // for reads: bitmap length
     uint32_t bitmap_len;
     uint32_t pad0;
-    // for reads: object version
+    // for reads and writes: object version
     uint64_t version;
 };
 

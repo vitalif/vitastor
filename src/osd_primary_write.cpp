@@ -83,11 +83,13 @@ retry_1:
             // Object is degraded/misplaced and will be moved to <write_osd_set>
             op_data->stripes[0].read_start = 0;
             op_data->stripes[0].read_end = bs_block_size;
+            assert(!cur_op->rmw_buf);
             cur_op->rmw_buf = op_data->stripes[0].read_buf = memalign_or_die(MEM_ALIGNMENT, bs_block_size);
         }
     }
     else
     {
+        assert(!cur_op->rmw_buf);
         cur_op->rmw_buf = calc_rmw(cur_op->buf, op_data->stripes, op_data->prev_set,
             pg.pg_size, op_data->pg_data_size, pg.pg_cursize, pg.cur_set.data(), bs_block_size, clean_entry_bitmap_size);
         if (!cur_op->rmw_buf)

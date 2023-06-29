@@ -165,6 +165,7 @@ struct osd_op_t
     void *bitmap = NULL;
     unsigned bitmap_len = 0;
     unsigned bmp_data = 0;
+    void *bitmap_buf = NULL;
     void *rmw_buf = NULL;
     osd_primary_op_data_t* op_data = NULL;
     std::function<void(osd_op_t*)> callback;

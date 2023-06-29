@@ -84,9 +84,12 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
     {
         for (int i = 0; i < cur_op->iov.count; i++)
         {
-            assert(cur_op->iov.buf[i].iov_base);
-            to_send_list.push_back(cur_op->iov.buf[i]);
-            to_outbox.push_back((msgr_sendp_t){ .op = cur_op, .flags = 0 });
+            if (cur_op->iov.buf[i].iov_len > 0)
+            {
+                assert(cur_op->iov.buf[i].iov_base);
+                to_send_list.push_back(cur_op->iov.buf[i]);
+                to_outbox.push_back((msgr_sendp_t){ .op = cur_op, .flags = 0 });
+            }
         }
     }
     if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)

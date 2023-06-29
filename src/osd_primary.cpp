@@ -87,8 +87,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         // - op_data
         1, sizeof(osd_primary_op_data_t) +
         // - stripes
-        // - resulting bitmap buffers
-        stripe_count * (clean_entry_bitmap_size + sizeof(osd_rmw_stripe_t)) +
+        stripe_count * sizeof(osd_rmw_stripe_t) +
         chain_size * (
             // - copy of the chain
             sizeof(inode_t) +
@@ -110,11 +109,12 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     op_data->pg_size = pg_it->second.pg_size;
     cur_op->op_data = op_data;
     split_stripes(pg_data_size, bs_block_size, (uint32_t)(cur_op->req.rw.offset - oid.stripe), cur_op->req.rw.len, op_data->stripes);
-    // Allocate bitmaps along with stripes to avoid extra allocations and fragmentation
+    // Resulting bitmaps have to survive op_data and be freed with the op itself
+    assert(!cur_op->bitmap_buf);
+    cur_op->bitmap_buf = calloc_or_die(1, clean_entry_bitmap_size * stripe_count);
     for (int i = 0; i < stripe_count; i++)
     {
-        op_data->stripes[i].bmp_buf = data_buf;
-        data_buf = (uint8_t*)data_buf + clean_entry_bitmap_size;
+        op_data->stripes[i].bmp_buf = (uint8_t*)cur_op->bitmap_buf + clean_entry_bitmap_size * i;
     }
     op_data->chain_size = chain_size;
     if (chain_size > 0)
