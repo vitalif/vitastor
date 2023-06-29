@@ -130,6 +130,7 @@ public:
     inode_list_t *list_inode_start(inode_t inode,
         std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback);
     int list_pg_count(inode_list_t *lst);
+    const std::vector<osd_num_t> & list_inode_get_inactive_osds(inode_list_t *lst);
     void list_inode_next(inode_list_t *lst, int next_pgs);
     //inline uint32_t get_bs_bitmap_granularity() { return st_cli.global_bitmap_granularity; }
     //inline uint64_t get_bs_block_size() { return st_cli.global_block_size; }

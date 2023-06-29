@@ -28,6 +28,7 @@ struct rm_inode_t
     cli_tool_t *parent = NULL;
     inode_list_t *lister = NULL;
     std::vector<rm_pg_t*> lists;
+    std::vector<osd_num_t> inactive_osds;
     uint64_t total_count = 0, total_done = 0, total_prev_pct = 0;
     uint64_t pgs_to_list = 0;
     bool lists_done = false;
@@ -85,6 +86,16 @@ struct rm_inode_t
             };
             state = 100;
             return;
+        }
+        inactive_osds = parent->cli->list_inode_get_inactive_osds(lister);
+        if (inactive_osds.size() && !parent->json_output)
+        {
+            fprintf(stderr, "Some data may remain after delete on OSDs which are currently down: ");
+            for (int i = 0; i < inactive_osds.size(); i++)
+            {
+                fprintf(stderr, i > 0 ? ", %lu" : "%lu", inactive_osds[i]);
+            }
+            fprintf(stderr, "\n");
         }
         pgs_to_list = parent->cli->list_pg_count(lister);
         parent->cli->list_inode_next(lister, parent->parallel_osds);
@@ -167,7 +178,7 @@ struct rm_inode_t
         }
         if (parent->progress && total_count > 0 && total_done*1000/total_count != total_prev_pct)
         {
-            printf("\rRemoved %lu/%lu objects, %lu more PGs to list...", total_done, total_count, pgs_to_list);
+            fprintf(stderr, "\rRemoved %lu/%lu objects, %lu more PGs to list...", total_done, total_count, pgs_to_list);
             total_prev_pct = total_done*1000/total_count;
         }
         if (lists_done && !lists.size())
@@ -177,8 +188,17 @@ struct rm_inode_t
                 .text = error_count > 0 ? "Some blocks were not removed" : (
                     "Done, inode "+std::to_string(INODE_NO_POOL(inode))+" from pool "+
                     std::to_string(pool_id)+" removed"),
+                .data = json11::Json::object {
+                    { "removed_objects", total_done },
+                    { "total_objects", total_count },
+                    { "inactive_osds", inactive_osds },
+                },
             };
             state = 100;
+            if (parent->progress && total_count > 0)
+            {
+                fprintf(stderr, "\n");
+            }
         }
     }
 

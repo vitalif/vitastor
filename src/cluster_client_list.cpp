@@ -36,6 +36,7 @@ struct inode_list_t
     inode_t inode = 0;
     int done_pgs = 0;
     int want = 0;
+    std::vector<osd_num_t> inactive_osds;
     std::vector<inode_list_pg_t*> pgs;
     std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback;
 };
@@ -60,6 +61,7 @@ inode_list_t* cluster_client_t::list_inode_start(inode_t inode,
     lst->inode = inode;
     lst->callback = callback;
     auto pool_cfg = st_cli.pool_config[pool_id];
+    std::set<osd_num_t> inactive_osd_set;
     for (auto & pg_item: pool_cfg.pg_config)
     {
         auto & pg = pg_item.second;
@@ -106,11 +108,18 @@ inode_list_t* cluster_client_t::list_inode_start(inode_t inode,
             }
             for (osd_num_t peer_osd: all_peers)
             {
-                r->list_osds.push_back((inode_list_osd_t){
-                    .pg = r,
-                    .osd_num = peer_osd,
-                    .sent = false,
-                });
+                if (st_cli.peer_states.find(peer_osd) != st_cli.peer_states.end())
+                {
+                    r->list_osds.push_back((inode_list_osd_t){
+                        .pg = r,
+                        .osd_num = peer_osd,
+                        .sent = false,
+                    });
+                }
+                else
+                {
+                    inactive_osd_set.insert(peer_osd);
+                }
             }
         }
         else
@@ -132,6 +141,7 @@ inode_list_t* cluster_client_t::list_inode_start(inode_t inode,
     {
         lst->pgs[i]->pos = i;
     }
+    lst->inactive_osds.insert(lst->inactive_osds.end(), inactive_osd_set.begin(), inactive_osd_set.end());
     lists.push_back(lst);
     return lst;
 }
@@ -139,6 +149,11 @@ inode_list_t* cluster_client_t::list_inode_start(inode_t inode,
 int cluster_client_t::list_pg_count(inode_list_t *lst)
 {
     return lst->pgs.size();
+}
+
+const std::vector<osd_num_t> & cluster_client_t::list_inode_get_inactive_osds(inode_list_t *lst)
+{
+    return lst->inactive_osds;
 }
 
 void cluster_client_t::list_inode_next(inode_list_t *lst, int next_pgs)

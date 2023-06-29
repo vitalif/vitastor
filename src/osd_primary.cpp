@@ -647,12 +647,6 @@ void osd_t::continue_primary_del(osd_op_t *cur_op)
     else if (op_data->st == 4) goto resume_4;
     else if (op_data->st == 5) goto resume_5;
     assert(op_data->st == 0);
-    // Delete is forbidden even in active PGs if they're also degraded or have previous dead OSDs
-    if (pg.state & (PG_DEGRADED | PG_LEFT_ON_DEAD))
-    {
-        finish_op(cur_op, -EBUSY);
-        return;
-    }
     if (!check_write_queue(cur_op, pg))
     {
         return;
