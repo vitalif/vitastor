@@ -437,6 +437,9 @@ resume_100:
             "/config/inode/"+std::to_string(INODE_POOL(inverse_parent))+
             "/"+std::to_string(INODE_NO_POOL(inverse_parent))
         );
+        std::string target_idx_key = base64_encode(
+            parent->cli->st_cli.etcd_prefix+"/index/image/"+target_name
+        );
         // Fill new configuration
         inode_config_t new_cfg = *child_cfg;
         new_cfg.num = target_cfg->num;
@@ -459,6 +462,11 @@ resume_100:
             json11::Json::object {
                 { "request_delete_range", json11::Json::object {
                     { "key", child_cfg_key },
+                } },
+            },
+            json11::Json::object {
+                { "request_delete_range", json11::Json::object {
+                    { "key", target_idx_key },
                 } },
             },
             json11::Json::object {
