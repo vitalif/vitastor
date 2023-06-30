@@ -48,7 +48,7 @@ RUN set -e; \
     quilt add block/vitastor.c; \
     cp /root/vitastor/src/qemu_driver.c block/vitastor.c; \
     quilt refresh; \
-    V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)(~bpo[\d\+]*)?\).*$/$1/')+vitastor1; \
+    V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)(~bpo[\d\+]*)?\).*$/$1/')+vitastor2; \
     DEBEMAIL="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v $V 'Plug Vitastor block driver'; \
     DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto -sa; \
     rm -rf /root/packages/qemu-$REL/qemu-*/
