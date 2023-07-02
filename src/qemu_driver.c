@@ -281,6 +281,7 @@ static void vitastor_aio_fd_read(void *fddv)
     VitastorFdData *fdd = (VitastorFdData*)fddv;
     qemu_mutex_lock(&fdd->cli->mutex);
     fdd->fd_read(fdd->opaque);
+    vitastor_schedule_uring_handler(fdd->cli);
     qemu_mutex_unlock(&fdd->cli->mutex);
 }
 
@@ -289,6 +290,7 @@ static void vitastor_aio_fd_write(void *fddv)
     VitastorFdData *fdd = (VitastorFdData*)fddv;
     qemu_mutex_lock(&fdd->cli->mutex);
     fdd->fd_write(fdd->opaque);
+    vitastor_schedule_uring_handler(fdd->cli);
     qemu_mutex_unlock(&fdd->cli->mutex);
 }
 
@@ -377,8 +379,8 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     client->rdma_gid_index = qdict_get_try_int(options, "rdma-gid-index", 0);
     client->rdma_mtu = qdict_get_try_int(options, "rdma-mtu", 0);
     client->ctx = bdrv_get_aio_context(bs);
-    client->proxy = vitastor_c_create_uring(
-        client->config_path, client->etcd_host, client->etcd_prefix,
+    client->proxy = vitastor_c_create_qemu(
+        vitastor_aio_set_fd_handler, client, client->config_path, client->etcd_host, client->etcd_prefix,
         client->use_rdma, client->rdma_device, client->rdma_port_num, client->rdma_gid_index, client->rdma_mtu, 0
     );
     client->uring_eventfd = vitastor_c_uring_register_eventfd(client->proxy);

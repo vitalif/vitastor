@@ -97,7 +97,8 @@ vitastor_c *vitastor_c_create_qemu(QEMUSetFDHandler *aio_set_fd_handler, void *a
             self->aio_set_fd_handler(self->aio_ctx, fd, false, NULL, NULL, NULL, NULL);
         }
     });
-    self->cli = new cluster_client_t(NULL, self->tfd, cfg_json);
+    self->ringloop = new ring_loop_t(512);
+    self->cli = new cluster_client_t(self->ringloop, self->tfd, cfg_json);
     return self;
 }
 
