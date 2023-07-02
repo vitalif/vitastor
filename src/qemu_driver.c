@@ -79,6 +79,7 @@ typedef struct VitastorClient
     AioContext *ctx;
     VitastorFdData **fds;
     int fd_count, fd_alloc;
+    int bh_uring_scheduled;
 
     uint64_t last_bitmap_inode, last_bitmap_offset, last_bitmap_len;
     uint32_t last_bitmap_granularity;
@@ -107,6 +108,14 @@ typedef struct VitastorRPC
     QEMUBH *bh;
 #endif
 } VitastorRPC;
+
+#if QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR < 8
+typedef struct VitastorBH
+{
+    VitastorClient *cli;
+    QEMUBH *bh;
+} VitastorBH;
+#endif
 
 static void vitastor_co_init_task(BlockDriverState *bs, VitastorRPC *task);
 static void vitastor_co_generic_cb(void *opaque, long retval);
@@ -225,18 +234,11 @@ out:
     return;
 }
 
-static void vitastor_unlocked_uring_handler(VitastorClient *client)
-{
-    do
-    {
-        vitastor_c_uring_handle_events(client->proxy);
-    } while (vitastor_c_uring_has_work(client->proxy));
-}
-
 static void vitastor_uring_handler(void *opaque)
 {
     VitastorClient *client = (VitastorClient*)opaque;
     qemu_mutex_lock(&client->mutex);
+    client->bh_uring_scheduled = 0;
     do
     {
         vitastor_c_uring_handle_events(client->proxy);
@@ -244,19 +246,39 @@ static void vitastor_uring_handler(void *opaque)
     qemu_mutex_unlock(&client->mutex);
 }
 
+#if QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR < 8
+static void vitastor_bh_uring_handler(void *opaque)
+{
+    VitastorBH *vbh = opaque;
+    vitastor_bh_handler(vbh->cli);
+    qemu_bh_delete(vbh->bh);
+    free(vbh);
+}
+#endif
+
 static void vitastor_schedule_uring_handler(VitastorClient *client)
 {
     void *opaque = client;
+    if (!client->bh_uring_scheduled)
+    {
+        client->bh_uring_scheduled = 1;
 #if QEMU_VERSION_MAJOR > 4 || QEMU_VERSION_MAJOR == 4 && QEMU_VERSION_MINOR >= 2
-    replay_bh_schedule_oneshot_event(client->ctx, vitastor_uring_handler, opaque);
+        replay_bh_schedule_oneshot_event(client->ctx, vitastor_uring_handler, opaque);
 #elif QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 8
-    aio_bh_schedule_oneshot(client->ctx, vitastor_uring_handler, opaque);
+        aio_bh_schedule_oneshot(client->ctx, vitastor_uring_handler, opaque);
 #elif QEMU_VERSION_MAJOR >= 2
-//    task->bh = aio_bh_new(bdrv_get_aio_context(task->bs), vitastor_co_generic_bh_cb, opaque);
-//    qemu_bh_schedule(task->bh);
+        VitastorBH *vbh = (VitastorBH*)malloc(sizeof(VitastorBH));
+        vbh->cli = client;
+        vbh->bh = aio_bh_new(bdrv_get_aio_context(task->bs), vitastor_bh_uring_handler, vbh);
+        qemu_bh_schedule(vbh->bh);
 #else
-//    vitastor_co_generic_bh_cb(opaque);
+        client->bh_uring_scheduled = 0;
+        do
+        {
+            vitastor_c_uring_handle_events(client->proxy);
+        } while (vitastor_c_uring_has_work(client->proxy));
 #endif
+    }
 }
 
 static void coroutine_fn vitastor_co_get_metadata(VitastorRPC *task)
