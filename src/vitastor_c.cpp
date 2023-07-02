@@ -5,6 +5,7 @@
 // Also acts as a C-C++ proxy for the QEMU driver (QEMU headers don't compile with g++)
 
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 
 #include "ringloop.h"
 #include "epoll_manager.h"
@@ -25,6 +26,7 @@ struct vitastor_c
     epoll_manager_t *epmgr = NULL;
     timerfd_manager_t *tfd = NULL;
     cluster_client_t *cli = NULL;
+    int uring_eventfd = -1;
 
     QEMUSetFDHandler *aio_set_fd_handler = NULL;
     void *aio_ctx = NULL;
@@ -113,6 +115,15 @@ vitastor_c *vitastor_c_create_uring(const char *config_path, const char *etcd_ho
     return self;
 }
 
+int vitastor_c_uring_register_eventfd(vitastor_c *client)
+{
+    if (!client->ringloop)
+    {
+        return -EINVAL;
+    }
+    return client->ringloop->register_eventfd();
+}
+
 vitastor_c *vitastor_c_create_uring_json(const char **options, int options_len)
 {
     json11::Json::object cfg;
@@ -164,6 +175,11 @@ void vitastor_c_uring_handle_events(vitastor_c *client)
 void vitastor_c_uring_wait_events(vitastor_c *client)
 {
     client->ringloop->wait();
+}
+
+bool vitastor_c_uring_has_work(vitastor_c *client)
+{
+    return client->ringloop->has_work();
 }
 
 void vitastor_c_read(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,

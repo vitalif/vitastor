@@ -126,11 +126,13 @@ class ring_loop_t
     unsigned free_ring_data_ptr;
     bool loop_again;
     struct io_uring ring;
+    int ring_eventfd = -1;
 public:
     ring_loop_t(int qd);
     ~ring_loop_t();
     void register_consumer(ring_consumer_t *consumer);
     void unregister_consumer(ring_consumer_t *consumer);
+    int register_eventfd();
 
     inline struct io_uring_sqe* get_sqe()
     {

@@ -5,6 +5,8 @@
 
 #include <stdexcept>
 
+#include <sys/eventfd.h>
+
 #include "ringloop.h"
 
 ring_loop_t::ring_loop_t(int qd)
@@ -32,6 +34,10 @@ ring_loop_t::~ring_loop_t()
     free(free_ring_data);
     free(ring_datas);
     io_uring_queue_exit(&ring);
+    if (ring_eventfd)
+    {
+        close(ring_eventfd);
+    }
 }
 
 void ring_loop_t::register_consumer(ring_consumer_t *consumer)
@@ -126,4 +132,25 @@ int ring_loop_t::sqes_left()
         return free_ring_data_ptr;
     }
     return left;
+}
+
+int ring_loop_t::register_eventfd()
+{
+    if (ring_eventfd >= 0)
+    {
+        return ring_eventfd;
+    }
+    ring_eventfd = eventfd(0, EFD_CLOEXEC|EFD_NONBLOCK);
+    if (ring_eventfd < 0)
+    {
+        return -errno;
+    }
+    int r = io_uring_register_eventfd(&ring, ring_eventfd);
+    if (r < 0)
+    {
+        close(ring_eventfd);
+        ring_eventfd = -1;
+        return r;
+    }
+    return ring_eventfd;
 }

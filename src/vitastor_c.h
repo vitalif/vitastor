@@ -39,9 +39,11 @@ vitastor_c *vitastor_c_create_uring(const char *config_path, const char *etcd_ho
 vitastor_c *vitastor_c_create_uring_json(const char **options, int options_len);
 void vitastor_c_destroy(vitastor_c *client);
 int vitastor_c_is_ready(vitastor_c *client);
+int vitastor_c_uring_register_eventfd(vitastor_c *client);
 void vitastor_c_uring_wait_ready(vitastor_c *client);
 void vitastor_c_uring_handle_events(vitastor_c *client);
 void vitastor_c_uring_wait_events(vitastor_c *client);
+bool vitastor_c_uring_has_work(vitastor_c *client);
 void vitastor_c_read(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
     struct iovec *iov, int iovcnt, VitastorReadHandler cb, void *opaque);
 void vitastor_c_write(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len, uint64_t check_version,
