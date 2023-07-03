@@ -2,6 +2,7 @@
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
 #include <stdlib.h>
+#include <unistd.h>
 
 #include <stdexcept>
 

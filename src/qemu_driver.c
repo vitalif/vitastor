@@ -259,7 +259,7 @@ static void vitastor_bh_uring_handler(void *opaque)
 static void vitastor_schedule_uring_handler(VitastorClient *client)
 {
     void *opaque = client;
-    if (!client->bh_uring_scheduled)
+    if (client->uring_eventfd >= 0 && !client->bh_uring_scheduled)
     {
         client->bh_uring_scheduled = 1;
 #if QEMU_VERSION_MAJOR > 4 || QEMU_VERSION_MAJOR == 4 && QEMU_VERSION_MINOR >= 2
@@ -401,19 +401,38 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     client->rdma_gid_index = qdict_get_try_int(options, "rdma-gid-index", 0);
     client->rdma_mtu = qdict_get_try_int(options, "rdma-mtu", 0);
     client->ctx = bdrv_get_aio_context(bs);
-    client->proxy = vitastor_c_create_qemu(
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 2
+    client->proxy = vitastor_c_create_qemu_uring(
         vitastor_aio_set_fd_handler, client, client->config_path, client->etcd_host, client->etcd_prefix,
         client->use_rdma, client->rdma_device, client->rdma_port_num, client->rdma_gid_index, client->rdma_mtu, 0
     );
-    client->uring_eventfd = vitastor_c_uring_register_eventfd(client->proxy);
-    if (client->uring_eventfd < 0)
+#else
+    client->proxy = vitastor_c_create_uring(
+        client->config_path, client->etcd_host, client->etcd_prefix,
+        client->use_rdma, client->rdma_device, client->rdma_port_num, client->rdma_gid_index, client->rdma_mtu, 0
+    );
+#endif
+    if (!client->proxy)
     {
-        fprintf(stderr, "failed to create eventfd: %s\n", strerror(errno));
-        error_setg(errp, "failed to create eventfd");
-        vitastor_close(bs);
-        return -1;
+        fprintf(stderr, "vitastor: failed to create io_uring: %s - I/O will be slower\n", strerror(errno));
+        client->uring_eventfd = -1;
+        client->proxy = vitastor_c_create_qemu(
+            vitastor_aio_set_fd_handler, client, client->config_path, client->etcd_host, client->etcd_prefix,
+            client->use_rdma, client->rdma_device, client->rdma_port_num, client->rdma_gid_index, client->rdma_mtu, 0
+        );
     }
-    universal_aio_set_fd_handler(client->ctx, client->uring_eventfd, vitastor_uring_handler, NULL, client);
+    else
+    {
+        client->uring_eventfd = vitastor_c_uring_register_eventfd(client->proxy);
+        if (client->uring_eventfd < 0)
+        {
+            fprintf(stderr, "vitastor: failed to create io_uring eventfd: %s\n", strerror(errno));
+            error_setg(errp, "failed to create io_uring eventfd");
+            vitastor_close(bs);
+            return -1;
+        }
+        universal_aio_set_fd_handler(client->ctx, client->uring_eventfd, vitastor_uring_handler, NULL, client);
+    }
     image = client->image = g_strdup(qdict_get_try_str(options, "image"));
     client->readonly = (flags & BDRV_O_RDWR) ? 1 : 0;
     // Get image metadata (size and readonly flag) or just wait until the client is ready

@@ -7,7 +7,7 @@
 #define VITASTOR_QEMU_PROXY_H
 
 // C API wrapper version
-#define VITASTOR_C_API_VERSION 1
+#define VITASTOR_C_API_VERSION 2
 
 #ifndef POOL_ID_BITS
 #define POOL_ID_BITS 16
@@ -32,6 +32,9 @@ typedef void IOHandler(void *opaque);
 typedef void QEMUSetFDHandler(void *ctx, int fd, int is_external, IOHandler *fd_read, IOHandler *fd_write, void *poll_fn, void *opaque);
 
 vitastor_c *vitastor_c_create_qemu(QEMUSetFDHandler *aio_set_fd_handler, void *aio_context,
+    const char *config_path, const char *etcd_host, const char *etcd_prefix,
+    int use_rdma, const char *rdma_device, int rdma_port_num, int rdma_gid_index, int rdma_mtu, int log_level);
+vitastor_c *vitastor_c_create_qemu_uring(QEMUSetFDHandler *aio_set_fd_handler, void *aio_context,
     const char *config_path, const char *etcd_host, const char *etcd_prefix,
     int use_rdma, const char *rdma_device, int rdma_port_num, int rdma_gid_index, int rdma_mtu, int log_level);
 vitastor_c *vitastor_c_create_uring(const char *config_path, const char *etcd_host, const char *etcd_prefix,
