@@ -13,6 +13,8 @@ remains decent (see an example [here](../performance/comparison1.en.md#vitastor-
 
 Vitastor Kubernetes CSI driver is based on NBD.
 
+See also [VDUSE](qemu.en.md#vduse).
+
 ## Map image
 
 To create a local block device for a Vitastor image run:

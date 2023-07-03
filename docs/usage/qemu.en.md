@@ -83,3 +83,43 @@ qemu-img rebase -u -b '' testimg.qcow2
 This can be used for backups. Just note that exporting an image that is currently being written to
 is of course unsafe and doesn't produce a consistent result, so only export snapshots if you do this
 on a live VM.
+
+## VDUSE
+
+Linux kernel, starting with version 5.15, supports a new interface for attaching virtual disks
+to the host - VDUSE (vDPA Device in Userspace). QEMU, starting with 7.2, has support for
+exporting QEMU block devices over this protocol using qemu-storage-daemon.
+
+VDUSE has the same problem as other FUSE-like interfaces in Linux: if a userspace process hangs,
+for example, if it loses connectivity with Vitastor cluster - active processes doing I/O may
+hang in the D state (uninterruptible sleep) and you won't be able to kill them even with kill -9.
+In this case reboot will be the only way to remove VDUSE devices from system.
+
+On the other hand, VDUSE is faster than [NBD](nbd.en.md), so you may prefer to use it if
+performance is important for you. Approximate performance numbers:
+direct fio benchmark - 115000 iops, NBD - 60000 iops, VDUSE - 90000 iops.
+
+To try VDUSE you need at least Linux 5.15, built with VDUSE support
+(CONFIG_VIRTIO_VDPA=m and CONFIG_VDPA_USER=m). Debian Linux kernels have these options
+disabled by now, so if you want to try it on Debian, use a kernel from Ubuntu
+[kernel-ppa/mainline](https://kernel.ubuntu.com/~kernel-ppa/mainline/) or Proxmox.
+
+Commands to attach Vitastor image as a VDUSE device:
+
+```
+modprobe vduse virtio-vdpa
+qemu-storage-daemon --daemonize --blockdev '{"node-name":"test1","driver":"vitastor",\
+  "etcd-host":"192.168.7.2:2379/v3","image":"testosd1","cache":{"direct":true,"no-flush":false},"discard":"unmap"}' \
+  --export vduse-blk,id=test1,node-name=test1,name=test1,num-queues=16,queue-size=128,writable=true
+vdpa dev add name test1 mgmtdev vduse
+```
+
+After running these commands /dev/vda device will appear in the system and you'll be able to
+use it as a normal disk.
+
+To remove the device:
+
+```
+vdpa dev del test1
+kill <qemu-storage-daemon_process_PID>
+```
