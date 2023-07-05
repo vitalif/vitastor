@@ -1608,7 +1608,7 @@ class Mon
                 }
             }
         }
-        return inode_stats;
+        return { inode_stats, seen_pools };
     }
 
     serialize_bigints(obj)
@@ -1634,7 +1634,7 @@ class Mon
         const timestamp = Date.now();
         const { object_counts, object_bytes } = this.sum_object_counts();
         let stats = this.sum_op_stats(timestamp, this.prev_stats);
-        let inode_stats = this.sum_inode_stats(
+        let { inode_stats, seen_pools } = this.sum_inode_stats(
             this.prev_stats ? this.prev_stats.inode_stats : null,
             timestamp, this.prev_stats ? this.prev_stats.timestamp : null
         );
@@ -1669,12 +1669,22 @@ class Mon
         }
         for (const pool_id in this.state.pool.stats)
         {
-            const pool_stats = { ...this.state.pool.stats[pool_id] };
-            this.serialize_bigints(pool_stats);
-            txn.push({ requestPut: {
-                key: b64(this.etcd_prefix+'/pool/stats/'+pool_id),
-                value: b64(JSON.stringify(pool_stats)),
-            } });
+            if (!seen_pools[pool_id])
+            {
+                txn.push({ requestDeleteRange: {
+                    key: b64(this.etcd_prefix+'/pool/stats/'+pool_id),
+                } });
+                delete this.state.pool.stats[pool_id];
+            }
+            else
+            {
+                const pool_stats = { ...this.state.pool.stats[pool_id] };
+                this.serialize_bigints(pool_stats);
+                txn.push({ requestPut: {
+                    key: b64(this.etcd_prefix+'/pool/stats/'+pool_id),
+                    value: b64(JSON.stringify(pool_stats)),
+                } });
+            }
         }
         if (txn.length)
         {
