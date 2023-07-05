@@ -187,22 +187,30 @@ void etcd_state_client_t::add_etcd_url(std::string addr)
             check_addr = addr;
         if (pos == std::string::npos)
             addr += "/v3";
+        bool local = false;
         int i;
         for (i = 0; i < local_ips.size(); i++)
         {
             if (local_ips[i] == check_addr)
             {
-                this->etcd_local.push_back(addr);
+                local = true;
                 break;
             }
         }
-        if (i >= local_ips.size())
-            this->etcd_addresses.push_back(addr);
+        auto & to = local ? this->etcd_local : this->etcd_addresses;
+        for (i = 0; i < to.size(); i++)
+        {
+            if (to[i] == addr)
+                break;
+        }
+        if (i >= to.size())
+            to.push_back(addr);
     }
 }
 
 void etcd_state_client_t::parse_config(const json11::Json & config)
 {
+    this->etcd_local.clear();
     this->etcd_addresses.clear();
     if (config["etcd_address"].is_string())
     {
