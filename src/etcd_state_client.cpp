@@ -357,7 +357,7 @@ void etcd_state_client_t::start_etcd_watcher()
                         watch_id == ETCD_OSD_STATE_WATCH_ID)
                         etcd_watches_initialised++;
                     if (etcd_watches_initialised == 4 && this->log_level > 0)
-                        fprintf(stderr, "Successfully subscribed to etcd at %s\n", selected_etcd_address.c_str());
+                        fprintf(stderr, "Successfully subscribed to etcd at %s\n", cur_addr.c_str());
                 }
                 if (data["result"]["canceled"].bool_value())
                 {
@@ -368,15 +368,17 @@ void etcd_state_client_t::start_etcd_watcher()
                         // so we should restart from the beginning if we can
                         if (on_reload_hook != NULL)
                         {
-                            fprintf(stderr, "Revisions before %lu were compacted by etcd, reloading state\n",
-                                data["result"]["compact_revision"].uint64_value());
-                            if (etcd_watch_ws)
+                            // check to not trigger on_reload_hook multiple times
+                            if (etcd_watch_ws != NULL)
                             {
+                                fprintf(stderr, "Revisions before %lu were compacted by etcd, reloading state\n",
+                                    data["result"]["compact_revision"].uint64_value());
                                 http_close(etcd_watch_ws);
                                 etcd_watch_ws = NULL;
+                                etcd_watch_revision = 0;
+                                on_reload_hook();
                             }
-                            etcd_watch_revision = 0;
-                            on_reload_hook();
+                            return;
                         }
                         else
                         {
@@ -423,13 +425,9 @@ void etcd_state_client_t::start_etcd_watcher()
         }
         if (msg->eof)
         {
+            fprintf(stderr, "Disconnected from etcd %s\n", cur_addr.c_str());
             if (cur_addr == selected_etcd_address)
-            {
-                fprintf(stderr, "Disconnected from etcd %s\n", selected_etcd_address.c_str());
                 selected_etcd_address = "";
-            }
-            else
-                fprintf(stderr, "Disconnected from etcd\n");
             if (etcd_watch_ws)
             {
                 http_close(etcd_watch_ws);
@@ -446,6 +444,7 @@ void etcd_state_client_t::start_etcd_watcher()
             else if (etcd_watches_initialised > 0)
             {
                 // Connection was live, retry immediately
+                etcd_watches_initialised = 0;
                 start_etcd_watcher();
             }
         }

@@ -70,6 +70,7 @@ void osd_t::init_cluster()
         st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
         st_cli.load_pgs_checks_hook = [this]() { return on_load_pgs_checks_hook(); };
         st_cli.on_load_pgs_hook = [this](bool success) { on_load_pgs_hook(success); };
+        st_cli.on_reload_hook = [this]() { st_cli.load_global_config(); };
         peering_state = OSD_LOADING_PGS;
         st_cli.load_global_config();
     }
@@ -395,6 +396,14 @@ void osd_t::on_load_config_hook(json11::Json::object & global_config)
     parse_config(true);
     bind_socket();
     acquire_lease();
+    st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_reload_config_hook(cfg); };
+}
+
+void osd_t::on_reload_config_hook(json11::Json::object & global_config)
+{
+    etcd_global_config = global_config;
+    parse_config(false);
+    renew_lease(true);
 }
 
 // Acquire lease
@@ -424,7 +433,7 @@ void osd_t::acquire_lease()
     );
     tfd->set_timer(etcd_report_interval*1000, true, [this](int timer_id)
     {
-        renew_lease();
+        renew_lease(false);
     });
 }
 
@@ -499,11 +508,11 @@ void osd_t::create_osd_state()
 }
 
 // Renew lease
-void osd_t::renew_lease()
+void osd_t::renew_lease(bool reload)
 {
     st_cli.etcd_call("/lease/keepalive", json11::Json::object {
         { "ID", etcd_lease_id }
-    }, st_cli.etcd_quick_timeout, 0, 0, [this](std::string err, json11::Json data)
+    }, st_cli.etcd_quick_timeout, 0, 0, [this, reload](std::string err, json11::Json data)
     {
         if (err == "" && data["result"]["TTL"].string_value() == "")
         {
@@ -522,15 +531,20 @@ void osd_t::renew_lease()
                 force_stop(1);
             }
             // Retry
-            tfd->set_timer(st_cli.etcd_quick_timeout, false, [this](int timer_id)
+            tfd->set_timer(st_cli.etcd_quick_timeout, false, [this, reload](int timer_id)
             {
-                renew_lease();
+                renew_lease(reload);
             });
         }
         else
         {
             etcd_failed_attempts = 0;
             report_statistics();
+            // Reload PGs
+            if (reload && run_primary)
+            {
+                st_cli.load_pgs();
+            }
         }
     });
 }
@@ -560,7 +574,6 @@ void osd_t::force_stop(int exitcode)
 
 json11::Json osd_t::on_load_pgs_checks_hook()
 {
-    assert(this->pgs.size() == 0);
     json11::Json::array checks = {
         json11::Json::object {
             { "target", "LEASE" },

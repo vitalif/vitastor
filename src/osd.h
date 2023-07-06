@@ -198,13 +198,14 @@ class osd_t
     void on_change_pg_history_hook(pool_id_t pool_id, pg_num_t pg_num);
     void on_change_etcd_state_hook(std::map<std::string, etcd_kv_t> & changes);
     void on_load_config_hook(json11::Json::object & changes);
+    void on_reload_config_hook(json11::Json::object & changes);
     json11::Json on_load_pgs_checks_hook();
     void on_load_pgs_hook(bool success);
     void bind_socket();
     void acquire_lease();
     json11::Json get_osd_state();
     void create_osd_state();
-    void renew_lease();
+    void renew_lease(bool reload);
     void print_stats();
     void print_slow();
     void reset_stats();
