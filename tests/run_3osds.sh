@@ -82,7 +82,9 @@ wait_up()
     done
 }
 
-wait_up 60
+if [[ $OSD_COUNT -gt 0 ]]; then
+    wait_up 60
+fi
 
 try_reweight()
 {

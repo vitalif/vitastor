@@ -103,6 +103,7 @@ public:
     journal_flusher_t(blockstore_impl_t *bs);
     ~journal_flusher_t();
     void loop();
+    bool is_trim_wanted() { return trim_wanted; }
     bool is_active();
     void mark_trim_possible();
     void request_trim();

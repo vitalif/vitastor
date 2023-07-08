@@ -218,7 +218,7 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
         auto used = --journal.used_sectors[dirty_it->second.journal_sector];
 #ifdef BLOCKSTORE_DEBUG
         printf(
-            "remove usage of journal offset %08lx by %lx:%lx v%lu (%d refs)\n", dirty_it->second.journal_sector,
+            "remove usage of journal offset %08lx by %lx:%lx v%lu (%lu refs)\n", dirty_it->second.journal_sector,
             dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version, used
         );
 #endif

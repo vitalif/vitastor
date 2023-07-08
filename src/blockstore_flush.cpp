@@ -714,9 +714,15 @@ resume_1:
                             return false;
                         }
                     }
+                    if (new_trim_pos < bs->journal.used_start
+                        ? (bs->journal.dirty_start >= bs->journal.used_start || bs->journal.dirty_start < new_trim_pos)
+                        : (bs->journal.dirty_start >= bs->journal.used_start && bs->journal.dirty_start < new_trim_pos))
+                    {
+                        bs->journal.dirty_start = new_trim_pos;
+                    }
                     bs->journal.used_start = new_trim_pos;
 #ifdef BLOCKSTORE_DEBUG
-                    printf("Journal trimmed to %08lx (next_free=%08lx)\n", bs->journal.used_start, bs->journal.next_free);
+                    printf("Journal trimmed to %08lx (next_free=%08lx dirty_start=%08lx)\n", bs->journal.used_start, bs->journal.next_free, bs->journal.dirty_start);
 #endif
                     if (bs->journal.flush_journal && !flusher->flush_queue.size())
                     {
