@@ -87,6 +87,8 @@ vitastor-disk - инструмент командной строки для уп
 --journal_size 1G/32M      Задать размер журнала (области или раздела журнала)
 --block_size 1M/128k       Задать размер объекта хранилища
 --bitmap_granularity 4k    Задать гранулярность битовых карт
+--data_csum_type none      Задать тип контрольных сумм (crc32c или none)
+--csum_block_size 4k       Задать размер блока расчёта контрольных сумм
 --data_device_block 4k     Задать размер блока устройства данных
 --meta_device_block 4k     Задать размер блока метаданных
 --journal_device_block 4k  Задать размер блока журнала
@@ -254,7 +256,9 @@ OSD отключены fsync-и.
 ```
 --object_size 128k       Размер блока хранилища
 --bitmap_granularity 4k  Гранулярность битовых карт
---journal_size 32M       Размер журнала
+--journal_size 16M       Размер журнала
+--data_csum_type none    Задать тип контрольных сумм (crc32c или none)
+--csum_block_size 4k     Задать размер блока расчёта контрольных сумм
 --device_block_size 4k   Размер блока устройства
 --journal_offset 0       Смещение журнала
 --device_size 0          Размер устройства

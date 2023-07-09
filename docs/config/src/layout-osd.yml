@@ -204,3 +204,74 @@
 
     Клиентам не обязательно знать про disk_alignment, так что помещать значение
     этого параметра в etcd в /vitastor/config/global не нужно.
+- name: data_csum_type
+  type: string
+  default: none
+  info: |
+    Data checksum type to use. May be "crc32c" or "none". Set to "crc32c" to
+    enable data checksums.
+  info_ru: |
+    Тип используемых OSD контрольных сумм данных. Может быть "crc32c" или "none".
+    Установите в "crc32c", чтобы включить расчёт и проверку контрольных сумм данных.
+
+    Следует понимать, что контрольные суммы в зависимости от размера блока их
+    расчёта либо увеличивают потребление памяти, либо снижают производительность.
+    Подробнее смотрите в описании параметра [csum_block_size](#csum_block_size).
+- name: csum_block_size
+  type: int
+  default: 4096
+  info: |
+    Checksum calculation block size.
+
+    Must be equal or a multiple of [bitmap_granularity](layout-cluster.en.md#bitmap_granularity)
+    (which is usually 4 KB).
+
+    Checksums increase metadata size by 4 bytes per each csum_block_size of data.
+
+    Checksums are always a compromise:
+    1. You either sacrifice +1 GB RAM per 1 TB of data
+    2. Or you raise csum_block_size, for example, to 32k and sacrifice
+       50% random write iops due to checksum read-modify-write
+    3. Or you turn off [inmemory_metadata](osd.en.md#inmemory_metadata) and
+       sacrifice 50% random read iops due to checksum reads
+
+    Option 1 (default) is recommended for all-flash setups because these usually
+    have enough RAM.
+
+    Option 2 is recommended for HDD-only setups. HDD-only setups usually do NOT
+    have enough RAM for the default 4 KB csum_block_size.
+
+    Option 3 is recommended for SSD+HDD setups (because metadata SSDs will handle
+    extra reads without any performance drop) and also *maybe* for NVMe all-flash
+    setups when you don't have enough RAM (because NVMe drives have plenty
+    of read iops to spare).
+  info_ru: |
+    Размер блока расчёта контрольных сумм.
+
+    Должен быть равен или кратен [bitmap_granularity](layout-cluster.ru.md#bitmap_granularity)
+    (который обычно равен 4 КБ).
+
+    Контрольные суммы увеличивают размер метаданных на 4 байта на каждые
+    csum_block_size данных.
+
+    Контрольные суммы - это всегда компромисс:
+    1. Вы либо жертвуете потреблением +1 ГБ памяти на 1 ТБ дискового пространства
+    2. Либо вы повышаете csum_block_size до, скажем, 32k и жертвуете 50%
+       скорости случайной записи из-за цикла чтения-изменения-записи для расчёта
+       новых контрольных сумм
+    3. Либо вы отключаете [inmemory_metadata](osd.ru.md#inmemory_metadata) и
+       жертвуете 50% скорости случайного чтения из-за чтения контрольных сумм
+       с диска
+
+    Вариант 1 (при настройках по умолчанию) рекомендуется для SSD (All-Flash)
+    кластеров, потому что памяти в них обычно хватает.
+
+    Вариант 2 рекомендуется для кластеров на одних жёстких дисках (без SSD
+    под метаданные). На 4 кб блок контрольной суммы памяти в таких кластерах
+    обычно НЕ хватает.
+
+    Вариант 3 рекомендуется для гибридных кластеров (SSD+HDD), потому что
+    скорости SSD под метаданными хватит, чтобы обработать дополнительные чтения
+    без снижения производительности. Также вариант 3 *может* рекомендоваться
+    для All-Flash кластеров на основе NVMe-дисков, когда памяти НЕ достаточно,
+    потому что NVMe-диски имеют огромный запас производительности по чтению.

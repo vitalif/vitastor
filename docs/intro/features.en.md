@@ -30,6 +30,7 @@
 - [Write throttling to smooth random write workloads in SSD+HDD configurations](../config/osd.en.md#throttle_small_writes)
 - [RDMA/RoCEv2 support via libibverbs](../config/network.en.md#rdma_device)
 - [Scrubbing without checksums](../config/osd.en.md#auto_scrub) (verification of copies)
+- [Checksums](../config/layout-osd.en.md#data_csum_type)
 
 ## Plugins and tools
 
@@ -55,7 +56,6 @@ The following features are planned for the future:
 - iSCSI proxy
 - Multi-threaded client
 - Faster failover
-- Checksums
 - Tiered storage (SSD caching)
 - NVDIMM support
 - Compression (possibly)

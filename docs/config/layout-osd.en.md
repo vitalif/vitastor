@@ -24,6 +24,8 @@ initialization and can't be changed after it without losing data.
 - [disable_journal_fsync](#disable_journal_fsync)
 - [disable_device_lock](#disable_device_lock)
 - [disk_alignment](#disk_alignment)
+- [data_csum_type](#data_csum_type)
+- [csum_block_size](#csum_block_size)
 
 ## data_device
 
@@ -174,3 +176,41 @@ Intel Optane (probably, not tested yet).
 
 Clients don't need to be aware of disk_alignment, so it's not required to
 put a modified value into etcd key /vitastor/config/global.
+
+## data_csum_type
+
+- Type: string
+- Default: none
+
+Data checksum type to use. May be "crc32c" or "none". Set to "crc32c" to
+enable data checksums.
+
+## csum_block_size
+
+- Type: integer
+- Default: 4096
+
+Checksum calculation block size.
+
+Must be equal or a multiple of [bitmap_granularity](layout-cluster.en.md#bitmap_granularity)
+(which is usually 4 KB).
+
+Checksums increase metadata size by 4 bytes per each csum_block_size of data.
+
+Checksums are always a compromise:
+1. You either sacrifice +1 GB RAM per 1 TB of data
+2. Or you raise csum_block_size, for example, to 32k and sacrifice
+   50% random write iops due to checksum read-modify-write
+3. Or you turn off [inmemory_metadata](osd.en.md#inmemory_metadata) and
+   sacrifice 50% random read iops due to checksum reads
+
+Option 1 (default) is recommended for all-flash setups because these usually
+have enough RAM.
+
+Option 2 is recommended for HDD-only setups. HDD-only setups usually do NOT
+have enough RAM for the default 4 KB csum_block_size.
+
+Option 3 is recommended for SSD+HDD setups (because metadata SSDs will handle
+extra reads without any performance drop) and also *maybe* for NVMe all-flash
+setups when you don't have enough RAM (because NVMe drives have plenty
+of read iops to spare).
