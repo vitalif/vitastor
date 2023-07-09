@@ -103,11 +103,12 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         else if (is_hdd)
             options["journal_size"] = DEFAULT_HYBRID_JOURNAL;
     }
+    bool is_hybrid = is_hdd && options["journal_device"] != "" && options["journal_device"] != options["data_device"];
     if (is_hdd)
     {
         if (options["block_size"] == "")
             options["block_size"] = "1M";
-        if (options["journal_device"] != "" && options["throttle_small_writes"] == "")
+        if (is_hybrid && options["throttle_small_writes"] == "")
             options["throttle_small_writes"] = "1";
     }
     json11::Json::object sb;
@@ -134,7 +135,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
             { "meta_offset", 4096 + (dsk.meta_device == dsk.journal_device ? dsk.journal_len : 0) },
             { "data_offset", 4096 + (dsk.data_device == dsk.meta_device ? dsk.meta_len : 0) +
                 (dsk.data_device == dsk.journal_device ? dsk.journal_len : 0) },
-            { "journal_no_same_sector_overwrites", true },
+            { "journal_no_same_sector_overwrites", !is_hdd || is_hybrid },
             { "journal_sector_buffer_count", 1024 },
             { "disable_data_fsync", json_is_true(options["disable_data_fsync"]) },
             { "disable_meta_fsync", json_is_true(options["disable_meta_fsync"]) },
