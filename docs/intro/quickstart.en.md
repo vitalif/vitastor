@@ -7,6 +7,7 @@
 # Quick Start
 
 - [Preparation](#preparation)
+- [Recommended drives](#recommended-drives)
 - [Configure monitors](#configure-monitors)
 - [Configure OSDs](#configure-osds)
 - [Create a pool](#create-a-pool)
@@ -25,6 +26,12 @@
 - Get a fast network (at least 10 Gbit/s). Something like Mellanox ConnectX-4 with RoCEv2 is ideal.
 - Disable CPU powersaving: `cpupower idle-set -D 0 && cpupower frequency-set -g performance`.
 - [Install Vitastor packages](../installation/packages.en.md).
+
+## Recommended drives
+
+- SATA SSD: Intel D3-4510/4610, Micron 5100/5200/5300/5400, Samsung PM863/PM883/PM893, Kingston DC500M
+- NVMe: Micron 9100/9200/9300/9400, Micron 7300/7450, Samsung PM983/PM9A3, Samsung PM1723/1735/1743, Intel DC-P3700/P4500/P4600, Intel D7-P5500/P5600, Intel Optane
+- HDD: HGST Ultrastar, Toshiba MG08, Seagate EXOS
 
 ## Configure monitors
 
