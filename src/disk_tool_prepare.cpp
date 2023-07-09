@@ -99,7 +99,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     if (options["journal_size"] == "")
     {
         if (options["journal_device"] == "")
-            options["journal_size"] = "32M";
+            options["journal_size"] = is_hdd ? "128M" : "32M";
         else if (is_hdd)
             options["journal_size"] = DEFAULT_HYBRID_JOURNAL;
     }
@@ -107,7 +107,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     {
         if (options["block_size"] == "")
             options["block_size"] = "1M";
-        if (options["throttle_small_writes"] == "")
+        if (options["journal_device"] != "" && options["throttle_small_writes"] == "")
             options["throttle_small_writes"] = "1";
     }
     json11::Json::object sb;

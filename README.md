@@ -14,8 +14,8 @@ Vitastor is architecturally similar to Ceph which means strong consistency,
 primary-replication, symmetric clustering and automatic data distribution over any
 number of drives of any size with configurable redundancy (replication or erasure codes/XOR).
 
-Vitastor targets SSD and SSD+HDD clusters with at least 10 Gbit/s network, supports
-TCP and RDMA and may achieve 4 KB read and write latency as low as ~0.1 ms
+Vitastor targets primarily SSD and SSD+HDD clusters with at least 10 Gbit/s network,
+supports TCP and RDMA and may achieve 4 KB read and write latency as low as ~0.1 ms
 with proper hardware which is ~10 times faster than other popular SDS's like Ceph
 or internal systems of public clouds.
 

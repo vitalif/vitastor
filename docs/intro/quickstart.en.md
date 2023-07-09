@@ -19,6 +19,9 @@
 - Get some SATA or NVMe SSDs with capacitors (server-grade drives). You can use desktop SSDs
   with lazy fsync, but prepare for inferior single-thread latency. Read more about capacitors
   [here](../config/layout-cluster.en.md#immediate_commit).
+- If you want to use HDDs, get modern HDDs with Media Cache or SSD Cache: HGST Ultrastar,
+  Toshiba MG08, Seagate EXOS or something similar. If your drives don't have such cache then
+  you also need small SSDs for journal and metadata (even 2 GB per 1 TB of HDD space is enough).
 - Get a fast network (at least 10 Gbit/s). Something like Mellanox ConnectX-4 with RoCEv2 is ideal.
 - Disable CPU powersaving: `cpupower idle-set -D 0 && cpupower frequency-set -g performance`.
 - [Install Vitastor packages](../installation/packages.en.md).
@@ -45,9 +48,10 @@ On the monitor hosts:
   }
   ```
 - Initialize OSDs:
-  - SSD-only: `vitastor-disk prepare /dev/sdXXX [/dev/sdYYY ...]`. You can add
-    `--disable_data_fsync off` to leave disk cache enabled if you use desktop
-    SSDs without capacitors.
+  - SSD-only or HDD-only: `vitastor-disk prepare /dev/sdXXX [/dev/sdYYY ...]`.
+    Add `--disable_data_fsync off` to leave disk write cache enabled if you use
+    desktop SSDs without capacitors. Do NOT add `--disable_data_fsync off` if you
+    use HDDs or SSD+HDD.
   - Hybrid, SSD+HDD: `vitastor-disk prepare --hybrid /dev/sdXXX [/dev/sdYYY ...]`.
     Pass all your devices (HDD and SSD) to this script &mdash; it will partition disks and initialize journals on its own.
     This script skips HDDs which are already partitioned so if you want to use non-empty disks for
