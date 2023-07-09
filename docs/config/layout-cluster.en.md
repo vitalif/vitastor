@@ -33,12 +33,13 @@ Size of objects (data blocks) into which all physical and virtual drives
 in Vitastor, affects memory usage, write amplification and I/O load
 distribution effectiveness.
 
-Recommended default block size is 128 KB for SSD and 4 MB for HDD. In fact,
-it's possible to use 4 MB for SSD too - it will lower memory usage, but
+Recommended default block size is 128 KB for SSD and 1 MB for HDD. In fact,
+it's possible to use 1 MB for SSD too - it will lower memory usage, but
 may increase average WA and reduce linear performance.
 
 OSD memory usage is roughly (SIZE / BLOCK * 68 bytes) which is roughly
 544 MB per 1 TB of used disk space with the default 128 KB block size.
+With 1 MB it's 8 times lower.
 
 ## bitmap_granularity
 
