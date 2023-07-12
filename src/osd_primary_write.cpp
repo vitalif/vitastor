@@ -145,6 +145,11 @@ resume_3:
             // Mark object corrupted and retry
             op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, true, false);
             op_data->prev_set = op_data->object_state ? op_data->object_state->read_target.data() : pg.cur_set.data();
+            if (cur_op->rmw_buf)
+            {
+                free(cur_op->rmw_buf);
+                cur_op->rmw_buf = NULL;
+            }
             goto retry_1;
         }
         deref_object_state(pg, &op_data->object_state, true);

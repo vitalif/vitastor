@@ -666,7 +666,10 @@ void journal_flusher_co::update_metadata_entry()
         new_entry->oid = cur.oid;
         new_entry->version = cur.version;
         if (!bs->inmemory_meta)
-            memcpy(&new_entry->bitmap, new_clean_bitmap, bs->dsk.clean_dyn_size);
+        {
+            auto inmem_bmp = (uint8_t*)bs->clean_bitmaps + (clean_loc >> bs->dsk.block_order)*2*bs->dsk.clean_entry_bitmap_size;
+            memcpy(inmem_bmp, new_clean_bitmap, 2*bs->dsk.clean_entry_bitmap_size);
+        }
         if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_V2)
         {
             // Calculate metadata entry checksum
@@ -767,7 +770,8 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
             {
                 assert(!(v[i].offset % bs->dsk.csum_block_size));
                 assert(!(v[i].len % bs->dsk.csum_block_size));
-                bs->verify_padded_checksums(new_clean_bitmap, false, v[i].offset, &iov, 1, [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
+                bs->verify_padded_checksums(new_clean_bitmap, new_clean_bitmap + 2*bs->dsk.clean_entry_bitmap_size,
+                    v[i].offset, &iov, 1, [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
                 {
                     printf("Checksum mismatch in object %lx:%lx v%lu in data area at offset 0x%lx+0x%x: got %08x, expected %08x\n",
                         cur.oid.inode, cur.oid.stripe, old_clean_ver, old_clean_loc, bad_block, calc_csum, stored_csum);
@@ -1131,9 +1135,7 @@ bool journal_flusher_co::modify_meta_do_reads(int wait_base)
 resume_0:
     if (!modify_meta_read(clean_loc, meta_new, wait_base+0))
         return false;
-    new_clean_bitmap = (bs->inmemory_meta
-        ? (uint8_t*)meta_new.buf + meta_new.pos*bs->dsk.clean_entry_size + sizeof(clean_disk_entry)
-        : (uint8_t*)bs->clean_dyn_data + (clean_loc >> bs->dsk.block_order)*bs->dsk.clean_dyn_size);
+    new_clean_bitmap = (uint8_t*)meta_new.buf + meta_new.pos*bs->dsk.clean_entry_size + sizeof(clean_disk_entry);
     if (old_clean_loc != UINT64_MAX && old_clean_loc != clean_loc)
     {
     resume_1:

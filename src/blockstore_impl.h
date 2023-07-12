@@ -269,7 +269,7 @@ class blockstore_impl_t
 
     std::map<pool_id_t, pool_shard_settings_t> clean_db_settings;
     std::map<pool_pg_id_t, blockstore_clean_db_t> clean_db_shards;
-    uint8_t *clean_dyn_data = NULL;
+    uint8_t *clean_bitmaps = NULL;
     blockstore_dirty_db_t dirty_db;
     std::vector<blockstore_op_t*> submit_queue;
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
@@ -347,11 +347,12 @@ class blockstore_impl_t
     bool read_range_fulfilled(std::vector<copy_buffer_t> & rv, uint64_t & fulfilled, uint8_t *read_buf,
         uint8_t *clean_entry_bitmap, uint32_t item_start, uint32_t item_end);
     bool read_checksum_block(blockstore_op_t *op, int rv_pos, uint64_t &fulfilled, uint64_t clean_loc);
-    bool verify_padded_checksums(uint8_t *clean_entry_bitmap, bool is_journal, uint32_t offset,
+    uint8_t* read_clean_meta_block(blockstore_op_t *read_op, uint64_t clean_loc, int rv_pos);
+    bool verify_padded_checksums(uint8_t *clean_entry_bitmap, uint8_t *csum_buf, uint32_t offset,
         iovec *iov, int n_iov, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb);
     bool verify_journal_checksums(uint8_t *csums, uint32_t offset,
         iovec *iov, int n_iov, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb);
-    bool verify_clean_padded_checksums(blockstore_op_t *op, uint64_t clean_loc, iovec *iov, int n_iov);
+    bool verify_clean_padded_checksums(blockstore_op_t *op, uint64_t clean_loc, uint8_t *csum_buf, iovec *iov, int n_iov);
     int fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offset, uint64_t len,
         uint32_t item_state, uint64_t item_version);
     void handle_read_event(ring_data_t *data, blockstore_op_t *op);

@@ -139,13 +139,12 @@ void blockstore_impl_t::calc_lengths()
     }
     else if (dsk.clean_entry_bitmap_size || dsk.data_csum_type)
     {
-        // FIXME: allow to store bitmap, but read checksums from the disk
-        clean_dyn_data = (uint8_t*)malloc(dsk.block_count * dsk.clean_dyn_size);
-        if (!clean_dyn_data)
+        clean_bitmaps = (uint8_t*)malloc(dsk.block_count * 2 * dsk.clean_entry_bitmap_size);
+        if (!clean_bitmaps)
         {
             throw std::runtime_error(
                 "Failed to allocate memory for the metadata sparse write bitmap ("+
-                std::to_string(dsk.block_count * dsk.clean_dyn_size / 1024 / 1024)+" MB)"
+                std::to_string(dsk.block_count * 2 * dsk.clean_entry_bitmap_size / 1024 / 1024)+" MB)"
             );
         }
     }

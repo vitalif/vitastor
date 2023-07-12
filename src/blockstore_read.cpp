@@ -159,7 +159,7 @@ uint8_t* blockstore_impl_t::get_clean_entry_bitmap(uint64_t block_loc, int offse
         clean_entry_bitmap = ((uint8_t*)metadata_buffer + sector + pos*dsk.clean_entry_size + sizeof(clean_disk_entry) + offset);
     }
     else
-        clean_entry_bitmap = (uint8_t*)(clean_dyn_data + meta_loc*dsk.clean_dyn_size + offset);
+        clean_entry_bitmap = (uint8_t*)(clean_bitmaps + meta_loc*2*dsk.clean_entry_bitmap_size + offset);
     return clean_entry_bitmap;
 }
 
@@ -196,7 +196,7 @@ int blockstore_impl_t::fill_partial_checksum_blocks(std::vector<copy_buffer_t> &
             end_block++;
             // OK, mark this range as required
             rv.push_back((copy_buffer_t){
-                .copy_flags = COPY_BUF_CSUM_FILL,
+                .copy_flags = COPY_BUF_CSUM_FILL | (from_journal ? COPY_BUF_JOURNALED_BIG : 0),
                 .offset = start_block*dsk.csum_block_size,
                 .len = (end_block-start_block)*dsk.csum_block_size,
                 // save clean_entry_bitmap if we're reading clean data from the journal
@@ -601,6 +601,15 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
         auto & rv = PRIV(read_op)->read_vec;
         int req = fill_partial_checksum_blocks(rv, fulfilled, clean_entry_bitmap, dyn_data, from_journal,
             (uint8_t*)read_op->buf, read_op->offset, read_op->offset+read_op->len);
+        if (!inmemory_meta && !from_journal && req > 0)
+        {
+            // Read checksums from disk
+            uint8_t *csum_buf = read_clean_meta_block(read_op, clean_loc, rv.size()-req);
+            for (int i = req; i > 0; i--)
+            {
+                rv[rv.size()-i].csum_buf = csum_buf;
+            }
+        }
         for (int i = req; i > 0; i--)
         {
             if (!read_checksum_block(read_op, i, fulfilled, clean_loc))
@@ -633,6 +642,8 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
     }
     else
     {
+        bool csum_done = !dsk.csum_block_size || inmemory_meta;
+        uint8_t *csum_buf = clean_entry_bitmap + 2*dsk.clean_entry_bitmap_size;
         uint64_t bmp_start = 0, bmp_end = 0, bmp_size = dsk.data_block_size/dsk.bitmap_granularity;
         while (bmp_start < bmp_size)
         {
@@ -653,8 +664,13 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
             }
             if (bmp_end > bmp_start)
             {
-                uint8_t *csum = !dsk.csum_block_size ? 0 : (clean_entry_bitmap + 2*dsk.clean_entry_bitmap_size +
-                    bmp_start*dsk.bitmap_granularity/dsk.csum_block_size*(dsk.data_csum_type & 0xFF));
+                if (!csum_done)
+                {
+                    // Read checksums from disk
+                    csum_buf = read_clean_meta_block(read_op, clean_loc, PRIV(read_op)->read_vec.size());
+                    csum_done = true;
+                }
+                uint8_t *csum = !dsk.csum_block_size ? 0 : (csum_buf + bmp_start*(dsk.data_csum_type & 0xFF));
                 if (!fulfill_read(read_op, fulfilled, bmp_start * dsk.bitmap_granularity,
                     bmp_end * dsk.bitmap_granularity, (BS_ST_BIG_WRITE | BS_ST_STABLE), 0,
                     clean_loc + bmp_start * dsk.bitmap_granularity, 0, csum, dyn_data))
@@ -675,11 +691,31 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
     return true;
 }
 
-bool blockstore_impl_t::verify_padded_checksums(uint8_t *clean_entry_bitmap, bool is_journal, uint32_t offset,
+uint8_t* blockstore_impl_t::read_clean_meta_block(blockstore_op_t *op, uint64_t clean_loc, int rv_pos)
+{
+    auto & rv = PRIV(op)->read_vec;
+    auto sector = ((clean_loc >> dsk.block_order) / (dsk.meta_block_size / dsk.clean_entry_size)) * dsk.meta_block_size;
+    auto pos = ((clean_loc >> dsk.block_order) % (dsk.meta_block_size / dsk.clean_entry_size)) * dsk.clean_entry_size;
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
+    rv.insert(rv.begin()+rv_pos, (copy_buffer_t){
+        .copy_flags = COPY_BUF_META_BLOCK|COPY_BUF_CSUM_FILL,
+        .offset = pos,
+        .buf = buf,
+    });
+    BS_SUBMIT_GET_SQE(sqe, data);
+    data->iov = (struct iovec){ buf, dsk.meta_block_size };
+    PRIV(op)->pending_ops++;
+    my_uring_prep_readv(sqe, dsk.meta_fd, &data->iov, 1, dsk.meta_offset + dsk.meta_block_size + sector);
+    data->callback = [this, op](ring_data_t *data) { handle_read_event(data, op); };
+    // return pointer to checksums
+    return buf + pos + sizeof(clean_disk_entry) + 2*dsk.clean_entry_bitmap_size;
+}
+
+bool blockstore_impl_t::verify_padded_checksums(uint8_t *clean_entry_bitmap, uint8_t *csum_buf, uint32_t offset,
     iovec *iov, int n_iov, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb)
 {
     assert(!(offset % dsk.csum_block_size));
-    uint32_t *csums = (uint32_t*)(clean_entry_bitmap + (is_journal ? 1 : 2)*dsk.clean_entry_bitmap_size);
+    uint32_t *csums = (uint32_t*)csum_buf;
     uint32_t block_csum = 0;
     uint32_t block_done = 0;
     uint32_t block_num = clean_entry_bitmap ? offset/dsk.csum_block_size : 0;
@@ -767,18 +803,19 @@ bool blockstore_impl_t::verify_journal_checksums(uint8_t *csums, uint32_t offset
     return true;
 }
 
-bool blockstore_impl_t::verify_clean_padded_checksums(blockstore_op_t *op, uint64_t clean_loc, iovec *iov, int n_iov)
+bool blockstore_impl_t::verify_clean_padded_checksums(blockstore_op_t *op, uint64_t clean_loc, uint8_t *csum_buf, iovec *iov, int n_iov)
 {
     uint32_t offset = clean_loc % dsk.data_block_size;
     clean_loc = (clean_loc >> dsk.block_order) << dsk.block_order;
     // First verify against the newest checksum version
     uint8_t *clean_entry_bitmap = get_clean_entry_bitmap(clean_loc, 0);
-    if (verify_padded_checksums(clean_entry_bitmap, false, offset, iov, n_iov, NULL))
+    if (verify_padded_checksums(clean_entry_bitmap, csum_buf ? csum_buf : (clean_entry_bitmap + 2*dsk.clean_entry_bitmap_size), offset, iov, n_iov, NULL))
         return true;
     // Check through all relevant "metadata backups" possibly added by flushers
     auto mb_it = used_clean_objects.lower_bound((obj_ver_id){ .oid = op->oid, .version = PRIV(op)->clean_version_used });
     for (; mb_it != used_clean_objects.end() && mb_it->first.oid == op->oid; mb_it++)
-        if (mb_it->second.meta != NULL && verify_padded_checksums(mb_it->second.meta, false, offset, iov, n_iov, NULL))
+        if (mb_it->second.meta != NULL && verify_padded_checksums(mb_it->second.meta,
+            mb_it->second.meta + 2*dsk.clean_entry_bitmap_size, offset, iov, n_iov, NULL))
             return true;
     return false;
 }
@@ -798,13 +835,22 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
         {
             // verify checksums if required
             auto & rv = PRIV(op)->read_vec;
+            void *meta_block = NULL;
             if (dsk.csum_block_size > dsk.bitmap_granularity)
             {
-                bool ok = true;
                 for (int i = rv.size()-1; i >= 0 && (rv[i].copy_flags & COPY_BUF_CSUM_FILL); i--)
                 {
+                    if (rv[i].copy_flags & COPY_BUF_META_BLOCK)
+                    {
+                        // Metadata read. Skip
+                        assert(!meta_block);
+                        meta_block = rv[i].buf;
+                        rv[i].buf = NULL;
+                        continue;
+                    }
                     struct iovec *iov = (struct iovec*)((uint8_t*)rv[i].buf + (rv[i].len & 0xFFFFFFFF));
                     int n_iov = rv[i].len >> 32;
+                    bool ok = true;
                     if (rv[i].copy_flags & COPY_BUF_JOURNAL)
                     {
                         // SMALL_WRITE from journal
@@ -821,10 +867,11 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                             }
                         );
                     }
-                    else if (rv[i].csum_buf)
+                    else if (rv[i].copy_flags & COPY_BUF_JOURNALED_BIG)
                     {
                         // BIG_WRITE from journal
-                        verify_padded_checksums(rv[i].csum_buf, true, rv[i].disk_offset % dsk.data_block_size, iov, n_iov,
+                        verify_padded_checksums(rv[i].csum_buf, rv[i].csum_buf + dsk.clean_entry_bitmap_size,
+                            rv[i].disk_offset % dsk.data_block_size, iov, n_iov,
                             [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
                             {
                                 ok = false;
@@ -839,7 +886,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                     else
                     {
                         // Clean data
-                        ok = verify_clean_padded_checksums(op, rv[i].disk_offset, iov, n_iov);
+                        ok = verify_clean_padded_checksums(op, rv[i].disk_offset, rv[i].csum_buf, iov, n_iov);
                     }
                     if (!ok)
                     {
@@ -867,6 +914,14 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
             {
                 for (auto & vec: rv)
                 {
+                    if (vec.copy_flags & COPY_BUF_META_BLOCK)
+                    {
+                        // Metadata read. Skip
+                        assert(!meta_block);
+                        meta_block = vec.buf;
+                        vec.buf = NULL;
+                        continue;
+                    }
                     if (vec.csum_buf)
                     {
                         uint32_t *csum = (uint32_t*)vec.csum_buf;
@@ -879,7 +934,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                                     "Checksum mismatch in object %lx:%lx v%lu in %s area at offset 0x%lx+0x%lx: %08x vs %08x\n",
                                     op->oid.inode, op->oid.stripe, op->version,
                                     (vec.copy_flags & COPY_BUF_JOURNAL) ? "journal" : "data", vec.disk_offset, p,
-                                    crc32c(0, (uint8_t*)op->buf + vec.offset + p, dsk.csum_block_size), *csum
+                                    crc32c(0, (uint8_t*)op->buf + vec.offset - op->offset + p, dsk.csum_block_size), *csum
                                 );
                                 op->retval = -EDOM;
                                 break;
@@ -892,6 +947,12 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                         vec.dyn_data = NULL;
                     }
                 }
+            }
+            if (meta_block)
+            {
+                // Free after checking
+                free(meta_block);
+                meta_block = NULL;
             }
         }
         if (PRIV(op)->clean_version_used)

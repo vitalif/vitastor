@@ -334,7 +334,7 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
             }
             if (!bs->inmemory_meta && bs->dsk.clean_entry_bitmap_size)
             {
-                memcpy(bs->clean_dyn_data + (done_cnt+i)*bs->dsk.clean_dyn_size, &entry->bitmap, bs->dsk.clean_dyn_size);
+                memcpy(bs->clean_bitmaps + (done_cnt+i) * 2 * bs->dsk.clean_entry_bitmap_size, &entry->bitmap, 2 * bs->dsk.clean_entry_bitmap_size);
             }
             auto & clean_db = bs->clean_db_shard(entry->oid);
             auto clean_it = clean_db.find(entry->oid);
