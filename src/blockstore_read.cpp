@@ -643,7 +643,7 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
     else
     {
         bool csum_done = !dsk.csum_block_size || inmemory_meta;
-        uint8_t *csum_buf = clean_entry_bitmap + 2*dsk.clean_entry_bitmap_size;
+        uint8_t *csum_buf = clean_entry_bitmap;
         uint64_t bmp_start = 0, bmp_end = 0, bmp_size = dsk.data_block_size/dsk.bitmap_granularity;
         while (bmp_start < bmp_size)
         {
@@ -670,7 +670,7 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
                     csum_buf = read_clean_meta_block(read_op, clean_loc, PRIV(read_op)->read_vec.size());
                     csum_done = true;
                 }
-                uint8_t *csum = !dsk.csum_block_size ? 0 : (csum_buf + bmp_start*(dsk.data_csum_type & 0xFF));
+                uint8_t *csum = !dsk.csum_block_size ? 0 : (csum_buf + 2*dsk.clean_entry_bitmap_size + bmp_start*(dsk.data_csum_type & 0xFF));
                 if (!fulfill_read(read_op, fulfilled, bmp_start * dsk.bitmap_granularity,
                     bmp_end * dsk.bitmap_granularity, (BS_ST_BIG_WRITE | BS_ST_STABLE), 0,
                     clean_loc + bmp_start * dsk.bitmap_granularity, 0, csum, dyn_data))
@@ -685,7 +685,10 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
     if (PRIV(read_op)->clean_version_used)
     {
         obj_ver_id ov = { .oid = read_op->oid, .version = clean_ver };
-        used_clean_objects[ov].refs++;
+        auto & uo = used_clean_objects[ov];
+        uo.refs++;
+        if (dsk.csum_block_size && flusher->is_flushed_over(ov))
+            uo.was_changed = true;
         PRIV(read_op)->clean_version_used = ov.version;
     }
     return true;
@@ -707,8 +710,8 @@ uint8_t* blockstore_impl_t::read_clean_meta_block(blockstore_op_t *op, uint64_t 
     PRIV(op)->pending_ops++;
     my_uring_prep_readv(sqe, dsk.meta_fd, &data->iov, 1, dsk.meta_offset + dsk.meta_block_size + sector);
     data->callback = [this, op](ring_data_t *data) { handle_read_event(data, op); };
-    // return pointer to checksums
-    return buf + pos + sizeof(clean_disk_entry) + 2*dsk.clean_entry_bitmap_size;
+    // return pointer to checksums + bitmap
+    return buf + pos + sizeof(clean_disk_entry);
 }
 
 bool blockstore_impl_t::verify_padded_checksums(uint8_t *clean_entry_bitmap, uint8_t *csum_buf, uint32_t offset,
@@ -803,21 +806,19 @@ bool blockstore_impl_t::verify_journal_checksums(uint8_t *csums, uint32_t offset
     return true;
 }
 
-bool blockstore_impl_t::verify_clean_padded_checksums(blockstore_op_t *op, uint64_t clean_loc, uint8_t *csum_buf, iovec *iov, int n_iov)
+bool blockstore_impl_t::verify_clean_padded_checksums(blockstore_op_t *op, uint64_t clean_loc, uint8_t *dyn_data, bool from_journal,
+    iovec *iov, int n_iov, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb)
 {
     uint32_t offset = clean_loc % dsk.data_block_size;
+    if (from_journal)
+        return verify_padded_checksums(dyn_data, dyn_data + dsk.clean_entry_bitmap_size, offset, iov, n_iov, bad_block_cb);
     clean_loc = (clean_loc >> dsk.block_order) << dsk.block_order;
-    // First verify against the newest checksum version
-    uint8_t *clean_entry_bitmap = get_clean_entry_bitmap(clean_loc, 0);
-    if (verify_padded_checksums(clean_entry_bitmap, csum_buf ? csum_buf : (clean_entry_bitmap + 2*dsk.clean_entry_bitmap_size), offset, iov, n_iov, NULL))
-        return true;
-    // Check through all relevant "metadata backups" possibly added by flushers
-    auto mb_it = used_clean_objects.lower_bound((obj_ver_id){ .oid = op->oid, .version = PRIV(op)->clean_version_used });
-    for (; mb_it != used_clean_objects.end() && mb_it->first.oid == op->oid; mb_it++)
-        if (mb_it->second.meta != NULL && verify_padded_checksums(mb_it->second.meta,
-            mb_it->second.meta + 2*dsk.clean_entry_bitmap_size, offset, iov, n_iov, NULL))
-            return true;
-    return false;
+    if (!dyn_data)
+    {
+        assert(inmemory_meta);
+        dyn_data = get_clean_entry_bitmap(clean_loc, 0);
+    }
+    return verify_padded_checksums(dyn_data, dyn_data + 2*dsk.clean_entry_bitmap_size, offset, iov, n_iov, bad_block_cb);
 }
 
 void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op)
@@ -860,45 +861,37 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                             {
                                 ok = false;
                                 printf(
-                                    "Checksum mismatch in object %lx:%lx v%lu in journal at block #%u: got %08x, expected %08x\n",
+                                    "Checksum mismatch in object %lx:%lx v%lu in journal at 0x%lx, checksum block #%u: got %08x, expected %08x\n",
                                     op->oid.inode, op->oid.stripe, op->version,
-                                    bad_block / dsk.csum_block_size, calc_csum, stored_csum
-                                );
-                            }
-                        );
-                    }
-                    else if (rv[i].copy_flags & COPY_BUF_JOURNALED_BIG)
-                    {
-                        // BIG_WRITE from journal
-                        verify_padded_checksums(rv[i].csum_buf, rv[i].csum_buf + dsk.clean_entry_bitmap_size,
-                            rv[i].disk_offset % dsk.data_block_size, iov, n_iov,
-                            [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
-                            {
-                                ok = false;
-                                printf(
-                                    "Checksum mismatch in object %lx:%lx v%lu in RoW data at block #%u: got %08x, expected %08x\n",
-                                    op->oid.inode, op->oid.stripe, op->version,
-                                    bad_block / dsk.csum_block_size, calc_csum, stored_csum
+                                    rv[i].disk_offset, bad_block / dsk.csum_block_size, calc_csum, stored_csum
                                 );
                             }
                         );
                     }
                     else
                     {
-                        // Clean data
-                        ok = verify_clean_padded_checksums(op, rv[i].disk_offset, rv[i].csum_buf, iov, n_iov);
+                        // BIG_WRITE from journal or clean data
+                        // Do not verify checksums if the data location is/was mutated by flushers
+                        auto & uo = used_clean_objects.at((obj_ver_id){ .oid = op->oid, .version = PRIV(op)->clean_version_used });
+                        if (!uo.was_changed)
+                        {
+                            verify_clean_padded_checksums(
+                                op, rv[i].disk_offset, rv[i].csum_buf, (rv[i].copy_flags & COPY_BUF_JOURNALED_BIG), iov, n_iov,
+                                [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
+                                {
+                                    ok = false;
+                                    printf(
+                                        "Checksum mismatch in object %lx:%lx v%lu in %s data at 0x%lx, checksum block #%u: got %08x, expected %08x\n",
+                                        op->oid.inode, op->oid.stripe, op->version,
+                                        (rv[i].copy_flags & COPY_BUF_JOURNALED_BIG ? "redirect-write" : "clean"),
+                                        rv[i].disk_offset, bad_block / dsk.csum_block_size, calc_csum, stored_csum
+                                    );
+                                }
+                            );
+                        }
                     }
                     if (!ok)
                     {
-                        uint64_t read_len = 0;
-                        for (int i = 0; i < n_iov; i++)
-                            read_len += iov[i].iov_len;
-                        printf(
-                            "Checksum mismatch in object %lx:%lx v%lu in %s area at offset 0x%lx (read length 0x%lx)\n",
-                            op->oid.inode, op->oid.stripe, op->version,
-                            (rv[i].copy_flags & COPY_BUF_JOURNAL) ? "journal" : "data",
-                            rv[i].disk_offset, read_len
-                        );
                         op->retval = -EDOM;
                     }
                     free(rv[i].buf);
@@ -991,11 +984,6 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                             if (uo_it->second.freed_block > 0)
                             {
                                 data_alloc->set(uo_it->second.freed_block-1, false);
-                            }
-                            if (uo_it->second.meta)
-                            {
-                                free(uo_it->second.meta);
-                                uo_it->second.meta = NULL;
                             }
                             used_clean_objects.erase(uo_it++);
                         }

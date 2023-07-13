@@ -67,7 +67,7 @@ class journal_flusher_co
     bool fill_incomplete, cleared_incomplete;
     int read_to_fill_incomplete;
     int copy_count;
-    uint64_t clean_loc, old_clean_loc, old_clean_ver;
+    uint64_t clean_loc, clean_ver, old_clean_loc, old_clean_ver;
     flusher_meta_write_t meta_old, meta_new;
     bool clean_init_bitmap;
     uint64_t clean_bitmap_offset, clean_bitmap_len;
@@ -136,4 +136,5 @@ public:
     void unshift_flush(obj_ver_id oid, bool force);
     void remove_flush(object_id oid);
     void dump_diagnostics();
+    bool is_flushed_over(obj_ver_id ov);
 };

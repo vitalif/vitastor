@@ -160,6 +160,22 @@ void journal_flusher_t::remove_flush(object_id oid)
     }
 }
 
+bool journal_flusher_t::is_flushed_over(obj_ver_id ov)
+{
+    auto r_it = sync_to_repeat.find(ov.oid);
+    if (r_it != sync_to_repeat.end())
+    {
+        for (int i = 0; i < cur_flusher_count; i++)
+        {
+            if (co[i].wait_state != 0 && co[i].cur.oid == ov.oid)
+            {
+                return co[i].cur.version > ov.version;
+            }
+        }
+    }
+    return false;
+}
+
 void journal_flusher_t::request_trim()
 {
     dequeuing = true;
@@ -444,6 +460,7 @@ stop_flusher:
             else
             {
                 clean_loc = old_clean_loc;
+                clean_ver = old_clean_ver;
             }
         }
         // Submit dirty data and old checksum data reads
@@ -478,6 +495,15 @@ resume_2:
         {
             wait_state = wait_base+13;
             return false;
+        }
+        if (bs->dsk.csum_block_size)
+        {
+            // Mark objects used by reads as modified
+            auto uo_it = bs->used_clean_objects.find((obj_ver_id){ .oid = cur.oid, .version = clean_ver });
+            if (uo_it != bs->used_clean_objects.end())
+            {
+                uo_it->second.was_changed = true;
+            }
         }
         // Submit data writes
         for (it = v.begin(); it != v.end(); it++)
@@ -601,34 +627,6 @@ void journal_flusher_co::update_metadata_entry()
     }
     else
     {
-        if (bs->dsk.csum_block_size)
-        {
-            // Copy the whole old metadata entry before updating it if the updated object is being read
-            obj_ver_id ov = { .oid = new_entry->oid, .version = new_entry->version };
-            auto uo_it = bs->used_clean_objects.upper_bound(ov);
-            if (uo_it != bs->used_clean_objects.begin())
-            {
-                uo_it--;
-                if (uo_it->first.oid == new_entry->oid)
-                {
-                    uint8_t *meta_copy = (uint8_t*)malloc_or_die(bs->dsk.clean_entry_size);
-                    memcpy(meta_copy, new_entry, bs->dsk.clean_entry_size);
-                    // The reads should free all metadata entry backups when they don't need them anymore
-                    if (uo_it->first.version < new_entry->version)
-                    {
-                        // If ==, write in place
-                        uo_it++;
-                        bs->used_clean_objects.insert(uo_it, std::make_pair(ov, (used_clean_obj_t){
-                            .meta = meta_copy,
-                        }));
-                    }
-                    else
-                    {
-                        uo_it->second.meta = meta_copy;
-                    }
-                }
-            }
-        }
         // Set initial internal bitmap bits from the big write
         if (clean_init_bitmap)
         {
@@ -725,6 +723,7 @@ bool journal_flusher_co::write_meta_block(flusher_meta_write_t & meta_block, int
     return true;
 }
 
+// Punch holes in incomplete checksum blocks
 bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
 {
     if (wait_state == wait_base)        goto resume_0;
@@ -805,12 +804,6 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
                 });
             }
         }
-        // Actually clear bits
-        for (auto it = v.begin(); it != v.end(); it++)
-        {
-            if (it->copy_flags == COPY_BUF_JOURNAL || it->copy_flags == (COPY_BUF_JOURNAL|COPY_BUF_COALESCED))
-                bitmap_clear(new_clean_bitmap, it->offset, it->len, bs->dsk.bitmap_granularity);
-        }
         {
             clean_disk_entry *new_entry = (clean_disk_entry*)((uint8_t*)meta_new.buf + meta_new.pos*bs->dsk.clean_entry_size);
             if (new_entry->oid != cur.oid)
@@ -822,11 +815,20 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
                 );
             }
             assert(new_entry->oid == cur.oid);
+            // Actually clear bits
+            for (auto it = v.begin(); it != v.end(); it++)
+            {
+                if (it->copy_flags == COPY_BUF_JOURNAL || it->copy_flags == (COPY_BUF_JOURNAL|COPY_BUF_COALESCED))
+                    bitmap_clear(new_clean_bitmap, it->offset, it->len, bs->dsk.bitmap_granularity);
+            }
             // Calculate block checksums with new holes
             uint32_t *new_data_csums = (uint32_t*)(new_clean_bitmap + 2*bs->dsk.clean_entry_bitmap_size);
             calc_block_checksums(new_data_csums, true);
             if (!bs->inmemory_meta)
-                memcpy(&new_entry->bitmap, new_clean_bitmap, bs->dsk.clean_dyn_size);
+            {
+                auto inmem_bmp = (uint8_t*)bs->clean_bitmaps + (clean_loc >> bs->dsk.block_order)*2*bs->dsk.clean_entry_bitmap_size;
+                memcpy(inmem_bmp, new_clean_bitmap, 2*bs->dsk.clean_entry_bitmap_size);
+            }
             if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_V2)
             {
                 // calculate metadata entry checksum
@@ -914,6 +916,7 @@ void journal_flusher_co::scan_dirty()
     v.clear();
     copy_count = 0;
     clean_loc = UINT64_MAX;
+    clean_ver = 0;
     has_delete = false;
     has_writes = false;
     skip_copy = false;
@@ -989,6 +992,7 @@ void journal_flusher_co::scan_dirty()
             // There is an unflushed big write. Copy small writes in its position
             has_writes = true;
             clean_loc = dirty_it->second.location;
+            clean_ver = dirty_it->first.version;
             clean_init_bitmap = true;
             clean_bitmap_offset = dirty_it->second.offset;
             clean_bitmap_len = dirty_it->second.len;
