@@ -103,8 +103,9 @@ vitastor-disk - инструмент командной строки для уп
 это не удаётся, в системный журнал выводится предупреждение.
 
 Вы можете передать данной команде и некоторые другие опции OSD в качестве аргументов
-и они тоже будут сохранены в суперблок: max_write_iodepth, max_write_iodepth, min_flusher_count,
-max_flusher_count, inmemory_metadata, inmemory_journal, journal_sector_buffer_count,
+и они тоже будут сохранены в суперблок: cached_io_data, cached_io_meta,
+cached_io_journal, inmemory_metadata, inmemory_journal, max_write_iodepth,
+min_flusher_count, max_flusher_count, journal_sector_buffer_count,
 journal_no_same_sector_overwrites, throttle_small_writes, throttle_target_iops,
 throttle_target_mbs, throttle_target_parallelism, throttle_threshold_us.
 Читайте об этих параметрах подробнее в разделе [Изменяемые параметры OSD](../config/osd.ru.md).

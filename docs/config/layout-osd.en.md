@@ -213,4 +213,5 @@ have enough RAM for the default 4 KB csum_block_size.
 Option 3 is recommended for SSD+HDD setups (because metadata SSDs will handle
 extra reads without any performance drop) and also *maybe* for NVMe all-flash
 setups when you don't have enough RAM (because NVMe drives have plenty
-of read iops to spare).
+of read iops to spare). [cached_io_meta](osd.en.md#cached_io_meta) may also
+help to improve performance in this case for SSD+HDD setups.

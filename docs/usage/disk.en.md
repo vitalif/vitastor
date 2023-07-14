@@ -102,8 +102,9 @@ checks the device cache status on start and tries to disable cache for SATA/SAS 
 If it doesn't succeed it issues a warning in the system log.
 
 You can also pass other OSD options here as arguments and they'll be persisted
-to the superblock: max_write_iodepth, max_write_iodepth, min_flusher_count,
-max_flusher_count, inmemory_metadata, inmemory_journal, journal_sector_buffer_count,
+in the superblock: cached_io_data, cached_io_meta, cached_io_journal,
+inmemory_metadata, inmemory_journal, max_write_iodepth,
+min_flusher_count, max_flusher_count, journal_sector_buffer_count,
 journal_no_same_sector_overwrites, throttle_small_writes, throttle_target_iops,
 throttle_target_mbs, throttle_target_parallelism, throttle_threshold_us.
 See [Runtime OSD Parameters](../config/osd.en.md) for details.

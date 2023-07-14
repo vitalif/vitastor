@@ -244,7 +244,8 @@
     Option 3 is recommended for SSD+HDD setups (because metadata SSDs will handle
     extra reads without any performance drop) and also *maybe* for NVMe all-flash
     setups when you don't have enough RAM (because NVMe drives have plenty
-    of read iops to spare).
+    of read iops to spare). [cached_io_meta](osd.en.md#cached_io_meta) may also
+    help to improve performance in this case for SSD+HDD setups.
   info_ru: |
     Размер блока расчёта контрольных сумм.
 
@@ -275,3 +276,5 @@
     без снижения производительности. Также вариант 3 *может* рекомендоваться
     для All-Flash кластеров на основе NVMe-дисков, когда памяти НЕ достаточно,
     потому что NVMe-диски имеют огромный запас производительности по чтению.
+    Также улучшить производительность для SSD+HDD кластеров в данном случае
+    может помочь параметр [cached_io_meta](osd.ru.md#cached_io_meta).

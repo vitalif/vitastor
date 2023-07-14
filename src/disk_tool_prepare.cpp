@@ -8,6 +8,9 @@
 int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_hdd)
 {
     static const char *allow_additional_params[] = {
+        "cached_io_data",
+        "cached_io_meta",
+        "cached_io_journal",
         "max_write_iodepth",
         "max_write_iodepth",
         "min_flusher_count",
@@ -116,6 +119,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     try
     {
         dsk.parse_config(options);
+        dsk.cached_io_data = dsk.cached_io_meta = dsk.cached_io_journal = false;
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
@@ -479,6 +483,7 @@ int disk_tool_t::get_meta_partition(std::vector<vitastor_dev_info_t> & ssds, std
     {
         blockstore_disk_t dsk;
         dsk.parse_config(options);
+        dsk.cached_io_data = dsk.cached_io_meta = dsk.cached_io_journal = false;
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
