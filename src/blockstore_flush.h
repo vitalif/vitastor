@@ -136,5 +136,5 @@ public:
     void unshift_flush(obj_ver_id oid, bool force);
     void remove_flush(object_id oid);
     void dump_diagnostics();
-    bool is_flushed_over(obj_ver_id ov);
+    bool is_mutated(uint64_t clean_loc);
 };

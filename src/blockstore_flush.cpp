@@ -160,17 +160,13 @@ void journal_flusher_t::remove_flush(object_id oid)
     }
 }
 
-bool journal_flusher_t::is_flushed_over(obj_ver_id ov)
+bool journal_flusher_t::is_mutated(uint64_t clean_loc)
 {
-    auto r_it = sync_to_repeat.find(ov.oid);
-    if (r_it != sync_to_repeat.end())
+    for (int i = 0; i < cur_flusher_count; i++)
     {
-        for (int i = 0; i < cur_flusher_count; i++)
+        if (co[i].clean_loc == clean_loc && co[i].copy_count > 0)
         {
-            if (co[i].wait_state != 0 && co[i].cur.oid == ov.oid)
-            {
-                return co[i].cur.version > ov.version;
-            }
+            return true;
         }
     }
     return false;
@@ -499,7 +495,7 @@ resume_2:
         if (bs->dsk.csum_block_size)
         {
             // Mark objects used by reads as modified
-            auto uo_it = bs->used_clean_objects.find((obj_ver_id){ .oid = cur.oid, .version = clean_ver });
+            auto uo_it = bs->used_clean_objects.find(clean_loc);
             if (uo_it != bs->used_clean_objects.end())
             {
                 uo_it->second.was_changed = true;
@@ -1248,7 +1244,7 @@ void journal_flusher_co::free_data_blocks()
 {
     if (old_clean_loc != UINT64_MAX && old_clean_loc != clean_loc)
     {
-        auto uo_it = bs->used_clean_objects.find((obj_ver_id){ .oid = cur.oid, .version = old_clean_ver });
+        auto uo_it = bs->used_clean_objects.find(old_clean_loc);
         bool used = uo_it != bs->used_clean_objects.end();
 #ifdef BLOCKSTORE_DEBUG
         printf("%s block %lu from %lx:%lx v%lu (new location is %lu)\n",
@@ -1258,25 +1254,25 @@ void journal_flusher_co::free_data_blocks()
             clean_loc >> bs->dsk.block_order);
 #endif
         if (used)
-            uo_it->second.freed_block = 1 + (old_clean_loc >> bs->dsk.block_order);
+            uo_it->second.was_freed = true;
         else
             bs->data_alloc->set(old_clean_loc >> bs->dsk.block_order, false);
     }
     if (has_delete)
     {
         assert(clean_loc == old_clean_loc);
-        auto uo_it = bs->used_clean_objects.find((obj_ver_id){ .oid = cur.oid, .version = old_clean_ver });
+        auto uo_it = bs->used_clean_objects.find(old_clean_loc);
         bool used = uo_it != bs->used_clean_objects.end();
 #ifdef BLOCKSTORE_DEBUG
         printf("%s block %lu from %lx:%lx v%lu (delete)\n",
             used ? "Postpone free" : "Free",
-            clean_loc >> bs->dsk.block_order,
+            old_clean_loc >> bs->dsk.block_order,
             cur.oid.inode, cur.oid.stripe, cur.version);
 #endif
         if (used)
-            uo_it->second.freed_block = 1 + (clean_loc >> bs->dsk.block_order);
+            uo_it->second.was_freed = true;
         else
-            bs->data_alloc->set(clean_loc >> bs->dsk.block_order, false);
+            bs->data_alloc->set(old_clean_loc >> bs->dsk.block_order, false);
     }
 }
 

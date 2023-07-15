@@ -131,7 +131,7 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op,
                 // If we don't track it then we may IN THEORY read another object's data:
                 // submit read -> remove the object -> flush remove -> overwrite with another object -> finish read
                 // Very improbable, but possible
-                PRIV(read_op)->clean_version_used = 1;
+                PRIV(read_op)->clean_block_used = 1;
             }
             rv.insert(rv.begin() + pos, el);
             fulfilled += el.len;
@@ -371,14 +371,9 @@ bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uin
     }
     if (!(vi->copy_flags & COPY_BUF_JOURNAL))
     {
-        // Reading may race with flushing.
-        // - Flushing happens in 3 steps: (2) punch holes in meta -> (4) update data -> (6) update meta
-        // - Reading may start/end at: 1/3, 1/5, 1/7, 3/5, 3/7, 5/7
-        // - 1/3, 1/5, 3/5 are not a problem because we'll check data using punched bitmap and CRCs
-        // - For 1/7, 3/7 and 5/7 to finish correctly we need a copy of punched metadata
-        //   otherwise the checksum may not match
-        // So flushers save a copy of punched metadata if the object is being read during (6).
-        PRIV(op)->clean_version_used = 1;
+        // Reads running parallel to flushes of the same clean block may read
+        // a mixture of old and new data. So we don't verify checksums for such blocks.
+        PRIV(op)->clean_block_used = 1;
     }
     return true;
 }
@@ -404,7 +399,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
     }
     uint64_t fulfilled = 0;
     PRIV(read_op)->pending_ops = 0;
-    PRIV(read_op)->clean_version_used = 0;
+    PRIV(read_op)->clean_block_used = 0;
     auto & rv = PRIV(read_op)->read_vec;
     uint64_t result_version = 0;
     if (dirty_found)
@@ -617,7 +612,7 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
                 return false;
             }
         }
-        PRIV(read_op)->clean_version_used = req > 0;
+        PRIV(read_op)->clean_block_used = req > 0;
     }
     else if (from_journal)
     {
@@ -682,14 +677,13 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
         }
     }
     // Increment reference counter if clean data is being read from the disk
-    if (PRIV(read_op)->clean_version_used)
+    if (PRIV(read_op)->clean_block_used)
     {
-        obj_ver_id ov = { .oid = read_op->oid, .version = clean_ver };
-        auto & uo = used_clean_objects[ov];
+        auto & uo = used_clean_objects[clean_loc];
         uo.refs++;
-        if (dsk.csum_block_size && flusher->is_flushed_over(ov))
+        if (dsk.csum_block_size && flusher->is_mutated(clean_loc))
             uo.was_changed = true;
-        PRIV(read_op)->clean_version_used = ov.version;
+        PRIV(read_op)->clean_block_used = clean_loc;
     }
     return true;
 }
@@ -872,7 +866,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                     {
                         // BIG_WRITE from journal or clean data
                         // Do not verify checksums if the data location is/was mutated by flushers
-                        auto & uo = used_clean_objects.at((obj_ver_id){ .oid = op->oid, .version = PRIV(op)->clean_version_used });
+                        auto & uo = used_clean_objects.at((rv[i].disk_offset >> dsk.block_order) << dsk.block_order);
                         if (!uo.was_changed)
                         {
                             verify_clean_padded_checksums(
@@ -948,46 +942,20 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                 meta_block = NULL;
             }
         }
-        if (PRIV(op)->clean_version_used)
+        if (PRIV(op)->clean_block_used)
         {
             // Release clean data block
-            obj_ver_id ov = { .oid = op->oid, .version = PRIV(op)->clean_version_used };
-            auto uo_it = used_clean_objects.find(ov);
+            auto uo_it = used_clean_objects.find(PRIV(op)->clean_block_used);
             if (uo_it != used_clean_objects.end())
             {
                 uo_it->second.refs--;
                 if (uo_it->second.refs <= 0)
                 {
-                    // Check to the left - even older usage entries may exist
-                    bool still_used = false;
-                    while (uo_it != used_clean_objects.begin())
+                    if (uo_it->second.was_freed)
                     {
-                        uo_it--;
-                        if (uo_it->first.oid != op->oid)
-                        {
-                            uo_it++;
-                            break;
-                        }
-                        if (uo_it->second.refs > 0)
-                        {
-                            still_used = true;
-                            break;
-                        }
+                        data_alloc->set(PRIV(op)->clean_block_used, false);
                     }
-                    // Free uo_it AND all following records with refs==0 too
-                    if (!still_used)
-                    {
-                        while (uo_it != used_clean_objects.end() &&
-                            uo_it->first.oid == op->oid &&
-                            uo_it->second.refs == 0)
-                        {
-                            if (uo_it->second.freed_block > 0)
-                            {
-                                data_alloc->set(uo_it->second.freed_block-1, false);
-                            }
-                            used_clean_objects.erase(uo_it++);
-                        }
-                    }
+                    used_clean_objects.erase(uo_it);
                 }
             }
         }

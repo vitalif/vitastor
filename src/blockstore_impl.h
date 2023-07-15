@@ -180,7 +180,7 @@ struct __attribute__((__packed__)) dirty_entry
 struct used_clean_obj_t
 {
     int refs;
-    uint64_t freed_block; // block+1 if freed, otherwise 0
+    bool was_freed; // was freed by a parallel flush?
     bool was_changed; // was changed by a parallel flush?
 };
 
@@ -206,7 +206,7 @@ struct blockstore_op_private_t
     int op_state;
 
     // Read
-    uint64_t clean_version_used;
+    uint64_t clean_block_used;
     std::vector<copy_buffer_t> read_vec;
 
     // Sync, write
@@ -286,7 +286,7 @@ class blockstore_impl_t
     bool alloc_dyn_data = false;
 
     // clean data blocks referenced by read operations
-    std::map<obj_ver_id, used_clean_obj_t> used_clean_objects;
+    std::map<uint64_t, used_clean_obj_t> used_clean_objects;
 
     bool live = false, queue_stall = false;
     ring_loop_t *ringloop;
