@@ -1,0 +1,181 @@
+Index: qemu-5.2+dfsg/qapi/block-core.json
+===================================================================
+--- qemu-5.2+dfsg.orig/qapi/block-core.json
++++ qemu-5.2+dfsg/qapi/block-core.json
+@@ -2831,7 +2831,7 @@
+             'luks', 'nbd', 'nfs', 'null-aio', 'null-co', 'nvme', 'parallels',
+             'qcow', 'qcow2', 'qed', 'quorum', 'raw', 'rbd',
+             { 'name': 'replication', 'if': 'defined(CONFIG_REPLICATION)' },
+-            'sheepdog',
++            'sheepdog', 'vitastor',
+             'ssh', 'throttle', 'vdi', 'vhdx', 'vmdk', 'vpc', 'vvfat' ] }
+ 
+ ##
+@@ -3668,6 +3668,28 @@
+             '*tag': 'str' } }
+ 
+ ##
++# @BlockdevOptionsVitastor:
++#
++# Driver specific block device options for vitastor
++#
++# @image:       Image name
++# @inode:       Inode number
++# @pool:        Pool ID
++# @size:        Desired image size in bytes
++# @config-path: Path to Vitastor configuration
++# @etcd-host:   etcd connection address(es)
++# @etcd-prefix: etcd key/value prefix
++##
++{ 'struct': 'BlockdevOptionsVitastor',
++  'data': { '*inode': 'uint64',
++            '*pool': 'uint64',
++            '*size': 'uint64',
++            '*image': 'str',
++            '*config-path': 'str',
++            '*etcd-host': 'str',
++            '*etcd-prefix': 'str' } }
++
++##
+ # @ReplicationMode:
+ #
+ # An enumeration of replication modes.
+@@ -4015,6 +4037,7 @@
+       'replication': { 'type': 'BlockdevOptionsReplication',
+                        'if': 'defined(CONFIG_REPLICATION)' },
+       'sheepdog':   'BlockdevOptionsSheepdog',
++      'vitastor':   'BlockdevOptionsVitastor',
+       'ssh':        'BlockdevOptionsSsh',
+       'throttle':   'BlockdevOptionsThrottle',
+       'vdi':        'BlockdevOptionsGenericFormat',
+@@ -4404,6 +4427,17 @@
+             '*cluster-size' :   'size' } }
+ 
+ ##
++# @BlockdevCreateOptionsVitastor:
++#
++# Driver specific image creation options for Vitastor.
++#
++# @size: Size of the virtual disk in bytes
++##
++{ 'struct': 'BlockdevCreateOptionsVitastor',
++  'data': { 'location':         'BlockdevOptionsVitastor',
++            'size':             'size' } }
++
++##
+ # @BlockdevVmdkSubformat:
+ #
+ # Subformat options for VMDK images
+@@ -4665,6 +4699,7 @@
+       'qed':            'BlockdevCreateOptionsQed',
+       'rbd':            'BlockdevCreateOptionsRbd',
+       'sheepdog':       'BlockdevCreateOptionsSheepdog',
++      'vitastor':       'BlockdevCreateOptionsVitastor',
+       'ssh':            'BlockdevCreateOptionsSsh',
+       'vdi':            'BlockdevCreateOptionsVdi',
+       'vhdx':           'BlockdevCreateOptionsVhdx',
+Index: qemu-5.2+dfsg/block/meson.build
+===================================================================
+--- qemu-5.2+dfsg.orig/block/meson.build
++++ qemu-5.2+dfsg/block/meson.build
+@@ -76,6 +76,7 @@ foreach m : [
+   ['CONFIG_LIBNFS', 'nfs', libnfs, 'nfs.c'],
+   ['CONFIG_LIBSSH', 'ssh', libssh, 'ssh.c'],
+   ['CONFIG_RBD', 'rbd', rbd, 'rbd.c'],
++  ['CONFIG_VITASTOR', 'vitastor', vitastor, 'vitastor.c'],
+ ]
+   if config_host.has_key(m[0])
+     if enable_modules
+Index: qemu-5.2+dfsg/configure
+===================================================================
+--- qemu-5.2+dfsg.orig/configure
++++ qemu-5.2+dfsg/configure
+@@ -372,6 +372,7 @@ trace_backends="log"
+ trace_file="trace"
+ spice=""
+ rbd=""
++vitastor=""
+ smartcard=""
+ u2f="auto"
+ libusb=""
+@@ -1263,6 +1264,10 @@ for opt do
+   ;;
+   --enable-rbd) rbd="yes"
+   ;;
++  --disable-vitastor) vitastor="no"
++  ;;
++  --enable-vitastor) vitastor="yes"
++  ;;
+   --disable-xfsctl) xfs="no"
+   ;;
+   --enable-xfsctl) xfs="yes"
+@@ -1827,6 +1832,7 @@ disabled with --disable-FEATURE, default
+   vhost-vdpa      vhost-vdpa kernel backend support
+   spice           spice
+   rbd             rados block device (rbd)
++  vitastor        vitastor block device
+   libiscsi        iscsi support
+   libnfs          nfs support
+   smartcard       smartcard support (libcacard)
+@@ -3719,6 +3725,27 @@ EOF
+ fi
+ 
+ ##########################################
++# vitastor probe
++if test "$vitastor" != "no" ; then
++  cat > $TMPC <<EOF
++#include <vitastor_c.h>
++int main(void) {
++  vitastor_c_create_qemu(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
++  return 0;
++}
++EOF
++  vitastor_libs="-lvitastor_client"
++  if compile_prog "" "$vitastor_libs" ; then
++    vitastor=yes
++  else
++    if test "$vitastor" = "yes" ; then
++      feature_not_found "vitastor block device" "Install vitastor-client-dev"
++    fi
++    vitastor=no
++  fi
++fi
++
++##########################################
+ # libssh probe
+ if test "$libssh" != "no" ; then
+   if $pkg_config --exists libssh; then
+@@ -6456,6 +6483,10 @@ if test "$rbd" = "yes" ; then
+   echo "CONFIG_RBD=y" >> $config_host_mak
+   echo "RBD_LIBS=$rbd_libs" >> $config_host_mak
+ fi
++if test "$vitastor" = "yes" ; then
++  echo "CONFIG_VITASTOR=y" >> $config_host_mak
++  echo "VITASTOR_LIBS=$vitastor_libs" >> $config_host_mak
++fi
+ 
+ echo "CONFIG_COROUTINE_BACKEND=$coroutine" >> $config_host_mak
+ if test "$coroutine_pool" = "yes" ; then
+Index: qemu-5.2+dfsg/meson.build
+===================================================================
+--- qemu-5.2+dfsg.orig/meson.build
++++ qemu-5.2+dfsg/meson.build
+@@ -596,6 +596,10 @@ rbd = not_found
+ if 'CONFIG_RBD' in config_host
+   rbd = declare_dependency(link_args: config_host['RBD_LIBS'].split())
+ endif
++vitastor = not_found
++if 'CONFIG_VITASTOR' in config_host
++  vitastor = declare_dependency(link_args: config_host['VITASTOR_LIBS'].split())
++endif
+ glusterfs = not_found
+ if 'CONFIG_GLUSTERFS' in config_host
+   glusterfs = declare_dependency(compile_args: config_host['GLUSTERFS_CFLAGS'].split(),
+@@ -2145,6 +2149,7 @@ endif
+ # TODO: add back protocol and server version
+ summary_info += {'spice support':     config_host.has_key('CONFIG_SPICE')}
+ summary_info += {'rbd support':       config_host.has_key('CONFIG_RBD')}
++summary_info += {'vitastor support':  config_host.has_key('CONFIG_VITASTOR')}
+ summary_info += {'xfsctl support':    config_host.has_key('CONFIG_XFS')}
+ summary_info += {'smartcard support': config_host.has_key('CONFIG_SMARTCARD')}
+ summary_info += {'U2F support':       u2f.found()}
