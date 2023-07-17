@@ -215,7 +215,7 @@ void vitastor_c_uring_wait_events(vitastor_c *client)
     client->ringloop->wait();
 }
 
-bool vitastor_c_uring_has_work(vitastor_c *client)
+int vitastor_c_uring_has_work(vitastor_c *client)
 {
     return client->ringloop->has_work();
 }
