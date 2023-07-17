@@ -234,6 +234,7 @@ out:
     return;
 }
 
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 2
 static void vitastor_uring_handler(void *opaque)
 {
     VitastorClient *client = (VitastorClient*)opaque;
@@ -278,6 +279,11 @@ static void vitastor_schedule_uring_handler(VitastorClient *client)
 #endif
     }
 }
+#else
+static void vitastor_schedule_uring_handler(VitastorClient *client)
+{
+}
+#endif
 
 static void coroutine_fn vitastor_co_get_metadata(VitastorRPC *task)
 {
@@ -404,20 +410,16 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
         vitastor_aio_set_fd_handler, client, client->config_path, client->etcd_host, client->etcd_prefix,
         client->use_rdma, client->rdma_device, client->rdma_port_num, client->rdma_gid_index, client->rdma_mtu, 0
     );
-#else
-    client->proxy = vitastor_c_create_uring(
-        client->config_path, client->etcd_host, client->etcd_prefix,
-        client->use_rdma, client->rdma_device, client->rdma_port_num, client->rdma_gid_index, client->rdma_mtu, 0
-    );
-#endif
     if (!client->proxy)
     {
         fprintf(stderr, "vitastor: failed to create io_uring: %s - I/O will be slower\n", strerror(errno));
         client->uring_eventfd = -1;
+#endif
         client->proxy = vitastor_c_create_qemu(
             vitastor_aio_set_fd_handler, client, client->config_path, client->etcd_host, client->etcd_prefix,
             client->use_rdma, client->rdma_device, client->rdma_port_num, client->rdma_gid_index, client->rdma_mtu, 0
         );
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 2
     }
     else
     {
@@ -431,6 +433,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
         }
         universal_aio_set_fd_handler(client->ctx, client->uring_eventfd, vitastor_uring_handler, NULL, client);
     }
+#endif
     image = client->image = g_strdup(qdict_get_try_str(options, "image"));
     client->readonly = (flags & BDRV_O_RDWR) ? 1 : 0;
     // Get image metadata (size and readonly flag) or just wait until the client is ready
