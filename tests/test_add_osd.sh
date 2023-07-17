@@ -8,10 +8,7 @@ LD_PRELOAD="build/src/libfio_vitastor.so" \
     fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -end_fsync=1 \
         -rw=write -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -cluster_log_level=10
 
-for i in 4; do
-    dd if=/dev/zero of=./testdata/test_osd$i.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
-    start_osd $i
-done
+start_osd 4
 
 sleep 2
 

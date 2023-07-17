@@ -7,6 +7,7 @@ PG_COUNT=${PG_COUNT:-1}
 # OSD_COUNT
 SCHEME=${SCHEME:-replicated}
 # OSD_ARGS
+# OFFSET_ARGS
 # PG_SIZE
 # PG_MINSIZE
 
@@ -24,17 +25,31 @@ else
     $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"osd_out_time":1}'
 fi
 
-start_osd()
+start_osd_on()
 {
     local i=$1
+    local dev=$2
     build/src/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $NO_SAME $OSD_ARGS --etcd_address $ETCD_URL \
-        $(build/src/vitastor-disk simple-offsets --format options ./testdata/test_osd$i.bin $OFFSET_ARGS 2>/dev/null) \
+        $(build/src/vitastor-disk simple-offsets --format options $OFFSET_ARGS $dev $OFFSET_ARGS 2>/dev/null) \
         >>./testdata/osd$i.log 2>&1 &
     eval OSD${i}_PID=$!
 }
 
+if ! type -t osd_dev; then
+    osd_dev()
+    {
+        local i=$1
+        [[ -f ./testdata/test_osd$i.bin ]] || dd if=/dev/zero of=./testdata/test_osd$i.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
+        echo ./testdata/test_osd$i.bin
+    }
+fi
+
+start_osd()
+{
+    start_osd_on $1 $(osd_dev $1)
+}
+
 for i in $(seq 1 $OSD_COUNT); do
-    dd if=/dev/zero of=./testdata/test_osd$i.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
     start_osd $i
 done
 
@@ -85,7 +100,7 @@ wait_up()
 }
 
 if [[ $OSD_COUNT -gt 0 ]]; then
-    wait_up 60
+    wait_up 120
 fi
 
 try_reweight()
