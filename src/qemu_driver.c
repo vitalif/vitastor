@@ -266,17 +266,15 @@ static void vitastor_schedule_uring_handler(VitastorClient *client)
         replay_bh_schedule_oneshot_event(client->ctx, vitastor_uring_handler, opaque);
 #elif QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 8
         aio_bh_schedule_oneshot(client->ctx, vitastor_uring_handler, opaque);
-#elif QEMU_VERSION_MAJOR >= 2
+#else
         VitastorBH *vbh = (VitastorBH*)malloc(sizeof(VitastorBH));
         vbh->cli = client;
+#if QEMU_VERSION_MAJOR >= 2
         vbh->bh = aio_bh_new(bdrv_get_aio_context(task->bs), vitastor_bh_uring_handler, vbh);
-        qemu_bh_schedule(vbh->bh);
 #else
-        client->bh_uring_scheduled = 0;
-        do
-        {
-            vitastor_c_uring_handle_events(client->proxy);
-        } while (vitastor_c_uring_has_work(client->proxy));
+        vbh->bh = qemu_bh_new(vitastor_bh_uring_handler, vbh);
+#endif
+        qemu_bh_schedule(vbh->bh);
 #endif
     }
 }
@@ -664,7 +662,8 @@ static void vitastor_co_generic_cb(void *opaque, long retval)
     task->bh = aio_bh_new(bdrv_get_aio_context(task->bs), vitastor_co_generic_bh_cb, opaque);
     qemu_bh_schedule(task->bh);
 #else
-    vitastor_co_generic_bh_cb(opaque);
+    task->bh = qemu_bh_new(vitastor_co_generic_bh_cb, opaque);
+    qemu_bh_schedule(task->bh);
 #endif
 }
 
@@ -741,7 +740,6 @@ static void vitastor_co_read_bitmap_cb(void *opaque, long retval, uint8_t *bitma
     VitastorRPC *task = opaque;
     VitastorClient *client = task->bs->opaque;
     task->ret = retval;
-    task->complete = 1;
     if (retval >= 0)
     {
         task->bitmap = bitmap;
@@ -753,15 +751,17 @@ static void vitastor_co_read_bitmap_cb(void *opaque, long retval, uint8_t *bitma
             client->last_bitmap = bitmap;
         }
     }
-    if (qemu_coroutine_self() != task->co)
-    {
-#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 8
-        aio_co_wake(task->co);
+#if QEMU_VERSION_MAJOR > 4 || QEMU_VERSION_MAJOR == 4 && QEMU_VERSION_MINOR >= 2
+    replay_bh_schedule_oneshot_event(bdrv_get_aio_context(task->bs), vitastor_co_generic_bh_cb, opaque);
+#elif QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 8
+    aio_bh_schedule_oneshot(bdrv_get_aio_context(task->bs), vitastor_co_generic_bh_cb, opaque);
+#elif QEMU_VERSION_MAJOR >= 2
+    task->bh = aio_bh_new(bdrv_get_aio_context(task->bs), vitastor_co_generic_bh_cb, opaque);
+    qemu_bh_schedule(task->bh);
 #else
-        qemu_coroutine_enter(task->co, NULL);
-        qemu_aio_release(task);
+    task->bh = qemu_bh_new(vitastor_co_generic_bh_cb, opaque);
+    qemu_bh_schedule(task->bh);
 #endif
-    }
 }
 
 static int coroutine_fn vitastor_co_block_status(
