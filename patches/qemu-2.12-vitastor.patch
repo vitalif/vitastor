@@ -1,0 +1,176 @@
+diff --git a/block/Makefile.objs b/block/Makefile.objs
+index d644bac60a..e404236291 100644
+--- a/block/Makefile.objs
++++ b/block/Makefile.objs
+@@ -19,6 +19,7 @@ block-obj-$(if $(CONFIG_LIBISCSI),y,n) += iscsi-opts.o
+ block-obj-$(CONFIG_LIBNFS) += nfs.o
+ block-obj-$(CONFIG_CURL) += curl.o
+ block-obj-$(CONFIG_RBD) += rbd.o
++block-obj-$(CONFIG_VITASTOR) += vitastor.o
+ block-obj-$(CONFIG_GLUSTERFS) += gluster.o
+ block-obj-$(CONFIG_VXHS) += vxhs.o
+ block-obj-$(CONFIG_LIBSSH2) += ssh.o
+@@ -39,6 +40,8 @@ curl.o-cflags      := $(CURL_CFLAGS)
+ curl.o-libs        := $(CURL_LIBS)
+ rbd.o-cflags       := $(RBD_CFLAGS)
+ rbd.o-libs         := $(RBD_LIBS)
++vitastor.o-cflags  := $(VITASTOR_CFLAGS)
++vitastor.o-libs    := $(VITASTOR_LIBS)
+ gluster.o-cflags   := $(GLUSTERFS_CFLAGS)
+ gluster.o-libs     := $(GLUSTERFS_LIBS)
+ vxhs.o-libs        := $(VXHS_LIBS)
+diff --git a/configure b/configure
+index 0a19b033bc..58b7fbf24c 100755
+--- a/configure
++++ b/configure
+@@ -398,6 +398,7 @@ trace_backends="log"
+ trace_file="trace"
+ spice=""
+ rbd=""
++vitastor=""
+ smartcard=""
+ libusb=""
+ usb_redir=""
+@@ -1213,6 +1214,10 @@ for opt do
+   ;;
+   --enable-rbd) rbd="yes"
+   ;;
++  --disable-vitastor) vitastor="no"
++  ;;
++  --enable-vitastor) vitastor="yes"
++  ;;
+   --disable-xfsctl) xfs="no"
+   ;;
+   --enable-xfsctl) xfs="yes"
+@@ -1601,6 +1606,7 @@ disabled with --disable-FEATURE, default is enabled if available:
+   vhost-crypto    vhost-crypto acceleration support
+   spice           spice
+   rbd             rados block device (rbd)
++  vitastor        vitastor block device
+   libiscsi        iscsi support
+   libnfs          nfs support
+   smartcard       smartcard support (libcacard)
+@@ -3594,6 +3600,27 @@ EOF
+   fi
+ fi
+ 
++##########################################
++# vitastor probe
++if test "$vitastor" != "no" ; then
++  cat > $TMPC <<EOF
++#include <vitastor_c.h>
++int main(void) {
++  vitastor_c_create_qemu(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
++  return 0;
++}
++EOF
++  vitastor_libs="-lvitastor_client"
++  if compile_prog "" "$vitastor_libs" ; then
++    vitastor=yes
++  else
++    if test "$vitastor" = "yes" ; then
++      feature_not_found "vitastor block device" "Install vitastor-client-dev"
++    fi
++    vitastor=no
++  fi
++fi
++
+ ##########################################
+ # libssh2 probe
+ min_libssh2_version=1.2.8
+@@ -5837,6 +5864,7 @@ echo "Trace output file $trace_file-<pid>"
+ fi
+ echo "spice support     $spice $(echo_version $spice $spice_protocol_version/$spice_server_version)"
+ echo "rbd support       $rbd"
++echo "vitastor support  $vitastor"
+ echo "xfsctl support    $xfs"
+ echo "smartcard support $smartcard"
+ echo "libusb            $libusb"
+@@ -6416,6 +6444,11 @@ if test "$rbd" = "yes" ; then
+   echo "RBD_CFLAGS=$rbd_cflags" >> $config_host_mak
+   echo "RBD_LIBS=$rbd_libs" >> $config_host_mak
+ fi
++if test "$vitastor" = "yes" ; then
++  echo "CONFIG_VITASTOR=m" >> $config_host_mak
++  echo "VITASTOR_CFLAGS=$vitastor_cflags" >> $config_host_mak
++  echo "VITASTOR_LIBS=$vitastor_libs" >> $config_host_mak
++fi
+ 
+ echo "CONFIG_COROUTINE_BACKEND=$coroutine" >> $config_host_mak
+ if test "$coroutine_pool" = "yes" ; then
+diff --git a/qapi/block-core.json b/qapi/block-core.json
+index c50517bff3..c780bb2c1c 100644
+--- a/qapi/block-core.json
++++ b/qapi/block-core.json
+@@ -2514,7 +2514,7 @@
+             'dmg', 'file', 'ftp', 'ftps', 'gluster', 'host_cdrom',
+             'host_device', 'http', 'https', 'iscsi', 'luks', 'nbd', 'nfs',
+             'null-aio', 'null-co', 'nvme', 'parallels', 'qcow', 'qcow2', 'qed',
+-            'quorum', 'raw', 'rbd', 'replication', 'sheepdog', 'ssh',
++            'quorum', 'raw', 'rbd', 'vitastor', 'replication', 'sheepdog', 'ssh',
+             'throttle', 'vdi', 'vhdx', 'vmdk', 'vpc', 'vvfat', 'vxhs' ] }
+ 
+ ##
+@@ -3217,6 +3217,28 @@
+             '*snap-id': 'uint32',
+             '*tag': 'str' } }
+ 
++##
++# @BlockdevOptionsVitastor:
++#
++# Driver specific block device options for vitastor
++#
++# @image:       Image name
++# @inode:       Inode number
++# @pool:        Pool ID
++# @size:        Desired image size in bytes
++# @config-path: Path to Vitastor configuration
++# @etcd-host:   etcd connection address(es)
++# @etcd-prefix: etcd key/value prefix
++##
++{ 'struct': 'BlockdevOptionsVitastor',
++  'data': { '*inode': 'uint64',
++            '*pool': 'uint64',
++            '*size': 'uint64',
++            '*image': 'str',
++            '*config-path': 'str',
++            '*etcd-host': 'str',
++            '*etcd-prefix': 'str' } }
++
+ ##
+ # @ReplicationMode:
+ #
+@@ -3547,6 +3569,7 @@
+       'rbd':        'BlockdevOptionsRbd',
+       'replication':'BlockdevOptionsReplication',
+       'sheepdog':   'BlockdevOptionsSheepdog',
++      'vitastor':   'BlockdevOptionsVitastor',
+       'ssh':        'BlockdevOptionsSsh',
+       'throttle':   'BlockdevOptionsThrottle',
+       'vdi':        'BlockdevOptionsGenericFormat',
+@@ -3991,6 +4014,17 @@
+             '*subformat':           'BlockdevVhdxSubformat',
+             '*block-state-zero':    'bool' } }
+ 
++##
++# @BlockdevCreateOptionsVitastor:
++#
++# Driver specific image creation options for Vitastor.
++#
++# @size: Size of the virtual disk in bytes
++##
++{ 'struct': 'BlockdevCreateOptionsVitastor',
++  'data': { 'location':         'BlockdevOptionsVitastor',
++            'size':             'size' } }
++
+ ##
+ # @BlockdevVpcSubformat:
+ #
+@@ -4074,6 +4108,7 @@
+       'rbd':            'BlockdevCreateOptionsRbd',
+       'replication':    'BlockdevCreateNotSupported',
+       'sheepdog':       'BlockdevCreateOptionsSheepdog',
++      'vitastor':       'BlockdevCreateOptionsVitastor',
+       'ssh':            'BlockdevCreateOptionsSsh',
+       'throttle':       'BlockdevCreateNotSupported',
+       'vdi':            'BlockdevCreateOptionsVdi',
