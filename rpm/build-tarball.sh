@@ -24,4 +24,4 @@ rm fio
 mv fio-copy fio
 FIO=`rpm -qi fio | perl -e 'while(<>) { /^Epoch[\s:]+(\S+)/ && print "$1:"; /^Version[\s:]+(\S+)/ && print $1; /^Release[\s:]+(\S+)/ && print "-$1"; }'`
 perl -i -pe 's/(Requires:\s*fio)([^\n]+)?/$1 = '$FIO'/' $VITASTOR/rpm/vitastor-el$EL.spec
-tar --transform 's#^#vitastor-0.9.3/#' --exclude 'rpm/*.rpm' -czf $VITASTOR/../vitastor-0.9.3$(rpm --eval '%dist').tar.gz *
+tar --transform 's#^#vitastor-0.9.4/#' --exclude 'rpm/*.rpm' -czf $VITASTOR/../vitastor-0.9.4$(rpm --eval '%dist').tar.gz *
