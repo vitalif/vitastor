@@ -56,14 +56,15 @@ struct image_lister_t
             {
                 continue;
             }
-            auto & pool_cfg = parent->cli->st_cli.pool_config.at(INODE_POOL(ic.second.num));
+            auto pool_it = parent->cli->st_cli.pool_config.find(INODE_POOL(ic.second.num));
+            bool good_pool = pool_it != parent->cli->st_cli.pool_config.end();
             auto item = json11::Json::object {
                 { "name", ic.second.name },
                 { "size", ic.second.size },
                 { "used_size", 0 },
                 { "readonly", ic.second.readonly },
                 { "pool_id", (uint64_t)INODE_POOL(ic.second.num) },
-                { "pool_name", pool_cfg.name },
+                { "pool_name", good_pool ? pool_it->second.name : "? (ID:"+std::to_string(INODE_POOL(ic.second.num))+")" },
                 { "inode_num", INODE_NO_POOL(ic.second.num) },
                 { "inode_id", ic.second.num },
             };
@@ -247,6 +248,8 @@ resume_1:
         if (state == 1)
             goto resume_1;
         get_list();
+        if (state == 100)
+            return;
         if (show_stats)
         {
 resume_1:
@@ -269,7 +272,7 @@ resume_1:
             { "key", "name" },
             { "title", "NAME" },
         });
-        if (!list_pool_id)
+        if (list_pool_name == "")
         {
             cols.push_back(json11::Json::object{
                 { "key", "pool_name" },
