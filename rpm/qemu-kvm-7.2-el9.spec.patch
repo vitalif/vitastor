@@ -1,0 +1,93 @@
+--- qemu-kvm-7.2.spec.orig	2023-06-22 13:56:19.000000000 +0000
++++ qemu-kvm-7.2.spec	2023-07-18 07:55:22.347090196 +0000
+@@ -100,8 +100,6 @@
+ %endif
+ 
+ %global target_list %{kvm_target}-softmmu
+-%global block_drivers_rw_list qcow2,raw,file,host_device,nbd,iscsi,rbd,blkdebug,luks,null-co,nvme,copy-on-read,throttle,compress
+-%global block_drivers_ro_list vdi,vmdk,vhdx,vpc,https
+ %define qemudocdir %{_docdir}/%{name}
+ %global firmwaredirs "%{_datadir}/qemu-firmware:%{_datadir}/ipxe/qemu:%{_datadir}/seavgabios:%{_datadir}/seabios"
+ 
+@@ -126,6 +124,7 @@ Requires: %{name}-device-usb-host = %{ep
+ Requires: %{name}-device-usb-redirect = %{epoch}:%{version}-%{release}   \
+ %endif                                                           \
+ Requires: %{name}-block-rbd = %{epoch}:%{version}-%{release}     \
++Requires: %{name}-block-vitastor = %{epoch}:%{version}-%{release}\
+ Requires: %{name}-audio-pa = %{epoch}:%{version}-%{release}
+ 
+ # Since SPICE is removed from RHEL-9, the following Obsoletes:
+@@ -148,7 +147,7 @@ Obsoletes: %{name}-block-ssh <= %{epoch}
+ Summary: QEMU is a machine emulator and virtualizer
+ Name: qemu-kvm
+ Version: 7.2.0
+-Release: 14%{?rcrel}%{?dist}%{?cc_suffix}.1
++Release: 14.vitastor%{?rcrel}%{?dist}%{?cc_suffix}.1
+ # Epoch because we pushed a qemu-1.0 package. AIUI this can't ever be dropped
+ # Epoch 15 used for RHEL 8
+ # Epoch 17 used for RHEL 9 (due to release versioning offset in RHEL 8.5)
+@@ -171,6 +170,7 @@ Source28: 95-kvm-memlock.conf
+ Source30: kvm-s390x.conf
+ Source31: kvm-x86.conf
+ Source36: README.tests
++Source37: qemu-vitastor.c
+ 
+ 
+ Patch0004: 0004-Initial-redhat-build.patch
+@@ -418,6 +418,7 @@ Patch134: kvm-target-i386-Fix-BZHI-instr
+ Patch135: kvm-intel-iommu-fail-DEVIOTLB_UNMAP-without-dt-mode.patch
+ # For bz#2203745 - Disk detach is unsuccessful while the guest is still booting [rhel-9.2.0.z]
+ Patch136: kvm-acpi-pcihp-allow-repeating-hot-unplug-requests.patch
++Patch137: qemu-7.2-vitastor.patch
+ 
+ %if %{have_clang}
+ BuildRequires: clang
+@@ -449,6 +450,7 @@ BuildRequires: libcurl-devel
+ %if %{have_block_rbd}
+ BuildRequires: librbd-devel
+ %endif
++BuildRequires: vitastor-client-devel
+ # We need both because the 'stap' binary is probed for by configure
+ BuildRequires: systemtap
+ BuildRequires: systemtap-sdt-devel
+@@ -642,6 +644,14 @@ using the rbd protocol.
+ %endif
+ 
+ 
++%package  block-vitastor
++Summary: QEMU Vitastor block driver
++Requires: %{name}-common%{?_isa} = %{epoch}:%{version}-%{release}
++
++%description block-vitastor
++This package provides the additional Vitastor block driver for QEMU.
++
++
+ %package  audio-pa
+ Summary: QEMU PulseAudio audio driver
+ Requires: %{name}-common%{?_isa} = %{epoch}:%{version}-%{release}
+@@ -719,6 +729,7 @@ This package provides usbredir support.
+ %prep
+ %setup -q -n qemu-%{version}%{?rcstr}
+ %autopatch -p1
++cp %{SOURCE37} ./block/vitastor.c
+ 
+ %global qemu_kvm_build qemu_kvm_build
+ mkdir -p %{qemu_kvm_build}
+@@ -946,6 +957,7 @@ run_configure \
+ %if %{have_block_rbd}
+   --enable-rbd \
+ %endif
++  --enable-vitastor \
+ %if %{have_librdma}
+   --enable-rdma \
+ %endif
+@@ -1426,6 +1438,9 @@ useradd -r -u 107 -g qemu -G kvm -d / -s
+ %files block-rbd
+ %{_libdir}/%{name}/block-rbd.so
+ %endif
++%files block-vitastor
++%{_libdir}/%{name}/block-vitastor.so
++
+ %files audio-pa
+ %{_libdir}/%{name}/audio-pa.so
+ 

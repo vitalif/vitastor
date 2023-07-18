@@ -22,7 +22,7 @@
  Name: qemu-kvm
  Version: 4.2.0
 -Release: 29.vitastor%{?dist}.6
-+Release: 32.vitastor%{?dist}.6
++Release: 34.vitastor%{?dist}.6
  # Epoch because we pushed a qemu-1.0 package. AIUI this can't ever be dropped
  Epoch: 15
  License: GPLv2 and GPLv2+ and CC-BY

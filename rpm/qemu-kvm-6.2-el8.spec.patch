@@ -1,6 +1,6 @@
---- qemu-kvm.spec.orig	2021-12-01 22:10:58.967935539 +0000
-+++ qemu-kvm.spec	2021-12-01 22:14:38.530117175 +0000
-@@ -57,6 +57,7 @@ Requires: %{name}-block-gluster = %{epoc
+--- qemu-kvm-6.2.spec.orig	2023-07-18 13:52:57.636625440 +0000
++++ qemu-kvm-6.2.spec	2023-07-18 13:52:19.011683886 +0000
+@@ -73,6 +73,7 @@ Requires: %{name}-hw-usbredir = %{epoch}
  %endif                                                           \
  Requires: %{name}-block-iscsi = %{epoch}:%{version}-%{release}   \
  Requires: %{name}-block-rbd = %{epoch}:%{version}-%{release}     \
@@ -8,32 +8,32 @@
  Requires: %{name}-block-ssh = %{epoch}:%{version}-%{release}
  
  # Macro to properly setup RHEL/RHEV conflict handling
-@@ -67,7 +68,7 @@ Obsoletes: %1-rhev
+@@ -83,7 +84,7 @@ Obsoletes: %1-rhev <= %{epoch}:%{version
  Summary: QEMU is a machine emulator and virtualizer
  Name: qemu-kvm
- Version: 4.2.0
--Release: 29%{?dist}.6
-+Release: 33.vitastor%{?dist}.6
+ Version: 6.2.0
+-Release: 32%{?rcrel}%{?dist}
++Release: 32.vitastor%{?rcrel}%{?dist}
  # Epoch because we pushed a qemu-1.0 package. AIUI this can't ever be dropped
  Epoch: 15
  License: GPLv2 and GPLv2+ and CC-BY
-@@ -102,6 +103,7 @@ Source33: qemu-pr-helper.socket
- Source34: 81-kvm-rhel.rules
- Source35: udev-kvm-check.c
- Source36: README.tests
-+Source37: qemu-vitastor.c
+@@ -122,6 +123,7 @@ Source37: tests_data_acpi_pc_SSDT.dimmpx
+ Source38: tests_data_acpi_q35_FACP.slic
+ Source39: tests_data_acpi_q35_SSDT.dimmpxm
+ Source40: tests_data_acpi_virt_SSDT.memhp
++Source41: qemu-vitastor.c
  
- 
+ Patch0001: 0001-redhat-Adding-slirp-to-the-exploded-tree.patch
  Patch0005: 0005-Initial-redhat-build.patch
-@@ -825,6 +827,7 @@ Patch331: kvm-Drop-bogus-IPv6-messages.p
- Patch333: kvm-virtiofsd-Whitelist-fchmod.patch
- # For bz#1883869 - virtiofsd core dump in KATA Container [rhel-8.2.1.z]
- Patch334: kvm-virtiofsd-avoid-proc-self-fd-tempdir.patch
-+Patch335: qemu-4.2-vitastor.patch
+@@ -652,6 +654,7 @@ Patch255: kvm-scsi-protect-req-aiocb-wit
+ Patch256: kvm-dma-helpers-prevent-dma_blk_cb-vs-dma_aio_cancel-rac.patch
+ # For bz#2090990 - qemu crash with error scsi_req_unref(SCSIRequest *): Assertion `req->refcount > 0' failed or scsi_dma_complete(void *, int): Assertion `r->req.aiocb != NULL' failed [8.7.0]
+ Patch257: kvm-virtio-scsi-reset-SCSI-devices-from-main-loop-thread.patch
++Patch258: qemu-6.2-vitastor.patch
  
  BuildRequires: wget
  BuildRequires: rpm-build
-@@ -861,6 +864,7 @@ BuildRequires: libcurl-devel
+@@ -689,6 +692,7 @@ BuildRequires: libcurl-devel
  BuildRequires: libssh-devel
  BuildRequires: librados-devel
  BuildRequires: librbd-devel
@@ -41,7 +41,7 @@
  %if %{have_gluster}
  # For gluster block driver
  BuildRequires: glusterfs-api-devel
-@@ -1095,6 +1099,14 @@ Install this package if you want to acce
+@@ -926,6 +930,14 @@ Install this package if you want to acce
  using the rbd protocol.
  
  
@@ -56,15 +56,15 @@
  %package  block-ssh
  Summary: QEMU SSH block driver
  Requires: %{name}-common%{?_isa} = %{epoch}:%{version}-%{release}
-@@ -1109,6 +1121,7 @@ the Secure Shell (SSH) protocol.
- %prep
- %setup -n qemu-%{version}
+@@ -979,6 +991,7 @@ This package provides usbredir support.
+ rm -fr slirp
+ mkdir slirp
  %autopatch -p1
-+cp %{SOURCE37} ./block/vitastor.c
++cp %{SOURCE41} ./block/vitastor.c
  
- %build
- %global buildarch %{kvm_target}-softmmu
-@@ -1116,7 +1129,7 @@ the Secure Shell (SSH) protocol.
+ %global qemu_kvm_build qemu_kvm_build
+ mkdir -p %{qemu_kvm_build}
+@@ -994,7 +1007,7 @@ cp -f %{SOURCE40} tests/data/acpi/virt/S
  # --build-id option is used for giving info to the debug packages.
  buildldflags="VL_LDFLAGS=-Wl,--build-id"
  
@@ -73,34 +73,25 @@
  
  %if 0%{have_gluster}
      %global block_drivers_list %{block_drivers_list},gluster
-@@ -1131,7 +1144,7 @@ buildldflags="VL_LDFLAGS=-Wl,--build-id"
-  --docdir="%{qemudocdir}" \
-  --libexecdir="%{_libexecdir}" \
-  --extra-ldflags="-Wl,--build-id -Wl,-z,relro -Wl,-z,now" \
-- --extra-cflags="%{optflags}" \
-+ --extra-cflags="%{optflags} -DRHEL_BDRV_CO_TRUNCATE_FLAGS" \
-  --with-pkgversion="%{name}-%{version}-%{release}" \
-  --with-confsuffix=/"%{name}" \
-  --firmwarepath=%{_prefix}/share/qemu-firmware \
-@@ -1152,6 +1165,7 @@ buildldflags="VL_LDFLAGS=-Wl,--build-id"
-   --disable-numa \
- %endif
-   --enable-rbd \
-+  --enable-vitastor \
- %if 0%{have_librdma}
-   --enable-rdma \
- %else
-@@ -1192,9 +1206,7 @@ buildldflags="VL_LDFLAGS=-Wl,--build-id"
- %endif
-   --python=%{__python3} \
+@@ -1149,9 +1162,7 @@ pushd %{qemu_kvm_build}
+   --firmwarepath=%{_prefix}/share/qemu-firmware \
+   --meson="git" \
    --target-list="%{buildarch}" \
 -  --block-drv-rw-whitelist=%{block_drivers_list} \
    --audio-drv-list= \
 -  --block-drv-ro-whitelist=vmdk,vhdx,vpc,https,ssh \
    --with-coroutine=ucontext \
-   --tls-priority=NORMAL \
-   --disable-bluez \
-@@ -1750,6 +1762,9 @@ useradd -r -u 107 -g qemu -G kvm -d / -s
+   --with-git=git \
+   --tls-priority=@QEMU,SYSTEM \
+@@ -1197,6 +1208,7 @@ pushd %{qemu_kvm_build}
+ %endif
+   --enable-pie \
+   --enable-rbd \
++  --enable-vitastor \
+ %if 0%{have_librdma}
+   --enable-rdma \
+ %endif
+@@ -1794,6 +1806,9 @@ sh %{_sysconfdir}/sysconfig/modules/kvm.
  %files block-rbd
  %{_libdir}/qemu-kvm/block-rbd.so
  
