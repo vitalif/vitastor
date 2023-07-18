@@ -28,13 +28,19 @@ RUN apt-get --download-only source qemu
 
 ADD patches /root/vitastor/patches
 ADD src/qemu_driver.c /root/vitastor/src/qemu_driver.c
+
+#RUN set -e; \
+#    apt-get install -y wget; \
+#    wget -q -O /etc/apt/trusted.gpg.d/vitastor.gpg https://vitastor.io/debian/pubkey.gpg; \
+#    (echo deb http://vitastor.io/debian $REL main > /etc/apt/sources.list.d/vitastor.list); \
+#    (echo "APT::Install-Recommends false;" > /etc/apt/apt.conf) && \
+#    apt-get update; \
+#    apt-get install -y vitastor-client vitastor-client-dev quilt
+
 RUN set -e; \
-    apt-get install -y wget; \
-    wget -q -O /etc/apt/trusted.gpg.d/vitastor.gpg https://vitastor.io/debian/pubkey.gpg; \
-    (echo deb http://vitastor.io/debian $REL main > /etc/apt/sources.list.d/vitastor.list); \
-    (echo "APT::Install-Recommends false;" > /etc/apt/apt.conf) && \
+    dpkg -i /root/packages/vitastor-$REL/vitastor-client_*.deb /root/packages/vitastor-$REL/vitastor-client-dev_*.deb; \
     apt-get update; \
-    apt-get install -y vitastor-client vitastor-client-dev quilt; \
+    apt-get install -y quilt; \
     mkdir -p /root/packages/qemu-$REL; \
     rm -rf /root/packages/qemu-$REL/*; \
     cd /root/packages/qemu-$REL; \
