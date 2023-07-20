@@ -240,10 +240,7 @@ static void vitastor_uring_handler(void *opaque)
     VitastorClient *client = (VitastorClient*)opaque;
     qemu_mutex_lock(&client->mutex);
     client->bh_uring_scheduled = 0;
-    do
-    {
-        vitastor_c_uring_handle_events(client->proxy);
-    } while (vitastor_c_uring_has_work(client->proxy));
+    vitastor_c_uring_handle_events(client->proxy);
     qemu_mutex_unlock(&client->mutex);
 }
 
