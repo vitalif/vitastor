@@ -1,10 +1,10 @@
-vitastor (0.9.4-1) unstable; urgency=medium
+vitastor (0.9.5-1) unstable; urgency=medium
 
   * Bugfixes
 
  -- Vitaliy Filippov <vitalif@yourcmc.ru>  Fri, 03 Jun 2022 02:09:44 +0300
 
-vitastor (0.9.4-1) unstable; urgency=medium
+vitastor (0.9.5-1) unstable; urgency=medium
 
   * Implement NFS proxy
   * Add documentation
