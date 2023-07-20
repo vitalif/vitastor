@@ -66,6 +66,16 @@ void ring_loop_t::unregister_consumer(ring_consumer_t *consumer)
 
 void ring_loop_t::loop()
 {
+    if (ring_eventfd >= 0)
+    {
+        // Reset eventfd counter
+        uint64_t ctr = 0;
+        int r = read(ring_eventfd, &ctr, 8);
+        if (r < 0 && errno != EAGAIN && errno != EINTR)
+        {
+            fprintf(stderr, "Error resetting eventfd: %s\n", strerror(errno));
+        }
+    }
     struct io_uring_cqe *cqe;
     while (!io_uring_peek_cqe(&ring, &cqe))
     {
@@ -84,7 +94,7 @@ void ring_loop_t::loop()
         }
         else
         {
-            printf("Warning: empty callback in SQE\n");
+            fprintf(stderr, "Warning: empty callback in SQE\n");
             free_ring_data[free_ring_data_ptr++] = d - ring_datas;
         }
         io_uring_cqe_seen(&ring, cqe);
