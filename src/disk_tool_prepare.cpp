@@ -621,7 +621,7 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
                     }
                 }
                 // Treat all disks as SSDs if not in the hybrid mode
-                prepare_one(options, hybrid && dev.is_hdd ? 1 : 0);
+                prepare_one(options, dev.is_hdd ? 1 : 0);
                 if (hybrid)
                 {
                     options.erase("journal_device");
