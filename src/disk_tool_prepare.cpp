@@ -147,7 +147,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         for (int i = 0; i < sizeof(allow_additional_params)/sizeof(allow_additional_params[0]); i++)
         {
             auto it = options.find(allow_additional_params[i]);
-            if (it != options.end())
+            if (it != options.end() && it->second != "")
             {
                 sb[it->first] = it->second;
             }

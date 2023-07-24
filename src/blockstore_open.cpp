@@ -85,11 +85,13 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
         immediate_commit = IMMEDIATE_SMALL;
     }
     metadata_buf_size = strtoull(config["meta_buf_size"].c_str(), NULL, 10);
-    inmemory_meta = config["inmemory_metadata"] != "false";
+    inmemory_meta = config["inmemory_metadata"] != "false" && config["inmemory_metadata"] != "0" &&
+        config["inmemory_metadata"] != "no";
     journal.sector_count = strtoull(config["journal_sector_buffer_count"].c_str(), NULL, 10);
     journal.no_same_sector_overwrites = config["journal_no_same_sector_overwrites"] == "true" ||
         config["journal_no_same_sector_overwrites"] == "1" || config["journal_no_same_sector_overwrites"] == "yes";
-    journal.inmemory = config["inmemory_journal"] != "false";
+    journal.inmemory = config["inmemory_journal"] != "false" && config["inmemory_journal"] != "0" &&
+        config["inmemory_journal"] != "no";
     // Validate
     if (journal.sector_count < 2)
     {
