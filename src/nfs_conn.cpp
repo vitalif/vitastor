@@ -882,6 +882,27 @@ static int nfs3_link_proc(void *opaque, rpc_op_t *rop)
     return 0;
 }
 
+static void fill_dir_entry(nfs_client_t *self, rpc_op_t *rop,
+    std::map<std::string, nfs_dir_t>::iterator dir_id_it, struct entryplus3 *entry, bool is_plus)
+{
+    if (dir_id_it == self->parent->dir_info.end())
+    {
+        return;
+    }
+    entry->fileid = dir_id_it->second.id;
+    if (is_plus)
+    {
+        entry->name_attributes = (post_op_attr){
+            .attributes_follow = 1,
+            .attributes = get_dir_attributes(self, dir_id_it->first),
+        };
+        entry->name_handle = (post_op_fh3){
+            .handle_follows = 1,
+            .handle = xdr_copy_string(rop->xdrs, "S"+base64_encode(sha256(dir_id_it->first))),
+        };
+    }
+}
+
 static void nfs3_readdir_common(void *opaque, rpc_op_t *rop, bool is_plus)
 {
     nfs_client_t *self = (nfs_client_t*)opaque;
@@ -959,17 +980,17 @@ static void nfs3_readdir_common(void *opaque, rpc_op_t *rop, bool is_plus)
             continue;
         std::string subname = dir_id_it->first.substr(prefix.size());
         // for directories, fileid changes when the user restarts proxy
-        entries[subname].fileid = dir_id_it->second.id;
-        if (is_plus)
+        fill_dir_entry(self, rop, dir_id_it, &entries[subname], is_plus);
+    }
+    // Add . and ..
+    {
+        auto dir_id_it = self->parent->dir_info.find(dir);
+        fill_dir_entry(self, rop, dir_id_it, &entries["."], is_plus);
+        auto sl = dir.rfind("/");
+        if (sl != std::string::npos)
         {
-            entries[subname].name_attributes = (post_op_attr){
-                .attributes_follow = 1,
-                .attributes = get_dir_attributes(self, dir_id_it->first),
-            };
-            entries[subname].name_handle = (post_op_fh3){
-                .handle_follows = 1,
-                .handle = xdr_copy_string(rop->xdrs, "S"+base64_encode(sha256(dir_id_it->first))),
-            };
+            auto dir_id_it = self->parent->dir_info.find(dir.substr(0, sl));
+            fill_dir_entry(self, rop, dir_id_it, &entries[".."], is_plus);
         }
     }
     // Offset results by the continuation cookie (equal to index in the listing)
