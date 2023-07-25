@@ -446,6 +446,7 @@ static void nfs_resize_write(nfs_client_t *self, rpc_op_t *rop, uint64_t inode, 
         self->parent->cmd->loop_and_wait(self->parent->cmd->start_modify(json11::Json::object {
             { "image", inode_it->second.name },
             { "resize", new_size },
+            { "inc_size", true },
             { "force_size", true },
         }), [=](const cli_result_t & r)
         {

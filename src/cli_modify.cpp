@@ -13,7 +13,7 @@ struct image_changer_t
     std::string image_name;
     std::string new_name;
     uint64_t new_size = 0;
-    bool force_size = false;
+    bool force_size = false, inc_size = false;
     bool set_readonly = false, set_readwrite = false, force = false;
     // interval between fsyncs
     int fsync_interval = 128;
@@ -81,14 +81,14 @@ struct image_changer_t
         }
         if ((!set_readwrite || !cfg.readonly) &&
             (!set_readonly || cfg.readonly) &&
-            (!new_size && !force_size || cfg.size == new_size) &&
+            (!new_size && !force_size || cfg.size == new_size || cfg.size >= new_size && inc_size) &&
             (new_name == "" || new_name == image_name))
         {
             result = (cli_result_t){ .text = "No change" };
             state = 100;
             return;
         }
-        if (new_size != 0 || force_size)
+        if ((new_size != 0 || force_size) && (cfg.size < new_size || !inc_size))
         {
             if (cfg.size >= new_size)
             {
@@ -233,6 +233,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_modify(json11::Json cfg)
     changer->new_name = cfg["rename"].string_value();
     changer->new_size = parse_size(cfg["resize"].as_string());
     changer->force_size = cfg["force_size"].bool_value();
+    changer->inc_size = cfg["inc_size"].bool_value();
     changer->force = cfg["force"].bool_value();
     changer->set_readonly = cfg["readonly"].bool_value();
     changer->set_readwrite = cfg["readwrite"].bool_value();
