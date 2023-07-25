@@ -392,7 +392,6 @@ static int nfs3_write_proc(void *opaque, rpc_op_t *rop)
         .resok = (WRITE3resok){
             //.file_wcc = ...,
             .count = (unsigned)count,
-            .committed = args->stable,
         },
     };
     if ((args->offset % alignment) != 0 || (count % alignment) != 0)
@@ -493,10 +492,11 @@ static void nfs_do_write(nfs_client_t *self, rpc_op_t *rop, uint64_t inode, uint
         }
         else
         {
+            bool imm = self->parent->cli->get_immediate_commit(inode);
+            reply->resok.committed = args->stable != UNSTABLE || imm ? FILE_SYNC : UNSTABLE;
             *(uint64_t*)reply->resok.verf = self->parent->server_id;
             delete op;
-            if (args->stable != UNSTABLE &&
-                !self->parent->cli->get_immediate_commit(inode))
+            if (args->stable != UNSTABLE && !imm)
             {
                 // Client requested a stable write. Add an fsync
                 op = new cluster_op_t;
