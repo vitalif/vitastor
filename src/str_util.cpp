@@ -308,3 +308,19 @@ std::string str_repeat(const std::string & str, int times)
         r += str;
     return r;
 }
+
+size_t utf8_length(const std::string & s)
+{
+    size_t len = 0;
+    for (size_t i = 0; i < s.size(); i++)
+        len += (s[i] & 0xC0) != 0x80;
+    return len;
+}
+
+size_t utf8_length(const char *s)
+{
+    size_t len = 0;
+    for (; *s; s++)
+        len += (*s & 0xC0) != 0x80;
+    return len;
+}

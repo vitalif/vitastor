@@ -18,3 +18,5 @@ void print_help(const char *help_text, std::string exe_name, std::string cmd, bo
 uint64_t parse_time(std::string time_str, bool *ok = NULL);
 std::string read_all_fd(int fd);
 std::string str_repeat(const std::string & str, int times);
+size_t utf8_length(const std::string & s);
+size_t utf8_length(const char *s);

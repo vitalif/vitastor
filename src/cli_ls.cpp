@@ -379,16 +379,18 @@ resume_1:
 
 std::string print_table(json11::Json items, json11::Json header, bool use_esc)
 {
+    int header_sizes[header.array_items().size()];
     std::vector<int> sizes;
     for (int i = 0; i < header.array_items().size(); i++)
     {
-        sizes.push_back(header[i]["title"].string_value().length());
+        header_sizes[i] = utf8_length(header[i]["title"].string_value());
+        sizes.push_back(header_sizes[i]);
     }
     for (auto & item: items.array_items())
     {
         for (int i = 0; i < header.array_items().size(); i++)
         {
-            int l = item[header[i]["key"].string_value()].as_string().length();
+            int l = utf8_length(item[header[i]["key"].string_value()].as_string());
             sizes[i] = sizes[i] < l ? l : sizes[i];
         }
     }
@@ -400,7 +402,7 @@ std::string print_table(json11::Json items, json11::Json header, bool use_esc)
             // Separator
             str += "  ";
         }
-        int pad = sizes[i]-header[i]["title"].string_value().length();
+        int pad = sizes[i]-header_sizes[i];
         if (header[i]["right"].bool_value())
         {
             // Align right
@@ -428,7 +430,7 @@ std::string print_table(json11::Json items, json11::Json header, bool use_esc)
                 // Separator
                 str += "  ";
             }
-            int pad = sizes[i] - item[header[i]["key"].string_value()].as_string().length();
+            int pad = sizes[i] - utf8_length(item[header[i]["key"].string_value()].as_string());
             if (header[i]["right"].bool_value())
             {
                 // Align right
