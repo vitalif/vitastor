@@ -1215,10 +1215,11 @@ static int nfs3_commit_proc(void *opaque, rpc_op_t *rop)
     cluster_op_t *op = new cluster_op_t;
     // fsync. we don't know how to fsync a single inode, so just fsync everything
     op->opcode = OSD_OP_SYNC;
-    op->callback = [rop](cluster_op_t *op)
+    op->callback = [self, rop](cluster_op_t *op)
     {
         COMMIT3res *reply = (COMMIT3res*)rop->reply;
         *reply = (COMMIT3res){ .status = vitastor_nfs_map_err(op->retval) };
+        *(uint64_t*)reply->resok.verf = self->parent->server_id;
         rpc_queue_reply(rop);
     };
     self->parent->cli->execute(op);
