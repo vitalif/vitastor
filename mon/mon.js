@@ -1497,10 +1497,14 @@ class Mon
                     break;
                 }
             }
+            const pool_cfg = (this.state.config.pools[pool_id]||{});
             if (!object_size)
             {
-                object_size = (this.state.config.pools[pool_id]||{}).block_size ||
-                    this.config.block_size || 131072;
+                object_size = pool_cfg.block_size || this.config.block_size || 131072;
+            }
+            if (pool_cfg.scheme !== 'replicated')
+            {
+                object_size *= ((pool_cfg.pg_size||0) - (pool_cfg.parity_chunks||0));
             }
             object_size = BigInt(object_size);
             for (const pg_num in this.state.pg.stats[pool_id])
