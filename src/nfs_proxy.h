@@ -86,6 +86,28 @@ struct rpc_free_buffer_t
     unsigned size;
 };
 
+struct extend_size_t
+{
+    inode_t inode;
+    uint64_t new_size;
+};
+
+inline bool operator < (const extend_size_t &a, const extend_size_t &b)
+{
+    return a.inode < b.inode || a.inode == b.inode && a.new_size < b.new_size;
+}
+
+struct extend_write_t
+{
+    rpc_op_t *rop;
+    int resize_res, write_res; // 1 = started, 0 = completed OK, -errno = completed with error
+};
+
+struct extend_inode_t
+{
+    uint64_t cur_extend = 0, next_extend = 0;
+};
+
 class nfs_client_t
 {
 public:
@@ -100,6 +122,8 @@ public:
     rpc_cur_buffer_t cur_buffer = { 0 };
     std::map<uint8_t*, rpc_used_buffer_t> used_buffers;
     std::vector<rpc_free_buffer_t> free_buffers;
+    std::map<inode_t, extend_inode_t> extends;
+    std::multimap<extend_size_t, extend_write_t> extend_writes;
 
     iovec read_iov;
     msghdr read_msg = { 0 };
