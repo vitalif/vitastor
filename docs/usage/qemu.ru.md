@@ -111,7 +111,8 @@ VDUSE (CONFIG_VIRTIO_VDPA=m и CONFIG_VDPA_USER=m). В ядрах в Debian Linu
 Команды для подключения виртуального диска через VDUSE:
 
 ```
-modprobe vduse virtio-vdpa
+modprobe vduse
+modprobe virtio-vdpa
 qemu-storage-daemon --daemonize --blockdev '{"node-name":"test1","driver":"vitastor",\
   "etcd-host":"192.168.7.2:2379/v3","image":"testosd1","cache":{"direct":true,"no-flush":false},"discard":"unmap"}' \
   --export vduse-blk,id=test1,node-name=test1,name=test1,num-queues=16,queue-size=128,writable=true
