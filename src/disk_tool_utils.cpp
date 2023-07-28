@@ -264,6 +264,7 @@ int write_zero(int fd, uint64_t offset, uint64_t size)
 {
     uint64_t buf_len = 1024*1024;
     void *zero_buf = memalign_or_die(MEM_ALIGNMENT, buf_len);
+    memset(zero_buf, 0, buf_len);
     ssize_t r;
     while (size > 0)
     {
