@@ -197,21 +197,22 @@ Must be equal or a multiple of [bitmap_granularity](layout-cluster.en.md#bitmap_
 
 Checksums increase metadata size by 4 bytes per each csum_block_size of data.
 
-Checksums are always a compromise:
+Checksums are always a tradeoff:
 1. You either sacrifice +1 GB RAM per 1 TB of data
 2. Or you raise csum_block_size, for example, to 32k and sacrifice
    50% random write iops due to checksum read-modify-write
 3. Or you turn off [inmemory_metadata](osd.en.md#inmemory_metadata) and
    sacrifice 50% random read iops due to checksum reads
 
-Option 1 (default) is recommended for all-flash setups because these usually
-have enough RAM.
+All-flash clusters usually have enough RAM to use default csum_block_size,
+which uses 1 GB RAM per 1 TB of data. HDD clusters usually don't.
 
-Option 2 is recommended for HDD-only setups. HDD-only setups usually do NOT
-have enough RAM for the default 4 KB csum_block_size.
+Thus, recommended setups are:
+1. All-flash, 1 GB RAM per 1 TB data: default (csum_block_size=4k)
+2. All-flash, less RAM: csum_block_size=4k + inmemory_metadata=false
+3. Hybrid HDD+SSD: csum_block_size=4k + inmemory_metadata=false
+4. HDD-only, faster random read: csum_block_size=32k
+5. HDD-only, faster random write: csum_block_size=4k +
+   inmemory_metadata=false + cached_io_meta=true
 
-Option 3 is recommended for SSD+HDD setups (because metadata SSDs will handle
-extra reads without any performance drop) and also *maybe* for NVMe all-flash
-setups when you don't have enough RAM (because NVMe drives have plenty
-of read iops to spare). [cached_io_meta](osd.en.md#cached_io_meta) may also
-help to improve performance in this case for SSD+HDD setups.
+See also [cached_io_meta](osd.en.md#cached_io_meta).
