@@ -539,10 +539,18 @@ class Mon
         {
             retries = 1;
         }
+        const tried = {};
         while (retries < 0 || retry < retries)
         {
             const cur_addr = this.pick_next_etcd();
             const base = 'ws'+cur_addr.substr(4);
+            let now = Date.now();
+            if (tried[base] && now-tried[base] < timeout)
+            {
+                await new Promise(ok => setTimeout(ok, timeout-(now-tried[base])));
+                now = Date.now();
+            }
+            tried[base] = now;
             const ok = await new Promise((ok, no) =>
             {
                 const timer_id = setTimeout(() =>
@@ -1788,10 +1796,18 @@ class Mon
         {
             retries = 1;
         }
+        const tried = {};
         while (retries < 0 || retry < retries)
         {
             retry++;
             const base = this.pick_next_etcd();
+            let now = Date.now();
+            if (tried[base] && now-tried[base] < timeout)
+            {
+                await new Promise(ok => setTimeout(ok, timeout-(now-tried[base])));
+                now = Date.now();
+            }
+            tried[base] = now;
             const res = await POST(base+path, body, timeout);
             if (res.error)
             {
