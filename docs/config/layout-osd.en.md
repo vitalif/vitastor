@@ -213,6 +213,6 @@ Thus, recommended setups are:
 3. Hybrid HDD+SSD: csum_block_size=4k + inmemory_metadata=false
 4. HDD-only, faster random read: csum_block_size=32k
 5. HDD-only, faster random write: csum_block_size=4k +
-   inmemory_metadata=false + cached_io_meta=true
+   inmemory_metadata=false + meta_io=cached
 
-See also [cached_io_meta](osd.en.md#cached_io_meta).
+See also [meta_io](osd.en.md#meta_io).

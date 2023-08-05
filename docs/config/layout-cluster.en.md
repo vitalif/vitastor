@@ -96,8 +96,9 @@ SSD cache or "media-cache" - for example, a lot of Seagate EXOS drives have
 it (they have internal SSD cache even though it's not stated in datasheets).
 
 Setting this parameter to "all" or "small" in OSD parameters requires enabling
-disable_journal_fsync and disable_meta_fsync, setting it to "all" also requires
-enabling disable_data_fsync.
+[disable_journal_fsync](layout-osd.en.yml#disable_journal_fsync) and
+[disable_meta_fsync](layout-osd.en.yml#disable_meta_fsync), setting it to
+"all" also requires enabling [disable_data_fsync](layout-osd.en.yml#disable_data_fsync).
 
 TLDR: For optimal performance, set immediate_commit to "all" if you only use
 SSDs with supercapacitor-based power loss protection (nonvolatile

@@ -45,13 +45,31 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     meta_block_size = parse_size(config["meta_block_size"]);
     bitmap_granularity = parse_size(config["bitmap_granularity"]);
     meta_format = stoull_full(config["meta_format"]);
-    cached_io_data = config["cached_io_data"] == "true" || config["cached_io_data"] == "yes" || config["cached_io_data"] == "1";
-    cached_io_meta = cached_io_data && (meta_device == data_device || meta_device == "") &&
-        config.find("cached_io_meta") == config.end() ||
-        config["cached_io_meta"] == "true" || config["cached_io_meta"] == "yes" || config["cached_io_meta"] == "1";
-    cached_io_journal = cached_io_meta && (journal_device == meta_device || journal_device == "") &&
-        config.find("cached_io_journal") == config.end() ||
-        config["cached_io_journal"] == "true" || config["cached_io_journal"] == "yes" || config["cached_io_journal"] == "1";
+    if (config.find("data_io") == config.end() &&
+        config.find("meta_io") == config.end() &&
+        config.find("journal_io") == config.end())
+    {
+        bool cached_io_data = config["cached_io_data"] == "true" || config["cached_io_data"] == "yes" || config["cached_io_data"] == "1";
+        bool cached_io_meta = cached_io_data && (meta_device == data_device || meta_device == "") &&
+            config.find("cached_io_meta") == config.end() ||
+            config["cached_io_meta"] == "true" || config["cached_io_meta"] == "yes" || config["cached_io_meta"] == "1";
+        bool cached_io_journal = cached_io_meta && (journal_device == meta_device || journal_device == "") &&
+            config.find("cached_io_journal") == config.end() ||
+            config["cached_io_journal"] == "true" || config["cached_io_journal"] == "yes" || config["cached_io_journal"] == "1";
+        data_io = cached_io_data ? "cached" : "direct";
+        meta_io = cached_io_meta ? "cached" : "direct";
+        journal_io = cached_io_journal ? "cached" : "direct";
+    }
+    else
+    {
+        data_io = config.find("data_io") != config.end() ? config["data_io"] : "direct";
+        meta_io = config.find("meta_io") != config.end()
+            ? config["meta_io"]
+            : (meta_device == data_device || meta_device == "" ? data_io : "direct");
+        journal_io = config.find("journal_io") != config.end()
+            ? config["journal_io"]
+            : (journal_device == meta_device || journal_device == "" ? meta_io : "direct");
+    }
     if (config["data_csum_type"] == "crc32c")
     {
         data_csum_type = BLOCKSTORE_CSUM_CRC32C;
@@ -272,9 +290,19 @@ static void check_size(int fd, uint64_t *size, uint64_t *sectsize, std::string n
     }
 }
 
+static int bs_openmode(const std::string & mode)
+{
+    if (mode == "directsync")
+        return O_DIRECT|O_SYNC;
+    else if (mode == "cached")
+        return O_SYNC;
+    else
+        return O_DIRECT;
+}
+
 void blockstore_disk_t::open_data()
 {
-    data_fd = open(data_device.c_str(), (cached_io_data ? O_SYNC : O_DIRECT) | O_RDWR);
+    data_fd = open(data_device.c_str(), bs_openmode(data_io) | O_RDWR);
     if (data_fd == -1)
     {
         throw std::runtime_error("Failed to open data device "+data_device+": "+std::string(strerror(errno)));
@@ -299,9 +327,9 @@ void blockstore_disk_t::open_data()
 
 void blockstore_disk_t::open_meta()
 {
-    if (meta_device != data_device || cached_io_meta != cached_io_data)
+    if (meta_device != data_device || meta_io != data_io)
     {
-        meta_fd = open(meta_device.c_str(), (cached_io_meta ? O_SYNC : O_DIRECT) | O_RDWR);
+        meta_fd = open(meta_device.c_str(), bs_openmode(meta_io) | O_RDWR);
         if (meta_fd == -1)
         {
             throw std::runtime_error("Failed to open metadata device "+meta_device+": "+std::string(strerror(errno)));
@@ -337,9 +365,9 @@ void blockstore_disk_t::open_meta()
 
 void blockstore_disk_t::open_journal()
 {
-    if (journal_device != meta_device || cached_io_journal != cached_io_meta)
+    if (journal_device != meta_device || journal_io != meta_io)
     {
-        journal_fd = open(journal_device.c_str(), (cached_io_journal ? O_SYNC : O_DIRECT) | O_RDWR);
+        journal_fd = open(journal_device.c_str(), bs_openmode(journal_io) | O_RDWR);
         if (journal_fd == -1)
         {
             throw std::runtime_error("Failed to open journal device "+journal_device+": "+std::string(strerror(errno)));

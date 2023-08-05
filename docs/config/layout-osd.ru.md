@@ -226,6 +226,6 @@ csum_block_size данных.
 3. Гибридные HDD+SSD: csum_block_size=4k + inmemory_metadata=false
 4. Только HDD, быстрее случайное чтение: csum_block_size=32k
 5. Только HDD, быстрее случайная запись: csum_block_size=4k +
-   inmemory_metadata=false + cached_io_meta=true
+   inmemory_metadata=false + meta_io=cached
 
-Смотрите также [cached_io_meta](osd.ru.md#cached_io_meta).
+Смотрите также [meta_io](osd.ru.md#meta_io).

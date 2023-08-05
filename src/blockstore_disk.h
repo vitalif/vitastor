@@ -31,8 +31,9 @@ struct blockstore_disk_t
     uint32_t csum_block_size = 4096;
     // By default, Blockstore locks all opened devices exclusively. This option can be used to disable locking
     bool disable_flock = false;
-    // Use Linux page cache for reads and writes, i.e. open FDs with O_SYNC instead of O_DIRECT
-    bool cached_io_data = false, cached_io_meta = false, cached_io_journal = false;
+    // I/O modes for data, metadata and journal: direct or "" = O_DIRECT, cached = O_SYNC, directsync = O_DIRECT|O_SYNC
+    // O_SYNC without O_DIRECT = use Linux page cache for reads and writes
+    std::string data_io, meta_io, journal_io;
 
     int meta_fd = -1, data_fd = -1, journal_fd = -1;
     uint64_t meta_offset, meta_device_sect, meta_device_size, meta_len, meta_format = 0;

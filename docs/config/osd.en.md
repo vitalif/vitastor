@@ -31,9 +31,9 @@ them, even without restarting by updating configuration in etcd.
 - [max_flusher_count](#max_flusher_count)
 - [inmemory_metadata](#inmemory_metadata)
 - [inmemory_journal](#inmemory_journal)
-- [cached_io_data](#cached_io_data)
-- [cached_io_meta](#cached_io_meta)
-- [cached_io_journal](#cached_io_journal)
+- [data_io](#data_io)
+- [meta_io](#meta_io)
+- [journal_io](#journal_io)
 - [journal_sector_buffer_count](#journal_sector_buffer_count)
 - [journal_no_same_sector_overwrites](#journal_no_same_sector_overwrites)
 - [throttle_small_writes](#throttle_small_writes)
@@ -258,47 +258,59 @@ is typically very small because it's sufficient to have 16-32 MB journal
 for SSD OSDs. However, in theory it's possible that you'll want to turn it
 off for hybrid (HDD+SSD) OSDs with large journals on quick devices.
 
-## cached_io_data
+## data_io
 
-- Type: boolean
-- Default: false
+- Type: string
+- Default: direct
 
-Read and write *data* through Linux page cache, i.e. use a file descriptor
-opened with O_SYNC, but without O_DIRECT for I/O. May improve read
-performance for hot data and slower disks - HDDs and maybe SATA SSDs.
-Not recommended for desktop SSDs without capacitors because O_SYNC flushes
-disk cache on every write.
+I/O mode for *data*. One of "direct", "cached" or "directsync". Corresponds
+to O_DIRECT, O_SYNC and O_DIRECT|O_SYNC, respectively.
 
-## cached_io_meta
+Choose "cached" to use Linux page cache. This may improve read performance
+for hot data and slower disks - HDDs and maybe SATA SSDs - but will slightly
+decrease write performance for fast disks because page cache is an overhead
+itself.
 
-- Type: boolean
-- Default: false
+Choose "directsync" to use [immediate_commit](layout-cluster.ru.md#immediate_commit)
+(which requires disable_data_fsync) with drives having write-back cache
+which can't be turned off, for example, Intel Optane. Also note that *some*
+desktop SSDs (for example, HP EX950) may ignore O_SYNC thus making
+disable_data_fsync unsafe even with "directsync".
 
-Read and write *metadata* through Linux page cache. May improve read
-performance only if your drives are relatively slow (HDD, SATA SSD), and
-only if checksums are enabled and [inmemory_metadata](#inmemory_metadata)
-is disabled, because in this case metadata blocks are read from disk
-on every read request to verify checksums and caching them may reduce this
-extra read load.
+## meta_io
 
-Absolutely pointless to enable with enabled inmemory_metadata because all
-metadata is kept in memory anyway, and likely pointless without checksums,
-because in that case, metadata blocks are read from disk only during journal
+- Type: string
+- Default: direct
+
+I/O mode for *metadata*. One of "direct", "cached" or "directsync".
+
+"cached" may improve read performance, but only under the following conditions:
+1. your drives are relatively slow (HDD, SATA SSD), and
+2. checksums are enabled, and
+3. [inmemory_metadata](#inmemory_metadata) is disabled.
+Under all these conditions, metadata blocks are read from disk on every
+read request to verify checksums and caching them may reduce this extra
+read load. Without (3) metadata is never read from the disk after starting,
+and without (2) metadata blocks are read from disk only during journal
 flushing.
 
-If the same device is used for data and metadata, enabling [cached_io_data](#cached_io_data)
-also enables this parameter, given that it isn't turned off explicitly.
+"directsync" is the same as above.
 
-## cached_io_journal
+If the same device is used for data and metadata, meta_io by default is set
+to the same value as [data_io](#data_io).
 
-- Type: boolean
-- Default: false
+## journal_io
 
-Read and write *journal* through Linux page cache. May improve read
-performance if [inmemory_journal](#inmemory_journal) is turned off.
+- Type: string
+- Default: direct
 
-If the same device is used for metadata and journal, enabling [cached_io_meta](#cached_io_meta)
-also enables this parameter, given that it isn't turned off explicitly.
+I/O mode for *journal*. One of "direct", "cached" or "directsync".
+
+Here, "cached" may only improve read performance for recent writes and
+only if [inmemory_journal](#inmemory_journal) is turned off.
+
+If the same device is used for metadata and journal, journal_io by default
+is set to the same value as [meta_io](#meta_io).
 
 ## journal_sector_buffer_count
 

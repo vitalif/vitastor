@@ -103,8 +103,9 @@ HDD-дисках с внутренним SSD или "медиа" кэшем - н
 указано в спецификациях).
 
 Указание "all" или "small" в настройках / командной строке OSD требует
-включения disable_journal_fsync и disable_meta_fsync, значение "all" также
-требует включения disable_data_fsync.
+включения [disable_journal_fsync](layout-osd.ru.yml#disable_journal_fsync) и
+[disable_meta_fsync](layout-osd.ru.yml#disable_meta_fsync), значение "all"
+также требует включения [disable_data_fsync](layout-osd.ru.yml#disable_data_fsync).
 
 Итого, вкратце: для оптимальной производительности установите
 immediate_commit в значение "all", если вы используете в кластере только SSD

@@ -260,73 +260,96 @@
     достаточно 16- или 32-мегабайтного журнала. Однако в теории отключение
     параметра может оказаться полезным для гибридных OSD (HDD+SSD) с большими
     журналами, расположенными на быстром по сравнению с HDD устройстве.
-- name: cached_io_data
-  type: bool
-  default: false
+- name: data_io
+  type: string
+  default: direct
   info: |
-    Read and write *data* through Linux page cache, i.e. use a file descriptor
-    opened with O_SYNC, but without O_DIRECT for I/O. May improve read
-    performance for hot data and slower disks - HDDs and maybe SATA SSDs.
-    Not recommended for desktop SSDs without capacitors because O_SYNC flushes
-    disk cache on every write.
-  info_ru: |
-    Читать и записывать *данные* через системный кэш Linux (page cache), то есть,
-    использовать для данных файловый дескриптор, открытый без флага O_DIRECT, но
-    с флагом O_SYNC. Может улучшить скорость чтения для относительно медленных
-    дисков - HDD и, возможно, SATA SSD. Не рекомендуется для потребительских
-    SSD без конденсаторов, так как O_SYNC сбрасывает кэш диска при каждой записи.
-- name: cached_io_meta
-  type: bool
-  default: false
-  info: |
-    Read and write *metadata* through Linux page cache. May improve read
-    performance only if your drives are relatively slow (HDD, SATA SSD), and
-    only if checksums are enabled and [inmemory_metadata](#inmemory_metadata)
-    is disabled, because in this case metadata blocks are read from disk
-    on every read request to verify checksums and caching them may reduce this
-    extra read load.
+    I/O mode for *data*. One of "direct", "cached" or "directsync". Corresponds
+    to O_DIRECT, O_SYNC and O_DIRECT|O_SYNC, respectively.
 
-    Absolutely pointless to enable with enabled inmemory_metadata because all
-    metadata is kept in memory anyway, and likely pointless without checksums,
-    because in that case, metadata blocks are read from disk only during journal
+    Choose "cached" to use Linux page cache. This may improve read performance
+    for hot data and slower disks - HDDs and maybe SATA SSDs - but will slightly
+    decrease write performance for fast disks because page cache is an overhead
+    itself.
+
+    Choose "directsync" to use [immediate_commit](layout-cluster.ru.md#immediate_commit)
+    (which requires disable_data_fsync) with drives having write-back cache
+    which can't be turned off, for example, Intel Optane. Also note that *some*
+    desktop SSDs (for example, HP EX950) may ignore O_SYNC thus making
+    disable_data_fsync unsafe even with "directsync".
+  info_ru: |
+    Режим ввода-вывода для *данных*. Одно из значений "direct", "cached" или
+    "directsync", означающих O_DIRECT, O_SYNC и O_DIRECT|O_SYNC, соответственно.
+
+    Выберите "cached", чтобы использовать системный кэш Linux (page cache) при
+    чтении и записи. Это может улучшить скорость чтения горячих данных с
+    относительно медленных дисков - HDD и, возможно, SATA SSD - но немного
+    снижает производительность записи для быстрых дисков, так как кэш сам по
+    себе тоже добавляет накладные расходы.
+
+    Выберите "directsync", если хотите задействовать
+    [immediate_commit](layout-cluster.ru.md#immediate_commit) (требующий
+    включенияd disable_data_fsync) на дисках с неотключаемым кэшем. Пример таких
+    дисков - Intel Optane. При этом также стоит иметь в виду, что *некоторые*
+    настольные SSD (например, HP EX950) игнорируют флаг O_SYNC, делая отключение
+    fsync небезопасным даже с режимом "directsync".
+- name: meta_io
+  type: string
+  default: direct
+  info: |
+    I/O mode for *metadata*. One of "direct", "cached" or "directsync".
+
+    "cached" may improve read performance, but only under the following conditions:
+    1. your drives are relatively slow (HDD, SATA SSD), and
+    2. checksums are enabled, and
+    3. [inmemory_metadata](#inmemory_metadata) is disabled.
+    Under all these conditions, metadata blocks are read from disk on every
+    read request to verify checksums and caching them may reduce this extra
+    read load. Without (3) metadata is never read from the disk after starting,
+    and without (2) metadata blocks are read from disk only during journal
     flushing.
 
-    If the same device is used for data and metadata, enabling [cached_io_data](#cached_io_data)
-    also enables this parameter, given that it isn't turned off explicitly.
+    "directsync" is the same as above.
+
+    If the same device is used for data and metadata, meta_io by default is set
+    to the same value as [data_io](#data_io).
   info_ru: |
-    Читать и записывать *метаданные* через системный кэш Linux. Может улучшить
-    скорость чтения, если у вас медленные диски, и только если контрольные суммы
-    включены, а параметр [inmemory_metadata](#inmemory_metadata) отключён, так
-    как в этом случае блоки метаданных читаются с диска при каждом запросе чтения
+    Режим ввода-вывода для *метаданных*. Одно из значений "direct", "cached" или
+    "directsync".
+
+    "cached" может улучшить скорость чтения, если:
+    1. у вас медленные диски (HDD, SATA SSD)
+    2. контрольные суммы включены
+    3. параметр [inmemory_metadata](#inmemory_metadata) отключён.
+    При этих условиях блоки метаданных читаются с диска при каждом запросе чтения
     для проверки контрольных сумм и их кэширование может снизить дополнительную
-    нагрузку на диск.
+    нагрузку на диск. Без (3) метаданные никогда не читаются с диска после
+    запуска OSD, а без (2) блоки метаданных читаются только при сбросе журнала.
 
-    Абсолютно бессмысленно включать данный параметр, если параметр
-    inmemory_metadata включён (по умолчанию это так), и также вероятно
-    бессмысленно включать его, если не включены контрольные суммы, так как в
-    этом случае блоки метаданных читаются с диска только во время сброса
-    журнала.
-
-    Если одно и то же устройство используется для данных и метаданных, включение
-    [cached_io_data](#cached_io_data) также включает данный параметр, при
-    условии, что он не отключён явным образом.
-- name: cached_io_journal
-  type: bool
-  default: false
+    Если одно и то же устройство используется для данных и метаданных, режим
+    ввода-вывода метаданных по умолчанию устанавливается равным [data_io](#data_io).
+- name: journal_io
+  type: string
+  default: direct
   info: |
-    Read and write *journal* through Linux page cache. May improve read
-    performance if [inmemory_journal](#inmemory_journal) is turned off.
+    I/O mode for *journal*. One of "direct", "cached" or "directsync".
 
-    If the same device is used for metadata and journal, enabling [cached_io_meta](#cached_io_meta)
-    also enables this parameter, given that it isn't turned off explicitly.
+    Here, "cached" may only improve read performance for recent writes and
+    only if [inmemory_journal](#inmemory_journal) is turned off.
+
+    If the same device is used for metadata and journal, journal_io by default
+    is set to the same value as [meta_io](#meta_io).
   info_ru: |
-    Читать и записывать *журнал* через системный кэш Linux. Может улучшить
-    скорость чтения, если параметр [inmemory_journal](#inmemory_journal)
+    Режим ввода-вывода для *журнала*. Одно из значений "direct", "cached" или
+    "directsync".
+
+    Здесь "cached" может улучшить скорость чтения только недавно записанных
+    данных и только если параметр [inmemory_journal](#inmemory_journal)
     отключён.
 
     Если одно и то же устройство используется для метаданных и журнала,
-    включение [cached_io_meta](#cached_io_meta) также включает данный
-    параметр, при условии, что он не отключён явным образом.
+    режим ввода-вывода журнала по умолчанию устанавливается равным
+    [meta_io](#meta_io).
 - name: journal_sector_buffer_count
   type: int
   default: 32

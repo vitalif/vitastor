@@ -74,7 +74,7 @@ static const char *help_text =
     "  If it doesn't succeed it issues a warning in the system log.\n"
     "  \n"
     "  You can also pass other OSD options here as arguments and they'll be persisted\n"
-    "  in the superblock: cached_io_data, cached_io_meta, cached_io_journal,\n"
+    "  in the superblock: data_io, meta_io, journal_io,\n"
     "  inmemory_metadata, inmemory_journal, max_write_iodepth,\n"
     "  min_flusher_count, max_flusher_count, journal_sector_buffer_count,\n"
     "  journal_no_same_sector_overwrites, throttle_small_writes, throttle_target_iops,\n"
