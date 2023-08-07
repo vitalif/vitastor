@@ -881,6 +881,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
         uint64_t end = (op->offset + op->len) > (stripe + pg_block_size)
             ? (stripe + pg_block_size) : (op->offset + op->len);
         op->parts[i].iov.reset();
+        op->parts[i].flags = 0;
         if (op->cur_inode != op->inode)
         {
             // Read remaining parts from upper layers
@@ -918,7 +919,10 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
             else
                 add_iov(cur-prev, skip_prev, op, iov_idx, iov_pos, op->parts[i].iov, scrap_buffer, scrap_buffer_size);
             if (end == begin)
+            {
                 op->done_count++;
+                op->parts[i].flags = PART_DONE;
+            }
         }
         else if (op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_READ_CHAIN_BITMAP && op->opcode != OSD_OP_DELETE)
         {
@@ -930,7 +934,6 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
             op->opcode == OSD_OP_DELETE ? 0 : (uint32_t)(end - begin);
         op->parts[i].pg_num = pg_num;
         op->parts[i].osd_num = 0;
-        op->parts[i].flags = 0;
         i++;
     }
 }
