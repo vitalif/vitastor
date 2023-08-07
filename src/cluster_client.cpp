@@ -543,24 +543,30 @@ void cluster_client_t::execute_raw(osd_num_t osd_num, osd_op_t *op)
     }
 }
 
-void cluster_client_t::copy_write(cluster_op_t *op, std::map<object_id, cluster_buffer_t> & dirty_buffers)
+static std::map<object_id, cluster_buffer_t>::iterator find_dirty(uint64_t inode, uint64_t offset, std::map<object_id, cluster_buffer_t> & dirty_buffers)
 {
-    // Save operation for replay when one of PGs goes out of sync
-    // (primary OSD drops our connection in this case)
     auto dirty_it = dirty_buffers.lower_bound((object_id){
-        .inode = op->inode,
-        .stripe = op->offset,
+        .inode = inode,
+        .stripe = offset,
     });
     while (dirty_it != dirty_buffers.begin())
     {
         dirty_it--;
-        if (dirty_it->first.inode != op->inode ||
-            (dirty_it->first.stripe + dirty_it->second.len) <= op->offset)
+        if (dirty_it->first.inode != inode ||
+            (dirty_it->first.stripe + dirty_it->second.len) <= offset)
         {
             dirty_it++;
             break;
         }
     }
+    return dirty_it;
+}
+
+void cluster_client_t::copy_write(cluster_op_t *op, std::map<object_id, cluster_buffer_t> & dirty_buffers)
+{
+    // Save operation for replay when one of PGs goes out of sync
+    // (primary OSD drops our connection in this case)
+    auto dirty_it = find_dirty(op->inode, op->offset, dirty_buffers);
     uint64_t pos = op->offset, len = op->len, iov_idx = 0, iov_pos = 0;
     while (len > 0)
     {
@@ -846,6 +852,50 @@ static void add_iov(int size, bool skip, cluster_op_t *op, int &iov_idx, size_t 
     }
 }
 
+static void copy_to_op(cluster_op_t *op, uint64_t offset, uint8_t *buf, uint64_t len, uint32_t bitmap_granularity)
+{
+    if (op->opcode == OSD_OP_READ)
+    {
+        // Not OSD_OP_READ_BITMAP or OSD_OP_READ_CHAIN_BITMAP
+        int iov_idx = 0;
+        uint64_t cur_offset = op->offset;
+        while (iov_idx < op->iov.count && cur_offset+op->iov.buf[iov_idx].iov_len <= offset)
+        {
+            cur_offset += op->iov.buf[iov_idx].iov_len;
+            iov_idx++;
+        }
+        while (iov_idx < op->iov.count && cur_offset < offset+len)
+        {
+            auto & v = op->iov.buf[iov_idx];
+            auto begin = (cur_offset < offset ? offset : cur_offset);
+            auto end = (cur_offset+v.iov_len > offset+len ? offset+len : cur_offset+v.iov_len);
+            memcpy(
+                v.iov_base + begin - cur_offset,
+                buf + (cur_offset <= offset ? 0 : cur_offset-offset),
+                end - begin
+            );
+            cur_offset += v.iov_len;
+            iov_idx++;
+        }
+    }
+    // Set bitmap bits
+    int start_bit = (offset-op->offset)/bitmap_granularity;
+    int end_bit = (offset-op->offset+len)/bitmap_granularity;
+    for (int bit = start_bit; bit < end_bit;)
+    {
+        if (!(bit%8) && bit <= end_bit-8)
+        {
+            ((uint8_t*)op->bitmap_buf)[bit/8] = 0xFF;
+            bit += 8;
+        }
+        else
+        {
+            ((uint8_t*)op->bitmap_buf)[bit/8] |= (1 << (bit%8));
+            bit++;
+        }
+    }
+}
+
 void cluster_client_t::slice_rw(cluster_op_t *op)
 {
     // Slice the request into individual object stripe requests
@@ -874,6 +924,52 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
     int iov_idx = 0;
     size_t iov_pos = 0;
     int i = 0;
+    bool dirty_copied = false;
+    if (dirty_buffers.size() && (op->opcode == OSD_OP_READ ||
+        op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP))
+    {
+        // We also have to return reads from CACHE_REPEATING buffers - they are not
+        // guaranteed to be present on target OSDs at the moment of repeating
+        // And we're also free to return data from other cached buffers just
+        // because it's faster
+        auto dirty_it = find_dirty(op->cur_inode, op->offset, dirty_buffers);
+        while (dirty_it != dirty_buffers.end() && dirty_it->first.inode == op->cur_inode &&
+            dirty_it->first.stripe < op->offset+op->len)
+        {
+            uint64_t begin = dirty_it->first.stripe, end = dirty_it->first.stripe + dirty_it->second.len;
+            if (begin < op->offset)
+                begin = op->offset;
+            if (end > op->offset+op->len)
+                end = op->offset+op->len;
+            bool skip_prev = true;
+            uint64_t cur = begin, prev = begin;
+            while (cur < end)
+            {
+                unsigned bmp_loc = (cur - op->offset)/pool_cfg.bitmap_granularity;
+                bool skip = (((*((uint8_t*)op->bitmap_buf + bmp_loc/8)) >> (bmp_loc%8)) & 0x1);
+                if (skip_prev != skip)
+                {
+                    if (cur > prev && !skip)
+                    {
+                        // Copy data
+                        dirty_copied = true;
+                        copy_to_op(op, prev, (uint8_t*)dirty_it->second.buf + prev - dirty_it->first.stripe, cur-prev, pool_cfg.bitmap_granularity);
+                    }
+                    skip_prev = skip;
+                    prev = cur;
+                }
+                cur += pool_cfg.bitmap_granularity;
+            }
+            assert(cur > prev);
+            if (!skip_prev)
+            {
+                // Copy data
+                dirty_copied = true;
+                copy_to_op(op, prev, (uint8_t*)dirty_it->second.buf + prev - dirty_it->first.stripe, cur-prev, pool_cfg.bitmap_granularity);
+            }
+            dirty_it++;
+        }
+    }
     for (uint64_t stripe = first_stripe; stripe <= last_stripe; stripe += pg_block_size)
     {
         pg_num_t pg_num = (stripe/pool_cfg.pg_stripe_size) % pool_cfg.real_pg_count + 1; // like map_to_pg()
@@ -882,7 +978,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
             ? (stripe + pg_block_size) : (op->offset + op->len);
         op->parts[i].iov.reset();
         op->parts[i].flags = 0;
-        if (op->cur_inode != op->inode)
+        if (op->cur_inode != op->inode || op->opcode == OSD_OP_READ && dirty_copied)
         {
             // Read remaining parts from upper layers
             uint64_t prev = begin, cur = begin;
