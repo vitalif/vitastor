@@ -71,6 +71,7 @@ struct cluster_buffer_t
     void *buf;
     uint64_t len;
     int state;
+    uint64_t flush_id;
 };
 
 struct inode_list_t;
@@ -93,6 +94,7 @@ class cluster_client_t
     std::vector<cluster_op_t*> offline_ops;
     cluster_op_t *op_queue_head = NULL, *op_queue_tail = NULL;
     std::map<object_id, cluster_buffer_t> dirty_buffers;
+    uint64_t last_flush_id = 0;
     std::set<osd_num_t> dirty_osds;
     uint64_t dirty_bytes = 0, dirty_ops = 0;
 
@@ -138,7 +140,8 @@ public:
 
 protected:
     bool affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd);
-    void flush_buffer(const object_id & oid, cluster_buffer_t *wr);
+    void flush_buffers(std::map<object_id, cluster_buffer_t>::iterator from_it,
+        std::map<object_id, cluster_buffer_t>::iterator to_it);
     void on_load_config_hook(json11::Json::object & config);
     void on_load_pgs_hook(bool success);
     void on_change_hook(std::map<std::string, etcd_kv_t> & changes);

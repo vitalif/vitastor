@@ -41,14 +41,24 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         {
             // peer_osd just dropped connection
             // determine WHICH dirty_buffers are now obsolete and repeat them
-            for (auto & wr: dirty_buffers)
+            for (auto wr_it = dirty_buffers.begin(), flush_it = wr_it, last_it = wr_it; ; )
             {
-                if (affects_osd(wr.first.inode, wr.first.stripe, wr.second.len, peer_osd) &&
-                    wr.second.state != CACHE_REPEATING)
+                bool end = wr_it == dirty_buffers.end();
+                bool flush_this = !end && wr_it->second.state != CACHE_REPEATING &&
+                    affects_osd(wr_it->first.inode, wr_it->first.stripe, wr_it->second.len, peer_osd);
+                if (flush_it != wr_it && (end || !flush_this ||
+                    wr_it->first.inode != flush_it->first.inode ||
+                    wr_it->first.stripe != last_it->first.stripe+last_it->second.len))
                 {
-                    // FIXME: Flush in larger parts
-                    flush_buffer(wr.first, &wr.second);
+                    flush_buffers(flush_it, wr_it);
+                    flush_it = wr_it;
                 }
+                if (end)
+                    break;
+                last_it = wr_it;
+                wr_it++;
+                if (!flush_this)
+                    flush_it = wr_it;
             }
             continue_ops();
         }
@@ -627,21 +637,37 @@ void cluster_client_t::copy_write(cluster_op_t *op, std::map<object_id, cluster_
     }
 }
 
-void cluster_client_t::flush_buffer(const object_id & oid, cluster_buffer_t *wr)
+void cluster_client_t::flush_buffers(std::map<object_id, cluster_buffer_t>::iterator from_it,
+    std::map<object_id, cluster_buffer_t>::iterator to_it)
 {
-    wr->state = CACHE_REPEATING;
+    auto prev_it = std::prev(to_it);
     cluster_op_t *op = new cluster_op_t;
     op->flags = OSD_OP_IGNORE_READONLY|OP_FLUSH_BUFFER;
     op->opcode = OSD_OP_WRITE;
-    op->cur_inode = op->inode = oid.inode;
-    op->offset = oid.stripe;
-    op->len = wr->len;
-    op->iov.push_back(wr->buf, wr->len);
-    op->callback = [wr](cluster_op_t* op)
+    op->cur_inode = op->inode = from_it->first.inode;
+    op->offset = from_it->first.stripe;
+    op->len = prev_it->first.stripe + prev_it->second.len - from_it->first.stripe;
+    uint32_t calc_len = 0;
+    uint64_t flush_id = ++last_flush_id;
+    for (auto it = from_it; it != to_it; it++)
     {
-        if (wr->state == CACHE_REPEATING)
+        it->second.state = CACHE_REPEATING;
+        it->second.flush_id = flush_id;
+        op->iov.push_back(it->second.buf, it->second.len);
+        calc_len += it->second.len;
+    }
+    assert(calc_len == op->len);
+    op->callback = [this, flush_id](cluster_op_t* op)
+    {
+        for (auto dirty_it = find_dirty(op->inode, op->offset, dirty_buffers);
+            dirty_it != dirty_buffers.end() && dirty_it->first.inode == op->inode &&
+            dirty_it->first.stripe < op->offset+op->len; dirty_it++)
         {
-            wr->state = CACHE_DIRTY;
+            if (dirty_it->second.flush_id == flush_id && dirty_it->second.state == CACHE_REPEATING)
+            {
+                dirty_it->second.flush_id = 0;
+                dirty_it->second.state = CACHE_DIRTY;
+            }
         }
         delete op;
     };
