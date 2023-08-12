@@ -24,6 +24,7 @@
 #include <netinet/tcp.h>
 
 #include <vector>
+#include <string>
 
 #include "vitastor_c.h"
 #include "fio_headers.h"
@@ -203,6 +204,15 @@ static void watch_callback(void *opaque, long watch)
     bsd->watch = (void*)watch;
 }
 
+static void opt_push(std::vector<char *> & options, const char *opt, const char *value)
+{
+    if (value)
+    {
+        options.push_back(strdup(opt));
+        options.push_back(strdup(value));
+    }
+}
+
 static int sec_setup(struct thread_data *td)
 {
     sec_options *o = (sec_options*)td->eo;
@@ -254,8 +264,27 @@ static int sec_setup(struct thread_data *td)
     {
         o->inode = 0;
     }
-    bsd->cli = vitastor_c_create_uring(o->config_path, o->etcd_host, o->etcd_prefix,
-        o->use_rdma, o->rdma_device, o->rdma_port_num, o->rdma_gid_index, o->rdma_mtu, o->cluster_log);
+    std::vector<char *> options;
+    opt_push(options, "config_path", o->config_path);
+    opt_push(options, "etcd_address", o->etcd_host);
+    opt_push(options, "etcd_prefix", o->etcd_prefix);
+    if (o->use_rdma != -1)
+        opt_push(options, "use_rdma", std::to_string(o->use_rdma).c_str());
+    opt_push(options, "rdma_device", o->rdma_device);
+    if (o->rdma_port_num)
+        opt_push(options, "rdma_port_num", std::to_string(o->rdma_port_num).c_str());
+    if (o->rdma_gid_index)
+        opt_push(options, "rdma_gid_index", std::to_string(o->rdma_gid_index).c_str());
+    if (o->rdma_mtu)
+        opt_push(options, "rdma_mtu", std::to_string(o->rdma_mtu).c_str());
+    if (o->cluster_log)
+        opt_push(options, "log_level", std::to_string(o->cluster_log).c_str());
+    // allow writeback caching if -direct is not set
+    opt_push(options, "client_writeback_allowed", td->o.odirect ? "0" : "1");
+    bsd->cli = vitastor_c_create_uring_json((const char**)options.data(), options.size());
+    for (auto opt: options)
+        free(opt);
+    options.clear();
     if (o->image)
     {
         bsd->watch = NULL;

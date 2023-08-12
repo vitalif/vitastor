@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
-#include "cluster_client.h"
+#include "cluster_client_impl.h"
 
 void configure_single_pg_pool(cluster_client_t *cli)
 {
@@ -47,11 +47,11 @@ void configure_single_pg_pool(cluster_client_t *cli)
     cli->st_cli.on_change_hook(changes);
 }
 
-int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c, std::function<void()> cb = NULL)
+int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c, std::function<void()> cb = NULL, bool instant = false)
 {
     printf("Post write %lx+%lx\n", offset, len);
     int *r = new int;
-    *r = -1;
+    *r = instant ? -2 : -1;
     cluster_op_t *op = new cluster_op_t();
     op->opcode = OSD_OP_WRITE;
     op->inode = 0x1000000000001;
@@ -72,6 +72,13 @@ int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c,
             cb();
     };
     cli->execute(op);
+    if (instant)
+    {
+        long res = *r;
+        assert(*r >= 0);
+        delete r;
+        return (int*)res;
+    }
     return r;
 }
 
@@ -160,6 +167,13 @@ osd_op_t *find_op(cluster_client_t *cli, osd_num_t osd_num, uint64_t opcode, uin
         }
         op_it++;
     }
+    op_it = cli->msgr.clients[peer_fd]->sent_ops.begin();
+    while (op_it != cli->msgr.clients[peer_fd]->sent_ops.end())
+    {
+        printf("Found opcode %lu offset %lx size %x\n", op_it->second->req.hdr.opcode, op_it->second->req.rw.offset, op_it->second->req.rw.len);
+        op_it++;
+    }
+    printf("Not found opcode %lu offset %lx size %lx\n", opcode, offset, len);
     return NULL;
 }
 
@@ -341,7 +355,7 @@ void test1()
 
 void test2()
 {
-    std::map<object_id, cluster_buffer_t> unsynced_writes;
+    writeback_cache_t *wb = new writeback_cache_t();
     cluster_op_t *op = new cluster_op_t();
     op->opcode = OSD_OP_WRITE;
     op->inode = 1;
@@ -350,19 +364,19 @@ void test2()
     op->iov.push_back(malloc_or_die(4096*1024), 4096);
     // 0-4k = 0x55
     memset(op->iov.buf[0].iov_base, 0x55, op->iov.buf[0].iov_len);
-    cluster_client_t::copy_write(op, unsynced_writes);
+    wb->copy_write(op, CACHE_WRITTEN);
     // 8k-12k = 0x66
     op->offset = 8192;
     memset(op->iov.buf[0].iov_base, 0x66, op->iov.buf[0].iov_len);
-    cluster_client_t::copy_write(op, unsynced_writes);
+    wb->copy_write(op, CACHE_WRITTEN);
     // 4k-1M+4k = 0x77
     op->len = op->iov.buf[0].iov_len = 1048576;
     op->offset = 4096;
     memset(op->iov.buf[0].iov_base, 0x77, op->iov.buf[0].iov_len);
-    cluster_client_t::copy_write(op, unsynced_writes);
+    wb->copy_write(op, CACHE_WRITTEN);
     // check it
-    assert(unsynced_writes.size() == 4);
-    auto uit = unsynced_writes.begin();
+    assert(wb->dirty_buffers.size() == 2);
+    auto uit = wb->dirty_buffers.begin();
     int i;
     assert(uit->first.inode == 1);
     assert(uit->first.stripe == 0);
@@ -372,35 +386,106 @@ void test2()
     uit++;
     assert(uit->first.inode == 1);
     assert(uit->first.stripe == 4096);
-    assert(uit->second.len == 4096);
-    for (i = 0; i < uit->second.len && ((uint8_t*)uit->second.buf)[i] == 0x77; i++) {}
-    assert(i == uit->second.len);
-    uit++;
-    assert(uit->first.inode == 1);
-    assert(uit->first.stripe == 8192);
-    assert(uit->second.len == 4096);
-    for (i = 0; i < uit->second.len && ((uint8_t*)uit->second.buf)[i] == 0x77; i++) {}
-    assert(i == uit->second.len);
-    uit++;
-    assert(uit->first.inode == 1);
-    assert(uit->first.stripe == 12*1024);
-    assert(uit->second.len == 1016*1024);
+    assert(uit->second.len == 1048576);
     for (i = 0; i < uit->second.len && ((uint8_t*)uit->second.buf)[i] == 0x77; i++) {}
     assert(i == uit->second.len);
     uit++;
     // free memory
     free(op->iov.buf[0].iov_base);
     delete op;
-    for (auto p: unsynced_writes)
-    {
-        free(p.second.buf);
-    }
+    delete wb;
     printf("[ok] copy_write test\n");
+}
+
+void test_writeback()
+{
+    json11::Json config = json11::Json::object {
+        { "client_enable_writeback", true },
+        { "client_writeback_allowed", true },
+        { "client_max_buffered_bytes", 1024*1024 },
+        { "client_max_buffered_ops", 2 },
+        { "client_max_writeback_iodepth", 2 },
+        { "client_max_dirty_bytes", 1024*1024 },
+        { "client_max_dirty_ops", 2 },
+    };
+    timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
+    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config);
+
+    configure_single_pg_pool(cli);
+    pretend_connected(cli, 1);
+
+    // Check that 3 consecutive writes are merged by writeback
+    assert((long)test_write(cli, 0, 4096, 0x55, NULL, true) == 1);
+    check_op_count(cli, 1, 0);
+    assert((long)test_write(cli, 4096, 4096, 0x55, NULL, true) == 1);
+    check_op_count(cli, 1, 0);
+    assert((long)test_write(cli, 8192, 4096, 0x55, NULL, true) == 1);
+    check_op_count(cli, 1, 0);
+
+    assert((long)test_write(cli, 1024*1024, 4096, 0x66, NULL, true) == 1);
+    check_op_count(cli, 1, 0);
+
+    // 3rd and 4th writes should trigger 1 writeback each
+    assert((long)test_write(cli, 2*1024*1024, 4096, 0x66, NULL, true) == 1);
+    check_op_count(cli, 1, 1);
+    assert((long)test_write(cli, 3*1024*1024, 4096, 0x66, NULL, true) == 1);
+    check_op_count(cli, 1, 2);
+
+    // 5th write should be postponed until at least 1 writeback is completed
+    int *r1 = test_write(cli, 4*1024*1024, 4096, 0x67, NULL);
+    check_op_count(cli, 1, 2);
+    can_complete(r1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 3*4096), 0);
+    check_completed(r1);
+    // autosync because max_dirty_ops=2, flush waits for sync
+    check_op_count(cli, 1, 1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 1024*1024, 4096), 0);
+    check_op_count(cli, 1, 1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_SYNC, 0, 0), 0);
+    check_op_count(cli, 1, 1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 2*1024*1024, 4096), 0);
+    check_op_count(cli, 1, 0);
+
+    int *r2 = test_sync(cli);
+    check_op_count(cli, 1, 1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 3*1024*1024, 4096), 0);
+    check_op_count(cli, 1, 1);
+    // autosync because max_dirty_ops=2, flush waits for sync
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_SYNC, 0, 0), 0);
+    check_op_count(cli, 1, 1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 4*1024*1024, 4096), 0);
+    check_op_count(cli, 1, 1);
+    can_complete(r2);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_SYNC, 0, 0), 0);
+    check_completed(r2);
+
+    // Check cutting of the beginning and end
+    assert((long)test_write(cli, 0, 32768, 0x55, NULL, true) == 1);
+    check_op_count(cli, 1, 0);
+    assert((long)test_write(cli, 32768, 32768, 0x56, NULL, true) == 1);
+    check_op_count(cli, 1, 0);
+    assert((long)test_write(cli, 16384, 32768, 0x57, NULL, true) == 1);
+    check_op_count(cli, 1, 0);
+    assert((long)test_write(cli, 16384+4096, 32768-4096, 0x58, NULL, true) == 1);
+    check_op_count(cli, 1, 0);
+    r2 = test_sync(cli);
+    check_op_count(cli, 1, 1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 65536), 0);
+    check_op_count(cli, 1, 1);
+    can_complete(r2);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_SYNC, 0, 0), 0);
+    check_completed(r2);
+
+    // Free client
+    delete cli;
+    delete tfd;
+    printf("[ok] writeback test\n");
 }
 
 int main(int narg, char *args[])
 {
     test1();
     test2();
+    test_writeback();
     return 0;
 }

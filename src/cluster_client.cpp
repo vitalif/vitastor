@@ -3,21 +3,13 @@
 
 #include <stdexcept>
 #include <assert.h>
-#include "cluster_client.h"
-
-#define SCRAP_BUFFER_SIZE 4*1024*1024
-#define PART_SENT 1
-#define PART_DONE 2
-#define PART_ERROR 4
-#define PART_RETRY 8
-#define CACHE_DIRTY 1
-#define CACHE_FLUSHING 2
-#define CACHE_REPEATING 3
-#define OP_FLUSH_BUFFER 0x02
-#define OP_IMMEDIATE_COMMIT 0x04
+#include "cluster_client_impl.h"
+#include "http_client.h" // json_is_true
 
 cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config)
 {
+    wb = new writeback_cache_t();
+
     cli_config = config.object_items();
     file_config = osd_messenger_t::read_config(config);
     config = osd_messenger_t::merge_configs(cli_config, file_config, etcd_global_config, {});
@@ -37,30 +29,14 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
             continue_lists();
             continue_raw_ops(peer_osd);
         }
-        else if (dirty_buffers.size())
+        else
         {
             // peer_osd just dropped connection
             // determine WHICH dirty_buffers are now obsolete and repeat them
-            for (auto wr_it = dirty_buffers.begin(), flush_it = wr_it, last_it = wr_it; ; )
+            if (wb->repeat_ops_for(this, peer_osd) > 0)
             {
-                bool end = wr_it == dirty_buffers.end();
-                bool flush_this = !end && wr_it->second.state != CACHE_REPEATING &&
-                    affects_osd(wr_it->first.inode, wr_it->first.stripe, wr_it->second.len, peer_osd);
-                if (flush_it != wr_it && (end || !flush_this ||
-                    wr_it->first.inode != flush_it->first.inode ||
-                    wr_it->first.stripe != last_it->first.stripe+last_it->second.len))
-                {
-                    flush_buffers(flush_it, wr_it);
-                    flush_it = wr_it;
-                }
-                if (end)
-                    break;
-                last_it = wr_it;
-                wr_it++;
-                if (!flush_this)
-                    flush_it = wr_it;
+                continue_ops();
             }
-            continue_ops();
         }
     };
     msgr.exec_op = [this](osd_op_t *op)
@@ -88,16 +64,14 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
 
 cluster_client_t::~cluster_client_t()
 {
-    for (auto bp: dirty_buffers)
-    {
-        free(bp.second.buf);
-    }
-    dirty_buffers.clear();
+    msgr.repeer_pgs = [this](osd_num_t){};
     if (ringloop)
     {
         ringloop->unregister_consumer(&consumer);
     }
     free(scrap_buffer);
+    delete wb;
+    wb = NULL;
 }
 
 cluster_op_t::~cluster_op_t()
@@ -146,6 +120,19 @@ void cluster_client_t::init_msgr()
     }
 }
 
+void cluster_client_t::unshift_op(cluster_op_t *op)
+{
+    op->next = op_queue_head;
+    if (op_queue_head)
+    {
+        op_queue_head->prev = op;
+        op_queue_head = op;
+    }
+    else
+        op_queue_tail = op_queue_head = op;
+    inc_wait(op->opcode, op->flags, op->next, 1);
+}
+
 void cluster_client_t::calc_wait(cluster_op_t *op)
 {
     op->prev_wait = 0;
@@ -166,7 +153,7 @@ void cluster_client_t::calc_wait(cluster_op_t *op)
     {
         for (auto prev = op->prev; prev; prev = prev->prev)
         {
-            if (prev->opcode == OSD_OP_SYNC || prev->opcode == OSD_OP_WRITE && !(prev->flags & OP_IMMEDIATE_COMMIT))
+            if (prev->opcode == OSD_OP_SYNC || prev->opcode == OSD_OP_WRITE && (!(prev->flags & OP_IMMEDIATE_COMMIT) || enable_writeback))
             {
                 op->prev_wait++;
             }
@@ -187,7 +174,7 @@ void cluster_client_t::inc_wait(uint64_t opcode, uint64_t flags, cluster_op_t *n
         while (next)
         {
             auto n2 = next->next;
-            if (next->opcode == OSD_OP_SYNC && !(flags & OP_IMMEDIATE_COMMIT) ||
+            if (next->opcode == OSD_OP_SYNC && (!(flags & OP_IMMEDIATE_COMMIT) || enable_writeback) ||
                 next->opcode == OSD_OP_WRITE && (flags & OP_FLUSH_BUFFER) && !(next->flags & OP_FLUSH_BUFFER))
             {
                 next->prev_wait += inc;
@@ -239,13 +226,37 @@ void cluster_client_t::erase_op(cluster_op_t *op)
         op_queue_tail = op->prev;
     op->next = op->prev = NULL;
     if (flags & OP_FLUSH_BUFFER)
+    {
+        // Completed flushes change writeback buffer states,
+        // so the callback should be run before inc_wait()
+        // which may continue following SYNCs, but these SYNCs
+        // should know about the changed buffer state
+        // This is ugly but this is the way we do it
         std::function<void(cluster_op_t*)>(op->callback)(op);
-    if (!(flags & OP_IMMEDIATE_COMMIT))
+    }
+    if (!(flags & OP_IMMEDIATE_COMMIT) || enable_writeback)
+    {
         inc_wait(opcode, flags, next, -1);
-    // Call callback at the end to avoid inconsistencies in prev_wait
-    // if the callback adds more operations itself
+    }
     if (!(flags & OP_FLUSH_BUFFER))
+    {
+        // Call callback at the end to avoid inconsistencies in prev_wait
+        // if the callback adds more operations itself
         std::function<void(cluster_op_t*)>(op->callback)(op);
+    }
+    if (flags & OP_FLUSH_BUFFER)
+    {
+        int i = 0;
+        while (i < wb->writeback_overflow.size() && wb->writebacks_active < client_max_writeback_iodepth)
+        {
+            execute_internal(wb->writeback_overflow[i]);
+            i++;
+        }
+        if (i > 0)
+        {
+            wb->writeback_overflow.erase(wb->writeback_overflow.begin(), wb->writeback_overflow.begin()+i);
+        }
+    }
 }
 
 void cluster_client_t::continue_ops(bool up_retry)
@@ -289,6 +300,7 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
 {
     this->etcd_global_config = etcd_global_config;
     config = osd_messenger_t::merge_configs(cli_config, file_config, etcd_global_config, {});
+    // client_max_dirty_bytes/client_dirty_limit
     if (config.find("client_max_dirty_bytes") != config.end())
     {
         client_max_dirty_bytes = config["client_max_dirty_bytes"].uint64_value();
@@ -304,11 +316,34 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
     {
         client_max_dirty_bytes = DEFAULT_CLIENT_MAX_DIRTY_BYTES;
     }
+    // client_max_dirty_ops
     client_max_dirty_ops = config["client_max_dirty_ops"].uint64_value();
     if (!client_max_dirty_ops)
     {
         client_max_dirty_ops = DEFAULT_CLIENT_MAX_DIRTY_OPS;
     }
+    // client_enable_writeback
+    enable_writeback = json_is_true(config["client_enable_writeback"]) &&
+        json_is_true(config["client_writeback_allowed"]);
+    // client_max_buffered_bytes
+    client_max_buffered_bytes = config["client_max_buffered_bytes"].uint64_value();
+    if (!client_max_buffered_bytes)
+    {
+        client_max_buffered_bytes = DEFAULT_CLIENT_MAX_BUFFERED_BYTES;
+    }
+    // client_max_buffered_ops
+    client_max_buffered_ops = config["client_max_buffered_ops"].uint64_value();
+    if (!client_max_buffered_ops)
+    {
+        client_max_buffered_ops = DEFAULT_CLIENT_MAX_BUFFERED_OPS;
+    }
+    // client_max_writeback_iodepth
+    client_max_writeback_iodepth = config["client_max_writeback_iodepth"].uint64_value();
+    if (!client_max_writeback_iodepth)
+    {
+        client_max_writeback_iodepth = DEFAULT_CLIENT_MAX_WRITEBACK_IODEPTH;
+    }
+    // up_wait_retry_interval
     up_wait_retry_interval = config["up_wait_retry_interval"].uint64_value();
     if (!up_wait_retry_interval)
     {
@@ -368,6 +403,8 @@ void cluster_client_t::on_change_hook(std::map<std::string, etcd_kv_t> & changes
 
 bool cluster_client_t::get_immediate_commit(uint64_t inode)
 {
+    if (enable_writeback)
+        return false;
     pool_id_t pool_id = INODE_POOL(inode);
     if (!pool_id)
         return true;
@@ -402,6 +439,41 @@ void cluster_client_t::on_ready(std::function<void(void)> fn)
     }
 }
 
+bool cluster_client_t::flush()
+{
+    if (!ringloop)
+    {
+        if (wb->writeback_queue.size())
+        {
+            wb->start_writebacks(this, 0);
+            cluster_op_t *sync = new cluster_op_t;
+            sync->opcode = OSD_OP_SYNC;
+            sync->callback = [this](cluster_op_t *sync)
+            {
+                delete sync;
+            };
+            execute(sync);
+        }
+        return op_queue_head == NULL;
+    }
+    bool sync_done = false;
+    cluster_op_t *sync = new cluster_op_t;
+    sync->opcode = OSD_OP_SYNC;
+    sync->callback = [this, &sync_done](cluster_op_t *sync)
+    {
+        delete sync;
+        sync_done = true;
+    };
+    execute(sync);
+    while (!sync_done)
+    {
+        ringloop->loop();
+        if (!sync_done)
+            ringloop->wait();
+    }
+    return true;
+}
+
 /**
  * How writes are synced when immediate_commit is false
  *
@@ -422,6 +494,9 @@ void cluster_client_t::on_ready(std::function<void(void)> fn)
  * 3) if yes, send all SYNCs. otherwise, leave current SYNC as is.
  * 4) if any of them fail due to disconnected peers, repeat SYNC after repeating all writes
  * 5) if any of them fail due to other errors, fail the SYNC operation
+ *
+ * If writeback caching is turned on and writeback limit is not exhausted:
+ * data is just copied and the write is confirmed to the client.
  */
 void cluster_client_t::execute(cluster_op_t *op)
 {
@@ -437,36 +512,73 @@ void cluster_client_t::execute(cluster_op_t *op)
         offline_ops.push_back(op);
         return;
     }
+    op->flags = op->flags & OSD_OP_IGNORE_READONLY; // the only allowed flag
+    execute_internal(op);
+}
+
+void cluster_client_t::execute_internal(cluster_op_t *op)
+{
     op->cur_inode = op->inode;
     op->retval = 0;
-    op->flags = op->flags & OSD_OP_IGNORE_READONLY; // the only allowed flag
     // check alignment, readonly flag and so on
     if (!check_rw(op))
     {
+        return;
+    }
+    if (op->opcode == OSD_OP_WRITE && enable_writeback && !(op->flags & OP_FLUSH_BUFFER) &&
+        !op->version /* FIXME no CAS writeback */)
+    {
+        if (wb->writebacks_active >= client_max_writeback_iodepth)
+        {
+            // Writeback queue is full, postpone the operation
+            wb->writeback_overflow.push_back(op);
+            return;
+        }
+        // Just copy and acknowledge the operation
+        wb->copy_write(op, CACHE_DIRTY);
+        while (wb->writeback_bytes + op->len > client_max_buffered_bytes || wb->writeback_queue_size > client_max_buffered_ops)
+        {
+            // Initiate some writeback (asynchronously)
+            wb->start_writebacks(this, 1);
+        }
+        op->retval = op->len;
+        std::function<void(cluster_op_t*)>(op->callback)(op);
         return;
     }
     if (op->opcode == OSD_OP_WRITE && !(op->flags & OP_IMMEDIATE_COMMIT))
     {
         if (!(op->flags & OP_FLUSH_BUFFER))
         {
-            copy_write(op, dirty_buffers);
+            wb->copy_write(op, CACHE_WRITTEN);
         }
         if (dirty_bytes >= client_max_dirty_bytes || dirty_ops >= client_max_dirty_ops)
         {
             // Push an extra SYNC operation to flush previous writes
             cluster_op_t *sync_op = new cluster_op_t;
             sync_op->opcode = OSD_OP_SYNC;
+            sync_op->flags = OP_FLUSH_BUFFER;
             sync_op->callback = [](cluster_op_t* sync_op)
             {
                 delete sync_op;
             };
-            execute(sync_op);
+            execute_internal(sync_op);
         }
         dirty_bytes += op->len;
         dirty_ops++;
     }
     else if (op->opcode == OSD_OP_SYNC)
     {
+        // Flush the whole write-back queue first
+        if (!(op->flags & OP_FLUSH_BUFFER) && wb->writeback_overflow.size() > 0)
+        {
+            // Writeback queue is full, postpone the operation
+            wb->writeback_overflow.push_back(op);
+            return;
+        }
+        if (wb->writeback_queue.size())
+        {
+            wb->start_writebacks(this, 0);
+        }
         dirty_bytes = 0;
         dirty_ops = 0;
     }
@@ -478,7 +590,7 @@ void cluster_client_t::execute(cluster_op_t *op)
     }
     else
         op_queue_tail = op_queue_head = op;
-    if (!(op->flags & OP_IMMEDIATE_COMMIT))
+    if (!(op->flags & OP_IMMEDIATE_COMMIT) || enable_writeback)
         calc_wait(op);
     else
     {
@@ -550,136 +662,6 @@ void cluster_client_t::execute_raw(osd_num_t osd_num, osd_op_t *op)
             msgr.connect_peer(osd_num, st_cli.peer_states[osd_num]);
         raw_ops.emplace(osd_num, op);
     }
-}
-
-static std::map<object_id, cluster_buffer_t>::iterator find_dirty(uint64_t inode, uint64_t offset, std::map<object_id, cluster_buffer_t> & dirty_buffers)
-{
-    auto dirty_it = dirty_buffers.lower_bound((object_id){
-        .inode = inode,
-        .stripe = offset,
-    });
-    while (dirty_it != dirty_buffers.begin())
-    {
-        dirty_it--;
-        if (dirty_it->first.inode != inode ||
-            (dirty_it->first.stripe + dirty_it->second.len) <= offset)
-        {
-            dirty_it++;
-            break;
-        }
-    }
-    return dirty_it;
-}
-
-void cluster_client_t::copy_write(cluster_op_t *op, std::map<object_id, cluster_buffer_t> & dirty_buffers)
-{
-    // Save operation for replay when one of PGs goes out of sync
-    // (primary OSD drops our connection in this case)
-    auto dirty_it = find_dirty(op->inode, op->offset, dirty_buffers);
-    uint64_t pos = op->offset, len = op->len, iov_idx = 0, iov_pos = 0;
-    while (len > 0)
-    {
-        uint64_t new_len = 0;
-        if (dirty_it == dirty_buffers.end() || dirty_it->first.inode != op->inode)
-        {
-            new_len = len;
-        }
-        else if (dirty_it->first.stripe > pos)
-        {
-            new_len = dirty_it->first.stripe - pos;
-            if (new_len > len)
-            {
-                new_len = len;
-            }
-        }
-        if (new_len > 0)
-        {
-            dirty_it = dirty_buffers.emplace_hint(dirty_it, (object_id){
-                .inode = op->inode,
-                .stripe = pos,
-            }, (cluster_buffer_t){
-                .buf = malloc_or_die(new_len),
-                .len = new_len,
-            });
-        }
-        // FIXME: Split big buffers into smaller ones on overwrites. But this will require refcounting
-        dirty_it->second.state = CACHE_DIRTY;
-        uint64_t cur_len = (dirty_it->first.stripe + dirty_it->second.len - pos);
-        if (cur_len > len)
-        {
-            cur_len = len;
-        }
-        while (cur_len > 0 && iov_idx < op->iov.count)
-        {
-            unsigned iov_len = (op->iov.buf[iov_idx].iov_len - iov_pos);
-            if (iov_len <= cur_len)
-            {
-                memcpy((uint8_t*)dirty_it->second.buf + pos - dirty_it->first.stripe,
-                    (uint8_t*)op->iov.buf[iov_idx].iov_base + iov_pos, iov_len);
-                pos += iov_len;
-                len -= iov_len;
-                cur_len -= iov_len;
-                iov_pos = 0;
-                iov_idx++;
-            }
-            else
-            {
-                memcpy((uint8_t*)dirty_it->second.buf + pos - dirty_it->first.stripe,
-                    (uint8_t*)op->iov.buf[iov_idx].iov_base + iov_pos, cur_len);
-                pos += cur_len;
-                len -= cur_len;
-                iov_pos += cur_len;
-                cur_len = 0;
-            }
-        }
-        dirty_it++;
-    }
-}
-
-void cluster_client_t::flush_buffers(std::map<object_id, cluster_buffer_t>::iterator from_it,
-    std::map<object_id, cluster_buffer_t>::iterator to_it)
-{
-    auto prev_it = std::prev(to_it);
-    cluster_op_t *op = new cluster_op_t;
-    op->flags = OSD_OP_IGNORE_READONLY|OP_FLUSH_BUFFER;
-    op->opcode = OSD_OP_WRITE;
-    op->cur_inode = op->inode = from_it->first.inode;
-    op->offset = from_it->first.stripe;
-    op->len = prev_it->first.stripe + prev_it->second.len - from_it->first.stripe;
-    uint32_t calc_len = 0;
-    uint64_t flush_id = ++last_flush_id;
-    for (auto it = from_it; it != to_it; it++)
-    {
-        it->second.state = CACHE_REPEATING;
-        it->second.flush_id = flush_id;
-        op->iov.push_back(it->second.buf, it->second.len);
-        calc_len += it->second.len;
-    }
-    assert(calc_len == op->len);
-    op->callback = [this, flush_id](cluster_op_t* op)
-    {
-        for (auto dirty_it = find_dirty(op->inode, op->offset, dirty_buffers);
-            dirty_it != dirty_buffers.end() && dirty_it->first.inode == op->inode &&
-            dirty_it->first.stripe < op->offset+op->len; dirty_it++)
-        {
-            if (dirty_it->second.flush_id == flush_id && dirty_it->second.state == CACHE_REPEATING)
-            {
-                dirty_it->second.flush_id = 0;
-                dirty_it->second.state = CACHE_DIRTY;
-            }
-        }
-        delete op;
-    };
-    op->next = op_queue_head;
-    if (op_queue_head)
-    {
-        op_queue_head->prev = op;
-        op_queue_head = op;
-    }
-    else
-        op_queue_tail = op_queue_head = op;
-    inc_wait(op->opcode, op->flags, op->next, 1);
-    continue_rw(op);
 }
 
 int cluster_client_t::continue_rw(cluster_op_t *op)
@@ -785,7 +767,8 @@ resume_2:
         erase_op(op);
         return 1;
     }
-    else if (op->retval != 0 && op->retval != -EPIPE && op->retval != -EIO && op->retval != -ENOSPC)
+    else if (op->retval != 0 && !(op->flags & OP_FLUSH_BUFFER) &&
+        op->retval != -EPIPE && op->retval != -EIO && op->retval != -ENOSPC)
     {
         // Fatal error (neither -EPIPE, -EIO nor -ENOSPC)
         // FIXME: Add a parameter to allow to not wait for EIOs (incomplete or corrupted objects) to heal
@@ -857,50 +840,6 @@ static void add_iov(int size, bool skip, cluster_op_t *op, int &iov_idx, size_t 
     }
 }
 
-static void copy_to_op(cluster_op_t *op, uint64_t offset, uint8_t *buf, uint64_t len, uint32_t bitmap_granularity)
-{
-    if (op->opcode == OSD_OP_READ)
-    {
-        // Not OSD_OP_READ_BITMAP or OSD_OP_READ_CHAIN_BITMAP
-        int iov_idx = 0;
-        uint64_t cur_offset = op->offset;
-        while (iov_idx < op->iov.count && cur_offset+op->iov.buf[iov_idx].iov_len <= offset)
-        {
-            cur_offset += op->iov.buf[iov_idx].iov_len;
-            iov_idx++;
-        }
-        while (iov_idx < op->iov.count && cur_offset < offset+len)
-        {
-            auto & v = op->iov.buf[iov_idx];
-            auto begin = (cur_offset < offset ? offset : cur_offset);
-            auto end = (cur_offset+v.iov_len > offset+len ? offset+len : cur_offset+v.iov_len);
-            memcpy(
-                v.iov_base + begin - cur_offset,
-                buf + (cur_offset <= offset ? 0 : cur_offset-offset),
-                end - begin
-            );
-            cur_offset += v.iov_len;
-            iov_idx++;
-        }
-    }
-    // Set bitmap bits
-    int start_bit = (offset-op->offset)/bitmap_granularity;
-    int end_bit = (offset-op->offset+len)/bitmap_granularity;
-    for (int bit = start_bit; bit < end_bit;)
-    {
-        if (!(bit%8) && bit <= end_bit-8)
-        {
-            ((uint8_t*)op->bitmap_buf)[bit/8] = 0xFF;
-            bit += 8;
-        }
-        else
-        {
-            ((uint8_t*)op->bitmap_buf)[bit/8] |= (1 << (bit%8));
-            bit++;
-        }
-    }
-}
-
 void cluster_client_t::slice_rw(cluster_op_t *op)
 {
     // Slice the request into individual object stripe requests
@@ -929,52 +868,11 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
     int iov_idx = 0;
     size_t iov_pos = 0;
     int i = 0;
-    bool dirty_copied = false;
-    if (dirty_buffers.size() && (op->opcode == OSD_OP_READ ||
-        op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP))
-    {
-        // We also have to return reads from CACHE_REPEATING buffers - they are not
-        // guaranteed to be present on target OSDs at the moment of repeating
-        // And we're also free to return data from other cached buffers just
-        // because it's faster
-        auto dirty_it = find_dirty(op->cur_inode, op->offset, dirty_buffers);
-        while (dirty_it != dirty_buffers.end() && dirty_it->first.inode == op->cur_inode &&
-            dirty_it->first.stripe < op->offset+op->len)
-        {
-            uint64_t begin = dirty_it->first.stripe, end = dirty_it->first.stripe + dirty_it->second.len;
-            if (begin < op->offset)
-                begin = op->offset;
-            if (end > op->offset+op->len)
-                end = op->offset+op->len;
-            bool skip_prev = true;
-            uint64_t cur = begin, prev = begin;
-            while (cur < end)
-            {
-                unsigned bmp_loc = (cur - op->offset)/pool_cfg.bitmap_granularity;
-                bool skip = (((*((uint8_t*)op->bitmap_buf + bmp_loc/8)) >> (bmp_loc%8)) & 0x1);
-                if (skip_prev != skip)
-                {
-                    if (cur > prev && !skip)
-                    {
-                        // Copy data
-                        dirty_copied = true;
-                        copy_to_op(op, prev, (uint8_t*)dirty_it->second.buf + prev - dirty_it->first.stripe, cur-prev, pool_cfg.bitmap_granularity);
-                    }
-                    skip_prev = skip;
-                    prev = cur;
-                }
-                cur += pool_cfg.bitmap_granularity;
-            }
-            assert(cur > prev);
-            if (!skip_prev)
-            {
-                // Copy data
-                dirty_copied = true;
-                copy_to_op(op, prev, (uint8_t*)dirty_it->second.buf + prev - dirty_it->first.stripe, cur-prev, pool_cfg.bitmap_granularity);
-            }
-            dirty_it++;
-        }
-    }
+    // We also have to return reads from CACHE_REPEATING buffers - they are not
+    // guaranteed to be present on target OSDs at the moment of repeating
+    // And we're also free to return data from other cached buffers just
+    // because it's faster
+    bool dirty_copied = wb->read_from_cache(op, pool_cfg.bitmap_granularity);
     for (uint64_t stripe = first_stripe; stripe <= last_stripe; stripe += pg_block_size)
     {
         pg_num_t pg_num = (stripe/pool_cfg.pg_stripe_size) % pool_cfg.real_pg_count + 1; // like map_to_pg()
@@ -1146,13 +1044,7 @@ int cluster_client_t::continue_sync(cluster_op_t *op)
             do_it++;
     }
     // Post sync to affected OSDs
-    for (auto & prev_op: dirty_buffers)
-    {
-        if (prev_op.second.state == CACHE_DIRTY)
-        {
-            prev_op.second.state = CACHE_FLUSHING;
-        }
-    }
+    wb->fsync_start();
     op->parts.resize(dirty_osds.size());
     op->retval = 0;
     {
@@ -1177,13 +1069,7 @@ resume_1:
     }
     if (op->retval != 0)
     {
-        for (auto uw_it = dirty_buffers.begin(); uw_it != dirty_buffers.end(); uw_it++)
-        {
-            if (uw_it->second.state == CACHE_FLUSHING)
-            {
-                uw_it->second.state = CACHE_DIRTY;
-            }
-        }
+        wb->fsync_error();
         if (op->retval == -EPIPE || op->retval == -EIO || op->retval == -ENOSPC)
         {
             // Retry later
@@ -1197,16 +1083,7 @@ resume_1:
     }
     else
     {
-        for (auto uw_it = dirty_buffers.begin(); uw_it != dirty_buffers.end(); )
-        {
-            if (uw_it->second.state == CACHE_FLUSHING)
-            {
-                free(uw_it->second.buf);
-                dirty_buffers.erase(uw_it++);
-            }
-            else
-                uw_it++;
-        }
+        wb->fsync_ok();
     }
     erase_op(op);
     return 1;

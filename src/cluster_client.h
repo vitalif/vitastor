@@ -8,6 +8,9 @@
 
 #define DEFAULT_CLIENT_MAX_DIRTY_BYTES 32*1024*1024
 #define DEFAULT_CLIENT_MAX_DIRTY_OPS 1024
+#define DEFAULT_CLIENT_MAX_BUFFERED_BYTES 32*1024*1024
+#define DEFAULT_CLIENT_MAX_BUFFERED_OPS 1024
+#define DEFAULT_CLIENT_MAX_WRITEBACK_IODEPTH 256
 #define INODE_LIST_DONE 1
 #define INODE_LIST_HAS_UNSTABLE 2
 #define OSD_OP_READ_BITMAP OSD_OP_SEC_READ_BMP
@@ -64,18 +67,12 @@ protected:
     cluster_op_t *prev = NULL, *next = NULL;
     int prev_wait = 0;
     friend class cluster_client_t;
-};
-
-struct cluster_buffer_t
-{
-    void *buf;
-    uint64_t len;
-    int state;
-    uint64_t flush_id;
+    friend class writeback_cache_t;
 };
 
 struct inode_list_t;
 struct inode_list_osd_t;
+class writeback_cache_t;
 
 // FIXME: Split into public and private interfaces
 class cluster_client_t
@@ -84,17 +81,23 @@ class cluster_client_t
     ring_loop_t *ringloop;
 
     std::map<pool_id_t, uint64_t> pg_counts;
-    // FIXME: Implement inmemory_commit mode. Note that it requires to return overlapping reads from memory.
+    // client_max_dirty_* is actually "max unsynced", for the case when immediate_commit is off
     uint64_t client_max_dirty_bytes = 0;
     uint64_t client_max_dirty_ops = 0;
+    // writeback improves (1) small consecutive writes and (2) Q1 writes without fsync
+    bool enable_writeback = false;
+    // client_max_buffered_* is the real "dirty limit" - maximum amount of writes buffered in memory
+    uint64_t client_max_buffered_bytes = 0;
+    uint64_t client_max_buffered_ops = 0;
+    uint64_t client_max_writeback_iodepth = 0;
+
     int log_level;
     int up_wait_retry_interval = 500; // ms
 
     int retry_timeout_id = 0;
     std::vector<cluster_op_t*> offline_ops;
     cluster_op_t *op_queue_head = NULL, *op_queue_tail = NULL;
-    std::map<object_id, cluster_buffer_t> dirty_buffers;
-    uint64_t last_flush_id = 0;
+    writeback_cache_t *wb = NULL;
     std::set<osd_num_t> dirty_osds;
     uint64_t dirty_bytes = 0, dirty_ops = 0;
 
@@ -124,10 +127,10 @@ public:
     void execute_raw(osd_num_t osd_num, osd_op_t *op);
     bool is_ready();
     void on_ready(std::function<void(void)> fn);
+    bool flush();
 
     bool get_immediate_commit(uint64_t inode);
 
-    static void copy_write(cluster_op_t *op, std::map<object_id, cluster_buffer_t> & dirty_buffers);
     void continue_ops(bool up_retry = false);
     inode_list_t *list_inode_start(inode_t inode,
         std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback);
@@ -140,12 +143,12 @@ public:
 
 protected:
     bool affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd);
-    void flush_buffers(std::map<object_id, cluster_buffer_t>::iterator from_it,
-        std::map<object_id, cluster_buffer_t>::iterator to_it);
     void on_load_config_hook(json11::Json::object & config);
     void on_load_pgs_hook(bool success);
     void on_change_hook(std::map<std::string, etcd_kv_t> & changes);
     void on_change_osd_state_hook(uint64_t peer_osd);
+    void execute_internal(cluster_op_t *op);
+    void unshift_op(cluster_op_t *op);
     int continue_rw(cluster_op_t *op);
     bool check_rw(cluster_op_t *op);
     void slice_rw(cluster_op_t *op);
@@ -161,4 +164,6 @@ protected:
     void continue_listing(inode_list_t *lst);
     void send_list(inode_list_osd_t *cur_list);
     void continue_raw_ops(osd_num_t peer_osd);
+
+    friend class writeback_cache_t;
 };

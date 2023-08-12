@@ -22,4 +22,10 @@ public:
     void submit()
     {
     }
+    void wait()
+    {
+    }
+    void loop()
+    {
+    }
 };

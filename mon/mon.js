@@ -78,9 +78,15 @@ const etcd_tree = {
             disk_alignment: 4096,
             bitmap_granularity: 4096,
             immediate_commit: false, // 'all' or 'small'
+            // client - configurable online
+            client_max_dirty_bytes: 33554432,
+            client_max_dirty_ops: 1024,
+            client_enable_writeback: false,
+            client_max_buffered_bytes: 33554432,
+            client_max_buffered_ops: 1024,
+            client_max_writeback_iodepth: 256,
             // client and osd - configurable online
             log_level: 0,
-            client_dirty_limit: 33554432,
             peer_connect_interval: 5, // seconds. min: 1
             peer_connect_timeout: 5, // seconds. min: 1
             osd_idle_timeout: 5, // seconds. min: 1

@@ -34,7 +34,10 @@ nfs_proxy_t::~nfs_proxy_t()
     if (cmd)
         delete cmd;
     if (cli)
+    {
+        cli->flush();
         delete cli;
+    }
     if (epmgr)
         delete epmgr;
     if (ringloop)
@@ -261,16 +264,8 @@ void nfs_proxy_t::run(json11::Json cfg)
         ringloop->loop();
         ringloop->wait();
     }
-    /*// Sync at the end
-    cluster_op_t *close_sync = new cluster_op_t;
-    close_sync->opcode = OSD_OP_SYNC;
-    close_sync->callback = [&stop](cluster_op_t *op)
-    {
-        stop = true;
-        delete op;
-    };
-    cli->execute(close_sync);*/
     // Destroy the client
+    cli->flush();
     delete cli;
     delete epmgr;
     delete ringloop;

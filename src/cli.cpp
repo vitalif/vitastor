@@ -349,6 +349,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
                 p->ringloop->wait();
         }
         // Destroy the client
+        p->cli->flush();
         delete p->cli;
         delete p->epmgr;
         delete p->ringloop;

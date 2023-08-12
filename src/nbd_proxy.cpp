@@ -341,6 +341,7 @@ public:
             ringloop->loop();
             ringloop->wait();
         }
+        cli->flush();
         delete cli;
         delete epmgr;
         delete ringloop;
