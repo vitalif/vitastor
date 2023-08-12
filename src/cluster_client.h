@@ -147,6 +147,7 @@ protected:
     void on_change_hook(std::map<std::string, etcd_kv_t> & changes);
     void on_change_osd_state_hook(uint64_t peer_osd);
     int continue_rw(cluster_op_t *op);
+    bool check_rw(cluster_op_t *op);
     void slice_rw(cluster_op_t *op);
     bool try_send(cluster_op_t *op, int i);
     int continue_sync(cluster_op_t *op);

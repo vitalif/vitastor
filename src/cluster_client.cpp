@@ -455,39 +455,18 @@ void cluster_client_t::execute(cluster_op_t *op)
     }
     op->cur_inode = op->inode;
     op->retval = 0;
-    op->flags = op->flags & OSD_OP_IGNORE_READONLY; // single allowed flag
-    if (op->opcode != OSD_OP_SYNC)
+    op->flags = op->flags & OSD_OP_IGNORE_READONLY; // the only allowed flag
+    // check alignment, readonly flag and so on
+    if (!check_rw(op))
     {
-        pool_id_t pool_id = INODE_POOL(op->cur_inode);
-        if (!pool_id)
-        {
-            op->retval = -EINVAL;
-            std::function<void(cluster_op_t*)>(op->callback)(op);
-            return;
-        }
-        auto pool_it = st_cli.pool_config.find(pool_id);
-        if (pool_it == st_cli.pool_config.end() || pool_it->second.real_pg_count == 0)
-        {
-            // Pools are loaded, but this one is unknown
-            op->retval = -EINVAL;
-            std::function<void(cluster_op_t*)>(op->callback)(op);
-            return;
-        }
-        // Check alignment
-        if (!op->len && (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP || op->opcode == OSD_OP_WRITE) ||
-            op->offset % pool_it->second.bitmap_granularity || op->len % pool_it->second.bitmap_granularity)
-        {
-            op->retval = -EINVAL;
-            std::function<void(cluster_op_t*)>(op->callback)(op);
-            return;
-        }
-        if (pool_it->second.immediate_commit == IMMEDIATE_ALL)
-        {
-            op->flags |= OP_IMMEDIATE_COMMIT;
-        }
+        return;
     }
     if (op->opcode == OSD_OP_WRITE && !(op->flags & OP_IMMEDIATE_COMMIT))
     {
+        if (!(op->flags & OP_FLUSH_BUFFER))
+        {
+            copy_write(op, dirty_buffers);
+        }
         if (dirty_bytes >= client_max_dirty_bytes || dirty_ops >= client_max_dirty_ops)
         {
             // Push an extra SYNC operation to flush previous writes
@@ -497,17 +476,7 @@ void cluster_client_t::execute(cluster_op_t *op)
             {
                 delete sync_op;
             };
-            sync_op->prev = op_queue_tail;
-            if (op_queue_tail)
-            {
-                op_queue_tail->next = sync_op;
-                op_queue_tail = sync_op;
-            }
-            else
-                op_queue_tail = op_queue_head = sync_op;
-            dirty_bytes = 0;
-            dirty_ops = 0;
-            calc_wait(sync_op);
+            execute(sync_op);
         }
         dirty_bytes += op->len;
         dirty_ops++;
@@ -534,6 +503,52 @@ void cluster_client_t::execute(cluster_op_t *op)
         else
             continue_rw(op);
     }
+}
+
+bool cluster_client_t::check_rw(cluster_op_t *op)
+{
+    if (op->opcode == OSD_OP_SYNC)
+    {
+        return true;
+    }
+    pool_id_t pool_id = INODE_POOL(op->cur_inode);
+    if (!pool_id)
+    {
+        op->retval = -EINVAL;
+        std::function<void(cluster_op_t*)>(op->callback)(op);
+        return false;
+    }
+    auto pool_it = st_cli.pool_config.find(pool_id);
+    if (pool_it == st_cli.pool_config.end() || pool_it->second.real_pg_count == 0)
+    {
+        // Pools are loaded, but this one is unknown
+        op->retval = -EINVAL;
+        std::function<void(cluster_op_t*)>(op->callback)(op);
+        return false;
+    }
+    // Check alignment
+    if (!op->len && (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP || op->opcode == OSD_OP_WRITE) ||
+        op->offset % pool_it->second.bitmap_granularity || op->len % pool_it->second.bitmap_granularity)
+    {
+        op->retval = -EINVAL;
+        std::function<void(cluster_op_t*)>(op->callback)(op);
+        return false;
+    }
+    if (pool_it->second.immediate_commit == IMMEDIATE_ALL)
+    {
+        op->flags |= OP_IMMEDIATE_COMMIT;
+    }
+    if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && !(op->flags & OSD_OP_IGNORE_READONLY))
+    {
+        auto ino_it = st_cli.inode_config.find(op->inode);
+        if (ino_it != st_cli.inode_config.end() && ino_it->second.readonly)
+        {
+            op->retval = -EROFS;
+            std::function<void(cluster_op_t*)>(op->callback)(op);
+            return false;
+        }
+    }
+    return true;
 }
 
 void cluster_client_t::execute_raw(osd_num_t osd_num, osd_op_t *op)
@@ -691,27 +706,7 @@ int cluster_client_t::continue_rw(cluster_op_t *op)
         goto resume_1;
     else if (op->state == 2)
         goto resume_2;
-    else if (op->state == 3)
-        goto resume_3;
 resume_0:
-    if (op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE)
-    {
-        if (!(op->flags & OSD_OP_IGNORE_READONLY))
-        {
-            auto ino_it = st_cli.inode_config.find(op->inode);
-            if (ino_it != st_cli.inode_config.end() && ino_it->second.readonly)
-            {
-                op->retval = -EINVAL;
-                erase_op(op);
-                return 1;
-            }
-        }
-        if (op->opcode == OSD_OP_WRITE && !(op->flags & OP_IMMEDIATE_COMMIT) && !(op->flags & OP_FLUSH_BUFFER))
-        {
-            copy_write(op, dirty_buffers);
-        }
-    }
-resume_1:
     // Slice the operation into parts
     slice_rw(op);
     op->needs_reslice = false;
@@ -722,9 +717,9 @@ resume_1:
         erase_op(op);
         return 1;
     }
-resume_2:
+resume_1:
     // Send unsent parts, if they're not subject to change
-    op->state = 3;
+    op->state = 2;
     if (op->needs_reslice)
     {
         for (int i = 0; i < op->parts.size(); i++)
@@ -734,7 +729,7 @@ resume_2:
                 op->retval = -EPIPE;
             }
         }
-        goto resume_3;
+        goto resume_2;
     }
     for (int i = 0; i < op->parts.size(); i++)
     {
@@ -755,18 +750,18 @@ resume_2:
                         });
                     }
                 }
-                op->state = 2;
+                op->state = 1;
             }
         }
     }
-    if (op->state == 2)
+    if (op->state == 1)
     {
         return 0;
     }
-resume_3:
+resume_2:
     if (op->inflight_count > 0)
     {
-        op->state = 3;
+        op->state = 2;
         return 0;
     }
     if (op->done_count >= op->parts.size())
@@ -794,7 +789,7 @@ resume_3:
                 op->cur_inode = ino_it->second.parent_id;
                 op->parts.clear();
                 op->done_count = 0;
-                goto resume_1;
+                goto resume_0;
             }
         }
         op->retval = op->len;
@@ -821,7 +816,7 @@ resume_3:
         {
             op->parts.clear();
             op->done_count = 0;
-            goto resume_1;
+            goto resume_0;
         }
         else
         {
@@ -832,7 +827,7 @@ resume_3:
                     op->parts[i].flags = PART_RETRY;
                 }
             }
-            goto resume_2;
+            goto resume_1;
         }
     }
     return 0;
