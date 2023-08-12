@@ -581,11 +581,11 @@ void cluster_client_t::copy_write(cluster_op_t *op, std::map<object_id, cluster_
     while (len > 0)
     {
         uint64_t new_len = 0;
-        if (dirty_it == dirty_buffers.end())
+        if (dirty_it == dirty_buffers.end() || dirty_it->first.inode != op->inode)
         {
             new_len = len;
         }
-        else if (dirty_it->first.inode != op->inode || dirty_it->first.stripe > pos)
+        else if (dirty_it->first.stripe > pos)
         {
             new_len = dirty_it->first.stripe - pos;
             if (new_len > len)
