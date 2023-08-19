@@ -176,21 +176,7 @@ void cluster_client_t::calc_wait(cluster_op_t *op)
     }
     else /* if (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP) */
     {
-        for (auto prev = op_queue_head; prev && prev != op; prev = prev->next)
-        {
-            if (prev->opcode == OSD_OP_WRITE && (prev->flags & OP_FLUSH_BUFFER))
-            {
-                op->prev_wait++;
-            }
-            else if (prev->opcode == OSD_OP_WRITE || prev->opcode == OSD_OP_READ ||
-                prev->opcode == OSD_OP_READ_BITMAP || prev->opcode == OSD_OP_READ_CHAIN_BITMAP)
-            {
-                // Flushes are always in the beginning (we're scanning from the beginning of the queue)
-                break;
-            }
-        }
-        if (!op->prev_wait)
-            continue_rw(op);
+        continue_rw(op);
     }
 }
 
@@ -202,9 +188,7 @@ void cluster_client_t::inc_wait(uint64_t opcode, uint64_t flags, cluster_op_t *n
         {
             auto n2 = next->next;
             if (next->opcode == OSD_OP_SYNC && !(flags & OP_IMMEDIATE_COMMIT) ||
-                next->opcode == OSD_OP_WRITE && (flags & OP_FLUSH_BUFFER) && !(next->flags & OP_FLUSH_BUFFER) ||
-                (next->opcode == OSD_OP_READ || next->opcode == OSD_OP_READ_BITMAP ||
-                    next->opcode == OSD_OP_READ_CHAIN_BITMAP) && (flags & OP_FLUSH_BUFFER))
+                next->opcode == OSD_OP_WRITE && (flags & OP_FLUSH_BUFFER) && !(next->flags & OP_FLUSH_BUFFER))
             {
                 next->prev_wait += inc;
                 assert(next->prev_wait >= 0);
