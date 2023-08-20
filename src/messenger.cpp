@@ -11,6 +11,9 @@
 
 #include "addr_util.h"
 #include "messenger.h"
+#ifdef WITH_RDMA
+#include "msgr_rdma.h"
+#endif
 
 void osd_messenger_t::init()
 {

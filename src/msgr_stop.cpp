@@ -5,6 +5,9 @@
 #include <assert.h>
 
 #include "messenger.h"
+#ifdef WITH_RDMA
+#include "msgr_rdma.h"
+#endif
 
 void osd_messenger_t::cancel_osd_ops(osd_client_t *cl)
 {

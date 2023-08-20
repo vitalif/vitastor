@@ -18,10 +18,6 @@
 #include "timerfd_manager.h"
 #include <ringloop.h>
 
-#ifdef WITH_RDMA
-#include "msgr_rdma.h"
-#endif
-
 #define CL_READ_HDR 1
 #define CL_READ_DATA 2
 #define CL_READ_REPLY_DATA 3
@@ -43,6 +39,11 @@ struct msgr_sendp_t
     osd_op_t *op;
     int flags;
 };
+
+#ifdef WITH_RDMA
+struct msgr_rdma_connection_t;
+struct msgr_rdma_context_t;
+#endif
 
 struct osd_client_t
 {
