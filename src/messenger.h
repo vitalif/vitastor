@@ -131,6 +131,7 @@ protected:
     msgr_rdma_context_t *rdma_context = NULL;
     uint64_t rdma_max_sge = 0, rdma_max_send = 0, rdma_max_recv = 0;
     uint64_t rdma_max_msg = 0;
+    bool rdma_odp = false;
 #endif
 
     std::vector<int> read_ready_clients;
@@ -197,7 +198,9 @@ protected:
     void handle_reply_ready(osd_op_t *op);
 
 #ifdef WITH_RDMA
-    bool try_send_rdma(osd_client_t *cl);
+    void try_send_rdma(osd_client_t *cl);
+    void try_send_rdma_odp(osd_client_t *cl);
+    void try_send_rdma_nodp(osd_client_t *cl);
     bool try_recv_rdma(osd_client_t *cl);
     void handle_rdma_events();
 #endif

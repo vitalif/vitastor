@@ -47,11 +47,29 @@ msgr_rdma_connection_t::~msgr_rdma_connection_t()
     if (qp)
         ibv_destroy_qp(qp);
     if (recv_buffers.size())
+    {
         for (auto b: recv_buffers)
-            free(b);
+        {
+            if (b.mr)
+                ibv_dereg_mr(b.mr);
+            free(b.buf);
+        }
+        recv_buffers.clear();
+    }
+    if (send_out.mr)
+    {
+        ibv_dereg_mr(send_out.mr);
+        send_out.mr = NULL;
+    }
+    if (send_out.buf)
+    {
+        free(send_out.buf);
+        send_out.buf = NULL;
+    }
+    send_out_size = 0;
 }
 
-msgr_rdma_context_t *msgr_rdma_context_t::create(const char *ib_devname, uint8_t ib_port, uint8_t gid_index, uint32_t mtu, int log_level)
+msgr_rdma_context_t *msgr_rdma_context_t::create(const char *ib_devname, uint8_t ib_port, uint8_t gid_index, uint32_t mtu, bool odp, int log_level)
 {
     int res;
     ibv_device **dev_list = NULL;
@@ -136,21 +154,27 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(const char *ib_devname, uint8_t
             fprintf(stderr, "Couldn't query RDMA device for its features\n");
             goto cleanup;
         }
-        if (!(ctx->attrx.odp_caps.general_caps & IBV_ODP_SUPPORT) ||
+        ctx->odp = odp;
+        if (ctx->odp &&
+            (!(ctx->attrx.odp_caps.general_caps & IBV_ODP_SUPPORT) ||
             !(ctx->attrx.odp_caps.general_caps & IBV_ODP_SUPPORT_IMPLICIT) ||
             !(ctx->attrx.odp_caps.per_transport_caps.rc_odp_caps & IBV_ODP_SUPPORT_SEND) ||
-            !(ctx->attrx.odp_caps.per_transport_caps.rc_odp_caps & IBV_ODP_SUPPORT_RECV))
+            !(ctx->attrx.odp_caps.per_transport_caps.rc_odp_caps & IBV_ODP_SUPPORT_RECV)))
         {
-            fprintf(stderr, "The RDMA device isn't implicit ODP (On-Demand Paging) capable or does not support RC send and receive with ODP\n");
-            goto cleanup;
+            ctx->odp = false;
+            if (log_level > 0)
+                fprintf(stderr, "The RDMA device isn't implicit ODP (On-Demand Paging) capable, disabling it\n");
         }
     }
 
-    ctx->mr = ibv_reg_mr(ctx->pd, NULL, SIZE_MAX, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_ON_DEMAND);
-    if (!ctx->mr)
+    if (ctx->odp)
     {
-        fprintf(stderr, "Couldn't register RDMA memory region\n");
-        goto cleanup;
+        ctx->mr = ibv_reg_mr(ctx->pd, NULL, SIZE_MAX, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_ON_DEMAND);
+        if (!ctx->mr)
+        {
+            fprintf(stderr, "Couldn't register RDMA memory region\n");
+            goto cleanup;
+        }
     }
 
     ctx->channel = ibv_create_comp_channel(ctx->context);
@@ -365,12 +389,34 @@ static void try_send_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
     cl->rdma_conn->cur_send++;
 }
 
-bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
+static int try_send_rdma_copy(osd_client_t *cl, uint8_t *dst, int dst_len)
+{
+    auto rc = cl->rdma_conn;
+    int total_dst_len = dst_len;
+    while (dst_len > 0 && rc->send_pos < cl->send_list.size())
+    {
+        iovec & iov = cl->send_list[rc->send_pos];
+        uint32_t len = (uint32_t)(iov.iov_len-rc->send_buf_pos < dst_len
+            ? iov.iov_len-rc->send_buf_pos : dst_len);
+        memcpy(dst, iov.iov_base+rc->send_buf_pos, len);
+        dst += len;
+        dst_len -= len;
+        rc->send_buf_pos += len;
+        if (rc->send_buf_pos >= iov.iov_len)
+        {
+            rc->send_pos++;
+            rc->send_buf_pos = 0;
+        }
+    }
+    return total_dst_len-dst_len;
+}
+
+void osd_messenger_t::try_send_rdma_odp(osd_client_t *cl)
 {
     auto rc = cl->rdma_conn;
     if (!cl->send_list.size() || rc->cur_send >= rc->max_send)
     {
-        return true;
+        return;
     }
     uint64_t op_size = 0, op_sge = 0;
     ibv_sge sge[rc->max_sge];
@@ -408,15 +454,70 @@ bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
         rc->send_sizes.push_back(op_size);
         try_send_rdma_wr(cl, sge, op_sge);
     }
-    return true;
 }
 
-static void try_recv_rdma_wr(osd_client_t *cl, void *buf)
+void osd_messenger_t::try_send_rdma_nodp(osd_client_t *cl)
+{
+    auto rc = cl->rdma_conn;
+    if (!rc->send_out_size)
+    {
+        // Allocate send ring buffer, if not yet
+        rc->send_out_size = rc->max_msg*rdma_max_send;
+        rc->send_out.buf = malloc_or_die(rc->send_out_size);
+        if (!rdma_context->odp)
+        {
+            rc->send_out.mr = ibv_reg_mr(rdma_context->pd, rc->send_out.buf, rc->send_out_size, 0);
+            if (!rc->send_out.mr)
+            {
+                fprintf(stderr, "Failed to register RDMA memory region: %s\n", strerror(errno));
+                exit(1);
+            }
+        }
+    }
+    // Copy data into the buffer and send it
+    uint8_t *dst = NULL;
+    int dst_len = 0;
+    int copied = 1;
+    while (!rc->send_out_full && copied > 0 && rc->cur_send < rc->max_send)
+    {
+        dst = (uint8_t*)rc->send_out.buf + rc->send_out_pos;
+        dst_len = (rc->send_out_pos < rc->send_out_size ? rc->send_out_size-rc->send_out_pos : rc->send_done_pos-rc->send_out_pos);
+        if (dst_len > rc->max_msg)
+            dst_len = rc->max_msg;
+        copied = try_send_rdma_copy(cl, dst, dst_len);
+        if (copied > 0)
+        {
+            rc->send_out_pos += copied;
+            if (rc->send_out_pos == rc->send_out_size)
+                rc->send_out_pos = 0;
+            assert(rc->send_out_pos < rc->send_out_size);
+            if (rc->send_out_pos >= rc->send_done_pos)
+                rc->send_out_full = true;
+            ibv_sge sge = {
+                .addr = (uintptr_t)dst,
+                .length = (uint32_t)copied,
+                .lkey = rdma_context->odp ? rdma_context->mr->lkey : rc->send_out.mr->lkey,
+            };
+            try_send_rdma_wr(cl, &sge, 1);
+            rc->send_sizes.push_back(copied);
+        }
+    }
+}
+
+void osd_messenger_t::try_send_rdma(osd_client_t *cl)
+{
+    if (rdma_context->odp)
+        try_send_rdma_odp(cl);
+    else
+        try_send_rdma_nodp(cl);
+}
+
+static void try_recv_rdma_wr(osd_client_t *cl, msgr_rdma_buf_t b)
 {
     ibv_sge sge = {
-        .addr = (uintptr_t)buf,
+        .addr = (uintptr_t)b.buf,
         .length = (uint32_t)cl->rdma_conn->max_msg,
-        .lkey = cl->rdma_conn->ctx->mr->lkey,
+        .lkey = cl->rdma_conn->ctx->odp ? cl->rdma_conn->ctx->mr->lkey : b.mr->lkey,
     };
     ibv_recv_wr *bad_wr = NULL;
     ibv_recv_wr wr = {
@@ -438,9 +539,19 @@ bool osd_messenger_t::try_recv_rdma(osd_client_t *cl)
     auto rc = cl->rdma_conn;
     while (rc->cur_recv < rc->max_recv)
     {
-        void *buf = malloc_or_die(rc->max_msg);
-        rc->recv_buffers.push_back(buf);
-        try_recv_rdma_wr(cl, buf);
+        msgr_rdma_buf_t b;
+        b.buf = malloc_or_die(rc->max_msg);
+        if (!rdma_context->odp)
+        {
+            b.mr = ibv_reg_mr(rdma_context->pd, b.buf, rc->max_msg, IBV_ACCESS_LOCAL_WRITE);
+            if (!b.mr)
+            {
+                fprintf(stderr, "Failed to register RDMA memory region: %s\n", strerror(errno));
+                exit(1);
+            }
+        }
+        rc->recv_buffers.push_back(b);
+        try_recv_rdma_wr(cl, b);
     }
     return true;
 }
@@ -492,7 +603,7 @@ void osd_messenger_t::handle_rdma_events()
             if (!is_send)
             {
                 rc->cur_recv--;
-                if (!handle_read_buffer(cl, rc->recv_buffers[rc->next_recv_buf], wc[i].byte_len))
+                if (!handle_read_buffer(cl, rc->recv_buffers[rc->next_recv_buf].buf, wc[i].byte_len))
                 {
                     // handle_read_buffer may stop the client
                     continue;
@@ -505,6 +616,14 @@ void osd_messenger_t::handle_rdma_events()
                 rc->cur_send--;
                 uint64_t sent_size = rc->send_sizes.at(0);
                 rc->send_sizes.erase(rc->send_sizes.begin(), rc->send_sizes.begin()+1);
+                if (!rdma_context->odp)
+                {
+                    rc->send_done_pos += sent_size;
+                    rc->send_out_full = false;
+                    if (rc->send_done_pos == rc->send_out_size)
+                        rc->send_done_pos = 0;
+                    assert(rc->send_done_pos < rc->send_out_size);
+                }
                 int send_pos = 0, send_buf_pos = 0;
                 while (sent_size > 0)
                 {

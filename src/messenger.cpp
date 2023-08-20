@@ -22,7 +22,7 @@ void osd_messenger_t::init()
     {
         rdma_context = msgr_rdma_context_t::create(
             rdma_device != "" ? rdma_device.c_str() : NULL,
-            rdma_port_num, rdma_gid_index, rdma_mtu, log_level
+            rdma_port_num, rdma_gid_index, rdma_mtu, rdma_odp, log_level
         );
         if (!rdma_context)
         {
@@ -167,6 +167,7 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     this->rdma_max_msg = config["rdma_max_msg"].uint64_value();
     if (!this->rdma_max_msg || this->rdma_max_msg > 128*1024*1024)
         this->rdma_max_msg = 129*1024;
+    this->rdma_odp = config["rdma_odp"].bool_value();
 #endif
     this->receive_buffer_size = (uint32_t)config["tcp_header_buffer_size"].uint64_value();
     if (!this->receive_buffer_size || this->receive_buffer_size > 1024*1024*1024)
