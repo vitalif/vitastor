@@ -585,7 +585,11 @@ static int coroutine_fn vitastor_co_truncate(BlockDriverState *bs, int64_t offse
     }
 
     // TODO: Resize inode to <offset> bytes
-    client->size = offset / BDRV_SECTOR_SIZE;
+#if QEMU_VERSION_MAJOR >= 4
+    client->size = exact || client->size < offset ? offset : client->size;
+#else
+    client->size = offset;
+#endif
 
     return 0;
 }
