@@ -197,7 +197,11 @@ static void vitastor_parse_filename(const char *filename, QDict *options, Error 
             !strcmp(name, "rdma-mtu"))
         {
             unsigned long long num_val;
+#if QEMU_VERSION_MAJOR < 8 || QEMU_VERSION_MAJOR == 8 && QEMU_VERSION_MINOR < 1
             if (parse_uint_full(value, &num_val, 0))
+#else
+            if (parse_uint_full(value, 0, &num_val))
+#endif
             {
                 error_setg(errp, "Illegal %s: %s", name, value);
                 goto out;
@@ -320,7 +324,7 @@ static void vitastor_aio_fd_write(void *fddv)
 static void universal_aio_set_fd_handler(AioContext *ctx, int fd, IOHandler *fd_read, IOHandler *fd_write, void *opaque)
 {
     aio_set_fd_handler(ctx, fd,
-#if QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 5 || QEMU_VERSION_MAJOR >= 3
+#if QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 5 || QEMU_VERSION_MAJOR >= 3 && (QEMU_VERSION_MAJOR < 8 || QEMU_VERSION_MAJOR == 8 && QEMU_VERSION_MINOR < 1)
         0 /*is_external*/,
 #endif
         fd_read,
