@@ -186,10 +186,12 @@ json11::Json osd_t::get_statistics()
     if (bs)
     {
         st["blockstore_ready"] = bs->is_started();
-        st["data_block_size"] = (uint64_t)bs->get_block_size();
         st["size"] = bs->get_block_count() * bs->get_block_size();
         st["free"] = bs->get_free_block_count() * bs->get_block_size();
     }
+    st["data_block_size"] = (uint64_t)bs_block_size;
+    st["bitmap_granularity"] = (uint64_t)bs_bitmap_granularity;
+    st["immediate_commit"] = immediate_commit == IMMEDIATE_ALL ? "all" : (immediate_commit == IMMEDIATE_SMALL ? "small" : "none");
     st["host"] = self_state["host"];
     json11::Json::object op_stats, subop_stats;
     for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)

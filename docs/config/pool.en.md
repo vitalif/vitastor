@@ -205,9 +205,8 @@ This parameter usually doesn't require to be changed.
 - Default: 131072
 
 Block size for this pool. The value from /vitastor/config/global is used when
-unspecified. If your cluster has OSDs with different block sizes then pool must
-be restricted by [osd_tags](#osd_tags) to only include OSDs with matching block
-size.
+unspecified. Only OSDs with matching block_size are used for each pool. If you
+want to further restrict OSDs for the pool, use [osd_tags](#osd_tags).
 
 Read more about this parameter in [Cluster-Wide Disk Layout Parameters](layout-cluster.en.md#block_size).
 
@@ -216,10 +215,9 @@ Read more about this parameter in [Cluster-Wide Disk Layout Parameters](layout-c
 - Type: integer
 - Default: 4096
 
-"Sector" size of virtual disks in this pool. The value from
-/vitastor/config/global is used when unspecified. Similar to block_size, the
-pool must be restricted by [osd_tags](#osd_tags) to only include OSDs with
-matching bitmap_granularity.
+"Sector" size of virtual disks in this pool. The value from /vitastor/config/global
+is used when unspecified. Similarly to block_size, only OSDs with matching
+bitmap_granularity are used for each pool.
 
 Read more about this parameter in [Cluster-Wide Disk Layout Parameters](layout-cluster.en.md#bitmap_granularity).
 
@@ -229,10 +227,11 @@ Read more about this parameter in [Cluster-Wide Disk Layout Parameters](layout-c
 - Default: none
 
 Immediate commit setting for this pool. The value from /vitastor/config/global
-is used when unspecified. Similar to block_size, the pool must be restricted by
-[osd_tags](#osd_tags) to only include OSDs with compatible immediate_commit.
-Compatible means that a pool with non-immediate commit will work with OSDs with
-immediate commit enabled, but not vice versa.
+is used when unspecified. Similarly to block_size, only OSDs with compatible
+bitmap_granularity are used for each pool. "Compatible" means that a pool with
+non-immediate commit will use OSDs with immediate commit enabled, but not vice
+versa. I.e., pools with "none" use all OSDs, pools with "small" only use OSDs
+with "all" or "small", and pools with "all" only use OSDs with "all".
 
 Read more about this parameter in [Cluster-Wide Disk Layout Parameters](layout-cluster.en.md#immediate_commit).
 

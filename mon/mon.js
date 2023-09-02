@@ -1156,6 +1156,33 @@ class Mon
         }
     }
 
+    filter_osds_by_block_layout(flat_tree, block_size, bitmap_granularity, immediate_commit)
+    {
+        for (const host in flat_tree)
+        {
+            let found = 0;
+            for (const osd in flat_tree[host])
+            {
+                const osd_stat = this.state.osd.stats[osd];
+                if (osd_stat && (osd_stat.bs_block_size && osd_stat.bs_block_size != block_size ||
+                    osd_stat.bitmap_granularity && osd_stat.bitmap_granularity != bitmap_granularity ||
+                    osd_stat.immediate_commit == 'small' && immediate_commit == 'all' ||
+                    osd_stat.immediate_commit == 'none' && immediate_commit != 'none'))
+                {
+                    delete flat_tree[host][osd];
+                }
+                else
+                {
+                    found++;
+                }
+            }
+            if (!found)
+            {
+                delete flat_tree[host];
+            }
+        }
+    }
+
     get_affinity_osds(pool_cfg, up_osds, osd_tree)
     {
         let aff_osds = up_osds;
@@ -1216,6 +1243,12 @@ class Mon
                 pool_tree = pool_tree ? pool_tree.children : [];
                 pool_tree = LPOptimizer.flatten_tree(pool_tree, levels, pool_cfg.failure_domain, 'osd');
                 this.filter_osds_by_tags(osd_tree, pool_tree, pool_cfg.osd_tags);
+                this.filter_osds_by_block_layout(
+                    pool_tree,
+                    pool_cfg.block_size || this.config.block_size || 131072,
+                    pool_cfg.bitmap_granularity || this.config.bitmap_granularity || 4096,
+                    pool_cfg.immediate_commit || this.config.immediate_commit || 'none'
+                );
                 // These are for the purpose of building history.osd_sets
                 const real_prev_pgs = [];
                 let pg_history = [];
