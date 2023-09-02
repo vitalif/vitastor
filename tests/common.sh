@@ -27,6 +27,7 @@ ETCD_COUNT=${ETCD_COUNT:-1}
 
 if [ "$KEEP_DATA" = "" ]; then
     rm -rf ./testdata
+    rm -rf /run/user/$(id -u)/testdata_etcd*
     mkdir -p ./testdata
 fi
 
@@ -41,7 +42,9 @@ ETCDCTL="${ETCD}ctl --endpoints=$ETCD_URL --dial-timeout=5s --command-timeout=10
 start_etcd()
 {
     local i=$1
-    ionice -c2 -n0 $ETCD -name etcd$i --data-dir ./testdata/etcd$i \
+    local t=/run/user/$(id -u)
+    findmnt $t >/dev/null || (sudo mkdir -p $t && sudo mount -t tmpfs tmpfs $t)
+    ionice -c2 -n0 $ETCD -name etcd$i --data-dir /run/user/$(id -u)/testdata_etcd$i \
         --advertise-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) --listen-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) \
         --initial-advertise-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) --listen-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) \
         --initial-cluster-token vitastor-tests-etcd --initial-cluster-state new \
