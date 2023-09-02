@@ -53,6 +53,7 @@ struct snap_merger_t
     std::map<inode_t, std::vector<uint64_t>> layer_lists;
     std::map<inode_t, uint64_t> layer_block_size;
     std::map<inode_t, uint64_t> layer_list_pos;
+    std::vector<snap_rw_op_t*> continue_rwo, continue_rwo2;
     int in_flight = 0;
     uint64_t last_fsync_offset = 0;
     uint64_t last_written_offset = 0;
@@ -304,6 +305,12 @@ struct snap_merger_t
         oit = merge_offsets.begin();
     resume_5:
         // Now read, overwrite and optionally delete offsets one by one
+        continue_rwo2.swap(continue_rwo);
+        for (auto rwo: continue_rwo2)
+        {
+            next_write(rwo);
+        }
+        continue_rwo2.clear();
         while (in_flight < parent->iodepth*parent->parallel_osds &&
             oit != merge_offsets.end() && !rwo_error.size())
         {
@@ -464,7 +471,8 @@ struct snap_merger_t
                 rwo->error_offset = op->offset;
                 rwo->error_read = true;
             }
-            next_write(rwo);
+            continue_rwo.push_back(rwo);
+            parent->ringloop->wakeup();
         };
         parent->cli->execute(op);
     }
@@ -544,11 +552,9 @@ struct snap_merger_t
             }
             // Increment CAS version
             rwo->op.version = subop->version;
-            if (use_cas)
-                next_write(rwo);
-            else
-                autofree_op(rwo);
             delete subop;
+            continue_rwo.push_back(rwo);
+            parent->ringloop->wakeup();
         };
         parent->cli->execute(subop);
     }
