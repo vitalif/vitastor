@@ -493,6 +493,10 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
         return -1;
     }
     bs->total_sectors = client->size / BDRV_SECTOR_SIZE;
+#if QEMU_VERSION_MAJOR > 5 || QEMU_VERSION_MAJOR == 5 && QEMU_VERSION_MINOR >= 1
+    /* When extending regular files, we get zeros from the OS */
+    bs->supported_truncate_flags = BDRV_REQ_ZERO_WRITE;
+#endif
     //client->aio_context = bdrv_get_aio_context(bs);
     qdict_del(options, "use-rdma");
     qdict_del(options, "rdma-mtu");
