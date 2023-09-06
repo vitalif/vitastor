@@ -19,12 +19,12 @@ std::string msgr_rdma_address_t::to_string()
 bool msgr_rdma_address_t::from_string(const char *str, msgr_rdma_address_t *dest)
 {
     uint64_t* gid = (uint64_t*)&dest->gid;
-    int n = sscanf(
+    int scanned = sscanf(
         str, "%hx:%x:%x:%16lx%16lx", &dest->lid, &dest->qpn, &dest->psn, gid, gid+1
     );
     gid[0] = be64toh(gid[0]);
     gid[1] = be64toh(gid[1]);
-    return n == 5;
+    return scanned == 5;
 }
 
 msgr_rdma_context_t::~msgr_rdma_context_t()

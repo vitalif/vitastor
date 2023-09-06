@@ -132,8 +132,8 @@ resume_2:
             auto kv = parent->cli->st_cli.parse_etcd_kv(osd_stats[i]);
             osd_num_t stat_osd_num = 0;
             char null_byte = 0;
-            sscanf(kv.key.c_str() + parent->cli->st_cli.etcd_prefix.size(), "/osd/stats/%lu%c", &stat_osd_num, &null_byte);
-            if (!stat_osd_num || null_byte != 0)
+            int scanned = sscanf(kv.key.c_str() + parent->cli->st_cli.etcd_prefix.size(), "/osd/stats/%lu%c", &stat_osd_num, &null_byte);
+            if (scanned != 1 || !stat_osd_num)
             {
                 fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
                 continue;

@@ -346,8 +346,8 @@ void nfs_proxy_t::parse_stats(etcd_kv_t & kv)
         pool_id_t pool_id = 0;
         inode_t inode_num = 0;
         char null_byte = 0;
-        sscanf(key.c_str() + cli->st_cli.etcd_prefix.length()+13, "%u/%lu%c", &pool_id, &inode_num, &null_byte);
-        if (!pool_id || pool_id >= POOL_ID_MAX || !inode_num || null_byte != 0)
+        int scanned = sscanf(key.c_str() + cli->st_cli.etcd_prefix.length()+13, "%u/%lu%c", &pool_id, &inode_num, &null_byte);
+        if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX || !inode_num)
         {
             fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
         }
@@ -360,8 +360,8 @@ void nfs_proxy_t::parse_stats(etcd_kv_t & kv)
     {
         pool_id_t pool_id = 0;
         char null_byte = 0;
-        sscanf(key.c_str() + cli->st_cli.etcd_prefix.length()+12, "%u%c", &pool_id, &null_byte);
-        if (!pool_id || pool_id >= POOL_ID_MAX)
+        int scanned = sscanf(key.c_str() + cli->st_cli.etcd_prefix.length()+12, "%u%c", &pool_id, &null_byte);
+        if (scanned != 1 || !pool_id || pool_id >= POOL_ID_MAX)
         {
             fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
         }

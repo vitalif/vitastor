@@ -77,8 +77,8 @@ struct alloc_osd_t
                     std::string key = base64_decode(kv["key"].string_value());
                     osd_num_t cur_osd;
                     char null_byte = 0;
-                    sscanf(key.c_str() + parent->cli->st_cli.etcd_prefix.length(), "/osd/stats/%lu%c", &cur_osd, &null_byte);
-                    if (!cur_osd || null_byte != 0)
+                    int scanned = sscanf(key.c_str() + parent->cli->st_cli.etcd_prefix.length(), "/osd/stats/%lu%c", &cur_osd, &null_byte);
+                    if (scanned != 1 || !cur_osd)
                     {
                         fprintf(stderr, "Invalid key in etcd: %s\n", key.c_str());
                         continue;

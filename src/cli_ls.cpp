@@ -133,8 +133,8 @@ resume_1:
             // pool ID
             pool_id_t pool_id;
             char null_byte = 0;
-            sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(), "/pool/stats/%u%c", &pool_id, &null_byte);
-            if (!pool_id || pool_id >= POOL_ID_MAX || null_byte != 0)
+            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(), "/pool/stats/%u%c", &pool_id, &null_byte);
+            if (scanned != 1 || !pool_id || pool_id >= POOL_ID_MAX)
             {
                 fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
                 continue;
@@ -149,9 +149,9 @@ resume_1:
             pool_id_t pool_id;
             inode_t only_inode_num;
             char null_byte = 0;
-            sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(),
+            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(),
                 "/inode/stats/%u/%lu%c", &pool_id, &only_inode_num, &null_byte);
-            if (!pool_id || pool_id >= POOL_ID_MAX || INODE_POOL(only_inode_num) != 0 || null_byte != 0)
+            if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX || INODE_POOL(only_inode_num) != 0)
             {
                 fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
                 continue;

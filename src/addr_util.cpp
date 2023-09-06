@@ -19,8 +19,8 @@ bool string_to_addr(std::string str, bool parse_port, int default_port, struct s
         if (p != std::string::npos && !(str.length() > 0 && str[p-1] == ']')) // "[ipv6]" which contains ':'
         {
             char null_byte = 0;
-            int n = sscanf(str.c_str()+p+1, "%d%c", &default_port, &null_byte);
-            if (n != 1 || default_port >= 0x10000)
+            int scanned = sscanf(str.c_str()+p+1, "%d%c", &default_port, &null_byte);
+            if (scanned != 1 || default_port >= 0x10000)
                 return false;
             str = str.substr(0, p);
         }

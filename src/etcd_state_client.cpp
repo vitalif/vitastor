@@ -684,8 +684,8 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             // ID
             pool_id_t pool_id;
             char null_byte = 0;
-            sscanf(pool_item.first.c_str(), "%u%c", &pool_id, &null_byte);
-            if (!pool_id || pool_id >= POOL_ID_MAX || null_byte != 0)
+            int scanned = sscanf(pool_item.first.c_str(), "%u%c", &pool_id, &null_byte);
+            if (scanned != 1 || !pool_id || pool_id >= POOL_ID_MAX)
             {
                 fprintf(stderr, "Pool ID %s is invalid (must be a number less than 0x%x), skipping pool\n", pool_item.first.c_str(), POOL_ID_MAX);
                 continue;
@@ -829,8 +829,8 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         {
             pool_id_t pool_id;
             char null_byte = 0;
-            sscanf(pool_item.first.c_str(), "%u%c", &pool_id, &null_byte);
-            if (!pool_id || pool_id >= POOL_ID_MAX || null_byte != 0)
+            int scanned = sscanf(pool_item.first.c_str(), "%u%c", &pool_id, &null_byte);
+            if (scanned != 1 || !pool_id || pool_id >= POOL_ID_MAX)
             {
                 fprintf(stderr, "Pool ID %s is invalid in PG configuration (must be a number less than 0x%x), skipping pool\n", pool_item.first.c_str(), POOL_ID_MAX);
                 continue;
@@ -838,8 +838,8 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             for (auto & pg_item: pool_item.second.object_items())
             {
                 pg_num_t pg_num = 0;
-                sscanf(pg_item.first.c_str(), "%u%c", &pg_num, &null_byte);
-                if (!pg_num || null_byte != 0)
+                int scanned = sscanf(pg_item.first.c_str(), "%u%c", &pg_num, &null_byte);
+                if (scanned != 1 || !pg_num)
                 {
                     fprintf(stderr, "Bad key in pool %u PG configuration: %s (must be a number), skipped\n", pool_id, pg_item.first.c_str());
                     continue;
@@ -889,8 +889,8 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         pool_id_t pool_id = 0;
         pg_num_t pg_num = 0;
         char null_byte = 0;
-        sscanf(key.c_str() + etcd_prefix.length()+12, "%u/%u%c", &pool_id, &pg_num, &null_byte);
-        if (!pool_id || pool_id >= POOL_ID_MAX || !pg_num || null_byte != 0)
+        int scanned = sscanf(key.c_str() + etcd_prefix.length()+12, "%u/%u%c", &pool_id, &pg_num, &null_byte);
+        if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX || !pg_num)
         {
             fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
         }
@@ -944,8 +944,8 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         pool_id_t pool_id = 0;
         pg_num_t pg_num = 0;
         char null_byte = 0;
-        sscanf(key.c_str() + etcd_prefix.length()+10, "%u/%u%c", &pool_id, &pg_num, &null_byte);
-        if (!pool_id || pool_id >= POOL_ID_MAX || !pg_num || null_byte != 0)
+        int scanned = sscanf(key.c_str() + etcd_prefix.length()+10, "%u/%u%c", &pool_id, &pg_num, &null_byte);
+        if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX || !pg_num)
         {
             fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
         }
@@ -1015,8 +1015,8 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         uint64_t pool_id = 0;
         uint64_t inode_num = 0;
         char null_byte = 0;
-        sscanf(key.c_str() + etcd_prefix.length()+14, "%lu/%lu%c", &pool_id, &inode_num, &null_byte);
-        if (!pool_id || pool_id >= POOL_ID_MAX || !inode_num || (inode_num >> (64-POOL_ID_BITS)) || null_byte != 0)
+        int scanned = sscanf(key.c_str() + etcd_prefix.length()+14, "%lu/%lu%c", &pool_id, &inode_num, &null_byte);
+        if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX || !inode_num || (inode_num >> (64-POOL_ID_BITS)))
         {
             fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
         }

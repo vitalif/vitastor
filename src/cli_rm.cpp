@@ -384,8 +384,8 @@ resume_100:
                 pool_id_t pool_id = 0;
                 inode_t inode = 0;
                 char null_byte = 0;
-                sscanf(kv.key.c_str() + parent->cli->st_cli.etcd_prefix.length()+13, "%u/%lu%c", &pool_id, &inode, &null_byte);
-                if (!inode || null_byte != 0)
+                int scanned = sscanf(kv.key.c_str() + parent->cli->st_cli.etcd_prefix.length()+13, "%u/%lu%c", &pool_id, &inode, &null_byte);
+                if (scanned != 2 || !inode)
                 {
                     result = (cli_result_t){ .err = EIO, .text = "Bad key returned from etcd: "+kv.key };
                     state = 100;

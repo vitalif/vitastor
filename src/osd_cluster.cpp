@@ -967,8 +967,8 @@ void osd_t::report_pg_states()
                         pool_id_t pool_id = 0;
                         pg_num_t pg_num = 0;
                         char null_byte = 0;
-                        sscanf(kv.key.c_str() + st_cli.etcd_prefix.length()+10, "%u/%u%c", &pool_id, &pg_num, &null_byte);
-                        if (null_byte == 0)
+                        int scanned = sscanf(kv.key.c_str() + st_cli.etcd_prefix.length()+10, "%u/%u%c", &pool_id, &pg_num, &null_byte);
+                        if (scanned == 2)
                         {
                             auto pg_it = pgs.find({ .pool_id = pool_id, .pg_num = pg_num });
                             if (pg_it != pgs.end() && pg_it->second.state != PG_OFFLINE && pg_it->second.state != PG_STARTING &&
