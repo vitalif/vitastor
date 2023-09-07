@@ -357,6 +357,8 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         p->ringloop = NULL;
     }
     // Print result
+    fflush(stderr);
+    fflush(stdout);
     if (p->json_output && !result.data.is_null())
     {
         printf("%s\n", result.data.dump().c_str());
