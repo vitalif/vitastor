@@ -649,7 +649,7 @@ void osd_t::apply_pg_config()
             auto pg_it = this->pgs.find({ .pool_id = pool_id, .pg_num = pg_num });
             bool currently_taken = pg_it != this->pgs.end() && pg_it->second.state != PG_OFFLINE;
             // Check pool block size and bitmap granularity
-            if (this->bs_block_size != pool_item.second.data_block_size ||
+            if (take && this->bs_block_size != pool_item.second.data_block_size ||
                 this->bs_bitmap_granularity != pool_item.second.bitmap_granularity)
             {
                 if (!warned_block_size)
