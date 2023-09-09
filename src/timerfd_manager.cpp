@@ -129,6 +129,7 @@ again:
         if (exp.it_value.tv_sec < 0 || exp.it_value.tv_sec == 0 && exp.it_value.tv_nsec <= 0)
         {
             // It already happened
+            // FIXME: Postpone to setImmediate/BH to avoid reenterability problems
             trigger_nearest();
             goto again;
         }
