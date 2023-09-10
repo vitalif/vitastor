@@ -210,7 +210,7 @@ struct blockstore_op_private_t
     std::vector<copy_buffer_t> read_vec;
 
     // Sync, write
-    int min_flushed_journal_sector, max_flushed_journal_sector;
+    uint64_t min_flushed_journal_sector, max_flushed_journal_sector;
 
     // Write
     struct iovec iov_zerofill[3];

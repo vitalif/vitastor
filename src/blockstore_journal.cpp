@@ -198,6 +198,7 @@ void blockstore_impl_t::prepare_journal_sector_write(int cur_sector, blockstore_
     priv->pending_ops++;
     if (!priv->min_flushed_journal_sector)
         priv->min_flushed_journal_sector = 1+cur_sector;
+    assert(priv->min_flushed_journal_sector <= journal.sector_count);
     priv->max_flushed_journal_sector = 1+cur_sector;
 }
 

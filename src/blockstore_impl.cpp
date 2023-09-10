@@ -393,6 +393,7 @@ void blockstore_impl_t::init_op(blockstore_op_t *op)
 {
     // Call constructor without allocating memory. We'll call destructor before returning op back
     new ((void*)op->private_data) blockstore_op_private_t;
+    PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
     PRIV(op)->wait_for = 0;
     PRIV(op)->op_state = 0;
     PRIV(op)->pending_ops = 0;

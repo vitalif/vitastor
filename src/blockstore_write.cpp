@@ -378,7 +378,6 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             sqe, dsk.data_fd, PRIV(op)->iov_zerofill, vcnt, dsk.data_offset + (loc << dsk.block_order) + op->offset - stripe_offset
         );
         PRIV(op)->pending_ops = 1;
-        PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
         if (immediate_commit != IMMEDIATE_ALL)
         {
             // Increase the counter, but don't save into unsynced_writes yet (can't sync until the write is finished)
@@ -415,16 +414,10 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         write_iodepth++;
         // Got SQEs. Prepare previous journal sector write if required
         auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
-        if (immediate_commit == IMMEDIATE_NONE)
+        if (immediate_commit == IMMEDIATE_NONE &&
+            !journal.entry_fits(sizeof(journal_entry_small_write) + dyn_size))
         {
-            if (!journal.entry_fits(sizeof(journal_entry_small_write) + dyn_size))
-            {
-                prepare_journal_sector_write(journal.cur_sector, op);
-            }
-            else
-            {
-                PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
-            }
+            prepare_journal_sector_write(journal.cur_sector, op);
         }
         // Then pre-fill journal entry
         journal_entry_small_write *je = (journal_entry_small_write*)prefill_single_journal_entry(
@@ -750,17 +743,11 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     }
     write_iodepth++;
     // Prepare journal sector write
-    if (immediate_commit == IMMEDIATE_NONE)
+    if (immediate_commit == IMMEDIATE_NONE &&
+        (dsk.journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_del) &&
+        journal.sector_info[journal.cur_sector].dirty)
     {
-        if ((dsk.journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_del) &&
-            journal.sector_info[journal.cur_sector].dirty)
-        {
-            prepare_journal_sector_write(journal.cur_sector, op);
-        }
-        else
-        {
-            PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
-        }
+        prepare_journal_sector_write(journal.cur_sector, op);
     }
     // Pre-fill journal entry
     journal_entry_del *je = (journal_entry_del*)prefill_single_journal_entry(
