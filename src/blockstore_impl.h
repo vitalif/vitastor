@@ -262,6 +262,8 @@ class blockstore_impl_t
     int throttle_target_parallelism = 1;
     // Minimum difference in microseconds between target and real execution times to throttle the response
     int throttle_threshold_us = 50;
+    // Maximum writes between automatically added fsync operations
+    uint64_t autosync_writes = 128;
     /******* END OF OPTIONS *******/
 
     struct ring_consumer_t ring_consumer;
@@ -273,6 +275,7 @@ class blockstore_impl_t
     std::vector<blockstore_op_t*> submit_queue;
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
     int unsynced_big_write_count = 0;
+    int unsynced_queued_ops = 0;
     allocator *data_alloc = NULL;
     uint8_t *zero_object;
 

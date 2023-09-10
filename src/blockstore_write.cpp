@@ -127,8 +127,9 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             return false;
         }
     }
-    if (wait_big && !is_del && !deleted && op->len < dsk.data_block_size &&
-        immediate_commit != IMMEDIATE_ALL)
+    bool imm = (op->len < dsk.data_block_size ? (immediate_commit != IMMEDIATE_NONE) : (immediate_commit == IMMEDIATE_ALL));
+    if (wait_big && !is_del && !deleted && op->len < dsk.data_block_size && !imm ||
+        !imm && unsynced_queued_ops >= autosync_writes)
     {
         // Issue an additional sync so that the previous big write can reach the journal
         blockstore_op_t *sync_op = new blockstore_op_t;
@@ -139,6 +140,8 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         };
         enqueue_op(sync_op);
     }
+    else if (!imm)
+        unsynced_queued_ops++;
 #ifdef BLOCKSTORE_DEBUG
     if (is_del)
         printf("Delete %lx:%lx v%lu\n", op->oid.inode, op->oid.stripe, op->version);

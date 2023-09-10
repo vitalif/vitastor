@@ -19,6 +19,10 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
     throttle_target_mbs = strtoull(config["throttle_target_mbs"].c_str(), NULL, 10);
     throttle_target_parallelism = strtoull(config["throttle_target_parallelism"].c_str(), NULL, 10);
     throttle_threshold_us = strtoull(config["throttle_threshold_us"].c_str(), NULL, 10);
+    if (config.find("autosync_writes") != config.end())
+    {
+        autosync_writes = strtoull(config["autosync_writes"].c_str(), NULL, 10);
+    }
     if (!max_flusher_count)
     {
         max_flusher_count = 256;

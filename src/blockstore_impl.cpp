@@ -384,6 +384,10 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
         ringloop->set_immediate([op]() { std::function<void (blockstore_op_t*)>(op->callback)(op); });
         return;
     }
+    if (op->opcode == BS_OP_SYNC)
+    {
+        unsynced_queued_ops = 0;
+    }
     init_op(op);
     submit_queue.push_back(op);
     ringloop->wakeup();
