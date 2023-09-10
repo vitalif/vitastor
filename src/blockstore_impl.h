@@ -220,7 +220,6 @@ struct blockstore_op_private_t
 
     // Sync
     std::vector<obj_ver_id> sync_big_writes, sync_small_writes;
-    int sync_small_checked, sync_big_checked;
 };
 
 typedef uint32_t pool_id_t;

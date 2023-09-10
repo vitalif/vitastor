@@ -27,8 +27,6 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         unsynced_big_write_count -= unsynced_big_writes.size();
         PRIV(op)->sync_big_writes.swap(unsynced_big_writes);
         PRIV(op)->sync_small_writes.swap(unsynced_small_writes);
-        PRIV(op)->sync_small_checked = 0;
-        PRIV(op)->sync_big_checked = 0;
         unsynced_big_writes.clear();
         unsynced_small_writes.clear();
         if (PRIV(op)->sync_big_writes.size() > 0)
