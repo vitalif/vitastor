@@ -10,7 +10,7 @@ check_qemu
 
 LD_PRELOAD="build/src/libfio_vitastor.so" \
     fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=68k -direct=1 -numjobs=16 -iodepth=4 \
-        -rw=randwrite -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -runtime=10 -osd_trace=1
+        -rw=randwrite -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -runtime=10
 
 # A lot of parallel syncs was crashing the primary OSD at some point
 
