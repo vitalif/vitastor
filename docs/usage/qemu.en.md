@@ -34,6 +34,20 @@ qemu-system-x86_64 -enable-kvm -m 1024 \
     -vnc 0.0.0.0:0
 ```
 
+With a separate I/O thread:
+
+```
+qemu-system-x86_64 -enable-kvm -m 1024 \
+    -object iothread,id=vitastor1 \
+    -blockdev '{"node-name":"drive-virtio-disk0","driver":"vitastor","image":"debian9",
+        "cache":{"direct":true,"no-flush":false},"auto-read-only":true,"discard":"unmap"}' \
+    -device 'virtio-blk-pci,iothread=vitastor1,scsi=off,bus=pci.0,addr=0x5,drive=drive-virtio-disk0,
+        id=virtio-disk0,bootindex=1,write-cache=off' \
+    -vnc 0.0.0.0:0
+```
+
+You can also specify inode ID, pool and size manually instead of `:image=<IMAGE>` option: `:pool=<POOL>:inode=<INODE>:size=<SIZE>`.
+
 ## qemu-img
 
 For qemu-img, you should use `vitastor:etcd_host=<HOST>:image=<IMAGE>` as filename.
@@ -83,6 +97,29 @@ qemu-img rebase -u -b '' testimg.qcow2
 This can be used for backups. Just note that exporting an image that is currently being written to
 is of course unsafe and doesn't produce a consistent result, so only export snapshots if you do this
 on a live VM.
+
+## vhost-user-blk
+
+QEMU, starting with 6.0, includes support for attaching disks via a separate
+userspace worker process, called `vhost-user-blk`. It usually has slightly (20-30 us)
+lower latency.
+
+Example commands to use it with Vitastor:
+
+```
+qemu-storage-daemon \
+    --daemonize \
+    --blockdev '{"node-name":"drive-virtio-disk1","driver":"vitastor","image":"testosd1","cache":{"direct":true,"no-flush":false},"auto-read-only":true,"discard":"unmap"}' \
+    --export type=vhost-user-blk,id=vitastor1,node-name=drive-virtio-disk1,addr.type=unix,addr.path=/run/vitastor1-user-blk.sock,writable=on,num-queues=1
+
+qemu-system-x86_64 -enable-kvm -m 2048 -M accel=kvm,memory-backend=mem \
+    -object memory-backend-memfd,id=mem,size=2G,share=on \
+    -chardev socket,id=vitastor1,reconnect=1,path=/run/vitastor1-user-blk.sock \
+    -device vhost-user-blk-pci,chardev=vitastor1,num-queues=1,config-wce=off \
+    -vnc 0.0.0.0:0
+```
+
+memfd memory-backend is crucial, vhost-user-blk does not work without it.
 
 ## VDUSE
 

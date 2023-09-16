@@ -36,6 +36,18 @@ qemu-system-x86_64 -enable-kvm -m 1024 \
     -vnc 0.0.0.0:0
 ```
 
+С отдельным потоком ввода-вывода:
+
+```
+qemu-system-x86_64 -enable-kvm -m 1024 \
+    -object iothread,id=vitastor1 \
+    -blockdev '{"node-name":"drive-virtio-disk0","driver":"vitastor","image":"debian9",
+        "cache":{"direct":true,"no-flush":false},"auto-read-only":true,"discard":"unmap"}' \
+    -device 'virtio-blk-pci,iothread=vitastor1,scsi=off,bus=pci.0,addr=0x5,drive=drive-virtio-disk0,
+        id=virtio-disk0,bootindex=1,write-cache=off' \
+    -vnc 0.0.0.0:0
+```
+
 Вместо `:image=<IMAGE>` также можно указывать номер инода, пул и размер: `:pool=<POOL>:inode=<INODE>:size=<SIZE>`.
 
 ## qemu-img
@@ -87,6 +99,29 @@ qemu-img rebase -u -b '' testimg.qcow2
 Это можно использовать для резервного копирования. Только помните, что экспортировать образ, в который
 в то же время идёт запись, небезопасно - результат чтения не будет целостным. Так что если вы работаете
 с активными виртуальными машинами, экспортируйте только их снимки, но не сам образ.
+
+## vhost-user-blk
+
+QEMU, начиная с 6.0, позволяет подключать диски через отдельный рабочий процесс.
+Этот метод подключения называется `vhost-user-blk` и обычно имеет чуть меньшую
+задержку (ниже на 20-30 микросекунд, чем при обычном методе).
+
+Пример команд для использования vhost-user-blk с Vitastor:
+
+```
+qemu-storage-daemon \
+    --daemonize \
+    --blockdev '{"node-name":"drive-virtio-disk1","driver":"vitastor","image":"testosd1","cache":{"direct":true,"no-flush":false},"auto-read-only":true,"discard":"unmap"}' \
+    --export type=vhost-user-blk,id=vitastor1,node-name=drive-virtio-disk1,addr.type=unix,addr.path=/run/vitastor1-user-blk.sock,writable=on,num-queues=1
+
+qemu-system-x86_64 -enable-kvm -m 2048 -M accel=kvm,memory-backend=mem \
+    -object memory-backend-memfd,id=mem,size=2G,share=on \
+    -chardev socket,id=vitastor1,reconnect=1,path=/run/vitastor1-user-blk.sock \
+    -device vhost-user-blk-pci,chardev=vitastor1,num-queues=1,config-wce=off \
+    -vnc 0.0.0.0:0
+```
+
+Здесь критична опция memory-backend-memfd, vhost-user-blk без неё не работает.
 
 ## VDUSE
 
