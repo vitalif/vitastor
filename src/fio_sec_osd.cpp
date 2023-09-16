@@ -242,6 +242,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
             op.sec_rw.version = UINT64_MAX; // last unstable
             op.sec_rw.offset = io->offset % bsd->block_size;
             op.sec_rw.len = io->xfer_buflen;
+            op.sec_rw.attr_len = 0;
         }
         else
         {
@@ -263,6 +264,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
             op.sec_rw.version = 0; // assign automatically
             op.sec_rw.offset = io->offset % bsd->block_size;
             op.sec_rw.len = io->xfer_buflen;
+            op.sec_rw.attr_len = 0;
         }
         else
         {
