@@ -573,7 +573,7 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
         return;
     }
     if (op->opcode == OSD_OP_WRITE && enable_writeback && !(op->flags & OP_FLUSH_BUFFER) &&
-        !op->version /* FIXME no CAS writeback */)
+        !op->version /* no CAS writeback */)
     {
         if (wb->writebacks_active >= client_max_writeback_iodepth)
         {
@@ -595,7 +595,7 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
     }
     if (op->opcode == OSD_OP_WRITE && !(op->flags & OP_IMMEDIATE_COMMIT))
     {
-        if (!(op->flags & OP_FLUSH_BUFFER))
+        if (!(op->flags & OP_FLUSH_BUFFER) && !op->version /* no CAS write-repeat */)
         {
             wb->copy_write(op, CACHE_WRITTEN);
         }
@@ -1196,7 +1196,7 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
                 );
             }
         }
-        else
+        else if (log_level > 0)
         {
             fprintf(
                 stderr, "%s operation failed on OSD %ju: retval=%jd (expected %d)\n",
