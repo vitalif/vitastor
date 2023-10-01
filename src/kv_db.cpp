@@ -107,6 +107,7 @@ struct kv_db_t
 
     int base_block_level = 0;
     int usage_counter = 1;
+    std::set<uint64_t> block_levels;
     std::map<uint64_t, kv_block_t> block_cache;
     std::map<uint64_t, uint64_t> known_versions;
     std::multimap<uint64_t, std::function<void()>> continue_update;
@@ -402,6 +403,16 @@ void kv_db_t::stop_updating(kv_block_t *blk)
     }
 }
 
+static void del_block_level(kv_db_t *db, kv_block_t *blk)
+{
+    db->block_levels.erase((((uint64_t)(db->base_block_level+blk->level) & 0xFFFF) << 48) | (blk->offset/db->kv_block_size));
+}
+
+static void add_block_level(kv_db_t *db, kv_block_t *blk)
+{
+    db->block_levels.insert((((uint64_t)(db->base_block_level+blk->level) & 0xFFFF) << 48) | (blk->offset/db->kv_block_size));
+}
+
 static void invalidate(kv_db_t *db, uint64_t offset, uint64_t version)
 {
     if (db->known_versions[offset/db->ino_block_size] != version)
@@ -416,6 +427,8 @@ static void invalidate(kv_db_t *db, uint64_t offset, uint64_t version)
             }
             else
             {
+                auto blk = &b_it->second;
+                del_block_level(db, blk);
                 db->block_cache.erase(b_it++);
             }
         }
@@ -468,6 +481,7 @@ static void get_block(kv_db_t *db, uint64_t offset, int cur_level, int recheck_p
                 blk->offset = op->offset;
                 blk->level = cur_level;
                 blk->usage = db->usage_counter;
+                add_block_level(db, blk);
                 cb(0, true);
             }
             else
@@ -703,6 +717,7 @@ static kv_block_t *create_new_block(kv_db_t *db, kv_block_t *old_blk, std::strin
     blk->data.insert(right ? old_blk->data.lower_bound(separator) : old_blk->data.begin(),
         right ? old_blk->data.end() : old_blk->data.lower_bound(separator));
     blk->set_data_size();
+    add_block_level(db, blk);
     return blk;
 }
 
@@ -724,6 +739,7 @@ static void write_new_block(kv_db_t *db, kv_block_t *blk, std::function<void(int
                 if (op->retval != op->len)
                 {
                     // Failure => free the new unreferenced block and die
+                    del_block_level(db, blk);
                     db->block_cache.erase(blk->offset);
                     cb(op->retval >= 0 ? -EIO : op->retval);
                     return;
@@ -740,11 +756,12 @@ static void write_new_block(kv_db_t *db, kv_block_t *blk, std::function<void(int
                     auto new_offset = db->next_free;
                     db->next_free += db->kv_block_size;
                     db->block_cache[new_offset] = std::move(db->block_cache[blk->offset]);
-                    db->block_cache.erase(blk->offset);
                     auto new_blk = &db->block_cache[new_offset];
                     *new_blk = *blk;
                     new_blk->offset = new_offset;
                     db->block_cache.erase(blk->offset);
+                    del_block_level(db, blk);
+                    add_block_level(db, new_blk);
                     write_new_block(db, new_blk, cb);
                 }
                 free(op->iov.buf[0].iov_base);
@@ -755,6 +772,7 @@ static void write_new_block(kv_db_t *db, kv_block_t *blk, std::function<void(int
         else if (res != 0)
         {
             // Other failure => free the new unreferenced block and die
+            del_block_level(db, blk);
             db->block_cache.erase(blk->offset);
             cb(res > 0 ? -EIO : res);
         }
@@ -766,12 +784,12 @@ static void write_new_block(kv_db_t *db, kv_block_t *blk, std::function<void(int
     });
 }
 
-static void clear_block(kv_db_t *db, uint64_t offset, uint64_t version, std::function<void(int)> cb)
+static void clear_block(kv_db_t *db, kv_block_t *blk, uint64_t version, std::function<void(int)> cb)
 {
     cluster_op_t *op = new cluster_op_t;
     op->opcode = OSD_OP_WRITE;
     op->inode = db->inode_id;
-    op->offset = offset;
+    op->offset = blk->offset;
     op->version = version;
     op->len = db->kv_block_size;
     op->iov.push_back(malloc_or_die(op->len), op->len);
@@ -788,7 +806,8 @@ static void clear_block(kv_db_t *db, uint64_t offset, uint64_t version, std::fun
         delete op;
         cb(res);
     };
-    db->block_cache.erase(offset);
+    del_block_level(db, blk);
+    db->block_cache.erase(blk->offset);
     db->cli->execute(op);
 }
 
@@ -867,6 +886,7 @@ void kv_op_t::create_root()
     blk->offset = 0;
     blk->data[key] = value;
     blk->set_data_size();
+    add_block_level(db, blk);
     write_block(db, blk, [=](int res)
     {
         if (res == -EINTR)
@@ -1018,13 +1038,14 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
                     db->stop_updating(blk);
                     if (write_res < 0)
                     {
-                        db->base_block_level--;
+                        del_block_level(db, blk);
                         db->block_cache.erase(blk->offset);
-                        clear_block(db, left_blk->offset, 0, [=, left_offset = left_blk->offset](int res)
+                        db->base_block_level--;
+                        clear_block(db, left_blk, 0, [=, left_offset = left_blk->offset](int res)
                         {
                             if (res < 0)
                                 fprintf(stderr, "Failed to clear unreferenced block %lu: %s (code %d)\n", left_offset, strerror(-res), res);
-                            clear_block(db, right_blk->offset, 0, [=, right_offset = right_blk->offset](int res)
+                            clear_block(db, right_blk, 0, [=, right_offset = right_blk->offset](int res)
                             {
                                 if (res < 0)
                                     fprintf(stderr, "Failed to clear unreferenced block %lu: %s (code %d)\n", right_offset, strerror(-res), res);
@@ -1062,8 +1083,9 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
                 db->stop_updating(blk);
                 if (write_res < 0)
                 {
+                    del_block_level(db, blk);
                     db->block_cache.erase(blk->offset);
-                    clear_block(db, right_blk->offset, 0, [=, right_offset = right_blk->offset](int res)
+                    clear_block(db, right_blk, 0, [=, right_offset = right_blk->offset](int res)
                     {
                         if (res < 0)
                             fprintf(stderr, "Failed to clear unreferenced block %lu: %s (code %d)\n", right_offset, strerror(-res), res);
