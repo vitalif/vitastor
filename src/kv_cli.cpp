@@ -30,11 +30,12 @@ public:
     char *cur_cmd = NULL;
     int cur_cmd_size = 0, cur_cmd_alloc = 0;
     bool finished = false, eof = false;
+    json11::Json::object cfg;
 
     ~kv_cli_t();
 
     static json11::Json::object parse_args(int narg, const char *args[]);
-    void run(json11::Json cfg);
+    void run(const json11::Json::object & cfg);
     void read_cmd();
     void next_cmd();
     void handle_cmd(const std::string & cmd, std::function<void()> cb);
@@ -86,7 +87,7 @@ json11::Json::object kv_cli_t::parse_args(int narg, const char *args[])
     return cfg;
 }
 
-void kv_cli_t::run(json11::Json cfg)
+void kv_cli_t::run(const json11::Json::object & cfg)
 {
     // Create client
     ringloop = new ring_loop_t(512);
@@ -229,7 +230,8 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
             cb();
             return;
         }
-        db->open(INODE_WITH_POOL(pool_id, inode_id), kv_block_size, [=](int res)
+        cfg["kv_block_size"] = (uint64_t)kv_block_size;
+        db->open(INODE_WITH_POOL(pool_id, inode_id), cfg, [=](int res)
         {
             if (res < 0)
                 fprintf(stderr, "Error opening index: %s (code %d)\n", strerror(-res), res);
@@ -237,6 +239,31 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
                 printf("Index opened. Current size: %lu bytes\n", db->get_size());
             cb();
         });
+    }
+    else if (opname == "config")
+    {
+        auto pos2 = cmd.find_first_of(" \t", pos+1);
+        if (pos2 == std::string::npos)
+        {
+            fprintf(stderr, "Usage: config <property> <value>\n");
+            cb();
+            return;
+        }
+        auto key = trim(cmd.substr(pos+1, pos2-pos-1));
+        auto value = parse_size(trim(cmd.substr(pos2+1)));
+        if (key != "kv_memory_limit" &&
+            key != "kv_evict_max_misses" &&
+            key != "kv_evict_attempts_per_level" &&
+            key != "kv_evict_unused_age")
+        {
+            fprintf(stderr, "Allowed properties: kv_memory_limit, kv_evict_max_misses, kv_evict_attempts_per_level, kv_evict_unused_age\n");
+        }
+        else
+        {
+            cfg[key] = value;
+            db->set_config(cfg);
+        }
+        cb();
     }
     else if (opname == "get" || opname == "set" || opname == "del")
     {
@@ -349,6 +376,7 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
         fprintf(
             stderr, "Unknown operation: %s. Supported operations:\n"
             "open <pool_id> <inode_id> [block_size]\n"
+            "config <property> <value>\n"
             "get <key>\nset <key> <value>\ndel <key>\nlist [<start> [end]]\n"
             "close\nquit\n", opname.c_str()
         );

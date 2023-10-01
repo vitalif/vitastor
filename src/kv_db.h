@@ -15,7 +15,8 @@ struct kv_dbw_t
     kv_dbw_t(cluster_client_t *cli);
     ~kv_dbw_t();
 
-    void open(inode_t inode_id, uint32_t kv_block_size, std::function<void(int)> cb);
+    void open(inode_t inode_id, json11::Json cfg, std::function<void(int)> cb);
+    void set_config(json11::Json cfg);
     void close(std::function<void()> cb);
 
     uint64_t get_size();

@@ -123,7 +123,7 @@ public:
     json11::Json::object cli_config, file_config, etcd_global_config;
     json11::Json::object config;
 
-    cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json & config);
+    cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json config);
     ~cluster_client_t();
     void execute(cluster_op_t *op);
     void execute_raw(osd_num_t osd_num, osd_op_t *op);

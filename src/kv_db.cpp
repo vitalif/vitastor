@@ -38,6 +38,9 @@
 #define KV_RECHECK_ALL 2
 #define KV_RECHECK_RELOAD 3
 
+#define LEVEL_BITS 8
+#define NO_LEVEL_MASK (((uint64_t)1 << (64-LEVEL_BITS)) - 1)
+
 struct __attribute__((__packed__)) kv_stored_block_t
 {
     uint64_t magic;
@@ -103,8 +106,13 @@ struct kv_db_t
     uint32_t kv_block_size = 0;
     uint32_t ino_block_size = 0;
     bool immediate_commit = false;
-    uint64_t cache_max_blocks = 0;
+    uint64_t memory_limit = 128*1024*1024;
+    uint64_t evict_unused_age = 1000;
+    uint64_t evict_max_misses = 10;
+    uint64_t evict_attempts_per_level = 3;
 
+    uint64_t evict_unused_counter = 0;
+    uint64_t cache_max_blocks = 0;
     int base_block_level = 0;
     int usage_counter = 1;
     std::set<uint64_t> block_levels;
@@ -116,7 +124,8 @@ struct kv_db_t
     int active_ops = 0;
     std::function<void()> on_close;
 
-    void open(inode_t inode_id, uint32_t kv_block_size, std::function<void(int)> cb);
+    void open(inode_t inode_id, json11::Json cfg, std::function<void(int)> cb);
+    void set_config(json11::Json cfg);
     void close(std::function<void()> cb);
 
     void find_size(uint64_t min, uint64_t max, int phase, std::function<void(int, uint64_t)> cb);
@@ -267,7 +276,7 @@ bool kv_block_t::serialize(uint8_t *data, int size)
     return true;
 }
 
-void kv_db_t::open(inode_t inode_id, uint32_t kv_block_size, std::function<void(int)> cb)
+void kv_db_t::open(inode_t inode_id, json11::Json cfg, std::function<void(int)> cb)
 {
     if (block_cache.size() > 0)
     {
@@ -282,6 +291,9 @@ void kv_db_t::open(inode_t inode_id, uint32_t kv_block_size, std::function<void(
     }
     auto & pool_cfg = pool_it->second;
     uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+    uint64_t kv_block_size = cfg["kv_block_size"].uint64_value();
+    if (!kv_block_size)
+        kv_block_size = 4096;
     if ((pool_cfg.data_block_size*pg_data_size) % kv_block_size ||
         kv_block_size < pool_cfg.bitmap_granularity)
     {
@@ -293,6 +305,7 @@ void kv_db_t::open(inode_t inode_id, uint32_t kv_block_size, std::function<void(
     this->ino_block_size = pool_cfg.data_block_size * pg_data_size;
     this->kv_block_size = kv_block_size;
     this->next_free = 0;
+    set_config(cfg);
     // Find index size with binary search
     find_size(0, 0, 1, [=](int res, uint64_t size)
     {
@@ -304,6 +317,15 @@ void kv_db_t::open(inode_t inode_id, uint32_t kv_block_size, std::function<void(
         this->next_free = size;
         cb(res);
     });
+}
+
+void kv_db_t::set_config(json11::Json cfg)
+{
+    this->memory_limit = cfg["kv_memory_limit"].is_null() ? 128*1024*1024 : cfg["kv_memory_limit"].uint64_value();
+    this->evict_max_misses = cfg["kv_evict_max_misses"].is_null() ? 10 : cfg["kv_evict_max_misses"].uint64_value();
+    this->evict_attempts_per_level = cfg["kv_evict_attempts_per_level"].is_null() ? 3 : cfg["kv_evict_attempts_per_level"].uint64_value();
+    this->evict_unused_age = cfg["kv_evict_unused_age"].is_null() ? 1000 : cfg["kv_evict_unused_age"].uint64_value();
+    this->cache_max_blocks = this->memory_limit / this->kv_block_size;
 }
 
 void kv_db_t::close(std::function<void()> cb)
@@ -405,12 +427,12 @@ void kv_db_t::stop_updating(kv_block_t *blk)
 
 static void del_block_level(kv_db_t *db, kv_block_t *blk)
 {
-    db->block_levels.erase((((uint64_t)(db->base_block_level+blk->level) & 0xFFFF) << 48) | (blk->offset/db->kv_block_size));
+    db->block_levels.erase((((uint64_t)(db->base_block_level+blk->level) & 0xFFFF) << (64-LEVEL_BITS)) | (blk->offset/db->kv_block_size));
 }
 
 static void add_block_level(kv_db_t *db, kv_block_t *blk)
 {
-    db->block_levels.insert((((uint64_t)(db->base_block_level+blk->level) & 0xFFFF) << 48) | (blk->offset/db->kv_block_size));
+    db->block_levels.insert((((uint64_t)(db->base_block_level+blk->level) & 0xFFFF) << (64-LEVEL_BITS)) | (blk->offset/db->kv_block_size));
 }
 
 static void invalidate(kv_db_t *db, uint64_t offset, uint64_t version)
@@ -436,9 +458,75 @@ static void invalidate(kv_db_t *db, uint64_t offset, uint64_t version)
     }
 }
 
+static uint64_t get_max_level(kv_db_t *db)
+{
+    auto el_it = db->block_levels.end();
+    if (el_it == db->block_levels.begin())
+    {
+        return 0;
+    }
+    el_it--;
+    return (*el_it >> (64-LEVEL_BITS));
+}
+
+static void try_evict(kv_db_t *db)
+{
+    // Evict blocks from cache based on memory limit and block level
+    if (db->cache_max_blocks <= 10 || db->block_cache.size() <= db->cache_max_blocks)
+    {
+        return;
+    }
+    for (uint64_t evict_level = get_max_level(db); evict_level > 0; evict_level--)
+    {
+        // Do <evict_attempts_per_level> eviction attempts at random block positions per each block level
+        for (int attempt = 0; attempt < db->evict_attempts_per_level; attempt++)
+        {
+            auto start_it = db->block_levels.lower_bound(evict_level << (64-LEVEL_BITS));
+            auto end_it = db->block_levels.lower_bound((evict_level+1) << (64-LEVEL_BITS));
+            if (start_it == end_it)
+                continue;
+            end_it--;
+            if (start_it == end_it)
+                continue;
+            auto random_pos = *start_it + (lrand48() % (*end_it - *start_it));
+            auto random_it = db->block_levels.lower_bound(random_pos);
+            int misses = 0;
+            bool wrapped = false;
+            while (db->block_cache.size() > db->cache_max_blocks &&
+                (!wrapped || *random_it < random_pos) &&
+                (db->evict_max_misses <= 0 || misses < db->evict_max_misses))
+            {
+                auto b_it = db->block_cache.find((*random_it & NO_LEVEL_MASK) * db->kv_block_size);
+                auto blk = &b_it->second;
+                if (b_it != db->block_cache.end() && !blk->updating &&
+                    !blk->new_version && blk->usage < db->usage_counter)
+                {
+                    db->block_cache.erase(b_it);
+                    db->block_levels.erase(random_it++);
+                }
+                else
+                {
+                    random_it++;
+                    misses++;
+                }
+                if (random_it == db->block_levels.end() || (*random_it >> (64-LEVEL_BITS)) > evict_level)
+                {
+                    if (wrapped)
+                        break;
+                    random_it = db->block_levels.lower_bound(evict_level << (64-LEVEL_BITS));
+                    wrapped = true;
+                }
+            }
+            if (db->block_cache.size() <= db->cache_max_blocks)
+            {
+                return;
+            }
+        }
+    }
+}
+
 static void get_block(kv_db_t *db, uint64_t offset, int cur_level, int recheck_policy, std::function<void(int, bool)> cb)
 {
-    // FIXME: Evict blocks from cache based on memory limit and block level
     auto b_it = db->block_cache.find(offset);
     if (b_it != db->block_cache.end() && (recheck_policy == KV_RECHECK_NONE ||
         recheck_policy == KV_RECHECK_LEAF && b_it->second.type != KV_LEAF ||
@@ -474,6 +562,7 @@ static void get_block(kv_db_t *db, uint64_t offset, int cur_level, int recheck_p
         else
         {
             invalidate(db, op->offset, op->version);
+            try_evict(db);
             auto blk = &db->block_cache[op->offset];
             int err = blk->parse((uint8_t*)op->iov.buf[0].iov_base, op->len);
             if (err == 0)
@@ -508,6 +597,11 @@ void kv_op_t::exec()
         return;
     db->active_ops++;
     started = true;
+    if (++db->evict_unused_counter >= db->evict_unused_age)
+    {
+        db->evict_unused_counter = 0;
+        db->usage_counter++;
+    }
     cur_level = -db->base_block_level;
     if (opcode == KV_GET)
         get();
@@ -1233,9 +1327,14 @@ kv_dbw_t::~kv_dbw_t()
     delete db;
 }
 
-void kv_dbw_t::open(inode_t inode_id, uint32_t kv_block_size, std::function<void(int)> cb)
+void kv_dbw_t::open(inode_t inode_id, json11::Json cfg, std::function<void(int)> cb)
 {
-    db->open(inode_id, kv_block_size, cb);
+    db->open(inode_id, cfg, cb);
+}
+
+void kv_dbw_t::set_config(json11::Json cfg)
+{
+    db->set_config(cfg);
 }
 
 uint64_t kv_dbw_t::get_size()
