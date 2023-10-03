@@ -7,7 +7,7 @@ if [[ "$SCHEME" = "ec" ]]; then
     PG_DATA_SIZE=${PG_DATA_SIZE:-2}
     PG_MINSIZE=${PG_MINSIZE:-3}
 fi
-OSD_COUNT=7
+OSD_COUNT=${OSD_COUNT:-7}
 PG_COUNT=32
 . `dirname $0`/run_3osds.sh
 check_qemu
@@ -29,7 +29,7 @@ kill_osds()
     kill -9 $OSD1_PID
     $ETCDCTL del /vitastor/osd/state/1
 
-    for i in 2 3 4 5 6 7; do
+    for i in $(seq 2 $OSD_COUNT); do
         sleep 15
         echo Killing OSD $i and starting OSD $((i-1))
         p=OSD${i}_PID
@@ -40,8 +40,8 @@ kill_osds()
     done
 
     sleep 5
-    echo Starting OSD 7
-    start_osd 7
+    echo Starting OSD $OSD_COUNT
+    start_osd $OSD_COUNT
 
     sleep 5
 }
