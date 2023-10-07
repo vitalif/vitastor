@@ -195,6 +195,15 @@ target_link_libraries(vitastor-kv
 	vitastor_client
 )
 
+add_executable(vitastor-kv-stress
+	kv_stress.cpp
+	kv_db.cpp
+	kv_db.h
+)
+target_link_libraries(vitastor-kv-stress
+	vitastor_client
+)
+
 # vitastor-nfs
 add_executable(vitastor-nfs
 	nfs_proxy.cpp
