@@ -169,46 +169,48 @@ void cluster_client_t::calc_wait(cluster_op_t *op)
 
 void cluster_client_t::inc_wait(uint64_t opcode, uint64_t flags, cluster_op_t *next, int inc)
 {
-    if (opcode == OSD_OP_WRITE)
+    if (opcode != OSD_OP_WRITE && opcode != OSD_OP_SYNC)
     {
-        while (next)
-        {
-            auto n2 = next->next;
-            if (next->opcode == OSD_OP_SYNC && (!(flags & OP_IMMEDIATE_COMMIT) || enable_writeback) ||
-                next->opcode == OSD_OP_WRITE && (flags & OP_FLUSH_BUFFER) && !(next->flags & OP_FLUSH_BUFFER))
-            {
-                next->prev_wait += inc;
-                assert(next->prev_wait >= 0);
-                if (!next->prev_wait)
-                {
-                    if (next->opcode == OSD_OP_SYNC)
-                        continue_sync(next);
-                    else
-                        continue_rw(next);
-                }
-            }
-            next = n2;
-        }
+        return;
     }
-    else if (opcode == OSD_OP_SYNC)
+    cluster_op_t *bh_ops_local[32], **bh_ops = bh_ops_local;
+    int bh_op_count = 0, bh_op_max = 32;
+    while (next)
     {
-        while (next)
+        auto n2 = next->next;
+        if (opcode == OSD_OP_WRITE
+            ? (next->opcode == OSD_OP_SYNC && (!(flags & OP_IMMEDIATE_COMMIT) || enable_writeback) ||
+                next->opcode == OSD_OP_WRITE && (flags & OP_FLUSH_BUFFER) && !(next->flags & OP_FLUSH_BUFFER))
+            : (next->opcode == OSD_OP_SYNC || next->opcode == OSD_OP_WRITE))
         {
-            auto n2 = next->next;
-            if (next->opcode == OSD_OP_SYNC || next->opcode == OSD_OP_WRITE)
+            next->prev_wait += inc;
+            assert(next->prev_wait >= 0);
+            if (!next->prev_wait)
             {
-                next->prev_wait += inc;
-                assert(next->prev_wait >= 0);
-                if (!next->prev_wait)
+                // Kind of std::vector with local "small vector optimisation"
+                if (bh_op_count >= bh_op_max)
                 {
-                    if (next->opcode == OSD_OP_SYNC)
-                        continue_sync(next);
-                    else
-                        continue_rw(next);
+                    bh_op_max *= 2;
+                    cluster_op_t **n = (cluster_op_t**)malloc_or_die(sizeof(cluster_op_t*) * bh_op_max);
+                    memcpy(n, bh_ops, sizeof(cluster_op_t*) * bh_op_count);
+                    bh_ops = n;
                 }
+                bh_ops[bh_op_count++] = next;
             }
-            next = n2;
         }
+        next = n2;
+    }
+    for (int i = 0; i < bh_op_count; i++)
+    {
+        cluster_op_t *next = bh_ops[i];
+        if (next->opcode == OSD_OP_SYNC)
+            continue_sync(next);
+        else
+            continue_rw(next);
+    }
+    if (bh_ops != bh_ops_local)
+    {
+        free(bh_ops);
     }
 }
 
