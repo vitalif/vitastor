@@ -21,7 +21,8 @@ struct kv_dbw_t
 
     uint64_t get_size();
 
-    void get(const std::string & key, std::function<void(int res, const std::string & value)> cb);
+    void get(const std::string & key, std::function<void(int res, const std::string & value)> cb,
+        bool allow_old_cached = false);
     void set(const std::string & key, const std::string & value, std::function<void(int res)> cb,
         std::function<bool(int res, const std::string & value)> cas_compare = NULL);
     void del(const std::string & key, std::function<void(int res)> cb,

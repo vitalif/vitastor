@@ -23,6 +23,7 @@ struct kv_test_listing_t
     void *handle = NULL;
     std::string next_after;
     std::set<std::string> inflights;
+    bool error = false;
 };
 
 class kv_test_t
@@ -43,6 +44,7 @@ public:
     uint64_t max_key_len = 70;
     uint64_t min_value_len = 50;
     uint64_t max_value_len = 300;
+    bool stop_on_error = false;
     // FIXME: Multiple clients
     // FIXME: Print op statistics
 
@@ -97,7 +99,44 @@ json11::Json::object kv_test_t::parse_args(int narg, const char *args[])
                 "Vitastor Key/Value DB stress tester / benchmark\n"
                 "(c) Vitaliy Filippov, 2023+ (VNPL-1.1)\n"
                 "\n"
-                "USAGE: %s [--etcd_address ADDR]\n",
+                "USAGE: %s --pool_id POOL_ID --inode_id INODE_ID [OPTIONS]\n"
+                "  --op_count 1000000\n"
+                "    Total operations to run during test\n"
+                "  --parallelism 4\n"
+                "    Run this number of operations in parallel\n"
+                "  --get_prob 30000\n"
+                "    Fraction of key retrieve operations\n"
+                "  --add_prob 20000\n"
+                "    Fraction of key addition operations\n"
+                "  --update_prob 20000\n"
+                "    Fraction of key update operations\n"
+                "  --del_prob 30000\n"
+                "    Fraction of key delete operations\n"
+                "  --list_prob 300\n"
+                "    Fraction of listing operations\n"
+                "  --min_key_len 10\n"
+                "    Minimum key size in bytes\n"
+                "  --max_key_len 70\n"
+                "    Maximum key size in bytes\n"
+                "  --min_value_len 50\n"
+                "    Minimum value size in bytes\n"
+                "  --max_value_len 300\n"
+                "    Maximum value size in bytes\n"
+                "  --verify 1\n"
+                "    Verify results of retrieve and list operations\n"
+                "    Uses extra RAM because a copy of the DB is stored in memory\n"
+                "  --stop_on_error 0\n"
+                "    Stop on first execution error, mismatch, lost key or extra key during listing\n"
+                "  --kv_memory_limit 128M\n"
+                "    Maximum memory to use for vitastor-kv index cache\n"
+                "  --kv_evict_max_misses 10\n"
+                "    Eviction algorithm parameter: retry eviction from another random spot\n"
+                "    if this number of keys is used currently or was used recently\n"
+                "  --kv_evict_attempts_per_level 3\n"
+                "    Retry eviction at most this number of times per tree level, starting\n"
+                "    with bottom-most levels\n"
+                "  --kv_evict_unused_age 1000\n"
+                "    Evict only keys unused during this number of last operations\n",
                 exe_name
             );
             exit(0);
@@ -139,6 +178,8 @@ void kv_test_t::run(json11::Json cfg)
         min_value_len = cfg["min_value_len"].uint64_value();
     if (cfg["max_value_len"].uint64_value() > 0)
         max_value_len = cfg["max_value_len"].uint64_value();
+    if (cfg["stop_on_error"].bool_value())
+        stop_on_error = true;
     if (!cfg["kv_memory_limit"].is_null())
         kv_cfg["kv_memory_limit"] = cfg["kv_memory_limit"];
     if (!cfg["kv_evict_max_misses"].is_null())
@@ -260,9 +301,17 @@ void kv_test_t::loop()
                 in_progress--;
                 auto it = values.find(key);
                 if (res != (it == values.end() ? -ENOENT : 0))
+                {
                     printf("ERROR: get %s: %d (%s)\n", key.c_str(), res, strerror(-res));
+                    if (stop_on_error)
+                        exit(1);
+                }
                 else if (it != values.end() && value != it->second)
+                {
                     printf("ERROR: get %s: mismatch: %s vs %s\n", key.c_str(), value.c_str(), it->second.c_str());
+                    if (stop_on_error)
+                        exit(1);
+                }
                 else
                     get_done++;
                 ringloop->wakeup();
@@ -288,18 +337,24 @@ void kv_test_t::loop()
                     continue;
                 key = k_it->first;
             }
+            if (changing_keys.find(key) != changing_keys.end())
+                continue;
             uint64_t value_len = min_value_len + (max_value_len > min_value_len ? lrand48() % (max_value_len-min_value_len) : 0);
             auto value = random_str(value_len);
             start_change(key);
             in_progress++;
-            printf("set %s\n", key.c_str());
+            printf("set %s = %s\n", key.c_str(), value.c_str());
             db->set(key, value, [this, key, value, is_add](int res)
             {
                 stop_change(key);
                 ops_done++;
                 in_progress--;
                 if (res != 0)
+                {
                     printf("ERROR: set %s = %s: %d (%s)\n", key.c_str(), value.c_str(), res, strerror(-res));
+                    if (stop_on_error)
+                        exit(1);
+                }
                 else
                 {
                     if (is_add)
@@ -319,6 +374,8 @@ void kv_test_t::loop()
             if (k_it == values.end())
                 continue;
             key = k_it->first;
+            if (changing_keys.find(key) != changing_keys.end())
+                continue;
             start_change(key);
             in_progress++;
             printf("del %s\n", key.c_str());
@@ -328,7 +385,11 @@ void kv_test_t::loop()
                 ops_done++;
                 in_progress--;
                 if (res != 0)
+                {
                     printf("ERROR: del %s: %d (%s)\n", key.c_str(), res, strerror(-res));
+                    if (stop_on_error)
+                        exit(1);
+                }
                 else
                 {
                     del_done++;
@@ -348,22 +409,33 @@ void kv_test_t::loop()
             lst->next_after = k_it == values.begin() ? "" : key;
             lst->inflights = changing_keys;
             listings.insert(lst);
-            printf("list %s\n", key.c_str());
+            printf("list from %s\n", key.c_str());
             db->list_next(lst->handle, [this, lst](int res, const std::string & key, const std::string & value)
             {
                 if (res < 0)
                 {
                     if (res != -ENOENT)
+                    {
                         printf("ERROR: list: %d (%s)\n", res, strerror(-res));
+                        lst->error = true;
+                    }
                     else
                     {
                         list_done++;
-                        auto k_it = values.upper_bound(lst->next_after);
-                        while (k_it != values.end() && lst->inflights.find(k_it->first) != lst->inflights.end())
-                            k_it++;
-                        if (k_it != values.end())
-                            printf("ERROR: list: missed all keys from %s\n", k_it->first.c_str());
+                        auto k_it = lst->next_after == "" ? values.begin() : values.upper_bound(lst->next_after);
+                        while (k_it != values.end())
+                        {
+                            while (k_it != values.end() && lst->inflights.find(k_it->first) != lst->inflights.end())
+                                k_it++;
+                            if (k_it != values.end())
+                            {
+                                printf("ERROR: list: missing key %s\n", (k_it++)->first.c_str());
+                                lst->error = true;
+                            }
+                        }
                     }
+                    if (lst->error && stop_on_error)
+                        exit(1);
                     ops_done++;
                     in_progress--;
                     db->list_close(lst->handle);
@@ -377,14 +449,38 @@ void kv_test_t::loop()
                     // Listing may return their old or new state
                     if (lst->inflights.find(key) == lst->inflights.end())
                     {
-                        auto k_it = values.upper_bound(lst->next_after);
-                        while (k_it != values.end() && lst->inflights.find(k_it->first) != lst->inflights.end())
-                            k_it++;
-                        if (k_it == values.end())
-                            printf("ERROR: list: returned extra key %s\n", key.c_str());
-                        else if (k_it->second != value)
-                            printf("ERROR: list: mismatch: %s = %s but should be %s\n", key.c_str(), value.c_str(), k_it->second.c_str());
-                        lst->next_after = k_it->first;
+                        auto k_it = lst->next_after == "" ? values.begin() : values.upper_bound(lst->next_after);
+                        while (true)
+                        {
+                            while (k_it != values.end() && lst->inflights.find(k_it->first) != lst->inflights.end())
+                            {
+                                k_it++;
+                            }
+                            if (k_it == values.end() || k_it->first > key)
+                            {
+                                printf("ERROR: list: extra key %s\n", key.c_str());
+                                lst->error = true;
+                                break;
+                            }
+                            else if (k_it->first < key)
+                            {
+                                printf("ERROR: list: missing key %s\n", k_it->first.c_str());
+                                lst->error = true;
+                                lst->next_after = k_it->first;
+                                k_it++;
+                            }
+                            else
+                            {
+                                if (k_it->second != value)
+                                {
+                                    printf("ERROR: list: mismatch: %s = %s but should be %s\n",
+                                        key.c_str(), value.c_str(), k_it->second.c_str());
+                                    lst->error = true;
+                                }
+                                lst->next_after = k_it->first;
+                                break;
+                            }
+                        }
                     }
                     db->list_next(lst->handle, NULL);
                 }

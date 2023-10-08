@@ -73,7 +73,7 @@ json11::Json::object kv_cli_t::parse_args(int narg, const char *args[])
                 "Vitastor Key/Value CLI\n"
                 "(c) Vitaliy Filippov, 2023+ (VNPL-1.1)\n"
                 "\n"
-                "USAGE: %s [--etcd_address ADDR] [--inode INODE_ID] [OTHER OPTIONS]\n",
+                "USAGE: %s [--etcd_address ADDR] [OTHER OPTIONS]\n",
                 exe_name
             );
             exit(0);
