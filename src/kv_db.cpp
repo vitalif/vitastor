@@ -792,7 +792,7 @@ void kv_op_t::exec()
     cur_level = -db->base_block_level;
     path.clear();
     path.push_back(0);
-    recheck_policy = (opcode == KV_GET_CACHED ? KV_RECHECK_NONE : KV_RECHECK_LEAF);
+    recheck_policy = (opcode == KV_GET ? KV_RECHECK_LEAF : KV_RECHECK_NONE);
     if (opcode == KV_GET || opcode == KV_GET_CACHED)
         get();
     else if (opcode == KV_SET || opcode == KV_DEL)
@@ -1037,7 +1037,7 @@ static kv_block_t *create_new_block(kv_db_t *db, kv_block_t *old_blk, const std:
     auto blk = &db->block_cache[new_offset];
     blk->usage = db->usage_counter;
     blk->level = old_blk->level;
-    blk->type = old_blk->type;
+    blk->type = old_blk->type == KV_LEAF_SPLIT || old_blk->type == KV_LEAF ? KV_LEAF : KV_INT;
     blk->offset = new_offset;
     blk->updating = true;
     blk->key_ge = right ? separator : old_blk->key_ge;
@@ -1207,7 +1207,7 @@ void kv_op_t::update_find()
         }
         else
         {
-            update_block(path.size()-1, opcode == KV_DEL, key, value, 0, [=](int res)
+            update_block(path.size()-1, opcode == KV_DEL, key, value, UINT64_MAX, [=](int res)
             {
                 finish(res);
             });
@@ -1265,7 +1265,7 @@ void kv_op_t::resume_split()
     auto blk = &db->block_cache.at(cur_block);
     update_block(
         path.size()-2, false, blk->right_half,
-        std::string((char*)&blk->right_half_block, sizeof(blk->right_half_block)), 0,
+        std::string((char*)&blk->right_half_block, sizeof(blk->right_half_block)), UINT64_MAX,
         [=](int res)
         {
             if (res < 0)
@@ -1278,7 +1278,8 @@ void kv_op_t::resume_split()
     );
 }
 
-void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key, const std::string & value, uint64_t block_ver, std::function<void(int)> cb)
+void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key,
+    const std::string & value, uint64_t block_ver, std::function<void(int)> cb)
 {
     auto blk_it = db->block_cache.find(path[path_pos]);
     if (blk_it == db->block_cache.end())
@@ -1289,7 +1290,7 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
         return;
     }
     auto blk = &blk_it->second;
-    if (block_ver == 0)
+    if (block_ver == UINT64_MAX)
     {
         block_ver = db->known_versions[blk->offset/db->ino_block_size];
     }
@@ -1364,7 +1365,7 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
             else
                 blk->apply_change();
             db->stop_updating(blk);
-            if (res == EINTR)
+            if (res == -EINTR)
             {
                 update();
             }
@@ -1387,10 +1388,10 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
     auto orig_right_blk = create_new_block(db, blk, separator, key, value, true);
     write_new_block(db, orig_right_blk, [=](int res, kv_block_t *right_blk)
     {
-        db->stop_updating(right_blk);
         if (res < 0)
         {
             blk->cancel_change();
+            db->stop_updating(right_blk);
             db->stop_updating(blk);
             cb(res);
             return;
@@ -1402,10 +1403,10 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
             auto orig_left_blk = create_new_block(db, blk, separator, key, value, false);
             write_new_block(db, orig_left_blk, [=](int res, kv_block_t *left_blk)
             {
-                db->stop_updating(left_blk);
                 if (res < 0)
                 {
                     blk->cancel_change();
+                    db->stop_updating(left_blk);
                     db->stop_updating(blk);
                     cb(res);
                     return;
@@ -1429,10 +1430,12 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
                         db->stop_updating(blk);
                         clear_block(db, left_blk, 0, [=, left_offset = left_blk->offset](int res)
                         {
+                            db->stop_updating(left_blk);
                             if (res < 0)
                                 fprintf(stderr, "Failed to clear unreferenced block %lu: %s (code %d)\n", left_offset, strerror(-res), res);
                             clear_block(db, right_blk, 0, [=, right_offset = right_blk->offset](int res)
                             {
+                                db->stop_updating(right_blk);
                                 if (res < 0)
                                     fprintf(stderr, "Failed to clear unreferenced block %lu: %s (code %d)\n", right_offset, strerror(-res), res);
                                 // CAS failure - zero garbage left_blk and right_blk and retry from the beginning
@@ -1447,6 +1450,8 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
                     {
                         std::swap(db->block_cache[0], *new_root);
                         db->base_block_level = -new_root->level;
+                        db->stop_updating(left_blk);
+                        db->stop_updating(right_blk);
                         db->stop_updating(&db->block_cache[0]);
                         cb(0);
                     }
@@ -1484,6 +1489,7 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
                 {
                     clear_block(db, right_blk, 0, [=, right_offset = right_blk->offset](int res)
                     {
+                        db->stop_updating(right_blk);
                         if (res < 0)
                             fprintf(stderr, "Failed to clear unreferenced block %lu: %s (code %d)\n", right_offset, strerror(-res), res);
                         // CAS failure - zero garbage right_blk and retry from the beginning
@@ -1495,11 +1501,12 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
                 }
                 else
                 {
+                    db->stop_updating(right_blk);
                     // Add a reference to the parent block
                     // Do not cleanup anything on failure because stored right_blk is already referenced
                     update_block(
                         path_pos-1, false, separator,
-                        std::string((char*)&right_blk->offset, sizeof(right_blk->offset)), 0,
+                        std::string((char*)&right_blk->offset, sizeof(right_blk->offset)), UINT64_MAX,
                         cb
                     );
                 }
