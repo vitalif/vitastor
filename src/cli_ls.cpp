@@ -174,7 +174,7 @@ resume_1:
                     { "size", 0 },
                     { "readonly", false },
                     { "pool_id", (uint64_t)INODE_POOL(inode_num) },
-                    { "pool_name", pool_it == parent->cli->st_cli.pool_config.end()
+                    { "pool_name", pool_it != parent->cli->st_cli.pool_config.end()
                         ? (pool_it->second.name == "" ? "<Unnamed>" : pool_it->second.name) : "?" },
                     { "inode_num", INODE_NO_POOL(inode_num) },
                     { "inode_id", inode_num },
