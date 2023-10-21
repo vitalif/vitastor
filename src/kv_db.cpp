@@ -909,7 +909,7 @@ int kv_op_t::handle_block(int res, bool updated, bool stop_on_split)
         return -EAGAIN;
     }
     if (stop_on_split && (blk->type == KV_LEAF_SPLIT || blk->type == KV_INT_SPLIT) &&
-        prev_key_lt > blk->right_half)
+        (prev_key_lt == "" || prev_key_lt > blk->right_half))
     {
         return -ECHILD;
     }
@@ -1346,10 +1346,19 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
     // Its parent is already updated because prev_key_lt <= blk->right_half
     // That means we can safely remove the "split reference"
     assert(!blk->change_type);
-    blk->change_type = (blk->type == KV_LEAF_SPLIT || blk->type == KV_INT_SPLIT) &&
-        (prev_key_lt != "" && prev_key_lt <= blk->right_half)
-        ? KV_CH_CLEAR_RIGHT
-        : 0;
+    if (blk->type == KV_LEAF_SPLIT || blk->type == KV_INT_SPLIT)
+    {
+        if (prev_key_lt != "" && prev_key_lt <= blk->right_half)
+            blk->change_type = KV_CH_CLEAR_RIGHT;
+        else
+        {
+            blk->dump(0);
+            // Should not happen - we should have resumed the split
+            fprintf(stderr, "K/V: attempt to write into a block %lu instead of resuming the split (got here from %s..%s)\n",
+                blk->offset, prev_key_ge.c_str(), prev_key_lt.c_str());
+            abort();
+        }
+    }
     blk->updating = true;
     if (is_delete || (blk->data_size + kv_block_t::kv_size(key, value) - rm_size) < db->kv_block_size)
     {
@@ -1477,7 +1486,7 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
                 return;
             }
             // Split a non-root block
-            blk->change_type |= KV_CH_SPLIT;
+            blk->change_type = (blk->change_type & ~KV_CH_CLEAR_RIGHT) | KV_CH_SPLIT;
             blk->change_rh = separator;
             blk->change_rh_block = right_blk->offset;
             if (key < separator)
