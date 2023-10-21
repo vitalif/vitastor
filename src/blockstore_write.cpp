@@ -289,13 +289,18 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         printf("Restoring %lx:%lx version: v%lu -> v%lu\n", op->oid.inode, op->oid.stripe, op->version, PRIV(op)->real_version);
 #endif
         auto prev_it = dirty_it;
-        prev_it--;
-        if (prev_it->first.oid == op->oid && prev_it->first.version >= PRIV(op)->real_version)
+        if (prev_it != dirty_db.begin())
         {
-            // Original version is still invalid
-            // All subsequent writes to the same object must be canceled too
-            cancel_all_writes(op, dirty_it, -EEXIST);
-            return 2;
+            prev_it--;
+            if (prev_it->first.oid == op->oid && prev_it->first.version >= PRIV(op)->real_version)
+            {
+                // Original version is still invalid
+                // All subsequent writes to the same object must be canceled too
+                printf("Tried to write %lx:%lx v%lu after delete (old version v%lu), but already have v%lu\n",
+                    op->oid.inode, op->oid.stripe, PRIV(op)->real_version, op->version, prev_it->first.version);
+                cancel_all_writes(op, dirty_it, -EEXIST);
+                return 2;
+            }
         }
         op->version = PRIV(op)->real_version;
         PRIV(op)->real_version = 0;
