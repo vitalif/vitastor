@@ -141,6 +141,8 @@ struct kv_db_t
     int active_ops = 0;
     std::function<void()> on_close;
 
+    uint64_t transform_offset(uint64_t orig);
+
     void open(inode_t inode_id, json11::Json cfg, std::function<void(int)> cb);
     void set_config(json11::Json cfg);
     void close(std::function<void()> cb);
@@ -462,6 +464,12 @@ void kv_block_t::dump(int base_level)
     printf("    }\n}\n");
 }
 
+uint64_t kv_db_t::transform_offset(uint64_t orig)
+{
+    orig /= kv_block_size;
+    return (orig % 32) * ino_block_size + ((orig / 32) % 32) * kv_block_size + (orig / 1024) * ino_block_size * 1024;
+}
+
 void kv_db_t::open(inode_t inode_id, json11::Json cfg, std::function<void(int)> cb)
 {
     if (block_cache.size() > 0)
@@ -564,7 +572,7 @@ void kv_db_t::find_size(uint64_t min, uint64_t max, int phase, std::function<voi
     cluster_op_t *op = new cluster_op_t;
     op->opcode = OSD_OP_READ;
     op->inode = inode_id;
-    op->offset = (phase == 1 ? min : (min+max)/2) * kv_block_size;
+    op->offset = transform_offset((phase == 1 ? min : (min+max)/2) * kv_block_size);
     op->len = kv_block_size;
     if (op->len)
     {
@@ -1032,7 +1040,7 @@ static void write_block(kv_db_t *db, kv_block_t *blk, std::function<void(int)> c
 static kv_block_t *create_new_block(kv_db_t *db, kv_block_t *old_blk, const std::string & separator,
     const std::string & added_key, const std::string & added_value, bool right)
 {
-    auto new_offset = db->next_free;
+    auto new_offset = db->transform_offset(db->next_free);
     db->next_free += db->kv_block_size;
     auto blk = &db->block_cache[new_offset];
     blk->usage = db->usage_counter;
@@ -1084,7 +1092,7 @@ static void write_new_block(kv_db_t *db, kv_block_t *blk, std::function<void(int
                 {
                     // Block is already occupied => place again
                     auto old_offset = blk->offset;
-                    auto new_offset = db->next_free;
+                    auto new_offset = db->transform_offset(db->next_free);
                     db->next_free += db->kv_block_size;
                     del_block_level(db, blk);
                     std::swap(db->block_cache[new_offset], db->block_cache[old_offset]);
