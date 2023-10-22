@@ -1433,7 +1433,6 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
         if (res < 0)
         {
             blk->cancel_change();
-            db->stop_updating(right_blk);
             db->stop_updating(blk);
             cb(res);
             return;
@@ -1448,7 +1447,7 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
                 if (res < 0)
                 {
                     blk->cancel_change();
-                    db->stop_updating(left_blk);
+                    db->stop_updating(right_blk);
                     db->stop_updating(blk);
                     cb(res);
                     return;
@@ -1472,12 +1471,10 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
                         db->stop_updating(blk);
                         clear_block(db, left_blk, 0, [=, left_offset = left_blk->offset](int res)
                         {
-                            db->stop_updating(left_blk);
                             if (res < 0)
                                 fprintf(stderr, "Failed to clear unreferenced block %lu: %s (code %d)\n", left_offset, strerror(-res), res);
                             clear_block(db, right_blk, 0, [=, right_offset = right_blk->offset](int res)
                             {
-                                db->stop_updating(right_blk);
                                 if (res < 0)
                                     fprintf(stderr, "Failed to clear unreferenced block %lu: %s (code %d)\n", right_offset, strerror(-res), res);
                                 // CAS failure - zero garbage left_blk and right_blk and retry from the beginning
@@ -1531,7 +1528,6 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
                 {
                     clear_block(db, right_blk, 0, [=, right_offset = right_blk->offset](int res)
                     {
-                        db->stop_updating(right_blk);
                         if (res < 0)
                             fprintf(stderr, "Failed to clear unreferenced block %lu: %s (code %d)\n", right_offset, strerror(-res), res);
                         // CAS failure - zero garbage right_blk and retry from the beginning
