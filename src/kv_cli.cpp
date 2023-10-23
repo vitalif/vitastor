@@ -252,11 +252,12 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
         auto key = trim(cmd.substr(pos+1, pos2-pos-1));
         auto value = parse_size(trim(cmd.substr(pos2+1)));
         if (key != "kv_memory_limit" &&
+            key != "kv_allocate_blocks" &&
             key != "kv_evict_max_misses" &&
             key != "kv_evict_attempts_per_level" &&
             key != "kv_evict_unused_age")
         {
-            fprintf(stderr, "Allowed properties: kv_memory_limit, kv_evict_max_misses, kv_evict_attempts_per_level, kv_evict_unused_age\n");
+            fprintf(stderr, "Allowed properties: kv_memory_limit, kv_allocate_blocks, kv_evict_max_misses, kv_evict_attempts_per_level, kv_evict_unused_age\n");
         }
         else
         {

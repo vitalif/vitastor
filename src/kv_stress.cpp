@@ -152,6 +152,8 @@ json11::Json::object kv_test_t::parse_args(int narg, const char *args[])
                 "    Stop on first execution error, mismatch, lost key or extra key during listing\n"
                 "  --kv_memory_limit 128M\n"
                 "    Maximum memory to use for vitastor-kv index cache\n"
+                "  --kv_allocate_blocks 4\n"
+                "    Number of PG blocks used for new tree block allocation in parallel\n"
                 "  --kv_evict_max_misses 10\n"
                 "    Eviction algorithm parameter: retry eviction from another random spot\n"
                 "    if this number of keys is used currently or was used recently\n"
@@ -210,6 +212,8 @@ void kv_test_t::parse_config(json11::Json cfg)
         stop_on_error = cfg["stop_on_error"].bool_value();
     if (!cfg["kv_memory_limit"].is_null())
         kv_cfg["kv_memory_limit"] = cfg["kv_memory_limit"];
+    if (!cfg["kv_allocate_blocks"].is_null())
+        kv_cfg["kv_allocate_blocks"] = cfg["kv_allocate_blocks"];
     if (!cfg["kv_evict_max_misses"].is_null())
         kv_cfg["kv_evict_max_misses"] = cfg["kv_evict_max_misses"];
     if (!cfg["kv_evict_attempts_per_level"].is_null())
