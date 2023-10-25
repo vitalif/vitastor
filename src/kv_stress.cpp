@@ -73,7 +73,7 @@ public:
     ring_consumer_t consumer;
     bool finished = false;
     uint64_t total_prob = 0;
-    uint64_t ops_done = 0;
+    uint64_t ops_sent = 0, ops_done = 0;
     int stat_timer_id = -1;
     int in_progress = 0;
     bool reopening = false;
@@ -308,7 +308,7 @@ void kv_test_t::loop()
     {
         finished = true;
     }
-    while (!finished && in_progress < parallelism)
+    while (!finished && ops_sent < op_count && in_progress < parallelism)
     {
         uint64_t dice = (lrand48() % total_prob);
         if (dice < reopen_prob)
@@ -343,6 +343,7 @@ void kv_test_t::loop()
             if (changing_keys.find(key) != changing_keys.end())
                 continue;
             in_progress++;
+            ops_sent++;
             if (trace)
                 printf("get %s\n", key.c_str());
             timespec tv_begin;
@@ -393,6 +394,7 @@ void kv_test_t::loop()
             uint64_t value_len = min_value_len + (max_value_len > min_value_len ? lrand48() % (max_value_len-min_value_len) : 0);
             auto value = random_str(value_len);
             start_change(key);
+            ops_sent++;
             in_progress++;
             if (trace)
                 printf("set %s = %s\n", key.c_str(), value.c_str());
@@ -428,6 +430,7 @@ void kv_test_t::loop()
             if (changing_keys.find(key) != changing_keys.end())
                 continue;
             start_change(key);
+            ops_sent++;
             in_progress++;
             if (trace)
                 printf("del %s\n", key.c_str());
@@ -455,6 +458,7 @@ void kv_test_t::loop()
         else if (dice < reopen_prob+get_prob+add_prob+update_prob+del_prob+list_prob)
         {
             // list
+            ops_sent++;
             in_progress++;
             auto key = random_str(max_key_len);
             auto lst = new kv_test_listing_t;
