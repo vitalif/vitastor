@@ -59,6 +59,7 @@ public:
     uint64_t min_value_len = 50;
     uint64_t max_value_len = 300;
     uint64_t print_stats_interval = 1;
+    bool json_output = false;
     bool trace = true;
     bool stop_on_error = false;
     // FIXME: Multiple clients
@@ -147,6 +148,8 @@ json11::Json::object kv_test_t::parse_args(int narg, const char *args[])
                 "    Maximum value size in bytes\n"
                 "  --print_stats 1\n"
                 "    Print operation statistics every this number of seconds\n"
+                "  --json\n"
+                "    JSON output\n"
                 "  --trace 1\n"
                 "    Print all executed operations\n"
                 "  --stop_on_error 0\n"
@@ -207,6 +210,8 @@ void kv_test_t::parse_config(json11::Json cfg)
         max_value_len = cfg["max_value_len"].uint64_value();
     if (!cfg["print_stats"].is_null())
         print_stats_interval = cfg["print_stats"].uint64_value();
+    if (!cfg["json"].is_null())
+        json_output = true;
     if (!cfg["trace"].is_null())
         trace = cfg["trace"].bool_value();
     if (!cfg["stop_on_error"].is_null())
@@ -253,10 +258,11 @@ void kv_test_t::run(json11::Json cfg)
         reopening = false;
         if (res < 0)
         {
-            printf("ERROR: Open index: %d (%s)\n", res, strerror(-res));
+            fprintf(stderr, "ERROR: Open index: %d (%s)\n", res, strerror(-res));
             exit(1);
         }
-        printf("Index opened\n");
+        if (trace)
+            printf("Index opened\n");
         ringloop->wakeup();
     });
     consumer.loop = [this]() { loop(); };
@@ -319,17 +325,19 @@ void kv_test_t::loop()
             reopening = true;
             db->close([this]()
             {
-                printf("Index closed\n");
+                if (trace)
+                    printf("Index closed\n");
                 db->open(inode_id, kv_cfg, [this](int res)
                 {
                     reopening = false;
                     if (res < 0)
                     {
-                        printf("ERROR: Reopen index: %d (%s)\n", res, strerror(-res));
+                        fprintf(stderr, "ERROR: Reopen index: %d (%s)\n", res, strerror(-res));
                         finished = true;
                         return;
                     }
-                    printf("Index reopened\n");
+                    if (trace)
+                        printf("Index reopened\n");
                     ringloop->wakeup();
                 });
             });
@@ -359,13 +367,13 @@ void kv_test_t::loop()
                 auto it = values.find(key);
                 if (res != (it == values.end() ? -ENOENT : 0))
                 {
-                    printf("ERROR: get %s: %d (%s)\n", key.c_str(), res, strerror(-res));
+                    fprintf(stderr, "ERROR: get %s: %d (%s)\n", key.c_str(), res, strerror(-res));
                     if (stop_on_error)
                         exit(1);
                 }
                 else if (it != values.end() && value != it->second)
                 {
-                    printf("ERROR: get %s: mismatch: %s vs %s\n", key.c_str(), value.c_str(), it->second.c_str());
+                    fprintf(stderr, "ERROR: get %s: mismatch: %s vs %s\n", key.c_str(), value.c_str(), it->second.c_str());
                     if (stop_on_error)
                         exit(1);
                 }
@@ -411,7 +419,7 @@ void kv_test_t::loop()
                 in_progress--;
                 if (res != 0)
                 {
-                    printf("ERROR: set %s = %s: %d (%s)\n", key.c_str(), value.c_str(), res, strerror(-res));
+                    fprintf(stderr, "ERROR: set %s = %s: %d (%s)\n", key.c_str(), value.c_str(), res, strerror(-res));
                     if (stop_on_error)
                         exit(1);
                 }
@@ -447,7 +455,7 @@ void kv_test_t::loop()
                 in_progress--;
                 if (res != 0)
                 {
-                    printf("ERROR: del %s: %d (%s)\n", key.c_str(), res, strerror(-res));
+                    fprintf(stderr, "ERROR: del %s: %d (%s)\n", key.c_str(), res, strerror(-res));
                     if (stop_on_error)
                         exit(1);
                 }
@@ -480,7 +488,7 @@ void kv_test_t::loop()
                     add_stat(stat.list, lst->tv_begin);
                     if (res != -ENOENT)
                     {
-                        printf("ERROR: list: %d (%s)\n", res, strerror(-res));
+                        fprintf(stderr, "ERROR: list: %d (%s)\n", res, strerror(-res));
                         lst->error = true;
                     }
                     else
@@ -492,7 +500,7 @@ void kv_test_t::loop()
                                 k_it++;
                             if (k_it != values.end())
                             {
-                                printf("ERROR: list: missing key %s\n", (k_it++)->first.c_str());
+                                fprintf(stderr, "ERROR: list: missing key %s\n", (k_it++)->first.c_str());
                                 lst->error = true;
                             }
                         }
@@ -522,13 +530,13 @@ void kv_test_t::loop()
                             }
                             if (k_it == values.end() || k_it->first > key)
                             {
-                                printf("ERROR: list: extra key %s\n", key.c_str());
+                                fprintf(stderr, "ERROR: list: extra key %s\n", key.c_str());
                                 lst->error = true;
                                 break;
                             }
                             else if (k_it->first < key)
                             {
-                                printf("ERROR: list: missing key %s\n", k_it->first.c_str());
+                                fprintf(stderr, "ERROR: list: missing key %s\n", k_it->first.c_str());
                                 lst->error = true;
                                 lst->next_after = k_it->first;
                                 k_it++;
@@ -537,7 +545,7 @@ void kv_test_t::loop()
                             {
                                 if (k_it->second != value)
                                 {
-                                    printf("ERROR: list: mismatch: %s = %s but should be %s\n",
+                                    fprintf(stderr, "ERROR: list: mismatch: %s = %s but should be %s\n",
                                         key.c_str(), value.c_str(), k_it->second.c_str());
                                     lst->error = true;
                                 }
@@ -576,18 +584,40 @@ void kv_test_t::print_stats(kv_test_stat_t & prev_stat, timespec & prev_stat_tim
     {
         kv_test_lat_t *lats[] = { &stat.get, &stat.add, &stat.update, &stat.del, &stat.list };
         kv_test_lat_t *prev[] = { &prev_stat.get, &prev_stat.add, &prev_stat.update, &prev_stat.del, &prev_stat.list };
-        char buf[128] = { 0 };
-        for (int i = 0; i < sizeof(lats)/sizeof(lats[0]); i++)
+        if (!json_output)
         {
-            snprintf(buf, sizeof(buf)-1, "%.1f %s/s (%lu us)", (lats[i]->count-prev[i]->count)*1000000.0/usec,
-                lats[i]->name, (lats[i]->usec-prev[i]->usec)/(lats[i]->count-prev[i]->count > 0 ? lats[i]->count-prev[i]->count : 1));
-            int k;
-            for (k = strlen(buf); k < strlen(lats[i]->name)+21; k++)
-                buf[k] = ' ';
-            buf[k] = 0;
-            printf("%s", buf);
+            char buf[128] = { 0 };
+            for (int i = 0; i < sizeof(lats)/sizeof(lats[0]); i++)
+            {
+                snprintf(buf, sizeof(buf)-1, "%.1f %s/s (%lu us)", (lats[i]->count-prev[i]->count)*1000000.0/usec,
+                    lats[i]->name, (lats[i]->usec-prev[i]->usec)/(lats[i]->count-prev[i]->count > 0 ? lats[i]->count-prev[i]->count : 1));
+                int k;
+                for (k = strlen(buf); k < strlen(lats[i]->name)+21; k++)
+                    buf[k] = ' ';
+                buf[k] = 0;
+                printf("%s", buf);
+            }
+            printf("\n");
         }
-        printf("\n");
+        else
+        {
+            int64_t runtime = (cur_stat_time.tv_sec - start_stat_time.tv_sec)*1000000 +
+                (cur_stat_time.tv_nsec - start_stat_time.tv_nsec)/1000;
+            printf("{\"runtime\":%.1f", (double)runtime/1000000.0);
+            for (int i = 0; i < sizeof(lats)/sizeof(lats[0]); i++)
+            {
+                if (lats[i]->count > prev[i]->count)
+                {
+                    printf(
+                        ",\"%s\":{\"avg\":{\"iops\":%.1f,\"usec\":%lu},\"total\":{\"count\":%lu,\"usec\":%lu}}",
+                        lats[i]->name, (lats[i]->count-prev[i]->count)*1000000.0/usec,
+                        (lats[i]->usec-prev[i]->usec)/(lats[i]->count-prev[i]->count),
+                        lats[i]->count, lats[i]->usec
+                    );
+                }
+            }
+            printf("}\n");
+        }
     }
     prev_stat = stat;
     prev_stat_time = cur_stat_time;
@@ -595,7 +625,8 @@ void kv_test_t::print_stats(kv_test_stat_t & prev_stat, timespec & prev_stat_tim
 
 void kv_test_t::print_total_stats()
 {
-    printf("Total:\n");
+    if (!json_output)
+        printf("Total:\n");
     kv_test_stat_t start_stats;
     timespec start_stat_time = this->start_stat_time;
     print_stats(start_stats, start_stat_time);
