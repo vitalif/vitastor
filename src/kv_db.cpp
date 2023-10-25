@@ -344,13 +344,12 @@ bool kv_block_t::serialize(uint8_t *buf, int size)
         *(uint64_t*)(buf+pos) = (change_type & KV_CH_SPLIT) ? change_rh_block : right_half_block;
         pos += 8;
     }
-    auto old_it = (change_type & KV_CH_DEL) ? data.find(change_key)
-        : ((change_type & KV_CH_ADD) ? data.lower_bound(change_key) : data.end());
+    auto old_it = (change_type & KV_CH_UPD) ? data.lower_bound(change_key) : data.end();
     auto end_it = (change_type & KV_CH_SPLIT) ? data.lower_bound(change_rh) : data.end();
     blk->items = 0;
     for (auto kv_it = data.begin(); kv_it != end_it; kv_it++)
     {
-        if (!(change_type & KV_CH_DEL) || kv_it != old_it)
+        if (!(change_type & KV_CH_DEL) || kv_it != old_it || old_it->first != change_key)
         {
             if (!write_string(buf, size, &pos, kv_it->first) ||
                 !write_string(buf, size, &pos, kv_it->second))
