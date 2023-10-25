@@ -1732,6 +1732,7 @@ void kv_op_t::next_get()
         // Left half finished, go to the right
         recheck_policy = KV_RECHECK_LEAF;
         key = blk->right_half;
+        skip_equal = false;
         prev_key_ge = blk->right_half;
         prev_key_lt = blk->key_lt;
         path[path.size()-1].offset = cur_block = blk->right_half_block;
@@ -1754,7 +1755,11 @@ void kv_op_t::next_go_up()
             finish(-ENOENT);
             return;
         }
-        key = blk->key_lt;
+        if (blk->key_lt != "" && blk->key_lt > key)
+        {
+            // Block can be updated and key_lt may be lower. Don't rewind it
+            key = blk->key_lt;
+        }
         skip_equal = false;
         path.pop_back();
         cur_level--;
