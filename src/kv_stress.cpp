@@ -44,6 +44,7 @@ class kv_test_t
 public:
     // Config
     json11::Json::object kv_cfg;
+    std::string key_suffix;
     uint64_t inode_id = 0;
     uint64_t op_count = 1000000;
     uint64_t runtime_sec = 0;
@@ -52,7 +53,7 @@ public:
     uint64_t get_prob = 30000;
     uint64_t add_prob = 20000;
     uint64_t update_prob = 20000;
-    uint64_t del_prob = 30000;
+    uint64_t del_prob = 5000;
     uint64_t list_prob = 300;
     uint64_t min_key_len = 10;
     uint64_t max_key_len = 70;
@@ -124,6 +125,8 @@ json11::Json::object kv_test_t::parse_args(int narg, const char *args[])
                 "USAGE: %s --pool_id POOL_ID --inode_id INODE_ID [OPTIONS]\n"
                 "  --op_count 1000000\n"
                 "    Total operations to run during test. 0 means unlimited\n"
+                "  --key_suffix \"\"\n"
+                "    Suffix for all keys read or written (to avoid collisions)\n"
                 "  --runtime 0\n"
                 "    Run for this number of seconds. 0 means unlimited\n"
                 "  --parallelism 4\n"
@@ -184,6 +187,7 @@ void kv_test_t::parse_config(json11::Json cfg)
     inode_id = INODE_WITH_POOL(cfg["pool_id"].uint64_value(), cfg["inode_id"].uint64_value());
     if (cfg["op_count"].uint64_value() > 0)
         op_count = cfg["op_count"].uint64_value();
+    key_suffix = cfg["key_suffix"].string_value();
     if (cfg["runtime"].uint64_value() > 0)
         runtime_sec = cfg["runtime"].uint64_value();
     if (cfg["parallelism"].uint64_value() > 0)
@@ -389,7 +393,7 @@ void kv_test_t::loop()
                 // add
                 is_add = true;
                 uint64_t key_len = min_key_len + (max_key_len > min_key_len ? lrand48() % (max_key_len-min_key_len) : 0);
-                key = random_str(key_len);
+                key = random_str(key_len) + key_suffix;
             }
             else
             {
@@ -519,7 +523,9 @@ void kv_test_t::loop()
                     stat.list_keys++;
                     // Do not check modified keys in listing
                     // Listing may return their old or new state
-                    if (lst->inflights.find(key) == lst->inflights.end())
+                    if ((!key_suffix.size() || key.size() >= key_suffix.size() &&
+                        key.substr(key.size()-key_suffix.size()) == key_suffix) &&
+                        lst->inflights.find(key) == lst->inflights.end())
                     {
                         auto k_it = lst->next_after == "" ? values.begin() : values.upper_bound(lst->next_after);
                         while (true)
