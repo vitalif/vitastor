@@ -87,7 +87,8 @@ public:
     void parse_config(json11::Json cfg);
     void run(json11::Json cfg);
     void loop();
-    void print_stats();
+    void print_stats(kv_test_stat_t & prev_stat, timespec & prev_stat_time);
+    void print_total_stats();
     void start_change(const std::string & key);
     void stop_change(const std::string & key);
     void add_stat(kv_test_lat_t & stat, timespec tv_begin);
@@ -261,7 +262,7 @@ void kv_test_t::run(json11::Json cfg)
     consumer.loop = [this]() { loop(); };
     ringloop->register_consumer(&consumer);
     if (print_stats_interval)
-        stat_timer_id = epmgr->tfd->set_timer(print_stats_interval*1000, true, [this](int) { print_stats(); });
+        stat_timer_id = epmgr->tfd->set_timer(print_stats_interval*1000, true, [this](int) { print_stats(prev_stat, prev_stat_time); });
     clock_gettime(CLOCK_REALTIME, &start_stat_time);
     prev_stat_time = start_stat_time;
     while (!finished)
@@ -273,6 +274,8 @@ void kv_test_t::run(json11::Json cfg)
     if (stat_timer_id >= 0)
         epmgr->tfd->clear_timer(stat_timer_id);
     ringloop->unregister_consumer(&consumer);
+    // Print total stats
+    print_total_stats();
     // Destroy the client
     delete db;
     db = NULL;
@@ -563,7 +566,7 @@ void kv_test_t::add_stat(kv_test_lat_t & stat, timespec tv_begin)
     }
 }
 
-void kv_test_t::print_stats()
+void kv_test_t::print_stats(kv_test_stat_t & prev_stat, timespec & prev_stat_time)
 {
     timespec cur_stat_time;
     clock_gettime(CLOCK_REALTIME, &cur_stat_time);
@@ -588,6 +591,14 @@ void kv_test_t::print_stats()
     }
     prev_stat = stat;
     prev_stat_time = cur_stat_time;
+}
+
+void kv_test_t::print_total_stats()
+{
+    printf("Total:\n");
+    kv_test_stat_t start_stats;
+    timespec start_stat_time = this->start_stat_time;
+    print_stats(start_stats, start_stat_time);
 }
 
 void kv_test_t::start_change(const std::string & key)
