@@ -233,7 +233,8 @@ int kv_block_t::parse(uint64_t offset, uint8_t *data, int size)
     if (blk->magic == 0 || blk->type == KV_EMPTY)
     {
         // empty block
-        fprintf(stderr, "K/V: Block %lu is %s\n", offset, blk->magic == 0 ? "empty" : "cleared");
+        if (offset != 0)
+            fprintf(stderr, "K/V: Block %lu is %s\n", offset, blk->magic == 0 ? "empty" : "cleared");
         return -ENOTBLK;
     }
     if (blk->magic != KV_BLOCK_MAGIC || blk->block_size != size ||
