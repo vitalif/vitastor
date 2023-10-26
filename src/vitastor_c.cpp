@@ -164,6 +164,15 @@ int vitastor_c_uring_register_eventfd(vitastor_c *client)
 
 vitastor_c *vitastor_c_create_uring_json(const char **options, int options_len)
 {
+    ring_loop_t *ringloop = NULL;
+    try
+    {
+        ringloop = new ring_loop_t(512);
+    }
+    catch (std::exception & e)
+    {
+        return NULL;
+    }
     json11::Json::object cfg;
     for (int i = 0; i < options_len-1; i += 2)
     {
@@ -171,7 +180,7 @@ vitastor_c *vitastor_c_create_uring_json(const char **options, int options_len)
     }
     json11::Json cfg_json(cfg);
     vitastor_c *self = new vitastor_c;
-    self->ringloop = new ring_loop_t(512);
+    self->ringloop = ringloop;
     self->epmgr = new epoll_manager_t(self->ringloop);
     self->cli = new cluster_client_t(self->ringloop, self->epmgr->tfd, cfg_json);
     return self;
