@@ -429,13 +429,17 @@ void osd_t::acquire_lease()
         create_osd_state();
     });
     printf(
-        "[OSD %lu] reporting to etcd at %s every %d seconds\n", this->osd_num,
+        "[OSD %lu] reporting to etcd at %s every %d seconds (statistics every %d seconds)\n", this->osd_num,
         (config["etcd_address"].is_string() ? config["etcd_address"].string_value() : config["etcd_address"].dump()).c_str(),
-        etcd_report_interval
+        etcd_report_interval, etcd_stats_interval
     );
     tfd->set_timer(etcd_report_interval*1000, true, [this](int timer_id)
     {
         renew_lease(false);
+    });
+    tfd->set_timer(etcd_stats_interval*1000, true, [this](int timer_id)
+    {
+        report_statistics();
     });
 }
 
@@ -541,7 +545,6 @@ void osd_t::renew_lease(bool reload)
         else
         {
             etcd_failed_attempts = 0;
-            report_statistics();
             // Reload PGs
             if (reload && run_primary)
             {

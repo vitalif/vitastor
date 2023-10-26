@@ -18,10 +18,10 @@ else
 fi
 
 if [ "$IMMEDIATE_COMMIT" != "" ]; then
-    NO_SAME="--journal_no_same_sector_overwrites true --journal_sector_buffer_count 1024 --disable_data_fsync 1 --immediate_commit all --log_level 10"
+    NO_SAME="--journal_no_same_sector_overwrites true --journal_sector_buffer_count 1024 --disable_data_fsync 1 --immediate_commit all --log_level 10 --etcd_stats_interval 5"
     $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"osd_out_time":1,"immediate_commit":"all","client_enable_writeback":true}'
 else
-    NO_SAME="--journal_sector_buffer_count 1024 --log_level 10"
+    NO_SAME="--journal_sector_buffer_count 1024 --log_level 10 --etcd_stats_interval 5"
     $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"osd_out_time":1,"client_enable_writeback":true}'
 fi
 

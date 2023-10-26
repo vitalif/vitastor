@@ -160,6 +160,9 @@ void osd_t::parse_config(bool init)
         etcd_report_interval = config["etcd_report_interval"].uint64_value();
         if (etcd_report_interval <= 0)
             etcd_report_interval = 5;
+        etcd_stats_interval = config["etcd_stats_interval"].uint64_value();
+        if (etcd_stats_interval <= 0)
+            etcd_stats_interval = 30;
         readonly = json_is_true(config["readonly"]);
         run_primary = !json_is_false(config["run_primary"]);
         allow_test_ops = json_is_true(config["allow_test_ops"]);

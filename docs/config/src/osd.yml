@@ -2,15 +2,28 @@
   type: sec
   default: 5
   info: |
-    Interval at which OSDs report their state to etcd. Affects OSD lease time
+    Interval at which OSDs report their liveness to etcd. Affects OSD lease time
     and thus the failover speed. Lease time is equal to this parameter value
     plus max_etcd_attempts * etcd_quick_timeout because it should be guaranteed
     that every OSD always refreshes its lease in time.
   info_ru: |
-    Интервал, с которым OSD обновляет своё состояние в etcd. Значение параметра
-    влияет на время резервации (lease) OSD и поэтому на скорость переключения
+    Интервал, с которым OSD сообщает о том, что жив, в etcd. Значение параметра
+    влияет на время резервации (lease) OSD и поэтому - на скорость переключения
     при падении OSD. Время lease равняется значению этого параметра плюс
     max_etcd_attempts * etcd_quick_timeout.
+- name: etcd_stats_interval
+  type: sec
+  default: 30
+  info: |
+    Interval at which OSDs report their statistics to etcd. Highly affects the
+    imposed load on etcd, because statistics include a key for every OSD and
+    for every PG. At the same time, low statistic intervals make `vitastor-cli`
+    statistics more responsive.
+  info_ru: |
+    Интервал, с которым OSD обновляет свою статистику в etcd. Сильно влияет на
+    создаваемую нагрузку на etcd, потому что статистика содержит по ключу на
+    каждый OSD и на каждую PG. В то же время низкий интервал делает
+    статистику, печатаемую `vitastor-cli`, отзывчивей.
 - name: run_primary
   type: bool
   default: true

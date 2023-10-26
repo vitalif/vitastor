@@ -99,6 +99,7 @@ const etcd_tree = {
             etcd_ws_keepalive_interval: 30, // seconds
             // osd
             etcd_report_interval: 5, // seconds
+            etcd_stats_interval: 30, // seconds
             run_primary: true,
             osd_network: null, // "192.168.7.0/24" or an array of masks
             bind_address: "0.0.0.0",
