@@ -32,6 +32,7 @@
 struct sec_data
 {
     vitastor_c *cli = NULL;
+    bool epoll_based = false;
     void *watch = NULL;
     bool last_sync = false;
     /* The list of completed io_u structs. */
@@ -58,6 +59,7 @@ struct sec_options
     int rdma_port_num = 0;
     int rdma_gid_index = 0;
     int rdma_mtu = 0;
+    int no_io_uring = 0;
 };
 
 static struct fio_option options[] = {
@@ -194,6 +196,16 @@ static struct fio_option options[] = {
         .group  = FIO_OPT_G_FILENAME,
     },
     {
+        .name   = "no_io_uring",
+        .lname  = "Disable io_uring",
+        .type   = FIO_OPT_BOOL,
+        .off1   = offsetof(struct sec_options, no_io_uring),
+        .help   = "Use epoll and plain sendmsg/recvmsg instead of io_uring (slower)",
+        .def    = "0",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
         .name = NULL,
     },
 };
@@ -281,7 +293,17 @@ static int sec_setup(struct thread_data *td)
         opt_push(options, "log_level", std::to_string(o->cluster_log).c_str());
     // allow writeback caching if -direct is not set
     opt_push(options, "client_writeback_allowed", td->o.odirect ? "0" : "1");
-    bsd->cli = vitastor_c_create_uring_json((const char**)options.data(), options.size());
+    bsd->cli = o->no_io_uring ? NULL : vitastor_c_create_uring_json((const char**)options.data(), options.size());
+    bsd->epoll_based = false;
+    if (!bsd->cli)
+    {
+        if (o->no_io_uring)
+            fprintf(stderr, "vitastor: io_uring disabled - I/O will be slower\n");
+        else
+            fprintf(stderr, "vitastor: failed to create io_uring: %s - I/O will be slower\n", strerror(errno));
+        bsd->cli = vitastor_c_create_epoll_json((const char**)options.data(), options.size());
+        bsd->epoll_based = true;
+    }
     for (auto opt: options)
         free(opt);
     options.clear();
@@ -289,12 +311,24 @@ static int sec_setup(struct thread_data *td)
     {
         bsd->watch = NULL;
         vitastor_c_watch_inode(bsd->cli, o->image, watch_callback, bsd);
-        while (true)
+        if (!bsd->epoll_based)
         {
-            vitastor_c_uring_handle_events(bsd->cli);
-            if (bsd->watch)
-                break;
-            vitastor_c_uring_wait_events(bsd->cli);
+            while (true)
+            {
+                vitastor_c_uring_handle_events(bsd->cli);
+                if (bsd->watch)
+                    break;
+                vitastor_c_uring_wait_events(bsd->cli);
+            }
+        }
+        else
+        {
+            while (true)
+            {
+                if (bsd->watch)
+                    break;
+                vitastor_c_epoll_handle_events(bsd->cli, 1000);
+            }
         }
         td->files[0]->real_file_size = vitastor_c_inode_get_size(bsd->watch);
         if (!vitastor_c_inode_get_num(bsd->watch) ||
@@ -437,12 +471,24 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
 static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int max, const struct timespec *t)
 {
     sec_data *bsd = (sec_data*)td->io_ops_data;
-    while (true)
+    if (!bsd->epoll_based)
     {
-        vitastor_c_uring_handle_events(bsd->cli);
-        if (bsd->completed.size() >= min)
-            break;
-        vitastor_c_uring_wait_events(bsd->cli);
+        while (true)
+        {
+            vitastor_c_uring_handle_events(bsd->cli);
+            if (bsd->completed.size() >= min)
+                break;
+            vitastor_c_uring_wait_events(bsd->cli);
+        }
+    }
+    else
+    {
+        while (true)
+        {
+            if (bsd->completed.size() >= min)
+                break;
+            vitastor_c_epoll_handle_events(bsd->cli, 1000);
+        }
     }
     return bsd->completed.size();
 }
