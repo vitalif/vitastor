@@ -23,25 +23,35 @@ epoll_manager_t::epoll_manager_t(ring_loop_t *ringloop)
 
     tfd = new timerfd_manager_t([this](int fd, bool wr, std::function<void(int, int)> handler) { set_fd_handler(fd, wr, handler); });
 
-    consumer.loop = [this]()
+    if (ringloop)
     {
-        if (pending)
-            handle_epoll_events();
-    };
-    ringloop->register_consumer(&consumer);
-
-    handle_epoll_events();
+        consumer.loop = [this]()
+        {
+            if (pending)
+                handle_uring_event();
+        };
+        ringloop->register_consumer(&consumer);
+        handle_uring_event();
+    }
 }
 
 epoll_manager_t::~epoll_manager_t()
 {
-    ringloop->unregister_consumer(&consumer);
+    if (ringloop)
+    {
+        ringloop->unregister_consumer(&consumer);
+    }
     if (tfd)
     {
         delete tfd;
         tfd = NULL;
     }
     close(epoll_fd);
+}
+
+int epoll_manager_t::get_fd()
+{
+    return epoll_fd;
 }
 
 void epoll_manager_t::set_fd_handler(int fd, bool wr, std::function<void(int, int)> handler)
@@ -75,7 +85,7 @@ void epoll_manager_t::set_fd_handler(int fd, bool wr, std::function<void(int, in
     }
 }
 
-void epoll_manager_t::handle_epoll_events()
+void epoll_manager_t::handle_uring_event()
 {
     io_uring_sqe *sqe = ringloop->get_sqe();
     if (!sqe)
@@ -95,14 +105,20 @@ void epoll_manager_t::handle_epoll_events()
         {
             throw std::runtime_error(std::string("epoll failed: ") + strerror(-data->res));
         }
-        handle_epoll_events();
+        handle_uring_event();
     };
     ringloop->submit();
+    handle_events(0);
+}
+
+void epoll_manager_t::handle_events(int timeout)
+{
     int nfds;
     epoll_event events[MAX_EPOLL_EVENTS];
     do
     {
-        nfds = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, 0);
+        nfds = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, timeout);
+        timeout = 0;
         for (int i = 0; i < nfds; i++)
         {
             auto cb_it = epoll_handlers.find(events[i].data.fd);

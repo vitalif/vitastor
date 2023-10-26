@@ -15,11 +15,14 @@ class epoll_manager_t
     ring_consumer_t consumer;
     ring_loop_t *ringloop;
     std::map<int, std::function<void(int, int)>> epoll_handlers;
+
+    void handle_uring_event();
 public:
     epoll_manager_t(ring_loop_t *ringloop);
     ~epoll_manager_t();
+    int get_fd();
     void set_fd_handler(int fd, bool wr, std::function<void(int, int)> handler);
-    void handle_epoll_events();
+    void handle_events(int timeout);
 
     timerfd_manager_t *tfd;
 };
