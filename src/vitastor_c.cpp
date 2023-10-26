@@ -186,12 +186,26 @@ vitastor_c *vitastor_c_create_uring_json(const char **options, int options_len)
     return self;
 }
 
+vitastor_c *vitastor_c_create_epoll_json(const char **options, int options_len)
+{
+    json11::Json::object cfg;
+    for (int i = 0; i < options_len-1; i += 2)
+    {
+        cfg[options[i]] = std::string(options[i+1]);
+    }
+    json11::Json cfg_json(cfg);
+    vitastor_c *self = new vitastor_c;
+    self->epmgr = new epoll_manager_t(NULL);
+    self->cli = new cluster_client_t(NULL, self->epmgr->tfd, cfg_json);
+    return self;
+}
+
 void vitastor_c_destroy(vitastor_c *client)
 {
     delete client->cli;
     if (client->epmgr)
         delete client->epmgr;
-    else
+    else if (client->tfd)
         delete client->tfd;
     if (client->ringloop)
         delete client->ringloop;
@@ -227,6 +241,16 @@ void vitastor_c_uring_wait_events(vitastor_c *client)
 int vitastor_c_uring_has_work(vitastor_c *client)
 {
     return client->ringloop->has_work();
+}
+
+int vitastor_c_epoll_get_fd(vitastor_c *client)
+{
+    return !client->ringloop && client->epmgr ? client->epmgr->get_fd() : -1;
+}
+
+void vitastor_c_epoll_handle_events(vitastor_c *client, int timeout)
+{
+    return client->epmgr->handle_events(timeout);
 }
 
 void vitastor_c_read(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,

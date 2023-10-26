@@ -7,7 +7,7 @@
 #define VITASTOR_QEMU_PROXY_H
 
 // C API wrapper version
-#define VITASTOR_C_API_VERSION 2
+#define VITASTOR_C_API_VERSION 3
 
 #ifndef POOL_ID_BITS
 #define POOL_ID_BITS 16
@@ -40,6 +40,7 @@ vitastor_c *vitastor_c_create_qemu_uring(QEMUSetFDHandler *aio_set_fd_handler, v
 vitastor_c *vitastor_c_create_uring(const char *config_path, const char *etcd_host, const char *etcd_prefix,
     int use_rdma, const char *rdma_device, int rdma_port_num, int rdma_gid_index, int rdma_mtu, int log_level);
 vitastor_c *vitastor_c_create_uring_json(const char **options, int options_len);
+vitastor_c *vitastor_c_create_epoll_json(const char **options, int options_len);
 void vitastor_c_destroy(vitastor_c *client);
 int vitastor_c_is_ready(vitastor_c *client);
 int vitastor_c_uring_register_eventfd(vitastor_c *client);
@@ -47,6 +48,8 @@ void vitastor_c_uring_wait_ready(vitastor_c *client);
 void vitastor_c_uring_handle_events(vitastor_c *client);
 void vitastor_c_uring_wait_events(vitastor_c *client);
 int vitastor_c_uring_has_work(vitastor_c *client);
+int vitastor_c_epoll_get_fd(vitastor_c *client);
+void vitastor_c_epoll_handle_events(vitastor_c *client, int timeout);
 void vitastor_c_read(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
     struct iovec *iov, int iovcnt, VitastorReadHandler cb, void *opaque);
 void vitastor_c_write(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len, uint64_t check_version,
