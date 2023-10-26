@@ -193,6 +193,10 @@ void cluster_client_t::inc_wait(uint64_t opcode, uint64_t flags, cluster_op_t *n
                     bh_op_max *= 2;
                     cluster_op_t **n = (cluster_op_t**)malloc_or_die(sizeof(cluster_op_t*) * bh_op_max);
                     memcpy(n, bh_ops, sizeof(cluster_op_t*) * bh_op_count);
+                    if (bh_ops != bh_ops_local)
+                    {
+                        free(bh_ops);
+                    }
                     bh_ops = n;
                 }
                 bh_ops[bh_op_count++] = next;
