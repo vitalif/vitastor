@@ -36,6 +36,7 @@
 
 - [Общие](config/common.ru.md)
 - [Сеть](config/network.ru.md)
+- [Клиентский код](config/client.ru.md)
 - [Глобальные дисковые параметры](config/layout-cluster.ru.md)
 - [Дисковые параметры OSD](config/layout-osd.ru.md)
 - [Прочие параметры OSD](config/osd.ru.md)

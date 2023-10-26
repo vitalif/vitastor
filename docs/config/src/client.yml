@@ -1,0 +1,124 @@
+- name: client_max_dirty_bytes
+  type: int
+  default: 33554432
+  online: true
+  info: |
+    Without [immediate_commit](layout-cluster.en.md#immediate_commit)=all this parameter sets the limit of "dirty"
+    (not committed by fsync) data allowed by the client before forcing an
+    additional fsync and committing the data. Also note that the client always
+    holds a copy of uncommitted data in memory so this setting also affects
+    RAM usage of clients.
+  info_ru: |
+    При работе без [immediate_commit](layout-cluster.ru.md#immediate_commit)=all - это лимит объёма "грязных" (не
+    зафиксированных fsync-ом) данных, при достижении которого клиент будет
+    принудительно вызывать fsync и фиксировать данные. Также стоит иметь в виду,
+    что в этом случае до момента fsync клиент хранит копию незафиксированных
+    данных в памяти, то есть, настройка влияет на потребление памяти клиентами.
+- name: client_max_dirty_ops
+  type: int
+  default: 1024
+  online: true
+  info: |
+    Same as client_max_dirty_bytes, but instead of total size, limits the number
+    of uncommitted write operations.
+  info_ru: |
+    Аналогично client_max_dirty_bytes, но ограничивает количество
+    незафиксированных операций записи вместо их общего объёма.
+- name: client_enable_writeback
+  type: bool
+  default: false
+  online: true
+  info: |
+    This parameter enables client-side write buffering. This means that write
+    requests are accumulated in memory for a short time before being sent to
+    a Vitastor cluster which allows to send them in parallel and increase
+    performance of some applications. Writes are buffered until client forces
+    a flush with fsync() or until the amount of buffered writes exceeds the
+    limit.
+
+    Write buffering significantly increases performance of some applications,
+    for example, CrystalDiskMark under Windows (LOL :-D), but also any other
+    applications if they do writes in one of two non-optimal ways: either if
+    they do a lot of small (4 kb or so) sequential writes, or if they do a lot
+    of small random writes, but without any parallelism or asynchrony, and also
+    without calling fsync().
+
+    With write buffering enabled, you can expect around 22000 T1Q1 random write
+    iops in QEMU more or less regardless of the quality of your SSDs, and this
+    number is in fact bound by QEMU itself rather than Vitastor (check it
+    yourself by adding a "driver=null-co" disk in QEMU). Without write
+    buffering, the current record is 9900 iops, but the number is usually
+    even lower with non-ideal hardware, for example, it may be 5000 iops.
+
+    Even when this parameter is enabled, write buffering isn't enabled until
+    the client explicitly allows it, because enabling it without the client
+    being aware of the fact that his writes may be buffered may lead to data
+    loss. Because of this, older versions of clients don't support write
+    buffering at all, newer versions of the QEMU driver allow write buffering
+    only if it's enabled in disk settings with `-blockdev cache.direct=false`,
+    and newer versions of FIO only allow write buffering if you don't specify
+    `-direct=1`. NBD and NFS drivers allow write buffering by default.
+
+    You can overcome this restriction too with the `client_writeback_allowed`
+    parameter, but you shouldn't do that unless you **really** know what you
+    are doing.
+  info_ru: |
+    Данный параметр разрешает включать буферизацию записи в памяти. Буферизация
+    означает, что операции записи отправляются на кластер Vitastor не сразу, а
+    могут небольшое время накапливаться в памяти и сбрасываться сразу пакетами,
+    до тех пор, пока либо не будет превышен лимит неотправленных записей, либо
+    пока клиент не вызовет fsync.
+
+    Буферизация значительно повышает производительность некоторых приложений,
+    например, CrystalDiskMark в Windows (ха-ха :-D), но также и любых других,
+    которые пишут на диск неоптимально: либо последовательно, но мелкими блоками
+    (например, по 4 кб), либо случайно, но без параллелизма и без fsync - то
+    есть, например, отправляя 128 операций записи в разные места диска, но не
+    все сразу с помощью асинхронного I/O, а по одной.
+
+    В QEMU с буферизацией записи можно ожидать показателя примерно 22000
+    операций случайной записи в секунду в 1 поток и с глубиной очереди 1 (T1Q1)
+    без fsync, почти вне зависимости от того, насколько хороши ваши диски - эта
+    цифра упирается в сам QEMU. Без буферизации рекорд пока что - 9900 операций
+    в секунду, но на железе похуже может быть и поменьше, например, 5000 операций
+    в секунду.
+
+    При этом, даже если данный параметр включён, буферизация не включается, если
+    явно не разрешена клиентом, т.к. если клиент не знает, что запросы записи
+    буферизуются, это может приводить к потере данных. Поэтому в старых версиях
+    клиентских драйверов буферизация записи не включается вообще, в новых
+    версиях QEMU-драйвера включается только если разрешена опцией диска
+    `-blockdev cache.direct=false`, а в fio - только если нет опция `-direct=1`.
+    В NBD и NFS драйверах буферизация записи разрешена по умолчанию.
+
+    Можно обойти и это ограничение с помощью параметра `client_writeback_allowed`,
+    но делать так не надо, если только вы не уверены в том, что делаете, на все
+    100%. :-)
+- name: client_max_buffered_bytes
+  type: int
+  default: 33554432
+  online: true
+  info: |
+    Maximum total size of buffered writes which triggers write-back when reached.
+  info_ru: |
+    Максимальный общий размер буферизованных записей, при достижении которого
+    начинается процесс сброса данных на сервер.
+- name: client_max_buffered_ops
+  type: int
+  default: 1024
+  online: true
+  info: |
+    Maximum number of buffered writes which triggers write-back when reached.
+    Multiple consecutive modified data regions are counted as 1 write here.
+  info_ru: |
+    Максимальное количество буферизованных записей, при достижении которого
+    начинается процесс сброса данных на сервер. При этом несколько
+    последовательных изменённых областей здесь считаются 1 записью.
+- name: client_max_writeback_iodepth
+  type: int
+  default: 256
+  online: true
+  info: |
+    Maximum number of parallel writes when flushing buffered data to the server.
+  info_ru: |
+    Максимальное число параллельных операций записи при сбросе буферов на сервер.

@@ -33,6 +33,7 @@ In the future, additional configuration methods may be added:
 
 - [Common](config/common.en.md)
 - [Network](config/network.en.md)
+- [Client](config/client.en.md)
 - [Global Disk Layout](config/layout-cluster.en.md)
 - [OSD Disk Layout](config/layout-osd.en.md)
 - [OSD Runtime Parameters](config/osd.en.md)

@@ -31,6 +31,7 @@
 - [RDMA/RoCEv2 support via libibverbs](../config/network.en.md#rdma_device)
 - [Scrubbing](../config/osd.en.md#auto_scrub) (verification of copies)
 - [Checksums](../config/layout-osd.en.md#data_csum_type)
+- [Client write-back cache](../config/client.en.md#client_enable_writeback)
 
 ## Plugins and tools
 

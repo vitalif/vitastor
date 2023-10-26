@@ -28,6 +28,8 @@
 
 {{../../config/network.ru.md|indent=2}}
 
+{{../../config/client.ru.md|indent=2}}
+
 {{../../config/layout-cluster.ru.md|indent=2}}
 
 {{../../config/layout-osd.ru.md|indent=2}}
