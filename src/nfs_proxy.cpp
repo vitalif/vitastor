@@ -65,8 +65,9 @@ json11::Json::object nfs_proxy_t::parse_args(int narg, const char *args[])
                 "  --pool <POOL>     use <POOL> as default pool for new files (images)\n"
                 "  --foreground 1    stay in foreground, do not daemonize\n"
                 "\n"
-                "NFS proxy is stateless if you use immediate_commit=all in your cluster, so\n"
-                "you can freely use multiple NFS proxies with L3 load balancing in this case.\n"
+                "NFS proxy is stateless if you use immediate_commit=all in your cluster and if\n"
+                "you do not use client_enable_writeback=true, so you can freely use multiple\n"
+                "NFS proxies with L3 load balancing in this case.\n"
                 "\n"
                 "Example start and mount commands for a custom NFS port:\n"
                 "  %s --etcd_address 192.168.5.10:2379 --portmap 0 --port 2050 --pool testpool\n"
@@ -113,6 +114,14 @@ void nfs_proxy_t::run(json11::Json cfg)
         name_prefix = name_prefix.substr(s, e-s);
         if (name_prefix.size())
             name_prefix += "/";
+    }
+    if (cfg["client_writeback_allowed"].is_null())
+    {
+        // NFS is always aware of fsync, so we allow write-back cache
+        // by default if it's enabled
+        auto obj = cfg.object_items();
+        obj["client_writeback_allowed"] = true;
+        cfg = obj;
     }
     // Create client
     ringloop = new ring_loop_t(512);

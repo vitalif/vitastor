@@ -216,6 +216,14 @@ public:
         {
             nbd_timeout = cfg["nbd_timeout"].uint64_value();
         }
+        if (cfg["client_writeback_allowed"].is_null())
+        {
+            // NBD is always aware of fsync, so we allow write-back cache
+            // by default if it's enabled
+            auto obj = cfg.object_items();
+            obj["client_writeback_allowed"] = true;
+            cfg = obj;
+        }
         // Create client
         ringloop = new ring_loop_t(512);
         epmgr = new epoll_manager_t(ringloop);
