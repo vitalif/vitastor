@@ -11,6 +11,7 @@ initialization and can be changed - either with an OSD restart or, for some of
 them, even without restarting by updating configuration in etcd.
 
 - [etcd_report_interval](#etcd_report_interval)
+- [etcd_stats_interval](#etcd_stats_interval)
 - [run_primary](#run_primary)
 - [osd_network](#osd_network)
 - [bind_address](#bind_address)
@@ -56,10 +57,20 @@ them, even without restarting by updating configuration in etcd.
 - Type: seconds
 - Default: 5
 
-Interval at which OSDs report their state to etcd. Affects OSD lease time
+Interval at which OSDs report their liveness to etcd. Affects OSD lease time
 and thus the failover speed. Lease time is equal to this parameter value
 plus max_etcd_attempts * etcd_quick_timeout because it should be guaranteed
 that every OSD always refreshes its lease in time.
+
+## etcd_stats_interval
+
+- Type: seconds
+- Default: 30
+
+Interval at which OSDs report their statistics to etcd. Highly affects the
+imposed load on etcd, because statistics include a key for every OSD and
+for every PG. At the same time, low statistic intervals make `vitastor-cli`
+statistics more responsive.
 
 ## run_primary
 
