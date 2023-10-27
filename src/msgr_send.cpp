@@ -119,9 +119,9 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
             try_send(cl);
         }
     }
-    else if (cl->write_msg.msg_iovlen > 0 || !try_send(cl))
+    else
     {
-        if (cl->write_state == 0)
+        if ((cl->write_msg.msg_iovlen > 0 || !try_send(cl)) && (cl->write_state == 0))
         {
             cl->write_state = CL_WRITE_READY;
             write_ready_clients.push_back(cur_op->peer_fd);
