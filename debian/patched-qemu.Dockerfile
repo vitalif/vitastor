@@ -54,7 +54,8 @@ RUN set -e; \
     quilt add block/vitastor.c; \
     cp /root/vitastor/src/qemu_driver.c block/vitastor.c; \
     quilt refresh; \
-    V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)(~bpo[\d\+]*)?\).*$/$1/')+vitastor3; \
+    V=$(head -n1 debian/changelog | perl -pe 's/5\.2\+dfsg-9/5.2+dfsg-11/; s/^.*\((.*?)(~bpo[\d\+]*)?\).*$/$1/')+vitastor4; \
+    if [ "$REL" = bullseye ]; then V=${V}bullseye; fi; \
     DEBEMAIL="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v $V 'Plug Vitastor block driver'; \
     DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto -sa; \
     rm -rf /root/packages/qemu-$REL/qemu-*/
