@@ -397,8 +397,8 @@ class Mon
         this.etcd_prefix = this.etcd_prefix.replace(/\/\/+/g, '/').replace(/^\/?(.*[^\/])\/?$/, '/$1');
         this.etcd_start_timeout = (config.etcd_start_timeout || 5) * 1000;
         this.state = JSON.parse(JSON.stringify(this.constructor.etcd_tree));
+        this.prev_stats = { osd_stats: {}, osd_diff: {} };
         this.signals_set = false;
-        this.stat_time = Date.now();
         this.ws = null;
         this.ws_alive = false;
         this.ws_keepalive_timer = null;
@@ -1459,15 +1459,15 @@ class Mon
         }
     }
 
-    derive_osd_stats(st, prev)
+    derive_osd_stats(st, prev, prev_diff)
     {
         const zero_stats = { op: { bps: 0n, iops: 0n, lat: 0n }, subop: { iops: 0n, lat: 0n }, recovery: { bps: 0n, iops: 0n } };
-        const diff = { op_stats: {}, subop_stats: {}, recovery_stats: {} };
-        if (!st || !st.time || prev && (prev.time || this.stat_time/1000) >= st.time)
+        const diff = { op_stats: {}, subop_stats: {}, recovery_stats: {}, inode_stats: {} };
+        if (!st || !st.time || !prev || prev.time >= st.time)
         {
-            return diff;
+            return prev_diff || diff;
         }
-        const timediff = BigInt(st.time*1000 - (prev && prev.time*1000 || this.stat_time));
+        const timediff = BigInt(st.time*1000 - prev.time*1000);
         for (const op in st.op_stats||{})
         {
             const pr = prev && prev.op_stats && prev.op_stats[op];
@@ -1499,25 +1499,47 @@ class Mon
             if (n > 0)
                 diff.recovery_stats[op] = { ...c, bps: b*1000n/timediff, iops: n*1000n/timediff };
         }
+        for (const pool_id in st.inode_stats||{})
+        {
+            const pool_diff = diff.inode_stats[pool_id] = {};
+            for (const inode_num in st.inode_stats[pool_id])
+            {
+                const inode_diff = diff.inode_stats[pool_id][inode_num] = {};
+                for (const op of [ 'read', 'write', 'delete' ])
+                {
+                    const c = st.inode_stats[pool_id][inode_num][op];
+                    const pr = prev && prev.inode_stats && prev.inode_stats[pool_id] &&
+                        prev.inode_stats[pool_id][inode_num] && prev.inode_stats[pool_id][inode_num][op];
+                    const n = BigInt(c.count||0) - BigInt(pr && pr.count||0);
+                    inode_diff[op] = {
+                        bps: (BigInt(c.bytes||0) - BigInt(pr && pr.bytes||0))*1000n/timediff,
+                        iops: n*1000n/timediff,
+                        lat: (BigInt(c.usec||0) - BigInt(pr && pr.usec||0))/(n || 1n),
+                    };
+                }
+            }
+        }
         return diff;
     }
 
-    sum_op_stats(timestamp, prev_stats)
+    sum_op_stats()
     {
-        const sum_diff = { op_stats: {}, subop_stats: {}, recovery_stats: {} };
-        if (!prev_stats || prev_stats.timestamp >= timestamp)
+        for (const osd in this.state.osd.stats)
         {
-            return sum_diff;
+            const cur = { ...this.state.osd.stats[osd], inode_stats: this.state.osd.inodestats[osd]||{} };
+            this.prev_stats.osd_diff[osd] = this.derive_osd_stats(
+                cur, this.prev_stats.osd_stats[osd], this.prev_stats.osd_diff[osd]
+            );
+            this.prev_stats.osd_stats[osd] = cur;
         }
-        const tm = BigInt(timestamp - (prev_stats.timestamp || 0));
+        const sum_diff = { op_stats: {}, subop_stats: {}, recovery_stats: {} };
         // Sum derived values instead of deriving summed
         for (const osd in this.state.osd.stats)
         {
-            const derived = this.derive_osd_stats(this.state.osd.stats[osd],
-                this.prev_stats && this.prev_stats.osd_stats && this.prev_stats.osd_stats[osd]);
-            for (const type in derived)
+            const derived = this.prev_stats.osd_diff[osd];
+            for (const type in sum_diff)
             {
-                for (const op in derived[type])
+                for (const op in derived[type]||{})
                 {
                     for (const k in derived[type][op])
                     {
@@ -1574,14 +1596,14 @@ class Mon
         return { object_counts, object_bytes };
     }
 
-    sum_inode_stats(prev_stats, timestamp, prev_timestamp)
+    sum_inode_stats()
     {
         const inode_stats = {};
         const inode_stub = () => ({
             raw_used: 0n,
-            read: { count: 0n, usec: 0n, bytes: 0n },
-            write: { count: 0n, usec: 0n, bytes: 0n },
-            delete: { count: 0n, usec: 0n, bytes: 0n },
+            read: { count: 0n, usec: 0n, bytes: 0n, bps: 0n, iops: 0n, lat: 0n },
+            write: { count: 0n, usec: 0n, bytes: 0n, bps: 0n, iops: 0n, lat: 0n },
+            delete: { count: 0n, usec: 0n, bytes: 0n, bps: 0n, iops: 0n, lat: 0n },
         });
         const seen_pools = {};
         for (const pool_id in this.state.config.pools)
@@ -1633,11 +1655,25 @@ class Mon
                 }
             }
         }
-        if (prev_stats && prev_timestamp >= timestamp)
+        for (const osd in this.prev_stats.osd_diff)
         {
-            prev_stats = null;
+            for (const pool_id in this.prev_stats.osd_diff[osd].inode_stats)
+            {
+                for (const inode_num in this.prev_stats.osd_diff[osd].inode_stats[pool_id])
+                {
+                    inode_stats[pool_id][inode_num] = inode_stats[pool_id][inode_num] || inode_stub();
+                    for (const op of [ 'read', 'write', 'delete' ])
+                    {
+                        const op_diff = this.prev_stats.osd_diff[osd].inode_stats[pool_id][inode_num][op] || {};
+                        const op_st = inode_stats[pool_id][inode_num][op];
+                        op_st.bps += op_diff.bps;
+                        op_st.iops += op_diff.iops;
+                        op_st.lat += op_diff.lat;
+                        op_st.n_osd = (op_st.n_osd || 0) + 1;
+                    }
+                }
+            }
         }
-        const tm = prev_stats ? BigInt(timestamp - prev_timestamp) : 0;
         for (const pool_id in inode_stats)
         {
             for (const inode_num in inode_stats[pool_id])
@@ -1646,11 +1682,12 @@ class Mon
                 for (const op of [ 'read', 'write', 'delete' ])
                 {
                     const op_st = inode_stats[pool_id][inode_num][op];
-                    const prev_st = prev_stats && prev_stats[pool_id] && prev_stats[pool_id][inode_num] && prev_stats[pool_id][inode_num][op];
-                    op_st.bps = prev_st ? (op_st.bytes - prev_st.bytes) * 1000n / tm : 0;
-                    op_st.iops = prev_st ? (op_st.count - prev_st.count) * 1000n / tm : 0;
-                    op_st.lat = prev_st ? (op_st.usec - prev_st.usec) / ((op_st.count - prev_st.count) || 1n) : 0;
-                    if (op_st.bps > 0 || op_st.iops > 0 || op_st.lat > 0)
+                    if (op_st.n_osd)
+                    {
+                        op_st.lat /= BigInt(op_st.n_osd);
+                        delete op_st.n_osd;
+                    }
+                    if (op_st.bps > 0 || op_st.iops > 0)
                         nonzero = true;
                 }
                 if (!nonzero && (!this.state.config.inode[pool_id] || !this.state.config.inode[pool_id][inode_num]))
@@ -1683,15 +1720,9 @@ class Mon
     async update_total_stats()
     {
         const txn = [];
-        const timestamp = Date.now();
         const { object_counts, object_bytes } = this.sum_object_counts();
-        let stats = this.sum_op_stats(timestamp, this.prev_stats);
-        let { inode_stats, seen_pools } = this.sum_inode_stats(
-            this.prev_stats ? this.prev_stats.inode_stats : null,
-            timestamp, this.prev_stats ? this.prev_stats.timestamp : null
-        );
-        this.prev_stats = { timestamp, inode_stats, osd_stats: { ...this.state.osd.stats } };
-        this.stat_time = Date.now();
+        let stats = this.sum_op_stats();
+        let { inode_stats, seen_pools } = this.sum_inode_stats();
         stats.object_counts = object_counts;
         stats.object_bytes = object_bytes;
         stats = this.serialize_bigints(stats);
