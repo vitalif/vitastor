@@ -50,6 +50,7 @@ Vitastor поддерживает QEMU-драйвер, протоколы NBD и
   - Параметры
     - [Общие](docs/config/common.ru.md)
     - [Сетевые](docs/config/network.ru.md)
+    - [Клиентский код](docs/config/client.en.md)
     - [Глобальные дисковые параметры](docs/config/layout-cluster.ru.md)
     - [Дисковые параметры OSD](docs/config/layout-osd.ru.md)
     - [Прочие параметры OSD](docs/config/osd.ru.md)

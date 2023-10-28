@@ -50,6 +50,7 @@ Read more details below in the documentation.
   - Parameter Reference
     - [Common](docs/config/common.en.md)
     - [Network](docs/config/network.en.md)
+    - [Client](docs/config/client.en.md)
     - [Global Disk Layout](docs/config/layout-cluster.en.md)
     - [OSD Disk Layout](docs/config/layout-osd.en.md)
     - [OSD Runtime Parameters](docs/config/osd.en.md)
