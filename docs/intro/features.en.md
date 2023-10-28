@@ -51,13 +51,15 @@
 
 The following features are planned for the future:
 
+- File system
+- Control plane optimisation
 - Other administrative tools
 - Web GUI
 - OpenNebula plugin
-- iSCSI proxy
+- iSCSI and NVMeoF gateways
 - Multi-threaded client
 - Faster failover
+- S3
 - Tiered storage (SSD caching)
 - NVDIMM support
 - Compression (possibly)
-- Read caching using system page cache (possibly)
