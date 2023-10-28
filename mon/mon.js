@@ -552,9 +552,9 @@ class Mon
             const cur_addr = this.pick_next_etcd();
             const base = 'ws'+cur_addr.substr(4);
             let now = Date.now();
-            if (tried[base] && now-tried[base] < timeout)
+            if (tried[base] && now-tried[base] < this.etcd_start_timeout)
             {
-                await new Promise(ok => setTimeout(ok, timeout-(now-tried[base])));
+                await new Promise(ok => setTimeout(ok, this.etcd_start_timeout-(now-tried[base])));
                 now = Date.now();
             }
             tried[base] = now;
