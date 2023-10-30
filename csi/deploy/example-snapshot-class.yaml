@@ -1,0 +1,7 @@
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: vitastor-snapclass
+driver: csi.vitastor.io
+deletionPolicy: Delete
+parameters:

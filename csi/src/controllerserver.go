@@ -20,6 +20,7 @@ import (
 
     "google.golang.org/grpc/codes"
     "google.golang.org/grpc/status"
+    "google.golang.org/protobuf/types/known/timestamppb"
 
     "github.com/container-storage-interface/spec/lib/go/csi"
 )
@@ -45,6 +46,7 @@ type InodeConfig struct
     ParentPool uint64 `json:"parent_pool,omitempty"`
     ParentId uint64 `json:"parent_id,omitempty"`
     Readonly bool `json:"readonly,omitempty"`
+    CreateTs uint64 `json:"create_ts,omitempty"`
 }
 
 type ControllerServer struct
@@ -178,26 +180,42 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
         return nil, status.Error(codes.InvalidArgument, "no etcdUrl in storage class configuration and no etcd_address in vitastor.conf")
     }
 
+    args := []string{ "create", volName, "-s", fmt.Sprintf("%v", volSize), "--pool", fmt.Sprintf("%v", poolId) }
+
+    // Support creation from snapshot
+    var src *csi.VolumeContentSource
+    if (req.VolumeContentSource.GetSnapshot() != nil)
+    {
+        snapId := req.VolumeContentSource.GetSnapshot().GetSnapshotId()
+        if (snapId != "")
+        {
+            snapVars := make(map[string]string)
+            err := json.Unmarshal([]byte(snapId), &snapVars)
+            if (err != nil)
+            {
+                return nil, status.Error(codes.Internal, "volume ID not in JSON format")
+            }
+            args = append(args, "--parent", snapVars["name"]+"@"+snapVars["snapshot"])
+            src = &csi.VolumeContentSource{
+                Type: &csi.VolumeContentSource_Snapshot{
+                    Snapshot: &csi.VolumeContentSource_SnapshotSource{
+                        SnapshotId: snapId,
+                    },
+                },
+            }
+        }
+    }
+
     // Create image using vitastor-cli
-    _, err := invokeCLI(ctxVars, []string{ "create", volName, "-s", fmt.Sprintf("%v", volSize), "--pool", fmt.Sprintf("%v", poolId) })
+    _, err := invokeCLI(ctxVars, args)
     if (err != nil)
     {
         if (strings.Index(err.Error(), "already exists") > 0)
         {
-            stat, err := invokeCLI(ctxVars, []string{ "ls", "--json", volName })
+            inodeCfg, err := invokeList(ctxVars, volName, true)
             if (err != nil)
             {
                 return nil, err
-            }
-            var inodeCfg []InodeConfig
-            err = json.Unmarshal(stat, &inodeCfg)
-            if (err != nil)
-            {
-                return nil, status.Error(codes.Internal, "Invalid JSON in vitastor-cli ls: "+err.Error())
-            }
-            if (len(inodeCfg) == 0)
-            {
-                return nil, status.Error(codes.Internal, "vitastor-cli create said that image already exists, but ls can't find it")
             }
             if (inodeCfg[0].Size < uint64(volSize))
             {
@@ -217,6 +235,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
             // Ugly, but VolumeContext isn't passed to DeleteVolume :-(
             VolumeId: string(volumeIdJson),
             CapacityBytes: volSize,
+            ContentSource: src,
         },
     }, nil
 }
@@ -230,15 +249,15 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
         return nil, status.Error(codes.InvalidArgument, "request cannot be empty")
     }
 
-    ctxVars := make(map[string]string)
-    err := json.Unmarshal([]byte(req.VolumeId), &ctxVars)
+    volVars := make(map[string]string)
+    err := json.Unmarshal([]byte(req.VolumeId), &volVars)
     if (err != nil)
     {
         return nil, status.Error(codes.Internal, "volume ID not in JSON format")
     }
-    volName := ctxVars["name"]
+    volName := volVars["name"]
 
-    ctxVars, _, _ = GetConnectionParams(ctxVars)
+    ctxVars, _, _ := GetConnectionParams(volVars)
 
     _, err = invokeCLI(ctxVars, []string{ "rm", volName })
     if (err != nil)
@@ -342,8 +361,9 @@ func (cs *ControllerServer) ControllerGetCapabilities(ctx context.Context, req *
     for _, capability := range []csi.ControllerServiceCapability_RPC_Type{
         csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
         csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
-        csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
         csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+        csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
+        // TODO: csi.ControllerServiceCapability_RPC_CLONE_VOLUME,
     } {
         controllerServerCapabilities = append(controllerServerCapabilities, functionControllerServerCapabilities(capability))
     }
@@ -353,22 +373,165 @@ func (cs *ControllerServer) ControllerGetCapabilities(ctx context.Context, req *
     }, nil
 }
 
+func invokeList(ctxVars map[string]string, pattern string, expectExist bool) ([]InodeConfig, error)
+{
+    stat, err := invokeCLI(ctxVars, []string{ "ls", "--json", pattern })
+    if (err != nil)
+    {
+        return nil, err
+    }
+    var inodeCfg []InodeConfig
+    err = json.Unmarshal(stat, &inodeCfg)
+    if (err != nil)
+    {
+        return nil, status.Error(codes.Internal, "Invalid JSON in vitastor-cli ls: "+err.Error())
+    }
+    if (expectExist && len(inodeCfg) == 0)
+    {
+        return nil, status.Error(codes.Internal, "Can't find expected image "+pattern+" via vitastor-cli ls")
+    }
+    return inodeCfg, nil
+}
+
 // CreateSnapshot create snapshot of an existing PV
 func (cs *ControllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshotRequest) (*csi.CreateSnapshotResponse, error)
 {
-    return nil, status.Error(codes.Unimplemented, "")
+    klog.Infof("received controller create snapshot request %+v", protosanitizer.StripSecrets(req))
+    if (req == nil)
+    {
+        return nil, status.Errorf(codes.InvalidArgument, "request cannot be empty")
+    }
+    if (req.SourceVolumeId == "" || req.Name == "")
+    {
+        return nil, status.Error(codes.InvalidArgument, "source volume ID and snapshot name are required fields")
+    }
+
+    // snapshot name
+    snapName := req.Name
+
+    // req.VolumeId is an ugly json string in our case :)
+    ctxVars := make(map[string]string)
+    err := json.Unmarshal([]byte(req.SourceVolumeId), &ctxVars)
+    if (err != nil)
+    {
+        return nil, status.Error(codes.Internal, "volume ID not in JSON format")
+    }
+    volName := ctxVars["name"]
+
+    // Create image using vitastor-cli
+    _, err = invokeCLI(ctxVars, []string{ "create", "--snapshot", snapName, volName })
+    if (err != nil && strings.Index(err.Error(), "already exists") <= 0)
+    {
+        return nil, err
+    }
+
+    // Check created snapshot
+    inodeCfg, err := invokeList(ctxVars, volName+"@"+snapName, true)
+    if (err != nil)
+    {
+        return nil, err
+    }
+
+    // Use ugly JSON snapshot ID again, DeleteSnapshot doesn't have context :-(
+    ctxVars["snapshot"] = snapName
+    snapIdJson, _ := json.Marshal(ctxVars)
+    return &csi.CreateSnapshotResponse{
+        Snapshot: &csi.Snapshot{
+            SizeBytes: int64(inodeCfg[0].Size),
+            SnapshotId: string(snapIdJson),
+            SourceVolumeId: req.SourceVolumeId,
+            CreationTime: &timestamppb.Timestamp{ Seconds: int64(inodeCfg[0].CreateTs) },
+            ReadyToUse: true,
+        },
+    }, nil
 }
 
 // DeleteSnapshot delete provided snapshot of a PV
 func (cs *ControllerServer) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshotRequest) (*csi.DeleteSnapshotResponse, error)
 {
-    return nil, status.Error(codes.Unimplemented, "")
+    klog.Infof("received controller delete snapshot request %+v", protosanitizer.StripSecrets(req))
+    if (req == nil)
+    {
+        return nil, status.Errorf(codes.InvalidArgument, "request cannot be empty")
+    }
+    if (req.SnapshotId == "")
+    {
+        return nil, status.Error(codes.InvalidArgument, "snapshot ID is a required field")
+    }
+
+    volVars := make(map[string]string)
+    err := json.Unmarshal([]byte(req.SnapshotId), &volVars)
+    if (err != nil)
+    {
+        return nil, status.Error(codes.Internal, "snapshot ID not in JSON format")
+    }
+    volName := volVars["name"]
+    snapName := volVars["snapshot"]
+
+    ctxVars, _, _ := GetConnectionParams(volVars)
+
+    _, err = invokeCLI(ctxVars, []string{ "rm", volName+"@"+snapName })
+    if (err != nil)
+    {
+        return nil, err
+    }
+
+    return &csi.DeleteSnapshotResponse{}, nil
 }
 
 // ListSnapshots list the snapshots of a PV
 func (cs *ControllerServer) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error)
 {
-    return nil, status.Error(codes.Unimplemented, "")
+    klog.Infof("received controller list snapshots request %+v", protosanitizer.StripSecrets(req))
+    if (req == nil)
+    {
+        return nil, status.Error(codes.InvalidArgument, "request cannot be empty")
+    }
+
+    volVars := make(map[string]string)
+    err := json.Unmarshal([]byte(req.SourceVolumeId), &volVars)
+    if (err != nil)
+    {
+        return nil, status.Error(codes.Internal, "volume ID not in JSON format")
+    }
+    volName := volVars["name"]
+    ctxVars, _, _ := GetConnectionParams(volVars)
+
+    inodeCfg, err := invokeList(ctxVars, volName+"@*", false)
+    if (err != nil)
+    {
+        return nil, err
+    }
+
+    resp := &csi.ListSnapshotsResponse{}
+    for _, ino := range inodeCfg
+    {
+        snapName := ino.Name[len(volName)+1:]
+        if (len(req.StartingToken) > 0 && snapName < req.StartingToken)
+        {
+        }
+        else if (req.MaxEntries == 0 || len(resp.Entries) < int(req.MaxEntries))
+        {
+            volVars["snapshot"] = snapName
+            snapIdJson, _ := json.Marshal(volVars)
+            resp.Entries = append(resp.Entries, &csi.ListSnapshotsResponse_Entry{
+                Snapshot: &csi.Snapshot{
+                    SizeBytes: int64(ino.Size),
+                    SnapshotId: string(snapIdJson),
+                    SourceVolumeId: req.SourceVolumeId,
+                    CreationTime: &timestamppb.Timestamp{ Seconds: int64(ino.CreateTs) },
+                    ReadyToUse: true,
+                },
+            })
+        }
+        else
+        {
+            resp.NextToken = snapName
+            break
+        }
+    }
+
+    return resp, nil
 }
 
 // ControllerExpandVolume resizes a volume

@@ -1,0 +1,8 @@
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: snap1
+spec:
+  volumeSnapshotClassName: vitastor-snapclass
+  source:
+    persistentVolumeClaimName: test-vitastor-pvc

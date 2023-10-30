@@ -23,6 +23,11 @@ metadata:
   name: csi-vitastor-provisioner
 spec:
   replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app: csi-vitastor-provisioner
@@ -46,7 +51,7 @@ spec:
       priorityClassName: system-cluster-critical
       containers:
         - name: csi-provisioner
-          image: k8s.gcr.io/sig-storage/csi-provisioner:v2.2.0
+          image: k8s.gcr.io/sig-storage/csi-provisioner:v3.0.0
           args:
             - "--csi-address=$(ADDRESS)"
             - "--v=5"
