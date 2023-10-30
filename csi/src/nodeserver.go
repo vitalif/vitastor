@@ -70,10 +70,10 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
     isBlock := req.GetVolumeCapability().GetBlock() != nil
 
     // Check that it's not already mounted
-    _, error := mount.IsNotMountPoint(ns.mounter, targetPath)
-    if (error != nil)
+    _, err := mount.IsNotMountPoint(ns.mounter, targetPath)
+    if (err != nil)
     {
-        if (os.IsNotExist(error))
+        if (os.IsNotExist(err))
         {
             if (isBlock)
             {
@@ -102,12 +102,12 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
         }
         else
         {
-            return nil, status.Error(codes.Internal, error.Error())
+            return nil, status.Error(codes.Internal, err.Error())
         }
     }
 
     ctxVars := make(map[string]string)
-    err := json.Unmarshal([]byte(req.VolumeId), &ctxVars)
+    err = json.Unmarshal([]byte(req.VolumeId), &ctxVars)
     if (err != nil)
     {
         return nil, status.Error(codes.Internal, "volume ID not in JSON format")
@@ -147,70 +147,74 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
     }
     devicePath := strings.TrimSpace(stdoutStr)
 
-    // Check existing format
     diskMounter := &mount.SafeFormatAndMount{Interface: ns.mounter, Exec: utilexec.New()}
-    existingFormat, err := diskMounter.GetDiskFormat(devicePath)
-    if (err != nil)
-    {
-        klog.Errorf("failed to get disk format for path %s, error: %v", err)
-        // unmap NBD device
-        unmapOut, unmapErr := exec.Command("/usr/bin/vitastor-nbd", "unmap", devicePath).CombinedOutput()
-        if (unmapErr != nil)
-        {
-            klog.Errorf("failed to unmap NBD device %s: %s, error: %v", devicePath, unmapOut, unmapErr)
-        }
-        return nil, err
-    }
-
-    // Format the device (ext4 or xfs)
-    fsType := req.GetVolumeCapability().GetMount().GetFsType()
-    opt := req.GetVolumeCapability().GetMount().GetMountFlags()
-    opt = append(opt, "_netdev")
-    if ((req.VolumeCapability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY ||
-        req.VolumeCapability.AccessMode.Mode == csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY) &&
-        !Contains(opt, "ro"))
-    {
-        opt = append(opt, "ro")
-    }
-    if (fsType == "xfs")
-    {
-        opt = append(opt, "nouuid")
-    }
-    readOnly := Contains(opt, "ro")
-    if (existingFormat == "" && !readOnly)
-    {
-        args := []string{}
-        switch fsType
-        {
-            case "ext4":
-                args = []string{"-m0", "-Enodiscard,lazy_itable_init=1,lazy_journal_init=1", devicePath}
-            case "xfs":
-                args = []string{"-K", devicePath}
-        }
-        if (len(args) > 0)
-        {
-            cmdOut, cmdErr := diskMounter.Exec.Command("mkfs."+fsType, args...).CombinedOutput()
-            if (cmdErr != nil)
-            {
-                klog.Errorf("failed to run mkfs error: %v, output: %v", cmdErr, string(cmdOut))
-                // unmap NBD device
-                unmapOut, unmapErr := exec.Command("/usr/bin/vitastor-nbd", "unmap", devicePath).CombinedOutput()
-                if (unmapErr != nil)
-                {
-                    klog.Errorf("failed to unmap NBD device %s: %s, error: %v", devicePath, unmapOut, unmapErr)
-                }
-                return nil, status.Error(codes.Internal, cmdErr.Error())
-            }
-        }
-    }
     if (isBlock)
     {
-        opt = append(opt, "bind")
-        err = diskMounter.Mount(devicePath, targetPath, fsType, opt)
+        err = diskMounter.Mount(devicePath, targetPath, "", []string{"bind"})
     }
     else
     {
+        // Check existing format
+        existingFormat, err := diskMounter.GetDiskFormat(devicePath)
+        if (err != nil)
+        {
+            klog.Errorf("failed to get disk format for path %s, error: %v", err)
+            goto unmap
+        }
+
+        // Format the device (ext4 or xfs)
+        fsType := req.GetVolumeCapability().GetMount().GetFsType()
+        opt := req.GetVolumeCapability().GetMount().GetMountFlags()
+        opt = append(opt, "_netdev")
+        if ((req.VolumeCapability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY ||
+            req.VolumeCapability.AccessMode.Mode == csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY) &&
+            !Contains(opt, "ro"))
+        {
+            opt = append(opt, "ro")
+        }
+        if (fsType == "xfs")
+        {
+            opt = append(opt, "nouuid")
+        }
+        readOnly := Contains(opt, "ro")
+        if (existingFormat == "" && !readOnly)
+        {
+            var cmdOut []byte
+            switch fsType
+            {
+                case "ext4":
+                    args := []string{"-m0", "-Enodiscard,lazy_itable_init=1,lazy_journal_init=1", devicePath}
+                    cmdOut, err = diskMounter.Exec.Command("mkfs.ext4", args...).CombinedOutput()
+                case "xfs":
+                    cmdOut, err = diskMounter.Exec.Command("mkfs.xfs", "-K", devicePath).CombinedOutput()
+            }
+            if (err != nil)
+            {
+                klog.Errorf("failed to run mkfs error: %v, output: %v", err, string(cmdOut))
+                goto unmap
+            }
+        }
+
         err = diskMounter.FormatAndMount(devicePath, targetPath, fsType, opt)
+
+        // Try to run online resize on mount.
+        // FIXME: Implement online resize. It requires online resize support in vitastor-nbd.
+        if (err == nil && existingFormat != "" && !readOnly)
+        {
+            var cmdOut []byte
+            switch (fsType)
+            {
+                case "ext4":
+                    cmdOut, err = diskMounter.Exec.Command("resize2fs", devicePath).CombinedOutput()
+                case "xfs":
+                    cmdOut, err = diskMounter.Exec.Command("xfs_growfs", devicePath).CombinedOutput()
+            }
+            if (err != nil)
+            {
+                klog.Errorf("failed to run resizefs error: %v, output: %v", err, string(cmdOut))
+                goto unmap
+            }
+        }
     }
     if (err != nil)
     {
@@ -218,15 +222,18 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
             "failed to mount device path (%s) to path (%s) for volume (%s) error: %s",
             devicePath, targetPath, volName, err,
         )
-        // unmap NBD device
-        unmapOut, unmapErr := exec.Command("/usr/bin/vitastor-nbd", "unmap", devicePath).CombinedOutput()
-        if (unmapErr != nil)
-        {
-            klog.Errorf("failed to unmap NBD device %s: %s, error: %v", devicePath, unmapOut, unmapErr)
-        }
-        return nil, status.Error(codes.Internal, err.Error())
+        goto unmap
     }
     return &csi.NodePublishVolumeResponse{}, nil
+
+unmap:
+    // unmap NBD device
+    unmapOut, unmapErr := exec.Command("/usr/bin/vitastor-nbd", "unmap", devicePath).CombinedOutput()
+    if (unmapErr != nil)
+    {
+        klog.Errorf("failed to unmap NBD device %s: %s, error: %v", devicePath, unmapOut, unmapErr)
+    }
+    return nil, status.Error(codes.Internal, err.Error())
 }
 
 // NodeUnpublishVolume unmounts the volume from the target path

@@ -17,3 +17,4 @@ parameters:
   # multiple etcdUrls may be specified, delimited by comma
   #etcdUrl: "http://192.168.7.2:2379"
   #etcdPrefix: "/vitastor"
+allowVolumeExpansion: true

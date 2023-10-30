@@ -361,6 +361,7 @@ func (cs *ControllerServer) ControllerGetCapabilities(ctx context.Context, req *
     for _, capability := range []csi.ControllerServiceCapability_RPC_Type{
         csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
         csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+        csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
         csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
         csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
         // TODO: csi.ControllerServiceCapability_RPC_CLONE_VOLUME,
@@ -534,10 +535,53 @@ func (cs *ControllerServer) ListSnapshots(ctx context.Context, req *csi.ListSnap
     return resp, nil
 }
 
-// ControllerExpandVolume resizes a volume
+// ControllerExpandVolume increases the size of a volume
 func (cs *ControllerServer) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error)
 {
-    return nil, status.Error(codes.Unimplemented, "")
+    klog.Infof("received controller expand volume request %+v", protosanitizer.StripSecrets(req))
+    if (req == nil)
+    {
+        return nil, status.Error(codes.InvalidArgument, "request cannot be empty")
+    }
+    if (req.VolumeId == "" || req.CapacityRange == nil || req.CapacityRange.RequiredBytes == 0)
+    {
+        return nil, status.Error(codes.InvalidArgument, "VolumeId, CapacityRange and RequiredBytes are required fields")
+    }
+
+    volVars := make(map[string]string)
+    err := json.Unmarshal([]byte(req.VolumeId), &volVars)
+    if (err != nil)
+    {
+        return nil, status.Error(codes.Internal, "volume ID not in JSON format")
+    }
+    volName := volVars["name"]
+    ctxVars, _, _ := GetConnectionParams(volVars)
+
+    inodeCfg, err := invokeList(ctxVars, volName, true)
+    if (err != nil)
+    {
+        return nil, err
+    }
+
+    if (req.CapacityRange.RequiredBytes > 0 && inodeCfg[0].Size < uint64(req.CapacityRange.RequiredBytes))
+    {
+        sz := ((req.CapacityRange.RequiredBytes+4095)/4096)*4096
+        _, err := invokeCLI(ctxVars, []string{ "modify", "--inc_size", "1", "--resize", fmt.Sprintf("%d", sz), volName })
+        if (err != nil)
+        {
+            return nil, err
+        }
+        inodeCfg, err = invokeList(ctxVars, volName, true)
+        if (err != nil)
+        {
+            return nil, err
+        }
+    }
+
+    return &csi.ControllerExpandVolumeResponse{
+        CapacityBytes: int64(inodeCfg[0].Size),
+        NodeExpansionRequired: false,
+    }, nil
 }
 
 // ControllerGetVolume get volume info
