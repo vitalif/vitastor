@@ -29,7 +29,7 @@ start_osd_on()
 {
     local i=$1
     local dev=$2
-    build/src/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $NO_SAME $OSD_ARGS --etcd_address $ETCD_URL \
+    build/src/vitastor-osd --osd_num $i --bind_address $ETCD_IP $NO_SAME $OSD_ARGS --etcd_address $ETCD_URL \
         $(build/src/vitastor-disk simple-offsets --format options $OFFSET_ARGS $dev $OFFSET_ARGS 2>/dev/null) \
         >>./testdata/osd$i.log 2>&1 &
     eval OSD${i}_PID=$!
