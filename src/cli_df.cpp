@@ -124,6 +124,7 @@ resume_1:
                 pool_avail *= (pool_cfg.pg_size - pool_cfg.parity_chunks);
             }
             pool_stats[pool_cfg.id] = json11::Json::object {
+                { "id", (uint64_t)pool_cfg.id },
                 { "name", pool_cfg.name },
                 { "pg_count", pool_cfg.pg_count },
                 { "scheme", pool_cfg.scheme == POOL_SCHEME_REPLICATED ? "replicated" : "ec" },
