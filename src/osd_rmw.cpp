@@ -239,8 +239,9 @@ static void* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size
 {
     int edd = 0;
     int erased[pg_size];
+    // we should distinguish stripes which are not at all and missing stripes
     for (int i = 0; i < pg_size; i++)
-        erased[i] = (stripes[i].read_end == 0 || stripes[i].missing ? 1 : 0);
+        erased[i] = (stripes[i].read_end == 0 ? 2 : (stripes[i].missing ? 1 : 0));
     for (int i = 0; i < pg_minsize; i++)
         if (stripes[i].read_end != 0 && stripes[i].missing)
             edd++;
@@ -253,7 +254,7 @@ static void* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size
 #ifdef WITH_ISAL
         int smrow = 0;
         uint8_t *submatrix = (uint8_t*)malloc_or_die(pg_minsize*pg_minsize*2);
-        for (int i = 0; i < pg_size; i++)
+        for (int i = 0; i < pg_size && smrow < pg_minsize; i++)
         {
             if (!erased[i])
             {
@@ -279,7 +280,7 @@ static void* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size
         smrow = 0;
         for (int i = 0; i < pg_minsize; i++)
         {
-            if (erased[i])
+            if (erased[i] == 1)
             {
                 memcpy(submatrix + pg_minsize*smrow, submatrix + (pg_minsize+i)*pg_minsize, pg_minsize);
                 smrow++;
