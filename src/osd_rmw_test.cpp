@@ -29,6 +29,7 @@ void test15(bool second);
 void test16();
 void test_recover_22_d2();
 void test_ec43_error_bruteforce();
+void test_recover_53_d5();
 
 int main(int narg, char *args[])
 {
@@ -67,6 +68,8 @@ int main(int narg, char *args[])
     test_recover_22_d2();
     // Error bruteforce
     test_ec43_error_bruteforce();
+    // Test 19
+    test_recover_53_d5();
     // End
     printf("all ok\n");
     return 0;
@@ -1112,7 +1115,7 @@ void test_recover_22_d2()
 
 /***
 
-EC 4+2 error location bruteforce
+18. EC 4+2 error location bruteforce
 
 ***/
 
@@ -1177,4 +1180,67 @@ void test_ec43_error_bruteforce()
     free(rmw_buf);
     free(write_buf);
     use_ec(7, 4, false);
+}
+
+/***
+
+19. EC 5+3 recover 5th data block but not 4th
+
+***/
+
+void test_recover_53_d5()
+{
+    const int bmp = 128*1024 / 4096 / 8;
+    use_ec(8, 5, true);
+    osd_num_t osd_set[8] = { 1, 2, 3, 0, 0, 6, 7, 8 };
+    osd_rmw_stripe_t stripes[8] = {};
+    unsigned bitmaps[8] = { 0 };
+    // Read 512+128K
+    split_stripes(5, 128*1024, 512*1024, 128*1024, stripes);
+    assert(stripes[0].req_start == 0 && stripes[0].req_end == 0);
+    assert(stripes[1].req_start == 0 && stripes[1].req_end == 0);
+    assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
+    assert(stripes[3].req_start == 0 && stripes[3].req_end == 0);
+    assert(stripes[4].req_start == 0 && stripes[4].req_end == 128*1024);
+    uint8_t *data_buf = (uint8_t*)malloc_or_die(128*1024*8);
+    for (int i = 0; i < 8; i++)
+    {
+        stripes[i].read_start = stripes[i].req_start;
+        stripes[i].read_end = stripes[i].req_end;
+        stripes[i].read_buf = data_buf + i*128*1024;
+        stripes[i].bmp_buf = bitmaps + i;
+    }
+    // Read using parity
+    assert(extend_missing_stripes(stripes, osd_set, 5, 8) == 0);
+    assert(stripes[0].read_start == 0 && stripes[0].read_end == 128*1024);
+    assert(stripes[1].read_start == 0 && stripes[1].read_end == 128*1024);
+    assert(stripes[2].read_start == 0 && stripes[2].read_end == 128*1024);
+    assert(stripes[3].read_start == 0 && stripes[3].read_end == 0);
+    assert(stripes[4].read_start == 0 && stripes[4].read_end == 128*1024);
+    assert(stripes[5].read_start == 0 && stripes[5].read_end == 128*1024);
+    assert(stripes[6].read_start == 0 && stripes[6].read_end == 128*1024);
+    assert(stripes[7].read_start == 0 && stripes[7].read_end == 0);
+    bitmaps[0] = 0xffffffff;
+    bitmaps[1] = 0xffffffff;
+    bitmaps[2] = 0xffffffff;
+    bitmaps[3] = 0;
+    bitmaps[4] = 0;
+    bitmaps[5] = 0xffffffff;
+    bitmaps[6] = 0x64646464;
+    bitmaps[7] = 0;
+    set_pattern(stripes[0].read_buf, 128*1024, 0x70a549add9a2280a);
+    set_pattern(stripes[1].read_buf, 128*1024, 0xa70a549add9a2280);
+    set_pattern(stripes[2].read_buf, 128*1024, 0x0a70a549add9a228);
+    set_pattern(stripes[3].read_buf, 128*1024, 0); // 0x80a70a549add9a22
+    set_pattern(stripes[4].read_buf, 128*1024, 0); // 0x280a70a549add9a2
+    set_pattern(stripes[5].read_buf, 128*1024, 0x7572c28f7a91eb22); // xor
+    set_pattern(stripes[6].read_buf, 128*1024, 0xb4542b32a560fe26); // 2nd EC chunk
+    set_pattern(stripes[7].read_buf, 128*1024, 0);
+    // Reconstruct
+    reconstruct_stripes_ec(stripes, 8, 5, bmp);
+    check_pattern(stripes[4].read_buf, 128*1024, 0x280a70a549add9a2);
+    assert(bitmaps[4] == 0xFFFFFFFF);
+    free(data_buf);
+    // Done
+    use_ec(8, 5, false);
 }
