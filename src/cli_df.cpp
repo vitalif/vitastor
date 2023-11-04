@@ -109,7 +109,7 @@ resume_1:
             }
             for (auto pg_per_pair: pg_per_osd)
             {
-                uint64_t pg_free = osd_free[pg_per_pair.first] * pool_cfg.pg_count / pg_per_pair.second;
+                uint64_t pg_free = osd_free[pg_per_pair.first] * pool_cfg.real_pg_count / pg_per_pair.second;
                 if (pool_avail > pg_free)
                 {
                     pool_avail = pg_free;
@@ -127,6 +127,7 @@ resume_1:
                 { "id", (uint64_t)pool_cfg.id },
                 { "name", pool_cfg.name },
                 { "pg_count", pool_cfg.pg_count },
+                { "real_pg_count", pool_cfg.real_pg_count },
                 { "scheme", pool_cfg.scheme == POOL_SCHEME_REPLICATED ? "replicated" : "ec" },
                 { "scheme_name", pool_cfg.scheme == POOL_SCHEME_REPLICATED
                     ? std::to_string(pool_cfg.pg_size)+"/"+std::to_string(pool_cfg.pg_minsize)
@@ -177,7 +178,7 @@ resume_1:
             { "title", "SCHEME" },
         });
         cols.push_back(json11::Json::object{
-            { "key", "pg_count" },
+            { "key", "pg_count_fmt" },
             { "title", "PGS" },
         });
         cols.push_back(json11::Json::object{
@@ -206,6 +207,9 @@ resume_1:
             double raw_to = kv.second["raw_to_usable"].number_value();
             if (raw_to < 0.000001 && raw_to > -0.000001)
                 raw_to = 1;
+            kv.second["pg_count_fmt"] = kv.second["real_pg_count"] == kv.second["pg_count"]
+                ? kv.second["real_pg_count"].as_string()
+                : kv.second["real_pg_count"].as_string()+" -> "+kv.second["pg_count"].as_string();
             kv.second["total_fmt"] = format_size(kv.second["total_raw"].uint64_value() / raw_to);
             kv.second["used_fmt"] = format_size(kv.second["used_raw"].uint64_value() / raw_to);
             kv.second["max_avail_fmt"] = format_size(kv.second["max_available"].uint64_value());

@@ -158,12 +158,7 @@ resume_2:
         for (auto & pool_pair: parent->cli->st_cli.pool_config)
         {
             auto & pool_cfg = pool_pair.second;
-            bool active = true;
-            if (pool_cfg.pg_config.size() != pool_cfg.pg_count)
-            {
-                active = false;
-                pgs_by_state["offline"] += pool_cfg.pg_count-pool_cfg.pg_config.size();
-            }
+            bool active = pool_cfg.real_pg_count > 0;
             pool_count++;
             for (auto pg_it = pool_cfg.pg_config.begin(); pg_it != pool_cfg.pg_config.end(); pg_it++)
             {
