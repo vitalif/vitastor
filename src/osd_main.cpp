@@ -19,6 +19,14 @@ static void handle_sigint(int sig)
     exit(0);
 }
 
+static const char* help_text =
+    "Vitastor OSD (block object storage daemon) " VERSION "\n"
+    "(c) Vitaliy Filippov, 2019+ (VNPL-1.1)\n"
+    "\n"
+    "OSDs are usually started by vitastor-disk.\n"
+    "Manual usage: vitastor-osd [--option value] ...\n"
+;
+
 int main(int narg, char *args[])
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -37,6 +45,16 @@ int main(int narg, char *args[])
             char *opt = args[i]+2;
             config[std::string(opt)] = std::string(args[++i]);
         }
+        else if (!strcmp(args[i], "--help"))
+        {
+            printf("%s", help_text);
+            return 0;
+        }
+    }
+    if (!config.size())
+    {
+        printf("%s", help_text);
+        return 1;
     }
     signal(SIGINT, handle_sigint);
     signal(SIGTERM, handle_sigint);

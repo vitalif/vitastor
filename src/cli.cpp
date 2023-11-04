@@ -17,7 +17,7 @@
 static const char *exe_name = NULL;
 
 static const char* help_text =
-    "Vitastor command-line tool\n"
+    "Vitastor command-line tool " VERSION "\n"
     "(c) Vitaliy Filippov, 2019+ (VNPL-1.1)\n"
     "\n"
     "COMMANDS:\n"
