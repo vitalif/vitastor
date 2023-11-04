@@ -209,7 +209,7 @@ resume_1:
                 raw_to = 1;
             kv.second["pg_count_fmt"] = kv.second["real_pg_count"] == kv.second["pg_count"]
                 ? kv.second["real_pg_count"].as_string()
-                : kv.second["real_pg_count"].as_string()+" -> "+kv.second["pg_count"].as_string();
+                : kv.second["real_pg_count"].as_string()+"->"+kv.second["pg_count"].as_string();
             kv.second["total_fmt"] = format_size(kv.second["total_raw"].uint64_value() / raw_to);
             kv.second["used_fmt"] = format_size(kv.second["used_raw"].uint64_value() / raw_to);
             kv.second["max_avail_fmt"] = format_size(kv.second["max_available"].uint64_value());
