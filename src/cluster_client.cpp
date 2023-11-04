@@ -64,7 +64,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
 
 cluster_client_t::~cluster_client_t()
 {
-    msgr.repeer_pgs = [this](osd_num_t){};
+    msgr.repeer_pgs = [](osd_num_t){};
     if (ringloop)
     {
         ringloop->unregister_consumer(&consumer);
@@ -454,7 +454,7 @@ bool cluster_client_t::flush()
             wb->start_writebacks(this, 0);
             cluster_op_t *sync = new cluster_op_t;
             sync->opcode = OSD_OP_SYNC;
-            sync->callback = [this](cluster_op_t *sync)
+            sync->callback = [](cluster_op_t *sync)
             {
                 delete sync;
             };
@@ -465,7 +465,7 @@ bool cluster_client_t::flush()
     bool sync_done = false;
     cluster_op_t *sync = new cluster_op_t;
     sync->opcode = OSD_OP_SYNC;
-    sync->callback = [this, &sync_done](cluster_op_t *sync)
+    sync->callback = [&sync_done](cluster_op_t *sync)
     {
         delete sync;
         sync_done = true;

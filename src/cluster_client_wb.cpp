@@ -263,7 +263,7 @@ void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from
     }
     assert(calc_len == op->len);
     writebacks_active++;
-    op->callback = [this, cli, flush_id](cluster_op_t* op)
+    op->callback = [this, flush_id](cluster_op_t* op)
     {
         // Buffer flushes should be always retried, regardless of the error,
         // so they should never result in an error here
@@ -383,7 +383,7 @@ static void copy_to_op(cluster_op_t *op, uint64_t offset, uint8_t *buf, uint64_t
             auto begin = (cur_offset < offset ? offset : cur_offset);
             auto end = (cur_offset+v.iov_len > offset+len ? offset+len : cur_offset+v.iov_len);
             memcpy(
-                v.iov_base + begin - cur_offset,
+                (uint8_t*)v.iov_base + begin - cur_offset,
                 buf + (cur_offset <= offset ? 0 : cur_offset-offset),
                 end - begin
             );

@@ -21,7 +21,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         dyn = calloc_or_die(1, dyn_size+sizeof(int));
         *((int*)dyn) = 1;
     }
-    uint8_t *dyn_ptr = (uint8_t*)(alloc_dyn_data ? dyn+sizeof(int) : &dyn);
+    uint8_t *dyn_ptr = (alloc_dyn_data ? (uint8_t*)dyn+sizeof(int) : (uint8_t*)&dyn);
     uint64_t version = 1;
     if (dirty_db.size() > 0)
     {
