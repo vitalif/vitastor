@@ -17,4 +17,15 @@
 for i in ./???-*.yaml; do kubectl apply -f $i; done
 ```
 
-После этого вы сможете создавать PersistentVolume. Пример смотрите в файле [csi/deploy/example-pvc.yaml](../../csi/deploy/example-pvc.yaml).
+После этого вы сможете создавать PersistentVolume.
+
+## Возможности
+
+CSI-плагин Vitastor поддерживает:
+- Версии Kubernetes, начиная с 1.20 (или с 1.17 для более старых vitastor-csi <= 1.1.0)
+- Файловые RWO (ReadWriteOnce) тома. Пример: [PVC](../../csi/deploy/example-pvc.yaml), [под](../../csi/deploy/example-test-pod.yaml)
+- Сырые блочные RWX (ReadWriteMany) тома. Пример: [PVC](../../csi/deploy/example-pvc-block.yaml), [под](../../csi/deploy/example-test-pod-block.yaml)
+- Расширение размера томов
+- Снимки томов. Пример: [класс снимков](../../csi/deploy/example-snapshot-class.yaml), [снимок](../../csi/deploy/example-snapshot.yaml), [клон снимка](../../csi/deploy/example-snapshot-clone.yaml)
+
+Не забывайте, что для использования снимков нужно сначала установить [контроллер снимков и CRD](https://kubernetes-csi.github.io/docs/snapshot-controller.html#deployment).
