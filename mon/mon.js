@@ -1304,6 +1304,12 @@ class Mon
                             this.schedule_recheck();
                             return;
                         }
+                    }
+                    if (prev_pgs.length != pool_cfg.pg_count)
+                    {
+                        // Scale PG count
+                        // Do it even if old_pg_count is already equal to pool_cfg.pg_count,
+                        // because last_clean_pgs may still contain the old number of PGs
                         const new_pg_history = [];
                         PGUtil.scale_pg_count(prev_pgs, real_prev_pgs, pg_history, new_pg_history, pool_cfg.pg_count);
                         pg_history = new_pg_history;
