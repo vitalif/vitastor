@@ -1372,7 +1372,7 @@ bool journal_flusher_co::trim_journal(int wait_base)
                     ? (uint32_t)JE_START_V1_SIZE : (uint32_t)JE_START_V2_SIZE),
                 .reserved = 0,
                 .journal_start = new_trim_pos,
-                .version = (!bs->dsk.data_csum_type && ((journal_entry_start*)flusher->journal_superblock)->version == JOURNAL_VERSION_V1
+                .version = (uint64_t)(!bs->dsk.data_csum_type && ((journal_entry_start*)flusher->journal_superblock)->version == JOURNAL_VERSION_V1
                     ? JOURNAL_VERSION_V1 : JOURNAL_VERSION_V2),
                 .data_csum_type = bs->dsk.data_csum_type,
                 .csum_block_size = bs->dsk.csum_block_size,
