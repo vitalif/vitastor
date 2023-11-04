@@ -553,7 +553,7 @@ resume_1:
         }
         if (je_start->size == JE_START_V0_SIZE ||
             (je_start->version != JOURNAL_VERSION_V1 || je_start->size != JE_START_V1_SIZE) &&
-            (je_start->version != JOURNAL_VERSION_V2 || je_start->size != JE_START_V2_SIZE))
+            (je_start->version != JOURNAL_VERSION_V2 || je_start->size != JE_START_V2_SIZE && je_start->size != JE_START_V1_SIZE))
         {
             fprintf(
                 stderr, "The code only supports journal versions 2 and 1, but it is %lu on disk."
@@ -562,7 +562,8 @@ resume_1:
             );
             exit(1);
         }
-        if (je_start->version == JOURNAL_VERSION_V1)
+        if (je_start->version == JOURNAL_VERSION_V1 ||
+            je_start->version == JOURNAL_VERSION_V2 && je_start->size == JE_START_V1_SIZE)
         {
             je_start->data_csum_type = 0;
             je_start->csum_block_size = 0;
