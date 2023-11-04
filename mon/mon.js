@@ -693,8 +693,27 @@ class Mon
         });
     }
 
+    // Schedule save_last_clean() to to run after a small timeout (1s) (to not spam etcd)
+    schedule_save_last_clean()
+    {
+        if (!this.save_last_clean_timer)
+        {
+            this.save_last_clean_timer = setTimeout(() =>
+            {
+                this.save_last_clean_timer = null;
+                this.save_last_clean().catch(this.die);
+            }, this.config.mon_change_timeout || 1000);
+        }
+    }
+
     async save_last_clean()
     {
+        if (this.save_last_clean_running)
+        {
+            this.schedule_save_last_clean();
+            return;
+        }
+        this.save_last_clean_running = true;
         // last_clean_pgs is used to avoid extra data move when observing a series of changes in the cluster
         const new_clean_pgs = { items: {} };
     next_pool:
@@ -731,6 +750,7 @@ class Mon
                 value: b64(JSON.stringify(this.state.history.last_clean_pgs))
             } } ],
         }, this.etcd_start_timeout, 0);
+        this.save_last_clean_running = false;
     }
 
     get_mon_state()
