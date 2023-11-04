@@ -403,6 +403,7 @@ class Mon
         this.ws_alive = false;
         this.ws_keepalive_timer = null;
         this.on_stop_cb = () => this.on_stop(0).catch(console.error);
+        this.recheck_pgs_active = false;
     }
 
     parse_etcd_addresses(addrs)
@@ -1203,6 +1204,12 @@ class Mon
 
     async recheck_pgs()
     {
+        if (this.recheck_pgs_active)
+        {
+            this.schedule_recheck();
+            return;
+        }
+        this.recheck_pgs_active = true;
         // Take configuration and state, check it against the stored configuration hash
         // Recalculate PGs and save them to etcd if the configuration is changed
         // FIXME: Do not change anything if the distribution is good and random enough and no PGs are degraded
@@ -1224,6 +1231,7 @@ class Mon
                     // Pool deleted. Delete all PGs, but first stop them.
                     if (!await this.stop_all_pgs(pool_id))
                     {
+                        this.recheck_pgs_active = false;
                         this.schedule_recheck();
                         return;
                     }
@@ -1292,6 +1300,7 @@ class Mon
                         // PG count changed. Need to bring all PGs down.
                         if (!await this.stop_all_pgs(pool_id))
                         {
+                            this.recheck_pgs_active = false;
                             this.schedule_recheck();
                             return;
                         }
@@ -1396,6 +1405,7 @@ class Mon
                 await this.save_pg_config(new_config_pgs);
             }
         }
+        this.recheck_pgs_active = false;
     }
 
     async save_pg_config(new_config_pgs, etcd_request = { compare: [], success: [] })
@@ -1445,7 +1455,6 @@ class Mon
     }
 
     // Schedule a recheck to run after a small timeout (1s)
-    // If already scheduled, cancel previous timer and schedule it again
     // This is required for multiple change events to trigger at most 1 recheck in 1s
     schedule_recheck()
     {
