@@ -1293,28 +1293,15 @@ void kv_op_t::update()
 
 void kv_op_t::update_find()
 {
-    auto blk_it = db->block_cache.find(cur_block);
-    if (blk_it != db->block_cache.end())
-    {
-        auto blk = &blk_it->second;
-        if (blk->updating)
-        {
-            // Optimisation: do not recheck the block if it's already being modified
-            db->continue_update.emplace(blk->offset, [=]() { update_find(); });
-            return;
-        }
-    }
     get_block(db, cur_block, cur_level, recheck_policy, [=, checked_block = cur_block](int res, bool updated)
     {
         res = handle_block(res, updated, true);
         if (res == -EAGAIN)
         {
-            db->run_continue_update(checked_block);
             update_find();
         }
         else if (res == -ENOTBLK)
         {
-            db->run_continue_update(checked_block);
             if (opcode == KV_SET)
             {
                 // Check CAS callback
@@ -1330,12 +1317,10 @@ void kv_op_t::update_find()
         }
         else if (res == -ECHILD)
         {
-            db->run_continue_update(checked_block);
             resume_split();
         }
         else if (res < 0)
         {
-            db->run_continue_update(checked_block);
             finish(res);
         }
         else
