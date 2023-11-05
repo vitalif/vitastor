@@ -133,6 +133,7 @@ struct kv_db_t
     uint64_t evict_max_misses = 10;
     uint64_t evict_attempts_per_level = 3;
     uint64_t allocate_blocks = 4;
+    uint64_t log_level = 1;
 
     // state
     uint64_t evict_unused_counter = 0;
@@ -533,6 +534,7 @@ void kv_db_t::set_config(json11::Json cfg)
     this->evict_unused_age = cfg["kv_evict_unused_age"].is_null() ? 1000 : cfg["kv_evict_unused_age"].uint64_value();
     this->cache_max_blocks = this->memory_limit / this->kv_block_size;
     this->allocate_blocks = cfg["kv_allocate_blocks"].uint64_value() ? cfg["kv_allocate_blocks"].uint64_value() : 4;
+    this->log_level = !cfg["kv_log_level"].is_null() ? cfg["kv_log_level"].uint64_value() : 1;
 }
 
 void kv_db_t::close(std::function<void()> cb)
@@ -964,9 +966,13 @@ int kv_op_t::handle_block(int res, bool updated, bool stop_on_split)
         // We may read P on step (1), get a link to A, and read A on step (4).
         // It will miss data from [c, b).
         // Retry once. If we don't see any updates after retrying - fail with EILSEQ.
-        fprintf(stderr, "K/V: %sgot unrelated block %lu: key=%s range=[%s, %s) from=[%s, %s)\n",
-            !this->updated && this->retry > 0 ? "Error: " : "Warning: read/update collision: ",
-            cur_block, key.c_str(), blk->key_ge.c_str(), blk->key_lt.c_str(), prev_key_ge.c_str(), prev_key_lt.c_str());
+        bool fatal = !this->updated && this->retry > 0;
+        if (fatal || db->log_level > 0)
+        {
+            fprintf(stderr, "K/V: %sgot unrelated block %lu: key=%s range=[%s, %s) from=[%s, %s)\n",
+                fatal ? "Error: " : "Warning: read/update collision: ",
+                cur_block, key.c_str(), blk->key_ge.c_str(), blk->key_lt.c_str(), prev_key_ge.c_str(), prev_key_lt.c_str());
+        }
         if (this->updated)
         {
             this->updated = false;

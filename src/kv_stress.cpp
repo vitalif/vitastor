@@ -61,7 +61,7 @@ public:
     uint64_t max_value_len = 300;
     uint64_t print_stats_interval = 1;
     bool json_output = false;
-    bool trace = true;
+    bool trace = false;
     bool stop_on_error = false;
     // FIXME: Multiple clients
     kv_test_stat_t stat, prev_stat;
@@ -153,8 +153,6 @@ json11::Json::object kv_test_t::parse_args(int narg, const char *args[])
                 "    Print operation statistics every this number of seconds\n"
                 "  --json\n"
                 "    JSON output\n"
-                "  --trace 1\n"
-                "    Print all executed operations\n"
                 "  --stop_on_error 0\n"
                 "    Stop on first execution error, mismatch, lost key or extra key during listing\n"
                 "  --kv_memory_limit 128M\n"
@@ -168,7 +166,9 @@ json11::Json::object kv_test_t::parse_args(int narg, const char *args[])
                 "    Retry eviction at most this number of times per tree level, starting\n"
                 "    with bottom-most levels\n"
                 "  --kv_evict_unused_age 1000\n"
-                "    Evict only keys unused during this number of last operations\n",
+                "    Evict only keys unused during this number of last operations\n"
+                "  --kv_log_level 1\n"
+                "    Log level. 0 = errors, 1 = warnings, 10 = trace operations\n",
                 exe_name
             );
             exit(0);
@@ -216,8 +216,6 @@ void kv_test_t::parse_config(json11::Json cfg)
         print_stats_interval = cfg["print_stats"].uint64_value();
     if (!cfg["json"].is_null())
         json_output = true;
-    if (!cfg["trace"].is_null())
-        trace = cfg["trace"].bool_value();
     if (!cfg["stop_on_error"].is_null())
         stop_on_error = cfg["stop_on_error"].bool_value();
     if (!cfg["kv_memory_limit"].is_null())
@@ -230,6 +228,11 @@ void kv_test_t::parse_config(json11::Json cfg)
         kv_cfg["kv_evict_attempts_per_level"] = cfg["kv_evict_attempts_per_level"];
     if (!cfg["kv_evict_unused_age"].is_null())
         kv_cfg["kv_evict_unused_age"] = cfg["kv_evict_unused_age"];
+    if (!cfg["kv_log_level"].is_null())
+    {
+        trace = cfg["kv_log_level"].uint64_value() >= 10;
+        kv_cfg["kv_log_level"] = cfg["kv_log_level"];
+    }
     total_prob = reopen_prob+get_prob+add_prob+update_prob+del_prob+list_prob;
     stat.get.name = "get";
     stat.add.name = "add";
