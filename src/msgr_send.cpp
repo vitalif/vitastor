@@ -3,6 +3,7 @@
 
 #define _XOPEN_SOURCE
 #include <limits.h>
+#include <sys/epoll.h>
 
 #include "messenger.h"
 
@@ -283,7 +284,14 @@ void osd_messenger_t::handle_send(int result, osd_client_t *cl)
                 fprintf(stderr, "Successfully connected with client %d using RDMA\n", cl->peer_fd);
             }
             cl->peer_state = PEER_RDMA;
-            tfd->set_fd_handler(cl->peer_fd, false, NULL);
+            tfd->set_fd_handler(cl->peer_fd, false, [this](int peer_fd, int epoll_events)
+            {
+                // Do not miss the disconnection!
+                if (epoll_events & EPOLLRDHUP)
+                {
+                    handle_peer_epoll(peer_fd, epoll_events);
+                }
+            });
             // Add the initial receive request
             try_recv_rdma(cl);
         }
