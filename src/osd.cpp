@@ -541,10 +541,14 @@ void osd_t::print_slow()
                 }
                 else if (op->req.hdr.opcode == OSD_OP_SEC_STABILIZE || op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
                 {
-                    for (uint64_t i = 0; i < op->req.sec_stab.len; i += sizeof(obj_ver_id))
+                    for (uint64_t i = 0; i < op->req.sec_stab.len && i < sizeof(obj_ver_id)*12; i += sizeof(obj_ver_id))
                     {
                         obj_ver_id *ov = (obj_ver_id*)((uint8_t*)op->buf + i);
                         bufprintf(i == 0 ? " %lx:%lx v%lu" : ", %lx:%lx v%lu", ov->oid.inode, ov->oid.stripe, ov->version);
+                    }
+                    if (op->req.sec_stab.len > sizeof(obj_ver_id)*12)
+                    {
+                        bufprintf(", ... (%d items)", op->req.sec_stab.len/sizeof(obj_ver_id));
                     }
                 }
                 else if (op->req.hdr.opcode == OSD_OP_SEC_LIST)
