@@ -17,9 +17,10 @@ if("${CMAKE_INSTALL_PREFIX}" MATCHES "^/usr/local/?$")
 endif()
 
 add_definitions(-DVERSION="1.2.0")
-add_definitions(-Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fdiagnostics-color=always -I ${CMAKE_SOURCE_DIR}/src)
+add_definitions(-Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fdiagnostics-color=always -fno-omit-frame-pointer -I ${CMAKE_SOURCE_DIR}/src)
+add_link_options(-fno-omit-frame-pointer)
 if (${WITH_ASAN})
-	add_definitions(-fsanitize=address -fno-omit-frame-pointer)
+	add_definitions(-fsanitize=address)
 	add_link_options(-fsanitize=address -fno-omit-frame-pointer)
 endif (${WITH_ASAN})
 
