@@ -320,7 +320,7 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
         if (journal_calc_data_pos != sw.data_offset)
         {
             printf(json ? ",\"bad_loc\":true,\"calc_loc\":\"0x%lx\""
-                : " (mismatched, calculated = %lu)", journal_pos);
+                : " (mismatched, calculated = %08lx)", journal_pos);
         }
         uint32_t data_csum_size = (!je_start.csum_block_size
             ? 0
