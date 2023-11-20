@@ -320,7 +320,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         blockstore_journal_check_t space_check(this);
         if (!space_check.check_available(op, unsynced_big_write_count + 1,
             sizeof(journal_entry_big_write) + dsk.clean_dyn_size,
-            (dirty_it->second.state & BS_ST_INSTANT) ? JOURNAL_INSTANT_RESERVATION : JOURNAL_STABILIZE_RESERVATION))
+            (unstable_writes.size()+unstable_unsynced)*journal.block_size))
         {
             return 0;
         }
@@ -386,6 +386,10 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             sqe, dsk.data_fd, PRIV(op)->iov_zerofill, vcnt, dsk.data_offset + (loc << dsk.block_order) + op->offset - stripe_offset
         );
         PRIV(op)->pending_ops = 1;
+        if (immediate_commit != IMMEDIATE_ALL && !(dirty_it->second.state & BS_ST_INSTANT))
+        {
+            unstable_unsynced++;
+        }
         if (immediate_commit != IMMEDIATE_ALL)
         {
             // Increase the counter, but don't save into unsynced_writes yet (can't sync until the write is finished)
@@ -408,7 +412,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 sizeof(journal_entry_big_write) + dsk.clean_dyn_size, 0)
             || !space_check.check_available(op, 1,
                 sizeof(journal_entry_small_write) + dyn_size,
-                op->len + ((dirty_it->second.state & BS_ST_INSTANT) ? JOURNAL_INSTANT_RESERVATION : JOURNAL_STABILIZE_RESERVATION)))
+                (unstable_writes.size()+unstable_unsynced)*journal.block_size))
         {
             return 0;
         }
@@ -499,6 +503,11 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (journal.next_free >= journal.len)
         {
             journal.next_free = dsk.journal_block_size;
+            assert(journal.next_free != journal.used_start);
+        }
+        if (immediate_commit == IMMEDIATE_NONE && !(dirty_it->second.state & BS_ST_INSTANT))
+        {
+            unstable_unsynced++;
         }
         if (!PRIV(op)->pending_ops)
         {
@@ -538,7 +547,7 @@ resume_2:
         uint64_t dyn_size = dsk.dirty_dyn_size(op->offset, op->len);
         blockstore_journal_check_t space_check(this);
         if (!space_check.check_available(op, 1, sizeof(journal_entry_big_write) + dyn_size,
-            ((dirty_it->second.state & BS_ST_INSTANT) ? JOURNAL_INSTANT_RESERVATION : JOURNAL_STABILIZE_RESERVATION)))
+            (unstable_writes.size()+unstable_unsynced)*journal.block_size))
         {
             return 0;
         }
@@ -582,14 +591,20 @@ resume_4:
 #endif
         bool is_big = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE;
         bool imm = is_big ? (immediate_commit == IMMEDIATE_ALL) : (immediate_commit != IMMEDIATE_NONE);
+        bool is_instant = ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_DELETE || (dirty_it->second.state & BS_ST_INSTANT));
         if (imm)
         {
             auto & unstab = unstable_writes[op->oid];
             unstab = unstab < op->version ? op->version : unstab;
         }
+        else if (!is_instant)
+        {
+            unstable_unsynced--;
+            assert(unstable_unsynced >= 0);
+        }
         dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK)
             | (imm ? BS_ST_SYNCED : BS_ST_WRITTEN);
-        if (imm && ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_DELETE || (dirty_it->second.state & BS_ST_INSTANT)))
+        if (imm && is_instant)
         {
             // Deletions and 'instant' operations are treated as immediately stable
             mark_stable(dirty_it->first);
@@ -735,7 +750,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     });
     assert(dirty_it != dirty_db.end());
     blockstore_journal_check_t space_check(this);
-    if (!space_check.check_available(op, 1, sizeof(journal_entry_del), JOURNAL_INSTANT_RESERVATION))
+    if (!space_check.check_available(op, 1, sizeof(journal_entry_del), (unstable_writes.size()+unstable_unsynced)*journal.block_size))
     {
         return 0;
     }

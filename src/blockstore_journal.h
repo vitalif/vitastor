@@ -13,12 +13,6 @@
 #define JOURNAL_BUFFER_SIZE 4*1024*1024
 #define JOURNAL_ENTRY_HEADER_SIZE 16
 
-// We reserve some extra space for future stabilize requests during writes
-// FIXME: This value should be dynamic i.e. Blockstore ideally shouldn't allow
-// writing more than can be stabilized afterwards
-#define JOURNAL_STABILIZE_RESERVATION 65536
-#define JOURNAL_INSTANT_RESERVATION 131072
-
 // Journal entries
 // Journal entries are linked to each other by their crc32 value
 // The journal is almost a blockchain, because object versions constantly increase

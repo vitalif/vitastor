@@ -86,14 +86,15 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
                 auto & dirty_entry = dirty_db.at(sbw);
                 uint64_t dyn_size = dsk.dirty_dyn_size(dirty_entry.offset, dirty_entry.len);
                 if (!space_check.check_available(op, 1, sizeof(journal_entry_big_write) + dyn_size,
-                    left == 0 ? JOURNAL_STABILIZE_RESERVATION : 0))
+                    (unstable_writes.size()+unstable_unsynced)*journal.block_size))
                 {
                     return 0;
                 }
             }
         }
         else if (!space_check.check_available(op, PRIV(op)->sync_big_writes.size(),
-            sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size, JOURNAL_STABILIZE_RESERVATION))
+            sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size,
+            (unstable_writes.size()+unstable_unsynced)*journal.block_size))
         {
             return 0;
         }
@@ -184,6 +185,11 @@ void blockstore_impl_t::ack_sync(blockstore_op_t *op)
         {
             mark_stable(dirty_it->first);
         }
+        else
+        {
+            unstable_unsynced--;
+            assert(unstable_unsynced >= 0);
+        }
         dirty_it++;
         while (dirty_it != dirty_db.end() && dirty_it->first.oid == it->oid)
         {
@@ -213,6 +219,11 @@ void blockstore_impl_t::ack_sync(blockstore_op_t *op)
             if (dirty_db[*it].state & BS_ST_INSTANT)
             {
                 mark_stable(*it);
+            }
+            else
+            {
+                unstable_unsynced--;
+                assert(unstable_unsynced >= 0);
             }
         }
     }
