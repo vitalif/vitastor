@@ -124,7 +124,7 @@ void nfs_proxy_t::run(json11::Json cfg)
         cfg = obj;
     }
     // Create client
-    ringloop = new ring_loop_t(512);
+    ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     epmgr = new epoll_manager_t(ringloop);
     cli = new cluster_client_t(ringloop, epmgr->tfd, cfg);
     cmd = new cli_tool_t();

@@ -15,6 +15,8 @@
 #include <functional>
 #include <vector>
 
+#define RINGLOOP_DEFAULT_SIZE 1024
+
 static inline void my_uring_prep_rw(int op, struct io_uring_sqe *sqe, int fd, const void *addr, unsigned len, off_t offset)
 {
     // Prepare a read/write operation without clearing user_data
@@ -139,11 +141,9 @@ public:
         if (free_ring_data_ptr == 0)
             return NULL;
         struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
-        if (sqe)
-        {
-            *sqe = { 0 };
-            io_uring_sqe_set_data(sqe, ring_datas + free_ring_data[--free_ring_data_ptr]);
-        }
+        assert(sqe);
+        *sqe = { 0 };
+        io_uring_sqe_set_data(sqe, ring_datas + free_ring_data[--free_ring_data_ptr]);
         return sqe;
     }
     inline void set_immediate(const std::function<void()> cb)

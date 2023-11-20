@@ -331,7 +331,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
     {
         // Create client
         json11::Json cfg_j = cfg;
-        p->ringloop = new ring_loop_t(512);
+        p->ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
         p->epmgr = new epoll_manager_t(p->ringloop);
         p->cli = new cluster_client_t(p->ringloop, p->epmgr->tfd, cfg_j);
         // Smaller timeout by default for more interactiveness

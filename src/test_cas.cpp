@@ -68,7 +68,7 @@ int main(int narg, char *args[])
         | cfg["inode_id"].uint64_value();
     uint64_t base_ver = 0;
     // Create client
-    auto ringloop = new ring_loop_t(512);
+    auto ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     auto epmgr = new epoll_manager_t(ringloop);
     auto cli = new cluster_client_t(ringloop, epmgr->tfd, cfg);
     cli->on_ready([&]()

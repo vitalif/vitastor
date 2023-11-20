@@ -30,7 +30,7 @@ void stub_exec_op(osd_messenger_t *msgr, osd_op_t *op);
 int main(int narg, char *args[])
 {
     ring_consumer_t looper;
-    ring_loop_t *ringloop = new ring_loop_t(512);
+    ring_loop_t *ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     epoll_manager_t *epmgr = new epoll_manager_t(ringloop);
     osd_messenger_t *msgr = new osd_messenger_t();
     msgr->osd_num = 1351;

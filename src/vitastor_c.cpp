@@ -114,7 +114,7 @@ vitastor_c *vitastor_c_create_qemu_uring(QEMUSetFDHandler *aio_set_fd_handler, v
     ring_loop_t *ringloop = NULL;
     try
     {
-        ringloop = new ring_loop_t(512);
+        ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     }
     catch (std::exception & e)
     {
@@ -136,7 +136,7 @@ vitastor_c *vitastor_c_create_uring(const char *config_path, const char *etcd_ho
     ring_loop_t *ringloop = NULL;
     try
     {
-        ringloop = new ring_loop_t(512);
+        ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     }
     catch (std::exception & e)
     {
@@ -167,7 +167,7 @@ vitastor_c *vitastor_c_create_uring_json(const char **options, int options_len)
     ring_loop_t *ringloop = NULL;
     try
     {
-        ringloop = new ring_loop_t(512);
+        ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     }
     catch (std::exception & e)
     {

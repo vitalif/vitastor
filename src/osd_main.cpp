@@ -58,7 +58,7 @@ int main(int narg, char *args[])
     }
     signal(SIGINT, handle_sigint);
     signal(SIGTERM, handle_sigint);
-    ring_loop_t *ringloop = new ring_loop_t(512);
+    ring_loop_t *ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     osd = new osd_t(config, ringloop);
     while (1)
     {

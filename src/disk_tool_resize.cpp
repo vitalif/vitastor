@@ -245,7 +245,7 @@ int disk_tool_t::resize_copy_data()
     {
         iodepth = 32;
     }
-    ringloop = new ring_loop_t(iodepth < 512 ? 512 : iodepth);
+    ringloop = new ring_loop_t(iodepth < RINGLOOP_DEFAULT_SIZE ? RINGLOOP_DEFAULT_SIZE : iodepth);
     dsk.data_fd = open(dsk.data_device.c_str(), O_DIRECT|O_RDWR);
     if (dsk.data_fd < 0)
     {

@@ -130,7 +130,7 @@ static int bs_init(struct thread_data *td)
                 config[p.first] = p.second.dump();
         }
     }
-    bsd->ringloop = new ring_loop_t(512);
+    bsd->ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     bsd->epmgr = new epoll_manager_t(bsd->ringloop);
     bsd->bs = new blockstore_t(config, bsd->ringloop, bsd->epmgr->tfd);
     while (1)

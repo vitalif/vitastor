@@ -11,7 +11,7 @@ int main(int narg, char *args[])
     config["meta_device"] = "./test_meta.bin";
     config["journal_device"] = "./test_journal.bin";
     config["data_device"] = "./test_data.bin";
-    ring_loop_t *ringloop = new ring_loop_t(512);
+    ring_loop_t *ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     epoll_manager_t *epmgr = new epoll_manager_t(ringloop);
     blockstore_t *bs = new blockstore_t(config, ringloop, epmgr->tfd);
 

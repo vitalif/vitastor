@@ -17,7 +17,7 @@ ring_loop_t::ring_loop_t(int qd)
     {
         throw std::runtime_error(std::string("io_uring_queue_init: ") + strerror(-ret));
     }
-    free_ring_data_ptr = *ring.cq.kring_entries;
+    free_ring_data_ptr = *ring.sq.kring_entries;
     ring_datas = (struct ring_data_t*)calloc(free_ring_data_ptr, sizeof(ring_data_t));
     free_ring_data = (int*)malloc(sizeof(int) * free_ring_data_ptr);
     if (!ring_datas || !free_ring_data)
