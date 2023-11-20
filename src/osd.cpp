@@ -548,7 +548,7 @@ void osd_t::print_slow()
                     }
                     if (op->req.sec_stab.len > sizeof(obj_ver_id)*12)
                     {
-                        bufprintf(", ... (%d items)", op->req.sec_stab.len/sizeof(obj_ver_id));
+                        bufprintf(", ... (%lu items)", op->req.sec_stab.len/sizeof(obj_ver_id));
                     }
                 }
                 else if (op->req.hdr.opcode == OSD_OP_SEC_LIST)
