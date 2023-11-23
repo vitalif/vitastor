@@ -1498,7 +1498,7 @@ class Mon
     {
         const zero_stats = { op: { bps: 0n, iops: 0n, lat: 0n }, subop: { iops: 0n, lat: 0n }, recovery: { bps: 0n, iops: 0n } };
         const diff = { op_stats: {}, subop_stats: {}, recovery_stats: {}, inode_stats: {} };
-        if (!st || !st.time || !prev || prev.time >= st.time)
+        if (!st || !st.time || !prev || !prev.time || prev.time >= st.time)
         {
             return prev_diff || diff;
         }
