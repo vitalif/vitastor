@@ -129,19 +129,47 @@ qemu-system-x86_64 -enable-kvm -m 2048 -M accel=kvm,memory-backend=mem \
 к системе - VDUSE (vDPA Device in Userspace), а в QEMU, начиная с версии 7.2, есть поддержка
 экспорта блочных устройств QEMU по этому протоколу через qemu-storage-daemon.
 
-VDUSE страдает общей проблемой FUSE-подобных интерфейсов в Linux: если пользовательский процесс
-подвиснет, например, если будет потеряна связь с кластером Vitastor - читающие/пишущие в кластер
-процессы могут "залипнуть" в состоянии D (непрерываемый сон) и их будет невозможно убить даже
-через kill -9. В этом случае удалить из системы устройство можно только перезагрузившись.
+VDUSE - на данный момент лучший интерфейс для подключения дисков Vitastor в виде блочных
+устройств на уровне ядра, ибо:
+- VDUSE не копирует данные и поэтому достигает значительно лучшей производительности, чем [NBD](nbd.ru.md)
+- Также оно не имеет проблемы NBD-таймаута - устройство не умирает, если операция выполняется слишком долго
+- Также оно не имеет проблемы подвисающих устройств - если процесс-обработчик умирает, его можно
+  перезапустить (!) и блочное устройство продолжит работать
+- По-видимому, у него нет предела числа подключаемых в систему устройств
 
-С другой стороны, VDUSE быстрее по сравнению с [NBD](nbd.ru.md), поэтому его может
-быть предпочтительно использовать там, где производительность важнее. Порядок показателей:
-прямое тестирование через fio - 115000 iops, NBD - 60000 iops, VDUSE - 90000 iops.
+Пример сравнения производительности:
 
-Чтобы использовать VDUSE, вам нужно ядро Linux версии хотя бы 5.15, собранное с поддержкой
-VDUSE (CONFIG_VIRTIO_VDPA=m и CONFIG_VDPA_USER=m). В ядрах в Debian Linux поддержка пока
-отключена - если хотите попробовать эту функцию на Debian, поставьте ядро из Ubuntu
-[kernel-ppa/mainline](https://kernel.ubuntu.com/~kernel-ppa/mainline/) или из Proxmox.
+|                          | Прямой fio  | NBD         | VDUSE       |
+|--------------------------|-------------|-------------|-------------|
+| линейная запись          | 3.85 GB/s   | 1.12 GB/s   | 3.85 GB/s   |
+| 4k случайная запись Q128 | 240000 iops | 120000 iops | 178000 iops |
+| 4k случайная запись Q1   | 9500 iops   | 7620 iops   | 7640 iops   |
+| линейное чтение          | 4.3 GB/s    | 1.8 GB/s    | 2.85 GB/s   |
+| 4k случайное чтение Q128 | 287000 iops | 140000 iops | 189000 iops |
+| 4k случайное чтение Q1   | 9600 iops   | 7640 iops   | 7780 iops   |
+
+Чтобы попробовать VDUSE, вам нужно ядро Linux как минимум версии 5.15, собранное с поддержкой
+VDUSE (CONFIG_VIRTIO_VDPA=m, CONFIG_VDPA_USER=m, CONFIG_VIRTIO_VDPA=m).
+
+В ядрах в Debian Linux поддержка пока отключена по умолчанию, так что чтобы попробовать VDUSE
+на Debian, поставьте ядро из Ubuntu [kernel-ppa/mainline](https://kernel.ubuntu.com/~kernel-ppa/mainline/),
+из Proxmox или соберите модули для ядра Debian вручную:
+
+```
+mkdir build
+cd build
+apt-get install linux-headers-`uname -r`
+apt-get build-dep linux-image-`uname -r`-unsigned
+apt-get source linux-image-`uname -r`-unsigned
+cd linux*/drivers/vdpa
+make -C /lib/modules/`uname -r`/build M=$PWD CONFIG_VDPA=m CONFIG_VDPA_USER=m CONFIG_VIRTIO_VDPA=m -j8 modules modules_install
+cat Module.symvers >> /lib/modules/`uname -r`/build/Module.symvers
+cd ../virtio
+make -C /lib/modules/`uname -r`/build M=$PWD CONFIG_VDPA=m CONFIG_VDPA_USER=m CONFIG_VIRTIO_VDPA=m -j8 modules modules_install
+depmod -a
+```
+
+Также вам понадобится консольная утилита `vdpa` из пакета `iproute2`.
 
 Команды для подключения виртуального диска через VDUSE:
 
@@ -154,7 +182,7 @@ qemu-storage-daemon --daemonize --blockdev '{"node-name":"test1","driver":"vitas
 vdpa dev add name test1 mgmtdev vduse
 ```
 
-После этого в системе появится устройство /dev/vda, которое можно будет использовать как
+После этого в системе появится устройство `/dev/vda`, которое можно будет использовать как
 обычный диск.
 
 Для удаления устройства из системы:

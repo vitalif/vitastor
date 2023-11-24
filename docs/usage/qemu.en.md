@@ -127,19 +127,46 @@ Linux kernel, starting with version 5.15, supports a new interface for attaching
 to the host - VDUSE (vDPA Device in Userspace). QEMU, starting with 7.2, has support for
 exporting QEMU block devices over this protocol using qemu-storage-daemon.
 
-VDUSE has the same problem as other FUSE-like interfaces in Linux: if a userspace process hangs,
-for example, if it loses connectivity with Vitastor cluster - active processes doing I/O may
-hang in the D state (uninterruptible sleep) and you won't be able to kill them even with kill -9.
-In this case reboot will be the only way to remove VDUSE devices from system.
+VDUSE is currently the best interface to attach Vitastor disks as kernel devices because:
+- It avoids data copies and thus achieves much better performance than [NBD](nbd.en.md)
+- It doesn't have NBD timeout problem - the device doesn't die if an operation executes for too long
+- It doesn't have hung device problem - if the userspace process dies it can be restarted (!)
+  and block device will continue operation
+- It doesn't seem to have the device number limit
 
-On the other hand, VDUSE is faster than [NBD](nbd.en.md), so you may prefer to use it if
-performance is important for you. Approximate performance numbers:
-direct fio benchmark - 115000 iops, NBD - 60000 iops, VDUSE - 90000 iops.
+Example performance comparison:
+
+|                      | direct fio  | NBD         | VDUSE       |
+|----------------------|-------------|-------------|-------------|
+| linear write         | 3.85 GB/s   | 1.12 GB/s   | 3.85 GB/s   |
+| 4k random write Q128 | 240000 iops | 120000 iops | 178000 iops |
+| 4k random write Q1   | 9500 iops   | 7620 iops   | 7640 iops   |
+| linear read          | 4.3 GB/s    | 1.8 GB/s    | 2.85 GB/s   |
+| 4k random read Q128  | 287000 iops | 140000 iops | 189000 iops |
+| 4k random read Q1    | 9600 iops   | 7640 iops   | 7780 iops   |
 
 To try VDUSE you need at least Linux 5.15, built with VDUSE support
-(CONFIG_VIRTIO_VDPA=m and CONFIG_VDPA_USER=m). Debian Linux kernels have these options
-disabled by now, so if you want to try it on Debian, use a kernel from Ubuntu
-[kernel-ppa/mainline](https://kernel.ubuntu.com/~kernel-ppa/mainline/) or Proxmox.
+(CONFIG_VIRTIO_VDPA=m, CONFIG_VDPA_USER=m, CONFIG_VIRTIO_VDPA=m).
+
+Debian Linux kernels have these options disabled by now, so if you want to try it on Debian,
+use a kernel from Ubuntu [kernel-ppa/mainline](https://kernel.ubuntu.com/~kernel-ppa/mainline/), Proxmox,
+or build modules for Debian kernel manually:
+
+```
+mkdir build
+cd build
+apt-get install linux-headers-`uname -r`
+apt-get build-dep linux-image-`uname -r`-unsigned
+apt-get source linux-image-`uname -r`-unsigned
+cd linux*/drivers/vdpa
+make -C /lib/modules/`uname -r`/build M=$PWD CONFIG_VDPA=m CONFIG_VDPA_USER=m CONFIG_VIRTIO_VDPA=m -j8 modules modules_install
+cat Module.symvers >> /lib/modules/`uname -r`/build/Module.symvers
+cd ../virtio
+make -C /lib/modules/`uname -r`/build M=$PWD CONFIG_VDPA=m CONFIG_VDPA_USER=m CONFIG_VIRTIO_VDPA=m -j8 modules modules_install
+depmod -a
+```
+
+You also need `vdpa` tool from the `iproute2` package.
 
 Commands to attach Vitastor image as a VDUSE device:
 
@@ -152,7 +179,7 @@ qemu-storage-daemon --daemonize --blockdev '{"node-name":"test1","driver":"vitas
 vdpa dev add name test1 mgmtdev vduse
 ```
 
-After running these commands /dev/vda device will appear in the system and you'll be able to
+After running these commands, `/dev/vda` device will appear in the system and you'll be able to
 use it as a normal disk.
 
 To remove the device:
