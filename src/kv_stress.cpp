@@ -44,7 +44,7 @@ class kv_test_t
 public:
     // Config
     json11::Json::object kv_cfg;
-    std::string key_suffix;
+    std::string key_prefix, key_suffix;
     uint64_t inode_id = 0;
     uint64_t op_count = 1000000;
     uint64_t runtime_sec = 0;
@@ -61,6 +61,7 @@ public:
     uint64_t max_value_len = 300;
     uint64_t print_stats_interval = 1;
     bool json_output = false;
+    uint64_t log_level = 1;
     bool trace = false;
     bool stop_on_error = false;
     // FIXME: Multiple clients
@@ -125,8 +126,10 @@ json11::Json::object kv_test_t::parse_args(int narg, const char *args[])
                 "USAGE: %s --pool_id POOL_ID --inode_id INODE_ID [OPTIONS]\n"
                 "  --op_count 1000000\n"
                 "    Total operations to run during test. 0 means unlimited\n"
+                "  --key_prefix \"\"\n"
+                "    Prefix for all keys read or written (to avoid collisions)\n"
                 "  --key_suffix \"\"\n"
-                "    Suffix for all keys read or written (to avoid collisions)\n"
+                "    Suffix for all keys read or written (to avoid collisions, but scan all DB)\n"
                 "  --runtime 0\n"
                 "    Run for this number of seconds. 0 means unlimited\n"
                 "  --parallelism 4\n"
@@ -187,6 +190,7 @@ void kv_test_t::parse_config(json11::Json cfg)
     inode_id = INODE_WITH_POOL(cfg["pool_id"].uint64_value(), cfg["inode_id"].uint64_value());
     if (cfg["op_count"].uint64_value() > 0)
         op_count = cfg["op_count"].uint64_value();
+    key_prefix = cfg["key_prefix"].string_value();
     key_suffix = cfg["key_suffix"].string_value();
     if (cfg["runtime"].uint64_value() > 0)
         runtime_sec = cfg["runtime"].uint64_value();
@@ -230,7 +234,8 @@ void kv_test_t::parse_config(json11::Json cfg)
         kv_cfg["kv_evict_unused_age"] = cfg["kv_evict_unused_age"];
     if (!cfg["kv_log_level"].is_null())
     {
-        trace = cfg["kv_log_level"].uint64_value() >= 10;
+        log_level = cfg["kv_log_level"].uint64_value();
+        trace = log_level >= 10;
         kv_cfg["kv_log_level"] = cfg["kv_log_level"];
     }
     total_prob = reopen_prob+get_prob+add_prob+update_prob+del_prob+list_prob;
@@ -396,7 +401,7 @@ void kv_test_t::loop()
                 // add
                 is_add = true;
                 uint64_t key_len = min_key_len + (max_key_len > min_key_len ? lrand48() % (max_key_len-min_key_len) : 0);
-                key = random_str(key_len) + key_suffix;
+                key = key_prefix + random_str(key_len) + key_suffix;
             }
             else
             {
@@ -480,9 +485,9 @@ void kv_test_t::loop()
             in_progress++;
             auto key = random_str(max_key_len);
             auto lst = new kv_test_listing_t;
-            lst->handle = db->list_start(key);
             auto k_it = values.lower_bound(key);
-            lst->next_after = k_it == values.begin() ? "" : key;
+            lst->handle = db->list_start(k_it == values.begin() ? key_prefix : key);
+            lst->next_after = k_it == values.begin() ? key_prefix : key;
             lst->inflights = changing_keys;
             listings.insert(lst);
             if (trace)
@@ -490,6 +495,14 @@ void kv_test_t::loop()
             clock_gettime(CLOCK_REALTIME, &lst->tv_begin);
             db->list_next(lst->handle, [this, lst](int res, const std::string & key, const std::string & value)
             {
+                if (log_level >= 11)
+                    printf("list: %s = %s\n", key.c_str(), value.c_str());
+                if (res >= 0 && key_prefix.size() && (key.size() < key_prefix.size() ||
+                    key.substr(0, key_prefix.size()) != key_prefix))
+                {
+                    // stop at this key
+                    res = -ENOENT;
+                }
                 if (res < 0)
                 {
                     add_stat(stat.list, lst->tv_begin);
