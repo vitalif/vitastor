@@ -1006,6 +1006,10 @@ int kv_op_t::handle_block(int res, int refresh, bool stop_on_split)
             fprintf(stderr, "K/V: %sgot unrelated block %lu: key=%s range=[%s, %s) from=[%s, %s)\n",
                 fatal ? "Error: " : "Warning: read/update collision: ",
                 cur_block, key.c_str(), blk->key_ge.c_str(), blk->key_lt.c_str(), prev_key_ge.c_str(), prev_key_lt.c_str());
+            if (fatal)
+            {
+                blk->dump(db->base_block_level);
+            }
         }
         this->recheck_policy = KV_RECHECK_ALL;
         if (this->updating_on_path)
@@ -1416,7 +1420,8 @@ void kv_op_t::resume_split()
 {
     // We hit a block which we started to split, but didn't finish splitting
     // Generally it shouldn't happen, but it MAY happen if a K/V client dies
-    // In this case we want to finish the split and retry update from the beginning
+    // Also we may hit such blocks during concurrent updates
+    // In these cases we want to finish the split and retry update from the beginning
     if (path.size() == 1)
     {
         // It shouldn't be the root block because we don't split it via INT_SPLIT/LEAF_SPLIT
@@ -1507,7 +1512,7 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
         {
             blk->dump(0);
             // Should not happen - we should have resumed the split
-            fprintf(stderr, "K/V: attempt to write into a block %lu instead of resuming the split (got here from %s..%s)\n",
+            fprintf(stderr, "K/V: attempt to write into block %lu instead of resuming the split (got here from %s..%s)\n",
                 blk->offset, prev_key_ge.c_str(), prev_key_lt.c_str());
             abort();
         }
@@ -1517,6 +1522,13 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
     {
         // New item fits.
         // No need to split the block => just modify and write it
+        if ((blk->type == KV_LEAF_SPLIT || blk->type == KV_INT_SPLIT) && key >= blk->right_half)
+        {
+            fprintf(stderr, "K/V: attempt to modify %s in unrelated split block %lu [%s..%s..%s)\n",
+                key.c_str(), blk->offset, blk->key_ge.c_str(), blk->right_half.c_str(), blk->key_lt.c_str());
+            blk->dump(db->base_block_level);
+            abort();
+        }
         if (is_delete)
         {
             blk->change_type |= KV_CH_DEL;
