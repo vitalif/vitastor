@@ -20,6 +20,7 @@ const char *exe_name = NULL;
 
 struct kv_test_listing_t
 {
+    uint64_t count = 0, done = 0;
     void *handle = NULL;
     std::string next_after;
     std::set<std::string> inflights;
@@ -59,6 +60,8 @@ public:
     uint64_t max_key_len = 70;
     uint64_t min_value_len = 50;
     uint64_t max_value_len = 300;
+    uint64_t min_list_count = 10;
+    uint64_t max_list_count = 1000;
     uint64_t print_stats_interval = 1;
     bool json_output = false;
     uint64_t log_level = 1;
@@ -152,6 +155,10 @@ json11::Json::object kv_test_t::parse_args(int narg, const char *args[])
                 "    Minimum value size in bytes\n"
                 "  --max_value_len 300\n"
                 "    Maximum value size in bytes\n"
+                "  --min_list_count 10\n"
+                "    Minimum number of keys read in listing (0 = all keys)\n"
+                "  --max_list_count 1000\n"
+                "    Maximum number of keys read in listing\n"
                 "  --print_stats 1\n"
                 "    Print operation statistics every this number of seconds\n"
                 "  --json\n"
@@ -216,6 +223,10 @@ void kv_test_t::parse_config(json11::Json cfg)
         min_value_len = cfg["min_value_len"].uint64_value();
     if (cfg["max_value_len"].uint64_value() > 0)
         max_value_len = cfg["max_value_len"].uint64_value();
+    if (!cfg["min_list_count"].is_null())
+        min_list_count = cfg["min_list_count"].uint64_value();
+    if (!cfg["max_list_count"].is_null())
+        max_list_count = cfg["max_list_count"].uint64_value();
     if (!cfg["print_stats"].is_null())
         print_stats_interval = cfg["print_stats"].uint64_value();
     if (!cfg["json"].is_null())
@@ -486,6 +497,7 @@ void kv_test_t::loop()
             auto key = random_str(max_key_len);
             auto lst = new kv_test_listing_t;
             auto k_it = values.lower_bound(key);
+            lst->count = min_list_count + (max_list_count > min_list_count ? lrand48() % (max_list_count-min_list_count) : 0);
             lst->handle = db->list_start(k_it == values.begin() ? key_prefix : key);
             lst->next_after = k_it == values.begin() ? key_prefix : key;
             lst->inflights = changing_keys;
@@ -503,10 +515,14 @@ void kv_test_t::loop()
                     // stop at this key
                     res = -ENOENT;
                 }
-                if (res < 0)
+                if (res < 0 || (lst->count > 0 && lst->done >= lst->count))
                 {
                     add_stat(stat.list, lst->tv_begin);
-                    if (res != -ENOENT)
+                    if (res == 0)
+                    {
+                        // ok (done >= count)
+                    }
+                    else if (res != -ENOENT)
                     {
                         fprintf(stderr, "ERROR: list: %d (%s)\n", res, strerror(-res));
                         lst->error = true;
@@ -543,6 +559,7 @@ void kv_test_t::loop()
                         key.substr(key.size()-key_suffix.size()) == key_suffix) &&
                         lst->inflights.find(key) == lst->inflights.end())
                     {
+                        lst->done++;
                         auto k_it = lst->next_after == "" ? values.begin() : values.upper_bound(lst->next_after);
                         while (true)
                         {
