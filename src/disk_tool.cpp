@@ -229,7 +229,7 @@ int main(int argc, char *argv[])
         {
             self.options["allow_data_loss"] = "1";
         }
-        else if (argv[i][0] == '-' && argv[i][1] == '-')
+        else if (argv[i][0] == '-' && argv[i][1] == '-' && i < argc-1)
         {
             char *key = argv[i]+2;
             self.options[key] = argv[++i];
