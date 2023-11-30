@@ -830,9 +830,17 @@ static void try_evict(kv_db_t *db)
             int misses = 0;
             bool wrapped = false;
             while (db->block_cache.size() > db->cache_max_blocks &&
-                (!wrapped || *random_it < random_pos) &&
                 (db->evict_max_misses <= 0 || misses < db->evict_max_misses))
             {
+                if (random_it == db->block_levels.end() || (*random_it >> (64-LEVEL_BITS)) > evict_level)
+                {
+                    if (wrapped)
+                        break;
+                    random_it = db->block_levels.lower_bound(evict_level << (64-LEVEL_BITS));
+                    wrapped = true;
+                }
+                else if (wrapped && *random_it >= random_pos)
+                    break;
                 auto b_it = db->block_cache.find((*random_it & NO_LEVEL_MASK) * db->kv_block_size);
                 auto blk = &b_it->second;
                 if (b_it != db->block_cache.end() && !blk->updating && blk->usage < db->usage_counter)
@@ -844,13 +852,6 @@ static void try_evict(kv_db_t *db)
                 {
                     random_it++;
                     misses++;
-                }
-                if (random_it == db->block_levels.end() || (*random_it >> (64-LEVEL_BITS)) > evict_level)
-                {
-                    if (wrapped)
-                        break;
-                    random_it = db->block_levels.lower_bound(evict_level << (64-LEVEL_BITS));
-                    wrapped = true;
                 }
             }
             if (db->block_cache.size() <= db->cache_max_blocks)
