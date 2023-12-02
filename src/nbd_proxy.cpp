@@ -30,7 +30,7 @@ protected:
     std::string image_name;
     uint64_t inode = 0;
     uint64_t device_size = 0;
-    int nbd_timeout = 30;
+    int nbd_timeout = 300;
     int nbd_max_devices = 64;
     int nbd_max_part = 3;
     inode_watch_t *watch = NULL;
@@ -135,14 +135,16 @@ public:
             "  %s unmap /dev/nbd0\n"
             "  %s ls [--json]\n"
             "OPTIONS:\n"
-            "  All usual Vitastor config options like --etcd_address <etcd_address> plus NBD-specific:\n"
-            "  --nbd_timeout 30\n"
+            "  All usual Vitastor config options like --config_file <path_to_config> plus NBD-specific:\n"
+            "  --nbd_timeout 300\n"
             "    Timeout for I/O operations in seconds after exceeding which the kernel stops\n"
             "    the device. You can set it to 0 to disable the timeout, but beware that you\n"
             "    won't be able to stop the device at all if vitastor-nbd process dies.\n"
             "  --nbd_max_devices 64 --nbd_max_part 3\n"
             "    Options for the \"nbd\" kernel module when modprobing it (nbds_max and max_part).\n"
             "    note that maximum allowed (nbds_max)*(1+max_part) is 256.\n"
+            "    Note that nbd_timeout, nbd_max_devices and nbd_max_part options may also be specified\n"
+            "    in /etc/vitastor/vitastor.conf or in other configuration file specified with --config_file.\n"
             "  --logfile /path/to/log/file.txt\n"
             "    Wite log messages to the specified file instead of dropping them (in background mode)\n"
             "    or printing them to the standard output (in foreground mode).\n"
@@ -204,17 +206,18 @@ public:
                 exit(1);
             }
         }
-        if (cfg["nbd_max_devices"].is_number() || cfg["nbd_max_devices"].is_string())
+        auto file_config = osd_messenger_t::read_config(cfg);
+        if (file_config["nbd_max_devices"].is_number() || file_config["nbd_max_devices"].is_string())
         {
-            nbd_max_devices = cfg["nbd_max_devices"].uint64_value();
+            nbd_max_devices = file_config["nbd_max_devices"].uint64_value();
         }
-        if (cfg["nbd_max_part"].is_number() || cfg["nbd_max_part"].is_string())
+        if (file_config["nbd_max_part"].is_number() || file_config["nbd_max_part"].is_string())
         {
-            nbd_max_part = cfg["nbd_max_part"].uint64_value();
+            nbd_max_part = file_config["nbd_max_part"].uint64_value();
         }
-        if (cfg["nbd_timeout"].is_number() || cfg["nbd_timeout"].is_string())
+        if (file_config["nbd_timeout"].is_number() || file_config["nbd_timeout"].is_string())
         {
-            nbd_timeout = cfg["nbd_timeout"].uint64_value();
+            nbd_timeout = file_config["nbd_timeout"].uint64_value();
         }
         if (cfg["client_writeback_allowed"].is_null())
         {
@@ -272,7 +275,7 @@ public:
             int i = 0;
             while (true)
             {
-                int r = run_nbd(sockfd, i, device_size, NBD_FLAG_SEND_FLUSH, 30, bg);
+                int r = run_nbd(sockfd, i, device_size, NBD_FLAG_SEND_FLUSH, nbd_timeout, bg);
                 if (r == 0)
                 {
                     printf("/dev/nbd%d\n", i);

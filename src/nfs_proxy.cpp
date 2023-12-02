@@ -56,7 +56,7 @@ json11::Json::object nfs_proxy_t::parse_args(int narg, const char *args[])
                 "(c) Vitaliy Filippov, 2021-2022 (VNPL-1.1)\n"
                 "\n"
                 "USAGE:\n"
-                "  %s [--etcd_address ADDR] [OTHER OPTIONS]\n"
+                "  %s [STANDARD OPTIONS] [OTHER OPTIONS]\n"
                 "  --subdir <DIR>    export images prefixed <DIR>/ (default empty - export all images)\n"
                 "  --portmap 0       do not listen on port 111 (portmap/rpcbind, requires root)\n"
                 "  --bind <IP>       bind service to <IP> address (default 0.0.0.0)\n"

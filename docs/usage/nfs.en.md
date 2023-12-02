@@ -23,7 +23,7 @@ balancer or any failover method you want to in that case.
 vitastor-nfs usage:
 
 ```
-vitastor-nfs [--etcd_address ADDR] [OTHER OPTIONS]
+vitastor-nfs [STANDARD OPTIONS] [OTHER OPTIONS]
 
 --subdir <DIR>    export images prefixed <DIR>/ (default empty - export all images)
 --portmap 0       do not listen on port 111 (portmap/rpcbind, requires root)

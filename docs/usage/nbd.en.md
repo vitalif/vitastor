@@ -20,16 +20,16 @@ See also [VDUSE](qemu.en.md#vduse).
 To create a local block device for a Vitastor image run:
 
 ```
-vitastor-nbd map --etcd_address 10.115.0.10:2379/v3 --image testimg
+vitastor-nbd map --image testimg
 ```
 
 It will output a block device name like /dev/nbd0 which you can then use as a normal disk.
 
 You can also use `--pool <POOL> --inode <INODE> --size <SIZE>` instead of `--image <IMAGE>` if you want.
 
-Additional options for map command:
+vitastor-nbd supports all usual Vitastor configuration options like `--config_file <path_to_config>` plus NBD-specific:
 
-* `--nbd_timeout 30` \
+* `--nbd_timeout 300` \
   Timeout for I/O operations in seconds after exceeding which the kernel stops
   the device. You can set it to 0 to disable the timeout, but beware that you
   won't be able to stop the device at all if vitastor-nbd process dies.
@@ -43,6 +43,9 @@ Additional options for map command:
   Use the specified device /dev/nbdN instead of automatic selection.
 * `--foreground 1` \
   Stay in foreground, do not daemonize.
+
+Note that `nbd_timeout`, `nbd_max_devices` and `nbd_max_part` options may also be specified
+in `/etc/vitastor/vitastor.conf` or in other configuration file specified with `--config_file`.
 
 ## Unmap image
 

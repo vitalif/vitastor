@@ -23,7 +23,7 @@ CSI-драйвер Kubernetes Vitastor основан на NBD.
 Чтобы создать локальное блочное устройство для образа, выполните команду:
 
 ```
-vitastor-nbd map --etcd_address 10.115.0.10:2379/v3 --image testimg
+vitastor-nbd map --image testimg
 ```
 
 Команда напечатает название блочного устройства вида /dev/nbd0, которое потом можно
@@ -32,7 +32,8 @@ vitastor-nbd map --etcd_address 10.115.0.10:2379/v3 --image testimg
 Для обращения по номеру инода, аналогично другим командам, можно использовать опции
 `--pool <POOL> --inode <INODE> --size <SIZE>` вместо `--image testimg`.
 
-Дополнительные опции для команды подключения NBD-устройства:
+vitastor-nbd поддерживает все обычные опции Vitastor, например, `--config_file <path_to_config>`,
+плюс специфичные для NBD:
 
 * `--nbd_timeout 30` \
   Максимальное время выполнения любой операции чтения/записи в секундах, при
@@ -52,6 +53,10 @@ vitastor-nbd map --etcd_address 10.115.0.10:2379/v3 --image testimg
   Использовать заданное устройство `/dev/nbdN` вместо автоматического подбора.
 * `--foreground 1` \
   Не уводить процесс в фоновый режим.
+
+Обратите внимание, что опции `nbd_timeout`, `nbd_max_devices` и `nbd_max_part` можно
+также задавать в `/etc/vitastor/vitastor.conf` или в другом файле конфигурации,
+заданном опцией `--config_file`.
 
 ## Отключить устройство
 
