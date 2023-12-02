@@ -11,9 +11,9 @@ NBD stands for "Network Block Device", but in fact it also functions as "BUSE"
 NBD slighly lowers the performance due to additional overhead, but performance still
 remains decent (see an example [here](../performance/comparison1.en.md#vitastor-0-4-0-nbd)).
 
-Vitastor Kubernetes CSI driver is based on NBD.
+See also [VDUSE](qemu.en.md#vduse) as a better alternative to NBD.
 
-See also [VDUSE](qemu.en.md#vduse).
+Vitastor Kubernetes CSI driver uses NBD when VDUSE is unavailable.
 
 ## Map image
 

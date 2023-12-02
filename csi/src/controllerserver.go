@@ -90,7 +90,7 @@ func GetConnectionParams(params map[string]string) (map[string]string, error)
     switch config["etcd_address"].(type)
     {
     case string:
-        url := strings.Trim(config["etcd_address"].(string), " \t\r\n")
+        url := strings.TrimSpace(config["etcd_address"].(string))
         if (url != "")
         {
             etcdUrl = strings.Split(url, ",")
@@ -105,24 +105,28 @@ func GetConnectionParams(params map[string]string) (map[string]string, error)
     return ctxVars, nil
 }
 
+func system(program string, args ...string) ([]byte, error)
+{
+    c := exec.Command(program, args...)
+    var stdout, stderr bytes.Buffer
+    c.Stdout, c.Stderr = &stdout, &stderr
+    err := c.Run()
+    if (err != nil)
+    {
+        stdoutStr, stderrStr := string(stdout.Bytes()), string(stderr.Bytes())
+        klog.Errorf(program+" "+strings.Join(args, " ")+" failed: %s, status %s\n", stdoutStr+stderrStr, err)
+        return nil, status.Error(codes.Internal, stdoutStr+stderrStr+" (status "+err.Error()+")")
+    }
+    return stdout.Bytes(), nil
+}
+
 func invokeCLI(ctxVars map[string]string, args []string) ([]byte, error)
 {
     if (ctxVars["configPath"] != "")
     {
         args = append(args, "--config_path", ctxVars["configPath"])
     }
-    c := exec.Command("/usr/bin/vitastor-cli", args...)
-    var stdout, stderr bytes.Buffer
-    c.Stdout = &stdout
-    c.Stderr = &stderr
-    err := c.Run()
-    stderrStr := string(stderr.Bytes())
-    if (err != nil)
-    {
-        klog.Errorf("vitastor-cli %s failed: %s, status %s\n", strings.Join(args, " "), stderrStr, err)
-        return nil, status.Error(codes.Internal, stderrStr+" (status "+err.Error()+")")
-    }
-    return stdout.Bytes(), nil
+    return system("/usr/bin/vitastor-cli", args...)
 }
 
 // Create the volume

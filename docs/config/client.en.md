@@ -15,6 +15,9 @@ the cluster.
 - [client_max_buffered_bytes](#client_max_buffered_bytes)
 - [client_max_buffered_ops](#client_max_buffered_ops)
 - [client_max_writeback_iodepth](#client_max_writeback_iodepth)
+- [nbd_timeout](#nbd_timeout)
+- [nbd_max_devices](#nbd_max_devices)
+- [nbd_max_part](#nbd_max_part)
 
 ## client_max_dirty_bytes
 
@@ -101,3 +104,34 @@ Multiple consecutive modified data regions are counted as 1 write here.
 - Can be changed online: yes
 
 Maximum number of parallel writes when flushing buffered data to the server.
+
+## nbd_timeout
+
+- Type: seconds
+- Default: 300
+
+Timeout for I/O operations for [NBD](../usage/nbd.en.md). If an operation
+executes for longer than this timeout, including when your cluster is just
+temporarily down for more than timeout, the NBD device will detach by itself
+(and possibly break the mounted file system).
+
+You can set timeout to 0 to never detach, but in that case you won't be
+able to remove the kernel device at all if the NBD process dies - you'll have
+to reboot the host.
+
+## nbd_max_devices
+
+- Type: integer
+- Default: 64
+
+Maximum number of NBD devices in the system. This value is passed as
+`nbds_max` parameter for the nbd kernel module when vitastor-nbd autoloads it.
+
+## nbd_max_part
+
+- Type: integer
+- Default: 3
+
+Maximum number of partitions per NBD device. This value is passed as
+`max_part` parameter for the nbd kernel module when vitastor-nbd autoloads it.
+Note that (nbds_max)*(1+max_part) usually can't exceed 256.

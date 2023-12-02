@@ -122,3 +122,47 @@
     Maximum number of parallel writes when flushing buffered data to the server.
   info_ru: |
     Максимальное число параллельных операций записи при сбросе буферов на сервер.
+- name: nbd_timeout
+  type: sec
+  default: 300
+  online: false
+  info: |
+    Timeout for I/O operations for [NBD](../usage/nbd.en.md). If an operation
+    executes for longer than this timeout, including when your cluster is just
+    temporarily down for more than timeout, the NBD device will detach by itself
+    (and possibly break the mounted file system).
+
+    You can set timeout to 0 to never detach, but in that case you won't be
+    able to remove the kernel device at all if the NBD process dies - you'll have
+    to reboot the host.
+  info_ru: |
+    Таймаут для операций чтения/записи через [NBD](../usage/nbd.ru.md). Если
+    операция выполняется дольше таймаута, включая временную недоступность
+    кластера на время, большее таймаута, NBD-устройство отключится само собой
+    (и, возможно, сломает примонтированную ФС).
+
+    Вы можете установить таймаут в 0, чтобы никогда не отключать устройство по
+    таймауту, но в этом случае вы вообще не сможете удалить устройство, если
+    процесс NBD умрёт - вам придётся перезагружать сервер.
+- name: nbd_max_devices
+  type: int
+  default: 64
+  online: false
+  info: |
+    Maximum number of NBD devices in the system. This value is passed as
+    `nbds_max` parameter for the nbd kernel module when vitastor-nbd autoloads it.
+  info_ru: |
+    Максимальное число NBD-устройств в системе. Данное значение передаётся
+    модулю ядра nbd как параметр `nbds_max`, когда его загружает vitastor-nbd.
+- name: nbd_max_part
+  type: int
+  default: 3
+  online: false
+  info: |
+    Maximum number of partitions per NBD device. This value is passed as
+    `max_part` parameter for the nbd kernel module when vitastor-nbd autoloads it.
+    Note that (nbds_max)*(1+max_part) usually can't exceed 256.
+  info_ru: |
+    Максимальное число разделов на одном NBD-устройстве. Данное значение передаётся
+    модулю ядра nbd как параметр `max_part`, когда его загружает vitastor-nbd.
+    Имейте в виду, что (nbds_max)*(1+max_part) обычно не может превышать 256.

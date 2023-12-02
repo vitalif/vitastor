@@ -82,6 +82,8 @@ spec:
               name: host-sys
             - mountPath: /run/mount
               name: host-mount
+            - mountPath: /run/vitastor-csi
+              name: run-vitastor-csi
             - mountPath: /lib/modules
               name: lib-modules
               readOnly: true
@@ -132,6 +134,9 @@ spec:
         - name: host-mount
           hostPath:
             path: /run/mount
+        - name: run-vitastor-csi
+          hostPath:
+            path: /run/vitastor-csi
         - name: lib-modules
           hostPath:
             path: /lib/modules

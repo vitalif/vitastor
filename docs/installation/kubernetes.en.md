@@ -19,6 +19,14 @@ for i in ./???-*.yaml; do kubectl apply -f $i; done
 
 After that you'll be able to create PersistentVolumes.
 
+**Important:** For best experience, use Linux kernel at least 5.15 with [VDUSE](../usage/qemu.en.md#vduse)
+kernel modules enabled (vdpa, vduse, virtio-vdpa). If your distribution doesn't
+have them pre-built - build them yourself ([instructions](../usage/qemu.en.md#vduse)),
+I promise it's worth it :-). When VDUSE is unavailable, CSI driver uses [NBD](../usage/nbd.en.md)
+to map Vitastor devices. NBD is slower and prone to timeout issues: if Vitastor
+cluster becomes unresponsible for more than [nbd_timeout](../config/client.en.md#nbd_timeout),
+the NBD device detaches and breaks pods using it.
+
 ## Features
 
 Vitastor CSI supports:
@@ -27,5 +35,8 @@ Vitastor CSI supports:
 - Raw block RWX (ReadWriteMany) volumes. Example: [PVC](../../csi/deploy/example-pvc-block.yaml), [pod](../../csi/deploy/example-test-pod-block.yaml)
 - Volume expansion
 - Volume snapshots. Example: [snapshot class](../../csi/deploy/example-snapshot-class.yaml), [snapshot](../../csi/deploy/example-snapshot.yaml), [clone](../../csi/deploy/example-snapshot-clone.yaml)
+- [VDUSE](../usage/qemu.en.md#vduse) (preferred) and [NBD](../usage/nbd.en.md) device mapping methods
+- Upgrades with VDUSE - new handler processes are restarted when CSI pods are restarted themselves
+- Multiple clusters by using multiple configuration files in ConfigMap.
 
 Remember that to use snapshots with CSI you also have to install [Snapshot Controller and CRDs](https://kubernetes-csi.github.io/docs/snapshot-controller.html#deployment).
