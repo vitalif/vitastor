@@ -114,19 +114,17 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
     }
     volName := ctxVars["name"]
 
-    _, etcdUrl, etcdPrefix := GetConnectionParams(ctxVars)
-    if (len(etcdUrl) == 0)
+    _, err = GetConnectionParams(ctxVars)
+    if (err != nil)
     {
-        return nil, status.Error(codes.InvalidArgument, "no etcdUrl in storage class configuration and no etcd_address in vitastor.conf")
+        return nil, err
     }
 
     // Map NBD device
     // FIXME: Check if already mapped
     args := []string{
-        "map", "--etcd_address", strings.Join(etcdUrl, ","),
-        "--etcd_prefix", etcdPrefix,
-        "--image", volName,
-    };
+        "map", "--image", volName,
+    }
     if (ctxVars["configPath"] != "")
     {
         args = append(args, "--config_path", ctxVars["configPath"])

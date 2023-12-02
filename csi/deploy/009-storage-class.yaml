@@ -12,9 +12,6 @@ parameters:
   etcdVolumePrefix: ""
   poolId: "1"
   # you can choose other configuration file if you have it in the config map
+  # different etcd URLs and prefixes should also be put in the config
   #configPath: "/etc/vitastor/vitastor.conf"
-  # you can also specify etcdUrl here, maybe to connect to another Vitastor cluster
-  # multiple etcdUrls may be specified, delimited by comma
-  #etcdUrl: "http://192.168.7.2:2379"
-  #etcdPrefix: "/vitastor"
 allowVolumeExpansion: true

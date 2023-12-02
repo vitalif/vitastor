@@ -62,7 +62,7 @@ func NewControllerServer(driver *Driver) *ControllerServer
     }
 }
 
-func GetConnectionParams(params map[string]string) (map[string]string, []string, string)
+func GetConnectionParams(params map[string]string) (map[string]string, error)
 {
     ctxVars := make(map[string]string)
     configPath := params["configPath"]
@@ -75,55 +75,38 @@ func GetConnectionParams(params map[string]string) (map[string]string, []string,
         ctxVars["configPath"] = configPath
     }
     config := make(map[string]interface{})
-    if configFD, err := os.Open(configPath); err == nil
+    configFD, err := os.Open(configPath)
+    if (err != nil)
     {
-        defer configFD.Close()
-        data, _ := ioutil.ReadAll(configFD)
-        json.Unmarshal(data, &config)
+        return nil, err
     }
-    // Try to load prefix & etcd URL from the config
+    defer configFD.Close()
+    data, _ := ioutil.ReadAll(configFD)
+    json.Unmarshal(data, &config)
+    // Check etcd URL in the config, but do not use the explicit etcdUrl
+    // parameter for CLI calls, otherwise users won't be able to later
+    // change them - storage class parameters are saved in volume IDs
     var etcdUrl []string
-    if (params["etcdUrl"] != "")
+    switch config["etcd_address"].(type)
     {
-        ctxVars["etcdUrl"] = params["etcdUrl"]
-        etcdUrl = strings.Split(params["etcdUrl"], ",")
+    case string:
+        url := strings.Trim(config["etcd_address"].(string), " \t\r\n")
+        if (url != "")
+        {
+            etcdUrl = strings.Split(url, ",")
+        }
+    case []string:
+        etcdUrl = config["etcd_address"].([]string)
     }
     if (len(etcdUrl) == 0)
     {
-        switch config["etcd_address"].(type)
-        {
-        case string:
-            etcdUrl = strings.Split(config["etcd_address"].(string), ",")
-        case []string:
-            etcdUrl = config["etcd_address"].([]string)
-        }
+        return nil, status.Error(codes.InvalidArgument, "etcd_address is missing in "+configPath)
     }
-    etcdPrefix := params["etcdPrefix"]
-    if (etcdPrefix == "")
-    {
-        etcdPrefix, _ = config["etcd_prefix"].(string)
-        if (etcdPrefix == "")
-        {
-            etcdPrefix = "/vitastor"
-        }
-    }
-    else
-    {
-        ctxVars["etcdPrefix"] = etcdPrefix
-    }
-    return ctxVars, etcdUrl, etcdPrefix
+    return ctxVars, nil
 }
 
 func invokeCLI(ctxVars map[string]string, args []string) ([]byte, error)
 {
-    if (ctxVars["etcdUrl"] != "")
-    {
-        args = append(args, "--etcd_address", ctxVars["etcdUrl"])
-    }
-    if (ctxVars["etcdPrefix"] != "")
-    {
-        args = append(args, "--etcd_prefix", ctxVars["etcdPrefix"])
-    }
     if (ctxVars["configPath"] != "")
     {
         args = append(args, "--config_path", ctxVars["configPath"])
@@ -174,10 +157,10 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
         volSize = ((capRange.GetRequiredBytes() + MB - 1) / MB) * MB
     }
 
-    ctxVars, etcdUrl, _ := GetConnectionParams(req.Parameters)
-    if (len(etcdUrl) == 0)
+    ctxVars, err := GetConnectionParams(req.Parameters)
+    if (err != nil)
     {
-        return nil, status.Error(codes.InvalidArgument, "no etcdUrl in storage class configuration and no etcd_address in vitastor.conf")
+        return nil, err
     }
 
     args := []string{ "create", volName, "-s", fmt.Sprintf("%v", volSize), "--pool", fmt.Sprintf("%v", poolId) }
@@ -207,7 +190,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
     }
 
     // Create image using vitastor-cli
-    _, err := invokeCLI(ctxVars, args)
+    _, err = invokeCLI(ctxVars, args)
     if (err != nil)
     {
         if (strings.Index(err.Error(), "already exists") > 0)
@@ -257,7 +240,11 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
     }
     volName := volVars["name"]
 
-    ctxVars, _, _ := GetConnectionParams(volVars)
+    ctxVars, err := GetConnectionParams(volVars)
+    if (err != nil)
+    {
+        return nil, err
+    }
 
     _, err = invokeCLI(ctxVars, []string{ "rm", volName })
     if (err != nil)
@@ -469,7 +456,11 @@ func (cs *ControllerServer) DeleteSnapshot(ctx context.Context, req *csi.DeleteS
     volName := volVars["name"]
     snapName := volVars["snapshot"]
 
-    ctxVars, _, _ := GetConnectionParams(volVars)
+    ctxVars, err := GetConnectionParams(volVars)
+    if (err != nil)
+    {
+        return nil, err
+    }
 
     _, err = invokeCLI(ctxVars, []string{ "rm", volName+"@"+snapName })
     if (err != nil)
@@ -496,7 +487,11 @@ func (cs *ControllerServer) ListSnapshots(ctx context.Context, req *csi.ListSnap
         return nil, status.Error(codes.Internal, "volume ID not in JSON format")
     }
     volName := volVars["name"]
-    ctxVars, _, _ := GetConnectionParams(volVars)
+    ctxVars, err := GetConnectionParams(volVars)
+    if (err != nil)
+    {
+        return nil, err
+    }
 
     inodeCfg, err := invokeList(ctxVars, volName+"@*", false)
     if (err != nil)
@@ -555,7 +550,11 @@ func (cs *ControllerServer) ControllerExpandVolume(ctx context.Context, req *csi
         return nil, status.Error(codes.Internal, "volume ID not in JSON format")
     }
     volName := volVars["name"]
-    ctxVars, _, _ := GetConnectionParams(volVars)
+    ctxVars, err := GetConnectionParams(volVars)
+    if (err != nil)
+    {
+        return nil, err
+    }
 
     inodeCfg, err := invokeList(ctxVars, volName, true)
     if (err != nil)
