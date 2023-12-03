@@ -6,10 +6,10 @@
 
 # Proxmox VE
 
-To enable Vitastor support in Proxmox Virtual Environment (6.4-8.0 are supported):
+To enable Vitastor support in Proxmox Virtual Environment (6.4-8.1 are supported):
 
 - Add the corresponding Vitastor Debian repository into sources.list on Proxmox hosts:
-  bookworm for 8.0, bullseye for 7.4, pve7.3 for 7.3, pve7.2 for 7.2, pve7.1 for 7.1, buster for 6.4
+  bookworm for 8.1, pve8.0 for 8.0, bullseye for 7.4, pve7.3 for 7.3, pve7.2 for 7.2, pve7.1 for 7.1, buster for 6.4
 - Install vitastor-client, pve-qemu-kvm, pve-storage-vitastor (* or see note) packages from Vitastor repository
 - Define storage in `/etc/pve/storage.cfg` (see below)
 - Block network access from VMs to Vitastor network (to OSDs and etcd),
