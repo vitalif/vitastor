@@ -15,6 +15,7 @@ RUN yumdownloader --disablerepo=centos-sclo-rh --source fio
 RUN rpm --nomd5 -i fio*.src.rpm
 RUN rm -f /etc/yum.repos.d/CentOS-Media.repo
 RUN cd ~/rpmbuild/SPECS && yum-builddep -y fio.spec
+RUN yum -y install cmake3
 
 ADD https://vitastor.io/rpms/liburing-el7/liburing-0.7-2.el7.src.rpm /root
 

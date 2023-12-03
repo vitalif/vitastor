@@ -16,7 +16,7 @@ BuildRequires:  jerasure-devel
 BuildRequires:  libisa-l-devel
 BuildRequires:  gf-complete-devel
 BuildRequires:  libibverbs-devel
-BuildRequires:  cmake
+BuildRequires:  cmake3
 Requires:       vitastor-osd = %{version}-%{release}
 Requires:       vitastor-mon = %{version}-%{release}
 Requires:       vitastor-client = %{version}-%{release}
@@ -94,7 +94,7 @@ Vitastor fio drivers for benchmarking.
 
 %build
 . /opt/rh/devtoolset-9/enable
-%cmake .
+%cmake3 .
 %make_build
 
 
