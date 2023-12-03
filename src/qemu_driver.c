@@ -196,10 +196,11 @@ static void vitastor_parse_filename(const char *filename, QDict *options, Error 
             !strcmp(name, "rdma-gid-index") ||
             !strcmp(name, "rdma-mtu"))
         {
-            unsigned long long num_val;
 #if QEMU_VERSION_MAJOR < 8 || QEMU_VERSION_MAJOR == 8 && QEMU_VERSION_MINOR < 1
+            unsigned long long num_val;
             if (parse_uint_full(value, &num_val, 0))
 #else
+            uint64_t num_val;
             if (parse_uint_full(value, 0, &num_val))
 #endif
             {
