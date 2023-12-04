@@ -386,7 +386,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             sqe, dsk.data_fd, PRIV(op)->iov_zerofill, vcnt, dsk.data_offset + (loc << dsk.block_order) + op->offset - stripe_offset
         );
         PRIV(op)->pending_ops = 1;
-        if (immediate_commit != IMMEDIATE_ALL && !(dirty_it->second.state & BS_ST_INSTANT))
+        if (!(dirty_it->second.state & BS_ST_INSTANT))
         {
             unstable_unsynced++;
         }
@@ -412,7 +412,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 sizeof(journal_entry_big_write) + dsk.clean_dyn_size, 0)
             || !space_check.check_available(op, 1,
                 sizeof(journal_entry_small_write) + dyn_size,
-                (unstable_writes.size()+unstable_unsynced)*journal.block_size))
+                op->len + (unstable_writes.size()+unstable_unsynced)*journal.block_size))
         {
             return 0;
         }
@@ -462,6 +462,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 exit(1);
             }
         }
+        // double check that next_free doesn't cross used_start from the left
+        assert(journal.next_free >= journal.used_start || next_next_free < journal.used_start);
         journal.next_free = next_next_free;
         je->oid = op->oid;
         je->version = op->version;
@@ -499,13 +501,13 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         }
         dirty_it->second.location = journal.next_free;
         dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_SUBMITTED;
-        journal.next_free += op->len;
-        if (journal.next_free >= journal.len)
-        {
-            journal.next_free = dsk.journal_block_size;
-            assert(journal.next_free != journal.used_start);
-        }
-        if (immediate_commit == IMMEDIATE_NONE && !(dirty_it->second.state & BS_ST_INSTANT))
+        next_next_free = journal.next_free + op->len;
+        if (next_next_free >= journal.len)
+            next_next_free = dsk.journal_block_size;
+        // double check that next_free doesn't cross used_start from the left
+        assert(journal.next_free >= journal.used_start || next_next_free < journal.used_start);
+        journal.next_free = next_next_free;
+        if (!(dirty_it->second.state & BS_ST_INSTANT))
         {
             unstable_unsynced++;
         }
@@ -596,11 +598,11 @@ resume_4:
         {
             auto & unstab = unstable_writes[op->oid];
             unstab = unstab < op->version ? op->version : unstab;
-        }
-        else if (!is_instant)
-        {
-            unstable_unsynced--;
-            assert(unstable_unsynced >= 0);
+            if (!is_instant)
+            {
+                unstable_unsynced--;
+                assert(unstable_unsynced >= 0);
+            }
         }
         dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK)
             | (imm ? BS_ST_SYNCED : BS_ST_WRITTEN);
