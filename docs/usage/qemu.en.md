@@ -146,7 +146,7 @@ Example performance comparison:
 | 4k random read Q1    | 9600 iops   | 7640 iops   | 7780 iops   |
 
 To try VDUSE you need at least Linux 5.15, built with VDUSE support
-(CONFIG_VIRTIO_VDPA=m, CONFIG_VDPA_USER=m, CONFIG_VIRTIO_VDPA=m).
+(CONFIG_VDPA=m, CONFIG_VDPA_USER=m, CONFIG_VIRTIO_VDPA=m).
 
 Debian Linux kernels have these options disabled by now, so if you want to try it on Debian,
 use a kernel from Ubuntu [kernel-ppa/mainline](https://kernel.ubuntu.com/~kernel-ppa/mainline/), Proxmox,

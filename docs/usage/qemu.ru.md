@@ -149,7 +149,7 @@ VDUSE - на данный момент лучший интерфейс для п
 | 4k случайное чтение Q1   | 9600 iops   | 7640 iops   | 7780 iops   |
 
 Чтобы попробовать VDUSE, вам нужно ядро Linux как минимум версии 5.15, собранное с поддержкой
-VDUSE (CONFIG_VIRTIO_VDPA=m, CONFIG_VDPA_USER=m, CONFIG_VIRTIO_VDPA=m).
+VDUSE (CONFIG_VDPA=m, CONFIG_VDPA_USER=m, CONFIG_VIRTIO_VDPA=m).
 
 В ядрах в Debian Linux поддержка пока отключена по умолчанию, так что чтобы попробовать VDUSE
 на Debian, поставьте ядро из Ubuntu [kernel-ppa/mainline](https://kernel.ubuntu.com/~kernel-ppa/mainline/),
