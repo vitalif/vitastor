@@ -116,6 +116,7 @@ func GetConnectionParams(params map[string]string) (map[string]string, error)
 
 func system(program string, args ...string) ([]byte, error)
 {
+    klog.Infof("Running "+program+" "+strings.Join(args, " "))
     c := exec.Command(program, args...)
     var stdout, stderr bytes.Buffer
     c.Stdout, c.Stderr = &stdout, &stderr
