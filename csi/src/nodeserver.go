@@ -176,6 +176,7 @@ func (ns *NodeServer) unmapNbd(devicePath string)
 
 func findByPidFile(pidFile string) (*os.Process, error)
 {
+    klog.Infof("killing process with PID from file %s", pidFile)
     pidBuf, err := os.ReadFile(pidFile)
     if (err != nil)
     {
