@@ -234,7 +234,7 @@ func (ns *NodeServer) mapVduse(volName string, ctxVars map[string]string, readon
     stateFd, err := os.CreateTemp(ns.stateDir, "vitastor-vduse-*.json")
     if (err != nil)
     {
-        return "", "", status.Error(codes.Internal, err.Error())
+        return "", "", err
     }
     stateFile := stateFd.Name()
     stateFd.Close()
@@ -276,10 +276,6 @@ func (ns *NodeServer) mapVduse(volName string, ctxVars map[string]string, readon
                         return blockdev, vdpaId, nil
                     }
                 }
-            }
-            if (err != nil)
-            {
-                err = status.Error(codes.Internal, err.Error())
             }
         }
         if (err != nil)
@@ -456,13 +452,13 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
                 if (err != nil)
                 {
                     klog.Errorf("failed to create block device mount target %s with error: %v", targetPath, err)
-                    return nil, status.Error(codes.Internal, err.Error())
+                    return nil, err
                 }
                 err = pathFile.Close()
                 if (err != nil)
                 {
                     klog.Errorf("failed to close %s with error: %v", targetPath, err)
-                    return nil, status.Error(codes.Internal, err.Error())
+                    return nil, err
                 }
             }
             else
@@ -471,13 +467,13 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
                 if (err != nil)
                 {
                     klog.Errorf("failed to create fs mount target %s with error: %v", targetPath, err)
-                    return nil, status.Error(codes.Internal, err.Error())
+                    return nil, err
                 }
             }
         }
         else
         {
-            return nil, status.Error(codes.Internal, err.Error())
+            return nil, err
         }
     }
 
@@ -597,7 +593,7 @@ unmap:
     {
         ns.unmapVduseById(vdpaId)
     }
-    return nil, status.Error(codes.Internal, err.Error())
+    return nil, err
 }
 
 // NodeUnpublishVolume unmounts the volume from the target path
@@ -612,7 +608,7 @@ func (ns *NodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
         {
             return nil, status.Error(codes.NotFound, "Target path not found")
         }
-        return nil, status.Error(codes.Internal, err.Error())
+        return nil, err
     }
     if (devicePath == "")
     {
@@ -625,7 +621,7 @@ func (ns *NodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
     err = mount.CleanupMountPoint(targetPath, ns.mounter, false)
     if (err != nil)
     {
-        return nil, status.Error(codes.Internal, err.Error())
+        return nil, err
     }
     // unmap NBD device
     if (refCount == 1)
