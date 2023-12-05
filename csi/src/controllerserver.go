@@ -97,6 +97,15 @@ func GetConnectionParams(params map[string]string) (map[string]string, error)
         }
     case []string:
         etcdUrl = config["etcd_address"].([]string)
+    case []interface{}:
+        for _, url := range config["etcd_address"].([]interface{})
+        {
+            s, ok := url.(string)
+            if (ok)
+            {
+                etcdUrl = append(etcdUrl, s)
+            }
+        }
     }
     if (len(etcdUrl) == 0)
     {
