@@ -114,7 +114,7 @@ func GetConnectionParams(params map[string]string) (map[string]string, error)
     return ctxVars, nil
 }
 
-func system(program string, args ...string) ([]byte, error)
+func system(program string, args ...string) ([]byte, []byte, error)
 {
     klog.Infof("Running "+program+" "+strings.Join(args, " "))
     c := exec.Command(program, args...)
@@ -125,9 +125,9 @@ func system(program string, args ...string) ([]byte, error)
     {
         stdoutStr, stderrStr := string(stdout.Bytes()), string(stderr.Bytes())
         klog.Errorf(program+" "+strings.Join(args, " ")+" failed: %s, status %s\n", stdoutStr+stderrStr, err)
-        return nil, status.Error(codes.Internal, stdoutStr+stderrStr+" (status "+err.Error()+")")
+        return nil, nil, status.Error(codes.Internal, stdoutStr+stderrStr+" (status "+err.Error()+")")
     }
-    return stdout.Bytes(), nil
+    return stdout.Bytes(), stderr.Bytes(), nil
 }
 
 func invokeCLI(ctxVars map[string]string, args []string) ([]byte, error)
@@ -136,7 +136,8 @@ func invokeCLI(ctxVars map[string]string, args []string) ([]byte, error)
     {
         args = append(args, "--config_path", ctxVars["configPath"])
     }
-    return system("/usr/bin/vitastor-cli", args...)
+    stdout, _, err := system("/usr/bin/vitastor-cli", args...)
+    return stdout, err
 }
 
 // Create the volume

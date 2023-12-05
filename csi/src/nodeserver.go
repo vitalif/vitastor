@@ -7,6 +7,7 @@ import (
     "context"
     "errors"
     "encoding/json"
+    "fmt"
     "os"
     "os/exec"
     "path/filepath"
@@ -154,8 +155,13 @@ func (ns *NodeServer) mapNbd(volName string, ctxVars map[string]string, readonly
     {
         args = append(args, "--readonly", "1")
     }
-    dev, err := system("/usr/bin/vitastor-nbd", args...)
-    return strings.TrimSpace(string(dev)), err
+    stdout, stderr, err := system("/usr/bin/vitastor-nbd", args...)
+    dev := strings.TrimSpace(string(stdout))
+    if (dev == "")
+    {
+        return "", fmt.Errorf("vitastor-nbd did not return the name of NBD device. output: %s", stderr)
+    }
+    return dev, err
 }
 
 func (ns *NodeServer) unmapNbd(devicePath string)
@@ -221,7 +227,7 @@ func startStorageDaemon(vdpaId, volName, pidFile, configPath string, readonly bo
     {
         writable = "false"
     }
-    _, err := system(
+    _, _, err := system(
         "/usr/bin/qemu-storage-daemon", "--daemonize", "--pidfile", pidFile, "--blockdev", string(blockSpecJson),
         "--export", "vduse-blk,id="+vdpaId+",node-name=disk1,name="+vdpaId+",num-queues=16,queue-size=128,writable="+writable,
     )
@@ -246,7 +252,7 @@ func (ns *NodeServer) mapVduse(volName string, ctxVars map[string]string, readon
     if (err == nil)
     {
         // Add device to VDPA bus
-        _, err = system("/sbin/vdpa", "-j", "dev", "add", "name", vdpaId, "mgmtdev", "vduse")
+        _, _, err = system("/sbin/vdpa", "-j", "dev", "add", "name", vdpaId, "mgmtdev", "vduse")
         if (err == nil)
         {
             // Find block device name
@@ -278,16 +284,13 @@ func (ns *NodeServer) mapVduse(volName string, ctxVars map[string]string, readon
                 }
             }
         }
-        if (err != nil)
+        killErr := killByPidFile(pidFile)
+        if (killErr != nil)
         {
-            killErr := killByPidFile(pidFile)
-            if (killErr != nil)
-            {
-                klog.Errorf("Failed to kill started qemu-storage-daemon: %v", killErr)
-            }
-            os.Remove(stateFile)
-            os.Remove(pidFile)
+            klog.Errorf("Failed to kill started qemu-storage-daemon: %v", killErr)
         }
+        os.Remove(stateFile)
+        os.Remove(pidFile)
     }
     return "", "", err
 }
@@ -333,7 +336,7 @@ func (ns *NodeServer) unmapVduseById(vdpaId string)
     }
     else
     {
-        _, _ = system("/sbin/vdpa", "-j", "dev", "del", vdpaId)
+        _, _, _ = system("/sbin/vdpa", "-j", "dev", "del", vdpaId)
     }
     stateFile := ns.stateDir + vdpaId + ".json"
     os.Remove(stateFile)
@@ -373,7 +376,7 @@ func (ns *NodeServer) restoreVduseDaemons()
     }
     devList := make(map[string]interface{})
     // example output: {"dev":{"test1":{"type":"block","mgmtdev":"vduse","vendor_id":0,"max_vqs":16,"max_vq_size":128}}}
-    devListJSON, err := system("/sbin/vdpa", "-j", "dev", "list")
+    devListJSON, _, err := system("/sbin/vdpa", "-j", "dev", "list")
     if (err != nil)
     {
         return
