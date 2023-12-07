@@ -135,8 +135,8 @@ void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int t
             {
                 if (this->log_level > 0)
                 {
-                    printf(
-                        "Warning: etcd request failed: %s, retrying %d more times\n",
+                    fprintf(
+                        stderr, "Warning: etcd request failed: %s, retrying %d more times\n",
                         err.c_str(), retries
                     );
                 }
@@ -333,7 +333,7 @@ void etcd_state_client_t::start_etcd_watcher()
         etcd_watch_ws = NULL;
     }
     if (this->log_level > 1)
-        printf("Trying to connect to etcd websocket at %s\n", etcd_address.c_str());
+        fprintf(stderr, "Trying to connect to etcd websocket at %s\n", etcd_address.c_str());
     etcd_watch_ws = open_websocket(tfd, etcd_address, etcd_api_path+"/watch", etcd_slow_timeout,
         [this, cur_addr = selected_etcd_address](const http_response_t *msg)
     {
