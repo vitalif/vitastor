@@ -732,8 +732,9 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
     resume:
         while (pos < bs->journal.block_size)
         {
-            journal_entry *je = (journal_entry*)((uint8_t*)buf + proc_pos - done_pos + pos);
-            if (je->magic != JOURNAL_MAGIC || je_crc32(je) != je->crc32 ||
+            auto buf_pos = proc_pos - done_pos + pos;
+            journal_entry *je = (journal_entry*)((uint8_t*)buf + buf_pos);
+            if (je->magic != JOURNAL_MAGIC || buf_pos+je->size > len || je_crc32(je) != je->crc32 ||
                 je->type < JE_MIN || je->type > JE_MAX || started && je->crc32_prev != crc32_last)
             {
                 if (pos == 0)
