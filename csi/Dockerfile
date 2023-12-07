@@ -35,9 +35,9 @@ RUN (echo deb http://vitastor.io/debian bookworm main > /etc/apt/sources.list.d/
     wget -q -O /etc/apt/trusted.gpg.d/vitastor.gpg https://vitastor.io/debian/pubkey.gpg && \
     apt-get update && \
     apt-get install -y vitastor-client && \
-    apt-get download qemu-system-common && \
-    apt-get download qemu-block-extra && \
-    dpkg -x qemu-system-common*.deb tmp1 && \
+    wget https://vitastor.io/archive/qemu/qemu-bookworm-8.1.2%2Bds-1%2Bvitastor1/qemu-utils_8.1.2%2Bds-1%2Bvitastor1_amd64.deb && \
+    wget https://vitastor.io/archive/qemu/qemu-bookworm-8.1.2%2Bds-1%2Bvitastor1/qemu-block-extra_8.1.2%2Bds-1%2Bvitastor1_amd64.deb && \
+    dpkg -x qemu-utils*.deb tmp1 && \
     dpkg -x qemu-block-extra*.deb tmp1 && \
     cp -a tmp1/usr/bin/qemu-storage-daemon /usr/bin/ && \
     mkdir -p /usr/lib/x86_64-linux-gnu/qemu && \
