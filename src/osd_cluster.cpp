@@ -213,12 +213,14 @@ json11::Json osd_t::get_statistics()
     st["subop_stats"] = subop_stats;
     st["recovery_stats"] = json11::Json::object {
         { recovery_stat_names[0], json11::Json::object {
-            { "count", recovery_stat_count[0][0] },
-            { "bytes", recovery_stat_bytes[0][0] },
+            { "count", recovery_stat[0].count },
+            { "bytes", recovery_stat[0].bytes },
+            { "usec", recovery_stat[0].usec },
         } },
         { recovery_stat_names[1], json11::Json::object {
-            { "count", recovery_stat_count[0][1] },
-            { "bytes", recovery_stat_bytes[0][1] },
+            { "count", recovery_stat[1].count },
+            { "bytes", recovery_stat[1].bytes },
+            { "usec", recovery_stat[1].usec },
         } },
     };
     return st;

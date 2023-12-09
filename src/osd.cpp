@@ -421,14 +421,6 @@ void osd_t::exec_op(osd_op_t *cur_op)
     }
 }
 
-void osd_t::reset_stats()
-{
-    msgr.stats = {};
-    prev_stats = {};
-    memset(recovery_stat_count, 0, sizeof(recovery_stat_count));
-    memset(recovery_stat_bytes, 0, sizeof(recovery_stat_bytes));
-}
-
 void osd_t::print_stats()
 {
     for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)
@@ -466,19 +458,19 @@ void osd_t::print_stats()
     }
     for (int i = 0; i < 2; i++)
     {
-        if (recovery_stat_count[0][i] != recovery_stat_count[1][i])
+        if (recovery_stat[i].count > recovery_print_prev[i].count)
         {
-            uint64_t bw = (recovery_stat_bytes[0][i] - recovery_stat_bytes[1][i]) / print_stats_interval;
+            uint64_t bw = (recovery_stat[i].bytes - recovery_print_prev[i].bytes) / print_stats_interval;
             printf(
-                "[OSD %lu] %s recovery: %.1f op/s, B/W: %.2f %s\n", osd_num, recovery_stat_names[i],
-                (recovery_stat_count[0][i] - recovery_stat_count[1][i]) * 1.0 / print_stats_interval,
+                "[OSD %lu] %s recovery: %.1f op/s, B/W: %.2f %s, avg lat %ld us\n", osd_num, recovery_stat_names[i],
+                (recovery_stat[i].count - recovery_print_prev[i].count) * 1.0 / print_stats_interval,
                 (bw > 1024*1024*1024 ? bw/1024.0/1024/1024 : (bw > 1024*1024 ? bw/1024.0/1024 : bw/1024.0)),
-                (bw > 1024*1024*1024 ? "GB/s" : (bw > 1024*1024 ? "MB/s" : "KB/s"))
+                (bw > 1024*1024*1024 ? "GB/s" : (bw > 1024*1024 ? "MB/s" : "KB/s")),
+                (recovery_stat[i].usec - recovery_print_prev[i].usec) / (recovery_stat[i].count - recovery_print_prev[i].count)
             );
-            recovery_stat_count[1][i] = recovery_stat_count[0][i];
-            recovery_stat_bytes[1][i] = recovery_stat_bytes[0][i];
         }
     }
+    memcpy(recovery_print_prev, recovery_stat, sizeof(recovery_stat));
     if (corrupted_objects > 0)
     {
         printf("[OSD %lu] %lu object(s) corrupted\n", osd_num, corrupted_objects);

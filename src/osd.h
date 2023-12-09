@@ -87,6 +87,11 @@ struct osd_chain_read_t
 
 struct osd_rmw_stripe_t;
 
+struct recovery_stat_t
+{
+    uint64_t count, usec, bytes;
+};
+
 class osd_t
 {
     // config
@@ -189,8 +194,8 @@ class osd_t
     std::map<uint64_t, inode_stats_t> inode_stats;
     std::map<uint64_t, timespec> vanishing_inodes;
     const char* recovery_stat_names[2] = { "degraded", "misplaced" };
-    uint64_t recovery_stat_count[2][2] = {};
-    uint64_t recovery_stat_bytes[2][2] = {};
+    recovery_stat_t recovery_stat[2];
+    recovery_stat_t recovery_print_prev[2];
 
     // cluster connection
     void parse_config(bool init);
@@ -209,7 +214,6 @@ class osd_t
     void renew_lease(bool reload);
     void print_stats();
     void print_slow();
-    void reset_stats();
     json11::Json get_statistics();
     void report_statistics();
     void report_pg_state(pg_t & pg);

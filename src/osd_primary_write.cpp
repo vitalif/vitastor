@@ -292,16 +292,26 @@ resume_7:
     {
         {
             int recovery_type = op_data->object_state->state & (OBJ_DEGRADED|OBJ_INCOMPLETE) ? 0 : 1;
-            recovery_stat_count[0][recovery_type]++;
-            if (!recovery_stat_count[0][recovery_type])
+            recovery_stat[recovery_type].count++;
+            if (!recovery_stat[recovery_type].count) // wrapped
             {
-                recovery_stat_count[0][recovery_type]++;
-                recovery_stat_bytes[0][recovery_type] = 0;
+                memset(&recovery_print_prev[recovery_type], 0, sizeof(recovery_print_prev[recovery_type]));
+                memset(&recovery_stat[recovery_type], 0, sizeof(recovery_stat[recovery_type]));
+                recovery_stat[recovery_type].count++;
             }
             for (int role = 0; role < (op_data->scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_size); role++)
             {
-                recovery_stat_bytes[0][recovery_type] += op_data->stripes[role].write_end - op_data->stripes[role].write_start;
+                recovery_stat[recovery_type].bytes += op_data->stripes[role].write_end - op_data->stripes[role].write_start;
             }
+            if (!cur_op->tv_end.tv_sec)
+            {
+                clock_gettime(CLOCK_REALTIME, &cur_op->tv_end);
+            }
+            uint64_t usec = (
+                (cur_op->tv_end.tv_sec - cur_op->tv_begin.tv_sec)*1000000 +
+                (cur_op->tv_end.tv_nsec - cur_op->tv_begin.tv_nsec)/1000
+            );
+            recovery_stat[recovery_type].usec += usec;
         }
         // Any kind of a non-clean object can have extra chunks, because we don't record objects
         // as degraded & misplaced or incomplete & misplaced at the same time. So try to remove extra chunks

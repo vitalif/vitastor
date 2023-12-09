@@ -3,13 +3,15 @@
 
 #include "osd_primary.h"
 
+#define SELF_FD -1
+
 void osd_t::autosync()
 {
     if (immediate_commit != IMMEDIATE_ALL && !autosync_op)
     {
         autosync_op = new osd_op_t();
         autosync_op->op_type = OSD_OP_IN;
-        autosync_op->peer_fd = -1;
+        autosync_op->peer_fd = SELF_FD;
         autosync_op->req = (osd_any_op_t){
             .sync = {
                 .header = {
@@ -85,9 +87,13 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     cur_op->reply.hdr.id = cur_op->req.hdr.id;
     cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
     cur_op->reply.hdr.retval = retval;
-    if (cur_op->peer_fd == -1)
+    if (cur_op->peer_fd == SELF_FD)
     {
-        msgr.measure_exec(cur_op);
+        // Do not include internal primary writes (recovery/rebalance) into client op statistics
+        if (cur_op->req.hdr.opcode != OSD_OP_WRITE)
+        {
+            msgr.measure_exec(cur_op);
+        }
         // Copy lambda to be unaffected by `delete op`
         std::function<void(osd_op_t*)>(cur_op->callback)(cur_op);
     }
