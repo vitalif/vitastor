@@ -7,7 +7,7 @@ ARG REL=
 
 WORKDIR /root
 
-RUN if [ "$REL" = "buster" -o "$REL" = "bullseye" ]; then \
+RUN if [ "$REL" = "buster" -o "$REL" = "bullseye" -o "$REL" = "bookworm" ]; then \
         echo "deb http://deb.debian.org/debian $REL-backports main" >> /etc/apt/sources.list; \
         echo >> /etc/apt/preferences; \
         echo 'Package: *' >> /etc/apt/preferences; \
@@ -45,7 +45,7 @@ RUN set -e; \
     rm -rf /root/packages/qemu-$REL/*; \
     cd /root/packages/qemu-$REL; \
     dpkg-source -x /root/qemu*.dsc; \
-    QEMU_VER=$(ls -d qemu*/ | perl -pe 's!^.*(\d+\.\d+).*!$1!'); \
+    QEMU_VER=$(ls -d qemu*/ | perl -pe 's!^.*?(\d+\.\d+).*!$1!'); \
     D=$(ls -d qemu*/); \
     cp /root/vitastor/patches/qemu-$QEMU_VER-vitastor.patch ./qemu-*/debian/patches; \
     echo qemu-$QEMU_VER-vitastor.patch >> $D/debian/patches/series; \
