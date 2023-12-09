@@ -325,30 +325,116 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
         {
             printf("Recovery operation done for %lx:%lx\n", op->oid.inode, op->oid.stripe);
         }
-        // CAREFUL! op = &recovery_ops[op->oid]. Don't access op->* after recovery_ops.erase()
-        op->osd_op = NULL;
-        recovery_ops.erase(op->oid);
-        delete osd_op;
-        if (immediate_commit != IMMEDIATE_ALL)
+        if (recovery_target_sleep_us)
         {
-            recovery_done++;
-            if (recovery_done >= recovery_sync_batch)
+            this->tfd->set_timer_us(recovery_target_sleep_us, false, [this, op](int timer_id)
             {
-                // Force sync every <recovery_sync_batch> operations
-                // This is required not to pile up an excessive amount of delete operations
-                autosync();
-                recovery_done = 0;
-            }
+                finish_recovery_op(op);
+            });
         }
-        continue_recovery();
+        else
+        {
+            finish_recovery_op(op);
+        }
     };
     exec_op(op->osd_op);
+}
+
+void osd_t::apply_recovery_tune_interval()
+{
+    if (rtune_timer_id >= 0)
+    {
+        tfd->clear_timer(rtune_timer_id);
+        rtune_timer_id = -1;
+    }
+    if (recovery_tune_interval != 0)
+    {
+        rtune_timer_id = this->tfd->set_timer(recovery_tune_interval*1000, true, [this](int timer_id)
+        {
+            tune_recovery();
+        });
+    }
+    else
+    {
+        recovery_target_queue_depth = recovery_queue_depth;
+        recovery_target_sleep_us = recovery_sleep_us;
+    }
+}
+
+void osd_t::finish_recovery_op(osd_recovery_op_t *op)
+{
+    // CAREFUL! op = &recovery_ops[op->oid]. Don't access op->* after recovery_ops.erase()
+    delete op->osd_op;
+    op->osd_op = NULL;
+    recovery_ops.erase(op->oid);
+    if (immediate_commit != IMMEDIATE_ALL)
+    {
+        recovery_done++;
+        if (recovery_done >= recovery_sync_batch)
+        {
+            // Force sync every <recovery_sync_batch> operations
+            // This is required not to pile up an excessive amount of delete operations
+            autosync();
+            recovery_done = 0;
+        }
+    }
+    continue_recovery();
+}
+
+void osd_t::tune_recovery()
+{
+    static int total_client_ops[] = { OSD_OP_READ, OSD_OP_WRITE, OSD_OP_SYNC, OSD_OP_DELETE };
+    uint64_t total_client_usec = 0;
+    for (int i = 0; i < sizeof(total_client_ops)/sizeof(total_client_ops[0]); i++)
+    {
+        total_client_usec += (msgr.stats.op_stat_sum[total_client_ops[i]] - rtune_prev_stats.op_stat_sum[total_client_ops[i]]);
+        rtune_prev_stats.op_stat_sum[total_client_ops[i]] = msgr.stats.op_stat_sum[total_client_ops[i]];
+    }
+    uint64_t total_recovery_usec = 0, recovery_count = 0;
+    total_recovery_usec += recovery_stat[0].usec-rtune_prev_recovery[0].usec;
+    total_recovery_usec += recovery_stat[1].usec-rtune_prev_recovery[1].usec;
+    recovery_count += recovery_stat[0].count-rtune_prev_recovery[0].count;
+    recovery_count += recovery_stat[1].count-rtune_prev_recovery[1].count;
+    memcpy(rtune_prev_recovery, recovery_stat, sizeof(recovery_stat));
+    if (recovery_count == 0)
+    {
+        return;
+    }
+    rtune_avg_lat = total_recovery_usec/recovery_count*recovery_tune_ewma_rate +
+        rtune_avg_lat*(1-recovery_tune_ewma_rate);
+    rtune_avg_count = recovery_count*recovery_tune_ewma_rate +
+        rtune_avg_count*(1-recovery_tune_ewma_rate);
+    // client_util = count/interval * usec/1000000.0/count = usec/1000000.0/interval :-)
+    double client_util = total_client_usec/1000000.0/recovery_tune_interval;
+    rtune_client_util = rtune_client_util*(1-recovery_tune_ewma_rate) + client_util*recovery_tune_ewma_rate;
+    rtune_target_util = (rtune_client_util < recovery_tune_min_client_util
+        ? recovery_tune_max_util
+        : recovery_tune_min_util + (rtune_client_util >= recovery_tune_max_client_util
+            ? 0 : (recovery_tune_max_util-recovery_tune_min_util)*
+                (recovery_tune_max_client_util-rtune_client_util)/(recovery_tune_max_client_util-recovery_tune_min_client_util)
+        )
+    );
+    // for example: utilisation = 8, target = 1
+    // intuitively target latency should be 8x of real
+    // target_lat = rtune_avg_lat * utilisation / target_util
+    //            = rtune_avg_lat * rtune_avg_lat * rtune_avg_iops / target_util
+    //            = 0.0625
+    recovery_target_queue_depth = (int)rtune_target_util + (rtune_target_util < 1 || rtune_target_util-(int)rtune_target_util >= 0.1 ? 1 : 0);
+    uint64_t target_lat = rtune_avg_lat * rtune_avg_lat/1000000.0*rtune_avg_count/recovery_tune_interval/rtune_target_util;
+    recovery_target_sleep_us = target_lat > rtune_avg_lat+recovery_tune_sleep_min_us ? target_lat-rtune_avg_lat : 0;
+    if (log_level > 3)
+    {
+        printf(
+            "recovery tune: client util %.2f (ewma %.2f), target util %.2f -> queue %ld, lat %lu us, real %lu us, pause %lu us\n",
+            client_util, rtune_client_util, rtune_target_util, recovery_target_queue_depth, target_lat, rtune_avg_lat, recovery_target_sleep_us
+        );
+    }
 }
 
 // Just trigger write requests for degraded objects. They'll be recovered during writing
 bool osd_t::continue_recovery()
 {
-    while (recovery_ops.size() < recovery_queue_depth)
+    while (recovery_ops.size() < recovery_target_queue_depth)
     {
         osd_recovery_op_t op;
         if (pick_next_recovery(op))

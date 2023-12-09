@@ -68,14 +68,21 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
         }
     }
 
-    print_stats_timer_id = this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
+    if (print_stats_timer_id == -1)
     {
-        print_stats();
-    });
-    slow_log_timer_id = this->tfd->set_timer(slow_log_interval*1000, true, [this](int timer_id)
+        print_stats_timer_id = this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
+        {
+            print_stats();
+        });
+    }
+    if (slow_log_timer_id == -1)
     {
-        print_slow();
-    });
+        slow_log_timer_id = this->tfd->set_timer(slow_log_interval*1000, true, [this](int timer_id)
+        {
+            print_slow();
+        });
+    }
+    apply_recovery_tune_interval();
 
     msgr.tfd = this->tfd;
     msgr.ringloop = this->ringloop;
@@ -96,6 +103,11 @@ osd_t::~osd_t()
     {
         tfd->clear_timer(slow_log_timer_id);
         slow_log_timer_id = -1;
+    }
+    if (rtune_timer_id >= 0)
+    {
+        tfd->clear_timer(rtune_timer_id);
+        rtune_timer_id = -1;
     }
     if (print_stats_timer_id >= 0)
     {
@@ -196,6 +208,22 @@ void osd_t::parse_config(bool init)
     recovery_queue_depth = config["recovery_queue_depth"].uint64_value();
     if (recovery_queue_depth < 1 || recovery_queue_depth > MAX_RECOVERY_QUEUE)
         recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
+    recovery_sleep_us = config["recovery_sleep_us"].uint64_value();
+    recovery_tune_min_util = config["recovery_tune_min_util"].is_null()
+        ? 0.1 : config["recovery_tune_min_util"].number_value();
+    recovery_tune_max_util = config["recovery_tune_max_util"].is_null()
+        ? 1.0 : config["recovery_tune_max_util"].number_value();
+    recovery_tune_min_client_util = config["recovery_tune_min_client_util"].is_null()
+        ? 0 : config["recovery_tune_min_client_util"].number_value();
+    recovery_tune_max_client_util = config["recovery_tune_max_client_util"].is_null()
+        ? 0.5 : config["recovery_tune_max_client_util"].number_value();
+    auto old_recovery_tune_interval = recovery_tune_interval;
+    recovery_tune_interval = config["recovery_tune_interval"].is_null()
+        ? 1 : config["recovery_tune_interval"].uint64_value();
+    recovery_tune_ewma_rate = config["recovery_tune_ewma_rate"].is_null()
+        ? 0.5 : config["recovery_tune_ewma_rate"].number_value();
+    recovery_tune_sleep_min_us = config["recovery_tune_sleep_min_us"].is_null()
+        ? 10 : config["recovery_tune_sleep_min_us"].uint64_value();
     recovery_pg_switch = config["recovery_pg_switch"].uint64_value();
     if (recovery_pg_switch < 1)
         recovery_pg_switch = DEFAULT_RECOVERY_PG_SWITCH;
@@ -273,6 +301,10 @@ void osd_t::parse_config(bool init)
         {
             print_slow();
         });
+    }
+    if (old_recovery_tune_interval != recovery_tune_interval)
+    {
+        apply_recovery_tune_interval();
     }
 }
 

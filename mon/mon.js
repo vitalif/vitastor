@@ -110,7 +110,15 @@ const etcd_tree = {
             autosync_interval: 5,
             autosync_writes: 128,
             client_queue_depth: 128, // unused
-            recovery_queue_depth: 4,
+            recovery_queue_depth: 1,
+            recovery_sleep_us: 0,
+            recovery_tune_min_util: 0.1,
+            recovery_tune_min_client_util: 0,
+            recovery_tune_max_util: 1.0,
+            recovery_tune_max_client_util: 0.5,
+            recovery_tune_interval: 1,
+            recovery_tune_ewma_rate: 0.5,
+            recovery_tune_sleep_min_us: 10, // 10 microseconds
             recovery_pg_switch: 128,
             recovery_sync_batch: 16,
             no_recovery: false,

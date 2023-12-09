@@ -34,7 +34,7 @@
 #define DEFAULT_AUTOSYNC_INTERVAL 5
 #define DEFAULT_AUTOSYNC_WRITES 128
 #define MAX_RECOVERY_QUEUE 2048
-#define DEFAULT_RECOVERY_QUEUE 4
+#define DEFAULT_RECOVERY_QUEUE 1
 #define DEFAULT_RECOVERY_PG_SWITCH 128
 #define DEFAULT_RECOVERY_BATCH 16
 
@@ -116,7 +116,15 @@ class osd_t
     int immediate_commit = IMMEDIATE_NONE;
     int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // "emergency" sync every 5 seconds
     int autosync_writes = DEFAULT_AUTOSYNC_WRITES;
-    int recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
+    uint64_t recovery_queue_depth = 1;
+    uint64_t recovery_sleep_us = 0;
+    double recovery_tune_min_util = 0.1;
+    double recovery_tune_min_client_util = 0;
+    double recovery_tune_max_util = 1.0;
+    double recovery_tune_max_client_util = 0.5;
+    int recovery_tune_interval = 1;
+    double recovery_tune_ewma_rate = 0.5;
+    int recovery_tune_sleep_min_us = 10;
     int recovery_pg_switch = DEFAULT_RECOVERY_PG_SWITCH;
     int recovery_sync_batch = DEFAULT_RECOVERY_BATCH;
     int inode_vanish_time = 60;
@@ -197,6 +205,16 @@ class osd_t
     recovery_stat_t recovery_stat[2];
     recovery_stat_t recovery_print_prev[2];
 
+    // recovery auto-tuning
+    int rtune_timer_id = -1;
+    uint64_t rtune_avg_lat = 0;
+    double rtune_avg_count = 0;
+    double rtune_client_util = 0, rtune_target_util = 1;
+    osd_op_stats_t rtune_prev_stats;
+    recovery_stat_t rtune_prev_recovery[2];
+    uint64_t recovery_target_queue_depth = 1;
+    uint64_t recovery_target_sleep_us = 0;
+
     // cluster connection
     void parse_config(bool init);
     void init_cluster();
@@ -213,6 +231,8 @@ class osd_t
     void create_osd_state();
     void renew_lease(bool reload);
     void print_stats();
+    void tune_recovery();
+    void apply_recovery_tune_interval();
     void print_slow();
     json11::Json get_statistics();
     void report_statistics();
@@ -242,6 +262,7 @@ class osd_t
     bool submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t peer_osd, int count, obj_ver_id *data);
     bool pick_next_recovery(osd_recovery_op_t &op);
     void submit_recovery_op(osd_recovery_op_t *op);
+    void finish_recovery_op(osd_recovery_op_t *op);
     bool continue_recovery();
     pg_osd_set_state_t* change_osd_set(pg_osd_set_state_t *st, pg_t *pg);
 
