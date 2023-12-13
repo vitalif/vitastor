@@ -127,6 +127,10 @@ static const char *help_text =
     "vitastor-disk write-sb <device>\n"
     "  Read JSON from STDIN and write it into Vitastor OSD superblock on <device>.\n"
     "\n"
+    "vitastor-disk update-sb <device> [--force] [--<parameter> <value>] [...]\n"
+    "  Read Vitastor OSD superblock from <device>, update parameters in it and write it back.\n"
+    "  --force allows to ignore validation errors.\n"
+    "\n"
     "vitastor-disk udev <device>\n"
     "  Try to read Vitastor OSD superblock from <device> and print variables for udev.\n"
     "\n"
@@ -362,6 +366,15 @@ int main(int argc, char *argv[])
             return 1;
         }
         return self.write_sb(cmd[1]);
+    }
+    else if (!strcmp(cmd[0], "update-sb"))
+    {
+        if (cmd.size() != 2)
+        {
+            fprintf(stderr, "Exactly 1 device path argument is required\n");
+            return 1;
+        }
+        return self.update_sb(cmd[1]);
     }
     else if (!strcmp(cmd[0], "start") || !strcmp(cmd[0], "stop") ||
         !strcmp(cmd[0], "restart") || !strcmp(cmd[0], "enable") || !strcmp(cmd[0], "disable"))

@@ -17,6 +17,7 @@ It supports the following commands:
 - [purge](#purge)
 - [read-sb](#read-sb)
 - [write-sb](#write-sb)
+- [update-sb](#update-sb)
 - [udev](#udev)
 - [exec-osd](#exec-osd)
 - [pre-exec](#pre-exec)
@@ -181,6 +182,14 @@ Try to read Vitastor OSD superblock from `<device>` and print it in JSON format.
 `vitastor-disk write-sb <device>`
 
 Read JSON from STDIN and write it into Vitastor OSD superblock on `<device>`.
+
+## update-sb
+
+`vitastor-disk update-sb <device> [--force] [--<parameter> <value>] [...]`
+
+Read Vitastor OSD superblock from <device>, update parameters in it and write it back.
+
+`--force` allows to ignore validation errors.
 
 ## udev
 

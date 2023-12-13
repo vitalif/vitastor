@@ -109,6 +109,7 @@ struct disk_tool_t
     int udev_import(std::string device);
     int read_sb(std::string device);
     int write_sb(std::string device);
+    int update_sb(std::string device);
     int exec_osd(std::string device);
     int systemd_start_stop_osds(const std::vector<std::string> & cmd, const std::vector<std::string> & devices);
     int pre_exec_osd(std::string device);

@@ -17,6 +17,7 @@ vitastor-disk - инструмент командной строки для уп
 - [purge](#purge)
 - [read-sb](#read-sb)
 - [write-sb](#write-sb)
+- [update-sb](#update-sb)
 - [udev](#udev)
 - [exec-osd](#exec-osd)
 - [pre-exec](#pre-exec)
@@ -186,6 +187,15 @@ throttle_target_mbs, throttle_target_parallelism, throttle_threshold_us.
 `vitastor-disk write-sb <device>`
 
 Прочитать JSON со стандартного ввода и записать его в суперблок OSD на диск `<device>`.
+
+## update-sb
+
+`vitastor-disk update-sb <device> [--force] [--<параметр> <значение>] [...]`
+
+Прочитать суперблок OSD с диска `<device>`, изменить в нём заданные параметры и записать обратно.
+
+Опция `--force` позволяет читать суперблок, даже если он считается некорректным
+из-за ошибок валидации.
 
 ## udev
 

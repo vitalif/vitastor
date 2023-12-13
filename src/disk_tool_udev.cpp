@@ -86,6 +86,24 @@ int disk_tool_t::write_sb(std::string device)
     return !write_osd_superblock(device, params);
 }
 
+int disk_tool_t::update_sb(std::string device)
+{
+    json11::Json sb = read_osd_superblock(device, true, options.find("force") != options.end());
+    if (sb.is_null())
+    {
+        return 1;
+    }
+    auto sb_obj = sb["params"].object_items();
+    for (auto & kv: options)
+    {
+        if (kv.first != "force")
+        {
+            sb_obj[kv.first] = kv.second;
+        }
+    }
+    return !write_osd_superblock(device, sb_obj);
+}
+
 uint32_t disk_tool_t::write_osd_superblock(std::string device, json11::Json params)
 {
     std::string json_data = params.dump();
