@@ -257,7 +257,8 @@ func (ns *NodeServer) mapVduse(volName string, ctxVars map[string]string, readon
         if (err == nil)
         {
             // Find block device name
-            matches, err := filepath.Glob("/sys/bus/vdpa/devices/"+vdpaId+"/virtio*/block/*")
+            var matches []string
+            matches, err = filepath.Glob("/sys/bus/vdpa/devices/"+vdpaId+"/virtio*/block/*")
             if (err == nil && len(matches) == 0)
             {
                 err = errors.New("/sys/bus/vdpa/devices/"+vdpaId+"/virtio*/block/* is not found")
