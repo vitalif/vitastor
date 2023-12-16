@@ -123,7 +123,7 @@ class osd_t
     double recovery_tune_max_util = 1.0;
     double recovery_tune_max_client_util = 0.5;
     int recovery_tune_interval = 1;
-    double recovery_tune_ewma_rate = 0.5;
+    double recovery_tune_ewma_rate = 0.2;
     int recovery_tune_sleep_min_us = 10;
     int recovery_pg_switch = DEFAULT_RECOVERY_PG_SWITCH;
     int recovery_sync_batch = DEFAULT_RECOVERY_BATCH;
@@ -208,10 +208,8 @@ class osd_t
     // recovery auto-tuning
     int rtune_timer_id = -1;
     uint64_t rtune_avg_lat = 0;
-    double rtune_avg_count = 0;
     double rtune_client_util = 0, rtune_target_util = 1;
-    osd_op_stats_t rtune_prev_stats;
-    recovery_stat_t rtune_prev_recovery[2];
+    osd_op_stats_t rtune_prev_stats, rtune_prev_recovery_stats;
     uint64_t recovery_target_queue_depth = 1;
     uint64_t recovery_target_sleep_us = 0;
 
@@ -304,7 +302,7 @@ class osd_t
     bool remember_unstable_write(osd_op_t *cur_op, pg_t & pg, pg_osd_set_t & loc_set, int base_state);
     void handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op);
     void handle_primary_bs_subop(osd_op_t *subop);
-    void add_bs_subop_stats(osd_op_t *subop);
+    void add_bs_subop_stats(osd_op_t *subop, bool recovery_related = false);
     void pg_cancel_write_queue(pg_t & pg, osd_op_t *first_op, object_id oid, int retval);
 
     void submit_primary_subops(int submit_type, uint64_t op_version, const uint64_t* osd_set, osd_op_t *cur_op);

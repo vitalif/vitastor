@@ -131,6 +131,23 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
     }
 }
 
+void osd_messenger_t::inc_op_stats(osd_op_stats_t & stats, uint64_t opcode, timespec & tv_begin, timespec & tv_end, uint64_t len)
+{
+    uint64_t usecs = (
+        (tv_end.tv_sec - tv_begin.tv_sec)*1000000 +
+        (tv_end.tv_nsec - tv_begin.tv_nsec)/1000
+    );
+    stats.op_stat_count[opcode]++;
+    if (!stats.op_stat_count[opcode])
+    {
+        stats.op_stat_count[opcode] = 1;
+        stats.op_stat_sum[opcode] = 0;
+        stats.op_stat_bytes[opcode] = 0;
+    }
+    stats.op_stat_sum[opcode] += usecs;
+    stats.op_stat_bytes[opcode] += len;
+}
+
 void osd_messenger_t::measure_exec(osd_op_t *cur_op)
 {
     // Measure execution latency
@@ -142,29 +159,24 @@ void osd_messenger_t::measure_exec(osd_op_t *cur_op)
     {
         clock_gettime(CLOCK_REALTIME, &cur_op->tv_end);
     }
-    stats.op_stat_count[cur_op->req.hdr.opcode]++;
-    if (!stats.op_stat_count[cur_op->req.hdr.opcode])
-    {
-        stats.op_stat_count[cur_op->req.hdr.opcode]++;
-        stats.op_stat_sum[cur_op->req.hdr.opcode] = 0;
-        stats.op_stat_bytes[cur_op->req.hdr.opcode] = 0;
-    }
-    stats.op_stat_sum[cur_op->req.hdr.opcode] += (
-        (cur_op->tv_end.tv_sec - cur_op->tv_begin.tv_sec)*1000000 +
-        (cur_op->tv_end.tv_nsec - cur_op->tv_begin.tv_nsec)/1000
-    );
+    uint64_t len = 0;
     if (cur_op->req.hdr.opcode == OSD_OP_READ ||
         cur_op->req.hdr.opcode == OSD_OP_WRITE ||
         cur_op->req.hdr.opcode == OSD_OP_SCRUB)
     {
         // req.rw.len is internally set to the full object size for scrubs
-        stats.op_stat_bytes[cur_op->req.hdr.opcode] += cur_op->req.rw.len;
+        len = cur_op->req.rw.len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
     {
-        stats.op_stat_bytes[cur_op->req.hdr.opcode] += cur_op->req.sec_rw.len;
+        len = cur_op->req.sec_rw.len;
+    }
+    inc_op_stats(stats, cur_op->req.hdr.opcode, cur_op->tv_begin, cur_op->tv_end, len);
+    if (cur_op->is_recovery_related())
+    {
+        inc_op_stats(recovery_stats, cur_op->req.hdr.opcode, cur_op->tv_begin, cur_op->tv_end, len);
     }
 }
 

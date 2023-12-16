@@ -149,7 +149,7 @@ public:
     std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
     std::map<uint64_t, int> osd_peer_fds;
     // op statistics
-    osd_op_stats_t stats;
+    osd_op_stats_t stats, recovery_stats;
 
     void init();
     void parse_config(const json11::Json & config);
@@ -175,6 +175,7 @@ public:
     bool connect_rdma(int peer_fd, std::string rdma_address, uint64_t client_max_msg);
 #endif
 
+    void inc_op_stats(osd_op_stats_t & stats, uint64_t opcode, timespec & tv_begin, timespec & tv_end, uint64_t len);
     void measure_exec(osd_op_t *cur_op);
 
 protected:

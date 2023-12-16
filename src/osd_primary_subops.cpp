@@ -221,6 +221,7 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                     .offset = wr ? si->write_start : si->read_start,
                     .len = subop_len,
                     .attr_len = wr ? clean_entry_bitmap_size : 0,
+                    .flags = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
                 };
 #ifdef OSD_DEBUG
                 printf(
@@ -300,7 +301,8 @@ void osd_t::handle_primary_bs_subop(osd_op_t *subop)
             " retval = "+std::to_string(bs_op->retval)+")"
         );
     }
-    add_bs_subop_stats(subop);
+    bool recovery_related = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB;
+    add_bs_subop_stats(subop, recovery_related);
     subop->req.hdr.opcode = bs_op_to_osd_op[bs_op->opcode];
     subop->reply.hdr.retval = bs_op->retval;
     if (bs_op->opcode == BS_OP_READ || bs_op->opcode == BS_OP_WRITE || bs_op->opcode == BS_OP_WRITE_STABLE)
@@ -312,30 +314,33 @@ void osd_t::handle_primary_bs_subop(osd_op_t *subop)
     }
     delete bs_op;
     subop->bs_op = NULL;
-    subop->peer_fd = -1;
-    handle_primary_subop(subop, cur_op);
+    subop->peer_fd = SELF_FD;
+    if (recovery_related && recovery_target_sleep_us)
+    {
+        tfd->set_timer_us(recovery_target_sleep_us, false, [=](int timer_id)
+        {
+            handle_primary_subop(subop, cur_op);
+        });
+    }
+    else
+    {
+        handle_primary_subop(subop, cur_op);
+    }
 }
 
-void osd_t::add_bs_subop_stats(osd_op_t *subop)
+void osd_t::add_bs_subop_stats(osd_op_t *subop, bool recovery_related)
 {
     // Include local blockstore ops in statistics
     uint64_t opcode = bs_op_to_osd_op[subop->bs_op->opcode];
     timespec tv_end;
     clock_gettime(CLOCK_REALTIME, &tv_end);
-    msgr.stats.op_stat_count[opcode]++;
-    if (!msgr.stats.op_stat_count[opcode])
+    uint64_t len = (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE)
+        ? subop->bs_op->len : 0;
+    msgr.inc_op_stats(msgr.stats, opcode, subop->tv_begin, tv_end, len);
+    if (recovery_related)
     {
-        msgr.stats.op_stat_count[opcode] = 1;
-        msgr.stats.op_stat_sum[opcode] = 0;
-        msgr.stats.op_stat_bytes[opcode] = 0;
-    }
-    msgr.stats.op_stat_sum[opcode] += (
-        (tv_end.tv_sec - subop->tv_begin.tv_sec)*1000000 +
-        (tv_end.tv_nsec - subop->tv_begin.tv_nsec)/1000
-    );
-    if (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE)
-    {
-        msgr.stats.op_stat_bytes[opcode] += subop->bs_op->len;
+        // It is OSD_OP_RECOVERY_RELATED
+        msgr.inc_op_stats(msgr.recovery_stats, opcode, subop->tv_begin, tv_end, len);
     }
 }
 
@@ -558,6 +563,7 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
                 },
                 .oid = chunk.oid,
                 .version = chunk.version,
+                .flags = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
             } };
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
@@ -615,6 +621,7 @@ int osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
                     .id = msgr.next_subop_id++,
                     .opcode = OSD_OP_SEC_SYNC,
                 },
+                .flags = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
             } };
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
@@ -674,6 +681,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
                     .opcode = OSD_OP_SEC_STABILIZE,
                 },
                 .len = (uint64_t)(stab_osd.len * sizeof(obj_ver_id)),
+                .flags = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
             } };
             subops[i].iov.push_back(op_data->unstable_writes + stab_osd.start, stab_osd.len * sizeof(obj_ver_id));
             subops[i].callback = [cur_op, this](osd_op_t *subop)

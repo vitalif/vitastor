@@ -24,3 +24,17 @@ osd_op_t::~osd_op_t()
         free(buf);
     }
 }
+
+bool osd_op_t::is_recovery_related()
+{
+    return (req.hdr.opcode == OSD_OP_SEC_READ ||
+        req.hdr.opcode == OSD_OP_SEC_WRITE ||
+        req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE) &&
+        (req.sec_rw.flags & OSD_OP_RECOVERY_RELATED) ||
+        req.hdr.opcode == OSD_OP_SEC_DELETE &&
+        (req.sec_del.flags & OSD_OP_RECOVERY_RELATED) ||
+        req.hdr.opcode == OSD_OP_SEC_STABILIZE &&
+        (req.sec_stab.flags & OSD_OP_RECOVERY_RELATED) ||
+        req.hdr.opcode == OSD_OP_SEC_SYNC &&
+        (req.sec_sync.flags & OSD_OP_RECOVERY_RELATED);
+}

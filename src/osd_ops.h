@@ -34,6 +34,7 @@
 #define OSD_OP_MAX                  18
 #define OSD_RW_MAX                  64*1024*1024
 #define OSD_PROTOCOL_VERSION        1
+#define OSD_OP_RECOVERY_RELATED     (uint32_t)1
 
 // Memory alignment for direct I/O (usually 512 bytes)
 #ifndef DIRECT_IO_ALIGNMENT
@@ -88,7 +89,8 @@ struct __attribute__((__packed__)) osd_op_sec_rw_t
     uint32_t len;
     // bitmap/attribute length - bitmap comes after header, but before data
     uint32_t attr_len;
-    uint32_t pad0;
+    // the only possible flag is OSD_OP_RECOVERY_RELATED
+    uint32_t flags;
 };
 
 struct __attribute__((__packed__)) osd_reply_sec_rw_t
@@ -109,6 +111,9 @@ struct __attribute__((__packed__)) osd_op_sec_del_t
     object_id oid;
     // delete version (automatic or specific)
     uint64_t version;
+    // the only possible flag is OSD_OP_RECOVERY_RELATED
+    uint32_t flags;
+    uint32_t pad0;
 };
 
 struct __attribute__((__packed__)) osd_reply_sec_del_t
@@ -121,6 +126,9 @@ struct __attribute__((__packed__)) osd_reply_sec_del_t
 struct __attribute__((__packed__)) osd_op_sec_sync_t
 {
     osd_op_header_t header;
+    // the only possible flag is OSD_OP_RECOVERY_RELATED
+    uint32_t flags;
+    uint32_t pad0;
 };
 
 struct __attribute__((__packed__)) osd_reply_sec_sync_t
@@ -134,6 +142,9 @@ struct __attribute__((__packed__)) osd_op_sec_stab_t
     osd_op_header_t header;
     // obj_ver_id array length in bytes
     uint64_t len;
+    // the only possible flag is OSD_OP_RECOVERY_RELATED
+    uint32_t flags;
+    uint32_t pad0;
 };
 typedef osd_op_sec_stab_t osd_op_sec_rollback_t;
 

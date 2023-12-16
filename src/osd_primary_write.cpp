@@ -296,7 +296,6 @@ resume_7:
             if (!recovery_stat[recovery_type].count) // wrapped
             {
                 memset(&recovery_print_prev[recovery_type], 0, sizeof(recovery_print_prev[recovery_type]));
-                memset(&rtune_prev_recovery[recovery_type], 0, sizeof(rtune_prev_recovery[recovery_type]));
                 memset(&recovery_stat[recovery_type], 0, sizeof(recovery_stat[recovery_type]));
                 recovery_stat[recovery_type].count++;
             }

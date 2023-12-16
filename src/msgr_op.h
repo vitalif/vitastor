@@ -173,4 +173,6 @@ struct osd_op_t
     osd_op_buf_list_t iov;
 
     ~osd_op_t();
+
+    bool is_recovery_related();
 };

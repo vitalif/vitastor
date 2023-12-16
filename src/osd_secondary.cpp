@@ -42,7 +42,21 @@ void osd_t::secondary_op_callback(osd_op_t *op)
     int retval = op->bs_op->retval;
     delete op->bs_op;
     op->bs_op = NULL;
-    finish_op(op, retval);
+    if (op->is_recovery_related() && recovery_target_sleep_us)
+    {
+        if (!op->tv_end.tv_sec)
+        {
+            clock_gettime(CLOCK_REALTIME, &op->tv_end);
+        }
+        tfd->set_timer_us(recovery_target_sleep_us, false, [this, op, retval](int timer_id)
+        {
+            finish_op(op, retval);
+        });
+    }
+    else
+    {
+        finish_op(op, retval);
+    }
 }
 
 void osd_t::exec_secondary(osd_op_t *cur_op)

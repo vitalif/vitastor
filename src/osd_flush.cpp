@@ -325,17 +325,7 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
         {
             printf("Recovery operation done for %lx:%lx\n", op->oid.inode, op->oid.stripe);
         }
-        if (recovery_target_sleep_us)
-        {
-            this->tfd->set_timer_us(recovery_target_sleep_us, false, [this, op](int timer_id)
-            {
-                finish_recovery_op(op);
-            });
-        }
-        else
-        {
-            finish_recovery_op(op);
-        }
+        finish_recovery_op(op);
     };
     exec_op(op->osd_op);
 }
@@ -383,29 +373,46 @@ void osd_t::finish_recovery_op(osd_recovery_op_t *op)
 
 void osd_t::tune_recovery()
 {
-    static int total_client_ops[] = { OSD_OP_READ, OSD_OP_WRITE, OSD_OP_SYNC, OSD_OP_DELETE };
-    uint64_t total_client_usec = 0;
-    for (int i = 0; i < sizeof(total_client_ops)/sizeof(total_client_ops[0]); i++)
+    static int accounted_ops[] = {
+        OSD_OP_SEC_READ, OSD_OP_SEC_WRITE, OSD_OP_SEC_WRITE_STABLE,
+        OSD_OP_SEC_STABILIZE, OSD_OP_SEC_SYNC, OSD_OP_SEC_DELETE
+    };
+    uint64_t total_client_usec = 0, total_recovery_usec = 0, recovery_count = 0;
+    for (int i = 0; i < sizeof(accounted_ops)/sizeof(accounted_ops[0]); i++)
     {
-        total_client_usec += (msgr.stats.op_stat_sum[total_client_ops[i]] - rtune_prev_stats.op_stat_sum[total_client_ops[i]]);
-        rtune_prev_stats.op_stat_sum[total_client_ops[i]] = msgr.stats.op_stat_sum[total_client_ops[i]];
+        total_client_usec += (msgr.stats.op_stat_sum[accounted_ops[i]]
+            - rtune_prev_stats.op_stat_sum[accounted_ops[i]]);
+        total_recovery_usec += (msgr.recovery_stats.op_stat_sum[accounted_ops[i]]
+            - rtune_prev_recovery_stats.op_stat_sum[accounted_ops[i]]);
+        recovery_count += (msgr.recovery_stats.op_stat_count[accounted_ops[i]]
+            - rtune_prev_recovery_stats.op_stat_count[accounted_ops[i]]);
+        rtune_prev_stats.op_stat_sum[accounted_ops[i]] = msgr.stats.op_stat_sum[accounted_ops[i]];
+        rtune_prev_recovery_stats.op_stat_sum[accounted_ops[i]] = msgr.recovery_stats.op_stat_sum[accounted_ops[i]];
+        rtune_prev_recovery_stats.op_stat_count[accounted_ops[i]] = msgr.recovery_stats.op_stat_count[accounted_ops[i]];
     }
-    uint64_t total_recovery_usec = 0, recovery_count = 0;
-    total_recovery_usec += recovery_stat[0].usec-rtune_prev_recovery[0].usec;
-    total_recovery_usec += recovery_stat[1].usec-rtune_prev_recovery[1].usec;
-    recovery_count += recovery_stat[0].count-rtune_prev_recovery[0].count;
-    recovery_count += recovery_stat[1].count-rtune_prev_recovery[1].count;
-    memcpy(rtune_prev_recovery, recovery_stat, sizeof(recovery_stat));
+    total_client_usec -= total_recovery_usec;
     if (recovery_count == 0)
     {
         return;
     }
-    rtune_avg_lat = total_recovery_usec/recovery_count*recovery_tune_ewma_rate +
-        rtune_avg_lat*(1-recovery_tune_ewma_rate);
-    rtune_avg_count = recovery_count*recovery_tune_ewma_rate +
-        rtune_avg_count*(1-recovery_tune_ewma_rate);
-    // client_util = count/interval * usec/1000000.0/count = usec/1000000.0/interval :-)
-    double client_util = total_client_usec/1000000.0/recovery_tune_interval;
+    // example:
+    // total 3 GB/s
+    // recovery queue 1
+    // 120 OSDs
+    // EC 5+3
+    // 128kb block_size => 640kb object
+    // 3000*1024/640/120 = 40 MB/s per OSD = 64 recovered objects per OSD
+    //   = 64*8*2 subops = 1024 recovery subop iops
+    // 8 recovery subop queue
+    // => subop avg latency = 0.0078125 sec
+    // utilisation = 8
+    // target util 1
+    // intuitively target latency should be 8x of real
+    // target_lat = rtune_avg_lat * utilisation / target_util
+    //            = rtune_avg_lat * rtune_avg_lat * rtune_avg_iops / target_util
+    //            = 0.0625
+    // recovery utilisation will be 1
+    auto client_util = total_client_usec/1000000.0/recovery_tune_interval;
     rtune_client_util = rtune_client_util*(1-recovery_tune_ewma_rate) + client_util*recovery_tune_ewma_rate;
     rtune_target_util = (rtune_client_util < recovery_tune_min_client_util
         ? recovery_tune_max_util
@@ -414,19 +421,15 @@ void osd_t::tune_recovery()
                 (recovery_tune_max_client_util-rtune_client_util)/(recovery_tune_max_client_util-recovery_tune_min_client_util)
         )
     );
-    // for example: utilisation = 8, target = 1
-    // intuitively target latency should be 8x of real
-    // target_lat = rtune_avg_lat * utilisation / target_util
-    //            = rtune_avg_lat * rtune_avg_lat * rtune_avg_iops / target_util
-    //            = 0.0625
+    rtune_avg_lat = total_recovery_usec/recovery_count*recovery_tune_ewma_rate + rtune_avg_lat*(1-recovery_tune_ewma_rate);
     recovery_target_queue_depth = (int)rtune_target_util + (rtune_target_util < 1 || rtune_target_util-(int)rtune_target_util >= 0.1 ? 1 : 0);
-    uint64_t target_lat = rtune_avg_lat * rtune_avg_lat/1000000.0*rtune_avg_count/recovery_tune_interval/rtune_target_util;
+    uint64_t target_lat = rtune_avg_lat * rtune_avg_lat/1000000.0 * recovery_count/recovery_tune_interval / rtune_target_util;
     recovery_target_sleep_us = target_lat > rtune_avg_lat+recovery_tune_sleep_min_us ? target_lat-rtune_avg_lat : 0;
     if (log_level > 3)
     {
         printf(
-            "recovery tune: client util %.2f (ewma %.2f), target util %.2f -> queue %ld, lat %lu us, real %lu us, pause %lu us\n",
-            client_util, rtune_client_util, rtune_target_util, recovery_target_queue_depth, target_lat, rtune_avg_lat, recovery_target_sleep_us
+            "recovery tune: cli %lu us, recovery %lu us / %lu ops, target util %.2f -> queue %ld, lat %lu us, real %lu us, delay %lu us\n",
+            total_client_usec, total_recovery_usec, recovery_count, rtune_target_util, recovery_target_queue_depth, target_lat, rtune_avg_lat, recovery_target_sleep_us
         );
     }
 }
