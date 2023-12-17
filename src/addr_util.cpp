@@ -149,7 +149,8 @@ std::vector<std::string> getifaddr_list(std::vector<std::string> mask_cfg, bool 
         }
         int family = ifa->ifa_addr->sa_family;
         if ((family == AF_INET || family == AF_INET6 && include_v6) &&
-            (ifa->ifa_flags & (IFF_UP | IFF_RUNNING | IFF_LOOPBACK)) == (IFF_UP | IFF_RUNNING))
+            // Do not skip loopback addresses if the address filter is specified
+            (ifa->ifa_flags & (IFF_UP | IFF_RUNNING | (masks.size() ? 0 : IFF_LOOPBACK))) == (IFF_UP | IFF_RUNNING))
         {
             void *addr_ptr;
             if (family == AF_INET)
