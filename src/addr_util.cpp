@@ -8,6 +8,7 @@
 #include <stdio.h>
 
 #include <stdexcept>
+#include <set>
 
 #include "addr_util.h"
 
@@ -135,7 +136,7 @@ std::vector<std::string> getifaddr_list(std::vector<std::string> mask_cfg, bool 
             throw std::runtime_error((include_v6 ? "Invalid IPv4 address mask: " : "Invalid IP address mask: ") + mask);
         }
     }
-    std::vector<std::string> addresses;
+    std::set<std::string> addresses;
     ifaddrs *list, *ifa;
     if (getifaddrs(&list) == -1)
     {
@@ -183,11 +184,11 @@ std::vector<std::string> getifaddr_list(std::vector<std::string> mask_cfg, bool 
             {
                 throw std::runtime_error(std::string("inet_ntop: ") + strerror(errno));
             }
-            addresses.push_back(std::string(addr));
+            addresses.insert(std::string(addr));
         }
     }
     freeifaddrs(list);
-    return addresses;
+    return std::vector<std::string>(addresses.begin(), addresses.end());
 }
 
 int create_and_bind_socket(std::string bind_address, int bind_port, int listen_backlog, int *listening_port)
