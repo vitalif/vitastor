@@ -1147,10 +1147,13 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
         if (op->retval != -EINTR && op->retval != -EIO && op->retval != -ENOSPC)
         {
             stop_fd = part->op.peer_fd;
-            fprintf(
-                stderr, "%s operation failed on OSD %lu: retval=%ld (expected %d), dropping connection\n",
-                osd_op_names[part->op.req.hdr.opcode], part->osd_num, part->op.reply.hdr.retval, expected
-            );
+            if (op->retval != -EPIPE || log_level > 0)
+            {
+                fprintf(
+                    stderr, "%s operation failed on OSD %lu: retval=%ld (expected %d), dropping connection\n",
+                    osd_op_names[part->op.req.hdr.opcode], part->osd_num, part->op.reply.hdr.retval, expected
+                );
+            }
         }
         else
         {
