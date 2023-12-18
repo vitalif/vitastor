@@ -61,21 +61,21 @@ struct pool_config_t
 
 struct inode_config_t
 {
-    uint64_t num;
+    uint64_t num = 0;
     std::string name;
-    uint64_t size;
-    inode_t parent_id;
-    bool readonly;
+    uint64_t size = 0;
+    inode_t parent_id = 0;
+    bool readonly = false;
     // Arbitrary metadata
     json11::Json meta;
     // Change revision of the metadata in etcd
-    uint64_t mod_revision;
+    uint64_t mod_revision = 0;
 };
 
 struct inode_watch_t
 {
     std::string name;
-    inode_config_t cfg;
+    inode_config_t cfg = {};
 };
 
 struct http_co_t;
