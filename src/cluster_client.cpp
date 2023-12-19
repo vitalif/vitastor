@@ -359,6 +359,8 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
     {
         up_wait_retry_interval = 50;
     }
+    // log_level
+    log_level = config["log_level"].uint64_value();
     msgr.parse_config(config);
     st_cli.parse_config(config);
     st_cli.load_pgs();

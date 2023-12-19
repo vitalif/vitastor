@@ -91,7 +91,7 @@ class cluster_client_t
     uint64_t client_max_buffered_ops = 0;
     uint64_t client_max_writeback_iodepth = 0;
 
-    int log_level;
+    int log_level = 0;
     int up_wait_retry_interval = 500; // ms
 
     int retry_timeout_id = 0;
