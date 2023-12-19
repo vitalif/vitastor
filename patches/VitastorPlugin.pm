@@ -110,7 +110,6 @@ sub properties
         vitastor_etcd_address => {
             description => 'IP address(es) of etcd.',
             type => 'string',
-            format => 'pve-storage-portal-dns-list',
         },
         vitastor_etcd_prefix => {
             description => 'Prefix for Vitastor etcd metadata',
