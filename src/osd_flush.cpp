@@ -346,7 +346,6 @@ void osd_t::apply_recovery_tune_interval()
     }
     else
     {
-        recovery_target_queue_depth = recovery_queue_depth;
         recovery_target_sleep_us = recovery_sleep_us;
     }
 }
@@ -412,8 +411,7 @@ void osd_t::tune_recovery()
     //            = rtune_avg_lat * rtune_avg_lat * rtune_avg_iops / target_util
     //            = 0.0625
     // recovery utilisation will be 1
-    auto client_util = total_client_usec/1000000.0/recovery_tune_interval;
-    rtune_client_util = rtune_client_util*(1-recovery_tune_ewma_rate) + client_util*recovery_tune_ewma_rate;
+    rtune_client_util = total_client_usec/1000000.0/recovery_tune_interval;
     rtune_target_util = (rtune_client_util < recovery_tune_min_client_util
         ? recovery_tune_max_util
         : recovery_tune_min_util + (rtune_client_util >= recovery_tune_max_client_util
@@ -421,15 +419,31 @@ void osd_t::tune_recovery()
                 (recovery_tune_max_client_util-rtune_client_util)/(recovery_tune_max_client_util-recovery_tune_min_client_util)
         )
     );
-    rtune_avg_lat = total_recovery_usec/recovery_count*recovery_tune_ewma_rate + rtune_avg_lat*(1-recovery_tune_ewma_rate);
-    recovery_target_queue_depth = (int)rtune_target_util + (rtune_target_util < 1 || rtune_target_util-(int)rtune_target_util >= 0.1 ? 1 : 0);
+    rtune_avg_lat = total_recovery_usec/recovery_count;
     uint64_t target_lat = rtune_avg_lat * rtune_avg_lat/1000000.0 * recovery_count/recovery_tune_interval / rtune_target_util;
-    recovery_target_sleep_us = target_lat > rtune_avg_lat+recovery_tune_sleep_min_us ? target_lat-rtune_avg_lat : 0;
-    if (log_level > 3)
+    auto sleep_us = target_lat > rtune_avg_lat+recovery_tune_sleep_min_us ? target_lat-rtune_avg_lat : 0;
+    if (recovery_target_sleep_items.size() != recovery_tune_agg_interval)
+    {
+        recovery_target_sleep_items.resize(recovery_tune_agg_interval);
+        for (int i = 0; i < recovery_tune_agg_interval; i++)
+            recovery_target_sleep_items[i] = 0;
+        recovery_target_sleep_total = 0;
+        recovery_target_sleep_cur = 0;
+        recovery_target_sleep_count = 0;
+    }
+    recovery_target_sleep_total -= recovery_target_sleep_items[recovery_target_sleep_cur];
+    recovery_target_sleep_items[recovery_target_sleep_cur] = sleep_us;
+    recovery_target_sleep_cur = (recovery_target_sleep_cur+1) % recovery_tune_agg_interval;
+    recovery_target_sleep_total += sleep_us;
+    if (recovery_target_sleep_count < recovery_tune_agg_interval)
+        recovery_target_sleep_count++;
+    recovery_target_sleep_us = recovery_target_sleep_total / recovery_target_sleep_count;
+    if (log_level > 4)
     {
         printf(
-            "recovery tune: cli %lu us, recovery %lu us / %lu ops, target util %.2f -> queue %ld, lat %lu us, real %lu us, delay %lu us\n",
-            total_client_usec, total_recovery_usec, recovery_count, rtune_target_util, recovery_target_queue_depth, target_lat, rtune_avg_lat, recovery_target_sleep_us
+            "[OSD %lu] auto-tune: client util: %.2f, recovery util: %.2f, lat: %lu us -> target util %.2f, delay %lu us\n",
+            osd_num, rtune_client_util, total_recovery_usec/1000000.0/recovery_tune_interval,
+            rtune_avg_lat, rtune_target_util, recovery_target_sleep_us
         );
     }
 }
@@ -437,7 +451,7 @@ void osd_t::tune_recovery()
 // Just trigger write requests for degraded objects. They'll be recovered during writing
 bool osd_t::continue_recovery()
 {
-    while (recovery_ops.size() < recovery_target_queue_depth)
+    while (recovery_ops.size() < recovery_queue_depth)
     {
         osd_recovery_op_t op;
         if (pick_next_recovery(op))

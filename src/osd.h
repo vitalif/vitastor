@@ -123,7 +123,7 @@ class osd_t
     double recovery_tune_max_util = 1.0;
     double recovery_tune_max_client_util = 0.5;
     int recovery_tune_interval = 1;
-    double recovery_tune_ewma_rate = 0.2;
+    int recovery_tune_agg_interval = 10;
     int recovery_tune_sleep_min_us = 10;
     int recovery_pg_switch = DEFAULT_RECOVERY_PG_SWITCH;
     int recovery_sync_batch = DEFAULT_RECOVERY_BATCH;
@@ -210,8 +210,10 @@ class osd_t
     uint64_t rtune_avg_lat = 0;
     double rtune_client_util = 0, rtune_target_util = 1;
     osd_op_stats_t rtune_prev_stats, rtune_prev_recovery_stats;
-    uint64_t recovery_target_queue_depth = 1;
+    std::vector<uint64_t> recovery_target_sleep_items;
     uint64_t recovery_target_sleep_us = 0;
+    uint64_t recovery_target_sleep_total = 0;
+    int recovery_target_sleep_cur = 0, recovery_target_sleep_count = 0;
 
     // cluster connection
     void parse_config(bool init);

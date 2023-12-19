@@ -220,8 +220,8 @@ void osd_t::parse_config(bool init)
     auto old_recovery_tune_interval = recovery_tune_interval;
     recovery_tune_interval = config["recovery_tune_interval"].is_null()
         ? 1 : config["recovery_tune_interval"].uint64_value();
-    recovery_tune_ewma_rate = config["recovery_tune_ewma_rate"].is_null()
-        ? 0.5 : config["recovery_tune_ewma_rate"].number_value();
+    recovery_tune_agg_interval = config["recovery_tune_agg_interval"].is_null()
+        ? 10 : config["recovery_tune_agg_interval"].uint64_value();
     recovery_tune_sleep_min_us = config["recovery_tune_sleep_min_us"].is_null()
         ? 10 : config["recovery_tune_sleep_min_us"].uint64_value();
     recovery_pg_switch = config["recovery_pg_switch"].uint64_value();
@@ -494,11 +494,12 @@ void osd_t::print_stats()
         {
             uint64_t bw = (recovery_stat[i].bytes - recovery_print_prev[i].bytes) / print_stats_interval;
             printf(
-                "[OSD %lu] %s recovery: %.1f op/s, B/W: %.2f %s, avg lat %ld us\n", osd_num, recovery_stat_names[i],
+                "[OSD %lu] %s recovery: %.1f op/s, B/W: %.2f %s, avg latency %ld us, delay %ld us\n", osd_num, recovery_stat_names[i],
                 (recovery_stat[i].count - recovery_print_prev[i].count) * 1.0 / print_stats_interval,
                 (bw > 1024*1024*1024 ? bw/1024.0/1024/1024 : (bw > 1024*1024 ? bw/1024.0/1024 : bw/1024.0)),
                 (bw > 1024*1024*1024 ? "GB/s" : (bw > 1024*1024 ? "MB/s" : "KB/s")),
-                (recovery_stat[i].usec - recovery_print_prev[i].usec) / (recovery_stat[i].count - recovery_print_prev[i].count)
+                (recovery_stat[i].usec - recovery_print_prev[i].usec) / (recovery_stat[i].count - recovery_print_prev[i].count),
+                recovery_target_sleep_us
             );
         }
     }

@@ -117,7 +117,7 @@ const etcd_tree = {
             recovery_tune_max_util: 1.0,
             recovery_tune_max_client_util: 0.5,
             recovery_tune_interval: 1,
-            recovery_tune_ewma_rate: 0.5,
+            recovery_tune_agg_interval: 10, // 10 times recovery_tune_interval
             recovery_tune_sleep_min_us: 10, // 10 microseconds
             recovery_pg_switch: 128,
             recovery_sync_batch: 16,
