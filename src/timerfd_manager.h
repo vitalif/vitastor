@@ -22,6 +22,7 @@ class timerfd_manager_t
     int timerfd;
     int nearest = -1;
     int id = 1;
+    int onstack = 0;
     std::vector<timerfd_timer_t> timers;
 
     void inc_timer(timerfd_timer_t & t);

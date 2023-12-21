@@ -90,6 +90,12 @@ void timerfd_manager_t::clear_timer(int timer_id)
 
 void timerfd_manager_t::set_nearest()
 {
+    if (onstack > 0)
+    {
+        // Prevent re-entry
+        return;
+    }
+    onstack++;
 again:
     if (!timers.size())
     {
@@ -139,6 +145,7 @@ again:
         }
         wait_state = wait_state | 1;
     }
+    onstack--;
 }
 
 void timerfd_manager_t::handle_readable()
