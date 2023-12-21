@@ -392,7 +392,7 @@ class Mon
         this.parse_etcd_addresses(config.etcd_address||config.etcd_url);
         this.verbose = config.verbose || 0;
         this.initConfig = config;
-        this.config = {};
+        this.config = { ...config };
         this.etcd_prefix = config.etcd_prefix || '/vitastor';
         this.etcd_prefix = this.etcd_prefix.replace(/\/\/+/g, '/').replace(/^\/?(.*[^\/])\/?$/, '/$1');
         this.etcd_start_timeout = (config.etcd_start_timeout || 5) * 1000;
