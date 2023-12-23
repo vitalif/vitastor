@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <set>
+
 #include "json11/json11.hpp"
 #include "osd_id.h"
 #include "timerfd_manager.h"
@@ -11,6 +13,7 @@
 #define ETCD_PG_STATE_WATCH_ID 2
 #define ETCD_PG_HISTORY_WATCH_ID 3
 #define ETCD_OSD_STATE_WATCH_ID 4
+#define ETCD_TOTAL_WATCHES 4
 
 #define DEFAULT_BLOCK_SIZE 128*1024
 #define MIN_DATA_BLOCK_SIZE 4*1024
@@ -30,7 +33,7 @@ struct etcd_kv_t
 
 struct pg_config_t
 {
-    bool exists;
+    bool config_exists, history_exists, state_exists;
     osd_num_t primary;
     std::vector<osd_num_t> target_set;
     std::vector<std::vector<osd_num_t>> target_history;
@@ -113,6 +116,7 @@ public:
     uint64_t etcd_watch_revision = 0;
     std::map<pool_id_t, pool_config_t> pool_config;
     std::map<osd_num_t, json11::Json> peer_states;
+    std::set<osd_num_t> seen_peers;
     std::map<inode_t, inode_config_t> inode_config;
     std::map<std::string, inode_t> inode_by_name;
 
@@ -138,6 +142,8 @@ public:
     void start_ws_keepalive();
     void load_global_config();
     void load_pgs();
+    void reset_pg_exists();
+    void clean_nonexistent_pgs();
     void parse_state(const etcd_kv_t & kv);
     void parse_config(const json11::Json & config);
     void insert_inode_config(const inode_config_t & cfg);

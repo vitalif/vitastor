@@ -649,7 +649,7 @@ void osd_t::apply_pg_config()
         {
             pg_num_t pg_num = kv.first;
             auto & pg_cfg = kv.second;
-            bool take = pg_cfg.exists && pg_cfg.primary == this->osd_num &&
+            bool take = pg_cfg.config_exists && pg_cfg.primary == this->osd_num &&
                 !pg_cfg.pause && (!pg_cfg.cur_primary || pg_cfg.cur_primary == this->osd_num);
             auto pg_it = this->pgs.find({ .pool_id = pool_id, .pg_num = pg_num });
             bool currently_taken = pg_it != this->pgs.end() && pg_it->second.state != PG_OFFLINE;
