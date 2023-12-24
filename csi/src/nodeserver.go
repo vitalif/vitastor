@@ -14,6 +14,7 @@ import (
     "strconv"
     "strings"
     "syscall"
+    "time"
 
     "google.golang.org/grpc/codes"
     "google.golang.org/grpc/status"
@@ -32,6 +33,7 @@ type NodeServer struct
     useVduse bool
     stateDir string
     mounter mount.Interface
+    restartInterval time.Duration
 }
 
 type DeviceState struct
@@ -65,6 +67,16 @@ func NewNodeServer(driver *Driver) *NodeServer
     if (ns.useVduse)
     {
         ns.restoreVduseDaemons()
+        dur, err := time.ParseDuration(os.Getenv("RESTART_INTERVAL"))
+        if (err != nil)
+        {
+            dur = 10 * time.Second
+        }
+        ns.restartInterval = dur
+        if (ns.restartInterval != time.Duration(0))
+        {
+            go ns.restarter()
+        }
     }
     return ns
 }
@@ -361,6 +373,21 @@ func (ns *NodeServer) unmapVduseById(vdpaId string)
             klog.Errorf("Failed to kill started qemu-storage-daemon: %v", err)
         }
         os.Remove(pidFile)
+    }
+}
+
+func (ns *NodeServer) restarter()
+{
+    // Restart dead VDUSE daemons at regular intervals
+    // Otherwise volume I/O may hang in case of a qemu-storage-daemon crash
+    // Moreover, it may lead to a kernel panic of the kernel is configured to
+    // panic on hung tasks
+    ticker := time.NewTicker(ns.restartInterval)
+    defer ticker.Stop()
+    for
+    {
+        <-ticker.C
+        ns.restoreVduseDaemons()
     }
 }
 
