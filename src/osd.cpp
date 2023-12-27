@@ -597,8 +597,8 @@ void osd_t::print_slow()
                     op->req.hdr.opcode == OSD_OP_SEC_STABILIZE || op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK ||
                     op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
                 {
-                    bufprintf(" state=%d", PRIV(op->bs_op)->op_state);
-                    int wait_for = PRIV(op->bs_op)->wait_for;
+                    bufprintf(" state=%d", op->bs_op ? PRIV(op->bs_op)->op_state : -1);
+                    int wait_for = op->bs_op ? PRIV(op->bs_op)->wait_for : 0;
                     if (wait_for)
                     {
                         bufprintf(" wait=%d (detail=%lu)", wait_for, PRIV(op->bs_op)->wait_detail);
