@@ -18,6 +18,7 @@ try_change()
     for i in {1..6}; do
         echo --- Change PG count to $n --- >>testdata/osd$i.log
     done
+    echo --- Change PG count to $n --- >>testdata/mon.log
 
     $ETCDCTL put /vitastor/config/pools '{"1":{'$POOLCFG',"pg_size":'$PG_SIZE',"pg_minsize":'$PG_MINSIZE',"pg_count":'$n'}}'
 

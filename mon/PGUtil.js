@@ -3,6 +3,7 @@
 
 module.exports = {
     scale_pg_count,
+    scale_pg_history,
 };
 
 function add_pg_history(new_pg_history, new_pg, prev_pgs, prev_pg_history, old_pg)
@@ -43,16 +44,18 @@ function finish_pg_history(merged_history)
     merged_history.all_peers = Object.values(merged_history.all_peers);
 }
 
-function scale_pg_count(prev_pgs, real_prev_pgs, prev_pg_history, new_pg_history, new_pg_count)
+function scale_pg_history(prev_pg_history, prev_pgs, new_pgs)
 {
-    const old_pg_count = real_prev_pgs.length;
+    const new_pg_history = [];
+    const old_pg_count = prev_pgs.length;
+    const new_pg_count = new_pgs.length;
     // Add all possibly intersecting PGs to the history of new PGs
     if (!(new_pg_count % old_pg_count))
     {
         // New PG count is a multiple of old PG count
         for (let i = 0; i < new_pg_count; i++)
         {
-            add_pg_history(new_pg_history, i, real_prev_pgs, prev_pg_history, i % old_pg_count);
+            add_pg_history(new_pg_history, i, prev_pgs, prev_pg_history, i % old_pg_count);
             finish_pg_history(new_pg_history[i]);
         }
     }
@@ -64,7 +67,7 @@ function scale_pg_count(prev_pgs, real_prev_pgs, prev_pg_history, new_pg_history
         {
             for (let j = 0; j < mul; j++)
             {
-                add_pg_history(new_pg_history, i, real_prev_pgs, prev_pg_history, i+j*new_pg_count);
+                add_pg_history(new_pg_history, i, prev_pgs, prev_pg_history, i+j*new_pg_count);
             }
             finish_pg_history(new_pg_history[i]);
         }
@@ -76,7 +79,7 @@ function scale_pg_count(prev_pgs, real_prev_pgs, prev_pg_history, new_pg_history
         let merged_history = {};
         for (let i = 0; i < old_pg_count; i++)
         {
-            add_pg_history(merged_history, 1, real_prev_pgs, prev_pg_history, i);
+            add_pg_history(merged_history, 1, prev_pgs, prev_pg_history, i);
         }
         finish_pg_history(merged_history[1]);
         for (let i = 0; i < new_pg_count; i++)
@@ -89,6 +92,12 @@ function scale_pg_count(prev_pgs, real_prev_pgs, prev_pg_history, new_pg_history
     {
         new_pg_history[i] = null;
     }
+    return new_pg_history;
+}
+
+function scale_pg_count(prev_pgs, new_pg_count)
+{
+    const old_pg_count = prev_pgs.length;
     // Just for the lp_solve optimizer - pick a "previous" PG for each "new" one
     if (prev_pgs.length < new_pg_count)
     {
