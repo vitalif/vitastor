@@ -277,6 +277,7 @@ class blockstore_impl_t
     int unsynced_big_write_count = 0, unstable_unsynced = 0;
     int unsynced_queued_ops = 0;
     allocator *data_alloc = NULL;
+    uint64_t used_blocks = 0;
     uint8_t *zero_object;
 
     void *metadata_buffer = NULL;
@@ -430,7 +431,7 @@ public:
 
     inline uint32_t get_block_size() { return dsk.data_block_size; }
     inline uint64_t get_block_count() { return dsk.block_count; }
-    inline uint64_t get_free_block_count() { return data_alloc->get_free_count(); }
+    inline uint64_t get_free_block_count() { return dsk.block_count - used_blocks; }
     inline uint32_t get_bitmap_granularity() { return dsk.disk_alignment; }
     inline uint64_t get_journal_size() { return dsk.journal_len; }
 };

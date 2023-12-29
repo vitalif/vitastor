@@ -376,6 +376,7 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
                 else
                 {
                     bs->inode_space_stats[entry->oid.inode] += bs->dsk.data_block_size;
+                    bs->used_blocks++;
                 }
                 entries_loaded++;
 #ifdef BLOCKSTORE_DEBUG
@@ -1181,6 +1182,7 @@ void blockstore_init_journal::erase_dirty_object(blockstore_dirty_db_t::iterator
             sp -= bs->dsk.data_block_size;
         else
             bs->inode_space_stats.erase(oid.inode);
+        bs->used_blocks--;
     }
     bs->erase_dirty(dirty_it, dirty_end, clean_loc);
     // Remove it from the flusher's queue, too
