@@ -209,14 +209,14 @@ void osd_t::parse_config(bool init)
     if (recovery_queue_depth < 1 || recovery_queue_depth > MAX_RECOVERY_QUEUE)
         recovery_queue_depth = DEFAULT_RECOVERY_QUEUE;
     recovery_sleep_us = config["recovery_sleep_us"].uint64_value();
-    recovery_tune_min_util = config["recovery_tune_min_util"].is_null()
-        ? 0.1 : config["recovery_tune_min_util"].number_value();
-    recovery_tune_max_util = config["recovery_tune_max_util"].is_null()
-        ? 1.0 : config["recovery_tune_max_util"].number_value();
-    recovery_tune_min_client_util = config["recovery_tune_min_client_util"].is_null()
-        ? 0 : config["recovery_tune_min_client_util"].number_value();
-    recovery_tune_max_client_util = config["recovery_tune_max_client_util"].is_null()
-        ? 0.5 : config["recovery_tune_max_client_util"].number_value();
+    recovery_tune_util_low = config["recovery_tune_util_low"].is_null()
+        ? 0.1 : config["recovery_tune_util_low"].number_value();
+    recovery_tune_util_high = config["recovery_tune_util_high"].is_null()
+        ? 1.0 : config["recovery_tune_util_high"].number_value();
+    recovery_tune_client_util_low = config["recovery_tune_client_util_low"].is_null()
+        ? 0 : config["recovery_tune_client_util_low"].number_value();
+    recovery_tune_client_util_high = config["recovery_tune_client_util_high"].is_null()
+        ? 0.5 : config["recovery_tune_client_util_high"].number_value();
     auto old_recovery_tune_interval = recovery_tune_interval;
     recovery_tune_interval = config["recovery_tune_interval"].is_null()
         ? 1 : config["recovery_tune_interval"].uint64_value();

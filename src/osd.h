@@ -118,10 +118,10 @@ class osd_t
     int autosync_writes = DEFAULT_AUTOSYNC_WRITES;
     uint64_t recovery_queue_depth = 1;
     uint64_t recovery_sleep_us = 0;
-    double recovery_tune_min_util = 0.1;
-    double recovery_tune_min_client_util = 0;
-    double recovery_tune_max_util = 1.0;
-    double recovery_tune_max_client_util = 0.5;
+    double recovery_tune_util_low = 0.1;
+    double recovery_tune_client_util_low = 0;
+    double recovery_tune_util_high = 1.0;
+    double recovery_tune_client_util_high = 0.5;
     int recovery_tune_interval = 1;
     int recovery_tune_agg_interval = 10;
     int recovery_tune_sleep_min_us = 10;

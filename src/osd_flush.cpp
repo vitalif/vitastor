@@ -412,11 +412,11 @@ void osd_t::tune_recovery()
     //            = 0.0625
     // recovery utilisation will be 1
     rtune_client_util = total_client_usec/1000000.0/recovery_tune_interval;
-    rtune_target_util = (rtune_client_util < recovery_tune_min_client_util
-        ? recovery_tune_max_util
-        : recovery_tune_min_util + (rtune_client_util >= recovery_tune_max_client_util
-            ? 0 : (recovery_tune_max_util-recovery_tune_min_util)*
-                (recovery_tune_max_client_util-rtune_client_util)/(recovery_tune_max_client_util-recovery_tune_min_client_util)
+    rtune_target_util = (rtune_client_util < recovery_tune_client_util_low
+        ? recovery_tune_util_high
+        : recovery_tune_util_low + (rtune_client_util >= recovery_tune_client_util_high
+            ? 0 : (recovery_tune_util_high-recovery_tune_util_low)*
+                (recovery_tune_client_util_high-rtune_client_util)/(recovery_tune_client_util_high-recovery_tune_client_util_low)
         )
     );
     rtune_avg_lat = total_recovery_usec/recovery_count;

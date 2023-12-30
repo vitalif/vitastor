@@ -113,10 +113,10 @@ const etcd_tree = {
             client_queue_depth: 128, // unused
             recovery_queue_depth: 1,
             recovery_sleep_us: 0,
-            recovery_tune_min_util: 0.1,
-            recovery_tune_min_client_util: 0,
-            recovery_tune_max_util: 1.0,
-            recovery_tune_max_client_util: 0.5,
+            recovery_tune_util_low: 0.1,
+            recovery_tune_client_util_low: 0,
+            recovery_tune_util_high: 1.0,
+            recovery_tune_client_util_high: 0.5,
             recovery_tune_interval: 1,
             recovery_tune_agg_interval: 10, // 10 times recovery_tune_interval
             recovery_tune_sleep_min_us: 10, // 10 microseconds
