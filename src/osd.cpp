@@ -211,12 +211,20 @@ void osd_t::parse_config(bool init)
     recovery_sleep_us = config["recovery_sleep_us"].uint64_value();
     recovery_tune_util_low = config["recovery_tune_util_low"].is_null()
         ? 0.1 : config["recovery_tune_util_low"].number_value();
+    if (recovery_tune_util_low < 0.01)
+        recovery_tune_util_low = 0.01;
     recovery_tune_util_high = config["recovery_tune_util_high"].is_null()
         ? 1.0 : config["recovery_tune_util_high"].number_value();
+    if (recovery_tune_util_high < 0.01)
+        recovery_tune_util_high = 0.01;
     recovery_tune_client_util_low = config["recovery_tune_client_util_low"].is_null()
         ? 0 : config["recovery_tune_client_util_low"].number_value();
+    if (recovery_tune_client_util_low < 0.01)
+        recovery_tune_client_util_low = 0.01;
     recovery_tune_client_util_high = config["recovery_tune_client_util_high"].is_null()
         ? 0.5 : config["recovery_tune_client_util_high"].number_value();
+    if (recovery_tune_client_util_high < 0.01)
+        recovery_tune_client_util_high = 0.01;
     auto old_recovery_tune_interval = recovery_tune_interval;
     recovery_tune_interval = config["recovery_tune_interval"].is_null()
         ? 1 : config["recovery_tune_interval"].uint64_value();
