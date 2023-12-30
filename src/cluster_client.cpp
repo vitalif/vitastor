@@ -705,6 +705,8 @@ resume_1:
         }
         goto resume_2;
     }
+    // Protect from try_send completing the operation immediately
+    op->inflight_count++;
     for (int i = 0; i < op->parts.size(); i++)
     {
         if (!(op->parts[i].flags & PART_SENT))
@@ -728,8 +730,10 @@ resume_1:
             }
         }
     }
+    op->inflight_count--;
     if (op->state == 1)
     {
+        // Some suboperations have to be resent
         return 0;
     }
 resume_2:
