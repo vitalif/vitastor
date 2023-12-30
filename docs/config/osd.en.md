@@ -19,6 +19,7 @@ them, even without restarting by updating configuration in etcd.
 - [autosync_interval](#autosync_interval)
 - [autosync_writes](#autosync_writes)
 - [recovery_queue_depth](#recovery_queue_depth)
+- [recovery_sleep_us](#recovery_sleep_us)
 - [recovery_pg_switch](#recovery_pg_switch)
 - [recovery_sync_batch](#recovery_sync_batch)
 - [readonly](#readonly)
@@ -51,6 +52,13 @@ them, even without restarting by updating configuration in etcd.
 - [scrub_list_limit](#scrub_list_limit)
 - [scrub_find_best](#scrub_find_best)
 - [scrub_ec_max_bruteforce](#scrub_ec_max_bruteforce)
+- [recovery_tune_interval](#recovery_tune_interval)
+- [recovery_tune_util_low](#recovery_tune_util_low)
+- [recovery_tune_util_high](#recovery_tune_util_high)
+- [recovery_tune_client_util_low](#recovery_tune_client_util_low)
+- [recovery_tune_client_util_high](#recovery_tune_client_util_high)
+- [recovery_tune_agg_interval](#recovery_tune_agg_interval)
+- [recovery_tune_sleep_min_us](#recovery_tune_sleep_min_us)
 
 ## etcd_report_interval
 
@@ -135,12 +143,24 @@ operations before issuing an fsync operation internally.
 ## recovery_queue_depth
 
 - Type: integer
-- Default: 4
+- Default: 1
 - Can be changed online: yes
 
-Maximum recovery operations per one primary OSD at any given moment of time.
-Currently it's the only parameter available to tune the speed or recovery
-and rebalancing, but it's planned to implement more.
+Maximum recovery and rebalance operations initiated by each OSD in parallel.
+Note that each OSD talks to a lot of other OSDs so actual number of parallel
+recovery operations per each OSD is greater than just recovery_queue_depth.
+Increasing this parameter can speedup recovery if [auto-tuning](#recovery_tune_interval)
+allows it or if it is disabled.
+
+## recovery_sleep_us
+
+- Type: microseconds
+- Default: 0
+- Can be changed online: yes
+
+Delay for all recovery- and rebalance- related operations. If non-zero,
+such operations are artificially slowed down to reduce the impact on
+client I/O.
 
 ## recovery_pg_switch
 
@@ -508,3 +528,81 @@ the variant with most available equal copies is correct. For example, if
 you have 3 replicas and 1 of them differs, this one is considered to be
 corrupted. But if there is no "best" version with more copies than all
 others have then the object is also marked as inconsistent.
+
+## recovery_tune_interval
+
+- Type: seconds
+- Default: 1
+- Can be changed online: yes
+
+Interval at which OSD re-considers client and recovery load and automatically
+adjusts [recovery_sleep_us](#recovery_sleep_us). Recovery auto-tuning is
+disabled if recovery_tune_interval is set to 0.
+
+Auto-tuning targets utilization. Utilization is a measure of load and is
+equal to the product of iops and average latency (so it may be greater
+than 1). You set "low" and "high" client utilization thresholds and two
+corresponding target recovery utilization levels. OSD calculates desired
+recovery utilization from client utilization using linear interpolation
+and auto-tunes recovery operation delay to make actual recovery utilization
+match desired.
+
+This allows to reduce recovery/rebalance impact on client operations. It is
+of course impossible to remove it completely, but it should become adequate.
+In some tests rebalance could earlier drop client write speed from 1.5 GB/s
+to 50-100 MB/s, with default auto-tuning settings it now only reduces
+to ~1 GB/s.
+
+## recovery_tune_util_low
+
+- Type: number
+- Default: 0.1
+- Can be changed online: yes
+
+Desired recovery/rebalance utilization when client load is high, i.e. when
+it is at or above recovery_tune_client_util_high.
+
+## recovery_tune_util_high
+
+- Type: number
+- Default: 1
+- Can be changed online: yes
+
+Desired recovery/rebalance utilization when client load is low, i.e. when
+it is at or below recovery_tune_client_util_low.
+
+## recovery_tune_client_util_low
+
+- Type: number
+- Default: 0
+- Can be changed online: yes
+
+Client utilization considered "low".
+
+## recovery_tune_client_util_high
+
+- Type: number
+- Default: 0.5
+- Can be changed online: yes
+
+Client utilization considered "high".
+
+## recovery_tune_agg_interval
+
+- Type: integer
+- Default: 10
+- Can be changed online: yes
+
+The number of last auto-tuning iterations to use for calculating the
+delay as average. Lower values result in quicker response to client
+load change, higher values result in more stable delay. Default value of 10
+is usually fine.
+
+## recovery_tune_sleep_min_us
+
+- Type: microseconds
+- Default: 10
+- Can be changed online: yes
+
+Minimum possible value for auto-tuned recovery_sleep_us. Values lower
+than this value are changed to 0.

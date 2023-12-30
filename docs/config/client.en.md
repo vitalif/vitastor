@@ -6,8 +6,8 @@
 
 # Client Parameters
 
-These parameters apply only to clients and affect their interaction with
-the cluster.
+These parameters apply only to Vitastor clients (QEMU, fio, NBD and so on) and
+affect their interaction with the cluster.
 
 - [client_max_dirty_bytes](#client_max_dirty_bytes)
 - [client_max_dirty_ops](#client_max_dirty_ops)

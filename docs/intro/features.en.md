@@ -32,6 +32,7 @@
 - [Scrubbing](../config/osd.en.md#auto_scrub) (verification of copies)
 - [Checksums](../config/layout-osd.en.md#data_csum_type)
 - [Client write-back cache](../config/client.en.md#client_enable_writeback)
+- [Intelligent recovery auto-tuning](../config/osd.en.md#recovery_tune_interval)
 
 ## Plugins and tools
 

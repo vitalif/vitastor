@@ -107,17 +107,29 @@
     принудительной отправкой fsync-а.
 - name: recovery_queue_depth
   type: int
-  default: 4
+  default: 1
   online: true
   info: |
-    Maximum recovery operations per one primary OSD at any given moment of time.
-    Currently it's the only parameter available to tune the speed or recovery
-    and rebalancing, but it's planned to implement more.
+    Maximum recovery and rebalance operations initiated by each OSD in parallel.
+    Note that each OSD talks to a lot of other OSDs so actual number of parallel
+    recovery operations per each OSD is greater than just recovery_queue_depth.
+    Increasing this parameter can speedup recovery if [auto-tuning](#recovery_tune_interval)
+    allows it or if it is disabled.
   info_ru: |
-    Максимальное число операций восстановления на одном первичном OSD в любой
-    момент времени. На данный момент единственный параметр, который можно менять
-    для ускорения или замедления восстановления и перебалансировки данных, но
-    в планах реализация других параметров.
+    Максимальное число параллельных операций восстановления, инициируемых одним
+    OSD в любой момент времени. Имейте в виду, что каждый OSD обычно работает с
+    многими другими OSD, так что на практике параллелизм восстановления больше,
+    чем просто recovery_queue_depth. Увеличение значения этого параметра может
+    ускорить восстановление если [автотюнинг скорости](#recovery_tune_interval)
+    разрешает это или если он отключён.
+- name: recovery_sleep_us
+  type: us
+  default: 0
+  online: true
+  info: |
+    Delay for all recovery- and rebalance- related operations. If non-zero,
+    such operations are artificially slowed down to reduce the impact on
+    client I/O.
 - name: recovery_pg_switch
   type: int
   default: 128
@@ -626,3 +638,101 @@
     считается некорректной. Однако, если "лучшую" версию с числом доступных
     копий большим, чем у всех других версий, найти невозможно, то объект тоже
     маркируется неконсистентным.
+- name: recovery_tune_interval
+  type: sec
+  default: 1
+  online: true
+  info: |
+    Interval at which OSD re-considers client and recovery load and automatically
+    adjusts [recovery_sleep_us](#recovery_sleep_us). Recovery auto-tuning is
+    disabled if recovery_tune_interval is set to 0.
+
+    Auto-tuning targets utilization. Utilization is a measure of load and is
+    equal to the product of iops and average latency (so it may be greater
+    than 1). You set "low" and "high" client utilization thresholds and two
+    corresponding target recovery utilization levels. OSD calculates desired
+    recovery utilization from client utilization using linear interpolation
+    and auto-tunes recovery operation delay to make actual recovery utilization
+    match desired.
+
+    This allows to reduce recovery/rebalance impact on client operations. It is
+    of course impossible to remove it completely, but it should become adequate.
+    In some tests rebalance could earlier drop client write speed from 1.5 GB/s
+    to 50-100 MB/s, with default auto-tuning settings it now only reduces
+    to ~1 GB/s.
+  info_ru: |
+    Интервал, с которым OSD пересматривает клиентскую нагрузку и нагрузку
+    восстановления и автоматически подстраивает [recovery_sleep_us](#recovery_sleep_us).
+    Автотюнинг (автоподстройка) отключается, если recovery_tune_interval
+    устанавливается в значение 0.
+
+    Автотюнинг регулирует утилизацию. Утилизация является мерой нагрузки
+    и равна произведению числа операций в секунду и средней задержки
+    (то есть, она может быть выше 1). Вы задаёте два уровня клиентской
+    утилизации - "низкий" и "высокий" (low и high) и два соответствующих
+    целевых уровня утилизации операциями восстановления. OSD рассчитывает
+    желаемый уровень утилизации восстановления линейной интерполяцией от
+    клиентской утилизации и подстраивает задержку операций восстановления
+    так, чтобы фактическая утилизация восстановления совпадала с желаемой.
+
+    Это позволяет снизить влияние восстановления и ребаланса на клиентские
+    операции. Конечно, невозможно исключить такое влияние полностью, но оно
+    должно становиться адекватнее. В некоторых тестах перебалансировка могла
+    снижать клиентскую скорость записи с 1.5 ГБ/с до 50-100 МБ/с, а теперь, с
+    настройками автотюнинга по умолчанию, она снижается только до ~1 ГБ/с.
+- name: recovery_tune_util_low
+  type: float
+  default: 0.1
+  online: true
+  info: |
+    Desired recovery/rebalance utilization when client load is high, i.e. when
+    it is at or above recovery_tune_client_util_high.
+  info_ru: |
+    Желаемая утилизация восстановления в моменты, когда клиентская нагрузка
+    высокая, то есть, находится на уровне или выше recovery_tune_client_util_high.
+- name: recovery_tune_util_high
+  type: float
+  default: 1
+  online: true
+  info: |
+    Desired recovery/rebalance utilization when client load is low, i.e. when
+    it is at or below recovery_tune_client_util_low.
+  info_ru: |
+    Желаемая утилизация восстановления в моменты, когда клиентская нагрузка
+    низкая, то есть, находится на уровне или ниже recovery_tune_client_util_low.
+- name: recovery_tune_client_util_low
+  type: float
+  default: 0
+  online: true
+  info: Client utilization considered "low".
+  info_ru: Клиентская утилизация, которая считается "низкой".
+- name: recovery_tune_client_util_high
+  type: float
+  default: 0.5
+  online: true
+  info: Client utilization considered "high".
+  info_ru: Клиентская утилизация, которая считается "высокой".
+- name: recovery_tune_agg_interval
+  type: int
+  default: 10
+  online: true
+  info: |
+    The number of last auto-tuning iterations to use for calculating the
+    delay as average. Lower values result in quicker response to client
+    load change, higher values result in more stable delay. Default value of 10
+    is usually fine.
+  info_ru: |
+    Число последних итераций автоподстройки для расчёта задержки как среднего
+    значения. Меньшие значения параметра ускоряют отклик на изменение нагрузки,
+    большие значения делают задержку стабильнее. Значение по умолчанию 10
+    обычно нормальное и не требует изменений.
+- name: recovery_tune_sleep_min_us
+  type: us
+  default: 10
+  online: true
+  info: |
+    Minimum possible value for auto-tuned recovery_sleep_us. Values lower
+    than this value are changed to 0.
+  info_ru: |
+    Минимальное возможное значение авто-подстроенного recovery_sleep_us.
+    Значения ниже данного заменяются на 0.
