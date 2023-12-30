@@ -593,7 +593,7 @@ resume_4:
 #endif
         bool is_big = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE;
         bool imm = is_big ? (immediate_commit == IMMEDIATE_ALL) : (immediate_commit != IMMEDIATE_NONE);
-        bool is_instant = ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_DELETE || (dirty_it->second.state & BS_ST_INSTANT));
+        bool is_instant = IS_INSTANT(dirty_it->second.state);
         if (imm)
         {
             auto & unstab = unstable_writes[op->oid];

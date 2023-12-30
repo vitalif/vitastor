@@ -412,11 +412,40 @@ resume_4:
     return 2;
 }
 
-void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
+void blockstore_impl_t::mark_stable(obj_ver_id v, bool forget_dirty)
 {
     auto dirty_it = dirty_db.find(v);
     if (dirty_it != dirty_db.end())
     {
+        if (IS_INSTANT(dirty_it->second.state))
+        {
+            // 'Instant' (non-EC) operations may complete and try to become stable out of order. Prevent it.
+            auto back_it = dirty_it;
+            while (back_it != dirty_db.begin())
+            {
+                back_it--;
+                if (back_it->first.oid != v.oid)
+                {
+                    break;
+                }
+                if (!IS_STABLE(back_it->second.state))
+                {
+                    // There are preceding unstable versions, can't flush <v>
+                    return;
+                }
+            }
+            while (true)
+            {
+                dirty_it++;
+                if (dirty_it == dirty_db.end() || dirty_it->first.oid != v.oid ||
+                    !IS_SYNCED(dirty_it->second.state))
+                {
+                    dirty_it--;
+                    break;
+                }
+                v.version = dirty_it->first.version;
+            }
+        }
         while (1)
         {
             bool was_stable = IS_STABLE(dirty_it->second.state);
@@ -508,5 +537,6 @@ void blockstore_impl_t::mark_stable(const obj_ver_id & v, bool forget_dirty)
         unstab_it->second <= v.version)
     {
         unstable_writes.erase(unstab_it);
+        unstable_count_changed = true;
     }
 }

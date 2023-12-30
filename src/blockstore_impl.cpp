@@ -163,20 +163,10 @@ void blockstore_impl_t::loop()
             }
             else if (op->opcode == BS_OP_SYNC)
             {
-                // wait for all small writes to be submitted
-                // wait for all big writes to complete, submit data device fsync
+                // sync only completed writes?
                 // wait for the data device fsync to complete, then submit journal writes for big writes
                 // then submit an fsync operation
-                if (has_writes)
-                {
-                    // Can't submit SYNC before previous writes
-                    continue;
-                }
                 wr_st = continue_sync(op);
-                if (wr_st != 2)
-                {
-                    has_writes = wr_st > 0 ? 1 : 2;
-                }
             }
             else if (op->opcode == BS_OP_STABLE)
             {
@@ -283,7 +273,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
     }
     else if (PRIV(op)->wait_for == WAIT_JOURNAL)
     {
-        if (journal.used_start == PRIV(op)->wait_detail)
+        if (journal.used_start == PRIV(op)->wait_detail && !unstable_count_changed)
         {
             // do not submit
 #ifdef BLOCKSTORE_DEBUG
@@ -291,6 +281,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
 #endif
             return;
         }
+        unstable_count_changed = false;
         flusher->release_trim();
         PRIV(op)->wait_for = 0;
     }
@@ -362,6 +353,7 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
                     };
                 }
                 unstable_writes.clear();
+                unstable_count_changed = true;
                 op->callback = [old_callback](blockstore_op_t *op)
                 {
                     obj_ver_id *vers = (obj_ver_id*)op->buf;

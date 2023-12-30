@@ -85,8 +85,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
                 left--;
                 auto & dirty_entry = dirty_db.at(sbw);
                 uint64_t dyn_size = dsk.dirty_dyn_size(dirty_entry.offset, dirty_entry.len);
-                if (!space_check.check_available(op, 1, sizeof(journal_entry_big_write) + dyn_size,
-                    (unstable_writes.size()+unstable_unsynced)*journal.block_size))
+                if (!space_check.check_available(op, 1, sizeof(journal_entry_big_write) + dyn_size, 0))
                 {
                     return 0;
                 }

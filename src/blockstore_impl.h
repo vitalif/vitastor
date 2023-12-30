@@ -55,6 +55,7 @@
 #define IS_JOURNAL(st) (((st) & 0x0F) == BS_ST_SMALL_WRITE)
 #define IS_BIG_WRITE(st) (((st) & 0x0F) == BS_ST_BIG_WRITE)
 #define IS_DELETE(st) (((st) & 0x0F) == BS_ST_DELETE)
+#define IS_INSTANT(st) (((st) & BS_ST_TYPE_MASK) == BS_ST_DELETE || ((st) & BS_ST_INSTANT))
 
 #define BS_SUBMIT_CHECK_SQES(n) \
     if (ringloop->sqes_left() < (n))\
@@ -275,6 +276,7 @@ class blockstore_impl_t
     std::vector<blockstore_op_t*> submit_queue;
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
     int unsynced_big_write_count = 0, unstable_unsynced = 0;
+    bool unstable_count_changed = false;
     int unsynced_queued_ops = 0;
     allocator *data_alloc = NULL;
     uint64_t used_blocks = 0;
@@ -377,7 +379,7 @@ class blockstore_impl_t
     // Stabilize
     int dequeue_stable(blockstore_op_t *op);
     int continue_stable(blockstore_op_t *op);
-    void mark_stable(const obj_ver_id & ov, bool forget_dirty = false);
+    void mark_stable(obj_ver_id ov, bool forget_dirty = false);
     void stabilize_object(object_id oid, uint64_t max_ver);
     blockstore_op_t* selective_sync(blockstore_op_t *op);
     int split_stab_op(blockstore_op_t *op, std::function<int(obj_ver_id v)> decider);
