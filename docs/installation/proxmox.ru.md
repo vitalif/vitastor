@@ -24,7 +24,7 @@ vitastor: vitastor
     vitastor_pool testpool
     # Путь к файлу конфигурации
     vitastor_config_path /etc/vitastor/vitastor.conf
-    # Адрес(а) etcd, нужны, только если не указаны в vitastor.conf
+    # Адрес(а) etcd, ОПЦИОНАЛЬНЫ, нужны, только если не указаны в vitastor.conf
     vitastor_etcd_address 192.168.7.2:2379/v3
     # Префикс ключей метаданных в etcd
     vitastor_etcd_prefix /vitastor

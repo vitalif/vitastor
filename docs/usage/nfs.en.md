@@ -34,7 +34,7 @@ vitastor-nfs [STANDARD OPTIONS] [OTHER OPTIONS]
 --foreground 1    stay in foreground, do not daemonize
 ```
 
-Example start and mount commands:
+Example start and mount commands (etcd_address is optional):
 
 ```
 vitastor-nfs --etcd_address 192.168.5.10:2379 --portmap 0 --port 2050 --pool testpool

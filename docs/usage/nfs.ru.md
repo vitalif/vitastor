@@ -33,7 +33,7 @@ vitastor-nfs [СТАНДАРТНЫЕ ОПЦИИ] [ДРУГИЕ ОПЦИИ]
 --foreground 1    не уходить в фон после запуска
 ```
 
-Пример монтирования Vitastor через NFS:
+Пример монтирования Vitastor через NFS (etcd_address необязателен):
 
 ```
 vitastor-nfs --etcd_address 192.168.5.10:2379 --portmap 0 --port 2050 --pool testpool

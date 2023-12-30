@@ -25,7 +25,7 @@ vitastor: vitastor
     vitastor_pool testpool
     # path to the configuration file
     vitastor_config_path /etc/vitastor/vitastor.conf
-    # etcd address(es), required only if missing in the configuration file
+    # etcd address(es), OPTIONAL, required only if missing in the configuration file
     vitastor_etcd_address 192.168.7.2:2379/v3
     # prefix for keys in etcd
     vitastor_etcd_prefix /vitastor
