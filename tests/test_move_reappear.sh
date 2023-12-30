@@ -7,7 +7,7 @@ OSD_COUNT=5
 OSD_ARGS="$OSD_ARGS"
 for i in $(seq 1 $OSD_COUNT); do
     dd if=/dev/zero of=./testdata/test_osd$i.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
-    build/src/vitastor-osd --osd_num $i --bind_address 127.0.0.1 --etcd_stats_interval 5 $OSD_ARGS --etcd_address $ETCD_URL $(build/src/vitastor-disk simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) >>./testdata/osd$i.log 2>&1 &
+    build/src/vitastor-osd --log_level 10 --osd_num $i --bind_address 127.0.0.1 --etcd_stats_interval 5 $OSD_ARGS --etcd_address $ETCD_URL $(build/src/vitastor-disk simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) >>./testdata/osd$i.log 2>&1 &
     eval OSD${i}_PID=$!
 done
 
@@ -52,6 +52,11 @@ for i in {1..30}; do
         format_error "Failed to move degraded objects to the clean OSD set"
     fi
 done
+
+# Sync so all moved objects are removed from OSD 1 (they aren't removed without a sync)
+LD_PRELOAD="build/src/libfio_vitastor.so" \
+fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4k -direct=1 -iodepth=1 -fsync=1 -number_ios=2 -rw=write \
+    -etcd=$ETCD_URL -pool=1 -inode=2 -size=32M -cluster_log_level=10
 
 $ETCDCTL put /vitastor/config/pgs '{"items":{"1":{"1":{"osd_set":[4,5],"primary":0}}}}'
 
