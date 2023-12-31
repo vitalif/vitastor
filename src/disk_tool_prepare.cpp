@@ -440,16 +440,25 @@ std::vector<std::string> disk_tool_t::get_new_data_parts(vitastor_dev_info_t & d
                 {
                     // Use this partition
                     use_parts.push_back(part["uuid"].string_value());
+                    osds_exist++;
                 }
                 else
                 {
+                    std::string part_path = "/dev/disk/by-partuuid/"+strtolower(part["uuid"].string_value());
+                    bool is_meta = sb["params"]["meta_device"].string_value() == part_path;
+                    bool is_journal = sb["params"]["journal_device"].string_value() == part_path;
+                    bool is_data = sb["params"]["data_device"].string_value() == part_path;
                     fprintf(
-                        stderr, "%s is already initialized for OSD %lu, skipping\n",
-                        part["node"].string_value().c_str(), sb["params"]["osd_num"].uint64_value()
+                        stderr, "%s is already initialized for OSD %lu%s, skipping\n",
+                        part["node"].string_value().c_str(), sb["params"]["osd_num"].uint64_value(),
+                        (is_data ? " data" : (is_meta ? " meta" : (is_journal ? " journal" : "")))
                     );
-                    osds_size += part["size"].uint64_value()*dev.pt["sectorsize"].uint64_value();
+                    if (is_data || sb["params"]["data_device"].string_value().substr(0, 22) != "/dev/disk/by-partuuid/")
+                    {
+                        osds_size += part["size"].uint64_value()*dev.pt["sectorsize"].uint64_value();
+                        osds_exist++;
+                    }
                 }
-                osds_exist++;
             }
         }
         // Still create OSD(s) if a disk has no more than (max_other_percent) other data
