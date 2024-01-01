@@ -6,6 +6,7 @@ const http = require('http');
 const crypto = require('crypto');
 const os = require('os');
 const WebSocket = require('ws');
+const { SimpleCombinator } = require('./simple_pgs.js');
 const LPOptimizer = require('./lp-optimizer.js');
 const stableStringify = require('./stable-stringify.js');
 const PGUtil = require('./PGUtil.js');
@@ -930,7 +931,6 @@ class Mon
             // Parent's level must be less than child's; OSDs must be leaves
             const parent = parent_level && parent_level < node_level ? node_cfg.parent : '';
             tree[parent].children.push(tree[node_id]);
-            delete node_cfg.parent;
         }
         return { up_osds, levels, osd_tree: tree };
     }
@@ -1179,7 +1179,25 @@ class Mon
         return true;
     }
 
-    filter_osds_by_tags(orig_tree, flat_tree, tags)
+    filter_osds_by_root_node(pool_tree, root_node)
+    {
+        if (!root_node)
+        {
+            return;
+        }
+        pool_tree = pool_tree[pool_cfg.root_node];
+        const cur = [ ...(pool_tree||{}).children||[] ];
+        for (let i = 0; i < cur.length; i++)
+        {
+            if (cur.children)
+            {
+                cur.splice(i+1, 1, ...cur.children);
+            }
+        }
+        return cur;
+    }
+
+    filter_osds_by_tags(orig_tree, tags)
     {
         if (!tags)
         {
@@ -1187,30 +1205,22 @@ class Mon
         }
         for (const tag of (tags instanceof Array ? tags : [ tags ]))
         {
-            for (const host in flat_tree)
+            for (const osd in orig_tree)
             {
-                let found = 0;
-                for (const osd in flat_tree[host])
+                if (orig_tree[osd].level === 'osd' &&
+                    (!orig_tree[osd].tags || !orig_tree[osd].tags[tag]))
                 {
-                    if (!orig_tree[osd].tags || !orig_tree[osd].tags[tag])
-                        delete flat_tree[host][osd];
-                    else
-                        found++;
-                }
-                if (!found)
-                {
-                    delete flat_tree[host];
+                    delete orig_tree[osd];
                 }
             }
         }
     }
 
-    filter_osds_by_block_layout(flat_tree, block_size, bitmap_granularity, immediate_commit)
+    filter_osds_by_block_layout(orig_tree, block_size, bitmap_granularity, immediate_commit)
     {
-        for (const host in flat_tree)
+        for (const osd in orig_tree)
         {
-            let found = 0;
-            for (const osd in flat_tree[host])
+            if (orig_tree[osd].level === 'osd')
             {
                 const osd_stat = this.state.osd.stats[osd];
                 if (osd_stat && (osd_stat.bs_block_size && osd_stat.bs_block_size != block_size ||
@@ -1218,16 +1228,8 @@ class Mon
                     osd_stat.immediate_commit == 'small' && immediate_commit == 'all' ||
                     osd_stat.immediate_commit == 'none' && immediate_commit != 'none'))
                 {
-                    delete flat_tree[host][osd];
+                    delete orig_tree[host][osd];
                 }
-                else
-                {
-                    found++;
-                }
-            }
-            if (!found)
-            {
-                delete flat_tree[host];
             }
         }
     }
@@ -1237,8 +1239,12 @@ class Mon
         let aff_osds = up_osds;
         if (pool_cfg.primary_affinity_tags)
         {
-            aff_osds = { ...up_osds };
-            this.filter_osds_by_tags(osd_tree, { x: aff_osds }, pool_cfg.primary_affinity_tags);
+            aff_osds = Object.keys(up_osds).reduce((a, c) => { a[c] = osd_tree[c]; return a; }, {});
+            this.filter_osds_by_tags(aff_osds, pool_cfg.primary_affinity_tags);
+            for (const osd in aff_osds)
+            {
+                aff_osds[osd] = true;
+            }
         }
         return aff_osds;
     }
@@ -1250,10 +1256,9 @@ class Mon
         {
             return null;
         }
-        let pool_tree = osd_tree[pool_cfg.root_node || ''];
-        pool_tree = pool_tree ? pool_tree.children : [];
-        pool_tree = LPOptimizer.flatten_tree(pool_tree, levels, pool_cfg.failure_domain, 'osd');
-        this.filter_osds_by_tags(osd_tree, pool_tree, pool_cfg.osd_tags);
+        let pool_tree = osd_tree;
+        this.filter_osds_by_root_node(pool_tree, pool_cfg.root_node);
+        this.filter_osds_by_tags(pool_tree, pool_cfg.osd_tags);
         this.filter_osds_by_block_layout(
             pool_tree,
             pool_cfg.block_size || this.config.block_size || 131072,
@@ -1276,11 +1281,11 @@ class Mon
         }
         const old_pg_count = prev_pgs.length;
         const optimize_cfg = {
-            osd_tree: pool_tree,
+            osd_weights: Object.values(pool_tree).filter(item => item.level === 'osd').reduce((a, c) => { a[c.id] = c.size; return a; }, {}),
+            combinator: new SimpleCombinator(flatten_tree(osd_tree, levels, pool_cfg.failure_domain, 'osd'), pool_cfg.pg_size, pool_cfg.max_osd_combinations),
             pg_count: pool_cfg.pg_count,
             pg_size: pool_cfg.pg_size,
             pg_minsize: pool_cfg.pg_minsize,
-            max_combinations: pool_cfg.max_osd_combinations,
             ordered: pool_cfg.scheme != 'replicated',
         };
         let optimize_result;

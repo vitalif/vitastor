@@ -1,6 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+const { compat, flatten_tree } = require('./simple_pgs.js');
 const LPOptimizer = require('./lp-optimizer.js');
 
 const osd_tree = {
@@ -84,31 +85,31 @@ async function run()
     // Space efficiency is ~99% in all cases.
 
     console.log('256 PGs, size=2');
-    res = await LPOptimizer.optimize_initial({ osd_tree, pg_size: 2, pg_count: 256 });
+    res = await LPOptimizer.optimize_initial(compat({ osd_tree, pg_size: 2, pg_count: 256 }));
     LPOptimizer.print_change_stats(res, false);
     console.log('\nAdding osd.8');
     osd_tree[500][8] = 3.58589;
-    res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree, pg_size: 2 });
+    res = await LPOptimizer.optimize_change(compat({ prev_pgs: res.int_pgs, osd_tree, pg_size: 2 }));
     LPOptimizer.print_change_stats(res, false);
     console.log('\nRemoving osd.8');
     delete osd_tree[500][8];
-    res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree, pg_size: 2 });
+    res = await LPOptimizer.optimize_change(compat({ prev_pgs: res.int_pgs, osd_tree, pg_size: 2 }));
     LPOptimizer.print_change_stats(res, false);
 
     console.log('\n256 PGs, size=3');
-    res = await LPOptimizer.optimize_initial({ osd_tree, pg_size: 3, pg_count: 256 });
+    res = await LPOptimizer.optimize_initial(compat({ osd_tree, pg_size: 3, pg_count: 256 }));
     LPOptimizer.print_change_stats(res, false);
     console.log('\nAdding osd.8');
     osd_tree[500][8] = 3.58589;
-    res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree, pg_size: 3 });
+    res = await LPOptimizer.optimize_change(compat({ prev_pgs: res.int_pgs, osd_tree, pg_size: 3 }));
     LPOptimizer.print_change_stats(res, false);
     console.log('\nRemoving osd.8');
     delete osd_tree[500][8];
-    res = await LPOptimizer.optimize_change({ prev_pgs: res.int_pgs, osd_tree, pg_size: 3 });
+    res = await LPOptimizer.optimize_change(compat({ prev_pgs: res.int_pgs, osd_tree, pg_size: 3 }));
     LPOptimizer.print_change_stats(res, false);
 
     console.log('\n256 PGs, size=3, failure domain=rack');
-    res = await LPOptimizer.optimize_initial({ osd_tree: LPOptimizer.flatten_tree(crush_tree, {}, 1, 3), pg_size: 3, pg_count: 256 });
+    res = await LPOptimizer.optimize_initial(compat({ osd_tree: flatten_tree(crush_tree, {}, 1, 3), pg_size: 3, pg_count: 256 }));
     LPOptimizer.print_change_stats(res, false);
 }
 

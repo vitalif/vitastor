@@ -7,6 +7,7 @@
 // This leads to really uneven OSD fill ratio in Ceph even when PGs are perfectly balanced.
 // But we support this case with the "parity_space" parameter in optimize_initial()/optimize_change().
 
+const { SimpleCombinator } = require('./simple_pgs.js');
 const LPOptimizer = require('./lp-optimizer.js');
 
 const osd_tree = {
@@ -114,16 +115,17 @@ Fine, let's try to optimize for it.
 
 async function run()
 {
-    const all_weights = Object.assign({}, ...Object.values(osd_tree));
-    const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c), 0);
-    const eff = LPOptimizer.pg_list_space_efficiency(prev_pgs, all_weights, 2, 2.26);
+    const osd_weights = Object.assign({}, ...Object.values(osd_tree));
+    const total_weight = Object.values(osd_weights).reduce((a, c) => Number(a) + Number(c), 0);
+    const eff = LPOptimizer.pg_list_space_efficiency(prev_pgs, osd_weights, 2, 2.26);
     const orig = eff*4.26 / total_weight;
     console.log('Original efficiency was: '+Math.round(orig*10000)/100+' %');
 
-    let prev = await LPOptimizer.optimize_initial({ osd_tree, pg_size: 3, pg_count: 256, parity_space: 2.26 });
+    const combinator = new SimpleCombinator(osd_tree, 3, 10000);
+    let prev = await LPOptimizer.optimize_initial({ osd_weights, combinator, pg_size: 3, pg_count: 256, parity_space: 2.26 });
     LPOptimizer.print_change_stats(prev);
 
-    let next = await LPOptimizer.optimize_change({ prev_pgs, osd_tree, pg_size: 3, max_combinations: 10000, parity_space: 2.26 });
+    let next = await LPOptimizer.optimize_change({ prev_pgs, osd_weights, combinator, pg_size: 3, parity_space: 2.26 });
     LPOptimizer.print_change_stats(next);
 }
 

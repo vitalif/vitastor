@@ -50,15 +50,15 @@ async function lp_solve(text)
     return { score, vars };
 }
 
-async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 2, max_combinations = 10000, parity_space = 1, ordered = false })
+// osd_weights = { [id]: weight }
+async function optimize_initial({ osd_weights, combinator, pg_count, pg_size = 3, pg_minsize = 2, parity_space = 1, ordered = false })
 {
-    if (!pg_count || !osd_tree)
+    if (!pg_count || !osd_weights)
     {
         return null;
     }
-    const all_weights = Object.assign({}, ...Object.values(osd_tree));
-    const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c), 0);
-    const all_pgs = Object.values(random_combinations(osd_tree, pg_size, max_combinations, parity_space > 1));
+    const total_weight = Object.values(osd_weights).reduce((a, c) => Number(a) + Number(c), 0);
+    const all_pgs = Object.values(make_cyclic(combinator.random_combinations(), parity_space));
     const pg_per_osd = {};
     for (const pg of all_pgs)
     {
@@ -69,15 +69,15 @@ async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 
             pg_per_osd[osd].push((i >= pg_minsize ? parity_space+'*' : '')+"pg_"+pg.join("_"));
         }
     }
-    const pg_effsize = Math.min(pg_minsize, Object.keys(osd_tree).length)
-        + Math.max(0, Math.min(pg_size, Object.keys(osd_tree).length) - pg_minsize) * parity_space;
+    let pg_effsize = all_pgs.reduce((a, c) => Math.max(a, c.filter(e => e != NO_OSD).length), 0);
+    pg_effsize = Math.min(pg_minsize, pg_effsize) + Math.max(0, Math.min(pg_size, pg_effsize) - pg_minsize) * parity_space;
     let lp = '';
     lp += "max: "+all_pgs.map(pg => 'pg_'+pg.join('_')).join(' + ')+";\n";
     for (const osd in pg_per_osd)
     {
         if (osd !== NO_OSD)
         {
-            let osd_pg_count = all_weights[osd]/total_weight*pg_effsize*pg_count;
+            let osd_pg_count = osd_weights[osd]/total_weight*pg_effsize*pg_count;
             lp += pg_per_osd[osd].join(' + ')+' <= '+osd_pg_count+';\n';
         }
     }
@@ -93,7 +93,7 @@ async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 
         throw new Error('Problem is infeasible or unbounded - is it a bug?');
     }
     const int_pgs = make_int_pgs(lp_result.vars, pg_count, ordered);
-    const eff = pg_list_space_efficiency(int_pgs, all_weights, pg_minsize, parity_space);
+    const eff = pg_list_space_efficiency(int_pgs, osd_weights, pg_minsize, parity_space);
     const res = {
         score: lp_result.score,
         weights: lp_result.vars,
@@ -102,6 +102,22 @@ async function optimize_initial({ osd_tree, pg_count, pg_size = 3, pg_minsize = 
         total_space: total_weight,
     };
     return res;
+}
+
+function make_cyclic(pgs, parity_space)
+{
+    if (parity_space > 1)
+    {
+        for (const pg in pgs)
+        {
+            for (let i = 1; i < pg.size; i++)
+            {
+                const cyclic = [ ...pg.slice(i), ...pg.slice(0, i) ];
+                pgs['pg_'+cyclic.join('_')] = cyclic;
+            }
+        }
+    }
+    return pgs;
 }
 
 function shuffle(array)
@@ -216,47 +232,17 @@ function calc_intersect_weights(old_pg_size, pg_size, pg_count, prev_weights, al
     return move_weights;
 }
 
-function add_valid_previous(osd_tree, prev_weights, all_pgs)
-{
-    // Add previous combinations that are still valid
-    const hosts = Object.keys(osd_tree).sort();
-    const host_per_osd = {};
-    for (const host in osd_tree)
-    {
-        for (const osd in osd_tree[host])
-        {
-            host_per_osd[osd] = host;
-        }
-    }
-    skip_pg: for (const pg_name in prev_weights)
-    {
-        const seen_hosts = {};
-        const pg = pg_name.substr(3).split(/_/);
-        for (const osd of pg)
-        {
-            if (!host_per_osd[osd] || seen_hosts[host_per_osd[osd]])
-            {
-                continue skip_pg;
-            }
-            seen_hosts[host_per_osd[osd]] = true;
-        }
-        if (!all_pgs[pg_name])
-        {
-            all_pgs[pg_name] = pg;
-        }
-    }
-}
-
 // Try to minimize data movement
-async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, pg_minsize = 2, max_combinations = 10000, parity_space = 1, ordered = false })
+async function optimize_change({ prev_pgs: prev_int_pgs, osd_weights, combinator, pg_size = 3, pg_minsize = 2, parity_space = 1, ordered = false })
 {
-    if (!osd_tree)
+    if (!osd_weights)
     {
         return null;
     }
     // FIXME: use parity_chunks with parity_space instead of pg_minsize
-    const pg_effsize = Math.min(pg_minsize, Object.keys(osd_tree).length)
-        + Math.max(0, Math.min(pg_size, Object.keys(osd_tree).length) - pg_minsize) * parity_space;
+    let all_pgs = make_cyclic(combinator.random_combinations(), parity_space);
+    let pg_effsize = Object.values(all_pgs).reduce((a, c) => Math.max(a, c.filter(e => e != NO_OSD).length), 0);
+    pg_effsize = Math.min(pg_minsize, pg_effsize) + Math.max(0, Math.min(pg_size, pg_effsize) - pg_minsize) * parity_space;
     const pg_count = prev_int_pgs.length;
     const prev_weights = {};
     const prev_pg_per_osd = {};
@@ -273,10 +259,13 @@ async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, 
     }
     const old_pg_size = prev_int_pgs[0].length;
     // Get all combinations
-    let all_pgs = random_combinations(osd_tree, pg_size, max_combinations, parity_space > 1);
     if (old_pg_size == pg_size)
     {
-        add_valid_previous(osd_tree, prev_weights, all_pgs);
+        const still_valid = combinator.check_combinations(Object.keys(prev_weights).map(pg_name => pg_name.substr(3).split('_')));
+        for (const pg of still_valid)
+        {
+            all_pgs['pg_'+pg.join('_')] = pg;
+        }
     }
     all_pgs = Object.values(all_pgs);
     const pg_per_osd = {};
@@ -295,8 +284,7 @@ async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, 
     // Calculate total weight - old PG weights
     const all_pg_names = all_pgs.map(pg => 'pg_'+pg.join('_'));
     const all_pgs_hash = all_pg_names.reduce((a, c) => { a[c] = true; return a; }, {});
-    const all_weights = Object.assign({}, ...Object.values(osd_tree));
-    const total_weight = Object.values(all_weights).reduce((a, c) => Number(a) + Number(c), 0);
+    const total_weight = Object.values(osd_weights).reduce((a, c) => Number(a) + Number(c), 0);
     // Generate the LP problem
     let lp = '';
     lp += 'max: '+all_pg_names.map(pg_name => (
@@ -311,7 +299,7 @@ async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, 
             )).join(' + ');
             const rm_osd_pg_count = (prev_pg_per_osd[osd]||[])
                 .reduce((a, [ old_pg_name, space ]) => (a + (all_pgs_hash[old_pg_name] ? space : 0)), 0);
-            const osd_pg_count = all_weights[osd]*pg_effsize/total_weight*pg_count - rm_osd_pg_count;
+            const osd_pg_count = osd_weights[osd]*pg_effsize/total_weight*pg_count - rm_osd_pg_count;
             lp += osd_sum + ' <= ' + osd_pg_count + ';\n';
         }
     }
@@ -421,7 +409,7 @@ async function optimize_change({ prev_pgs: prev_int_pgs, osd_tree, pg_size = 3, 
         int_pgs: new_pgs,
         differs,
         osd_differs,
-        space: pg_effsize * pg_list_space_efficiency(new_pgs, all_weights, pg_minsize, parity_space),
+        space: pg_effsize * pg_list_space_efficiency(new_pgs, osd_weights, pg_minsize, parity_space),
         total_space: total_weight,
     };
 }
@@ -502,198 +490,6 @@ function put_aligned_pgs(aligned_pgs, int_pgs, prev_int_pgs, keygen)
     }
 }
 
-// Convert multi-level osd_tree = { level: number|string, id?: string, size?: number, children?: osd_tree }[]
-// levels = { string: number }
-// to a two-level osd_tree suitable for all_combinations()
-function flatten_tree(osd_tree, levels, failure_domain_level, osd_level, domains = {}, i = { i: 1 })
-{
-    osd_level = levels[osd_level] || osd_level;
-    failure_domain_level = levels[failure_domain_level] || failure_domain_level;
-    for (const node of osd_tree)
-    {
-        if ((levels[node.level] || node.level) < failure_domain_level)
-        {
-            flatten_tree(node.children||[], levels, failure_domain_level, osd_level, domains, i);
-        }
-        else
-        {
-            domains['dom'+(i.i++)] = extract_osds([ node ], levels, osd_level);
-        }
-    }
-    return domains;
-}
-
-function extract_osds(osd_tree, levels, osd_level, osds = {})
-{
-    for (const node of osd_tree)
-    {
-        if ((levels[node.level] || node.level) >= osd_level)
-        {
-            osds[node.id] = node.size;
-        }
-        else
-        {
-            extract_osds(node.children||[], levels, osd_level, osds);
-        }
-    }
-    return osds;
-}
-
-// ordered = don't treat (x,y) and (y,x) as equal
-function random_combinations(osd_tree, pg_size, count, ordered)
-{
-    let seed = 0x5f020e43;
-    let rng = () =>
-    {
-        seed ^= seed << 13;
-        seed ^= seed >> 17;
-        seed ^= seed << 5;
-        return seed + 2147483648;
-    };
-    const osds = Object.keys(osd_tree).reduce((a, c) => { a[c] = Object.keys(osd_tree[c]).sort(); return a; }, {});
-    const hosts = Object.keys(osd_tree).sort().filter(h => osds[h].length > 0);
-    const r = {};
-    // Generate random combinations including each OSD at least once
-    for (let h = 0; h < hosts.length; h++)
-    {
-        for (let o = 0; o < osds[hosts[h]].length; o++)
-        {
-            const pg = [ osds[hosts[h]][o] ];
-            const cur_hosts = [ ...hosts ];
-            cur_hosts.splice(h, 1);
-            for (let i = 1; i < pg_size && i < hosts.length; i++)
-            {
-                const next_host = rng() % cur_hosts.length;
-                const next_osd = rng() % osds[cur_hosts[next_host]].length;
-                pg.push(osds[cur_hosts[next_host]][next_osd]);
-                cur_hosts.splice(next_host, 1);
-            }
-            const cyclic_pgs = [ pg ];
-            if (ordered)
-            {
-                for (let i = 1; i < pg.size; i++)
-                {
-                    cyclic_pgs.push([ ...pg.slice(i), ...pg.slice(0, i) ]);
-                }
-            }
-            for (const pg of cyclic_pgs)
-            {
-                while (pg.length < pg_size)
-                {
-                    pg.push(NO_OSD);
-                }
-                r['pg_'+pg.join('_')] = pg;
-            }
-        }
-    }
-    // Generate purely random combinations
-    while (count > 0)
-    {
-        let host_idx = [];
-        const cur_hosts = [ ...hosts.map((h, i) => i) ];
-        const max_hosts = pg_size < hosts.length ? pg_size : hosts.length;
-        if (ordered)
-        {
-            for (let i = 0; i < max_hosts; i++)
-            {
-                const r = rng() % cur_hosts.length;
-                host_idx[i] = cur_hosts[r];
-                cur_hosts.splice(r, 1);
-            }
-        }
-        else
-        {
-            for (let i = 0; i < max_hosts; i++)
-            {
-                const r = rng() % (cur_hosts.length - (max_hosts - i - 1));
-                host_idx[i] = cur_hosts[r];
-                cur_hosts.splice(0, r+1);
-            }
-        }
-        let pg = host_idx.map(h => osds[hosts[h]][rng() % osds[hosts[h]].length]);
-        while (pg.length < pg_size)
-        {
-            pg.push(NO_OSD);
-        }
-        r['pg_'+pg.join('_')] = pg;
-        count--;
-    }
-    return r;
-}
-
-// Super-stupid algorithm. Given the current OSD tree, generate all possible OSD combinations
-// osd_tree = { failure_domain1: { osd1: size1, ... }, ... }
-// ordered = return combinations without duplicates having different order
-function all_combinations(osd_tree, pg_size, ordered, count)
-{
-    const hosts = Object.keys(osd_tree).sort();
-    const osds = Object.keys(osd_tree).reduce((a, c) => { a[c] = Object.keys(osd_tree[c]).sort(); return a; }, {});
-    while (hosts.length < pg_size)
-    {
-        osds[NO_OSD] = [ NO_OSD ];
-        hosts.push(NO_OSD);
-    }
-    let host_idx = [];
-    let osd_idx = [];
-    for (let i = 0; i < pg_size; i++)
-    {
-        host_idx.push(i);
-        osd_idx.push(0);
-    }
-    const r = [];
-    while (!count || count < 0 || r.length < count)
-    {
-        r.push(host_idx.map((hi, i) => osds[hosts[hi]][osd_idx[i]]));
-        let inc = pg_size-1;
-        while (inc >= 0)
-        {
-            osd_idx[inc]++;
-            if (osd_idx[inc] >= osds[hosts[host_idx[inc]]].length)
-            {
-                osd_idx[inc] = 0;
-                inc--;
-            }
-            else
-            {
-                break;
-            }
-        }
-        if (inc < 0)
-        {
-            // no osds left in the current host combination, select the next one
-            inc = pg_size-1;
-            same_again: while (inc >= 0)
-            {
-                host_idx[inc]++;
-                for (let prev_host = 0; prev_host < inc; prev_host++)
-                {
-                    if (host_idx[prev_host] == host_idx[inc])
-                    {
-                        continue same_again;
-                    }
-                }
-                if (host_idx[inc] < (ordered ? hosts.length-(pg_size-1-inc) : hosts.length))
-                {
-                    while ((++inc) < pg_size)
-                    {
-                        host_idx[inc] = (ordered ? host_idx[inc-1]+1 : 0);
-                    }
-                    break;
-                }
-                else
-                {
-                    inc--;
-                }
-            }
-            if (inc < 0)
-            {
-                break;
-            }
-        }
-    }
-    return r;
-}
-
 function pg_weights_space_efficiency(weights, pg_count, osd_sizes)
 {
     const per_osd = {};
@@ -752,11 +548,8 @@ module.exports = {
     pg_weights_space_efficiency,
     pg_list_space_efficiency,
     pg_per_osd_space_efficiency,
-    flatten_tree,
 
     lp_solve,
     make_int_pgs,
     align_pgs,
-    random_combinations,
-    all_combinations,
 };
