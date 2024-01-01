@@ -1349,8 +1349,8 @@ class Mon
             // Something has changed
             console.log('Pool configuration or OSD tree changed, re-optimizing');
             // First re-optimize PGs, but don't look at history yet
-            const optimize_results = await Promise.all(Object.keys(this.state.config.pools)
-                .map(pool_id => this.generate_pool_pgs(pool_id, osd_tree, levels)));
+            const optimize_results = (await Promise.all(Object.keys(this.state.config.pools)
+                .map(pool_id => this.generate_pool_pgs(pool_id, osd_tree, levels)))).filter(r => r);
             // Then apply the modification in the form of an optimistic transaction,
             // each time considering new pg/history modifications (OSDs modify it during rebalance)
             while (!await this.apply_pool_pgs(optimize_results, up_osds, osd_tree, tree_hash))
@@ -1436,6 +1436,10 @@ class Mon
 
     async apply_pool_pgs(results, up_osds, osd_tree, tree_hash)
     {
+        if (!results.length)
+        {
+            return true;
+        }
         for (const pool_id in (this.state.config.pgs||{}).items||{})
         {
             // We should stop all PGs when deleting a pool or changing its PG count
