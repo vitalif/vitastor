@@ -185,23 +185,29 @@ target_link_libraries(vitastor-nbd
 	vitastor_client
 )
 
-# vitastor-kv
-add_executable(vitastor-kv
-	kv_cli.cpp
+# libvitastor_kv.so
+add_library(vitastor_kv SHARED
 	kv_db.cpp
 	kv_db.h
 )
-target_link_libraries(vitastor-kv
+target_link_libraries(vitastor_kv
 	vitastor_client
+)
+set_target_properties(vitastor_kv PROPERTIES VERSION ${VERSION} SOVERSION 0)
+
+# vitastor-kv
+add_executable(vitastor-kv
+	kv_cli.cpp
+)
+target_link_libraries(vitastor-kv
+	vitastor_kv
 )
 
 add_executable(vitastor-kv-stress
 	kv_stress.cpp
-	kv_db.cpp
-	kv_db.h
 )
 target_link_libraries(vitastor-kv-stress
-	vitastor_client
+	vitastor_kv
 )
 
 # vitastor-nfs
@@ -217,6 +223,7 @@ add_executable(vitastor-nfs
 )
 target_link_libraries(vitastor-nfs
 	vitastor_client
+	vitastor_kv
 )
 
 # vitastor-cli

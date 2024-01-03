@@ -4,16 +4,26 @@
 #include "epoll_manager.h"
 #include "nfs_portmap.h"
 #include "nfs/xdr_impl.h"
+#include "kv_db.h"
 
 #define RPC_INIT_BUF_SIZE 32768
 
 class cli_tool_t;
 
-struct nfs_dir_t
+struct list_cookie_t
 {
-    uint64_t id;
-    uint64_t mod_rev;
-    timespec mtime;
+    uint64_t dir_ino, cookieverf, cookie;
+};
+
+inline bool operator < (const list_cookie_t & a, const list_cookie_t & b)
+{
+    return a.dir_ino < b.dir_ino || a.dir_ino == b.dir_ino &&
+        (a.cookieverf < b.cookieverf || a.cookieverf == b.cookieverf && a.cookie < b.cookie);
+};
+
+struct list_cookie_val_t
+{
+    std::string key;
 };
 
 class nfs_proxy_t
@@ -27,6 +37,11 @@ public:
     std::string export_root;
     bool portmap_enabled;
     unsigned nfs_port;
+    uint64_t fs_kv_inode = 0;
+    uint64_t fs_base_inode = 0;
+    uint64_t fs_inode_count = 0;
+    int readdir_getattr_parallel = 8, id_alloc_batch_size = 200;
+    int trace = 0;
 
     pool_id_t default_pool_id;
 
@@ -35,20 +50,13 @@ public:
     epoll_manager_t *epmgr = NULL;
     cluster_client_t *cli = NULL;
     cli_tool_t *cmd = NULL;
+    kv_dbw_t *db = NULL;
+    std::map<list_cookie_t, list_cookie_val_t> list_cookies;
+    uint64_t fs_next_id = 0, fs_allocated_id = 0;
+    std::vector<uint64_t> unallocated_ids;
 
     std::vector<XDR*> xdr_pool;
 
-    // filehandle = "S"+base64(sha256(full name with prefix)) or "roothandle" for mount root)
-
-    uint64_t next_dir_id = 2;
-    // filehandle => dir with name_prefix
-    std::map<std::string, std::string> dir_by_hash;
-    // dir with name_prefix => dir info
-    std::map<std::string, nfs_dir_t> dir_info;
-    // filehandle => inode ID
-    std::map<std::string, inode_t> inode_by_hash;
-    // inode ID => filehandle
-    std::map<inode_t, std::string> hash_by_inode;
     // inode ID => statistics
     std::map<inode_t, json11::Json> inode_stats;
     // pool ID => statistics
@@ -106,6 +114,8 @@ struct extend_write_t
 struct extend_inode_t
 {
     uint64_t cur_extend = 0, next_extend = 0;
+    std::string old_ientry;
+    json11::Json::object attrs;
 };
 
 class nfs_client_t

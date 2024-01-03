@@ -31,6 +31,8 @@ const char *exe_name = NULL;
 
 nfs_proxy_t::~nfs_proxy_t()
 {
+    if (db)
+        delete db;
     if (cmd)
         delete cmd;
     if (cli)
@@ -57,6 +59,7 @@ json11::Json::object nfs_proxy_t::parse_args(int narg, const char *args[])
                 "\n"
                 "USAGE:\n"
                 "  %s [STANDARD OPTIONS] [OTHER OPTIONS]\n"
+                "  --fs <META>       mount VitastorFS with metadata in image <META>\n"
                 "  --subdir <DIR>    export images prefixed <DIR>/ (default empty - export all images)\n"
                 "  --portmap 0       do not listen on port 111 (portmap/rpcbind, requires root)\n"
                 "  --bind <IP>       bind service to <IP> address (default 0.0.0.0)\n"
@@ -92,6 +95,7 @@ void nfs_proxy_t::run(json11::Json cfg)
     srand48(tv.tv_sec*1000000000 + tv.tv_nsec);
     server_id = (uint64_t)lrand48() | ((uint64_t)lrand48() << 31) | ((uint64_t)lrand48() << 62);
     // Parse options
+    trace = cfg["log_level"].uint64_value() > 5;
     bind_address = cfg["bind"].string_value();
     if (bind_address == "")
         bind_address = "0.0.0.0";
@@ -131,67 +135,7 @@ void nfs_proxy_t::run(json11::Json cfg)
     cmd->ringloop = ringloop;
     cmd->epmgr = epmgr;
     cmd->cli = cli;
-    // We need inode name hashes for NFS handles to remain stateless and <= 64 bytes long
-    dir_info[""] = (nfs_dir_t){
-        .id = 1,
-        .mod_rev = 0,
-    };
-    clock_gettime(CLOCK_REALTIME, &dir_info[""].mtime);
     watch_stats();
-    assert(cli->st_cli.on_inode_change_hook == NULL);
-    cli->st_cli.on_inode_change_hook = [this](inode_t changed_inode, bool removed)
-    {
-        auto inode_cfg_it = cli->st_cli.inode_config.find(changed_inode);
-        if (inode_cfg_it == cli->st_cli.inode_config.end())
-        {
-            return;
-        }
-        auto & inode_cfg = inode_cfg_it->second;
-        std::string full_name = inode_cfg.name;
-        if (name_prefix != "" && full_name.substr(0, name_prefix.size()) != name_prefix)
-        {
-            return;
-        }
-        // Calculate directory modification time and revision (used as "cookie verifier")
-        timespec now;
-        clock_gettime(CLOCK_REALTIME, &now);
-        dir_info[""].mod_rev = dir_info[""].mod_rev < inode_cfg.mod_revision ? inode_cfg.mod_revision : dir_info[""].mod_rev;
-        dir_info[""].mtime = now;
-        int pos = full_name.find('/', name_prefix.size());
-        while (pos >= 0)
-        {
-            std::string dir = full_name.substr(0, pos);
-            auto & dinf = dir_info[dir];
-            if (!dinf.id)
-                dinf.id = next_dir_id++;
-            dinf.mod_rev = dinf.mod_rev < inode_cfg.mod_revision ? inode_cfg.mod_revision : dinf.mod_rev;
-            dinf.mtime = now;
-            dir_by_hash["S"+base64_encode(sha256(dir))] = dir;
-            pos = full_name.find('/', pos+1);
-        }
-        // Alter inode_by_hash
-        if (removed)
-        {
-            auto ino_it = hash_by_inode.find(changed_inode);
-            if (ino_it != hash_by_inode.end())
-            {
-                inode_by_hash.erase(ino_it->second);
-                hash_by_inode.erase(ino_it);
-            }
-        }
-        else
-        {
-            std::string hash = "S"+base64_encode(sha256(full_name));
-            auto hbi_it = hash_by_inode.find(changed_inode);
-            if (hbi_it != hash_by_inode.end() && hbi_it->second != hash)
-            {
-                // inode had a different name, remove old hash=>inode pointer
-                inode_by_hash.erase(hbi_it->second);
-            }
-            inode_by_hash[hash] = changed_inode;
-            hash_by_inode[changed_inode] = hash;
-        }
-    };
     // Load image metadata
     while (!cli->is_ready())
     {
@@ -202,6 +146,52 @@ void nfs_proxy_t::run(json11::Json cfg)
     }
     // Check default pool
     check_default_pool();
+    // Check if we're using VitastorFS
+    fs_kv_inode = cfg["fs"].uint64_value();
+    if (!fs_kv_inode && cfg["fs"].is_string())
+    {
+        for (auto & ic: cli->st_cli.inode_config)
+        {
+            if (ic.second.name == cfg["fs"].string_value())
+            {
+                fs_kv_inode = ic.first;
+                break;
+            }
+        }
+    }
+    readdir_getattr_parallel = cfg["readdir_getattr_parallel"].uint64_value();
+    if (!readdir_getattr_parallel)
+        readdir_getattr_parallel = 8;
+    id_alloc_batch_size = cfg["id_alloc_batch_size"].uint64_value();
+    if (!id_alloc_batch_size)
+        id_alloc_batch_size = 200;
+    if (fs_kv_inode)
+    {
+        // Open DB and wait
+        int open_res = 0;
+        bool open_done = false;
+        db = new kv_dbw_t(cli);
+        db->open(fs_kv_inode, cfg, [&](int res)
+        {
+            open_done = true;
+            open_res = res;
+        });
+        while (!open_done)
+        {
+            ringloop->loop();
+            if (open_done)
+                break;
+            ringloop->wait();
+        }
+        if (open_res < 0)
+        {
+            fprintf(stderr, "Failed to open key/value filesystem metadata index: %s (code %d)\n",
+                strerror(-open_res), open_res);
+            exit(1);
+        }
+        fs_base_inode = ((uint64_t)default_pool_id << (64-POOL_ID_BITS));
+        fs_inode_count = ((uint64_t)1 << (64-POOL_ID_BITS)) - 1;
+    }
     // Self-register portmap and NFS
     pmap.reg_ports.insert((portmap_id_t){
         .prog = PMAP_PROGRAM,
