@@ -37,6 +37,7 @@ Vitastor CSI supports:
 - Volume snapshots. Example: [snapshot class](../../csi/deploy/example-snapshot-class.yaml), [snapshot](../../csi/deploy/example-snapshot.yaml), [clone](../../csi/deploy/example-snapshot-clone.yaml)
 - [VDUSE](../usage/qemu.en.md#vduse) (preferred) and [NBD](../usage/nbd.en.md) device mapping methods
 - Upgrades with VDUSE - new handler processes are restarted when CSI pods are restarted themselves
+- VDUSE daemon auto-restart - handler processes are automatically restarted if they crash due to a bug in Vitastor client code
 - Multiple clusters by using multiple configuration files in ConfigMap.
 
 Remember that to use snapshots with CSI you also have to install [Snapshot Controller and CRDs](https://kubernetes-csi.github.io/docs/snapshot-controller.html#deployment).
