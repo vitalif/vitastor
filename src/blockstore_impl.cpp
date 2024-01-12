@@ -558,13 +558,14 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
             if (stable_count >= stable_alloc)
             {
                 stable_alloc *= 2;
-                stable = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
-                if (!stable)
+                obj_ver_id* nst = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
+                if (!nst)
                 {
                     op->retval = -ENOMEM;
                     FINISH_OP(op);
                     return;
                 }
+                stable = nst;
             }
             stable[stable_count++] = {
                 .oid = clean_it->first,
@@ -642,8 +643,8 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
                             if (stable_count >= stable_alloc)
                             {
                                 stable_alloc += 32768;
-                                stable = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
-                                if (!stable)
+                                obj_ver_id *nst = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
+                                if (!nst)
                                 {
                                     if (unstable)
                                         free(unstable);
@@ -651,6 +652,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
                                     FINISH_OP(op);
                                     return;
                                 }
+                                stable = nst;
                             }
                             stable[stable_count++] = dirty_it->first;
                         }
@@ -666,8 +668,8 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
                     if (unstable_count >= unstable_alloc)
                     {
                         unstable_alloc += 32768;
-                        unstable = (obj_ver_id*)realloc(unstable, sizeof(obj_ver_id) * unstable_alloc);
-                        if (!unstable)
+                        obj_ver_id *nst = (obj_ver_id*)realloc(unstable, sizeof(obj_ver_id) * unstable_alloc);
+                        if (!nst)
                         {
                             if (stable)
                                 free(stable);
@@ -675,6 +677,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
                             FINISH_OP(op);
                             return;
                         }
+                        unstable = nst;
                     }
                     unstable[unstable_count++] = dirty_it->first;
                 }
@@ -694,8 +697,8 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     if (stable_count+unstable_count > stable_alloc)
     {
         stable_alloc = stable_count+unstable_count;
-        stable = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
-        if (!stable)
+        obj_ver_id *nst = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
+        if (!nst)
         {
             if (unstable)
                 free(unstable);
@@ -703,6 +706,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
             FINISH_OP(op);
             return;
         }
+        stable = nst;
     }
     // Copy unstable entries
     for (int i = 0; i < unstable_count; i++)
