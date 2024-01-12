@@ -28,7 +28,7 @@ struct etcd_kv_t
 {
     std::string key;
     json11::Json value;
-    uint64_t mod_revision;
+    uint64_t mod_revision = 0;
 };
 
 struct pg_config_t
