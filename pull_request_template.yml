@@ -1,0 +1,28 @@
+name: Pull Request
+about: Submit a pull request
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe your pull request
+      placeholder: ""
+      value: ""
+    validations:
+      required: true
+  - type: input
+    id: author
+    attributes:
+      label: Contributor Name
+      description: Contributor Name or Company Details if the Contributor is a company
+      placeholder: ""
+    validations:
+      required: false
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: CLA
+      description: By submitting this pull request, I accept [Vitastor CLA](https://git.yourcmc.ru/vitalif/vitastor/src/branch/master/CLA-en.md)
+      options:
+        - label: "I accept Vitastor CLA agreement: https://git.yourcmc.ru/vitalif/vitastor/src/branch/master/CLA-en.md"
+          required: true

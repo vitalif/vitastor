@@ -38,7 +38,7 @@ in the offer.
         on behalf of third parties, including on behalf of his employer.
 
 2. Subject of the Agreement. \
-   2.1. Subject of the Agreement shall be the Contributions sent to the Author by Contributors.
+   2.1. Subject of the Agreement shall be the Contributions sent to the Author by Contributors. \
    2.2. The Contributor grants to the Author the right to use Contributions at his own
         discretion and without any necessity to get a prior approval from Contributor or
         any other third party in any way, under a simple (non-exclusive), royalty-free,
@@ -86,7 +86,7 @@ in the offer.
         of their provision to the Author. \
    5.2. The Contributor represents and warrants that he legally owns exclusive
         intellectual property rights to the Contributions. \
-   5.3. The Contributor represents and warrants that any further use of \
+   5.3. The Contributor represents and warrants that any further use of
         Contributions by the Author as provided by Contributor under the terms
         of the Agreement does not infringe on intellectual and other rights and
         legitimate interests of third parties. \
