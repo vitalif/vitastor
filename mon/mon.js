@@ -390,7 +390,8 @@ class Mon
 {
     constructor(config)
     {
-        this.die = (e) => this._die(e);
+        this.failconnect = (e) => this._die(e, 2);
+        this.die = (e) => this._die(e, 1);
         if (fs.existsSync(config.config_path||'/etc/vitastor/vitastor.conf'))
         {
             config = {
@@ -604,7 +605,7 @@ class Mon
         }
         if (!this.ws)
         {
-            this.die('Failed to open etcd watch websocket');
+            this.failconnect('Failed to open etcd watch websocket');
         }
         const cur_addr = this.selected_etcd_url;
         this.ws_alive = true;
@@ -791,7 +792,7 @@ class Mon
             const res = await this.etcd_call('/lease/keepalive', { ID: this.etcd_lease_id }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
             if (!res.result.TTL)
             {
-                this.die('Lease expired');
+                this.failconnect('Lease expired');
             }
         }, this.config.etcd_mon_timeout);
         if (!this.signals_set)
@@ -1997,14 +1998,14 @@ class Mon
                 return res.json;
             }
         }
-        this.die();
+        this.failconnect();
     }
 
-    _die(err)
+    _die(err, code)
     {
         // In fact we can just try to rejoin
         console.error(new Error(err || 'Cluster connection failed'));
-        process.exit(1);
+        process.exit(code || 2);
     }
 
     local_ips(all)

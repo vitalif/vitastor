@@ -2,6 +2,7 @@
 
 PG_MINSIZE=1
 SCHEME=replicated
+GLOBAL_CONFIG=',"osd_out_time":1'
 
 . `dirname $0`/run_3osds.sh
 

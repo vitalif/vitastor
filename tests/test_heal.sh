@@ -9,6 +9,7 @@ if [[ "$SCHEME" = "ec" ]]; then
 fi
 OSD_COUNT=${OSD_COUNT:-7}
 PG_COUNT=32
+GLOBAL_CONFIG=',"osd_out_time":1'
 . `dirname $0`/run_3osds.sh
 check_qemu
 

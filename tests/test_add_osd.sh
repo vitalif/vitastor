@@ -1,7 +1,7 @@
 #!/bin/bash -ex
 
 PG_COUNT=2048
-
+GLOBAL_CONFIG=',"osd_out_time":1'
 . `dirname $0`/run_3osds.sh
 
 LD_PRELOAD="build/src/libfio_vitastor.so" \

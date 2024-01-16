@@ -45,6 +45,8 @@ IMMEDIATE_COMMIT=1 ./test_rebalance_verify.sh
 SCHEME=ec ./test_rebalance_verify.sh
 SCHEME=ec IMMEDIATE_COMMIT=1 ./test_rebalance_verify.sh
 
+./test_switch_primary.sh
+
 ./test_write.sh
 SCHEME=xor ./test_write.sh
 
