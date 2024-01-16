@@ -1414,7 +1414,14 @@ class Mon
             }
             if (changed)
             {
-                await this.save_pg_config(new_config_pgs);
+                const ok = await this.save_pg_config(new_config_pgs);
+                if (ok)
+                    console.log('PG configuration successfully changed');
+                else
+                {
+                    console.log('Someone changed PG configuration while we also tried to change it. Retrying in '+this.config.mon_change_timeout+' ms');
+                    this.schedule_recheck();
+                }
             }
         }
         this.recheck_pgs_active = false;
@@ -1495,6 +1502,11 @@ class Mon
             this.save_new_pgs_txn(new_config_pgs, etcd_request, pool_id, up_osds, osd_tree, real_prev_pgs, pool_res.pgs, pg_history);
         }
         new_config_pgs.hash = tree_hash;
+        return await this.save_pg_config(new_config_pgs, etcd_request);
+    }
+
+    async save_pg_config(new_config_pgs, etcd_request = { compare: [], success: [] })
+    {
         etcd_request.compare.push(
             { key: b64(this.etcd_prefix+'/mon/master'), target: 'LEASE', lease: ''+this.etcd_lease_id },
             { key: b64(this.etcd_prefix+'/config/pgs'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
