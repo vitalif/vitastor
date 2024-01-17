@@ -11,19 +11,26 @@ Replicated setups:
 - Single-threaded write+fsync latency:
   - With immediate commit: 2 network roundtrips + 1 disk write.
   - With lazy commit: 4 network roundtrips + 1 disk write + 1 disk flush.
-- Saturated parallel read iops: min(network bandwidth, sum(disk read iops)).
-- Saturated parallel write iops: min(network bandwidth, sum(disk write iops / number of replicas / write amplification)).
+- Linear read: `min(total network bandwidth, sum(disk read MB/s))`.
+- Linear write: `min(total network bandwidth, sum(disk write MB/s / number of replicas))`.
+- Saturated parallel read iops: `min(total network bandwidth, sum(disk read iops))`.
+- Saturated parallel write iops: `min(total network bandwidth / number of replicas, sum(disk write iops / number of replicas / (write amplification = 4)))`.
 
-EC/XOR setups:
+EC/XOR setups (EC N+K):
 - Single-threaded (T1Q1) read latency: 1.5 network roundtrips + 1 disk read.
 - Single-threaded write+fsync latency:
   - With immediate commit: 3.5 network roundtrips + 1 disk read + 2 disk writes.
   - With lazy commit: 5.5 network roundtrips + 1 disk read + 2 disk writes + 2 disk fsyncs.
-  - 0.5 in actually (k-1)/k which means that an additional roundtrip doesn't happen when
+  - 0.5 in actually `(N-1)/N` which means that an additional roundtrip doesn't happen when
     the read sub-operation can be served locally.
-- Saturated parallel read iops: min(network bandwidth, sum(disk read iops)).
-- Saturated parallel write iops: min(network bandwidth, sum(disk write iops * number of data drives / (number of data + parity drives) / write amplification)).
-  In fact, you should put disk write iops under the condition of ~10% reads / ~90% writes in this formula.
+- Linear read: `min(total network bandwidth, sum(disk read MB/s))`.
+- Linear write: `min(total network bandwidth, sum(disk write MB/s * N/(N+K)))`.
+- Saturated parallel read iops: `min(total network bandwidth, sum(disk read iops))`.
+- Saturated parallel write iops: roughly `total iops / (N+K) / WA`. More exactly,
+  `min(total network bandwidth * N/(N+K), sum(disk randrw iops / (N*4 + K*5 + 1)))` with
+  random read/write mix corresponding to `(N-1)/(N*4 + K*5 + 1)*100 % reads`.
+  - For example, with EC 2+1 it is: `(7% randrw iops) / 14`.
+  - With EC 6+3 it is: `(12.5% randrw iops) / 40`.
 
 Write amplification for 4 KB blocks is usually 3-5 in Vitastor:
 1. Journal block write
