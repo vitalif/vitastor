@@ -29,6 +29,22 @@ struct list_cookie_val_t
     std::string key;
 };
 
+struct nfs_kv_write_state;
+
+struct shared_alloc_queue_t
+{
+    nfs_kv_write_state *st;
+    int state;
+    uint64_t size;
+};
+
+struct inode_extend_t
+{
+    int refcnt = 0;
+    uint64_t cur_extend = 0, next_extend = 0, done_extend = 0;
+    std::vector<std::function<void()>> waiters;
+};
+
 class nfs_proxy_t
 {
 public:
@@ -47,6 +63,9 @@ public:
     int trace = 0;
 
     pool_id_t default_pool_id;
+    uint64_t pool_block_size = 0;
+    uint64_t pool_alignment = 0;
+    uint64_t shared_inode_threshold = 0;
 
     portmap_service_t pmap;
     ring_loop_t *ringloop = NULL;
@@ -57,6 +76,9 @@ public:
     std::map<list_cookie_t, list_cookie_val_t> list_cookies;
     uint64_t fs_next_id = 0, fs_allocated_id = 0;
     std::vector<uint64_t> unallocated_ids;
+    std::vector<shared_alloc_queue_t> allocating_shared;
+    uint64_t cur_shared_inode = 0, cur_shared_offset = 0;
+    std::map<inode_t, inode_extend_t> extends;
 
     std::vector<XDR*> xdr_pool;
 
@@ -76,6 +98,7 @@ public:
     void daemonize();
 };
 
+// FIXME: Move to "proto"
 struct rpc_cur_buffer_t
 {
     uint8_t *buf;
@@ -97,30 +120,6 @@ struct rpc_free_buffer_t
     unsigned size;
 };
 
-struct extend_size_t
-{
-    inode_t inode;
-    uint64_t new_size;
-};
-
-inline bool operator < (const extend_size_t &a, const extend_size_t &b)
-{
-    return a.inode < b.inode || a.inode == b.inode && a.new_size < b.new_size;
-}
-
-struct extend_write_t
-{
-    rpc_op_t *rop;
-    int resize_res, write_res; // 1 = started, 0 = completed OK, -errno = completed with error
-};
-
-struct extend_inode_t
-{
-    uint64_t cur_extend = 0, next_extend = 0;
-    std::string old_ientry;
-    json11::Json::object attrs;
-};
-
 class nfs_client_t
 {
 public:
@@ -135,8 +134,6 @@ public:
     rpc_cur_buffer_t cur_buffer = { 0 };
     std::map<uint8_t*, rpc_used_buffer_t> used_buffers;
     std::vector<rpc_free_buffer_t> free_buffers;
-    std::map<inode_t, extend_inode_t> extends;
-    std::multimap<extend_size_t, extend_write_t> extend_writes;
 
     iovec read_iov;
     msghdr read_msg = { 0 };
@@ -166,6 +163,14 @@ public:
 #define KV_ROOT_INODE 1
 #define KV_NEXT_ID_KEY "id"
 #define KV_ROOT_HANDLE "R"
+#define SHARED_FILE_MAGIC_V1 0x711A5158A6EDF17E
+
+struct shared_file_header_t
+{
+    uint64_t magic = 0;
+    uint64_t inode = 0;
+    uint64_t size = 0;
+};
 
 nfsstat3 vitastor_nfs_map_err(int err);
 nfstime3 nfstime_from_str(const std::string & s);
@@ -182,6 +187,7 @@ void allocate_new_id(nfs_client_t *self, std::function<void(int res, uint64_t ne
 void kv_read_inode(nfs_client_t *self, uint64_t ino,
     std::function<void(int res, const std::string & value, json11::Json ientry)> cb,
     bool allow_cache = false);
+uint64_t align_shared_size(nfs_client_t *self, uint64_t size);
 
 int kv_nfs3_getattr_proc(void *opaque, rpc_op_t *rop);
 int kv_nfs3_setattr_proc(void *opaque, rpc_op_t *rop);

@@ -191,6 +191,7 @@ void nfs_proxy_t::run(json11::Json cfg)
         }
         fs_base_inode = ((uint64_t)default_pool_id << (64-POOL_ID_BITS));
         fs_inode_count = ((uint64_t)1 << (64-POOL_ID_BITS)) - 1;
+        shared_inode_threshold = pool_block_size;
     }
     // Self-register portmap and NFS
     pmap.reg_ports.insert((portmap_id_t){
@@ -372,8 +373,11 @@ void nfs_proxy_t::check_default_pool()
     {
         if (cli->st_cli.pool_config.size() == 1)
         {
-            default_pool = cli->st_cli.pool_config.begin()->second.name;
-            default_pool_id = cli->st_cli.pool_config.begin()->first;
+            auto pool_it = cli->st_cli.pool_config.begin();
+            default_pool_id = pool_it->first;
+            default_pool = pool_it->second.name;
+            pool_block_size = pool_it->second.pg_stripe_size;
+            pool_alignment = pool_it->second.bitmap_granularity;
         }
         else
         {
@@ -388,6 +392,8 @@ void nfs_proxy_t::check_default_pool()
             if (p.second.name == default_pool)
             {
                 default_pool_id = p.first;
+                pool_block_size = p.second.pg_stripe_size;
+                pool_alignment = p.second.bitmap_granularity;
                 break;
             }
         }

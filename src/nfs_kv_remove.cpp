@@ -228,7 +228,8 @@ resume_6:
         return;
     }
     // (6) If regular file and inode is deleted: delete data
-    if ((!st->type || st->type == NF3REG) && st->ientry["nlink"].uint64_value() <= 1)
+    if ((!st->type || st->type == NF3REG) && st->ientry["nlink"].uint64_value() <= 1 &&
+        !st->ientry["shared_inode"].uint64_value())
     {
         // Remove data
         st->self->parent->cmd->loop_and_wait(st->self->parent->cmd->start_rm_data(json11::Json::object {
