@@ -353,11 +353,11 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
     up_wait_retry_interval = config["up_wait_retry_interval"].uint64_value();
     if (!up_wait_retry_interval)
     {
-        up_wait_retry_interval = 500;
-    }
-    else if (up_wait_retry_interval < 50)
-    {
         up_wait_retry_interval = 50;
+    }
+    else if (up_wait_retry_interval < 10)
+    {
+        up_wait_retry_interval = 10;
     }
     // log_level
     log_level = config["log_level"].uint64_value();

@@ -92,7 +92,7 @@ const etcd_tree = {
             peer_connect_timeout: 5, // seconds. min: 1
             osd_idle_timeout: 5, // seconds. min: 1
             osd_ping_timeout: 5, // seconds. min: 1
-            up_wait_retry_interval: 500, // ms. min: 50
+            up_wait_retry_interval: 50, // ms. min: 10
             max_etcd_attempts: 5,
             etcd_quick_timeout: 1000, // ms
             etcd_slow_timeout: 5000, // ms

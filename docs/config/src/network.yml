@@ -245,8 +245,8 @@
     повторная попытка соединения.
 - name: up_wait_retry_interval
   type: ms
-  min: 50
-  default: 500
+  min: 10
+  default: 50
   online: true
   info: |
     OSDs respond to clients with a special error code when they receive I/O
