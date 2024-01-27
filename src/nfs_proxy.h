@@ -7,6 +7,9 @@
 #include "kv_db.h"
 
 #define RPC_INIT_BUF_SIZE 32768
+#define MAX_REQUEST_SIZE 128*1024*1024
+#define TRUE 1
+#define FALSE 0
 
 class cli_tool_t;
 
@@ -156,3 +159,54 @@ public:
     bool deref();
     void stop();
 };
+
+// FIXME: Move to "impl"
+#include "nfs/nfs.h"
+
+#define KV_ROOT_INODE 1
+#define KV_NEXT_ID_KEY "id"
+#define KV_ROOT_HANDLE "R"
+
+nfsstat3 vitastor_nfs_map_err(int err);
+nfstime3 nfstime_from_str(const std::string & s);
+std::string nfstime_to_str(nfstime3 t);
+int kv_map_type(const std::string & type);
+fattr3 get_kv_attributes(nfs_client_t *self, uint64_t ino, json11::Json attrs);
+std::string kv_direntry_key(uint64_t dir_ino, const std::string & filename);
+std::string kv_direntry_filename(const std::string & key);
+std::string kv_inode_key(uint64_t ino);
+std::string kv_fh(uint64_t ino);
+uint64_t kv_fh_inode(const std::string & fh);
+bool kv_fh_valid(const std::string & fh);
+void allocate_new_id(nfs_client_t *self, std::function<void(int res, uint64_t new_id)> cb);
+void kv_read_inode(nfs_client_t *self, uint64_t ino,
+    std::function<void(int res, const std::string & value, json11::Json ientry)> cb,
+    bool allow_cache = false);
+
+int kv_nfs3_getattr_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_setattr_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_lookup_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_readlink_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_read_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_write_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_create_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_mkdir_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_symlink_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_mknod_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_remove_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_rmdir_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_rename_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_link_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_readdir_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_readdirplus_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_fsstat_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_fsinfo_proc(void *opaque, rpc_op_t *rop);
+int kv_nfs3_pathconf_proc(void *opaque, rpc_op_t *rop);
+int nfs3_access_proc(void *opaque, rpc_op_t *rop);
+int nfs3_null_proc(void *opaque, rpc_op_t *rop);
+int nfs3_commit_proc(void *opaque, rpc_op_t *rop);
+int mount3_mnt_proc(void *opaque, rpc_op_t *rop);
+int mount3_dump_proc(void *opaque, rpc_op_t *rop);
+int mount3_umnt_proc(void *opaque, rpc_op_t *rop);
+int mount3_umntall_proc(void *opaque, rpc_op_t *rop);
+int mount3_export_proc(void *opaque, rpc_op_t *rop);
