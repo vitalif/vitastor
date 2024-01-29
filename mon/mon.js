@@ -55,7 +55,7 @@ const etcd_tree = {
             // etcd connection - configurable online
             etcd_address: "10.0.115.10:2379/v3",
             // mon
-            etcd_mon_ttl: 30, // min: 10
+            etcd_mon_ttl: 5, // min: 1
             etcd_mon_timeout: 1000, // ms. min: 0
             etcd_mon_retries: 5, // min: 0
             mon_change_timeout: 1000, // ms. min: 100
@@ -480,10 +480,10 @@ class Mon
 
     check_config()
     {
-        this.config.etcd_mon_ttl = Number(this.config.etcd_mon_ttl) || 30;
-        if (this.config.etcd_mon_ttl < 10)
+        this.config.etcd_mon_ttl = Number(this.config.etcd_mon_ttl) || 5;
+        if (this.config.etcd_mon_ttl < 1)
         {
-            this.config.etcd_mon_ttl = 10;
+            this.config.etcd_mon_ttl = 1;
         }
         this.config.etcd_mon_timeout = Number(this.config.etcd_mon_timeout) || 0;
         if (this.config.etcd_mon_timeout <= 0)
@@ -794,7 +794,7 @@ class Mon
             {
                 this.failconnect('Lease expired');
             }
-        }, this.config.etcd_mon_timeout);
+        }, this.config.etcd_mon_ttl*1000);
         if (!this.signals_set)
         {
             process.on('SIGINT', this.on_stop_cb);
