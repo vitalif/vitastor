@@ -4,6 +4,9 @@ project(vitastor)
 
 include(GNUInstallDirs)
 include(CTest)
+include(CheckIncludeFile)
+
+find_package(PkgConfig)
 
 set(WITH_QEMU false CACHE BOOL "Build QEMU driver inside Vitastor source tree")
 set(WITH_FIO true CACHE BOOL "Build FIO driver")
@@ -24,16 +27,21 @@ if (${WITH_ASAN})
 	add_link_options(-fsanitize=address -fno-omit-frame-pointer)
 endif (${WITH_ASAN})
 
-set(CMAKE_BUILD_TYPE RelWithDebInfo)
-string(REGEX REPLACE "([\\/\\-]O)[12]?" "\\13" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
-string(REGEX REPLACE "([\\/\\-]O)[12]?" "\\13" CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL}")
-string(REGEX REPLACE "([\\/\\-]O)[12]?" "\\13" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
+# Set a default build type if none was specified
+if(NOT CMAKE_BUILD_TYPE)
+	message(STATUS "Setting build type to 'RelWithDebInfo' as none was specified.")
+	set(CMAKE_BUILD_TYPE RelWithDebInfo)
+endif()
+
+string(REGEX REPLACE "([\\/\\-]O)[123s]?" "\\13" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+string(REGEX REPLACE "([\\/\\-]O)[123s]?" "\\13" CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL}")
+string(REGEX REPLACE "([\\/\\-]O)[123s]?" "\\13" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
 string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL}")
 string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
-string(REGEX REPLACE "([\\/\\-]O)[12]?" "\\13" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
-string(REGEX REPLACE "([\\/\\-]O)[12]?" "\\13" CMAKE_C_FLAGS_MINSIZEREL "${CMAKE_C_FLAGS_MINSIZEREL}")
-string(REGEX REPLACE "([\\/\\-]O)[12]?" "\\13" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
+string(REGEX REPLACE "([\\/\\-]O)[123s]?" "\\13" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+string(REGEX REPLACE "([\\/\\-]O)[123s]?" "\\13" CMAKE_C_FLAGS_MINSIZEREL "${CMAKE_C_FLAGS_MINSIZEREL}")
+string(REGEX REPLACE "([\\/\\-]O)[123s]?" "\\13" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
 string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
 string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_C_FLAGS_MINSIZEREL "${CMAKE_C_FLAGS_MINSIZEREL}")
 string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
@@ -42,6 +50,8 @@ macro(install_symlink filepath sympath)
 	install(CODE "execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink ${filepath} \$ENV{DESTDIR}${sympath})")
 	install(CODE "message(\"-- Created symlink: ${sympath} -> ${filepath}\")")
 endmacro(install_symlink)
+
+check_include_file("linux/nbd-netlink.h" HAVE_NBD_NETLINK_H)
 
 find_package(PkgConfig)
 pkg_check_modules(LIBURING REQUIRED liburing)
@@ -174,12 +184,15 @@ if (${WITH_FIO})
 endif (${WITH_FIO})
 
 # vitastor-nbd
-add_executable(vitastor-nbd
-	nbd_proxy.cpp
+pkg_check_modules(NL3 REQUIRED libnl-3.0 libnl-genl-3.0)
+add_executable(vitastor-nbd   
+	nbd_proxy.cpp 
 )
-target_link_libraries(vitastor-nbd
-	vitastor_client
-)
+target_include_directories(vitastor-nbd PUBLIC ${NL3_INCLUDE_DIRS})
+target_link_libraries(vitastor-nbd vitastor_client ${NL3_LIBRARIES})
+if(HAVE_NBD_NETLINK_H)
+	target_compile_definitions(vitastor-nbd PUBLIC HAVE_NBD_NETLINK_H)
+endif()
 
 # vitastor-nfs
 add_executable(vitastor-nfs

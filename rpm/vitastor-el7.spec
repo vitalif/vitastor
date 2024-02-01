@@ -17,6 +17,7 @@ BuildRequires:  libisa-l-devel
 BuildRequires:  gf-complete-devel
 BuildRequires:  libibverbs-devel
 BuildRequires:  cmake3
+BuildRequires:  libnl3-devel
 Requires:       vitastor-osd = %{version}-%{release}
 Requires:       vitastor-mon = %{version}-%{release}
 Requires:       vitastor-client = %{version}-%{release}
