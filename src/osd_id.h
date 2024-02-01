@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "object_id.h"
+
 #define POOL_SCHEME_REPLICATED 1
 #define POOL_SCHEME_XOR 2
 #define POOL_SCHEME_EC 3

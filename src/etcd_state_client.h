@@ -60,6 +60,9 @@ struct pool_config_t
     uint64_t pg_stripe_size;
     std::map<pg_num_t, pg_config_t> pg_config;
     uint64_t scrub_interval;
+    std::vector<std::string> osd_tags;
+    std::vector<std::string> primary_affinity_tags;
+    std::string root_node;
 };
 
 struct inode_config_t
@@ -146,6 +149,7 @@ public:
     void clean_nonexistent_pgs();
     void parse_state(const etcd_kv_t & kv);
     void parse_config(const json11::Json & config);
+    uint32_t parse_immediate_commit_string(const std::string immediate_commit_str);
     void insert_inode_config(const inode_config_t & cfg);
     inode_watch_t* watch_inode(std::string name);
     void close_watch(inode_watch_t* watch);

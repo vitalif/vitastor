@@ -245,6 +245,7 @@ resume_8:
         }
         state = 100;
         result = (cli_result_t){
+            .err = 0,
             .text = "",
             .data = my_result(result.data),
         };
