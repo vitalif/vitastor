@@ -4,6 +4,9 @@ project(vitastor)
 
 include(GNUInstallDirs)
 include(CTest)
+include(CheckIncludeFile)
+
+find_package(PkgConfig)
 
 set(WITH_QEMU false CACHE BOOL "Build QEMU driver inside Vitastor source tree")
 set(WITH_FIO true CACHE BOOL "Build FIO driver")
@@ -42,6 +45,8 @@ macro(install_symlink filepath sympath)
 	install(CODE "execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink ${filepath} \$ENV{DESTDIR}${sympath})")
 	install(CODE "message(\"-- Created symlink: ${sympath} -> ${filepath}\")")
 endmacro(install_symlink)
+
+check_include_file("linux/nbd-netlink.h" HAVE_NBD_NETLINK_H)
 
 find_package(PkgConfig)
 pkg_check_modules(LIBURING REQUIRED liburing)
@@ -178,12 +183,15 @@ if (${WITH_FIO})
 endif (${WITH_FIO})
 
 # vitastor-nbd
-add_executable(vitastor-nbd
-	nbd_proxy.cpp
+pkg_check_modules(NL3 REQUIRED libnl-3.0 libnl-genl-3.0)
+add_executable(vitastor-nbd   
+	nbd_proxy.cpp 
 )
-target_link_libraries(vitastor-nbd
-	vitastor_client
-)
+target_include_directories(vitastor-nbd PUBLIC ${NL3_INCLUDE_DIRS})
+target_link_libraries(vitastor-nbd vitastor_client ${NL3_LIBRARIES})
+if(HAVE_NBD_NETLINK_H)
+	target_compile_definitions(vitastor-nbd PUBLIC HAVE_NBD_NETLINK_H)
+endif()
 
 # libvitastor_kv.so
 add_library(vitastor_kv SHARED

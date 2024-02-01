@@ -10,7 +10,7 @@ RUN rm -f /etc/yum.repos.d/CentOS-Media.repo
 RUN yum -y --enablerepo=extras install centos-release-scl epel-release yum-utils rpm-build
 RUN yum -y install https://vitastor.io/rpms/centos/7/vitastor-release-1.0-1.el7.noarch.rpm
 RUN yum -y install devtoolset-9-gcc-c++ devtoolset-9-libatomic-devel gcc make cmake gperftools-devel \
-    fio rh-nodejs12 jerasure-devel libisa-l-devel gf-complete-devel rdma-core-devel
+    fio rh-nodejs12 jerasure-devel libisa-l-devel gf-complete-devel rdma-core-devel libnl3-devel
 RUN yumdownloader --disablerepo=centos-sclo-rh --source fio
 RUN rpm --nomd5 -i fio*.src.rpm
 RUN rm -f /etc/yum.repos.d/CentOS-Media.repo

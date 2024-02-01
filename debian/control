@@ -2,7 +2,7 @@ Source: vitastor
 Section: admin
 Priority: optional
 Maintainer: Vitaliy Filippov <vitalif@yourcmc.ru>
-Build-Depends: debhelper, liburing-dev (>= 0.6), g++ (>= 8), libstdc++6 (>= 8), linux-libc-dev, libgoogle-perftools-dev, libjerasure-dev, libgf-complete-dev, libibverbs-dev, libisal-dev, cmake, pkg-config
+Build-Depends: debhelper, liburing-dev (>= 0.6), g++ (>= 8), libstdc++6 (>= 8), linux-libc-dev, libgoogle-perftools-dev, libjerasure-dev, libgf-complete-dev, libibverbs-dev, libisal-dev, cmake, pkg-config, libnl-3-dev, libnl-genl-3-dev
 Standards-Version: 4.5.0
 Homepage: https://vitastor.io/
 Rules-Requires-Root: no
