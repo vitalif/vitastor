@@ -214,7 +214,10 @@ void print_help(const char *help_text, std::string exe_name, std::string cmd, bo
             else if (*next_line && isspace(*next_line))
                 started = true;
             else if (cmd_start && matched)
+            {
                 filtered_text += std::string(cmd_start, next_line-cmd_start);
+                matched = started = false;
+            }
         }
         while (filtered_text.size() > 1 &&
             filtered_text[filtered_text.size()-1] == '\n' &&

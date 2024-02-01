@@ -84,7 +84,10 @@ struct image_changer_t
             (!new_size && !force_size || cfg.size == new_size || cfg.size >= new_size && inc_size) &&
             (new_name == "" || new_name == image_name))
         {
-            result = (cli_result_t){ .text = "No change" };
+            result = (cli_result_t){ .err = 0, .text = "No change", .data = json11::Json::object {
+                { "error_code", 0 },
+                { "error_text", "No change" },
+            }};
             state = 100;
             return;
         }
@@ -220,7 +223,16 @@ resume_2:
             parent->cli->st_cli.inode_by_name.erase(image_name);
         }
         parent->cli->st_cli.insert_inode_config(cfg);
-        result = (cli_result_t){ .err = 0, .text = "Image "+image_name+" modified" };
+        result = (cli_result_t){
+            .err = 0,
+            .text = "Image "+image_name+" modified",
+            .data = json11::Json::object {
+                { "name", image_name },
+                { "inode", INODE_NO_POOL(inode_num) },
+                { "pool", (uint64_t)INODE_POOL(inode_num) },
+                { "size", new_size },
+            }
+        };
         state = 100;
     }
 };

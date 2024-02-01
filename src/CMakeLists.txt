@@ -145,7 +145,6 @@ add_library(vitastor_client SHARED
 	cli_status.cpp
 	cli_describe.cpp
 	cli_fix.cpp
-	cli_df.cpp
 	cli_ls.cpp
 	cli_create.cpp
 	cli_modify.cpp
@@ -154,6 +153,11 @@ add_library(vitastor_client SHARED
 	cli_rm_data.cpp
 	cli_rm.cpp
 	cli_rm_osd.cpp
+	cli_pool_cfg.cpp
+	cli_pool_create.cpp
+	cli_pool_ls.cpp
+	cli_pool_modify.cpp
+	cli_pool_rm.cpp
 )
 set_target_properties(vitastor_client PROPERTIES PUBLIC_HEADER "vitastor_c.h")
 target_link_libraries(vitastor_client
