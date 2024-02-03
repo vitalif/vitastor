@@ -706,6 +706,26 @@ resume_5:
         remove_object_from_state(op_data->oid, &op_data->object_state, pg);
         deref_object_state(pg, &op_data->object_state, true);
     }
+    // Mark PG and OSDs as dirty
+    for (auto & chunk: (op_data->object_state ? op_data->object_state->osd_set : pg.cur_loc_set))
+    {
+        this->dirty_osds.insert(chunk.osd_num);
+    }
+    for (auto cl_it = msgr.clients.find(cur_op->peer_fd); cl_it != msgr.clients.end(); )
+    {
+        cl_it->second->dirty_pgs.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
+        break;
+    }
+    dirty_pgs.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
+    if (immediate_commit == IMMEDIATE_NONE)
+    {
+        unstable_write_count++;
+        if (unstable_write_count >= autosync_writes)
+        {
+            unstable_write_count = 0;
+            autosync();
+        }
+    }
     pg.total_count--;
     cur_op->reply.hdr.retval = 0;
 continue_others:
