@@ -262,7 +262,8 @@ void osd_t::report_statistics()
     for (auto st_it = inode_stats.begin(); st_it != inode_stats.end(); )
     {
         auto & kv = *st_it;
-        if (!bs_inode_space[kv.first])
+        auto spc_it = bs_inode_space.find(kv.first);
+        if (spc_it == bs_inode_space.end() || !spc_it->second) // prevent autovivification
         {
             // Is it an empty inode?
             if (!tv_now.tv_sec)
