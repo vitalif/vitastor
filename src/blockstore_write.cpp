@@ -129,7 +129,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     }
     bool imm = (op->len < dsk.data_block_size ? (immediate_commit != IMMEDIATE_NONE) : (immediate_commit == IMMEDIATE_ALL));
     if (wait_big && !is_del && !deleted && op->len < dsk.data_block_size && !imm ||
-        !imm && unsynced_queued_ops >= autosync_writes)
+        !imm && autosync_writes && unsynced_queued_ops >= autosync_writes)
     {
         // Issue an additional sync so that the previous big write can reach the journal
         blockstore_op_t *sync_op = new blockstore_op_t;
