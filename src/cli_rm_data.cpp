@@ -17,6 +17,7 @@ struct rm_pg_t
     uint64_t obj_count = 0, obj_done = 0;
     int state = 0;
     int in_flight = 0;
+    bool synced = false;
 };
 
 struct rm_inode_t
@@ -48,6 +49,7 @@ struct rm_inode_t
                 .objects = objects,
                 .obj_count = objects.size(),
                 .obj_done = 0,
+                .synced = parent->cli->get_immediate_commit(inode),
             });
             if (min_offset == 0)
             {
@@ -151,6 +153,37 @@ struct rm_inode_t
             }
             cur_list->obj_pos++;
         }
+        if (cur_list->in_flight == 0 && cur_list->obj_pos == cur_list->objects.end() &&
+            !cur_list->synced)
+        {
+            osd_op_t *op = new osd_op_t();
+            op->op_type = OSD_OP_OUT;
+            op->peer_fd = parent->cli->msgr.osd_peer_fds.at(cur_list->rm_osd_num);
+            op->req = (osd_any_op_t){
+                .sync = {
+                    .header = {
+                        .magic = SECONDARY_OSD_OP_MAGIC,
+                        .id = parent->cli->next_op_id(),
+                        .opcode = OSD_OP_SYNC,
+                    },
+                },
+            };
+            op->callback = [this, cur_list](osd_op_t *op)
+            {
+                cur_list->in_flight--;
+                cur_list->synced = true;
+                if (op->reply.hdr.retval < 0)
+                {
+                    fprintf(stderr, "Failed to sync OSD %lu (retval=%ld)\n",
+                        cur_list->rm_osd_num, op->reply.hdr.retval);
+                    error_count++;
+                }
+                delete op;
+                continue_delete();
+            };
+            cur_list->in_flight++;
+            parent->cli->msgr.outbox_push(op);
+        }
     }
 
     void continue_delete()
@@ -161,7 +194,8 @@ struct rm_inode_t
         }
         for (int i = 0; i < lists.size(); i++)
         {
-            if (!lists[i]->in_flight && lists[i]->obj_pos == lists[i]->objects.end())
+            if (!lists[i]->in_flight && lists[i]->obj_pos == lists[i]->objects.end() &&
+                lists[i]->synced)
             {
                 delete lists[i];
                 lists.erase(lists.begin()+i, lists.begin()+i+1);
@@ -187,7 +221,7 @@ struct rm_inode_t
             {
                 fprintf(stderr, "\n");
             }
-            if (parent->progress && (total_done < total_count || inactive_osds.size() > 0))
+            if (parent->progress && (total_done < total_count || inactive_osds.size() > 0 || error_count > 0))
             {
                 fprintf(
                     stderr, "Warning: Pool:%u,ID:%lu inode data may not have been fully removed.\n"
