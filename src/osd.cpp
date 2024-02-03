@@ -22,7 +22,7 @@ static blockstore_config_t json_to_bs(const json11::Json::object & config)
     {
         if (kv.second.is_string())
             bs[kv.first] = kv.second.string_value();
-        else
+        else if (!kv.second.is_null())
             bs[kv.first] = kv.second.dump();
     }
     return bs;
@@ -194,7 +194,8 @@ void osd_t::parse_config(bool init)
         if (autosync_interval > MAX_AUTOSYNC_INTERVAL)
             autosync_interval = DEFAULT_AUTOSYNC_INTERVAL;
     }
-    if (!config["autosync_writes"].is_null())
+    if (config["autosync_writes"].is_number() ||
+        config["autosync_writes"].string_value() != "")
     {
         // Allow to set it to 0
         autosync_writes = config["autosync_writes"].uint64_value();
