@@ -8,7 +8,9 @@ PartOf=vitastor.target
 LimitNOFILE=1048576
 LimitNPROC=1048576
 LimitMEMLOCK=infinity
-ExecStart=bash -c 'exec vitastor-disk exec-osd /dev/vitastor/osd%i-data >>/var/log/vitastor/osd%i.log 2>&1'
+# Use the following for direct logs to files
+#ExecStart=bash -c 'exec vitastor-disk exec-osd /dev/vitastor/osd%i-data >>/var/log/vitastor/osd%i.log 2>&1'
+ExecStart=vitastor-disk exec-osd /dev/vitastor/osd%i-data
 ExecStartPre=+vitastor-disk pre-exec /dev/vitastor/osd%i-data
 WorkingDirectory=/
 User=vitastor
