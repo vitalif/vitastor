@@ -5,13 +5,8 @@
 
 #include <sys/time.h>
 
-#include "str_util.h"
-
 #include "nfs_proxy.h"
-
-#include "nfs/nfs.h"
-
-#include "cli.h"
+#include "nfs_kv.h"
 
 struct nfs_rmw_t
 {
@@ -62,15 +57,15 @@ static void nfs_kv_continue_write(nfs_kv_write_state *st, int state);
 static void finish_allocate_shared(nfs_client_t *self, int res)
 {
     std::vector<shared_alloc_queue_t> waiting;
-    waiting.swap(self->parent->allocating_shared);
+    waiting.swap(self->parent->kvfs->allocating_shared);
     for (auto & w: waiting)
     {
         w.st->res = res;
         if (res == 0)
         {
-            w.st->shared_inode = self->parent->cur_shared_inode;
-            w.st->shared_offset = self->parent->cur_shared_offset;
-            self->parent->cur_shared_offset += (w.size + self->parent->pool_alignment-1) & ~(self->parent->pool_alignment-1);
+            w.st->shared_inode = self->parent->kvfs->cur_shared_inode;
+            w.st->shared_offset = self->parent->kvfs->cur_shared_offset;
+            self->parent->kvfs->cur_shared_offset += (w.size + self->parent->pool_alignment-1) & ~(self->parent->pool_alignment-1);
         }
         nfs_kv_continue_write(w.st, w.state);
     }
@@ -78,10 +73,10 @@ static void finish_allocate_shared(nfs_client_t *self, int res)
 
 static void allocate_shared_inode(nfs_kv_write_state *st, int state, uint64_t size)
 {
-    if (st->self->parent->cur_shared_inode == 0)
+    if (st->self->parent->kvfs->cur_shared_inode == 0)
     {
-        st->self->parent->allocating_shared.push_back({ st, state, size });
-        if (st->self->parent->allocating_shared.size() > 1)
+        st->self->parent->kvfs->allocating_shared.push_back({ st, state, size });
+        if (st->self->parent->kvfs->allocating_shared.size() > 1)
         {
             return;
         }
@@ -92,15 +87,15 @@ static void allocate_shared_inode(nfs_kv_write_state *st, int state, uint64_t si
                 finish_allocate_shared(st->self, res);
                 return;
             }
-            st->self->parent->cur_shared_inode = new_id;
-            st->self->parent->cur_shared_offset = 0;
+            st->self->parent->kvfs->cur_shared_inode = new_id;
+            st->self->parent->kvfs->cur_shared_offset = 0;
             st->self->parent->db->set(
                 kv_inode_key(new_id), json11::Json(json11::Json::object{ { "type", "shared" } }).dump(),
                 [st](int res)
                 {
                     if (res < 0)
                     {
-                        st->self->parent->cur_shared_inode = 0;
+                        st->self->parent->kvfs->cur_shared_inode = 0;
                     }
                     finish_allocate_shared(st->self, res);
                 },
@@ -727,7 +722,7 @@ resume_11:
         st->ientry["size"].uint64_value() < st->new_size ||
         st->ientry["shared_ino"].uint64_value() != 0)
     {
-        st->ext = &st->self->parent->extends[st->ino];
+        st->ext = &st->self->parent->kvfs->extends[st->ino];
         st->ext->refcnt++;
 resume_12:
         if (st->ext->next_extend < st->new_size)
@@ -752,7 +747,7 @@ resume_13:
         assert(st->ext->refcnt >= 0);
         if (st->ext->refcnt == 0)
         {
-            st->self->parent->extends.erase(st->ino);
+            st->self->parent->kvfs->extends.erase(st->ino);
         }
     }
     if (st->res == -EAGAIN)

@@ -6,8 +6,8 @@
 #include <sys/time.h>
 
 #include "str_util.h"
-
 #include "nfs_proxy.h"
+#include "nfs_kv.h"
 
 nfsstat3 vitastor_nfs_map_err(int err)
 {
@@ -140,5 +140,5 @@ uint64_t kv_fh_inode(const std::string & fh)
 
 bool kv_fh_valid(const std::string & fh)
 {
-    return fh == KV_ROOT_HANDLE || fh.size() == 9 && fh[0] == 'S' || fh.size() > 17 && fh[0] == 'I';
+    return fh == NFS_ROOT_HANDLE || fh.size() == 9 && fh[0] == 'S' || fh.size() > 17 && fh[0] == 'I';
 }

@@ -5,12 +5,8 @@
 
 #include <sys/time.h>
 
-#include "str_util.h"
-
 #include "nfs_proxy.h"
-
-#include "nfs/nfs.h"
-
+#include "nfs_kv.h"
 #include "cli.h"
 
 struct kv_del_state

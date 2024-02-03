@@ -5,13 +5,10 @@
 
 #include <sys/time.h>
 
-#include "str_util.h"
-
 #include "nfs_proxy.h"
-
 #include "nfs/nfs.h"
 
-#include "cli.h"
+nfsstat3 vitastor_nfs_map_err(int err);
 
 int nfs3_null_proc(void *opaque, rpc_op_t *rop)
 {
@@ -61,7 +58,7 @@ int mount3_mnt_proc(void *opaque, rpc_op_t *rop)
     nfs_mountres3 *reply = (nfs_mountres3*)rop->reply;
     u_int flavor = RPC_AUTH_NONE;
     reply->fhs_status = MNT3_OK;
-    reply->mountinfo.fhandle = xdr_copy_string(rop->xdrs, KV_ROOT_HANDLE);
+    reply->mountinfo.fhandle = xdr_copy_string(rop->xdrs, NFS_ROOT_HANDLE);
     reply->mountinfo.auth_flavors.auth_flavors_len = 1;
     reply->mountinfo.auth_flavors.auth_flavors_val = (u_int*)xdr_copy_string(rop->xdrs, (char*)&flavor, sizeof(u_int)).data;
     rpc_queue_reply(rop);

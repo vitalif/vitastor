@@ -5,13 +5,8 @@
 
 #include <sys/time.h>
 
-#include "str_util.h"
-
 #include "nfs_proxy.h"
-
-#include "nfs/nfs.h"
-
-#include "cli.h"
+#include "nfs_kv.h"
 
 // Attributes are always stored in the inode
 void kv_read_inode(nfs_client_t *self, uint64_t ino,

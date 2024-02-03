@@ -5,13 +5,8 @@
 
 #include <sys/time.h>
 
-#include "str_util.h"
-
 #include "nfs_proxy.h"
-
-#include "nfs/nfs.h"
-
-#include "cli.h"
+#include "nfs_kv.h"
 
 struct nfs_kv_read_state
 {

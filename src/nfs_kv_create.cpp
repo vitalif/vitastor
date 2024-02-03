@@ -6,21 +6,17 @@
 #include <sys/time.h>
 
 #include "str_util.h"
-
 #include "nfs_proxy.h"
-
-#include "nfs/nfs.h"
-
-#include "cli.h"
+#include "nfs_kv.h"
 
 void allocate_new_id(nfs_client_t *self, std::function<void(int res, uint64_t new_id)> cb)
 {
-    if (self->parent->fs_next_id <= self->parent->fs_allocated_id)
+    if (self->parent->kvfs->fs_next_id <= self->parent->kvfs->fs_allocated_id)
     {
-        cb(0, self->parent->fs_next_id++);
+        cb(0, self->parent->kvfs->fs_next_id++);
         return;
     }
-    else if (self->parent->fs_next_id > self->parent->fs_inode_count)
+    else if (self->parent->kvfs->fs_next_id > self->parent->fs_inode_count)
     {
         cb(-ENOSPC, 0);
         return;
@@ -60,8 +56,8 @@ void allocate_new_id(nfs_client_t *self, std::function<void(int res, uint64_t ne
             }
             else
             {
-                self->parent->fs_next_id = prev_val+2;
-                self->parent->fs_allocated_id = new_val;
+                self->parent->kvfs->fs_next_id = prev_val+2;
+                self->parent->kvfs->fs_allocated_id = new_val;
                 cb(0, prev_val+1);
             }
         }, [prev_val](int res, const std::string & value)
@@ -120,7 +116,7 @@ static void kv_do_create(kv_create_state *st)
         {
             if (res < 0)
             {
-                st->self->parent->unallocated_ids.push_back(st->new_id);
+                st->self->parent->kvfs->unallocated_ids.push_back(st->new_id);
                 if (res == -EAGAIN)
                 {
                     if (st->dup_ino)
@@ -150,7 +146,7 @@ static void kv_do_create(kv_create_state *st)
                         {
                             if (!del_res)
                             {
-                                st->self->parent->unallocated_ids.push_back(st->new_id);
+                                st->self->parent->kvfs->unallocated_ids.push_back(st->new_id);
                             }
                             auto cb = std::move(st->cb);
                             cb(res);

@@ -21,6 +21,7 @@
 #include "addr_util.h"
 #include "str_util.h"
 #include "nfs_proxy.h"
+#include "nfs_kv.h"
 #include "http_client.h"
 #include "cli.h"
 
@@ -192,6 +193,7 @@ void nfs_proxy_t::run(json11::Json cfg)
         fs_base_inode = ((uint64_t)default_pool_id << (64-POOL_ID_BITS));
         fs_inode_count = ((uint64_t)1 << (64-POOL_ID_BITS)) - 1;
         shared_inode_threshold = pool_block_size;
+        kvfs = new kv_fs_state_t;
     }
     // Self-register portmap and NFS
     pmap.reg_ports.insert((portmap_id_t){
@@ -266,9 +268,13 @@ void nfs_proxy_t::run(json11::Json cfg)
     }
     // Destroy the client
     cli->flush();
+    delete kvfs;
+    delete db;
     delete cli;
     delete epmgr;
     delete ringloop;
+    kvfs = NULL;
+    db = NULL;
     cli = NULL;
     epmgr = NULL;
     ringloop = NULL;

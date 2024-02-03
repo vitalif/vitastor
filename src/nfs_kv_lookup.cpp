@@ -5,13 +5,8 @@
 
 #include <sys/time.h>
 
-#include "str_util.h"
-
 #include "nfs_proxy.h"
-
-#include "nfs/nfs.h"
-
-#include "cli.h"
+#include "nfs_kv.h"
 
 int kv_nfs3_lookup_proc(void *opaque, rpc_op_t *rop)
 {
@@ -77,7 +72,7 @@ int kv_nfs3_readlink_proc(void *opaque, rpc_op_t *rop)
     if (self->parent->trace)
         fprintf(stderr, "[%d] READLINK %ju\n", self->nfs_fd, kv_fh_inode(args->symlink));
     READLINK3res *reply = (READLINK3res*)rop->reply;
-    if (!kv_fh_valid(args->symlink) || args->symlink == KV_ROOT_HANDLE)
+    if (!kv_fh_valid(args->symlink) || args->symlink == NFS_ROOT_HANDLE)
     {
         // Invalid filehandle or trying to read symlink from root entry
         *reply = (READLINK3res){ .status = NFS3ERR_INVAL };

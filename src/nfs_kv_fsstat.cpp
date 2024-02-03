@@ -5,13 +5,8 @@
 
 #include <sys/time.h>
 
-#include "str_util.h"
-
 #include "nfs_proxy.h"
-
-#include "nfs/nfs.h"
-
-#include "cli.h"
+#include "nfs_kv.h"
 
 // Get file system statistics
 int kv_nfs3_fsstat_proc(void *opaque, rpc_op_t *rop)
@@ -57,7 +52,7 @@ int kv_nfs3_fsinfo_proc(void *opaque, rpc_op_t *rop)
     FSINFO3res *reply = (FSINFO3res*)rop->reply;
     if (self->parent->trace)
         fprintf(stderr, "[%d] FSINFO %s\n", self->nfs_fd, std::string(args->fsroot).c_str());
-    if (args->fsroot != KV_ROOT_HANDLE)
+    if (args->fsroot != NFS_ROOT_HANDLE)
     {
         *reply = (FSINFO3res){ .status = NFS3ERR_INVAL };
     }
@@ -98,7 +93,7 @@ int kv_nfs3_pathconf_proc(void *opaque, rpc_op_t *rop)
     PATHCONF3res *reply = (PATHCONF3res*)rop->reply;
     if (self->parent->trace)
         fprintf(stderr, "[%d] PATHCONF %s\n", self->nfs_fd, std::string(args->object).c_str());
-    if (args->object != KV_ROOT_HANDLE)
+    if (args->object != NFS_ROOT_HANDLE)
     {
         *reply = (PATHCONF3res){ .status = NFS3ERR_INVAL };
     }

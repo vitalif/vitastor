@@ -5,13 +5,8 @@
 
 #include <sys/time.h>
 
-#include "str_util.h"
-
 #include "nfs_proxy.h"
-
-#include "nfs/nfs.h"
-
-#include "cli.h"
+#include "nfs_kv.h"
 
 static unsigned len_pad4(unsigned len)
 {
@@ -190,8 +185,8 @@ resume_2:
     st->start = st->prefix;
     if (st->cookie > 1)
     {
-        auto lc_it = st->self->parent->list_cookies.find((list_cookie_t){ st->dir_ino, st->cookieverf, st->cookie });
-        if (lc_it != st->self->parent->list_cookies.end())
+        auto lc_it = st->self->parent->kvfs->list_cookies.find((list_cookie_t){ st->dir_ino, st->cookieverf, st->cookie });
+        if (lc_it != st->self->parent->kvfs->list_cookies.end())
         {
             st->start = lc_it->second.key;
             st->to_skip = 1;
@@ -211,18 +206,18 @@ resume_2:
         st->cookieverf = ((uint64_t)lrand48() | ((uint64_t)lrand48() << 31) | ((uint64_t)lrand48() << 62));
     }
     {
-        auto lc_it = st->self->parent->list_cookies.lower_bound((list_cookie_t){ st->dir_ino, st->cookieverf, 0 });
-        if (lc_it != st->self->parent->list_cookies.end() &&
+        auto lc_it = st->self->parent->kvfs->list_cookies.lower_bound((list_cookie_t){ st->dir_ino, st->cookieverf, 0 });
+        if (lc_it != st->self->parent->kvfs->list_cookies.end() &&
             lc_it->first.dir_ino == st->dir_ino &&
             lc_it->first.cookieverf == st->cookieverf &&
             lc_it->first.cookie < st->cookie)
         {
             auto lc_start = lc_it;
-            while (lc_it != st->self->parent->list_cookies.end() && lc_it->first.cookieverf == st->cookieverf)
+            while (lc_it != st->self->parent->kvfs->list_cookies.end() && lc_it->first.cookieverf == st->cookieverf)
             {
                 lc_it++;
             }
-            st->self->parent->list_cookies.erase(lc_start, lc_it);
+            st->self->parent->kvfs->list_cookies.erase(lc_start, lc_it);
         }
     }
     st->getattr_cur = st->entries.size();
@@ -281,7 +276,7 @@ resume_3:
         entry->name = xdr_copy_string(st->rop->xdrs, name);
         entry->fileid = ino;
         entry->cookie = st->offset++;
-        st->self->parent->list_cookies[(list_cookie_t){ st->dir_ino, st->cookieverf, entry->cookie }] = { .key = entry->name };
+        st->self->parent->kvfs->list_cookies[(list_cookie_t){ st->dir_ino, st->cookieverf, entry->cookie }] = { .key = entry->name };
         if (st->is_plus)
         {
             entry->name_handle = (post_op_fh3){
