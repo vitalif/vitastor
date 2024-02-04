@@ -213,9 +213,9 @@ target_link_libraries(vitastor-kv-stress
 # vitastor-nfs
 add_executable(vitastor-nfs
 	nfs_proxy.cpp
+	nfs_block.cpp
 	nfs_kv.cpp
 	nfs_kv_create.cpp
-	nfs_kv_fsstat.cpp
 	nfs_kv_getattr.cpp
 	nfs_kv_link.cpp
 	nfs_kv_lookup.cpp
@@ -225,6 +225,7 @@ add_executable(vitastor-nfs
 	nfs_kv_rename.cpp
 	nfs_kv_setattr.cpp
 	nfs_kv_write.cpp
+	nfs_fsstat.cpp
 	nfs_mount.cpp
 	nfs_portmap.cpp
 	sha256.c

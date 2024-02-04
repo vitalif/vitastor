@@ -15,6 +15,7 @@
 class cli_tool_t;
 
 struct kv_fs_state_t;
+struct block_fs_state_t;
 
 class nfs_proxy_t
 {
@@ -45,6 +46,7 @@ public:
     cli_tool_t *cmd = NULL;
     kv_dbw_t *db = NULL;
     kv_fs_state_t *kvfs = NULL;
+    block_fs_state_t *blockfs = NULL;
 
     std::vector<XDR*> xdr_pool;
 
@@ -107,9 +109,6 @@ public:
     msghdr write_msg = { 0 };
     std::vector<iovec> send_list, next_send_list;
     std::vector<rpc_op_t*> outbox, next_outbox;
-
-    nfs_client_t();
-    ~nfs_client_t();
 
     void select_read_buffer(unsigned wanted_size);
     void submit_read(unsigned wanted_size);

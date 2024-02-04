@@ -22,6 +22,8 @@
 #include "str_util.h"
 #include "nfs_proxy.h"
 #include "nfs_kv.h"
+#include "nfs_block.h"
+#include "nfs_common.h"
 #include "http_client.h"
 #include "cli.h"
 
@@ -137,6 +139,11 @@ void nfs_proxy_t::run(json11::Json cfg)
     cmd->epmgr = epmgr;
     cmd->cli = cli;
     watch_stats();
+    if (!fs_kv_inode)
+    {
+        blockfs = new block_fs_state_t();
+        blockfs->init(this);
+    }
     // Load image metadata
     while (!cli->is_ready())
     {
@@ -423,6 +430,10 @@ void nfs_proxy_t::do_accept(int listen_fd)
         int one = 1;
         setsockopt(nfs_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
         auto cli = new nfs_client_t();
+        if (fs_kv_inode)
+            nfs_kv_procs(cli);
+        else
+            nfs_block_procs(cli);
         cli->parent = this;
         cli->nfs_fd = nfs_fd;
         for (auto & fn: pmap.proc_table)

@@ -36,7 +36,7 @@ struct shared_alloc_queue_t
     uint64_t size;
 };
 
-struct inode_extend_t
+struct kv_inode_extend_t
 {
     int refcnt = 0;
     uint64_t cur_extend = 0, next_extend = 0, done_extend = 0;
@@ -50,7 +50,7 @@ struct kv_fs_state_t
     std::vector<uint64_t> unallocated_ids;
     std::vector<shared_alloc_queue_t> allocating_shared;
     uint64_t cur_shared_inode = 0, cur_shared_offset = 0;
-    std::map<inode_t, inode_extend_t> extends;
+    std::map<inode_t, kv_inode_extend_t> extends;
 };
 
 struct shared_file_header_t
@@ -93,14 +93,3 @@ int kv_nfs3_rename_proc(void *opaque, rpc_op_t *rop);
 int kv_nfs3_link_proc(void *opaque, rpc_op_t *rop);
 int kv_nfs3_readdir_proc(void *opaque, rpc_op_t *rop);
 int kv_nfs3_readdirplus_proc(void *opaque, rpc_op_t *rop);
-int kv_nfs3_fsstat_proc(void *opaque, rpc_op_t *rop);
-int kv_nfs3_fsinfo_proc(void *opaque, rpc_op_t *rop);
-int kv_nfs3_pathconf_proc(void *opaque, rpc_op_t *rop);
-int nfs3_access_proc(void *opaque, rpc_op_t *rop);
-int nfs3_null_proc(void *opaque, rpc_op_t *rop);
-int nfs3_commit_proc(void *opaque, rpc_op_t *rop);
-int mount3_mnt_proc(void *opaque, rpc_op_t *rop);
-int mount3_dump_proc(void *opaque, rpc_op_t *rop);
-int mount3_umnt_proc(void *opaque, rpc_op_t *rop);
-int mount3_umntall_proc(void *opaque, rpc_op_t *rop);
-int mount3_export_proc(void *opaque, rpc_op_t *rop);

@@ -40,7 +40,7 @@ struct nfs_kv_write_state
     uint64_t shared_inode = 0, shared_offset = 0;
     bool was_immediate = false;
     nfs_rmw_t rmw[2];
-    inode_extend_t *ext = NULL;
+    kv_inode_extend_t *ext = NULL;
 
     ~nfs_kv_write_state()
     {

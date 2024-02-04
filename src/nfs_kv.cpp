@@ -7,16 +7,8 @@
 
 #include "str_util.h"
 #include "nfs_proxy.h"
+#include "nfs_common.h"
 #include "nfs_kv.h"
-
-nfsstat3 vitastor_nfs_map_err(int err)
-{
-    return (err == EINVAL ? NFS3ERR_INVAL
-        : (err == ENOENT ? NFS3ERR_NOENT
-        : (err == ENOSPC ? NFS3ERR_NOSPC
-        : (err == EEXIST ? NFS3ERR_EXIST
-        : (err == EIO ? NFS3ERR_IO : (err ? NFS3ERR_IO : NFS3_OK))))));
-}
 
 nfstime3 nfstime_from_str(const std::string & s)
 {
@@ -141,4 +133,42 @@ uint64_t kv_fh_inode(const std::string & fh)
 bool kv_fh_valid(const std::string & fh)
 {
     return fh == NFS_ROOT_HANDLE || fh.size() == 9 && fh[0] == 'S' || fh.size() > 17 && fh[0] == 'I';
+}
+
+void nfs_kv_procs(nfs_client_t *self)
+{
+    struct rpc_service_proc_t pt[] = {
+        {NFS_PROGRAM, NFS_V3, NFS3_NULL,        nfs3_null_proc,           NULL,                            0,                        NULL,                           0,                       self},
+        {NFS_PROGRAM, NFS_V3, NFS3_GETATTR,     kv_nfs3_getattr_proc,     (xdrproc_t)xdr_GETATTR3args,     sizeof(GETATTR3args),     (xdrproc_t)xdr_GETATTR3res,     sizeof(GETATTR3res),     self},
+        {NFS_PROGRAM, NFS_V3, NFS3_SETATTR,     kv_nfs3_setattr_proc,     (xdrproc_t)xdr_SETATTR3args,     sizeof(SETATTR3args),     (xdrproc_t)xdr_SETATTR3res,     sizeof(SETATTR3res),     self},
+        {NFS_PROGRAM, NFS_V3, NFS3_LOOKUP,      kv_nfs3_lookup_proc,      (xdrproc_t)xdr_LOOKUP3args,      sizeof(LOOKUP3args),      (xdrproc_t)xdr_LOOKUP3res,      sizeof(LOOKUP3res),      self},
+        {NFS_PROGRAM, NFS_V3, NFS3_ACCESS,      nfs3_access_proc,         (xdrproc_t)xdr_ACCESS3args,      sizeof(ACCESS3args),      (xdrproc_t)xdr_ACCESS3res,      sizeof(ACCESS3res),      self},
+        {NFS_PROGRAM, NFS_V3, NFS3_READLINK,    kv_nfs3_readlink_proc,    (xdrproc_t)xdr_READLINK3args,    sizeof(READLINK3args),    (xdrproc_t)xdr_READLINK3res,    sizeof(READLINK3res),    self},
+        {NFS_PROGRAM, NFS_V3, NFS3_READ,        kv_nfs3_read_proc,        (xdrproc_t)xdr_READ3args,        sizeof(READ3args),        (xdrproc_t)xdr_READ3res,        sizeof(READ3res),        self},
+        {NFS_PROGRAM, NFS_V3, NFS3_WRITE,       kv_nfs3_write_proc,       (xdrproc_t)xdr_WRITE3args,       sizeof(WRITE3args),       (xdrproc_t)xdr_WRITE3res,       sizeof(WRITE3res),       self},
+        {NFS_PROGRAM, NFS_V3, NFS3_CREATE,      kv_nfs3_create_proc,      (xdrproc_t)xdr_CREATE3args,      sizeof(CREATE3args),      (xdrproc_t)xdr_CREATE3res,      sizeof(CREATE3res),      self},
+        {NFS_PROGRAM, NFS_V3, NFS3_MKDIR,       kv_nfs3_mkdir_proc,       (xdrproc_t)xdr_MKDIR3args,       sizeof(MKDIR3args),       (xdrproc_t)xdr_MKDIR3res,       sizeof(MKDIR3res),       self},
+        {NFS_PROGRAM, NFS_V3, NFS3_SYMLINK,     kv_nfs3_symlink_proc,     (xdrproc_t)xdr_SYMLINK3args,     sizeof(SYMLINK3args),     (xdrproc_t)xdr_SYMLINK3res,     sizeof(SYMLINK3res),     self},
+        {NFS_PROGRAM, NFS_V3, NFS3_MKNOD,       kv_nfs3_mknod_proc,       (xdrproc_t)xdr_MKNOD3args,       sizeof(MKNOD3args),       (xdrproc_t)xdr_MKNOD3res,       sizeof(MKNOD3res),       self},
+        {NFS_PROGRAM, NFS_V3, NFS3_REMOVE,      kv_nfs3_remove_proc,      (xdrproc_t)xdr_REMOVE3args,      sizeof(REMOVE3args),      (xdrproc_t)xdr_REMOVE3res,      sizeof(REMOVE3res),      self},
+        {NFS_PROGRAM, NFS_V3, NFS3_RMDIR,       kv_nfs3_rmdir_proc,       (xdrproc_t)xdr_RMDIR3args,       sizeof(RMDIR3args),       (xdrproc_t)xdr_RMDIR3res,       sizeof(RMDIR3res),       self},
+        {NFS_PROGRAM, NFS_V3, NFS3_RENAME,      kv_nfs3_rename_proc,      (xdrproc_t)xdr_RENAME3args,      sizeof(RENAME3args),      (xdrproc_t)xdr_RENAME3res,      sizeof(RENAME3res),      self},
+        {NFS_PROGRAM, NFS_V3, NFS3_LINK,        kv_nfs3_link_proc,        (xdrproc_t)xdr_LINK3args,        sizeof(LINK3args),        (xdrproc_t)xdr_LINK3res,        sizeof(LINK3res),        self},
+        {NFS_PROGRAM, NFS_V3, NFS3_READDIR,     kv_nfs3_readdir_proc,     (xdrproc_t)xdr_READDIR3args,     sizeof(READDIR3args),     (xdrproc_t)xdr_READDIR3res,     sizeof(READDIR3res),     self},
+        {NFS_PROGRAM, NFS_V3, NFS3_READDIRPLUS, kv_nfs3_readdirplus_proc, (xdrproc_t)xdr_READDIRPLUS3args, sizeof(READDIRPLUS3args), (xdrproc_t)xdr_READDIRPLUS3res, sizeof(READDIRPLUS3res), self},
+        {NFS_PROGRAM, NFS_V3, NFS3_FSSTAT,      nfs3_fsstat_proc,         (xdrproc_t)xdr_FSSTAT3args,      sizeof(FSSTAT3args),      (xdrproc_t)xdr_FSSTAT3res,      sizeof(FSSTAT3res),      self},
+        {NFS_PROGRAM, NFS_V3, NFS3_FSINFO,      nfs3_fsinfo_proc,         (xdrproc_t)xdr_FSINFO3args,      sizeof(FSINFO3args),      (xdrproc_t)xdr_FSINFO3res,      sizeof(FSINFO3res),      self},
+        {NFS_PROGRAM, NFS_V3, NFS3_PATHCONF,    nfs3_pathconf_proc,       (xdrproc_t)xdr_PATHCONF3args,    sizeof(PATHCONF3args),    (xdrproc_t)xdr_PATHCONF3res,    sizeof(PATHCONF3res),    self},
+        {NFS_PROGRAM, NFS_V3, NFS3_COMMIT,      nfs3_commit_proc,         (xdrproc_t)xdr_COMMIT3args,      sizeof(COMMIT3args),      (xdrproc_t)xdr_COMMIT3res,      sizeof(COMMIT3res),      self},
+        {MOUNT_PROGRAM, MOUNT_V3, MOUNT3_NULL,    nfs3_null_proc,         NULL,                            0,                        NULL,                         0,                         self},
+        {MOUNT_PROGRAM, MOUNT_V3, MOUNT3_MNT,     mount3_mnt_proc,        (xdrproc_t)xdr_nfs_dirpath,      sizeof(nfs_dirpath),      (xdrproc_t)xdr_nfs_mountres3, sizeof(nfs_mountres3),     self},
+        {MOUNT_PROGRAM, MOUNT_V3, MOUNT3_DUMP,    mount3_dump_proc,       NULL,                            0,                        (xdrproc_t)xdr_nfs_mountlist, sizeof(nfs_mountlist),     self},
+        {MOUNT_PROGRAM, MOUNT_V3, MOUNT3_UMNT,    mount3_umnt_proc,       (xdrproc_t)xdr_nfs_dirpath,      sizeof(nfs_dirpath),      NULL,                         0,                         self},
+        {MOUNT_PROGRAM, MOUNT_V3, MOUNT3_UMNTALL, mount3_umntall_proc,    NULL,                            0,                        NULL,                         0,                         self},
+        {MOUNT_PROGRAM, MOUNT_V3, MOUNT3_EXPORT,  mount3_export_proc,     NULL,                            0,                        (xdrproc_t)xdr_nfs_exports,   sizeof(nfs_exports),       self},
+    };
+    for (int i = 0; i < sizeof(pt)/sizeof(pt[0]); i++)
+    {
+        self->proc_table.insert(pt[i]);
+    }
 }

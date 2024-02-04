@@ -8,7 +8,14 @@
 #include "nfs_proxy.h"
 #include "nfs/nfs.h"
 
-nfsstat3 vitastor_nfs_map_err(int err);
+nfsstat3 vitastor_nfs_map_err(int err)
+{
+    return (err == EINVAL ? NFS3ERR_INVAL
+        : (err == ENOENT ? NFS3ERR_NOENT
+        : (err == ENOSPC ? NFS3ERR_NOSPC
+        : (err == EEXIST ? NFS3ERR_EXIST
+        : (err == EIO ? NFS3ERR_IO : (err ? NFS3ERR_IO : NFS3_OK))))));
+}
 
 int nfs3_null_proc(void *opaque, rpc_op_t *rop)
 {
