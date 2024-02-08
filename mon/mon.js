@@ -675,7 +675,12 @@ class Mon
                 {
                     this.parse_kv(e.kv);
                     const key = e.kv.key.substr(this.etcd_prefix.length);
-                    if (key.substr(0, 11) == '/osd/stats/' || key.substr(0, 10) == '/pg/stats/' || key.substr(0, 16) == '/osd/inodestats/')
+                    if (key.substr(0, 11) == '/osd/state/')
+                    {
+                        stats_changed = true;
+                        changed = true;
+                    }
+                    else if (key.substr(0, 11) == '/osd/stats/' || key.substr(0, 10) == '/pg/stats/' || key.substr(0, 16) == '/osd/inodestats/')
                     {
                         stats_changed = true;
                     }
@@ -1635,9 +1640,13 @@ class Mon
         }
         const sum_diff = { op_stats: {}, subop_stats: {}, recovery_stats: {} };
         // Sum derived values instead of deriving summed
-        for (const osd in this.state.osd.stats)
+        for (const osd in this.state.osd.state)
         {
             const derived = this.prev_stats.osd_diff[osd];
+            if (!this.state.osd.state[osd] || !derived)
+            {
+                continue;
+            }
             for (const type in sum_diff)
             {
                 for (const op in derived[type]||{})
@@ -1738,9 +1747,13 @@ class Mon
             const used = this.state.pool.stats[pool_id].used_raw_tb;
             this.state.pool.stats[pool_id].used_raw_tb = Number(used)/1024/1024/1024/1024;
         }
-        for (const osd_num in this.state.osd.inodestats)
+        for (const osd_num in this.state.osd.state)
         {
             const ist = this.state.osd.inodestats[osd_num];
+            if (!ist || !this.state.osd.state[osd_num])
+            {
+                continue;
+            }
             for (const pool_id in ist)
             {
                 inode_stats[pool_id] = inode_stats[pool_id] || {};
@@ -1756,9 +1769,14 @@ class Mon
                 }
             }
         }
-        for (const osd in this.prev_stats.osd_diff)
+        for (const osd in this.state.osd.state)
         {
-            for (const pool_id in this.prev_stats.osd_diff[osd].inode_stats)
+            const osd_diff = this.prev_stats.osd_diff[osd];
+            if (!osd_diff || !this.state.osd.state[osd])
+            {
+                continue;
+            }
+            for (const pool_id in osd_diff.inode_stats)
             {
                 for (const inode_num in this.prev_stats.osd_diff[osd].inode_stats[pool_id])
                 {
