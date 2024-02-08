@@ -195,6 +195,10 @@ void blockstore_impl_t::loop()
                     // ring is full, stop submission
                     break;
                 }
+                else if (PRIV(op)->wait_for == WAIT_JOURNAL)
+                {
+                    PRIV(op)->wait_detail2 = (unstable_writes.size()+unstable_unsynced);
+                }
             }
         }
         if (op_idx != new_idx)
@@ -273,7 +277,8 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
     }
     else if (PRIV(op)->wait_for == WAIT_JOURNAL)
     {
-        if (journal.used_start == PRIV(op)->wait_detail && !unstable_count_changed)
+        if (journal.used_start == PRIV(op)->wait_detail &&
+            (unstable_writes.size()+unstable_unsynced) == PRIV(op)->wait_detail2)
         {
             // do not submit
 #ifdef BLOCKSTORE_DEBUG
@@ -281,7 +286,6 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
 #endif
             return;
         }
-        unstable_count_changed = false;
         flusher->release_trim();
         PRIV(op)->wait_for = 0;
     }
@@ -353,7 +357,6 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
                     };
                 }
                 unstable_writes.clear();
-                unstable_count_changed = true;
                 op->callback = [old_callback](blockstore_op_t *op)
                 {
                     obj_ver_id *vers = (obj_ver_id*)op->buf;

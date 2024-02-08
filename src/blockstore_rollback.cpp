@@ -162,7 +162,6 @@ void blockstore_impl_t::mark_rolled_back(const obj_ver_id & ov)
                     unstable_writes.erase(unstab_it);
                 else
                     unstab_it->second = max_unstable;
-                unstable_count_changed = true;
             }
         }
     }

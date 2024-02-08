@@ -537,6 +537,5 @@ void blockstore_impl_t::mark_stable(obj_ver_id v, bool forget_dirty)
         unstab_it->second <= v.version)
     {
         unstable_writes.erase(unstab_it);
-        unstable_count_changed = true;
     }
 }

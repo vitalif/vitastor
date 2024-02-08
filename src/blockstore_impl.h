@@ -202,7 +202,7 @@ struct blockstore_op_private_t
 {
     // Wait status
     int wait_for;
-    uint64_t wait_detail;
+    uint64_t wait_detail, wait_detail2;
     int pending_ops;
     int op_state;
 
@@ -276,7 +276,6 @@ class blockstore_impl_t
     std::vector<blockstore_op_t*> submit_queue;
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
     int unsynced_big_write_count = 0, unstable_unsynced = 0;
-    bool unstable_count_changed = false;
     int unsynced_queued_ops = 0;
     allocator *data_alloc = NULL;
     uint64_t used_blocks = 0;
