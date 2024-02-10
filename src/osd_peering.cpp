@@ -222,6 +222,9 @@ void osd_t::start_pg_peering(pg_t & pg)
     }
     if (pg.pg_cursize < pg.pg_minsize)
     {
+        // FIXME: Incomplete EC PGs may currently easily lead to write hangs ("slow ops" in OSD logs)
+        // because such PGs don't flush unstable entries on secondary OSDs so they can't remove these
+        // entries from their journals...
         pg.state = PG_INCOMPLETE;
         report_pg_state(pg);
         return;
