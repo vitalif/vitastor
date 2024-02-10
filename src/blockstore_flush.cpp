@@ -184,8 +184,7 @@ void journal_flusher_t::mark_trim_possible()
     if (trim_wanted > 0)
     {
         dequeuing = true;
-        if (!journal_trim_counter)
-            journal_trim_counter = journal_trim_interval;
+        journal_trim_counter = 0;
         bs->ringloop->wakeup();
     }
 }
@@ -366,7 +365,7 @@ resume_0:
         !flusher->flush_queue.size() || !flusher->dequeuing)
     {
 stop_flusher:
-        if (flusher->trim_wanted > 0 && flusher->journal_trim_counter > 0)
+        if (flusher->trim_wanted > 0 && !flusher->journal_trim_counter)
         {
             // Attempt forced trim
             flusher->active_flushers++;
@@ -1346,7 +1345,6 @@ bool journal_flusher_co::trim_journal(int wait_base)
     else if (wait_state == wait_base+2) goto resume_2;
     else if (wait_state == wait_base+3) goto resume_3;
     else if (wait_state == wait_base+4) goto resume_4;
-    flusher->journal_trim_counter = 0;
     new_trim_pos = bs->journal.get_trim_pos();
     if (new_trim_pos != bs->journal.used_start)
     {
@@ -1419,6 +1417,7 @@ bool journal_flusher_co::trim_journal(int wait_base)
                 exit(0);
             }
         }
+        flusher->journal_trim_counter = 0;
         flusher->trimming = false;
     }
     return true;
