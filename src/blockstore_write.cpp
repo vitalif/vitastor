@@ -320,7 +320,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         blockstore_journal_check_t space_check(this);
         if (!space_check.check_available(op, unsynced_big_write_count + 1,
             sizeof(journal_entry_big_write) + dsk.clean_dyn_size,
-            (unstable_writes.size()+unstable_unsynced)*journal.block_size))
+            (unstable_writes.size()+unstable_unsynced+((dirty_it->second.state & BS_ST_INSTANT) ? 0 : 1))*journal.block_size))
         {
             return 0;
         }
@@ -412,7 +412,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 sizeof(journal_entry_big_write) + dsk.clean_dyn_size, 0)
             || !space_check.check_available(op, 1,
                 sizeof(journal_entry_small_write) + dyn_size,
-                op->len + (unstable_writes.size()+unstable_unsynced)*journal.block_size))
+                op->len + (unstable_writes.size()+unstable_unsynced+((dirty_it->second.state & BS_ST_INSTANT) ? 0 : 1))*journal.block_size))
         {
             return 0;
         }
@@ -549,7 +549,7 @@ resume_2:
         uint64_t dyn_size = dsk.dirty_dyn_size(op->offset, op->len);
         blockstore_journal_check_t space_check(this);
         if (!space_check.check_available(op, 1, sizeof(journal_entry_big_write) + dyn_size,
-            (unstable_writes.size()+unstable_unsynced)*journal.block_size))
+            (unstable_writes.size()+unstable_unsynced+((dirty_it->second.state & BS_ST_INSTANT) ? 0 : 1))*journal.block_size))
         {
             return 0;
         }
