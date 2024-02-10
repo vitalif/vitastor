@@ -861,15 +861,15 @@ static void calc_rmw_parity_copy_mod(osd_rmw_stripe_t *stripes, int pg_size, int
 static void calc_rmw_parity_copy_parity(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
     uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t start, uint32_t end)
 {
-    if (write_osd_set != read_osd_set)
+    if (write_osd_set != read_osd_set && end != 0)
     {
         for (int role = pg_minsize; role < pg_size; role++)
         {
-            if (write_osd_set[role] != read_osd_set[role] && (start != 0 || end != chunk_size))
+            if (write_osd_set[role] != read_osd_set[role] && write_osd_set[role] != 0 && (start != 0 || end != chunk_size))
             {
                 // Copy new parity into the read buffer to write it back
                 memcpy(
-                    (uint8_t*)stripes[role].read_buf + start,
+                    (uint8_t*)stripes[role].read_buf + start - stripes[role].read_start,
                     stripes[role].write_buf,
                     end - start
                 );
