@@ -106,7 +106,7 @@ resume_2:
             if (etcd_states[i]["error"].is_null())
             {
                 etcd_alive++;
-                etcd_db_size = etcd_states[i]["dbSizeInUse"].uint64_value();
+                etcd_db_size = etcd_states[i]["dbSize"].uint64_value();
             }
         }
         int mon_count = 0;
