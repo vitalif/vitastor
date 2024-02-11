@@ -125,6 +125,7 @@ class osd_t
     int recovery_tune_interval = 1;
     int recovery_tune_agg_interval = 10;
     int recovery_tune_sleep_min_us = 10;
+    int recovery_tune_sleep_cutoff_us = 10000000;
     int recovery_pg_switch = DEFAULT_RECOVERY_PG_SWITCH;
     int recovery_sync_batch = DEFAULT_RECOVERY_BATCH;
     int inode_vanish_time = 60;

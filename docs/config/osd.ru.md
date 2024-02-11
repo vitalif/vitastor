@@ -60,6 +60,7 @@
 - [recovery_tune_client_util_high](#recovery_tune_client_util_high)
 - [recovery_tune_agg_interval](#recovery_tune_agg_interval)
 - [recovery_tune_sleep_min_us](#recovery_tune_sleep_min_us)
+- [recovery_tune_sleep_cutoff_us](#recovery_tune_sleep_cutoff_us)
 
 ## etcd_report_interval
 
@@ -634,4 +635,14 @@ EC (кодов коррекции ошибок) с более, чем 1 диск
 - Можно менять на лету: да
 
 Минимальное возможное значение авто-подстроенного recovery_sleep_us.
-Значения ниже данного заменяются на 0.
+Меньшие значения заменяются на 0.
+
+## recovery_tune_sleep_cutoff_us
+
+- Тип: микросекунды
+- Значение по умолчанию: 10000000
+- Можно менять на лету: да
+
+Максимальное возможное значение авто-подстроенного recovery_sleep_us.
+Большие значения считаются случайными выбросами и игнорируются в
+усреднении.

@@ -731,8 +731,19 @@
   default: 10
   online: true
   info: |
-    Minimum possible value for auto-tuned recovery_sleep_us. Values lower
-    than this value are changed to 0.
+    Minimum possible value for auto-tuned recovery_sleep_us. Lower values
+    are changed to 0.
   info_ru: |
     Минимальное возможное значение авто-подстроенного recovery_sleep_us.
-    Значения ниже данного заменяются на 0.
+    Меньшие значения заменяются на 0.
+- name: recovery_tune_sleep_cutoff_us
+  type: us
+  default: 10000000
+  online: true
+  info: |
+    Maximum possible value for auto-tuned recovery_sleep_us. Higher values
+    are treated as outliers and ignored in aggregation.
+  info_ru: |
+    Максимальное возможное значение авто-подстроенного recovery_sleep_us.
+    Большие значения считаются случайными выбросами и игнорируются в
+    усреднении.

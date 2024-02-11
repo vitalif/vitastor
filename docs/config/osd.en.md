@@ -59,6 +59,7 @@ them, even without restarting by updating configuration in etcd.
 - [recovery_tune_client_util_high](#recovery_tune_client_util_high)
 - [recovery_tune_agg_interval](#recovery_tune_agg_interval)
 - [recovery_tune_sleep_min_us](#recovery_tune_sleep_min_us)
+- [recovery_tune_sleep_cutoff_us](#recovery_tune_sleep_cutoff_us)
 
 ## etcd_report_interval
 
@@ -604,5 +605,14 @@ is usually fine.
 - Default: 10
 - Can be changed online: yes
 
-Minimum possible value for auto-tuned recovery_sleep_us. Values lower
-than this value are changed to 0.
+Minimum possible value for auto-tuned recovery_sleep_us. Lower values
+are changed to 0.
+
+## recovery_tune_sleep_cutoff_us
+
+- Type: microseconds
+- Default: 10000000
+- Can be changed online: yes
+
+Maximum possible value for auto-tuned recovery_sleep_us. Higher values
+are treated as outliers and ignored in aggregation.

@@ -422,6 +422,10 @@ void osd_t::tune_recovery()
     rtune_avg_lat = total_recovery_usec/recovery_count;
     uint64_t target_lat = rtune_avg_lat * rtune_avg_lat/1000000.0 * recovery_count/recovery_tune_interval / rtune_target_util;
     auto sleep_us = target_lat > rtune_avg_lat+recovery_tune_sleep_min_us ? target_lat-rtune_avg_lat : 0;
+    if (sleep_us > recovery_tune_sleep_cutoff_us)
+    {
+        return;
+    }
     if (recovery_target_sleep_items.size() != recovery_tune_agg_interval)
     {
         recovery_target_sleep_items.resize(recovery_tune_agg_interval);

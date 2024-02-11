@@ -215,8 +215,8 @@ is scheduled.
 ## up_wait_retry_interval
 
 - Type: milliseconds
-- Default: 500
-- Minimum: 50
+- Default: 50
+- Minimum: 10
 - Can be changed online: yes
 
 OSDs respond to clients with a special error code when they receive I/O

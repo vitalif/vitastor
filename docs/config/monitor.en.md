@@ -19,8 +19,8 @@ These parameters only apply to Monitors.
 ## etcd_mon_ttl
 
 - Type: seconds
-- Default: 30
-- Minimum: 10
+- Default: 1
+- Minimum: 5
 
 Monitor etcd lease refresh interval in seconds
 

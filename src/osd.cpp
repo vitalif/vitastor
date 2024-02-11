@@ -233,6 +233,8 @@ void osd_t::parse_config(bool init)
         ? 10 : config["recovery_tune_agg_interval"].uint64_value();
     recovery_tune_sleep_min_us = config["recovery_tune_sleep_min_us"].is_null()
         ? 10 : config["recovery_tune_sleep_min_us"].uint64_value();
+    recovery_tune_sleep_cutoff_us = config["recovery_tune_sleep_cutoff_us"].is_null()
+        ? 10000000 : config["recovery_tune_sleep_cutoff_us"].uint64_value();
     recovery_pg_switch = config["recovery_pg_switch"].uint64_value();
     if (recovery_pg_switch < 1)
         recovery_pg_switch = DEFAULT_RECOVERY_PG_SWITCH;
