@@ -442,7 +442,7 @@ void osd_t::tune_recovery()
     if (recovery_target_sleep_count < recovery_tune_agg_interval)
         recovery_target_sleep_count++;
     recovery_target_sleep_us = recovery_target_sleep_total / recovery_target_sleep_count;
-    if (log_level > 4)
+    if (log_level > 1)
     {
         printf(
             "[OSD %lu] auto-tune: client util: %.2f, recovery util: %.2f, lat: %lu us -> target util %.2f, delay %lu us\n",

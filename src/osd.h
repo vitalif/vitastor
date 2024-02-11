@@ -283,6 +283,7 @@ class osd_t
     void exec_sync_stab_all(osd_op_t *cur_op);
     void exec_show_config(osd_op_t *cur_op);
     void exec_secondary(osd_op_t *cur_op);
+    void exec_secondary_real(osd_op_t *cur_op);
     void secondary_op_callback(osd_op_t *cur_op);
 
     // primary ops

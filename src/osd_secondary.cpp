@@ -42,8 +42,10 @@ void osd_t::secondary_op_callback(osd_op_t *op)
     int retval = op->bs_op->retval;
     delete op->bs_op;
     op->bs_op = NULL;
-    if (op->is_recovery_related() && recovery_target_sleep_us)
+    if (op->is_recovery_related() && recovery_target_sleep_us &&
+        op->req.hdr.opcode == OSD_OP_SEC_STABILIZE)
     {
+        // Apply pause AFTER commit. Do not apply pause to SYNC at all
         if (!op->tv_end.tv_sec)
         {
             clock_gettime(CLOCK_REALTIME, &op->tv_end);
@@ -59,7 +61,25 @@ void osd_t::secondary_op_callback(osd_op_t *op)
     }
 }
 
-void osd_t::exec_secondary(osd_op_t *cur_op)
+void osd_t::exec_secondary(osd_op_t *op)
+{
+    if (op->is_recovery_related() && recovery_target_sleep_us &&
+        op->req.hdr.opcode != OSD_OP_SEC_STABILIZE && op->req.hdr.opcode != OSD_OP_SEC_SYNC)
+    {
+        // Apply pause BEFORE write/delete
+        tfd->set_timer_us(recovery_target_sleep_us, false, [this, op](int timer_id)
+        {
+            clock_gettime(CLOCK_REALTIME, &op->tv_begin);
+            exec_secondary_real(op);
+        });
+    }
+    else
+    {
+        exec_secondary_real(op);
+    }
+}
+
+void osd_t::exec_secondary_real(osd_op_t *cur_op)
 {
     if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
     {
