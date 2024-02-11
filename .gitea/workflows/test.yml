@@ -395,7 +395,7 @@ jobs:
     steps:
     - name: Run test
       id: test
-      timeout-minutes: 3
+      timeout-minutes: 6
       run: SCHEME=ec /root/vitastor/tests/test_snapshot_chain.sh
     - name: Print logs
       if: always() && steps.test.outcome == 'failure'

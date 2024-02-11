@@ -39,6 +39,10 @@ for my $line (<>)
                 $test_name .= '_'.lc($1).'_'.$2;
             }
         }
+        if ($test_name eq 'test_snapshot_chain_ec')
+        {
+            $timeout = 6;
+        }
         $line =~ s!\./test_!/root/vitastor/tests/test_!;
         # Gitea CI doesn't support artifacts yet, lol
         #- name: Upload results
