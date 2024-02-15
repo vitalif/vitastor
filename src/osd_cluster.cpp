@@ -843,7 +843,13 @@ void osd_t::report_pg_states()
                     pg_state_exists = true;
                     if (pg.state == PG_OFFLINE && pg_it->second.cur_primary != this->osd_num)
                     {
-                        // Nothing to check or report, PG is already taken over by another OSD
+                        // Nothing to report, PG is already taken over by another OSD
+                        checks.push_back(json11::Json::object {
+                            { "target", "MOD" },
+                            { "key", state_key_base64 },
+                            { "result", "LESS" },
+                            { "mod_revision", st_cli.etcd_watch_revision+1 },
+                        });
                         continue;
                     }
                 }
@@ -851,11 +857,6 @@ void osd_t::report_pg_states()
         }
         if (!pg_state_exists)
         {
-            if (pg.state == PG_OFFLINE)
-            {
-                // Nothing to check or report, PG is already stopped
-                continue;
-            }
             // Check that the PG key does not exist
             // Failed check indicates an unsuccessful PG lock attempt in this case
             checks.push_back(json11::Json::object {
