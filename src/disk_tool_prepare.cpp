@@ -8,6 +8,7 @@
 int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_hdd)
 {
     static const char *allow_additional_params[] = {
+        "autosync_writes",
         "data_io",
         "meta_io",
         "journal_io",
@@ -99,12 +100,9 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         options["disable_journal_fsync"] = options["disable_data_fsync"];
     }
     // Calculate offsets if the same device is used for two or more of data, meta, and journal
-    if (options["journal_size"] == "")
+    if (options["journal_size"] == "" && (options["journal_device"] == "" || options["journal_device"] == options["data_device"]))
     {
-        if (options["journal_device"] == "")
-            options["journal_size"] = is_hdd ? "128M" : "32M";
-        else if (is_hdd)
-            options["journal_size"] = DEFAULT_HYBRID_JOURNAL;
+        options["journal_size"] = is_hdd || !json_is_true(options["disable_data_fsync"]) ? "128M" : "32M";
     }
     bool is_hybrid = is_hdd && options["journal_device"] != "" && options["journal_device"] != options["data_device"];
     if (is_hdd)
@@ -113,6 +111,15 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
             options["block_size"] = "1M";
         if (is_hybrid && options["throttle_small_writes"] == "")
             options["throttle_small_writes"] = "1";
+    }
+    else if (!json_is_true(options["disable_data_fsync"]))
+    {
+        if (options.find("min_flusher_count") == options.end())
+            options["min_flusher_count"] = "32";
+        if (options.find("max_flusher_count") == options.end())
+            options["max_flusher_count"] = "256";
+        if (options.find("autosync_writes") == options.end())
+            options["autosync_writes"] = "512";
     }
     json11::Json::object sb;
     blockstore_disk_t dsk;
@@ -616,6 +623,7 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
         options.erase("disable_meta_fsync");
         options.erase("disable_journal_fsync");
     }
+    auto journal_size = options["journal_size"];
     for (auto & dev: devinfo)
     {
         if (!hybrid || dev.is_hdd)
@@ -633,11 +641,13 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
                     {
                         return 1;
                     }
+                    options.erase("journal_size");
                 }
                 // Treat all disks as SSDs if not in the hybrid mode
                 prepare_one(options, dev.is_hdd ? 1 : 0);
                 if (hybrid)
                 {
+                    options["journal_size"] = journal_size;
                     options.erase("journal_device");
                     options.erase("meta_device");
                 }
