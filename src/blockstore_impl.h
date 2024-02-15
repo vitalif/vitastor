@@ -253,6 +253,7 @@ class blockstore_impl_t
     bool inmemory_meta = false;
     // Maximum and minimum flusher count
     unsigned max_flusher_count, min_flusher_count;
+    unsigned journal_trim_interval;
     // Maximum queue depth
     unsigned max_write_iodepth = 128;
     // Enable small (journaled) write throttling, useful for the SSD+HDD case

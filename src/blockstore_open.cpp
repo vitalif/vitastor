@@ -13,6 +13,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
         max_flusher_count = strtoull(config["flusher_count"].c_str(), NULL, 10);
     }
     min_flusher_count = strtoull(config["min_flusher_count"].c_str(), NULL, 10);
+    journal_trim_interval = strtoull(config["journal_trim_interval"].c_str(), NULL, 10);
     max_write_iodepth = strtoull(config["max_write_iodepth"].c_str(), NULL, 10);
     throttle_small_writes = config["throttle_small_writes"] == "true" || config["throttle_small_writes"] == "1" || config["throttle_small_writes"] == "yes";
     throttle_target_iops = strtoull(config["throttle_target_iops"].c_str(), NULL, 10);
@@ -30,6 +31,10 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
     if (!min_flusher_count || journal.flush_journal)
     {
         min_flusher_count = 1;
+    }
+    if (!journal_trim_interval)
+    {
+        journal_trim_interval = 512;
     }
     if (!max_write_iodepth)
     {

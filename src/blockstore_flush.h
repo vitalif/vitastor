@@ -107,7 +107,7 @@ class journal_flusher_t
     blockstore_impl_t *bs;
     friend class journal_flusher_co;
 
-    int journal_trim_counter, journal_trim_interval;
+    int journal_trim_counter;
     bool trimming;
     void* journal_superblock;
 

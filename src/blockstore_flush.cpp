@@ -19,7 +19,6 @@ journal_flusher_t::journal_flusher_t(blockstore_impl_t *bs)
     syncing_flushers = 0;
     // FIXME: allow to configure flusher_start_threshold and journal_trim_interval
     flusher_start_threshold = bs->dsk.journal_block_size / sizeof(journal_entry_stable);
-    journal_trim_interval = 512;
     journal_trim_counter = bs->journal.flush_journal ? 1 : 0;
     trim_wanted = bs->journal.flush_journal ? 1 : 0;
     journal_superblock = bs->journal.inmemory ? bs->journal.buffer : memalign_or_die(MEM_ALIGNMENT, bs->dsk.journal_block_size);
@@ -584,7 +583,8 @@ resume_2:
         flusher->sync_to_repeat.erase(repeat_it);
     trim_journal:
         // Clear unused part of the journal every <journal_trim_interval> flushes
-        if (!((++flusher->journal_trim_counter) % flusher->journal_trim_interval) || flusher->trim_wanted > 0)
+        if (bs->journal_trim_interval && !((++flusher->journal_trim_counter) % bs->journal_trim_interval) ||
+            flusher->trim_wanted > 0)
         {
     resume_26:
     resume_27:
