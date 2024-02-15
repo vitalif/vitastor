@@ -154,6 +154,9 @@ That is, if it becomes impossible to place PG data on at least (pg_minsize)
 OSDs, PG is deactivated for both read and write. So you know that a fresh
 write always goes to at least (pg_minsize) OSDs (disks).
 
+That is, pg_size minus pg_minsize sets the number of disk failures to tolerate
+without temporary downtime (for [osd_out_time](monitor.en.md#osd_out_time)).
+
 FIXME: pg_minsize behaviour may be changed in the future to only make PGs
 read-only instead of deactivating them.
 
