@@ -30,14 +30,16 @@ kill_osds()
     kill -9 $OSD1_PID
     $ETCDCTL del /vitastor/osd/state/1
 
-    for i in $(seq 2 $OSD_COUNT); do
+    for kill_osd in $(seq 2 $OSD_COUNT); do
         sleep 15
-        echo Killing OSD $i and starting OSD $((i-1))
-        p=OSD${i}_PID
+        # Wait for all PGs to clear has_degraded - all data will be at least in 2 copies
+        wait_condition 60 "$ETCDCTL get /vitastor/pg/state/1/ --prefix --print-value-only |\
+            jq -s -e '[ .[] | select(.state | contains(["'"'"active"'"'"])) | select(.state | contains(["'"'"has_degraded"'"'"]) | not) ] | length == '$PG_COUNT"
+        echo Killing OSD $kill_osd and starting OSD $((kill_osd-1))
+        p=OSD${kill_osd}_PID
         kill -9 ${!p}
-        $ETCDCTL del /vitastor/osd/state/$i
-        start_osd $((i-1))
-        sleep 15
+        $ETCDCTL del /vitastor/osd/state/$kill_osd
+        start_osd $((kill_osd-1))
     done
 
     sleep 5
