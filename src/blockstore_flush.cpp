@@ -415,6 +415,7 @@ stop_flusher:
                 flusher->sync_to_repeat.erase(cur.oid);
                 if (!flusher->try_find_other(dirty_end, cur))
                 {
+                    cur.oid = {};
                     goto stop_flusher;
                 }
             }
