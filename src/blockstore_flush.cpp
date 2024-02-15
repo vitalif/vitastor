@@ -365,9 +365,10 @@ resume_0:
         !flusher->flush_queue.size() || !flusher->dequeuing)
     {
 stop_flusher:
-        if (flusher->trim_wanted > 0 && !flusher->journal_trim_counter)
+        if (flusher->trim_wanted > 0 && cur.oid.inode != 0)
         {
             // Attempt forced trim
+            cur.oid = {};
             flusher->active_flushers++;
             goto trim_journal;
         }
