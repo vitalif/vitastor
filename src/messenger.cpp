@@ -45,11 +45,12 @@ void osd_messenger_t::init()
 #endif
     keepalive_timer_id = tfd->set_timer(1000, true, [this](int)
     {
-        std::vector<int> to_stop;
-        std::vector<osd_op_t*> to_ping;
-        for (auto cl_it = clients.begin(); cl_it != clients.end(); cl_it++)
+        auto cl_it = clients.begin();
+        while (cl_it != clients.end())
         {
             auto cl = cl_it->second;
+            cl_it++;
+            auto peer_fd = cl->peer_fd;
             if (!cl->osd_num || cl->peer_state != PEER_CONNECTED && cl->peer_state != PEER_RDMA)
             {
                 // Do not run keepalive on regular clients
@@ -62,7 +63,9 @@ void osd_messenger_t::init()
                 {
                     // Ping timed out, stop the client
                     fprintf(stderr, "Ping timed out for OSD %lu (client %d), disconnecting peer\n", cl->osd_num, cl->peer_fd);
-                    to_stop.push_back(cl->peer_fd);
+                    stop_client(peer_fd, true);
+                    // Restart iterator because it may be invalidated
+                    cl_it = clients.upper_bound(peer_fd);
                 }
             }
             else if (cl->idle_time_remaining > 0)
@@ -100,24 +103,17 @@ void osd_messenger_t::init()
                             stop_client(fail_fd, true);
                         }
                     };
-                    to_ping.push_back(op);
                     cl->ping_time_remaining = osd_ping_timeout;
                     cl->idle_time_remaining = osd_idle_timeout;
+                    outbox_push(op);
+                    // Restart iterator because it may be invalidated
+                    cl_it = clients.upper_bound(peer_fd);
                 }
             }
             else
             {
                 cl->idle_time_remaining = osd_idle_timeout;
             }
-        }
-        // Don't stop clients while a 'clients' iterator is still active
-        for (int peer_fd: to_stop)
-        {
-            stop_client(peer_fd, true);
-        }
-        for (auto op: to_ping)
-        {
-            outbox_push(op);
         }
     });
 }
