@@ -18,7 +18,7 @@ ADD . /root/vitastor
 RUN set -e; \
     cd /root/vitastor/rpm; \
     sh build-tarball.sh; \
-    cp /root/vitastor-1.4.4.el9.tar.gz ~/rpmbuild/SOURCES; \
+    cp /root/vitastor-1.4.5.el9.tar.gz ~/rpmbuild/SOURCES; \
     cp vitastor-el9.spec ~/rpmbuild/SPECS/vitastor.spec; \
     cd ~/rpmbuild/SPECS/; \
     rpmbuild -ba vitastor.spec; \
