@@ -183,7 +183,16 @@ resume_3:
         // Save into inode_config for library users to be able to take it from there immediately
         new_cfg.mod_revision = parent->etcd_result["responses"][0]["response_put"]["header"]["revision"].uint64_value();
         parent->cli->st_cli.insert_inode_config(new_cfg);
-        result = (cli_result_t){ .err = 0, .text = "Image "+image_name+" created" };
+        result = (cli_result_t){
+            .err = 0,
+            .text = "Image "+image_name+" created",
+            .data = json11::Json::object {
+                { "name", image_name },
+                { "pool", new_pool_name },
+                { "parent", new_parent },
+                { "size", size },
+            }
+        };
         state = 100;
     }
 
@@ -251,7 +260,16 @@ resume_4:
         // Save into inode_config for library users to be able to take it from there immediately
         new_cfg.mod_revision = parent->etcd_result["responses"][0]["response_put"]["header"]["revision"].uint64_value();
         parent->cli->st_cli.insert_inode_config(new_cfg);
-        result = (cli_result_t){ .err = 0, .text = "Snapshot "+image_name+"@"+new_snap+" created" };
+        result = (cli_result_t){
+            .err = 0,
+            .text = "Snapshot "+image_name+"@"+new_snap+" created",
+            .data = json11::Json::object {
+                { "name", image_name+"@"+new_snap },
+                { "pool", (uint64_t)new_pool_id },
+                { "parent", new_parent },
+                { "size", size },
+            }
+        };
         state = 100;
     }
 

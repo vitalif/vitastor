@@ -126,6 +126,32 @@ void cli_tool_t::parse_config(json11::Json::object & cfg)
     list_first = cfg["wait_list"].uint64_value() ? true : false;
 }
 
+json11::Json cli_tool_t::parse_tags(std::string tags)
+{
+    json11::Json json_tags;
+    // Format: "tag0" or "tag0,tag1,tag2"
+    if (tags.find(',') == std::string::npos)
+    {
+        json_tags = tags;
+    }
+    else
+    {
+        json11::Json::array json_tags_array;
+        while (tags.size())
+        {
+            auto pos = tags.find(',');
+            auto tag = tags.substr(0, pos);
+            if (tag != "")
+            {
+                json_tags_array.push_back(tag);
+            }
+            tags = pos == std::string::npos ? std::string("") : tags.substr(pos+1);
+        }
+        json_tags = json_tags_array;
+    }
+    return json_tags;
+};
+
 struct cli_result_looper_t
 {
     ring_consumer_t consumer;

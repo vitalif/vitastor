@@ -573,8 +573,7 @@ void etcd_state_client_t::load_global_config()
         {
             global_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
         }
-        global_immediate_commit = global_config["immediate_commit"].string_value() == "all"
-            ? IMMEDIATE_ALL : (global_config["immediate_commit"].string_value() == "small" ? IMMEDIATE_SMALL : IMMEDIATE_NONE);
+        global_immediate_commit = parse_immediate_commit_string(global_config["immediate_commit"].string_value());
         on_load_config_hook(global_config);
     });
 }
@@ -871,15 +870,32 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 pc.scrub_interval = 0;
             // Immediate Commit Mode
             pc.immediate_commit = pool_item.second["immediate_commit"].is_string()
-                ? (pool_item.second["immediate_commit"].string_value() == "all"
-                    ? IMMEDIATE_ALL : (pool_item.second["immediate_commit"].string_value() == "small"
-                        ? IMMEDIATE_SMALL : IMMEDIATE_NONE))
+                ? parse_immediate_commit_string(pool_item.second["immediate_commit"].string_value())
                 : global_immediate_commit;
             // PG Stripe Size
             pc.pg_stripe_size = pool_item.second["pg_stripe_size"].uint64_value();
             uint64_t min_stripe_size = pc.data_block_size * (pc.scheme == POOL_SCHEME_REPLICATED ? 1 : (pc.pg_size-pc.parity_chunks));
             if (pc.pg_stripe_size < min_stripe_size)
                 pc.pg_stripe_size = min_stripe_size;
+            // Root Node
+            pc.root_node = pool_item.second["root_node"].string_value();
+            // osd_tags
+            if (pool_item.second["osd_tags"].is_array())
+                for (auto & osd_tag: pool_item.second["osd_tags"].array_items())
+                {
+                    pc.osd_tags.push_back(osd_tag.string_value());
+                }
+            else
+                pc.osd_tags.push_back(pool_item.second["osd_tags"].string_value());
+
+            // primary_affinity_tags
+            if (pool_item.second["primary_affinity_tags"].is_array())
+                for (auto & primary_affinity_tag: pool_item.second["primary_affinity_tags"].array_items())
+                {
+                    pc.primary_affinity_tags.push_back(primary_affinity_tag.string_value());
+                }
+            else
+                pc.primary_affinity_tags.push_back(pool_item.second["primary_affinity_tags"].string_value());                
             // Save
             pc.real_pg_count = this->pool_config[pool_id].real_pg_count;
             std::swap(pc.pg_config, this->pool_config[pool_id].pg_config);
@@ -1165,6 +1181,12 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             }
         }
     }
+}
+
+uint32_t etcd_state_client_t::parse_immediate_commit_string(const std::string immediate_commit_str)
+{
+    return immediate_commit_str == "all" ? IMMEDIATE_ALL :
+        (immediate_commit_str == "small" ? IMMEDIATE_SMALL : IMMEDIATE_NONE);
 }
 
 void etcd_state_client_t::insert_inode_config(const inode_config_t & cfg)
