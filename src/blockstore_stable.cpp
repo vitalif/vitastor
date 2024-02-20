@@ -307,35 +307,49 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
                 return STAB_SPLIT_DONE;
             }
         }
-        else if (IS_IN_FLIGHT(dirty_it->second.state))
-        {
-            // Object write is still in progress. Wait until the write request completes
-            return STAB_SPLIT_WAIT;
-        }
-        else if (!IS_SYNCED(dirty_it->second.state))
-        {
-            // Object not synced yet - sync it
-            // In previous versions we returned EBUSY here and required
-            // the caller (OSD) to issue a global sync first. But a global sync
-            // waits for all writes in the queue including inflight writes. And
-            // inflight writes may themselves be blocked by unstable writes being
-            // still present in the journal and not flushed away from it.
-            // So we must sync specific objects here.
-            //
-            // Even more, we have to process "stabilize" request in parts. That is,
-            // we must stabilize all objects which are already synced. Otherwise
-            // they may block objects which are NOT synced yet.
-            return STAB_SPLIT_SYNC;
-        }
         else if (IS_STABLE(dirty_it->second.state))
         {
             // Already stable
             return STAB_SPLIT_DONE;
         }
-        else
+        while (true)
         {
-            return STAB_SPLIT_TODO;
+            if (IS_IN_FLIGHT(dirty_it->second.state))
+            {
+                // Object write is still in progress. Wait until the write request completes
+                return STAB_SPLIT_WAIT;
+            }
+            else if (!IS_SYNCED(dirty_it->second.state))
+            {
+                // Object not synced yet - sync it
+                // In previous versions we returned EBUSY here and required
+                // the caller (OSD) to issue a global sync first. But a global sync
+                // waits for all writes in the queue including inflight writes. And
+                // inflight writes may themselves be blocked by unstable writes being
+                // still present in the journal and not flushed away from it.
+                // So we must sync specific objects here.
+                //
+                // Even more, we have to process "stabilize" request in parts. That is,
+                // we must stabilize all objects which are already synced. Otherwise
+                // they may block objects which are NOT synced yet.
+                return STAB_SPLIT_SYNC;
+            }
+            else if (IS_STABLE(dirty_it->second.state))
+            {
+                break;
+            }
+            // Check previous versions too
+            if (dirty_it == dirty_db.begin())
+            {
+                break;
+            }
+            dirty_it--;
+            if (dirty_it->first.oid != ov.oid)
+            {
+                break;
+            }
         }
+        return STAB_SPLIT_TODO;
     });
     if (r != 1)
     {
