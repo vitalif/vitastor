@@ -225,6 +225,11 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
         if (used == 0)
         {
             journal.used_sectors.erase(dirty_it->second.journal_sector);
+            if (dirty_it->second.journal_sector == journal.sector_info[journal.cur_sector].offset)
+            {
+                // Mark current sector as "full" to select the new one
+                journal.in_sector_pos = dsk.journal_block_size;
+            }
             flusher->mark_trim_possible();
         }
         free_dirty_dyn_data(dirty_it->second);
