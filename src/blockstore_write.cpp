@@ -475,7 +475,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             }
         }
         // double check that next_free doesn't cross used_start from the left
-        assert(journal.next_free >= journal.used_start || next_next_free < journal.used_start);
+        assert(journal.next_free >= journal.used_start && next_next_free >= journal.next_free || next_next_free < journal.used_start);
         journal.next_free = next_next_free;
         je->oid = op->oid;
         je->version = op->version;
@@ -517,7 +517,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (next_next_free >= journal.len)
             next_next_free = dsk.journal_block_size;
         // double check that next_free doesn't cross used_start from the left
-        assert(journal.next_free >= journal.used_start || next_next_free < journal.used_start);
+        assert(journal.next_free >= journal.used_start && next_next_free >= journal.next_free || next_next_free < journal.used_start);
         journal.next_free = next_next_free;
         if (!(dirty_it->second.state & BS_ST_INSTANT))
         {

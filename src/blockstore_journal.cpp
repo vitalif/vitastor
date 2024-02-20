@@ -146,7 +146,7 @@ journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, 
         journal.in_sector_pos = 0;
         auto next_next_free = (journal.next_free+journal.block_size) < journal.len ? journal.next_free + journal.block_size : journal.block_size;
         // double check that next_free doesn't cross used_start from the left
-        assert(journal.next_free >= journal.used_start || next_next_free < journal.used_start);
+        assert(journal.next_free >= journal.used_start && next_next_free >= journal.next_free || next_next_free < journal.used_start);
         journal.next_free = next_next_free;
         memset(journal.inmemory
             ? (uint8_t*)journal.buffer + journal.sector_info[journal.cur_sector].offset
