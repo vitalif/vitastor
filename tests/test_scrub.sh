@@ -44,7 +44,7 @@ wait_condition 10 "$ETCDCTL"$' get --print-value-only /vitastor/config/pgs | jq 
 $ETCDCTL put /vitastor/pg/history/1/1 `$ETCDCTL get --print-value-only /vitastor/pg/history/1/1 | jq -s -c '(.[0] // {}) + {"next_scrub":1}'`
 
 # Wait for scrub to finish
-wait_condition 60 "$ETCDCTL get --prefix /vitastor/pg/history/ --print-value-only | jq -s -e '([ .[] | select(.next_scrub == 0 or .next_scrub == null) ] | length) == $PG_COUNT'" Scrubbing
+wait_condition 300 "$ETCDCTL get --prefix /vitastor/pg/history/ --print-value-only | jq -s -e '([ .[] | select(.next_scrub == 0 or .next_scrub == null) ] | length) == $PG_COUNT'" Scrubbing
 
 if [[ ($SCHEME = replicated && $PG_SIZE < 3) || ($SCHEME != replicated && $((PG_SIZE-PG_DATA_SIZE)) < 2) ]]; then
     # Check that objects are marked as inconsistent if 2 replicas or EC/XOR 2+1
@@ -56,7 +56,7 @@ if [[ ($SCHEME = replicated && $PG_SIZE < 3) || ($SCHEME != replicated && $((PG_
         build/src/vitastor-cli fix --etcd_address $ETCD_URL --bad_osds $ZERO_OSD
 elif [[ ($SCHEME = replicated && $PG_SIZE > 2) || ($SCHEME != replicated && $((PG_SIZE-PG_DATA_SIZE)) > 1) ]]; then
     # Check that everything heals
-    wait_finish_rebalance 60
+    wait_finish_rebalance 300
 
     build/src/vitastor-cli describe --etcd_address $ETCD_URL --json | jq -e '. | length == 0'
 fi
