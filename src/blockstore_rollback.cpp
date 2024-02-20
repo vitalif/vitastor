@@ -215,7 +215,7 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
 #endif
             data_alloc->set(dirty_it->second.location >> dsk.block_order, false);
         }
-        auto used = --journal.used_sectors[dirty_it->second.journal_sector];
+        auto used = --journal.used_sectors.at(dirty_it->second.journal_sector);
 #ifdef BLOCKSTORE_DEBUG
         printf(
             "remove usage of journal offset %08lx by %lx:%lx v%lu (%lu refs)\n", dirty_it->second.journal_sector,

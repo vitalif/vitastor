@@ -116,7 +116,10 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
                 journal, (dirty_entry.state & BS_ST_INSTANT) ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
                 sizeof(journal_entry_big_write) + dyn_size
             );
-            dirty_entry.journal_sector = journal.sector_info[journal.cur_sector].offset;
+            auto jsec = dirty_entry.journal_sector = journal.sector_info[journal.cur_sector].offset;
+            assert(journal.next_free >= journal.used_start
+                ? (jsec >= journal.used_start && jsec < journal.next_free)
+                : (jsec >= journal.used_start || jsec < journal.next_free));
             journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
             printf(

@@ -436,7 +436,19 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             journal, op->opcode == BS_OP_WRITE_STABLE ? JE_SMALL_WRITE_INSTANT : JE_SMALL_WRITE,
             sizeof(journal_entry_small_write) + dyn_size
         );
-        dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
+        auto jsec = dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
+        if (!(journal.next_free >= journal.used_start
+            ? (jsec >= journal.used_start && jsec < journal.next_free)
+            : (jsec >= journal.used_start || jsec < journal.next_free)))
+        {
+            printf(
+                "BUG: journal offset %08lx is used by %lx:%lx v%lu (%lu refs) BUT used_start=%lx next_free=%lx\n",
+                dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version,
+                journal.used_sectors[journal.sector_info[journal.cur_sector].offset],
+                journal.used_start, journal.next_free
+            );
+            abort();
+        }
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
         printf(
@@ -558,7 +570,19 @@ resume_2:
             journal, op->opcode == BS_OP_WRITE_STABLE ? JE_BIG_WRITE_INSTANT : JE_BIG_WRITE,
             sizeof(journal_entry_big_write) + dyn_size
         );
-        dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
+        auto jsec = dirty_it->second.journal_sector = journal.sector_info[journal.cur_sector].offset;
+        if (!(journal.next_free >= journal.used_start
+            ? (jsec >= journal.used_start && jsec < journal.next_free)
+            : (jsec >= journal.used_start || jsec < journal.next_free)))
+        {
+            printf(
+                "BUG: journal offset %08lx is used by %lx:%lx v%lu (%lu refs) BUT used_start=%lx next_free=%lx\n",
+                dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version,
+                journal.used_sectors[journal.sector_info[journal.cur_sector].offset],
+                journal.used_start, journal.next_free
+            );
+            abort();
+        }
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
         printf(

@@ -505,7 +505,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         for (auto & rv: PRIV(read_op)->read_vec)
         {
             if (rv.journal_sector)
-                journal.used_sectors[rv.journal_sector-1]++;
+                journal.used_sectors.at(rv.journal_sector-1)++;
         }
     }
     read_op->retval = 0;
@@ -966,7 +966,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
             {
                 if (rv.journal_sector)
                 {
-                    auto used = --journal.used_sectors[rv.journal_sector-1];
+                    auto used = --journal.used_sectors.at(rv.journal_sector-1);
                     if (used == 0)
                     {
                         journal.used_sectors.erase(rv.journal_sector-1);
