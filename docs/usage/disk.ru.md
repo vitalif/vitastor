@@ -267,7 +267,7 @@ OSD отключены fsync-и.
 ```
 --object_size 128k       Размер блока хранилища
 --bitmap_granularity 4k  Гранулярность битовых карт
---journal_size 16M       Размер журнала
+--journal_size 32M       Размер журнала
 --data_csum_type none    Задать тип контрольных сумм (crc32c или none)
 --csum_block_size 4k     Задать размер блока расчёта контрольных сумм
 --device_block_size 4k   Размер блока устройства

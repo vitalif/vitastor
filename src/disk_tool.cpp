@@ -167,7 +167,7 @@ static const char *help_text =
     "  Calculate offsets for old simple&stupid (no superblock) OSD deployment. Options:\n"
     "    --object_size 128k       Set blockstore block size\n"
     "    --bitmap_granularity 4k  Set bitmap granularity\n"
-    "    --journal_size 16M       Set journal size\n"
+    "    --journal_size 32M       Set journal size\n"
     "    --data_csum_type none    Set data checksum type (crc32c or none)\n"
     "    --csum_block_size 4k     Set data checksum block size\n"
     "    --device_block_size 4k   Set device block size\n"

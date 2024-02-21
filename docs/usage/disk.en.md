@@ -261,7 +261,7 @@ Options (see also [Cluster-Wide Disk Layout Parameters](../config/layout-cluster
 ```
 --object_size 128k       Set blockstore block size
 --bitmap_granularity 4k  Set bitmap granularity
---journal_size 16M       Set journal size
+--journal_size 32M       Set journal size
 --data_csum_type none    Set data checksum type (crc32c or none)
 --csum_block_size 4k     Set data checksum block size
 --device_block_size 4k   Set device block size

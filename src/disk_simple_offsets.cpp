@@ -47,7 +47,7 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
     if (!bitmap_granularity)
         bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
     if (!journal_size)
-        journal_size = 16*1024*1024;
+        journal_size = 32*1024*1024;
     if (!device_block_size)
         device_block_size = 4096;
     if (!data_csum_type)
