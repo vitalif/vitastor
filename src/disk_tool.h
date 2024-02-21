@@ -4,7 +4,7 @@
 #pragma once
 
 #ifndef _LARGEFILE64_SOURCE
-#define _LARGEFILE64_SOURCE 1
+#define _LARGEFILE64_SOURCE
 #endif
 
 #include <map>

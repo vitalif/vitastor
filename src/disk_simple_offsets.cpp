@@ -75,9 +75,9 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
             if (st.st_blksize < device_block_size)
             {
                 fprintf(
-                    stderr, "Warning: %s reports %lu byte blocks, but we use %lu."
-                    " Set --device_block_size=%lu if you're sure it works well with %lu byte blocks.\n",
-                    device.c_str(), st.st_blksize, device_block_size, st.st_blksize, st.st_blksize
+                    stderr, "Warning: %s reports %ju byte blocks, but we use %ju."
+                    " Set --device_block_size=%ju if you're sure it works well with %ju byte blocks.\n",
+                    device.c_str(), (uint64_t)st.st_blksize, device_block_size, (uint64_t)st.st_blksize, (uint64_t)st.st_blksize
                 );
             }
         }
@@ -99,19 +99,19 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
     if (device_block_size < 512 || device_block_size > 1048576 ||
         device_block_size & (device_block_size-1) != 0)
     {
-        fprintf(stderr, "Invalid device block size specified: %lu\n", device_block_size);
+        fprintf(stderr, "Invalid device block size specified: %ju\n", device_block_size);
         exit(1);
     }
     if (data_block_size < device_block_size || data_block_size > MAX_DATA_BLOCK_SIZE ||
         data_block_size & (data_block_size-1) != 0)
     {
-        fprintf(stderr, "Invalid object size specified: %lu\n", data_block_size);
+        fprintf(stderr, "Invalid object size specified: %ju\n", data_block_size);
         exit(1);
     }
     if (bitmap_granularity < device_block_size || bitmap_granularity > data_block_size ||
         bitmap_granularity & (bitmap_granularity-1) != 0)
     {
-        fprintf(stderr, "Invalid bitmap granularity specified: %lu\n", bitmap_granularity);
+        fprintf(stderr, "Invalid bitmap granularity specified: %ju\n", bitmap_granularity);
         exit(1);
     }
     if (csum_block_size && (data_block_size % csum_block_size))
@@ -145,8 +145,8 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
     {
         // Env
         printf(
-            "meta_block_size=%lu\njournal_block_size=%lu\ndata_size=%lu\n"
-            "data_device=%s\njournal_offset=%lu\nmeta_offset=%lu\ndata_offset=%lu\n",
+            "meta_block_size=%ju\njournal_block_size=%ju\ndata_size=%ju\n"
+            "data_device=%s\njournal_offset=%ju\nmeta_offset=%ju\ndata_offset=%ju\n",
             device_block_size, device_block_size, device_size-data_offset,
             device.c_str(), journal_offset, meta_offset, data_offset
         );
@@ -160,14 +160,14 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
         }
         if (device_block_size != 4096)
         {
-            printf("--meta_block_size %lu\n--journal_block_size %lu\n", device_block_size, device_block_size);
+            printf("--meta_block_size %ju\n--journal_block_size %ju\n", device_block_size, device_block_size);
         }
         if (orig_device_size)
         {
-            printf("--data_size %lu\n", device_size-data_offset);
+            printf("--data_size %ju\n", device_size-data_offset);
         }
         printf(
-            "--data_device %s\n--journal_offset %lu\n--meta_offset %lu\n--data_offset %lu\n",
+            "--data_device %s\n--journal_offset %ju\n--meta_offset %ju\n--data_offset %ju\n",
             device.c_str(), journal_offset, meta_offset, data_offset
         );
     }

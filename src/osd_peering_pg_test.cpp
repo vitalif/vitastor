@@ -49,10 +49,10 @@ int main(int argc, char *argv[])
         pg.peering_state->list_results[osd_num] = r;
     }
     pg.calc_object_states(0);
-    printf("deviation variants=%ld clean=%lu\n", pg.state_dict.size(), pg.clean_count);
+    printf("deviation variants=%jd clean=%ju\n", pg.state_dict.size(), pg.clean_count);
     for (auto it: pg.state_dict)
     {
-        printf("dev: state=%lx\n", it.second.state);
+        printf("dev: state=%jx\n", it.second.state);
     }
     delete pg.peering_state;
     return 0;

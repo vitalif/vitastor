@@ -738,7 +738,7 @@ protected:
             }
             uint64_t handle = *((uint64_t*)cur_req.handle);
 #ifdef DEBUG
-            printf("request %lx +%x %lx\n", be64toh(cur_req.from), be32toh(cur_req.len), handle);
+            printf("request %jx +%x %jx\n", be64toh(cur_req.from), be32toh(cur_req.len), handle);
 #endif
             void *buf = NULL;
             cluster_op_t *op = new cluster_op_t;
@@ -759,7 +759,7 @@ protected:
             op->callback = [this, buf, handle](cluster_op_t *op)
             {
 #ifdef DEBUG
-                printf("reply %lx e=%d\n", handle, op->retval);
+                printf("reply %jx e=%d\n", handle, op->retval);
 #endif
                 nbd_reply *reply = (nbd_reply*)buf;
                 reply->magic = htobe32(NBD_REPLY_MAGIC);
@@ -769,7 +769,7 @@ protected:
                 if (op->retval < 0 || op->opcode != OSD_OP_READ)
                     to_list.push_back({ .iov_base = buf, .iov_len = sizeof(nbd_reply) });
                 else
-                    to_list.push_back({ .iov_base = buf, .iov_len = sizeof(nbd_reply) + op->len });
+                    to_list.push_back({ .iov_base = buf, .iov_len = sizeof(nbd_reply) + (size_t)op->len });
                 to_free.push_back(buf);
                 delete op;
                 ringloop->wakeup();

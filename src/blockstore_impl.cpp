@@ -269,7 +269,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
         {
             // stop submission if there's still no free space
 #ifdef BLOCKSTORE_DEBUG
-            printf("Still waiting for %lu SQE(s)\n", PRIV(op)->wait_detail);
+            printf("Still waiting for %ju SQE(s)\n", PRIV(op)->wait_detail);
 #endif
             return;
         }
@@ -282,7 +282,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
         {
             // do not submit
 #ifdef BLOCKSTORE_DEBUG
-            printf("Still waiting to flush journal offset %08lx\n", PRIV(op)->wait_detail);
+            printf("Still waiting to flush journal offset %08jx\n", PRIV(op)->wait_detail);
 #endif
             return;
         }

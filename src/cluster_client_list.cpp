@@ -226,7 +226,7 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
     {
         if (op->reply.hdr.retval < 0)
         {
-            fprintf(stderr, "Failed to get PG %u/%u object list from OSD %lu (retval=%ld), skipping\n",
+            fprintf(stderr, "Failed to get PG %u/%u object list from OSD %ju (retval=%jd), skipping\n",
                 cur_list->pg->lst->pool_id, cur_list->pg->pg_num, cur_list->osd_num, op->reply.hdr.retval);
         }
         else
@@ -236,7 +236,7 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
                 // Unstable objects, if present, mean that someone still writes into the inode. Warn the user about it.
                 cur_list->pg->has_unstable = true;
                 fprintf(
-                    stderr, "[PG %u/%u] Inode still has %lu unstable object versions out of total %lu - is it still open?\n",
+                    stderr, "[PG %u/%u] Inode still has %ju unstable object versions out of total %ju - is it still open?\n",
                     cur_list->pg->lst->pool_id, cur_list->pg->pg_num, op->reply.hdr.retval - op->reply.sec_list.stable_count,
                     op->reply.hdr.retval
                 );
@@ -244,7 +244,7 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
             if (log_level > 0)
             {
                 fprintf(
-                    stderr, "[PG %u/%u] Got inode object list from OSD %lu: %ld object versions\n",
+                    stderr, "[PG %u/%u] Got inode object list from OSD %ju: %jd object versions\n",
                     cur_list->pg->lst->pool_id, cur_list->pg->pg_num, cur_list->osd_num, op->reply.hdr.retval
                 );
             }

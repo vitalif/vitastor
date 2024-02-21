@@ -174,7 +174,7 @@ bool check_reply(int r, osd_any_op_t & op, osd_any_reply_t & reply, int expected
     }
     if (expected >= 0 && reply.hdr.retval != expected)
     {
-        printf("operation failed, retval=%ld\n", reply.hdr.retval);
+        printf("operation failed, retval=%jd\n", reply.hdr.retval);
         return false;
     }
     return true;
@@ -210,7 +210,7 @@ uint64_t test_read(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ver
         return 0;
     }
     free(data);
-    printf("Read %lx:%lx v%lu = v%lu\n", inode, stripe, version, reply.sec_rw.version);
+    printf("Read %jx:%jx v%ju = v%ju\n", inode, stripe, version, reply.sec_rw.version);
     op.hdr.opcode = OSD_OP_SEC_LIST;
     op.sec_list.list_pg = 1;
     op.sec_list.pg_count = 1;
@@ -234,7 +234,7 @@ uint64_t test_read(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ver
     {
         if (ov[i].oid.inode == inode && (ov[i].oid.stripe & ~(4096-1)) == (stripe & ~(4096-1)))
         {
-            printf("list: %lx:%lx v%lu stable=%d\n", ov[i].oid.inode, ov[i].oid.stripe, ov[i].version, i < reply.sec_list.stable_count ? 1 : 0);
+            printf("list: %jx:%jx v%ju stable=%d\n", ov[i].oid.inode, ov[i].oid.stripe, ov[i].version, i < reply.sec_list.stable_count ? 1 : 0);
         }
     }
     return 0;

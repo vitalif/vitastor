@@ -117,7 +117,7 @@ bool osd_t::check_peer_config(osd_client_t *cl, json11::Json conf)
         conf["immediate_commit"].is_null())
     {
         printf(
-            "[OSD %lu] Warning: peer OSD %lu does not report block_size/bitmap_granularity/immediate_commit."
+            "[OSD %ju] Warning: peer OSD %ju does not report block_size/bitmap_granularity/immediate_commit."
             " Is it older than 0.6.3?\n", this->osd_num, cl->osd_num
         );
     }
@@ -129,7 +129,7 @@ bool osd_t::check_peer_config(osd_client_t *cl, json11::Json conf)
             immediate_commit == IMMEDIATE_SMALL && peer_immediate_commit == IMMEDIATE_NONE)
         {
             printf(
-                "[OSD %lu] My immediate_commit is \"%s\", but peer OSD %lu has \"%s\". We can't work together\n",
+                "[OSD %ju] My immediate_commit is \"%s\", but peer OSD %ju has \"%s\". We can't work together\n",
                 this->osd_num, immediate_commit == IMMEDIATE_ALL ? "all" : "small",
                 cl->osd_num, conf["immediate_commit"].string_value().c_str()
             );
@@ -138,7 +138,7 @@ bool osd_t::check_peer_config(osd_client_t *cl, json11::Json conf)
         else if (conf["block_size"].uint64_value() != (uint64_t)this->bs_block_size)
         {
             printf(
-                "[OSD %lu] My block_size is %u, but peer OSD %lu has %lu. We can't work together\n",
+                "[OSD %ju] My block_size is %u, but peer OSD %ju has %ju. We can't work together\n",
                 this->osd_num, this->bs_block_size, cl->osd_num, conf["block_size"].uint64_value()
             );
             return false;
@@ -146,7 +146,7 @@ bool osd_t::check_peer_config(osd_client_t *cl, json11::Json conf)
         else if (conf["bitmap_granularity"].uint64_value() != (uint64_t)this->bs_bitmap_granularity)
         {
             printf(
-                "[OSD %lu] My bitmap_granularity is %u, but peer OSD %lu has %lu. We can't work together\n",
+                "[OSD %ju] My bitmap_granularity is %u, but peer OSD %ju has %ju. We can't work together\n",
                 this->osd_num, this->bs_bitmap_granularity, cl->osd_num, conf["bitmap_granularity"].uint64_value()
             );
             return false;
@@ -181,7 +181,7 @@ json11::Json osd_t::get_statistics()
     timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     char time_str[50] = { 0 };
-    sprintf(time_str, "%ld.%03ld", ts.tv_sec, ts.tv_nsec/1000000);
+    sprintf(time_str, "%jd.%03ld", (uint64_t)ts.tv_sec, ts.tv_nsec/1000000);
     st["time"] = time_str;
     if (bs)
     {
@@ -358,7 +358,7 @@ void osd_t::report_statistics()
         etcd_reporting_stats = false;
         if (err != "")
         {
-            printf("[OSD %lu] Error reporting state to etcd: %s\n", this->osd_num, err.c_str());
+            printf("[OSD %ju] Error reporting state to etcd: %s\n", this->osd_num, err.c_str());
             // Retry indefinitely
             tfd->set_timer(st_cli.etcd_slow_timeout, false, [this](int timer_id)
             {
@@ -367,7 +367,7 @@ void osd_t::report_statistics()
         }
         else if (res["error"].string_value() != "")
         {
-            printf("[OSD %lu] Error reporting state to etcd: %s\n", this->osd_num, res["error"].string_value().c_str());
+            printf("[OSD %ju] Error reporting state to etcd: %s\n", this->osd_num, res["error"].string_value().c_str());
             force_stop(1);
         }
     });
@@ -432,7 +432,7 @@ void osd_t::acquire_lease()
         create_osd_state();
     });
     printf(
-        "[OSD %lu] reporting to etcd at %s every %d seconds (statistics every %d seconds)\n", this->osd_num,
+        "[OSD %ju] reporting to etcd at %s every %d seconds (statistics every %d seconds)\n", this->osd_num,
         (config["etcd_address"].is_string() ? config["etcd_address"].string_value() : config["etcd_address"].dump()).c_str(),
         etcd_report_interval, etcd_stats_interval
     );
@@ -499,11 +499,11 @@ void osd_t::create_osd_state()
         {
             // OSD is already up
             auto kv = st_cli.parse_etcd_kv(data["responses"][0]["response_range"]["kvs"][0]);
-            printf("Key %s already exists in etcd, OSD %lu is still up\n", kv.key.c_str(), this->osd_num);
+            printf("Key %s already exists in etcd, OSD %ju is still up\n", kv.key.c_str(), this->osd_num);
             int64_t port = kv.value["port"].int64_value();
             for (auto & addr: kv.value["addresses"].array_items())
             {
-                printf("  listening at: %s:%ld\n", addr.string_value().c_str(), port);
+                printf("  listening at: %s:%jd\n", addr.string_value().c_str(), port);
             }
             force_stop(0);
             return;
@@ -569,13 +569,13 @@ void osd_t::force_stop(int exitcode)
             {
                 printf("Error revoking etcd lease: %s\n", err.c_str());
             }
-            printf("[OSD %lu] Force stopping\n", this->osd_num);
+            printf("[OSD %ju] Force stopping\n", this->osd_num);
             exit(exitcode);
         });
     }
     else
     {
-        printf("[OSD %lu] Force stopping\n", this->osd_num);
+        printf("[OSD %ju] Force stopping\n", this->osd_num);
         exit(exitcode);
     }
 }
@@ -629,7 +629,7 @@ void osd_t::apply_pg_count()
             if (still_active > 0)
             {
                 printf(
-                    "[OSD %lu] PG count change detected for pool %u (new is %lu, old is %u),"
+                    "[OSD %ju] PG count change detected for pool %u (new is %ju, old is %u),"
                     " but %u PG(s) are still active. This is not allowed. Exiting\n",
                     this->osd_num, pool_item.first, pool_item.second.real_pg_count, pg_counts[pool_item.first], still_active
                 );
@@ -663,7 +663,7 @@ void osd_t::apply_pg_config()
                 if (!warned_block_size)
                 {
                     printf(
-                        "[OSD %lu] My block_size and bitmap_granularity are %u/%u"
+                        "[OSD %ju] My block_size and bitmap_granularity are %u/%u"
                         ", but pool %u has %u/%u. Refusing to start PGs of this pool\n",
                         this->osd_num, bs_block_size, bs_bitmap_granularity,
                         pool_id, pool_item.second.data_block_size, pool_item.second.bitmap_granularity
@@ -985,7 +985,7 @@ void osd_t::report_pg_states()
                                 kv.value["primary"].uint64_value() != this->osd_num)
                             {
                                 // PG is somehow captured by another OSD
-                                printf("BUG: OSD %lu captured our PG %u/%u. Race condition detected, exiting\n",
+                                printf("BUG: OSD %ju captured our PG %u/%u. Race condition detected, exiting\n",
                                     kv.value["primary"].uint64_value(), pool_id, pg_num);
                                 force_stop(1);
                                 return;

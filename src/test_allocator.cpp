@@ -18,7 +18,7 @@ void alloc_all(int size)
         }
         if (x != i)
         {
-            printf("incorrect block allocated: expected %d, got %lu\n", i, x);
+            printf("incorrect block allocated: expected %d, got %ju\n", i, x);
         }
         if (a->get(x))
         {
@@ -33,7 +33,7 @@ void alloc_all(int size)
     uint64_t x = a->find_free();
     if (x != UINT64_MAX)
     {
-        printf("extra free space found: %lx (%d)\n", x, size);
+        printf("extra free space found: %jx (%d)\n", x, size);
         exit(1);
     }
     delete a;

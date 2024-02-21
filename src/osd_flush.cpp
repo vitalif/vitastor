@@ -66,7 +66,7 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
 {
     if (log_level > 2)
     {
-        printf("[PG %u/%u] flush batch %lx completed on OSD %lu with result %d\n",
+        printf("[PG %u/%u] flush batch %jx completed on OSD %ju with result %d\n",
             pool_id, pg_num, (uint64_t)fb, peer_osd, retval);
     }
     pool_pg_num_t pg_id = { .pool_id = pool_id, .pg_num = pg_num };
@@ -88,7 +88,7 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
         }
         else
         {
-            printf("Error while doing flush on OSD %lu: %d (%s)\n", osd_num, retval, strerror(-retval));
+            printf("Error while doing flush on OSD %ju: %d (%s)\n", osd_num, retval, strerror(-retval));
             auto fd_it = msgr.osd_peer_fds.find(peer_osd);
             if (fd_it != msgr.osd_peer_fds.end())
             {
@@ -122,7 +122,7 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
                 {
                     if (log_level > 2)
                     {
-                        printf("[PG %u/%u] continuing write %lx to object %lx:%lx after flush\n",
+                        printf("[PG %u/%u] continuing write %jx to object %jx:%jx after flush\n",
                             pool_id, pg_num, (uint64_t)wr_it->second, wr_it->first.inode, wr_it->first.stripe);
                     }
                     continue_ops.push_back(wr_it->second);
@@ -169,12 +169,12 @@ bool osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
     if (log_level > 2)
     {
         printf(
-            "[PG %u/%u] flush batch %lx on OSD %lu: %s objects: ",
+            "[PG %u/%u] flush batch %jx on OSD %ju: %s objects: ",
             pool_id, pg_num, (uint64_t)fb, peer_osd, rollback ? "rollback" : "stabilize"
         );
         for (int i = 0; i < count; i++)
         {
-            printf(i > 0 ? ", %lx:%lx v%lu" : "%lx:%lx v%lu", data[i].oid.inode, data[i].oid.stripe, data[i].version);
+            printf(i > 0 ? ", %jx:%jx v%ju" : "%jx:%jx v%ju", data[i].oid.inode, data[i].oid.stripe, data[i].version);
         }
         printf("\n");
     }
@@ -305,7 +305,7 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
     };
     if (log_level > 2)
     {
-        printf("Submitting recovery operation for %lx:%lx (%s)\n", op->oid.inode, op->oid.stripe, op->degraded ? "degraded" : "misplaced");
+        printf("Submitting recovery operation for %jx:%jx (%s)\n", op->oid.inode, op->oid.stripe, op->degraded ? "degraded" : "misplaced");
     }
     op->osd_op->peer_fd = -1;
     op->osd_op->callback = [this, op](osd_op_t *osd_op)
@@ -315,7 +315,7 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
             // Error recovering object
             // EPIPE is totally harmless (peer is gone), others like EIO/EDOM may be not
             printf(
-                "[PG %u/%u] Recovery operation failed with object %lx:%lx: error %ld\n",
+                "[PG %u/%u] Recovery operation failed with object %jx:%jx: error %jd\n",
                 INODE_POOL(op->oid.inode),
                 map_to_pg(op->oid, st_cli.pool_config.at(INODE_POOL(op->oid.inode)).pg_stripe_size),
                 op->oid.inode, op->oid.stripe, osd_op->reply.hdr.retval
@@ -323,7 +323,7 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
         }
         else if (log_level > 2)
         {
-            printf("Recovery operation done for %lx:%lx\n", op->oid.inode, op->oid.stripe);
+            printf("Recovery operation done for %jx:%jx\n", op->oid.inode, op->oid.stripe);
         }
         finish_recovery_op(op);
     };
@@ -445,7 +445,7 @@ void osd_t::tune_recovery()
     if (log_level > 1)
     {
         printf(
-            "[OSD %lu] auto-tune: client util: %.2f, recovery util: %.2f, lat: %lu us -> target util %.2f, delay %lu us\n",
+            "[OSD %ju] auto-tune: client util: %.2f, recovery util: %.2f, lat: %ju us -> target util %.2f, delay %ju us\n",
             osd_num, rtune_client_util, total_recovery_usec/1000000.0/recovery_tune_interval,
             rtune_avg_lat, rtune_target_util, recovery_target_sleep_us
         );

@@ -113,7 +113,7 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
             if (repeer)
             {
                 // Repeer this pg
-                printf("[PG %u/%u] Repeer because of OSD %lu\n", pg.pool_id, pg.pg_num, peer_osd);
+                printf("[PG %u/%u] Repeer because of OSD %ju\n", pg.pool_id, pg.pg_num, peer_osd);
                 if (!(pg.state & (PG_ACTIVE | PG_REPEERING)) || pg.inflight == 0 && !pg.flush_batch)
                 {
                     start_pg_peering(pg);
@@ -347,7 +347,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
             }
             add_bs_subop_stats(op);
             printf(
-                "[PG %u/%u] Got object list from OSD %lu (local): %d object versions (%lu of them stable)\n",
+                "[PG %u/%u] Got object list from OSD %ju (local): %d object versions (%ju of them stable)\n",
                 ps->pool_id, ps->pg_num, role_osd, bs_op->retval, bs_op->version
             );
             ps->list_results[role_osd] = {
@@ -387,7 +387,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         {
             if (op->reply.hdr.retval < 0)
             {
-                printf("Failed to get object list from OSD %lu (retval=%ld), disconnecting peer\n", role_osd, op->reply.hdr.retval);
+                printf("Failed to get object list from OSD %ju (retval=%jd), disconnecting peer\n", role_osd, op->reply.hdr.retval);
                 int fail_fd = op->peer_fd;
                 ps->list_ops.erase(role_osd);
                 delete op;
@@ -395,7 +395,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
                 return;
             }
             printf(
-                "[PG %u/%u] Got object list from OSD %lu: %ld object versions (%lu of them stable)\n",
+                "[PG %u/%u] Got object list from OSD %ju: %jd object versions (%ju of them stable)\n",
                 ps->pool_id, ps->pg_num, role_osd, op->reply.hdr.retval, op->reply.sec_list.stable_count
             );
             ps->list_results[role_osd] = {

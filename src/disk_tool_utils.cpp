@@ -12,9 +12,9 @@ uint64_t sscanf_json(const char *fmt, const json11::Json & str)
 {
     uint64_t value = 0;
     if (fmt)
-        sscanf(str.string_value().c_str(), "%lx", &value);
+        sscanf(str.string_value().c_str(), "%jx", &value);
     else if (str.string_value().size() > 2 && (str.string_value()[0] == '0' && str.string_value()[1] == 'x'))
-        sscanf(str.string_value().c_str(), "0x%lx", &value);
+        sscanf(str.string_value().c_str(), "0x%jx", &value);
     else
         value = str.uint64_value();
     return value;

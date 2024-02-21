@@ -53,7 +53,7 @@ int main(int narg, char *args[])
         }
         else if (main_state == 2)
         {
-            printf("version %lu written, syncing\n", op.version);
+            printf("version %ju written, syncing\n", op.version);
             version = op.version;
             op.opcode = BS_OP_SYNC;
             bs->enqueue_op(&op);
@@ -61,7 +61,7 @@ int main(int narg, char *args[])
         }
         else if (main_state == 4)
         {
-            printf("stabilizing version %lu\n", version);
+            printf("stabilizing version %ju\n", version);
             op.opcode = BS_OP_STABLE;
             op.len = 1;
             *((obj_ver_id*)op.buf) = {
@@ -73,7 +73,7 @@ int main(int narg, char *args[])
         }
         else if (main_state == 6)
         {
-            printf("stabilizing version %lu\n", version);
+            printf("stabilizing version %ju\n", version);
             op.opcode = BS_OP_STABLE;
             op.len = 1;
             *((obj_ver_id*)op.buf) = {

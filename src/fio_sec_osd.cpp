@@ -310,7 +310,8 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     int iovcnt = 1, wtotal = OSD_PACKET_SIZE;
     if (io->ddir == DDIR_WRITE)
     {
-        iov[iovcnt++] = { .iov_base = io->xfer_buf, .iov_len = io->xfer_buflen };
+        assert(io->xfer_buflen <= 0x7fffffff);
+        iov[iovcnt++] = { .iov_base = io->xfer_buf, .iov_len = (size_t)io->xfer_buflen };
         wtotal += io->xfer_buflen;
     }
     if (sendv_blocking(bsd->connect_fd, iov, iovcnt,
@@ -341,13 +342,13 @@ static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int 
         read_blocking(bsd->connect_fd, reply.buf, OSD_PACKET_SIZE);
         if (reply.hdr.magic != SECONDARY_OSD_REPLY_MAGIC)
         {
-            fprintf(stderr, "bad reply: magic = %lx instead of %lx\n", reply.hdr.magic, SECONDARY_OSD_REPLY_MAGIC);
+            fprintf(stderr, "bad reply: magic = %jx instead of %jx\n", reply.hdr.magic, SECONDARY_OSD_REPLY_MAGIC);
             exit(1);
         }
         auto it = bsd->queue.find(reply.hdr.id);
         if (it == bsd->queue.end())
         {
-            fprintf(stderr, "bad reply: op id %lx missing in local queue\n", reply.hdr.id);
+            fprintf(stderr, "bad reply: op id %jx missing in local queue\n", reply.hdr.id);
             exit(1);
         }
         io_u* io = it->second->fio_op;
@@ -357,7 +358,7 @@ static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int 
         {
             if (reply.hdr.retval != io->xfer_buflen)
             {
-                fprintf(stderr, "Short read: retval = %ld instead of %lu\n", reply.hdr.retval, (uint64_t)io->xfer_buflen);
+                fprintf(stderr, "Short read: retval = %jd instead of %ju\n", reply.hdr.retval, (uint64_t)io->xfer_buflen);
                 exit(1);
             }
             // Support bitmap
@@ -371,7 +372,8 @@ static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int 
                 else
                     iov[iovcnt++] = { .iov_base = (void*)(bitmap = (uint64_t)malloc(reply.sec_rw.attr_len)), .iov_len = reply.sec_rw.attr_len };
             }
-            iov[iovcnt++] = { .iov_base = io->xfer_buf, .iov_len = io->xfer_buflen };
+            assert(io->xfer_buflen <= 0x7FFFFFFF);
+            iov[iovcnt++] = { .iov_base = io->xfer_buf, .iov_len = (size_t)io->xfer_buflen };
             readv_blocking(bsd->connect_fd, iov, iovcnt);
             if (reply.sec_rw.attr_len > 8)
             {
@@ -382,7 +384,7 @@ static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int 
         {
             if (reply.hdr.retval != io->xfer_buflen)
             {
-                fprintf(stderr, "Short write: retval = %ld instead of %lu\n", reply.hdr.retval, (uint64_t)io->xfer_buflen);
+                fprintf(stderr, "Short write: retval = %jd instead of %ju\n", reply.hdr.retval, (uint64_t)io->xfer_buflen);
                 exit(1);
             }
         }
@@ -390,13 +392,13 @@ static int sec_getevents(struct thread_data *td, unsigned int min, unsigned int 
         {
             if (reply.hdr.retval != 0)
             {
-                fprintf(stderr, "Sync failed: retval = %ld\n", reply.hdr.retval);
+                fprintf(stderr, "Sync failed: retval = %jd\n", reply.hdr.retval);
                 exit(1);
             }
         }
         if (opt->trace)
         {
-            printf("--- %s # %ld\n", io->ddir == DDIR_READ ? "READ" :
+            printf("--- %s # %ju\n", io->ddir == DDIR_READ ? "READ" :
                 (io->ddir == DDIR_WRITE ? "WRITE" : "SYNC"), reply.hdr.id);
         }
         bsd->completed.push_back(io);

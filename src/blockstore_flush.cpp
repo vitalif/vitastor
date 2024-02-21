@@ -93,7 +93,7 @@ void journal_flusher_t::loop()
 void journal_flusher_t::enqueue_flush(obj_ver_id ov)
 {
 #ifdef BLOCKSTORE_DEBUG
-    printf("enqueue_flush %lx:%lx v%lu\n", ov.oid.inode, ov.oid.stripe, ov.version);
+    printf("enqueue_flush %jx:%jx v%ju\n", ov.oid.inode, ov.oid.stripe, ov.version);
 #endif
     auto it = flush_versions.find(ov.oid);
     if (it != flush_versions.end())
@@ -116,7 +116,7 @@ void journal_flusher_t::enqueue_flush(obj_ver_id ov)
 void journal_flusher_t::unshift_flush(obj_ver_id ov, bool force)
 {
 #ifdef BLOCKSTORE_DEBUG
-    printf("unshift_flush %lx:%lx v%lu\n", ov.oid.inode, ov.oid.stripe, ov.version);
+    printf("unshift_flush %jx:%jx v%ju\n", ov.oid.inode, ov.oid.stripe, ov.version);
 #endif
     auto it = flush_versions.find(ov.oid);
     if (it != flush_versions.end())
@@ -142,7 +142,7 @@ void journal_flusher_t::unshift_flush(obj_ver_id ov, bool force)
 void journal_flusher_t::remove_flush(object_id oid)
 {
 #ifdef BLOCKSTORE_DEBUG
-    printf("undo_flush %lx:%lx\n", oid.inode, oid.stripe);
+    printf("undo_flush %jx:%jx\n", oid.inode, oid.stripe);
 #endif
     auto v_it = flush_versions.find(oid);
     if (v_it != flush_versions.end())
@@ -233,7 +233,7 @@ void journal_flusher_t::dump_diagnostics()
         break;
     }
     printf(
-        "Flusher: queued=%ld first=%s%lx:%lx trim_wanted=%d dequeuing=%d trimming=%d cur=%d target=%d active=%d syncing=%d\n",
+        "Flusher: queued=%zd first=%s%jx:%jx trim_wanted=%d dequeuing=%d trimming=%d cur=%d target=%d active=%d syncing=%d\n",
         flush_queue.size(), unflushable_type, unflushable.oid.inode, unflushable.oid.stripe,
         trim_wanted, dequeuing, trimming, cur_flusher_count, target_flusher_count,
         active_flushers, syncing_flushers
@@ -266,7 +266,7 @@ bool journal_flusher_t::try_find_other(std::map<obj_ver_id, dirty_entry>::iterat
 {
     int search_left = flush_queue.size() - 1;
 #ifdef BLOCKSTORE_DEBUG
-    printf("Flusher overran writers (%lx:%lx v%lu, dirty_start=%08lx) - searching for older flushes (%d left)\n",
+    printf("Flusher overran writers (%jx:%jx v%ju, dirty_start=%08jx) - searching for older flushes (%d left)\n",
         cur.oid.inode, cur.oid.stripe, cur.version, bs->journal.dirty_start, search_left);
 #endif
     while (search_left > 0)
@@ -283,7 +283,7 @@ bool journal_flusher_t::try_find_other(std::map<obj_ver_id, dirty_entry>::iterat
                 dirty_end->second.journal_sector < bs->journal.used_start))
             {
 #ifdef BLOCKSTORE_DEBUG
-                printf("Write %lx:%lx v%lu is too new: offset=%08lx\n", cur.oid.inode, cur.oid.stripe, cur.version, dirty_end->second.journal_sector);
+                printf("Write %jx:%jx v%ju is too new: offset=%08jx\n", cur.oid.inode, cur.oid.stripe, cur.version, dirty_end->second.journal_sector);
 #endif
                 enqueue_flush(cur);
             }
@@ -386,7 +386,7 @@ stop_flusher:
         if (repeat_it != flusher->sync_to_repeat.end())
         {
 #ifdef BLOCKSTORE_DEBUG
-            printf("Postpone %lx:%lx v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
+            printf("Postpone %jx:%jx v%ju\n", cur.oid.inode, cur.oid.stripe, cur.version);
 #endif
             // We don't flush different parts of history of the same object in parallel
             // So we check if someone is already flushing this object
@@ -421,7 +421,7 @@ stop_flusher:
             }
         }
 #ifdef BLOCKSTORE_DEBUG
-        printf("Flushing %lx:%lx v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
+        printf("Flushing %jx:%jx v%ju\n", cur.oid.inode, cur.oid.stripe, cur.version);
 #endif
         flusher->active_flushers++;
         // Find it in clean_db
@@ -448,7 +448,7 @@ stop_flusher:
                 // Object not allocated. This is a bug.
                 char err[1024];
                 snprintf(
-                    err, 1024, "BUG: Object %lx:%lx v%lu that we are trying to flush is not allocated on the data device",
+                    err, 1024, "BUG: Object %jx:%jx v%ju that we are trying to flush is not allocated on the data device",
                     cur.oid.inode, cur.oid.stripe, cur.version
                 );
                 throw std::runtime_error(err);
@@ -538,7 +538,7 @@ resume_2:
                 clean_disk_entry *old_entry = (clean_disk_entry*)((uint8_t*)meta_old.buf + meta_old.pos*bs->dsk.clean_entry_size);
                 if (old_entry->oid.inode != 0 && old_entry->oid != cur.oid)
                 {
-                    printf("Fatal error (metadata corruption or bug): tried to wipe metadata entry %lu (%lx:%lx v%lu) as old location of %lx:%lx\n",
+                    printf("Fatal error (metadata corruption or bug): tried to wipe metadata entry %ju (%jx:%jx v%ju) as old location of %jx:%jx\n",
                         old_clean_loc >> bs->dsk.block_order, old_entry->oid.inode, old_entry->oid.stripe,
                         old_entry->version, cur.oid.inode, cur.oid.stripe);
                     exit(1);
@@ -571,7 +571,7 @@ resume_2:
         // Erase dirty_db entries
         bs->erase_dirty(dirty_start, std::next(dirty_end), clean_loc);
 #ifdef BLOCKSTORE_DEBUG
-        printf("Flushed %lx:%lx v%lu (%d copies, wr:%d, del:%d), %ld left\n", cur.oid.inode, cur.oid.stripe, cur.version,
+        printf("Flushed %jx:%jx v%ju (%d copies, wr:%d, del:%d), %jd left\n", cur.oid.inode, cur.oid.stripe, cur.version,
             copy_count, has_writes, has_delete, flusher->flush_queue.size());
 #endif
     release_oid:
@@ -610,8 +610,8 @@ void journal_flusher_co::update_metadata_entry()
     {
         printf(
             has_delete
-                ? "Fatal error (metadata corruption or bug): tried to delete metadata entry %lu (%lx:%lx v%lu) while deleting %lx:%lx v%lu\n"
-                : "Fatal error (metadata corruption or bug): tried to overwrite non-zero metadata entry %lu (%lx:%lx v%lu) with %lx:%lx v%lu\n",
+                ? "Fatal error (metadata corruption or bug): tried to delete metadata entry %ju (%jx:%jx v%ju) while deleting %jx:%jx v%ju\n"
+                : "Fatal error (metadata corruption or bug): tried to overwrite non-zero metadata entry %ju (%jx:%jx v%ju) with %jx:%jx v%ju\n",
             clean_loc >> bs->dsk.block_order, new_entry->oid.inode, new_entry->oid.stripe,
             new_entry->version, cur.oid.inode, cur.oid.stripe, cur.version
         );
@@ -711,7 +711,7 @@ bool journal_flusher_co::write_meta_block(flusher_meta_write_t & meta_block, int
     if (wait_state == wait_base)
         goto resume_0;
     await_sqe(0);
-    data->iov = (struct iovec){ meta_block.buf, bs->dsk.meta_block_size };
+    data->iov = (struct iovec){ meta_block.buf, (size_t)bs->dsk.meta_block_size };
     data->callback = simple_callback_w;
     my_uring_prep_writev(
         sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bs->dsk.meta_block_size + meta_block.sector
@@ -761,7 +761,7 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
         {
             // If we encounter bad checksums during flush, we still update the bad block,
             // but intentionally mangle checksums to avoid hiding the corruption.
-            iovec iov = { .iov_base = v[i].buf, .iov_len = v[i].len };
+            iovec iov = { .iov_base = v[i].buf, .iov_len = (size_t)v[i].len };
             if (!(v[i].copy_flags & COPY_BUF_JOURNAL))
             {
                 assert(!(v[i].offset % bs->dsk.csum_block_size));
@@ -769,7 +769,7 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
                 bs->verify_padded_checksums(new_clean_bitmap, new_clean_bitmap + 2*bs->dsk.clean_entry_bitmap_size,
                     v[i].offset, &iov, 1, [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
                 {
-                    printf("Checksum mismatch in object %lx:%lx v%lu in data area at offset 0x%lx+0x%x: got %08x, expected %08x\n",
+                    printf("Checksum mismatch in object %jx:%jx v%ju in data area at offset 0x%jx+0x%x: got %08x, expected %08x\n",
                         cur.oid.inode, cur.oid.stripe, old_clean_ver, old_clean_loc, bad_block, calc_csum, stored_csum);
                     for (uint32_t j = 0; j < bs->dsk.csum_block_size; j += bs->dsk.bitmap_granularity)
                     {
@@ -782,7 +782,7 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
             {
                 bs->verify_journal_checksums(v[i].csum_buf, v[i].offset, &iov, 1, [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
                 {
-                    printf("Checksum mismatch in object %lx:%lx v%lu in journal at offset 0x%lx+0x%x (block offset 0x%lx): got %08x, expected %08x\n",
+                    printf("Checksum mismatch in object %jx:%jx v%ju in journal at offset 0x%jx+0x%x (block offset 0x%jx): got %08x, expected %08x\n",
                         cur.oid.inode, cur.oid.stripe, old_clean_ver,
                         v[i].disk_offset, bad_block, v[i].offset, calc_csum, stored_csum);
                     bad_block += (v[i].offset/bs->dsk.csum_block_size) * bs->dsk.csum_block_size;
@@ -806,7 +806,7 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
             if (new_entry->oid != cur.oid)
             {
                 printf(
-                    "Fatal error (metadata corruption or bug): tried to make holes in %lu (%lx:%lx v%lu) with %lx:%lx v%lu\n",
+                    "Fatal error (metadata corruption or bug): tried to make holes in %ju (%jx:%jx v%ju) with %jx:%jx v%ju\n",
                     clean_loc >> bs->dsk.block_order, new_entry->oid.inode, new_entry->oid.stripe,
                     new_entry->version, cur.oid.inode, cur.oid.stripe, cur.version
                 );
@@ -926,7 +926,7 @@ void journal_flusher_co::scan_dirty()
         {
             char err[1024];
             snprintf(
-                err, 1024, "BUG: Unexpected dirty_entry %lx:%lx v%lu unstable state during flush: 0x%x",
+                err, 1024, "BUG: Unexpected dirty_entry %jx:%jx v%ju unstable state during flush: 0x%x",
                 dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version, dirty_it->second.state
             );
             throw std::runtime_error(err);
@@ -1022,7 +1022,7 @@ void journal_flusher_co::scan_dirty()
             // May happen if the metadata entry is corrupt, but journal isn't
             // FIXME: Report corrupted object to the upper layer (OSD)
             printf(
-                "Warning: object %lx:%lx has overwrites, but doesn't have a clean version."
+                "Warning: object %jx:%jx has overwrites, but doesn't have a clean version."
                 " Metadata is likely corrupted. Dropping object from the DB.\n",
                 cur.oid.inode, cur.oid.stripe
             );
@@ -1057,7 +1057,7 @@ void journal_flusher_co::scan_dirty()
         flusher->enqueue_flush(cur);
         cur.version = dirty_end->first.version;
 #ifdef BLOCKSTORE_DEBUG
-        printf("Partial checksum block overwrites found - rewinding flush back to %lx:%lx v%lu\n", cur.oid.inode, cur.oid.stripe, cur.version);
+        printf("Partial checksum block overwrites found - rewinding flush back to %jx:%jx v%ju\n", cur.oid.inode, cur.oid.stripe, cur.version);
 #endif
         v.clear();
         copy_count = 0;
@@ -1085,7 +1085,7 @@ bool journal_flusher_co::read_dirty(int wait_base)
         auto & vi = v[v.size()-i];
         assert(vi.len != 0);
         vi.buf = memalign_or_die(MEM_ALIGNMENT, vi.len);
-        data->iov = (struct iovec){ vi.buf, vi.len };
+        data->iov = (struct iovec){ vi.buf, (size_t)vi.len };
         data->callback = simple_callback_r;
         my_uring_prep_readv(
             sqe, bs->dsk.data_fd, &data->iov, 1, bs->dsk.data_offset + old_clean_loc + vi.offset
@@ -1209,7 +1209,7 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
             .usage_count = 1,
         }).first;
         await_sqe(0);
-        data->iov = (struct iovec){ wr.it->second.buf, bs->dsk.meta_block_size };
+        data->iov = (struct iovec){ wr.it->second.buf, (size_t)bs->dsk.meta_block_size };
         data->callback = simple_callback_r;
         wr.submitted = true;
         my_uring_prep_readv(
@@ -1248,7 +1248,7 @@ void journal_flusher_co::free_data_blocks()
         auto uo_it = bs->used_clean_objects.find(old_clean_loc);
         bool used = uo_it != bs->used_clean_objects.end();
 #ifdef BLOCKSTORE_DEBUG
-        printf("%s block %lu from %lx:%lx v%lu (new location is %lu)\n",
+        printf("%s block %ju from %jx:%jx v%ju (new location is %ju)\n",
             used ? "Postpone free" : "Free",
             old_clean_loc >> bs->dsk.block_order,
             cur.oid.inode, cur.oid.stripe, cur.version,
@@ -1265,7 +1265,7 @@ void journal_flusher_co::free_data_blocks()
         auto uo_it = bs->used_clean_objects.find(old_clean_loc);
         bool used = uo_it != bs->used_clean_objects.end();
 #ifdef BLOCKSTORE_DEBUG
-        printf("%s block %lu from %lx:%lx v%lu (delete)\n",
+        printf("%s block %ju from %jx:%jx v%ju (delete)\n",
             used ? "Postpone free" : "Free",
             old_clean_loc >> bs->dsk.block_order,
             cur.oid.inode, cur.oid.stripe, cur.version);
@@ -1378,7 +1378,7 @@ bool journal_flusher_co::trim_journal(int wait_base)
                 .csum_block_size = bs->dsk.csum_block_size,
             };
             ((journal_entry_start*)flusher->journal_superblock)->crc32 = je_crc32((journal_entry*)flusher->journal_superblock);
-            data->iov = (struct iovec){ flusher->journal_superblock, bs->dsk.journal_block_size };
+            data->iov = (struct iovec){ flusher->journal_superblock, (size_t)bs->dsk.journal_block_size };
             data->callback = simple_callback_w;
             my_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
             wait_count++;
@@ -1410,7 +1410,7 @@ bool journal_flusher_co::trim_journal(int wait_base)
             }
             bs->journal.used_start = new_trim_pos;
 #ifdef BLOCKSTORE_DEBUG
-            printf("Journal trimmed to %08lx (next_free=%08lx dirty_start=%08lx)\n", bs->journal.used_start, bs->journal.next_free, bs->journal.dirty_start);
+            printf("Journal trimmed to %08jx (next_free=%08jx dirty_start=%08jx)\n", bs->journal.used_start, bs->journal.next_free, bs->journal.dirty_start);
 #endif
             if (bs->journal.flush_journal && !flusher->flush_queue.size())
             {

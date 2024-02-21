@@ -136,7 +136,7 @@ struct cli_fix_t
             auto pool_cfg_it = parent->cli->st_cli.pool_config.find(INODE_POOL(obj.inode));
             if (pool_cfg_it == parent->cli->st_cli.pool_config.end())
             {
-                fprintf(stderr, "Object %lx:%lx is from unknown pool\n", obj.inode, obj.stripe);
+                fprintf(stderr, "Object %jx:%jx is from unknown pool\n", obj.inode, obj.stripe);
                 continue;
             }
             auto & pool_cfg = pool_cfg_it->second;
@@ -146,7 +146,7 @@ struct cli_fix_t
                 !pg_it->second.cur_primary || !(pg_it->second.cur_state & PG_ACTIVE))
             {
                 fprintf(
-                    stderr, "Object %lx:%lx is from PG %u/%u which is not currently active\n",
+                    stderr, "Object %jx:%jx is from PG %u/%u which is not currently active\n",
                     obj.inode, obj.stripe, pool_cfg_it->first, pg_num
                 );
                 continue;
@@ -171,7 +171,7 @@ struct cli_fix_t
             {
                 if (op->reply.hdr.retval < 0 || op->reply.describe.result_bytes != op->reply.hdr.retval * sizeof(osd_reply_describe_item_t))
                 {
-                    fprintf(stderr, "Failed to describe objects on OSD %lu (retval=%ld)\n", primary_osd, op->reply.hdr.retval);
+                    fprintf(stderr, "Failed to describe objects on OSD %ju (retval=%jd)\n", primary_osd, op->reply.hdr.retval);
                     parent->waiting--;
                     loop();
                 }
@@ -209,7 +209,7 @@ struct cli_fix_t
                                 if (rm_op->reply.hdr.retval < 0)
                                 {
                                     fprintf(
-                                        stderr, "Failed to remove object %lx:%lx from OSD %lu (retval=%ld)\n",
+                                        stderr, "Failed to remove object %jx:%jx from OSD %ju (retval=%jd)\n",
                                         rm_op->req.sec_del.oid.inode, rm_op->req.sec_del.oid.stripe,
                                         rm_osd_num, rm_op->reply.hdr.retval
                                     );
@@ -226,7 +226,7 @@ struct cli_fix_t
                                 else
                                 {
                                     printf(
-                                        "Removed %lx:%lx (part %lu) from OSD %lu\n",
+                                        "Removed %jx:%jx (part %ju) from OSD %ju\n",
                                         rm_op->req.sec_del.oid.inode, rm_op->req.sec_del.oid.stripe & ~STRIPE_MASK,
                                         rm_op->req.sec_del.oid.stripe & STRIPE_MASK, rm_osd_num
                                     );
@@ -254,7 +254,7 @@ struct cli_fix_t
                                         if (scrub_op->reply.hdr.retval < 0 && scrub_op->reply.hdr.retval != -ENOENT)
                                         {
                                             fprintf(
-                                                stderr, "Failed to scrub %lx:%lx on OSD %lu (retval=%ld)\n",
+                                                stderr, "Failed to scrub %jx:%jx on OSD %ju (retval=%jd)\n",
                                                 obj.inode, obj.stripe, primary_osd, scrub_op->reply.hdr.retval
                                             );
                                         }

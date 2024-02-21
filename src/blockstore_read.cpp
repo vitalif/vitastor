@@ -25,7 +25,7 @@ int blockstore_impl_t::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_
         return 1;
     }
     BS_SUBMIT_GET_SQE(sqe, data);
-    data->iov = (struct iovec){ buf, len };
+    data->iov = (struct iovec){ buf, (size_t)len };
     PRIV(op)->pending_ops++;
     my_uring_prep_readv(
         sqe,
@@ -700,7 +700,7 @@ uint8_t* blockstore_impl_t::read_clean_meta_block(blockstore_op_t *op, uint64_t 
         .buf = buf,
     });
     BS_SUBMIT_GET_SQE(sqe, data);
-    data->iov = (struct iovec){ buf, dsk.meta_block_size };
+    data->iov = (struct iovec){ buf, (size_t)dsk.meta_block_size };
     PRIV(op)->pending_ops++;
     my_uring_prep_readv(sqe, dsk.meta_fd, &data->iov, 1, dsk.meta_offset + dsk.meta_block_size + sector);
     data->callback = [this, op](ring_data_t *data) { handle_read_event(data, op); };
@@ -855,7 +855,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                             {
                                 ok = false;
                                 printf(
-                                    "Checksum mismatch in object %lx:%lx v%lu in journal at 0x%lx, checksum block #%u: got %08x, expected %08x\n",
+                                    "Checksum mismatch in object %jx:%jx v%ju in journal at 0x%jx, checksum block #%u: got %08x, expected %08x\n",
                                     op->oid.inode, op->oid.stripe, op->version,
                                     rv[i].disk_offset, bad_block / dsk.csum_block_size, calc_csum, stored_csum
                                 );
@@ -875,7 +875,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                                 {
                                     ok = false;
                                     printf(
-                                        "Checksum mismatch in object %lx:%lx v%lu in %s data at 0x%lx, checksum block #%u: got %08x, expected %08x\n",
+                                        "Checksum mismatch in object %jx:%jx v%ju in %s data at 0x%jx, checksum block #%u: got %08x, expected %08x\n",
                                         op->oid.inode, op->oid.stripe, op->version,
                                         (rv[i].copy_flags & COPY_BUF_JOURNALED_BIG ? "redirect-write" : "clean"),
                                         rv[i].disk_offset, bad_block / dsk.csum_block_size, calc_csum, stored_csum
@@ -918,7 +918,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                             {
                                 // checksum error
                                 printf(
-                                    "Checksum mismatch in object %lx:%lx v%lu in %s area at offset 0x%lx+0x%lx: %08x vs %08x\n",
+                                    "Checksum mismatch in object %jx:%jx v%ju in %s area at offset 0x%jx+0x%zx: %08x vs %08x\n",
                                     op->oid.inode, op->oid.stripe, op->version,
                                     (vec.copy_flags & COPY_BUF_JOURNAL) ? "journal" : "data", vec.disk_offset, p,
                                     crc32c(0, (uint8_t*)op->buf + vec.offset - op->offset + p, dsk.csum_block_size), *csum

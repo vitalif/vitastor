@@ -27,13 +27,13 @@ void osd_messenger_t::init()
         if (!rdma_context)
         {
             if (log_level > 0)
-                fprintf(stderr, "[OSD %lu] Couldn't initialize RDMA, proceeding with TCP only\n", osd_num);
+                fprintf(stderr, "[OSD %ju] Couldn't initialize RDMA, proceeding with TCP only\n", osd_num);
         }
         else
         {
             rdma_max_sge = rdma_max_sge < rdma_context->attrx.orig_attr.max_sge
                 ? rdma_max_sge : rdma_context->attrx.orig_attr.max_sge;
-            fprintf(stderr, "[OSD %lu] RDMA initialized successfully\n", osd_num);
+            fprintf(stderr, "[OSD %ju] RDMA initialized successfully\n", osd_num);
             fcntl(rdma_context->channel->fd, F_SETFL, fcntl(rdma_context->channel->fd, F_GETFL, 0) | O_NONBLOCK);
             tfd->set_fd_handler(rdma_context->channel->fd, false, [this](int notify_fd, int epoll_events)
             {
@@ -62,7 +62,7 @@ void osd_messenger_t::init()
                 if (!cl->ping_time_remaining)
                 {
                     // Ping timed out, stop the client
-                    fprintf(stderr, "Ping timed out for OSD %lu (client %d), disconnecting peer\n", cl->osd_num, cl->peer_fd);
+                    fprintf(stderr, "Ping timed out for OSD %ju (client %d), disconnecting peer\n", cl->osd_num, cl->peer_fd);
                     stop_client(peer_fd, true);
                     // Restart iterator because it may be invalidated
                     cl_it = clients.upper_bound(peer_fd);
@@ -99,7 +99,7 @@ void osd_messenger_t::init()
                         delete op;
                         if (fail_fd >= 0)
                         {
-                            fprintf(stderr, "Ping failed for OSD %lu (client %d), disconnecting peer\n", fail_osd_num, fail_fd);
+                            fprintf(stderr, "Ping failed for OSD %ju (client %d), disconnecting peer\n", fail_osd_num, fail_fd);
                             stop_client(fail_fd, true);
                         }
                     };
@@ -253,7 +253,7 @@ void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer
     clients[peer_fd] = new osd_client_t();
     if (log_level > 0)
     {
-        fprintf(stderr, "Connecting to OSD %lu at %s:%d (client %d)\n", peer_osd, peer_host, peer_port, peer_fd);
+        fprintf(stderr, "Connecting to OSD %ju at %s:%d (client %d)\n", peer_osd, peer_host, peer_port, peer_fd);
     }
     clients[peer_fd]->peer_addr = addr;
     clients[peer_fd]->peer_port = peer_port;
@@ -319,7 +319,7 @@ void osd_messenger_t::handle_peer_epoll(int peer_fd, int epoll_events)
         // Stop client
         if (log_level > 0)
         {
-            fprintf(stderr, "[OSD %lu] client %d disconnected\n", this->osd_num, peer_fd);
+            fprintf(stderr, "[OSD %ju] client %d disconnected\n", this->osd_num, peer_fd);
         }
         stop_client(peer_fd, true);
     }
@@ -345,7 +345,7 @@ void osd_messenger_t::on_connect_peer(osd_num_t peer_osd, int peer_fd)
     wp.connecting = false;
     if (peer_fd < 0)
     {
-        fprintf(stderr, "Failed to connect to peer OSD %lu address %s port %d: %s\n", peer_osd, wp.cur_addr.c_str(), wp.cur_port, strerror(-peer_fd));
+        fprintf(stderr, "Failed to connect to peer OSD %ju address %s port %d: %s\n", peer_osd, wp.cur_addr.c_str(), wp.cur_port, strerror(-peer_fd));
         if (wp.address_changed)
         {
             wp.address_changed = false;
@@ -372,7 +372,7 @@ void osd_messenger_t::on_connect_peer(osd_num_t peer_osd, int peer_fd)
     }
     if (log_level > 0)
     {
-        fprintf(stderr, "[OSD %lu] Connected with peer OSD %lu (client %d)\n", osd_num, peer_osd, peer_fd);
+        fprintf(stderr, "[OSD %ju] Connected with peer OSD %ju (client %d)\n", osd_num, peer_osd, peer_fd);
     }
     wanted_peers.erase(peer_osd);
     repeer_pgs(peer_osd);
@@ -418,7 +418,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
         if (op->reply.hdr.retval < 0)
         {
             err = true;
-            fprintf(stderr, "Failed to get config from OSD %lu (retval=%ld), disconnecting peer\n", cl->osd_num, op->reply.hdr.retval);
+            fprintf(stderr, "Failed to get config from OSD %ju (retval=%jd), disconnecting peer\n", cl->osd_num, op->reply.hdr.retval);
         }
         else
         {
@@ -426,18 +426,18 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
             if (json_err != "")
             {
                 err = true;
-                fprintf(stderr, "Failed to get config from OSD %lu: bad JSON: %s, disconnecting peer\n", cl->osd_num, json_err.c_str());
+                fprintf(stderr, "Failed to get config from OSD %ju: bad JSON: %s, disconnecting peer\n", cl->osd_num, json_err.c_str());
             }
             else if (config["osd_num"].uint64_value() != cl->osd_num)
             {
                 err = true;
-                fprintf(stderr, "Connected to OSD %lu instead of OSD %lu, peer state is outdated, disconnecting peer\n", config["osd_num"].uint64_value(), cl->osd_num);
+                fprintf(stderr, "Connected to OSD %ju instead of OSD %ju, peer state is outdated, disconnecting peer\n", config["osd_num"].uint64_value(), cl->osd_num);
             }
             else if (config["protocol_version"].uint64_value() != OSD_PROTOCOL_VERSION)
             {
                 err = true;
                 fprintf(
-                    stderr, "OSD %lu protocol version is %lu, but only version %u is supported.\n"
+                    stderr, "OSD %ju protocol version is %ju, but only version %u is supported.\n"
                     " If you need to upgrade from 0.5.x please request it via the issue tracker.\n",
                     cl->osd_num, config["protocol_version"].uint64_value(), OSD_PROTOCOL_VERSION
                 );
@@ -463,7 +463,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
                 cl->rdma_conn->connect(&addr) != 0)
             {
                 fprintf(
-                    stderr, "Failed to connect to OSD %lu (address %s) using RDMA\n",
+                    stderr, "Failed to connect to OSD %ju (address %s) using RDMA\n",
                     cl->osd_num, config["rdma_address"].string_value().c_str()
                 );
                 delete cl->rdma_conn;
@@ -484,7 +484,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
                 }
                 if (log_level > 0)
                 {
-                    fprintf(stderr, "Connected to OSD %lu using RDMA\n", cl->osd_num);
+                    fprintf(stderr, "Connected to OSD %ju using RDMA\n", cl->osd_num);
                 }
                 cl->peer_state = PEER_RDMA;
                 tfd->set_fd_handler(cl->peer_fd, false, [this](int peer_fd, int epoll_events)
@@ -516,7 +516,7 @@ void osd_messenger_t::accept_connections(int listen_fd)
     while ((peer_fd = accept(listen_fd, (sockaddr*)&addr, &peer_addr_size)) >= 0)
     {
         assert(peer_fd != 0);
-        fprintf(stderr, "[OSD %lu] new client %d: connection from %s\n", this->osd_num, peer_fd,
+        fprintf(stderr, "[OSD %ju] new client %d: connection from %s\n", this->osd_num, peer_fd,
             addr_to_string(addr).c_str());
         fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
         int one = 1;

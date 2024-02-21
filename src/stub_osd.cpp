@@ -127,7 +127,7 @@ void run_stub(int peer_fd)
         }
         else
         {
-            printf("client %d: unsupported stub opcode: %lu\n", peer_fd, op.hdr.opcode);
+            printf("client %d: unsupported stub opcode: %ju\n", peer_fd, op.hdr.opcode);
             break;
         }
     }

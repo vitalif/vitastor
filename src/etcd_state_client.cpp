@@ -333,7 +333,7 @@ void etcd_state_client_t::start_etcd_watcher()
         etcd_watch_ws = NULL;
     }
     if (this->log_level > 1)
-        fprintf(stderr, "Trying to connect to etcd websocket at %s, watch from revision %lu\n", etcd_address.c_str(), etcd_watch_revision);
+        fprintf(stderr, "Trying to connect to etcd websocket at %s, watch from revision %ju\n", etcd_address.c_str(), etcd_watch_revision);
     etcd_watch_ws = open_websocket(tfd, etcd_address, etcd_api_path+"/watch", etcd_slow_timeout,
         [this, cur_addr = selected_etcd_address](const http_response_t *msg)
     {
@@ -357,7 +357,7 @@ void etcd_state_client_t::start_etcd_watcher()
                         watch_id == ETCD_OSD_STATE_WATCH_ID)
                         etcd_watches_initialised++;
                     if (etcd_watches_initialised == ETCD_TOTAL_WATCHES && this->log_level > 0)
-                        fprintf(stderr, "Successfully subscribed to etcd at %s, revision %lu\n", cur_addr.c_str(), etcd_watch_revision);
+                        fprintf(stderr, "Successfully subscribed to etcd at %s, revision %ju\n", cur_addr.c_str(), etcd_watch_revision);
                 }
                 if (data["result"]["canceled"].bool_value())
                 {
@@ -371,7 +371,7 @@ void etcd_state_client_t::start_etcd_watcher()
                             // check to not trigger on_reload_hook multiple times
                             if (etcd_watch_ws != NULL)
                             {
-                                fprintf(stderr, "Revisions before %lu were compacted by etcd, reloading state\n",
+                                fprintf(stderr, "Revisions before %ju were compacted by etcd, reloading state\n",
                                     data["result"]["compact_revision"].uint64_value());
                                 http_close(etcd_watch_ws);
                                 etcd_watch_ws = NULL;
@@ -382,7 +382,7 @@ void etcd_state_client_t::start_etcd_watcher()
                         }
                         else
                         {
-                            fprintf(stderr, "Revisions before %lu were compacted by etcd, exiting\n",
+                            fprintf(stderr, "Revisions before %ju were compacted by etcd, exiting\n",
                                 data["result"]["compact_revision"].uint64_value());
                             exit(1);
                         }
@@ -646,7 +646,7 @@ void etcd_state_client_t::load_pgs()
             etcd_watch_revision = data["header"]["revision"].uint64_value()+1;
             if (this->log_level > 3)
             {
-                fprintf(stderr, "Loaded revision %lu of PG configuration\n", etcd_watch_revision-1);
+                fprintf(stderr, "Loaded revision %ju of PG configuration\n", etcd_watch_revision-1);
             }
         }
         for (auto & res: data["responses"].array_items())
@@ -740,7 +740,7 @@ void etcd_state_client_t::clean_nonexistent_pgs()
     {
         if (seen_peers.find(peer_item.first) == seen_peers.end())
         {
-            fprintf(stderr, "OSD %lu state disappeared after reload, forgetting it\n", peer_item.first);
+            fprintf(stderr, "OSD %ju state disappeared after reload, forgetting it\n", peer_item.first);
             parse_state((etcd_kv_t){
                 .key = etcd_prefix+"/osd/state/"+std::to_string(peer_item.first),
             });
@@ -890,7 +890,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             {
                 if (pg_item.second.target_set.size() != parsed_cfg.pg_size)
                 {
-                    fprintf(stderr, "Pool %u PG %u configuration is invalid: osd_set size %lu != pool pg_size %lu\n",
+                    fprintf(stderr, "Pool %u PG %u configuration is invalid: osd_set size %zu != pool pg_size %ju\n",
                         pool_id, pg_item.first, pg_item.second.target_set.size(), parsed_cfg.pg_size);
                     pg_item.second.pause = true;
                 }
@@ -936,7 +936,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 }
                 if (parsed_cfg.target_set.size() != pool_config[pool_id].pg_size)
                 {
-                    fprintf(stderr, "Pool %u PG %u configuration is invalid: osd_set size %lu != pool pg_size %lu\n",
+                    fprintf(stderr, "Pool %u PG %u configuration is invalid: osd_set size %zu != pool pg_size %ju\n",
                         pool_id, pg_num, parsed_cfg.target_set.size(), pool_config[pool_id].pg_size);
                     parsed_cfg.pause = true;
                 }
@@ -950,7 +950,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 if (pg_it->second.config_exists && pg_it->first != ++n)
                 {
                     fprintf(
-                        stderr, "Invalid pool %u PG configuration: PG numbers don't cover whole 1..%lu range\n",
+                        stderr, "Invalid pool %u PG configuration: PG numbers don't cover whole 1..%zu range\n",
                         pool_item.second.id, pool_item.second.pg_config.size()
                     );
                     for (pg_it = pool_item.second.pg_config.begin(); pg_it != pool_item.second.pg_config.end(); pg_it++)
@@ -1066,7 +1066,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 (state & PG_PEERING) && state != PG_PEERING ||
                 (state & PG_INCOMPLETE) && state != PG_INCOMPLETE)
             {
-                fprintf(stderr, "Unexpected pool %u PG %u state in etcd: primary=%lu, state=%s\n", pool_id, pg_num, cur_primary, value["state"].dump().c_str());
+                fprintf(stderr, "Unexpected pool %u PG %u state in etcd: primary=%ju, state=%s\n", pool_id, pg_num, cur_primary, value["state"].dump().c_str());
                 return;
             }
             pg_cfg.cur_primary = cur_primary;
@@ -1102,7 +1102,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         uint64_t pool_id = 0;
         uint64_t inode_num = 0;
         char null_byte = 0;
-        int scanned = sscanf(key.c_str() + etcd_prefix.length()+14, "%lu/%lu%c", &pool_id, &inode_num, &null_byte);
+        int scanned = sscanf(key.c_str() + etcd_prefix.length()+14, "%ju/%ju%c", &pool_id, &inode_num, &null_byte);
         if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX || !inode_num || (inode_num >> (64-POOL_ID_BITS)))
         {
             fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
@@ -1145,7 +1145,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                     else if (parent_pool_id >= POOL_ID_MAX)
                     {
                         fprintf(
-                            stderr, "Inode %lu/%lu parent_pool value is invalid, ignoring parent setting\n",
+                            stderr, "Inode %ju/%ju parent_pool value is invalid, ignoring parent setting\n",
                             inode_num >> (64-POOL_ID_BITS), inode_num & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1)
                         );
                         parent_inode_num = 0;

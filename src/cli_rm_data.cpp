@@ -95,7 +95,7 @@ struct rm_inode_t
             fprintf(stderr, "Some data may remain after delete on OSDs which are currently down: ");
             for (int i = 0; i < inactive_osds.size(); i++)
             {
-                fprintf(stderr, i > 0 ? ", %lu" : "%lu", inactive_osds[i]);
+                fprintf(stderr, i > 0 ? ", %ju" : "%ju", inactive_osds[i]);
             }
             fprintf(stderr, "\n");
         }
@@ -138,7 +138,7 @@ struct rm_inode_t
                     cur_list->in_flight--;
                     if (op->reply.hdr.retval < 0)
                     {
-                        fprintf(stderr, "Failed to remove object %lx:%lx from PG %u (OSD %lu) (retval=%ld)\n",
+                        fprintf(stderr, "Failed to remove object %jx:%jx from PG %u (OSD %ju) (retval=%jd)\n",
                             op->req.rw.inode, op->req.rw.offset,
                             cur_list->pg_num, cur_list->rm_osd_num, op->reply.hdr.retval);
                         error_count++;
@@ -174,7 +174,7 @@ struct rm_inode_t
                 cur_list->synced = true;
                 if (op->reply.hdr.retval < 0)
                 {
-                    fprintf(stderr, "Failed to sync OSD %lu (retval=%ld)\n",
+                    fprintf(stderr, "Failed to sync OSD %ju (retval=%jd)\n",
                         cur_list->rm_osd_num, op->reply.hdr.retval);
                     error_count++;
                 }
@@ -212,7 +212,7 @@ struct rm_inode_t
         }
         if (parent->progress && total_count > 0 && total_done*1000/total_count != total_prev_pct)
         {
-            fprintf(stderr, "\rRemoved %lu/%lu objects, %lu more PGs to list...", total_done, total_count, pgs_to_list);
+            fprintf(stderr, "\rRemoved %ju/%ju objects, %ju more PGs to list...", total_done, total_count, pgs_to_list);
             total_prev_pct = total_done*1000/total_count;
         }
         if (lists_done && !lists.size())
@@ -224,8 +224,8 @@ struct rm_inode_t
             if (parent->progress && (total_done < total_count || inactive_osds.size() > 0 || error_count > 0))
             {
                 fprintf(
-                    stderr, "Warning: Pool:%u,ID:%lu inode data may not have been fully removed.\n"
-                    " Use `vitastor-cli rm-data --pool %u --inode %lu` if you encounter it in listings.\n",
+                    stderr, "Warning: Pool:%u,ID:%ju inode data may not have been fully removed.\n"
+                    " Use `vitastor-cli rm-data --pool %u --inode %ju` if you encounter it in listings.\n",
                     pool_id, INODE_NO_POOL(inode), pool_id, INODE_NO_POOL(inode)
                 );
             }

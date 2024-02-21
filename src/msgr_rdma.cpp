@@ -10,7 +10,7 @@ std::string msgr_rdma_address_t::to_string()
 {
     char msg[sizeof "0000:00000000:00000000:00000000000000000000000000000000"];
     sprintf(
-        msg, "%04x:%06x:%06x:%016lx%016lx", lid, qpn, psn,
+        msg, "%04x:%06x:%06x:%016jx%016jx", lid, qpn, psn,
         htobe64(((uint64_t*)&gid)[0]), htobe64(((uint64_t*)&gid)[1])
     );
     return std::string(msg);
@@ -20,7 +20,7 @@ bool msgr_rdma_address_t::from_string(const char *str, msgr_rdma_address_t *dest
 {
     uint64_t* gid = (uint64_t*)&dest->gid;
     int scanned = sscanf(
-        str, "%hx:%x:%x:%16lx%16lx", &dest->lid, &dest->qpn, &dest->psn, gid, gid+1
+        str, "%hx:%x:%x:%16jx%16jx", &dest->lid, &dest->qpn, &dest->psn, gid, gid+1
     );
     gid[0] = be64toh(gid[0]);
     gid[1] = be64toh(gid[1]);
@@ -594,7 +594,7 @@ void osd_messenger_t::handle_rdma_events()
                 fprintf(stderr, "RDMA work request failed for client %d", client_id);
                 if (cl->osd_num)
                 {
-                    fprintf(stderr, " (OSD %lu)", cl->osd_num);
+                    fprintf(stderr, " (OSD %ju)", cl->osd_num);
                 }
                 fprintf(stderr, " with status: %s, stopping client\n", ibv_wc_status_str(wc[i].status));
                 stop_client(client_id);

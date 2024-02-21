@@ -82,7 +82,7 @@ resume_1:
             // osd ID
             osd_num_t osd_num;
             char null_byte = 0;
-            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(), "/osd/stats/%lu%c", &osd_num, &null_byte);
+            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(), "/osd/stats/%ju%c", &osd_num, &null_byte);
             if (scanned != 1 || !osd_num || osd_num >= POOL_ID_MAX)
             {
                 fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());

@@ -90,8 +90,8 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
             }
             // In fact, it's even more rare than "ran out of journal space", so print a warning
             printf(
-                "Ran out of journal sector buffers: %d/%lu buffers used (%d dirty), next buffer (%ld)"
-                " is %s and flushed %lu times. Consider increasing \'journal_sector_buffer_count\'\n",
+                "Ran out of journal sector buffers: %d/%ju buffers used (%d dirty), next buffer (%jd)"
+                " is %s and flushed %ju times. Consider increasing \'journal_sector_buffer_count\'\n",
                 used, bs->journal.sector_count, dirty, next_sector,
                 bs->journal.sector_info[next_sector].dirty ? "dirty" : "not dirty",
                 bs->journal.sector_info[next_sector].flush_count
@@ -114,7 +114,7 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
     {
         // No space in the journal. Wait until used_start changes.
         printf(
-            "Ran out of journal space (used_start=%08lx, next_free=%08lx, dirty_start=%08lx)\n",
+            "Ran out of journal space (used_start=%08jx, next_free=%08jx, dirty_start=%08jx)\n",
             bs->journal.used_start, bs->journal.next_free, bs->journal.dirty_start
         );
         PRIV(op)->wait_for = WAIT_JOURNAL;
@@ -183,7 +183,7 @@ void blockstore_impl_t::prepare_journal_sector_write(int cur_sector, blockstore_
             (journal.inmemory
                 ? (uint8_t*)journal.buffer + journal.sector_info[cur_sector].offset
                 : (uint8_t*)journal.sector_buf + journal.block_size*cur_sector),
-            journal.block_size
+            (size_t)journal.block_size
         };
         data->callback = [this, flush_id = journal.submit_id](ring_data_t *data) { handle_journal_write(data, flush_id); };
         my_uring_prep_writev(
@@ -263,7 +263,7 @@ uint64_t journal_t::get_trim_pos()
             // next_free does not need updating during trim
 #ifdef BLOCKSTORE_DEBUG
             printf(
-                "Trimming journal (used_start=%08lx, next_free=%08lx, dirty_start=%08lx, new_start=%08lx, new_refcount=%ld)\n",
+                "Trimming journal (used_start=%08jx, next_free=%08jx, dirty_start=%08jx, new_start=%08jx, new_refcount=%jd)\n",
                 used_start, next_free, dirty_start,
                 journal_used_it->first, journal_used_it->second
             );
@@ -276,7 +276,7 @@ uint64_t journal_t::get_trim_pos()
         // Journal is cleared up to <journal_used_it>
 #ifdef BLOCKSTORE_DEBUG
         printf(
-            "Trimming journal (used_start=%08lx, next_free=%08lx, dirty_start=%08lx, new_start=%08lx, new_refcount=%ld)\n",
+            "Trimming journal (used_start=%08jx, next_free=%08jx, dirty_start=%08jx, new_start=%08jx, new_refcount=%jd)\n",
             used_start, next_free, dirty_start,
             journal_used_it->first, journal_used_it->second
         );
@@ -296,7 +296,7 @@ void journal_t::dump_diagnostics()
         journal_used_it = used_sectors.begin();
     }
     printf(
-        "Journal: used_start=%08lx next_free=%08lx dirty_start=%08lx trim_to=%08lx trim_to_refs=%ld\n",
+        "Journal: used_start=%08jx next_free=%08jx dirty_start=%08jx trim_to=%08jx trim_to_refs=%jd\n",
         used_start, next_free, dirty_start,
         journal_used_it == used_sectors.end() ? 0 : journal_used_it->first,
         journal_used_it == used_sectors.end() ? 0 : journal_used_it->second

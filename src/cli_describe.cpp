@@ -160,14 +160,14 @@ struct cli_describe_t
                 if (op->reply.hdr.retval < 0)
                 {
                     fprintf(
-                        stderr, "Failed to describe objects on OSD %lu (retval=%ld)\n",
+                        stderr, "Failed to describe objects on OSD %ju (retval=%jd)\n",
                         osd_num, op->reply.hdr.retval
                     );
                 }
                 else if (op->reply.describe.result_bytes != op->reply.hdr.retval * sizeof(osd_reply_describe_item_t))
                 {
                     fprintf(
-                        stderr, "Invalid response size from OSD %lu (expected %lu bytes, got %lu bytes)\n",
+                        stderr, "Invalid response size from OSD %ju (expected %ju bytes, got %ju bytes)\n",
                         osd_num, op->reply.hdr.retval * sizeof(osd_reply_describe_item_t), op->reply.describe.result_bytes
                     );
                 }
@@ -178,11 +178,11 @@ struct cli_describe_t
                     {
                         if (!parent->json_output || parent->is_command_line)
                         {
-#define FMT "{\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"part\":%u,\"osd_num\":%lu%s%s%s}"
+#define FMT "{\"inode\":\"0x%jx\",\"stripe\":\"0x%jx\",\"part\":%u,\"osd_num\":%ju%s%s%s}"
                             printf(
                                 (parent->json_output
                                     ? (count > 0 ? ",\n  " FMT : "  " FMT)
-                                    : "%lx:%lx part %u on OSD %lu%s%s%s\n"),
+                                    : "%jx:%jx part %u on OSD %ju%s%s%s\n"),
 #undef FMT
                                 items[i].inode, items[i].stripe,
                                 items[i].role, items[i].osd_num,

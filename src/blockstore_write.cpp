@@ -85,7 +85,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             // It's allowed to write versions with low numbers over deletes
             // However, we have to flush those deletes first as we use version number for ordering
 #ifdef BLOCKSTORE_DEBUG
-            printf("Write %lx:%lx v%lu over delete (real v%lu) offset=%u len=%u\n", op->oid.inode, op->oid.stripe, version, op->version, op->offset, op->len);
+            printf("Write %jx:%jx v%ju over delete (real v%ju) offset=%u len=%u\n", op->oid.inode, op->oid.stripe, version, op->version, op->offset, op->len);
 #endif
             wait_del = true;
             PRIV(op)->real_version = op->version;
@@ -117,7 +117,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         {
             // Invalid version requested
 #ifdef BLOCKSTORE_DEBUG
-            printf("Write %lx:%lx v%lu requested, but we already have v%lu\n", op->oid.inode, op->oid.stripe, op->version, version);
+            printf("Write %jx:%jx v%ju requested, but we already have v%ju\n", op->oid.inode, op->oid.stripe, op->version, version);
 #endif
             op->retval = -EEXIST;
             if (!is_del && alloc_dyn_data)
@@ -144,9 +144,9 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         unsynced_queued_ops++;
 #ifdef BLOCKSTORE_DEBUG
     if (is_del)
-        printf("Delete %lx:%lx v%lu\n", op->oid.inode, op->oid.stripe, op->version);
+        printf("Delete %jx:%jx v%ju\n", op->oid.inode, op->oid.stripe, op->version);
     else if (!wait_del)
-        printf("Write %lx:%lx v%lu offset=%u len=%u\n", op->oid.inode, op->oid.stripe, op->version, op->offset, op->len);
+        printf("Write %jx:%jx v%ju offset=%u len=%u\n", op->oid.inode, op->oid.stripe, op->version, op->offset, op->len);
 #endif
     // No strict need to add it into dirty_db here except maybe for listings to return
     // correct data when there are inflight operations in the queue
@@ -286,7 +286,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         }
         // Restore original low version number for unblocked operations
 #ifdef BLOCKSTORE_DEBUG
-        printf("Restoring %lx:%lx version: v%lu -> v%lu\n", op->oid.inode, op->oid.stripe, op->version, PRIV(op)->real_version);
+        printf("Restoring %jx:%jx version: v%ju -> v%ju\n", op->oid.inode, op->oid.stripe, op->version, PRIV(op)->real_version);
 #endif
         auto prev_it = dirty_it;
         if (prev_it != dirty_db.begin())
@@ -296,7 +296,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             {
                 // Original version is still invalid
                 // All subsequent writes to the same object must be canceled too
-                printf("Tried to write %lx:%lx v%lu after delete (old version v%lu), but already have v%lu\n",
+                printf("Tried to write %jx:%jx v%ju after delete (old version v%ju), but already have v%ju\n",
                     op->oid.inode, op->oid.stripe, PRIV(op)->real_version, op->version, prev_it->first.version);
                 cancel_all_writes(op, dirty_it, -EEXIST);
                 return 2;
@@ -348,8 +348,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             if (entry->oid.inode || entry->oid.stripe || entry->version)
             {
                 printf(
-                    "Fatal error (metadata corruption or bug): tried to write object %lx:%lx v%lu"
-                    " over a non-zero metadata entry %lu with %lx:%lx v%lu\n", op->oid.inode,
+                    "Fatal error (metadata corruption or bug): tried to write object %jx:%jx v%ju"
+                    " over a non-zero metadata entry %ju with %jx:%jx v%ju\n", op->oid.inode,
                     op->oid.stripe, op->version, loc, entry->oid.inode, entry->oid.stripe, entry->version
                 );
                 exit(1);
@@ -361,7 +361,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_SUBMITTED;
 #ifdef BLOCKSTORE_DEBUG
         printf(
-            "Allocate block %lu for %lx:%lx v%lu\n",
+            "Allocate block %ju for %jx:%jx v%ju\n",
             loc, op->oid.inode, op->oid.stripe, op->version
         );
 #endif
@@ -372,13 +372,13 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         int vcnt = 0;
         if (stripe_offset)
         {
-            PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, stripe_offset };
+            PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, (size_t)stripe_offset };
         }
         PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ op->buf, op->len };
         if (stripe_end)
         {
             stripe_end = dsk.bitmap_granularity - stripe_end;
-            PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, stripe_end };
+            PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, (size_t)stripe_end };
         }
         data->iov.iov_len = op->len + stripe_offset + stripe_end; // to check it in the callback
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
@@ -442,7 +442,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             : (jsec >= journal.used_start || jsec < journal.next_free)))
         {
             printf(
-                "BUG: journal offset %08lx is used by %lx:%lx v%lu (%lu refs) BUT used_start=%lx next_free=%lx\n",
+                "BUG: journal offset %08jx is used by %jx:%jx v%ju (%ju refs) BUT used_start=%jx next_free=%jx\n",
                 dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version,
                 journal.used_sectors[journal.sector_info[journal.cur_sector].offset],
                 journal.used_start, journal.next_free
@@ -452,7 +452,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
         printf(
-            "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
+            "journal offset %08jx is used by %jx:%jx v%ju (%ju refs)\n",
             dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version,
             journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
         );
@@ -466,8 +466,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 journal_used_it->first < next_next_free + op->len)
             {
                 printf(
-                    "BUG: Attempt to overwrite used offset (%lx, %lu refs) of the journal with the object %lx:%lx v%lu: data at %lx, len %x!"
-                    " Journal used_start=%08lx (%lu refs), next_free=%08lx, dirty_start=%08lx\n",
+                    "BUG: Attempt to overwrite used offset (%jx, %ju refs) of the journal with the object %jx:%jx v%ju: data at %jx, len %x!"
+                    " Journal used_start=%08jx (%ju refs), next_free=%08jx, dirty_start=%08jx\n",
                     journal_used_it->first, journal_used_it->second, op->oid.inode, op->oid.stripe, op->version, next_next_free, op->len,
                     journal.used_start, journal.used_sectors[journal.used_start], journal.next_free, journal.dirty_start
                 );
@@ -576,7 +576,7 @@ resume_2:
             : (jsec >= journal.used_start || jsec < journal.next_free)))
         {
             printf(
-                "BUG: journal offset %08lx is used by %lx:%lx v%lu (%lu refs) BUT used_start=%lx next_free=%lx\n",
+                "BUG: journal offset %08jx is used by %jx:%jx v%ju (%ju refs) BUT used_start=%jx next_free=%jx\n",
                 dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version,
                 journal.used_sectors[journal.sector_info[journal.cur_sector].offset],
                 journal.used_start, journal.next_free
@@ -586,7 +586,7 @@ resume_2:
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
         printf(
-            "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
+            "journal offset %08jx is used by %jx:%jx v%ju (%ju refs)\n",
             journal.sector_info[journal.cur_sector].offset, op->oid.inode, op->oid.stripe, op->version,
             journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
         );
@@ -613,7 +613,7 @@ resume_4:
         });
         assert(dirty_it != dirty_db.end());
 #ifdef BLOCKSTORE_DEBUG
-        printf("Ack write %lx:%lx v%lu = state 0x%x\n", op->oid.inode, op->oid.stripe, op->version, dirty_it->second.state);
+        printf("Ack write %jx:%jx v%ju = state 0x%x\n", op->oid.inode, op->oid.stripe, op->version, dirty_it->second.state);
 #endif
         bool is_big = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE;
         bool imm = is_big ? (immediate_commit == IMMEDIATE_ALL) : (immediate_commit != IMMEDIATE_NONE);
@@ -806,7 +806,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
     printf(
-        "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
+        "journal offset %08jx is used by %jx:%jx v%ju (%ju refs)\n",
         dirty_it->second.journal_sector, dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version,
         journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
     );

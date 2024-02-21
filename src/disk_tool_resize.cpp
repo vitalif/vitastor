@@ -184,7 +184,7 @@ void disk_tool_t::resize_init(blockstore_meta_header_v2_t *hdr)
     }
     if (new_meta_len < dsk.meta_block_size*new_meta_blocks)
     {
-        fprintf(stderr, "New metadata area size is too small, should be at least %lu bytes\n", dsk.meta_block_size*new_meta_blocks);
+        fprintf(stderr, "New metadata area size is too small, should be at least %ju bytes\n", dsk.meta_block_size*new_meta_blocks);
         exit(1);
     }
     // Check that new metadata, journal and data areas don't overlap
@@ -289,7 +289,7 @@ int disk_tool_t::resize_copy_data()
                         if (data->res != dsk.data_block_size)
                         {
                             fprintf(
-                                stderr, "Failed to read %u bytes at %lu from %s: %s\n", dsk.data_block_size,
+                                stderr, "Failed to read %u bytes at %ju from %s: %s\n", dsk.data_block_size,
                                 dsk.data_offset + moving_blocks[i].old_loc*dsk.data_block_size, dsk.data_device.c_str(),
                                 data->res < 0 ? strerror(-data->res) : "short read"
                             );
@@ -314,7 +314,7 @@ int disk_tool_t::resize_copy_data()
                         if (data->res != dsk.data_block_size)
                         {
                             fprintf(
-                                stderr, "Failed to write %u bytes at %lu to %s: %s\n", dsk.data_block_size,
+                                stderr, "Failed to write %u bytes at %ju to %s: %s\n", dsk.data_block_size,
                                 dsk.data_offset + moving_blocks[i].new_loc*dsk.data_block_size, dsk.data_device.c_str(),
                                 data->res < 0 ? strerror(-data->res) : "short write"
                             );

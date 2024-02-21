@@ -291,7 +291,7 @@ resume_100:
             if (it == parent->cli->st_cli.inode_config.end())
             {
                 char buf[1024];
-                snprintf(buf, 1024, "Parent inode of layer %s (id 0x%lx) not found", cur->name.c_str(), cur->parent_id);
+                snprintf(buf, 1024, "Parent inode of layer %s (id 0x%jx) not found", cur->name.c_str(), cur->parent_id);
                 state = 100;
                 return;
             }
@@ -384,7 +384,7 @@ resume_100:
                 pool_id_t pool_id = 0;
                 inode_t inode = 0;
                 char null_byte = 0;
-                int scanned = sscanf(kv.key.c_str() + parent->cli->st_cli.etcd_prefix.length()+13, "%u/%lu%c", &pool_id, &inode, &null_byte);
+                int scanned = sscanf(kv.key.c_str() + parent->cli->st_cli.etcd_prefix.length()+13, "%u/%ju%c", &pool_id, &inode, &null_byte);
                 if (scanned != 2 || !inode)
                 {
                     result = (cli_result_t){ .err = EIO, .text = "Bad key returned from etcd: "+kv.key };
@@ -439,7 +439,7 @@ resume_100:
         if (child_it == parent->cli->st_cli.inode_config.end())
         {
             char buf[1024];
-            snprintf(buf, 1024, "Inode 0x%lx disappeared", inverse_child);
+            snprintf(buf, 1024, "Inode 0x%jx disappeared", inverse_child);
             result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
             state = 100;
             return;
@@ -448,7 +448,7 @@ resume_100:
         if (target_it == parent->cli->st_cli.inode_config.end())
         {
             char buf[1024];
-            snprintf(buf, 1024, "Inode 0x%lx disappeared", inverse_parent);
+            snprintf(buf, 1024, "Inode 0x%jx disappeared", inverse_parent);
             result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
             state = 100;
             return;
@@ -576,7 +576,7 @@ resume_100:
         if (cur_cfg_it == parent->cli->st_cli.inode_config.end())
         {
             char buf[1024];
-            snprintf(buf, 1024, "Inode 0x%lx disappeared", cur);
+            snprintf(buf, 1024, "Inode 0x%jx disappeared", cur);
             result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
             state = 100;
             return;
@@ -640,7 +640,7 @@ resume_100:
         if (child_it == parent->cli->st_cli.inode_config.end())
         {
             char buf[1024];
-            snprintf(buf, 1024, "Inode 0x%lx disappeared", child_inode);
+            snprintf(buf, 1024, "Inode 0x%jx disappeared", child_inode);
             result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
             state = 100;
             return;
@@ -649,7 +649,7 @@ resume_100:
         if (target_it == parent->cli->st_cli.inode_config.end())
         {
             char buf[1024];
-            snprintf(buf, 1024, "Inode 0x%lx disappeared", target_inode);
+            snprintf(buf, 1024, "Inode 0x%jx disappeared", target_inode);
             result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
             state = 100;
             return;
@@ -670,7 +670,7 @@ resume_100:
         if (source == parent->cli->st_cli.inode_config.end())
         {
             char buf[1024];
-            snprintf(buf, 1024, "Inode 0x%lx disappeared", inode);
+            snprintf(buf, 1024, "Inode 0x%jx disappeared", inode);
             result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
             state = 100;
             return;

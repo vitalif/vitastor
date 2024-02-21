@@ -180,7 +180,7 @@ bool osd_messenger_t::handle_finished_read(osd_client_t *cl)
             handle_op_hdr(cl);
         else
         {
-            fprintf(stderr, "Received garbage: magic=%lx id=%lu opcode=%lx from %d\n", cl->read_op->req.hdr.magic, cl->read_op->req.hdr.id, cl->read_op->req.hdr.opcode, cl->peer_fd);
+            fprintf(stderr, "Received garbage: magic=%jx id=%ju opcode=%jx from %d\n", cl->read_op->req.hdr.magic, cl->read_op->req.hdr.id, cl->read_op->req.hdr.opcode, cl->peer_fd);
             stop_client(cl->peer_fd);
             return false;
         }
@@ -297,7 +297,7 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
     if (req_it == cl->sent_ops.end())
     {
         // Command out of sync. Drop connection
-        fprintf(stderr, "Client %d command out of sync: id %lu\n", cl->peer_fd, cl->read_op->req.hdr.id);
+        fprintf(stderr, "Client %d command out of sync: id %ju\n", cl->peer_fd, cl->read_op->req.hdr.id);
         stop_client(cl->peer_fd);
         return false;
     }
@@ -312,7 +312,7 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         if (op->reply.hdr.retval >= 0 && (op->reply.hdr.retval != expected_size || bmp_len > op->bitmap_len))
         {
             // Check reply length to not overflow the buffer
-            fprintf(stderr, "Client %d read reply of different length: expected %u+%u, got %ld+%u\n",
+            fprintf(stderr, "Client %d read reply of different length: expected %u+%u, got %jd+%u\n",
                 cl->peer_fd, expected_size, op->bitmap_len, op->reply.hdr.retval, bmp_len);
             cl->sent_ops[op->req.hdr.id] = op;
             stop_client(cl->peer_fd);

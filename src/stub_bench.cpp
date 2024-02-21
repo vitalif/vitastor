@@ -35,9 +35,9 @@ static uint64_t sync_sum = 0, sync_count = 0;
 
 void handle_sigint(int sig)
 {
-    printf("4k randread: %lu us avg\n", read_count ? read_sum/read_count : 0);
-    printf("4k randwrite: %lu us avg\n", write_count ? write_sum/write_count : 0);
-    printf("sync: %lu us avg\n", sync_count ? sync_sum/sync_count : 0);
+    printf("4k randread: %ju us avg\n", read_count ? read_sum/read_count : 0);
+    printf("4k randwrite: %ju us avg\n", write_count ? write_sum/write_count : 0);
+    printf("sync: %ju us avg\n", sync_count ? sync_sum/sync_count : 0);
     exit(0);
 }
 
@@ -106,7 +106,7 @@ bool check_reply(int r, osd_any_op_t & op, osd_any_reply_t & reply, int expected
     }
     if (reply.hdr.retval != expected)
     {
-        printf("operation failed, retval=%ld (%s)\n", reply.hdr.retval, strerror(-reply.hdr.retval));
+        printf("operation failed, retval=%jd (%s)\n", reply.hdr.retval, strerror(-reply.hdr.retval));
         return false;
     }
     return true;

@@ -38,7 +38,7 @@ int disk_tool_t::dump_journal()
             }
             if (json)
             {
-                printf("%s{\"offset\":\"0x%lx\"", first_block ? "" : ",\n", journal_pos);
+                printf("%s{\"offset\":\"0x%jx\"", first_block ? "" : ",\n", journal_pos);
                 first_block = false;
             }
             if (s == dsk.journal_block_size)
@@ -46,13 +46,13 @@ int disk_tool_t::dump_journal()
                 if (json)
                     printf(",\"type\":\"zero\"}");
                 else
-                    printf("offset %08lx: zeroes\n", journal_pos);
+                    printf("offset %08jx: zeroes\n", journal_pos);
                 journal_pos += dsk.journal_block_size;
             }
             else if (((journal_entry*)journal_buf)->magic == JOURNAL_MAGIC)
             {
                 if (!json)
-                    printf("offset %08lx:\n", journal_pos);
+                    printf("offset %08jx:\n", journal_pos);
                 else
                     printf(",\"entries\":[\n");
                 if (journal_pos == 0)
@@ -80,9 +80,9 @@ int disk_tool_t::dump_journal()
             else
             {
                 if (json)
-                    printf(",\"type\":\"data\",\"pattern\":\"%08lx\"}", *((uint64_t*)journal_buf));
+                    printf(",\"type\":\"data\",\"pattern\":\"%08jx\"}", *((uint64_t*)journal_buf));
                 else
-                    printf("offset %08lx: no magic in the beginning, looks like random data (pattern=%08lx)\n", journal_pos, *((uint64_t*)journal_buf));
+                    printf("offset %08jx: no magic in the beginning, looks like random data (pattern=%08jx)\n", journal_pos, *((uint64_t*)journal_buf));
                 journal_pos += dsk.journal_block_size;
             }
         }
@@ -98,12 +98,12 @@ int disk_tool_t::dump_journal()
             if (json && dump_with_blocks)
                 first_entry = true;
             if (!json)
-                printf("offset %08lx:\n", journal_pos);
+                printf("offset %08jx:\n", journal_pos);
             auto pos = journal_pos;
             int r = process_journal_block(data, [this, pos](int num, journal_entry *je)
             {
                 if (json && dump_with_blocks && first_entry)
-                    printf("%s{\"offset\":\"0x%lx\",\"entries\":[\n", first_block ? "" : ",\n", pos);
+                    printf("%s{\"offset\":\"0x%jx\",\"entries\":[\n", first_block ? "" : ",\n", pos);
                 dump_journal_entry(num, je, json);
                 first_block = false;
             });
@@ -134,12 +134,12 @@ int disk_tool_t::process_journal(std::function<int(void*)> block_fn)
     journal_entry *je = (journal_entry*)(data);
     if (je->magic != JOURNAL_MAGIC || je->type != JE_START || je_crc32(je) != je->crc32)
     {
-        fprintf(stderr, "offset %08lx: journal superblock is invalid\n", journal_pos);
+        fprintf(stderr, "offset %08jx: journal superblock is invalid\n", journal_pos);
         r = 1;
     }
     else if (je->start.size != JE_START_V0_SIZE && je->start.version != JOURNAL_VERSION_V1 && je->start.version != JOURNAL_VERSION_V2)
     {
-        fprintf(stderr, "offset %08lx: journal superblock contains version %lu, but I only understand 0, 1 and 2\n",
+        fprintf(stderr, "offset %08jx: journal superblock contains version %ju, but I only understand 0, 1 and 2\n",
             journal_pos, je->start.size == JE_START_V0_SIZE ? 0 : je->start.version);
         r = 1;
     }
@@ -296,7 +296,7 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
     if (je->type == JE_START)
     {
         printf(
-            json ? ",\"type\":\"start\",\"start\":\"0x%lx\"" : "je_start start=%08lx",
+            json ? ",\"type\":\"start\",\"start\":\"0x%jx\"" : "je_start start=%08jx",
             je->start.journal_start
         );
         if (je->start.data_csum_type)
@@ -312,15 +312,15 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
     {
         auto & sw = je->small_write;
         printf(
-            json ? ",\"type\":\"small_write%s\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\",\"offset\":%u,\"len\":%u,\"loc\":\"0x%lx\""
-                : "je_small_write%s oid=%lx:%lx ver=%lu offset=%u len=%u loc=%08lx",
+            json ? ",\"type\":\"small_write%s\",\"inode\":\"0x%jx\",\"stripe\":\"0x%jx\",\"ver\":\"%ju\",\"offset\":%u,\"len\":%u,\"loc\":\"0x%jx\""
+                : "je_small_write%s oid=%jx:%jx ver=%ju offset=%u len=%u loc=%08jx",
             je->type == JE_SMALL_WRITE_INSTANT ? "_instant" : "",
             sw.oid.inode, sw.oid.stripe, sw.version, sw.offset, sw.len, sw.data_offset
         );
         if (journal_calc_data_pos != sw.data_offset)
         {
-            printf(json ? ",\"bad_loc\":true,\"calc_loc\":\"0x%lx\""
-                : " (mismatched, calculated = %08lx)", journal_pos);
+            printf(json ? ",\"bad_loc\":true,\"calc_loc\":\"0x%jx\""
+                : " (mismatched, calculated = %08jx)", journal_pos);
         }
         uint32_t data_csum_size = (!je_start.csum_block_size
             ? 0
@@ -367,8 +367,8 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
     {
         auto & bw = je->big_write;
         printf(
-            json ? ",\"type\":\"big_write%s\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\",\"offset\":%u,\"len\":%u,\"loc\":\"0x%lx\""
-                : "je_big_write%s oid=%lx:%lx ver=%lu offset=%u len=%u loc=%08lx",
+            json ? ",\"type\":\"big_write%s\",\"inode\":\"0x%jx\",\"stripe\":\"0x%jx\",\"ver\":\"%ju\",\"offset\":%u,\"len\":%u,\"loc\":\"0x%jx\""
+                : "je_big_write%s oid=%jx:%jx ver=%ju offset=%u len=%u loc=%08jx",
             je->type == JE_BIG_WRITE_INSTANT ? "_instant" : "",
             bw.oid.inode, bw.oid.stripe, bw.version, bw.offset, bw.len, bw.location
         );
@@ -398,24 +398,24 @@ void disk_tool_t::dump_journal_entry(int num, journal_entry *je, bool json)
     else if (je->type == JE_STABLE)
     {
         printf(
-            json ? ",\"type\":\"stable\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\"}"
-                : "je_stable oid=%lx:%lx ver=%lu\n",
+            json ? ",\"type\":\"stable\",\"inode\":\"0x%jx\",\"stripe\":\"0x%jx\",\"ver\":\"%ju\"}"
+                : "je_stable oid=%jx:%jx ver=%ju\n",
             je->stable.oid.inode, je->stable.oid.stripe, je->stable.version
         );
     }
     else if (je->type == JE_ROLLBACK)
     {
         printf(
-            json ? ",\"type\":\"rollback\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\"}"
-                : "je_rollback oid=%lx:%lx ver=%lu\n",
+            json ? ",\"type\":\"rollback\",\"inode\":\"0x%jx\",\"stripe\":\"0x%jx\",\"ver\":\"%ju\"}"
+                : "je_rollback oid=%jx:%jx ver=%ju\n",
             je->rollback.oid.inode, je->rollback.oid.stripe, je->rollback.version
         );
     }
     else if (je->type == JE_DELETE)
     {
         printf(
-            json ? ",\"type\":\"delete\",\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"ver\":\"%lu\"}"
-                : "je_delete oid=%lx:%lx ver=%lu\n",
+            json ? ",\"type\":\"delete\",\"inode\":\"0x%jx\",\"stripe\":\"0x%jx\",\"ver\":\"%ju\"}"
+                : "je_delete oid=%jx:%jx ver=%ju\n",
             je->del.oid.inode, je->del.oid.stripe, je->del.version
         );
     }

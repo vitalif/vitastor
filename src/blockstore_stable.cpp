@@ -298,7 +298,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
             if (clean_it == clean_db.end() || clean_it->second.version < ov.version)
             {
                 // No such object version
-                printf("Error: %lx:%lx v%lu not found while stabilizing\n", ov.oid.inode, ov.oid.stripe, ov.version);
+                printf("Error: %jx:%jx v%ju not found while stabilizing\n", ov.oid.inode, ov.oid.stripe, ov.version);
                 return -ENOENT;
             }
             else
@@ -416,7 +416,7 @@ resume_4:
     {
         // Mark all dirty_db entries up to op->version as stable
 #ifdef BLOCKSTORE_DEBUG
-        printf("Stabilize %lx:%lx v%lu\n", v->oid.inode, v->oid.stripe, v->version);
+        printf("Stabilize %jx:%jx v%ju\n", v->oid.inode, v->oid.stripe, v->version);
 #endif
         mark_stable(*v);
     }
@@ -507,7 +507,7 @@ void blockstore_impl_t::mark_stable(obj_ver_id v, bool forget_dirty)
             {
                 // mark_stable should never be called for in-flight or submitted writes
                 printf(
-                    "BUG: Attempt to mark_stable object %lx:%lx v%lu state of which is %x\n",
+                    "BUG: Attempt to mark_stable object %jx:%jx v%ju state of which is %x\n",
                     dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version,
                     dirty_it->second.state
                 );

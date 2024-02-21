@@ -473,7 +473,7 @@ pg_osd_set_state_t* osd_t::add_object_to_set(pg_t & pg, const object_id oid, con
     }
     if (this->log_level >= log_at_level)
     {
-        printf("Marking object %lx:%lx ", oid.inode, oid.stripe);
+        printf("Marking object %jx:%jx ", oid.inode, oid.stripe);
         for (int i = 0, j = 0; i < object_state_bit_count; i++)
         {
             if ((obj_state & object_state_bits[i]) || object_state_bits[i] == 0 && obj_state == 0)
@@ -483,31 +483,31 @@ pg_osd_set_state_t* osd_t::add_object_to_set(pg_t & pg, const object_id oid, con
         }
         if (pg.scheme == POOL_SCHEME_REPLICATED)
         {
-            printf(": %lu copies available", n_copies);
+            printf(": %ju copies available", n_copies);
         }
         else
         {
-            printf(": %lu parts / %lu copies available", n_roles, n_copies);
+            printf(": %ju parts / %ju copies available", n_roles, n_copies);
         }
         if (n_invalid > 0)
         {
-            printf(", %lu invalid", n_invalid);
+            printf(", %ju invalid", n_invalid);
         }
         if (n_outdated > 0)
         {
-            printf(", %lu outdated", n_outdated);
+            printf(", %ju outdated", n_outdated);
         }
         if (n_misplaced > 0)
         {
-            printf(", %lu misplaced", n_misplaced);
+            printf(", %ju misplaced", n_misplaced);
         }
         if (n_corrupted > 0)
         {
-            printf(", %lu corrupted", n_corrupted);
+            printf(", %ju corrupted", n_corrupted);
         }
         if (n_inconsistent > 0)
         {
-            printf(", %lu inconsistent", n_inconsistent);
+            printf(", %ju inconsistent", n_inconsistent);
         }
         printf("\n");
     }

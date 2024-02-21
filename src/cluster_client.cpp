@@ -1156,7 +1156,7 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             if (op->retval != -EPIPE || log_level > 0)
             {
                 fprintf(
-                    stderr, "%s operation failed on OSD %lu: retval=%ld (expected %d), dropping connection\n",
+                    stderr, "%s operation failed on OSD %ju: retval=%jd (expected %d), dropping connection\n",
                     osd_op_names[part->op.req.hdr.opcode], part->osd_num, part->op.reply.hdr.retval, expected
                 );
             }
@@ -1164,7 +1164,7 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
         else
         {
             fprintf(
-                stderr, "%s operation failed on OSD %lu: retval=%ld (expected %d)\n",
+                stderr, "%s operation failed on OSD %ju: retval=%jd (expected %d)\n",
                 osd_op_names[part->op.req.hdr.opcode], part->osd_num, part->op.reply.hdr.retval, expected
             );
         }

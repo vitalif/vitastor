@@ -179,7 +179,7 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
     {
         object_id oid = dirty_it->first.oid;
 #ifdef BLOCKSTORE_DEBUG
-        printf("Unblock writes-after-delete %lx:%lx v%lu\n", oid.inode, oid.stripe, dirty_it->first.version);
+        printf("Unblock writes-after-delete %jx:%jx v%ju\n", oid.inode, oid.stripe, dirty_it->first.version);
 #endif
         dirty_it = dirty_end;
         // Unblock operations blocked by delete flushing
@@ -210,7 +210,7 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
             dirty_it->second.location != UINT64_MAX)
         {
 #ifdef BLOCKSTORE_DEBUG
-            printf("Free block %lu from %lx:%lx v%lu\n", dirty_it->second.location >> dsk.block_order,
+            printf("Free block %ju from %jx:%jx v%ju\n", dirty_it->second.location >> dsk.block_order,
                 dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
 #endif
             data_alloc->set(dirty_it->second.location >> dsk.block_order, false);
@@ -218,7 +218,7 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
         auto used = --journal.used_sectors.at(dirty_it->second.journal_sector);
 #ifdef BLOCKSTORE_DEBUG
         printf(
-            "remove usage of journal offset %08lx by %lx:%lx v%lu (%lu refs)\n", dirty_it->second.journal_sector,
+            "remove usage of journal offset %08jx by %jx:%jx v%ju (%ju refs)\n", dirty_it->second.journal_sector,
             dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version, used
         );
 #endif

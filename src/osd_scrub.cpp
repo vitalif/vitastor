@@ -82,7 +82,7 @@ void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oi
             scrub_list_op = NULL;
             if (op->reply.hdr.retval < 0)
             {
-                printf("Failed to get object list from OSD %lu (retval=%ld), disconnecting peer\n", role_osd, op->reply.hdr.retval);
+                printf("Failed to get object list from OSD %ju (retval=%jd), disconnecting peer\n", role_osd, op->reply.hdr.retval);
                 int fail_fd = op->peer_fd;
                 delete op;
                 msgr.stop_client(fail_fd);
@@ -239,7 +239,7 @@ void osd_t::submit_scrub_op(object_id oid)
     };
     if (log_level > 2)
     {
-        printf("Submitting scrub for %lx:%lx\n", oid.inode, oid.stripe);
+        printf("Submitting scrub for %jx:%jx\n", oid.inode, oid.stripe);
     }
     osd_op->callback = [this](osd_op_t *osd_op)
     {
@@ -248,7 +248,7 @@ void osd_t::submit_scrub_op(object_id oid)
         {
             // Scrub error
             printf(
-                "Scrub failed with object %lx:%lx (PG %u/%u): error %ld\n",
+                "Scrub failed with object %jx:%jx (PG %u/%u): error %jd\n",
                 oid.inode, oid.stripe, INODE_POOL(oid.inode),
                 map_to_pg(oid, st_cli.pool_config.at(INODE_POOL(oid.inode)).pg_stripe_size),
                 osd_op->reply.hdr.retval
@@ -256,7 +256,7 @@ void osd_t::submit_scrub_op(object_id oid)
         }
         else if (log_level > 2)
         {
-            printf("Scrubbed %lx:%lx\n", oid.inode, oid.stripe);
+            printf("Scrubbed %jx:%jx\n", oid.inode, oid.stripe);
         }
         delete osd_op;
         if (scrub_sleep_ms)
@@ -518,7 +518,7 @@ resume_2:
                 if (votes[role] > 0 && votes[role] < votes[best])
                 {
                     printf(
-                        "[PG %u/%u] Object %lx:%lx v%lu copy on OSD %lu doesn't match %d other copies%s\n",
+                        "[PG %u/%u] Object %jx:%jx v%ju copy on OSD %ju doesn't match %d other copies%s\n",
                         INODE_POOL(op_data->oid.inode), op_data->pg_num,
                         op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver,
                         op_data->stripes[role].osd_num, votes[best],
@@ -541,7 +541,7 @@ resume_2:
                 best = -1;
                 inconsistent = true;
                 printf(
-                    "[PG %u/%u] Object %lx:%lx v%lu is inconsistent: copies don't match. Use vitastor-cli fix to fix it\n",
+                    "[PG %u/%u] Object %jx:%jx v%ju is inconsistent: copies don't match. Use vitastor-cli fix to fix it\n",
                     INODE_POOL(op_data->oid.inode), op_data->pg_num,
                     op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver
                 );
@@ -559,7 +559,7 @@ resume_2:
         {
             inconsistent = true;
             printf(
-                "[PG %u/%u] Object %lx:%lx v%lu is inconsistent: parity chunks don't match data. Use vitastor-cli fix to fix it\n",
+                "[PG %u/%u] Object %jx:%jx v%ju is inconsistent: parity chunks don't match data. Use vitastor-cli fix to fix it\n",
                 INODE_POOL(op_data->oid.inode), op_data->pg_num,
                 op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver
             );
@@ -584,7 +584,7 @@ resume_2:
                 if (!op_data->stripes[role].missing && op_data->stripes[role].read_error)
                 {
                     printf(
-                        "[PG %u/%u] Object %lx:%lx v%lu chunk %d on OSD %lu doesn't match other chunks%s\n",
+                        "[PG %u/%u] Object %jx:%jx v%ju chunk %d on OSD %ju doesn't match other chunks%s\n",
                         INODE_POOL(op_data->oid.inode), op_data->pg_num,
                         op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver,
                         role, op_data->stripes[role].osd_num,
@@ -596,7 +596,7 @@ resume_2:
             {
                 inconsistent = true;
                 printf(
-                    "[PG %u/%u] Object %lx:%lx v%lu is marked as inconsistent because scrub_find_best is turned off. Use vitastor-cli fix to fix it\n",
+                    "[PG %u/%u] Object %jx:%jx v%ju is marked as inconsistent because scrub_find_best is turned off. Use vitastor-cli fix to fix it\n",
                     INODE_POOL(op_data->oid.inode), op_data->pg_num,
                     op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver
                 );

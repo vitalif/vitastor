@@ -49,7 +49,7 @@ void configure_single_pg_pool(cluster_client_t *cli)
 
 int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c, std::function<void()> cb = NULL, bool instant = false)
 {
-    printf("Post write %lx+%lx\n", offset, len);
+    printf("Post write %jx+%jx\n", offset, len);
     int *r = new int;
     *r = instant ? -2 : -1;
     cluster_op_t *op = new cluster_op_t();
@@ -66,7 +66,7 @@ int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c,
         assert(*r != -1);
         *r = op->retval == op->len ? 1 : 0;
         free(op->iov.buf[0].iov_base);
-        printf("Done write %lx+%lx r=%d\n", op->offset, op->len, op->retval);
+        printf("Done write %jx+%jx r=%d\n", op->offset, op->len, op->retval);
         delete op;
         if (cb != NULL)
             cb();
@@ -117,7 +117,7 @@ void check_completed(int *r)
 
 void pretend_connected(cluster_client_t *cli, osd_num_t osd_num)
 {
-    printf("OSD %lu connected\n", osd_num);
+    printf("OSD %ju connected\n", osd_num);
     int peer_fd = cli->msgr.clients.size() ? std::prev(cli->msgr.clients.end())->first+1 : 10;
     cli->msgr.osd_peer_fds[osd_num] = peer_fd;
     cli->msgr.clients[peer_fd] = new osd_client_t();
@@ -129,7 +129,7 @@ void pretend_connected(cluster_client_t *cli, osd_num_t osd_num)
 
 void pretend_disconnected(cluster_client_t *cli, osd_num_t osd_num)
 {
-    printf("OSD %lu disconnected\n", osd_num);
+    printf("OSD %ju disconnected\n", osd_num);
     cli->msgr.stop_client(cli->msgr.osd_peer_fds.at(osd_num));
 }
 
@@ -137,7 +137,7 @@ void check_disconnected(cluster_client_t *cli, osd_num_t osd_num)
 {
     if (cli->msgr.osd_peer_fds.find(osd_num) != cli->msgr.osd_peer_fds.end())
     {
-        printf("OSD %lu not disconnected as it ought to be\n", osd_num);
+        printf("OSD %ju not disconnected as it ought to be\n", osd_num);
         assert(0);
     }
 }
@@ -170,17 +170,17 @@ osd_op_t *find_op(cluster_client_t *cli, osd_num_t osd_num, uint64_t opcode, uin
     op_it = cli->msgr.clients[peer_fd]->sent_ops.begin();
     while (op_it != cli->msgr.clients[peer_fd]->sent_ops.end())
     {
-        printf("Found opcode %lu offset %lx size %x\n", op_it->second->req.hdr.opcode, op_it->second->req.rw.offset, op_it->second->req.rw.len);
+        printf("Found opcode %ju offset %jx size %x\n", op_it->second->req.hdr.opcode, op_it->second->req.rw.offset, op_it->second->req.rw.len);
         op_it++;
     }
-    printf("Not found opcode %lu offset %lx size %lx\n", opcode, offset, len);
+    printf("Not found opcode %ju offset %jx size %jx\n", opcode, offset, len);
     return NULL;
 }
 
 void pretend_op_completed(cluster_client_t *cli, osd_op_t *op, int64_t retval)
 {
     assert(op);
-    printf("Pretend completed %s %lx+%x\n", op->req.hdr.opcode == OSD_OP_SYNC
+    printf("Pretend completed %s %jx+%x\n", op->req.hdr.opcode == OSD_OP_SYNC
         ? "sync" : (op->req.hdr.opcode == OSD_OP_WRITE ? "write" : "read"), op->req.rw.offset, op->req.rw.len);
     uint64_t op_id = op->req.hdr.id;
     int peer_fd = op->peer_fd;
@@ -281,7 +281,7 @@ void test1()
                     uint8_t c = offset < 0xE000 ? 0x56 : (offset < 0x10000 ? 0x57 : 0x58);
                     if (((uint8_t*)op->iov.buf[buf_idx].iov_base)[i] != c)
                     {
-                        printf("Write replay: mismatch at %lu\n", offset-op->req.rw.offset);
+                        printf("Write replay: mismatch at %ju\n", offset-op->req.rw.offset);
                         goto fail;
                     }
                 }
@@ -292,7 +292,7 @@ void test1()
         }
         if (replay_start != 0 || replay_end != 0x14000)
         {
-            printf("Write replay: range mismatch: %lx-%lx\n", replay_start, replay_end);
+            printf("Write replay: range mismatch: %jx-%jx\n", replay_start, replay_end);
             assert(0);
         }
         for (auto op: replay_ops)

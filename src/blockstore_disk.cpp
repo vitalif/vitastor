@@ -108,6 +108,10 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     {
         throw std::runtime_error("journal_block_size must be a multiple of "+std::to_string(DIRECT_IO_ALIGNMENT));
     }
+    else if (journal_block_size > MAX_DATA_BLOCK_SIZE)
+    {
+        throw std::runtime_error("journal_block_size must not exceed "+std::to_string(MAX_DATA_BLOCK_SIZE));
+    }
     if (!meta_block_size)
     {
         meta_block_size = 4096;
@@ -115,6 +119,10 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     else if (meta_block_size % DIRECT_IO_ALIGNMENT)
     {
         throw std::runtime_error("meta_block_size must be a multiple of "+std::to_string(DIRECT_IO_ALIGNMENT));
+    }
+    else if (meta_block_size > MAX_DATA_BLOCK_SIZE)
+    {
+        throw std::runtime_error("meta_block_size must not exceed "+std::to_string(MAX_DATA_BLOCK_SIZE));
     }
     if (data_offset % disk_alignment)
     {

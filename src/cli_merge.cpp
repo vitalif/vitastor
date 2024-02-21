@@ -202,7 +202,7 @@ struct snap_merger_t
         if (parent->progress)
         {
             printf(
-                "Merging %ld layer(s) into target %s%s (inode %lu in pool %u)\n",
+                "Merging %zd layer(s) into target %s%s (inode %ju in pool %u)\n",
                 sources.size(), target_cfg->name.c_str(),
                 use_cas ? " online (with CAS)" : "", INODE_NO_POOL(target), INODE_POOL(target)
             );
@@ -275,7 +275,7 @@ struct snap_merger_t
                 processed++;
                 if (parent->progress && !(processed % 128))
                 {
-                    printf("\rFiltering target blocks: %lu/%lu", processed, to_process);
+                    printf("\rFiltering target blocks: %ju/%ju", processed, to_process);
                 }
             }
             if (in_flight > 0 || oit != merge_offsets.end())
@@ -285,7 +285,7 @@ struct snap_merger_t
             }
             if (parent->progress)
             {
-                printf("\r%lu full blocks of target filtered out\n", to_process-merge_offsets.size());
+                printf("\r%ju full blocks of target filtered out\n", to_process-merge_offsets.size());
             }
         }
         state = 3;
@@ -320,7 +320,7 @@ struct snap_merger_t
             processed++;
             if (parent->progress && !(processed % 128))
             {
-                printf("\rOverwriting blocks: %lu/%lu", processed, to_process);
+                printf("\rOverwriting blocks: %ju/%ju", processed, to_process);
             }
         }
         if (in_flight == 0 && rwo_error.size())
@@ -339,7 +339,7 @@ struct snap_merger_t
         }
         if (parent->progress)
         {
-            printf("\rOverwriting blocks: %lu/%lu\n", to_process, to_process);
+            printf("\rOverwriting blocks: %ju/%ju\n", to_process, to_process);
         }
         // Done
         result = (cli_result_t){ .text = "Done, layers from "+from_name+" to "+to_name+" merged into "+target_name };
@@ -384,7 +384,7 @@ struct snap_merger_t
                         auto & name = parent->cli->st_cli.inode_config.at(src).name;
                         if (parent->progress)
                         {
-                            printf("Got listing of layer %s (inode %lu in pool %u)\n", name.c_str(), INODE_NO_POOL(src), INODE_POOL(src));
+                            printf("Got listing of layer %s (inode %ju in pool %u)\n", name.c_str(), INODE_NO_POOL(src), INODE_POOL(src));
                         }
                         if (delete_source)
                         {
@@ -416,7 +416,7 @@ struct snap_merger_t
         {
             if (op->retval < 0)
             {
-                fprintf(stderr, "error reading target bitmap at offset %lx: %s\n", op->offset, strerror(-op->retval));
+                fprintf(stderr, "error reading target bitmap at offset %jx: %s\n", op->offset, strerror(-op->retval));
             }
             else
             {
@@ -571,7 +571,7 @@ struct snap_merger_t
         {
             if (subop->retval != 0)
             {
-                fprintf(stderr, "error deleting from layer 0x%lx at offset %lx: %s", subop->inode, subop->offset, strerror(-subop->retval));
+                fprintf(stderr, "error deleting from layer 0x%jx at offset %jx: %s", subop->inode, subop->offset, strerror(-subop->retval));
             }
             delete subop;
         };
@@ -620,7 +620,7 @@ struct snap_merger_t
             if (rwo->error_code)
             {
                 char buf[1024];
-                snprintf(buf, 1024, "Error %s target at offset %lx: %s",
+                snprintf(buf, 1024, "Error %s target at offset %jx: %s",
                     rwo->error_read ? "reading" : "writing", rwo->error_offset, strerror(rwo->error_code));
                 rwo_error = std::string(buf);
             }

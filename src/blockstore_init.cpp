@@ -63,7 +63,7 @@ int blockstore_init_meta::loop()
         throw std::runtime_error("Failed to allocate metadata read buffer");
     // Read superblock
     GET_SQE();
-    data->iov = { metadata_buffer, bs->dsk.meta_block_size };
+    data->iov = { metadata_buffer, (size_t)bs->dsk.meta_block_size };
     data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
     my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
     bs->ringloop->submit();
@@ -100,7 +100,7 @@ resume_1:
         {
             printf("Initializing metadata area\n");
             GET_SQE();
-            data->iov = (struct iovec){ metadata_buffer, bs->dsk.meta_block_size };
+            data->iov = (struct iovec){ metadata_buffer, (size_t)bs->dsk.meta_block_size };
             data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
             my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
             bs->ringloop->submit();
@@ -153,7 +153,7 @@ resume_1:
         else if (hdr->version > BLOCKSTORE_META_FORMAT_V2)
         {
             printf(
-                "Metadata format is too new for me (stored version is %lu, max supported %u).\n",
+                "Metadata format is too new for me (stored version is %ju, max supported %u).\n",
                 hdr->version, BLOCKSTORE_META_FORMAT_V2
             );
             exit(1);
@@ -167,7 +167,7 @@ resume_1:
             printf(
                 "Configuration stored in metadata superblock"
                 " (meta_block_size=%u, data_block_size=%u, bitmap_granularity=%u, data_csum_type=%u, csum_block_size=%u)"
-                " differs from OSD configuration (%lu/%u/%lu, %u/%u).\n",
+                " differs from OSD configuration (%ju/%u/%ju, %u/%u).\n",
                 hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity,
                 hdr->data_csum_type, hdr->csum_block_size,
                 bs->dsk.meta_block_size, bs->dsk.data_block_size, bs->dsk.bitmap_granularity,
@@ -199,7 +199,8 @@ resume_2:
                 submitted++;
                 next_offset += bufs[i].size;
                 GET_SQE();
-                data->iov = { bufs[i].buf, bufs[i].size };
+                assert(bufs[i].size <= 0x7fffffff);
+                data->iov = { bufs[i].buf, (size_t)bufs[i].size };
                 data->callback = [this, i](ring_data_t *data) { handle_event(data, i); };
                 if (!zero_on_init)
                     my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
@@ -231,7 +232,8 @@ resume_2:
             {
                 // write the modified buffer back
                 GET_SQE();
-                data->iov = { bufs[i].buf, bufs[i].size };
+                assert(bufs[i].size <= 0x7fffffff);
+                data->iov = { bufs[i].buf, (size_t)bufs[i].size };
                 data->callback = [this, i](ring_data_t *data) { handle_event(data, i); };
                 my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
                 bufs[i].state = INIT_META_WRITING;
@@ -257,7 +259,7 @@ resume_2:
             next_offset = entries_to_zero[i]/entries_per_block;
             for (j = i; j < entries_to_zero.size() && entries_to_zero[j]/entries_per_block == next_offset; j++) {}
             GET_SQE();
-            data->iov = { metadata_buffer, bs->dsk.meta_block_size };
+            data->iov = { metadata_buffer, (size_t)bs->dsk.meta_block_size };
             data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
             my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (1+next_offset)*bs->dsk.meta_block_size);
             submitted++;
@@ -273,7 +275,7 @@ resume_5:
                 memset((uint8_t*)metadata_buffer + pos*bs->dsk.clean_entry_size, 0, bs->dsk.clean_entry_size);
             }
             GET_SQE();
-            data->iov = { metadata_buffer, bs->dsk.meta_block_size };
+            data->iov = { metadata_buffer, (size_t)bs->dsk.meta_block_size };
             data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
             my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (1+next_offset)*bs->dsk.meta_block_size);
             submitted++;
@@ -287,7 +289,7 @@ resume_6:
         entries_to_zero.clear();
     }
     // metadata read finished
-    printf("Metadata entries loaded: %lu, free blocks: %lu / %lu\n", entries_loaded, bs->data_alloc->get_free_count(), bs->dsk.block_count);
+    printf("Metadata entries loaded: %ju, free blocks: %ju / %ju\n", entries_loaded, bs->data_alloc->get_free_count(), bs->dsk.block_count);
     if (!bs->inmemory_meta)
     {
         free(metadata_buffer);
@@ -328,7 +330,7 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
                 uint32_t *entry_csum = (uint32_t*)((uint8_t*)entry + bs->dsk.clean_entry_size - 4);
                 if (*entry_csum != crc32c(0, entry, bs->dsk.clean_entry_size - 4))
                 {
-                    printf("Metadata entry %lu is corrupt (checksum mismatch), skipping\n", done_cnt+i);
+                    printf("Metadata entry %ju is corrupt (checksum mismatch), skipping\n", done_cnt+i);
                     continue;
                 }
             }
@@ -366,7 +368,7 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
                         entries_to_zero.push_back(clean_it->second.location >> bs->dsk.block_order);
                     }
 #ifdef BLOCKSTORE_DEBUG
-                    printf("Free block %lu from %lx:%lx v%lu (new location is %lu)\n",
+                    printf("Free block %ju from %jx:%jx v%ju (new location is %ju)\n",
                         old_clean_loc,
                         clean_it->first.inode, clean_it->first.stripe, clean_it->second.version,
                         done_cnt+i);
@@ -380,7 +382,7 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
                 }
                 entries_loaded++;
 #ifdef BLOCKSTORE_DEBUG
-                printf("Allocate block (clean entry) %lu: %lx:%lx v%lu\n", done_cnt+i, entry->oid.inode, entry->oid.stripe, entry->version);
+                printf("Allocate block (clean entry) %ju: %jx:%jx v%ju\n", done_cnt+i, entry->oid.inode, entry->oid.stripe, entry->version);
 #endif
                 bs->data_alloc->set(done_cnt+i, true);
                 clean_db[entry->oid] = (struct clean_entry){
@@ -394,7 +396,7 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
                 updated = true;
                 memset(entry, 0, bs->dsk.clean_entry_size);
 #ifdef BLOCKSTORE_DEBUG
-                printf("Old clean entry %lu: %lx:%lx v%lu\n", done_cnt+i, entry->oid.inode, entry->oid.stripe, entry->version);
+                printf("Old clean entry %ju: %jx:%jx v%ju\n", done_cnt+i, entry->oid.inode, entry->oid.stripe, entry->version);
 #endif
             }
         }
@@ -466,7 +468,7 @@ int blockstore_init_journal::loop()
     if (!sqe)
         throw std::runtime_error("io_uring is full while trying to read journal");
     data = ((ring_data_t*)sqe->user_data);
-    data->iov = { submitted_buf, bs->journal.block_size };
+    data->iov = { submitted_buf, (size_t)bs->journal.block_size };
     data->callback = simple_callback;
     my_uring_prep_readv(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
     bs->ringloop->submit();
@@ -507,7 +509,7 @@ resume_1:
             // FIXME: Randomize initial crc32. Track crc32 when trimming.
             printf("Resetting journal\n");
             GET_SQE();
-            data->iov = (struct iovec){ submitted_buf, 2*bs->journal.block_size };
+            data->iov = (struct iovec){ submitted_buf, (size_t)(2*bs->journal.block_size) };
             data->callback = simple_callback;
             my_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
             wait_count++;
@@ -557,7 +559,7 @@ resume_1:
             (je_start->version != JOURNAL_VERSION_V2 || je_start->size != JE_START_V2_SIZE && je_start->size != JE_START_V1_SIZE))
         {
             fprintf(
-                stderr, "The code only supports journal versions 2 and 1, but it is %lu on disk."
+                stderr, "The code only supports journal versions 2 and 1, but it is %ju on disk."
                     " Please use vitastor-disk to rewrite the journal\n",
                 je_start->size == JE_START_V0_SIZE ? 0 : je_start->version
             );
@@ -606,7 +608,7 @@ resume_1:
                     submitted_buf = (uint8_t*)bs->journal.buffer + journal_pos;
                 data->iov = {
                     submitted_buf,
-                    end - journal_pos < JOURNAL_BUFFER_SIZE ? end - journal_pos : JOURNAL_BUFFER_SIZE,
+                    (size_t)(end - journal_pos < JOURNAL_BUFFER_SIZE ? end - journal_pos : JOURNAL_BUFFER_SIZE),
                 };
                 data->callback = [this](ring_data_t *data1) { handle_event(data1); };
                 my_uring_prep_readv(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset + journal_pos);
@@ -622,7 +624,7 @@ resume_1:
                     if (init_write_buf && !bs->readonly)
                     {
                         GET_SQE();
-                        data->iov = { init_write_buf, bs->journal.block_size };
+                        data->iov = { init_write_buf, (size_t)bs->journal.block_size };
                         data->callback = simple_callback;
                         my_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset + init_write_sector);
                         wait_count++;
@@ -691,7 +693,7 @@ resume_1:
             IS_BIG_WRITE(dirty_it->second.state) &&
             dirty_it->second.location == UINT64_MAX)
         {
-            printf("Fatal error (bug): %lx:%lx v%lu big_write journal_entry was allocated over another object\n",
+            printf("Fatal error (bug): %jx:%jx v%ju big_write journal_entry was allocated over another object\n",
                 dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
             exit(1);
         }
@@ -699,7 +701,7 @@ resume_1:
     bs->flusher->mark_trim_possible();
     bs->journal.dirty_start = bs->journal.next_free;
     printf(
-        "Journal entries loaded: %lu, free journal space: %lu bytes (%08lx..%08lx is used), free blocks: %lu / %lu\n",
+        "Journal entries loaded: %ju, free journal space: %ju bytes (%08jx..%08jx is used), free blocks: %ju / %ju\n",
         entries_loaded,
         (bs->journal.next_free >= bs->journal.used_start
             ? bs->journal.len-bs->journal.block_size - (bs->journal.next_free-bs->journal.used_start)
@@ -754,7 +756,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
             {
 #ifdef BLOCKSTORE_DEBUG
                 printf(
-                    "je_small_write%s oid=%lx:%lx ver=%lu offset=%u len=%u\n",
+                    "je_small_write%s oid=%jx:%jx ver=%ju offset=%u len=%u\n",
                     je->type == JE_SMALL_WRITE_INSTANT ? "_instant" : "",
                     je->small_write.oid.inode, je->small_write.oid.stripe, je->small_write.version,
                     je->small_write.offset, je->small_write.len
@@ -776,7 +778,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                 if (location != je->small_write.data_offset)
                 {
                     char err[1024];
-                    snprintf(err, 1024, "BUG: calculated journal data offset (%08lx) != stored journal data offset (%08lx)", location, je->small_write.data_offset);
+                    snprintf(err, 1024, "BUG: calculated journal data offset (%08jx) != stored journal data offset (%08jx)", location, je->small_write.data_offset);
                     throw std::runtime_error(err);
                 }
                 small_write_data.clear();
@@ -803,7 +805,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                             covered += part_end - part_begin;
                             small_write_data.push_back((iovec){
                                 .iov_base = (uint8_t*)done[i].buf + part_begin - done[i].pos,
-                                .iov_len = part_end - part_begin,
+                                .iov_len = (size_t)(part_end - part_begin),
                             });
                         }
                     }
@@ -826,7 +828,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     if (!data_csum_valid)
                     {
                         printf(
-                            "Journal entry data is corrupt for small_write%s oid=%lx:%lx ver=%lu offset=%u len=%u - data crc32 %x != %x\n",
+                            "Journal entry data is corrupt for small_write%s oid=%jx:%jx ver=%ju offset=%u len=%u - data crc32 %x != %x\n",
                             je->type == JE_SMALL_WRITE_INSTANT ? "_instant" : "",
                             je->small_write.oid.inode, je->small_write.oid.stripe, je->small_write.version,
                             je->small_write.offset, je->small_write.len,
@@ -845,7 +847,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     if (je->size != required_size)
                     {
                         printf(
-                            "Journal entry data has invalid size for small_write%s oid=%lx:%lx ver=%lu offset=%u len=%u - should be %u bytes but is %u bytes\n",
+                            "Journal entry data has invalid size for small_write%s oid=%jx:%jx ver=%ju offset=%u len=%u - should be %u bytes but is %u bytes\n",
                             je->type == JE_SMALL_WRITE_INSTANT ? "_instant" : "",
                             je->small_write.oid.inode, je->small_write.oid.stripe, je->small_write.version,
                             je->small_write.offset, je->small_write.len,
@@ -893,7 +895,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                             if (block_crc32 != *block_csums)
                             {
                                 printf(
-                                    "Journal entry data is corrupt for small_write%s oid=%lx:%lx ver=%lu offset=%u len=%u - block %u crc32 %x != %x\n",
+                                    "Journal entry data is corrupt for small_write%s oid=%jx:%jx ver=%ju offset=%u len=%u - block %u crc32 %x != %x\n",
                                     je->type == JE_SMALL_WRITE_INSTANT ? "_instant" : "",
                                     je->small_write.oid.inode, je->small_write.oid.stripe, je->small_write.version,
                                     je->small_write.offset, je->small_write.len,
@@ -956,7 +958,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     bs->journal.used_sectors[proc_pos]++;
 #ifdef BLOCKSTORE_DEBUG
                     printf(
-                        "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
+                        "journal offset %08jx is used by %jx:%jx v%ju (%ju refs)\n",
                         proc_pos, ov.oid.inode, ov.oid.stripe, ov.version, bs->journal.used_sectors[proc_pos]
                     );
 #endif
@@ -972,7 +974,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
             {
 #ifdef BLOCKSTORE_DEBUG
                 printf(
-                    "je_big_write%s oid=%lx:%lx ver=%lu loc=%lu\n",
+                    "je_big_write%s oid=%jx:%jx ver=%ju loc=%ju\n",
                     je->type == JE_BIG_WRITE_INSTANT ? "_instant" : "",
                     je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location >> bs->dsk.block_order
                 );
@@ -1049,7 +1051,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     {
 #ifdef BLOCKSTORE_DEBUG
                         printf(
-                            "Allocate block (journal) %lu: %lx:%lx v%lu\n",
+                            "Allocate block (journal) %ju: %jx:%jx v%ju\n",
                             je->big_write.location >> bs->dsk.block_order,
                             ov.oid.inode, ov.oid.stripe, ov.version
                         );
@@ -1059,7 +1061,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     bs->journal.used_sectors[proc_pos]++;
 #ifdef BLOCKSTORE_DEBUG
                     printf(
-                        "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
+                        "journal offset %08jx is used by %jx:%jx v%ju (%ju refs)\n",
                         proc_pos, ov.oid.inode, ov.oid.stripe, ov.version, bs->journal.used_sectors[proc_pos]
                     );
 #endif
@@ -1074,7 +1076,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
             else if (je->type == JE_STABLE)
             {
 #ifdef BLOCKSTORE_DEBUG
-                printf("je_stable oid=%lx:%lx ver=%lu\n", je->stable.oid.inode, je->stable.oid.stripe, je->stable.version);
+                printf("je_stable oid=%jx:%jx ver=%ju\n", je->stable.oid.inode, je->stable.oid.stripe, je->stable.version);
 #endif
                 // oid, version
                 obj_ver_id ov = {
@@ -1086,7 +1088,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
             else if (je->type == JE_ROLLBACK)
             {
 #ifdef BLOCKSTORE_DEBUG
-                printf("je_rollback oid=%lx:%lx ver=%lu\n", je->rollback.oid.inode, je->rollback.oid.stripe, je->rollback.version);
+                printf("je_rollback oid=%jx:%jx ver=%ju\n", je->rollback.oid.inode, je->rollback.oid.stripe, je->rollback.version);
 #endif
                 // rollback dirty writes of <oid> up to <version>
                 obj_ver_id ov = {
@@ -1098,7 +1100,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
             else if (je->type == JE_DELETE)
             {
 #ifdef BLOCKSTORE_DEBUG
-                printf("je_delete oid=%lx:%lx ver=%lu\n", je->del.oid.inode, je->del.oid.stripe, je->del.version);
+                printf("je_delete oid=%jx:%jx ver=%ju\n", je->del.oid.inode, je->del.oid.stripe, je->del.version);
 #endif
                 bool dirty_exists = false;
                 auto dirty_it = bs->dirty_db.upper_bound((obj_ver_id){

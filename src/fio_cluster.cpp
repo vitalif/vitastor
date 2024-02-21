@@ -377,7 +377,7 @@ static void io_callback(void *opaque, long retval)
     bsd->completed.push_back(io);
     if (bsd->trace)
     {
-        printf("--- %s 0x%lx retval=%ld\n", io->ddir == DDIR_READ ? "READ" :
+        printf("--- %s 0x%jx retval=%ld\n", io->ddir == DDIR_READ ? "READ" :
             (io->ddir == DDIR_WRITE ? "WRITE" : "SYNC"), (uint64_t)io, retval);
     }
 }
@@ -405,10 +405,11 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     bsd->inflight++;
 
     uint64_t inode = opt->image ? vitastor_c_inode_get_num(bsd->watch) : opt->inode;
+    assert(io->xfer_buflen < (size_t)-1);
     switch (io->ddir)
     {
     case DDIR_READ:
-        iov = { .iov_base = io->xfer_buf, .iov_len = io->xfer_buflen };
+        iov = { .iov_base = io->xfer_buf, .iov_len = (size_t)io->xfer_buflen };
         vitastor_c_read(bsd->cli, inode, io->offset, io->xfer_buflen, &iov, 1, read_callback, io);
         bsd->last_sync = false;
         break;
@@ -436,7 +437,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
             io->error = EROFS;
             return FIO_Q_COMPLETED;
         }
-        iov = { .iov_base = io->xfer_buf, .iov_len = io->xfer_buflen };
+        iov = { .iov_base = io->xfer_buf, .iov_len = (size_t)io->xfer_buflen };
         vitastor_c_write(bsd->cli, inode, io->offset, io->xfer_buflen, 0, &iov, 1, io_callback, io);
         bsd->last_sync = false;
         break;
@@ -453,11 +454,11 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
     {
         if (io->ddir == DDIR_SYNC)
         {
-            printf("+++ SYNC 0x%lx\n", (uint64_t)io);
+            printf("+++ SYNC 0x%jx\n", (uint64_t)io);
         }
         else
         {
-            printf("+++ %s 0x%lx 0x%llx+%lx\n",
+            printf("+++ %s 0x%jx 0x%llx+%jx\n",
                 io->ddir == DDIR_READ ? "READ" : "WRITE",
                 (uint64_t)io, io->offset, (uint64_t)io->xfer_buflen);
         }

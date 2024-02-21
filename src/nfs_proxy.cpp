@@ -350,7 +350,7 @@ void nfs_proxy_t::parse_stats(etcd_kv_t & kv)
         pool_id_t pool_id = 0;
         inode_t inode_num = 0;
         char null_byte = 0;
-        int scanned = sscanf(key.c_str() + cli->st_cli.etcd_prefix.length()+13, "%u/%lu%c", &pool_id, &inode_num, &null_byte);
+        int scanned = sscanf(key.c_str() + cli->st_cli.etcd_prefix.length()+13, "%u/%ju%c", &pool_id, &inode_num, &null_byte);
         if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX || !inode_num)
         {
             fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
@@ -387,7 +387,7 @@ void nfs_proxy_t::check_default_pool()
         }
         else
         {
-            fprintf(stderr, "There are %lu pools. Please select default pool with --pool option\n", cli->st_cli.pool_config.size());
+            fprintf(stderr, "There are %zu pools. Please select default pool with --pool option\n", cli->st_cli.pool_config.size());
             exit(1);
         }
     }

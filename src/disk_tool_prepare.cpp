@@ -210,10 +210,10 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         desc += " with metadata on "+realpath_str(options["meta_device"]);
     if (sep_j)
         desc += (sep_m ? " and journal on " : " with journal on ") + realpath_str(options["journal_device"]);
-    fprintf(stderr, "Initialized OSD %lu on %s\n", osd_num, desc.c_str());
+    fprintf(stderr, "Initialized OSD %ju on %s\n", osd_num, desc.c_str());
     if (shell_exec({ "systemctl", "enable", "--now", "vitastor-osd@"+std::to_string(osd_num) }, "", NULL, NULL) != 0)
     {
-        fprintf(stderr, "Failed to enable systemd unit vitastor-osd@%lu\n", osd_num);
+        fprintf(stderr, "Failed to enable systemd unit vitastor-osd@%ju\n", osd_num);
         return 1;
     }
     return 0;
@@ -337,7 +337,7 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
     std::string out;
     if (shell_exec({ "sfdisk", "--no-reread", "--force", devinfo.path }, script, &out, NULL) != 0)
     {
-        fprintf(stderr, "Failed to add %lu partition(s) with sfdisk\n", sizes.size());
+        fprintf(stderr, "Failed to add %zu partition(s) with sfdisk\n", sizes.size());
         return {};
     }
     // Get new partition table and find created partitions
@@ -352,7 +352,7 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
     }
     if (new_parts.size() != sizes.size())
     {
-        fprintf(stderr, "Failed to add %lu partition(s) with sfdisk: new partitions not found in table\n", sizes.size());
+        fprintf(stderr, "Failed to add %zu partition(s) with sfdisk: new partitions not found in table\n", sizes.size());
         return {};
     }
     // Check if new nodes exist and run partprobe if not
@@ -456,7 +456,7 @@ std::vector<std::string> disk_tool_t::get_new_data_parts(vitastor_dev_info_t & d
                     bool is_journal = sb["params"]["journal_device"].string_value() == part_path;
                     bool is_data = sb["params"]["data_device"].string_value() == part_path;
                     fprintf(
-                        stderr, "%s is already initialized for OSD %lu%s, skipping\n",
+                        stderr, "%s is already initialized for OSD %ju%s, skipping\n",
                         part["node"].string_value().c_str(), sb["params"]["osd_num"].uint64_value(),
                         (is_data ? " data" : (is_meta ? " meta" : (is_journal ? " journal" : "")))
                     );
@@ -539,7 +539,7 @@ int disk_tool_t::get_meta_partition(std::vector<vitastor_dev_info_t> & ssds, std
     if (sel < 0)
     {
         fprintf(
-            stderr, "Could not find free space for new SSD journal and metadata (need %lu + %lu MiB)\n",
+            stderr, "Could not find free space for new SSD journal and metadata (need %ju + %ju MiB)\n",
             meta_size/1024/1024, journal_size/1024/1024
         );
         return 1;

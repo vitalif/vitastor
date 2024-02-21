@@ -43,8 +43,8 @@ int disk_tool_t::udev_import(std::string device)
     }
     uint64_t osd_num = sb["params"]["osd_num"].uint64_value();
     // Print variables for udev
-    printf("VITASTOR_OSD_NUM=%lu\n", osd_num);
-    printf("VITASTOR_ALIAS=osd%lu-%s\n", osd_num, sb["device_type"].string_value().c_str());
+    printf("VITASTOR_OSD_NUM=%ju\n", osd_num);
+    printf("VITASTOR_ALIAS=osd%ju-%s\n", osd_num, sb["device_type"].string_value().c_str());
     printf("VITASTOR_DATA_DEVICE=%s\n", udev_escape(sb["params"]["data_device"].string_value()).c_str());
     if (sb["real_meta_device"].string_value() != "" && sb["real_meta_device"] != sb["real_data_device"])
         printf("VITASTOR_META_DEVICE=%s\n", udev_escape(sb["params"]["meta_device"].string_value()).c_str());
@@ -466,12 +466,12 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
                     close(fd);
                 if (r != 0)
                 {
-                    fprintf(stderr, "Failed to clear OSD %lu %s device %s superblock: %s\n",
+                    fprintf(stderr, "Failed to clear OSD %ju %s device %s superblock: %s\n",
                         sb["params"]["osd_num"].uint64_value(), dev_type.c_str(), dev.c_str(), strerror(errno));
                 }
                 else
                 {
-                    fprintf(stderr, "OSD %lu %s device %s superblock cleared\n",
+                    fprintf(stderr, "OSD %ju %s device %s superblock cleared\n",
                         sb["params"]["osd_num"].uint64_value(), dev_type.c_str(), dev.c_str());
                 }
                 if (sb["params"][dev_type+"_device"].string_value().substr(0, 22) == "/dev/disk/by-partuuid/")

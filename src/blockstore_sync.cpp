@@ -122,7 +122,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
             journal.used_sectors[journal.sector_info[journal.cur_sector].offset]++;
 #ifdef BLOCKSTORE_DEBUG
             printf(
-                "journal offset %08lx is used by %lx:%lx v%lu (%lu refs)\n",
+                "journal offset %08jx is used by %jx:%jx v%ju (%ju refs)\n",
                 dirty_entry.journal_sector, it->oid.inode, it->oid.stripe, it->version,
                 journal.used_sectors[journal.sector_info[journal.cur_sector].offset]
             );
@@ -176,7 +176,7 @@ void blockstore_impl_t::ack_sync(blockstore_op_t *op)
     for (auto it = PRIV(op)->sync_big_writes.begin(); it != PRIV(op)->sync_big_writes.end(); it++)
     {
 #ifdef BLOCKSTORE_DEBUG
-        printf("Ack sync big %lx:%lx v%lu\n", it->oid.inode, it->oid.stripe, it->version);
+        printf("Ack sync big %jx:%jx v%ju\n", it->oid.inode, it->oid.stripe, it->version);
 #endif
         auto & unstab = unstable_writes[it->oid];
         unstab = unstab < it->version ? it->version : unstab;
@@ -204,7 +204,7 @@ void blockstore_impl_t::ack_sync(blockstore_op_t *op)
     for (auto it = PRIV(op)->sync_small_writes.begin(); it != PRIV(op)->sync_small_writes.end(); it++)
     {
 #ifdef BLOCKSTORE_DEBUG
-        printf("Ack sync small %lx:%lx v%lu\n", it->oid.inode, it->oid.stripe, it->version);
+        printf("Ack sync small %jx:%jx v%ju\n", it->oid.inode, it->oid.stripe, it->version);
 #endif
         auto & unstab = unstable_writes[it->oid];
         unstab = unstab < it->version ? it->version : unstab;

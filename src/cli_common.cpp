@@ -11,7 +11,7 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent, cli_result_t *re
     if (cur_cfg_it == cli->st_cli.inode_config.end())
     {
         char buf[128];
-        snprintf(buf, 128, "Inode 0x%lx disappeared", cur);
+        snprintf(buf, 128, "Inode 0x%jx disappeared", cur);
         *result = (cli_result_t){ .err = EIO, .text = buf };
         return;
     }

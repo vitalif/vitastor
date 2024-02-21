@@ -563,12 +563,12 @@ int main(int argc, char *argv[])
         }
         uniformity[pg-1] = u/host_count;
 
-        printf("pg %lu: hosts %lu, %lu, %lu ; avg deviation = %.2f\n", pg, r[0], r[1], r[2], u/host_count);
+        printf("pg %ju: hosts %ju, %ju, %ju ; avg deviation = %.2f\n", pg, r[0], r[1], r[2], u/host_count);
     }
     printf("total PGs: ");
     for (int i = 0; i < host_count; i++)
     {
-        printf(i > 0 ? ", %lu (%.2f)" : "%lu (%.2f)", total_pgs[i], total_pgs[i]/3.0/pg_count * total_weight/host_weights[i]);
+        printf(i > 0 ? ", %ju (%.2f)" : "%ju (%.2f)", total_pgs[i], total_pgs[i]/3.0/pg_count * total_weight/host_weights[i]);
     }
     printf("\n");
     return 0;

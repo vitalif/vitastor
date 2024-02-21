@@ -475,14 +475,14 @@ void osd_t::print_stats()
             if (msgr.stats.op_stat_bytes[i] != 0)
             {
                 printf(
-                    "[OSD %lu] avg latency for op %d (%s): %lu us, B/W: %.2f %s\n", osd_num, i, osd_op_names[i], avg,
+                    "[OSD %ju] avg latency for op %d (%s): %ju us, B/W: %.2f %s\n", osd_num, i, osd_op_names[i], avg,
                     (bw > 1024*1024*1024 ? bw/1024.0/1024/1024 : (bw > 1024*1024 ? bw/1024.0/1024 : bw/1024.0)),
                     (bw > 1024*1024*1024 ? "GB/s" : (bw > 1024*1024 ? "MB/s" : "KB/s"))
                 );
             }
             else
             {
-                printf("[OSD %lu] avg latency for op %d (%s): %lu us\n", osd_num, i, osd_op_names[i], avg);
+                printf("[OSD %ju] avg latency for op %d (%s): %ju us\n", osd_num, i, osd_op_names[i], avg);
             }
             prev_stats.op_stat_count[i] = msgr.stats.op_stat_count[i];
             prev_stats.op_stat_sum[i] = msgr.stats.op_stat_sum[i];
@@ -494,7 +494,7 @@ void osd_t::print_stats()
         if (msgr.stats.subop_stat_count[i] != prev_stats.subop_stat_count[i])
         {
             uint64_t avg = (msgr.stats.subop_stat_sum[i] - prev_stats.subop_stat_sum[i])/(msgr.stats.subop_stat_count[i] - prev_stats.subop_stat_count[i]);
-            printf("[OSD %lu] avg latency for subop %d (%s): %ld us\n", osd_num, i, osd_op_names[i], avg);
+            printf("[OSD %ju] avg latency for subop %d (%s): %jd us\n", osd_num, i, osd_op_names[i], avg);
             prev_stats.subop_stat_count[i] = msgr.stats.subop_stat_count[i];
             prev_stats.subop_stat_sum[i] = msgr.stats.subop_stat_sum[i];
         }
@@ -505,7 +505,7 @@ void osd_t::print_stats()
         {
             uint64_t bw = (recovery_stat[i].bytes - recovery_print_prev[i].bytes) / print_stats_interval;
             printf(
-                "[OSD %lu] %s recovery: %.1f op/s, B/W: %.2f %s, avg latency %ld us, delay %ld us\n", osd_num, recovery_stat_names[i],
+                "[OSD %ju] %s recovery: %.1f op/s, B/W: %.2f %s, avg latency %jd us, delay %jd us\n", osd_num, recovery_stat_names[i],
                 (recovery_stat[i].count - recovery_print_prev[i].count) * 1.0 / print_stats_interval,
                 (bw > 1024*1024*1024 ? bw/1024.0/1024/1024 : (bw > 1024*1024 ? bw/1024.0/1024 : bw/1024.0)),
                 (bw > 1024*1024*1024 ? "GB/s" : (bw > 1024*1024 ? "MB/s" : "KB/s")),
@@ -517,19 +517,19 @@ void osd_t::print_stats()
     memcpy(recovery_print_prev, recovery_stat, sizeof(recovery_stat));
     if (corrupted_objects > 0)
     {
-        printf("[OSD %lu] %lu object(s) corrupted\n", osd_num, corrupted_objects);
+        printf("[OSD %ju] %ju object(s) corrupted\n", osd_num, corrupted_objects);
     }
     if (incomplete_objects > 0)
     {
-        printf("[OSD %lu] %lu object(s) incomplete\n", osd_num, incomplete_objects);
+        printf("[OSD %ju] %ju object(s) incomplete\n", osd_num, incomplete_objects);
     }
     if (degraded_objects > 0)
     {
-        printf("[OSD %lu] %lu object(s) degraded\n", osd_num, degraded_objects);
+        printf("[OSD %ju] %ju object(s) degraded\n", osd_num, degraded_objects);
     }
     if (misplaced_objects > 0)
     {
-        printf("[OSD %lu] %lu object(s) misplaced\n", osd_num, misplaced_objects);
+        printf("[OSD %ju] %ju object(s) misplaced\n", osd_num, misplaced_objects);
     }
 }
 
@@ -548,27 +548,27 @@ void osd_t::print_slow()
                 int l = sizeof(alloc), n;
                 char *buf = alloc;
 #define bufprintf(s, ...) { n = snprintf(buf, l, s, __VA_ARGS__); n = n < 0 ? 0 : n; buf += n; l -= n; }
-                bufprintf("[OSD %lu] Slow op %lx", osd_num, (unsigned long)op);
+                bufprintf("[OSD %ju] Slow op %jx", osd_num, (uint64_t)op);
                 if (kv.second->osd_num)
                 {
-                    bufprintf(" from peer OSD %lu (client %d)", kv.second->osd_num, kv.second->peer_fd);
+                    bufprintf(" from peer OSD %ju (client %d)", kv.second->osd_num, kv.second->peer_fd);
                 }
                 else
                 {
                     bufprintf(" from client %d", kv.second->peer_fd);
                 }
-                bufprintf(": %s id=%lu", osd_op_names[op->req.hdr.opcode], op->req.hdr.id);
+                bufprintf(": %s id=%ju", osd_op_names[op->req.hdr.opcode], op->req.hdr.id);
                 if (op->req.hdr.opcode == OSD_OP_SEC_READ || op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
                     op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE || op->req.hdr.opcode == OSD_OP_SEC_DELETE)
                 {
-                    bufprintf(" %lx:%lx v", op->req.sec_rw.oid.inode, op->req.sec_rw.oid.stripe);
+                    bufprintf(" %jx:%jx v", op->req.sec_rw.oid.inode, op->req.sec_rw.oid.stripe);
                     if (op->req.sec_rw.version == UINT64_MAX)
                     {
                         bufprintf("%s", "max");
                     }
                     else
                     {
-                        bufprintf("%lu", op->req.sec_rw.version);
+                        bufprintf("%ju", op->req.sec_rw.version);
                     }
                     if (op->req.hdr.opcode != OSD_OP_SEC_DELETE)
                     {
@@ -580,17 +580,17 @@ void osd_t::print_slow()
                     for (uint64_t i = 0; i < op->req.sec_stab.len && i < sizeof(obj_ver_id)*12; i += sizeof(obj_ver_id))
                     {
                         obj_ver_id *ov = (obj_ver_id*)((uint8_t*)op->buf + i);
-                        bufprintf(i == 0 ? " %lx:%lx v%lu" : ", %lx:%lx v%lu", ov->oid.inode, ov->oid.stripe, ov->version);
+                        bufprintf(i == 0 ? " %jx:%jx v%ju" : ", %jx:%jx v%ju", ov->oid.inode, ov->oid.stripe, ov->version);
                     }
                     if (op->req.sec_stab.len > sizeof(obj_ver_id)*12)
                     {
-                        bufprintf(", ... (%lu items)", op->req.sec_stab.len/sizeof(obj_ver_id));
+                        bufprintf(", ... (%ju items)", op->req.sec_stab.len/sizeof(obj_ver_id));
                     }
                 }
                 else if (op->req.hdr.opcode == OSD_OP_SEC_LIST)
                 {
                     bufprintf(
-                        " oid=%lx/%lx-%lx/%lx pg=%u/%u, stripe=%lu, limit=%u",
+                        " oid=%jx/%jx-%jx/%jx pg=%u/%u, stripe=%ju, limit=%u",
                         op->req.sec_list.min_inode, op->req.sec_list.min_stripe,
                         op->req.sec_list.max_inode, op->req.sec_list.max_stripe,
                         op->req.sec_list.list_pg, op->req.sec_list.pg_count,
@@ -600,7 +600,7 @@ void osd_t::print_slow()
                 else if (op->req.hdr.opcode == OSD_OP_READ || op->req.hdr.opcode == OSD_OP_WRITE ||
                     op->req.hdr.opcode == OSD_OP_DELETE)
                 {
-                    bufprintf(" inode=%lx offset=%lx len=%x", op->req.rw.inode, op->req.rw.offset, op->req.rw.len);
+                    bufprintf(" inode=%jx offset=%jx len=%x", op->req.rw.inode, op->req.rw.offset, op->req.rw.len);
                 }
                 if (op->req.hdr.opcode == OSD_OP_SEC_READ || op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
                     op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE || op->req.hdr.opcode == OSD_OP_SEC_DELETE ||
@@ -612,7 +612,7 @@ void osd_t::print_slow()
                     int wait_for = op->bs_op ? PRIV(op->bs_op)->wait_for : 0;
                     if (wait_for)
                     {
-                        bufprintf(" wait=%d (detail=%lu)", wait_for, PRIV(op->bs_op)->wait_detail);
+                        bufprintf(" wait=%d (detail=%ju)", wait_for, PRIV(op->bs_op)->wait_detail);
                     }
                 }
                 else if (op->req.hdr.opcode == OSD_OP_READ || op->req.hdr.opcode == OSD_OP_WRITE ||

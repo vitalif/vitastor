@@ -25,7 +25,7 @@ void osd_t::autosync()
         {
             if (op->reply.hdr.retval < 0)
             {
-                printf("Warning: automatic sync resulted in an error: %ld (%s)\n", -op->reply.hdr.retval, strerror(-op->reply.hdr.retval));
+                printf("Warning: automatic sync resulted in an error: %jd (%s)\n", -op->reply.hdr.retval, strerror(-op->reply.hdr.retval));
             }
             delete autosync_op;
             autosync_op = NULL;
@@ -197,7 +197,7 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                 });
 #ifdef OSD_DEBUG
                 printf(
-                    "Submit %s to local: %lx:%lx v%lu %u-%u\n", wr ? "write" : "read",
+                    "Submit %s to local: %jx:%jx v%ju %u-%u\n", wr ? "write" : "read",
                     inode, op_data->oid.stripe | stripe_num, op_version,
                     subop->bs_op->offset, subop->bs_op->len
                 );
@@ -225,7 +225,7 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
                 };
 #ifdef OSD_DEBUG
                 printf(
-                    "Submit %s to osd %lu: %lx:%lx v%lu %u-%u\n", wr ? "write" : "read", role_osd_num,
+                    "Submit %s to osd %ju: %jx:%jx v%ju %u-%u\n", wr ? "write" : "read", role_osd_num,
                     inode, op_data->oid.stripe | stripe_num, op_version,
                     subop->req.sec_rw.offset, subop->req.sec_rw.len
                 );
@@ -369,14 +369,14 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
 #ifdef OSD_DEBUG
         uint64_t peer_osd = msgr.clients.find(subop->peer_fd) != msgr.clients.end()
             ? msgr.clients[subop->peer_fd]->osd_num : osd_num;
-        printf("subop %s %lx:%lx from osd %lu: version = %lu\n", osd_op_names[opcode], subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, peer_osd, version);
+        printf("subop %s %jx:%jx from osd %ju: version = %ju\n", osd_op_names[opcode], subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, peer_osd, version);
 #endif
         if (op_data->fact_ver != UINT64_MAX)
         {
             if (op_data->fact_ver != 0 && op_data->fact_ver != version)
             {
                 fprintf(
-                    stderr, "different fact_versions returned from %s subops: %lu vs %lu\n",
+                    stderr, "different fact_versions returned from %s subops: %ju vs %ju\n",
                     osd_op_names[opcode], version, op_data->fact_ver
                 );
                 retval = -ERANGE;
@@ -391,8 +391,8 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
         {
             printf(
                 subop->peer_fd >= 0
-                    ? "%1$s subop to %2$lx:%3$lx v%4$lu failed on peer %7$d: retval = %5$d (expected %6$d)\n"
-                    : "%1$s subop to %2$lx:%3$lx v%4$lu failed locally: retval = %5$d (expected %6$d)\n",
+                    ? "%1$s subop to %2$jx:%3$jx v%4$ju failed on peer %7$d: retval = %5$d (expected %6$d)\n"
+                    : "%1$s subop to %2$jx:%3$jx v%4$ju failed locally: retval = %5$d (expected %6$d)\n",
                 osd_op_names[opcode], subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, subop->req.sec_rw.version,
                 retval, expected, subop->peer_fd
             );

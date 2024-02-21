@@ -54,7 +54,7 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
         else
         {
             // Unsupported version
-            fprintf(stderr, "Metadata format is too new for me (stored version is %lu, max supported %u).\n", hdr->version, BLOCKSTORE_META_FORMAT_V2);
+            fprintf(stderr, "Metadata format is too new for me (stored version is %ju, max supported %u).\n", hdr->version, BLOCKSTORE_META_FORMAT_V2);
             free(data);
             close(dsk.meta_fd);
             dsk.meta_fd = -1;
@@ -108,7 +108,7 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
                             uint32_t *entry_csum = (uint32_t*)((uint8_t*)entry + dsk.clean_entry_size - 4);
                             if (*entry_csum != crc32c(0, entry, dsk.clean_entry_size - 4))
                             {
-                                fprintf(stderr, "Metadata entry %lu is corrupt (checksum mismatch), skipping\n", block_num);
+                                fprintf(stderr, "Metadata entry %ju is corrupt (checksum mismatch), skipping\n", block_num);
                                 continue;
                             }
                         }
@@ -184,7 +184,7 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v2_t *hdr)
     }
     else
     {
-        printf("{\"version\":\"0.5\",\"meta_block_size\":%lu,\"entries\":[\n", dsk.meta_block_size);
+        printf("{\"version\":\"0.5\",\"meta_block_size\":%ju,\"entries\":[\n", dsk.meta_block_size);
     }
     first_entry = true;
 }
@@ -192,7 +192,7 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v2_t *hdr)
 void disk_tool_t::dump_meta_entry(uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap)
 {
     printf(
-#define ENTRY_FMT "{\"block\":%lu,\"pool\":%u,\"inode\":\"0x%lx\",\"stripe\":\"0x%lx\",\"version\":%lu"
+#define ENTRY_FMT "{\"block\":%ju,\"pool\":%u,\"inode\":\"0x%jx\",\"stripe\":\"0x%jx\",\"version\":%ju"
         (first_entry ? ENTRY_FMT : (",\n" ENTRY_FMT)),
 #undef ENTRY_FMT
         block_num, INODE_POOL(entry->oid.inode), INODE_NO_POOL(entry->oid.inode),
@@ -265,7 +265,7 @@ int disk_tool_t::write_json_meta(json11::Json meta)
         {
             free(new_meta_buf);
             new_meta_buf = NULL;
-            fprintf(stderr, "Metadata (data block %lu) doesn't fit into the new area\n", data_block);
+            fprintf(stderr, "Metadata (data block %ju) doesn't fit into the new area\n", data_block);
             return 1;
         }
         clean_disk_entry *new_entry = (clean_disk_entry*)(new_meta_buf +

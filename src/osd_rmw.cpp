@@ -885,7 +885,7 @@ static void calc_rmw_parity_copy_parity(osd_rmw_stripe_t *stripes, int pg_size, 
     {
         auto & s = stripes[role];
         printf(
-            "Tr=%lu Tw=%lu Q=%x-%x R=%x-%x W=%x-%x Rb=%lx Wb=%lx\n",
+            "Tr=%ju Tw=%ju Q=%x-%x R=%x-%x W=%x-%x Rb=%jx Wb=%jx\n",
             read_osd_set[role], write_osd_set[role],
             s.req_start, s.req_end,
             s.read_start, s.read_end,

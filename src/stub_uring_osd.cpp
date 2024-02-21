@@ -89,7 +89,7 @@ void stub_exec_op(osd_messenger_t *msgr, osd_op_t *op)
     }
     else
     {
-        printf("client %d: unsupported stub opcode: %lu\n", op->peer_fd, op->req.hdr.opcode);
+        printf("client %d: unsupported stub opcode: %ju\n", op->peer_fd, op->req.hdr.opcode);
         op->reply.hdr.retval = -EINVAL;
     }
     msgr->outbox_push(op);

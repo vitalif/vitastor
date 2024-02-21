@@ -239,7 +239,7 @@ void pg_obj_state_check_t::finish_object()
     {
         if (log_level > 1)
         {
-            printf("Object is incomplete: %lx:%lx version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
+            printf("Object is incomplete: %jx:%jx version=%ju/%ju\n", oid.inode, oid.stripe, target_ver, max_ver);
         }
         state = OBJ_INCOMPLETE;
         pg->state = pg->state | PG_HAS_INCOMPLETE;
@@ -248,7 +248,7 @@ void pg_obj_state_check_t::finish_object()
     {
         if (log_level > 1)
         {
-            printf("Object is degraded: %lx:%lx version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
+            printf("Object is degraded: %jx:%jx version=%ju/%ju\n", oid.inode, oid.stripe, target_ver, max_ver);
         }
         state = OBJ_DEGRADED;
         pg->state = pg->state | PG_HAS_DEGRADED;
@@ -257,7 +257,7 @@ void pg_obj_state_check_t::finish_object()
     {
         if (log_level > 2)
         {
-            printf("Object is misplaced: %lx:%lx version=%lu/%lu\n", oid.inode, oid.stripe, target_ver, max_ver);
+            printf("Object is misplaced: %jx:%jx version=%ju/%ju\n", oid.inode, oid.stripe, target_ver, max_ver);
         }
         state |= OBJ_MISPLACED;
         pg->state = pg->state | PG_HAS_MISPLACED;
@@ -267,7 +267,7 @@ void pg_obj_state_check_t::finish_object()
     {
         for (int i = obj_start; i < obj_end; i++)
         {
-            printf("v%lu present on: osd %lu, role %ld%s\n", list[i].version, list[i].osd_num,
+            printf("v%ju present on: osd %ju, role %jd%s\n", list[i].version, list[i].osd_num,
                 (list[i].oid.stripe & STRIPE_MASK), list[i].is_stable ? " (stable)" : "");
         }
     }
@@ -445,7 +445,7 @@ void pg_t::calc_object_states(int log_level)
             osd_set_desc += (osd_set_desc == "" ? "" : ", ")+std::to_string(osd_num);
         }
         printf(
-            "[PG %u/%u] %lu clean objects on target OSD set %s\n",
+            "[PG %u/%u] %ju clean objects on target OSD set %s\n",
             pool_id, pg_num, clean_count, osd_set_desc.c_str()
         );
         for (auto & stp: state_dict)
@@ -460,7 +460,7 @@ void pg_t::calc_object_states(int log_level)
                     (loc.loc_bad & LOC_CORRUPTED ? "(corrupted)" : "")+
                     (loc.loc_bad & LOC_INCONSISTENT ? "(inconsistent)" : "");
             }
-            printf("[PG %u/%u] %lu objects on OSD set %s\n", pool_id, pg_num, stp.second.object_count, osd_set_desc.c_str());
+            printf("[PG %u/%u] %ju objects on OSD set %s\n", pool_id, pg_num, stp.second.object_count, osd_set_desc.c_str());
         }
     }
 }
@@ -468,7 +468,7 @@ void pg_t::calc_object_states(int log_level)
 void pg_t::print_state()
 {
     printf(
-        "[PG %u/%u] is %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s (%lu objects)\n", pool_id, pg_num,
+        "[PG %u/%u] is %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s (%ju objects)\n", pool_id, pg_num,
         (state & PG_STARTING) ? "starting" : "",
         (state & PG_OFFLINE) ? "offline" : "",
         (state & PG_PEERING) ? "peering" : "",
