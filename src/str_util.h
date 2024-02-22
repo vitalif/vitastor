@@ -4,6 +4,7 @@
 #pragma once
 #include <stdint.h>
 #include <string>
+#include <vector>
 
 std::string base64_encode(const std::string &in);
 std::string base64_decode(const std::string &in);
@@ -20,3 +21,4 @@ std::string read_all_fd(int fd);
 std::string str_repeat(const std::string & str, int times);
 size_t utf8_length(const std::string & s);
 size_t utf8_length(const char *s);
+std::vector<std::string> explode(const std::string & sep, const std::string & value, bool trim);

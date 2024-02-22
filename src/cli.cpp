@@ -113,104 +113,53 @@ static const char* help_text =
     "  With --dry-run only checks if deletion is possible without data loss and\n"
     "  redundancy degradation.\n"
     "\n"
-    "vitastor-cli create-pool <name> --scheme <scheme> -s <pg_size> --pg_minsize <pg_minsize> -n <pg_count> --parity_chunks <number> [OPTIONS]\n"
-    "   Create a pool.\n"
-    "  --scheme <scheme>\n"
-    "       Redundancy scheme used for data in this pool. One of: \"replicated\", \"xor\", \"ec\" or \"jerasure\".\n"
-    "       It's \"replicated\" by default.\n"
-    "  --ec <N>+<K>\n"
-    "       Shortcut for 'ec' scheme. scheme = ec, pg_size = N+K, parity_chunks = K.\n"
-    "  -s|--pg_size <size>\n"
-    "       Total number of disks for PGs of this pool - i.e., number of replicas for replicated pools and number of data plus parity disks for EC/XOR pools.\n"
-    "  --pg_minsize <size>\n"
-    "       Number of available live OSDs for PGs of this pool to remain active.\n"
-    "  -n|--pg_count <count>\n"
-    "       Number of PGs for this pool.\n"
-    "  --parity_chunks <number>\n"
-    "       Number of parity chunks for EC/XOR pools\n"
-    "  -f|--force\n"
-    "       Proceed without checking pool/OSD params (pg_size, block_size, bitmap_granularity, and immediate_commit).\n"
-    "  --failure_domain <failure_domain>\n"
-    "       Failure domain specification. Must be \"host\" or \"osd\" or refer to one of the placement tree levels, defined in placement_levels.\n"
-    "  --max_osd_combinations <number>\n"
-    "       This parameter specifies the maximum number of combinations to generate when optimising PG placement.\n"
-    "  --block_size <size>\n"
-    "       Block size for this pool.\n"
-    "  --bitmap_granularity <granularity>\n"
-    "       \"Sector\" size of virtual disks in this pool.\n"
-    "  --immediate_commit <all|small|none>\n"
-    "       Immediate commit setting for this pool. One of \"all\", \"small\" and \"none\".\n"
-    "  --pg_stripe_size <size>\n"
-    "       Specifies the stripe size for this pool according to which images are split into different PGs.\n"
-    "  --root_node <node>\n"
-    "       Specifies the root node of the OSD tree to restrict this pool OSDs to.\n"
-    "  --osd_tags <tags>\n"
-    "       Specifies OSD tags to restrict this pool to.\n"
-    "       Example: --osd_tags tag0 or --osd_tags tag0,tag1\n"
-    "  --primary_affinity_tags <tags>\n"
-    "       Specifies OSD tags to prefer putting primary OSDs in this pool to.\n"
-    "       Example: --primary_affinity_tags tag0 or --primary_affinity_tags tag0,tag1\n"
-    "  --scrub_interval <time_interval>\n"
-    "       Automatic scrubbing interval for this pool. Format: number + unit s/m/h/d/M/y.\n"
+    "vitastor-cli create-pool|pool-create <name> (-s <pg_size>|--ec <N>+<K>) -n <pg_count> [OPTIONS]\n"
+    "  Create a pool. Required parameters:\n"
+    "    -s|--pg_size R   Number of replicas for replicated pools\n"
+    "    --ec N+K         Number of data (N) and parity (K) chunks for erasure-coded pools\n"
+    "    -n|--pg_count N  PG count for the new pool (start with 10*<OSD count>/pg_size rounded to a power of 2)\n"
+    "  Optional parameters:\n"
+    "    --pg_minsize <number>         R or N+K minus number of failures to tolerate without downtime\n"
+    "    --failure_domain host         Failure domain: host, osd or a level from placement_levels. Default: host\n"
+    "    --root_node <node>            Put pool on child OSDs of this placement tree node\n"
+    "    --osd_tags <tag>[,<tag>]...   Put pool on OSDs tagged with all specified tags\n"
+    "    --block_size 128k             Put pool on OSDs with this data block size\n"
+    "    --bitmap_granularity 4k       Put pool on OSDs with this logical sector size\n"
+    "    --immediate_commit none       Put pool on OSDs with this or larger immediate_commit (none < small < all)\n"
+    "    --primary_affinity_tags tags  Prefer to put primary copies on OSDs with all specified tags\n"
+    "    --scrub_interval <time>       Enable regular scrubbing for this pool. Format: number + unit s/m/h/d/M/y\n"
+    "    --pg_stripe_size <number>     Increase object grouping stripe. Default: block_size*data_parts\n"
+    "    --max_osd_combinations 10000  Maximum number of random combinations for LP solver input. Default: 10000\n"
+    "    --wait                        Wait for the new pool to come online\n"
+    "    -f|--force                    Do not check that cluster has enough OSDs to create the pool\n"
     "  Examples:\n"
-    "       vitastor-cli create-pool test_x4 -s 4 -n 32\n"
-    "       vitastor-cli create-pool test_ec42 --ec 4+2 -n 32\n"
+    "    vitastor-cli create-pool test_x4 -s 4 -n 32\n"
+    "    vitastor-cli create-pool test_ec42 --ec 4+2 -n 32\n"
     "\n"
-    "vitastor-cli modify-pool <id|name> [--name <new_name>] [-s <pg_size>] [--pg_minsize <pg_minsize>] [-n <pg_count>] [OPTIONS]\n"
-    "   Modify an existing pool.\n"
-    "  --name <new_name>\n"
-    "       Change name of this pool.\n"
-    "  -s|--pg_size <size>\n"
-    "       Total number of disks for PGs of this pool - i.e., number of replicas for replicated pools and number of data plus parity disks for EC/XOR pools.\n"
-    "  --pg_minsize <size>\n"
-    "       Number of available live OSDs for PGs of this pool to remain active.\n"
-    "  -n|--pg_count <count>\n"
-    "       Number of PGs for this pool.\n"
-    "  -f|--force\n"
-    "       Proceed without checking pool/OSD params (block_size, bitmap_granularity and immediate_commit).\n"
-    "  --failure_domain <failure_domain>\n"
-    "       Failure domain specification. Must be \"host\" or \"osd\" or refer to one of the placement tree levels, defined in placement_levels.\n"
-    "  --max_osd_combinations <number>\n"
-    "       This parameter specifies the maximum number of combinations to generate when optimising PG placement.\n"
-    "  --block_size <size>\n"
-    "       Block size for this pool.\n"
-    "  --immediate_commit <all|small|none>\n"
-    "       Immediate commit setting for this pool. One of \"all\", \"small\" and \"none\".\n"
-    "  --pg_stripe_size <size>\n"
-    "       Specifies the stripe size for this pool according to which images are split into different PGs.\n"
-    "  --root_node <node>\n"
-    "       Specifies the root node of the OSD tree to restrict this pool OSDs to.\n"
-    "  --osd_tags <tags>\n"
-    "       Specifies OSD tags to restrict this pool to.\n"
-    "       Example: --osd_tags tag0 or --osd_tags tag0,tag1\n"
-    "  --primary_affinity_tags <tags>\n"
-    "       Specifies OSD tags to prefer putting primary OSDs in this pool to.\n"
-    "       Example: --primary_affinity_tags tag0 or --primary_affinity_tags tag0,tag1\n"
-    "  --scrub_interval <time_interval>\n"
-    "       Automatic scrubbing interval for this pool. Format: number + unit s/m/h/d/M/y.\n"
+    "vitastor-cli modify-pool|pool-modify <id|name> [--name <new_name>] [PARAMETERS...]\n"
+    "  Modify an existing pool. Modifiable parameters:\n"
+    "    [-s|--pg_size <number>] [--pg_minsize <number>] [-n|--pg_count <count>]\n"
+    "    [--failure_domain <level>] [--root_node <node>] [--osd_tags <tags>]\n"
+    "    [--max_osd_combinations <number>] [--primary_affinity_tags <tags>] [--scrub_interval <time>]\n"
+    "  Non-modifiable parameters (changing them WILL lead to data loss):\n"
+    "    [--block_size <size>] [--bitmap_granularity <size>]\n"
+    "    [--immediate_commit <all|small|none>] [--pg_stripe_size <size>]\n"
+    "  These, however, can still be modified with -f|--force.\n"
+    "  See create-pool for parameter descriptions.\n"
     "  Examples:\n"
-    "       vitastor-cli modify-pool pool_A -name pool_B\n"
-    "       vitastor-cli modify-pool 2 -s 4 -n 128 --block_size 262144\n"
+    "    vitastor-cli modify-pool pool_A --name pool_B\n"
+    "    vitastor-cli modify-pool 2 --pg_size 4 -n 128\n"
     "\n"
-    "vitastor-cli rm-pool [--force] <id|name>\n"
-    "  Remove existing pool from cluster.\n"
-    "  Refuses to remove pools with related Image and/or Snapshot data without --force.\n"
-    "  Examples:\n"
-    "       vitastor-cli rm-pool test_pool\n"
-    "       vitastor-cli rm-pool --force 2\n"
+    "vitastor-cli rm-pool|pool-rm [--force] <id|name>\n"
+    "  Remove existing pool. Refuses to remove pools with data without --force.\n"
     "\n"
-    "vitastor-cli ls-pool [-l] [-p POOL] [--sort FIELD] [-r] [-n N] [--stats] [<glob> ...]\n"
-    "  List pool (only matching <glob> patterns if passed).\n"
-    "  -p|--pool POOL  Show in detail pool ID or name\n"
-    "  -l|--long       Show all available field\n"
-    "  --sort FIELD    Sort by specified field (id, name, pg_count, scheme_name, used_byte, total, max_available, used_pct, space_efficiency, status, restore, root_node, failure_domain, osd_tags, primary_affinity_tags)\n"
+    "vitastor-cli ls-pools|pool-ls|ls-pool|pools [-l] [--detail] [--sort FIELD] [-r] [-n N] [--stats] [<glob> ...]\n"
+    "  List pools (only matching <glob> patterns if passed).\n"
+    "  -l|--long       Also report PG states and I/O statistics\n"
+    "  --detail        Use list format (not table), show all details\n"
+    "  --sort FIELD    Sort by specified field\n"
     "  -r|--reverse    Sort in descending order\n"
     "  -n|--count N    Only list first N items\n"
-    "  --stats         Performance statistics\n"
-    "  Examples:\n"
-    "       vitastor-cli ls-pool -l\n"
-    "       vitastor-cli ls-pool -l --sort pool_name\n"
-    "       vitastor-cli ls-pool -p 2\n"
     "\n"
     "Use vitastor-cli --help <command> for command details or vitastor-cli --help --all for all details.\n"
     "\n"
@@ -265,15 +214,15 @@ static json11::Json::object parse_args(int narg, const char *args[])
         else if (args[i][0] == '-' && args[i][1] == '-')
         {
             const char *opt = args[i]+2;
-            if (!strcmp(opt, "json") ||
+            if (!strcmp(opt, "json") || !strcmp(opt, "wait") ||
                 !strcmp(opt, "wait-list") || !strcmp(opt, "wait_list") ||
-                !strcmp(opt, "long") || !strcmp(opt, "del") ||
+                !strcmp(opt, "long") || !strcmp(opt, "detail") || !strcmp(opt, "del") ||
                 !strcmp(opt, "no-color") || !strcmp(opt, "no_color") ||
                 !strcmp(opt, "readonly") || !strcmp(opt, "readwrite") ||
                 !strcmp(opt, "force") || !strcmp(opt, "reverse") ||
                 !strcmp(opt, "allow-data-loss") || !strcmp(opt, "allow_data_loss") ||
                 !strcmp(opt, "dry-run") || !strcmp(opt, "dry_run") ||
-                !strcmp(opt, "help") || !strcmp(opt, "all") || !strcmp(opt, "stats") ||
+                !strcmp(opt, "help") || !strcmp(opt, "all") ||
                 !strcmp(opt, "writers-stopped") || !strcmp(opt, "writers_stopped"))
             {
                 cfg[opt] = "1";
@@ -324,7 +273,6 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
     else if (cmd[0] == "df")
     {
         // Show pool space stats
-        cfg["dfformat"] = "1";
         action_cb = p->start_pool_ls(cfg);
     }
     else if (cmd[0] == "ls")
@@ -432,7 +380,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         // Allocate a new OSD number
         action_cb = p->start_alloc_osd(cfg);
     }
-    else if (cmd[0] == "create-pool")
+    else if (cmd[0] == "create-pool" || cmd[0] == "pool-create")
     {
         // Create a new pool
         if (cmd.size() > 1 && cfg["name"].is_null())
@@ -441,16 +389,16 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         }
         action_cb = p->start_pool_create(cfg);
     }
-    else if (cmd[0] == "modify-pool")
+    else if (cmd[0] == "modify-pool" || cmd[0] == "pool-modify")
     {
         // Modify existing pool
         if (cmd.size() > 1)
         {
-            cfg["pool"] = cmd[1];
+            cfg["old_name"] = cmd[1];
         }
         action_cb = p->start_pool_modify(cfg);
     }
-    else if (cmd[0] == "rm-pool")
+    else if (cmd[0] == "rm-pool" || cmd[0] == "pool-rm")
     {
         // Remove existing pool
         if (cmd.size() > 1)
@@ -459,9 +407,10 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         }
         action_cb = p->start_pool_rm(cfg);
     }
-    else if (cmd[0] == "ls-pool")
+    else if (cmd[0] == "ls-pool" || cmd[0] == "pool-ls" || cmd[0] == "ls-pools" || cmd[0] == "pools")
     {
         // Show pool list
+        cfg["show_recovery"] = 1;
         if (cmd.size() > 1)
         {
             cmd.erase(cmd.begin(), cmd.begin()+1);

@@ -1,101 +1,61 @@
-/*
- =========================================================================
- Copyright (c) 2023 MIND Software LLC. All Rights Reserved.
- This file is part of the Software-Defined Storage MIND UStor Project.
- For more information about this product, please visit https://mindsw.io
- or contact us directly at info@mindsw.io
- =========================================================================
- */
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.1 (see README.md for details)
 
 #include <algorithm>
-#include <numeric>
-#include <string>
 #include "cli.h"
 #include "cluster_client.h"
 #include "str_util.h"
 #include "pg_states.h"
 
 // List pools with space statistics
-struct pool_ls_t
+// - df - minimal list with % used space
+// - pool-ls - same but with PG state and recovery %
+// - pool-ls -l - same but also include I/O statistics
+// - pool-ls --detail - use list format, include PG states, I/O stats and all pool parameters
+struct pool_lister_t
 {
     cli_tool_t *parent;
-    pool_id_t list_pool_id = 0;
-    std::string list_pool_name;
     std::string sort_field;
     std::set<std::string> only_names;
-    bool show_df_format = false;
-    bool show_stats = false;
     bool reverse = false;
-    bool show_all = false;
     int max_count = 0;
+    bool show_recovery = false;
+    bool show_stats = false;
+    bool detailed = false;
+
     int state = 0;
-    json11::Json space_info;
     cli_result_t result;
     std::map<pool_id_t, json11::Json::object> pool_stats;
+    struct io_stats_t
+    {
+        uint64_t count = 0;
+        uint64_t read_iops = 0;
+        uint64_t read_bps = 0;
+        uint64_t read_lat = 0;
+        uint64_t write_iops = 0;
+        uint64_t write_bps = 0;
+        uint64_t write_lat = 0;
+        uint64_t delete_iops = 0;
+        uint64_t delete_bps = 0;
+        uint64_t delete_lat = 0;
+    };
+    struct object_counts_t
+    {
+        uint64_t object_count = 0;
+        uint64_t misplaced_count = 0;
+        uint64_t degraded_count = 0;
+        uint64_t incomplete_count = 0;
+    };
 
     bool is_done()
     {
         return state == 100;
     }
 
-    std::string item_as_string(const json11::Json& item)
+    void get_pool_stats(int base_state)
     {
-        if (item.is_array())
-        {
-            if (item.array_items().empty())
-                return std::string{};
-            std::string result = item.array_items().at(0).as_string();
-            std::for_each(
-                std::next(item.array_items().begin()),
-                item.array_items().end(),
-                [&result](const json11::Json& a)
-                {
-                    result += ", " + a.as_string();
-                });
-            return result;
-        }
-        else
-            return item.as_string();
-    }
-
-    void get_stats()
-    {
-        if (state == 1)
+        if (state == base_state+1)
             goto resume_1;
-        if (list_pool_name != "")
-        {
-            for (auto & ic: parent->cli->st_cli.pool_config)
-            {
-                if (ic.second.name == list_pool_name)
-                {
-                    list_pool_id = ic.first;
-                    break;
-                }
-            }
-            if (!list_pool_id)
-            {
-                result = (cli_result_t){ .err = ENOENT, .text = "Pool "+list_pool_name+" does not exist" };
-                state = 100;
-                return;
-            }
-        }
-        else if (list_pool_id !=0)
-        {
-            for (auto & ic: parent->cli->st_cli.pool_config)
-            {
-                if (ic.second.id == list_pool_id)
-                {
-                    list_pool_name = ic.second.name;
-                    break;
-                }
-            }
-            if (list_pool_name == "")
-            {
-                result = (cli_result_t){ .err = ENOENT, .text = "Pool "+list_pool_name+" does not exist" };
-                state = 100;
-                return;
-            }
-        }
         // Space statistics - pool/stats/<pool>
         parent->etcd_txn(json11::Json::object {
             { "success", json11::Json::array {
@@ -122,30 +82,13 @@ struct pool_ls_t
                 json11::Json::object {
                     { "request_range", json11::Json::object {
                         { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/inode/stats"+
-                            (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"/"
-                        ) },
-                        { "range_end", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/inode/stats"+
-                            (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"0"
-                        ) },
-                    } },
-                },
-                json11::Json::object {
-                    { "request_range", json11::Json::object {
-                        { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/pg/stats"+
-                            (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"/"
-                        ) },
-                        { "range_end", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/pg/stats"+
-                            (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"0"
+                            parent->cli->st_cli.etcd_prefix+"/config/pools"
                         ) },
                     } },
                 },
             } },
         });
-        state = 1;
+        state = base_state+1;
 resume_1:
         if (parent->waiting > 0)
             return;
@@ -155,8 +98,12 @@ resume_1:
             state = 100;
             return;
         }
-        space_info = parent->etcd_result;
-        std::map<pool_id_t, uint64_t> osd_free;
+        auto space_info = parent->etcd_result;
+        auto config_pools = space_info["responses"][2]["response_range"]["kvs"][0];
+        if (!config_pools.is_null())
+        {
+            config_pools = parent->cli->st_cli.parse_etcd_kv(config_pools).value;
+        }
         for (auto & kv_item: space_info["responses"][0]["response_range"]["kvs"].array_items())
         {
             auto kv = parent->cli->st_cli.parse_etcd_kv(kv_item);
@@ -172,13 +119,14 @@ resume_1:
             // pool/stats/<N>
             pool_stats[pool_id] = kv.value.object_items();
         }
+        std::map<pool_id_t, uint64_t> osd_free;
         for (auto & kv_item: space_info["responses"][1]["response_range"]["kvs"].array_items())
         {
             auto kv = parent->cli->st_cli.parse_etcd_kv(kv_item);
             // osd ID
             osd_num_t osd_num;
             char null_byte = 0;
-            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(), "/osd/stats/%lu%c", &osd_num, &null_byte);
+            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(), "/osd/stats/%ju%c", &osd_num, &null_byte);
             if (scanned != 1 || !osd_num || osd_num >= POOL_ID_MAX)
             {
                 fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
@@ -187,53 +135,129 @@ resume_1:
             // osd/stats/<N>::free
             osd_free[osd_num] = kv.value["free"].uint64_value();
         }
-        // Performance statistics
-        double pool_read_iops = 0;
-        double pool_read_bps = 0;
-        double pool_read_lat = 0;
-        double pool_write_iops = 0;
-        double pool_write_bps = 0;
-        double pool_write_lat = 0;
-        double pool_delete_iops = 0;
-        double pool_delete_bps = 0;
-        double pool_delete_lat = 0;
-        uint32_t pool_inode_stats_count = 0;
-        for (auto & kv_item: space_info["responses"][2]["response_range"]["kvs"].array_items())
+        // Calculate max_avail for each pool
+        for (auto & pp: parent->cli->st_cli.pool_config)
         {
-            auto kv = parent->cli->st_cli.parse_etcd_kv(kv_item);
-            // pool ID & inode number
-            pool_id_t pool_id;
-            inode_t only_inode_num;
-            char null_byte = 0;
-            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(),
-                "/inode/stats/%u/%lu%c", &pool_id, &only_inode_num, &null_byte);
-            if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX || INODE_POOL(only_inode_num) != 0)
+            auto & pool_cfg = pp.second;
+            uint64_t pool_avail = UINT64_MAX;
+            std::map<osd_num_t, uint64_t> pg_per_osd;
+            bool active = pool_cfg.real_pg_count > 0;
+            uint64_t pg_states = 0;
+            for (auto & pgp: pool_cfg.pg_config)
             {
-                fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
+                if (!(pgp.second.cur_state & PG_ACTIVE))
+                {
+                    active = false;
+                }
+                pg_states |= pgp.second.cur_state;
+                for (auto pg_osd: pgp.second.target_set)
+                {
+                    if (pg_osd != 0)
+                    {
+                        pg_per_osd[pg_osd]++;
+                    }
+                }
+            }
+            for (auto pg_per_pair: pg_per_osd)
+            {
+                uint64_t pg_free = osd_free[pg_per_pair.first] * pool_cfg.real_pg_count / pg_per_pair.second;
+                if (pool_avail > pg_free)
+                {
+                    pool_avail = pg_free;
+                }
+            }
+            if (pool_avail == UINT64_MAX)
+            {
+                pool_avail = 0;
+            }
+            if (pool_cfg.scheme != POOL_SCHEME_REPLICATED)
+            {
+                pool_avail *= (pool_cfg.pg_size - pool_cfg.parity_chunks);
+            }
+            // incomplete > has_incomplete > degraded > has_degraded > has_misplaced
+            std::string status;
+            if (!active)
+                status = "inactive";
+            else if (pg_states & PG_INCOMPLETE)
+                status = "incomplete";
+            else if (pg_states & PG_HAS_INCOMPLETE)
+                status = "has_incomplete";
+            else if (pg_states & PG_DEGRADED)
+                status = "degraded";
+            else if (pg_states & PG_HAS_DEGRADED)
+                status = "has_degraded";
+            else if (pg_states & PG_HAS_MISPLACED)
+                status = "has_misplaced";
+            else
+                status = "active";
+            pool_stats[pool_cfg.id] = json11::Json::object {
+                { "id", (uint64_t)pool_cfg.id },
+                { "name", pool_cfg.name },
+                { "status", status },
+                { "pg_count", pool_cfg.pg_count },
+                { "real_pg_count", pool_cfg.real_pg_count },
+                { "scheme_name", pool_cfg.scheme == POOL_SCHEME_REPLICATED
+                    ? std::to_string(pool_cfg.pg_size)+"/"+std::to_string(pool_cfg.pg_minsize)
+                    : "EC "+std::to_string(pool_cfg.pg_size-pool_cfg.parity_chunks)+"+"+std::to_string(pool_cfg.parity_chunks) },
+                { "used_raw", (uint64_t)(pool_stats[pool_cfg.id]["used_raw_tb"].number_value() * ((uint64_t)1<<40)) },
+                { "total_raw", (uint64_t)(pool_stats[pool_cfg.id]["total_raw_tb"].number_value() * ((uint64_t)1<<40)) },
+                { "max_available", pool_avail },
+                { "raw_to_usable", pool_stats[pool_cfg.id]["raw_to_usable"].number_value() },
+                { "space_efficiency", pool_stats[pool_cfg.id]["space_efficiency"].number_value() },
+                { "pg_real_size", pool_stats[pool_cfg.id]["pg_real_size"].uint64_value() },
+                { "osd_count", pg_per_osd.size() },
+            };
+        }
+        // Include full pool config
+        for (auto & pp: config_pools.object_items())
+        {
+            if (!pp.second.is_object())
+            {
                 continue;
             }
-            pool_read_iops += kv.value["read"]["iops"].number_value();
-            pool_read_bps  += kv.value["read"]["bps"].number_value();
-            pool_read_lat  += kv.value["read"]["lat"].number_value();
-            pool_write_iops += kv.value["write"]["iops"].number_value();
-            pool_write_bps  += kv.value["write"]["bps"].number_value();
-            pool_write_lat  += kv.value["write"]["lat"].number_value();
-            pool_delete_iops += kv.value["delete"]["iops"].number_value();
-            pool_delete_bps  += kv.value["delete"]["bps"].number_value();
-            pool_delete_lat  += kv.value["delete"]["lat"].number_value();
-            pool_inode_stats_count++;
+            auto pool_id = stoull_full(pp.first);
+            auto & st = pool_stats[pool_id];
+            for (auto & kv: pp.second.object_items())
+            {
+                if (st.find(kv.first) == st.end())
+                    st[kv.first] = kv.second;
+            }
         }
-        pool_read_bps = pool_inode_stats_count ? (pool_read_bps/pool_inode_stats_count) : 0;
-        pool_write_bps = pool_inode_stats_count ? (pool_write_bps/pool_inode_stats_count) : 0;
-        pool_delete_bps = pool_inode_stats_count ? (pool_delete_bps/pool_inode_stats_count) : 0;
-        pool_read_lat = pool_inode_stats_count ? (pool_read_lat/pool_inode_stats_count) : 0;
-        pool_write_lat = pool_inode_stats_count ? (pool_write_lat/pool_inode_stats_count) : 0;
-        pool_delete_lat = pool_inode_stats_count ? (pool_delete_lat/pool_inode_stats_count) : 0;
+    }
+
+    void get_pg_stats(int base_state)
+    {
+        if (state == base_state+1)
+            goto resume_1;
+        // Space statistics - pool/stats/<pool>
+        parent->etcd_txn(json11::Json::object {
+            { "success", json11::Json::array {
+                json11::Json::object {
+                    { "request_range", json11::Json::object {
+                        { "key", base64_encode(
+                            parent->cli->st_cli.etcd_prefix+"/pg/stats/"
+                        ) },
+                        { "range_end", base64_encode(
+                            parent->cli->st_cli.etcd_prefix+"/pg/stats0"
+                        ) },
+                    } },
+                },
+            } },
+        });
+        state = base_state+1;
+resume_1:
+        if (parent->waiting > 0)
+            return;
+        if (parent->etcd_err.err)
+        {
+            result = parent->etcd_err;
+            state = 100;
+            return;
+        }
+        auto pg_stats = parent->etcd_result["responses"][0]["response_range"]["kvs"];
         // Calculate recovery percent
-        uint64_t object_count = 0;
-        uint64_t degraded_count = 0;
-        uint64_t misplaced_count = 0;
-        for (auto & kv_item: space_info["responses"][3]["response_range"]["kvs"].array_items())
+        std::map<pool_id_t, object_counts_t> counts;
+        for (auto & kv_item: pg_stats.array_items())
         {
             auto kv = parent->cli->st_cli.parse_etcd_kv(kv_item);
             // pool ID & pg number
@@ -247,141 +271,100 @@ resume_1:
                 fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
                 continue;
             }
-            object_count += kv.value["object_count"].uint64_value();
-            degraded_count += kv.value["degraded_count"].uint64_value();
-            misplaced_count += kv.value["misplaced_count"].uint64_value();
+            auto & cnt = counts[pool_id];
+            cnt.object_count += kv.value["object_count"].uint64_value();
+            cnt.misplaced_count += kv.value["misplaced_count"].uint64_value();
+            cnt.degraded_count += kv.value["degraded_count"].uint64_value();
+            cnt.incomplete_count += kv.value["incomplete_count"].uint64_value();
         }
-        // Calculate max_avail for each pool
-        for (auto & pp: parent->cli->st_cli.pool_config)
+        for (auto & pp: pool_stats)
         {
-            auto & pool_cfg = pp.second;
-            uint64_t pool_avail = UINT64_MAX;
-            std::map<osd_num_t, uint64_t> pg_per_osd;
-            json11::Json::array osd_set;
-            for (auto & pgp: pool_cfg.pg_config)
-            {
-                for (auto pg_osd: pgp.second.target_set)
-                {
-                    if (pg_osd != 0)
-                    {
-                        pg_per_osd[pg_osd]++;
-                    }
-                }
-            }
-            for (auto pg_per_pair: pg_per_osd)
-            {
-                uint64_t pg_free = osd_free[pg_per_pair.first] * pool_cfg.pg_count / pg_per_pair.second;
-                if (pool_avail > pg_free)
-                {
-                    pool_avail = pg_free;
-                }
-                osd_set.push_back(pg_per_pair.first);
-            }
-            if (pool_avail == UINT64_MAX)
-            {
-                pool_avail = 0;
-            }
-            if (pool_cfg.scheme != POOL_SCHEME_REPLICATED)
-            {
-                pool_avail *= (pool_cfg.pg_size - pool_cfg.parity_chunks);
-            }
+            auto & cnt = counts[pp.first];
+            auto & st = pp.second;
+            st["object_count"] = cnt.object_count;
+            st["misplaced_count"] = cnt.misplaced_count;
+            st["degraded_count"] = cnt.degraded_count;
+            st["incomplete_count"] = cnt.incomplete_count;
+        }
+    }
 
-            bool active = pool_cfg.real_pg_count > 0;
-            bool incomplete = false;
-            bool has_incomplete = false;
-            bool degraded = false;
-            bool has_degraded = false;
-            bool has_misplaced = false;
-            for (auto pg_it = pool_cfg.pg_config.begin(); pg_it != pool_cfg.pg_config.end(); pg_it++)
+    void get_inode_stats(int base_state)
+    {
+        if (state == base_state+1)
+            goto resume_1;
+        // Space statistics - pool/stats/<pool>
+        parent->etcd_txn(json11::Json::object {
+            { "success", json11::Json::array {
+                json11::Json::object {
+                    { "request_range", json11::Json::object {
+                        { "key", base64_encode(
+                            parent->cli->st_cli.etcd_prefix+"/inode/stats/"
+                        ) },
+                        { "range_end", base64_encode(
+                            parent->cli->st_cli.etcd_prefix+"/inode/stats0"
+                        ) },
+                    } },
+                },
+            } },
+        });
+        state = base_state+1;
+resume_1:
+        if (parent->waiting > 0)
+            return;
+        if (parent->etcd_err.err)
+        {
+            result = parent->etcd_err;
+            state = 100;
+            return;
+        }
+        auto inode_stats = parent->etcd_result["responses"][0]["response_range"]["kvs"];
+        // Performance statistics
+        std::map<pool_id_t, io_stats_t> pool_io;
+        for (auto & kv_item: inode_stats.array_items())
+        {
+            auto kv = parent->cli->st_cli.parse_etcd_kv(kv_item);
+            // pool ID & inode number
+            pool_id_t pool_id;
+            inode_t only_inode_num;
+            char null_byte = 0;
+            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(),
+                "/inode/stats/%u/%ju%c", &pool_id, &only_inode_num, &null_byte);
+            if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX || INODE_POOL(only_inode_num) != 0)
             {
-                if (!(pg_it->second.cur_state & PG_ACTIVE))
-                {
-                    active = false;
-                }
-                if (pg_it->second.cur_state & PG_INCOMPLETE)
-                {
-                    incomplete = true;
-                }
-                if (pg_it->second.cur_state & PG_HAS_INCOMPLETE)
-                {
-                    has_incomplete = true;
-                }
-                if (pg_it->second.cur_state & PG_DEGRADED)
-                {
-                    degraded = true;
-                }
-                if (pg_it->second.cur_state & PG_HAS_DEGRADED)
-                {
-                    has_degraded = true;
-                }
-                if (pg_it->second.cur_state & PG_HAS_MISPLACED)
-                {
-                    has_misplaced = true;
-                }
+                fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
+                continue;
             }
-            // incomplete > has_incomplete > degraded > has_degraded > has_misplaced
-            std::string status;
-            if (active)
+            auto & io = pool_io[pool_id];
+            io.read_iops += kv.value["read"]["iops"].uint64_value();
+            io.read_bps += kv.value["read"]["bps"].uint64_value();
+            io.read_lat += kv.value["read"]["lat"].uint64_value();
+            io.write_iops += kv.value["write"]["iops"].uint64_value();
+            io.write_bps += kv.value["write"]["bps"].uint64_value();
+            io.write_lat += kv.value["write"]["lat"].uint64_value();
+            io.delete_iops += kv.value["delete"]["iops"].uint64_value();
+            io.delete_bps += kv.value["delete"]["bps"].uint64_value();
+            io.delete_lat += kv.value["delete"]["lat"].uint64_value();
+            io.count++;
+        }
+        for (auto & pp: pool_stats)
+        {
+            auto & io = pool_io[pp.first];
+            if (io.count > 0)
             {
-                if (incomplete)
-                    status ="incomplete";
-                else if (has_incomplete)
-                    status ="has_incomplete";
-                else if (degraded)
-                    status ="degraded";
-                else if (has_degraded)
-                    status ="has_degraded";
-                else if (has_misplaced)
-                    status ="has_misplaced";
-                else
-                    status ="active";
+                io.read_lat /= io.count;
+                io.write_lat /= io.count;
+                io.delete_lat /= io.count;
             }
-            else
-            {
-                status ="inactive";
-            }
-
-            pool_stats[pool_cfg.id] = json11::Json::object {
-                { "id", (uint64_t)(pool_cfg.id) },
-                { "name", pool_cfg.name },
-                { "status", status },
-                { "recovery", object_count ? (double)( (degraded_count + misplaced_count)/object_count) : 0 },
-                { "pg_count", pool_cfg.pg_count },
-                { "real_pg_count", pool_cfg.real_pg_count },
-                { "scheme", pool_cfg.scheme == POOL_SCHEME_REPLICATED ? "replicated" : "ec" },
-                { "scheme_name", pool_cfg.scheme == POOL_SCHEME_REPLICATED
-                    ? std::to_string(pool_cfg.pg_size)+"/"+std::to_string(pool_cfg.pg_minsize)
-                    : "EC "+std::to_string(pool_cfg.pg_size-pool_cfg.parity_chunks)+"+"+std::to_string(pool_cfg.parity_chunks) },
-                { "used_raw", (uint64_t)(pool_stats[pool_cfg.id]["used_raw_tb"].number_value() * ((uint64_t)1<<40)) },
-                { "total_raw", (uint64_t)(pool_stats[pool_cfg.id]["total_raw_tb"].number_value() * ((uint64_t)1<<40)) },
-                { "max_available", pool_avail },
-                { "raw_to_usable", pool_stats[pool_cfg.id]["raw_to_usable"].number_value() },
-                { "space_efficiency", pool_stats[pool_cfg.id]["space_efficiency"].number_value() },
-                { "pg_real_size", pool_stats[pool_cfg.id]["pg_real_size"].uint64_value() },
-                { "failure_domain", pool_cfg.failure_domain },
-                { "root_node", pool_cfg.root_node },
-                { "osd_tags", pool_cfg.osd_tags },
-                { "osd_count",  pg_per_osd.size() },
-                { "osd_set",  osd_set },
-                { "primary_affinity_tags", pool_cfg.primary_affinity_tags },
-                { "pg_minsize", pool_cfg.pg_minsize },
-                { "pg_size", pool_cfg.pg_size },
-                { "parity_chunks",pool_cfg.parity_chunks },
-                { "max_osd_combinations",pool_cfg.max_osd_combinations },
-                { "block_size", (uint64_t)pool_cfg.data_block_size },
-                { "bitmap_granularity",(uint64_t)pool_cfg.bitmap_granularity },
-                { "pg_stripe_size",pool_cfg.pg_stripe_size },
-                { "scrub_interval",pool_cfg.scrub_interval },
-                { "read_iops", pool_read_iops },
-                { "read_bps", pool_read_bps },
-                { "read_lat", pool_read_lat },
-                { "write_iops", pool_write_iops },
-                { "write_bps", pool_write_bps },
-                { "write_lat", pool_write_lat },
-                { "delete_iops", pool_delete_iops },
-                { "delete_bps", pool_delete_bps },
-                { "delete_lat", pool_delete_lat} ,
-            };
+            auto & st = pp.second;
+            st["read_iops"] = io.read_iops;
+            st["read_bps"] = io.read_bps;
+            st["read_lat"] = io.read_lat;
+            st["write_iops"] = io.write_iops;
+            st["write_bps"] = io.write_bps;
+            st["write_lat"] = io.write_lat;
+            st["delete_iops"] = io.delete_iops;
+            st["delete_bps"] = io.delete_bps;
+            st["delete_lat"] = io.delete_lat;
         }
     }
 
@@ -406,14 +389,8 @@ resume_1:
                 }
             }
         }
-        if (sort_field == "name" ||
-            sort_field == "scheme_name" ||
-            sort_field == "scheme" ||
-            sort_field == "failure_domain" ||
-            sort_field == "root_node" ||
-            sort_field == "osd_tags_fmt" ||
-            sort_field == "primary_affinity_tags_fmt" ||
-            sort_field == "status" )
+        if (sort_field == "name" || sort_field == "scheme" ||
+            sort_field == "scheme_name" || sort_field == "status")
         {
             std::sort(list.begin(), list.end(), [this](json11::Json a, json11::Json b)
             {
@@ -440,87 +417,162 @@ resume_1:
 
     void loop()
     {
-        get_stats();
-        if (parent->waiting > 0)
-            return;
+        if (state == 1)
+            goto resume_1;
+        if (state == 2)
+            goto resume_2;
+        if (state == 3)
+            goto resume_3;
         if (state == 100)
             return;
+        show_stats = show_stats || detailed;
+        show_recovery = show_recovery || detailed;
+resume_1:
+        get_pool_stats(0);
+        if (parent->waiting > 0)
+            return;
+        if (show_stats)
+        {
+resume_2:
+            get_inode_stats(1);
+            if (parent->waiting > 0)
+                return;
+        }
+        if (show_recovery)
+        {
+resume_3:
+            get_pg_stats(2);
+            if (parent->waiting > 0)
+                return;
+        }
         if (parent->json_output)
         {
             // JSON output
-
-            json11::Json::array array = to_list();
-            if (list_pool_id != 0)
-            {
-                for (auto & a: array)
-                {
-                    if (a["id"].uint64_value() == list_pool_id)
-                    {
-                        result.data = a;
-                        break;
-                    }
-                }
-            }
-            else
-                result.data = array;
-
+            result.data = to_list();
             state = 100;
             return;
         }
+        json11::Json::array list;
         for (auto & kv: pool_stats)
         {
-            double raw_to = kv.second["raw_to_usable"].number_value();
+            auto & st = kv.second;
+            double raw_to = st["raw_to_usable"].number_value();
             if (raw_to < 0.000001 && raw_to > -0.000001)
                 raw_to = 1;
-            kv.second["pg_count_fmt"] = kv.second["real_pg_count"] == kv.second["pg_count"]
-                ? kv.second["real_pg_count"].as_string()
-                : kv.second["real_pg_count"].as_string()+"->"+kv.second["pg_count"].as_string();
-            kv.second["total_fmt"] =  format_size(kv.second["total_raw"].uint64_value() / raw_to);
-            kv.second["used_fmt"] = format_size(kv.second["used_raw"].uint64_value() / raw_to);
-            kv.second["max_avail_fmt"] = format_size(kv.second["max_available"].uint64_value());
-            kv.second["used_pct"] = format_q(kv.second["total_raw"].uint64_value()
-                ? (100 - 100*kv.second["max_available"].uint64_value() *
-                    kv.second["raw_to_usable"].number_value() / kv.second["total_raw"].uint64_value())
+            st["pg_count_fmt"] = st["real_pg_count"] == st["pg_count"]
+                ? st["real_pg_count"].as_string()
+                : st["real_pg_count"].as_string()+"->"+st["pg_count"].as_string();
+            st["total_fmt"] = format_size(st["total_raw"].uint64_value() / raw_to);
+            st["used_fmt"] = format_size(st["used_raw"].uint64_value() / raw_to);
+            st["max_avail_fmt"] = format_size(st["max_available"].uint64_value());
+            st["used_pct"] = format_q(st["total_raw"].uint64_value()
+                ? (100 - 100*st["max_available"].uint64_value() *
+                    st["raw_to_usable"].number_value() / st["total_raw"].uint64_value())
                 : 100)+"%";
-            kv.second["eff_fmt"] = format_q(kv.second["space_efficiency"].number_value()*100)+"%";
-            kv.second["recovery_pct"] = format_q(kv.second["recovery"].number_value()*100)+"%";
-            kv.second["osd_tags_fmt"] = item_as_string(kv.second["osd_tags"]);
-            kv.second["primary_affinity_tags_fmt"] = item_as_string(kv.second["primary_affinity_tags"]);
-            kv.second["read_bw"] = format_size(kv.second["read_bps"].uint64_value())+"/s";
-            kv.second["write_bw"] = format_size(kv.second["write_bps"].uint64_value())+"/s";
-            kv.second["delete_bw"] = format_size(kv.second["delete_bps"].uint64_value())+"/s";
-            kv.second["read_iops"] = format_q(kv.second["read_iops"].number_value());
-            kv.second["write_iops"] = format_q(kv.second["write_iops"].number_value());
-            kv.second["delete_iops"] = format_q(kv.second["delete_iops"].number_value());
-            kv.second["read_lat_f"] = format_lat(kv.second["read_lat"].uint64_value());
-            kv.second["write_lat_f"] = format_lat(kv.second["write_lat"].uint64_value());
-            kv.second["delete_lat_f"] = format_lat(kv.second["delete_lat"].uint64_value());
-        }
-        if (list_pool_id != 0)
-        {
-            auto array = to_list();
-            for (auto & a: array)
+            st["eff_fmt"] = format_q(st["space_efficiency"].number_value()*100)+"%";
+            if (show_stats)
             {
-                if (a["id"].uint64_value() == list_pool_id)
-                {
-                    result.data = a;
-                    break;
-                }
+                st["read_bw"] = format_size(st["read_bps"].uint64_value())+"/s";
+                st["write_bw"] = format_size(st["write_bps"].uint64_value())+"/s";
+                st["delete_bw"] = format_size(st["delete_bps"].uint64_value())+"/s";
+                st["read_iops"] = format_q(st["read_iops"].number_value());
+                st["write_iops"] = format_q(st["write_iops"].number_value());
+                st["delete_iops"] = format_q(st["delete_iops"].number_value());
+                st["read_lat_f"] = format_lat(st["read_lat"].uint64_value());
+                st["write_lat_f"] = format_lat(st["write_lat"].uint64_value());
+                st["delete_lat_f"] = format_lat(st["delete_lat"].uint64_value());
             }
-
-            result.text = print_pool_details(result.data, parent->color);
+            if (show_recovery)
+            {
+                auto object_count = st["object_count"].uint64_value();
+                auto recovery_pct = 100.0 * (object_count - (st["misplaced_count"].uint64_value() +
+                    st["degraded_count"].uint64_value() + st["incomplete_count"].uint64_value())) /
+                    (object_count ? object_count : 1);
+                st["recovery_fmt"] = format_q(recovery_pct)+"%";
+            }
+        }
+        if (detailed)
+        {
+            for (auto & kv: pool_stats)
+            {
+                auto & st = kv.second;
+                auto total = st["object_count"].uint64_value();
+                auto obj_size = st["block_size"].uint64_value();
+                if (!obj_size)
+                    obj_size = parent->cli->st_cli.global_block_size;
+                if (st["scheme"] == "ec")
+                    obj_size *= st["pg_size"].uint64_value() - st["parity_chunks"].uint64_value();
+                else if (st["scheme"] == "xor")
+                    obj_size *= st["pg_size"].uint64_value() - 1;
+                auto n = st["misplaced_count"].uint64_value();
+                if (n > 0)
+                    st["misplaced_fmt"] = format_size(n * obj_size) + " / " + format_q(100.0 * n / total);
+                n = st["degraded_count"].uint64_value();
+                if (n > 0)
+                    st["degraded_fmt"] = format_size(n * obj_size) + " / " + format_q(100.0 * n / total);
+                n = st["incomplete_count"].uint64_value();
+                if (n > 0)
+                    st["incomplete_fmt"] = format_size(n * obj_size) + " / " + format_q(100.0 * n / total);
+                st["read_fmt"] = st["read_bw"].string_value()+", "+st["read_iops"].string_value()+" op/s, "+
+                    st["read_lat_f"].string_value()+" lat";
+                st["write_fmt"] = st["write_bw"].string_value()+", "+st["write_iops"].string_value()+" op/s, "+
+                    st["write_lat_f"].string_value()+" lat";
+                st["delete_fmt"] = st["delete_bw"].string_value()+", "+st["delete_iops"].string_value()+" op/s, "+
+                    st["delete_lat_f"].string_value()+" lat";
+                if (st["scheme"] == "replicated")
+                    st["scheme_name"] = "x"+st["pg_size"].as_string();
+                if (st["failure_domain"].string_value() == "")
+                    st["failure_domain"] = "host";
+                st["osd_tags_fmt"] = implode(", ", st["osd_tags"]);
+                st["primary_affinity_tags_fmt"] = implode(", ", st["primary_affinity_tags"]);
+                if (st["block_size"].uint64_value())
+                    st["block_size_fmt"] = format_size(st["block_size"].uint64_value());
+                if (st["bitmap_granularity"].uint64_value())
+                    st["bitmap_granularity_fmt"] = format_size(st["bitmap_granularity"].uint64_value());
+            }
+            // All pool parameters are only displayed in the "detailed" mode
+            // because there's too many of them to show them in table
+            auto cols = std::vector<std::pair<std::string, std::string>>{
+                { "name", "Name" },
+                { "id", "ID" },
+                { "scheme_name", "Scheme" },
+                { "status", "Status" },
+                { "pg_count_fmt", "PGs" },
+                { "pg_minsize", "PG minsize" },
+                { "failure_domain", "Failure domain" },
+                { "root_node", "Root node" },
+                { "osd_tags_fmt", "OSD tags" },
+                { "primary_affinity_tags_fmt", "Primary affinity" },
+                { "block_size_fmt", "Block size" },
+                { "bitmap_granularity_fmt", "Bitmap granularity" },
+                { "immediate_commit", "Immediate commit" },
+                { "scrub_interval", "Scrub interval" },
+                { "pg_stripe_size", "PG stripe size" },
+                { "max_osd_combinations", "Max OSD combinations" },
+                { "total_fmt", "Total" },
+                { "used_fmt", "Used" },
+                { "max_avail_fmt", "Available" },
+                { "used_pct", "Used%" },
+                { "eff_fmt", "Efficiency" },
+                { "osd_count", "OSD count" },
+                { "misplaced_fmt", "Misplaced" },
+                { "degraded_fmt", "Degraded" },
+                { "incomplete_fmt", "Incomplete" },
+                { "read_fmt", "Read" },
+                { "write_fmt", "Write" },
+                { "delete_fmt", "Delete" },
+            };
+            for (auto & item: to_list())
+            {
+                if (result.text != "")
+                    result.text += "\n";
+                result.text += print_detail(item, cols, parent->color);
+            }
             state = 100;
             return;
         }
-        // Table output: id, name, scheme_name, pg_count, total, used, max_avail, used%, efficiency, status, recovery, root_node, failure_domain, osd_tags, primary_affinity_tags
+        // Table output: name, scheme_name, pg_count, total, used, max_avail, used%, efficiency
         json11::Json::array cols;
-        if (!show_df_format)
-        {
-            cols.push_back(json11::Json::object{
-                { "key", "id" },
-                { "title", "ID" },
-            });
-        }
         cols.push_back(json11::Json::object{
             { "key", "name" },
             { "title", "NAME" },
@@ -528,6 +580,10 @@ resume_1:
         cols.push_back(json11::Json::object{
             { "key", "scheme_name" },
             { "title", "SCHEME" },
+        });
+        cols.push_back(json11::Json::object{
+            { "key", "status" },
+            { "title", "STATUS" },
         });
         cols.push_back(json11::Json::object{
             { "key", "pg_count_fmt" },
@@ -553,138 +609,68 @@ resume_1:
             { "key", "eff_fmt" },
             { "title", "EFFICIENCY" },
         });
-        if (!show_df_format)
+        if (show_recovery)
         {
-            cols.push_back(json11::Json::object{
-                { "key", "status" },
-                { "title", "STATUS" },
-            });
-            cols.push_back(json11::Json::object{
-                { "key", "recovery_pct" },
-                { "title", "RECOVERY" },
-            });
+            cols.push_back(json11::Json::object{ { "key", "recovery_fmt" }, { "title", "RECOVERY" } });
         }
         if (show_stats)
         {
-            cols.push_back(json11::Json::object{
-                { "key", "read_bw" },
-                { "title", "READ" },
-            });
-            cols.push_back(json11::Json::object{
-                { "key", "read_iops" },
-                { "title", "IOPS" },
-            });
-            cols.push_back(json11::Json::object{
-                { "key", "read_lat_f" },
-                { "title", "LAT" },
-            });
-            cols.push_back(json11::Json::object{
-                { "key", "write_bw" },
-                { "title", "WRITE" },
-            });
-            cols.push_back(json11::Json::object{
-                { "key", "write_iops" },
-                { "title", "IOPS" },
-            });
-            cols.push_back(json11::Json::object{
-                { "key", "write_lat_f" },
-                { "title", "LAT" },
-            });
-            cols.push_back(json11::Json::object{
-                { "key", "delete_bw" },
-                { "title", "DEL" },
-            });
-            cols.push_back(json11::Json::object{
-                { "key", "delete_iops" },
-                { "title", "IOPS" },
-            });
-            cols.push_back(json11::Json::object{
-                { "key", "delete_lat_f" },
-                { "title", "LAT" },
-            });
+            cols.push_back(json11::Json::object{ { "key", "read_bw" }, { "title", "READ" } });
+            cols.push_back(json11::Json::object{ { "key", "read_iops" }, { "title", "IOPS" } });
+            cols.push_back(json11::Json::object{ { "key", "read_lat_f" }, { "title", "LAT" } });
+            cols.push_back(json11::Json::object{ { "key", "write_bw" }, { "title", "WRITE" } });
+            cols.push_back(json11::Json::object{ { "key", "write_iops" }, { "title", "IOPS" } });
+            cols.push_back(json11::Json::object{ { "key", "write_lat_f" }, { "title", "LAT" } });
+            cols.push_back(json11::Json::object{ { "key", "delete_bw" }, { "title", "DELETE" } });
+            cols.push_back(json11::Json::object{ { "key", "delete_iops" }, { "title", "IOPS" } });
+            cols.push_back(json11::Json::object{ { "key", "delete_lat_f" }, { "title", "LAT" } });
         }
-        if (show_all)
-        {
-            cols.push_back(json11::Json::object{
-                { "key", "root_node" },
-                { "title", "ROOT" },
-            });
-            cols.push_back(json11::Json::object{
-                { "key", "failure_domain" },
-                { "title", "FAILURE_DOMAIN" },
-            });
-            cols.push_back(json11::Json::object{
-                { "key", "osd_tags_fmt" },
-                { "title", "OSD_TAGS" },
-            });
-            cols.push_back(json11::Json::object{
-                { "key", "primary_affinity_tags_fmt" },
-                { "title", "AFFINITY_TAGS" },
-            });
-        }
-
         result.data = to_list();
         result.text = print_table(result.data, cols, parent->color);
         state = 100;
     }
-
-    std::string print_pool_details(json11::Json items, bool use_esc)
-    {
-        std::string start_esc = use_esc ? "\033[1m" : "";
-        std::string end_esc = use_esc ? "\033[0m" : "";
-        std::string result ="Pool details: \n";
-        result +=start_esc+"  pool id:                  "+end_esc+ items["id"].as_string() +"\n";
-        result +=start_esc+"  pool name:                "+end_esc+ items["name"].as_string() +"\n";
-        result +=start_esc+"  scheme:                   "+end_esc+ items["scheme_name"].as_string() +"\n";
-        result +=start_esc+"  placement group count:    "+end_esc+ items["pg_count_fmt"].as_string() +"\n";
-        result +=start_esc+"  total:                    "+end_esc+ items["total_fmt"].as_string() +"\n";
-        result +=start_esc+"  used:                     "+end_esc+ items["used_fmt"].as_string() +" ("+items["used_pct"].as_string()+")"+ "\n";
-        result +=start_esc+"  max available:            "+end_esc+ items["max_available"].as_string() +"\n";
-        result +=start_esc+"  space efficiency:         "+end_esc+ items["eff_fmt"].as_string() +"\n";
-        result +=start_esc+"  status:                   "+end_esc+ items["status"].as_string() +"\n";
-        result +=start_esc+"  recovery:                 "+end_esc+ items["recovery_pct"].as_string() +"\n";
-
-        result +=start_esc+"  root node:                "+end_esc+ items["root_node"].as_string() +"\n";
-        result +=start_esc+"  failure domain:           "+end_esc+ items["failure_domain"].as_string() +"\n";
-
-        result +=start_esc+"  pg size:                  "+end_esc+ items["pg_size"].as_string() +"\n";
-        result +=start_esc+"  pg minsize:               "+end_esc+ items["pg_minsize"].as_string() +"\n";
-		result +=start_esc+"  parity chunks:            "+end_esc+ items["parity_chunks"].as_string() +"\n";
-		result +=start_esc+"  max osd combinations:     "+end_esc+ items["max_osd_combinations"].as_string() +"\n";
-		result +=start_esc+"  block size:               "+end_esc+ items["block_size"].as_string() +"\n";
-		result +=start_esc+"  bitmap granularity:       "+end_esc+ items["bitmap_granularity"].as_string() +"\n";
-		result +=start_esc+"  pg stripe size:           "+end_esc+ items["pg_stripe_size"].as_string() +"\n";
-		result +=start_esc+"  scrub interval:           "+end_esc+ items["scrub_interval"].as_string() +"\n";
-
-        result +=start_esc+"  osd count:                "+end_esc+ items["osd_count"].as_string() +"\n";
-        result +=start_esc+"  osd:                      "+end_esc+ item_as_string(items["osd_set"]) +"\n";
-        result +=start_esc+"  osd tags:                 "+end_esc+ item_as_string(items["osd_tags"]) +"\n";
-        result +=start_esc+"  primary affinity tags:    "+end_esc+ item_as_string(items["primary_affinity_tags"]) +"\n";
-
-        result +=start_esc+"  read bandwidth:           "+end_esc+ items["read_bw"].as_string() +"\n";
-        result +=start_esc+"  read IOPS:                "+end_esc+ items["read_iops"].as_string() +"\n";
-        result +=start_esc+"  read latency:             "+end_esc+ items["read_lat_f"].as_string() +"\n";
-        result +=start_esc+"  write bandwidth:          "+end_esc+ items["write_bw"].as_string() +"\n";
-        result +=start_esc+"  write IOPS:               "+end_esc+ items["write_iops"].as_string() +"\n";
-        result +=start_esc+"  write latency:            "+end_esc+ items["write_lat_f"].as_string() +"\n";
-        result +=start_esc+"  delete bandwidth:         "+end_esc+ items["delete_bw"].as_string() +"\n";
-        result +=start_esc+"  delete IOPS:              "+end_esc+ items["delete_iops"].as_string() +"\n";
-        result +=start_esc+"  delete latency:           "+end_esc+ items["delete_lat_f"].as_string() +"\n";
-
-        return result;
-    }
 };
+
+std::string print_detail(json11::Json item, std::vector<std::pair<std::string, std::string>> names, bool use_esc)
+{
+    size_t title_len = 0;
+    for (auto & kv: names)
+    {
+        if (!item[kv.first].is_null() && (!item[kv.first].is_string() || item[kv.first].string_value() != ""))
+        {
+            size_t len = utf8_length(kv.second);
+            title_len = title_len < len ? len : title_len;
+        }
+    }
+    std::string str;
+    for (auto & kv: names)
+    {
+        if (!item[kv.first].is_null() && (!item[kv.first].is_string() || item[kv.first].string_value() != ""))
+        {
+            str += kv.second;
+            str += ": ";
+            size_t len = utf8_length(kv.second);
+            for (int j = 0; j < title_len-len; j++)
+                str += ' ';
+            if (use_esc)
+                str += "\033[1m";
+            str += item[kv.first].as_string();
+            if (use_esc)
+                str += "\033[0m";
+            str += "\n";
+        }
+    }
+    return str;
+}
 
 std::function<bool(cli_result_t &)> cli_tool_t::start_pool_ls(json11::Json cfg)
 {
-    auto lister = new pool_ls_t();
+    auto lister = new pool_lister_t();
     lister->parent = this;
-    lister->list_pool_id = cfg["pool"].uint64_value();
-    lister->list_pool_name = lister->list_pool_id ? "" : cfg["pool"].as_string();
-    lister->show_all = cfg["long"].bool_value();
-    lister->show_stats = cfg["stats"].bool_value();
+    lister->show_recovery = cfg["show_recovery"].bool_value();
+    lister->show_stats = cfg["long"].bool_value();
+    lister->detailed = cfg["detail"].bool_value();
     lister->sort_field = cfg["sort"].string_value();
-    lister->show_df_format = cfg["dfformat"].bool_value();
     if ((lister->sort_field == "osd_tags") ||
         (lister->sort_field == "primary_affinity_tags" ))
         lister->sort_field = lister->sort_field + "_fmt";
@@ -705,4 +691,20 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_pool_ls(json11::Json cfg)
         }
         return false;
     };
+}
+
+std::string implode(const std::string & sep, json11::Json array)
+{
+    if (array.is_number() || array.is_bool() || array.is_string())
+    {
+        return array.as_string();
+    }
+    std::string res;
+    bool first = true;
+    for (auto & item: array.array_items())
+    {
+        res += (first ? item.as_string() : sep+item.as_string());
+        first = false;
+    }
+    return res;
 }

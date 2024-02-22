@@ -327,3 +327,24 @@ size_t utf8_length(const char *s)
         len += (*s & 0xC0) != 0x80;
     return len;
 }
+
+std::vector<std::string> explode(const std::string & sep, const std::string & value, bool trim)
+{
+    std::vector<std::string> res;
+    size_t prev = 0;
+    while (prev < value.size())
+    {
+        while (trim && prev < value.size() && isspace(value[prev]))
+            prev++;
+        size_t pos = value.find(sep, prev);
+        if (pos == std::string::npos)
+            pos = value.size();
+        size_t next = pos+sep.size();
+        while (trim && pos > prev && isspace(value[pos-1]))
+            pos--;
+        if (!trim || pos > prev)
+            res.push_back(value.substr(prev, pos-prev));
+        prev = next;
+    }
+    return res;
+}

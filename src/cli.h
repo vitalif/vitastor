@@ -81,8 +81,12 @@ public:
 
 std::string print_table(json11::Json items, json11::Json header, bool use_esc);
 
+std::string print_detail(json11::Json item, std::vector<std::pair<std::string, std::string>> names, bool use_esc);
+
 std::string format_lat(uint64_t lat);
 
 std::string format_q(double depth);
 
 bool stupid_glob(const std::string str, const std::string glob);
+
+std::string implode(const std::string & sep, json11::Json array);

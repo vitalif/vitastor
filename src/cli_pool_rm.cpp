@@ -1,11 +1,7 @@
-/*
- =========================================================================
- Copyright (c) 2023 MIND Software LLC. All Rights Reserved.
- This file is part of the Software-Defined Storage MIND UStor Project.
- For more information about this product, please visit https://mindsw.io
- or contact us directly at info@mindsw.io
- =========================================================================
- */
+// Copyright (c) MIND Software LLC, 2023 (info@mindsw.io)
+// I accept Vitastor CLA: see CLA-en.md for details
+// Copyright (c) Vitaliy Filippov, 2024
+// License: VNPL-1.1 (see README.md for details)
 
 #include <ctype.h>
 #include "cli.h"
@@ -50,7 +46,7 @@ struct pool_remover_t
         // Pool name (or id) required
         if (!pool_id && pool_name == "")
         {
-            result = (cli_result_t){ .err = EINVAL, .text = "Pool name or id must be given\n" };
+            result = (cli_result_t){ .err = EINVAL, .text = "Pool name or id must be given" };
             state = 100;
             return;
         }
@@ -152,8 +148,8 @@ resume_2:
                 if (p.erase(std::to_string(pool_id)) != 1)
                 {
                     result = (cli_result_t){
-                            .err = ENOENT,
-                            .text = "Failed to erase pool "+pool_name+" from: "+kv.value.string_value()
+                        .err = ENOENT,
+                        .text = "Failed to erase pool "+pool_name+" from: "+kv.value.string_value()
                     };
                     state = 100;
                     return;

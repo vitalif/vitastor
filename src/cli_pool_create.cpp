@@ -1,11 +1,7 @@
-/*
- =========================================================================
- Copyright (c) 2023 MIND Software LLC. All Rights Reserved.
- This file is part of the Software-Defined Storage MIND UStor Project.
- For more information about this product, please visit https://mindsw.io
- or contact us directly at info@mindsw.io
- =========================================================================
- */
+// Copyright (c) MIND Software LLC, 2023 (info@mindsw.io)
+// I accept Vitastor CLA: see CLA-en.md for details
+// Copyright (c) Vitaliy Filippov, 2024
+// License: VNPL-1.1 (see README.md for details)
 
 #include <ctype.h>
 #include "cli.h"
@@ -18,9 +14,10 @@
 struct pool_creator_t
 {
     cli_tool_t *parent;
+    json11::Json::object cfg;
 
-    bool force;
-    pool_configurator_t *cfg;
+    bool force = false;
+    bool wait = false;
 
     int state = 0;
     cli_result_t result;
@@ -35,8 +32,6 @@ struct pool_creator_t
     uint64_t new_pools_mod_rev;
     json11::Json state_node_tree;
     json11::Json new_pools;
-    json11::Json osd_tags_json;
-    json11::Json primary_affinity_tags_json;
 
     bool is_done() { return state == 100; }
 
@@ -60,21 +55,13 @@ struct pool_creator_t
             goto resume_8;
 
         // Validate pool parameters
-        if (!cfg->validate(parent->cli->st_cli, NULL, !force))
+        result.text = validate_pool_config(cfg, json11::Json(), parent->cli->st_cli.global_block_size,
+            parent->cli->st_cli.global_bitmap_granularity, force);
+        if (result.text != "")
         {
-            result = (cli_result_t){ .err = EINVAL, .text = cfg->get_error_string() + "\n" };
+            result.err = EINVAL;
             state = 100;
             return;
-        }
-        // OSD tags
-        if (cfg->osd_tags != "")
-        {
-            osd_tags_json = parent->parse_tags(cfg->osd_tags);
-        }
-        // Primary affinity tags
-        if (cfg->primary_affinity_tags != "")
-        {
-            primary_affinity_tags_json = parent->parse_tags(cfg->primary_affinity_tags);
         }
         state = 1;
 resume_1:
@@ -110,7 +97,7 @@ resume_2:
             }
 
             // Skip tag checks, if pool has none
-            if (!osd_tags_json.is_null())
+            if (cfg["osd_tags"].array_items().size())
             {
                 // Get osd configs (for tags) of osds in state_node_tree
                 {
@@ -189,18 +176,20 @@ resume_4:
 
             // Check that pg_size <= max_pg_size
             {
+                auto failure_domain = cfg["failure_domain"].string_value() == ""
+                    ? "host" : cfg["failure_domain"].string_value();
                 uint64_t max_pg_size = get_max_pg_size(state_node_tree["nodes"].object_items(),
-                    cfg->failure_domain, cfg->root_node);
+                    failure_domain, cfg["root_node"].string_value());
 
-                if (cfg->pg_size > max_pg_size)
+                if (cfg["pg_size"].uint64_value() > max_pg_size)
                 {
                     result = (cli_result_t){
                         .err = EINVAL,
                         .text =
-                            "There are "+std::to_string(max_pg_size)+" failure domains with OSDs matching tags and "
-                            "block_size/bitmap_granularity/immediate_commit parameters, but you want to create a "
-                            "pool with "+std::to_string(cfg->pg_size)+" OSDs from different failure domains in a PG. "
-                            "Change parameters or add --force if you want to create a degraded pool and add OSDs later."
+                            "There are "+std::to_string(max_pg_size)+" \""+failure_domain+"\" failure domains with OSDs matching tags and"
+                            " block_size/bitmap_granularity/immediate_commit parameters, but you want to create a"
+                            " pool with "+cfg["pg_size"].as_string()+" OSDs from different failure domains in a PG."
+                            " Change parameters or add --force if you want to create a degraded pool and add OSDs later."
                     };
                     state = 100;
                     return;
@@ -283,20 +272,19 @@ resume_8:
             return;
 
         // Unless forced, check that pool was created and is active
-        if (force)
+        if (!wait)
+        {
             create_check.passed = true;
-
+        }
         else if (create_check.retries)
         {
             create_check.retries--;
-
             parent->waiting++;
             parent->epmgr->tfd->set_timer(create_check.interval, false, [this](int timer_id)
             {
                 if (parent->cli->st_cli.pool_config.find(new_id) != parent->cli->st_cli.pool_config.end())
                 {
                     auto & pool_cfg = parent->cli->st_cli.pool_config[new_id];
-
                     create_check.passed = pool_cfg.real_pg_count > 0;
                     for (auto pg_it = pool_cfg.pg_config.begin(); pg_it != pool_cfg.pg_config.end(); pg_it++)
                     {
@@ -306,15 +294,12 @@ resume_8:
                             break;
                         }
                     }
-
                     if (create_check.passed)
                         create_check.retries = 0;
                 }
-
                 parent->waiting--;
                 parent->ringloop->wakeup();
             });
-
             return;
         }
 
@@ -322,18 +307,17 @@ resume_8:
         {
             result = (cli_result_t) {
                 .err = EAGAIN,
-                .text =
-                    "Pool "+cfg->name+" was created, but failed to become active. This may indicate that cluster "
-                    "state has changed while the pool was being created. Please check the current state and "
-                    "correct the pool's configuration if necessary.\n"
+                .text = "Pool "+cfg["name"].string_value()+" was created, but failed to become active."
+                    " This may indicate that cluster state has changed while the pool was being created."
+                    " Please check the current state and adjust the pool configuration if necessary.",
             };
         }
         else
         {
             result = (cli_result_t){
                 .err = 0,
-                .text = "Pool "+cfg->name+" created",
-                .data = new_pools[std::to_string(new_id)]
+                .text = "Pool "+cfg["name"].string_value()+" created",
+                .data = new_pools[std::to_string(new_id)],
             };
         }
         state = 100;
@@ -423,7 +407,7 @@ resume_8:
             else
             {
                 // If all pool tags are in osd tags, accept osd
-                if (all_in_tags(osd_configs[i]["tags"], osd_tags_json))
+                if (all_in_tags(osd_configs[i]["tags"], cfg["osd_tags"]))
                 {
                     accepted_osds.push_back(osd_num);
                 }
@@ -453,72 +437,45 @@ resume_8:
         // List of accepted osds
         std::vector<std::string> accepted_osds;
 
+        uint64_t p_block_size = cfg["block_size"].uint64_value()
+            ? cfg["block_size"].uint64_value()
+            : parent->cli->st_cli.global_block_size;
+        uint64_t p_bitmap_granularity = cfg["bitmap_granularity"].uint64_value()
+            ? cfg["bitmap_granularity"].uint64_value()
+            : parent->cli->st_cli.global_bitmap_granularity;
+        uint32_t p_immediate_commit = cfg["immediate_commit"].is_string()
+            ? etcd_state_client_t::parse_immediate_commit(cfg["immediate_commit"].string_value())
+            : parent->cli->st_cli.global_immediate_commit;
+
         for (size_t i = 0; i < osd_stats.size(); i++)
         {
-            auto & os = osd_stats[i].object_items();
-
+            auto & os = osd_stats[i];
             // Get osd number
             auto osd_num = osds[i].as_string();
-
-            // Check data_block_size
-            if (os.find("data_block_size") != os.end())
+            if (!os["data_block_size"].is_null() && os["data_block_size"] != p_block_size ||
+                !os["bitmap_granularity"].is_null() && os["bitmap_granularity"] != p_bitmap_granularity ||
+                !os["immediate_commit"].is_null() &&
+                etcd_state_client_t::parse_immediate_commit(os["immediate_commit"].string_value()) < p_immediate_commit)
             {
-                uint64_t p_block_size = cfg->block_size ? cfg->block_size : parent->cli->st_cli.global_block_size;
-                uint64_t o_block_size = osd_stats[i]["data_block_size"].int64_value();
-
-                if (p_block_size != o_block_size)
-                {
-                    accepted_nodes.erase(osd_num);
-                    continue;
-                }
+                accepted_nodes.erase(osd_num);
             }
-
-            // Check bitmap_granularity
-            if (os.find("bitmap_granularity") != os.end())
+            else
             {
-                uint64_t p_bitmap_granularity = cfg->bitmap_granularity ?
-                    cfg->bitmap_granularity : parent->cli->st_cli.global_bitmap_granularity;
-
-                uint64_t o_bitmap_granularity = osd_stats[i]["bitmap_granularity"].int64_value();
-
-                if (p_bitmap_granularity != o_bitmap_granularity)
-                {
-                    accepted_nodes.erase(osd_num);
-                    continue;
-                }
+                accepted_osds.push_back(osd_num);
             }
-
-            // Check immediate_commit
-            if (os.find("immediate_commit") != os.end())
-            {
-                uint32_t p_immediate_commit = (cfg->immediate_commit != "") ?
-                    parent->cli->st_cli.parse_immediate_commit_string(cfg->immediate_commit) : parent->cli->st_cli.global_immediate_commit;
-
-                uint32_t o_immediate_commit = parent->cli->st_cli.parse_immediate_commit_string(osd_stats[i]["immediate_commit"].string_value());
-
-                if (o_immediate_commit < p_immediate_commit)
-                {
-                    accepted_nodes.erase(osd_num);
-                    continue;
-                }
-            }
-
-            // Accept osd if all checks passed
-            accepted_osds.push_back(osd_num);
         }
 
         return json11::Json::object { { "osds", accepted_osds }, { "nodes", accepted_nodes } };
     }
 
     // Returns maximum pg_size possible for given node_tree and failure_domain, starting at parent_node
-    uint64_t get_max_pg_size(json11::Json::object node_tree, const std::string & failure_domain = "", const std::string & parent_node = "")
+    uint64_t get_max_pg_size(json11::Json::object node_tree, const std::string & level, const std::string & parent_node)
     {
         uint64_t max_pg_sz = 0;
 
         std::vector<std::string> nodes;
-        const std::string level = (failure_domain != "") ? failure_domain : "osd";
 
-        // Check if parnet node is an osd (numeric)
+        // Check if parent node is an osd (numeric)
         if (parent_node != "" && stoull_full(parent_node))
         {
             // Add it to node list if osd is in node tree
@@ -600,48 +557,16 @@ resume_8:
         for (auto & p: kv.value.object_items())
         {
             // ID
-            uint64_t pool_id;
-            char null_byte = 0;
-            sscanf(p.first.c_str(), "%lu%c", &pool_id, &null_byte);
+            uint64_t pool_id = stoull_full(p.first);
             new_id = std::max(pool_id+1, new_id);
             // Name
-            if (p.second["name"].string_value() == cfg->name)
+            if (p.second["name"].string_value() == cfg["name"].string_value())
             {
-                return json11::Json("Pool "+std::to_string(pool_id)+" has the same name\n");
+                return "Pool with name \""+cfg["name"].string_value()+"\" already exists (ID "+std::to_string(pool_id)+")";
             }
         }
-
-        json11::Json::object new_pool = json11::Json::object {
-            { "name", cfg->name },
-            { "scheme", cfg->scheme },
-            { "pg_size", cfg->pg_size },
-            { "pg_minsize", cfg->pg_minsize },
-            { "pg_count", cfg->pg_count },
-            { "parity_chunks", cfg->parity_chunks },
-        };
-        if (cfg->failure_domain != "")
-            new_pool["failure_domain"] = cfg->failure_domain;
-        if (cfg->max_osd_combinations)
-            new_pool["max_osd_combinations"] = cfg->max_osd_combinations;
-        if (cfg->block_size)
-            new_pool["block_size"] = cfg->block_size;
-        if (cfg->bitmap_granularity)
-            new_pool["bitmap_granularity"] = cfg->bitmap_granularity;
-        if (cfg->immediate_commit != "")
-            new_pool["immediate_commit"] = cfg->immediate_commit;
-        if (cfg->pg_stripe_size)
-            new_pool["pg_stripe_size"] = cfg->pg_stripe_size;
-        if (cfg->root_node != "")
-            new_pool["root_node"] = cfg->root_node;
-        if (cfg->scrub_interval != "")
-            new_pool["scrub_interval"] = cfg->scrub_interval;
-        if (cfg->osd_tags != "")
-            new_pool["osd_tags"] = osd_tags_json;
-        if (cfg->primary_affinity_tags != "")
-            new_pool["primary_affinity_tags"] = primary_affinity_tags_json;
-
         auto res = kv.value.object_items();
-        res[std::to_string(new_id)] = new_pool;
+        res[std::to_string(new_id)] = cfg;
         return res;
     }
 
@@ -680,20 +605,9 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_pool_create(json11::Json c
 {
     auto pool_creator = new pool_creator_t();
     pool_creator->parent = this;
-
-    pool_creator->cfg = new pool_configurator_t();
-    if (!pool_creator->cfg->parse(cfg, true))
-    {
-        std::string err = pool_creator->cfg->get_error_string();
-        return [err](cli_result_t & result)
-        {
-            result = (cli_result_t){ .err = EINVAL, .text = err + "\n" };
-            return true;
-        };
-    }
-
-    pool_creator->force = !cfg["force"].is_null();
-
+    pool_creator->cfg = cfg.object_items();
+    pool_creator->force = cfg["force"].bool_value();
+    pool_creator->wait = cfg["wait"].bool_value();
     return [pool_creator](cli_result_t & result)
     {
         pool_creator->loop();

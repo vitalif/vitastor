@@ -1,473 +1,263 @@
-/*
- =========================================================================
- Copyright (c) 2023 MIND Software LLC. All Rights Reserved.
- This file is part of the Software-Defined Storage MIND UStor Project.
- For more information about this product, please visit https://mindsw.io
- or contact us directly at info@mindsw.io
- =========================================================================
- */
+// Copyright (c) Vitaliy Filippov, 2024
+// License: VNPL-1.1 (see README.md for details)
 
 #include "cli_pool_cfg.h"
+#include "etcd_state_client.h"
+#include "str_util.h"
 
-bool pool_configurator_t::is_valid_scheme_string(std::string scheme_str)
+std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json old_cfg,
+    uint64_t global_block_size, uint64_t global_bitmap_granularity, bool force)
 {
-    if (scheme_str != "replicated" && scheme_str != "xor" && scheme_str != "ec")
+    // short option names
+    if (new_cfg.find("count") != new_cfg.end())
     {
-        error = "Coding scheme should be one of \"xor\", \"replicated\", \"ec\" or \"jerasure\"";
-        return false;
+        new_cfg["pg_count"] = new_cfg["count"];
+        new_cfg.erase("count");
     }
-    return true;
-}
-
-bool pool_configurator_t::is_valid_immediate_commit_string(std::string immediate_commit_str)
-{
-    if (immediate_commit != "" && immediate_commit != "all" && immediate_commit != "small" && immediate_commit != "none")
+    if (new_cfg.find("size") != new_cfg.end())
     {
-        error = "Immediate Commit should be one of \"all\", \"small\", or \"none\"";
-        return false;
+        new_cfg["pg_size"] = new_cfg["size"];
+        new_cfg.erase("size");
     }
-    return true;
-}
 
-std::string pool_configurator_t::get_error_string()
-{
-    return error;
-}
-
-bool pool_configurator_t::parse(json11::Json cfg, bool new_pool)
-{
-    if (new_pool) // New pool configuration
+    // --ec shortcut
+    if (new_cfg.find("ec") != new_cfg.end())
     {
-        // Pool name (req)
-        name = cfg["name"].string_value();
-        if (name == "")
+        if (new_cfg.find("scheme") != new_cfg.end() ||
+            new_cfg.find("pg_size") != new_cfg.end() ||
+            new_cfg.find("parity_chunks") != new_cfg.end())
         {
-            error = "Pool name must be given";
-            return false;
+            return "--ec can't be used with --pg_size, --parity_chunks or --scheme";
         }
-
-        // Exclusive ec shortcut check
-        if (!cfg["ec"].is_null() &&
-            (!cfg["scheme"].is_null() || !cfg["size"].is_null() || !cfg["pg_size"].is_null() || !cfg["parity_chunks"].is_null()))
+        // pg_size = N+K
+        // parity_chunks = K
+        uint64_t data_chunks = 0, parity_chunks = 0;
+        char null_byte = 0;
+        int ret = sscanf(new_cfg["ec"].string_value().c_str(), "%ju+%ju%c", &data_chunks, &parity_chunks, &null_byte);
+        if (ret != 2 || !data_chunks || !parity_chunks)
         {
-            error = "You cannot use 'ec' shortcut together with PG size, parity chunks and scheme arguments";
-            return false;
+            return "--ec should be <N>+<K> format (<N>, <K> - numbers)";
         }
+        new_cfg.erase("ec");
+        new_cfg["scheme"] = "ec";
+        new_cfg["pg_size"] = data_chunks+parity_chunks;
+        new_cfg["parity_chunks"] = parity_chunks;
+    }
 
-        // ec = N+K (opt)
-        if (cfg["ec"].is_string())
+    if (old_cfg.is_null() && new_cfg["scheme"].string_value() == "")
+    {
+        // Default scheme
+        new_cfg["scheme"] = "replicated";
+    }
+    if (old_cfg.is_null() && !new_cfg["pg_minsize"].uint64_value())
+    {
+        // Default pg_minsize
+        if (new_cfg["scheme"] == "replicated")
         {
-            scheme = "ec";
-
-            // pg_size = N+K
-            // parity_chunks = K
-
-            int ret = sscanf(cfg["ec"].string_value().c_str(), "%lu+%lu", &pg_size, &parity_chunks);
-            if (ret != 2)
-            {
-                error = "Shortcut for 'ec' scheme has an invalid value. Format: --ec <N>+<K>";
-                return false;
-            }
-            if (!pg_size || !parity_chunks)
-            {
-                error = "<N>+<K> values for 'ec' scheme cannot be 0";
-                return false;
-            }
-            pg_size += parity_chunks;
+            // pg_minsize = (N+K > 2) ? 2 : 1
+            new_cfg["pg_minsize"] = new_cfg["pg_size"].uint64_value() > 2 ? 2 : 1;
         }
-        // scheme (opt) + pg_size (req) + parity_chunks (req)
-        else
+        else // ec or xor
         {
-            scheme = cfg["scheme"].is_string() ?
-                (cfg["scheme"].string_value() == "jerasure" ? "ec" : cfg["scheme"].string_value()) : "replicated";
+            // pg_minsize = (K > 1) ? N + 1 : N
+            new_cfg["pg_minsize"] = new_cfg["pg_size"].uint64_value() - new_cfg["parity_chunks"].uint64_value() +
+                (new_cfg["parity_chunks"].uint64_value() > 1 ? 1 : 0);
+        }
+    }
+    if (new_cfg["scheme"] != "ec")
+    {
+        new_cfg.erase("parity_chunks");
+    }
 
-            if (!is_valid_scheme_string(scheme))
+    // Check integer values and unknown keys
+    for (auto kv_it = new_cfg.begin(); kv_it != new_cfg.end(); )
+    {
+        auto & key = kv_it->first;
+        auto & value = kv_it->second;
+        if (key == "pg_size" || key == "parity_chunks" || key == "pg_minsize" ||
+            key == "pg_count" || key == "max_osd_combinations" || key == "block_size" ||
+            key == "bitmap_granularity" || key == "pg_stripe_size")
+        {
+            if (value.is_number() && value.uint64_value() != value.number_value() ||
+                value.is_string() && !value.uint64_value() && value.string_value() != "0")
             {
-                return false;
-            }
-
-            if (!cfg["size"].is_null() && !cfg["pg_size"].is_null() ||
-                !cfg["size"].is_null() && !cfg["size"].uint64_value() ||
-                !cfg["pg_size"].is_null() && !cfg["pg_size"].uint64_value())
-            {
-                error = "PG size has an invalid value";
-                return false;
-            }
-
-            pg_size = !cfg["size"].is_null() ? cfg["size"].uint64_value() : cfg["pg_size"].uint64_value();
-            if (!pg_size)
-            {
-                error = "PG size must be given with value >= 1";
-                return false;
-            }
-
-            if (!cfg["parity_chunks"].is_null() && !cfg["parity_chunks"].uint64_value())
-            {
-                error = "Parity chunks has an invalid value";
-                return false;
-            }
-
-            parity_chunks = cfg["parity_chunks"].uint64_value();
-            if (scheme == "xor" && !parity_chunks)
-            {
-                parity_chunks = 1;
-            }
-            if (!parity_chunks)
-            {
-                error = "Parity Chunks must be given with value >= 1";
-                return false;
+                return key+" must be a non-negative integer";
             }
         }
-
-        // pg_minsize (opt)
-        if (cfg["pg_minsize"].uint64_value())
+        else if (key == "name" || key == "scheme" || key == "immediate_commit" ||
+            key == "failure_domain" || key == "root_node" || key == "scrub_interval")
         {
-            pg_minsize = cfg["pg_minsize"].uint64_value();
+            // OK
+        }
+        else if (key == "osd_tags" || key == "primary_affinity_tags")
+        {
+            if (value.is_string())
+            {
+                value = explode(",", value.string_value(), true);
+            }
         }
         else
         {
-            if (!cfg["pg_minsize"].is_null())
-            {
-                error = "PG minsize has an invalid value";
-                return false;
-            }
-            if (scheme == "replicated")
-            {
-                // pg_minsize = (N+K > 2) ? 2 : 1
-                pg_minsize = pg_size > 2 ? 2 : 1;
-            }
-            else // ec or xor
-            {
-                // pg_minsize = (K > 1) ? N + 1 : N
-                pg_minsize = pg_size - parity_chunks + (parity_chunks > 1 ? 1 : 0);
-            }
+            // Unknown parameter
+            new_cfg.erase(kv_it++);
+            continue;
         }
-        if (!pg_minsize)
-        {
-            error = "PG minsize must be given with value >= 1";
-            return false;
-        }
-
-        // pg_count (req)
-        if (!cfg["count"].is_null() && !cfg["pg_count"].is_null() ||
-            !cfg["count"].is_null() && !cfg["count"].uint64_value() ||
-            !cfg["pg_count"].is_null() && !cfg["pg_count"].uint64_value())
-        {
-            error = "PG count has an invalid value";
-            return false;
-        }
-
-        pg_count = !cfg["count"].is_null() ? cfg["count"].uint64_value() : cfg["pg_count"].uint64_value();
-        if (!pg_count)
-        {
-            error = "PG count must be given with value >= 1";
-            return false;
-        }
-
-        // Optional params
-        failure_domain = cfg["failure_domain"].string_value();
-
-        if (!cfg["max_osd_combinations"].is_null() && !cfg["max_osd_combinations"].uint64_value())
-        {
-            error = "Max OSD combinations has an invalid value";
-            return false;
-        }
-        max_osd_combinations = cfg["max_osd_combinations"].uint64_value();
-
-        if (!cfg["block_size"].is_null() && !cfg["block_size"].uint64_value())
-        {
-            error = "Block size has an invalid value";
-            return false;
-        }
-        block_size = cfg["block_size"].uint64_value();
-
-        if (!cfg["bitmap_granularity"].is_null() && !cfg["bitmap_granularity"].uint64_value())
-        {
-            error = "Bitmap granularity has an invalid value";
-            return false;
-        }
-        bitmap_granularity = cfg["bitmap_granularity"].uint64_value();
-
-        if (!is_valid_immediate_commit_string(cfg["immediate_commit"].string_value()))
-        {
-            return false;
-        }
-        immediate_commit = cfg["immediate_commit"].string_value();
-
-        if (!cfg["pg_stripe_size"].is_null() && !cfg["pg_stripe_size"].uint64_value())
-        {
-            error = "PG stripe size has an invalid value";
-            return false;
-        }
-
-        pg_stripe_size = cfg["pg_stripe_size"].uint64_value();
-        root_node = cfg["root_node"].string_value();
-        osd_tags = cfg["osd_tags"].string_value();
-        primary_affinity_tags = cfg["primary_affinity_tags"].string_value();
-        scrub_interval = cfg["scrub_interval"].string_value();
+        kv_it++;
     }
-    else // Modified pool configuration
+
+    // Merge with the old config
+    if (!old_cfg.is_null())
     {
-        bool has_changes = false;
-
-        // Unsupported parameters
-
-        if (!cfg["scheme"].is_null() || !cfg["parity_chunks"].is_null() || !cfg["ec"].is_null() || !cfg["bitmap_granularity"].is_null())
+        for (auto & kv: old_cfg.object_items())
         {
-            error = "Scheme, parity_chunks and bitmap_granularity parameters cannot be modified";
-            return false;
-        }
-
-        // Supported parameters
-
-        if (!cfg["name"].is_null())
-        {
-            name = cfg["name"].string_value();
-            has_changes = true;
-        }
-
-        if (!cfg["size"].is_null() || !cfg["pg_size"].is_null())
-        {
-            if (!cfg["size"].is_null() && !cfg["pg_size"].is_null())
+            if (new_cfg.find(kv.first) == new_cfg.end())
             {
-                error = "Cannot use both size and pg_size parameters at the same time.";
-                return false;
+                new_cfg[kv.first] = kv.second;
             }
-            else if (!cfg["size"].is_null() && !cfg["size"].uint64_value() ||
-                    !cfg["pg_size"].is_null() && !cfg["pg_size"].uint64_value())
-            {
-                error = "PG size has an invalid value";
-                return false;
-            }
-
-            pg_size = !cfg["size"].is_null() ? cfg["size"].uint64_value() : cfg["pg_size"].uint64_value();
-            has_changes = true;
-        }
-
-        if (!cfg["pg_minsize"].is_null())
-        {
-            if (!cfg["pg_minsize"].uint64_value())
-            {
-                error = "PG minsize has an invalid value";
-                return false;
-            }
-
-            pg_minsize = cfg["pg_minsize"].uint64_value();
-            has_changes = true;
-        }
-
-        if (!cfg["count"].is_null() || !cfg["pg_count"].is_null())
-        {
-            if (!cfg["count"].is_null() && !cfg["pg_count"].is_null())
-            {
-                error = "Cannot use both count and pg_count parameters at the same time.";
-                return false;
-            }
-            else if (!cfg["count"].is_null() && !cfg["count"].uint64_value() ||
-                    !cfg["pg_count"].is_null() && !cfg["pg_count"].uint64_value())
-            {
-                error = "PG count has an invalid value";
-                return false;
-            }
-
-            pg_count = !cfg["count"].is_null() ? cfg["count"].uint64_value() : cfg["pg_count"].uint64_value();
-            has_changes = true;
-        }
-
-        if (!cfg["failure_domain"].is_null())
-        {
-            failure_domain = cfg["failure_domain"].string_value();
-            has_changes = true;
-        }
-
-        if (!cfg["max_osd_combinations"].is_null())
-        {
-            if (!cfg["max_osd_combinations"].uint64_value())
-            {
-                error = "Max OSD combinations has an invalid value";
-                return false;
-            }
-
-            max_osd_combinations = cfg["max_osd_combinations"].uint64_value();
-            has_changes = true;
-        }
-
-        if (!cfg["block_size"].is_null())
-        {
-            if (!cfg["block_size"].uint64_value())
-            {
-                error = "Block size has an invalid value";
-                return false;
-            }
-
-            block_size = cfg["block_size"].uint64_value();
-            has_changes = true;
-        }
-
-        if (!cfg["immediate_commit"].is_null())
-        {
-            if (!is_valid_immediate_commit_string(cfg["immediate_commit"].string_value()))
-            {
-                return false;
-            }
-
-            immediate_commit = cfg["immediate_commit"].string_value();
-            has_changes = true;
-        }
-
-        if (!cfg["pg_stripe_size"].is_null())
-        {
-            if (!cfg["pg_stripe_size"].uint64_value())
-            {
-                error = "PG stripe size has an invalid value";
-                return false;
-            }
-
-            pg_stripe_size = cfg["pg_stripe_size"].uint64_value();
-            has_changes = true;
-        }
-
-        if (!cfg["root_node"].is_null())
-        {
-            root_node = cfg["root_node"].string_value();
-            has_changes = true;
-        }
-
-        if (!cfg["osd_tags"].is_null())
-        {
-            osd_tags = cfg["osd_tags"].string_value();
-            has_changes = true;
-        }
-
-        if (!cfg["primary_affinity_tags"].is_null())
-        {
-            primary_affinity_tags = cfg["primary_affinity_tags"].string_value();
-            has_changes = true;
-        }
-
-        if (!cfg["scrub_interval"].is_null())
-        {
-            scrub_interval = cfg["scrub_interval"].string_value();
-            has_changes = true;
-        }
-
-        if (!has_changes)
-        {
-            error = "No changes were provided to modify pool";
-            return false;
         }
     }
 
-    return true;
-}
+    // Prevent autovivification of object keys. Now we don't modify the config, we just check it
+    json11::Json cfg = new_cfg;
 
-bool pool_configurator_t::validate(etcd_state_client_t &st_cli, pool_config_t *pool_config, bool strict)
-{
-    // Validate pool parameters
-
-    // Scheme
-    uint64_t p_scheme = (scheme != "" ?
-        (scheme == "xor" ? POOL_SCHEME_XOR : (scheme == "ec" ? POOL_SCHEME_EC : POOL_SCHEME_REPLICATED)) :
-        (pool_config ? pool_config->scheme : 0));
-
-    // PG size
-    uint64_t p_pg_size = (pg_size ? pg_size : (pool_config ? pool_config->pg_size : 0));
-    if (p_pg_size)
+    // Validate changes
+    if (!old_cfg.is_null() && !force)
     {
-        // Min PG size
-        if ((p_scheme == POOL_SCHEME_XOR || p_scheme == POOL_SCHEME_EC) && p_pg_size < 3)
+        if (old_cfg["scheme"] != cfg["scheme"])
         {
-            error = "PG size cannot be less than 3 for XOR/EC pool";
-            return false;
+            return "Changing scheme for an existing pool will lead to data loss. Use --force to proceed";
         }
-        // Max PG size
-        else if (p_pg_size > 256)
+        if (etcd_state_client_t::parse_scheme(old_cfg["scheme"].string_value()) == POOL_SCHEME_EC)
         {
-            error = "PG size cannot be greater than 256";
-            return false;
+            uint64_t old_data_chunks = old_cfg["pg_size"].uint64_value() - old_cfg["parity_chunks"].uint64_value();
+            uint64_t new_data_chunks = cfg["pg_size"].uint64_value() - cfg["parity_chunks"].uint64_value();
+            if (old_data_chunks != new_data_chunks)
+            {
+                return "Changing EC data chunk count for an existing pool will lead to data loss. Use --force to proceed";
+            }
+        }
+        if (old_cfg["block_size"] != cfg["block_size"] ||
+            old_cfg["bitmap_granularity"] != cfg["bitmap_granularity"] ||
+            old_cfg["immediate_commit"] != cfg["immediate_commit"])
+        {
+            return "Changing block_size, bitmap_granularity or immediate_commit"
+                " for an existing pool will lead to incomplete PGs. Use --force to proceed";
+        }
+        if (old_cfg["pg_stripe_size"] != cfg["pg_stripe_size"])
+        {
+            return "Changing pg_stripe_size for an existing pool will lead to data loss. Use --force to proceed";
         }
     }
 
-    // Parity Chunks
-    uint64_t p_parity_chunks = (parity_chunks ? parity_chunks : (pool_config ? pool_config->parity_chunks : 0));
-    if (p_parity_chunks)
+    // Validate values
+    if (cfg["name"].string_value() == "")
     {
-        if (p_scheme == POOL_SCHEME_XOR && p_parity_chunks > 1)
-        {
-            error = "Parity Chunks must be 1 for XOR pool";
-            return false;
-        }
-        if (p_scheme == POOL_SCHEME_EC && (p_parity_chunks < 1 || p_parity_chunks > p_pg_size-2))
-        {
-            error = "Parity Chunks must be between 1 and pg_size-2 for EC pool";
-            return false;
-        }
+        return "Non-empty pool name is required";
     }
 
-    // PG minsize
-    uint64_t p_pg_minsize = (pg_minsize ? pg_minsize : (pool_config ? pool_config->pg_minsize : 0));
-    if (p_pg_minsize)
+    // scheme
+    auto scheme = etcd_state_client_t::parse_scheme(cfg["scheme"].string_value());
+    if (!scheme)
     {
-        // Max PG minsize relative to PG size
-        if (p_pg_minsize > p_pg_size)
-        {
-            error = "PG minsize cannot be greater than "+std::to_string(p_pg_size)+" (PG size)";
-            return false;
-        }
-        // PG minsize relative to PG size and Parity Chunks
-        else if ((p_scheme == POOL_SCHEME_XOR || p_scheme == POOL_SCHEME_EC) && p_pg_minsize < (p_pg_size - p_parity_chunks))
-        {
-            error =
-                "PG minsize cannot be less than "+std::to_string(p_pg_size - p_parity_chunks)+" "
-                "(PG size - Parity Chunks) for XOR/EC pool";
-            return false;
-        }
+        return "Scheme must be one of \"replicated\", \"ec\" or \"xor\"";
     }
 
-    // Max OSD Combinations (optional)
-    if (max_osd_combinations > 0 && max_osd_combinations < 100)
+    // pg_size
+    auto pg_size = cfg["pg_size"].uint64_value();
+    if (!pg_size)
     {
-        error = "Max OSD Combinations must be at least 100";
-        return false;
+        return "Non-zero PG size is required";
+    }
+    if (scheme != POOL_SCHEME_REPLICATED && pg_size < 3)
+    {
+        return "PG size can't be smaller than 3 for EC/XOR pools";
+    }
+    if (pg_size > 256)
+    {
+        return "PG size can't be greater than 256";
     }
 
-    // Scrub interval (optional)
-    if (scrub_interval != "")
+    // parity_chunks
+    uint64_t parity_chunks = 1;
+    if (scheme == POOL_SCHEME_EC)
+    {
+        parity_chunks = cfg["parity_chunks"].uint64_value();
+        if (!parity_chunks)
+        {
+            return "Non-zero parity_chunks is required";
+        }
+        if (parity_chunks > pg_size-2)
+        {
+            return "parity_chunks can't be greater than "+std::to_string(pg_size-2)+" (PG size - 2)";
+        }
+    }
+
+    // pg_minsize
+    auto pg_minsize = cfg["pg_minsize"].uint64_value();
+    if (!pg_minsize)
+    {
+        return "Non-zero pg_minsize is required";
+    }
+    else if (pg_minsize > pg_size)
+    {
+        return "pg_minsize can't be greater than "+std::to_string(pg_size)+" (PG size)";
+    }
+    else if (scheme != POOL_SCHEME_REPLICATED && pg_minsize < pg_size-parity_chunks)
+    {
+        return "pg_minsize can't be smaller than "+std::to_string(pg_size-parity_chunks)+
+            " (pg_size - parity_chunks) for XOR/EC pool";
+    }
+
+    // pg_count
+    if (!cfg["pg_count"].uint64_value())
+    {
+        return "Non-zero pg_count is required";
+    }
+
+    // max_osd_combinations
+    if (!cfg["max_osd_combinations"].is_null() && cfg["max_osd_combinations"].uint64_value() < 100)
+    {
+        return "max_osd_combinations must be at least 100, but it is "+cfg["max_osd_combinations"].as_string();
+    }
+
+    // block_size
+    auto block_size = cfg["block_size"].uint64_value();
+    if (!cfg["block_size"].is_null() && ((block_size & (block_size-1)) ||
+        block_size < MIN_DATA_BLOCK_SIZE || block_size > MAX_DATA_BLOCK_SIZE))
+    {
+        return "block_size must be a power of two between "+std::to_string(MIN_DATA_BLOCK_SIZE)+
+            " and "+std::to_string(MAX_DATA_BLOCK_SIZE)+", but it is "+std::to_string(block_size);
+    }
+    block_size = (block_size ? block_size : global_block_size);
+
+    // bitmap_granularity
+    auto bitmap_granularity = cfg["bitmap_granularity"].uint64_value();
+    if (!cfg["bitmap_granularity"].is_null() && (!bitmap_granularity || (bitmap_granularity % 512)))
+    {
+        return "bitmap_granularity must be a multiple of 512, but it is "+std::to_string(bitmap_granularity);
+    }
+    bitmap_granularity = (bitmap_granularity ? bitmap_granularity : global_bitmap_granularity);
+    if (block_size % bitmap_granularity)
+    {
+        return "bitmap_granularity must divide data block size ("+std::to_string(block_size)+"), but it is "+std::to_string(bitmap_granularity);
+    }
+
+    // immediate_commit
+    if (!cfg["immediate_commit"].is_null() && !etcd_state_client_t::parse_immediate_commit(cfg["immediate_commit"].string_value()))
+    {
+        return "immediate_commit must be one of \"all\", \"small\", or \"none\", but it is "+cfg["scrub_interval"].as_string();
+    }
+
+    // scrub_interval
+    if (!cfg["scrub_interval"].is_null())
     {
         bool ok;
-        parse_time(scrub_interval, &ok);
+        parse_time(cfg["scrub_interval"].string_value(), &ok);
         if (!ok)
         {
-            error = "Failed to parse scrub interval. Format: number + unit s/m/h/d/M/y";
-            return false;
+            return "scrub_interval must be a time interval (number + unit s/m/h/d/M/y), but it is "+cfg["scrub_interval"].as_string();
         }
     }
 
-    // Additional checks (only if strict)
-    if (strict)
-    {
-        uint64_t p_block_size = block_size ? block_size :
-            (pool_config ? pool_config->data_block_size : st_cli.global_block_size);
-
-        uint64_t p_bitmap_granularity = bitmap_granularity ? bitmap_granularity :
-            (pool_config ? pool_config->bitmap_granularity : st_cli.global_bitmap_granularity);
-
-        // Block size value and range
-        if ((p_block_size & (p_block_size-1)) || p_block_size < MIN_DATA_BLOCK_SIZE || p_block_size > MAX_DATA_BLOCK_SIZE)
-        {
-            error =
-                "Data block size must be a power of two between "+std::to_string(MIN_DATA_BLOCK_SIZE)+" "
-                "and "+std::to_string(MAX_DATA_BLOCK_SIZE);
-            return false;
-        }
-
-        // Block size relative to bitmap granularity
-        if (p_block_size % p_bitmap_granularity)
-        {
-            error = "Data block size must be devisible by "+std::to_string(p_bitmap_granularity)+" (Bitmap Granularity)";
-            return false;
-        }
-    }
-
-    return true;
+    return "";
 }
