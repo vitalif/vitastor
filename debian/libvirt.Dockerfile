@@ -1,13 +1,14 @@
 # Build patched libvirt for Debian Buster or Bullseye/Sid inside a container
-# cd ..; podman build --build-arg REL=bullseye -v `pwd`/packages:/root/packages -f debian/libvirt.Dockerfile .
+# cd ..; podman build --build-arg DISTRO=debian --build-arg REL=bullseye -v `pwd`/packages:/root/packages -f debian/libvirt.Dockerfile .
 
+ARG DISTRO=
 ARG REL=
-FROM debian:$REL
+FROM $DISTRO:$REL
 ARG REL=
 
 WORKDIR /root
 
-RUN if [ "$REL" = "buster" -o "$REL" = "bullseye" ]; then \
+RUN if ([ "${DISTRO}" = "debian" ]) && ( [ "${REL}" = "buster" -o "${REL}" = "bullseye" ] ); then \
         echo "deb http://deb.debian.org/debian $REL-backports main" >> /etc/apt/sources.list; \
         echo >> /etc/apt/preferences; \
         echo 'Package: *' >> /etc/apt/preferences; \
@@ -23,7 +24,7 @@ RUN apt-get -y build-dep libvirt0
 RUN apt-get -y install libglusterfs-dev
 RUN apt-get --download-only source libvirt
 
-ADD patches/libvirt-5.0-vitastor.diff patches/libvirt-7.0-vitastor.diff patches/libvirt-7.5-vitastor.diff patches/libvirt-7.6-vitastor.diff /root
+ADD patches/libvirt-5.0-vitastor.diff patches/libvirt-7.0-vitastor.diff patches/libvirt-7.5-vitastor.diff patches/libvirt-7.6-vitastor.diff patches/libvirt-8.0-vitastor.diff /root
 RUN set -e; \
     mkdir -p /root/packages/libvirt-$REL; \
     rm -rf /root/packages/libvirt-$REL/*; \

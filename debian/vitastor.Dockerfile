@@ -1,8 +1,10 @@
 # Build Vitastor packages for Debian inside a container
-# cd ..; podman build --build-arg REL=bullseye -v `pwd`/packages:/root/packages -f debian/vitastor.Dockerfile .
+# cd ..; podman build --build-arg DISTRO=debian --build-arg REL=bullseye -v `pwd`/packages:/root/packages -f debian/vitastor.Dockerfile .
 
+ARG DISTRO=debian
 ARG REL=
-FROM debian:$REL
+FROM $DISTRO:$REL
+ARG DISTRO=debian
 ARG REL=
 
 WORKDIR /root
