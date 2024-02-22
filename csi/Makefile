@@ -1,4 +1,4 @@
-VERSION ?= v1.4.6
+VERSION ?= v1.4.7
 
 all: build push
 
