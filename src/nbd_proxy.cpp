@@ -23,6 +23,7 @@
 #include "cluster_client.h"
 #include "epoll_manager.h"
 
+#ifdef HAVE_NBD_NETLINK_H
 #include <netlink/attr.h>
 #include <netlink/genl/ctrl.h>
 #include <netlink/genl/genl.h>
@@ -31,9 +32,6 @@
 #include <netlink/netlink.h>
 #include <netlink/socket.h>
 #include <netlink/errno.h>
-
-#ifdef HAVE_NBD_NETLINK_H
-
 #include <linux/nbd-netlink.h>
 
 #define fail(...) { fprintf(stderr, __VA_ARGS__); exit(1); }
@@ -226,22 +224,6 @@ nla_put_failure:
 
 #undef fail
 
-#else
-
-static int netlink_configure(const int *sockfd, int sock_size, int dev_num, uint64_t size,
-    uint64_t blocksize, uint64_t flags, uint64_t cflags, uint64_t timeout, uint64_t conn_timeout)
-{
-    fprintf(stderr, "netlink is not supported\n");
-    exit(1);
-    return 0;
-}
-
-static void netlink_disconnect(uint32_t dev_num)
-{
-    fprintf(stderr, "netlink is not supported\n");
-    exit(1);
-}
-
 #endif
 
 #ifndef MSG_ZEROCOPY
@@ -339,14 +321,18 @@ public:
                 fprintf(stderr, "device name or number is missing\n");
                 exit(1);
             }
-
             if (cfg["netlink"].is_null())
             {
                 unmap(cfg["dev_num"].uint64_value());
             }
             else
             {
+#ifdef HAVE_NBD_NETLINK_H
                 netlink_disconnect(cfg["dev_num"].uint64_value());
+#else
+                fprintf(stderr, "netlink support is disabled in this build\n");
+                exit(1);
+#endif
             }
         }
         else if (cfg["command"] == "ls" || cfg["command"] == "list" || cfg["command"] == "list-mapped")
@@ -364,7 +350,7 @@ public:
     {
         printf(
             "Vitastor NBD proxy\n"
-            "(c) Vitaliy Filippov, 2020-2021 (VNPL-1.1)\n\n"
+            "(c) Vitaliy Filippov, 2020+ (VNPL-1.1)\n\n"
             "USAGE:\n"
             "  %s map [OPTIONS] (--image <image> | --pool <pool> --inode <inode> --size <size in bytes>)\n"
             "  %s unmap /dev/nbd0\n"
@@ -377,7 +363,7 @@ public:
             "    won't be able to stop the device at all if vitastor-nbd process dies.\n"
             "  --nbd_max_devices 64 --nbd_max_part 3\n"
             "    Options for the \"nbd\" kernel module when modprobing it (nbds_max and max_part).\n"
-            "    note that maximum allowed (nbds_max)*(1+max_part) is 256.\n"
+            "    Maximum allowed (nbds_max)*(1+max_part) is 2^20.\n"
             "    Note that nbd_timeout, nbd_max_devices and nbd_max_part options may also be specified\n"
             "    in /etc/vitastor/vitastor.conf or in other configuration file specified with --config_file.\n"
             "  --nbd_lease 60\n"
@@ -518,48 +504,38 @@ public:
 
         if (!cfg["netlink"].is_null())
         {
+#ifdef HAVE_NBD_NETLINK_H
             int devnum = -1;
             if (!cfg["dev_num"].is_null())
             {
                 devnum = (int)cfg["dev_num"].uint64_value();
             }
-
             uint64_t flags = NBD_FLAG_SEND_FLUSH;
             uint64_t cflags = 0;
-
-            #ifdef NBD_FLAG_READ_ONLY
+#ifdef NBD_FLAG_READ_ONLY
             if (!cfg["nbd_ro"].is_null())
-            {
                 flags |= NBD_FLAG_READ_ONLY;
-            }
-            #endif
-
-            #ifdef NBD_CFLAG_DESTROY_ON_DISCONNECT
+#endif
+#ifdef NBD_CFLAG_DESTROY_ON_DISCONNECT
             if (!cfg["nbd_destroy_on_disconnect"].is_null())
-            {
                 cflags |= NBD_CFLAG_DESTROY_ON_DISCONNECT;
-            }
-            #endif
-
-            #ifdef NBD_CFLAG_DISCONNECT_ON_CLOSE
+#endif
+#ifdef NBD_CFLAG_DISCONNECT_ON_CLOSE
             if (!cfg["nbd_disconnect_on_close"].is_null())
-            {
                 cflags |= NBD_CFLAG_DISCONNECT_ON_CLOSE;
-            }
-            #endif
-
+#endif
             int err = netlink_configure(sockfd + 1, 1, devnum, device_size, 4096, flags, cflags, nbd_timeout, nbd_lease);
             if (err < 0)
             {
-                if (err == -NLE_BUSY)
-                    errno = EBUSY;
-                else
-                    errno = EIO;
-                perror("netlink_configure");
+                errno = (err == -NLE_BUSY ? EBUSY : EIO);
+                fprintf(stderr, "netlink_configure failed: %s (code %d)\n", nl_geterror(err), err);
                 exit(1);
             }
-
             printf("/dev/nbd%d\n", err);
+#else
+            fprintf(stderr, "netlink support is disabled in this build\n");
+            exit(1);
+#endif
         }
         else
         {

@@ -183,15 +183,15 @@ if (${WITH_FIO})
 endif (${WITH_FIO})
 
 # vitastor-nbd
-pkg_check_modules(NL3 REQUIRED libnl-3.0 libnl-genl-3.0)
-add_executable(vitastor-nbd   
-	nbd_proxy.cpp 
+pkg_check_modules(NL3 libnl-3.0 libnl-genl-3.0)
+add_executable(vitastor-nbd
+	nbd_proxy.cpp
 )
 target_include_directories(vitastor-nbd PUBLIC ${NL3_INCLUDE_DIRS})
 target_link_libraries(vitastor-nbd vitastor_client ${NL3_LIBRARIES})
-if(HAVE_NBD_NETLINK_H)
+if (HAVE_NBD_NETLINK_H AND NL3_LIBRARIES)
 	target_compile_definitions(vitastor-nbd PUBLIC HAVE_NBD_NETLINK_H)
-endif()
+endif (HAVE_NBD_NETLINK_H AND NL3_LIBRARIES)
 
 # libvitastor_kv.so
 add_library(vitastor_kv SHARED
