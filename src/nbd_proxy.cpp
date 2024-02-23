@@ -36,221 +36,210 @@
 
 #include <linux/nbd-netlink.h>
 
-#define fail(...)                   \
-  do {                              \
-    fprintf(stderr, __VA_ARGS__);   \
-    exit(1);                        \
-  } while (0)
+#define fail(...) { fprintf(stderr, __VA_ARGS__); exit(1); }
 
-struct netlink_ctx {
-  struct nl_sock *sk;
-  int driver_id;
+struct netlink_ctx
+{
+    struct nl_sock *sk;
+    int driver_id;
 };
 
 static void netlink_sock_alloc(struct netlink_ctx *ctx)
 {
-  struct nl_sock *sk;
-  int nl_driver_id;
+    struct nl_sock *sk;
+    int nl_driver_id;
 
-  sk = nl_socket_alloc();
-  if (!sk)
-  {
-    fail("Failed to alloc netlink socket\n");
-  }
+    sk = nl_socket_alloc();
+    if (!sk)
+    {
+        fail("Failed to alloc netlink socket\n");
+    }
 
-  if (genl_connect(sk))
-  {
-    nl_socket_free(sk);
-    fail("Couldn't connect to the generic netlink socket\n");
-  }
+    if (genl_connect(sk))
+    {
+        nl_socket_free(sk);
+        fail("Couldn't connect to the generic netlink socket\n");
+    }
 
-  nl_driver_id = genl_ctrl_resolve(sk, "nbd");
-  if (nl_driver_id < 0)
-  {
-    nl_socket_free(sk);
-    fail("Couldn't resolve the nbd netlink family\n");
-  }
+    nl_driver_id = genl_ctrl_resolve(sk, "nbd");
+    if (nl_driver_id < 0)
+    {
+        nl_socket_free(sk);
+        fail("Couldn't resolve the nbd netlink family\n");
+    }
 
-  ctx->driver_id = nl_driver_id;
-  ctx->sk = sk;
+    ctx->driver_id = nl_driver_id;
+    ctx->sk = sk;
 }
 
 static void netlink_sock_free(struct netlink_ctx *ctx)
 {
-  free(ctx->sk);
-  ctx->sk = NULL;
+    free(ctx->sk);
+    ctx->sk = NULL;
 }
 
 static int netlink_status_cb(struct nl_msg *sk_msg, void *devnum)
 {
-  struct nlmsghdr *nl_hdr;
-  struct genlmsghdr *gnl_hdr;
-  struct nlattr *msg_attr[NBD_ATTR_MAX + 1];
-  struct nlattr *attr_data;
-  int attr_len;
-  uint32_t* dev_num;
+    struct nlmsghdr *nl_hdr;
+    struct genlmsghdr *gnl_hdr;
+    struct nlattr *msg_attr[NBD_ATTR_MAX + 1];
+    struct nlattr *attr_data;
+    int attr_len;
+    uint32_t* dev_num;
 
-  dev_num = (uint32_t*)devnum;
+    dev_num = (uint32_t*)devnum;
 
-  nl_hdr = nlmsg_hdr(sk_msg);
-  gnl_hdr = (struct genlmsghdr *)nlmsg_data(nl_hdr);
-  attr_data = genlmsg_attrdata(gnl_hdr, 0);
-  attr_len = genlmsg_attrlen(gnl_hdr, 0);
+    nl_hdr = nlmsg_hdr(sk_msg);
+    gnl_hdr = (struct genlmsghdr *)nlmsg_data(nl_hdr);
+    attr_data = genlmsg_attrdata(gnl_hdr, 0);
+    attr_len = genlmsg_attrlen(gnl_hdr, 0);
 
-  if (nla_parse(msg_attr, NBD_ATTR_MAX, attr_data, attr_len, NULL))
-  {
-    fail("Failed to parse netlink response\n");
-  }
-
-  if (!msg_attr[NBD_ATTR_INDEX])
-  {
-    fail("Got malformed netlink reponse\n");
-  }
-
-  *dev_num = nla_get_u32(msg_attr[NBD_ATTR_INDEX]);
-
-  return NL_OK;
-}
-
-static int netlink_configure(const int *sockfd, int sock_size,
-                               int dev_num, uint64_t size,
-                               uint64_t blocksize, uint64_t flags,
-                               uint64_t cflags, uint64_t timeout,
-                               uint64_t conn_timeout)
-{
-  struct netlink_ctx ctx;
-  struct nlattr *msg_attr, *msg_opt_attr;
-  struct nl_msg *msg;
-  int i, err, sock;
-  uint32_t devnum;
-
-  netlink_sock_alloc(&ctx);
-
-  // A callback we set for a response we get on send
-  nl_socket_modify_cb(ctx.sk, NL_CB_VALID, NL_CB_CUSTOM, netlink_status_cb, &devnum);
-
-  msg = nlmsg_alloc();
-  if (!msg)
-  {
-    netlink_sock_free(&ctx);
-    fail("Failed to allocate netlking message\n");
-  }
-
-  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, ctx.driver_id, 0, 0, NBD_CMD_CONNECT, 0);
-
-  if (dev_num >= 0)
-  {
-    NLA_PUT_U32(msg, NBD_ATTR_INDEX, (uint32_t)dev_num);
-  }
-
-  NLA_PUT_U64(msg, NBD_ATTR_SIZE_BYTES, size);
-  NLA_PUT_U64(msg, NBD_ATTR_BLOCK_SIZE_BYTES, blocksize);
-  NLA_PUT_U64(msg, NBD_ATTR_SERVER_FLAGS, flags);
-  NLA_PUT_U64(msg, NBD_ATTR_CLIENT_FLAGS, cflags);
-
-  if (timeout)
-  {
-    NLA_PUT_U64(msg, NBD_ATTR_TIMEOUT, timeout);
-  }
-
-  if (conn_timeout)
-  {
-    NLA_PUT_U64(msg, NBD_ATTR_DEAD_CONN_TIMEOUT, conn_timeout);
-  }
-
-  msg_attr = nla_nest_start(msg, NBD_ATTR_SOCKETS);
-  if (!msg_attr)
-  {
-    goto nla_put_failure;
-  }
-
-  for (i = 0; i < sock_size; i++)
-  {
-    msg_opt_attr = nla_nest_start(msg, NBD_SOCK_ITEM);
-    if (!msg_opt_attr)
+    if (nla_parse(msg_attr, NBD_ATTR_MAX, attr_data, attr_len, NULL))
     {
-      goto nla_put_failure;
+        fail("Failed to parse netlink response\n");
     }
 
-    sock = sockfd[i];
-    NLA_PUT_U32(msg, NBD_SOCK_FD, sock);
+    if (!msg_attr[NBD_ATTR_INDEX])
+    {
+        fail("Got malformed netlink reponse\n");
+    }
 
-    nla_nest_end(msg, msg_opt_attr);
-  }
+    *dev_num = nla_get_u32(msg_attr[NBD_ATTR_INDEX]);
 
-  nla_nest_end(msg, msg_attr);
+    return NL_OK;
+}
 
-  if((err = nl_send_sync(ctx.sk, msg)) < 0)
-  {
+static int netlink_configure(const int *sockfd, int sock_size, int dev_num, uint64_t size,
+    uint64_t blocksize, uint64_t flags, uint64_t cflags, uint64_t timeout, uint64_t conn_timeout)
+{
+    struct netlink_ctx ctx;
+    struct nlattr *msg_attr, *msg_opt_attr;
+    struct nl_msg *msg;
+    int i, err, sock;
+    uint32_t devnum;
+
+    netlink_sock_alloc(&ctx);
+
+    // A callback we set for a response we get on send
+    nl_socket_modify_cb(ctx.sk, NL_CB_VALID, NL_CB_CUSTOM, netlink_status_cb, &devnum);
+
+    msg = nlmsg_alloc();
+    if (!msg)
+    {
+        netlink_sock_free(&ctx);
+        fail("Failed to allocate netlink message\n");
+    }
+
+    genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, ctx.driver_id, 0, 0, NBD_CMD_CONNECT, 0);
+
+    if (dev_num >= 0)
+    {
+        NLA_PUT_U32(msg, NBD_ATTR_INDEX, (uint32_t)dev_num);
+    }
+
+    NLA_PUT_U64(msg, NBD_ATTR_SIZE_BYTES, size);
+    NLA_PUT_U64(msg, NBD_ATTR_BLOCK_SIZE_BYTES, blocksize);
+    NLA_PUT_U64(msg, NBD_ATTR_SERVER_FLAGS, flags);
+    NLA_PUT_U64(msg, NBD_ATTR_CLIENT_FLAGS, cflags);
+
+    if (timeout)
+    {
+        NLA_PUT_U64(msg, NBD_ATTR_TIMEOUT, timeout);
+    }
+
+    if (conn_timeout)
+    {
+        NLA_PUT_U64(msg, NBD_ATTR_DEAD_CONN_TIMEOUT, conn_timeout);
+    }
+
+    msg_attr = nla_nest_start(msg, NBD_ATTR_SOCKETS);
+    if (!msg_attr)
+    {
+        goto nla_put_failure;
+    }
+
+    for (i = 0; i < sock_size; i++)
+    {
+        msg_opt_attr = nla_nest_start(msg, NBD_SOCK_ITEM);
+        if (!msg_opt_attr)
+        {
+            goto nla_put_failure;
+        }
+
+        sock = sockfd[i];
+        NLA_PUT_U32(msg, NBD_SOCK_FD, sock);
+
+        nla_nest_end(msg, msg_opt_attr);
+    }
+
+    nla_nest_end(msg, msg_attr);
+
+    if ((err = nl_send_sync(ctx.sk, msg)) < 0)
+    {
+        netlink_sock_free(&ctx);
+        return err;
+    }
+
     netlink_sock_free(&ctx);
-    return err;
-  }
 
-  netlink_sock_free(&ctx);
-
-  return devnum;
+    return devnum;
 
 nla_put_failure:
-  nlmsg_free(msg);
-  netlink_sock_free(&ctx);
-  fail("Failed to create netlink message\n");
+    nlmsg_free(msg);
+    netlink_sock_free(&ctx);
+    fail("Failed to create netlink message\n");
 }
 
 static void netlink_disconnect(uint32_t dev_num)
 {
-  struct netlink_ctx ctx;
-  struct nl_msg *msg;
-  int err;
+    struct netlink_ctx ctx;
+    struct nl_msg *msg;
+    int err;
 
-  netlink_sock_alloc(&ctx);
+    netlink_sock_alloc(&ctx);
 
-  msg = nlmsg_alloc();
-  if (!msg)
-  {
+    msg = nlmsg_alloc();
+    if (!msg)
+    {
+        netlink_sock_free(&ctx);
+        fail("Failed to allocate netlink message\n");
+    }
+
+    genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, ctx.driver_id, 0, 0, NBD_CMD_DISCONNECT, 0);
+    NLA_PUT_U32(msg, NBD_ATTR_INDEX, dev_num);
+
+    if ((err = nl_send_sync(ctx.sk, msg)) < 0)
+    {
+        netlink_sock_free(&ctx);
+        fail("Failed to send netlink message %d\n", err);
+    }
+
     netlink_sock_free(&ctx);
-    fail("Failed to allocate netlking message\n");
-  }
 
-  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, ctx.driver_id, 0, 0, NBD_CMD_DISCONNECT, 0);
-  NLA_PUT_U32(msg, NBD_ATTR_INDEX, dev_num);
-
-  if ((err = nl_send_sync(ctx.sk, msg)) < 0)
-  {
-    netlink_sock_free(&ctx);
-    fail("Failed to send netlink message %d\n", err);
-  }
-
-  netlink_sock_free(&ctx);
-
-  return;
+    return;
 
 nla_put_failure:
-  nlmsg_free(msg);
-  netlink_sock_free(&ctx);
-  fail("Failed to create netlink message\n");
+    nlmsg_free(msg);
+    netlink_sock_free(&ctx);
+    fail("Failed to create netlink message\n");
 }
 
 #undef fail
 
 #else
 
-static int netlink_configure(const int *sockfd, int sock_size,
-                               int dev_num, uint64_t size,
-                               uint64_t blocksize, uint64_t flags,
-                               uint64_t cflags, uint64_t timeout,
-                               uint64_t conn_timeout)
+static int netlink_configure(const int *sockfd, int sock_size, int dev_num, uint64_t size,
+    uint64_t blocksize, uint64_t flags, uint64_t cflags, uint64_t timeout, uint64_t conn_timeout)
 {
-  fprintf(stderr, "netlink is not supported\n");
-  exit(1);
-
-  return 0;
+    fprintf(stderr, "netlink is not supported\n");
+    exit(1);
+    return 0;
 }
-
 
 static void netlink_disconnect(uint32_t dev_num)
 {
-  fprintf(stderr, "netlink is not supported\n");
-  exit(1);
+    fprintf(stderr, "netlink is not supported\n");
+    exit(1);
 }
 
 #endif
@@ -396,7 +385,7 @@ public:
             "    is returned after no I/O is performed on device.\n"
             "    By default is not set.\n"
             "  --nbd_destroy_on_disconnect 1\n"
-            "    Delete the nbd device on disconnect\n."
+            "    Delete the nbd device on disconnect.\n"
             "  --nbd_disconnect_on_close 1\n"
             "    Disconnect the nbd device on close by last opener.\n"
             "  --nbd_ro 1\n"
@@ -560,13 +549,12 @@ public:
             #endif
 
             int err = netlink_configure(sockfd + 1, 1, devnum, device_size, 4096, flags, cflags, nbd_timeout, nbd_lease);
-            if (err < 0) {
-                if (err == -NLE_BUSY) {
+            if (err < 0)
+            {
+                if (err == -NLE_BUSY)
                     errno = EBUSY;
-                } else {
+                else
                     errno = EIO;
-                }
-
                 perror("netlink_configure");
                 exit(1);
             }
