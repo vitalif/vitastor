@@ -95,11 +95,13 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
                 // Issue an additional sync so the delete reaches the journal
                 blockstore_op_t *sync_op = new blockstore_op_t;
                 sync_op->opcode = BS_OP_SYNC;
-                sync_op->callback = [this, op](blockstore_op_t *sync_op)
+                sync_op->oid = op->oid;
+                sync_op->version = op->version;
+                sync_op->callback = [this](blockstore_op_t *sync_op)
                 {
                     flusher->unshift_flush((obj_ver_id){
-                        .oid = op->oid,
-                        .version = op->version-1,
+                        .oid = sync_op->oid,
+                        .version = sync_op->version-1,
                     }, true);
                     delete sync_op;
                 };
