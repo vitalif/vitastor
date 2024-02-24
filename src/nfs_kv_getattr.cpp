@@ -57,6 +57,8 @@ int kv_nfs3_getattr_proc(void *opaque, rpc_op_t *rop)
     }
     kv_read_inode(self, ino, [=](int res, const std::string & value, json11::Json attrs)
     {
+        if (self->parent->trace)
+            fprintf(stderr, "[%d] GETATTR %ju -> %s\n", self->nfs_fd, ino, value.c_str());
         if (res < 0)
         {
             *reply = (GETATTR3res){ .status = vitastor_nfs_map_err(-res) };

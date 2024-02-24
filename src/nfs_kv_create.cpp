@@ -94,6 +94,10 @@ static void kv_do_create(kv_create_state *st)
         cb(-EINVAL);
         return;
     }
+    if (st->attrobj.find("mtime") == st->attrobj.end())
+        st->attrobj["mtime"] = nfstime_now_str();
+    if (st->attrobj.find("atime") == st->attrobj.end())
+        st->attrobj["atime"] = st->attrobj["mtime"];
     // Generate inode ID
     allocate_new_id(st->self, [st](int res, uint64_t new_id)
     {
@@ -105,7 +109,8 @@ static void kv_do_create(kv_create_state *st)
         }
         st->new_id = new_id;
         auto direntry = json11::Json::object{ { "ino", st->new_id } };
-        if (st->attrobj["type"].string_value() == "dir")
+        if (st->attrobj.find("type") != st->attrobj.end() &&
+            st->attrobj["type"].string_value() == "dir")
         {
             direntry["type"] = "dir";
         }

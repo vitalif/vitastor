@@ -17,6 +17,7 @@ struct nfs_rmw_t
     uint8_t *buf = NULL;
     uint64_t size = 0;
     uint8_t *part_buf = NULL;
+    uint64_t version = 0;
 };
 
 struct nfs_kv_write_state
@@ -106,6 +107,14 @@ static void allocate_shared_inode(nfs_kv_write_state *st, int state, uint64_t si
             );
         });
     }
+    else
+    {
+        st->res = 0;
+        st->shared_inode = st->self->parent->kvfs->cur_shared_inode;
+        st->shared_offset = st->self->parent->kvfs->cur_shared_offset;
+        st->self->parent->kvfs->cur_shared_offset += (size + st->self->parent->pool_alignment-1) & ~(st->self->parent->pool_alignment-1);
+        nfs_kv_continue_write(st, state);
+    }
 }
 
 uint64_t align_shared_size(nfs_client_t *self, uint64_t size)
@@ -154,10 +163,7 @@ static void nfs_do_rmw(nfs_rmw_t *rmw)
 {
     auto parent = rmw->st->self->parent;
     auto align = parent->pool_alignment;
-    bool is_begin = (rmw->offset % align);
-    bool is_end = ((rmw->offset+rmw->size) % align);
-    // RMW either only at beginning or only at end and within a single block
-    assert(is_begin != is_end);
+    assert(rmw->size < align);
     assert((rmw->offset/parent->pool_block_size) == ((rmw->offset+rmw->size-1)/parent->pool_block_size));
     if (!rmw->part_buf)
     {
@@ -166,7 +172,7 @@ static void nfs_do_rmw(nfs_rmw_t *rmw)
     auto op = new cluster_op_t;
     op->opcode = OSD_OP_READ;
     op->inode = parent->fs_base_inode + rmw->ino;
-    op->offset = (rmw->offset + (is_begin ? 0 : rmw->size)) & ~(align-1);
+    op->offset = rmw->offset & ~(align-1);
     op->len = align;
     op->iov.push_back(rmw->part_buf, op->len);
     rmw->st->waiting++;
@@ -185,30 +191,43 @@ static void nfs_do_rmw(nfs_rmw_t *rmw)
         }
         else
         {
+            if (!rmw->version)
+            {
+                auto st = rmw->st;
+                rmw->version = rd_op->version+1;
+                if (st->rmw[0].st && st->rmw[1].st &&
+                    st->rmw[0].offset/st->self->parent->pool_block_size == st->rmw[1].offset/st->self->parent->pool_block_size)
+                {
+                    // Same block... RMWs should be sequential
+                    int other = rmw == &st->rmw[0] ? 1 : 0;
+                    st->rmw[other].version = rmw->version+1;
+                }
+            }
             auto parent = rmw->st->self->parent;
             auto align = parent->pool_alignment;
             bool is_begin = (rmw->offset % align);
+            bool is_end = ((rmw->offset+rmw->size) % align);
             auto op = new cluster_op_t;
             op->opcode = OSD_OP_WRITE;
             op->inode = rmw->st->self->parent->fs_base_inode + rmw->ino;
             op->offset = rmw->offset & ~(align-1);
-            op->len = (rmw->size + align-1) & ~(align-1);
-            op->version = rd_op->version+1;
+            op->len = align;
+            op->version = rmw->version;
             if (is_begin)
             {
                 op->iov.push_back(rmw->part_buf, rmw->offset % align);
             }
             op->iov.push_back(rmw->buf, rmw->size);
-            if (!is_begin)
+            if (is_end)
             {
-                auto tail = ((rmw->offset+rmw->size) % align);
-                op->iov.push_back(rmw->part_buf + tail, align - tail);
+                op->iov.push_back(rmw->part_buf + (rmw->offset % align) + rmw->size, align - (rmw->offset % align) - rmw->size);
             }
             op->callback = [rmw](cluster_op_t *op)
             {
-                if (op->retval == -EAGAIN)
+                if (op->retval == -EINTR)
                 {
                     // CAS failure - retry
+                    rmw->version = 0;
                     rmw->st->waiting--;
                     nfs_do_rmw(rmw);
                 }
@@ -272,11 +291,12 @@ static bool nfs_do_shared_readmodify(nfs_kv_write_state *st, int base_state, int
     else if (state == base_state) goto resume_0;
     assert(!st->aligned_buf);
     st->aligned_size = unshare
-        ? sizeof(shared_file_header_t) + (st->new_size + st->self->parent->pool_alignment-1) & ~(st->self->parent->pool_alignment-1)
+        ? sizeof(shared_file_header_t) + ((st->new_size + st->self->parent->pool_alignment-1) & ~(st->self->parent->pool_alignment-1))
         : align_shared_size(st->self, st->new_size);
     st->aligned_buf = (uint8_t*)malloc_or_die(st->aligned_size);
     memset(st->aligned_buf + sizeof(shared_file_header_t), 0, st->offset);
-    if (st->ientry["shared_ino"].uint64_value() != 0)
+    if (st->ientry["shared_ino"].uint64_value() != 0 &&
+        st->ientry["size"].uint64_value() != 0)
     {
         // Read old data if shared non-empty
         nfs_do_shared_read(st, base_state);
@@ -286,14 +306,15 @@ resume_0:
         {
             auto cb = std::move(st->cb);
             cb(st->res);
-            return true;
+            return false;
         }
         auto hdr = ((shared_file_header_t*)st->aligned_buf);
-        if (hdr->magic != SHARED_FILE_MAGIC_V1 || hdr->inode != st->ino ||
-            align_shared_size(st->self, hdr->size) > align_shared_size(st->self, st->ientry["size"].uint64_value()))
+        if (hdr->magic != SHARED_FILE_MAGIC_V1 || hdr->inode != st->ino)
         {
             // Got unrelated data - retry from the beginning
             st->allow_cache = false;
+            free(st->aligned_buf);
+            st->aligned_buf = NULL;
             nfs_kv_continue_write(st, 0);
             return false;
         }
@@ -301,7 +322,7 @@ resume_0:
     *((shared_file_header_t*)st->aligned_buf) = {
         .magic = SHARED_FILE_MAGIC_V1,
         .inode = st->ino,
-        .size = st->new_size,
+        .alloc = st->aligned_size,
     };
     memcpy(st->aligned_buf + sizeof(shared_file_header_t) + st->offset, st->buf, st->size);
     memset(st->aligned_buf + sizeof(shared_file_header_t) + st->offset + st->size, 0,
@@ -316,6 +337,8 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
     uint64_t good_offset = offset;
     uint64_t good_size = st->size;
     st->waiting++;
+    st->rmw[0].st = NULL;
+    st->rmw[1].st = NULL;
     if (offset % alignment)
     {
         // Requires read-modify-write in the beginning
@@ -337,17 +360,18 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
             .buf = st->buf,
             .size = s,
         };
+        // FIXME: skip rmw at shared beginning
         nfs_do_rmw(&st->rmw[0]);
     }
-    if ((offset+st->size-1) % alignment)
+    if ((offset+st->size) % alignment)
     {
         // Requires read-modify-write in the end
-        auto s = ((offset+st->size-1) % alignment);
+        auto s = ((offset+st->size) % alignment);
         if (good_size > s)
             good_size -= s;
         else
             good_size = 0;
-        if (((offset+st->size-1) / alignment) > (offset / alignment))
+        if ((offset+st->size)/alignment > offset/alignment)
         {
             st->rmw[1] = {
                 .st = st,
@@ -357,6 +381,7 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
                 .buf = st->buf + st->size-s,
                 .size = s,
             };
+            // FIXME: skip rmw at end
             nfs_do_rmw(&st->rmw[1]);
         }
     }
@@ -405,19 +430,28 @@ static std::string new_shared_ientry(nfs_kv_write_state *st)
     return json11::Json(ni).dump();
 }
 
-static void nfs_kv_extend_inode(nfs_kv_write_state *st, int state)
+static std::string new_unshared_ientry(nfs_kv_write_state *st)
 {
-    if (state == 1)
-    {
+    auto ni = st->ientry.object_items();
+    ni.erase("empty");
+    ni.erase("shared_ino");
+    ni.erase("shared_offset");
+    ni.erase("shared_alloc");
+    ni.erase("shared_ver");
+    return json11::Json(ni).dump();
+}
+
+static void nfs_kv_extend_inode(nfs_kv_write_state *st, int state, int base_state)
+{
+    if (state == base_state+1)
         goto resume_1;
-    }
     st->ext->cur_extend = st->ext->next_extend;
     st->ext->next_extend = 0;
     st->res2 = -EAGAIN;
-    st->self->parent->db->set(kv_inode_key(st->ino), new_normal_ientry(st), [st](int res)
+    st->self->parent->db->set(kv_inode_key(st->ino), new_normal_ientry(st), [st, base_state](int res)
     {
         st->res = res;
-        nfs_kv_continue_write(st, 13);
+        nfs_kv_continue_write(st, base_state+1);
     }, [st](int res, const std::string & old_value)
     {
         if (res != 0)
@@ -432,6 +466,7 @@ static void nfs_kv_extend_inode(nfs_kv_write_state *st, int state)
         auto ientry = json11::Json::parse(old_value, err).object_items();
         if (err != "")
         {
+            fprintf(stderr, "Invalid JSON in inode %lu = %s: %s\n", st->ino, old_value.c_str(), err.c_str());
             st->res2 = -EINVAL;
             return false;
         }
@@ -501,24 +536,20 @@ resume_1:
 //       - In parallel: check if data fits into inode size and extend if it doesn't
 //         - If CAS failure: re-read inode and retry to extend the size
 //     - If shared:
-//       - Read whole file from shared inode
-//         - If the file header in data doesn't match: re-read inode and restart
 //       - If data doesn't fit into the same shared inode:
 //         - Allocate space in a new shared inode
+//         - Read whole file from shared inode
 //         - Write data into the new shared inode
 //           - If CAS failure: allocate another shared inode and retry
 //         - Update inode metadata (set new size and new shared inode)
 //           - If CAS failure: free allocated shared space, re-read inode and restart
 //       - If it fits:
-//         - Write updated data into the shared inode
+//         - Update shared inode data in-place
 //         - Update inode entry in any case to block parallel non-shared writes
 //           - If CAS failure: re-read inode and restart
 // - Otherwise:
-//   - Write data into non-shared inode
-//   - Read inode in parallel
-//     - If not a regular file:
-//       - Remove data
-//       - Stop with -EINVAL
+//   - Read inode
+//     - If not a regular file - stop with -EINVAL
 //     - If shared:
 //       - Read whole file from shared inode
 //       - Write data into non-shared inode
@@ -526,9 +557,9 @@ resume_1:
 //       - Update inode metadata (make non-shared, update size)
 //         - If CAS failure: restart
 //       - Zero out the shared inode header
-//         - If CAS failure: restart
-//     - Check if size fits
-//       - Extend if it doesn't
+//   - Write data into non-shared inode
+//   - Check if size fits
+//     - Extend if it doesn't
 // Read:
 // - If (offset+size <= threshold):
 //   - Read inode from cache
@@ -557,6 +588,9 @@ static void nfs_kv_continue_write(nfs_kv_write_state *st, int state)
     else if (state == 11) goto resume_11;
     else if (state == 12) goto resume_12;
     else if (state == 13) goto resume_13;
+    else if (state == 14) goto resume_14;
+    else if (state == 15) goto resume_15;
+    else if (state == 16) goto resume_16;
     else
     {
         fprintf(stderr, "BUG: invalid state in nfs_kv_continue_write()");
@@ -578,9 +612,7 @@ resume_0:
     }, st->allow_cache);
     return;
 resume_1:
-    if (st->res < 0 ||
-        st->ientry["type"].uint64_value() != 0 &&
-        st->ientry["type"].uint64_value() != NF3REG)
+    if (st->res < 0 || kv_map_type(st->ientry["type"].string_value()) != NF3REG)
     {
         auto cb = std::move(st->cb);
         cb(st->res == 0 ? -EINVAL : st->res);
@@ -594,11 +626,11 @@ resume_1:
     }
     if (st->offset + st->size + sizeof(shared_file_header_t) < st->self->parent->shared_inode_threshold)
     {
-        if (st->ientry["size"].uint64_value() == 0 ||
+        if (st->ientry["size"].uint64_value() == 0 &&
+            st->ientry["shared_ino"].uint64_value() == 0 ||
             st->ientry["empty"].bool_value() &&
-            st->ientry["size"].uint64_value() + sizeof(shared_file_header_t) < st->self->parent->shared_inode_threshold ||
+            (st->ientry["size"].uint64_value() + sizeof(shared_file_header_t)) < st->self->parent->shared_inode_threshold ||
             st->ientry["shared_ino"].uint64_value() != 0 &&
-            st->ientry["size"].uint64_value() < st->offset+st->size &&
             st->ientry["shared_alloc"].uint64_value() < align_shared_size(st->self, st->offset+st->size))
         {
             // Either empty, or shared and requires moving into a larger place (redirect-write)
@@ -669,17 +701,18 @@ resume_7:
                 nfs_do_fsync(st, 8);
                 return;
             }
+resume_8:
             // We always have to change inode entry on shared writes
             st->self->parent->db->set(kv_inode_key(st->ino), new_shared_ientry(st), [st](int res)
             {
                 st->res = res;
-                nfs_kv_continue_write(st, 8);
+                nfs_kv_continue_write(st, 9);
             }, [st](int res, const std::string & old_value)
             {
                 return res == 0 && old_value == st->ientry_text;
             });
             return;
-resume_8:
+resume_9:
             if (st->res == -EAGAIN)
             {
                 goto resume_0;
@@ -690,28 +723,55 @@ resume_8:
         }
         // Fall through for non-shared
     }
-    // Non-shared write
+    // Unshare?
     if (st->ientry["shared_ino"].uint64_value() != 0)
     {
-        // Unshare
-resume_9:
-        if (!nfs_do_shared_readmodify(st, 9, state, true))
+        if (st->ientry["size"].uint64_value() != 0)
+        {
+            assert(!st->aligned_buf);
+            st->aligned_size = align_shared_size(st->self, st->ientry["size"].uint64_value());
+            st->aligned_buf = (uint8_t*)malloc_or_die(st->aligned_size);
+            nfs_do_shared_read(st, 10);
             return;
-        nfs_do_unshare_write(st, 10);
-        return;
-    }
-    else
-    {
-        // Just write
-        nfs_do_align_write(st, st->ino, st->offset, 10);
-    }
 resume_10:
+            nfs_do_unshare_write(st, 11);
+            return;
+resume_11:
+            ;
+        }
+        st->self->parent->db->set(kv_inode_key(st->ino), new_unshared_ientry(st), [st](int res)
+        {
+            st->res = res;
+            nfs_kv_continue_write(st, 12);
+        }, [st](int res, const std::string & old_value)
+        {
+            return res == 0 && old_value == st->ientry_text;
+        });
+        return;
+resume_12:
+        if (st->res == -EAGAIN)
+        {
+            // Restart
+            goto resume_0;
+        }
+        if (st->res < 0)
+        {
+            auto cb = std::move(st->cb);
+            cb(st->res);
+            return;
+        }
+        st->ientry_text = new_unshared_ientry(st);
+    }
+    // Non-shared write
+    nfs_do_align_write(st, st->ino, st->offset, 13);
+    return;
+resume_13:
     if (st->res == 0 && st->stable && !st->was_immediate)
     {
-        nfs_do_fsync(st, 11);
+        nfs_do_fsync(st, 14);
         return;
     }
-resume_11:
+resume_14:
     if (st->res < 0)
     {
         auto cb = std::move(st->cb);
@@ -724,7 +784,7 @@ resume_11:
     {
         st->ext = &st->self->parent->kvfs->extends[st->ino];
         st->ext->refcnt++;
-resume_12:
+resume_15:
         if (st->ext->next_extend < st->new_size)
         {
             // Aggregate inode extension requests
@@ -733,15 +793,15 @@ resume_12:
         if (st->ext->cur_extend > 0)
         {
             // Wait for current extend which is already in progress
-            st->ext->waiters.push_back([st](){ nfs_kv_continue_write(st, 12); });
+            st->ext->waiters.push_back([st](){ nfs_kv_continue_write(st, 15); });
             return;
         }
         if (st->ext->done_extend < st->new_size)
         {
-            nfs_kv_extend_inode(st, 0);
+            nfs_kv_extend_inode(st, 15, 15);
             return;
-resume_13:
-            nfs_kv_extend_inode(st, 1);
+resume_16:
+            nfs_kv_extend_inode(st, 16, 15);
         }
         st->ext->refcnt--;
         assert(st->ext->refcnt >= 0);
@@ -769,6 +829,8 @@ int kv_nfs3_write_proc(void *opaque, rpc_op_t *rop)
     st->ino = kv_fh_inode(args->file);
     st->offset = args->offset;
     st->size = (args->count > args->data.size ? args->data.size : args->count);
+    if (st->self->parent->trace)
+        fprintf(stderr, "[%d] WRITE %ju %ju+%ju\n", st->self->nfs_fd, st->ino, st->offset, st->size);
     if (!st->ino || st->size > MAX_REQUEST_SIZE)
     {
         *reply = (WRITE3res){ .status = NFS3ERR_INVAL };

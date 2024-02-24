@@ -46,7 +46,7 @@ struct kv_inode_extend_t
 struct kv_fs_state_t
 {
     std::map<list_cookie_t, list_cookie_val_t> list_cookies;
-    uint64_t fs_next_id = 0, fs_allocated_id = 0;
+    uint64_t fs_next_id = 1, fs_allocated_id = 0;
     std::vector<uint64_t> unallocated_ids;
     std::vector<shared_alloc_queue_t> allocating_shared;
     uint64_t cur_shared_inode = 0, cur_shared_offset = 0;
@@ -57,12 +57,13 @@ struct shared_file_header_t
 {
     uint64_t magic = 0;
     uint64_t inode = 0;
-    uint64_t size = 0;
+    uint64_t alloc = 0;
 };
 
 nfsstat3 vitastor_nfs_map_err(int err);
 nfstime3 nfstime_from_str(const std::string & s);
 std::string nfstime_to_str(nfstime3 t);
+std::string nfstime_now_str();
 int kv_map_type(const std::string & type);
 fattr3 get_kv_attributes(nfs_client_t *self, uint64_t ino, json11::Json attrs);
 std::string kv_direntry_key(uint64_t dir_ino, const std::string & filename);

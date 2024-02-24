@@ -29,11 +29,29 @@ nfstime3 nfstime_from_str(const std::string & s)
     return t;
 }
 
+static std::string timespec_to_str(timespec t)
+{
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%ju.%09ju", t.tv_sec, t.tv_nsec);
+    int l = strlen(buf);
+    while (l > 0 && buf[l-1] == '0')
+        l--;
+    if (l > 0 && buf[l-1] == '.')
+        l--;
+    buf[l] = 0;
+    return buf;
+}
+
 std::string nfstime_to_str(nfstime3 t)
 {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%u.%09u", t.seconds, t.nseconds);
-    return buf;
+    return timespec_to_str((timespec){ .tv_sec = t.seconds, .tv_nsec = t.nseconds });
+}
+
+std::string nfstime_now_str()
+{
+    timespec t;
+    clock_gettime(CLOCK_REALTIME, &t);
+    return timespec_to_str(t);
 }
 
 int kv_map_type(const std::string & type)

@@ -99,7 +99,8 @@ resume_2:
         return;
     }
     if (!st->set_attrs["size"].is_null() &&
-        st->ientry["size"].uint64_value() > st->set_attrs["size"].uint64_value())
+        st->ientry["size"].uint64_value() > st->set_attrs["size"].uint64_value() &&
+        !st->ientry["shared_ino"].uint64_value())
     {
         // Delete extra data when downsizing
         st->self->parent->cmd->loop_and_wait(st->self->parent->cmd->start_rm_data(json11::Json::object {
@@ -147,11 +148,16 @@ int kv_nfs3_setattr_proc(void *opaque, rpc_op_t *rop)
         st->set_attrs["uid"] = (uint64_t)args->new_attributes.uid.uid;
     if (args->new_attributes.gid.set_it)
         st->set_attrs["gid"] = (uint64_t)args->new_attributes.gid.gid;
-    if (args->new_attributes.atime.set_it)
+    if (args->new_attributes.atime.set_it == SET_TO_SERVER_TIME)
+        st->set_attrs["atime"] = nfstime_now_str();
+    else if (args->new_attributes.atime.set_it == SET_TO_CLIENT_TIME)
         st->set_attrs["atime"] = nfstime_to_str(args->new_attributes.atime.atime);
-    if (args->new_attributes.mtime.set_it)
+    if (args->new_attributes.mtime.set_it == SET_TO_SERVER_TIME)
+        st->set_attrs["mtime"] = nfstime_now_str();
+    else if (args->new_attributes.mtime.set_it == SET_TO_CLIENT_TIME)
         st->set_attrs["mtime"] = nfstime_to_str(args->new_attributes.mtime.mtime);
-    fprintf(stderr, "SETATTR %ju ATTRS %s\n", st->ino, json11::Json(st->set_attrs).dump().c_str());
+    if (st->self->parent->trace)
+        fprintf(stderr, "[%d] SETATTR %ju ATTRS %s\n", st->self->nfs_fd, st->ino, json11::Json(st->set_attrs).dump().c_str());
     st->cb = [st](int res)
     {
         auto reply = (SETATTR3res*)st->rop->reply;

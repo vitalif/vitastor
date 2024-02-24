@@ -85,8 +85,7 @@ resume_2:
                 return;
             }
             auto hdr = ((shared_file_header_t*)st->aligned_buf);
-            if (hdr->magic != SHARED_FILE_MAGIC_V1 || hdr->inode != st->ino ||
-                align_shared_size(st->self, hdr->size) > align_shared_size(st->self, st->ientry["size"].uint64_value()))
+            if (hdr->magic != SHARED_FILE_MAGIC_V1 || hdr->inode != st->ino)
             {
                 // Got unrelated data - retry from the beginning
                 free(st->aligned_buf);
@@ -101,7 +100,7 @@ resume_2:
         }
     }
     st->aligned_offset = (st->offset & ~(st->self->parent->pool_alignment-1));
-    st->aligned_size = ((st->offset + st->size + st->self->parent->pool_alignment) &
+    st->aligned_size = ((st->offset + st->size + st->self->parent->pool_alignment-1) &
         ~(st->self->parent->pool_alignment-1)) - st->aligned_offset;
     st->aligned_buf = (uint8_t*)malloc_or_die(st->aligned_size);
     st->buf = st->aligned_buf + st->offset - st->aligned_offset;
@@ -121,7 +120,7 @@ resume_2:
     return;
 resume_3:
     auto cb = std::move(st->cb);
-    cb(st->res);
+    cb(st->res < 0 ? st->res : 0);
     return;
 }
 
@@ -157,6 +156,8 @@ int kv_nfs3_read_proc(void *opaque, rpc_op_t *rop)
         rpc_queue_reply(st->rop);
         delete st;
     };
+    if (st->self->parent->trace)
+        fprintf(stderr, "[%d] READ %ju %ju+%ju\n", st->self->nfs_fd, st->ino, st->offset, st->size);
     nfs_kv_continue_read(st, 0);
     return 1;
 }

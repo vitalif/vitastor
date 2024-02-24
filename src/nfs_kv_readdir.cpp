@@ -188,7 +188,7 @@ resume_2:
         auto lc_it = st->self->parent->kvfs->list_cookies.find((list_cookie_t){ st->dir_ino, st->cookieverf, st->cookie });
         if (lc_it != st->self->parent->kvfs->list_cookies.end())
         {
-            st->start = lc_it->second.key;
+            st->start = st->prefix+lc_it->second.key;
             st->to_skip = 1;
             st->offset = st->cookie;
         }
@@ -235,7 +235,7 @@ resume_2:
         st->self->parent->db->list_next(st->list_handle, NULL);
         return;
 resume_3:
-        if (st->res == -ENOENT || st->cur_key.size() > st->prefix.size() || st->cur_key.substr(0, st->prefix.size()) != st->prefix)
+        if (st->res == -ENOENT || st->cur_key.size() < st->prefix.size() || st->cur_key.substr(0, st->prefix.size()) != st->prefix)
         {
             st->self->parent->db->list_close(st->list_handle);
             st->list_handle = NULL;
@@ -256,6 +256,11 @@ resume_3:
         }
         auto ino = direntry["ino"].uint64_value();
         auto name = kv_direntry_filename(st->cur_key);
+        if (st->self->parent->trace)
+        {
+            fprintf(stderr, "[%d] READDIR %ju %lu %s\n",
+                st->self->nfs_fd, st->dir_ino, st->offset, name.c_str());
+        }
         auto fh = kv_fh(ino);
         // 1 entry3 is (8+4+(filename_len+3)/4*4+8) bytes
         // 1 entryplus3 is (8+4+(filename_len+3)/4*4+8
@@ -276,7 +281,7 @@ resume_3:
         entry->name = xdr_copy_string(st->rop->xdrs, name);
         entry->fileid = ino;
         entry->cookie = st->offset++;
-        st->self->parent->kvfs->list_cookies[(list_cookie_t){ st->dir_ino, st->cookieverf, entry->cookie }] = { .key = entry->name };
+        st->self->parent->kvfs->list_cookies[(list_cookie_t){ st->dir_ino, st->cookieverf, entry->cookie }] = { .key = name };
         if (st->is_plus)
         {
             entry->name_handle = (post_op_fh3){
@@ -285,7 +290,6 @@ resume_3:
             };
             kv_getattr_next(st);
         }
-        st->self->parent->db->list_next(st->list_handle, NULL);
     }
 resume_4:
     while (st->getattr_running > 0)

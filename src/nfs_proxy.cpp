@@ -98,7 +98,7 @@ void nfs_proxy_t::run(json11::Json cfg)
     srand48(tv.tv_sec*1000000000 + tv.tv_nsec);
     server_id = (uint64_t)lrand48() | ((uint64_t)lrand48() << 31) | ((uint64_t)lrand48() << 62);
     // Parse options
-    trace = cfg["log_level"].uint64_value() > 5;
+    trace = cfg["log_level"].uint64_value() > 5 || cfg["trace"].uint64_value() > 0;
     bind_address = cfg["bind"].string_value();
     if (bind_address == "")
         bind_address = "0.0.0.0";
@@ -156,7 +156,15 @@ void nfs_proxy_t::run(json11::Json cfg)
     check_default_pool();
     // Check if we're using VitastorFS
     fs_kv_inode = cfg["fs"].uint64_value();
-    if (!fs_kv_inode && cfg["fs"].is_string())
+    if (fs_kv_inode)
+    {
+        if (!INODE_POOL(fs_kv_inode))
+        {
+            fprintf(stderr, "FS metadata inode number must include pool\n");
+            exit(1);
+        }
+    }
+    else if (cfg["fs"].is_string())
     {
         for (auto & ic: cli->st_cli.inode_config)
         {
@@ -165,6 +173,11 @@ void nfs_proxy_t::run(json11::Json cfg)
                 fs_kv_inode = ic.first;
                 break;
             }
+        }
+        if (!fs_kv_inode)
+        {
+            fprintf(stderr, "FS metadata image \"%s\" does not exist\n", cfg["fs"].string_value().c_str());
+            exit(1);
         }
     }
     readdir_getattr_parallel = cfg["readdir_getattr_parallel"].uint64_value();

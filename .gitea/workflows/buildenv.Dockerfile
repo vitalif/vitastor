@@ -22,7 +22,7 @@ RUN apt-get update
 RUN apt-get -y install etcd qemu-system-x86 qemu-block-extra qemu-utils fio libasan5 \
     liburing1 liburing-dev libgoogle-perftools-dev devscripts libjerasure-dev cmake libibverbs-dev libisal-dev
 RUN apt-get -y build-dep fio qemu=`dpkg -s qemu-system-x86|grep ^Version:|awk '{print $2}'`
-RUN apt-get -y install jq lp-solve sudo
+RUN apt-get -y install jq lp-solve sudo nfs-common
 RUN apt-get --download-only source fio qemu=`dpkg -s qemu-system-x86|grep ^Version:|awk '{print $2}'`
 
 RUN set -ex; \
