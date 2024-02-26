@@ -48,6 +48,15 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
     {
         auto bs_cfg = json_to_bs(this->config);
         this->bs = new blockstore_t(bs_cfg, ringloop, tfd);
+        // Wait for blockstore initialisation before actually starting OSD logic
+        // to prevent peering timeouts during restart with filled databases
+        while (!bs->is_started())
+        {
+            ringloop->loop();
+            if (bs->is_started())
+                break;
+            ringloop->wait();
+        }
         // Autosync based on the number of unstable writes to prevent stalls due to insufficient journal space
         uint64_t max_autosync = bs->get_journal_size() / bs->get_block_size() / 2;
         if (autosync_writes > max_autosync)
