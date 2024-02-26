@@ -81,7 +81,8 @@ public:
 
 std::string print_table(json11::Json items, json11::Json header, bool use_esc);
 
-std::string print_detail(json11::Json item, std::vector<std::pair<std::string, std::string>> names, bool use_esc);
+size_t print_detail_title_len(json11::Json item, std::vector<std::pair<std::string, std::string>> names, size_t prev_len);
+std::string print_detail(json11::Json item, std::vector<std::pair<std::string, std::string>> names, size_t title_len, bool use_esc);
 
 std::string format_lat(uint64_t lat);
 

@@ -154,8 +154,25 @@ That is, if it becomes impossible to place PG data on at least (pg_minsize)
 OSDs, PG is deactivated for both read and write. So you know that a fresh
 write always goes to at least (pg_minsize) OSDs (disks).
 
-That is, pg_size minus pg_minsize sets the number of disk failures to tolerate
-without temporary downtime (for [osd_out_time](monitor.en.md#osd_out_time)).
+For example, the difference between pg_minsize 2 and 1 in a 3-way replicated
+pool (pg_size=3) is:
+- If 2 hosts go down with pg_minsize=2, the pool becomes inactive and remains
+  inactive for [osd_out_time](monitor.en.md#osd_out_time) (10 minutes). After
+  this timeout, the monitor selects replacement hosts/OSDs and the pool comes
+  up and starts to heal. Therefore, if you don't have replacement OSDs, i.e.
+  if you only have 3 hosts with OSDs and 2 of them are down, the pool remains
+  inactive until you add or return at least 1 host (or change failure_domain
+  to "osd").
+- If 2 hosts go down with pg_minsize=1, the pool only experiences a short
+  I/O pause until the monitor notices that OSDs are down (5-10 seconds with
+  the default [etcd_report_interval](osd.en.md#etcd_report_interval)). After
+  this pause, I/O resumes, but new data is temporarily written in only 1 copy.
+  Then, after osd_out_time, the monitor also selects replacement OSDs and the
+  pool starts to heal.
+
+So, pg_minsize regulates the number of failures that a pool can tolerate
+without temporary downtime for [osd_out_time](monitor.en.md#osd_out_time),
+but at a cost of slightly reduced storage reliability.
 
 FIXME: pg_minsize behaviour may be changed in the future to only make PGs
 read-only instead of deactivating them.
@@ -168,8 +185,8 @@ read-only instead of deactivating them.
 Number of PGs for this pool. The value should be big enough for the monitor /
 LP solver to be able to optimize data placement.
 
-"Enough" is usually around 64-128 PGs per OSD, i.e. you set pg_count for pool
-to (total OSD count * 100 / pg_size). You can round it to the closest power of 2,
+"Enough" is usually around 10-100 PGs per OSD, i.e. you set pg_count for pool
+to (total OSD count * 10 / pg_size). You can round it to the closest power of 2,
 because it makes it easier to reduce or increase PG count later by dividing or
 multiplying it by 2.
 

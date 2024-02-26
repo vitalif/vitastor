@@ -562,11 +562,17 @@ resume_3:
                 { "write_fmt", "Write" },
                 { "delete_fmt", "Delete" },
             };
-            for (auto & item: to_list())
+            auto list = to_list();
+            size_t title_len = 0;
+            for (auto & item: list)
+            {
+                title_len = print_detail_title_len(item, cols, title_len);
+            }
+            for (auto & item: list)
             {
                 if (result.text != "")
                     result.text += "\n";
-                result.text += print_detail(item, cols, parent->color);
+                result.text += print_detail(item, cols, title_len, parent->color);
             }
             state = 100;
             return;
@@ -631,9 +637,9 @@ resume_3:
     }
 };
 
-std::string print_detail(json11::Json item, std::vector<std::pair<std::string, std::string>> names, bool use_esc)
+size_t print_detail_title_len(json11::Json item, std::vector<std::pair<std::string, std::string>> names, size_t prev_len)
 {
-    size_t title_len = 0;
+    size_t title_len = prev_len;
     for (auto & kv: names)
     {
         if (!item[kv.first].is_null() && (!item[kv.first].is_string() || item[kv.first].string_value() != ""))
@@ -642,6 +648,11 @@ std::string print_detail(json11::Json item, std::vector<std::pair<std::string, s
             title_len = title_len < len ? len : title_len;
         }
     }
+    return title_len;
+}
+
+std::string print_detail(json11::Json item, std::vector<std::pair<std::string, std::string>> names, size_t title_len, bool use_esc)
+{
     std::string str;
     for (auto & kv: names)
     {

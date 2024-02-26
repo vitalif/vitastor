@@ -77,18 +77,16 @@
 
 ## Создайте пул
 
-Создайте конфигурацию пула с помощью etcdctl:
+Создайте пул с помощью vitastor-cli:
 
 ```
-etcdctl --endpoints=... put /vitastor/config/pools '{"1":{"name":"testpool",
-  "scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":256,"failure_domain":"host"}}'
+vitastor-cli create-pool testpool --pg_size 2 --pg_count 256
 ```
 
 Для пулов с кодами коррекции ошибок конфигурация должна выглядеть примерно так:
 
 ```
-etcdctl --endpoints=... put /vitastor/config/pools '{"2":{"name":"ecpool",
-  "scheme":"ec","pg_size":4,"parity_chunks":2,"pg_minsize":2,"pg_count":256,"failure_domain":"host"}}'
+vitastor-cli create-pool testpool --ec 2+2 --pg_count 256
 ```
 
 После этого один из мониторов должен сконфигурировать PG, а OSD должны запустить их.

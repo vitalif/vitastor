@@ -49,7 +49,7 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
         // Default scheme
         new_cfg["scheme"] = "replicated";
     }
-    if (old_cfg.is_null() && !new_cfg["pg_minsize"].uint64_value())
+    if (new_cfg.find("pg_minsize") == new_cfg.end() && (old_cfg.is_null() || new_cfg.find("pg_size") != new_cfg.end()))
     {
         // Default pg_minsize
         if (new_cfg["scheme"] == "replicated")
@@ -83,6 +83,7 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
             {
                 return key+" must be a non-negative integer";
             }
+            value = value.uint64_value();
         }
         else if (key == "name" || key == "scheme" || key == "immediate_commit" ||
             key == "failure_domain" || key == "root_node" || key == "scrub_interval")

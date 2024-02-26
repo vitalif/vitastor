@@ -24,6 +24,10 @@ It supports the following commands:
 - [fix](#fix)
 - [alloc-osd](#alloc-osd)
 - [rm-osd](#rm-osd)
+- [create-pool](#create-pool)
+- [modify-pool](#modify-pool)
+- [ls-pools](#ls-pools)
+- [rm-pool](#rm-pool)
 
 Global options:
 
@@ -238,3 +242,84 @@ Refuses to remove OSDs with data without `--force` and `--allow-data-loss`.
 
 With `--dry-run` only checks if deletion is possible without data loss and
 redundancy degradation.
+
+## create-pool
+
+`vitastor-cli create-pool|pool-create <name> (-s <pg_size>|--ec <N>+<K>) -n <pg_count> [OPTIONS]`
+
+Create a pool. Required parameters:
+
+| `-s|--pg_size R`  | Number of replicas for replicated pools                                               |
+| `--ec N+K`        | Number of data (N) and parity (K) chunks for erasure-coded pools                      |
+| `-n|--pg_count N` | PG count for the new pool (start with 10*<OSD count>/pg_size rounded to a power of 2) |
+
+Optional parameters:
+
+| `--pg_minsize <number>`        | R or N+K minus number of failures to tolerate without downtime ([details](../config/pool.en.md#pg_minsize)) |
+| `--failure_domain host`        | Failure domain: host, osd or a level from placement_levels. Default: host  |
+| `--root_node <node>`           | Put pool only on child OSDs of this placement tree node                    |
+| `--osd_tags <tag>[,<tag>]...`  | Put pool only on OSDs tagged with all specified tags                       |
+| `--block_size 128k`            | Put pool only on OSDs with this data block size                            |
+| `--bitmap_granularity 4k`      | Put pool only on OSDs with this logical sector size                        |
+| `--immediate_commit none`      | Put pool only on OSDs with this or larger immediate_commit (none < small < all) |
+| `--primary_affinity_tags tags` | Prefer to put primary copies on OSDs with all specified tags               |
+| `--scrub_interval <time>`      | Enable regular scrubbing for this pool. Format: number + unit s/m/h/d/M/y  |
+| `--pg_stripe_size <number>`    | Increase object grouping stripe                                            |
+| `--max_osd_combinations 10000` | Maximum number of random combinations for LP solver input                  |
+| `--wait`                       | Wait for the new pool to come online                                       |
+| `-f|--force`                   | Do not check that cluster has enough OSDs to create the pool               |
+
+See also [Pool configuration](../config/pool.en.md) for detailed parameter descriptions.
+
+Examples:
+
+`vitastor-cli create-pool test_x4 -s 4 -n 32`
+
+`vitastor-cli create-pool test_ec42 --ec 4+2 -n 32`
+
+## modify-pool
+
+`vitastor-cli modify-pool|pool-modify <id|name> [--name <new_name>] [PARAMETERS...]`
+
+Modify an existing pool. Modifiable parameters:
+
+```
+[-s|--pg_size <number>] [--pg_minsize <number>] [-n|--pg_count <count>]
+[--failure_domain <level>] [--root_node <node>] [--osd_tags <tags>]
+[--max_osd_combinations <number>] [--primary_affinity_tags <tags>] [--scrub_interval <time>]
+```
+
+Non-modifiable parameters (changing them WILL lead to data loss):
+
+```
+[--block_size <size>] [--bitmap_granularity <size>]
+[--immediate_commit <all|small|none>] [--pg_stripe_size <size>]
+```
+
+These, however, can still be modified with -f|--force.
+
+See [create-pool](#create-pool) for parameter descriptions.
+
+Examples:
+
+`vitastor-cli modify-pool pool_A --name pool_B`
+
+`vitastor-cli modify-pool 2 --pg_size 4 -n 128`
+
+## rm-pool
+
+`vitastor-cli rm-pool|pool-rm [--force] <id|name>`
+
+Remove a pool. Refuses to remove pools with images without `--force`.
+
+## ls-pools
+
+`vitastor-cli ls-pools|pool-ls|ls-pool|pools [-l] [--detail] [--sort FIELD] [-r] [-n N] [--stats] [<glob> ...]`
+
+List pools (only matching <glob> patterns if passed).
+
+| `-l|--long`     | Also report I/O statistics                            |
+| `--detail`      | Use list format (not table), show all details         |
+| `--sort FIELD`  | Sort by specified field (see fields in --json output) |
+| `-r|--reverse`  | Sort in descending order                              |
+| `-n|--count N`  | Only list first N items                               |
