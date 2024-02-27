@@ -25,7 +25,6 @@ between clients, OSDs and etcd.
 - [peer_connect_timeout](#peer_connect_timeout)
 - [osd_idle_timeout](#osd_idle_timeout)
 - [osd_ping_timeout](#osd_ping_timeout)
-- [up_wait_retry_interval](#up_wait_retry_interval)
 - [max_etcd_attempts](#max_etcd_attempts)
 - [etcd_quick_timeout](#etcd_quick_timeout)
 - [etcd_slow_timeout](#etcd_slow_timeout)
@@ -211,17 +210,6 @@ keepalive requests to check state of the connection.
 Maximum time to wait for OSD keepalive responses. If an OSD doesn't respond
 within this time, the connection to it is dropped and a reconnection attempt
 is scheduled.
-
-## up_wait_retry_interval
-
-- Type: milliseconds
-- Default: 50
-- Minimum: 10
-- Can be changed online: yes
-
-OSDs respond to clients with a special error code when they receive I/O
-requests for a PG that's not synchronized and started. This parameter sets
-the time for the clients to wait before re-attempting such I/O requests.
 
 ## max_etcd_attempts
 

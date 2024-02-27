@@ -1,3 +1,27 @@
+- name: client_retry_interval
+  type: ms
+  min: 10
+  default: 50
+  online: true
+  info: |
+    Retry time for I/O requests failed due to inactive PGs or network
+    connectivity errors.
+  info_ru: |
+    Время повтора запросов ввода-вывода, неудачных из-за неактивных PG или
+    ошибок сети.
+- name: client_eio_retry_interval
+  type: ms
+  default: 1000
+  online: true
+  info: |
+    Retry time for I/O requests failed due to data corruption or unfinished
+    EC object deletions (has_incomplete PG state). 0 disables such retries
+    and clients are not blocked and just get EIO error code instead.
+  info_ru: |
+    Время повтора запросов ввода-вывода, неудачных из-за повреждения данных
+    или незавершённых удалений EC-объектов (состояния PG has_incomplete).
+    0 отключает повторы таких запросов и клиенты не блокируются, а вместо
+    этого просто получают код ошибки EIO.
 - name: client_max_dirty_bytes
   type: int
   default: 33554432

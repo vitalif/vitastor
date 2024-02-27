@@ -59,7 +59,7 @@ protected:
     void *buf = NULL;
     cluster_op_t *orig_op = NULL;
     bool needs_reslice = false;
-    bool up_wait = false;
+    int retry_after = 0;
     int inflight_count = 0, done_count = 0;
     std::vector<cluster_op_part_t> parts;
     void *part_bitmaps = NULL;
@@ -92,9 +92,11 @@ class cluster_client_t
     uint64_t client_max_writeback_iodepth = 0;
 
     int log_level = 0;
-    int up_wait_retry_interval = 500; // ms
+    int client_retry_interval = 50; // ms
+    int client_eio_retry_interval = 1000; // ms
 
     int retry_timeout_id = 0;
+    int retry_timeout_duration = 0;
     std::vector<cluster_op_t*> offline_ops;
     cluster_op_t *op_queue_head = NULL, *op_queue_tail = NULL;
     writeback_cache_t *wb = NULL;
@@ -131,7 +133,7 @@ public:
 
     bool get_immediate_commit(uint64_t inode);
 
-    void continue_ops(bool up_retry = false);
+    void continue_ops(int time_passed = 0);
     inode_list_t *list_inode_start(inode_t inode,
         std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback);
     int list_pg_count(inode_list_t *lst);
@@ -152,6 +154,7 @@ protected:
     int continue_rw(cluster_op_t *op);
     bool check_rw(cluster_op_t *op);
     void slice_rw(cluster_op_t *op);
+    void reset_retry_timer(int new_duration);
     bool try_send(cluster_op_t *op, int i);
     int continue_sync(cluster_op_t *op);
     void send_sync(cluster_op_t *op, cluster_op_part_t *part);
