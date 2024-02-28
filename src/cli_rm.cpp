@@ -53,6 +53,8 @@ struct snap_remover_t
     int use_cas = 1;
     // interval between fsyncs
     int fsync_interval = 128;
+    // ignore deletion errors
+    bool down_ok = false;
 
     std::map<inode_t,int> sources;
     std::map<inode_t,uint64_t> inode_used;
@@ -679,6 +681,7 @@ resume_100:
             { "inode", inode },
             { "pool", (uint64_t)INODE_POOL(inode) },
             { "fsync-interval", fsync_interval },
+            { "down-ok", down_ok },
         });
     }
 };
@@ -690,6 +693,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_rm(json11::Json cfg)
     snap_remover->from_name = cfg["from"].string_value();
     snap_remover->to_name = cfg["to"].string_value();
     snap_remover->fsync_interval = cfg["fsync_interval"].uint64_value();
+    snap_remover->down_ok = cfg["down_ok"].bool_value();
     if (!snap_remover->fsync_interval)
         snap_remover->fsync_interval = 128;
     if (!cfg["cas"].is_null())

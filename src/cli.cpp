@@ -46,18 +46,21 @@ static const char* help_text =
     "vitastor-cli snap-create [-p|--pool <id|name>] <image>@<snapshot>\n"
     "  Create a snapshot of image <name>. May be used live if only a single writer is active.\n"
     "\n"
-    "vitastor-cli modify <name> [--rename <new-name>] [--resize <size>] [--readonly | --readwrite] [-f|--force]\n"
+    "vitastor-cli modify <name> [--rename <new-name>] [--resize <size>] [--readonly | --readwrite] [-f|--force] [--down-ok]\n"
     "  Rename, resize image or change its readonly status. Images with children can't be made read-write.\n"
     "  If the new size is smaller than the old size, extra data will be purged.\n"
     "  You should resize file system in the image, if present, before shrinking it.\n"
     "  -f|--force  Proceed with shrinking or setting readwrite flag even if the image has children.\n"
+    "  --down-ok   Proceed with shrinking even if some data will be left on unavailable OSDs.\n"
     "\n"
-    "vitastor-cli rm <from> [<to>] [--writers-stopped]\n"
+    "vitastor-cli rm <from> [<to>] [--writers-stopped] [--down-ok]\n"
     "  Remove <from> or all layers between <from> and <to> (<to> must be a child of <from>),\n"
     "  rebasing all their children accordingly. --writers-stopped allows merging to be a bit\n"
     "  more effective in case of a single 'slim' read-write child and 'fat' removed parent:\n"
     "  the child is merged into parent and parent is renamed to child in that case.\n"
     "  In other cases parent layers are always merged into children.\n"
+    "  Other options:\n"
+    "  --down-ok  Continue deletion/merging even if some data will be left on unavailable OSDs.\n"
     "\n"
     "vitastor-cli flatten <layer>\n"
     "  Flatten a layer, i.e. merge data and detach it from parents.\n"
@@ -171,6 +174,7 @@ static json11::Json::object parse_args(int narg, const char *args[])
                 !strcmp(opt, "readonly") || !strcmp(opt, "readwrite") ||
                 !strcmp(opt, "force") || !strcmp(opt, "reverse") ||
                 !strcmp(opt, "allow-data-loss") || !strcmp(opt, "allow_data_loss") ||
+                !strcmp(opt, "down-ok") || !strcmp(opt, "down_ok") ||
                 !strcmp(opt, "dry-run") || !strcmp(opt, "dry_run") ||
                 !strcmp(opt, "help") || !strcmp(opt, "all") ||
                 (!strcmp(opt, "writers-stopped") || !strcmp(opt, "writers_stopped")) && strcmp("1", args[i+1]) != 0

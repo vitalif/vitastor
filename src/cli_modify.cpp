@@ -15,6 +15,7 @@ struct image_changer_t
     uint64_t new_size = 0;
     bool force_size = false, inc_size = false;
     bool set_readonly = false, set_readwrite = false, force = false;
+    bool down_ok = false;
     // interval between fsyncs
     int fsync_interval = 128;
 
@@ -105,6 +106,7 @@ struct image_changer_t
                     { "pool", (uint64_t)INODE_POOL(inode_num) },
                     { "fsync-interval", fsync_interval },
                     { "min-offset", ((new_size+4095)/4096)*4096 },
+                    { "down-ok", down_ok },
                 });
 resume_1:
                 while (!cb(result))
@@ -240,6 +242,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_modify(json11::Json cfg)
     changer->fsync_interval = cfg["fsync_interval"].uint64_value();
     if (!changer->fsync_interval)
         changer->fsync_interval = 128;
+    changer->down_ok = cfg["down_ok"].bool_value();
     // FIXME Check that the image doesn't have children when shrinking
     return [changer](cli_result_t & result)
     {

@@ -25,6 +25,7 @@ struct rm_inode_t
     uint64_t inode = 0;
     pool_id_t pool_id = 0;
     uint64_t min_offset = 0;
+    bool down_ok = false;
 
     cli_tool_t *parent = NULL;
     inode_list_t *lister = NULL;
@@ -221,17 +222,18 @@ struct rm_inode_t
             {
                 fprintf(stderr, "\n");
             }
-            if (parent->progress && (total_done < total_count || inactive_osds.size() > 0 || error_count > 0))
+            bool is_error = (total_done < total_count || inactive_osds.size() > 0 || error_count > 0);
+            if (parent->progress && is_error)
             {
                 fprintf(
                     stderr, "Warning: Pool:%u,ID:%ju inode data may not have been fully removed.\n"
-                    " Use `vitastor-cli rm-data --pool %u --inode %ju` if you encounter it in listings.\n",
+                    "Use `vitastor-cli rm-data --pool %u --inode %ju` if you encounter it in listings.\n",
                     pool_id, INODE_NO_POOL(inode), pool_id, INODE_NO_POOL(inode)
                 );
             }
             result = (cli_result_t){
-                .err = error_count > 0 ? EIO : 0,
-                .text = error_count > 0 ? "Some blocks were not removed" : (
+                .err = is_error && !down_ok ? EIO : 0,
+                .text = is_error ? "Some blocks were not removed" : (
                     "Done, inode "+std::to_string(INODE_NO_POOL(inode))+" from pool "+
                     std::to_string(pool_id)+" removed"),
                 .data = json11::Json::object {
@@ -280,6 +282,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_rm_data(json11::Json cfg)
     {
         remover->inode = (remover->inode & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1)) | (((uint64_t)remover->pool_id) << (64-POOL_ID_BITS));
     }
+    remover->down_ok = cfg["down_ok"].bool_value();
     remover->pool_id = INODE_POOL(remover->inode);
     remover->min_offset = cfg["min_offset"].uint64_value();
     return [remover](cli_result_t & result)
