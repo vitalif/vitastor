@@ -125,7 +125,7 @@ static const char* help_text =
     "  --parallel_osds M   Work with M osds in parallel when possible (default 4)\n"
     "  --progress 1|0      Report progress (default 1)\n"
     "  --cas 1|0           Use CAS writes for flatten, merge, rm (default is decide automatically)\n"
-    "  --no-color          Disable colored output\n"
+    "  --color 1|0         Enable/disable colored output and CR symbols (default 1 if stdout is a terminal)\n"
     "  --json              JSON output\n"
 ;
 

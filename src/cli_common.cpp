@@ -1,6 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+#include <unistd.h>
 #include "str_util.h"
 #include "cluster_client.h"
 #include "cli.h"
@@ -113,7 +114,12 @@ void cli_tool_t::parse_config(json11::Json::object & cfg)
         else
             kv_it++;
     }
-    color = !cfg["no_color"].bool_value();
+    if (cfg.find("no_color") != cfg.end())
+        color = !cfg["no_color"].bool_value();
+    else if (cfg.find("color") != cfg.end())
+        color = cfg["color"].bool_value();
+    else
+        color = isatty(1);
     json_output = cfg["json"].bool_value();
     iodepth = cfg["iodepth"].uint64_value();
     if (!iodepth)

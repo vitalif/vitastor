@@ -275,7 +275,9 @@ struct snap_merger_t
                 processed++;
                 if (parent->progress && !(processed % 128))
                 {
-                    printf("\rFiltering target blocks: %ju/%ju", processed, to_process);
+                    fprintf(stderr, parent->color
+                        ? "\rFiltering target blocks: %ju/%ju"
+                        : "Filtering target blocks: %ju/%ju\n", processed, to_process);
                 }
             }
             if (in_flight > 0 || oit != merge_offsets.end())
@@ -285,7 +287,9 @@ struct snap_merger_t
             }
             if (parent->progress)
             {
-                printf("\r%ju full blocks of target filtered out\n", to_process-merge_offsets.size());
+                fprintf(stderr, parent->color
+                    ? "\r%ju full blocks of target filtered out\n"
+                    : "%ju full blocks of target filtered out\n", to_process-merge_offsets.size());
             }
         }
         state = 3;
@@ -320,7 +324,9 @@ struct snap_merger_t
             processed++;
             if (parent->progress && !(processed % 128))
             {
-                printf("\rOverwriting blocks: %ju/%ju", processed, to_process);
+                fprintf(stderr, parent->color
+                    ? "\rOverwriting blocks: %ju/%ju"
+                    : "Overwriting blocks: %ju/%ju\n", processed, to_process);
             }
         }
         if (in_flight == 0 && rwo_error.size())
@@ -339,7 +345,9 @@ struct snap_merger_t
         }
         if (parent->progress)
         {
-            printf("\rOverwriting blocks: %ju/%ju\n", to_process, to_process);
+            fprintf(stderr, parent->color
+                ? "\rOverwriting blocks: %ju/%ju\n"
+                : "Overwriting blocks: %ju/%ju\n", to_process, to_process);
         }
         // Done
         result = (cli_result_t){ .text = "Done, layers from "+from_name+" to "+to_name+" merged into "+target_name };

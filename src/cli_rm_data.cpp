@@ -213,7 +213,9 @@ struct rm_inode_t
         }
         if (parent->progress && total_count > 0 && total_done*1000/total_count != total_prev_pct)
         {
-            fprintf(stderr, "\rRemoved %ju/%ju objects, %ju more PGs to list...", total_done, total_count, pgs_to_list);
+            fprintf(stderr, parent->color
+                ? "\rRemoved %ju/%ju objects, %ju more PGs to list..."
+                : "Removed %ju/%ju objects, %ju more PGs to list...\n", total_done, total_count, pgs_to_list);
             total_prev_pct = total_done*1000/total_count;
         }
         if (lists_done && !lists.size())
