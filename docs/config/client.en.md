@@ -9,6 +9,8 @@
 These parameters apply only to Vitastor clients (QEMU, fio, NBD and so on) and
 affect their interaction with the cluster.
 
+- [client_retry_interval](#client_retry_interval)
+- [client_eio_retry_interval](#client_eio_retry_interval)
 - [client_max_dirty_bytes](#client_max_dirty_bytes)
 - [client_max_dirty_ops](#client_max_dirty_ops)
 - [client_enable_writeback](#client_enable_writeback)
@@ -18,6 +20,26 @@ affect their interaction with the cluster.
 - [nbd_timeout](#nbd_timeout)
 - [nbd_max_devices](#nbd_max_devices)
 - [nbd_max_part](#nbd_max_part)
+
+## client_retry_interval
+
+- Type: milliseconds
+- Default: 50
+- Minimum: 10
+- Can be changed online: yes
+
+Retry time for I/O requests failed due to inactive PGs or network
+connectivity errors.
+
+## client_eio_retry_interval
+
+- Type: milliseconds
+- Default: 1000
+- Can be changed online: yes
+
+Retry time for I/O requests failed due to data corruption or unfinished
+EC object deletions (has_incomplete PG state). 0 disables such retries
+and clients are not blocked and just get EIO error code instead.
 
 ## client_max_dirty_bytes
 

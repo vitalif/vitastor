@@ -265,7 +265,7 @@ void cluster_client_t::erase_op(cluster_op_t *op)
     }
 }
 
-void cluster_client_t::continue_ops(bool up_retry)
+void cluster_client_t::continue_ops(int time_passed)
 {
     if (!pgs_loaded)
     {
@@ -277,21 +277,26 @@ void cluster_client_t::continue_ops(bool up_retry)
         // Attempt to reenter the function
         return;
     }
+    int reset_duration = 0;
 restart:
     continuing_ops = 1;
     for (auto op = op_queue_head; op; )
     {
         cluster_op_t *next_op = op->next;
-        if (!op->up_wait || up_retry)
+        if (op->retry_after && time_passed)
         {
-            op->up_wait = false;
-            if (!op->prev_wait)
+            op->retry_after = op->retry_after > time_passed ? op->retry_after-time_passed : 0;
+            if (op->retry_after && (!reset_duration || op->retry_after < reset_duration))
             {
-                if (op->opcode == OSD_OP_SYNC)
-                    continue_sync(op);
-                else
-                    continue_rw(op);
+                reset_duration = op->retry_after;
             }
+        }
+        if (!op->retry_after && !op->prev_wait)
+        {
+            if (op->opcode == OSD_OP_SYNC)
+                continue_sync(op);
+            else
+                continue_rw(op);
         }
         op = next_op;
         if (continuing_ops == 2)
@@ -300,6 +305,27 @@ restart:
         }
     }
     continuing_ops = 0;
+    reset_retry_timer(reset_duration);
+}
+
+void cluster_client_t::reset_retry_timer(int new_duration)
+{
+    if (retry_timeout_duration && retry_timeout_duration <= new_duration || !new_duration)
+    {
+        return;
+    }
+    if (retry_timeout_id)
+    {
+        tfd->clear_timer(retry_timeout_id);
+    }
+    retry_timeout_duration = new_duration;
+    retry_timeout_id = tfd->set_timer(retry_timeout_duration, false, [this](int)
+    {
+        int time_passed = retry_timeout_duration;
+        retry_timeout_id = 0;
+        retry_timeout_duration = 0;
+        continue_ops(time_passed);
+    });
 }
 
 void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_config)
@@ -349,15 +375,25 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
     {
         client_max_writeback_iodepth = DEFAULT_CLIENT_MAX_WRITEBACK_IODEPTH;
     }
-    // up_wait_retry_interval
-    up_wait_retry_interval = config["up_wait_retry_interval"].uint64_value();
-    if (!up_wait_retry_interval)
+    // client_retry_interval
+    client_retry_interval = config["client_retry_interval"].uint64_value();
+    if (!client_retry_interval)
     {
-        up_wait_retry_interval = 50;
+        client_retry_interval = 50;
     }
-    else if (up_wait_retry_interval < 10)
+    else if (client_retry_interval < 10)
     {
-        up_wait_retry_interval = 10;
+        client_retry_interval = 10;
+    }
+    // client_eio_retry_interval
+    client_eio_retry_interval = 1000;
+    if (!config["client_eio_retry_interval"].is_null())
+    {
+        client_eio_retry_interval = config["client_eio_retry_interval"].uint64_value();
+        if (client_eio_retry_interval && client_eio_retry_interval < 10)
+        {
+            client_eio_retry_interval = 10;
+        }
     }
     // log_level
     log_level = config["log_level"].uint64_value();
@@ -716,15 +752,8 @@ resume_1:
                 // We'll need to retry again
                 if (op->parts[i].flags & PART_RETRY)
                 {
-                    op->up_wait = true;
-                    if (!retry_timeout_id)
-                    {
-                        retry_timeout_id = tfd->set_timer(up_wait_retry_interval, false, [this](int)
-                        {
-                            retry_timeout_id = 0;
-                            continue_ops(true);
-                        });
-                    }
+                    op->retry_after = client_retry_interval;
+                    reset_retry_timer(client_retry_interval);
                 }
                 op->state = 1;
             }
@@ -780,10 +809,9 @@ resume_2:
         return 1;
     }
     else if (op->retval != 0 && !(op->flags & OP_FLUSH_BUFFER) &&
-        op->retval != -EPIPE && op->retval != -EIO && op->retval != -ENOSPC)
+        op->retval != -EPIPE && (op->retval != -EIO || !client_eio_retry_interval) && op->retval != -ENOSPC)
     {
         // Fatal error (neither -EPIPE, -EIO nor -ENOSPC)
-        // FIXME: Add a parameter to allow to not wait for EIOs (incomplete or corrupted objects) to heal
         erase_op(op);
         return 1;
     }
@@ -1171,16 +1199,12 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
         // All next things like timer, continue_sync/rw and stop_client may affect the operation again
         // So do all these things after modifying operation state, otherwise we may hit reenterability bugs
         // FIXME postpone such things to set_immediate here to avoid bugs
-        // Mark op->up_wait = true to retry operation after a short pause (not immediately)
-        op->up_wait = true;
-        if (!retry_timeout_id)
+        // Set op->retry_after to retry operation after a short pause (not immediately)
+        if (!op->retry_after)
         {
-            retry_timeout_id = tfd->set_timer(up_wait_retry_interval, false, [this](int)
-            {
-                retry_timeout_id = 0;
-                continue_ops(true);
-            });
+            op->retry_after = op->retval == -EIO ? client_eio_retry_interval : client_retry_interval;
         }
+        reset_retry_timer(op->retry_after);
         if (op->inflight_count == 0)
         {
             if (op->opcode == OSD_OP_SYNC)

@@ -9,6 +9,8 @@
 Данные параметры применяются только к клиентам Vitastor (QEMU, fio, NBD и т.п.) и
 затрагивают логику их работы с кластером.
 
+- [client_retry_interval](#client_retry_interval)
+- [client_eio_retry_interval](#client_eio_retry_interval)
 - [client_max_dirty_bytes](#client_max_dirty_bytes)
 - [client_max_dirty_ops](#client_max_dirty_ops)
 - [client_enable_writeback](#client_enable_writeback)
@@ -18,6 +20,27 @@
 - [nbd_timeout](#nbd_timeout)
 - [nbd_max_devices](#nbd_max_devices)
 - [nbd_max_part](#nbd_max_part)
+
+## client_retry_interval
+
+- Тип: миллисекунды
+- Значение по умолчанию: 50
+- Минимальное значение: 10
+- Можно менять на лету: да
+
+Время повтора запросов ввода-вывода, неудачных из-за неактивных PG или
+ошибок сети.
+
+## client_eio_retry_interval
+
+- Тип: миллисекунды
+- Значение по умолчанию: 1000
+- Можно менять на лету: да
+
+Время повтора запросов ввода-вывода, неудачных из-за повреждения данных
+или незавершённых удалений EC-объектов (состояния PG has_incomplete).
+0 отключает повторы таких запросов и клиенты не блокируются, а вместо
+этого просто получают код ошибки EIO.
 
 ## client_max_dirty_bytes
 

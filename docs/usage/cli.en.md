@@ -135,25 +135,28 @@ See also about [how to export snapshots](qemu.en.md#exporting-snapshots).
 
 ## modify
 
-`vitastor-cli modify <name> [--rename <new-name>] [--resize <size>] [--readonly | --readwrite] [-f|--force]`
+`vitastor-cli modify <name> [--rename <new-name>] [--resize <size>] [--readonly | --readwrite] [-f|--force] [--down-ok]`
 
 Rename, resize image or change its readonly status. Images with children can't be made read-write.
 If the new size is smaller than the old size, extra data will be purged.
 You should resize file system in the image, if present, before shrinking it.
 
-```
--f|--force  Proceed with shrinking or setting readwrite flag even if the image has children.
-```
+| `-f|--force` | Proceed with shrinking or setting readwrite flag even if the image has children. |
+| `--down-ok`  | Proceed with shrinking even if some data will be left on unavailable OSDs.       |
 
 ## rm
 
-`vitastor-cli rm <from> [<to>] [--writers-stopped]`
+`vitastor-cli rm <from> [<to>] [--writers-stopped] [--down-ok]`
 
 Remove `<from>` or all layers between `<from>` and `<to>` (`<to>` must be a child of `<from>`),
 rebasing all their children accordingly. --writers-stopped allows merging to be a bit
 more effective in case of a single 'slim' read-write child and 'fat' removed parent:
 the child is merged into parent and parent is renamed to child in that case.
 In other cases parent layers are always merged into children.
+
+Other options:
+
+| `--down-ok` | Continue deletion/merging even if some data will be left on unavailable OSDs. |
 
 ## flatten
 

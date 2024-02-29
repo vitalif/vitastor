@@ -86,13 +86,14 @@ const etcd_tree = {
             client_max_buffered_bytes: 33554432,
             client_max_buffered_ops: 1024,
             client_max_writeback_iodepth: 256,
+            client_retry_interval: 50, // ms. min: 10
+            client_eio_retry_interval: 1000, // ms
             // client and osd - configurable online
             log_level: 0,
             peer_connect_interval: 5, // seconds. min: 1
             peer_connect_timeout: 5, // seconds. min: 1
             osd_idle_timeout: 5, // seconds. min: 1
             osd_ping_timeout: 5, // seconds. min: 1
-            up_wait_retry_interval: 50, // ms. min: 10
             max_etcd_attempts: 5,
             etcd_quick_timeout: 1000, // ms
             etcd_slow_timeout: 5000, // ms
