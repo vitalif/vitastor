@@ -388,9 +388,18 @@ void osd_t::on_change_etcd_state_hook(std::map<std::string, etcd_kv_t> & changes
         etcd_global_config = changes[st_cli.etcd_prefix+"/config/global"].value.object_items();
         parse_config(false);
     }
+    bool pools = changes.find(st_cli.etcd_prefix+"/config/pools") != changes.end();
+    if (pools)
+    {
+        apply_no_inode_stats();
+    }
     if (run_primary)
     {
-        apply_pg_count();
+        bool pgs = changes.find(st_cli.etcd_prefix+"/config/pgs") != changes.end();
+        if (pools || pgs)
+        {
+            apply_pg_count();
+        }
         apply_pg_config();
     }
 }
@@ -414,6 +423,8 @@ void osd_t::on_reload_config_hook(json11::Json::object & global_config)
 // Acquire lease
 void osd_t::acquire_lease()
 {
+    // Apply no_inode_stats before the first statistics report
+    apply_no_inode_stats();
     // Maximum lease TTL is (report interval) + retries * (timeout + repeat interval)
     st_cli.etcd_call("/lease/grant", json11::Json::object {
         { "TTL", etcd_report_interval+(st_cli.max_etcd_attempts*(2*st_cli.etcd_quick_timeout)+999)/1000 }
@@ -602,9 +613,30 @@ void osd_t::on_load_pgs_hook(bool success)
     else
     {
         peering_state &= ~OSD_LOADING_PGS;
-        apply_pg_count();
-        apply_pg_config();
+        apply_no_inode_stats();
+        if (run_primary)
+        {
+            apply_pg_count();
+            apply_pg_config();
+        }
     }
+}
+
+void osd_t::apply_no_inode_stats()
+{
+    if (!bs)
+    {
+        return;
+    }
+    std::vector<uint64_t> no_inode_stats;
+    for (auto & pool_item: st_cli.pool_config)
+    {
+        if (pool_item.second.no_inode_stats)
+        {
+            no_inode_stats.push_back(pool_item.first);
+        }
+    }
+    bs->set_no_inode_stats(no_inode_stats);
 }
 
 void osd_t::apply_pg_count()

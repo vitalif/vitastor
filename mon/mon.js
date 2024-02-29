@@ -1737,8 +1737,11 @@ class Mon
                 for (const inode_num in this.state.osd.space[osd_num][pool_id])
                 {
                     const u = BigInt(this.state.osd.space[osd_num][pool_id][inode_num]||0);
-                    inode_stats[pool_id][inode_num] = inode_stats[pool_id][inode_num] || inode_stub();
-                    inode_stats[pool_id][inode_num].raw_used += u;
+                    if (inode_num)
+                    {
+                        inode_stats[pool_id][inode_num] = inode_stats[pool_id][inode_num] || inode_stub();
+                        inode_stats[pool_id][inode_num].raw_used += u;
+                    }
                     this.state.pool.stats[pool_id].used_raw_tb += u;
                 }
             }

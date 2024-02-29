@@ -81,6 +81,11 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
             }
             value = value.uint64_value();
         }
+        else if (key == "no_inode_stats" && value.bool_value())
+        {
+            // Leave true, remove false
+            value = true;
+        }
         else if (key == "name" || key == "scheme" || key == "immediate_commit" ||
             key == "failure_domain" || key == "root_node" || key == "scrub_interval")
         {
@@ -248,7 +253,7 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
     // immediate_commit
     if (!cfg["immediate_commit"].is_null() && !etcd_state_client_t::parse_immediate_commit(cfg["immediate_commit"].string_value()))
     {
-        return "immediate_commit must be one of \"all\", \"small\", or \"none\", but it is "+cfg["scrub_interval"].as_string();
+        return "immediate_commit must be one of \"all\", \"small\", or \"none\", but it is "+cfg["immediate_commit"].as_string();
     }
 
     // scrub_interval

@@ -529,6 +529,8 @@ resume_3:
                     st["block_size_fmt"] = format_size(st["block_size"].uint64_value());
                 if (st["bitmap_granularity"].uint64_value())
                     st["bitmap_granularity_fmt"] = format_size(st["bitmap_granularity"].uint64_value());
+                if (st["no_inode_stats"].bool_value())
+                    st["inode_stats_fmt"] = "disabled";
             }
             // All pool parameters are only displayed in the "detailed" mode
             // because there's too many of them to show them in table
@@ -547,6 +549,7 @@ resume_3:
                 { "bitmap_granularity_fmt", "Bitmap granularity" },
                 { "immediate_commit", "Immediate commit" },
                 { "scrub_interval", "Scrub interval" },
+                { "inode_stats_fmt", "Per-inode stats" },
                 { "pg_stripe_size", "PG stripe size" },
                 { "max_osd_combinations", "Max OSD combinations" },
                 { "total_fmt", "Total" },

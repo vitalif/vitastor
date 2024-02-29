@@ -216,6 +216,9 @@ public:
     // Get per-inode space usage statistics
     std::map<uint64_t, uint64_t> & get_inode_space_stats();
 
+    // Set per-pool no_inode_stats
+    void set_no_inode_stats(const std::vector<uint64_t> & pool_ids);
+
     // Print diagnostics to stdout
     void dump_diagnostics();
 

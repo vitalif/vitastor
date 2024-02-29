@@ -863,6 +863,8 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             pc.scrub_interval = parse_time(pool_item.second["scrub_interval"].string_value());
             if (!pc.scrub_interval)
                 pc.scrub_interval = 0;
+            // Disable per-inode stats
+            pc.no_inode_stats = pool_item.second["no_inode_stats"].bool_value();
             // Immediate Commit Mode
             pc.immediate_commit = pool_item.second["immediate_commit"].is_string()
                 ? parse_immediate_commit(pool_item.second["immediate_commit"].string_value())

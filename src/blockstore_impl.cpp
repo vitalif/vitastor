@@ -733,3 +733,86 @@ void blockstore_impl_t::disk_error_abort(const char *op, int retval, int expecte
     fprintf(stderr, "Disk %s failed: result is %d, expected %d. Can't continue, sorry :-(\n", op, retval, expected);
     exit(1);
 }
+
+void blockstore_impl_t::set_no_inode_stats(const std::vector<uint64_t> & pool_ids)
+{
+    for (auto & np: no_inode_stats)
+    {
+        np.second = 2;
+    }
+    for (auto pool_id: pool_ids)
+    {
+        if (!no_inode_stats[pool_id])
+            recalc_inode_space_stats(pool_id, false);
+        no_inode_stats[pool_id] = 1;
+    }
+    for (auto np_it = no_inode_stats.begin(); np_it != no_inode_stats.end(); )
+    {
+        if (np_it->second == 2)
+        {
+            recalc_inode_space_stats(np_it->first, true);
+            no_inode_stats.erase(np_it++);
+        }
+        else
+            np_it++;
+    }
+}
+
+void blockstore_impl_t::recalc_inode_space_stats(uint64_t pool_id, bool per_inode)
+{
+    auto sp_begin = inode_space_stats.lower_bound((pool_id << (64-POOL_ID_BITS)));
+    auto sp_end = inode_space_stats.lower_bound(((pool_id+1) << (64-POOL_ID_BITS)));
+    inode_space_stats.erase(sp_begin, sp_end);
+    auto sh_it = clean_db_shards.lower_bound((pool_id << (64-POOL_ID_BITS)));
+    while (sh_it != clean_db_shards.end() &&
+        (sh_it->first >> (64-POOL_ID_BITS)) == pool_id)
+    {
+        for (auto & pair: sh_it->second)
+        {
+            uint64_t space_id = per_inode ? pair.first.inode : (pool_id << (64-POOL_ID_BITS));
+            inode_space_stats[space_id] += dsk.data_block_size;
+        }
+        sh_it++;
+    }
+    object_id last_oid = {};
+    bool last_exists = false;
+    auto dirty_it = dirty_db.lower_bound((obj_ver_id){ .oid = { .inode = (pool_id << (64-POOL_ID_BITS)) } });
+    while (dirty_it != dirty_db.end() && (dirty_it->first.oid.inode >> (64-POOL_ID_BITS)) == pool_id)
+    {
+        if (IS_STABLE(dirty_it->second.state) && (IS_BIG_WRITE(dirty_it->second.state) || IS_DELETE(dirty_it->second.state)))
+        {
+            bool exists = false;
+            if (last_oid == dirty_it->first.oid)
+            {
+                exists = last_exists;
+            }
+            else
+            {
+                auto & clean_db = clean_db_shard(dirty_it->first.oid);
+                auto clean_it = clean_db.find(dirty_it->first.oid);
+                exists = clean_it != clean_db.end();
+            }
+            uint64_t space_id = per_inode ? dirty_it->first.oid.inode : (pool_id << (64-POOL_ID_BITS));
+            if (IS_BIG_WRITE(dirty_it->second.state))
+            {
+                if (!exists)
+                    inode_space_stats[space_id] += dsk.data_block_size;
+                last_exists = true;
+            }
+            else
+            {
+                if (exists)
+                {
+                    auto & sp = inode_space_stats[space_id];
+                    if (sp > dsk.data_block_size)
+                        sp -= dsk.data_block_size;
+                    else
+                        inode_space_stats.erase(space_id);
+                }
+                last_exists = false;
+            }
+            last_oid = dirty_it->first.oid;
+        }
+        dirty_it++;
+    }
+}

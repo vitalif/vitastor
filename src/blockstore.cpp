@@ -82,3 +82,8 @@ uint32_t blockstore_t::get_bitmap_granularity()
 {
     return impl->get_bitmap_granularity();
 }
+
+void blockstore_t::set_no_inode_stats(const std::vector<uint64_t> & pool_ids)
+{
+    impl->set_no_inode_stats(pool_ids);
+}

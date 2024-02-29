@@ -272,6 +272,7 @@ class blockstore_impl_t
 
     std::map<pool_id_t, pool_shard_settings_t> clean_db_settings;
     std::map<pool_pg_id_t, blockstore_clean_db_t> clean_db_shards;
+    std::map<uint64_t, int> no_inode_stats;
     uint8_t *clean_bitmaps = NULL;
     blockstore_dirty_db_t dirty_db;
     std::vector<blockstore_op_t*> submit_queue;
@@ -318,6 +319,7 @@ class blockstore_impl_t
 
     blockstore_clean_db_t& clean_db_shard(object_id oid);
     void reshard_clean_db(pool_id_t pool_id, uint32_t pg_count, uint32_t pg_stripe_size);
+    void recalc_inode_space_stats(uint64_t pool_id, bool per_inode);
 
     // Journaling
     void prepare_journal_sector_write(int sector, blockstore_op_t *op);
@@ -427,6 +429,9 @@ public:
 
     // Space usage statistics
     std::map<uint64_t, uint64_t> inode_space_stats;
+
+    // Set per-pool no_inode_stats
+    void set_no_inode_stats(const std::vector<uint64_t> & pool_ids);
 
     // Print diagnostics to stdout
     void dump_diagnostics();

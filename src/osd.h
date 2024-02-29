@@ -239,6 +239,7 @@ class osd_t
     void report_statistics();
     void report_pg_state(pg_t & pg);
     void report_pg_states();
+    void apply_no_inode_stats();
     void apply_pg_count();
     void apply_pg_config();
 
