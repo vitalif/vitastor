@@ -2,21 +2,258 @@
 // License: VNPL-1.1 (see README.md for details)
 // Similar to qemu-nbd, but sets timeout and uses io_uring
 
+#include <cerrno>
+#include <cstdint>
+#include <cstdio>
+#include <linux/genetlink.h>
 #include <linux/nbd.h>
+#include <linux/netlink.h>
 #include <sys/ioctl.h>
 
-#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <arpa/inet.h>
-#include <sys/un.h>
-#include <sys/epoll.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <signal.h>
+#include <sys/epoll.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
-#include "epoll_manager.h"
 #include "cluster_client.h"
+#include "epoll_manager.h"
+
+#include <netlink/attr.h>
+#include <netlink/genl/ctrl.h>
+#include <netlink/genl/genl.h>
+#include <netlink/handlers.h>
+#include <netlink/msg.h>
+#include <netlink/netlink.h>
+#include <netlink/socket.h>
+#include <netlink/errno.h>
+
+#ifdef HAVE_NBD_NETLINK_H
+
+#include <linux/nbd-netlink.h>
+
+#define fail(...)                   \
+  do {                              \
+    fprintf(stderr, __VA_ARGS__);   \
+    exit(1);                        \
+  } while (0)
+
+struct netlink_ctx {
+  struct nl_sock *sk;
+  int driver_id;
+};
+
+static void netlink_sock_alloc(struct netlink_ctx *ctx)
+{
+  struct nl_sock *sk;
+  int nl_driver_id;
+
+  sk = nl_socket_alloc();
+  if (!sk)
+  {
+    fail("Failed to alloc netlink socket\n");
+  }
+
+  if (genl_connect(sk))
+  {
+    nl_socket_free(sk);
+    fail("Couldn't connect to the generic netlink socket\n");
+  }
+
+  nl_driver_id = genl_ctrl_resolve(sk, "nbd");
+  if (nl_driver_id < 0)
+  {
+    nl_socket_free(sk);
+    fail("Couldn't resolve the nbd netlink family\n");
+  }
+
+  ctx->driver_id = nl_driver_id;
+  ctx->sk = sk;
+}
+
+static void netlink_sock_free(struct netlink_ctx *ctx)
+{
+  free(ctx->sk);
+  ctx->sk = NULL;
+}
+
+static int netlink_status_cb(struct nl_msg *sk_msg, void *devnum)
+{
+  struct nlmsghdr *nl_hdr;
+  struct genlmsghdr *gnl_hdr;
+  struct nlattr *msg_attr[NBD_ATTR_MAX + 1];
+  struct nlattr *attr_data;
+  int attr_len;
+  uint32_t* dev_num;
+
+  dev_num = (uint32_t*)devnum;
+
+  nl_hdr = nlmsg_hdr(sk_msg);
+  gnl_hdr = (struct genlmsghdr *)nlmsg_data(nl_hdr);
+  attr_data = genlmsg_attrdata(gnl_hdr, 0);
+  attr_len = genlmsg_attrlen(gnl_hdr, 0);
+
+  if (nla_parse(msg_attr, NBD_ATTR_MAX, attr_data, attr_len, NULL))
+  {
+    fail("Failed to parse netlink response\n");
+  }
+
+  if (!msg_attr[NBD_ATTR_INDEX])
+  {
+    fail("Got malformed netlink reponse\n");
+  }
+
+  *dev_num = nla_get_u32(msg_attr[NBD_ATTR_INDEX]);
+
+  return NL_OK;
+}
+
+static int netlink_configure(const int *sockfd, int sock_size,
+                               int dev_num, uint64_t size,
+                               uint64_t blocksize, uint64_t flags,
+                               uint64_t cflags, uint64_t timeout,
+                               uint64_t conn_timeout)
+{
+  struct netlink_ctx ctx;
+  struct nlattr *msg_attr, *msg_opt_attr;
+  struct nl_msg *msg;
+  int i, err, sock;
+  uint32_t devnum;
+
+  netlink_sock_alloc(&ctx);
+
+  // A callback we set for a response we get on send
+  nl_socket_modify_cb(ctx.sk, NL_CB_VALID, NL_CB_CUSTOM, netlink_status_cb, &devnum);
+
+  msg = nlmsg_alloc();
+  if (!msg)
+  {
+    netlink_sock_free(&ctx);
+    fail("Failed to allocate netlking message\n");
+  }
+
+  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, ctx.driver_id, 0, 0, NBD_CMD_CONNECT, 0);
+
+  if (dev_num >= 0)
+  {
+    NLA_PUT_U32(msg, NBD_ATTR_INDEX, (uint32_t)dev_num);
+  }
+
+  NLA_PUT_U64(msg, NBD_ATTR_SIZE_BYTES, size);
+  NLA_PUT_U64(msg, NBD_ATTR_BLOCK_SIZE_BYTES, blocksize);
+  NLA_PUT_U64(msg, NBD_ATTR_SERVER_FLAGS, flags);
+  NLA_PUT_U64(msg, NBD_ATTR_CLIENT_FLAGS, cflags);
+
+  if (timeout)
+  {
+    NLA_PUT_U64(msg, NBD_ATTR_TIMEOUT, timeout);
+  }
+
+  if (conn_timeout)
+  {
+    NLA_PUT_U64(msg, NBD_ATTR_DEAD_CONN_TIMEOUT, conn_timeout);
+  }
+
+  msg_attr = nla_nest_start(msg, NBD_ATTR_SOCKETS);
+  if (!msg_attr)
+  {
+    goto nla_put_failure;
+  }
+
+  for (i = 0; i < sock_size; i++)
+  {
+    msg_opt_attr = nla_nest_start(msg, NBD_SOCK_ITEM);
+    if (!msg_opt_attr)
+    {
+      goto nla_put_failure;
+    }
+
+    sock = sockfd[i];
+    NLA_PUT_U32(msg, NBD_SOCK_FD, sock);
+
+    nla_nest_end(msg, msg_opt_attr);
+  }
+
+  nla_nest_end(msg, msg_attr);
+
+  if((err = nl_send_sync(ctx.sk, msg)) < 0)
+  {
+    netlink_sock_free(&ctx);
+    return err;
+  }
+
+  netlink_sock_free(&ctx);
+
+  return devnum;
+
+nla_put_failure:
+  nlmsg_free(msg);
+  netlink_sock_free(&ctx);
+  fail("Failed to create netlink message\n");
+}
+
+static void netlink_disconnect(uint32_t dev_num)
+{
+  struct netlink_ctx ctx;
+  struct nl_msg *msg;
+  int err;
+
+  netlink_sock_alloc(&ctx);
+
+  msg = nlmsg_alloc();
+  if (!msg)
+  {
+    netlink_sock_free(&ctx);
+    fail("Failed to allocate netlking message\n");
+  }
+
+  genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, ctx.driver_id, 0, 0, NBD_CMD_DISCONNECT, 0);
+  NLA_PUT_U32(msg, NBD_ATTR_INDEX, dev_num);
+
+  if ((err = nl_send_sync(ctx.sk, msg)) < 0)
+  {
+    netlink_sock_free(&ctx);
+    fail("Failed to send netlink message %d\n", err);
+  }
+
+  netlink_sock_free(&ctx);
+
+  return;
+
+nla_put_failure:
+  nlmsg_free(msg);
+  netlink_sock_free(&ctx);
+  fail("Failed to create netlink message\n");
+}
+
+#undef fail
+
+#else
+
+static int netlink_configure(const int *sockfd, int sock_size,
+                               int dev_num, uint64_t size,
+                               uint64_t blocksize, uint64_t flags,
+                               uint64_t cflags, uint64_t timeout,
+                               uint64_t conn_timeout)
+{
+  fprintf(stderr, "netlink is not supported\n");
+  exit(1);
+
+  return 0;
+}
+
+
+static void netlink_disconnect(uint32_t dev_num)
+{
+  fprintf(stderr, "netlink is not supported\n");
+  exit(1);
+}
+
+#endif
 
 #ifndef MSG_ZEROCOPY
 #define MSG_ZEROCOPY 0
@@ -30,6 +267,7 @@ protected:
     std::string image_name;
     uint64_t inode = 0;
     uint64_t device_size = 0;
+    uint64_t nbd_lease = 0;
     int nbd_timeout = 300;
     int nbd_max_devices = 64;
     int nbd_max_part = 3;
@@ -112,7 +350,15 @@ public:
                 fprintf(stderr, "device name or number is missing\n");
                 exit(1);
             }
-            unmap(cfg["dev_num"].uint64_value());
+
+            if (cfg["netlink"].is_null())
+            {
+                unmap(cfg["dev_num"].uint64_value());
+            }
+            else
+            {
+                netlink_disconnect(cfg["dev_num"].uint64_value());
+            }
         }
         else if (cfg["command"] == "ls" || cfg["command"] == "list" || cfg["command"] == "list-mapped")
         {
@@ -145,13 +391,25 @@ public:
             "    note that maximum allowed (nbds_max)*(1+max_part) is 256.\n"
             "    Note that nbd_timeout, nbd_max_devices and nbd_max_part options may also be specified\n"
             "    in /etc/vitastor/vitastor.conf or in other configuration file specified with --config_file.\n"
+            "  --nbd_lease 60\n"
+            "    Timeout in seconds which is waited at max before nbd device\n"
+            "    is returned after no I/O is performed on device.\n"
+            "    By default is not set.\n"
+            "  --nbd_destroy_on_disconnect 1\n"
+            "    Delete the nbd device on disconnect\n."
+            "  --nbd_disconnect_on_close 1\n"
+            "    Disconnect the nbd device on close by last opener.\n"
+            "  --nbd_ro 1\n"
+            "    Set device into read only mode.\n"
             "  --logfile /path/to/log/file.txt\n"
             "    Wite log messages to the specified file instead of dropping them (in background mode)\n"
             "    or printing them to the standard output (in foreground mode).\n"
             "  --dev_num N\n"
             "    Use the specified device /dev/nbdN instead of automatic selection.\n"
             "  --foreground 1\n"
-            "    Stay in foreground, do not daemonize.\n",
+            "    Stay in foreground, do not daemonize.\n"
+            "  --netlink 1\n"
+            "    Use netlink to configure NBD device.\n",
             exe_name, exe_name, exe_name
         );
         exit(0);
@@ -219,6 +477,11 @@ public:
         {
             nbd_timeout = file_config["nbd_timeout"].uint64_value();
         }
+        if (cfg["nbd_lease"].is_number() || cfg["nbd_lease"].is_string())
+        {
+            nbd_lease = cfg["nbd_lease"].uint64_value();
+        }
+
         if (cfg["client_writeback_allowed"].is_null())
         {
             // NBD is always aware of fsync, so we allow write-back cache
@@ -250,6 +513,7 @@ public:
                 exit(1);
             }
         }
+
         // Initialize NBD
         int sockfd[2];
         if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockfd) < 0)
@@ -257,47 +521,100 @@ public:
             perror("socketpair");
             exit(1);
         }
+
         fcntl(sockfd[0], F_SETFL, fcntl(sockfd[0], F_GETFL, 0) | O_NONBLOCK);
         nbd_fd = sockfd[0];
         load_module();
         bool bg = cfg["foreground"].is_null();
-        if (!cfg["dev_num"].is_null())
+
+        if (!cfg["netlink"].is_null())
         {
-            if (run_nbd(sockfd, cfg["dev_num"].int64_value(), device_size, NBD_FLAG_SEND_FLUSH, nbd_timeout, bg) < 0)
+            int devnum = -1;
+            if (!cfg["dev_num"].is_null())
             {
-                perror("run_nbd");
+                devnum = (int)cfg["dev_num"].uint64_value();
+            }
+
+            uint64_t flags = NBD_FLAG_SEND_FLUSH;
+            uint64_t cflags = 0;
+
+            #ifdef NBD_FLAG_READ_ONLY
+            if (!cfg["nbd_ro"].is_null())
+            {
+                flags |= NBD_FLAG_READ_ONLY;
+            }
+            #endif
+
+            #ifdef NBD_CFLAG_DESTROY_ON_DISCONNECT
+            if (!cfg["nbd_destroy_on_disconnect"].is_null())
+            {
+                cflags |= NBD_CFLAG_DESTROY_ON_DISCONNECT;
+            }
+            #endif
+
+            #ifdef NBD_CFLAG_DISCONNECT_ON_CLOSE
+            if (!cfg["nbd_disconnect_on_close"].is_null())
+            {
+                cflags |= NBD_CFLAG_DISCONNECT_ON_CLOSE;
+            }
+            #endif
+
+            int err = netlink_configure(sockfd + 1, 1, devnum, device_size, 4096, flags, cflags, nbd_timeout, nbd_lease);
+            if (err < 0) {
+                if (err == -NLE_BUSY) {
+                    errno = EBUSY;
+                } else {
+                    errno = EIO;
+                }
+
+                perror("netlink_configure");
                 exit(1);
             }
+
+            printf("/dev/nbd%d\n", err);
         }
         else
         {
-            // Find an unused device
-            int i = 0;
-            while (true)
+            if (!cfg["dev_num"].is_null())
             {
-                int r = run_nbd(sockfd, i, device_size, NBD_FLAG_SEND_FLUSH, nbd_timeout, bg);
-                if (r == 0)
+                if (run_nbd(sockfd, cfg["dev_num"].int64_value(), device_size, NBD_FLAG_SEND_FLUSH, nbd_timeout, bg) < 0)
                 {
-                    printf("/dev/nbd%d\n", i);
-                    break;
-                }
-                else if (r == -1 && errno == ENOENT)
-                {
-                    fprintf(stderr, "No free NBD devices found\n");
-                    exit(1);
-                }
-                else if (r == -2 && errno == EBUSY)
-                {
-                    i++;
-                }
-                else
-                {
-                    printf("%d %d\n", r, errno);
                     perror("run_nbd");
                     exit(1);
                 }
             }
+            else
+            {
+                // Find an unused device
+                int i = 0;
+                while (true)
+                {
+                    int r = run_nbd(sockfd, i, device_size, NBD_FLAG_SEND_FLUSH, nbd_timeout, bg);
+                    if (r == 0)
+                    {
+                        printf("/dev/nbd%d\n", i);
+                        break;
+                    }
+                    else if (r == -1 && errno == ENOENT)
+                    {
+                        fprintf(stderr, "No free NBD devices found\n");
+                        exit(1);
+                    }
+                    else if (r == -2 && errno == EBUSY)
+                    {
+                        i++;
+                    }
+                    else
+                    {
+                        printf("%d %d\n", r, errno);
+                        perror("run_nbd");
+                        exit(1);
+                    }
+                }
+            }
         }
+
+
         if (cfg["logfile"].is_string())
         {
             logfile = cfg["logfile"].string_value();

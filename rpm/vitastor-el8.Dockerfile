@@ -11,7 +11,7 @@ RUN dnf -y install centos-release-advanced-virtualization epel-release dnf-plugi
 RUN sed -i 's/^mirrorlist=/#mirrorlist=/; s!#baseurl=.*!baseurl=http://vault.centos.org/centos/8.4.2105/virt/$basearch/$avdir/!; s!^baseurl=.*Source/.*!baseurl=http://vault.centos.org/centos/8.4.2105/virt/Source/advanced-virtualization/!' /etc/yum.repos.d/CentOS-Advanced-Virtualization.repo
 RUN yum -y install https://vitastor.io/rpms/centos/8/vitastor-release-1.0-1.el8.noarch.rpm
 RUN dnf -y install gcc-toolset-9 gcc-toolset-9-gcc-c++ gperftools-devel \
-    fio nodejs rpm-build jerasure-devel libisa-l-devel gf-complete-devel libibverbs-devel libarchive cmake
+    fio nodejs rpm-build jerasure-devel libisa-l-devel gf-complete-devel libibverbs-devel libarchive cmake libnl3-devel
 RUN dnf download --source fio
 RUN rpm --nomd5 -i fio*.src.rpm
 RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo=powertools --spec fio.spec
