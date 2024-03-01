@@ -213,7 +213,12 @@ void nfs_proxy_t::run(json11::Json cfg)
         fs_base_inode = ((uint64_t)default_pool_id << (64-POOL_ID_BITS));
         fs_inode_count = ((uint64_t)1 << (64-POOL_ID_BITS)) - 1;
         shared_inode_threshold = pool_block_size;
+        if (!cfg["shared_inode_threshold"].is_null())
+        {
+            shared_inode_threshold = cfg["shared_inode_threshold"].uint64_value();
+        }
         kvfs = new kv_fs_state_t;
+        kvfs->zero_block.resize(pool_block_size);
     }
     // Self-register portmap and NFS
     pmap.reg_ports.insert((portmap_id_t){

@@ -40,7 +40,15 @@ cp ./testdata/nfs/f1 ./testdata/f1_nfs
 diff ./testdata/f1_90k ./testdata/nfs/f1
 format_green "90K data ok"
 
-# move it inplace
+# test partial shared overwrite
+dd if=/dev/urandom of=./testdata/f1_90k bs=9317 count=1 seek=5 conv=notrunc
+dd if=./testdata/f1_90k of=./testdata/nfs/f1 bs=9317 count=1 skip=5 seek=5 conv=notrunc
+sudo umount ./testdata/nfs/
+sudo mount localhost:/ ./testdata/nfs -o port=2050,mountport=2050,nfsvers=3,soft,nolock,tcp
+diff ./testdata/f1_90k ./testdata/nfs/f1
+format_green "partial inplace shared overwrite ok"
+
+# move it to a larger shared space
 dd if=/dev/urandom of=./testdata/f1_110k bs=110k count=1
 cp testdata/f1_110k ./testdata/nfs/f1
 sudo umount ./testdata/nfs/

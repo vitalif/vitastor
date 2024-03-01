@@ -41,6 +41,7 @@ struct nfs_kv_write_state
     uint64_t shared_inode = 0, shared_offset = 0;
     bool was_immediate = false;
     nfs_rmw_t rmw[2];
+    shared_file_header_t shdr;
     kv_inode_extend_t *ext = NULL;
 
     ~nfs_kv_write_state()
@@ -123,14 +124,14 @@ uint64_t align_shared_size(nfs_client_t *self, uint64_t size)
         & ~(self->parent->pool_alignment-1);
 }
 
-static void nfs_do_write(uint64_t ino, uint64_t offset, uint8_t *buf, uint64_t size, nfs_kv_write_state *st, int state)
+static void nfs_do_write(uint64_t ino, uint64_t offset, uint64_t size, std::function<void(cluster_op_t *op)> prepare, nfs_kv_write_state *st, int state)
 {
     auto op = new cluster_op_t;
     op->opcode = OSD_OP_WRITE;
     op->inode = st->self->parent->fs_base_inode + ino;
     op->offset = offset;
     op->len = size;
-    op->iov.push_back(buf, size);
+    prepare(op);
     st->waiting++;
     op->callback = [st, state](cluster_op_t *op)
     {
@@ -148,15 +149,12 @@ static void nfs_do_write(uint64_t ino, uint64_t offset, uint8_t *buf, uint64_t s
     st->self->parent->cli->execute(op);
 }
 
-static void nfs_do_shared_write(nfs_kv_write_state *st, int state)
-{
-    nfs_do_write(st->shared_inode, st->shared_offset, st->aligned_buf, st->aligned_size, st, state);
-}
-
 static void nfs_do_unshare_write(nfs_kv_write_state *st, int state)
 {
-    nfs_do_write(st->ino, 0, st->aligned_buf + sizeof(shared_file_header_t),
-        st->aligned_size - sizeof(shared_file_header_t), st, state);
+    nfs_do_write(st->ino, 0, st->aligned_size - sizeof(shared_file_header_t), [&](cluster_op_t *op)
+    {
+        op->iov.push_back(st->aligned_buf + sizeof(shared_file_header_t), st->aligned_size - sizeof(shared_file_header_t));
+    }, st, state);
 }
 
 static void nfs_do_rmw(nfs_rmw_t *rmw)
@@ -295,6 +293,8 @@ static bool nfs_do_shared_readmodify(nfs_kv_write_state *st, int base_state, int
         : align_shared_size(st->self, st->new_size);
     st->aligned_buf = (uint8_t*)malloc_or_die(st->aligned_size);
     memset(st->aligned_buf + sizeof(shared_file_header_t), 0, st->offset);
+    memset(st->aligned_buf + sizeof(shared_file_header_t) + st->offset + st->size, 0,
+        st->aligned_size - sizeof(shared_file_header_t) - st->offset - st->size);
     if (st->ientry["shared_ino"].uint64_value() != 0 &&
         st->ientry["size"].uint64_value() != 0)
     {
@@ -324,71 +324,116 @@ resume_0:
         .inode = st->ino,
         .alloc = st->aligned_size,
     };
-    memcpy(st->aligned_buf + sizeof(shared_file_header_t) + st->offset, st->buf, st->size);
-    memset(st->aligned_buf + sizeof(shared_file_header_t) + st->offset + st->size, 0,
-        st->aligned_size - sizeof(shared_file_header_t) - st->offset - st->size);
     return true;
 }
 
-static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t offset, int state)
+static void nfs_do_shared_write(nfs_kv_write_state *st, int state, bool only_aligned)
+{
+    nfs_do_write(st->shared_inode, st->shared_offset, st->aligned_size, [&](cluster_op_t *op)
+    {
+        if (only_aligned)
+            op->iov.push_back(st->aligned_buf, st->aligned_size);
+        else
+        {
+            op->iov.push_back(st->aligned_buf, sizeof(shared_file_header_t) + st->offset);
+            op->iov.push_back(st->buf, st->size);
+            op->iov.push_back(
+                st->aligned_buf + sizeof(shared_file_header_t) + st->offset + st->size,
+                st->aligned_size - (sizeof(shared_file_header_t) + st->offset + st->size)
+            );
+        }
+    }, st, state);
+}
+
+static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t offset, uint64_t shared_alloc, int state)
 {
     auto alignment = st->self->parent->pool_alignment;
+    uint64_t end = (offset+st->size);
     uint8_t *good_buf = st->buf;
     uint64_t good_offset = offset;
     uint64_t good_size = st->size;
+    bool begin_shdr = false;
+    uint64_t end_pad = 0;
     st->waiting++;
     st->rmw[0].st = NULL;
     st->rmw[1].st = NULL;
     if (offset % alignment)
     {
-        // Requires read-modify-write in the beginning
-        auto s = (alignment - (offset % alignment));
-        if (good_size > s)
+        if (shared_alloc && st->offset == 0 && (offset % alignment) == sizeof(shared_file_header_t))
         {
-            good_buf += s;
-            good_offset += s;
-            good_size -= s;
+            // RMW can be skipped at shared beginning
+            st->shdr = {
+                .magic = SHARED_FILE_MAGIC_V1,
+                .inode = st->ino,
+                .alloc = shared_alloc,
+            };
+            begin_shdr = true;
+            good_offset -= sizeof(shared_file_header_t);
+            offset = 0;
         }
         else
-            good_size = 0;
-        s = s > st->size ? st->size : s;
-        st->rmw[0] = {
-            .st = st,
-            .continue_state = state,
-            .ino = ino,
-            .offset = offset,
-            .buf = st->buf,
-            .size = s,
-        };
-        // FIXME: skip rmw at shared beginning
-        nfs_do_rmw(&st->rmw[0]);
+        {
+            // Requires read-modify-write in the beginning
+            auto s = (alignment - (offset % alignment));
+            if (good_size > s)
+            {
+                good_buf += s;
+                good_offset += s;
+                good_size -= s;
+            }
+            else
+                good_size = 0;
+            s = s > st->size ? st->size : s;
+            st->rmw[0] = {
+                .st = st,
+                .continue_state = state,
+                .ino = ino,
+                .offset = offset,
+                .buf = st->buf,
+                .size = s,
+            };
+            nfs_do_rmw(&st->rmw[0]);
+        }
     }
-    if ((offset+st->size) % alignment)
+    if ((end % alignment) &&
+        (offset == 0 || end/alignment > (offset-1)/alignment))
     {
         // Requires read-modify-write in the end
-        auto s = ((offset+st->size) % alignment);
-        if (good_size > s)
-            good_size -= s;
-        else
-            good_size = 0;
-        if ((offset+st->size)/alignment > offset/alignment)
+        assert(st->offset+st->size <= st->new_size);
+        if (st->offset+st->size == st->new_size)
         {
+            // rmw can be skipped at end - we can just zero pad the request
+            end_pad = alignment - (end % alignment);
+        }
+        else
+        {
+            auto s = (end % alignment);
+            if (good_size > s)
+                good_size -= s;
+            else
+                good_size = 0;
             st->rmw[1] = {
                 .st = st,
                 .continue_state = state,
                 .ino = ino,
-                .offset = offset + st->size-s,
-                .buf = st->buf + st->size-s,
+                .offset = end - s,
+                .buf = st->buf + st->size - s,
                 .size = s,
             };
-            // FIXME: skip rmw at end
             nfs_do_rmw(&st->rmw[1]);
         }
     }
-    if (good_size > 0)
+    if (good_size > 0 || end_pad > 0 || begin_shdr)
     {
         // Normal write
-        nfs_do_write(ino, good_offset, good_buf, good_size, st, state);
+        nfs_do_write(ino, good_offset, (begin_shdr ? sizeof(shared_file_header_t) : 0)+good_size+end_pad, [&](cluster_op_t *op)
+        {
+            if (begin_shdr)
+                op->iov.push_back(&st->shdr, sizeof(shared_file_header_t));
+            op->iov.push_back(good_buf, good_size);
+            if (end_pad)
+                op->iov.push_back(st->self->parent->kvfs->zero_block.data(), end_pad);
+        }, st, state);
     }
     st->waiting--;
     if (!st->waiting)
@@ -631,7 +676,7 @@ resume_1:
             st->ientry["empty"].bool_value() &&
             (st->ientry["size"].uint64_value() + sizeof(shared_file_header_t)) < st->self->parent->shared_inode_threshold ||
             st->ientry["shared_ino"].uint64_value() != 0 &&
-            st->ientry["shared_alloc"].uint64_value() < align_shared_size(st->self, st->offset+st->size))
+            st->ientry["shared_alloc"].uint64_value() < sizeof(shared_file_header_t)+st->offset+st->size)
         {
             // Either empty, or shared and requires moving into a larger place (redirect-write)
             allocate_shared_inode(st, 2, st->new_size);
@@ -646,7 +691,7 @@ resume_2:
 resume_3:
             if (!nfs_do_shared_readmodify(st, 3, state, false))
                 return;
-            nfs_do_shared_write(st, 4); // FIXME assemble from parts, do not copy?
+            nfs_do_shared_write(st, 4, false);
             return;
 resume_4:
             if (st->res < 0)
@@ -669,7 +714,7 @@ resume_5:
             {
                 st->res2 = st->res;
                 memset(st->aligned_buf, 0, st->aligned_size);
-                nfs_do_shared_write(st, 6);
+                nfs_do_shared_write(st, 6, true);
                 return;
 resume_6:
                 free(st->aligned_buf);
@@ -689,11 +734,12 @@ resume_6:
             cb(0);
             return;
         }
-        else if (st->ientry["shared_ino"].uint64_value() > 0)
+        else if (st->ientry["shared_ino"].uint64_value() != 0)
         {
             // Non-empty, shared, can be updated in-place
             nfs_do_align_write(st, st->ientry["shared_ino"].uint64_value(),
-                st->ientry["shared_offset"].uint64_value() + sizeof(shared_file_header_t) + st->offset, 7);
+                st->ientry["shared_offset"].uint64_value() + sizeof(shared_file_header_t) + st->offset,
+                st->ientry["shared_alloc"].uint64_value(), 7);
             return;
 resume_7:
             if (st->res == 0 && st->stable && !st->was_immediate)
@@ -763,7 +809,7 @@ resume_12:
         st->ientry_text = new_unshared_ientry(st);
     }
     // Non-shared write
-    nfs_do_align_write(st, st->ino, st->offset, 13);
+    nfs_do_align_write(st, st->ino, st->offset, 0, 13);
     return;
 resume_13:
     if (st->res == 0 && st->stable && !st->was_immediate)

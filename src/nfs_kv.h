@@ -51,6 +51,7 @@ struct kv_fs_state_t
     std::vector<shared_alloc_queue_t> allocating_shared;
     uint64_t cur_shared_inode = 0, cur_shared_offset = 0;
     std::map<inode_t, kv_inode_extend_t> extends;
+    std::vector<uint8_t> zero_block;
 };
 
 struct shared_file_header_t

@@ -142,7 +142,6 @@ resume_4:
     cb(st->res);
 }
 
-// FIXME: We'll need some tests for the FS
 int kv_nfs3_link_proc(void *opaque, rpc_op_t *rop)
 {
     auto st = new nfs_kv_link_state;
