@@ -118,8 +118,9 @@ void kv_cli_t::run(const json11::Json::object & cfg)
                 finished = true;
             }
         });
-        interactive = true;
-        printf("> ");
+        interactive = isatty(0);
+        if (interactive)
+            printf("> ");
     }
     catch (std::exception & e)
     {
@@ -236,7 +237,7 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
             if (res < 0)
                 fprintf(stderr, "Error opening index: %s (code %d)\n", strerror(-res), res);
             else
-                printf("Index opened. Current size: %lu bytes\n", db->get_size());
+                fprintf(interactive ? stdout : stderr, "Index opened. Current size: %lu bytes\n", db->get_size());
             cb();
         });
     }
@@ -272,15 +273,15 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
     }
     else if (opname == "get" || opname == "set" || opname == "del")
     {
+        std::string key = scan_escaped(cmd, pos);
         if (opname == "get" || opname == "del")
         {
-            if (pos == std::string::npos)
+            if (key == "")
             {
                 fprintf(stderr, "Usage: %s <key>\n", opname.c_str());
                 cb();
                 return;
             }
-            auto key = trim(cmd.substr(pos+1));
             if (opname == "get")
             {
                 db->get(key, [this, cb](int res, const std::string & value)
@@ -302,34 +303,33 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
                     if (res < 0)
                         fprintf(stderr, "Error: %s (code %d)\n", strerror(-res), res);
                     else
-                        printf("OK\n");
+                        fprintf(interactive ? stdout : stderr, "OK\n");
                     cb();
                 });
             }
         }
         else
         {
-            auto pos2 = cmd.find_first_of(" \t", pos+1);
-            if (pos2 == std::string::npos)
+            if (key == "" || pos >= cmd.size())
             {
                 fprintf(stderr, "Usage: set <key> <value>\n");
                 cb();
                 return;
             }
-            auto key = trim(cmd.substr(pos+1, pos2-pos-1));
-            auto value = trim(cmd.substr(pos2+1));
+            auto value = trim(cmd.substr(pos));
             db->set(key, value, [this, cb](int res)
             {
                 if (res < 0)
                     fprintf(stderr, "Error: %s (code %d)\n", strerror(-res), res);
                 else
-                    printf("OK\n");
+                    fprintf(interactive ? stdout : stderr, "OK\n");
                 cb();
             });
         }
     }
-    else if (opname == "list")
+    else if (opname == "list" || opname == "dump")
     {
+        bool dump = opname == "dump";
         std::string start, end;
         if (pos != std::string::npos)
         {
@@ -358,7 +358,10 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
             }
             else
             {
-                printf("%s = %s\n", key.c_str(), value.c_str());
+                if (dump)
+                    printf("set %s %s\n", auto_addslashes(key).c_str(), value.c_str());
+                else
+                    printf("%s = %s\n", key.c_str(), value.c_str());
                 db->list_next(handle, NULL);
             }
         });
@@ -367,7 +370,7 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
     {
         db->close([=]()
         {
-            printf("Index closed\n");
+            fprintf(interactive ? stdout : stderr, "Index closed\n");
             cb();
         });
     }
@@ -382,7 +385,8 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
             stderr, "Unknown operation: %s. Supported operations:\n"
             "open <pool_id> <inode_id> [block_size]\n"
             "config <property> <value>\n"
-            "get <key>\nset <key> <value>\ndel <key>\nlist [<start> [end]]\n"
+            "get <key>\nset <key> <value>\ndel <key>\n"
+            "list [<start> [end]]\ndump [<start> [end]]\n"
             "close\nquit\n", opname.c_str()
         );
         cb();

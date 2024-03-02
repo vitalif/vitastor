@@ -348,3 +348,65 @@ std::vector<std::string> explode(const std::string & sep, const std::string & va
     }
     return res;
 }
+
+// extract possibly double-quoted part of string with escape characters
+std::string scan_escaped(const std::string & cmd, size_t & pos)
+{
+    std::string key;
+    auto pos2 = cmd.find_first_not_of(" \t\r\n", pos);
+    if (pos2 == std::string::npos)
+    {
+        pos = cmd.size();
+        return "";
+    }
+    pos = pos2;
+    if (cmd[pos] != '"')
+    {
+        pos2 = cmd.find_first_of(" \t\r\n", pos);
+        pos2 = pos2 == std::string::npos ? cmd.size() : pos2;
+        key = cmd.substr(pos, pos2-pos);
+        pos2 = cmd.find_first_not_of(" \t\r\n", pos2);
+        pos = pos2 == std::string::npos ? cmd.size() : pos2;
+        return key;
+    }
+    pos++;
+    while (pos < cmd.size())
+    {
+        auto pos2 = cmd.find_first_of("\\\"", pos);
+        pos2 = pos2 == std::string::npos ? cmd.size() : pos2;
+        if (pos2 > pos)
+            key += cmd.substr(pos, pos2-pos);
+        pos = pos2;
+        if (pos >= cmd.size())
+            break;
+        if (cmd[pos] == '"')
+        {
+            pos++;
+            break;
+        }
+        if (cmd[pos] == '\\')
+        {
+            if (pos < cmd.size()-1)
+                key += cmd[++pos];
+            pos++;
+        }
+    }
+    return key;
+}
+
+std::string auto_addslashes(const std::string & str)
+{
+    auto pos = str.find_first_of("\\\"");
+    if (pos == std::string::npos)
+        return str;
+    std::string res = "\""+str.substr(0, pos)+"\\"+str[pos];
+    while (pos < str.size()-1)
+    {
+        auto pos2 = str.find_first_of("\\\"", pos+1);
+        if (pos2 == std::string::npos)
+            return res + str.substr(pos+1) + "\"";
+        res += str.substr(pos, pos2-pos)+"\\"+str[pos2];
+        pos = pos2;
+    }
+    return res+"\"";
+}
