@@ -151,9 +151,11 @@ static void nfs_do_write(uint64_t ino, uint64_t offset, uint64_t size, std::func
 
 static void nfs_do_unshare_write(nfs_kv_write_state *st, int state)
 {
-    nfs_do_write(st->ino, 0, st->aligned_size - sizeof(shared_file_header_t), [&](cluster_op_t *op)
+    uint64_t unshare_size = (st->ientry["size"].uint64_value() + st->self->parent->pool_alignment-1)
+        & ~(st->self->parent->pool_alignment-1);
+    nfs_do_write(st->ino, 0, unshare_size, [&](cluster_op_t *op)
     {
-        op->iov.push_back(st->aligned_buf + sizeof(shared_file_header_t), st->aligned_size - sizeof(shared_file_header_t));
+        op->iov.push_back(st->aligned_buf + sizeof(shared_file_header_t), unshare_size);
     }, st, state);
 }
 
@@ -292,6 +294,7 @@ static bool nfs_do_shared_readmodify(nfs_kv_write_state *st, int base_state, int
         ? sizeof(shared_file_header_t) + ((st->new_size + st->self->parent->pool_alignment-1) & ~(st->self->parent->pool_alignment-1))
         : align_shared_size(st->self, st->new_size);
     st->aligned_buf = (uint8_t*)malloc_or_die(st->aligned_size);
+    // FIXME do not allocate zeroes if we only need zeroes
     memset(st->aligned_buf + sizeof(shared_file_header_t), 0, st->offset);
     memset(st->aligned_buf + sizeof(shared_file_header_t) + st->offset + st->size, 0,
         st->aligned_size - sizeof(shared_file_header_t) - st->offset - st->size);
@@ -319,6 +322,7 @@ resume_0:
             return false;
         }
     }
+    // FIXME put shared_file_header_t after data to not break alignment
     *((shared_file_header_t*)st->aligned_buf) = {
         .magic = SHARED_FILE_MAGIC_V1,
         .inode = st->ino,
@@ -679,7 +683,7 @@ resume_1:
             st->ientry["shared_alloc"].uint64_value() < sizeof(shared_file_header_t)+st->offset+st->size)
         {
             // Either empty, or shared and requires moving into a larger place (redirect-write)
-            allocate_shared_inode(st, 2, st->new_size);
+            allocate_shared_inode(st, 2, align_shared_size(st->self, st->new_size));
             return;
 resume_2:
             if (st->res < 0)
@@ -783,7 +787,12 @@ resume_10:
             nfs_do_unshare_write(st, 11);
             return;
 resume_11:
-            ;
+            if (st->res < 0)
+            {
+                auto cb = std::move(st->cb);
+                cb(st->res);
+                return;
+            }
         }
         st->self->parent->db->set(kv_inode_key(st->ino), new_unshared_ientry(st), [st](int res)
         {

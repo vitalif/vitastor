@@ -153,6 +153,7 @@ void cli_tool_t::loop_and_wait(std::function<bool(cli_result_t &)> loop_cb, std:
             ringloop->unregister_consumer(&looper->consumer);
             looper->loop_cb = NULL;
             looper->complete_cb(looper->result);
+            ringloop->submit();
             delete looper;
             return;
         }

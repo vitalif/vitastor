@@ -25,6 +25,7 @@ struct nfs_kv_setattr_state
 
 static void nfs_kv_continue_setattr(nfs_kv_setattr_state *st, int state)
 {
+    // FIXME: NFS client does a lot of setattr calls, so maybe process them asynchronously
     if (state == 0)      {}
     else if (state == 1) goto resume_1;
     else if (state == 2) goto resume_2;
@@ -50,8 +51,7 @@ resume_1:
         cb(st->res);
         return;
     }
-    if (st->ientry["type"].string_value() == "link" ||
-        st->ientry["type"].string_value() != "file" &&
+    if (st->ientry["type"].string_value() != "file" &&
         st->ientry["type"].string_value() != "" &&
         !st->set_attrs["size"].is_null())
     {
