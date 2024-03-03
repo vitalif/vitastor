@@ -33,6 +33,7 @@ public:
     uint64_t fs_inode_count = 0;
     int readdir_getattr_parallel = 8, id_alloc_batch_size = 200;
     int trace = 0;
+    std::string logfile = "/dev/null";
 
     pool_id_t default_pool_id;
     uint64_t pool_block_size = 0;

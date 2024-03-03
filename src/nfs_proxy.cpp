@@ -69,6 +69,7 @@ json11::Json::object nfs_proxy_t::parse_args(int narg, const char *args[])
                 "  --nfspath <PATH>  set NFS export path to <PATH> (default is /)\n"
                 "  --port <PORT>     use port <PORT> for NFS services (default is 2049)\n"
                 "  --pool <POOL>     use <POOL> as default pool for new files (images)\n"
+                "  --logfile <FILE>  log to the specified file\n"
                 "  --foreground 1    stay in foreground, do not daemonize\n"
                 "\n"
                 "NFS proxy is stateless if you use immediate_commit=all in your cluster and if\n"
@@ -98,6 +99,8 @@ void nfs_proxy_t::run(json11::Json cfg)
     srand48(tv.tv_sec*1000000000 + tv.tv_nsec);
     server_id = (uint64_t)lrand48() | ((uint64_t)lrand48() << 31) | ((uint64_t)lrand48() << 62);
     // Parse options
+    if (cfg["logfile"].string_value() != "")
+        logfile = cfg["logfile"].string_value();
     trace = cfg["log_level"].uint64_value() > 5 || cfg["trace"].uint64_value() > 0;
     bind_address = cfg["bind"].string_value();
     if (bind_address == "")
@@ -999,8 +1002,8 @@ void nfs_proxy_t::daemonize()
     close(1);
     close(2);
     open("/dev/null", O_RDONLY);
-    open("/dev/null", O_WRONLY);
-    open("/dev/null", O_WRONLY);
+    open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT, 0666);
+    open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT, 0666);
 }
 
 int main(int narg, const char *args[])

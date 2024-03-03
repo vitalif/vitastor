@@ -101,7 +101,7 @@ void epoll_manager_t::handle_uring_event()
     my_uring_prep_poll_add(sqe, epoll_fd, POLLIN);
     data->callback = [this](ring_data_t *data)
     {
-        if (data->res < 0)
+        if (data->res < 0 && data->res != -ECANCELED)
         {
             throw std::runtime_error(std::string("epoll failed: ") + strerror(-data->res));
         }

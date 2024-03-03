@@ -146,7 +146,7 @@ public:
             "    Note that nbd_timeout, nbd_max_devices and nbd_max_part options may also be specified\n"
             "    in /etc/vitastor/vitastor.conf or in other configuration file specified with --config_file.\n"
             "  --logfile /path/to/log/file.txt\n"
-            "    Wite log messages to the specified file instead of dropping them (in background mode)\n"
+            "    Write log messages to the specified file instead of dropping them (in background mode)\n"
             "    or printing them to the standard output (in foreground mode).\n"
             "  --dev_num N\n"
             "    Use the specified device /dev/nbdN instead of automatic selection.\n"
@@ -298,7 +298,7 @@ public:
                 }
             }
         }
-        if (cfg["logfile"].is_string())
+        if (cfg["logfile"].string_value() != "")
         {
             logfile = cfg["logfile"].string_value();
         }
