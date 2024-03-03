@@ -154,4 +154,14 @@ sudo mount localhost:/ ./testdata/nfs -o port=2050,mountport=2050,nfsvers=3,soft
 if ls ./testdata/nfs | grep smallfile; then false; fi
 format_green "rm small ok"
 
+# rename over existing
+echo ZXCVBN > ./testdata/nfs/over1
+mv ./testdata/nfs/over1 ./testdata/nfs/linked2
+sudo umount ./testdata/nfs/
+sudo mount localhost:/ ./testdata/nfs -o port=2050,mountport=2050,nfsvers=3,soft,nolock,tcp
+if ls ./testdata/nfs | grep over1; then false; fi
+[[ "`cat ./testdata/nfs/linked2`" = "ZXCVBN" ]]
+[[ "`cat ./testdata/nfs/linked1`" = "BABABA" ]]
+format_green "rename over existing file ok"
+
 format_green OK

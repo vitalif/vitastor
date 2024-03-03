@@ -22,6 +22,7 @@ struct kv_del_state
     int type = 0;
     bool is_rmdir = false;
     bool rm_data = false;
+    bool allow_cache = true;
     int res = 0, res2 = 0;
     std::function<void(int)> cb;
 };
@@ -48,12 +49,13 @@ static void nfs_kv_continue_delete(kv_del_state *st, int state)
         fprintf(stderr, "BUG: invalid state in nfs_kv_continue_delete()");
         abort();
     }
+resume_0:
     st->self->parent->db->get(kv_direntry_key(st->dir_ino, st->filename), [st](int res, const std::string & value)
     {
         st->res = res;
         st->direntry_text = value;
         nfs_kv_continue_delete(st, 1);
-    });
+    }, st->allow_cache);
     return;
 resume_1:
     if (st->res < 0)
@@ -82,7 +84,7 @@ resume_1:
         st->res = res;
         st->ientry_text = value;
         nfs_kv_continue_delete(st, 2);
-    });
+    }, st->allow_cache);
     return;
 resume_2:
     if (st->res < 0)
@@ -124,8 +126,8 @@ resume_3:
     if (st->res == -EAGAIN)
     {
         // CAS failure, restart from the beginning
-        nfs_kv_continue_delete(st, 0);
-        return;
+        st->allow_cache = false;
+        goto resume_0;
     }
     else if (st->res < 0 && st->res != -ENOENT)
     {
