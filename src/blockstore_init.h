@@ -23,6 +23,7 @@ class blockstore_init_meta
     struct ring_data_t *data;
     uint64_t md_offset = 0;
     uint64_t next_offset = 0;
+    uint64_t last_read_offset = 0;
     uint64_t entries_loaded = 0;
     unsigned entries_per_block = 0;
     int i = 0, j = 0;

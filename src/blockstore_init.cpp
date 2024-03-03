@@ -32,7 +32,7 @@ void blockstore_init_meta::handle_event(ring_data_t *data, int buf_num)
     if (data->res < 0)
     {
         throw std::runtime_error(
-            std::string("read metadata failed at offset ") + std::to_string(bufs[buf_num].offset) +
+            std::string("read metadata failed at offset ") + std::to_string(buf_num >= 0 ? bufs[buf_num].offset : last_read_offset) +
             std::string(": ") + strerror(-data->res)
         );
     }
@@ -63,6 +63,7 @@ int blockstore_init_meta::loop()
         throw std::runtime_error("Failed to allocate metadata read buffer");
     // Read superblock
     GET_SQE();
+    last_read_offset = 0;
     data->iov = { metadata_buffer, (size_t)bs->dsk.meta_block_size };
     data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
     my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
@@ -100,6 +101,7 @@ resume_1:
         {
             printf("Initializing metadata area\n");
             GET_SQE();
+            last_read_offset = 0;
             data->iov = (struct iovec){ metadata_buffer, (size_t)bs->dsk.meta_block_size };
             data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
             my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
@@ -259,9 +261,11 @@ resume_2:
             next_offset = entries_to_zero[i]/entries_per_block;
             for (j = i; j < entries_to_zero.size() && entries_to_zero[j]/entries_per_block == next_offset; j++) {}
             GET_SQE();
+            last_read_offset = (1+next_offset)*bs->dsk.meta_block_size;
             data->iov = { metadata_buffer, (size_t)bs->dsk.meta_block_size };
             data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
             my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (1+next_offset)*bs->dsk.meta_block_size);
+            bs->ringloop->submit();
             submitted++;
 resume_5:
             if (submitted > 0)
@@ -278,6 +282,7 @@ resume_5:
             data->iov = { metadata_buffer, (size_t)bs->dsk.meta_block_size };
             data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
             my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (1+next_offset)*bs->dsk.meta_block_size);
+            bs->ringloop->submit();
             submitted++;
 resume_6:
             if (submitted > 0)
@@ -299,6 +304,7 @@ resume_6:
     {
         GET_SQE();
         my_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
+        last_read_offset = 0;
         data->iov = { 0 };
         data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
         submitted++;
