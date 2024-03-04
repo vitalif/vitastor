@@ -701,15 +701,13 @@ void kv_db_t::find_size(uint64_t min, uint64_t max, int phase, std::function<voi
     op->inode = inode_id;
     op->offset = (phase == 1 ? min : (min+max)/2) * ino_block_size;
     op->len = kv_block_size;
-    if (op->len)
-    {
-        op->iov.push_back(malloc_or_die(op->len), op->len);
-    }
+    op->iov.push_back(malloc_or_die(op->len), op->len);
     op->callback = [=](cluster_op_t *op)
     {
         if (op->retval != op->len)
         {
             // error
+            free(op->iov.buf[0].iov_base);
             cb(op->retval >= 0 ? -EIO : op->retval, 0);
             return;
         }
@@ -896,7 +894,9 @@ static void get_block(kv_db_t *db, uint64_t offset, int cur_level, int recheck_p
         if (op->retval != op->len)
         {
             // error
+            free(op->iov.buf[0].iov_base);
             cb(op->retval >= 0 ? -EIO : op->retval, BLK_NOCHANGE);
+            delete op;
             return;
         }
         invalidate(db, op->offset, op->version);
@@ -909,6 +909,8 @@ static void get_block(kv_db_t *db, uint64_t offset, int cur_level, int recheck_p
             if (blk->updating > 0 && recheck_policy == KV_RECHECK_WAIT)
             {
                 // Wait until block update stops
+                free(op->iov.buf[0].iov_base);
+                delete op;
                 db->continue_update.emplace(blk->offset, [=, blk_offset = blk->offset]()
                 {
                     get_block(db, offset, cur_level, recheck_policy, cb);
@@ -1339,6 +1341,8 @@ static void write_new_block(kv_db_t *db, kv_block_t *blk, std::function<void(int
                     del_block_level(db, blk);
                     db->block_cache.erase(blk->offset);
                     cb(op->retval >= 0 ? -EIO : op->retval, NULL);
+                    free(op->iov.buf[0].iov_base);
+                    delete op;
                     return;
                 }
                 invalidate(db, op->offset, op->version);
@@ -1353,6 +1357,8 @@ static void write_new_block(kv_db_t *db, kv_block_t *blk, std::function<void(int
                     // Block is already occupied => place again
                     place_again(db, blk, cb);
                 }
+                free(op->iov.buf[0].iov_base);
+                delete op;
             };
             db->cli->execute(op);
         }
