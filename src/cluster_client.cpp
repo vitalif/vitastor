@@ -238,7 +238,8 @@ void cluster_client_t::erase_op(cluster_op_t *op)
         // which may continue following SYNCs, but these SYNCs
         // should know about the changed buffer state
         // This is ugly but this is the way we do it
-        std::function<void(cluster_op_t*)>(op->callback)(op);
+        auto cb = std::move(op->callback);
+        cb(op);
     }
     if (!(flags & OP_IMMEDIATE_COMMIT) || enable_writeback)
     {
@@ -248,7 +249,8 @@ void cluster_client_t::erase_op(cluster_op_t *op)
     {
         // Call callback at the end to avoid inconsistencies in prev_wait
         // if the callback adds more operations itself
-        std::function<void(cluster_op_t*)>(op->callback)(op);
+        auto cb = std::move(op->callback);
+        cb(op);
     }
     if (flags & OP_FLUSH_BUFFER)
     {
@@ -548,7 +550,8 @@ void cluster_client_t::execute(cluster_op_t *op)
         op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_READ_CHAIN_BITMAP && op->opcode != OSD_OP_WRITE)
     {
         op->retval = -EINVAL;
-        std::function<void(cluster_op_t*)>(op->callback)(op);
+        auto cb = std::move(op->callback);
+        cb(op);
         return;
     }
     if (!pgs_loaded)
@@ -586,7 +589,8 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
             wb->start_writebacks(this, 1);
         }
         op->retval = op->len;
-        std::function<void(cluster_op_t*)>(op->callback)(op);
+        auto cb = std::move(op->callback);
+        cb(op);
         return;
     }
     if (op->opcode == OSD_OP_WRITE && !(op->flags & OP_IMMEDIATE_COMMIT))
@@ -655,7 +659,8 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
     if (!pool_id)
     {
         op->retval = -EINVAL;
-        std::function<void(cluster_op_t*)>(op->callback)(op);
+        auto cb = std::move(op->callback);
+        cb(op);
         return false;
     }
     auto pool_it = st_cli.pool_config.find(pool_id);
@@ -663,7 +668,8 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
     {
         // Pools are loaded, but this one is unknown
         op->retval = -EINVAL;
-        std::function<void(cluster_op_t*)>(op->callback)(op);
+        auto cb = std::move(op->callback);
+        cb(op);
         return false;
     }
     // Check alignment
@@ -671,7 +677,8 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
         op->offset % pool_it->second.bitmap_granularity || op->len % pool_it->second.bitmap_granularity)
     {
         op->retval = -EINVAL;
-        std::function<void(cluster_op_t*)>(op->callback)(op);
+        auto cb = std::move(op->callback);
+        cb(op);
         return false;
     }
     if (pool_it->second.immediate_commit == IMMEDIATE_ALL)
@@ -684,7 +691,8 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
         if (ino_it != st_cli.inode_config.end() && ino_it->second.readonly)
         {
             op->retval = -EROFS;
-            std::function<void(cluster_op_t*)>(op->callback)(op);
+            auto cb = std::move(op->callback);
+            cb(op);
             return false;
         }
     }
