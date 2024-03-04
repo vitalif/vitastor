@@ -673,7 +673,7 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
         return false;
     }
     // Check alignment
-    if (!op->len && (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP || op->opcode == OSD_OP_WRITE) ||
+    if (!op->len && (op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP || op->opcode == OSD_OP_WRITE) ||
         op->offset % pool_it->second.bitmap_granularity || op->len % pool_it->second.bitmap_granularity)
     {
         op->retval = -EINVAL;

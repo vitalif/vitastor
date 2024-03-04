@@ -888,14 +888,23 @@ static void get_block(kv_db_t *db, uint64_t offset, int cur_level, int recheck_p
     op->opcode = OSD_OP_READ;
     op->inode = db->inode_id;
     op->offset = offset;
-    op->len = db->kv_block_size;
-    op->iov.push_back(malloc_or_die(op->len), op->len);
+    if (b_it != db->block_cache.end() && !b_it->second.invalidated && !b_it->second.updating)
+    {
+        // just recheck version - it's cheaper than re-reading the block
+        op->len = 0;
+    }
+    else
+    {
+        op->len = db->kv_block_size;
+        op->iov.push_back(malloc_or_die(op->len), op->len);
+    }
     op->callback = [=](cluster_op_t *op)
     {
         if (op->retval != op->len)
         {
             // error
-            free(op->iov.buf[0].iov_base);
+            if (op->len)
+                free(op->iov.buf[0].iov_base);
             cb(op->retval >= 0 ? -EIO : op->retval, BLK_NOCHANGE);
             delete op;
             return;
@@ -910,7 +919,8 @@ static void get_block(kv_db_t *db, uint64_t offset, int cur_level, int recheck_p
             if (blk->updating > 0 && recheck_policy == KV_RECHECK_WAIT)
             {
                 // Wait until block update stops
-                free(op->iov.buf[0].iov_base);
+                if (op->len)
+                    free(op->iov.buf[0].iov_base);
                 delete op;
                 db->continue_update.emplace(blk->offset, [=, blk_offset = blk->offset]()
                 {
@@ -924,6 +934,13 @@ static void get_block(kv_db_t *db, uint64_t offset, int cur_level, int recheck_p
         }
         else
         {
+            if (!op->len)
+            {
+                // Version check failed, re-read block
+                delete op;
+                get_block(db, offset, cur_level, recheck_policy, cb);
+                return;
+            }
             auto blk = &db->block_cache[op->offset];
             if (blk_it != db->block_cache.end())
             {
@@ -945,7 +962,8 @@ static void get_block(kv_db_t *db, uint64_t offset, int cur_level, int recheck_p
             }
             try_evict(db);
         }
-        free(op->iov.buf[0].iov_base);
+        if (op->len)
+            free(op->iov.buf[0].iov_base);
         delete op;
     };
     db->cli->execute(op);
