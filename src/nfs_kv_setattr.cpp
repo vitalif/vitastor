@@ -121,7 +121,7 @@ resume_2:
     }
 resume_3:
     auto cb = std::move(st->cb);
-    cb(0);
+    cb(st->res);
 }
 
 int kv_nfs3_setattr_proc(void *opaque, rpc_op_t *rop)
