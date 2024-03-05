@@ -64,10 +64,6 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
                 (new_cfg["parity_chunks"].uint64_value() > 1 ? 1 : 0);
         }
     }
-    if (new_cfg["scheme"] != "ec")
-    {
-        new_cfg.erase("parity_chunks");
-    }
 
     // Check integer values and unknown keys
     for (auto kv_it = new_cfg.begin(); kv_it != new_cfg.end(); )
@@ -116,6 +112,12 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
                 new_cfg[kv.first] = kv.second;
             }
         }
+    }
+
+    // Check after merging
+    if (new_cfg["scheme"] != "ec")
+    {
+        new_cfg.erase("parity_chunks");
     }
 
     // Prevent autovivification of object keys. Now we don't modify the config, we just check it
