@@ -197,6 +197,7 @@ struct kv_op_t
 
     void exec();
     void next(); // for list
+    ~kv_op_t();
 protected:
     int recheck_policy = KV_RECHECK_LEAF;
     bool started = false;
@@ -985,14 +986,24 @@ void kv_op_t::exec()
         finish(-ENOSYS);
 }
 
+kv_op_t::~kv_op_t()
+{
+    if (started && !done)
+    {
+        done = true;
+        db->active_ops--;
+    }
+}
+
 void kv_op_t::finish(int res)
 {
+    auto db = this->db;
     this->res = res;
     this->done = true;
     db->active_ops--;
+    (std::function<void(kv_op_t *)>(callback))(this);
     if (!db->active_ops && db->closing)
         db->close(db->on_close);
-    (std::function<void(kv_op_t *)>(callback))(this);
 }
 
 void kv_op_t::get()

@@ -147,6 +147,8 @@ json11::Json::object kv_test_t::parse_args(int narg, const char *args[])
                 "    Fraction of key delete operations\n"
                 "  --list_prob 300\n"
                 "    Fraction of listing operations\n"
+                "  --reopen_prob 1\n"
+                "    Fraction of database reopens\n"
                 "  --min_key_len 10\n"
                 "    Minimum key size in bytes\n"
                 "  --max_key_len 70\n"
@@ -607,10 +609,8 @@ void kv_test_t::add_stat(kv_test_lat_t & stat, timespec tv_begin)
     int64_t usec = (tv_end.tv_sec - tv_begin.tv_sec)*1000000 +
         (tv_end.tv_nsec - tv_begin.tv_nsec)/1000;
     if (usec > 0)
-    {
         stat.usec += usec;
-        stat.count++;
-    }
+    stat.count++;
 }
 
 void kv_test_t::print_stats(kv_test_stat_t & prev_stat, timespec & prev_stat_time)
