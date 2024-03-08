@@ -4,7 +4,7 @@ PG_COUNT=16
 . `dirname $0`/run_3osds.sh
 
 build/src/vitastor-cli --etcd_address $ETCD_URL create -s 10G fsmeta
-build/src/vitastor-nfs --fs fsmeta --etcd_address $ETCD_URL --portmap 0 --port 2050 --foreground 1 --trace 1 >>./testdata/nfs.log 2>&1 &
+build/src/vitastor-nfs start --fs fsmeta --etcd_address $ETCD_URL --portmap 0 --port 2050 --foreground 1 --trace 1 >>./testdata/nfs.log 2>&1 &
 NFS_PID=$!
 
 mkdir -p testdata/nfs

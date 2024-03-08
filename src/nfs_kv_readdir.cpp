@@ -46,7 +46,7 @@ static void nfs_kv_continue_readdir(nfs_kv_readdir_state *st, int state);
 
 static void kv_getattr_next(nfs_kv_readdir_state *st)
 {
-    while (st->is_plus && st->getattr_cur < st->entries.size() && st->getattr_running < st->self->parent->readdir_getattr_parallel)
+    while (st->is_plus && st->getattr_cur < st->entries.size() && st->getattr_running < st->self->parent->kvfs->readdir_getattr_parallel)
     {
         auto idx = st->getattr_cur++;
         st->getattr_running++;

@@ -104,8 +104,8 @@ resume_2:
     {
         // Delete extra data when downsizing
         st->self->parent->cmd->loop_and_wait(st->self->parent->cmd->start_rm_data(json11::Json::object {
-            { "inode", INODE_NO_POOL(st->self->parent->fs_base_inode + st->ino) },
-            { "pool", (uint64_t)INODE_POOL(st->self->parent->fs_base_inode + st->ino) },
+            { "inode", INODE_NO_POOL(st->self->parent->kvfs->fs_base_inode + st->ino) },
+            { "pool", (uint64_t)INODE_POOL(st->self->parent->kvfs->fs_base_inode + st->ino) },
             { "min_offset", st->set_attrs["size"].uint64_value() },
         }), [st](const cli_result_t & r)
         {

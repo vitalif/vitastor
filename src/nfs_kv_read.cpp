@@ -36,7 +36,7 @@ static void nfs_kv_continue_read(nfs_kv_read_state *st, int state)
         fprintf(stderr, "BUG: invalid state in nfs_kv_continue_read()");
         abort();
     }
-    if (st->offset + sizeof(shared_file_header_t) < st->self->parent->shared_inode_threshold)
+    if (st->offset + sizeof(shared_file_header_t) < st->self->parent->kvfs->shared_inode_threshold)
     {
         kv_read_inode(st->self, st->ino, [st](int res, const std::string & value, json11::Json attrs)
         {
@@ -59,7 +59,7 @@ resume_1:
             st->buf = st->aligned_buf + sizeof(shared_file_header_t) + st->offset;
             st->op = new cluster_op_t;
             st->op->opcode = OSD_OP_READ;
-            st->op->inode = st->self->parent->fs_base_inode + st->ientry["shared_ino"].uint64_value();
+            st->op->inode = st->self->parent->kvfs->fs_base_inode + st->ientry["shared_ino"].uint64_value();
             st->op->offset = st->ientry["shared_offset"].uint64_value();
             if (st->offset+st->size > st->ientry["size"].uint64_value())
             {
@@ -99,14 +99,14 @@ resume_2:
             return;
         }
     }
-    st->aligned_offset = (st->offset & ~(st->self->parent->pool_alignment-1));
-    st->aligned_size = ((st->offset + st->size + st->self->parent->pool_alignment-1) &
-        ~(st->self->parent->pool_alignment-1)) - st->aligned_offset;
+    st->aligned_offset = (st->offset & ~(st->self->parent->kvfs->pool_alignment-1));
+    st->aligned_size = ((st->offset + st->size + st->self->parent->kvfs->pool_alignment-1) &
+        ~(st->self->parent->kvfs->pool_alignment-1)) - st->aligned_offset;
     st->aligned_buf = (uint8_t*)malloc_or_die(st->aligned_size);
     st->buf = st->aligned_buf + st->offset - st->aligned_offset;
     st->op = new cluster_op_t;
     st->op->opcode = OSD_OP_READ;
-    st->op->inode = st->self->parent->fs_base_inode + st->ino;
+    st->op->inode = st->self->parent->kvfs->fs_base_inode + st->ino;
     st->op->offset = st->aligned_offset;
     st->op->len = st->aligned_size;
     st->op->iov.push_back(st->aligned_buf, st->aligned_size);

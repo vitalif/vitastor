@@ -55,23 +55,6 @@ std::string realpath_str(std::string path, bool nofail)
     return rp;
 }
 
-std::string read_file(std::string file, bool allow_enoent)
-{
-    std::string res;
-    int fd = open(file.c_str(), O_RDONLY);
-    if (fd < 0 || (res = read_all_fd(fd)) == "")
-    {
-        int err = errno;
-        if (fd >= 0)
-            close(fd);
-        if (!allow_enoent || err != ENOENT)
-            fprintf(stderr, "Can't read %s: %s\n", file.c_str(), strerror(err));
-        return "";
-    }
-    close(fd);
-    return res;
-}
-
 // returns 1 = check error, 0 = write through, -1 = write back
 // (similar to 1 = warning, -1 = error, 0 = success in disable_cache)
 static int check_queue_cache(std::string dev, std::string parent_dev)

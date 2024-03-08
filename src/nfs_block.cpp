@@ -34,7 +34,7 @@ static std::string get_inode_name(nfs_client_t *self, diropargs3 & what)
     std::string name = what.name;
     return (dir.size()
         ? dir+"/"+name
-        : self->parent->name_prefix+name);
+        : self->parent->blockfs->name_prefix+name);
 }
 
 static fattr3 get_dir_attributes(nfs_client_t *self, std::string dir)
@@ -985,7 +985,7 @@ static void block_nfs3_readdir_common(void *opaque, rpc_op_t *rop, bool is_plus)
         if (dir_it != self->parent->blockfs->dir_by_hash.end())
             dir = dir_it->second;
     }
-    std::string prefix = dir.size() ? dir+"/" : self->parent->name_prefix;
+    std::string prefix = dir.size() ? dir+"/" : self->parent->blockfs->name_prefix;
     std::map<std::string, struct entryplus3> entries;
     for (auto & ic: self->parent->cli->st_cli.inode_config)
     {
@@ -1154,8 +1154,20 @@ static int block_nfs3_readdirplus_proc(void *opaque, rpc_op_t *rop)
     return 0;
 }
 
-void block_fs_state_t::init(nfs_proxy_t *proxy)
+void block_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
 {
+    name_prefix = cfg["subdir"].string_value();
+    {
+        int e = name_prefix.size();
+        while (e > 0 && name_prefix[e-1] == '/')
+            e--;
+        int s = 0;
+        while (s < e && name_prefix[s] == '/')
+            s++;
+        name_prefix = name_prefix.substr(s, e-s);
+        if (name_prefix.size())
+            name_prefix += "/";
+    }
     // We need inode name hashes for NFS handles to remain stateless and <= 64 bytes long
     dir_info[""] = (nfs_dir_t){
         .id = 1,
@@ -1172,7 +1184,7 @@ void block_fs_state_t::init(nfs_proxy_t *proxy)
         }
         auto & inode_cfg = inode_cfg_it->second;
         std::string full_name = inode_cfg.name;
-        if (proxy->name_prefix != "" && full_name.substr(0, proxy->name_prefix.size()) != proxy->name_prefix)
+        if (proxy->blockfs->name_prefix != "" && full_name.substr(0, proxy->blockfs->name_prefix.size()) != proxy->blockfs->name_prefix)
         {
             return;
         }
@@ -1181,7 +1193,7 @@ void block_fs_state_t::init(nfs_proxy_t *proxy)
         clock_gettime(CLOCK_REALTIME, &now);
         dir_info[""].mod_rev = dir_info[""].mod_rev < inode_cfg.mod_revision ? inode_cfg.mod_revision : dir_info[""].mod_rev;
         dir_info[""].mtime = now;
-        int pos = full_name.find('/', proxy->name_prefix.size());
+        int pos = full_name.find('/', proxy->blockfs->name_prefix.size());
         while (pos >= 0)
         {
             std::string dir = full_name.substr(0, pos);

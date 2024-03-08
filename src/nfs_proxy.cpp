@@ -10,9 +10,10 @@
 
 #include <netinet/tcp.h>
 #include <sys/epoll.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <fcntl.h>
-//#include <signal.h>
+#include <signal.h>
 
 #include "nfs/nfs.h"
 #include "nfs/rpc.h"
@@ -34,6 +35,10 @@ const char *exe_name = NULL;
 
 nfs_proxy_t::~nfs_proxy_t()
 {
+    if (kvfs)
+        delete kvfs;
+    if (blockfs)
+        delete blockfs;
     if (db)
         delete db;
     if (cmd)
@@ -49,45 +54,79 @@ nfs_proxy_t::~nfs_proxy_t()
         delete ringloop;
 }
 
+static const char* help_text =
+    "Vitastor NFS 3.0 proxy " VERSION "\n"
+    "(c) Vitaliy Filippov, 2021+ (VNPL-1.1)\n"
+    "\n"
+    "vitastor-nfs (--fs <NAME> | --block) mount <MOUNTPOINT>\n"
+    "  Start local filesystem server and mount file system to <MOUNTPOINT>.\n"
+    "  Use regular `umount <MOUNTPOINT>` to unmount the FS.\n"
+    "  The server will be automatically stopped when the FS is unmounted.\n"
+    "\n"
+    "vitastor-nfs (--fs <NAME> | --block) start\n"
+    "  Start network NFS server. Options:\n"
+    "  --bind <IP>       bind service to <IP> address (default 0.0.0.0)\n"
+    "  --port <PORT>     use port <PORT> for NFS services (default is 2049)\n"
+    "  --portmap 0       do not listen on port 111 (portmap/rpcbind, requires root)\n"
+    "\n"
+    "OPTIONS:\n"
+    "  --fs <NAME>       use VitastorFS with metadata in image <NAME>\n"
+    "  --block           use pseudo-FS presenting images as files\n"
+    "  --pool <POOL>     use <POOL> as default pool for new files\n"
+    "  --subdir <DIR>    export <DIR> instead of root directory\n"
+    "  --nfspath <PATH>  set NFS export path to <PATH> (default is /)\n"
+    "  --pidfile <FILE>  write process ID to the specified file\n"
+    "  --logfile <FILE>  log to the specified file\n"
+    "  --foreground 1    stay in foreground, do not daemonize\n"
+    "\n"
+    "NFS proxy is stateless if you use immediate_commit=all in your cluster and if\n"
+    "you do not use client_enable_writeback=true, so you can freely use multiple\n"
+    "NFS proxies with L3 load balancing in this case.\n"
+    "\n"
+    "Example start and mount commands for a custom NFS port:\n"
+    "  vitastor-nfs start --block --etcd_address 192.168.5.10:2379 --portmap 0 --port 2050 --pool testpool\n"
+    "  mount localhost:/ /mnt/ -o port=2050,mountport=2050,nfsvers=3,soft,nolock,tcp\n"
+    "Or just:\n"
+    "  vitastor-nfs mount --block --pool testpool /mnt/\n"
+;
+
 json11::Json::object nfs_proxy_t::parse_args(int narg, const char *args[])
 {
     json11::Json::object cfg;
+    std::vector<std::string> cmd;
     for (int i = 1; i < narg; i++)
     {
         if (!strcmp(args[i], "-h") || !strcmp(args[i], "--help"))
         {
-            printf(
-                "Vitastor NFS 3.0 proxy\n"
-                "(c) Vitaliy Filippov, 2021-2022 (VNPL-1.1)\n"
-                "\n"
-                "USAGE:\n"
-                "  %s [STANDARD OPTIONS] [OTHER OPTIONS]\n"
-                "  --fs <META>       mount VitastorFS with metadata in image <META>\n"
-                "  --subdir <DIR>    export images prefixed <DIR>/ (default empty - export all images)\n"
-                "  --portmap 0       do not listen on port 111 (portmap/rpcbind, requires root)\n"
-                "  --bind <IP>       bind service to <IP> address (default 0.0.0.0)\n"
-                "  --nfspath <PATH>  set NFS export path to <PATH> (default is /)\n"
-                "  --port <PORT>     use port <PORT> for NFS services (default is 2049)\n"
-                "  --pool <POOL>     use <POOL> as default pool for new files (images)\n"
-                "  --logfile <FILE>  log to the specified file\n"
-                "  --foreground 1    stay in foreground, do not daemonize\n"
-                "\n"
-                "NFS proxy is stateless if you use immediate_commit=all in your cluster and if\n"
-                "you do not use client_enable_writeback=true, so you can freely use multiple\n"
-                "NFS proxies with L3 load balancing in this case.\n"
-                "\n"
-                "Example start and mount commands for a custom NFS port:\n"
-                "  %s --etcd_address 192.168.5.10:2379 --portmap 0 --port 2050 --pool testpool\n"
-                "  mount localhost:/ /mnt/ -o port=2050,mountport=2050,nfsvers=3,soft,nolock,tcp\n",
-                exe_name, exe_name
-            );
+            printf("%s", help_text);
             exit(0);
         }
         else if (args[i][0] == '-' && args[i][1] == '-')
         {
             const char *opt = args[i]+2;
-            cfg[opt] = !strcmp(opt, "json") || i == narg-1 ? "1" : args[++i];
+            cfg[opt] = !strcmp(opt, "json") || !strcmp(opt, "block") || i == narg-1 ? "1" : args[++i];
         }
+        else
+        {
+            cmd.push_back(args[i]);
+        }
+    }
+    if (cfg.find("block") == cfg.end() && cfg.find("fs") == cfg.end())
+    {
+        fprintf(stderr, "Specify one of --block or --fs NAME. Use vitastor-nfs --help for details\n");
+        exit(1);
+    }
+    if (cmd.size() >= 2 && cmd[0] == "mount")
+    {
+        cfg["mount"] = cmd[1];
+    }
+    else if (cmd.size() >= 1 && cmd[0] == "start")
+    {
+    }
+    else
+    {
+        printf("%s", help_text);
+        exit(1);
     }
     return cfg;
 }
@@ -101,6 +140,7 @@ void nfs_proxy_t::run(json11::Json cfg)
     // Parse options
     if (cfg["logfile"].string_value() != "")
         logfile = cfg["logfile"].string_value();
+    pidfile = cfg["pidfile"].string_value();
     trace = cfg["log_level"].uint64_value() > 5 || cfg["trace"].uint64_value() > 0;
     bind_address = cfg["bind"].string_value();
     if (bind_address == "")
@@ -113,18 +153,6 @@ void nfs_proxy_t::run(json11::Json cfg)
     export_root = cfg["nfspath"].string_value();
     if (!export_root.size())
         export_root = "/";
-    name_prefix = cfg["subdir"].string_value();
-    {
-        int e = name_prefix.size();
-        while (e > 0 && name_prefix[e-1] == '/')
-            e--;
-        int s = 0;
-        while (s < e && name_prefix[s] == '/')
-            s++;
-        name_prefix = name_prefix.substr(s, e-s);
-        if (name_prefix.size())
-            name_prefix += "/";
-    }
     if (cfg["client_writeback_allowed"].is_null())
     {
         // NFS is always aware of fsync, so we allow write-back cache
@@ -133,6 +161,15 @@ void nfs_proxy_t::run(json11::Json cfg)
         obj["client_writeback_allowed"] = true;
         cfg = obj;
     }
+    mountpoint = cfg["mount"].string_value();
+    if (mountpoint != "")
+    {
+        bind_address = "127.0.0.1";
+        nfs_port = 0;
+        portmap_enabled = false;
+        exit_on_umount = true;
+    }
+    fsname = cfg["fs"].string_value();
     // Create client
     ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     epmgr = new epoll_manager_t(ringloop);
@@ -142,11 +179,6 @@ void nfs_proxy_t::run(json11::Json cfg)
     cmd->epmgr = epmgr;
     cmd->cli = cli;
     watch_stats();
-    if (!fs_kv_inode)
-    {
-        blockfs = new block_fs_state_t();
-        blockfs->init(this);
-    }
     // Load image metadata
     while (!cli->is_ready())
     {
@@ -158,70 +190,15 @@ void nfs_proxy_t::run(json11::Json cfg)
     // Check default pool
     check_default_pool();
     // Check if we're using VitastorFS
-    fs_kv_inode = cfg["fs"].uint64_value();
-    if (fs_kv_inode)
+    if (fsname == "")
     {
-        if (!INODE_POOL(fs_kv_inode))
-        {
-            fprintf(stderr, "FS metadata inode number must include pool\n");
-            exit(1);
-        }
+        blockfs = new block_fs_state_t();
+        blockfs->init(this, cfg);
     }
-    else if (cfg["fs"].is_string())
+    else
     {
-        for (auto & ic: cli->st_cli.inode_config)
-        {
-            if (ic.second.name == cfg["fs"].string_value())
-            {
-                fs_kv_inode = ic.first;
-                break;
-            }
-        }
-        if (!fs_kv_inode)
-        {
-            fprintf(stderr, "FS metadata image \"%s\" does not exist\n", cfg["fs"].string_value().c_str());
-            exit(1);
-        }
-    }
-    readdir_getattr_parallel = cfg["readdir_getattr_parallel"].uint64_value();
-    if (!readdir_getattr_parallel)
-        readdir_getattr_parallel = 8;
-    id_alloc_batch_size = cfg["id_alloc_batch_size"].uint64_value();
-    if (!id_alloc_batch_size)
-        id_alloc_batch_size = 200;
-    if (fs_kv_inode)
-    {
-        // Open DB and wait
-        int open_res = 0;
-        bool open_done = false;
-        db = new kv_dbw_t(cli);
-        db->open(fs_kv_inode, cfg, [&](int res)
-        {
-            open_done = true;
-            open_res = res;
-        });
-        while (!open_done)
-        {
-            ringloop->loop();
-            if (open_done)
-                break;
-            ringloop->wait();
-        }
-        if (open_res < 0)
-        {
-            fprintf(stderr, "Failed to open key/value filesystem metadata index: %s (code %d)\n",
-                strerror(-open_res), open_res);
-            exit(1);
-        }
-        fs_base_inode = ((uint64_t)default_pool_id << (64-POOL_ID_BITS));
-        fs_inode_count = ((uint64_t)1 << (64-POOL_ID_BITS)) - 1;
-        shared_inode_threshold = pool_block_size;
-        if (!cfg["shared_inode_threshold"].is_null())
-        {
-            shared_inode_threshold = cfg["shared_inode_threshold"].uint64_value();
-        }
-        kvfs = new kv_fs_state_t;
-        kvfs->zero_block.resize(pool_block_size);
+        kvfs = new kv_fs_state_t();
+        kvfs->init(this, cfg);
     }
     // Self-register portmap and NFS
     pmap.reg_ports.insert((portmap_id_t){
@@ -253,7 +230,7 @@ void nfs_proxy_t::run(json11::Json cfg)
         .addr = "0.0.0.0.0."+std::to_string(nfs_port),
     });
     // Create NFS socket and add it to epoll
-    int nfs_socket = create_and_bind_socket(bind_address, nfs_port, 128, NULL);
+    int nfs_socket = create_and_bind_socket(bind_address, nfs_port, 128, &listening_port);
     fcntl(nfs_socket, F_SETFL, fcntl(nfs_socket, F_GETFL, 0) | O_NONBLOCK);
     epmgr->tfd->set_fd_handler(nfs_socket, false, [this](int nfs_socket, int epoll_events)
     {
@@ -285,24 +262,43 @@ void nfs_proxy_t::run(json11::Json cfg)
             }
         });
     }
+    if (mountpoint != "")
+    {
+        mount_fs();
+    }
     if (cfg["foreground"].is_null())
     {
         daemonize();
     }
-    while (true)
+    if (pidfile != "")
+    {
+        write_pid();
+    }
+    while (!finished)
     {
         ringloop->loop();
         ringloop->wait();
     }
     // Destroy the client
     cli->flush();
-    delete kvfs;
-    delete db;
+    if (kvfs)
+    {
+        delete kvfs;
+        kvfs = NULL;
+    }
+    if (blockfs)
+    {
+        delete blockfs;
+        blockfs = NULL;
+    }
+    if (db)
+    {
+        delete db;
+        db = NULL;
+    }
     delete cli;
     delete epmgr;
     delete ringloop;
-    kvfs = NULL;
-    db = NULL;
     cli = NULL;
     epmgr = NULL;
     ringloop = NULL;
@@ -376,7 +372,7 @@ void nfs_proxy_t::parse_stats(etcd_kv_t & kv)
         inode_t inode_num = 0;
         char null_byte = 0;
         int scanned = sscanf(key.c_str() + cli->st_cli.etcd_prefix.length()+13, "%u/%ju%c", &pool_id, &inode_num, &null_byte);
-        if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX || !inode_num)
+        if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX)
         {
             fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
         }
@@ -410,8 +406,6 @@ void nfs_proxy_t::check_default_pool()
             auto pool_it = cli->st_cli.pool_config.begin();
             default_pool_id = pool_it->first;
             default_pool = pool_it->second.name;
-            pool_block_size = pool_it->second.pg_stripe_size;
-            pool_alignment = pool_it->second.bitmap_granularity;
         }
         else
         {
@@ -426,8 +420,6 @@ void nfs_proxy_t::check_default_pool()
             if (p.second.name == default_pool)
             {
                 default_pool_id = p.first;
-                pool_block_size = p.second.pg_stripe_size;
-                pool_alignment = p.second.bitmap_granularity;
                 break;
             }
         }
@@ -446,12 +438,14 @@ void nfs_proxy_t::do_accept(int listen_fd)
     int nfs_fd = 0;
     while ((nfs_fd = accept(listen_fd, (struct sockaddr *)&addr, &addr_size)) >= 0)
     {
-        fprintf(stderr, "New client %d: connection from %s\n", nfs_fd, addr_to_string(addr).c_str());
+        if (trace)
+            fprintf(stderr, "New client %d: connection from %s\n", nfs_fd, addr_to_string(addr).c_str());
+        active_connections++;
         fcntl(nfs_fd, F_SETFL, fcntl(nfs_fd, F_GETFL, 0) | O_NONBLOCK);
         int one = 1;
         setsockopt(nfs_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
         auto cli = new nfs_client_t();
-        if (fs_kv_inode)
+        if (kvfs)
             nfs_kv_procs(cli);
         else
             nfs_block_procs(cli);
@@ -466,8 +460,12 @@ void nfs_proxy_t::do_accept(int listen_fd)
             // Handle incoming event
             if (epoll_events & EPOLLRDHUP)
             {
-                fprintf(stderr, "Client %d disconnected\n", nfs_fd);
+                auto parent = cli->parent;
+                if (parent->trace)
+                    fprintf(stderr, "Client %d disconnected\n", nfs_fd);
                 cli->stop();
+                parent->active_connections--;
+                parent->check_exit();
                 return;
             }
             cli->epoll_events |= epoll_events;
@@ -1004,6 +1002,113 @@ void nfs_proxy_t::daemonize()
     open("/dev/null", O_RDONLY);
     open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT, 0666);
     open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT, 0666);
+}
+
+void nfs_proxy_t::write_pid()
+{
+    int fd = open(pidfile.c_str(), O_WRONLY|O_CREAT|O_TRUNC, 0666);
+    if (fd < 0)
+    {
+        fprintf(stderr, "Failed to create pid file %s: %s (code %d)\n", pidfile.c_str(), strerror(errno), errno);
+        return;
+    }
+    auto pid = std::to_string(getpid());
+    if (write(fd, pid.c_str(), pid.size()) < 0)
+    {
+        fprintf(stderr, "Failed to write pid to %s: %s (code %d)\n", pidfile.c_str(), strerror(errno), errno);
+    }
+    close(fd);
+}
+
+static pid_t wanted_pid = 0;
+static bool child_finished = false;
+static int child_status = -1;
+
+void single_child_handler(int signal)
+{
+    child_finished = true;
+    waitpid(wanted_pid, &child_status, WNOHANG);
+}
+
+void nfs_proxy_t::mount_fs()
+{
+    signal(SIGCHLD, single_child_handler);
+    auto pid = fork();
+    if (pid < 0)
+    {
+        fprintf(stderr, "Failed to fork: %s (code %d)\n", strerror(errno), errno);
+        exit(1);
+    }
+    if (pid > 0)
+    {
+        // Parent - loop and wait until child finishes
+        wanted_pid = pid;
+        while (!child_finished)
+        {
+            ringloop->loop();
+            ringloop->wait();
+        }
+        if (!WIFEXITED(child_status) || WEXITSTATUS(child_status) != 0)
+        {
+            // Mounting failed
+            exit(1);
+        }
+        if (fsname != "")
+            fprintf(stderr, "Successfully mounted VitastorFS %s at %s\n", fsname.c_str(), mountpoint.c_str());
+        else
+            fprintf(stderr, "Successfully mounted Vitastor pseudo-FS at %s\n", mountpoint.c_str());
+    }
+    else
+    {
+        // Child
+        std::string src = ("localhost:"+export_root);
+        std::string opts = ("port="+std::to_string(listening_port)+",mountport="+std::to_string(listening_port)+",nfsvers=3,soft,nolock,tcp");
+        const char *args[] = { "mount", src.c_str(), mountpoint.c_str(), "-o", opts.c_str(), NULL };
+        execvp("mount", (char* const*)args);
+        fprintf(stderr, "Failed to run mount %s %s -o %s: %s (code %d)\n",
+            src.c_str(), mountpoint.c_str(), opts.c_str(), strerror(errno), errno);
+        exit(1);
+    }
+}
+
+void nfs_proxy_t::check_exit()
+{
+    if (active_connections || !exit_on_umount)
+    {
+        return;
+    }
+    std::string mountstr = read_file("/proc/mounts");
+    if (mountstr == "")
+    {
+        return;
+    }
+    auto port_opt = "port="+std::to_string(listening_port);
+    auto mountport_opt = "port="+std::to_string(listening_port);
+    auto mounts = explode("\n", mountstr, true);
+    for (auto & str: mounts)
+    {
+        auto opts = explode(" ", str, true);
+        if (opts[2].size() >= 3 && opts[2].substr(0, 3) == "nfs" && opts.size() >= 4)
+        {
+            opts = explode(",", opts[3], true);
+            bool port_found = false;
+            bool addr_found = false;
+            for (auto & opt: opts)
+            {
+                if (opt == port_opt || opt == mountport_opt)
+                    port_found = true;
+                if (opt == "addr=127.0.0.1" || opt == "mountaddr=127.0.0.1")
+                    addr_found = true;
+            }
+            if (port_found && addr_found)
+            {
+                // OK, do not unmount
+                return;
+            }
+        }
+    }
+    // Not found, unmount
+    finished = true;
 }
 
 int main(int narg, const char *args[])

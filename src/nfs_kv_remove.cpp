@@ -231,8 +231,8 @@ resume_6:
     {
         // Remove data
         st->self->parent->cmd->loop_and_wait(st->self->parent->cmd->start_rm_data(json11::Json::object {
-            { "inode", INODE_NO_POOL(st->self->parent->fs_base_inode + st->ino) },
-            { "pool", (uint64_t)INODE_POOL(st->self->parent->fs_base_inode + st->ino) },
+            { "inode", INODE_NO_POOL(st->self->parent->kvfs->fs_base_inode + st->ino) },
+            { "pool", (uint64_t)INODE_POOL(st->self->parent->kvfs->fs_base_inode + st->ino) },
         }), [st](const cli_result_t & r)
         {
             if (r.err)

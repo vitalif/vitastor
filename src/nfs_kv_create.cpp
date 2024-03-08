@@ -16,7 +16,7 @@ void allocate_new_id(nfs_client_t *self, std::function<void(int res, uint64_t ne
         cb(0, self->parent->kvfs->fs_next_id++);
         return;
     }
-    else if (self->parent->kvfs->fs_next_id > self->parent->fs_inode_count)
+    else if (self->parent->kvfs->fs_next_id > self->parent->kvfs->fs_inode_count)
     {
         cb(-ENOSPC, 0);
         return;
@@ -29,7 +29,7 @@ void allocate_new_id(nfs_client_t *self, std::function<void(int res, uint64_t ne
             return;
         }
         uint64_t prev_val = stoull_full(prev_str);
-        if (prev_val >= self->parent->fs_inode_count)
+        if (prev_val >= self->parent->kvfs->fs_inode_count)
         {
             cb(-ENOSPC, 0);
             return;
@@ -38,10 +38,10 @@ void allocate_new_id(nfs_client_t *self, std::function<void(int res, uint64_t ne
         {
             prev_val = 1;
         }
-        uint64_t new_val = prev_val + self->parent->id_alloc_batch_size;
-        if (new_val >= self->parent->fs_inode_count)
+        uint64_t new_val = prev_val + self->parent->kvfs->id_alloc_batch_size;
+        if (new_val >= self->parent->kvfs->fs_inode_count)
         {
-            new_val = self->parent->fs_inode_count;
+            new_val = self->parent->kvfs->fs_inode_count;
         }
         self->parent->db->set(KV_NEXT_ID_KEY, std::to_string(new_val), [=](int res)
         {

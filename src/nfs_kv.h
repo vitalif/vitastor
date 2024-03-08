@@ -45,6 +45,14 @@ struct kv_inode_extend_t
 
 struct kv_fs_state_t
 {
+    uint64_t fs_kv_inode = 0;
+    uint64_t fs_base_inode = 0;
+    uint64_t fs_inode_count = 0;
+    int readdir_getattr_parallel = 8, id_alloc_batch_size = 200;
+    uint64_t pool_block_size = 0;
+    uint64_t pool_alignment = 0;
+    uint64_t shared_inode_threshold = 0;
+
     std::map<list_cookie_t, list_cookie_val_t> list_cookies;
     uint64_t fs_next_id = 1, fs_allocated_id = 0;
     std::vector<uint64_t> unallocated_ids;
@@ -52,6 +60,8 @@ struct kv_fs_state_t
     uint64_t cur_shared_inode = 0, cur_shared_offset = 0;
     std::map<inode_t, kv_inode_extend_t> extends;
     std::vector<uint8_t> zero_block;
+
+    void init(nfs_proxy_t *proxy, json11::Json cfg);
 };
 
 struct shared_file_header_t

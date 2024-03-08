@@ -21,24 +21,23 @@ class nfs_proxy_t
 {
 public:
     std::string bind_address;
-    std::string name_prefix;
     uint64_t fsid = 1;
     uint64_t server_id = 0;
     std::string default_pool;
     std::string export_root;
     bool portmap_enabled;
     unsigned nfs_port;
-    uint64_t fs_kv_inode = 0;
-    uint64_t fs_base_inode = 0;
-    uint64_t fs_inode_count = 0;
-    int readdir_getattr_parallel = 8, id_alloc_batch_size = 200;
     int trace = 0;
     std::string logfile = "/dev/null";
+    std::string pidfile;
+    bool exit_on_umount = false;
+    std::string mountpoint;
+    std::string fsname;
 
-    pool_id_t default_pool_id;
-    uint64_t pool_block_size = 0;
-    uint64_t pool_alignment = 0;
-    uint64_t shared_inode_threshold = 0;
+    int active_connections = 0;
+    bool finished = false;
+    int listening_port = 0;
+    pool_id_t default_pool_id = 0;
 
     portmap_service_t pmap;
     ring_loop_t *ringloop = NULL;
@@ -65,6 +64,9 @@ public:
     void check_default_pool();
     void do_accept(int listen_fd);
     void daemonize();
+    void write_pid();
+    void mount_fs();
+    void check_exit();
 };
 
 struct rpc_cur_buffer_t

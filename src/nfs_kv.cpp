@@ -190,3 +190,72 @@ void nfs_kv_procs(nfs_client_t *self)
         self->proc_table.insert(pt[i]);
     }
 }
+
+void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
+{
+    // Check if we're using VitastorFS
+    fs_kv_inode = cfg["fs"].uint64_value();
+    if (fs_kv_inode)
+    {
+        if (!INODE_POOL(fs_kv_inode))
+        {
+            fprintf(stderr, "FS metadata inode number must include pool\n");
+            exit(1);
+        }
+    }
+    else
+    {
+        for (auto & ic: proxy->cli->st_cli.inode_config)
+        {
+            if (ic.second.name == cfg["fs"].string_value())
+            {
+                fs_kv_inode = ic.first;
+                break;
+            }
+        }
+        if (!fs_kv_inode)
+        {
+            fprintf(stderr, "FS metadata image \"%s\" does not exist\n", cfg["fs"].string_value().c_str());
+            exit(1);
+        }
+    }
+    readdir_getattr_parallel = cfg["readdir_getattr_parallel"].uint64_value();
+    if (!readdir_getattr_parallel)
+        readdir_getattr_parallel = 8;
+    id_alloc_batch_size = cfg["id_alloc_batch_size"].uint64_value();
+    if (!id_alloc_batch_size)
+        id_alloc_batch_size = 200;
+    auto & pool_cfg = proxy->cli->st_cli.pool_config.at(proxy->default_pool_id);
+    pool_block_size = pool_cfg.pg_stripe_size;
+    pool_alignment = pool_cfg.bitmap_granularity;
+    // Open DB and wait
+    int open_res = 0;
+    bool open_done = false;
+    proxy->db = new kv_dbw_t(proxy->cli);
+    proxy->db->open(fs_kv_inode, cfg, [&](int res)
+    {
+        open_done = true;
+        open_res = res;
+    });
+    while (!open_done)
+    {
+        proxy->ringloop->loop();
+        if (open_done)
+            break;
+        proxy->ringloop->wait();
+    }
+    if (open_res < 0)
+    {
+        fprintf(stderr, "Failed to open key/value filesystem metadata index: %s (code %d)\n",
+            strerror(-open_res), open_res);
+        exit(1);
+    }
+    fs_base_inode = ((uint64_t)proxy->default_pool_id << (64-POOL_ID_BITS));
+    fs_inode_count = ((uint64_t)1 << (64-POOL_ID_BITS)) - 1;
+    shared_inode_threshold = pool_block_size;
+    if (!cfg["shared_inode_threshold"].is_null())
+    {
+        shared_inode_threshold = cfg["shared_inode_threshold"].uint64_value();
+    }
+    zero_block.resize(pool_block_size);
+}

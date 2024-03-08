@@ -1,5 +1,5 @@
 // Copyright (c) Vitaliy Filippov, 2019+
-// License: VNPL-1.1 (see README.md for details)
+// License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
 #pragma once
 #include <stdint.h>
@@ -18,6 +18,7 @@ std::string format_size(uint64_t size, bool nobytes = false);
 void print_help(const char *help_text, std::string exe_name, std::string cmd, bool all);
 uint64_t parse_time(std::string time_str, bool *ok = NULL);
 std::string read_all_fd(int fd);
+std::string read_file(std::string file, bool allow_enoent = false);
 std::string str_repeat(const std::string & str, int times);
 size_t utf8_length(const std::string & s);
 size_t utf8_length(const char *s);

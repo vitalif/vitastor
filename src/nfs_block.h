@@ -36,6 +36,8 @@ struct extend_inode_t
 
 struct block_fs_state_t
 {
+    std::string name_prefix;
+
     // filehandle = "S"+base64(sha256(full name with prefix)) or "roothandle" for mount root)
     uint64_t next_dir_id = 2;
     // filehandle => dir with name_prefix
@@ -51,7 +53,7 @@ struct block_fs_state_t
     std::map<inode_t, extend_inode_t> extends;
     std::multimap<extend_size_t, extend_write_t> extend_writes;
 
-    void init(nfs_proxy_t *proxy);
+    void init(nfs_proxy_t *proxy, json11::Json cfg);
 };
 
 nfsstat3 vitastor_nfs_map_err(int err);

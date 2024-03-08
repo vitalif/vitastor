@@ -1,9 +1,10 @@
 // Copyright (c) Vitaliy Filippov, 2019+
-// License: VNPL-1.1 (see README.md for details)
+// License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
 #include <assert.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include "str_util.h"
 
 std::string base64_encode(const std::string &in)
@@ -301,6 +302,23 @@ std::string read_all_fd(int fd)
             break;
     }
     res.resize(res_size);
+    return res;
+}
+
+std::string read_file(std::string file, bool allow_enoent)
+{
+    std::string res;
+    int fd = open(file.c_str(), O_RDONLY);
+    if (fd < 0 || (res = read_all_fd(fd)) == "")
+    {
+        int err = errno;
+        if (fd >= 0)
+            close(fd);
+        if (!allow_enoent || err != ENOENT)
+            fprintf(stderr, "Failed to read %s: %s (code %d)\n", file.c_str(), strerror(err), err);
+        return "";
+    }
+    close(fd);
     return res;
 }
 

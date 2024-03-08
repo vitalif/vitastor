@@ -8,6 +8,9 @@
 #include "nfs_proxy.h"
 #include "nfs_kv.h"
 
+// FIXME: Implement shared inode defragmentator
+// FIXME: Implement fsck for vitastor-fs and for vitastor-kv
+
 struct nfs_rmw_t
 {
     nfs_kv_write_state *st = NULL;
@@ -67,7 +70,7 @@ static void finish_allocate_shared(nfs_client_t *self, int res)
         {
             w.st->shared_inode = self->parent->kvfs->cur_shared_inode;
             w.st->shared_offset = self->parent->kvfs->cur_shared_offset;
-            self->parent->kvfs->cur_shared_offset += (w.size + self->parent->pool_alignment-1) & ~(self->parent->pool_alignment-1);
+            self->parent->kvfs->cur_shared_offset += (w.size + self->parent->kvfs->pool_alignment-1) & ~(self->parent->kvfs->pool_alignment-1);
         }
         nfs_kv_continue_write(w.st, w.state);
     }
@@ -113,22 +116,22 @@ static void allocate_shared_inode(nfs_kv_write_state *st, int state, uint64_t si
         st->res = 0;
         st->shared_inode = st->self->parent->kvfs->cur_shared_inode;
         st->shared_offset = st->self->parent->kvfs->cur_shared_offset;
-        st->self->parent->kvfs->cur_shared_offset += (size + st->self->parent->pool_alignment-1) & ~(st->self->parent->pool_alignment-1);
+        st->self->parent->kvfs->cur_shared_offset += (size + st->self->parent->kvfs->pool_alignment-1) & ~(st->self->parent->kvfs->pool_alignment-1);
         nfs_kv_continue_write(st, state);
     }
 }
 
 uint64_t align_shared_size(nfs_client_t *self, uint64_t size)
 {
-    return (size + sizeof(shared_file_header_t) + self->parent->pool_alignment-1)
-        & ~(self->parent->pool_alignment-1);
+    return (size + sizeof(shared_file_header_t) + self->parent->kvfs->pool_alignment-1)
+        & ~(self->parent->kvfs->pool_alignment-1);
 }
 
 static void nfs_do_write(uint64_t ino, uint64_t offset, uint64_t size, std::function<void(cluster_op_t *op)> prepare, nfs_kv_write_state *st, int state)
 {
     auto op = new cluster_op_t;
     op->opcode = OSD_OP_WRITE;
-    op->inode = st->self->parent->fs_base_inode + ino;
+    op->inode = st->self->parent->kvfs->fs_base_inode + ino;
     op->offset = offset;
     op->len = size;
     prepare(op);
@@ -151,8 +154,8 @@ static void nfs_do_write(uint64_t ino, uint64_t offset, uint64_t size, std::func
 
 static void nfs_do_unshare_write(nfs_kv_write_state *st, int state)
 {
-    uint64_t unshare_size = (st->ientry["size"].uint64_value() + st->self->parent->pool_alignment-1)
-        & ~(st->self->parent->pool_alignment-1);
+    uint64_t unshare_size = (st->ientry["size"].uint64_value() + st->self->parent->kvfs->pool_alignment-1)
+        & ~(st->self->parent->kvfs->pool_alignment-1);
     nfs_do_write(st->ino, 0, unshare_size, [&](cluster_op_t *op)
     {
         op->iov.push_back(st->aligned_buf + sizeof(shared_file_header_t), unshare_size);
@@ -162,16 +165,16 @@ static void nfs_do_unshare_write(nfs_kv_write_state *st, int state)
 static void nfs_do_rmw(nfs_rmw_t *rmw)
 {
     auto parent = rmw->st->self->parent;
-    auto align = parent->pool_alignment;
+    auto align = parent->kvfs->pool_alignment;
     assert(rmw->size < align);
-    assert((rmw->offset/parent->pool_block_size) == ((rmw->offset+rmw->size-1)/parent->pool_block_size));
+    assert((rmw->offset/parent->kvfs->pool_block_size) == ((rmw->offset+rmw->size-1)/parent->kvfs->pool_block_size));
     if (!rmw->part_buf)
     {
         rmw->part_buf = (uint8_t*)malloc_or_die(align);
     }
     auto op = new cluster_op_t;
     op->opcode = OSD_OP_READ;
-    op->inode = parent->fs_base_inode + rmw->ino;
+    op->inode = parent->kvfs->fs_base_inode + rmw->ino;
     op->offset = rmw->offset & ~(align-1);
     op->len = align;
     op->iov.push_back(rmw->part_buf, op->len);
@@ -196,7 +199,7 @@ static void nfs_do_rmw(nfs_rmw_t *rmw)
                 auto st = rmw->st;
                 rmw->version = rd_op->version+1;
                 if (st->rmw[0].st && st->rmw[1].st &&
-                    st->rmw[0].offset/st->self->parent->pool_block_size == st->rmw[1].offset/st->self->parent->pool_block_size)
+                    st->rmw[0].offset/st->self->parent->kvfs->pool_block_size == st->rmw[1].offset/st->self->parent->kvfs->pool_block_size)
                 {
                     // Same block... RMWs should be sequential
                     int other = rmw == &st->rmw[0] ? 1 : 0;
@@ -204,12 +207,12 @@ static void nfs_do_rmw(nfs_rmw_t *rmw)
                 }
             }
             auto parent = rmw->st->self->parent;
-            auto align = parent->pool_alignment;
+            auto align = parent->kvfs->pool_alignment;
             bool is_begin = (rmw->offset % align);
             bool is_end = ((rmw->offset+rmw->size) % align);
             auto op = new cluster_op_t;
             op->opcode = OSD_OP_WRITE;
-            op->inode = rmw->st->self->parent->fs_base_inode + rmw->ino;
+            op->inode = rmw->st->self->parent->kvfs->fs_base_inode + rmw->ino;
             op->offset = rmw->offset & ~(align-1);
             op->len = align;
             op->version = rmw->version;
@@ -258,7 +261,7 @@ static void nfs_do_shared_read(nfs_kv_write_state *st, int state)
 {
     auto op = new cluster_op_t;
     op->opcode = OSD_OP_READ;
-    op->inode = st->self->parent->fs_base_inode + st->ientry["shared_ino"].uint64_value();
+    op->inode = st->self->parent->kvfs->fs_base_inode + st->ientry["shared_ino"].uint64_value();
     op->offset = st->ientry["shared_offset"].uint64_value();
     op->len = align_shared_size(st->self, st->ientry["size"].uint64_value());
     op->iov.push_back(st->aligned_buf, op->len);
@@ -291,7 +294,7 @@ static bool nfs_do_shared_readmodify(nfs_kv_write_state *st, int base_state, int
     else if (state == base_state) goto resume_0;
     assert(!st->aligned_buf);
     st->aligned_size = unshare
-        ? sizeof(shared_file_header_t) + ((st->new_size + st->self->parent->pool_alignment-1) & ~(st->self->parent->pool_alignment-1))
+        ? sizeof(shared_file_header_t) + ((st->new_size + st->self->parent->kvfs->pool_alignment-1) & ~(st->self->parent->kvfs->pool_alignment-1))
         : align_shared_size(st->self, st->new_size);
     st->aligned_buf = (uint8_t*)malloc_or_die(st->aligned_size);
     // FIXME do not allocate zeroes if we only need zeroes
@@ -351,7 +354,7 @@ static void nfs_do_shared_write(nfs_kv_write_state *st, int state, bool only_ali
 
 static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t offset, uint64_t shared_alloc, int state)
 {
-    auto alignment = st->self->parent->pool_alignment;
+    auto alignment = st->self->parent->kvfs->pool_alignment;
     uint64_t end = (offset+st->size);
     uint8_t *good_buf = st->buf;
     uint64_t good_offset = offset;
@@ -667,18 +670,18 @@ resume_1:
         cb(st->res == 0 ? -EINVAL : st->res);
         return;
     }
-    st->was_immediate = st->self->parent->cli->get_immediate_commit(st->self->parent->fs_base_inode + st->ino);
+    st->was_immediate = st->self->parent->cli->get_immediate_commit(st->self->parent->kvfs->fs_base_inode + st->ino);
     st->new_size = st->ientry["size"].uint64_value();
     if (st->new_size < st->offset + st->size)
     {
         st->new_size = st->offset + st->size;
     }
-    if (st->offset + st->size + sizeof(shared_file_header_t) < st->self->parent->shared_inode_threshold)
+    if (st->offset + st->size + sizeof(shared_file_header_t) < st->self->parent->kvfs->shared_inode_threshold)
     {
         if (st->ientry["size"].uint64_value() == 0 &&
             st->ientry["shared_ino"].uint64_value() == 0 ||
             st->ientry["empty"].bool_value() &&
-            (st->ientry["size"].uint64_value() + sizeof(shared_file_header_t)) < st->self->parent->shared_inode_threshold ||
+            (st->ientry["size"].uint64_value() + sizeof(shared_file_header_t)) < st->self->parent->kvfs->shared_inode_threshold ||
             st->ientry["shared_ino"].uint64_value() != 0 &&
             st->ientry["shared_alloc"].uint64_value() < sizeof(shared_file_header_t)+st->offset+st->size)
         {
