@@ -33,7 +33,6 @@ struct shared_alloc_queue_t
 {
     nfs_kv_write_state *st;
     int state;
-    uint64_t size;
 };
 
 struct kv_inode_extend_t
@@ -60,6 +59,7 @@ struct kv_fs_state_t
     uint64_t cur_shared_inode = 0, cur_shared_offset = 0;
     std::map<inode_t, kv_inode_extend_t> extends;
     std::vector<uint8_t> zero_block;
+    std::vector<uint8_t> scrap_block;
 
     void init(nfs_proxy_t *proxy, json11::Json cfg);
 };

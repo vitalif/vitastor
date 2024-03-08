@@ -257,5 +257,6 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
     {
         shared_inode_threshold = cfg["shared_inode_threshold"].uint64_value();
     }
-    zero_block.resize(pool_block_size);
+    zero_block.resize(pool_block_size < 1048576 ? 1048576 : pool_block_size);
+    scrap_block.resize(pool_block_size < 1048576 ? 1048576 : pool_block_size);
 }

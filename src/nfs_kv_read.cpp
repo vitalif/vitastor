@@ -18,12 +18,16 @@ struct nfs_kv_read_state
     std::function<void(int)> cb;
     // state
     int res = 0;
+    int eof = 0;
     json11::Json ientry;
     uint64_t aligned_size = 0, aligned_offset = 0;
     uint8_t *aligned_buf = NULL;
     cluster_op_t *op = NULL;
     uint8_t *buf = NULL;
 };
+
+#define align_down(size) ((size) & ~(st->self->parent->kvfs->pool_alignment-1))
+#define align_up(size) (((size) + st->self->parent->kvfs->pool_alignment-1) & ~(st->self->parent->kvfs->pool_alignment-1))
 
 static void nfs_kv_continue_read(nfs_kv_read_state *st, int state)
 {
@@ -54,21 +58,44 @@ resume_1:
         }
         if (st->ientry["shared_ino"].uint64_value() != 0)
         {
-            st->aligned_size = align_shared_size(st->self, st->offset+st->size);
-            st->aligned_buf = (uint8_t*)malloc_or_die(st->aligned_size);
-            st->buf = st->aligned_buf + sizeof(shared_file_header_t) + st->offset;
-            st->op = new cluster_op_t;
-            st->op->opcode = OSD_OP_READ;
-            st->op->inode = st->self->parent->kvfs->fs_base_inode + st->ientry["shared_ino"].uint64_value();
-            st->op->offset = st->ientry["shared_offset"].uint64_value();
-            if (st->offset+st->size > st->ientry["size"].uint64_value())
+            if (st->offset >= st->ientry["size"].uint64_value())
             {
-                st->op->len = align_shared_size(st->self, st->ientry["size"].uint64_value());
-                memset(st->aligned_buf+st->op->len, 0, st->aligned_size-st->op->len);
+                st->size = 0;
+                st->eof = 1;
+                auto cb = std::move(st->cb);
+                cb(0);
+                return;
             }
-            else
-                st->op->len = st->aligned_size;
-            st->op->iov.push_back(st->aligned_buf, st->op->len);
+            st->op = new cluster_op_t;
+            {
+                st->op->opcode = OSD_OP_READ;
+                st->op->inode = st->self->parent->kvfs->fs_base_inode + st->ientry["shared_ino"].uint64_value();
+                // Always read including header to react if the file was possibly moved away
+                auto read_offset = st->ientry["shared_offset"].uint64_value();
+                st->op->offset = align_down(read_offset);
+                if (st->op->offset < read_offset)
+                {
+                    st->op->iov.push_back(st->self->parent->kvfs->scrap_block.data(),
+                        read_offset-st->op->offset);
+                }
+                auto read_size = st->offset+st->size;
+                if (read_size > st->ientry["size"].uint64_value())
+                {
+                    st->eof = 1;
+                    st->size = st->ientry["size"].uint64_value()-st->offset;
+                    read_size = st->ientry["size"].uint64_value();
+                }
+                read_size += sizeof(shared_file_header_t);
+                st->aligned_buf = (uint8_t*)malloc_or_die(read_size);
+                st->buf = st->aligned_buf + sizeof(shared_file_header_t) + st->offset;
+                st->op->iov.push_back(st->aligned_buf, read_size);
+                st->op->len = align_up(read_offset+read_size) - st->op->offset;
+                if (read_offset+read_size < st->op->offset+st->op->len)
+                {
+                    st->op->iov.push_back(st->self->parent->kvfs->scrap_block.data(),
+                        st->op->offset+st->op->len - (read_offset+read_size));
+                }
+            }
             st->op->callback = [st, state](cluster_op_t *op)
             {
                 st->res = op->retval == op->len ? 0 : op->retval;
@@ -99,9 +126,8 @@ resume_2:
             return;
         }
     }
-    st->aligned_offset = (st->offset & ~(st->self->parent->kvfs->pool_alignment-1));
-    st->aligned_size = ((st->offset + st->size + st->self->parent->kvfs->pool_alignment-1) &
-        ~(st->self->parent->kvfs->pool_alignment-1)) - st->aligned_offset;
+    st->aligned_offset = align_down(st->offset);
+    st->aligned_size = align_up(st->offset+st->size) - st->aligned_offset;
     st->aligned_buf = (uint8_t*)malloc_or_die(st->aligned_size);
     st->buf = st->aligned_buf + st->offset - st->aligned_offset;
     st->op = new cluster_op_t;
@@ -151,7 +177,7 @@ int kv_nfs3_read_proc(void *opaque, rpc_op_t *rop)
             reply->resok.data.data = (char*)st->buf;
             reply->resok.data.size = st->size;
             reply->resok.count = st->size;
-            reply->resok.eof = 0;
+            reply->resok.eof = st->eof;
         }
         rpc_queue_reply(st->rop);
         delete st;
