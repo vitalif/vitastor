@@ -72,7 +72,7 @@ fattr3 get_kv_attributes(nfs_client_t *self, uint64_t ino, json11::Json attrs)
     auto nlink = attrs["nlink"].uint64_value();
     nfstime3 mtime = nfstime_from_str(attrs["mtime"].string_value());
     nfstime3 atime = attrs["atime"].is_null() ? mtime : nfstime_from_str(attrs["atime"].string_value());
-    // FIXME In theory we could store the binary structure itself instead of JSON
+    // In theory we could store the binary structure itself, but JSON is simpler :-)
     return (fattr3){
         .type = (type == 0 ? NF3REG : (ftype3)type),
         .mode = (attrs["mode"].is_null() ? (type == NF3DIR ? 0755 : 0644) : (uint32_t)mode),
@@ -80,7 +80,8 @@ fattr3 get_kv_attributes(nfs_client_t *self, uint64_t ino, json11::Json attrs)
         .uid = (uint32_t)attrs["uid"].uint64_value(),
         .gid = (uint32_t)attrs["gid"].uint64_value(),
         .size = (type == NF3DIR ? 4096 : attrs["size"].uint64_value()),
-        .used = (type == NF3DIR ? 4096 : attrs["alloc"].uint64_value()),
+        // FIXME Counting actual used file size would require reworking statistics
+        .used = (type == NF3DIR ? 4096 : attrs["size"].uint64_value()),
         .rdev = (type == NF3BLK || type == NF3CHR
             ? (specdata3){ (uint32_t)attrs["major"].uint64_value(), (uint32_t)attrs["minor"].uint64_value() }
             : (specdata3){}),

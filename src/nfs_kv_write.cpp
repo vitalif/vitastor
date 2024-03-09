@@ -538,6 +538,7 @@ static std::string new_normal_ientry(nfs_kv_write_state *st)
     ni.erase("shared_alloc");
     ni.erase("shared_ver");
     ni["size"] = st->ext->cur_extend;
+    ni["mtime"] = nfstime_now_str();
     return json11::Json(ni).dump();
 }
 
@@ -550,6 +551,7 @@ static std::string new_moved_ientry(nfs_kv_write_state *st)
     ni["shared_alloc"] = st->shared_alloc;
     ni.erase("shared_ver");
     ni["size"] = st->new_size;
+    ni["mtime"] = nfstime_now_str();
     return json11::Json(ni).dump();
 }
 
@@ -558,6 +560,7 @@ static std::string new_shared_ientry(nfs_kv_write_state *st)
     auto ni = st->ientry.object_items();
     ni.erase("empty");
     ni["size"] = st->new_size;
+    ni["mtime"] = nfstime_now_str();
     ni["shared_ver"] = ni["shared_ver"].uint64_value()+1;
     return json11::Json(ni).dump();
 }
@@ -570,6 +573,7 @@ static std::string new_unshared_ientry(nfs_kv_write_state *st)
     ni.erase("shared_offset");
     ni.erase("shared_alloc");
     ni.erase("shared_ver");
+    ni["mtime"] = nfstime_now_str();
     return json11::Json(ni).dump();
 }
 
