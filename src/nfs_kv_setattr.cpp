@@ -15,6 +15,7 @@ struct nfs_kv_setattr_state
     rpc_op_t *rop = NULL;
     uint64_t ino = 0;
     uint64_t old_size = 0, new_size = 0;
+    std::string expected_ctime;
     json11::Json::object set_attrs;
     int res = 0, cas_res = 0;
     std::string ientry_text;
@@ -59,6 +60,16 @@ resume_1:
         auto cb = std::move(st->cb);
         cb(-EINVAL);
         return;
+    }
+    if (st->expected_ctime != "")
+    {
+        auto actual_ctime = (st->ientry["ctime"].is_null() ? st->ientry["mtime"] : st->ientry["ctime"]);
+        if (actual_ctime != st->expected_ctime)
+        {
+            auto cb = std::move(st->cb);
+            cb(NFS3ERR_NOT_SYNC);
+            return;
+        }
     }
     // Now we can update it
     st->new_attrs = st->ientry.object_items();
@@ -143,6 +154,8 @@ int kv_nfs3_setattr_proc(void *opaque, rpc_op_t *rop)
         return 0;
     }
     st->ino = kv_fh_inode(fh);
+    if (args->guard.check)
+        st->expected_ctime = nfstime_to_str(args->guard.obj_ctime);
     if (args->new_attributes.size.set_it)
         st->set_attrs["size"] = args->new_attributes.size.size;
     if (args->new_attributes.mode.set_it)
