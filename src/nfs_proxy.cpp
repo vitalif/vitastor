@@ -576,7 +576,7 @@ void nfs_client_t::handle_read(int result)
     read_msg.msg_iovlen = 0;
     if (deref())
         return;
-    if (result <= 0 && result != -EAGAIN && result != -EINTR)
+    if (result <= 0 && result != -EAGAIN && result != -EINTR && result != -ECANCELED)
     {
         printf("Failed read from client %d: %d (%s)\n", nfs_fd, result, strerror(-result));
         stop();
@@ -671,8 +671,8 @@ void nfs_client_t::handle_read(int result)
                 return;
             }
         }
-        submit_read(0);
     }
+    submit_read(0);
 }
 
 void nfs_client_t::submit_send()
@@ -1057,6 +1057,7 @@ void nfs_proxy_t::mount_fs()
             fprintf(stderr, "Successfully mounted VitastorFS %s at %s\n", fsname.c_str(), mountpoint.c_str());
         else
             fprintf(stderr, "Successfully mounted Vitastor pseudo-FS at %s\n", mountpoint.c_str());
+        finished = false;
     }
     else
     {
