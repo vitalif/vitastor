@@ -42,19 +42,6 @@ void fromhexstr(const std::string & from, int bytes, uint8_t *to)
     }
 }
 
-std::string realpath_str(std::string path, bool nofail)
-{
-    char *p = realpath((char*)path.c_str(), NULL);
-    if (!p)
-    {
-        fprintf(stderr, "Failed to resolve %s: %s\n", path.c_str(), strerror(errno));
-        return nofail ? path : "";
-    }
-    std::string rp(p);
-    free(p);
-    return rp;
-}
-
 // returns 1 = check error, 0 = write through, -1 = write back
 // (similar to 1 = warning, -1 = error, 0 = success in disable_cache)
 static int check_queue_cache(std::string dev, std::string parent_dev)

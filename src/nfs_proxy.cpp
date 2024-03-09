@@ -1032,6 +1032,7 @@ void single_child_handler(int signal)
 
 void nfs_proxy_t::mount_fs()
 {
+    check_already_mounted();
     signal(SIGCHLD, single_child_handler);
     auto pid = fork();
     if (pid < 0)
@@ -1072,6 +1073,30 @@ void nfs_proxy_t::mount_fs()
     }
 }
 
+void nfs_proxy_t::check_already_mounted()
+{
+    std::string realpoint = realpath_str(mountpoint, false);
+    if (realpoint == "")
+    {
+        return;
+    }
+    std::string mountstr = read_file("/proc/mounts");
+    if (mountstr == "")
+    {
+        return;
+    }
+    auto mounts = explode("\n", mountstr, true);
+    for (auto & str: mounts)
+    {
+        auto mnt = explode(" ", str, true);
+        if (mnt.size() >= 2 && mnt[1] == realpoint)
+        {
+            fprintf(stderr, "%s is already mounted\n", mountpoint.c_str());
+            exit(1);
+        }
+    }
+}
+
 void nfs_proxy_t::check_exit()
 {
     if (active_connections || !exit_on_umount)
@@ -1084,7 +1109,7 @@ void nfs_proxy_t::check_exit()
         return;
     }
     auto port_opt = "port="+std::to_string(listening_port);
-    auto mountport_opt = "port="+std::to_string(listening_port);
+    auto mountport_opt = "mountport="+std::to_string(listening_port);
     auto mounts = explode("\n", mountstr, true);
     for (auto & str: mounts)
     {

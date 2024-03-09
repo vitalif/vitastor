@@ -66,6 +66,7 @@ public:
     void daemonize();
     void write_pid();
     void mount_fs();
+    void check_already_mounted();
     void check_exit();
 };
 

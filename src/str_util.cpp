@@ -428,3 +428,16 @@ std::string auto_addslashes(const std::string & str)
     }
     return res+"\"";
 }
+
+std::string realpath_str(std::string path, bool nofail)
+{
+    char *p = realpath((char*)path.c_str(), NULL);
+    if (!p)
+    {
+        fprintf(stderr, "Failed to resolve %s: %s\n", path.c_str(), strerror(errno));
+        return nofail ? path : "";
+    }
+    std::string rp(p);
+    free(p);
+    return rp;
+}

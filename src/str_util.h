@@ -25,3 +25,4 @@ size_t utf8_length(const char *s);
 std::vector<std::string> explode(const std::string & sep, const std::string & value, bool trim);
 std::string scan_escaped(const std::string & cmd, size_t & pos);
 std::string auto_addslashes(const std::string & str);
+std::string realpath_str(std::string path, bool nofail = true);
