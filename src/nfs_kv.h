@@ -44,6 +44,7 @@ struct kv_inode_extend_t
 struct kv_idgen_t
 {
     uint64_t next_id = 1, allocated_id = 0;
+    uint64_t min_id = 1;
     std::vector<uint64_t> unallocated_ids;
 };
 

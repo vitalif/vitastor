@@ -131,7 +131,7 @@ static const char* help_text =
     "    --immediate_commit none       Put pool only on OSDs with this or larger immediate_commit (none < small < all)\n"
     "    --primary_affinity_tags tags  Prefer to put primary copies on OSDs with all specified tags\n"
     "    --scrub_interval <time>       Enable regular scrubbing for this pool. Format: number + unit s/m/h/d/M/y\n"
-    "    --no_inode_stats 1            Disable per-inode statistics for this pool (use for VitastorFS pools)\n"
+    "    --used_for_fs <name>          Mark pool as used for VitastorFS with metadata in image <name>\n"
     "    --pg_stripe_size <number>     Increase object grouping stripe\n"
     "    --max_osd_combinations 10000  Maximum number of random combinations for LP solver input\n"
     "    --wait                        Wait for the new pool to come online\n"
@@ -143,7 +143,7 @@ static const char* help_text =
     "vitastor-cli modify-pool|pool-modify <id|name> [--name <new_name>] [PARAMETERS...]\n"
     "  Modify an existing pool. Modifiable parameters:\n"
     "    [-s|--pg_size <number>] [--pg_minsize <number>] [-n|--pg_count <count>]\n"
-    "    [--failure_domain <level>] [--root_node <node>] [--osd_tags <tags>] [--no_inode_stats 0|1]\n"
+    "    [--failure_domain <level>] [--root_node <node>] [--osd_tags <tags>] [--used_for_fs <name>]\n"
     "    [--max_osd_combinations <number>] [--primary_affinity_tags <tags>] [--scrub_interval <time>]\n"
     "  Non-modifiable parameters (changing them WILL lead to data loss):\n"
     "    [--block_size <size>] [--bitmap_granularity <size>]\n"
@@ -186,7 +186,6 @@ static json11::Json::object parse_args(int narg, const char *args[])
     for (int i = 1; i < narg; i++)
     {
         bool argHasValue = (!(i == narg-1) && (args[i+1][0] != '-'));
-
         if (args[i][0] == '-' && args[i][1] == 'h' && args[i][2] == 0)
         {
             cfg["help"] = "1";

@@ -81,13 +81,8 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
             }
             value = value.uint64_value();
         }
-        else if (key == "no_inode_stats" && value.bool_value())
-        {
-            // Leave true, remove false
-            value = true;
-        }
         else if (key == "name" || key == "scheme" || key == "immediate_commit" ||
-            key == "failure_domain" || key == "root_node" || key == "scrub_interval")
+            key == "failure_domain" || key == "root_node" || key == "scrub_interval" || key == "used_for_fs")
         {
             // OK
         }
@@ -123,6 +118,10 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
     if (new_cfg["scheme"] != "ec")
     {
         new_cfg.erase("parity_chunks");
+    }
+    if (new_cfg.find("used_for_fs") != new_cfg.end() && new_cfg["used_for_fs"].string_value() == "")
+    {
+        new_cfg.erase("used_for_fs");
     }
 
     // Prevent autovivification of object keys. Now we don't modify the config, we just check it

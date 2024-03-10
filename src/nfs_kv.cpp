@@ -196,6 +196,7 @@ void nfs_kv_procs(nfs_client_t *self)
 void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
 {
     this->proxy = proxy;
+    auto & pool_cfg = proxy->cli->st_cli.pool_config.at(proxy->default_pool_id);
     fs_kv_inode = cfg["fs"].uint64_value();
     if (fs_kv_inode)
     {
@@ -221,6 +222,25 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
             exit(1);
         }
     }
+    if (proxy->cli->st_cli.inode_config.find(fs_kv_inode) != proxy->cli->st_cli.inode_config.end())
+    {
+        auto & name = proxy->cli->st_cli.inode_config.at(fs_kv_inode).name;
+        if (pool_cfg.used_for_fs != name)
+        {
+            fprintf(stderr, "Please mark pool as used for this file system with `vitastor-cli modify-pool --used-for-fs %s %s`\n",
+                name.c_str(), cfg["fs"].string_value().c_str());
+            exit(1);
+        }
+    }
+    auto img_it = proxy->cli->st_cli.inode_config.lower_bound(INODE_WITH_POOL(proxy->default_pool_id+1, 0));
+    if (img_it != proxy->cli->st_cli.inode_config.begin())
+    {
+        img_it--;
+        if (img_it != proxy->cli->st_cli.inode_config.begin() && INODE_POOL(img_it->first) == proxy->default_pool_id)
+        {
+            idgen[proxy->default_pool_id].min_id = INODE_NO_POOL(img_it->first) + 1;
+        }
+    }
     readdir_getattr_parallel = cfg["readdir_getattr_parallel"].uint64_value();
     if (!readdir_getattr_parallel)
         readdir_getattr_parallel = 8;
@@ -230,7 +250,6 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
     touch_interval = cfg["touch_interval"].uint64_value();
     if (touch_interval < 100) // ms
         touch_interval = 100;
-    auto & pool_cfg = proxy->cli->st_cli.pool_config.at(proxy->default_pool_id);
     pool_block_size = pool_cfg.pg_stripe_size;
     pool_alignment = pool_cfg.bitmap_granularity;
     // Open DB and wait

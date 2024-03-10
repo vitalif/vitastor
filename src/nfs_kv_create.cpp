@@ -25,8 +25,7 @@ void allocate_new_id(nfs_client_t *self, pool_id_t pool_id, std::function<void(i
         cb(0, INODE_WITH_POOL(pool_id, idgen.next_id-1));
         return;
     }
-    // FIXME: Partial per-pool max ID limits
-    // FIXME: Fool protection from block volume and FS file ID overlap
+    // FIXME: Maybe allow FS and block volumes to cohabitate in the same pool, but with different ID ranges
     else if (idgen.next_id >= ((uint64_t)1 << (64-POOL_ID_BITS)))
     {
         cb(-ENOSPC, 0);
@@ -34,6 +33,7 @@ void allocate_new_id(nfs_client_t *self, pool_id_t pool_id, std::function<void(i
     }
     self->parent->db->get((pool_id ? "id"+std::to_string(pool_id) : "id"), [=](int res, const std::string & prev_str)
     {
+        auto & idgen = self->parent->kvfs->idgen[pool_id];
         if (res < 0 && res != -ENOENT)
         {
             cb(res, 0);
@@ -45,9 +45,9 @@ void allocate_new_id(nfs_client_t *self, pool_id_t pool_id, std::function<void(i
             cb(-ENOSPC, 0);
             return;
         }
-        if (prev_val < 1)
+        if (prev_val < idgen.min_id)
         {
-            prev_val = 1;
+            prev_val = idgen.min_id;
         }
         uint64_t new_val = prev_val + self->parent->kvfs->id_alloc_batch_size;
         if (new_val >= self->parent->kvfs->fs_inode_count)

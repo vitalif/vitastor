@@ -27,6 +27,7 @@ struct image_creator_t
     std::string image_name, new_snap, new_parent;
     json11::Json new_meta;
     uint64_t size;
+    bool force = false;
     bool force_size = false;
 
     pool_id_t old_pool_id = 0;
@@ -45,6 +46,7 @@ struct image_creator_t
 
     void loop()
     {
+        auto & pools = parent->cli->st_cli.pool_config;
         if (state >= 1)
             goto resume_1;
         if (image_name == "")
@@ -62,7 +64,6 @@ struct image_creator_t
         }
         if (new_pool_id)
         {
-            auto & pools = parent->cli->st_cli.pool_config;
             if (pools.find(new_pool_id) == pools.end())
             {
                 result = (cli_result_t){ .err = ENOENT, .text = "Pool "+std::to_string(new_pool_id)+" does not exist" };
@@ -72,7 +73,7 @@ struct image_creator_t
         }
         else if (new_pool_name != "")
         {
-            for (auto & ic: parent->cli->st_cli.pool_config)
+            for (auto & ic: pools)
             {
                 if (ic.second.name == new_pool_name)
                 {
@@ -87,10 +88,20 @@ struct image_creator_t
                 return;
             }
         }
-        else if (parent->cli->st_cli.pool_config.size() == 1)
+        else if (pools.size() == 1)
         {
-            auto it = parent->cli->st_cli.pool_config.begin();
-            new_pool_id = it->first;
+            new_pool_id = pools.begin()->first;
+        }
+        if (new_pool_id && !pools.at(new_pool_id).used_for_fs.empty() && !force)
+        {
+            result = (cli_result_t){
+                .err = EINVAL,
+                .text = "Pool "+pools.at(new_pool_id).name+
+                    " is used for VitastorFS "+pools.at(new_pool_id).used_for_fs+
+                    ". Use --force if you really know what you are doing",
+            };
+            state = 100;
+            return;
         }
         state = 1;
     resume_1:
@@ -532,6 +543,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_create(json11::Json cfg)
     image_creator->image_name = cfg["image"].string_value();
     image_creator->new_pool_id = cfg["pool"].uint64_value();
     image_creator->new_pool_name = cfg["pool"].string_value();
+    image_creator->force = cfg["force"].bool_value();
     image_creator->force_size = cfg["force_size"].bool_value();
     if (cfg["image_meta"].is_object())
     {

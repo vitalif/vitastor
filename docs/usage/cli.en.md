@@ -267,7 +267,7 @@ Optional parameters:
 | `--immediate_commit none`      | Put pool only on OSDs with this or larger immediate_commit (none < small < all) |
 | `--primary_affinity_tags tags` | Prefer to put primary copies on OSDs with all specified tags               |
 | `--scrub_interval <time>`      | Enable regular scrubbing for this pool. Format: number + unit s/m/h/d/M/y  |
-| `--no_inode_stats 1`           | Disable per-inode statistics for this pool (use for VitastorFS pools)      |
+| `--used_for_fs <name>`         | Mark pool as used for VitastorFS with metadata in image <name>             |
 | `--pg_stripe_size <number>`    | Increase object grouping stripe                                            |
 | `--max_osd_combinations 10000` | Maximum number of random combinations for LP solver input                  |
 | `--wait`                       | Wait for the new pool to come online                                       |

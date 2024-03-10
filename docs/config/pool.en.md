@@ -41,6 +41,7 @@ Parameters:
 - [osd_tags](#osd_tags)
 - [primary_affinity_tags](#primary_affinity_tags)
 - [scrub_interval](#scrub_interval)
+- [used_for_fs](#used_for_fs)
 
 Examples:
 
@@ -298,6 +299,25 @@ of the OSDs containing a data chunk for a PG.
 
 Automatic scrubbing interval for this pool. Overrides
 [global scrub_interval setting](osd.en.md#scrub_interval).
+
+## used_for_fs
+
+- Type: string
+
+If non-empty, the pool is marked as used for VitastorFS with metadata stored
+in block image (regular Vitastor volume) named as the value of this pool parameter.
+
+When a pool is marked as used for VitastorFS, regular block volume creation in it
+is disabled (vitastor-cli refuses to create images without --force) to protect
+the user from block volume and FS file ID collisions and data loss.
+
+[vitastor-nfs](../usage/nfs.ru.md), in its turn, refuses to use pools not marked
+for the corresponding FS when starting. This also implies that you can use one
+pool only for one VitastorFS.
+
+The second thing that is disabled for VitastorFS pools is reporting per-inode space
+usage statistics in etcd because a FS pool may store a very large number of files
+and statistics for them all would take a lot of space in etcd.
 
 # Examples
 

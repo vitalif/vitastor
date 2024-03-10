@@ -60,7 +60,7 @@ struct pool_config_t
     uint64_t pg_stripe_size;
     std::map<pg_num_t, pg_config_t> pg_config;
     uint64_t scrub_interval;
-    bool no_inode_stats;
+    std::string used_for_fs;
 };
 
 struct inode_config_t

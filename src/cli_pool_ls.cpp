@@ -529,8 +529,6 @@ resume_3:
                     st["block_size_fmt"] = format_size(st["block_size"].uint64_value());
                 if (st["bitmap_granularity"].uint64_value())
                     st["bitmap_granularity_fmt"] = format_size(st["bitmap_granularity"].uint64_value());
-                if (st["no_inode_stats"].bool_value())
-                    st["inode_stats_fmt"] = "disabled";
             }
             // All pool parameters are only displayed in the "detailed" mode
             // because there's too many of them to show them in table
@@ -538,6 +536,7 @@ resume_3:
                 { "name", "Name" },
                 { "id", "ID" },
                 { "scheme_name", "Scheme" },
+                { "used_for_fs", "Used for VitastorFS" },
                 { "status", "Status" },
                 { "pg_count_fmt", "PGs" },
                 { "pg_minsize", "PG minsize" },
