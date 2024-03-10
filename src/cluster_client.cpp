@@ -1174,7 +1174,6 @@ static inline void mem_or(void *res, const void *r2, unsigned int len)
 void cluster_client_t::handle_op_part(cluster_op_part_t *part)
 {
     cluster_op_t *op = part->parent;
-    op->inflight_count--;
     int expected = part->op.req.hdr.opcode == OSD_OP_SYNC ? 0 : part->op.req.rw.len;
     if (part->op.reply.hdr.retval != expected)
     {
@@ -1213,6 +1212,11 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             op->retry_after = op->retval == -EIO ? client_eio_retry_interval : client_retry_interval;
         }
         reset_retry_timer(op->retry_after);
+        if (stop_fd >= 0)
+        {
+            msgr.stop_client(stop_fd);
+        }
+        op->inflight_count--;
         if (op->inflight_count == 0)
         {
             if (op->opcode == OSD_OP_SYNC)
@@ -1220,14 +1224,11 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             else
                 continue_rw(op);
         }
-        if (stop_fd >= 0)
-        {
-            msgr.stop_client(stop_fd);
-        }
     }
     else
     {
         // OK
+        op->inflight_count--;
         if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && !(op->flags & OP_IMMEDIATE_COMMIT))
             dirty_osds.insert(part->osd_num);
         part->flags |= PART_DONE;
