@@ -305,7 +305,7 @@ static void nfs_do_shared_read(nfs_kv_write_state *st, int state)
     op->len = pre+sizeof(shared_file_header_t)+data_size+post;
     op->callback = [st, state](cluster_op_t *op)
     {
-        st->res = op->retval == op->len ? 0 : op->retval;
+        st->res = op->retval == op->len ? 0 : (op->retval > 0 ? -EIO : op->retval);
         delete op;
         if (st->shdr.magic != SHARED_FILE_MAGIC_V1 || st->shdr.inode != st->ino)
         {
@@ -316,7 +316,14 @@ static void nfs_do_shared_read(nfs_kv_write_state *st, int state)
             nfs_kv_continue_write(st, 0);
         }
         else
+        {
+            if (st->res < 0)
+            {
+                free(st->aligned_buf);
+                st->aligned_buf = NULL;
+            }
             nfs_kv_continue_write(st, state);
+        }
     };
     st->self->parent->cli->execute(op);
 }
@@ -871,6 +878,11 @@ resume_10:
             nfs_do_unshare_write(st, 11);
             return;
 resume_11:
+            if (st->aligned_buf)
+            {
+                free(st->aligned_buf);
+                st->aligned_buf = NULL;
+            }
             if (st->res < 0)
             {
                 auto cb = std::move(st->cb);

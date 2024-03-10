@@ -40,6 +40,7 @@ static void nfs_kv_continue_read(nfs_kv_read_state *st, int state)
         fprintf(stderr, "BUG: invalid state in nfs_kv_continue_read()");
         abort();
     }
+resume_0:
     if (st->offset + sizeof(shared_file_header_t) < st->self->parent->kvfs->shared_inode_threshold)
     {
         kv_read_inode(st->self, st->ino, [st](int res, const std::string & value, json11::Json attrs)
@@ -86,6 +87,7 @@ resume_1:
                     read_size = st->ientry["size"].uint64_value();
                 }
                 read_size += sizeof(shared_file_header_t);
+                assert(!st->aligned_buf);
                 st->aligned_buf = (uint8_t*)malloc_or_die(read_size);
                 st->buf = st->aligned_buf + sizeof(shared_file_header_t) + st->offset;
                 st->op->iov.push_back(st->aligned_buf, read_size);
@@ -107,6 +109,8 @@ resume_1:
 resume_2:
             if (st->res < 0)
             {
+                free(st->aligned_buf);
+                st->aligned_buf = NULL;
                 auto cb = std::move(st->cb);
                 cb(st->res);
                 return;
@@ -118,8 +122,7 @@ resume_2:
                 free(st->aligned_buf);
                 st->aligned_buf = NULL;
                 st->allow_cache = false;
-                nfs_kv_continue_read(st, 0);
-                return;
+                goto resume_0;
             }
             auto cb = std::move(st->cb);
             cb(0);
@@ -128,6 +131,7 @@ resume_2:
     }
     st->aligned_offset = align_down(st->offset);
     st->aligned_size = align_up(st->offset+st->size) - st->aligned_offset;
+    assert(!st->aligned_buf);
     st->aligned_buf = (uint8_t*)malloc_or_die(st->aligned_size);
     st->buf = st->aligned_buf + st->offset - st->aligned_offset;
     st->op = new cluster_op_t;
@@ -145,6 +149,11 @@ resume_2:
     st->self->parent->cli->execute(st->op);
     return;
 resume_3:
+    if (st->res < 0)
+    {
+        free(st->aligned_buf);
+        st->aligned_buf = NULL;
+    }
     auto cb = std::move(st->cb);
     cb(st->res < 0 ? st->res : 0);
     return;
