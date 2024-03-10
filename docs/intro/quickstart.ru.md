@@ -14,6 +14,7 @@
 - [Проверьте состояние кластера](#проверьте-состояние-кластера)
 - [Создайте образ](#создайте-образ)
 - [Установите плагины](#установите-плагины)
+- [Создайте VitastorFS](#создайте-vitastorfs)
 
 ## Подготовка
 
@@ -116,3 +117,10 @@ vitastor-cli create -s 10G testimg
 - [Proxmox](../installation/proxmox.ru.md)
 - [OpenStack](../installation/openstack.ru.md)
 - [Kubernetes CSI](../installation/kubernetes.ru.md)
+
+## Создайте VitastorFS
+
+Если вы хотите использовать не только блочные образы виртуальных машин или контейнеров,
+а также кластерную файловую систему, то:
+
+- [Следуйте инструкциям](../usage/nfs.en.md#vitastorfs)

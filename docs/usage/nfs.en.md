@@ -4,42 +4,146 @@
 
 [Читать на русском](nfs.ru.md)
 
-# NFS
+# VitastorFS and pseudo-FS
 
-Vitastor has a simplified NFS 3.0 proxy for file-based image access emulation. It's not
-suitable as a full-featured file system, at least because all file/image metadata is stored
-in etcd and kept in memory all the time - thus you can't put a lot of files in it.
+Vitastor has two file system implementations. Both can be used via `vitastor-nfs`.
 
-However, NFS proxy is totally fine as a method to provide VM image access and allows to
-plug Vitastor into, for example, VMWare. It's important to note that for VMWare it's a much
-better access method than iSCSI, because with iSCSI we'd have to put all VM images into one
-Vitastor image exported as a LUN to VMWare and formatted with VMFS. VMWare doesn't use VMFS
-over NFS.
+Commands:
+- [mount](#mount)
+- [start](#start)
 
-NFS proxy is stateless if you use immediate_commit=all mode (for SSD with capacitors or
-HDDs with disabled cache), so you can run multiple NFS proxies and use a network load
-balancer or any failover method you want to in that case.
+## Pseudo-FS
 
-vitastor-nfs usage:
+Simplified pseudo-FS proxy is used for file-based image access emulation. It's not
+suitable as a full-featured file system: it lacks a lot of FS features, it stores
+all file/image metadata in memory and in etcd. So it's fine for hundreds or thousands
+of large files/images, but not for millions.
 
-```
-vitastor-nfs [STANDARD OPTIONS] [OTHER OPTIONS]
+Pseudo-FS proxy is intended for environments where other block volume access methods
+can't be used or impose additional restrictions - for example, VMWare. NFS is better
+for VMWare than, for example, iSCSI, because with iSCSI, VMWare puts all VM images
+into one large shared block image in its own VMFS file system, and with NFS, VMWare
+doesn't use VMFS and puts each VM disk in a regular file which is equal to one
+Vitastor block image, just as originally intended.
 
---subdir <DIR>    export images prefixed <DIR>/ (default empty - export all images)
---portmap 0       do not listen on port 111 (portmap/rpcbind, requires root)
---bind <IP>       bind service to <IP> address (default 0.0.0.0)
---nfspath <PATH>  set NFS export path to <PATH> (default is /)
---port <PORT>     use port <PORT> for NFS services (default is 2049)
---pool <POOL>     use <POOL> as default pool for new files (images)
---foreground 1    stay in foreground, do not daemonize
-```
+To use Vitastor pseudo-FS locally, run `vitastor-nfs mount --block /mnt/vita`.
 
-Example start and mount commands (etcd_address is optional):
+Also you can start the network server:
 
 ```
-vitastor-nfs --etcd_address 192.168.5.10:2379 --portmap 0 --port 2050 --pool testpool
+vitastor-nfs start --block --etcd_address 192.168.5.10:2379 --portmap 0 --port 2050 --pool testpool
 ```
 
+To mount the FS exported by this server, run:
+
 ```
-mount localhost:/ /mnt/ -o port=2050,mountport=2050,nfsvers=3,soft,nolock,tcp
+mount server:/ /mnt/ -o port=2050,mountport=2050,nfsvers=3,soft,nolock,tcp
 ```
+
+## VitastorFS
+
+VitastorFS is a full-featured clustered (Read-Write-Many) file system. It supports most POSIX
+features like hierarchical organization, symbolic links, hard links, quick renames and so on.
+
+VitastorFS metadata is stored in a Parallel Optimistic B-Tree key-value database,
+implemented over a regular Vitastor block volume. Directory entries and inodes
+are stored in a simple human-readable JSON format in the B-Tree. `vitastor-kv` tool
+can be used to inspect the database.
+
+To use VitastorFS:
+
+1. Create a pool or choose an existing empty pool for FS data
+2. Create an image for FS metadata, preferably in a faster (SSD or replica-HDD) pool,
+   but you can create it in the data pool too if you want (image size doesn't matter):
+   `vitastor-cli create -s 10G -p fastpool testfs`
+3. Mark data pool as an FS pool: `vitastor-cli modify-pool --used-for-fs testfs data-pool`
+4. Either mount the FS: `vitastor-nfs mount --fs testfs --pool data-pool /mnt/vita`
+5. Or start the NFS server: `vitastor-nfs start --fs testfs --pool data-pool`
+
+### Supported POSIX features
+
+- Read-after-write semantics (read returns new data immediately after write)
+- Linear and random read and write
+- Writing outside current file size
+- Hierarchical structure, immediate rename of files and directories
+- File size change support (truncate)
+- Permissions (chmod/chown)
+- Flushing data to stable storage (if required) (fsync)
+- Symbolic links
+- Hard links
+- Special files (devices, sockets, named pipes)
+- File modification and attribute change time tracking (mtime and ctime)
+- Modification time (mtime) and last access time (atime) change support (utimes)
+- Correct handling of directory listing during file creation/deletion
+
+### Limitations
+
+POSIX features currently not implemented in VitastorFS:
+- File locking is not supported
+- Actually used space is not counted, so `du` always reports apparent file sizes
+  instead of actually allocated space
+- Access times (`atime`) are not tracked (like `-o noatime`)
+- Modification time (`mtime`) is updated lazily every second (like `-o lazytime`)
+
+Other notable missing features which should be addressed in the future:
+- Defragmentation of "shared" inodes. Files smaller than pool object size (block_size
+  multiplied by data part count if pool is EC) are internally stored in large block
+  volumes sequentially, one after another, and leave garbage after deleting or resizing.
+  Defragmentator will be implemented to collect this garbage.
+- Inode ID reuse. Currently inode IDs always grow, the limit is 2^48 inodes, so
+  in theory you may hit it if you create and delete a very large number of files
+- Compaction of the key-value B-Tree. Current implementation never merges or deletes
+  B-Tree blocks, so B-Tree may become bloated over time. Currently you can
+  use `vitastor-kv dumpjson` & `loadjson` commands to recreate the index in such
+  situations.
+- Filesystem check tool. VitastorFS doesn't have journal because it would impose a
+  severe performance hit, optimistic CAS-based transactions are used instead of it.
+  So, again, in theory an abnormal shutdown of the FS server may leave some garbage
+  in the DB. The FS is implemented is such way that this garbage doesn't affect its
+  function, but having a tool to clean it up still seems a right thing to do.
+
+## Horizontal scaling
+
+Linux NFS 3.0 client doesn't support built-in scaling or failover, i.e. you can't
+specify multiple server addresses when mounting the FS.
+
+However, you can use any regular TCP load balancing over multiple NFS servers.
+It's absolutely safe with `immediate_commit=all` and `client_enable_writeback=false`
+settings, because Vitastor NFS proxy doesn't keep uncommitted data in memory
+with these settings. But it may even work without `immediate_commit=all` because
+the Linux NFS client repeats all uncommitted writes if it loses the connection.
+
+## Commands
+
+### mount
+
+`vitastor-nfs (--fs <NAME> | --block) [-o <OPT>] mount <MOUNTPOINT>`
+
+Start local filesystem server and mount file system to <MOUNTPOINT>.
+
+Use regular `umount <MOUNTPOINT>` to unmount the FS.
+
+The server will be automatically stopped when the FS is unmounted.
+
+| `-o|--options <OPT>` | Pass additional NFS mount options (ex.: -o async). |
+
+### start
+
+`vitastor-nfs (--fs <NAME> | --block) start`
+
+Start network NFS server. Options:
+
+| `--bind <IP>`   | bind service to <IP> address (default 0.0.0.0)             |
+| `--port <PORT>` | use port <PORT> for NFS services (default is 2049)         |
+| `--portmap 0`   | do not listen on port 111 (portmap/rpcbind, requires root) |
+
+## Common options
+
+| `--fs <NAME>`      | use VitastorFS with metadata in image <NAME> |
+| `--block`          | use pseudo-FS presenting images as files     |
+| `--pool <POOL>`    | use <POOL> as default pool for new files     |
+| `--subdir <DIR>`   | export <DIR> instead of root directory       |
+| `--nfspath <PATH>` | set NFS export path to <PATH> (default is /) |
+| `--pidfile <FILE>` | write process ID to the specified file       |
+| `--logfile <FILE>` | log to the specified file                    |
+| `--foreground 1`   | stay in foreground, do not daemonize         |

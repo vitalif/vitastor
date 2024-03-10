@@ -14,6 +14,7 @@
 - [Check cluster status](#check-cluster-status)
 - [Create an image](#create-an-image)
 - [Install plugins](#install-plugins)
+- [Create VitastorFS](#create-vitastorfs)
 
 ## Preparation
 
@@ -114,3 +115,9 @@ After that, you can [run benchmarks](../usage/fio.en.md) or [start QEMU manually
 - [Proxmox](../installation/proxmox.en.md)
 - [OpenStack](../installation/openstack.en.md)
 - [Kubernetes CSI](../installation/kubernetes.en.md)
+
+## Create VitastorFS
+
+If you want to use clustered file system in addition to VM or container images:
+
+- [Follow the instructions here](../usage/nfs.en.md#vitastorfs)

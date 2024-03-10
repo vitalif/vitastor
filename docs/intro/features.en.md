@@ -14,6 +14,7 @@
 
 - Basic part: highly-available block storage with symmetric clustering and no SPOF
 - [Performance](../performance/comparison1.en.md) ;-D
+- [Cluster file system](../usage/nfs.en.md#vitastorfs)
 - [Multiple redundancy schemes](../config/pool.en.md#scheme): Replication, XOR n+1, Reed-Solomon erasure codes
   based on jerasure and ISA-L libraries with any number of data and parity drives in a group
 - Configuration via simple JSON data structures in etcd (parameters, pools and images)
@@ -46,13 +47,12 @@
 - [CSI plugin for Kubernetes](../installation/kubernetes.en.md)
 - [OpenStack support: Cinder driver, Nova and libvirt patches](../installation/openstack.en.md)
 - [Proxmox storage plugin and packages](../installation/proxmox.en.md)
-- [Simplified NFS proxy for file-based image access emulation (suitable for VMWare)](../usage/nfs.en.md)
+- [Simplified NFS proxy for file-based image access emulation (suitable for VMWare)](../usage/nfs.en.md#pseudo-fs)
 
 ## Roadmap
 
 The following features are planned for the future:
 
-- File system
 - Control plane optimisation
 - Other administrative tools
 - Web GUI

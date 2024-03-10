@@ -6,9 +6,9 @@
 
 Make Clustered Block Storage Fast Again.
 
-Vitastor is a distributed block SDS, direct replacement of Ceph RBD and internal SDS's
-of public clouds. However, in contrast to them, Vitastor is fast and simple at the same time.
-The only thing is it's slightly young :-).
+Vitastor is a distributed block and file SDS, direct replacement of Ceph RBD and CephFS,
+and also internal SDS's of public clouds. However, in contrast to them, Vitastor is fast
+and simple at the same time. The only thing is it's slightly young :-).
 
 Vitastor is architecturally similar to Ceph which means strong consistency,
 primary-replication, symmetric clustering and automatic data distribution over any
@@ -63,7 +63,7 @@ Read more details below in the documentation.
   - [fio](docs/usage/fio.en.md) for benchmarks
   - [NBD](docs/usage/nbd.en.md) for kernel mounts
   - [QEMU and qemu-img](docs/usage/qemu.en.md)
-  - [NFS](docs/usage/nfs.en.md) emulator for VMWare and similar
+  - [NFS](docs/usage/nfs.en.md) clustered file system and pseudo-FS proxy
 - Performance
   - [Understanding storage performance](docs/performance/understanding.en.md)
   - [Theoretical performance](docs/performance/theoretical.en.md)
