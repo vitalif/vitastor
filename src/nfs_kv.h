@@ -8,7 +8,6 @@
 #include "nfs/nfs.h"
 
 #define KV_ROOT_INODE 1
-#define KV_NEXT_ID_KEY "id"
 #define SHARED_FILE_MAGIC_V1 0x711A5158A6EDF17E
 
 struct nfs_kv_write_state;
@@ -42,13 +41,18 @@ struct kv_inode_extend_t
     std::vector<std::function<void()>> waiters;
 };
 
+struct kv_idgen_t
+{
+    uint64_t next_id = 1, allocated_id = 0;
+    std::vector<uint64_t> unallocated_ids;
+};
+
 struct kv_fs_state_t
 {
     nfs_proxy_t *proxy = NULL;
     int touch_timer_id = -1;
 
     uint64_t fs_kv_inode = 0;
-    uint64_t fs_base_inode = 0;
     uint64_t fs_inode_count = 0;
     int readdir_getattr_parallel = 8, id_alloc_batch_size = 200;
     uint64_t pool_block_size = 0;
@@ -57,8 +61,7 @@ struct kv_fs_state_t
     uint64_t touch_interval = 1000;
 
     std::map<list_cookie_t, list_cookie_val_t> list_cookies;
-    uint64_t fs_next_id = 1, fs_allocated_id = 0;
-    std::vector<uint64_t> unallocated_ids;
+    std::map<pool_id_t, kv_idgen_t> idgen;
     std::vector<shared_alloc_queue_t> allocating_shared;
     uint64_t cur_shared_inode = 0, cur_shared_offset = 0;
     std::map<inode_t, kv_inode_extend_t> extends;
@@ -105,7 +108,7 @@ std::string kv_inode_key(uint64_t ino);
 std::string kv_fh(uint64_t ino);
 uint64_t kv_fh_inode(const std::string & fh);
 bool kv_fh_valid(const std::string & fh);
-void allocate_new_id(nfs_client_t *self, std::function<void(int res, uint64_t new_id)> cb);
+void allocate_new_id(nfs_client_t *self, pool_id_t pool_id, std::function<void(int res, uint64_t new_id)> cb);
 void kv_read_inode(nfs_proxy_t *proxy, uint64_t ino,
     std::function<void(int res, const std::string & value, json11::Json ientry)> cb,
     bool allow_cache = false);

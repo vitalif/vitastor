@@ -118,41 +118,41 @@ std::string kv_direntry_filename(const std::string & key)
 
 std::string kv_inode_key(uint64_t ino)
 {
-    char key[24] = { 0 };
-    snprintf(key, sizeof(key), "i-%jx", ino);
-    int n = strnlen(key, sizeof(key)-1) - 2;
-    if (n < 10)
-        key[1] = '0'+n;
-    else
-        key[1] = 'A'+(n-10);
-    return std::string(key, n+2);
+    char key[32] = { 0 };
+    snprintf(key, sizeof(key), "i%x", INODE_POOL(ino));
+    int n = strnlen(key, sizeof(key)-1);
+    snprintf(key+n+1, sizeof(key)-n-1, "%jx", INODE_NO_POOL(ino));
+    int m = strnlen(key+n+1, sizeof(key)-n-2);
+    key[n] = 'G'+m;
+    return std::string(key);
 }
 
 std::string kv_fh(uint64_t ino)
 {
-    return "S"+std::string((char*)&ino, 8);
+    char key[32] = { 0 };
+    snprintf(key, sizeof(key), "S%jx", ino);
+    return key;
 }
 
 uint64_t kv_fh_inode(const std::string & fh)
 {
-    if (fh.size() == 1 && fh[0] == 'R')
+    if (fh == NFS_ROOT_HANDLE)
     {
         return 1;
     }
-    else if (fh.size() == 9 && fh[0] == 'S')
+    else if (fh[0] == 'S')
     {
-        return *(uint64_t*)&fh[1];
-    }
-    else if (fh.size() > 17 && fh[0] == 'I')
-    {
-        return *(uint64_t*)&fh[fh.size()-8];
+        uint64_t ino = 0;
+        int r = sscanf(fh.c_str()+1, "%jx", &ino);
+        if (r == 1)
+            return ino;
     }
     return 0;
 }
 
 bool kv_fh_valid(const std::string & fh)
 {
-    return fh == NFS_ROOT_HANDLE || fh.size() == 9 && fh[0] == 'S' || fh.size() > 17 && fh[0] == 'I';
+    return fh == NFS_ROOT_HANDLE || fh[0] == 'S';
 }
 
 void nfs_kv_procs(nfs_client_t *self)
@@ -255,7 +255,6 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
             strerror(-open_res), open_res);
         exit(1);
     }
-    fs_base_inode = ((uint64_t)proxy->default_pool_id << (64-POOL_ID_BITS));
     fs_inode_count = ((uint64_t)1 << (64-POOL_ID_BITS)) - 1;
     shared_inode_threshold = pool_block_size;
     if (!cfg["shared_inode_threshold"].is_null())

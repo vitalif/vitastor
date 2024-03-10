@@ -9,19 +9,30 @@
 #include "nfs_proxy.h"
 #include "nfs_kv.h"
 
-void allocate_new_id(nfs_client_t *self, std::function<void(int res, uint64_t new_id)> cb)
+void allocate_new_id(nfs_client_t *self, pool_id_t pool_id, std::function<void(int res, uint64_t new_id)> cb)
 {
-    if (self->parent->kvfs->fs_next_id <= self->parent->kvfs->fs_allocated_id)
+    auto & idgen = self->parent->kvfs->idgen[pool_id];
+    if (idgen.unallocated_ids.size())
     {
-        cb(0, self->parent->kvfs->fs_next_id++);
+        auto new_id = idgen.unallocated_ids.back();
+        idgen.unallocated_ids.pop_back();
+        cb(0, INODE_WITH_POOL(pool_id, new_id));
         return;
     }
-    else if (self->parent->kvfs->fs_next_id > self->parent->kvfs->fs_inode_count)
+    else if (idgen.next_id <= idgen.allocated_id)
+    {
+        idgen.next_id++;
+        cb(0, INODE_WITH_POOL(pool_id, idgen.next_id-1));
+        return;
+    }
+    // FIXME: Partial per-pool max ID limits
+    // FIXME: Fool protection from block volume and FS file ID overlap
+    else if (idgen.next_id >= ((uint64_t)1 << (64-POOL_ID_BITS)))
     {
         cb(-ENOSPC, 0);
         return;
     }
-    self->parent->db->get(KV_NEXT_ID_KEY, [=](int res, const std::string & prev_str)
+    self->parent->db->get((pool_id ? "id"+std::to_string(pool_id) : "id"), [=](int res, const std::string & prev_str)
     {
         if (res < 0 && res != -ENOENT)
         {
@@ -29,7 +40,7 @@ void allocate_new_id(nfs_client_t *self, std::function<void(int res, uint64_t ne
             return;
         }
         uint64_t prev_val = stoull_full(prev_str);
-        if (prev_val >= self->parent->kvfs->fs_inode_count)
+        if (prev_val >= ((uint64_t)1 << (64-POOL_ID_BITS)))
         {
             cb(-ENOSPC, 0);
             return;
@@ -43,12 +54,12 @@ void allocate_new_id(nfs_client_t *self, std::function<void(int res, uint64_t ne
         {
             new_val = self->parent->kvfs->fs_inode_count;
         }
-        self->parent->db->set(KV_NEXT_ID_KEY, std::to_string(new_val), [=](int res)
+        self->parent->db->set((pool_id ? "id"+std::to_string(pool_id) : "id"), std::to_string(new_val), [=](int res)
         {
             if (res == -EAGAIN)
             {
                 // CAS failure - retry
-                allocate_new_id(self, cb);
+                allocate_new_id(self, pool_id, cb);
             }
             else if (res < 0)
             {
@@ -56,9 +67,10 @@ void allocate_new_id(nfs_client_t *self, std::function<void(int res, uint64_t ne
             }
             else
             {
-                self->parent->kvfs->fs_next_id = prev_val+2;
-                self->parent->kvfs->fs_allocated_id = new_val;
-                cb(0, prev_val+1);
+                auto & idgen = self->parent->kvfs->idgen[pool_id];
+                idgen.next_id = prev_val+2;
+                idgen.allocated_id = new_val;
+                cb(0, INODE_WITH_POOL(pool_id, prev_val+1));
             }
         }, [prev_val](int res, const std::string & value)
         {
@@ -76,7 +88,9 @@ struct kv_create_state
     uint64_t verf = 0;
     uint64_t dir_ino = 0;
     std::string filename;
+    // state
     int res = 0;
+    pool_id_t pool_id = 0;
     uint64_t new_id = 0;
     json11::Json::object attrobj;
     json11::Json attrs;
@@ -107,7 +121,11 @@ static void kv_continue_create(kv_create_state *st, int state)
     st->attrs = std::move(st->attrobj);
 resume_1:
     // Generate inode ID
-    allocate_new_id(st->self, [st](int res, uint64_t new_id)
+    // Directories and special files don't need pool
+    st->pool_id = kv_map_type(st->attrs["type"].string_value()) == NF3REG
+        ? st->self->parent->default_pool_id
+        : 0;
+    allocate_new_id(st->self, st->pool_id, [st](int res, uint64_t new_id)
     {
         st->res = res;
         st->new_id = new_id;
@@ -195,7 +213,8 @@ resume_5:
         }
         else
         {
-            st->self->parent->kvfs->unallocated_ids.push_back(st->new_id);
+            auto & idgen = st->self->parent->kvfs->idgen[INODE_POOL(st->new_id)];
+            idgen.unallocated_ids.push_back(INODE_NO_POOL(st->new_id));
         }
         if (st->dup_ino)
         {

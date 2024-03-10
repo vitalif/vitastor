@@ -280,8 +280,8 @@ resume_8:
             if (st->rm_dest_data)
             {
                 st->self->parent->cmd->loop_and_wait(st->self->parent->cmd->start_rm_data(json11::Json::object {
-                    { "inode", INODE_NO_POOL(st->self->parent->kvfs->fs_base_inode + st->new_direntry["ino"].uint64_value()) },
-                    { "pool", (uint64_t)INODE_POOL(st->self->parent->kvfs->fs_base_inode + st->new_direntry["ino"].uint64_value()) },
+                    { "inode", INODE_NO_POOL(st->new_direntry["ino"].uint64_value()) },
+                    { "pool", (uint64_t)INODE_POOL(st->new_direntry["ino"].uint64_value()) },
                 }), [st](const cli_result_t & r)
                 {
                     if (r.err)

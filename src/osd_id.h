@@ -11,7 +11,7 @@
 #define POOL_ID_MAX 0x10000
 #define POOL_ID_BITS 16
 #define INODE_POOL(inode) (pool_id_t)((inode) >> (64 - POOL_ID_BITS))
-#define INODE_NO_POOL(inode) (inode_t)(inode & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1))
+#define INODE_NO_POOL(inode) (inode_t)((inode) & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1))
 #define INODE_WITH_POOL(pool_id, inode) (((inode_t)(pool_id) << (64-POOL_ID_BITS)) | INODE_NO_POOL(inode))
 
 // Pool ID is 16 bits long

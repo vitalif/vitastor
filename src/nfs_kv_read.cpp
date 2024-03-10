@@ -70,7 +70,7 @@ resume_1:
             st->op = new cluster_op_t;
             {
                 st->op->opcode = OSD_OP_READ;
-                st->op->inode = st->self->parent->kvfs->fs_base_inode + st->ientry["shared_ino"].uint64_value();
+                st->op->inode = st->ientry["shared_ino"].uint64_value();
                 // Always read including header to react if the file was possibly moved away
                 auto read_offset = st->ientry["shared_offset"].uint64_value();
                 st->op->offset = align_down(read_offset);
@@ -136,7 +136,7 @@ resume_2:
     st->buf = st->aligned_buf + st->offset - st->aligned_offset;
     st->op = new cluster_op_t;
     st->op->opcode = OSD_OP_READ;
-    st->op->inode = st->self->parent->kvfs->fs_base_inode + st->ino;
+    st->op->inode = st->ino;
     st->op->offset = st->aligned_offset;
     st->op->len = st->aligned_size;
     st->op->iov.push_back(st->aligned_buf, st->aligned_size);

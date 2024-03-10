@@ -23,6 +23,7 @@ public:
     std::string bind_address;
     uint64_t fsid = 1;
     uint64_t server_id = 0;
+    // FIXME: Maybe allow to create files in different pools?
     std::string default_pool;
     std::string export_root;
     bool portmap_enabled;

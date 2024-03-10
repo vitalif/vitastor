@@ -95,7 +95,7 @@ static void allocate_shared_inode(nfs_kv_write_state *st, int state)
         {
             return;
         }
-        allocate_new_id(st->self, [st](int res, uint64_t new_id)
+        allocate_new_id(st->self, st->self->parent->default_pool_id, [st](int res, uint64_t new_id)
         {
             if (res < 0)
             {
@@ -133,7 +133,7 @@ static void nfs_do_write(uint64_t ino, uint64_t offset, uint64_t size, std::func
 {
     auto op = new cluster_op_t;
     op->opcode = OSD_OP_WRITE;
-    op->inode = st->self->parent->kvfs->fs_base_inode + ino;
+    op->inode = ino;
     op->offset = offset;
     op->len = size;
     prepare(op);
@@ -178,7 +178,7 @@ void nfs_do_rmw(nfs_rmw_t *rmw)
     }
     auto op = new cluster_op_t;
     op->opcode = OSD_OP_READ;
-    op->inode = parent->kvfs->fs_base_inode + rmw->ino;
+    op->inode = rmw->ino;
     op->offset = rmw->offset & ~(align-1);
     op->len = align;
     op->iov.push_back(rmw->part_buf, op->len);
@@ -209,7 +209,7 @@ void nfs_do_rmw(nfs_rmw_t *rmw)
             bool is_end = ((rmw->offset+rmw->size) % align);
             auto op = new cluster_op_t;
             op->opcode = OSD_OP_WRITE;
-            op->inode = parent->kvfs->fs_base_inode + rmw->ino;
+            op->inode = rmw->ino;
             op->offset = rmw->offset & ~(align-1);
             op->len = align;
             op->version = rmw->version;
@@ -263,7 +263,7 @@ static void nfs_do_shared_read(nfs_kv_write_state *st, int state)
     uint64_t shared_offset = st->ientry["shared_offset"].uint64_value();
     auto op = new cluster_op_t;
     op->opcode = OSD_OP_READ;
-    op->inode = st->self->parent->kvfs->fs_base_inode + st->ientry["shared_ino"].uint64_value();
+    op->inode = st->ientry["shared_ino"].uint64_value();
     op->offset = align_down(shared_offset);
     // Allow unaligned shared reads
     auto pre = shared_offset-align_down(shared_offset);
@@ -759,7 +759,7 @@ resume_1:
         cb(st->res == 0 ? -EINVAL : st->res);
         return;
     }
-    st->was_immediate = st->self->parent->cli->get_immediate_commit(st->self->parent->kvfs->fs_base_inode + st->ino);
+    st->was_immediate = st->self->parent->cli->get_immediate_commit(st->ino);
     st->new_size = st->ientry["size"].uint64_value();
     if (st->new_size < st->offset + st->size)
     {
