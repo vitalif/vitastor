@@ -238,6 +238,7 @@ resume_2:
                 data->iov = { bufs[i].buf, (size_t)bufs[i].size };
                 data->callback = [this, i](ring_data_t *data) { handle_event(data, i); };
                 my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
+                bs->ringloop->submit();
                 bufs[i].state = INIT_META_WRITING;
                 submitted++;
             }
