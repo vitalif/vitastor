@@ -283,6 +283,7 @@ static void touch_inode(nfs_proxy_t *proxy, inode_t ino, bool allow_cache)
         {
             auto ientry = attrs.object_items();
             ientry["mtime"] = nfstime_now_str();
+            ientry.erase("verf");
             // FIXME: Use "update" query
             bool *found = new bool;
             *found = true;
