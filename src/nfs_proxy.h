@@ -32,6 +32,7 @@ public:
     std::string pidfile;
     bool exit_on_umount = false;
     std::string mountpoint;
+    std::string mountopts;
     std::string fsname;
 
     int active_connections = 0;

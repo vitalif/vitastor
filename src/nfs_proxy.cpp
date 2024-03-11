@@ -58,10 +58,11 @@ static const char* help_text =
     "Vitastor NFS 3.0 proxy " VERSION "\n"
     "(c) Vitaliy Filippov, 2021+ (VNPL-1.1)\n"
     "\n"
-    "vitastor-nfs (--fs <NAME> | --block) mount <MOUNTPOINT>\n"
+    "vitastor-nfs (--fs <NAME> | --block) [-o <OPT>] mount <MOUNTPOINT>\n"
     "  Start local filesystem server and mount file system to <MOUNTPOINT>.\n"
     "  Use regular `umount <MOUNTPOINT>` to unmount the FS.\n"
     "  The server will be automatically stopped when the FS is unmounted.\n"
+    "  -o|--options <OPT>  Pass additional NFS mount options (ex.: -o async).\n"
     "\n"
     "vitastor-nfs (--fs <NAME> | --block) start\n"
     "  Start network NFS server. Options:\n"
@@ -100,6 +101,16 @@ json11::Json::object nfs_proxy_t::parse_args(int narg, const char *args[])
         {
             printf("%s", help_text);
             exit(0);
+        }
+        else if (!strcmp(args[i], "-o") || !strcmp(args[i], "--options"))
+        {
+            if (i >= narg-1)
+            {
+                printf("%s", help_text);
+                exit(0);
+            }
+            const std::string & old = cfg["options"].string_value();
+            cfg["options"] = old != "" ? old+","+args[i+1] : args[i+1];
         }
         else if (args[i][0] == '-' && args[i][1] == '-')
         {
@@ -169,6 +180,7 @@ void nfs_proxy_t::run(json11::Json cfg)
         portmap_enabled = false;
         exit_on_umount = true;
     }
+    mountopts = cfg["options"].string_value();
     fsname = cfg["fs"].string_value();
     // Create client
     ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
@@ -1064,7 +1076,25 @@ void nfs_proxy_t::mount_fs()
     {
         // Child
         std::string src = ("localhost:"+export_root);
-        std::string opts = ("port="+std::to_string(listening_port)+",mountport="+std::to_string(listening_port)+",nfsvers=3,soft,nolock,tcp");
+        std::string opts = ("port="+std::to_string(listening_port)+",mountport="+std::to_string(listening_port)+",nfsvers=3,nolock,tcp");
+        bool hard = false, async = false;
+        for (auto & opt: explode(",", mountopts, true))
+        {
+            if (opt == "hard")
+                hard = true;
+            else if (opt == "async")
+                async = true;
+            else if (opt.substr(0, 4) != "port" && opt.substr(0, 9) != "mountport" &&
+                opt.substr(0, 7) != "nfsvers" && opt.substr(0, 5) != "proto" &&
+                opt != "udp" && opt != "tcp" && opt != "rdma")
+            {
+                opts += ","+opt;
+            }
+        }
+        if (!hard)
+            opts += ",soft";
+        if (!async)
+            opts += ",sync";
         const char *args[] = { "mount", src.c_str(), mountpoint.c_str(), "-o", opts.c_str(), NULL };
         execvp("mount", (char* const*)args);
         fprintf(stderr, "Failed to run mount %s %s -o %s: %s (code %d)\n",
