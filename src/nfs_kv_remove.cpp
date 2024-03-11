@@ -207,6 +207,7 @@ resume_5:
     }
     else
     {
+        st->self->parent->kvfs->touch_queue.erase(st->ino);
         st->self->parent->db->del(kv_inode_key(st->ino), [st](int res)
         {
             st->res = res;
@@ -248,6 +249,10 @@ resume_7:
         auto cb = std::move(st->cb);
         cb(st->res);
         return;
+    }
+    if (!st->res)
+    {
+        st->self->parent->kvfs->touch_queue.insert(st->dir_ino);
     }
     auto cb = std::move(st->cb);
     cb(0);

@@ -205,6 +205,10 @@ resume_5:
         }
         st->res = st->dup_ino ? 0 : -EEXIST;
     }
+    if (!st->res)
+    {
+        st->self->parent->kvfs->touch_queue.insert(st->dir_ino);
+    }
     auto cb = std::move(st->cb);
     cb(st->res);
 }

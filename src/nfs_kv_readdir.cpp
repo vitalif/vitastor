@@ -50,7 +50,7 @@ static void kv_getattr_next(nfs_kv_readdir_state *st)
     {
         auto idx = st->getattr_cur++;
         st->getattr_running++;
-        kv_read_inode(st->self, st->entries[idx].fileid, [st, idx](int res, const std::string & value, json11::Json ientry)
+        kv_read_inode(st->self->parent, st->entries[idx].fileid, [st, idx](int res, const std::string & value, json11::Json ientry)
         {
             if (res == 0)
             {
@@ -96,7 +96,7 @@ static void nfs_kv_continue_readdir(nfs_kv_readdir_state *st, int state)
     // Add . and ..
     if (st->cookie <= 1)
     {
-        kv_read_inode(st->self, st->dir_ino, [st](int res, const std::string & value, json11::Json ientry)
+        kv_read_inode(st->self->parent, st->dir_ino, [st](int res, const std::string & value, json11::Json ientry)
         {
             st->res = res;
             st->ientry_text = value;
@@ -138,7 +138,7 @@ resume_1:
         st->parent_ino = st->ientry["parent_ino"].uint64_value();
         if (st->parent_ino)
         {
-            kv_read_inode(st->self, st->ientry["parent_ino"].uint64_value(), [st](int res, const std::string & value, json11::Json ientry)
+            kv_read_inode(st->self->parent, st->ientry["parent_ino"].uint64_value(), [st](int res, const std::string & value, json11::Json ientry)
             {
                 st->res = res;
                 st->parent_ientry_text = value;

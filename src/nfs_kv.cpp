@@ -194,7 +194,7 @@ void nfs_kv_procs(nfs_client_t *self)
 
 void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
 {
-    // Check if we're using VitastorFS
+    this->proxy = proxy;
     fs_kv_inode = cfg["fs"].uint64_value();
     if (fs_kv_inode)
     {
@@ -226,6 +226,9 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
     id_alloc_batch_size = cfg["id_alloc_batch_size"].uint64_value();
     if (!id_alloc_batch_size)
         id_alloc_batch_size = 200;
+    touch_interval = cfg["touch_interval"].uint64_value();
+    if (touch_interval < 100) // ms
+        touch_interval = 100;
     auto & pool_cfg = proxy->cli->st_cli.pool_config.at(proxy->default_pool_id);
     pool_block_size = pool_cfg.pg_stripe_size;
     pool_alignment = pool_cfg.bitmap_granularity;
@@ -260,4 +263,50 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
     }
     zero_block.resize(pool_block_size < 1048576 ? 1048576 : pool_block_size);
     scrap_block.resize(pool_block_size < 1048576 ? 1048576 : pool_block_size);
+    touch_timer_id = proxy->epmgr->tfd->set_timer(touch_interval, true, [this](int){ touch_inodes(); });
+}
+
+kv_fs_state_t::~kv_fs_state_t()
+{
+    if (proxy && touch_timer_id >= 0)
+    {
+        proxy->epmgr->tfd->clear_timer(touch_timer_id);
+        touch_timer_id = -1;
+    }
+}
+
+static void touch_inode(nfs_proxy_t *proxy, inode_t ino, bool allow_cache)
+{
+    kv_read_inode(proxy, ino, [proxy, ino](int res, const std::string & value, json11::Json attrs)
+    {
+        if (!res)
+        {
+            auto ientry = attrs.object_items();
+            ientry["mtime"] = nfstime_now_str();
+            // FIXME: Use "update" query
+            bool *found = new bool;
+            *found = true;
+            proxy->db->set(kv_inode_key(ino), json11::Json(ientry).dump(), [proxy, ino, found](int res)
+            {
+                if (!*found)
+                    res = -ENOENT;
+                delete found;
+                if (res == -EAGAIN)
+                    touch_inode(proxy, ino, false);
+            }, [value, found](int res, const std::string & old_value)
+            {
+                *found = res == 0;
+                return res == 0 && old_value == value;
+            });
+        }
+    }, allow_cache);
+}
+
+void kv_fs_state_t::touch_inodes()
+{
+    std::set<inode_t> q = std::move(touch_queue);
+    for (auto ino: q)
+    {
+        touch_inode(proxy, ino, true);
+    }
 }

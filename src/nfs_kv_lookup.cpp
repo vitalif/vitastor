@@ -41,7 +41,7 @@ int kv_nfs3_lookup_proc(void *opaque, rpc_op_t *rop)
             return;
         }
         uint64_t ino = direntry["ino"].uint64_value();
-        kv_read_inode(self, ino, [=](int res, const std::string & value, json11::Json ientry)
+        kv_read_inode(self->parent, ino, [=](int res, const std::string & value, json11::Json ientry)
         {
             if (res < 0)
             {
@@ -79,7 +79,7 @@ int kv_nfs3_readlink_proc(void *opaque, rpc_op_t *rop)
         rpc_queue_reply(rop);
         return 0;
     }
-    kv_read_inode(self, kv_fh_inode(args->symlink), [=](int res, const std::string & value, json11::Json attrs)
+    kv_read_inode(self->parent, kv_fh_inode(args->symlink), [=](int res, const std::string & value, json11::Json attrs)
     {
         if (res < 0)
         {

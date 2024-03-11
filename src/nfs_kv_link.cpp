@@ -47,7 +47,7 @@ resume_0:
     // Check that the source inode exists and is not a directory
     st->wait = st->retrying ? 1 : 2;
     st->res2 = 0;
-    kv_read_inode(st->self, st->ino, [st](int res, const std::string & value, json11::Json attrs)
+    kv_read_inode(st->self->parent, st->ino, [st](int res, const std::string & value, json11::Json attrs)
     {
         st->res = res == 0 ? (attrs["type"].string_value() == "dir" ? -EISDIR : 0) : res;
         st->ientry_text = value;
@@ -58,7 +58,7 @@ resume_0:
     if (!st->retrying)
     {
         // Check that the new directory exists
-        kv_read_inode(st->self, st->dir_ino, [st](int res, const std::string & value, json11::Json attrs)
+        kv_read_inode(st->self->parent, st->dir_ino, [st](int res, const std::string & value, json11::Json attrs)
         {
             st->res2 = res == 0 ? (attrs["type"].string_value() == "dir" ? 0 : -ENOTDIR) : res;
             if (!--st->wait)
@@ -137,6 +137,10 @@ resume_4:
             fprintf(stderr, "Warning: failed to delete new linked direntry %ju/%s: %s (code %d)\n",
                 st->dir_ino, st->filename.c_str(), strerror(-st->res2), st->res2);
         }
+    }
+    if (!st->res)
+    {
+        st->self->parent->kvfs->touch_queue.insert(st->dir_ino);
     }
     auto cb = std::move(st->cb);
     cb(st->res);

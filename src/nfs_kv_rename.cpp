@@ -157,7 +157,7 @@ resume_3:
     else
     {
         // Check that the new directory is actually a directory
-        kv_read_inode(st->self, st->new_dir_ino, [st](int res, const std::string & value, json11::Json attrs)
+        kv_read_inode(st->self->parent, st->new_dir_ino, [st](int res, const std::string & value, json11::Json attrs)
         {
             st->res = res == 0 ? (attrs["type"].string_value() == "dir" ? 0 : -ENOTDIR) : res;
             nfs_kv_continue_rename(st, 4);
@@ -222,7 +222,7 @@ resume_7again:
     if (st->new_exists && st->new_direntry["type"].string_value() != "dir")
     {
         // (Maybe) delete old destination file data
-        kv_read_inode(st->self, st->new_direntry["ino"].uint64_value(), [st](int res, const std::string & value, json11::Json attrs)
+        kv_read_inode(st->self->parent, st->new_direntry["ino"].uint64_value(), [st](int res, const std::string & value, json11::Json attrs)
         {
             st->res = res;
             st->new_ientry_text = value;
@@ -306,7 +306,7 @@ resume_9:
         // Change parent_ino in old ientry
         st->allow_cache = true;
 resume_10:
-        kv_read_inode(st->self, st->old_direntry["ino"].uint64_value(), [st](int res, const std::string & value, json11::Json ientry)
+        kv_read_inode(st->self->parent, st->old_direntry["ino"].uint64_value(), [st](int res, const std::string & value, json11::Json ientry)
         {
             st->res = res;
             st->old_ientry_text = value;
@@ -347,6 +347,11 @@ resume_12:
             cb(st->res);
             return;
         }
+    }
+    if (!st->res)
+    {
+        st->self->parent->kvfs->touch_queue.insert(st->old_dir_ino);
+        st->self->parent->kvfs->touch_queue.insert(st->new_dir_ino);
     }
     auto cb = std::move(st->cb);
     cb(st->res);

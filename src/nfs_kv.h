@@ -44,6 +44,9 @@ struct kv_inode_extend_t
 
 struct kv_fs_state_t
 {
+    nfs_proxy_t *proxy = NULL;
+    int touch_timer_id = -1;
+
     uint64_t fs_kv_inode = 0;
     uint64_t fs_base_inode = 0;
     uint64_t fs_inode_count = 0;
@@ -51,6 +54,7 @@ struct kv_fs_state_t
     uint64_t pool_block_size = 0;
     uint64_t pool_alignment = 0;
     uint64_t shared_inode_threshold = 0;
+    uint64_t touch_interval = 1000;
 
     std::map<list_cookie_t, list_cookie_val_t> list_cookies;
     uint64_t fs_next_id = 1, fs_allocated_id = 0;
@@ -58,10 +62,14 @@ struct kv_fs_state_t
     std::vector<shared_alloc_queue_t> allocating_shared;
     uint64_t cur_shared_inode = 0, cur_shared_offset = 0;
     std::map<inode_t, kv_inode_extend_t> extends;
+    std::set<inode_t> touch_queue;
+
     std::vector<uint8_t> zero_block;
     std::vector<uint8_t> scrap_block;
 
     void init(nfs_proxy_t *proxy, json11::Json cfg);
+    void touch_inodes();
+    ~kv_fs_state_t();
 };
 
 struct shared_file_header_t
@@ -84,7 +92,7 @@ std::string kv_fh(uint64_t ino);
 uint64_t kv_fh_inode(const std::string & fh);
 bool kv_fh_valid(const std::string & fh);
 void allocate_new_id(nfs_client_t *self, std::function<void(int res, uint64_t new_id)> cb);
-void kv_read_inode(nfs_client_t *self, uint64_t ino,
+void kv_read_inode(nfs_proxy_t *proxy, uint64_t ino,
     std::function<void(int res, const std::string & value, json11::Json ientry)> cb,
     bool allow_cache = false);
 uint64_t align_shared_size(nfs_client_t *self, uint64_t size);

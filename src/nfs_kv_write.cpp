@@ -745,7 +745,7 @@ resume_0:
         cb(0);
         return;
     }
-    kv_read_inode(st->self, st->ino, [st](int res, const std::string & value, json11::Json attrs)
+    kv_read_inode(st->self->parent, st->ino, [st](int res, const std::string & value, json11::Json attrs)
     {
         st->res = res;
         st->ientry_text = value;
@@ -960,6 +960,10 @@ resume_16:
         {
             st->self->parent->kvfs->extends.erase(st->ino);
         }
+    }
+    else
+    {
+        st->self->parent->kvfs->touch_queue.insert(st->ino);
     }
     if (st->res == -EAGAIN)
     {

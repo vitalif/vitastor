@@ -9,12 +9,12 @@
 #include "nfs_kv.h"
 
 // Attributes are always stored in the inode
-void kv_read_inode(nfs_client_t *self, uint64_t ino,
+void kv_read_inode(nfs_proxy_t *proxy, uint64_t ino,
     std::function<void(int res, const std::string & value, json11::Json ientry)> cb,
     bool allow_cache)
 {
     auto key = kv_inode_key(ino);
-    self->parent->db->get(key, [=](int res, const std::string & value)
+    proxy->db->get(key, [=](int res, const std::string & value)
     {
         if (ino == KV_ROOT_INODE && res == -ENOENT)
         {
@@ -55,7 +55,7 @@ int kv_nfs3_getattr_proc(void *opaque, rpc_op_t *rop)
         rpc_queue_reply(rop);
         return 0;
     }
-    kv_read_inode(self, ino, [=](int res, const std::string & value, json11::Json attrs)
+    kv_read_inode(self->parent, ino, [=](int res, const std::string & value, json11::Json attrs)
     {
         if (self->parent->trace)
             fprintf(stderr, "[%d] GETATTR %ju -> %s\n", self->nfs_fd, ino, value.c_str());

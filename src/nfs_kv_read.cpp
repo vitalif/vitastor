@@ -43,7 +43,7 @@ static void nfs_kv_continue_read(nfs_kv_read_state *st, int state)
 resume_0:
     if (st->offset + sizeof(shared_file_header_t) < st->self->parent->kvfs->shared_inode_threshold)
     {
-        kv_read_inode(st->self, st->ino, [st](int res, const std::string & value, json11::Json attrs)
+        kv_read_inode(st->self->parent, st->ino, [st](int res, const std::string & value, json11::Json attrs)
         {
             st->res = res;
             st->ientry = attrs;
