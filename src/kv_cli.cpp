@@ -201,6 +201,15 @@ void kv_cli_t::next_cmd()
     }
 }
 
+struct kv_cli_list_t
+{
+    kv_dbw_t *db = NULL;
+    void *handle = NULL;
+    int format = 0;
+    int n = 0;
+    std::function<void()> cb;
+};
+
 void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
 {
     if (cmd == "")
@@ -327,9 +336,12 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
             });
         }
     }
-    else if (opname == "list" || opname == "dump")
+    else if (opname == "list" || opname == "dump" || opname == "dumpjson")
     {
-        bool dump = opname == "dump";
+        kv_cli_list_t *lst = new kv_cli_list_t;
+        lst->db = db;
+        lst->format = opname == "dump" ? 1 : (opname == "dumpjson" ? 2 : 0);
+        lst->cb = std::move(cb);
         std::string start, end;
         if (pos != std::string::npos)
         {
@@ -344,8 +356,8 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
                 start = trim(cmd.substr(pos+1));
             }
         }
-        void *handle = db->list_start(start);
-        db->list_next(handle, [=](int res, const std::string & key, const std::string & value)
+        lst->handle = db->list_start(start);
+        db->list_next(lst->handle, [lst](int res, const std::string & key, const std::string & value)
         {
             if (res < 0)
             {
@@ -353,16 +365,22 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
                 {
                     fprintf(stderr, "Error: %s (code %d)\n", strerror(-res), res);
                 }
-                db->list_close(handle);
-                cb();
+                if (lst->format == 2)
+                    printf("\n}\n");
+                lst->db->list_close(lst->handle);
+                lst->cb();
+                delete lst;
             }
             else
             {
-                if (dump)
+                if (lst->format == 2)
+                    printf(lst->n ? ",\n  %s: %s" : "{\n  %s: %s", addslashes(key).c_str(), addslashes(value).c_str());
+                else if (lst->format == 1)
                     printf("set %s %s\n", auto_addslashes(key).c_str(), value.c_str());
                 else
                     printf("%s = %s\n", key.c_str(), value.c_str());
-                db->list_next(handle, NULL);
+                lst->n++;
+                lst->db->list_next(lst->handle, NULL);
             }
         });
     }
@@ -386,7 +404,7 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
             "open <pool_id> <inode_id> [block_size]\n"
             "config <property> <value>\n"
             "get <key>\nset <key> <value>\ndel <key>\n"
-            "list [<start> [end]]\ndump [<start> [end]]\n"
+            "list [<start> [end]]\ndump [<start> [end]]\ndumpjson [<start> [end]]\n"
             "close\nquit\n", opname.c_str()
         );
         cb();

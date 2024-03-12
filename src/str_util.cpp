@@ -412,19 +412,25 @@ std::string scan_escaped(const std::string & cmd, size_t & pos)
     return key;
 }
 
-std::string auto_addslashes(const std::string & str)
+std::string auto_addslashes(const std::string & str, const char *toescape)
 {
-    auto pos = str.find_first_of("\\\"");
+    auto pos = str.find_first_of(toescape);
     if (pos == std::string::npos)
         return str;
-    std::string res = "\""+str.substr(0, pos)+"\\"+str[pos];
-    while (pos < str.size()-1)
+    return addslashes(str, toescape);
+}
+
+std::string addslashes(const std::string & str, const char *toescape)
+{
+    std::string res = "\"";
+    auto pos = 0;
+    while (pos < str.size())
     {
-        auto pos2 = str.find_first_of("\\\"", pos+1);
+        auto pos2 = str.find_first_of(toescape, pos);
         if (pos2 == std::string::npos)
-            return res + str.substr(pos+1) + "\"";
+            return res + str.substr(pos) + "\"";
         res += str.substr(pos, pos2-pos)+"\\"+str[pos2];
-        pos = pos2;
+        pos = pos2+1;
     }
     return res+"\"";
 }
