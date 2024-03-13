@@ -16,11 +16,6 @@
 void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
 {
     std::string device = cfg["device"].string_value();
-    if (device == "")
-    {
-        fprintf(stderr, "Device path is missing\n");
-        exit(1);
-    }
     uint64_t data_block_size = parse_size(cfg["object_size"].string_value());
     uint64_t bitmap_granularity = parse_size(cfg["bitmap_granularity"].string_value());
     uint64_t journal_size = parse_size(cfg["journal_size"].string_value());
@@ -57,6 +52,11 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
     uint64_t orig_device_size = device_size;
     if (!device_size)
     {
+        if (device == "")
+        {
+            fprintf(stderr, "Device path is missing\n");
+            exit(1);
+        }
         struct stat st;
         if (stat(device.c_str(), &st) < 0)
         {
