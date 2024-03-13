@@ -21,24 +21,28 @@ const char *exe_name = NULL;
 class kv_cli_t
 {
 public:
+    json11::Json::object cfg;
+    std::vector<std::string> cli_cmd;
+
     kv_dbw_t *db = NULL;
     ring_loop_t *ringloop = NULL;
     epoll_manager_t *epmgr = NULL;
     cluster_client_t *cli = NULL;
+    bool opened = false;
     bool interactive = false;
     int in_progress = 0;
     char *cur_cmd = NULL;
     int cur_cmd_size = 0, cur_cmd_alloc = 0;
     bool finished = false, eof = false;
-    json11::Json::object cfg;
 
     ~kv_cli_t();
 
-    static json11::Json::object parse_args(int narg, const char *args[]);
-    void run(const json11::Json::object & cfg);
+    void parse_args(int narg, const char *args[]);
+    void run();
     void read_cmd();
     void next_cmd();
-    void handle_cmd(const std::string & cmd, std::function<void()> cb);
+    std::vector<std::string> parse_cmd(const std::string & cmdstr);
+    void handle_cmd(const std::vector<std::string> & cmd, std::function<void(int)> cb);
 };
 
 kv_cli_t::~kv_cli_t()
@@ -62,9 +66,9 @@ kv_cli_t::~kv_cli_t()
         delete ringloop;
 }
 
-json11::Json::object kv_cli_t::parse_args(int narg, const char *args[])
+void kv_cli_t::parse_args(int narg, const char *args[])
 {
-    json11::Json::object cfg;
+    bool db = false;
     for (int i = 1; i < narg; i++)
     {
         if (!strcmp(args[i], "-h") || !strcmp(args[i], "--help"))
@@ -73,7 +77,37 @@ json11::Json::object kv_cli_t::parse_args(int narg, const char *args[])
                 "Vitastor Key/Value CLI\n"
                 "(c) Vitaliy Filippov, 2023+ (VNPL-1.1)\n"
                 "\n"
-                "USAGE: %s [--etcd_address ADDR] [OTHER OPTIONS]\n",
+                "USAGE: %s [OPTIONS] [<IMAGE> [<COMMAND>]]\n"
+                "\n"
+                "COMMANDS:\n"
+                "  get <key>\n"
+                "  set <key> <value>\n"
+                "  del <key>\n"
+                "  list [<start> [end]]\n"
+                "  dump [<start> [end]]\n"
+                "  dumpjson [<start> [end]]\n"
+                "\n"
+                "<IMAGE> should be the name of Vitastor image with the DB.\n"
+                "Without <COMMAND>, you get an interactive DB shell.\n"
+                "\n"
+                "OPTIONS:\n"
+                "  --kv_block_size 4k\n"
+                "    Key-value B-Tree block size\n"
+                "  --kv_memory_limit 128M\n"
+                "    Maximum memory to use for vitastor-kv index cache\n"
+                "  --kv_allocate_blocks 4\n"
+                "    Number of PG blocks used for new tree block allocation in parallel\n"
+                "  --kv_evict_max_misses 10\n"
+                "    Eviction algorithm parameter: retry eviction from another random spot\n"
+                "    if this number of keys is used currently or was used recently\n"
+                "  --kv_evict_attempts_per_level 3\n"
+                "    Retry eviction at most this number of times per tree level, starting\n"
+                "    with bottom-most levels\n"
+                "  --kv_evict_unused_age 1000\n"
+                "    Evict only keys unused during this number of last operations\n"
+                "  --kv_log_level 1\n"
+                "    Log level. 0 = errors, 1 = warnings, 10 = trace operations\n"
+                ,
                 exe_name
             );
             exit(0);
@@ -83,11 +117,19 @@ json11::Json::object kv_cli_t::parse_args(int narg, const char *args[])
             const char *opt = args[i]+2;
             cfg[opt] = !strcmp(opt, "json") || i == narg-1 ? "1" : args[++i];
         }
+        else if (!db)
+        {
+            cfg["db"] = args[i];
+            db = true;
+        }
+        else
+        {
+            cli_cmd.push_back(args[i]);
+        }
     }
-    return cfg;
 }
 
-void kv_cli_t::run(const json11::Json::object & cfg)
+void kv_cli_t::run()
 {
     // Create client
     ringloop = new ring_loop_t(512);
@@ -102,36 +144,65 @@ void kv_cli_t::run(const json11::Json::object & cfg)
             break;
         ringloop->wait();
     }
-    // Run
-    fcntl(0, F_SETFL, fcntl(0, F_GETFL, 0) | O_NONBLOCK);
-    try
+    // Open if DB is set in options
+    if (cfg.find("db") != cfg.end())
     {
-        epmgr->tfd->set_fd_handler(0, false, [this](int fd, int events)
+        bool done = false;
+        handle_cmd({ "open", cfg.at("db").string_value() }, [&done](int res) { if (res != 0) exit(1); done = true; });
+        while (!done)
         {
-            if (events & EPOLLIN)
-            {
-                read_cmd();
-            }
-            if (events & EPOLLRDHUP)
-            {
-                epmgr->tfd->set_fd_handler(0, false, NULL);
-                finished = true;
-            }
-        });
-        interactive = isatty(0);
-        if (interactive)
-            printf("> ");
-    }
-    catch (std::exception & e)
-    {
-        // Can't add to epoll, STDIN is probably a file
-        read_cmd();
-    }
-    while (!finished)
-    {
-        ringloop->loop();
-        if (!finished)
+            ringloop->loop();
+            if (done)
+                break;
             ringloop->wait();
+        }
+    }
+    // Run single command from CLI
+    if (cli_cmd.size())
+    {
+        bool done = false;
+        handle_cmd(cli_cmd, [&done](int res) { if (res != 0) exit(1); done = true; });
+        while (!done)
+        {
+            ringloop->loop();
+            if (done)
+                break;
+            ringloop->wait();
+        }
+    }
+    else
+    {
+        // Run interactive shell
+        fcntl(0, F_SETFL, fcntl(0, F_GETFL, 0) | O_NONBLOCK);
+        try
+        {
+            epmgr->tfd->set_fd_handler(0, false, [this](int fd, int events)
+            {
+                if (events & EPOLLIN)
+                {
+                    read_cmd();
+                }
+                if (events & EPOLLRDHUP)
+                {
+                    epmgr->tfd->set_fd_handler(0, false, NULL);
+                    finished = true;
+                }
+            });
+            interactive = isatty(0);
+            if (interactive)
+                printf("> ");
+        }
+        catch (std::exception & e)
+        {
+            // Can't add to epoll, STDIN is probably a file
+            read_cmd();
+        }
+        while (!finished)
+        {
+            ringloop->loop();
+            if (!finished)
+                ringloop->wait();
+        }
     }
     // Destroy the client
     delete db;
@@ -183,7 +254,7 @@ void kv_cli_t::next_cmd()
             memmove(cur_cmd, cur_cmd+pos, cur_cmd_size-pos);
             cur_cmd_size -= pos;
             in_progress++;
-            handle_cmd(cmd, [this]()
+            handle_cmd(parse_cmd(cmd), [this](int res)
             {
                 in_progress--;
                 if (interactive)
@@ -207,90 +278,151 @@ struct kv_cli_list_t
     void *handle = NULL;
     int format = 0;
     int n = 0;
-    std::function<void()> cb;
+    std::function<void(int)> cb;
 };
 
-void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
+std::vector<std::string> kv_cli_t::parse_cmd(const std::string & str)
 {
-    if (cmd == "")
+    std::vector<std::string> res;
+    size_t pos = 0;
+    auto cmd = scan_escaped(str, pos);
+    if (cmd.empty())
+        return res;
+    res.push_back(cmd);
+    int max_args = (cmd == "set" || cmd == "config" ||
+        cmd == "list" || cmd == "dump" || cmd == "dumpjson" ? 3 :
+        (cmd == "open" || cmd == "get" || cmd == "del" ? 2 : 1));
+    while (pos < str.size() && res.size() < max_args)
     {
-        cb();
+        if (res.size() == max_args-1)
+        {
+            // Allow unquoted last argument
+            pos = str.find_first_not_of(" \t\r\n", pos);
+            if (pos == std::string::npos)
+                break;
+            if (str[pos] != '"' && str[pos] != '\'')
+            {
+                res.push_back(trim(str.substr(pos)));
+                break;
+            }
+        }
+        auto arg = scan_escaped(str, pos);
+        if (arg.size())
+            res.push_back(arg);
+    }
+    return res;
+}
+
+void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<void(int)> cb)
+{
+    if (!cmd.size())
+    {
+        cb(-EINVAL);
         return;
     }
-    auto pos = cmd.find_first_of(" \t");
-    if (pos != std::string::npos)
+    auto & opname = cmd[0];
+    if (!opened && opname != "open" && opname != "config" && opname != "quit" && opname != "q")
     {
-        while (pos < cmd.size()-1 && (cmd[pos+1] == ' ' || cmd[pos+1] == '\t'))
-            pos++;
+        fprintf(stderr, "Error: database not opened\n");
+        cb(-EINVAL);
+        return;
     }
-    auto opname = strtolower(pos == std::string::npos ? cmd : cmd.substr(0, pos));
     if (opname == "open")
     {
+        auto name = cmd.size() > 1 ? cmd[1] : "";
         uint64_t pool_id = 0;
         inode_t inode_id = 0;
-        uint32_t kv_block_size = 0;
-        int scanned = sscanf(cmd.c_str() + pos+1, "%lu %lu %u", &pool_id, &inode_id, &kv_block_size);
-        if (scanned == 2)
+        int scanned = sscanf(name.c_str(), "%lu %lu", &pool_id, &inode_id);
+        if (scanned < 2 || !pool_id || !inode_id)
         {
-            kv_block_size = 4096;
+            inode_id = 0;
+            name = trim(name);
+            for (auto & ic: cli->st_cli.inode_config)
+            {
+                if (ic.second.name == name)
+                {
+                    inode_id = ic.first;
+                    break;
+                }
+            }
+            if (!inode_id)
+            {
+                fprintf(stderr, "Usage: open <image> OR open <pool_id> <inode_id>\n");
+                cb(-EINVAL);
+                return;
+            }
         }
-        if (scanned < 2 || !pool_id || !inode_id || !kv_block_size || (kv_block_size & (kv_block_size-1)) != 0)
-        {
-            fprintf(stderr, "Usage: open <pool_id> <inode_id> [block_size]. Block size must be a power of 2. Default is 4096.\n");
-            cb();
-            return;
-        }
-        cfg["kv_block_size"] = (uint64_t)kv_block_size;
-        db->open(INODE_WITH_POOL(pool_id, inode_id), cfg, [=](int res)
+        else
+            inode_id = INODE_WITH_POOL(pool_id, inode_id);
+        db->open(inode_id, cfg, [=](int res)
         {
             if (res < 0)
+            {
                 fprintf(stderr, "Error opening index: %s (code %d)\n", strerror(-res), res);
+            }
             else
+            {
+                opened = true;
                 fprintf(interactive ? stdout : stderr, "Index opened. Current size: %lu bytes\n", db->get_size());
-            cb();
+            }
+            cb(res);
         });
     }
     else if (opname == "config")
     {
-        auto pos2 = cmd.find_first_of(" \t", pos+1);
-        if (pos2 == std::string::npos)
+        if (cmd.size() < 3)
         {
             fprintf(stderr, "Usage: config <property> <value>\n");
-            cb();
+            cb(-EINVAL);
             return;
         }
-        auto key = trim(cmd.substr(pos+1, pos2-pos-1));
-        auto value = parse_size(trim(cmd.substr(pos2+1)));
+        auto & key = cmd[1];
+        auto & value = cmd[2];
         if (key != "kv_memory_limit" &&
             key != "kv_allocate_blocks" &&
             key != "kv_evict_max_misses" &&
             key != "kv_evict_attempts_per_level" &&
             key != "kv_evict_unused_age" &&
-            key != "kv_log_level")
+            key != "kv_log_level" &&
+            key != "kv_block_size")
         {
             fprintf(
-                stderr, "Allowed properties: kv_memory_limit, kv_allocate_blocks,"
+                stderr, "Allowed properties: kv_block_size, kv_memory_limit, kv_allocate_blocks,"
                 " kv_evict_max_misses, kv_evict_attempts_per_level, kv_evict_unused_age, kv_log_level\n"
             );
+            cb(-EINVAL);
+        }
+        else if (key == "kv_block_size")
+        {
+            if (opened)
+            {
+                fprintf(stderr, "kv_block_size can't be set after opening DB\n");
+                cb(-EINVAL);
+            }
+            else
+            {
+                cfg[key] = value;
+                cb(0);
+            }
         }
         else
         {
             cfg[key] = value;
             db->set_config(cfg);
+            cb(0);
         }
-        cb();
     }
     else if (opname == "get" || opname == "set" || opname == "del")
     {
-        std::string key = scan_escaped(cmd, pos);
         if (opname == "get" || opname == "del")
         {
-            if (key == "")
+            if (cmd.size() < 2)
             {
                 fprintf(stderr, "Usage: %s <key>\n", opname.c_str());
-                cb();
+                cb(-EINVAL);
                 return;
             }
+            auto & key = cmd[1];
             if (opname == "get")
             {
                 db->get(key, [this, cb](int res, const std::string & value)
@@ -302,7 +434,7 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
                         write(1, value.c_str(), value.size());
                         write(1, "\n", 1);
                     }
-                    cb();
+                    cb(res);
                 });
             }
             else
@@ -313,50 +445,39 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
                         fprintf(stderr, "Error: %s (code %d)\n", strerror(-res), res);
                     else
                         fprintf(interactive ? stdout : stderr, "OK\n");
-                    cb();
+                    cb(res);
                 });
             }
         }
         else
         {
-            if (key == "" || pos >= cmd.size())
+            if (cmd.size() < 3)
             {
                 fprintf(stderr, "Usage: set <key> <value>\n");
-                cb();
+                cb(-EINVAL);
                 return;
             }
-            auto value = trim(cmd.substr(pos));
+            auto & key = cmd[1];
+            auto & value = cmd[2];
             db->set(key, value, [this, cb](int res)
             {
                 if (res < 0)
                     fprintf(stderr, "Error: %s (code %d)\n", strerror(-res), res);
                 else
                     fprintf(interactive ? stdout : stderr, "OK\n");
-                cb();
+                cb(res);
             });
         }
     }
     else if (opname == "list" || opname == "dump" || opname == "dumpjson")
     {
         kv_cli_list_t *lst = new kv_cli_list_t;
+        std::string start = cmd.size() >= 2 ? cmd[1] : "";
+        std::string end = cmd.size() >= 3 ? cmd[2] : "";
+        lst->handle = db->list_start(start);
         lst->db = db;
         lst->format = opname == "dump" ? 1 : (opname == "dumpjson" ? 2 : 0);
         lst->cb = std::move(cb);
-        std::string start, end;
-        if (pos != std::string::npos)
-        {
-            auto pos2 = cmd.find_first_of(" \t", pos+1);
-            if (pos2 != std::string::npos)
-            {
-                start = trim(cmd.substr(pos+1, pos2-pos-1));
-                end = trim(cmd.substr(pos2+1));
-            }
-            else
-            {
-                start = trim(cmd.substr(pos+1));
-            }
-        }
-        lst->handle = db->list_start(start);
         db->list_next(lst->handle, [lst](int res, const std::string & key, const std::string & value)
         {
             if (res < 0)
@@ -368,7 +489,7 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
                 if (lst->format == 2)
                     printf("\n}\n");
                 lst->db->list_close(lst->handle);
-                lst->cb();
+                lst->cb(res == -ENOENT ? 0 : res);
                 delete lst;
             }
             else
@@ -389,7 +510,8 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
         db->close([=]()
         {
             fprintf(interactive ? stdout : stderr, "Index closed\n");
-            cb();
+            opened = false;
+            cb(0);
         });
     }
     else if (opname == "quit" || opname == "q")
@@ -401,13 +523,13 @@ void kv_cli_t::handle_cmd(const std::string & cmd, std::function<void()> cb)
     {
         fprintf(
             stderr, "Unknown operation: %s. Supported operations:\n"
-            "open <pool_id> <inode_id> [block_size]\n"
+            "open <image>\nopen <pool_id> <inode_id>\n"
             "config <property> <value>\n"
             "get <key>\nset <key> <value>\ndel <key>\n"
             "list [<start> [end]]\ndump [<start> [end]]\ndumpjson [<start> [end]]\n"
             "close\nquit\n", opname.c_str()
         );
-        cb();
+        cb(-EINVAL);
     }
 }
 
@@ -417,7 +539,8 @@ int main(int narg, const char *args[])
     setvbuf(stderr, NULL, _IONBF, 0);
     exe_name = args[0];
     kv_cli_t *p = new kv_cli_t();
-    p->run(kv_cli_t::parse_args(narg, args));
+    p->parse_args(narg, args);
+    p->run();
     delete p;
     return 0;
 }

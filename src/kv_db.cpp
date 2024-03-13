@@ -2044,10 +2044,13 @@ void kv_dbw_t::del(const std::string & key, std::function<void(int res)> cb,
 
 void* kv_dbw_t::list_start(const std::string & start)
 {
+    if (!db->inode_id || db->closing)
+        return NULL;
     auto *op = new kv_op_t;
     op->db = db;
     op->opcode = KV_LIST;
     op->key = start;
+    op->callback = [](kv_op_t *){};
     op->exec();
     return op;
 }

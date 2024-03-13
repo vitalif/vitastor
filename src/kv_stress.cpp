@@ -167,6 +167,8 @@ json11::Json::object kv_test_t::parse_args(int narg, const char *args[])
                 "    JSON output\n"
                 "  --stop_on_error 0\n"
                 "    Stop on first execution error, mismatch, lost key or extra key during listing\n"
+                "  --kv_block_size 4k\n"
+                "    Key-value B-Tree block size\n"
                 "  --kv_memory_limit 128M\n"
                 "    Maximum memory to use for vitastor-kv index cache\n"
                 "  --kv_allocate_blocks 4\n"
@@ -235,6 +237,8 @@ void kv_test_t::parse_config(json11::Json cfg)
         json_output = true;
     if (!cfg["stop_on_error"].is_null())
         stop_on_error = cfg["stop_on_error"].bool_value();
+    if (!cfg["kv_block_size"].is_null())
+        kv_cfg["kv_block_size"] = cfg["kv_block_size"];
     if (!cfg["kv_memory_limit"].is_null())
         kv_cfg["kv_memory_limit"] = cfg["kv_memory_limit"];
     if (!cfg["kv_allocate_blocks"].is_null())

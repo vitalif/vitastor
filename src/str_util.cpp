@@ -367,37 +367,37 @@ std::vector<std::string> explode(const std::string & sep, const std::string & va
     return res;
 }
 
-// extract possibly double-quoted part of string with escape characters
+// extract possibly single- or double-quoted part of string with escape characters
 std::string scan_escaped(const std::string & cmd, size_t & pos)
 {
-    std::string key;
-    auto pos2 = cmd.find_first_not_of(" \t\r\n", pos);
-    if (pos2 == std::string::npos)
+    pos = cmd.find_first_not_of(" \t\r\n", pos);
+    if (pos == std::string::npos)
     {
         pos = cmd.size();
         return "";
     }
-    pos = pos2;
-    if (cmd[pos] != '"')
+    if (cmd[pos] != '"' && cmd[pos] != '\'')
     {
-        pos2 = cmd.find_first_of(" \t\r\n", pos);
-        pos2 = pos2 == std::string::npos ? cmd.size() : pos2;
-        key = cmd.substr(pos, pos2-pos);
-        pos2 = cmd.find_first_not_of(" \t\r\n", pos2);
-        pos = pos2 == std::string::npos ? cmd.size() : pos2;
+        auto pos2 = cmd.find_first_of(" \t\r\n", pos);
+        pos2 = (pos2 == std::string::npos ? cmd.size() : pos2);
+        auto key = cmd.substr(pos, pos2-pos);
+        pos = pos2;
         return key;
     }
+    char quot = cmd[pos];
+    char quot_or_slash[3] = { '\\', quot, 0 };
     pos++;
+    std::string key;
     while (pos < cmd.size())
     {
-        auto pos2 = cmd.find_first_of("\\\"", pos);
+        auto pos2 = cmd.find_first_of(quot_or_slash, pos);
         pos2 = pos2 == std::string::npos ? cmd.size() : pos2;
         if (pos2 > pos)
             key += cmd.substr(pos, pos2-pos);
         pos = pos2;
         if (pos >= cmd.size())
             break;
-        if (cmd[pos] == '"')
+        if (cmd[pos] == quot)
         {
             pos++;
             break;
