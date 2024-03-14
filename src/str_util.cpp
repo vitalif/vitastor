@@ -367,45 +367,61 @@ std::vector<std::string> explode(const std::string & sep, const std::string & va
     return res;
 }
 
-// extract possibly single- or double-quoted part of string with escape characters
-std::string scan_escaped(const std::string & cmd, size_t & pos)
+std::string scan_escaped(const std::string & cmd, size_t & pos, bool allow_unquoted)
 {
-    pos = cmd.find_first_not_of(" \t\r\n", pos);
-    if (pos == std::string::npos)
+    return scan_escaped(cmd.data(), cmd.size(), pos, allow_unquoted);
+}
+
+// extract possibly single- or double-quoted part of string with escape characters
+std::string scan_escaped(const char *cmd, size_t size, size_t & pos, bool allow_unquoted)
+{
+    auto orig = pos;
+    while (pos < size && is_white(cmd[pos]))
+        pos++;
+    if (pos >= size)
     {
-        pos = cmd.size();
+        pos = orig;
         return "";
     }
     if (cmd[pos] != '"' && cmd[pos] != '\'')
     {
-        auto pos2 = cmd.find_first_of(" \t\r\n", pos);
-        pos2 = (pos2 == std::string::npos ? cmd.size() : pos2);
-        auto key = cmd.substr(pos, pos2-pos);
+        if (!allow_unquoted)
+        {
+            pos = orig;
+            return "";
+        }
+        auto pos2 = pos;
+        while (pos2 < size && !is_white(cmd[pos2]))
+            pos2++;
+        auto key = std::string(cmd+pos, pos2-pos);
         pos = pos2;
         return key;
     }
     char quot = cmd[pos];
-    char quot_or_slash[3] = { '\\', quot, 0 };
     pos++;
     std::string key;
-    while (pos < cmd.size())
+    while (true)
     {
-        auto pos2 = cmd.find_first_of(quot_or_slash, pos);
-        pos2 = pos2 == std::string::npos ? cmd.size() : pos2;
+        auto pos2 = pos;
+        while (pos2 < size && cmd[pos2] != '\\' && cmd[pos2] != quot)
+            pos2++;
+        if (pos2 >= size || pos2 == size-1 && cmd[pos2] == '\\')
+        {
+            // Unfinished string literal
+            pos = orig;
+            return "";
+        }
         if (pos2 > pos)
-            key += cmd.substr(pos, pos2-pos);
+            key += std::string(cmd+pos, pos2-pos);
         pos = pos2;
-        if (pos >= cmd.size())
-            break;
         if (cmd[pos] == quot)
         {
             pos++;
             break;
         }
-        if (cmd[pos] == '\\')
+        else /* if (cmd[pos] == '\\') */
         {
-            if (pos < cmd.size()-1)
-                key += cmd[++pos];
+            key += cmd[++pos];
             pos++;
         }
     }

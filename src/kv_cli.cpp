@@ -28,12 +28,18 @@ public:
     ring_loop_t *ringloop = NULL;
     epoll_manager_t *epmgr = NULL;
     cluster_client_t *cli = NULL;
+    int load_parallelism = 128;
     bool opened = false;
-    bool interactive = false;
+    bool interactive = false, is_file = false;
     int in_progress = 0;
     char *cur_cmd = NULL;
     int cur_cmd_size = 0, cur_cmd_alloc = 0;
     bool finished = false, eof = false;
+
+    std::function<void(int)> load_cb;
+    bool loading_json = false, in_loadjson = false;
+    int load_state = 0;
+    std::string load_key;
 
     ~kv_cli_t();
 
@@ -43,6 +49,7 @@ public:
     void next_cmd();
     std::vector<std::string> parse_cmd(const std::string & cmdstr);
     void handle_cmd(const std::vector<std::string> & cmd, std::function<void(int)> cb);
+    void loadjson();
 };
 
 kv_cli_t::~kv_cli_t()
@@ -86,6 +93,7 @@ void kv_cli_t::parse_args(int narg, const char *args[])
                 "  list [<start> [end]]\n"
                 "  dump [<start> [end]]\n"
                 "  dumpjson [<start> [end]]\n"
+                "  loadjson\n"
                 "\n"
                 "<IMAGE> should be the name of Vitastor image with the DB.\n"
                 "Without <COMMAND>, you get an interactive DB shell.\n"
@@ -195,6 +203,7 @@ void kv_cli_t::run()
         catch (std::exception & e)
         {
             // Can't add to epoll, STDIN is probably a file
+            is_file = true;
             read_cmd();
         }
         while (!finished)
@@ -240,6 +249,11 @@ void kv_cli_t::read_cmd()
 
 void kv_cli_t::next_cmd()
 {
+    if (loading_json)
+    {
+        loadjson();
+        return;
+    }
     if (in_progress > 0)
     {
         return;
@@ -311,6 +325,112 @@ std::vector<std::string> kv_cli_t::parse_cmd(const std::string & str)
             res.push_back(arg);
     }
     return res;
+}
+
+void kv_cli_t::loadjson()
+{
+    // simple streaming json parser
+    if (in_progress >= load_parallelism || in_loadjson)
+    {
+        return;
+    }
+    in_loadjson = true;
+    if (load_state == 5)
+    {
+st_5:
+        if (!in_progress)
+        {
+            loading_json = false;
+            auto cb = std::move(load_cb);
+            cb(0);
+        }
+        in_loadjson = false;
+        return;
+    }
+    do
+    {
+        read_cmd();
+        size_t pos = 0;
+        while (true)
+        {
+            while (pos < cur_cmd_size && is_white(cur_cmd[pos]))
+            {
+                pos++;
+            }
+            if (pos >= cur_cmd_size)
+            {
+                break;
+            }
+            if (load_state == 0 || load_state == 2)
+            {
+                char expected = "{ :"[load_state];
+                if (cur_cmd[pos] != expected)
+                {
+                    fprintf(stderr, "Unexpected %c, expected %c\n", cur_cmd[pos], expected);
+                    exit(1);
+                }
+                pos++;
+                load_state++;
+            }
+            else if (load_state == 1 || load_state == 3)
+            {
+                if (cur_cmd[pos] != '"')
+                {
+                    fprintf(stderr, "Unexpected %c, expected \"\n", cur_cmd[pos]);
+                    exit(1);
+                }
+                size_t prev = pos;
+                auto str = scan_escaped(cur_cmd, cur_cmd_size, pos, false);
+                if (pos == prev)
+                {
+                    break;
+                }
+                load_state++;
+                if (load_state == 2)
+                {
+                    load_key = str;
+                }
+                else
+                {
+                    in_progress++;
+                    handle_cmd({ "set", load_key, str }, [this](int res)
+                    {
+                        in_progress--;
+                        next_cmd();
+                    });
+                    if (in_progress >= load_parallelism)
+                    {
+                        break;
+                    }
+                }
+            }
+            else if (load_state == 4)
+            {
+                if (cur_cmd[pos] == ',')
+                {
+                    pos++;
+                    load_state = 1;
+                }
+                else if (cur_cmd[pos] == '}')
+                {
+                    pos++;
+                    load_state = 5;
+                    goto st_5;
+                }
+                else
+                {
+                    fprintf(stderr, "Unexpected %c, expected , or }\n", cur_cmd[pos]);
+                    exit(1);
+                }
+            }
+        }
+        if (pos < cur_cmd_size)
+        {
+            memmove(cur_cmd, cur_cmd+pos, cur_cmd_size-pos);
+        }
+        cur_cmd_size -= pos;
+    } while (loading_json && is_file);
+    in_loadjson = false;
 }
 
 void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<void(int)> cb)
@@ -459,11 +579,11 @@ void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<vo
             }
             auto & key = cmd[1];
             auto & value = cmd[2];
-            db->set(key, value, [this, cb](int res)
+            db->set(key, value, [this, cb, l = loading_json](int res)
             {
                 if (res < 0)
                     fprintf(stderr, "Error: %s (code %d)\n", strerror(-res), res);
-                else
+                else if (!l)
                     fprintf(interactive ? stdout : stderr, "OK\n");
                 cb(res);
             });
@@ -505,6 +625,13 @@ void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<vo
             }
         });
     }
+    else if (opname == "loadjson")
+    {
+        loading_json = true;
+        load_state = 0;
+        load_cb = cb;
+        loadjson();
+    }
     else if (opname == "close")
     {
         db->close([=]()
@@ -526,7 +653,7 @@ void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<vo
             "open <image>\nopen <pool_id> <inode_id>\n"
             "config <property> <value>\n"
             "get <key>\nset <key> <value>\ndel <key>\n"
-            "list [<start> [end]]\ndump [<start> [end]]\ndumpjson [<start> [end]]\n"
+            "list [<start> [end]]\ndump [<start> [end]]\ndumpjson [<start> [end]]\nloadjson\n"
             "close\nquit\n", opname.c_str()
         );
         cb(-EINVAL);
