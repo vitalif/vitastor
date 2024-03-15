@@ -1056,6 +1056,7 @@ void nfs_proxy_t::mount_fs()
     {
         // Parent - loop and wait until child finishes
         wanted_pid = pid;
+        exit_on_umount = false;
         while (!child_finished)
         {
             ringloop->loop();
@@ -1071,6 +1072,7 @@ void nfs_proxy_t::mount_fs()
         else
             fprintf(stderr, "Successfully mounted Vitastor pseudo-FS at %s\n", mountpoint.c_str());
         finished = false;
+        exit_on_umount = true;
     }
     else
     {
@@ -1133,6 +1135,7 @@ void nfs_proxy_t::check_exit()
     {
         return;
     }
+    fprintf(stderr, "All active NFS connections are closed, checking /proc/mounts\n");
     std::string mountstr = read_file("/proc/mounts");
     if (mountstr == "")
     {
@@ -1159,10 +1162,12 @@ void nfs_proxy_t::check_exit()
             if (port_found && addr_found)
             {
                 // OK, do not unmount
+                fprintf(stderr, "NFS mount to 127.0.0.1:%d still active, leaving server active\n", listening_port);
                 return;
             }
         }
     }
+    fprintf(stderr, "NFS mount to 127.0.0.1:%d not found, exiting\n", listening_port);
     // Not found, unmount
     finished = true;
 }
