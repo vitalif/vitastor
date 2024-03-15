@@ -101,10 +101,9 @@ static void kv_continue_create(kv_create_state *st, int state)
         cb(-EINVAL);
         return;
     }
+    st->attrobj["ctime"] = nfstime_now_str();
     if (st->attrobj.find("mtime") == st->attrobj.end())
-        st->attrobj["mtime"] = nfstime_now_str();
-    if (st->attrobj.find("atime") == st->attrobj.end())
-        st->attrobj["atime"] = st->attrobj["mtime"];
+        st->attrobj["mtime"] = st->attrobj["ctime"];
     st->attrs = std::move(st->attrobj);
 resume_1:
     // Generate inode ID

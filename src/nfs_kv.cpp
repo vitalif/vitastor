@@ -72,6 +72,7 @@ fattr3 get_kv_attributes(nfs_client_t *self, uint64_t ino, json11::Json attrs)
     auto nlink = attrs["nlink"].uint64_value();
     nfstime3 mtime = nfstime_from_str(attrs["mtime"].string_value());
     nfstime3 atime = attrs["atime"].is_null() ? mtime : nfstime_from_str(attrs["atime"].string_value());
+    nfstime3 ctime = attrs["ctime"].is_null() ? mtime : nfstime_from_str(attrs["ctime"].string_value());
     // In theory we could store the binary structure itself, but JSON is simpler :-)
     return (fattr3){
         .type = (type == 0 ? NF3REG : (ftype3)type),
@@ -89,7 +90,7 @@ fattr3 get_kv_attributes(nfs_client_t *self, uint64_t ino, json11::Json attrs)
         .fileid = ino,
         .atime = atime,
         .mtime = mtime,
-        .ctime = mtime,
+        .ctime = ctime,
     };
 }
 
@@ -282,7 +283,7 @@ static void touch_inode(nfs_proxy_t *proxy, inode_t ino, bool allow_cache)
         if (!res)
         {
             auto ientry = attrs.object_items();
-            ientry["mtime"] = nfstime_now_str();
+            ientry["mtime"] = ientry["ctime"] = nfstime_now_str();
             ientry.erase("verf");
             // FIXME: Use "update" query
             bool *found = new bool;

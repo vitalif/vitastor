@@ -196,6 +196,7 @@ resume_5:
     {
         auto copy = st->ientry.object_items();
         copy["nlink"] = st->ientry["nlink"].uint64_value()-1;
+        copy["ctime"] = nfstime_now_str();
         st->self->parent->db->set(kv_inode_key(st->ino), json11::Json(copy).dump(), [st](int res)
         {
             st->res = res;

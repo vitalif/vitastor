@@ -99,6 +99,7 @@ resume_2:
         auto new_ientry = st->ientry.object_items();
         auto nlink = new_ientry["nlink"].uint64_value();
         new_ientry["nlink"] = nlink ? nlink+1 : 2;
+        new_ientry["ctime"] = nfstime_now_str();
         st->ientry = new_ientry;
     }
     st->self->parent->db->set(kv_inode_key(st->ino), st->ientry.dump(), [st](int res)

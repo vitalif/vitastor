@@ -72,6 +72,7 @@ resume_1:
         st->new_attrs[kv.first] = kv.second;
     }
     st->new_attrs.erase("verf");
+    st->new_attrs["ctime"] = nfstime_now_str();
     st->self->parent->db->set(kv_inode_key(st->ino), json11::Json(st->new_attrs).dump(), [st](int res)
     {
         st->res = res;

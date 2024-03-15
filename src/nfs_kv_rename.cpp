@@ -238,6 +238,7 @@ resume_7:
             {
                 auto copy = st->new_ientry.object_items();
                 copy["nlink"] = st->new_ientry["nlink"].uint64_value()-1;
+                copy["ctime"] = nfstime_now_str();
                 copy.erase("verf");
                 st->self->parent->db->set(kv_inode_key(st->new_direntry["ino"].uint64_value()), json11::Json(copy).dump(), [st](int res)
                 {
@@ -325,6 +326,7 @@ resume_11:
         {
             auto ientry_new = st->old_ientry.object_items();
             ientry_new["parent_ino"] = st->new_dir_ino;
+            ientry_new["ctime"] = nfstime_now_str();
             ientry_new.erase("verf");
             st->self->parent->db->set(kv_inode_key(st->old_direntry["ino"].uint64_value()), json11::Json(ientry_new).dump(), [st](int res)
             {
