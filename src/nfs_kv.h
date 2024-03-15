@@ -79,6 +79,20 @@ struct shared_file_header_t
     uint64_t alloc = 0;
 };
 
+struct nfs_rmw_t
+{
+    nfs_proxy_t *parent = NULL;
+    uint64_t ino = 0;
+    uint64_t offset = 0;
+    uint8_t *buf = NULL;
+    uint64_t size = 0;
+    uint8_t *part_buf = NULL;
+    uint64_t version = 0;
+    nfs_rmw_t *other = NULL;
+    std::function<void(nfs_rmw_t *)> cb;
+    int res = 0;
+};
+
 nfsstat3 vitastor_nfs_map_err(int err);
 nfstime3 nfstime_from_str(const std::string & s);
 std::string nfstime_to_str(nfstime3 t);
@@ -96,6 +110,7 @@ void kv_read_inode(nfs_proxy_t *proxy, uint64_t ino,
     std::function<void(int res, const std::string & value, json11::Json ientry)> cb,
     bool allow_cache = false);
 uint64_t align_shared_size(nfs_client_t *self, uint64_t size);
+void nfs_do_rmw(nfs_rmw_t *rmw);
 
 int kv_nfs3_getattr_proc(void *opaque, rpc_op_t *rop);
 int kv_nfs3_setattr_proc(void *opaque, rpc_op_t *rop);
