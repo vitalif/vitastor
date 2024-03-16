@@ -102,7 +102,6 @@ resume_2:
     if (st->res == -EAGAIN)
     {
         // Retry
-        fprintf(stderr, "CAS failure during setattr, retrying\n");
         goto resume_0;
     }
     if (st->res < 0)
