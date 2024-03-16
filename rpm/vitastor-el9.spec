@@ -139,9 +139,12 @@ mkdir -p /etc/vitastor
 %_bindir/vitastor-nfs
 %_bindir/vitastor-cli
 %_bindir/vitastor-rm
+%_bindir/vitastor-kv
+%_bindir/vitastor-kv-stress
 %_bindir/vita
 %_libdir/libvitastor_blk.so*
 %_libdir/libvitastor_client.so*
+%_libdir/libvitastor_kv.so*
 
 
 %files -n vitastor-client-devel

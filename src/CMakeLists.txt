@@ -361,12 +361,12 @@ add_test(NAME test_cluster_client COMMAND test_cluster_client)
 
 ### Install
 
-install(TARGETS vitastor-osd vitastor-disk vitastor-nbd vitastor-nfs vitastor-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS vitastor-osd vitastor-disk vitastor-nbd vitastor-nfs vitastor-cli vitastor-kv vitastor-kv-stress RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install_symlink(vitastor-disk ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vitastor-dump-journal)
 install_symlink(vitastor-cli ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vitastor-rm)
 install_symlink(vitastor-cli ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vita)
 install(
-	TARGETS vitastor_blk vitastor_client
+	TARGETS vitastor_blk vitastor_client vitastor_kv
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
