@@ -74,7 +74,7 @@ static const char* help_text =
     "  --fs <NAME>       use VitastorFS with metadata in image <NAME>\n"
     "  --block           use pseudo-FS presenting images as files\n"
     "  --pool <POOL>     use <POOL> as default pool for new files\n"
-    "  --subdir <DIR>    export <DIR> instead of root directory\n"
+    "  --subdir <DIR>    export <DIR> instead of root directory (pseudo-FS only)\n"
     "  --nfspath <PATH>  set NFS export path to <PATH> (default is /)\n"
     "  --pidfile <FILE>  write process ID to the specified file\n"
     "  --logfile <FILE>  log to the specified file\n"

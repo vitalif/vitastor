@@ -14,7 +14,6 @@
 
 - Basic part: highly-available block storage with symmetric clustering and no SPOF
 - [Performance](../performance/comparison1.en.md) ;-D
-- [Cluster file system](../usage/nfs.en.md#vitastorfs)
 - [Multiple redundancy schemes](../config/pool.en.md#scheme): Replication, XOR n+1, Reed-Solomon erasure codes
   based on jerasure and ISA-L libraries with any number of data and parity drives in a group
 - Configuration via simple JSON data structures in etcd (parameters, pools and images)
@@ -34,6 +33,7 @@
 - [Checksums](../config/layout-osd.en.md#data_csum_type)
 - [Client write-back cache](../config/client.en.md#client_enable_writeback)
 - [Intelligent recovery auto-tuning](../config/osd.en.md#recovery_tune_interval)
+- [Clustered file system](../usage/nfs.en.md#vitastorfs)
 
 ## Plugins and tools
 

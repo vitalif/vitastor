@@ -141,8 +141,8 @@ Rename, resize image or change its readonly status. Images with children can't b
 If the new size is smaller than the old size, extra data will be purged.
 You should resize file system in the image, if present, before shrinking it.
 
-| `-f|--force` | Proceed with shrinking or setting readwrite flag even if the image has children. |
-| `--down-ok`  | Proceed with shrinking even if some data will be left on unavailable OSDs.       |
+* `-f|--force` - Proceed with shrinking or setting readwrite flag even if the image has children.
+* `--down-ok` - Proceed with shrinking even if some data will be left on unavailable OSDs.
 
 ## rm
 
@@ -156,7 +156,7 @@ In other cases parent layers are always merged into children.
 
 Other options:
 
-| `--down-ok` | Continue deletion/merging even if some data will be left on unavailable OSDs. |
+* `--down-ok` - Continue deletion/merging even if some data will be left on unavailable OSDs.
 
 ## flatten
 
@@ -252,12 +252,16 @@ redundancy degradation.
 
 Create a pool. Required parameters:
 
-| `-s|--pg_size R`  | Number of replicas for replicated pools                                               |
-| `--ec N+K`        | Number of data (N) and parity (K) chunks for erasure-coded pools                      |
-| `-n|--pg_count N` | PG count for the new pool (start with 10*<OSD count>/pg_size rounded to a power of 2) |
+| <!-- -->                 | <!-- -->                                                                              |
+|--------------------------|---------------------------------------------------------------------------------------|
+| `-s R` or `--pg_size R`  | Number of replicas for replicated pools                                               |
+| `--ec N+K`               | Number of data (N) and parity (K) chunks for erasure-coded pools                      |
+| `-n N` or `--pg_count N` | PG count for the new pool (start with 10*<OSD count>/pg_size rounded to a power of 2) |
 
 Optional parameters:
 
+| <!-- -->                       | <!-- -->                                                                   |
+|--------------------------------|----------------------------------------------------------------------------|
 | `--pg_minsize <number>`        | R or N+K minus number of failures to tolerate without downtime ([details](../config/pool.en.md#pg_minsize)) |
 | `--failure_domain host`        | Failure domain: host, osd or a level from placement_levels. Default: host  |
 | `--root_node <node>`           | Put pool only on child OSDs of this placement tree node                    |
@@ -271,7 +275,7 @@ Optional parameters:
 | `--pg_stripe_size <number>`    | Increase object grouping stripe                                            |
 | `--max_osd_combinations 10000` | Maximum number of random combinations for LP solver input                  |
 | `--wait`                       | Wait for the new pool to come online                                       |
-| `-f|--force`                   | Do not check that cluster has enough OSDs to create the pool               |
+| `-f` or `--force`              | Do not check that cluster has enough OSDs to create the pool               |
 
 See also [Pool configuration](../config/pool.en.md) for detailed parameter descriptions.
 
@@ -322,8 +326,10 @@ Remove a pool. Refuses to remove pools with images without `--force`.
 
 List pools (only matching <glob> patterns if passed).
 
-| `-l|--long`     | Also report I/O statistics                            |
-| `--detail`      | Use list format (not table), show all details         |
-| `--sort FIELD`  | Sort by specified field (see fields in --json output) |
-| `-r|--reverse`  | Sort in descending order                              |
-| `-n|--count N`  | Only list first N items                               |
+| <!-- -->             | <!-- -->                                              |
+|----------------------|-------------------------------------------------------|
+| `-l` or `--long`     | Also report I/O statistics                            |
+| `--detail`           | Use list format (not table), show all details         |
+| `--sort FIELD`       | Sort by specified field (see fields in --json output) |
+| `-r` or `--reverse`  | Sort in descending order                              |
+| `-n` or `--count N`  | Only list first N items                               |

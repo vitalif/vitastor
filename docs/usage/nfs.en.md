@@ -125,7 +125,7 @@ Use regular `umount <MOUNTPOINT>` to unmount the FS.
 
 The server will be automatically stopped when the FS is unmounted.
 
-| `-o|--options <OPT>` | Pass additional NFS mount options (ex.: -o async). |
+- `-o|--options <OPT>` - Pass additional NFS mount options (ex.: -o async).
 
 ### start
 
@@ -133,17 +133,21 @@ The server will be automatically stopped when the FS is unmounted.
 
 Start network NFS server. Options:
 
-| `--bind <IP>`   | bind service to <IP> address (default 0.0.0.0)             |
-| `--port <PORT>` | use port <PORT> for NFS services (default is 2049)         |
+| <!-- -->        | <!-- -->                                                   |
+|-----------------|------------------------------------------------------------|
+| `--bind <IP>`   | bind service to \<IP> address (default 0.0.0.0)            |
+| `--port <PORT>` | use port \<PORT> for NFS services (default is 2049)        |
 | `--portmap 0`   | do not listen on port 111 (portmap/rpcbind, requires root) |
 
 ## Common options
 
-| `--fs <NAME>`      | use VitastorFS with metadata in image <NAME> |
-| `--block`          | use pseudo-FS presenting images as files     |
-| `--pool <POOL>`    | use <POOL> as default pool for new files     |
-| `--subdir <DIR>`   | export <DIR> instead of root directory       |
-| `--nfspath <PATH>` | set NFS export path to <PATH> (default is /) |
-| `--pidfile <FILE>` | write process ID to the specified file       |
-| `--logfile <FILE>` | log to the specified file                    |
-| `--foreground 1`   | stay in foreground, do not daemonize         |
+| <!-- -->           | <!-- -->                                                 |
+|--------------------|----------------------------------------------------------|
+| `--fs <NAME>`      | use VitastorFS with metadata in image \<NAME>            |
+| `--block`          | use pseudo-FS presenting images as files                 |
+| `--pool <POOL>`    | use \<POOL> as default pool for new files                |
+| `--subdir <DIR>`   | export \<DIR> instead of root directory (pseudo-FS only) |
+| `--nfspath <PATH>` | set NFS export path to \<PATH> (default is /)            |
+| `--pidfile <FILE>` | write process ID to the specified file                   |
+| `--logfile <FILE>` | log to the specified file                                |
+| `--foreground 1`   | stay in foreground, do not daemonize                     |
