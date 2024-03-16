@@ -28,7 +28,7 @@ public:
     ring_loop_t *ringloop = NULL;
     epoll_manager_t *epmgr = NULL;
     cluster_client_t *cli = NULL;
-    int load_parallelism = 128;
+    int load_parallelism = 16;
     bool opened = false;
     bool interactive = false, is_file = false;
     int in_progress = 0;
