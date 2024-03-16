@@ -59,11 +59,15 @@ int nfs3_fsinfo_proc(void *opaque, rpc_op_t *rop)
     else
     {
         // Fill info
+        bool_t x = FALSE;
         *reply = (FSINFO3res){
             .status = NFS3_OK,
             .resok = (FSINFO3resok){
                 .obj_attributes = {
-                    .attributes_follow = 0,
+                    // Without at least one reference to a non-constant value (local variable or something else),
+                    // with gcc 8 we get "internal compiler error: side-effects element in no-side-effects CONSTRUCTOR" here
+                    // FIXME: get rid of this after raising compiler requirement
+                    .attributes_follow = x,
                     //.attributes = get_root_attributes(self),
                 },
                 .rtmax = 128*1024*1024,
@@ -100,6 +104,7 @@ int nfs3_pathconf_proc(void *opaque, rpc_op_t *rop)
     else
     {
         // Fill info
+        bool_t x = FALSE;
         *reply = (PATHCONF3res){
             .status = NFS3_OK,
             .resok = (PATHCONF3resok){
@@ -107,7 +112,7 @@ int nfs3_pathconf_proc(void *opaque, rpc_op_t *rop)
                     // Without at least one reference to a non-constant value (local variable or something else),
                     // with gcc 8 we get "internal compiler error: side-effects element in no-side-effects CONSTRUCTOR" here
                     // FIXME: get rid of this after raising compiler requirement
-                    .attributes_follow = 0,
+                    .attributes_follow = x,
                     //.attributes = get_root_attributes(self),
                 },
                 .linkmax = 0,

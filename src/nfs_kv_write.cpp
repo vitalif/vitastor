@@ -466,7 +466,7 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
             else
                 good_size = 0;
             s = s > st->size ? st->size : s;
-            st->rmw[0] = {
+            st->rmw[0] = (nfs_rmw_t){
                 .parent = st->self->parent,
                 .ino = ino,
                 .offset = offset,
@@ -495,7 +495,7 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
                 good_size -= s;
             else
                 good_size = 0;
-            st->rmw[1] = {
+            st->rmw[1] = (nfs_rmw_t){
                 .parent = st->self->parent,
                 .ino = ino,
                 .offset = end - s,
