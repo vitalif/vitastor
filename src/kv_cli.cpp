@@ -551,8 +551,8 @@ void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<vo
                         fprintf(stderr, "Error: %s (code %d)\n", strerror(-res), res);
                     else
                     {
-                        write(1, value.c_str(), value.size());
-                        write(1, "\n", 1);
+                        if (write(1, value.c_str(), value.size()) < 0 || write(1, "\n", 1) < 0)
+                            exit(1);
                     }
                     cb(res);
                 });
