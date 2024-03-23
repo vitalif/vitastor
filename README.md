@@ -68,6 +68,7 @@ Read more details below in the documentation.
   - [Understanding storage performance](docs/performance/understanding.en.md)
   - [Theoretical performance](docs/performance/theoretical.en.md)
   - [Example comparison with Ceph](docs/performance/comparison1.en.md)
+  - [Newer benchmark of Vitastor 1.3.1](docs/performance/bench2.en.md)
 
 ## Author and License
 

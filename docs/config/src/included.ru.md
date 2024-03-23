@@ -64,4 +64,6 @@
 
 {{../../performance/comparison1.ru.md}}
 
+{{../../performance/bench2.ru.md}}
+
 {{../../intro/author.ru.md|indent=1}}

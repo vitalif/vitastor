@@ -68,6 +68,7 @@ Vitastor поддерживает QEMU-драйвер, протоколы NBD и
   - [Понимание сути производительности](docs/performance/understanding.ru.md)
   - [Теоретический максимум](docs/performance/theoretical.ru.md)
   - [Пример сравнения с Ceph](docs/performance/comparison1.ru.md)
+  - [Более новый тест Vitastor 1.3.1](docs/performance/bench2.ru.md)
 
 ## Автор и лицензия
 

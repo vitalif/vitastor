@@ -64,4 +64,6 @@
 
 {{../../performance/comparison1.en.md}}
 
+{{../../performance/bench2.en.md}}
+
 {{../../intro/author.en.md|indent=1}}
