@@ -1,4 +1,4 @@
-[Documentation](../../README.md#documentation) → Usage → NFS
+[Documentation](../../README.md#documentation) → Usage → VitastorFS and pseudo-FS
 
 -----
 

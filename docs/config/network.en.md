@@ -29,7 +29,7 @@ between clients, OSDs and etcd.
 - [etcd_quick_timeout](#etcd_quick_timeout)
 - [etcd_slow_timeout](#etcd_slow_timeout)
 - [etcd_keepalive_timeout](#etcd_keepalive_timeout)
-- [etcd_ws_keepalive_timeout](#etcd_ws_keepalive_timeout)
+- [etcd_ws_keepalive_interval](#etcd_ws_keepalive_interval)
 
 ## tcp_header_buffer_size
 
@@ -245,7 +245,7 @@ Timeout for etcd requests which are allowed to wait for some time.
 Timeout for etcd connection HTTP Keep-Alive. Should be higher than
 etcd_report_interval to guarantee that keepalive actually works.
 
-## etcd_ws_keepalive_timeout
+## etcd_ws_keepalive_interval
 
 - Type: seconds
 - Default: 30

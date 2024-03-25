@@ -280,7 +280,7 @@
   info_ru: |
     Таймаут для HTTP Keep-Alive в соединениях к etcd. Должен быть больше, чем
     etcd_report_interval, чтобы keepalive гарантированно работал.
-- name: etcd_ws_keepalive_timeout
+- name: etcd_ws_keepalive_interval
   type: sec
   default: 30
   online: true

@@ -29,7 +29,7 @@
 - [etcd_quick_timeout](#etcd_quick_timeout)
 - [etcd_slow_timeout](#etcd_slow_timeout)
 - [etcd_keepalive_timeout](#etcd_keepalive_timeout)
-- [etcd_ws_keepalive_timeout](#etcd_ws_keepalive_timeout)
+- [etcd_ws_keepalive_interval](#etcd_ws_keepalive_interval)
 
 ## tcp_header_buffer_size
 
@@ -256,7 +256,7 @@ OSD в любом случае согласовывают реальное зн�
 Таймаут для HTTP Keep-Alive в соединениях к etcd. Должен быть больше, чем
 etcd_report_interval, чтобы keepalive гарантированно работал.
 
-## etcd_ws_keepalive_timeout
+## etcd_ws_keepalive_interval
 
 - Тип: секунды
 - Значение по умолчанию: 30
