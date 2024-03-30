@@ -64,6 +64,7 @@ Vitastor поддерживает QEMU-драйвер, протоколы NBD и
   - [NBD](docs/usage/nbd.ru.md) для монтирования ядром
   - [QEMU и qemu-img](docs/usage/qemu.ru.md)
   - [NFS](docs/usage/nfs.ru.md) кластерная файловая система и псевдо-ФС прокси
+  - [Администрирование](docs/usage/admin.ru.md)
 - Производительность
   - [Понимание сути производительности](docs/performance/understanding.ru.md)
   - [Теоретический максимум](docs/performance/theoretical.ru.md)

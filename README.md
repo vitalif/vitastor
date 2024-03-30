@@ -64,6 +64,7 @@ Read more details below in the documentation.
   - [NBD](docs/usage/nbd.en.md) for kernel mounts
   - [QEMU and qemu-img](docs/usage/qemu.en.md)
   - [NFS](docs/usage/nfs.en.md) clustered file system and pseudo-FS proxy
+  - [Administration](docs/usage/admin.en.md)
 - Performance
   - [Understanding storage performance](docs/performance/understanding.en.md)
   - [Theoretical performance](docs/performance/theoretical.en.md)

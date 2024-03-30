@@ -56,6 +56,8 @@
 
 {{../../usage/nfs.ru.md}}
 
+{{../../usage/admin.ru.md}}
+
 ## Производительность
 
 {{../../performance/understanding.ru.md}}

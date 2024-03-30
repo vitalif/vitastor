@@ -1,0 +1,13 @@
+digraph G {
+    rankdir=LR;
+    bgcolor=transparent;
+    edge [color="#00A000"];
+    node [shape=hexagon, fillcolor="#A0A000", fontcolor=white, fontname="sans-serif", fontsize=12, style=filled, penwidth=0];
+    offline -> starting -> peering -> offline;
+    stopping -> offline;
+    starting -> incomplete -> offline;
+    active -> repeering -> peering -> active -> stopping;
+    offline [fillcolor="#A00000"];
+    incomplete [fillcolor="#A00000"];
+    active [fillcolor="#00A000"];
+}

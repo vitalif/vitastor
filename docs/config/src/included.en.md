@@ -56,6 +56,8 @@
 
 {{../../usage/nfs.en.md}}
 
+{{../../usage/admin.en.md}}
+
 ## Performance
 
 {{../../performance/understanding.en.md}}
