@@ -88,7 +88,7 @@ Options (both modes):
 --block_size 1M/128k       Set blockstore object size
 --bitmap_granularity 4k    Set bitmap granularity
 --data_csum_type none      Set data checksum type (crc32c or none)
---csum_block_size 4k       Set data checksum block size
+--csum_block_size 4k/32k   Set data checksum block size (SSD/HDD default)
 --data_device_block 4k     Override data device block size
 --meta_device_block 4k     Override metadata device block size
 --journal_device_block 4k  Override journal device block size

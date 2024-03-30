@@ -60,7 +60,7 @@ static const char *help_text =
     "    --block_size 128k/1M       Set blockstore object size\n"
     "    --bitmap_granularity 4k    Set bitmap granularity\n"
     "    --data_csum_type none      Set data checksum type (crc32c or none)\n"
-    "    --csum_block_size 4k       Set data checksum block size\n"
+    "    --csum_block_size 4k/32k   Set data checksum block size (SSD/HDD default)\n"
     "    --data_device_block 4k     Override data device block size\n"
     "    --meta_device_block 4k     Override metadata device block size\n"
     "    --journal_device_block 4k  Override journal device block size\n"

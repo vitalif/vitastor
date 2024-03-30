@@ -111,6 +111,8 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
             options["block_size"] = "1M";
         if (is_hybrid && options["throttle_small_writes"] == "")
             options["throttle_small_writes"] = "1";
+        if (!is_hybrid && options.find("data_csum_type") != options.end() && options.at("data_csum_type") != "")
+            options["csum_block_size"] = "32k";
     }
     else if (!json_is_true(options["disable_data_fsync"]))
     {
