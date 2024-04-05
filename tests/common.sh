@@ -48,7 +48,7 @@ start_etcd()
         --advertise-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) --listen-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) \
         --initial-advertise-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) --listen-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) \
         --initial-cluster-token vitastor-tests-etcd --initial-cluster-state new \
-        --initial-cluster "$ETCD_CLUSTER" \
+        --initial-cluster "$ETCD_CLUSTER" --max-request-bytes=104857600 \
         --max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision &>./testdata/etcd$i.log &
     eval ETCD${i}_PID=$!
 }
