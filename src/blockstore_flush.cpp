@@ -86,6 +86,8 @@ void journal_flusher_t::loop()
             cur_flusher_count--;
         }
     }
+    if (trim_wanted)
+        co[0].try_trim = true;
     for (int i = 0; (active_flushers > 0 || dequeuing || trim_wanted > 0) && i < cur_flusher_count; i++)
         co[i].loop();
 }
@@ -364,10 +366,10 @@ resume_0:
         !flusher->flush_queue.size() || !flusher->dequeuing)
     {
 stop_flusher:
-        if (flusher->trim_wanted > 0 && cur.oid.inode != 0)
+        if (flusher->trim_wanted > 0 && try_trim)
         {
             // Attempt forced trim
-            cur.oid = {};
+            try_trim = false;
             flusher->active_flushers++;
             goto trim_journal;
         }
@@ -375,6 +377,7 @@ stop_flusher:
         wait_state = 0;
         return true;
     }
+    try_trim = true;
     cur.oid = flusher->flush_queue.front();
     cur.version = flusher->flush_versions[cur.oid];
     flusher->flush_queue.pop_front();

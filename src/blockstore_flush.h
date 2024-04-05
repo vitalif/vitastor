@@ -60,6 +60,7 @@ class journal_flusher_co
     std::map<object_id, uint64_t>::iterator repeat_it;
     std::function<void(ring_data_t*)> simple_callback_r, simple_callback_rj, simple_callback_w;
 
+    bool try_trim = false;
     bool skip_copy, has_delete, has_writes;
     std::vector<copy_buffer_t> v;
     std::vector<copy_buffer_t>::iterator it;
