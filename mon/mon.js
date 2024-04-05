@@ -886,7 +886,7 @@ class Mon
             {
                 // Numeric IDs are reserved for OSDs
                 const osd_cfg = this.state.config.osd[osd_num];
-                let reweight = osd_cfg && Number(osd_cfg.reweight);
+                let reweight = osd_cfg == null ? 1 : Number(osd_cfg.reweight);
                 if (reweight < 0 || isNaN(reweight))
                     reweight = 1;
                 if (this.state.osd.state[osd_num] && reweight > 0)
