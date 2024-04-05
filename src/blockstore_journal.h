@@ -156,15 +156,10 @@ struct journal_sector_info_t
 
 struct pending_journaling_t
 {
-    uint64_t flush_id;
+    int pending;
     int sector;
     blockstore_op_t *op;
 };
-
-inline bool operator < (const pending_journaling_t & a, const pending_journaling_t & b)
-{
-    return a.flush_id < b.flush_id || a.flush_id == b.flush_id && a.op < b.op;
-}
 
 struct journal_t
 {
@@ -191,7 +186,7 @@ struct journal_t
     int cur_sector = 0;
     int in_sector_pos = 0;
     std::vector<int> submitting_sectors;
-    std::set<pending_journaling_t> flushing_ops;
+    std::multimap<uint64_t, pending_journaling_t> flushing_ops;
     uint64_t submit_id = 0;
 
     // Used sector map

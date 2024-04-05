@@ -177,6 +177,7 @@ void blockstore_impl_t::prepare_journal_sector_write(int cur_sector, blockstore_
         ring_data_t *data = ((ring_data_t*)sqe->user_data);
         journal.sector_info[cur_sector].written = true;
         journal.sector_info[cur_sector].submit_id = ++journal.submit_id;
+        assert(journal.submit_id != 0); // check overflow
         journal.submitting_sectors.push_back(cur_sector);
         journal.sector_info[cur_sector].flush_count++;
         data->iov = (struct iovec){
@@ -192,8 +193,8 @@ void blockstore_impl_t::prepare_journal_sector_write(int cur_sector, blockstore_
     }
     journal.sector_info[cur_sector].dirty = false;
     // But always remember that this operation has to wait until this exact journal write is finished
-    journal.flushing_ops.insert((pending_journaling_t){
-        .flush_id = journal.sector_info[cur_sector].submit_id,
+    journal.flushing_ops.emplace(journal.sector_info[cur_sector].submit_id, (pending_journaling_t){
+        .pending = 1,
         .sector = cur_sector,
         .op = op,
     });
@@ -213,23 +214,43 @@ void blockstore_impl_t::handle_journal_write(ring_data_t *data, uint64_t flush_i
         // FIXME: our state becomes corrupted after a write error. maybe do something better than just die
         disk_error_abort("journal write", data->res, data->iov.iov_len);
     }
-    auto fl_it = journal.flushing_ops.upper_bound((pending_journaling_t){ .flush_id = flush_id });
-    if (fl_it != journal.flushing_ops.end() && fl_it->flush_id == flush_id)
+    auto fl_it = journal.flushing_ops.lower_bound(flush_id);
+    if (fl_it != journal.flushing_ops.end() && fl_it->first == flush_id && fl_it->second.sector >= 0)
     {
-        journal.sector_info[fl_it->sector].flush_count--;
+        journal.sector_info[fl_it->second.sector].flush_count--;
     }
-    while (fl_it != journal.flushing_ops.end() && fl_it->flush_id == flush_id)
+    auto is_first = fl_it == journal.flushing_ops.begin();
+    while (fl_it != journal.flushing_ops.end())
     {
-        auto priv = PRIV(fl_it->op);
-        priv->pending_ops--;
-        assert(priv->pending_ops >= 0);
-        if (priv->pending_ops == 0)
+        bool del = false;
+        if (fl_it->first == flush_id)
         {
-            release_journal_sectors(fl_it->op);
-            priv->op_state++;
-            ringloop->wakeup();
+            fl_it->second.pending = 0;
+            del = is_first;
         }
-        journal.flushing_ops.erase(fl_it++);
+        else
+        {
+            del = !fl_it->second.pending;
+        }
+        if (del)
+        {
+            // Do not complete this operation if previous writes are unfinished
+            // Otherwise also complete following operations waiting for this one
+            auto priv = PRIV(fl_it->second.op);
+            priv->pending_ops--;
+            assert(priv->pending_ops >= 0);
+            if (priv->pending_ops == 0)
+            {
+                release_journal_sectors(fl_it->second.op);
+                priv->op_state++;
+                ringloop->wakeup();
+            }
+            journal.flushing_ops.erase(fl_it++);
+        }
+        else
+        {
+            fl_it++;
+        }
     }
 }
 

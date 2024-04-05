@@ -427,7 +427,6 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         );
         write_iodepth++;
         // Got SQEs. Prepare previous journal sector write if required
-        auto cb = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         if (immediate_commit == IMMEDIATE_NONE &&
             !journal.entry_fits(sizeof(journal_entry_small_write) + dyn_size))
         {
@@ -503,7 +502,15 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             }
             BS_SUBMIT_GET_SQE(sqe2, data2);
             data2->iov = (struct iovec){ op->buf, op->len };
-            data2->callback = cb;
+            ++journal.submit_id;
+            assert(journal.submit_id != 0); // check overflow
+            // Make subsequent journal writes wait for our data write
+            journal.flushing_ops.emplace(journal.submit_id, (pending_journaling_t){
+                .pending = 1,
+                .sector = -1,
+                .op = op,
+            });
+            data2->callback = [this, flush_id = journal.submit_id](ring_data_t *data) { handle_journal_write(data, flush_id); };
             my_uring_prep_writev(
                 sqe2, dsk.journal_fd, &data2->iov, 1, journal.offset + journal.next_free
             );
