@@ -6,7 +6,8 @@ const http = require('http');
 const crypto = require('crypto');
 const os = require('os');
 const WebSocket = require('ws');
-const { SimpleCombinator } = require('./simple_pgs.js');
+const { RuleCombinator, parse_level_indexes, parse_pg_dsl } = require('./dsl_pgs.js');
+const { SimpleCombinator, flatten_tree } = require('./simple_pgs.js');
 const LPOptimizer = require('./lp-optimizer.js');
 const stableStringify = require('./stable-stringify.js');
 const PGUtil = require('./PGUtil.js');
@@ -64,6 +65,7 @@ const etcd_tree = {
             mon_stats_timeout: 1000, // ms. min: 100
             osd_out_time: 600, // seconds. min: 0
             placement_levels: { datacenter: 1, rack: 2, host: 3, osd: 4, ... },
+            use_old_pg_combinator: false,
             // client and osd
             tcp_header_buffer_size: 65536,
             use_sync_send_recv: false,
@@ -186,7 +188,12 @@ const etcd_tree = {
                 // number of parity chunks, required for EC
                 parity_chunks?: 1,
                 pg_count: 100,
-                failure_domain: 'host',
+                // default is failure_domain=host
+                failure_domain?: 'host',
+                // additional failure domain rules; failure_domain=x is equivalent to x=123..N
+                level_placement?: 'dc=112233 host=123456',
+                raw_placement?: 'any, dc=1 host!=1, dc=1 host!=(1,2)',
+                old_combinator: false,
                 max_osd_combinations: 10000,
                 // block_size, bitmap_granularity, immediate_commit must match all OSDs used in that pool
                 block_size: 131072,
@@ -1096,7 +1103,6 @@ class Mon
         pool_cfg.pg_minsize = Math.floor(pool_cfg.pg_minsize);
         pool_cfg.parity_chunks = Math.floor(pool_cfg.parity_chunks) || undefined;
         pool_cfg.pg_count = Math.floor(pool_cfg.pg_count);
-        pool_cfg.failure_domain = pool_cfg.failure_domain || 'host';
         pool_cfg.max_osd_combinations = Math.floor(pool_cfg.max_osd_combinations) || 10000;
         if (!/^[1-9]\d*$/.exec(''+pool_id))
         {
@@ -1176,6 +1182,10 @@ class Mon
                 console.log('Pool '+pool_id+' has invalid primary_affinity_tags (must be a string or array of strings)');
             return false;
         }
+        if (!this.get_pg_rules(pool_id, pool_cfg, true))
+        {
+            return false;
+        }
         return true;
     }
 
@@ -1249,6 +1259,74 @@ class Mon
         return aff_osds;
     }
 
+    get_pg_rules(pool_id, pool_cfg, warn)
+    {
+        if (pool_cfg.level_placement)
+        {
+            const pg_size = (0|pool_cfg.pg_size);
+            let rules = pool_cfg.level_placement;
+            if (typeof rules === 'string')
+            {
+                rules = rules.split(/\s+/).map(s => s.split(/=/, 2)).reduce((a, c) => { a[c[0]] = c[1]; return a; }, {});
+            }
+            else
+            {
+                rules = { ...rules };
+            }
+            // Always add failure_domain to prevent rules from being totally incorrect
+            const all_diff = [];
+            for (let i = 1; i <= pg_size; i++)
+            {
+                all_diff.push(i);
+            }
+            rules[pool_cfg.failure_domain || 'host'] = all_diff;
+            const levels = this.config.placement_levels||{};
+            levels.host = levels.host || 100;
+            levels.osd = levels.osd || 101;
+            for (const k in rules)
+            {
+                if (!levels[k] || typeof rules[k] !== 'string' &&
+                    (!rules[k] instanceof Array ||
+                    rules[k].filter(s => typeof s !== 'string' && typeof s !== 'number').length > 0))
+                {
+                    if (warn)
+                        console.log('Pool '+pool_id+' configuration is invalid: level_placement should be { [level]: string | (string|number)[] }');
+                    return null;
+                }
+                else if (rules[k].length != pg_size)
+                {
+                    if (warn)
+                        console.log('Pool '+pool_id+' configuration is invalid: values in level_placement should contain exactly pg_size ('+pg_size+') items');
+                    return null;
+                }
+            }
+            return parse_level_indexes(rules);
+        }
+        else if (typeof pool_cfg.raw_placement === 'string')
+        {
+            try
+            {
+                return parse_pg_dsl(pool_cfg.raw_placement);
+            }
+            catch (e)
+            {
+                if (warn)
+                    console.log('Pool '+pool_id+' configuration is invalid: invalid raw_placement: '+e.message);
+            }
+        }
+        else
+        {
+            let rules = [ [] ];
+            let prev = [ 1 ];
+            for (let i = 1; i < pool_cfg.pg_size; i++)
+            {
+                rules.push([ [ pool_cfg.failure_domain||'host', '!=', prev ] ]);
+                prev = [ ...prev, i+1 ];
+            }
+            return rules;
+        }
+    }
+
     async generate_pool_pgs(pool_id, osd_tree, levels)
     {
         const pool_cfg = this.state.config.pools[pool_id];
@@ -1282,7 +1360,11 @@ class Mon
         const old_pg_count = prev_pgs.length;
         const optimize_cfg = {
             osd_weights: Object.values(pool_tree).filter(item => item.level === 'osd').reduce((a, c) => { a[c.id] = c.size; return a; }, {}),
-            combinator: new SimpleCombinator(flatten_tree(osd_tree, levels, pool_cfg.failure_domain, 'osd'), pool_cfg.pg_size, pool_cfg.max_osd_combinations),
+            combinator: !this.config.use_old_pg_combinator || pool_cfg.level_placement || pool_cfg.raw_placement
+                // new algorithm:
+                ? new RuleCombinator(osd_tree, this.get_pg_rules(pool_id, pool_cfg), pool_cfg.max_osd_combinations)
+                // old algorithm:
+                : new SimpleCombinator(flatten_tree(osd_tree[''].children, levels, pool_cfg.failure_domain, 'osd'), pool_cfg.pg_size, pool_cfg.max_osd_combinations),
             pg_count: pool_cfg.pg_count,
             pg_size: pool_cfg.pg_size,
             pg_minsize: pool_cfg.pg_minsize,

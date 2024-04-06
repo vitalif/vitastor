@@ -82,9 +82,38 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
             value = value.uint64_value();
         }
         else if (key == "name" || key == "scheme" || key == "immediate_commit" ||
-            key == "failure_domain" || key == "root_node" || key == "scrub_interval" || key == "used_for_fs")
+            key == "failure_domain" || key == "root_node" || key == "scrub_interval" || key == "used_for_fs" ||
+            key == "raw_placement")
         {
-            // OK
+            if (!value.is_string())
+            {
+                return key+" must be a string";
+            }
+        }
+        else if (key == "level_placement")
+        {
+            // level=rule, level=rule, ...
+            if (!value.is_object())
+            {
+                json11::Json::object obj;
+                for (auto & item: explode(",", value.string_value(), true))
+                {
+                    auto pair = explode("=", item, true);
+                    if (pair.size() >= 2)
+                    {
+                        obj[pair[0]] = pair[1];
+                    }
+                }
+                if (obj.size())
+                {
+                    value = obj;
+                }
+                else
+                {
+                    new_cfg.erase(kv_it++);
+                    continue;
+                }
+            }
         }
         else if (key == "osd_tags" || key == "primary_affinity_tags")
         {
@@ -182,6 +211,38 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
     if (pg_size > 256)
     {
         return "PG size can't be greater than 256";
+    }
+
+    // PG rules
+    if (!cfg["level_placement"].is_null())
+    {
+        for (auto & lr: cfg["level_placement"].object_items())
+        {
+            int len = 0;
+            if (lr.second.is_array())
+            {
+                for (auto & lri: lr.second.array_items())
+                {
+                    if (!lri.is_string() && !lri.is_number())
+                    {
+                        return "--level_placement contains an array with non-scalar value: "+lri.dump();
+                    }
+                }
+                len = lr.second.array_items().size();
+            }
+            else if (!lr.second.is_string())
+            {
+                return "--level_placement contains a non-array and non-string value: "+lr.second.dump();
+            }
+            else
+            {
+                len = lr.second.string_value().size();
+            }
+            if (len != pg_size)
+            {
+                return "values in --level_placement should be exactly pg_size ("+std::to_string(pg_size)+") long";
+            }
+        }
     }
 
     // parity_chunks

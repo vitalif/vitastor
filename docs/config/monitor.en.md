@@ -15,6 +15,7 @@ These parameters only apply to Monitors.
 - [mon_stats_timeout](#mon_stats_timeout)
 - [osd_out_time](#osd_out_time)
 - [placement_levels](#placement_levels)
+- [use_old_pg_combinator](#use_old_pg_combinator)
 
 ## etcd_mon_ttl
 
@@ -77,3 +78,11 @@ values.  Smaller priority means higher level in tree. For example,
 levels are always predefined and can't be removed. If one of them is not
 present in the configuration, then it is defined with the default priority
 (100 for "host", 101 for "osd").
+
+## use_old_pg_combinator
+
+- Type: boolean
+- Default: false
+
+Use the old PG combination generator which doesn't support [level_placement](pool.en.md#level_placement)
+and [raw_placement](pool.en.md#raw_placement) for pools which don't use this features.

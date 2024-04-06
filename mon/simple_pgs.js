@@ -1,3 +1,5 @@
+const { select_murmur3 } = require('./murmur3.js');
+
 const NO_OSD = 'Z';
 
 class SimpleCombinator
@@ -61,14 +63,6 @@ function extract_osds(osd_tree, levels, osd_level, osds = {})
 // ordered = don't treat (x,y) and (y,x) as equal
 function random_combinations(osd_tree, pg_size, count, ordered)
 {
-    let seed = 0x5f020e43;
-    let rng = () =>
-    {
-        seed ^= seed << 13;
-        seed ^= seed >> 17;
-        seed ^= seed << 5;
-        return seed + 2147483648;
-    };
     const osds = Object.keys(osd_tree).reduce((a, c) => { a[c] = Object.keys(osd_tree[c]).sort(); return a; }, {});
     const hosts = Object.keys(osd_tree).sort().filter(h => osds[h].length > 0);
     const r = {};
@@ -82,8 +76,8 @@ function random_combinations(osd_tree, pg_size, count, ordered)
             cur_hosts.splice(h, 1);
             for (let i = 1; i < pg_size && i < hosts.length; i++)
             {
-                const next_host = rng() % cur_hosts.length;
-                const next_osd = rng() % osds[cur_hosts[next_host]].length;
+                const next_host = select_murmur3(cur_hosts.length, i => pg[0]+':i:'+cur_hosts[i]);
+                const next_osd = select_murmur3(osds[cur_hosts[next_host]].length, i => pg[0]+':i:'+osds[cur_hosts[next_host]][i]);
                 pg.push(osds[cur_hosts[next_host]][next_osd]);
                 cur_hosts.splice(next_host, 1);
             }
@@ -104,7 +98,7 @@ function random_combinations(osd_tree, pg_size, count, ordered)
         {
             for (let i = 0; i < max_hosts; i++)
             {
-                const r = rng() % cur_hosts.length;
+                const r = select_murmur3(cur_hosts.length, i => count+':h:'+cur_hosts[i]);
                 host_idx[i] = cur_hosts[r];
                 cur_hosts.splice(r, 1);
             }
@@ -113,12 +107,12 @@ function random_combinations(osd_tree, pg_size, count, ordered)
         {
             for (let i = 0; i < max_hosts; i++)
             {
-                const r = rng() % (cur_hosts.length - (max_hosts - i - 1));
+                const r = select_murmur3(cur_hosts.length - (max_hosts - i - 1), i => count+':h:'+cur_hosts[i]);
                 host_idx[i] = cur_hosts[r];
                 cur_hosts.splice(0, r+1);
             }
         }
-        let pg = host_idx.map(h => osds[hosts[h]][rng() % osds[hosts[h]].length]);
+        let pg = host_idx.map(h => osds[hosts[h]][select_murmur3(osds[hosts[h]].length, i => count+':o:'+osds[hosts[h]][i])]);
         while (pg.length < pg_size)
         {
             pg.push(NO_OSD);

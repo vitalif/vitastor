@@ -101,4 +101,18 @@ check(
     [ 'pg_1_2', 'pg_1_3', 'pg_2_3' ]
 );
 
+check(
+    Object.keys(random_custom_combinations(index_tree([
+        { id: 'h1', level: 'host' },
+        { id: 'h2', level: 'host' },
+        { id: 'h3', level: 'host' },
+        { id: '1', size: 1, level: 'osd', parent: 'h1' },
+        { id: '2', size: 1, level: 'osd', parent: 'h2' },
+        { id: '3', size: 1, level: 'osd', parent: 'h2' },
+        { id: '4', size: 1, level: 'osd', parent: 'h3' },
+        { id: '5', size: 1, level: 'osd', parent: 'h3' },
+    ]), parse_level_indexes({ host: '1122', osd: '1234' }), 10000)).sort(),
+    [ 'pg_2_3_4_5' ]
+);
+
 console.log('OK');

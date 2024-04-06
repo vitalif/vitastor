@@ -32,6 +32,8 @@ Parameters:
 - [pg_minsize](#pg_minsize)
 - [pg_count](#pg_count)
 - [failure_domain](#failure_domain)
+- [level_placement](#level_placement)
+- [raw_placement](#raw_placement)
 - [max_osd_combinations](#max_osd_combinations)
 - [block_size](#block_size)
 - [bitmap_granularity](#bitmap_granularity)
@@ -208,6 +210,69 @@ Two replicas, or two parts in case of EC/XOR, of the same block of data are
 never put on OSDs in the same failure domain (for example, on the same host).
 So failure domain specifies the unit which failure you are protecting yourself
 from.
+
+## level_placement
+
+- Type: string
+
+Additional failure domain rules, applied in conjuction with failure_domain.
+Must be specified in the following form:
+
+`<placement level>=<sequence of characters>, <level2>=<sequence2>, ...`
+
+Sequence should be exactly [pg_size](#pg_size) character long. Each character
+corresponds to an OSD in the PG of this pool. Equal characters mean that
+corresponding items of the PG should be placed into the same placement tree
+item at this level. Different characters mean that items should be placed into
+different items.
+
+For example, if you want a EC 4+2 pool and you want every 2 chunks to be stored
+in its own datacenter and you also want each chunk to be stored on a different
+host, you should set `level_placement` to `dc=112233 host=123456`.
+
+Or you can set `level_placement` to `dc=112233` and leave `failure_domain` empty,
+because `host` is the default `failure_domain` and it will be applied anyway.
+
+Without this rule, it may happen that 3 chunks will be stored on OSDs in the
+same datacenter, and the data will become inaccessibly if that datacenter goes
+down in this case.
+
+Of course, you should group your hosts into datacenters before applying the rule
+by setting [placement_levels](monitor.en.md#placement_levels) to something like
+`{"dc":90,"host":100,"osd":110}` and add DCs to [node_placement](#placement-tree),
+like `{"dc1":{"level":"dc"},"host1":{"parent":"dc1"},...}`.
+
+## raw_placement
+
+- Type: string
+
+Raw PG placement rules, specified in the form of a DSL (domain-specific language).
+Use only if you really know what you're doing :)
+
+DSL specification:
+
+```
+dsl := item | item ("\n" | ",") items
+item := "any" | rules
+rules := rule | rule rules
+rule := level operator arg
+level := /\w+/
+operator := "!=" | "=" | ">" | "?="
+arg := value | "(" values ")"
+values := value | value "," values
+value := item_ref | constant_id
+item_ref := /\d+/
+constant_id := /"([^"]+)"/
+```
+
+"?=" operator means "preferred". I.e. `dc ?= "meow"` means "prefer datacenter meow
+for this chunk, but put into another dc if it's unavailable".
+
+Examples:
+
+- Simple 3 replicas with failure_domain=host: `any, host!=1, host!=(1,2)`
+- EC 4+2 in 3 DC: `any, dc=1 host!=1, dc!=1, dc=3 host!=3, dc!=(1,3), dc=5 host!=5`
+- 1 replica in fixed DC + 2 in random DCs: `dc?=meow, dc!=1, dc!=(1,2)`
 
 ## max_osd_combinations
 

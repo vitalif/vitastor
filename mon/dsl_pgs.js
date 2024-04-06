@@ -2,6 +2,27 @@ const { select_murmur3 } = require('./murmur3.js');
 
 const NO_OSD = 'Z';
 
+class RuleCombinator
+{
+    constructor(osd_tree, rules, max_combinations, ordered)
+    {
+        this.osd_tree = index_tree(Object.values(osd_tree).filter(o => o.id));
+        this.rules = rules;
+        this.max_combinations = max_combinations;
+        this.ordered = ordered;
+    }
+
+    random_combinations()
+    {
+        return random_custom_combinations(this.osd_tree, this.rules, this.max_combinations, this.ordered);
+    }
+
+    check_combinations(pgs)
+    {
+        return check_custom_combinations(this.osd_tree, this.rules, pgs);
+    }
+}
+
 // Convert alternative "level-index" format to rules
 // level_index = { [level: string]: string | string[] }
 // level_sequence = optional, levels from upper to lower, i.e. [ 'dc', 'host' ]
@@ -236,7 +257,7 @@ function random_custom_combinations(osd_tree, rules, count, ordered)
         }
         const size = selected.filter(s => s.id !== null).length;
         max_size = max_size < size ? size : max_size;
-        const pg = selected.map(s => s.id === null ? NO_OSD : s.id);
+        const pg = selected.map(s => s.id === null ? NO_OSD : (0|s.id));
         if (!ordered)
             pg.sort();
         r['pg_'+pg.join('_')] = pg;
@@ -253,7 +274,7 @@ function random_custom_combinations(osd_tree, rules, count, ordered)
         }
         const size = selected.filter(s => s.id !== null).length;
         max_size = max_size < size ? size : max_size;
-        const pg = selected.map(s => s.id === null ? NO_OSD : s.id);
+        const pg = selected.map(s => s.id === null ? NO_OSD : (0|s.id));
         if (!ordered)
             pg.sort();
         r['pg_'+pg.join('_')] = pg;
@@ -376,6 +397,7 @@ function check_custom_combinations(osd_tree, rules, pgs)
 }
 
 module.exports = {
+    RuleCombinator,
     NO_OSD,
 
     index_tree,

@@ -63,3 +63,12 @@
     "host" и "osd" являются предопределёнными и не могут быть удалены. Если
     один из них отсутствует в конфигурации, он доопределяется с приоритетом по
     умолчанию (100 для уровня "host", 101 для "osd").
+- name: use_old_pg_combinator
+  type: bool
+  default: false
+  info: |
+    Use the old PG combination generator which doesn't support [level_placement](pool.en.md#level_placement)
+    and [raw_placement](pool.en.md#raw_placement) for pools which don't use this features.
+  info_ru: |
+    Использовать старый генератор комбинаций PG, не поддерживающий [level_placement](pool.ru.md#level_placement)
+    и [raw_placement](pool.ru.md#raw_placement) для пулов, которые не используют данные функции.
