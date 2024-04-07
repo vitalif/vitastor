@@ -11,6 +11,7 @@ affect their interaction with the cluster.
 
 - [client_retry_interval](#client_retry_interval)
 - [client_eio_retry_interval](#client_eio_retry_interval)
+- [client_retry_enospc](#client_retry_enospc)
 - [client_max_dirty_bytes](#client_max_dirty_bytes)
 - [client_max_dirty_ops](#client_max_dirty_ops)
 - [client_enable_writeback](#client_enable_writeback)
@@ -40,6 +41,15 @@ connectivity errors.
 Retry time for I/O requests failed due to data corruption or unfinished
 EC object deletions (has_incomplete PG state). 0 disables such retries
 and clients are not blocked and just get EIO error code instead.
+
+## client_retry_enospc
+
+- Type: boolean
+- Default: true
+- Can be changed online: yes
+
+Retry writes on out of space errors to wait until some space is freed on
+OSDs.
 
 ## client_max_dirty_bytes
 

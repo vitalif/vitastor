@@ -94,6 +94,7 @@ class cluster_client_t
     int log_level = 0;
     int client_retry_interval = 50; // ms
     int client_eio_retry_interval = 1000; // ms
+    bool client_retry_enospc = true;
 
     int retry_timeout_id = 0;
     int retry_timeout_duration = 0;

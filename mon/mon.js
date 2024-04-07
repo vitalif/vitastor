@@ -91,6 +91,7 @@ const etcd_tree = {
             client_max_writeback_iodepth: 256,
             client_retry_interval: 50, // ms. min: 10
             client_eio_retry_interval: 1000, // ms
+            client_retry_enospc: true,
             // client and osd - configurable online
             log_level: 0,
             peer_connect_interval: 5, // seconds. min: 1

@@ -11,6 +11,7 @@
 
 - [client_retry_interval](#client_retry_interval)
 - [client_eio_retry_interval](#client_eio_retry_interval)
+- [client_retry_enospc](#client_retry_enospc)
 - [client_max_dirty_bytes](#client_max_dirty_bytes)
 - [client_max_dirty_ops](#client_max_dirty_ops)
 - [client_enable_writeback](#client_enable_writeback)
@@ -41,6 +42,15 @@
 или незавершённых удалений EC-объектов (состояния PG has_incomplete).
 0 отключает повторы таких запросов и клиенты не блокируются, а вместо
 этого просто получают код ошибки EIO.
+
+## client_retry_enospc
+
+- Тип: булево (да/нет)
+- Значение по умолчанию: true
+- Можно менять на лету: да
+
+Повторять запросы записи, завершившиеся с ошибками нехватки места, т.е.
+ожидать, пока на OSD не освободится место.
 
 ## client_max_dirty_bytes
 

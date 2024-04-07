@@ -22,6 +22,16 @@
     или незавершённых удалений EC-объектов (состояния PG has_incomplete).
     0 отключает повторы таких запросов и клиенты не блокируются, а вместо
     этого просто получают код ошибки EIO.
+- name: client_retry_enospc
+  type: bool
+  default: true
+  online: true
+  info: |
+    Retry writes on out of space errors to wait until some space is freed on
+    OSDs.
+  info_ru: |
+    Повторять запросы записи, завершившиеся с ошибками нехватки места, т.е.
+    ожидать, пока на OSD не освободится место.
 - name: client_max_dirty_bytes
   type: int
   default: 33554432

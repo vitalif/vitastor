@@ -398,6 +398,8 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
             client_eio_retry_interval = 10;
         }
     }
+    // client_retry_enospc
+    client_retry_enospc = config["client_retry_enospc"].is_null() ? true : config["client_retry_enospc"].bool_value();
     // log_level
     log_level = config["log_level"].uint64_value();
     msgr.parse_config(config);
@@ -818,7 +820,7 @@ resume_2:
         return 1;
     }
     else if (op->retval != 0 && !(op->flags & OP_FLUSH_BUFFER) &&
-        op->retval != -EPIPE && (op->retval != -EIO || !client_eio_retry_interval) && op->retval != -ENOSPC)
+        op->retval != -EPIPE && (op->retval != -EIO || !client_eio_retry_interval) && (op->retval != -ENOSPC || !client_retry_enospc))
     {
         // Fatal error (neither -EPIPE, -EIO nor -ENOSPC)
         erase_op(op);
