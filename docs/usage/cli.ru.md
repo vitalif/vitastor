@@ -194,12 +194,10 @@ vitastor-cli snap-create [-p|--pool <id|name>] <image>@<snapshot>
 
 ## describe
 
-`vitastor-cli describe [--osds <osds>] [--object-state <состояния>] [--pool <пул>]
-    [--inode <номер>] [--min-inode <номер>] [--max-inode <номер>]
-    [--min-offset <смещение>] [--max-offset <смещение>]`
+`vitastor-cli describe [ОПЦИИ]`
 
 Описать состояние "грязных" объектов в кластере, то есть таких объектов, копии
-или части которых хранятся на наборе OSD, не равном целевому.
+или части которых хранятся на наборе OSD, не равном целевому. Опции:
 
 ```
 --osds <osds>
@@ -214,6 +212,8 @@ vitastor-cli snap-create [-p|--pool <id|name>] <image>@<snapshot>
     - inconsistent - неконсистентный, с неоднозначным расхождением копий/частей
 --pool <имя или ID пула>
     Перечислять только объекты из заданного пула.
+--pg <номер PG>
+    Перечислять только объекты из заданной PG пула.
 --inode, --min-inode, --max-inode
     Перечислять только объекты из указанных номеров инодов (образов).
 --min-offset, --max-offset

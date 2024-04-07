@@ -258,6 +258,9 @@ struct __attribute__((__packed__)) osd_op_describe_t
     uint64_t max_inode, max_offset;
     // limit
     uint64_t limit;
+    // pool and PG
+    uint32_t pool_id;
+    uint32_t pg_num;
 };
 
 struct __attribute__((__packed__)) osd_reply_describe_t

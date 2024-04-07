@@ -186,11 +186,9 @@ Merge layer data without changing metadata. Merge `<from>`..`<to>` to `<target>`
 
 ## describe
 
-`vitastor-cli describe [--osds <osds>] [--object-state <states>] [--pool <pool>]
-    [--inode <ino>] [--min-inode <ino>] [--max-inode <ino>]
-    [--min-offset <offset>] [--max-offset <offset>]`
+`vitastor-cli describe [OPTIONS]`
 
-Describe unclean object locations in the cluster.
+Describe unclean object locations in the cluster. Options:
 
 ```
 --osds <osds>
@@ -200,6 +198,8 @@ Describe unclean object locations in the cluster.
     degraded, misplaced, incomplete, corrupted, inconsistent.
 --pool <pool name or number>
     Only list objects in the given pool.
+--pg <pg number>
+    Only list objects in the given PG of the pool.
 --inode, --min-inode, --max-inode
     Restrict listing to specific inode numbers.
 --min-offset, --max-offset

@@ -95,7 +95,19 @@ void osd_t::continue_primary_describe(osd_op_t *cur_op)
     if (!desc.object_state)
         desc.object_state = ~desc.object_state;
     std::vector<unclean_list_t> lists;
-    for (auto pg_it = pgs.begin(); pg_it != pgs.end(); pg_it++)
+    auto pg_first = pgs.begin();
+    auto pg_last = pgs.end();
+    if (desc.pool_id && desc.pg_num)
+    {
+        pg_first = pgs.find((pool_pg_num_t){ .pool_id = desc.pool_id, .pg_num = desc.pg_num });
+        pg_last = pg_first != pgs.end() ? std::next(pg_first) : pgs.end();
+    }
+    else if (desc.pool_id)
+    {
+        pg_first = pgs.lower_bound((pool_pg_num_t){ .pool_id = desc.pool_id });
+        pg_last = pgs.lower_bound((pool_pg_num_t){ .pool_id = desc.pool_id+1 });
+    }
+    for (auto pg_it = pg_first; pg_it != pg_last; pg_it++)
     {
         auto & pg = pg_it->second;
         if (desc.object_state & OBJ_INCONSISTENT)

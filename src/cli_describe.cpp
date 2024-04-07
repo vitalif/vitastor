@@ -37,6 +37,7 @@ struct cli_describe_t
 {
     uint64_t object_state = 0;
     pool_id_t only_pool = 0;
+    pg_num_t only_pg = 0;
     std::vector<uint64_t> only_osds;
     uint64_t min_inode = 0, max_inode = 0;
     uint64_t min_offset = 0, max_offset = 0;
@@ -68,6 +69,7 @@ struct cli_describe_t
                 }
             }
         }
+        only_pg = cfg["pg"].uint64_value();
         min_inode = cfg["inode"].uint64_value();
         if (min_inode)
         {
@@ -142,8 +144,8 @@ struct cli_describe_t
         {
             osd_op_t *op = new osd_op_t;
             op->req = (osd_any_op_t){
-                .describe = {
-                    .header = {
+                .describe = (osd_op_describe_t){
+                    .header = (osd_op_header_t){
                         .magic = SECONDARY_OSD_OP_MAGIC,
                         .id = parent->cli->next_op_id(),
                         .opcode = OSD_OP_DESCRIBE,
@@ -153,6 +155,8 @@ struct cli_describe_t
                     .min_offset = min_offset,
                     .max_inode = max_inode,
                     .max_offset = max_offset,
+                    .pool_id = only_pool,
+                    .pg_num = only_pg,
                 },
             };
             op->callback = [this, osd_num = only_osds[i]](osd_op_t *op)
@@ -182,7 +186,7 @@ struct cli_describe_t
                             printf(
                                 (parent->json_output
                                     ? (count > 0 ? ",\n  " FMT : "  " FMT)
-                                    : "%jx:%jx part %u on OSD %ju%s%s%s\n"),
+                                    : "0x%jx:0x%jx part %u on OSD %ju%s%s%s\n"),
 #undef FMT
                                 items[i].inode, items[i].stripe,
                                 items[i].role, items[i].osd_num,
