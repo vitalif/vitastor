@@ -200,3 +200,27 @@
     Максимальное число разделов на одном NBD-устройстве. Данное значение передаётся
     модулю ядра nbd как параметр `max_part`, когда его загружает vitastor-nbd.
     Имейте в виду, что (nbds_max)*(1+max_part) обычно не может превышать 256.
+- name: osd_nearfull_ratio
+  type: float
+  default: 0.95
+  online: true
+  info: |
+    Ratio of used space on OSD to treat it as "almost full" in vitastor-cli status output.
+
+    Remember that some client writes may hang or complete with an error if even
+    just one OSD becomes 100 % full!
+
+    However, unlike in Ceph, 100 % full Vitastor OSDs don't crash (in Ceph they're
+    unable to start at all), so you'll be able to recover from "out of space" errors
+    without destroying and recreating OSDs.
+  info_ru: |
+    Доля занятого места на OSD, начиная с которой он считается "почти заполненным" в
+    выводе vitastor-cli status.
+
+    Помните, что часть клиентских запросов может зависнуть или завершиться с ошибкой,
+    если на 100 % заполнится хотя бы 1 OSD!
+
+    Однако, в отличие от Ceph, заполненные на 100 % OSD Vitastor не падают (в Ceph
+    заполненные на 100% OSD вообще не могут стартовать), так что вы сможете
+    восстановить работу кластера после ошибок отсутствия свободного места
+    без уничтожения и пересоздания OSD.

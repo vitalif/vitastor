@@ -110,6 +110,12 @@ resume_2:
             }
         }
         int mon_count = 0;
+        int osds_full = 0, osds_nearfull = 0;
+        double osd_nearfull_ratio = parent->cli->config["osd_nearfull_ratio"].number_value();
+        if (!osd_nearfull_ratio)
+        {
+            osd_nearfull_ratio = 0.95;
+        }
         std::string mon_master;
         for (int i = 0; i < mon_members.size(); i++)
         {
@@ -139,8 +145,18 @@ resume_2:
                 continue;
             }
             osd_count++;
-            total_raw += kv.value["size"].uint64_value();
-            free_raw += kv.value["free"].uint64_value();
+            auto osd_size = kv.value["size"].uint64_value();
+            auto osd_free = kv.value["free"].uint64_value();
+            total_raw += osd_size;
+            free_raw += osd_free;
+            if (!osd_free)
+            {
+                osds_full++;
+            }
+            else if (osd_free < (uint64_t)(osd_size*(1-osd_nearfull_ratio)))
+            {
+                osds_nearfull++;
+            }
             auto peer_it = parent->cli->st_cli.peer_states.find(stat_osd_num);
             if (peer_it != parent->cli->st_cli.peer_states.end())
             {
@@ -281,11 +297,27 @@ resume_2:
             else if (no_scrub)
                 recovery_io += "    scrub: "+str_repeat(" ", io_indent+1)+"disabled\n";
         }
+        std::string warning_str;
+        if (osds_full)
+        {
+            warning_str += "    "+std::to_string(osds_full)+
+                (osds_full > 1 ? " osds are full\n" : " osd is full\n");
+        }
+        if (osds_nearfull)
+        {
+            warning_str += "    "+std::to_string(osds_nearfull)+
+                (osds_nearfull > 1 ? " osds are almost full\n" : " osd is almost full\n");
+        }
+        if (warning_str != "")
+        {
+            warning_str = "\n  warning:\n"+warning_str;
+        }
         printf(
             "  cluster:\n"
             "    etcd: %d / %zd up, %s database size\n"
             "    mon:  %d up%s\n"
             "    osd:  %d / %d up\n"
+            "%s"
             "  \n"
             "  data:\n"
             "    raw:   %s used, %s / %s available%s\n"
@@ -298,7 +330,7 @@ resume_2:
             "%s",
             etcd_alive, etcd_states.size(), format_size(etcd_db_size).c_str(),
             mon_count, mon_master == "" ? "" : (", master "+mon_master).c_str(),
-            osd_up, osd_count,
+            osd_up, osd_count, warning_str.c_str(),
             format_size(total_raw-free_raw).c_str(),
             format_size(free_raw-free_down_raw).c_str(),
             format_size(total_raw-down_raw).c_str(),

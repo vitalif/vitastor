@@ -21,6 +21,7 @@ affect their interaction with the cluster.
 - [nbd_timeout](#nbd_timeout)
 - [nbd_max_devices](#nbd_max_devices)
 - [nbd_max_part](#nbd_max_part)
+- [osd_nearfull_ratio](#osd_nearfull_ratio)
 
 ## client_retry_interval
 
@@ -167,3 +168,18 @@ Maximum number of NBD devices in the system. This value is passed as
 Maximum number of partitions per NBD device. This value is passed as
 `max_part` parameter for the nbd kernel module when vitastor-nbd autoloads it.
 Note that (nbds_max)*(1+max_part) usually can't exceed 256.
+
+## osd_nearfull_ratio
+
+- Type: number
+- Default: 0.95
+- Can be changed online: yes
+
+Ratio of used space on OSD to treat it as "almost full" in vitastor-cli status output.
+
+Remember that some client writes may hang or complete with an error if even
+just one OSD becomes 100 % full!
+
+However, unlike in Ceph, 100 % full Vitastor OSDs don't crash (in Ceph they're
+unable to start at all), so you'll be able to recover from "out of space" errors
+without destroying and recreating OSDs.
