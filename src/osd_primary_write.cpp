@@ -49,6 +49,8 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
     else if (op_data->st == 8) goto resume_8;
     else if (op_data->st == 9) goto resume_9;
     else if (op_data->st == 10) goto resume_10;
+    else if (op_data->st == 11) goto resume_11;
+    else if (op_data->st == 12) goto resume_12;
     assert(op_data->st == 0);
     if (!check_write_queue(cur_op, pg))
     {
@@ -259,11 +261,31 @@ resume_5:
     }
     if (op_data->errors > 0)
     {
-        // FIXME: Handle ENOSPC. If one of the subops fail with ENOSPC here,
+        // Handle ENOSPC/EDOM/ERANGE/EIO. If some subops fail, but others succeed,
         // next writes to the same object will also fail because they'll try
         // to overwrite the same version number which will result in EEXIST.
         // To fix it, we should mark the object as degraded for replicas,
         // and rollback successful part updates in case of EC.
+        if (op_data->done > 0 && !op_data->drops)
+        {
+            if (op_data->scheme != POOL_SCHEME_REPLICATED)
+            {
+                submit_primary_rollback_subops(cur_op, op_data->prev_set);
+resume_11:
+                op_data->st = 11;
+                return;
+resume_12:
+                // Ignore ROLLBACK errors - submit_primary_subops will drop the connection if it fails
+                delete[] op_data->unstable_writes;
+                op_data->unstable_writes = NULL;
+            }
+            else
+            {
+                mark_partial_write(pg, op_data->oid, op_data->object_state, op_data->stripes, true);
+                pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
+                return;
+            }
+        }
         deref_object_state(pg, &op_data->object_state, true);
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
         return;

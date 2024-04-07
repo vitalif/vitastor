@@ -301,8 +301,12 @@ class osd_t
     pg_osd_set_state_t* add_object_to_set(pg_t & pg, const object_id oid, const pg_osd_set_t & osd_set,
         uint64_t old_pg_state, int log_at_level);
     void remove_object_from_state(object_id & oid, pg_osd_set_state_t **object_state, pg_t &pg, bool report = true);
+    pg_osd_set_state_t *mark_object(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state, bool ref,
+        std::function<int(pg_osd_set_t & new_set)> calc_set);
     pg_osd_set_state_t *mark_object_corrupted(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state,
         osd_rmw_stripe_t *stripes, bool ref, bool inconsistent);
+    pg_osd_set_state_t *mark_partial_write(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state,
+        osd_rmw_stripe_t *stripes, bool ref);
     void deref_object_state(pg_t & pg, pg_osd_set_state_t **object_state, bool deref);
     bool remember_unstable_write(osd_op_t *cur_op, pg_t & pg, pg_osd_set_t & loc_set, int base_state);
     void handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op);
@@ -317,6 +321,7 @@ class osd_t
     void submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_delete, int chunks_to_delete_count);
     int submit_primary_sync_subops(osd_op_t *cur_op);
     void submit_primary_stab_subops(osd_op_t *cur_op);
+    void submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd_set);
 
     uint64_t* get_object_osd_set(pg_t &pg, object_id &oid, pg_osd_set_state_t **object_state);
 

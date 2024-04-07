@@ -133,7 +133,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, const ui
         zero_read = -1;
     osd_op_t *subops = new osd_op_t[n_subops];
     op_data->fact_ver = 0;
-    op_data->done = op_data->errors = op_data->errcode = 0;
+    op_data->done = op_data->errors = op_data->drops = op_data->errcode = 0;
     op_data->n_subops = n_subops;
     op_data->subops = subops;
     int sent = submit_primary_subop_batch(submit_type, op_data->oid.inode, op_version, op_data->stripes, osd_set, cur_op, 0, zero_read);
@@ -363,6 +363,13 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
         memset(((osd_rmw_stripe_t*)subop->rmw_buf)->read_buf, 0, expected);
         ((osd_rmw_stripe_t*)subop->rmw_buf)->not_exists = true;
     }
+    if (opcode == OSD_OP_SEC_READ && (retval == -EIO || retval == -EDOM) ||
+        opcode == OSD_OP_SEC_WRITE && retval != expected)
+    {
+        // We'll retry reads from other replica(s) on EIO/EDOM and mark object as corrupted
+        // And we'll mark write as failed
+        ((osd_rmw_stripe_t*)subop->rmw_buf)->read_error = true;
+    }
     if (retval == expected && (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE || opcode == OSD_OP_SEC_WRITE_STABLE))
     {
         uint64_t version = subop->reply.sec_rw.version;
@@ -404,14 +411,10 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
                 osd_op_names[opcode], subop->peer_fd, retval, expected
             );
         }
-        if (opcode == OSD_OP_SEC_READ && (retval == -EIO || retval == -EDOM))
-        {
-            // We'll retry reads from other replica(s) on EIO/EDOM and mark object as corrupted
-            ((osd_rmw_stripe_t*)subop->rmw_buf)->read_error = true;
-        }
         subop->rmw_buf = NULL;
-        // Error priority: ENOSPC and others > EIO > EDOM > EPIPE
+        // Error priority: ENOSPC > others > EIO > EDOM > EPIPE
         if (op_data->errcode == 0 ||
+            retval == -ENOSPC && op_data->errcode != -ENOSPC ||
             retval == -EIO && (op_data->errcode == -EDOM || op_data->errcode == -EPIPE) ||
             retval == -EDOM && (op_data->errcode == -EPIPE) ||
             retval != -EIO && retval != -EDOM && retval != -EPIPE)
@@ -424,6 +427,7 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
             (retval != -EIO || opcode != OSD_OP_SEC_READ))
         {
             // Drop connection on unexpected errors
+            op_data->drops++;
             msgr.stop_client(subop->peer_fd);
         }
     }
@@ -701,6 +705,96 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
                 subops[i].reply.hdr.retval = -EPIPE;
                 ringloop->set_immediate([subop = &subops[i]]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
             }
+        }
+    }
+}
+
+void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd_set)
+{
+    osd_primary_op_data_t *op_data = cur_op->op_data;
+    osd_rmw_stripe_t *stripes = op_data->stripes;
+    assert(op_data->scheme != POOL_SCHEME_REPLICATED);
+    // Allocate subops
+    int n_subops = 0;
+    for (int role = 0; role < op_data->pg_size; role++)
+    {
+        if (osd_set[role] != 0 && !stripes[role].read_error &&
+            msgr.osd_peer_fds.find(osd_set[role]) != msgr.osd_peer_fds.end())
+        {
+            n_subops++;
+        }
+    }
+    op_data->n_subops = n_subops;
+    op_data->done = op_data->errors = 0;
+    if (!op_data->n_subops)
+    {
+        return;
+    }
+    op_data->subops = new osd_op_t[n_subops];
+    op_data->unstable_writes = new obj_ver_id[n_subops];
+    int i = 0;
+    for (int role = 0; role < op_data->pg_size; role++)
+    {
+        if (osd_set[role] != 0 && !stripes[role].read_error &&
+            msgr.osd_peer_fds.find(osd_set[role]) != msgr.osd_peer_fds.end())
+        {
+            osd_op_t *subop = &op_data->subops[i];
+            op_data->unstable_writes[i] = (obj_ver_id){
+                .oid = {
+                    .inode = op_data->oid.inode,
+                    .stripe = op_data->oid.stripe | role,
+                },
+                .version = op_data->target_ver-1,
+            };
+            if (osd_set[role] == this->osd_num)
+            {
+                clock_gettime(CLOCK_REALTIME, &subop->tv_begin);
+                subop->op_type = (uint64_t)cur_op;
+                subop->bs_op = new blockstore_op_t((blockstore_op_t){
+                    .opcode = BS_OP_ROLLBACK,
+                    .callback = [subop, this](blockstore_op_t *bs_subop)
+                    {
+                        handle_primary_bs_subop(subop);
+                    },
+                    {
+                        .len = 1,
+                    },
+                    .buf = (void*)(op_data->unstable_writes + i),
+                });
+#ifdef OSD_DEBUG
+                printf(
+                    "Submit rollback to local: %jx:%jx v%ju\n",
+                    op_data->oid.inode, op_data->oid.stripe | role, op_data->target_ver-1
+                );
+#endif
+                bs->enqueue_op(subop->bs_op);
+            }
+            else
+            {
+                subop->op_type = OSD_OP_OUT;
+                subop->req = (osd_any_op_t){ .sec_stab = {
+                    .header = {
+                        .magic = SECONDARY_OSD_OP_MAGIC,
+                        .id = msgr.next_subop_id++,
+                        .opcode = OSD_OP_SEC_ROLLBACK,
+                    },
+                    .len = sizeof(obj_ver_id),
+                } };
+                subop->iov.push_back(op_data->unstable_writes + i, sizeof(obj_ver_id));
+                subop->callback = [cur_op, this](osd_op_t *subop)
+                {
+                    handle_primary_subop(subop, cur_op);
+                };
+#ifdef OSD_DEBUG
+                printf(
+                    "Submit rollback to osd %ju: %jx:%jx v%ju\n", osd_set[role],
+                    op_data->oid.inode, op_data->oid.stripe | role, op_data->target_ver-1
+                );
+#endif
+                subop->peer_fd = msgr.osd_peer_fds.at(osd_set[role]);
+                msgr.outbox_push(subop);
+            }
+            i++;
         }
     }
 }

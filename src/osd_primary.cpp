@@ -299,8 +299,8 @@ resume_2:
     finish_op(cur_op, cur_op->req.rw.len);
 }
 
-pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state,
-    osd_rmw_stripe_t *stripes, bool ref, bool inconsistent)
+pg_osd_set_state_t *osd_t::mark_object(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state, bool ref,
+    std::function<int(pg_osd_set_t & new_set)> calc_set)
 {
     pg_osd_set_state_t *object_state = NULL;
     get_object_osd_set(pg, oid, &object_state);
@@ -315,58 +315,22 @@ pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_os
         }
         return object_state;
     }
-    pg_osd_set_t corrupted_set;
+    pg_osd_set_t new_set;
     if (object_state)
     {
-        corrupted_set = object_state->osd_set;
+        new_set = object_state->osd_set;
     }
     else
     {
         for (int i = 0; i < pg.cur_set.size(); i++)
         {
-            corrupted_set.push_back((pg_obj_loc_t){
+            new_set.push_back((pg_obj_loc_t){
                 .role = (pg.scheme == POOL_SCHEME_REPLICATED ? 0 : (uint64_t)i),
                 .osd_num = pg.cur_set[i],
             });
         }
     }
-    // Mark object chunk(s) as corrupted
-    int changes = 0;
-    for (auto chunk_it = corrupted_set.begin(); chunk_it != corrupted_set.end(); )
-    {
-        auto & chunk = *chunk_it;
-        if (stripes[chunk.role].osd_num == chunk.osd_num)
-        {
-            if (stripes[chunk.role].not_exists)
-            {
-                changes++;
-                corrupted_set.erase(chunk_it, chunk_it+1);
-                continue;
-            }
-            if (stripes[chunk.role].read_error && chunk.loc_bad != LOC_CORRUPTED)
-            {
-                changes++;
-                chunk.loc_bad = LOC_CORRUPTED;
-            }
-            else if (stripes[chunk.role].read_end > 0 && !stripes[chunk.role].missing &&
-                (chunk.loc_bad & LOC_CORRUPTED))
-            {
-                changes++;
-                chunk.loc_bad &= ~LOC_CORRUPTED;
-            }
-        }
-        if (inconsistent && !chunk.loc_bad)
-        {
-            changes++;
-            chunk.loc_bad |= LOC_INCONSISTENT;
-        }
-        else if (!inconsistent && (chunk.loc_bad & LOC_INCONSISTENT))
-        {
-            changes++;
-            chunk.loc_bad &= ~LOC_INCONSISTENT;
-        }
-        chunk_it++;
-    }
+    int changes = calc_set(new_set);
     if (!changes)
     {
         // No chunks newly marked as corrupted - object is already marked or moved
@@ -379,12 +343,82 @@ pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_os
         deref_object_state(pg, &object_state, ref);
     }
     // Insert object into the new state and retry
-    object_state = add_object_to_set(pg, oid, corrupted_set, old_pg_state, 2);
+    object_state = add_object_to_set(pg, oid, new_set, old_pg_state, 2);
     if (ref)
     {
         object_state->ref_count++;
     }
     return object_state;
+}
+
+pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state,
+    osd_rmw_stripe_t *stripes, bool ref, bool inconsistent)
+{
+    return mark_object(pg, oid, prev_object_state, ref, [stripes, inconsistent](pg_osd_set_t & new_set)
+    {
+        // Mark object chunk(s) as corrupted
+        int changes = 0;
+        for (auto chunk_it = new_set.begin(); chunk_it != new_set.end(); )
+        {
+            auto & chunk = *chunk_it;
+            if (stripes[chunk.role].osd_num == chunk.osd_num)
+            {
+                if (stripes[chunk.role].not_exists)
+                {
+                    changes++;
+                    new_set.erase(chunk_it, chunk_it+1);
+                    continue;
+                }
+                if (stripes[chunk.role].read_error && chunk.loc_bad != LOC_CORRUPTED)
+                {
+                    changes++;
+                    chunk.loc_bad = LOC_CORRUPTED;
+                }
+                else if (stripes[chunk.role].read_end > 0 && !stripes[chunk.role].missing &&
+                    (chunk.loc_bad & LOC_CORRUPTED))
+                {
+                    changes++;
+                    chunk.loc_bad &= ~LOC_CORRUPTED;
+                }
+            }
+            if (inconsistent && !chunk.loc_bad)
+            {
+                changes++;
+                chunk.loc_bad |= LOC_INCONSISTENT;
+            }
+            else if (!inconsistent && (chunk.loc_bad & LOC_INCONSISTENT))
+            {
+                changes++;
+                chunk.loc_bad &= ~LOC_INCONSISTENT;
+            }
+            chunk_it++;
+        }
+        return changes;
+    });
+}
+
+// Mark the object as partially updated (probably due to a ENOSPC)
+pg_osd_set_state_t *osd_t::mark_partial_write(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state,
+    osd_rmw_stripe_t *stripes, bool ref)
+{
+    return mark_object(pg, oid, prev_object_state, ref, [stripes](pg_osd_set_t & new_set)
+    {
+        // Mark object chunk(s) as outdated
+        int changes = 0;
+        for (auto chunk_it = new_set.begin(); chunk_it != new_set.end(); )
+        {
+            auto & chunk = *chunk_it;
+            if (stripes[chunk.role].osd_num == chunk.osd_num &&
+                stripes[chunk.role].read_error &&
+                chunk.loc_bad != LOC_OUTDATED)
+            {
+                changes++;
+                chunk.loc_bad = LOC_OUTDATED;
+            }
+            chunk_it++;
+        }
+        return changes;
+    });
 }
 
 pg_osd_set_state_t* osd_t::add_object_to_set(pg_t & pg, const object_id oid, const pg_osd_set_t & osd_set,
