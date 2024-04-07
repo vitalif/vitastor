@@ -25,7 +25,8 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         if (msgr.osd_peer_fds.find(peer_osd) != msgr.osd_peer_fds.end())
         {
             // peer_osd just connected
-            continue_ops();
+            // retry operations waiting for connection immediately
+            continue_ops(client_retry_interval);
             continue_lists();
             continue_raw_ops(peer_osd);
         }
@@ -1209,7 +1210,7 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
         // Set op->retry_after to retry operation after a short pause (not immediately)
         if (!op->retry_after)
         {
-            op->retry_after = op->retval == -EIO ? client_eio_retry_interval : client_retry_interval;
+            op->retry_after = op->retval != -EPIPE ? client_eio_retry_interval : client_retry_interval;
         }
         reset_retry_timer(op->retry_after);
         if (stop_fd >= 0)
@@ -1217,7 +1218,7 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             msgr.stop_client(stop_fd);
         }
         op->inflight_count--;
-        if (op->inflight_count == 0)
+        if (op->inflight_count == 0 && !op->retry_after)
         {
             if (op->opcode == OSD_OP_SYNC)
                 continue_sync(op);
@@ -1242,7 +1243,7 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
         {
             op->version = op->parts.size() == 1 ? part->op.reply.rw.version : 0;
         }
-        if (op->inflight_count == 0)
+        if (op->inflight_count == 0 && !op->retry_after)
         {
             if (op->opcode == OSD_OP_SYNC)
                 continue_sync(op);
