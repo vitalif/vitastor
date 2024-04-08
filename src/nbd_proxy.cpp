@@ -22,6 +22,7 @@
 
 #include "cluster_client.h"
 #include "epoll_manager.h"
+#include "str_util.h"
 
 #ifdef HAVE_NBD_NETLINK_H
 #include <netlink/attr.h>
@@ -108,18 +109,27 @@ static int netlink_status_cb(struct nl_msg *sk_msg, void *devnum)
 }
 
 static int netlink_configure(const int *sockfd, int sock_size, int dev_num, uint64_t size,
-    uint64_t blocksize, uint64_t flags, uint64_t cflags, uint64_t timeout, uint64_t conn_timeout)
+    uint64_t blocksize, uint64_t flags, uint64_t cflags, uint64_t timeout, uint64_t conn_timeout,
+    const char *backend, bool reconfigure)
 {
     struct netlink_ctx ctx;
     struct nlattr *msg_attr, *msg_opt_attr;
     struct nl_msg *msg;
     int i, err, sock;
-    uint32_t devnum;
+    uint32_t devnum = dev_num;
+
+    if (reconfigure && dev_num < 0)
+    {
+        return -NLE_INVAL;
+    }
 
     netlink_sock_alloc(&ctx);
 
-    // A callback we set for a response we get on send
-    nl_socket_modify_cb(ctx.sk, NL_CB_VALID, NL_CB_CUSTOM, netlink_status_cb, &devnum);
+    if (!reconfigure)
+    {
+        // A callback we set for a response we get on send
+        nl_socket_modify_cb(ctx.sk, NL_CB_VALID, NL_CB_CUSTOM, netlink_status_cb, &devnum);
+    }
 
     msg = nlmsg_alloc();
     if (!msg)
@@ -128,7 +138,8 @@ static int netlink_configure(const int *sockfd, int sock_size, int dev_num, uint
         fail("Failed to allocate netlink message\n");
     }
 
-    genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, ctx.driver_id, 0, 0, NBD_CMD_CONNECT, 0);
+    genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ, ctx.driver_id, 0, 0,
+        reconfigure ? NBD_CMD_RECONFIGURE : NBD_CMD_CONNECT, 0);
 
     if (dev_num >= 0)
     {
@@ -148,6 +159,13 @@ static int netlink_configure(const int *sockfd, int sock_size, int dev_num, uint
     if (conn_timeout)
     {
         NLA_PUT_U64(msg, NBD_ATTR_DEAD_CONN_TIMEOUT, conn_timeout);
+    }
+
+    if (backend)
+    {
+        // Backend is an attribute useful for identication of the device
+        // Also it prevents reconfiguration of the device with a different backend string
+        NLA_PUT_STRING(msg, NBD_ATTR_BACKEND_IDENTIFIER, backend);
     }
 
     msg_attr = nla_nest_start(msg, NBD_ATTR_SOCKETS);
@@ -172,7 +190,7 @@ static int netlink_configure(const int *sockfd, int sock_size, int dev_num, uint
 
     nla_nest_end(msg, msg_attr);
 
-    if ((err = nl_send_sync(ctx.sk, msg)) < 0)
+    if ((err = nl_send_sync(ctx.sk, msg)) != 0)
     {
         netlink_sock_free(&ctx);
         return err;
@@ -232,14 +250,78 @@ nla_put_failure:
 
 const char *exe_name = NULL;
 
+const char *help_text =
+    "Vitastor NBD proxy " VERSION "\n"
+    "(c) Vitaliy Filippov, 2020+ (VNPL-1.1)\n"
+    "\n"
+    "COMMANDS:\n"
+    "\n"
+    "vitastor-nbd map [OPTIONS] [/dev/nbdN] (--image <image> | --pool <pool> --inode <inode> --size <size in bytes>)\n"
+    "  Map an NBD device using ioctl interface. Options:\n"
+    "  --nbd_timeout 0\n"
+    "    Timeout for I/O operations in seconds after exceeding which the kernel stops the device.\n"
+    "    Before Linux 5.19, if nbd_timeout is 0, a dead NBD device can't be removed from\n"
+    "    the system at all without rebooting.\n"
+    "  --nbd_max_devices 64 --nbd_max_part 3\n"
+    "    Options for the \"nbd\" kernel module when modprobing it (nbds_max and max_part).\n"
+    "  --logfile /path/to/log/file.txt\n"
+    "    Write log messages to the specified file instead of dropping them (in background mode)\n"
+    "    or printing them to the standard output (in foreground mode).\n"
+    "  --dev_num N\n"
+    "    Use the specified device /dev/nbdN instead of automatic selection (alternative syntax\n"
+    "    to /dev/nbdN positional parameter).\n"
+    "  --foreground 1\n"
+    "    Stay in foreground, do not daemonize.\n"
+    "\n"
+    "vitastor-nbd unmap /dev/nbdN\n"
+    "  Unmap an ioctl-mapped NBD device.\n"
+    "\n"
+    "vitastor-nbd ls [--json]\n"
+    "  List ioctl-mapped Vitastor NBD devices, optionally in JSON format.\n"
+    "\n"
+#ifdef HAVE_NBD_NETLINK_H
+    "vitastor-nbd netlink-map [/dev/nbd<number>] (--image <image> | --pool <pool> --inode <inode> --size <size in bytes>)\n"
+    "  Map a device using netlink interface. Experimental mode. Differences from 'map':\n"
+    "  1) netlink-map can create new /dev/nbdN devices.\n"
+    "  2) netlink-mapped devices can be unmapped only using netlink-unmap command.\n"
+    "  3) netlink-mapped devices don't show up `ls` output (yet).\n"
+    "  4) dead netlink-mapped devices can be 'revived' (however, old I/O may hang forever without timeout).\n"
+    "  5) netlink-map supports additional options:\n"
+    "     --nbd_conn_timeout 0\n"
+    "       Disconnect a dead device automatically after this number of seconds.\n"
+#ifdef NBD_CFLAG_DESTROY_ON_DISCONNECT
+    "     --nbd_destroy_on_disconnect 1\n"
+    "       Delete the nbd device on disconnect.\n"
+#endif
+#ifdef NBD_CFLAG_DISCONNECT_ON_CLOSE
+    "     --nbd_disconnect_on_close 1\n"
+    "       Disconnect the nbd device on close by last opener.\n"
+#endif
+#ifdef NBD_FLAG_READ_ONLY
+    "     --nbd_ro 1\n"
+    "       Set device into read only mode.\n"
+#endif
+    "\n"
+    "vitastor-nbd netlink-unmap /dev/nbdN\n"
+    "  Unmap a device using netlink interface. Works with both netlink and ioctl mapped devices.\n"
+    "\n"
+    "vitastor-nbd netlink-revive /dev/nbdN (--image <image> | --pool <pool> --inode <inode> --size <size in bytes>)\n"
+    "  Restart a dead NBD device without removing it. Supports the same options as netlink-map.\n"
+    "\n"
+#endif
+    "Use vitastor-nbd --help <command> for command details or vitastor-nbd --help --all for all details.\n"
+    "\n"
+    "All usual Vitastor config options like --config_file <path_to_config> may also be specified in CLI.\n"
+;
+
 class nbd_proxy
 {
 protected:
     std::string image_name;
     uint64_t inode = 0;
     uint64_t device_size = 0;
-    uint64_t nbd_lease = 0;
-    int nbd_timeout = 300;
+    uint64_t nbd_conn_timeout = 0;
+    int nbd_timeout = 0;
     int nbd_max_devices = 64;
     int nbd_max_part = 3;
     inode_watch_t *watch = NULL;
@@ -283,19 +365,19 @@ public:
         {
             if (!strcmp(args[i], "-h") || !strcmp(args[i], "--help"))
             {
-                help();
+                cfg["help"] = 1;
             }
             else if (args[i][0] == '-' && args[i][1] == '-')
             {
                 const char *opt = args[i]+2;
-                cfg[opt] = !strcmp(opt, "json") || i == narg-1 ? "1" : args[++i];
+                cfg[opt] = !strcmp(opt, "json") || !strcmp(opt, "all") || i == narg-1 ? "1" : args[++i];
             }
             else if (pos == 0)
             {
                 cfg["command"] = args[i];
                 pos++;
             }
-            else if (pos == 1 && (cfg["command"] == "map" || cfg["command"] == "unmap"))
+            else if (pos == 1)
             {
                 int n = 0;
                 if (sscanf(args[i], "/dev/nbd%d", &n) > 0)
@@ -310,9 +392,13 @@ public:
 
     void exec(json11::Json cfg)
     {
+        if (cfg["help"].bool_value())
+        {
+            goto help;
+        }
         if (cfg["command"] == "map")
         {
-            start(cfg);
+            start(cfg, false, false);
         }
         else if (cfg["command"] == "unmap")
         {
@@ -323,18 +409,26 @@ public:
             }
             if (cfg["netlink"].is_null())
             {
-                unmap(cfg["dev_num"].uint64_value());
+                ioctl_unmap(cfg["dev_num"].uint64_value());
             }
             else
             {
-#ifdef HAVE_NBD_NETLINK_H
-                netlink_disconnect(cfg["dev_num"].uint64_value());
-#else
-                fprintf(stderr, "netlink support is disabled in this build\n");
-                exit(1);
-#endif
             }
         }
+#ifdef HAVE_NBD_NETLINK_H
+        else if (cfg["command"] == "netlink-map")
+        {
+            start(cfg, true, false);
+        }
+        else if (cfg["command"] == "netlink-revive")
+        {
+            start(cfg, true, true);
+        }
+        else if (cfg["command"] == "netlink-unmap")
+        {
+            netlink_disconnect(cfg["dev_num"].uint64_value());
+        }
+#endif
         else if (cfg["command"] == "ls" || cfg["command"] == "list" || cfg["command"] == "list-mapped")
         {
             auto mapped = list_mapped();
@@ -342,55 +436,13 @@ public:
         }
         else
         {
-            help();
+help:
+            print_help(help_text, "vitastor-nbd", cfg["command"].string_value(), cfg["all"].bool_value());
+            exit(0);
         }
     }
 
-    static void help()
-    {
-        printf(
-            "Vitastor NBD proxy\n"
-            "(c) Vitaliy Filippov, 2020+ (VNPL-1.1)\n\n"
-            "USAGE:\n"
-            "  %s map [OPTIONS] (--image <image> | --pool <pool> --inode <inode> --size <size in bytes>)\n"
-            "  %s unmap /dev/nbd0\n"
-            "  %s ls [--json]\n"
-            "OPTIONS:\n"
-            "  All usual Vitastor config options like --config_file <path_to_config> plus NBD-specific:\n"
-            "  --nbd_timeout 300\n"
-            "    Timeout for I/O operations in seconds after exceeding which the kernel stops\n"
-            "    the device. You can set it to 0 to disable the timeout, but beware that you\n"
-            "    won't be able to stop the device at all if vitastor-nbd process dies.\n"
-            "  --nbd_max_devices 64 --nbd_max_part 3\n"
-            "    Options for the \"nbd\" kernel module when modprobing it (nbds_max and max_part).\n"
-            "    Maximum allowed (nbds_max)*(1+max_part) is 2^20.\n"
-            "    Note that nbd_timeout, nbd_max_devices and nbd_max_part options may also be specified\n"
-            "    in /etc/vitastor/vitastor.conf or in other configuration file specified with --config_file.\n"
-            "  --nbd_lease 60\n"
-            "    Timeout in seconds which is waited at max before nbd device\n"
-            "    is returned after no I/O is performed on device.\n"
-            "    By default is not set.\n"
-            "  --nbd_destroy_on_disconnect 1\n"
-            "    Delete the nbd device on disconnect.\n"
-            "  --nbd_disconnect_on_close 1\n"
-            "    Disconnect the nbd device on close by last opener.\n"
-            "  --nbd_ro 1\n"
-            "    Set device into read only mode.\n"
-            "  --logfile /path/to/log/file.txt\n"
-            "    Write log messages to the specified file instead of dropping them (in background mode)\n"
-            "    or printing them to the standard output (in foreground mode).\n"
-            "  --dev_num N\n"
-            "    Use the specified device /dev/nbdN instead of automatic selection.\n"
-            "  --foreground 1\n"
-            "    Stay in foreground, do not daemonize.\n"
-            "  --netlink 1\n"
-            "    Use netlink to configure NBD device.\n",
-            exe_name, exe_name, exe_name
-        );
-        exit(0);
-    }
-
-    void unmap(int dev_num)
+    void ioctl_unmap(int dev_num)
     {
         char path[64] = { 0 };
         sprintf(path, "/dev/nbd%d", dev_num);
@@ -409,7 +461,7 @@ public:
         close(nbd);
     }
 
-    void start(json11::Json cfg)
+    void start(json11::Json cfg, bool netlink, bool revive)
     {
         // Check options
         if (cfg["image"].string_value() != "")
@@ -439,24 +491,6 @@ public:
                 exit(1);
             }
         }
-        auto file_config = osd_messenger_t::read_config(cfg);
-        if (file_config["nbd_max_devices"].is_number() || file_config["nbd_max_devices"].is_string())
-        {
-            nbd_max_devices = file_config["nbd_max_devices"].uint64_value();
-        }
-        if (file_config["nbd_max_part"].is_number() || file_config["nbd_max_part"].is_string())
-        {
-            nbd_max_part = file_config["nbd_max_part"].uint64_value();
-        }
-        if (file_config["nbd_timeout"].is_number() || file_config["nbd_timeout"].is_string())
-        {
-            nbd_timeout = file_config["nbd_timeout"].uint64_value();
-        }
-        if (cfg["nbd_lease"].is_number() || cfg["nbd_lease"].is_string())
-        {
-            nbd_lease = cfg["nbd_lease"].uint64_value();
-        }
-
         if (cfg["client_writeback_allowed"].is_null())
         {
             // NBD is always aware of fsync, so we allow write-back cache
@@ -465,6 +499,7 @@ public:
             obj["client_writeback_allowed"] = true;
             cfg = obj;
         }
+
         // Create client
         ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
         epmgr = new epoll_manager_t(ringloop);
@@ -489,6 +524,24 @@ public:
             }
         }
 
+        // cli->config contains merged config
+        if (cli->config.find("nbd_max_devices") != cli->config.end())
+        {
+            nbd_max_devices = cli->config["nbd_max_devices"].uint64_value();
+        }
+        if (cli->config.find("nbd_max_part") != cli->config.end())
+        {
+            nbd_max_part = cli->config["nbd_max_part"].uint64_value();
+        }
+        if (cli->config.find("nbd_timeout") != cli->config.end())
+        {
+            nbd_timeout = cli->config["nbd_timeout"].uint64_value();
+        }
+        if (cli->config.find("nbd_conn_timeout") != cli->config.end())
+        {
+            nbd_conn_timeout = cli->config["nbd_conn_timeout"].uint64_value();
+        }
+
         // Initialize NBD
         int sockfd[2];
         if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockfd) < 0)
@@ -502,7 +555,7 @@ public:
         load_module();
         bool bg = cfg["foreground"].is_null();
 
-        if (!cfg["netlink"].is_null())
+        if (netlink)
         {
 #ifdef HAVE_NBD_NETLINK_H
             int devnum = -1;
@@ -524,13 +577,14 @@ public:
             if (!cfg["nbd_disconnect_on_close"].is_null())
                 cflags |= NBD_CFLAG_DISCONNECT_ON_CLOSE;
 #endif
-            int err = netlink_configure(sockfd + 1, 1, devnum, device_size, 4096, flags, cflags, nbd_timeout, nbd_lease);
+            int err = netlink_configure(sockfd + 1, 1, devnum, device_size, 4096, flags, cflags, nbd_timeout, nbd_conn_timeout, NULL, revive);
             if (err < 0)
             {
                 errno = (err == -NLE_BUSY ? EBUSY : EIO);
                 fprintf(stderr, "netlink_configure failed: %s (code %d)\n", nl_geterror(err), err);
                 exit(1);
             }
+            close(sockfd[1]);
             printf("/dev/nbd%d\n", err);
 #else
             fprintf(stderr, "netlink support is disabled in this build\n");
@@ -647,9 +701,10 @@ public:
             return;
         }
         int r;
-        // Kernel built-in default is 16 devices with up to 16 partitions per device which is a big shit
-        // 64 also isn't too high, but the possible maximum is nbds_max=256 max_part=0 and it won't reserve
-        // any block device minor numbers for partitions
+        // NBD module creates ALL <nbd_max_devices> devices in /dev/ when loaded
+        // Kernel built-in default is 16 devices with up to 16 partitions per device which is a bit too low.
+        // ...and ioctl setup method can't create additional devices.
+        // netlink setup method, however, CAN create additional devices.
         if ((r = system(("modprobe nbd nbds_max="+std::to_string(nbd_max_devices)+" max_part="+std::to_string(nbd_max_part)).c_str())) != 0)
         {
             if (r < 0)

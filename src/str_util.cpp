@@ -209,7 +209,7 @@ void print_help(const char *help_text, std::string exe_name, std::string cmd, bo
                 const char *var_end = var_start;
                 while (*var_end && !isspace(*var_end))
                     var_end++;
-                if ((std::string(var_start, var_end-var_start)+"|").find(cmd+"|") != std::string::npos)
+                if (("|"+std::string(var_start, var_end-var_start)+"|").find("|"+cmd+"|") != std::string::npos)
                     found = matched = true;
             }
             else if (*next_line && isspace(*next_line))
