@@ -161,12 +161,14 @@ static int netlink_configure(const int *sockfd, int sock_size, int dev_num, uint
         NLA_PUT_U64(msg, NBD_ATTR_DEAD_CONN_TIMEOUT, conn_timeout);
     }
 
+#ifdef NBD_ATTR_BACKEND_IDENTIFIER
     if (backend)
     {
         // Backend is an attribute useful for identication of the device
         // Also it prevents reconfiguration of the device with a different backend string
         NLA_PUT_STRING(msg, NBD_ATTR_BACKEND_IDENTIFIER, backend);
     }
+#endif
 
     msg_attr = nla_nest_start(msg, NBD_ATTR_SOCKETS);
     if (!msg_attr)
