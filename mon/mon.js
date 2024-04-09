@@ -871,7 +871,7 @@ class Mon
         const levels = this.config.placement_levels||{};
         levels.host = levels.host || 100;
         levels.osd = levels.osd || 101;
-        const tree = { '': { children: [] } };
+        const tree = {};
         let up_osds = {};
         for (const node_id in this.state.config.node_placement||{})
         {
@@ -926,6 +926,20 @@ class Mon
                 }
             }
         }
+        return { up_osds, levels, osd_tree: tree };
+    }
+
+    make_hier_tree(tree)
+    {
+        const levels = this.config.placement_levels||{};
+        levels.host = levels.host || 100;
+        levels.osd = levels.osd || 101;
+        tree = { ...tree };
+        for (const node_id in tree)
+        {
+            tree[node_id] = { ...tree[node_id], children: [] };
+        }
+        tree[''] = { children: [] };
         for (const node_id in tree)
         {
             if (node_id === '' || tree[node_id].level === 'osd' && (!tree[node_id].size || tree[node_id].size <= 0))
@@ -941,7 +955,7 @@ class Mon
             const parent = parent_level && parent_level < node_level ? node_cfg.parent : '';
             tree[parent].children.push(tree[node_id]);
         }
-        return { up_osds, levels, osd_tree: tree };
+        return tree;
     }
 
     async stop_all_pgs(pool_id)
@@ -1197,7 +1211,8 @@ class Mon
         {
             return;
         }
-        let included = [ ...(pool_tree[root_node] || {}).children||[] ];
+        let hier_tree = this.make_hier_tree(pool_tree);
+        let included = [ ...(hier_tree[root_node] || {}).children||[] ];
         for (let i = 0; i < included.length; i++)
         {
             if (included[i].children)
@@ -1206,19 +1221,10 @@ class Mon
             }
         }
         let cur = pool_tree[root_node] || {};
-        if (cur)
+        while (cur && cur.id)
         {
             included.unshift(cur);
-        }
-        while (cur.id)
-        {
-            let parent = cur.parent||'';
-            if (pool_tree[parent])
-            {
-                included.unshift(pool_tree[parent]);
-                pool_tree[parent] = { ...pool_tree[parent], children: [ cur ] };
-                cur = pool_tree[parent];
-            }
+            cur = pool_tree[cur.parent||''];
         }
         included = included.reduce((a, c) => { a[c.id||''] = true; return a; }, {});
         for (const item in pool_tree)
@@ -1366,6 +1372,7 @@ class Mon
             pool_cfg.bitmap_granularity || this.config.bitmap_granularity || 4096,
             pool_cfg.immediate_commit || this.config.immediate_commit || 'none'
         );
+        pool_tree = this.make_hier_tree(pool_tree);
         // First try last_clean_pgs to minimize data movement
         let prev_pgs = [];
         for (const pg in ((this.state.history.last_clean_pgs.items||{})[pool_id]||{}))

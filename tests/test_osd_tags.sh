@@ -3,8 +3,14 @@
 . `dirname $0`/common.sh
 
 TIME=$(date '+%s')
-$ETCDCTL put /vitastor/config/global '{"placement_levels":{"rack":100,"host":101,"osd":102}}'
-$ETCDCTL put /vitastor/config/node_placement '{"rack1":{"level":"rack"},"rack2":{"level":"rack"},"stor1":{"level":"host","parent":"rack1"},"stor2":{"level":"host","parent":"rack1"},"stor3":{"level":"host","parent":"rack2"},"stor4":{"level":"host","parent":"rack2"}}'
+$ETCDCTL put /vitastor/config/osd/1 '{"tags":["a"]}'
+$ETCDCTL put /vitastor/config/osd/2 '{"tags":["a"]}'
+$ETCDCTL put /vitastor/config/osd/3 '{"tags":["a"]}'
+$ETCDCTL put /vitastor/config/osd/4 '{"tags":["a"]}'
+$ETCDCTL put /vitastor/config/osd/5 '{"tags":["b"]}'
+$ETCDCTL put /vitastor/config/osd/6 '{"tags":["b"]}'
+$ETCDCTL put /vitastor/config/osd/7 '{"tags":["b"]}'
+$ETCDCTL put /vitastor/config/osd/8 '{"tags":["b"]}'
 $ETCDCTL put /vitastor/osd/stats/1 '{"host":"stor1","size":1073741824,"time":"'$TIME'"}'
 $ETCDCTL put /vitastor/osd/stats/2 '{"host":"stor1","size":1073741824,"time":"'$TIME'"}'
 $ETCDCTL put /vitastor/osd/stats/3 '{"host":"stor2","size":1073741824,"time":"'$TIME'"}'
@@ -13,7 +19,7 @@ $ETCDCTL put /vitastor/osd/stats/5 '{"host":"stor3","size":1073741824,"time":"'$
 $ETCDCTL put /vitastor/osd/stats/6 '{"host":"stor3","size":1073741824,"time":"'$TIME'"}'
 $ETCDCTL put /vitastor/osd/stats/7 '{"host":"stor4","size":1073741824,"time":"'$TIME'"}'
 $ETCDCTL put /vitastor/osd/stats/8 '{"host":"stor4","size":1073741824,"time":"'$TIME'"}'
-$ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":2,"pg_count":16,"failure_domain":"host","root_node":"rack1"}}'
+$ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":2,"pg_count":16,"failure_domain":"host","osd_tags":["a"]}}'
 
 node mon/mon-main.js --etcd_address $ETCD_URL --etcd_prefix "/vitastor" >>./testdata/mon.log 2>&1 &
 MON_PID=$!
