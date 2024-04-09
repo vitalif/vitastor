@@ -1197,7 +1197,7 @@ class Mon
         {
             return;
         }
-        pool_tree = pool_tree[pool_cfg.root_node];
+        pool_tree = pool_tree[root_node];
         const cur = [ ...(pool_tree||{}).children||[] ];
         for (let i = 0; i < cur.length; i++)
         {
@@ -1240,7 +1240,7 @@ class Mon
                     osd_stat.immediate_commit == 'small' && immediate_commit == 'all' ||
                     osd_stat.immediate_commit == 'none' && immediate_commit != 'none'))
                 {
-                    delete orig_tree[host][osd];
+                    delete orig_tree[osd];
                 }
             }
         }
