@@ -77,7 +77,7 @@ async function optimize_initial({ osd_weights, combinator, pg_count, pg_size = 3
     {
         if (osd !== NO_OSD)
         {
-            let osd_pg_count = osd_weights[osd]/total_weight*pg_effsize*pg_count;
+            let osd_pg_count = (osd_weights[osd]||0)/total_weight*pg_effsize*pg_count;
             lp += pg_per_osd[osd].join(' + ')+' <= '+osd_pg_count+';\n';
         }
     }
@@ -299,7 +299,7 @@ async function optimize_change({ prev_pgs: prev_int_pgs, osd_weights, combinator
             )).join(' + ');
             const rm_osd_pg_count = (prev_pg_per_osd[osd]||[])
                 .reduce((a, [ old_pg_name, space ]) => (a + (all_pgs_hash[old_pg_name] ? space : 0)), 0);
-            const osd_pg_count = osd_weights[osd]*pg_effsize/total_weight*pg_count - rm_osd_pg_count;
+            const osd_pg_count = (osd_weights[osd]||0)*pg_effsize/total_weight*pg_count - rm_osd_pg_count;
             lp += osd_sum + ' <= ' + osd_pg_count + ';\n';
         }
     }

@@ -1197,16 +1197,37 @@ class Mon
         {
             return;
         }
-        pool_tree = pool_tree[root_node];
-        const cur = [ ...(pool_tree||{}).children||[] ];
-        for (let i = 0; i < cur.length; i++)
+        let included = [ ...(pool_tree[root_node] || {}).children||[] ];
+        for (let i = 0; i < included.length; i++)
         {
-            if (cur.children)
+            if (included[i].children)
             {
-                cur.splice(i+1, 1, ...cur.children);
+                included.splice(i+1, 0, ...included[i].children);
             }
         }
-        return cur;
+        let cur = pool_tree[root_node] || {};
+        if (cur)
+        {
+            included.unshift(cur);
+        }
+        while (cur.id)
+        {
+            let parent = cur.parent||'';
+            if (pool_tree[parent])
+            {
+                included.unshift(pool_tree[parent]);
+                pool_tree[parent] = { ...pool_tree[parent], children: [ cur ] };
+                cur = pool_tree[parent];
+            }
+        }
+        included = included.reduce((a, c) => { a[c.id||''] = true; return a; }, {});
+        for (const item in pool_tree)
+        {
+            if (!included[item])
+            {
+                delete pool_tree[item];
+            }
+        }
     }
 
     filter_osds_by_tags(orig_tree, tags)
@@ -1336,7 +1357,7 @@ class Mon
         {
             return null;
         }
-        let pool_tree = osd_tree;
+        let pool_tree = { ...osd_tree };
         this.filter_osds_by_root_node(pool_tree, pool_cfg.root_node);
         this.filter_osds_by_tags(pool_tree, pool_cfg.osd_tags);
         this.filter_osds_by_block_layout(
@@ -1364,9 +1385,9 @@ class Mon
             osd_weights: Object.values(pool_tree).filter(item => item.level === 'osd').reduce((a, c) => { a[c.id] = c.size; return a; }, {}),
             combinator: !this.config.use_old_pg_combinator || pool_cfg.level_placement || pool_cfg.raw_placement
                 // new algorithm:
-                ? new RuleCombinator(osd_tree, this.get_pg_rules(pool_id, pool_cfg), pool_cfg.max_osd_combinations)
+                ? new RuleCombinator(pool_tree, this.get_pg_rules(pool_id, pool_cfg), pool_cfg.max_osd_combinations)
                 // old algorithm:
-                : new SimpleCombinator(flatten_tree(osd_tree[''].children, levels, pool_cfg.failure_domain, 'osd'), pool_cfg.pg_size, pool_cfg.max_osd_combinations),
+                : new SimpleCombinator(flatten_tree(pool_tree[''].children, levels, pool_cfg.failure_domain, 'osd'), pool_cfg.pg_size, pool_cfg.max_osd_combinations),
             pg_count: pool_cfg.pg_count,
             pg_size: pool_cfg.pg_size,
             pg_minsize: pool_cfg.pg_minsize,
