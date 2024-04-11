@@ -632,7 +632,7 @@ void kv_test_t::print_stats(kv_test_stat_t & prev_stat, timespec & prev_stat_tim
             char buf[128] = { 0 };
             for (int i = 0; i < sizeof(lats)/sizeof(lats[0]); i++)
             {
-                snprintf(buf, sizeof(buf)-1, "%.1f %s/s (%lu us)", (lats[i]->count-prev[i]->count)*1000000.0/usec,
+                snprintf(buf, sizeof(buf)-1, "%.1f %s/s (%ju us)", (lats[i]->count-prev[i]->count)*1000000.0/usec,
                     lats[i]->name, (lats[i]->usec-prev[i]->usec)/(lats[i]->count-prev[i]->count > 0 ? lats[i]->count-prev[i]->count : 1));
                 int k;
                 for (k = strlen(buf); k < strlen(lats[i]->name)+21; k++)
@@ -652,7 +652,7 @@ void kv_test_t::print_stats(kv_test_stat_t & prev_stat, timespec & prev_stat_tim
                 if (lats[i]->count > prev[i]->count)
                 {
                     printf(
-                        ",\"%s\":{\"avg\":{\"iops\":%.1f,\"usec\":%lu},\"total\":{\"count\":%lu,\"usec\":%lu}}",
+                        ",\"%s\":{\"avg\":{\"iops\":%.1f,\"usec\":%ju},\"total\":{\"count\":%ju,\"usec\":%ju}}",
                         lats[i]->name, (lats[i]->count-prev[i]->count)*1000000.0/usec,
                         (lats[i]->usec-prev[i]->usec)/(lats[i]->count-prev[i]->count),
                         lats[i]->count, lats[i]->usec

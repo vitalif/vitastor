@@ -250,14 +250,14 @@ int kv_block_t::parse(uint64_t offset, uint8_t *data, int size)
     {
         // empty block
         if (offset != 0)
-            fprintf(stderr, "K/V: Block %lu is %s\n", offset, blk->magic == 0 ? "empty" : "cleared");
+            fprintf(stderr, "K/V: Block %ju is %s\n", offset, blk->magic == 0 ? "empty" : "cleared");
         return -ENOTBLK;
     }
     if (blk->magic != KV_BLOCK_MAGIC || blk->block_size != size ||
         !blk->type || blk->type > KV_EMPTY || blk->items > KV_BLOCK_MAX_ITEMS)
     {
         // invalid block
-        fprintf(stderr, "K/V: Invalid block %lu magic, size, type or item count\n", offset);
+        fprintf(stderr, "K/V: Invalid block %ju magic, size, type or item count\n", offset);
         return -EILSEQ;
     }
     assert(!this->type);
@@ -266,13 +266,13 @@ int kv_block_t::parse(uint64_t offset, uint8_t *data, int size)
     this->key_ge = read_string(data, size, &pos);
     if (pos < 0)
     {
-        fprintf(stderr, "K/V: Invalid block %lu left bound\n", offset);
+        fprintf(stderr, "K/V: Invalid block %ju left bound\n", offset);
         return -EILSEQ;
     }
     this->key_lt = read_string(data, size, &pos);
     if (pos < 0)
     {
-        fprintf(stderr, "K/V: Invalid block %lu right bound\n", offset);
+        fprintf(stderr, "K/V: Invalid block %ju right bound\n", offset);
         return -EILSEQ;
     }
     if (this->type == KV_INT_SPLIT || this->type == KV_LEAF_SPLIT)
@@ -280,12 +280,12 @@ int kv_block_t::parse(uint64_t offset, uint8_t *data, int size)
         this->right_half = read_string(data, size, &pos);
         if (pos < 0)
         {
-            fprintf(stderr, "K/V: Invalid block %lu split bound\n", offset);
+            fprintf(stderr, "K/V: Invalid block %ju split bound\n", offset);
             return -EILSEQ;
         }
         if (pos+8 > size)
         {
-            fprintf(stderr, "K/V: Invalid block %lu split block ref\n", offset);
+            fprintf(stderr, "K/V: Invalid block %ju split block ref\n", offset);
             return -EILSEQ;
         }
         this->right_half_block = *(uint64_t*)(data+pos);
@@ -296,13 +296,13 @@ int kv_block_t::parse(uint64_t offset, uint8_t *data, int size)
         auto key = read_string(data, size, &pos);
         if (pos < 0)
         {
-            fprintf(stderr, "K/V: Invalid block %lu key %d\n", offset, i);
+            fprintf(stderr, "K/V: Invalid block %ju key %d\n", offset, i);
             return -EILSEQ;
         }
         auto value = read_string(data, size, &pos);
         if (pos < 0)
         {
-            fprintf(stderr, "K/V: Invalid block %lu value %d\n", offset, i);
+            fprintf(stderr, "K/V: Invalid block %ju value %d\n", offset, i);
             return -EILSEQ;
         }
         this->data[key] = value;
@@ -470,7 +470,7 @@ static void dump_str(const std::string & str)
 void kv_block_t::dump(int base_level)
 {
     printf(
-        "{\n    \"block\": %lu,\n    \"level\": %d,\n    \"type\": \"%s\",\n    \"range\": [",
+        "{\n    \"block\": %ju,\n    \"level\": %d,\n    \"type\": \"%s\",\n    \"range\": [",
         offset, base_level+level,
         type < sizeof(block_type_names)/sizeof(block_type_names[0]) ? block_type_names[type] : "unknown"
     );
@@ -482,7 +482,7 @@ void kv_block_t::dump(int base_level)
     {
         printf("    \"right_half\": { ");
         dump_str(right_half);
-        printf(": %lu },\n", right_half_block);
+        printf(": %ju },\n", right_half_block);
     }
     printf("    \"data\": {\n");
     for (auto & kv: data)
@@ -493,7 +493,7 @@ void kv_block_t::dump(int base_level)
         if (type == KV_LEAF || type == KV_LEAF_SPLIT || kv.second.size() != 8)
             dump_str(kv.second);
         else
-            printf("%lu", *(uint64_t*)kv.second.c_str());
+            printf("%ju", *(uint64_t*)kv.second.c_str());
         printf(",\n");
     }
     printf("    }\n}\n");
@@ -1037,7 +1037,7 @@ void kv_op_t::get()
         {
             if (cur_block != 0)
             {
-                fprintf(stderr, "K/V: Hit empty block %lu while searching\n", cur_block);
+                fprintf(stderr, "K/V: Hit empty block %ju while searching\n", cur_block);
                 finish(-EILSEQ);
             }
             else
@@ -1095,7 +1095,7 @@ int kv_op_t::handle_block(int res, int refresh, bool stop_on_split)
         bool fatal = !this->updating_on_path && this->retry > 0;
         if (fatal || db->log_level > 0)
         {
-            fprintf(stderr, "K/V: %sgot unrelated block %lu: key=%s range=[%s, %s) from=[%s, %s)\n",
+            fprintf(stderr, "K/V: %sgot unrelated block %ju: key=%s range=[%s, %s) from=[%s, %s)\n",
                 fatal ? "Error: " : "Warning: read/update collision: ",
                 cur_block, key.c_str(), blk->key_ge.c_str(), blk->key_lt.c_str(), prev_key_ge.c_str(), prev_key_lt.c_str());
             if (fatal)
@@ -1160,7 +1160,7 @@ int kv_op_t::handle_block(int res, int refresh, bool stop_on_split)
         auto child_it = blk->data.upper_bound(key);
         if (child_it == blk->data.begin())
         {
-            fprintf(stderr, "K/V: Internal block %lu misses boundary for %s\n", cur_block, key.c_str());
+            fprintf(stderr, "K/V: Internal block %ju misses boundary for %s\n", cur_block, key.c_str());
             return -EILSEQ;
         }
         auto m = child_it == blk->data.end()
@@ -1169,7 +1169,7 @@ int kv_op_t::handle_block(int res, int refresh, bool stop_on_split)
         child_it--;
         if (child_it->second.size() != sizeof(uint64_t))
         {
-            fprintf(stderr, "K/V: Internal block %lu reference is not 8 byte long\n", cur_block);
+            fprintf(stderr, "K/V: Internal block %ju reference is not 8 byte long\n", cur_block);
             blk->dump(db->base_block_level);
             return -EILSEQ;
         }
@@ -1246,7 +1246,7 @@ static void write_block(kv_db_t *db, kv_block_t *blk, std::function<void(int)> c
         blk->dump(db->base_block_level);
         uint64_t old_size = blk->data_size;
         blk->set_data_size();
-        fprintf(stderr, "K/V: block %lu (ptr=%lx) grew too large: tracked %lu, but real is %u bytes\n",
+        fprintf(stderr, "K/V: block %ju (ptr=%jx) grew too large: tracked %ju, but real is %u bytes\n",
             blk->offset, (uint64_t)blk, old_size, blk->data_size);
         abort();
         return;
@@ -1479,7 +1479,7 @@ void kv_op_t::update_find()
             else if (cur_block == 0)
                 finish(-ENOENT);
             else
-                fprintf(stderr, "K/V: Hit empty block %lu while searching\n", cur_block);
+                fprintf(stderr, "K/V: Hit empty block %ju while searching\n", cur_block);
         }
         else if (res == -ECHILD)
         {
@@ -1506,7 +1506,7 @@ void kv_op_t::create_root()
     // if a referenced non-root block is empty, we just return an error.
     if (cur_block != 0 || db->next_free != 0)
     {
-        fprintf(stderr, "K/V: create_root called with non-empty DB (cur_block=%lu)\n", cur_block);
+        fprintf(stderr, "K/V: create_root called with non-empty DB (cur_block=%ju)\n", cur_block);
         finish(-EILSEQ);
         return;
     }
@@ -1551,7 +1551,7 @@ void kv_op_t::resume_split()
     if (path.size() == 1)
     {
         // It shouldn't be the root block because we don't split it via INT_SPLIT/LEAF_SPLIT
-        fprintf(stderr, "K/V: resume_split at root item (cur_block=%lu)\n", cur_block);
+        fprintf(stderr, "K/V: resume_split at root item (cur_block=%ju)\n", cur_block);
         finish(-EILSEQ);
         return;
     }
@@ -1638,7 +1638,7 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
         {
             blk->dump(0);
             // Should not happen - we should have resumed the split
-            fprintf(stderr, "K/V: attempt to write into block %lu instead of resuming the split (got here from %s..%s)\n",
+            fprintf(stderr, "K/V: attempt to write into block %ju instead of resuming the split (got here from %s..%s)\n",
                 blk->offset, prev_key_ge.c_str(), prev_key_lt.c_str());
             abort();
         }
@@ -1650,7 +1650,7 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
         // No need to split the block => just modify and write it
         if ((blk->type == KV_LEAF_SPLIT || blk->type == KV_INT_SPLIT) && key >= blk->right_half)
         {
-            fprintf(stderr, "K/V: attempt to modify %s in unrelated split block %lu [%s..%s..%s)\n",
+            fprintf(stderr, "K/V: attempt to modify %s in unrelated split block %ju [%s..%s..%s)\n",
                 key.c_str(), blk->offset, blk->key_ge.c_str(), blk->right_half.c_str(), blk->key_lt.c_str());
             blk->dump(db->base_block_level);
             abort();
@@ -1753,11 +1753,11 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
                         clear_block(db, left_blk, 0, [=, left_offset = left_blk->offset](int res)
                         {
                             if (res < 0)
-                                fprintf(stderr, "Failed to clear unreferenced block %lu: %s (code %d)\n", left_offset, strerror(-res), res);
+                                fprintf(stderr, "Failed to clear unreferenced block %ju: %s (code %d)\n", left_offset, strerror(-res), res);
                             clear_block(db, right_blk, 0, [=, right_offset = right_blk->offset](int res)
                             {
                                 if (res < 0)
-                                    fprintf(stderr, "Failed to clear unreferenced block %lu: %s (code %d)\n", right_offset, strerror(-res), res);
+                                    fprintf(stderr, "Failed to clear unreferenced block %ju: %s (code %d)\n", right_offset, strerror(-res), res);
                                 // CAS failure - zero garbage left_blk and right_blk and retry from the beginning
                                 if (write_res == -EINTR)
                                     update();
@@ -1784,7 +1784,7 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
             if (path_pos == 0)
             {
                 // Block number zero should always be the root block
-                fprintf(stderr, "K/V: root block is not 0, but %lu\n", cur_block);
+                fprintf(stderr, "K/V: root block is not 0, but %ju\n", cur_block);
                 cb(-EILSEQ);
                 return;
             }
@@ -1809,7 +1809,7 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
                     clear_block(db, right_blk, 0, [=, right_offset = right_blk->offset](int res)
                     {
                         if (res < 0)
-                            fprintf(stderr, "Failed to clear unreferenced block %lu: %s (code %d)\n", right_offset, strerror(-res), res);
+                            fprintf(stderr, "Failed to clear unreferenced block %ju: %s (code %d)\n", right_offset, strerror(-res), res);
                         // CAS failure - zero garbage right_blk and retry from the beginning
                         if (write_res == -EINTR)
                             update();
@@ -1860,7 +1860,7 @@ void kv_op_t::next_handle_block(int res, int refresh)
             finish(-ENOENT);
         else
         {
-            fprintf(stderr, "K/V: Hit empty block %lu while searching\n", cur_block);
+            fprintf(stderr, "K/V: Hit empty block %ju while searching\n", cur_block);
             finish(-EILSEQ);
         }
     }

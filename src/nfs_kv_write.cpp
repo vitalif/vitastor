@@ -608,7 +608,7 @@ static void nfs_kv_extend_inode(nfs_kv_write_state *st, int state, int base_stat
         auto ientry = json11::Json::parse(old_value, err).object_items();
         if (err != "")
         {
-            fprintf(stderr, "Invalid JSON in inode %lu = %s: %s\n", st->ino, old_value.c_str(), err.c_str());
+            fprintf(stderr, "Invalid JSON in inode %ju = %s: %s\n", st->ino, old_value.c_str(), err.c_str());
             st->res2 = -EINVAL;
             return false;
         }

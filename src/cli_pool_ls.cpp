@@ -205,7 +205,7 @@ resume_1:
                 { "raw_to_usable", pool_stats[pool_cfg.id]["raw_to_usable"].number_value() },
                 { "space_efficiency", pool_stats[pool_cfg.id]["space_efficiency"].number_value() },
                 { "pg_real_size", pool_stats[pool_cfg.id]["pg_real_size"].uint64_value() },
-                { "osd_count", pg_per_osd.size() },
+                { "osd_count", (uint64_t)pg_per_osd.size() },
             };
         }
         // Include full pool config

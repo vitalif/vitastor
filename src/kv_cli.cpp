@@ -452,7 +452,7 @@ void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<vo
         auto name = cmd.size() > 1 ? cmd[1] : "";
         uint64_t pool_id = 0;
         inode_t inode_id = 0;
-        int scanned = sscanf(name.c_str(), "%lu %lu", &pool_id, &inode_id);
+        int scanned = sscanf(name.c_str(), "%ju %ju", &pool_id, &inode_id);
         if (scanned < 2 || !pool_id || !inode_id)
         {
             inode_id = 0;
@@ -483,7 +483,7 @@ void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<vo
             else
             {
                 opened = true;
-                fprintf(interactive ? stdout : stderr, "Index opened. Current size: %lu bytes\n", db->get_size());
+                fprintf(interactive ? stdout : stderr, "Index opened. Current size: %ju bytes\n", db->get_size());
             }
             cb(res);
         });

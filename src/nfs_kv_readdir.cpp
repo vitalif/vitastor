@@ -258,7 +258,7 @@ resume_3:
         auto name = kv_direntry_filename(st->cur_key);
         if (st->self->parent->trace)
         {
-            fprintf(stderr, "[%d] READDIR %ju %lu %s\n",
+            fprintf(stderr, "[%d] READDIR %ju %ju %s\n",
                 st->self->nfs_fd, st->dir_ino, st->offset, name.c_str());
         }
         auto fh = kv_fh(ino);

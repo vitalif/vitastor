@@ -497,7 +497,7 @@ static void extend_inode(nfs_client_t *self, uint64_t inode, uint64_t new_size)
             auto & ext = self->parent->blockfs->extends[inode];
             if (r.err)
             {
-                fprintf(stderr, "Error extending inode %lu to %lu bytes: %s\n", inode, new_size, r.text.c_str());
+                fprintf(stderr, "Error extending inode %ju to %ju bytes: %s\n", inode, new_size, r.text.c_str());
             }
             if (r.err == EAGAIN || ext.next_extend > ext.cur_extend)
             {
