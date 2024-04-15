@@ -1430,7 +1430,15 @@ class Mon
         }
         console.log(`Pool ${pool_id} (${pool_cfg.name || 'unnamed'}):`);
         LPOptimizer.print_change_stats(optimize_result);
-        const pg_effsize = Math.min(pool_cfg.pg_size, Object.keys(pool_tree).length);
+        let pg_effsize = pool_cfg.pg_size;
+        for (const pg of optimize_result.int_pgs)
+        {
+            const this_pg_size = pg.filter(osd => osd != LPOptimizer.NO_OSD).length;
+            if (this_pg_size && this_pg_size < pg_effsize)
+            {
+                pg_effsize = this_pg_size;
+            }
+        }
         return {
             pool_id,
             pgs: optimize_result.int_pgs,
