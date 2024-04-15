@@ -1562,10 +1562,6 @@ class Mon
 
     async apply_pool_pgs(results, up_osds, osd_tree, tree_hash)
     {
-        if (!results.length)
-        {
-            return true;
-        }
         for (const pool_id in (this.state.config.pgs||{}).items||{})
         {
             // We should stop all PGs when deleting a pool or changing its PG count
