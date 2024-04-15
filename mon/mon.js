@@ -215,7 +215,7 @@ const etcd_tree = {
         }, */
         pools: {},
         osd: {
-            /* <id>: { reweight?: 1, tags?: [ 'nvme', ... ] }, ... */
+            /* <id>: { reweight?: 1, tags?: [ 'nvme', ... ], noout?: true }, ... */
         },
         /* pgs: {
             hash: string,
@@ -892,10 +892,11 @@ class Mon
         for (const osd_num of this.all_osds().sort((a, b) => a - b))
         {
             const stat = this.state.osd.stats[osd_num];
-            if (stat && stat.size && (this.state.osd.state[osd_num] || Number(stat.time) >= down_time))
+            const osd_cfg = this.state.config.osd[osd_num];
+            if (stat && stat.size && (this.state.osd.state[osd_num] || Number(stat.time) >= down_time ||
+                osd_cfg && osd_cfg.noout))
             {
                 // Numeric IDs are reserved for OSDs
-                const osd_cfg = this.state.config.osd[osd_num];
                 let reweight = osd_cfg == null ? 1 : Number(osd_cfg.reweight);
                 if (reweight < 0 || isNaN(reweight))
                     reweight = 1;

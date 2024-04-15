@@ -86,7 +86,11 @@ Parent node reference is required for intermediate tree nodes.
 Separate OSD settings are set in etc keys `/vitastor/config/osd/<number>`
 in JSON format `{"<key>":<value>}`.
 
-As of now, two settings are supported:
+As of now, the following settings are supported:
+
+- [reweight](#reweight)
+- [tags](#tags)
+- [noout](#noout)
 
 ## reweight
 
@@ -108,6 +112,14 @@ Sets tag or multiple tags for this OSD. Tags can be used to group OSDs into
 subsets and then use a specific subset for pool instead of all OSDs.
 For example you can mark SSD OSDs with tag "ssd" and HDD OSDs with "hdd" and
 such tags will work as device classes.
+
+## noout
+
+- Type: boolean
+- Default: false
+
+If set to true, [osd_out_time](monitor.en.md#osd_out_time) is ignored for this
+OSD and it's never removed from data distribution by the monitor.
 
 # Pool parameters
 
