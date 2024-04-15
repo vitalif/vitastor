@@ -747,6 +747,7 @@ class Mon
         this.save_last_clean_running = true;
         // last_clean_pgs is used to avoid extra data move when observing a series of changes in the cluster
         const new_clean_pgs = { items: {} };
+        // eslint-disable-next-line indent
     next_pool:
         for (const pool_id in this.state.config.pools)
         {
@@ -829,6 +830,7 @@ class Mon
     async become_master()
     {
         const state = { ...this.get_mon_state(), id: ''+this.etcd_lease_id };
+        // eslint-disable-next-line no-constant-condition
         while (1)
         {
             const res = await this.etcd_call('/kv/txn', {
@@ -1316,7 +1318,7 @@ class Mon
             for (const k in rules)
             {
                 if (!levels[k] || typeof rules[k] !== 'string' &&
-                    (!rules[k] instanceof Array ||
+                    (!(rules[k] instanceof Array) ||
                     rules[k].filter(s => typeof s !== 'string' && typeof s !== 'number').length > 0))
                 {
                     if (warn)

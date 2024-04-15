@@ -152,6 +152,7 @@ function parse_pg_dsl(text)
             else if (rule[2] === '(')
             {
                 rule[2] = [];
+                // eslint-disable-next-line no-constant-condition
                 while (true)
                 {
                     if (i > tokens.length-1)

@@ -11,5 +11,15 @@
   "dependencies": {
     "sprintf-js": "^1.1.2",
     "ws": "^7.2.5"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0",
+    "eslint-plugin-node": "^11.1.0"
+  },
+  "engines": {
+    "node": ">=12.0.0"
+  },
+  "scripts": {
+    "lint": "eslint *.js"
   }
 }

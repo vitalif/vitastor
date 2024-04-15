@@ -64,6 +64,13 @@ jobs:
     # leak sanitizer sometimes crashes
     - run: cd /root/vitastor/build && ASAN_OPTIONS=detect_leaks=0 make -j16 test
 
+  npm_lint:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - run: cd /root/vitastor/mon && npm run lint
+
   test_add_osd:
     runs-on: ubuntu-latest
     needs: build

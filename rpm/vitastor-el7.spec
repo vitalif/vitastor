@@ -104,7 +104,7 @@ rm -rf $RPM_BUILD_ROOT
 %make_install
 . /opt/rh/rh-nodejs12/enable
 cd mon
-npm install
+npm install --production
 cd ..
 mkdir -p %buildroot/usr/lib/vitastor
 cp -r mon %buildroot/usr/lib/vitastor

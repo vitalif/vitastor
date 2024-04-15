@@ -101,7 +101,7 @@ Vitastor fio drivers for benchmarking.
 rm -rf $RPM_BUILD_ROOT
 %make_install
 cd mon
-npm install
+npm install --production
 cd ..
 mkdir -p %buildroot/usr/lib/vitastor
 cp -r mon %buildroot/usr/lib/vitastor

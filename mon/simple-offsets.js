@@ -38,7 +38,7 @@ async function run()
         const st = await fs.stat(options.device);
         options.device_block_size = st.blksize;
         if (st.isBlockDevice())
-            device_size = Number(await system("/sbin/blockdev --getsize64 "+options.device))
+            device_size = Number(await system("/sbin/blockdev --getsize64 "+options.device));
         else
             device_size = st.size;
     }
