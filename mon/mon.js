@@ -881,13 +881,13 @@ class Mon
         {
             const stat = this.state.osd.stats[osd_num];
             const osd_cfg = this.state.config.osd[osd_num];
-            if (stat && stat.size && (this.state.osd.state[osd_num] || Number(stat.time) >= down_time ||
+            let reweight = osd_cfg == null ? 1 : Number(osd_cfg.reweight);
+            if (reweight < 0 || isNaN(reweight))
+                reweight = 1;
+            if (stat && stat.size && reweight && (this.state.osd.state[osd_num] || Number(stat.time) >= down_time ||
                 osd_cfg && osd_cfg.noout))
             {
                 // Numeric IDs are reserved for OSDs
-                let reweight = osd_cfg == null ? 1 : Number(osd_cfg.reweight);
-                if (reweight < 0 || isNaN(reweight))
-                    reweight = 1;
                 if (this.state.osd.state[osd_num] && reweight > 0)
                 {
                     // React to down OSDs immediately
