@@ -875,20 +875,6 @@ class Mon
         levels.osd = levels.osd || 101;
         const tree = {};
         let up_osds = {};
-        for (const node_id in this.state.config.node_placement||{})
-        {
-            const node_cfg = this.state.config.node_placement[node_id];
-            if (/^\d+$/.exec(node_id))
-            {
-                node_cfg.level = 'osd';
-            }
-            if (!node_id || !node_cfg.level || !levels[node_cfg.level])
-            {
-                // All nodes must have non-empty IDs and valid levels
-                continue;
-            }
-            tree[node_id] = { id: node_id, level: node_cfg.level, parent: node_cfg.parent, children: [] };
-        }
         // This requires monitor system time to be in sync with OSD system times (at least to some extent)
         const down_time = Date.now()/1000 - this.config.osd_out_time;
         for (const osd_num of this.all_osds().sort((a, b) => a - b))
@@ -927,6 +913,29 @@ class Mon
                         children: [],
                     };
                 }
+            }
+        }
+        for (const node_id in this.state.config.node_placement||{})
+        {
+            const node_cfg = this.state.config.node_placement[node_id];
+            if (/^\d+$/.exec(node_id))
+            {
+                node_cfg.level = 'osd';
+            }
+            if (!node_id || !node_cfg.level || !levels[node_cfg.level] ||
+                node_cfg.level === 'osd' && !tree[node_id])
+            {
+                // All nodes must have non-empty IDs and valid levels
+                // OSDs have to actually exist
+                continue;
+            }
+            tree[node_id] = tree[node_id] || {};
+            tree[node_id].id = node_id;
+            tree[node_id].level = node_cfg.level;
+            tree[node_id].parent = node_cfg.parent;
+            if (node_cfg.level !== 'osd')
+            {
+                tree[node_id].children = [];
             }
         }
         return { up_osds, levels, osd_tree: tree };
