@@ -198,7 +198,6 @@ function all_combinations(osd_tree, pg_size, ordered, count)
 
 function check_combinations(osd_tree, pgs)
 {
-    const hosts = Object.keys(osd_tree).sort();
     const host_per_osd = {};
     for (const host in osd_tree)
     {
@@ -235,6 +234,7 @@ function compat(params)
 
 module.exports = {
     flatten_tree,
+    all_combinations,
     SimpleCombinator,
     compat,
     NO_OSD,

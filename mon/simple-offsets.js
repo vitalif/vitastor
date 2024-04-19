@@ -91,7 +91,7 @@ async function run()
 
 function system(cmd)
 {
-    return new Promise((ok, no) => child_process.exec(cmd, { maxBuffer: 64*1024*1024 }, (err, stdout, stderr) => (err ? no(err.message) : ok(stdout))));
+    return new Promise((ok, no) => child_process.exec(cmd, { maxBuffer: 64*1024*1024 }, (err, stdout/*, stderr*/) => (err ? no(err.message) : ok(stdout))));
 }
 
 run().catch(err => { console.error(err); process.exit(1); });

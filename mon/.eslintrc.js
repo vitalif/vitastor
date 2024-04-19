@@ -30,16 +30,10 @@ module.exports = {
             "error",
             "always"
         ],
-        "require-atomic-updates": [
-            "off"
-        ],
         "no-useless-escape": [
             "off"
         ],
         "no-control-regex": [
-            "off"
-        ],
-        "no-unused-vars": [
             "off"
         ],
         "no-empty": [

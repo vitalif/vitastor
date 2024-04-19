@@ -585,7 +585,7 @@ class Mon
                 now = Date.now();
             }
             tried[base] = now;
-            const ok = await new Promise((ok, no) =>
+            const ok = await new Promise(ok =>
             {
                 const timer_id = setTimeout(() =>
                 {
@@ -994,7 +994,7 @@ class Mon
                 const key = b64(this.etcd_prefix+'/osd/state/'+osd_num);
                 checks.push({ key, target: 'MOD', result: 'LESS', mod_revision: ''+this.etcd_watch_revision });
             }
-            const res = await this.etcd_call('/kv/txn', {
+            await this.etcd_call('/kv/txn', {
                 compare: [
                     { key: b64(this.etcd_prefix+'/mon/master'), target: 'LEASE', lease: ''+this.etcd_lease_id },
                     { key: b64(this.etcd_prefix+'/config/pgs'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
@@ -1522,7 +1522,6 @@ class Mon
                 {
                     continue;
                 }
-                const replicated = pool_cfg.scheme === 'replicated';
                 const aff_osds = this.get_affinity_osds(pool_cfg, up_osds, osd_tree);
                 this.reset_rng();
                 for (let pg_num = 1; pg_num <= pool_cfg.pg_count; pg_num++)
@@ -1696,7 +1695,6 @@ class Mon
 
     derive_osd_stats(st, prev, prev_diff)
     {
-        const zero_stats = { op: { bps: 0n, iops: 0n, lat: 0n }, subop: { iops: 0n, lat: 0n }, recovery: { bps: 0n, iops: 0n } };
         const diff = { op_stats: {}, subop_stats: {}, recovery_stats: {}, inode_stats: {} };
         if (!st || !st.time || !prev || !prev.time || prev.time >= st.time)
         {
@@ -1736,7 +1734,7 @@ class Mon
         }
         for (const pool_id in st.inode_stats||{})
         {
-            const pool_diff = diff.inode_stats[pool_id] = {};
+            diff.inode_stats[pool_id] = {};
             for (const inode_num in st.inode_stats[pool_id])
             {
                 const inode_diff = diff.inode_stats[pool_id][inode_num] = {};
@@ -2154,7 +2152,7 @@ class Mon
     _die(err, code)
     {
         // In fact we can just try to rejoin
-        console.error(new Error(err || 'Cluster connection failed'));
+        console.error(err instanceof Error ? err : new Error(err || 'Cluster connection failed'));
         process.exit(code || 2);
     }
 
@@ -2178,7 +2176,7 @@ class Mon
 
 function POST(url, body, timeout)
 {
-    return new Promise((ok, no) =>
+    return new Promise(ok =>
     {
         const body_text = Buffer.from(JSON.stringify(body));
         let timer_id = timeout > 0 ? setTimeout(() =>

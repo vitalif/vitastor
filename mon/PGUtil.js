@@ -97,7 +97,6 @@ function scale_pg_history(prev_pg_history, prev_pgs, new_pgs)
 
 function scale_pg_count(prev_pgs, new_pg_count)
 {
-    const old_pg_count = prev_pgs.length;
     // Just for the lp_solve optimizer - pick a "previous" PG for each "new" one
     if (prev_pgs.length < new_pg_count)
     {

@@ -215,7 +215,7 @@ function calc_intersect_weights(old_pg_size, pg_size, pg_count, prev_weights, al
                 {
                     const intersect_count = ordered
                         ? pg.reduce((a, osd, i) => a + (prev_hash[osd] == 1+i ? 1 : 0), 0)
-                        : pg.reduce((a, osd, i) => a + (prev_hash[osd] ? 1 : 0), 0);
+                        : pg.reduce((a, osd) => a + (prev_hash[osd] ? 1 : 0), 0);
                     if (max_int < intersect_count)
                     {
                         max_int = intersect_count;
