@@ -958,6 +958,25 @@ class Mon
             const parent = parent_level && parent_level < node_level ? node_cfg.parent : '';
             tree[parent].children.push(tree[node_id]);
         }
+        // Delete empty nodes
+        let deleted = 0;
+        do
+        {
+            deleted = 0;
+            for (const node_id in tree)
+            {
+                if (tree[node_id].level !== 'osd' && (!tree[node_id].children || !tree[node_id].children.length))
+                {
+                    const parent = tree[node_id].parent;
+                    if (parent)
+                    {
+                        tree[parent].children = tree[parent].children.filter(c => c != tree[node_id]);
+                    }
+                    deleted++;
+                    delete tree[node_id];
+                }
+            }
+        } while (deleted > 0);
         return tree;
     }
 
