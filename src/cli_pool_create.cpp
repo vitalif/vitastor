@@ -14,7 +14,7 @@
 struct pool_creator_t
 {
     cli_tool_t *parent;
-    json11::Json::object cfg;
+    json11::Json cfg;
 
     bool force = false;
     bool wait = false;
@@ -55,8 +55,12 @@ struct pool_creator_t
             goto resume_8;
 
         // Validate pool parameters
-        result.text = validate_pool_config(cfg, json11::Json(), parent->cli->st_cli.global_block_size,
-            parent->cli->st_cli.global_bitmap_granularity, force);
+        {
+            auto new_cfg = cfg.object_items();
+            result.text = validate_pool_config(new_cfg, json11::Json(), parent->cli->st_cli.global_block_size,
+                parent->cli->st_cli.global_bitmap_granularity, force);
+            cfg = new_cfg;
+        }
         if (result.text != "")
         {
             result.err = EINVAL;
@@ -605,7 +609,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_pool_create(json11::Json c
 {
     auto pool_creator = new pool_creator_t();
     pool_creator->parent = this;
-    pool_creator->cfg = cfg.object_items();
+    pool_creator->cfg = cfg;
     pool_creator->force = cfg["force"].bool_value();
     pool_creator->wait = cfg["wait"].bool_value();
     return [pool_creator](cli_result_t & result)
