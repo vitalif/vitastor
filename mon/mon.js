@@ -1545,6 +1545,10 @@ class Mon
                 this.reset_rng();
                 for (let pg_num = 1; pg_num <= pool_cfg.pg_count; pg_num++)
                 {
+                    if (!this.state.config.pgs.items[pool_id])
+                    {
+                        continue;
+                    }
                     const pg_cfg = this.state.config.pgs.items[pool_id][pg_num];
                     if (pg_cfg)
                     {
