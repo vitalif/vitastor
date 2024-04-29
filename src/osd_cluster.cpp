@@ -534,7 +534,7 @@ void osd_t::renew_lease(bool reload)
         { "ID", etcd_lease_id }
     }, st_cli.etcd_quick_timeout, 0, 0, [this, reload](std::string err, json11::Json data)
     {
-        if (err == "" && data["result"]["TTL"].string_value() == "")
+        if (err == "" && data["result"]["TTL"].uint64_value() == 0)
         {
             // Die
             fprintf(stderr, "Error refreshing etcd lease\n");
