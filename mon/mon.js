@@ -37,7 +37,6 @@ const etcd_allow = new RegExp('^'+[
     'pg/state/[1-9]\\d*/[1-9]\\d*',
     'pg/stats/[1-9]\\d*/[1-9]\\d*',
     'pg/history/[1-9]\\d*/[1-9]\\d*',
-    'pool/stats/[1-9]\\d*',
     'history/last_clean_pgs',
     'inode/stats/[1-9]\\d*/\\d+',
     'pool/stats/[1-9]\\d*',

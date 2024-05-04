@@ -71,7 +71,7 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
         auto & key = kv_it->first;
         auto & value = kv_it->second;
         if (key == "pg_size" || key == "parity_chunks" || key == "pg_minsize" ||
-            key == "pg_count" || key == "max_osd_combinations" || key == "block_size" ||
+            key == "pg_count" || key == "max_osd_combinations" ||
             key == "bitmap_granularity" || key == "pg_stripe_size")
         {
             if (value.is_number() && value.uint64_value() != value.number_value() ||
@@ -80,6 +80,14 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
                 return key+" must be a non-negative integer";
             }
             value = value.uint64_value();
+        }
+        else if (key == "block_size")
+        {
+            value = value.is_string() ? parse_size(value.string_value()) : value.uint64_value();
+            if (!value)
+            {
+                return key+" must be an integer with or without size suffix (K/M/G/T)";
+            }
         }
         else if (key == "name" || key == "scheme" || key == "immediate_commit" ||
             key == "failure_domain" || key == "root_node" || key == "scrub_interval" || key == "used_for_fs" ||
