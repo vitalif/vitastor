@@ -34,6 +34,10 @@ for my $line (<>)
             {
                 $test_name .= '_imm';
             }
+            elsif ($1 eq 'ANTIETCD')
+            {
+                $test_name .= '_antietcd';
+            }
             else
             {
                 $test_name .= '_'.lc($1).'_'.$2;

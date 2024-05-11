@@ -15,6 +15,7 @@ SCHEME=ec ./test_change_pg_count.sh
 ./test_create_nomaxid.sh
 
 ./test_etcd_fail.sh
+ANTIETCD=1 ./test_etcd_fail.sh
 
 ./test_interrupted_rebalance.sh
 IMMEDIATE_COMMIT=1 ./test_interrupted_rebalance.sh
@@ -56,6 +57,7 @@ SCHEME=xor ./test_write.sh
 
 PG_SIZE=2 ./test_heal.sh
 SCHEME=ec ./test_heal.sh
+ANTIETCD=1 ./test_heal.sh
 
 TEST_NAME=csum_32k_dmj OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k --inmemory_metadata false --inmemory_journal false" OFFSET_ARGS=$OSD_ARGS ./test_heal.sh
 TEST_NAME=csum_32k_dj  OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k --inmemory_journal false" OFFSET_ARGS=$OSD_ARGS ./test_heal.sh

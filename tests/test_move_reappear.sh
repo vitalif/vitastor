@@ -1,5 +1,7 @@
 #!/bin/bash -ex
 
+USE_ANTIETCD=""
+
 . `dirname $0`/common.sh
 
 OSD_SIZE=1024

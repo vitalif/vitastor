@@ -18,6 +18,16 @@ else
     OSD_COUNT=${OSD_COUNT:-3}
 fi
 
+if [[ -n "$ANTIETCD" ]]; then
+    for i in $(seq 1 $ETCD_COUNT); do
+        start_etcd $i
+    done
+else
+    node mon/mon-main.js $MON_PARAMS --etcd_address $ETCD_URL --etcd_prefix "/vitastor" --verbose 1 >>./testdata/mon.log 2>&1 &
+    MON_PID=$!
+fi
+wait_etcd
+
 if [ "$IMMEDIATE_COMMIT" != "" ]; then
     NO_SAME="--journal_no_same_sector_overwrites true --journal_sector_buffer_count 1024 --disable_data_fsync 1 --immediate_commit all --log_level 10 --etcd_stats_interval 5"
     $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"recovery_tune_util_low":1,"immediate_commit":"all","client_enable_writeback":true,"client_max_writeback_iodepth":32'$GLOBAL_CONFIG'}'
@@ -53,9 +63,6 @@ start_osd()
 for i in $(seq 1 $OSD_COUNT); do
     start_osd $i
 done
-
-node mon/mon-main.js --etcd_address $ETCD_URL --etcd_prefix "/vitastor" --verbose 1 >>./testdata/mon.log 2>&1 &
-MON_PID=$!
 
 if [ "$SCHEME" = "ec" ]; then
     PG_SIZE=${PG_SIZE:-5}

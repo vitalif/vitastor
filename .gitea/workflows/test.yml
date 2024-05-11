@@ -197,6 +197,24 @@ jobs:
           echo ""
         done
 
+  test_etcd_fail_antietcd:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 10
+      run: ANTIETCD=1 /root/vitastor/tests/test_etcd_fail.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
   test_interrupted_rebalance:
     runs-on: ubuntu-latest
     needs: build
@@ -656,6 +674,24 @@ jobs:
       id: test
       timeout-minutes: 10
       run: SCHEME=ec /root/vitastor/tests/test_heal.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_heal_antietcd:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 10
+      run: ANTIETCD=1 /root/vitastor/tests/test_heal.sh
     - name: Print logs
       if: always() && steps.test.outcome == 'failure'
       run: |

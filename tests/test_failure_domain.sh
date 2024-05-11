@@ -2,6 +2,10 @@
 
 . `dirname $0`/common.sh
 
+node mon/mon-main.js $MON_PARAMS --etcd_address $ETCD_URL --etcd_prefix "/vitastor" >>./testdata/mon.log 2>&1 &
+MON_PID=$!
+wait_etcd
+
 TIME=$(date '+%s')
 $ETCDCTL put /vitastor/config/global '{"placement_levels":{"rack":1,"host":2,"osd":3},"immediate_commit":"none"}'
 $ETCDCTL put /vitastor/config/node_placement '{"rack1":{"level":"rack"},"rack2":{"level":"rack"},"host1":{"level":"host","parent":"rack1"},"host2":{"level":"host","parent":"rack1"},"host3":{"level":"host","parent":"rack2"},"host4":{"level":"host","parent":"rack2"}}'
@@ -22,12 +26,9 @@ $ETCDCTL get --print-value-only /vitastor/config/pools | jq -s -e '. == [{}]'
 build/src/cmd/vitastor-cli --etcd_address $ETCD_URL create-pool testpool -s 2 -n 4 --failure_domain rack --force
 $ETCDCTL get --print-value-only /vitastor/config/pools | jq -s -e '. == [{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":4,"failure_domain":"rack"}}]'
 
-node mon/mon-main.js --etcd_address $ETCD_URL --etcd_prefix "/vitastor" >>./testdata/mon.log 2>&1 &
-MON_PID=$!
-
 sleep 2
 
-etcdctl --endpoints=http://localhost:12379 get --prefix /vitastor/config/pgs --print-value-only | \
+$ETCDCTL get --prefix /vitastor/config/pgs --print-value-only | \
     jq -s -e '([ .[0].items["1"] | .[].osd_set | map_values(. | tonumber) | select((.[0] <= 4) != (.[1] <= 4)) ] | length) == 4'
 
 format_green OK

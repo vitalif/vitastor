@@ -24,6 +24,7 @@ ETCD=${ETCD:-etcd}
 ETCD_IP=${ETCD_IP:-127.0.0.1}
 ETCD_PORT=${ETCD_PORT:-12379}
 ETCD_COUNT=${ETCD_COUNT:-1}
+ANTIETCD=${ANTIETCD}
 
 if [ "$KEEP_DATA" = "" ]; then
     rm -rf ./testdata
@@ -32,36 +33,59 @@ if [ "$KEEP_DATA" = "" ]; then
 fi
 
 ETCD_URL="http://$ETCD_IP:$ETCD_PORT"
-ETCD_CLUSTER="etcd1=http://$ETCD_IP:$((ETCD_PORT+1))"
 for i in $(seq 2 $ETCD_COUNT); do
     ETCD_URL="$ETCD_URL,http://$ETCD_IP:$((ETCD_PORT+2*i-2))"
-    ETCD_CLUSTER="$ETCD_CLUSTER,etcd$i=http://$ETCD_IP:$((ETCD_PORT+2*i-1))"
 done
-ETCDCTL="${ETCD}ctl --endpoints=$ETCD_URL --dial-timeout=5s --command-timeout=10s"
 
 start_etcd()
 {
     local i=$1
-    local t=/run/user/$(id -u)
-    findmnt $t >/dev/null || (sudo mkdir -p $t && sudo mount -t tmpfs tmpfs $t)
-    ionice -c2 -n0 $ETCD -name etcd$i --data-dir /run/user/$(id -u)/testdata_etcd$i \
-        --advertise-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) --listen-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) \
-        --initial-advertise-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) --listen-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) \
-        --initial-cluster-token vitastor-tests-etcd --initial-cluster-state new \
-        --initial-cluster "$ETCD_CLUSTER" --max-request-bytes=104857600 \
-        --max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision &>./testdata/etcd$i.log &
-    eval ETCD${i}_PID=$!
+    if [[ -z "$ANTIETCD" ]]; then
+        local t=/run/user/$(id -u)
+        findmnt $t >/dev/null || (sudo mkdir -p $t && sudo mount -t tmpfs tmpfs $t)
+        ionice -c2 -n0 $ETCD -name etcd$i --data-dir /run/user/$(id -u)/testdata_etcd$i \
+            --advertise-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) --listen-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) \
+            --initial-advertise-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) --listen-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) \
+            --initial-cluster-token vitastor-tests-etcd --initial-cluster-state new \
+            --initial-cluster "$ETCD_CLUSTER" --max-request-bytes=104857600 \
+            --max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision &>./testdata/etcd$i.log &
+        eval ETCD${i}_PID=$!
+    else
+        node mon/mon-main.js $MON_PARAMS --antietcd_port $((ETCD_PORT+2*i-2)) --etcd_address $ETCD_URL --etcd_prefix "/vitastor" --verbose 1 >>./testdata/mon$i.log 2>&1 &
+        eval ETCD${i}_PID=$!
+    fi
 }
 
-for i in $(seq 1 $ETCD_COUNT); do
-    start_etcd $i
-done
-for i in {1..30}; do
-    ${ETCD}ctl --endpoints=$ETCD_URL --dial-timeout=1s --command-timeout=1s member list >/dev/null && break
-    if [[ $i = 30 ]]; then
-        format_error "Failed to start etcd"
-    fi
-done
+start_etcd_cluster()
+{
+    ETCD_CLUSTER="etcd1=http://$ETCD_IP:$((ETCD_PORT+1))"
+    for i in $(seq 2 $ETCD_COUNT); do
+        ETCD_CLUSTER="$ETCD_CLUSTER,etcd$i=http://$ETCD_IP:$((ETCD_PORT+2*i-1))"
+    done
+    for i in $(seq 1 $ETCD_COUNT); do
+        start_etcd $i
+    done
+}
+
+wait_etcd()
+{
+    for i in {1..30}; do
+        $ETCDCTL --dial-timeout=1s --command-timeout=1s get --prefix / && break
+        if [[ $i = 30 ]]; then
+            format_error "Failed to start etcd"
+        fi
+        sleep 1
+    done
+}
+
+if [[ -n "$ANTIETCD" ]]; then
+    ETCDCTL="node mon/node_modules/.bin/anticli -e $ETCD_URL"
+    MON_PARAMS="--use_antietcd 1 --antietcd_data_dir ./testdata --antietcd_persist_interval 500 $MON_PARAMS"
+else
+    ETCDCTL="${ETCD}ctl --endpoints=$ETCD_URL --dial-timeout=5s --command-timeout=10s"
+    MON_PARAMS="$MON_PARAMS"
+    start_etcd_cluster
+fi
 
 echo leak:fio >> testdata/lsan-suppress.txt
 echo leak:tcmalloc >> testdata/lsan-suppress.txt
