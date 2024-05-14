@@ -1,0 +1,190 @@
+diff --git a/block/meson.build b/block/meson.build
+index e1f03fd773..db0cfb2321 100644
+--- a/block/meson.build
++++ b/block/meson.build
+@@ -114,6 +114,7 @@ foreach m : [
+   [libnfs, 'nfs', files('nfs.c')],
+   [libssh, 'ssh', files('ssh.c')],
+   [rbd, 'rbd', files('rbd.c')],
++  [vitastor, 'vitastor', files('vitastor.c')],
+ ]
+   if m[0].found()
+     module_ss = ss.source_set()
+diff --git a/meson.build b/meson.build
+index 91a0aa64c6..e8bc710578 100644
+--- a/meson.build
++++ b/meson.build
+@@ -1452,6 +1452,26 @@ if not get_option('rbd').auto() or have_block
+   endif
+ endif
+ 
++vitastor = not_found
++if not get_option('vitastor').auto() or have_block
++  libvitastor_client = cc.find_library('vitastor_client', has_headers: ['vitastor_c.h'],
++    required: get_option('vitastor'))
++  if libvitastor_client.found()
++    if cc.links('''
++      #include <vitastor_c.h>
++      int main(void) {
++        vitastor_c_create_qemu(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
++        return 0;
++      }''', dependencies: libvitastor_client)
++      vitastor = declare_dependency(dependencies: libvitastor_client)
++    elif get_option('vitastor').enabled()
++      error('could not link libvitastor_client')
++    else
++      warning('could not link libvitastor_client, disabling')
++    endif
++  endif
++endif
++
+ glusterfs = not_found
+ glusterfs_ftruncate_has_stat = false
+ glusterfs_iocb_has_stat = false
+@@ -2250,6 +2270,7 @@ endif
+ config_host_data.set('CONFIG_OPENGL', opengl.found())
+ config_host_data.set('CONFIG_PLUGIN', get_option('plugins'))
+ config_host_data.set('CONFIG_RBD', rbd.found())
++config_host_data.set('CONFIG_VITASTOR', vitastor.found())
+ config_host_data.set('CONFIG_RDMA', rdma.found())
+ config_host_data.set('CONFIG_RELOCATABLE', get_option('relocatable'))
+ config_host_data.set('CONFIG_SAFESTACK', get_option('safe_stack'))
+@@ -4443,6 +4464,7 @@ summary_info += {'fdt support':       fdt_opt == 'disabled' ? false : fdt_opt}
+ summary_info += {'libcap-ng support': libcap_ng}
+ summary_info += {'bpf support':       libbpf}
+ summary_info += {'rbd support':       rbd}
++summary_info += {'vitastor support':  vitastor}
+ summary_info += {'smartcard support': cacard}
+ summary_info += {'U2F support':       u2f}
+ summary_info += {'libusb':            libusb}
+diff --git a/meson_options.txt b/meson_options.txt
+index 0a99a059ec..16dc440118 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -194,6 +194,8 @@ option('lzo', type : 'feature', value : 'auto',
+        description: 'lzo compression support')
+ option('rbd', type : 'feature', value : 'auto',
+        description: 'Ceph block device driver')
++option('vitastor', type : 'feature', value : 'auto',
++       description: 'Vitastor block device driver')
+ option('opengl', type : 'feature', value : 'auto',
+        description: 'OpenGL support')
+ option('rdma', type : 'feature', value : 'auto',
+diff --git a/qapi/block-core.json b/qapi/block-core.json
+index 746d1694c2..fb7aa4423b 100644
+--- a/qapi/block-core.json
++++ b/qapi/block-core.json
+@@ -3203,7 +3203,7 @@
+             'parallels', 'preallocate', 'qcow', 'qcow2', 'qed', 'quorum',
+             'raw', 'rbd',
+             { 'name': 'replication', 'if': 'CONFIG_REPLICATION' },
+-            'ssh', 'throttle', 'vdi', 'vhdx',
++            'ssh', 'throttle', 'vdi', 'vhdx', 'vitastor',
+             { 'name': 'virtio-blk-vfio-pci', 'if': 'CONFIG_BLKIO' },
+             { 'name': 'virtio-blk-vhost-user', 'if': 'CONFIG_BLKIO' },
+             { 'name': 'virtio-blk-vhost-vdpa', 'if': 'CONFIG_BLKIO' },
+@@ -4285,6 +4285,28 @@
+             '*key-secret': 'str',
+             '*server': ['InetSocketAddressBase'] } }
+ 
++##
++# @BlockdevOptionsVitastor:
++#
++# Driver specific block device options for vitastor
++#
++# @image:       Image name
++# @inode:       Inode number
++# @pool:        Pool ID
++# @size:        Desired image size in bytes
++# @config-path: Path to Vitastor configuration
++# @etcd-host:   etcd connection address(es)
++# @etcd-prefix: etcd key/value prefix
++##
++{ 'struct': 'BlockdevOptionsVitastor',
++  'data': { '*inode': 'uint64',
++            '*pool': 'uint64',
++            '*size': 'uint64',
++            '*image': 'str',
++            '*config-path': 'str',
++            '*etcd-host': 'str',
++            '*etcd-prefix': 'str' } }
++
+ ##
+ # @ReplicationMode:
+ #
+@@ -4741,6 +4763,7 @@
+       'throttle':   'BlockdevOptionsThrottle',
+       'vdi':        'BlockdevOptionsGenericFormat',
+       'vhdx':       'BlockdevOptionsGenericFormat',
++      'vitastor':   'BlockdevOptionsVitastor',
+       'virtio-blk-vfio-pci':
+                     { 'type': 'BlockdevOptionsVirtioBlkVfioPci',
+                       'if': 'CONFIG_BLKIO' },
+@@ -5180,6 +5203,17 @@
+             '*cluster-size' :   'size',
+             '*encrypt' :        'RbdEncryptionCreateOptions' } }
+ 
++##
++# @BlockdevCreateOptionsVitastor:
++#
++# Driver specific image creation options for Vitastor.
++#
++# @size: Size of the virtual disk in bytes
++##
++{ 'struct': 'BlockdevCreateOptionsVitastor',
++  'data': { 'location':         'BlockdevOptionsVitastor',
++            'size':             'size' } }
++
+ ##
+ # @BlockdevVmdkSubformat:
+ #
+@@ -5402,6 +5436,7 @@
+       'ssh':            'BlockdevCreateOptionsSsh',
+       'vdi':            'BlockdevCreateOptionsVdi',
+       'vhdx':           'BlockdevCreateOptionsVhdx',
++      'vitastor':       'BlockdevCreateOptionsVitastor',
+       'vmdk':           'BlockdevCreateOptionsVmdk',
+       'vpc':            'BlockdevCreateOptionsVpc'
+   } }
+diff --git a/scripts/ci/org.centos/stream/8/x86_64/configure b/scripts/ci/org.centos/stream/8/x86_64/configure
+index 76781f17f4..ac5fe3aa08 100755
+--- a/scripts/ci/org.centos/stream/8/x86_64/configure
++++ b/scripts/ci/org.centos/stream/8/x86_64/configure
+@@ -30,7 +30,7 @@
+ --with-suffix="qemu-kvm" \
+ --firmwarepath=/usr/share/qemu-firmware \
+ --target-list="x86_64-softmmu" \
+---block-drv-rw-whitelist="qcow2,raw,file,host_device,nbd,iscsi,rbd,blkdebug,luks,null-co,nvme,copy-on-read,throttle,gluster" \
++--block-drv-rw-whitelist="qcow2,raw,file,host_device,nbd,iscsi,rbd,vitastor,blkdebug,luks,null-co,nvme,copy-on-read,throttle,gluster" \
+ --audio-drv-list="" \
+ --block-drv-ro-whitelist="vmdk,vhdx,vpc,https,ssh" \
+ --with-coroutine=ucontext \
+@@ -176,6 +176,7 @@
+ --enable-opengl \
+ --enable-pie \
+ --enable-rbd \
++--enable-vitastor \
+ --enable-rdma \
+ --enable-seccomp \
+ --enable-snappy \
+diff --git a/scripts/meson-buildoptions.sh b/scripts/meson-buildoptions.sh
+index 680fa3f581..dab422bf04 100644
+--- a/scripts/meson-buildoptions.sh
++++ b/scripts/meson-buildoptions.sh
+@@ -168,6 +168,7 @@ meson_options_help() {
+   printf "%s\n" '  qed             qed image format support'
+   printf "%s\n" '  qga-vss         build QGA VSS support (broken with MinGW)'
+   printf "%s\n" '  rbd             Ceph block device driver'
++  printf "%s\n" '  vitastor        Vitastor block device driver'
+   printf "%s\n" '  rdma            Enable RDMA-based migration'
+   printf "%s\n" '  replication     replication support'
+   printf "%s\n" '  rutabaga-gfx    rutabaga_gfx support'
+@@ -445,6 +446,8 @@ _meson_option_parse() {
+     --disable-qom-cast-debug) printf "%s" -Dqom_cast_debug=false ;;
+     --enable-rbd) printf "%s" -Drbd=enabled ;;
+     --disable-rbd) printf "%s" -Drbd=disabled ;;
++    --enable-vitastor) printf "%s" -Dvitastor=enabled ;;
++    --disable-vitastor) printf "%s" -Dvitastor=disabled ;;
+     --enable-rdma) printf "%s" -Drdma=enabled ;;
+     --disable-rdma) printf "%s" -Drdma=disabled ;;
+     --enable-relocatable) printf "%s" -Drelocatable=true ;;
