@@ -15,7 +15,7 @@
 
 #include "cluster_client.h"
 #include "str_util.h"
-#include "kv_db.h"
+#include "vitastor_kv.h"
 
 // 0x VITASTOR OPTBTREE
 #define KV_BLOCK_MAGIC 0x761A5106097B18EE
@@ -1969,12 +1969,12 @@ kv_dbw_t::~kv_dbw_t()
     delete db;
 }
 
-void kv_dbw_t::open(inode_t inode_id, json11::Json cfg, std::function<void(int)> cb)
+void kv_dbw_t::open(uint64_t inode_id, std::map<std::string, std::string> cfg, std::function<void(int)> cb)
 {
     db->open(inode_id, cfg, cb);
 }
 
-void kv_dbw_t::set_config(json11::Json cfg)
+void kv_dbw_t::set_config(std::map<std::string, std::string> cfg)
 {
     db->set_config(cfg);
 }

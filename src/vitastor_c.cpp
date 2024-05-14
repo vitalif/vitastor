@@ -200,6 +200,11 @@ vitastor_c *vitastor_c_create_epoll_json(const char **options, int options_len)
     return self;
 }
 
+void* vitastor_c_get_internal_client(vitastor_c *client)
+{
+    return client->cli;
+}
+
 void vitastor_c_destroy(vitastor_c *client)
 {
     delete client->cli;

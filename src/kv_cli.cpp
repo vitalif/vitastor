@@ -12,16 +12,17 @@
 #include <fcntl.h>
 //#include <signal.h>
 
+#include "cluster_client.h"
 #include "epoll_manager.h"
 #include "str_util.h"
-#include "kv_db.h"
+#include "vitastor_kv.h"
 
 const char *exe_name = NULL;
 
 class kv_cli_t
 {
 public:
-    json11::Json::object cfg;
+    std::map<std::string, std::string> cfg;
     std::vector<std::string> cli_cmd;
 
     kv_dbw_t *db = NULL;
@@ -156,7 +157,7 @@ void kv_cli_t::run()
     if (cfg.find("db") != cfg.end())
     {
         bool done = false;
-        handle_cmd({ "open", cfg.at("db").string_value() }, [&done](int res) { if (res != 0) exit(1); done = true; });
+        handle_cmd({ "open", cfg.at("db") }, [&done](int res) { if (res != 0) exit(1); done = true; });
         while (!done)
         {
             ringloop->loop();

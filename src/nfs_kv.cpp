@@ -256,7 +256,12 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
     int open_res = 0;
     bool open_done = false;
     proxy->db = new kv_dbw_t(proxy->cli);
-    proxy->db->open(fs_kv_inode, cfg, [&](int res)
+    std::map<std::string, std::string> kv_cfg;
+    for (auto & kv: cfg.object_items())
+    {
+        kv_cfg[kv.first] = kv.second.as_string();
+    }
+    proxy->db->open(fs_kv_inode, kv_cfg, [&](int res)
     {
         open_done = true;
         open_res = res;

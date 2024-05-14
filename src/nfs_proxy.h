@@ -1,10 +1,15 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.1 (see README.md for details)
+//
+// Simplified NFS proxy - main entrypoint header
+
 #pragma once
 
 #include "cluster_client.h"
 #include "epoll_manager.h"
 #include "nfs_portmap.h"
 #include "nfs/xdr_impl.h"
-#include "kv_db.h"
+#include "vitastor_kv.h"
 
 #define NFS_ROOT_HANDLE "R"
 #define RPC_INIT_BUF_SIZE 32768

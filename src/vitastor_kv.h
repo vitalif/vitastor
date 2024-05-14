@@ -6,17 +6,27 @@
 
 #pragma once
 
-#include "cluster_client.h"
+#include <stdint.h>
+#include <sys/uio.h>
+
+#include <string>
+#include <map>
+#include <functional>
+
+#define VITASTOR_KV_API_VERSION 1
+
+class cluster_client_t;
 
 struct kv_db_t;
 
 struct kv_dbw_t
 {
+    // cli = vitastor_c_get_internal_client(client)
     kv_dbw_t(cluster_client_t *cli);
     ~kv_dbw_t();
 
-    void open(inode_t inode_id, json11::Json cfg, std::function<void(int)> cb);
-    void set_config(json11::Json cfg);
+    void open(uint64_t inode_id, std::map<std::string, std::string> cfg, std::function<void(int)> cb);
+    void set_config(std::map<std::string, std::string> cfg);
     void close(std::function<void()> cb);
 
     uint64_t get_size();

@@ -12,9 +12,10 @@
 #include <fcntl.h>
 //#include <signal.h>
 
+#include "cluster_client.h"
 #include "epoll_manager.h"
 #include "str_util.h"
-#include "kv_db.h"
+#include "vitastor_kv.h"
 
 const char *exe_name = NULL;
 
@@ -44,7 +45,7 @@ class kv_test_t
 {
 public:
     // Config
-    json11::Json::object kv_cfg;
+    std::map<std::string, std::string> kv_cfg;
     std::string key_prefix, key_suffix;
     uint64_t inode_id = 0;
     uint64_t op_count = 1000000;
@@ -238,22 +239,22 @@ void kv_test_t::parse_config(json11::Json cfg)
     if (!cfg["stop_on_error"].is_null())
         stop_on_error = cfg["stop_on_error"].bool_value();
     if (!cfg["kv_block_size"].is_null())
-        kv_cfg["kv_block_size"] = cfg["kv_block_size"];
+        kv_cfg["kv_block_size"] = cfg["kv_block_size"].as_string();
     if (!cfg["kv_memory_limit"].is_null())
-        kv_cfg["kv_memory_limit"] = cfg["kv_memory_limit"];
+        kv_cfg["kv_memory_limit"] = cfg["kv_memory_limit"].as_string();
     if (!cfg["kv_allocate_blocks"].is_null())
-        kv_cfg["kv_allocate_blocks"] = cfg["kv_allocate_blocks"];
+        kv_cfg["kv_allocate_blocks"] = cfg["kv_allocate_blocks"].as_string();
     if (!cfg["kv_evict_max_misses"].is_null())
-        kv_cfg["kv_evict_max_misses"] = cfg["kv_evict_max_misses"];
+        kv_cfg["kv_evict_max_misses"] = cfg["kv_evict_max_misses"].as_string();
     if (!cfg["kv_evict_attempts_per_level"].is_null())
-        kv_cfg["kv_evict_attempts_per_level"] = cfg["kv_evict_attempts_per_level"];
+        kv_cfg["kv_evict_attempts_per_level"] = cfg["kv_evict_attempts_per_level"].as_string();
     if (!cfg["kv_evict_unused_age"].is_null())
-        kv_cfg["kv_evict_unused_age"] = cfg["kv_evict_unused_age"];
+        kv_cfg["kv_evict_unused_age"] = cfg["kv_evict_unused_age"].as_string();
     if (!cfg["kv_log_level"].is_null())
     {
         log_level = cfg["kv_log_level"].uint64_value();
         trace = log_level >= 10;
-        kv_cfg["kv_log_level"] = cfg["kv_log_level"];
+        kv_cfg["kv_log_level"] = std::to_string(log_level);
     }
     total_prob = reopen_prob+get_prob+add_prob+update_prob+del_prob+list_prob;
     stat.get.name = "get";

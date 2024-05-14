@@ -1,9 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 //
-// Simplified NFS proxy
-// Presents all images as files
-// Keeps image/file list in memory and is thus unsuitable for a large number of files
+// NFS proxy entrypoint, common for both pseudo-FS and Vitastor-KV based FS
 
 #define _XOPEN_SOURCE
 #include <limits.h>

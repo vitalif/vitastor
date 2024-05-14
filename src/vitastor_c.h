@@ -7,7 +7,7 @@
 #define VITASTOR_QEMU_PROXY_H
 
 // C API wrapper version
-#define VITASTOR_C_API_VERSION 3
+#define VITASTOR_C_API_VERSION 4
 
 #ifndef POOL_ID_BITS
 #define POOL_ID_BITS 16
@@ -41,6 +41,7 @@ vitastor_c *vitastor_c_create_uring(const char *config_path, const char *etcd_ho
     int use_rdma, const char *rdma_device, int rdma_port_num, int rdma_gid_index, int rdma_mtu, int log_level);
 vitastor_c *vitastor_c_create_uring_json(const char **options, int options_len);
 vitastor_c *vitastor_c_create_epoll_json(const char **options, int options_len);
+void* vitastor_c_get_internal_client(vitastor_c *client);
 void vitastor_c_destroy(vitastor_c *client);
 int vitastor_c_is_ready(vitastor_c *client);
 int vitastor_c_uring_register_eventfd(vitastor_c *client);

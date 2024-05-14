@@ -2,6 +2,8 @@
 // License: VNPL-1.1 (see README.md for details)
 //
 // NFS proxy over Vitastor block images
+// Presents all images as files
+// Keeps image/file list in memory and is thus unsuitable for a large number of files
 
 #include <sys/time.h>
 

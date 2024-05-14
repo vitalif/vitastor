@@ -196,8 +196,8 @@ endif (HAVE_NBD_NETLINK_H AND NL3_LIBRARIES)
 # libvitastor_kv.so
 add_library(vitastor_kv SHARED
 	kv_db.cpp
-	kv_db.h
 )
+set_target_properties(vitastor_kv PROPERTIES PUBLIC_HEADER "vitastor_kv.h")
 target_link_libraries(vitastor_kv
 	vitastor_client
 )
