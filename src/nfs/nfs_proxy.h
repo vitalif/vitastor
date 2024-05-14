@@ -8,7 +8,7 @@
 #include "cluster_client.h"
 #include "epoll_manager.h"
 #include "nfs_portmap.h"
-#include "nfs/xdr_impl.h"
+#include "proto/xdr_impl.h"
 #include "vitastor_kv.h"
 
 #define NFS_ROOT_HANDLE "R"

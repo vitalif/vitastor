@@ -37,7 +37,7 @@
 #include <endian.h>
 #include <vector>
 
-#include "../malloc_or_die.h"
+#include "malloc_or_die.h"
 
 #define FALSE 0
 #define TRUE 1

@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "nfs/nfs.h"
+#include "proto/nfs.h"
 
 #define KV_ROOT_INODE 1
 #define SHARED_FILE_MAGIC_V1 0x711A5158A6EDF17E

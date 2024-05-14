@@ -9,7 +9,7 @@
 #include <set>
 #include <vector>
 
-#include "nfs/rpc_impl.h"
+#include "proto/rpc_impl.h"
 
 struct portmap_id_t
 {

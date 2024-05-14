@@ -30,8 +30,8 @@ start_osd_on()
 {
     local i=$1
     local dev=$2
-    build/src/vitastor-osd --osd_num $i --bind_address $ETCD_IP $NO_SAME $OSD_ARGS --etcd_address $ETCD_URL \
-        $(build/src/vitastor-disk simple-offsets --format options $OFFSET_ARGS $dev $OFFSET_ARGS 2>/dev/null) \
+    build/src/osd/vitastor-osd --osd_num $i --bind_address $ETCD_IP $NO_SAME $OSD_ARGS --etcd_address $ETCD_URL \
+        $(build/src/disk_tool/vitastor-disk simple-offsets --format options $OFFSET_ARGS $dev $OFFSET_ARGS 2>/dev/null) \
         >>./testdata/osd$i.log 2>&1 &
     eval OSD${i}_PID=$!
 }
@@ -139,9 +139,9 @@ wait_finish_rebalance()
 
 check_qemu()
 {
-    if ! cmp build/src/block-vitastor.so /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so; then
+    if ! cmp build/src/client/block-vitastor.so /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so; then
         sudo rm -f /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so
-        sudo ln -s "$(realpath .)/build/src/block-vitastor.so" /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so
+        sudo ln -s "$(realpath .)/build/src/client/block-vitastor.so" /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so
     fi
 }
 

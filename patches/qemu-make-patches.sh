@@ -9,7 +9,7 @@ for i in "$DIR"/qemu-*-vitastor.patch "$DIR"/pve-qemu-*-vitastor.patch; do
         echo '===================================================================' >> $i
         echo '--- /dev/null' >> $i
         echo '+++ a/block/vitastor.c' >> $i
-        echo '@@ -0,0 +1,'$(wc -l "$DIR"/../src/qemu_driver.c | cut -d ' ' -f 1)' @@' >> $i
-        cat "$DIR"/../src/qemu_driver.c | sed 's/^/+/' >> $i
+        echo '@@ -0,0 +1,'$(wc -l "$DIR"/../src/client/qemu_driver.c | cut -d ' ' -f 1)' @@' >> $i
+        cat "$DIR"/../src/client/qemu_driver.c | sed 's/^/+/' >> $i
     fi
 done

@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "nfs/nfs.h"
+#include "proto/nfs.h"
 
 void nfs_block_procs(nfs_client_t *self);
 void nfs_kv_procs(nfs_client_t *self);

@@ -18,8 +18,8 @@ IMG_SIZE=960
 
 $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testimg","size":'$((IMG_SIZE*1024*1024))'}'
 
-LD_PRELOAD="build/src/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write \
+LD_PRELOAD="build/src/client/libfio_vitastor.so" \
+    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write \
         -mirror_file=./testdata/mirror.bin -etcd=$ETCD_URL -image=testimg -cluster_log_level=10
 
 kill_osds()
@@ -51,8 +51,8 @@ kill_osds()
 
 kill_osds &
 
-LD_PRELOAD="build/src/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bsrange=4k-128k -blockalign=4k -direct=1 -iodepth=32 -fsync=256 -rw=randrw \
+LD_PRELOAD="build/src/client/libfio_vitastor.so" \
+    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bsrange=4k-128k -blockalign=4k -direct=1 -iodepth=32 -fsync=256 -rw=randrw \
         -randrepeat=0 -refill_buffers=1 -mirror_file=./testdata/mirror.bin -etcd=$ETCD_URL -image=testimg -loops=10 -runtime=120
 
 qemu-img convert -S 4096 -p \

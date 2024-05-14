@@ -1,6 +1,6 @@
 #!/bin/bash
 
-gcc -I. -E -o fio_headers.i src/fio_headers.h
+gcc -I. -E -o fio_headers.i src/util/fio_headers.h
 
 rm -rf fio-copy
 for i in `grep -Po 'fio/[^"]+' fio_headers.i | sort | uniq`; do

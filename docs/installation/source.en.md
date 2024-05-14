@@ -41,7 +41,7 @@ It's recommended to build the QEMU driver (qemu_driver.c) in-tree, as a part of
 QEMU build process. To do that:
 - Install vitastor client library headers (from source or from vitastor-client-dev package)
 - Take a corresponding patch from `patches/qemu-*-vitastor.patch` and apply it to QEMU source
-- Copy `src/qemu_driver.c` to QEMU source directory as `block/vitastor.c`
+- Copy `src/client/qemu_driver.c` to QEMU source directory as `block/vitastor.c`
 - Build QEMU as usual
 
 But it is also possible to build it out-of-tree. To do that:

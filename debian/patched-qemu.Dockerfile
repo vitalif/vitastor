@@ -27,7 +27,7 @@ RUN apt-get -y build-dep qemu
 RUN apt-get --download-only source qemu
 
 ADD patches /root/vitastor/patches
-ADD src/qemu_driver.c /root/vitastor/src/qemu_driver.c
+ADD src/client/qemu_driver.c /root/qemu_driver.c
 
 #RUN set -e; \
 #    apt-get install -y wget; \
@@ -52,7 +52,7 @@ RUN set -e; \
     cd /root/packages/qemu-$REL/qemu-*/; \
     quilt push -a; \
     quilt add block/vitastor.c; \
-    cp /root/vitastor/src/qemu_driver.c block/vitastor.c; \
+    cp /root/qemu_driver.c block/vitastor.c; \
     quilt refresh; \
     V=$(head -n1 debian/changelog | perl -pe 's/5\.2\+dfsg-9/5.2+dfsg-11/; s/^.*\((.*?)(~bpo[\d\+]*)?\).*$/$1/')+vitastor4; \
     if [ "$REL" = bullseye ]; then V=${V}bullseye; fi; \

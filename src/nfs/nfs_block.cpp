@@ -12,7 +12,7 @@
 #include "nfs_proxy.h"
 #include "nfs_common.h"
 #include "nfs_block.h"
-#include "nfs/nfs.h"
+#include "proto/nfs.h"
 #include "cli.h"
 
 static unsigned len_pad4(unsigned len)

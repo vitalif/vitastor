@@ -6,7 +6,7 @@
 #include <sys/time.h>
 
 #include "nfs_proxy.h"
-#include "nfs/nfs.h"
+#include "proto/nfs.h"
 
 nfsstat3 vitastor_nfs_map_err(int err)
 {

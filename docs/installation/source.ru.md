@@ -41,7 +41,7 @@ cmake .. && make -j8 install
 Драйвер QEMU (qemu_driver.c) рекомендуется собирать вместе с самим QEMU. Для этого:
 - Установите заголовки клиентской библиотеки Vitastor (из исходников или из пакета vitastor-client-dev)
 - Возьмите соответствующий патч из `patches/qemu-*-vitastor.patch` и примените его к исходникам QEMU
-- Скопируйте [src/qemu_driver.c](../../src/qemu_driver.c) в директорию исходников QEMU как `block/vitastor.c`
+- Скопируйте [src/client/qemu_driver.c](../../src/client/qemu_driver.c) в директорию исходников QEMU как `block/vitastor.c`
 - Соберите QEMU как обычно
 
 Однако в целях отладки драйвер также можно собирать отдельно от QEMU. Для этого:

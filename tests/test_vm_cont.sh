@@ -11,7 +11,7 @@ OSD_COUNT=3
 OSD_ARGS="$OSD_ARGS"
 OFFSET_ARGS="$OFFSET_ARGS"
 for i in $(seq 1 $OSD_COUNT); do
-    build/src/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $OSD_ARGS --etcd_address $ETCD_URL $(build/src/vitastor-disk simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) >>./testdata/osd$i.log 2>&1 &
+    build/src/osd/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $OSD_ARGS --etcd_address $ETCD_URL $(build/src/disk_tool/vitastor-disk simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) >>./testdata/osd$i.log 2>&1 &
     eval OSD${i}_PID=$!
 done
 
@@ -24,9 +24,9 @@ if ! ($ETCDCTL get /vitastor/pg/state/1/1 --print-value-only | jq -s -e '(. | le
     format_error "FAILED: 1 PG NOT UP"
 fi
 
-if ! cmp build/src/block-vitastor.so /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so; then
+if ! cmp build/src/client/block-vitastor.so /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so; then
     sudo rm -f /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so
-    sudo ln -s "$(realpath .)/build/src/block-vitastor.so" /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so
+    sudo ln -s "$(realpath .)/build/src/client/block-vitastor.so" /usr/lib/x86_64-linux-gnu/qemu/block-vitastor.so
 fi
 
 qemu-system-x86_64 -enable-kvm -m 1024 \

@@ -13,9 +13,9 @@
 #include <fcntl.h>
 #include <signal.h>
 
-#include "nfs/nfs.h"
-#include "nfs/rpc.h"
-#include "nfs/portmap.h"
+#include "proto/nfs.h"
+#include "proto/rpc.h"
+#include "proto/portmap.h"
 
 #include "addr_util.h"
 #include "str_util.h"

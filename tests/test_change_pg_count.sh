@@ -7,8 +7,8 @@ PG_COUNT=16
 
 NOBJ=$(((128*8+PG_DATA_SIZE-1)/PG_DATA_SIZE))
 
-LD_PRELOAD="build/src/libfio_vitastor.so" \
-fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write \
+LD_PRELOAD="build/src/client/libfio_vitastor.so" \
+fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write \
     -etcd=$ETCD_URL -pool=1 -inode=2 -size=128M -cluster_log_level=10
 
 try_change()

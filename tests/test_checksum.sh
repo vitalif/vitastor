@@ -11,13 +11,13 @@ IMG_SIZE=128
 $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testimg","size":'$((IMG_SIZE*1024*1024))'}'
 
 # Write
-LD_PRELOAD="build/src/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=1M -direct=1 -iodepth=4 \
+LD_PRELOAD="build/src/client/libfio_vitastor.so" \
+    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=1M -direct=1 -iodepth=4 \
         -mirror_file=./testdata/mirror.bin -end_fsync=1 -rw=write -etcd=$ETCD_URL -image=testimg -runtime=10
 
 # Intentionally corrupt OSD data and restart it
 kill $OSD1_PID
-data_offset=$(build/src/vitastor-disk simple-offsets ./testdata/test_osd1.bin $OFFSET_ARGS | grep data_offset | awk '{print $2}')
+data_offset=$(build/src/disk_tool/vitastor-disk simple-offsets ./testdata/test_osd1.bin $OFFSET_ARGS | grep data_offset | awk '{print $2}')
 truncate -s $data_offset ./testdata/test_osd1.bin
 dd if=/dev/zero of=./testdata/test_osd1.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
 start_osd 1

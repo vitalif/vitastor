@@ -39,8 +39,8 @@ try_change()
     fi
 }
 
-LD_PRELOAD="build/src/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/libfio_vitastor.so -bs=1M -direct=1 -iodepth=4 \
+LD_PRELOAD="build/src/client/libfio_vitastor.so" \
+    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=1M -direct=1 -iodepth=4 \
         -rw=write -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -runtime=10
 
 PG_SIZE=7

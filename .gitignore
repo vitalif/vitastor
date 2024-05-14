@@ -3,16 +3,3 @@
 package-lock.json
 fio
 qemu
-osd
-stub_osd
-stub_uring_osd
-stub_bench
-osd_test
-osd_peering_pg_test
-dump_journal
-nbd_proxy
-rm_inode
-test_allocator
-test_blockstore
-test_shit
-osd_rmw_test

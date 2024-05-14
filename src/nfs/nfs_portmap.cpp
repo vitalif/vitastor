@@ -6,8 +6,8 @@
 #include <netinet/in.h>
 #include <string.h>
 
-#include "nfs/portmap.h"
-#include "nfs/xdr_impl_inline.h"
+#include "proto/portmap.h"
+#include "proto/xdr_impl_inline.h"
 
 #include "malloc_or_die.h"
 #include "nfs_portmap.h"
