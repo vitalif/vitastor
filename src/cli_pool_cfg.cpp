@@ -83,8 +83,8 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
         }
         else if (key == "block_size")
         {
-            value = value.is_string() ? parse_size(value.string_value()) : value.uint64_value();
-            if (!value)
+            uint64_t block_size = value.is_string() ? parse_size(value.string_value()) : value.uint64_value();
+            if (!block_size)
             {
                 return key+" must be an integer with or without size suffix (K/M/G/T)";
             }
