@@ -73,7 +73,7 @@ add_dependencies(test build_tests)
 include_directories(
 	../
 	${CMAKE_SOURCE_DIR}/src/blockstore
-	${CMAKE_SOURCE_DIR}/src/cli
+	${CMAKE_SOURCE_DIR}/src/cmd
 	${CMAKE_SOURCE_DIR}/src/client
 	${CMAKE_SOURCE_DIR}/src/disk_tool
 	${CMAKE_SOURCE_DIR}/src/kv
@@ -87,7 +87,7 @@ include_directories(
 )
 
 add_subdirectory(blockstore)
-add_subdirectory(cli)
+add_subdirectory(cmd)
 add_subdirectory(client)
 add_subdirectory(disk_tool)
 add_subdirectory(kv)
@@ -106,7 +106,7 @@ install(
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vitastor.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/client/vitastor.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 if (${WITH_FIO})
 	install(TARGETS fio_vitastor fio_vitastor_blk fio_vitastor_sec LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif (${WITH_FIO})

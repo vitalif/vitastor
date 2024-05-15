@@ -30,7 +30,7 @@ wait_finish_rebalance 60
 sleep 1
 kill -9 $OSD4_PID
 sleep 1
-build/src/cli/vitastor-cli --etcd_address $ETCD_URL rm-osd --force 4
+build/src/cmd/vitastor-cli --etcd_address $ETCD_URL rm-osd --force 4
 
 sleep 2
 

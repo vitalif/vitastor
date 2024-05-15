@@ -5,14 +5,14 @@ check_qemu
 
 # Test merge to child (without "inverse rename" optimisation)
 
-build/src/cli/vitastor-cli --etcd_address $ETCD_URL create -s 128M testchain
+build/src/cmd/vitastor-cli --etcd_address $ETCD_URL create -s 128M testchain
 
 LD_PRELOAD="build/src/client/libfio_vitastor.so" \
     fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write \
         -etcd=$ETCD_URL -image=testchain -mirror_file=./testdata/mirror.bin
 
 # Create a snapshot
-build/src/cli/vitastor-cli --etcd_address $ETCD_URL snap-create testchain@0
+build/src/cmd/vitastor-cli --etcd_address $ETCD_URL snap-create testchain@0
 
 # Write something to it
 LD_PRELOAD="build/src/client/libfio_vitastor.so" \
@@ -26,7 +26,7 @@ qemu-img convert -p \
 cmp ./testdata/layer1.bin ./testdata/mirror.bin
 
 # Merge
-build/src/cli/vitastor-cli --etcd_address $ETCD_URL rm testchain@0
+build/src/cmd/vitastor-cli --etcd_address $ETCD_URL rm testchain@0
 
 # Check the final image
 qemu-img convert -p \

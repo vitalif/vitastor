@@ -54,7 +54,7 @@ cmp ./testdata/merged.bin ./testdata/check.bin
 
 $ETCDCTL put /vitastor/config/inode/1/3 '{"parent_id":2,"name":"testimg","size":'$((32*1024*1024))'}'
 
-build/src/cli/vitastor-cli rm --etcd_address $ETCD_URL testimg@0
+build/src/cmd/vitastor-cli rm --etcd_address $ETCD_URL testimg@0
 
 qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testimg" \

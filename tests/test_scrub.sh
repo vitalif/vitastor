@@ -48,17 +48,17 @@ wait_condition 300 "$ETCDCTL get --prefix /vitastor/pg/history/ --print-value-on
 
 if [[ ($SCHEME = replicated && $PG_SIZE < 3) || ($SCHEME != replicated && $((PG_SIZE-PG_DATA_SIZE)) < 2) ]]; then
     # Check that objects are marked as inconsistent if 2 replicas or EC/XOR 2+1
-    build/src/cli/vitastor-cli describe --etcd_address $ETCD_URL --json | jq -e '[ .[] | select(.inconsistent) ] | length == '$((IMG_SIZE * 8 * PG_SIZE / (SCHEME = replicated ? 1 : PG_DATA_SIZE)))
+    build/src/cmd/vitastor-cli describe --etcd_address $ETCD_URL --json | jq -e '[ .[] | select(.inconsistent) ] | length == '$((IMG_SIZE * 8 * PG_SIZE / (SCHEME = replicated ? 1 : PG_DATA_SIZE)))
 
     # Fix objects using vitastor-cli fix
-    build/src/cli/vitastor-cli describe --etcd_address $ETCD_URL --json | \
+    build/src/cmd/vitastor-cli describe --etcd_address $ETCD_URL --json | \
         jq -s '[ .[0][] | select(.inconsistent and .osd_num == '$ZERO_OSD') ]' | \
-        build/src/cli/vitastor-cli fix --etcd_address $ETCD_URL --bad_osds $ZERO_OSD
+        build/src/cmd/vitastor-cli fix --etcd_address $ETCD_URL --bad_osds $ZERO_OSD
 elif [[ ($SCHEME = replicated && $PG_SIZE > 2) || ($SCHEME != replicated && $((PG_SIZE-PG_DATA_SIZE)) > 1) ]]; then
     # Check that everything heals
     wait_finish_rebalance 300
 
-    build/src/cli/vitastor-cli describe --etcd_address $ETCD_URL --json | jq -e '. | length == 0'
+    build/src/cmd/vitastor-cli describe --etcd_address $ETCD_URL --json | jq -e '. | length == 0'
 fi
 
 # Read everything back

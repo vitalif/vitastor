@@ -13,13 +13,13 @@ $ETCDCTL put /vitastor/osd/stats/5 '{"host":"host3","size":1073741824,"time":"'$
 $ETCDCTL put /vitastor/osd/stats/6 '{"host":"host3","size":1073741824,"time":"'$TIME'"}'
 $ETCDCTL put /vitastor/osd/stats/7 '{"host":"host4","size":1073741824,"time":"'$TIME'"}'
 $ETCDCTL put /vitastor/osd/stats/8 '{"host":"host4","size":1073741824,"time":"'$TIME'"}'
-build/src/cli/vitastor-cli --etcd_address $ETCD_URL create-pool testpool --ec 3+2 -n 32 --failure_domain rack --force
+build/src/cmd/vitastor-cli --etcd_address $ETCD_URL create-pool testpool --ec 3+2 -n 32 --failure_domain rack --force
 $ETCDCTL get --print-value-only /vitastor/config/pools | jq -s -e '. == [{"1": {"failure_domain": "rack", "name": "testpool", "parity_chunks": 2, "pg_count": 32, "pg_minsize": 4, "pg_size": 5, "scheme": "ec"}}]'
-build/src/cli/vitastor-cli --etcd_address $ETCD_URL modify-pool testpool --ec 3+3 --failure_domain host
+build/src/cmd/vitastor-cli --etcd_address $ETCD_URL modify-pool testpool --ec 3+3 --failure_domain host
 $ETCDCTL get --print-value-only /vitastor/config/pools | jq -s -e '. == [{"1": {"failure_domain": "host", "name": "testpool", "parity_chunks": 3, "pg_count": 32, "pg_minsize": 4, "pg_size": 6, "scheme": "ec"}}]'
-build/src/cli/vitastor-cli --etcd_address $ETCD_URL rm-pool testpool
+build/src/cmd/vitastor-cli --etcd_address $ETCD_URL rm-pool testpool
 $ETCDCTL get --print-value-only /vitastor/config/pools | jq -s -e '. == [{}]'
-build/src/cli/vitastor-cli --etcd_address $ETCD_URL create-pool testpool -s 2 -n 4 --failure_domain rack --force
+build/src/cmd/vitastor-cli --etcd_address $ETCD_URL create-pool testpool -s 2 -n 4 --failure_domain rack --force
 $ETCDCTL get --print-value-only /vitastor/config/pools | jq -s -e '. == [{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":4,"failure_domain":"rack"}}]'
 
 node mon/mon-main.js --etcd_address $ETCD_URL --etcd_prefix "/vitastor" >>./testdata/mon.log 2>&1 &

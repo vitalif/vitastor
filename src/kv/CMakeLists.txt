@@ -6,7 +6,7 @@ project(vitastor)
 add_library(vitastor_kv SHARED
 	kv_db.cpp
 )
-set_target_properties(vitastor_kv PROPERTIES PUBLIC_HEADER "vitastor_kv.h")
+set_target_properties(vitastor_kv PROPERTIES PUBLIC_HEADER "kv/vitastor_kv.h")
 target_link_libraries(vitastor_kv
 	vitastor_client
 )

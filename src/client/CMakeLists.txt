@@ -21,7 +21,7 @@ add_library(vitastor_client SHARED
 	cluster_client_wb.cpp
 	vitastor_c.cpp
 )
-set_target_properties(vitastor_client PROPERTIES PUBLIC_HEADER "vitastor_c.h")
+set_target_properties(vitastor_client PROPERTIES PUBLIC_HEADER "client/vitastor_c.h")
 target_link_libraries(vitastor_client
 	vitastor_common
 	vitastor_cli

@@ -9,6 +9,6 @@ LD_PRELOAD="build/src/client/libfio_vitastor.so" \
 
 $ETCDCTL get --prefix '/vitastor/pg/state'
 
-build/src/cli/vitastor-cli rm-data --etcd_address $ETCD_URL --pool 1 --inode 1
+build/src/cmd/vitastor-cli rm-data --etcd_address $ETCD_URL --pool 1 --inode 1
 
 format_green OK
