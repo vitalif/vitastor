@@ -25,7 +25,7 @@ public:
     std::map<std::string, std::string> cfg;
     std::vector<std::string> cli_cmd;
 
-    kv_dbw_t *db = NULL;
+    vitastorkv_dbw_t *db = NULL;
     ring_loop_t *ringloop = NULL;
     epoll_manager_t *epmgr = NULL;
     cluster_client_t *cli = NULL;
@@ -144,7 +144,7 @@ void kv_cli_t::run()
     ringloop = new ring_loop_t(512);
     epmgr = new epoll_manager_t(ringloop);
     cli = new cluster_client_t(ringloop, epmgr->tfd, cfg);
-    db = new kv_dbw_t(cli);
+    db = new vitastorkv_dbw_t(cli);
     // Load image metadata
     while (!cli->is_ready())
     {
@@ -289,7 +289,7 @@ void kv_cli_t::next_cmd()
 
 struct kv_cli_list_t
 {
-    kv_dbw_t *db = NULL;
+    vitastorkv_dbw_t *db = NULL;
     void *handle = NULL;
     int format = 0;
     int n = 0;

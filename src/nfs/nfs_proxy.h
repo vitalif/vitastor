@@ -51,7 +51,7 @@ public:
     epoll_manager_t *epmgr = NULL;
     cluster_client_t *cli = NULL;
     cli_tool_t *cmd = NULL;
-    kv_dbw_t *db = NULL;
+    vitastorkv_dbw_t *db = NULL;
     kv_fs_state_t *kvfs = NULL;
     block_fs_state_t *blockfs = NULL;
 

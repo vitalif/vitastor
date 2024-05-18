@@ -384,6 +384,28 @@ int vitastor_c_inode_get_readonly(void *handle)
     return watch->cfg.readonly;
 }
 
+uint64_t vitastor_c_inode_get_parent_id(void *handle)
+{
+    inode_watch_t *watch = (inode_watch_t*)handle;
+    return watch->cfg.parent_id;
+}
+
+char* vitastor_c_inode_get_meta(void *handle)
+{
+    inode_watch_t *watch = (inode_watch_t*)handle;
+    if (watch->cfg.meta.is_null())
+    {
+        return NULL;
+    }
+    return strdup(watch->cfg.meta.dump().c_str());
+}
+
+uint64_t vitastor_c_inode_get_mod_revision(void *handle)
+{
+    inode_watch_t *watch = (inode_watch_t*)handle;
+    return watch->cfg.mod_revision;
+}
+
 uint32_t vitastor_c_inode_get_immediate_commit(vitastor_c *client, uint64_t inode_num)
 {
     auto pool_it = client->cli->st_cli.pool_config.find(INODE_POOL(inode_num));

@@ -19,11 +19,11 @@ class cluster_client_t;
 
 struct kv_db_t;
 
-struct kv_dbw_t
+struct vitastorkv_dbw_t
 {
     // cli = vitastor_c_get_internal_client(client)
-    kv_dbw_t(cluster_client_t *cli);
-    ~kv_dbw_t();
+    vitastorkv_dbw_t(cluster_client_t *cli);
+    ~vitastorkv_dbw_t();
 
     void open(uint64_t inode_id, std::map<std::string, std::string> cfg, std::function<void(int)> cb);
     void set_config(std::map<std::string, std::string> cfg);

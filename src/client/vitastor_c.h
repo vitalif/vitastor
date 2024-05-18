@@ -69,6 +69,9 @@ void vitastor_c_watch_inode(vitastor_c *client, char *image, VitastorIOHandler c
 void vitastor_c_close_watch(vitastor_c *client, void *handle);
 uint64_t vitastor_c_inode_get_size(void *handle);
 uint64_t vitastor_c_inode_get_num(void *handle);
+uint64_t vitastor_c_inode_get_parent_id(void *handle);
+char* vitastor_c_inode_get_meta(void *handle);
+uint64_t vitastor_c_inode_get_mod_revision(void *handle);
 uint32_t vitastor_c_inode_get_block_size(vitastor_c *client, uint64_t inode_num);
 uint32_t vitastor_c_inode_get_bitmap_granularity(vitastor_c *client, uint64_t inode_num);
 int vitastor_c_inode_get_readonly(void *handle);

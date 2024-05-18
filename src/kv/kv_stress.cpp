@@ -73,7 +73,7 @@ public:
     timespec prev_stat_time, start_stat_time;
 
     // State
-    kv_dbw_t *db = NULL;
+    vitastorkv_dbw_t *db = NULL;
     ring_loop_t *ringloop = NULL;
     epoll_manager_t *epmgr = NULL;
     cluster_client_t *cli = NULL;
@@ -272,7 +272,7 @@ void kv_test_t::run(json11::Json cfg)
     ringloop = new ring_loop_t(512);
     epmgr = new epoll_manager_t(ringloop);
     cli = new cluster_client_t(ringloop, epmgr->tfd, cfg);
-    db = new kv_dbw_t(cli);
+    db = new vitastorkv_dbw_t(cli);
     // Load image metadata
     while (!cli->is_ready())
     {

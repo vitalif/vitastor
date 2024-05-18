@@ -501,7 +501,7 @@ void kv_block_t::dump(int base_level)
 
 void kv_db_t::open(inode_t inode_id, json11::Json cfg, std::function<void(int)> cb)
 {
-    if (block_cache.size() > 0)
+    if (block_cache.size() > 0 || inode_id)
     {
         cb(-EINVAL);
         return;
@@ -1958,38 +1958,38 @@ void kv_op_t::next_go_up()
     }
 }
 
-kv_dbw_t::kv_dbw_t(cluster_client_t *cli)
+vitastorkv_dbw_t::vitastorkv_dbw_t(cluster_client_t *cli)
 {
     db = new kv_db_t();
     db->cli = cli;
 }
 
-kv_dbw_t::~kv_dbw_t()
+vitastorkv_dbw_t::~vitastorkv_dbw_t()
 {
     delete db;
 }
 
-void kv_dbw_t::open(uint64_t inode_id, std::map<std::string, std::string> cfg, std::function<void(int)> cb)
+void vitastorkv_dbw_t::open(uint64_t inode_id, std::map<std::string, std::string> cfg, std::function<void(int)> cb)
 {
     db->open(inode_id, cfg, cb);
 }
 
-void kv_dbw_t::set_config(std::map<std::string, std::string> cfg)
+void vitastorkv_dbw_t::set_config(std::map<std::string, std::string> cfg)
 {
     db->set_config(cfg);
 }
 
-uint64_t kv_dbw_t::get_size()
+uint64_t vitastorkv_dbw_t::get_size()
 {
     return db->next_free;
 }
 
-void kv_dbw_t::close(std::function<void()> cb)
+void vitastorkv_dbw_t::close(std::function<void()> cb)
 {
     db->close(cb);
 }
 
-void kv_dbw_t::get(const std::string & key, std::function<void(int res, const std::string & value)> cb, bool cached)
+void vitastorkv_dbw_t::get(const std::string & key, std::function<void(int res, const std::string & value)> cb, bool cached)
 {
     auto *op = new kv_op_t;
     op->db = db;
@@ -2003,7 +2003,7 @@ void kv_dbw_t::get(const std::string & key, std::function<void(int res, const st
     op->exec();
 }
 
-void kv_dbw_t::set(const std::string & key, const std::string & value, std::function<void(int res)> cb,
+void vitastorkv_dbw_t::set(const std::string & key, const std::string & value, std::function<void(int res)> cb,
     std::function<bool(int res, const std::string & value)> cas_compare)
 {
     auto *op = new kv_op_t;
@@ -2023,7 +2023,7 @@ void kv_dbw_t::set(const std::string & key, const std::string & value, std::func
     op->exec();
 }
 
-void kv_dbw_t::del(const std::string & key, std::function<void(int res)> cb,
+void vitastorkv_dbw_t::del(const std::string & key, std::function<void(int res)> cb,
     std::function<bool(int res, const std::string & value)> cas_compare)
 {
     auto *op = new kv_op_t;
@@ -2042,7 +2042,7 @@ void kv_dbw_t::del(const std::string & key, std::function<void(int res)> cb,
     op->exec();
 }
 
-void* kv_dbw_t::list_start(const std::string & start)
+void* vitastorkv_dbw_t::list_start(const std::string & start)
 {
     if (!db->inode_id || db->closing)
         return NULL;
@@ -2055,7 +2055,7 @@ void* kv_dbw_t::list_start(const std::string & start)
     return op;
 }
 
-void kv_dbw_t::list_next(void *handle, std::function<void(int res, const std::string & key, const std::string & value)> cb)
+void vitastorkv_dbw_t::list_next(void *handle, std::function<void(int res, const std::string & key, const std::string & value)> cb)
 {
     kv_op_t *op = (kv_op_t*)handle;
     if (cb)
@@ -2068,7 +2068,7 @@ void kv_dbw_t::list_next(void *handle, std::function<void(int res, const std::st
     op->next();
 }
 
-void kv_dbw_t::list_close(void *handle)
+void vitastorkv_dbw_t::list_close(void *handle)
 {
     kv_op_t *op = (kv_op_t*)handle;
     delete op;

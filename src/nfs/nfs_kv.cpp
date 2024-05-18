@@ -303,7 +303,7 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
     // Open DB and wait
     int open_res = 0;
     bool open_done = false;
-    proxy->db = new kv_dbw_t(proxy->cli);
+    proxy->db = new vitastorkv_dbw_t(proxy->cli);
     std::map<std::string, std::string> kv_cfg;
     for (auto & kv: cfg.object_items())
     {

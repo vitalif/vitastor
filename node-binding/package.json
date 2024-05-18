@@ -1,0 +1,24 @@
+{
+  "name": "vitastor",
+  "version": "1.7.0",
+  "description": "Low-level native bindings to Vitastor client library",
+  "main": "index.js",
+  "keywords": [
+    "storage",
+    "sds",
+    "vitastor"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git://git.yourcmc.ru/vitalif/vitastor.git"
+  },
+  "scripts": {
+    "build": "node-gyp rebuild"
+  },
+  "author": "Vitaliy Filippov",
+  "license": "VNPL-2.0",
+  "dependencies": {
+    "bindings": "1.5.0",
+    "nan": "^2.19.0"
+  }
+}
