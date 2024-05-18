@@ -20,9 +20,11 @@
 #define MAX_DATA_BLOCK_SIZE 128*1024*1024
 #define DEFAULT_BITMAP_GRANULARITY 4096
 
+#ifndef IMMEDIATE_NONE
 #define IMMEDIATE_NONE 0
 #define IMMEDIATE_SMALL 1
 #define IMMEDIATE_ALL 2
+#endif
 
 struct etcd_kv_t
 {

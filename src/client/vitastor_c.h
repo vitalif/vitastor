@@ -12,6 +12,13 @@
 #ifndef POOL_ID_BITS
 #define POOL_ID_BITS 16
 #endif
+
+#ifndef IMMEDIATE_NONE
+#define IMMEDIATE_NONE 0
+#define IMMEDIATE_SMALL 1
+#define IMMEDIATE_ALL 2
+#endif
+
 #include <stdint.h>
 #include <sys/uio.h>
 
@@ -65,6 +72,8 @@ uint64_t vitastor_c_inode_get_num(void *handle);
 uint32_t vitastor_c_inode_get_block_size(vitastor_c *client, uint64_t inode_num);
 uint32_t vitastor_c_inode_get_bitmap_granularity(vitastor_c *client, uint64_t inode_num);
 int vitastor_c_inode_get_readonly(void *handle);
+// Returns IMMEDIATE_ALL, IMMEDIATE_SMALL or IMMEDIATE_NONE
+uint32_t vitastor_c_inode_get_immediate_commit(vitastor_c *client, uint64_t inode_num);
 
 #ifdef __cplusplus
 }

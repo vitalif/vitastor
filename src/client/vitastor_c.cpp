@@ -384,4 +384,12 @@ int vitastor_c_inode_get_readonly(void *handle)
     return watch->cfg.readonly;
 }
 
+uint32_t vitastor_c_inode_get_immediate_commit(vitastor_c *client, uint64_t inode_num)
+{
+    auto pool_it = client->cli->st_cli.pool_config.find(INODE_POOL(inode_num));
+    if (pool_it == client->cli->st_cli.pool_config.end())
+        return 0;
+    return pool_it->second.immediate_commit;
+}
+
 }
