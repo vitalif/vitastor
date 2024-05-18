@@ -707,10 +707,10 @@ class VitastorDriver(driver.CloneableImageVD,
                     return ({}, True)
         return ({}, False)
 
-    def copy_image_to_encrypted_volume(self, context, volume, image_service, image_id):
-        self.copy_image_to_volume(context, volume, image_service, image_id, encrypted = True)
+    def copy_image_to_encrypted_volume(self, context, volume, image_service, image_id, disable_sparse=False):
+        self.copy_image_to_volume(context, volume, image_service, image_id, encrypted = True, disable_sparse=False)
 
-    def copy_image_to_volume(self, context, volume, image_service, image_id, encrypted = False):
+    def copy_image_to_volume(self, context, volume, image_service, image_id, encrypted = False, disable_sparse=False):
         tmp_dir = volume_utils.image_conversion_dir()
         with tempfile.NamedTemporaryFile(dir = tmp_dir) as tmp:
             image_utils.fetch_to_raw(
