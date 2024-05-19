@@ -1,8 +1,32 @@
-commit ee305eeb95fa5d256e8ee5694554d274ae82d0f8
-Author: ace <ace@0xace.cc>
-Date:   Sat May 18 19:28:54 2024 +0300
+From 571bde71268dcca6446454bb1e895e21bcc7b2a0 Mon Sep 17 00:00:00 2001
+From: ace <ace@0xace.cc>
+Date: Sat, 18 May 2024 19:45:49 +0300
+Subject: [PATCH] Add Vitastor support
 
-    Add Vitastor support
+---
+ include/libvirt/libvirt-storage.h             |   1 +
+ src/conf/domain_conf.c                        |   4 +-
+ src/conf/domain_validate.c                    |  10 +-
+ src/conf/schemas/domaincommon.rng             |  30 +++++
+ src/conf/storage_conf.c                       |  20 ++-
+ src/conf/storage_conf.h                       |   2 +
+ src/conf/storage_source_conf.c                |   2 +
+ src/conf/storage_source_conf.h                |   1 +
+ src/conf/virstorageobj.c                      |   3 +
+ src/libvirt-storage.c                         |   1 +
+ src/libxl/libxl_conf.c                        |   1 +
+ src/libxl/xen_xl.c                            |   1 +
+ src/qemu/qemu_block.c                         |  45 +++++++
+ src/qemu/qemu_domain.c                        |   4 +-
+ src/qemu/qemu_snapshot.c                      |   2 +
+ src/storage/storage_driver.c                  |   1 +
+ .../storage_source_backingstore.c             | 123 ++++++++++++++++++
+ src/test/test_driver.c                        |   1 +
+ .../storagepoolcapsschemadata/poolcaps-fs.xml |   7 +
+ .../poolcaps-full.xml                         |   7 +
+ tests/storagepoolxml2argvtest.c               |   1 +
+ tools/virsh-pool.c                            |   3 +
+ 22 files changed, 265 insertions(+), 5 deletions(-)
 
 diff --git a/include/libvirt/libvirt-storage.h b/include/libvirt/libvirt-storage.h
 index aaad4a3da1..5f5daa8341 100644
@@ -17,10 +41,10 @@ index aaad4a3da1..5f5daa8341 100644
  
  int                     virConnectListAllStoragePools(virConnectPtr conn,
 diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
-index 5d55d2acda..abb78512f9 100644
+index 52a5796ad2..089697b2a3 100644
 --- a/src/conf/domain_conf.c
 +++ b/src/conf/domain_conf.c
-@@ -7190,7 +7190,8 @@ virDomainDiskSourceNetworkParse(xmlNodePtr node,
+@@ -7191,7 +7191,8 @@ virDomainDiskSourceNetworkParse(xmlNodePtr node,
      src->configFile = virXPathString("string(./config/@file)", ctxt);
  
      if (src->protocol == VIR_STORAGE_NET_PROTOCOL_HTTP ||
@@ -30,7 +54,7 @@ index 5d55d2acda..abb78512f9 100644
          src->query = virXMLPropString(node, "query");
  
      if (virDomainStorageNetworkParseHosts(node, ctxt, &src->hosts, &src->nhosts) < 0)
-@@ -30682,6 +30683,7 @@ virDomainStorageSourceTranslateSourcePool(virStorageSource *src,
+@@ -30657,6 +30658,7 @@ virDomainStorageSourceTranslateSourcePool(virStorageSource *src,
  
      case VIR_STORAGE_POOL_MPATH:
      case VIR_STORAGE_POOL_RBD:
@@ -39,7 +63,7 @@ index 5d55d2acda..abb78512f9 100644
      case VIR_STORAGE_POOL_GLUSTER:
      case VIR_STORAGE_POOL_LAST:
 diff --git a/src/conf/domain_validate.c b/src/conf/domain_validate.c
-index d485ec4fb1..36da544b18 100644
+index faa7659f07..01b907d60d 100644
 --- a/src/conf/domain_validate.c
 +++ b/src/conf/domain_validate.c
 @@ -495,6 +495,7 @@ virDomainDiskDefValidateSourceChainOne(const virStorageSource *src)
@@ -77,7 +101,7 @@ index d485ec4fb1..36da544b18 100644
          }
      }
 diff --git a/src/conf/schemas/domaincommon.rng b/src/conf/schemas/domaincommon.rng
-index a34427c330..874f2dd4ce 100644
+index df44cd9857..4bb72fc697 100644
 --- a/src/conf/schemas/domaincommon.rng
 +++ b/src/conf/schemas/domaincommon.rng
 @@ -1997,6 +1997,35 @@
@@ -363,10 +387,10 @@ index c9f5cbbf29..dbbac36836 100644
              driver = "sheepdog";
              if (!(location = qemuBlockStorageSourceGetSheepdogProps(src)))
 diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
-index 3a00fb689e..93d01384e6 100644
+index 341c543280..61b248fa2c 100644
 --- a/src/qemu/qemu_domain.c
 +++ b/src/qemu/qemu_domain.c
-@@ -5215,7 +5215,8 @@ qemuDomainValidateStorageSource(virStorageSource *src,
+@@ -5207,7 +5207,8 @@ qemuDomainValidateStorageSource(virStorageSource *src,
      if (src->query &&
          (actualType != VIR_STORAGE_TYPE_NETWORK ||
           (src->protocol != VIR_STORAGE_NET_PROTOCOL_HTTPS &&
@@ -376,7 +400,7 @@ index 3a00fb689e..93d01384e6 100644
          virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
                         _("query is supported only with HTTP(S) protocols"));
          return -1;
-@@ -10343,6 +10344,7 @@ qemuDomainPrepareStorageSourceTLS(virStorageSource *src,
+@@ -10387,6 +10388,7 @@ qemuDomainPrepareStorageSourceTLS(virStorageSource *src,
          break;
  
      case VIR_STORAGE_NET_PROTOCOL_RBD:
@@ -385,7 +409,7 @@ index 3a00fb689e..93d01384e6 100644
      case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
      case VIR_STORAGE_NET_PROTOCOL_ISCSI:
 diff --git a/src/qemu/qemu_snapshot.c b/src/qemu/qemu_snapshot.c
-index 73ff533827..e9c799ca8f 100644
+index 0cac0c4146..4955ebd8d4 100644
 --- a/src/qemu/qemu_snapshot.c
 +++ b/src/qemu/qemu_snapshot.c
 @@ -423,6 +423,7 @@ qemuSnapshotPrepareDiskExternalInactive(virDomainSnapshotDiskDef *snapdisk,
@@ -641,3 +665,6 @@ index 36f00cf643..5f5bd3464e 100644
              case VIR_STORAGE_POOL_LAST:
                  break;
              }
+-- 
+2.43.0
+
