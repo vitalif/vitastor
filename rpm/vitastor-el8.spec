@@ -105,10 +105,11 @@ npm install --production
 cd ..
 mkdir -p %buildroot/usr/lib/vitastor
 cp -r mon %buildroot/usr/lib/vitastor
+mv %buildroot/usr/lib/vitastor/mon/scripts/make-etcd %buildroot/usr/lib/vitastor/mon/
 mkdir -p %buildroot/lib/systemd/system
-cp mon/vitastor.target mon/vitastor-mon.service mon/vitastor-osd@.service %buildroot/lib/systemd/system
+cp mon/scripts/vitastor.target mon/scripts/vitastor-mon.service mon/scripts/vitastor-osd@.service %buildroot/lib/systemd/system
 mkdir -p %buildroot/lib/udev/rules.d
-cp mon/90-vitastor.rules %buildroot/lib/udev/rules.d
+cp mon/scripts/90-vitastor.rules %buildroot/lib/udev/rules.d
 
 
 %files
