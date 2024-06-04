@@ -22,7 +22,7 @@
   with lazy fsync, but prepare for inferior single-thread latency. Read more about capacitors
   [here](../config/layout-cluster.en.md#immediate_commit).
 - If you want to use HDDs, get modern HDDs with Media Cache or SSD Cache: HGST Ultrastar,
-  Toshiba MG08, Seagate EXOS or something similar. If your drives don't have such cache then
+  Toshiba MG, Seagate EXOS or something similar. If your drives don't have such cache then
   you also need small SSDs for journal and metadata (even 2 GB per 1 TB of HDD space is enough).
 - Get a fast network (at least 10 Gbit/s). Something like Mellanox ConnectX-4 with RoCEv2 is ideal.
 - Disable CPU powersaving: `cpupower idle-set -D 0 && cpupower frequency-set -g performance`.
@@ -33,7 +33,7 @@
 - SATA SSD: Micron 5100/5200/5300/5400, Samsung PM863/PM883/PM893, Intel D3-S4510/4520/4610/4620, Kingston DC500M
 - NVMe: Micron 9100/9200/9300/9400, Micron 7300/7450, Samsung PM983/PM9A3, Samsung PM1723/1735/1743,
   Intel DC-P3700/P4500/P4600, Intel D7-P5500/P5600, Intel Optane, Kingston DC1000B/DC1500M
-- HDD: HGST Ultrastar, Toshiba MG06/MG07/MG08, Seagate EXOS
+- HDD: HGST Ultrastar, Toshiba MG, Seagate EXOS
 
 ## Configure monitors
 
