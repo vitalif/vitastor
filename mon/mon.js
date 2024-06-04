@@ -2,10 +2,9 @@
 // License: VNPL-1.1 (see README.md for details)
 
 const fs = require('fs');
-const http = require('http');
 const crypto = require('crypto');
 const os = require('os');
-const WebSocket = require('ws');
+const EtcdAdapter = require('./etcd_adapter.js');
 const { RuleCombinator } = require('./lp_optimizer/dsl_pgs.js');
 const { SimpleCombinator, flatten_tree } = require('./lp_optimizer/simple_pgs.js');
 const { etcd_tree, etcd_allow, etcd_nonempty_keys } = require('./etcd_schema.js');
@@ -29,7 +28,6 @@ class Mon
                 ...config,
             };
         }
-        this.parse_etcd_addresses(config.etcd_address||config.etcd_url);
         this.verbose = config.verbose || 0;
         this.initConfig = config;
         this.config = { ...config };
@@ -39,49 +37,19 @@ class Mon
         this.state = JSON.parse(JSON.stringify(etcd_tree));
         this.prev_stats = { osd_stats: {}, osd_diff: {} };
         this.signals_set = false;
-        this.ws = null;
-        this.ws_alive = false;
-        this.ws_keepalive_timer = null;
         this.on_stop_cb = () => this.on_stop(0).catch(console.error);
         this.recheck_pgs_active = false;
-    }
-
-    parse_etcd_addresses(addrs)
-    {
-        const is_local_ip = this.local_ips(true).reduce((a, c) => { a[c] = true; return a; }, {});
-        this.etcd_local = [];
-        this.etcd_urls = [];
-        this.selected_etcd_url = null;
-        this.etcd_urls_to_try = [];
-        if (!(addrs instanceof Array))
-            addrs = addrs ? (''+(addrs||'')).split(/,/) : [];
-        if (!addrs.length)
-        {
-            console.error('Vitastor etcd address(es) not specified. Please set on the command line or in the config file');
-            process.exit(1);
-        }
-        for (let url of addrs)
-        {
-            let scheme = 'http';
-            url = url.trim().replace(/^(https?):\/\//, (m, m1) => { scheme = m1; return ''; });
-            const slash = url.indexOf('/');
-            const colon = url.indexOf(':');
-            const is_local = is_local_ip[colon >= 0 ? url.substr(0, colon) : (slash >= 0 ? url.substr(0, slash) : url)];
-            url = scheme+'://'+(slash >= 0 ? url : url+'/v3');
-            if (is_local)
-                this.etcd_local.push(url);
-            else
-                this.etcd_urls.push(url);
-        }
+        this.etcd = new EtcdAdapter(this);
+        this.etcd.parse_config(this.config);
     }
 
     async start()
     {
         await this.load_config();
         await this.get_lease();
-        await this.become_master();
+        await this.etcd.become_master();
         await this.load_cluster_state();
-        await this.start_watcher(this.config.etcd_mon_retries);
+        await this.etcd.start_watcher(this.config.etcd_mon_retries);
         for (const pool_id in this.state.config.pools)
         {
             if (!this.state.pool.stats[pool_id] ||
@@ -98,7 +66,7 @@ class Mon
 
     async load_config()
     {
-        const res = await this.etcd_call('/kv/txn', { success: [
+        const res = await this.etcd.etcd_call('/kv/txn', { success: [
             { requestRange: { key: b64(this.etcd_prefix+'/config/global') } }
         ] }, this.etcd_start_timeout, -1);
         if (res.responses[0].response_range.kvs)
@@ -148,199 +116,52 @@ class Mon
         }
     }
 
-    pick_next_etcd()
+    on_message(msg)
     {
-        if (this.selected_etcd_url)
-            return this.selected_etcd_url;
-        if (!this.etcd_urls_to_try || !this.etcd_urls_to_try.length)
+        let stats_changed = false, changed = false, pg_states_changed = false;
+        if (this.verbose)
         {
-            this.etcd_urls_to_try = [ ...this.etcd_local ];
-            const others = [ ...this.etcd_urls ];
-            while (others.length)
+            console.log('Revision '+msg.header.revision+' events: ');
+        }
+        this.etcd_watch_revision = BigInt(msg.header.revision)+BigInt(1);
+        for (const e of msg.events||[])
+        {
+            this.parse_kv(e.kv);
+            const key = e.kv.key.substr(this.etcd_prefix.length);
+            if (key.substr(0, 11) == '/osd/state/')
             {
-                const url = others.splice(0|(others.length*Math.random()), 1);
-                this.etcd_urls_to_try.push(url[0]);
+                stats_changed = true;
+                changed = true;
+            }
+            else if (key.substr(0, 11) == '/osd/stats/' || key.substr(0, 10) == '/pg/stats/' || key.substr(0, 16) == '/osd/inodestats/')
+            {
+                stats_changed = true;
+            }
+            else if (key.substr(0, 10) == '/pg/state/')
+            {
+                pg_states_changed = true;
+            }
+            else if (key != '/stats' && key.substr(0, 13) != '/inode/stats/')
+            {
+                changed = true;
+            }
+            if (this.verbose)
+            {
+                console.log(JSON.stringify(e));
             }
         }
-        this.selected_etcd_url = this.etcd_urls_to_try.shift();
-        return this.selected_etcd_url;
-    }
-
-    restart_watcher(cur_addr)
-    {
-        if (this.ws)
+        if (pg_states_changed)
         {
-            this.ws.close();
-            this.ws = null;
+            this.save_last_clean().catch(this.die);
         }
-        if (this.ws_keepalive_timer)
+        if (stats_changed)
         {
-            clearInterval(this.ws_keepalive_timer);
-            this.ws_keepalive_timer = null;
+            this.schedule_update_stats();
         }
-        if (this.selected_etcd_url == cur_addr)
+        if (changed)
         {
-            this.selected_etcd_url = null;
+            this.schedule_recheck();
         }
-        this.start_watcher(this.config.etcd_mon_retries).catch(this.die);
-    }
-
-    async start_watcher(retries)
-    {
-        let retry = 0;
-        if (!retries || retries < 1)
-        {
-            retries = 1;
-        }
-        const tried = {};
-        while (retries < 0 || retry < retries)
-        {
-            const cur_addr = this.pick_next_etcd();
-            const base = 'ws'+cur_addr.substr(4);
-            let now = Date.now();
-            if (tried[base] && now-tried[base] < this.etcd_start_timeout)
-            {
-                await new Promise(ok => setTimeout(ok, this.etcd_start_timeout-(now-tried[base])));
-                now = Date.now();
-            }
-            tried[base] = now;
-            const ok = await new Promise(ok =>
-            {
-                const timer_id = setTimeout(() =>
-                {
-                    this.ws.close();
-                    this.ws = null;
-                    ok(false);
-                }, this.config.etcd_mon_timeout);
-                this.ws = new WebSocket(base+'/watch');
-                const fail = () =>
-                {
-                    ok(false);
-                };
-                this.ws.on('error', fail);
-                this.ws.on('open', () =>
-                {
-                    this.ws.removeListener('error', fail);
-                    if (timer_id)
-                        clearTimeout(timer_id);
-                    ok(true);
-                });
-            });
-            if (ok)
-                break;
-            if (this.selected_etcd_url == cur_addr)
-                this.selected_etcd_url = null;
-            this.ws = null;
-            retry++;
-        }
-        if (!this.ws)
-        {
-            this.failconnect('Failed to open etcd watch websocket');
-        }
-        const cur_addr = this.selected_etcd_url;
-        this.ws_alive = true;
-        this.ws_keepalive_timer = setInterval(() =>
-        {
-            if (this.ws_alive)
-            {
-                this.ws_alive = false;
-                this.ws.send(JSON.stringify({ progress_request: {} }));
-            }
-            else
-            {
-                console.log('etcd websocket timed out, restarting it');
-                this.restart_watcher(cur_addr);
-            }
-        }, (Number(this.config.etcd_ws_keepalive_interval) || 30)*1000);
-        this.ws.on('error', () => this.restart_watcher(cur_addr));
-        this.ws.send(JSON.stringify({
-            create_request: {
-                key: b64(this.etcd_prefix+'/'),
-                range_end: b64(this.etcd_prefix+'0'),
-                start_revision: ''+this.etcd_watch_revision,
-                watch_id: 1,
-                progress_notify: true,
-            },
-        }));
-        this.ws.on('message', (msg) =>
-        {
-            this.ws_alive = true;
-            let data;
-            try
-            {
-                data = JSON.parse(msg);
-            }
-            catch (e)
-            {
-            }
-            if (!data || !data.result)
-            {
-                console.error('Unknown message received from watch websocket: '+msg);
-            }
-            else if (data.result.canceled)
-            {
-                // etcd watch canceled
-                if (data.result.compact_revision)
-                {
-                    // we may miss events if we proceed
-                    console.error('Revisions before '+data.result.compact_revision+' were compacted by etcd, exiting');
-                    this.on_stop(1);
-                }
-                console.error('Watch canceled by etcd, reason: '+data.result.cancel_reason+', exiting');
-                this.on_stop(1);
-            }
-            else if (data.result.created)
-            {
-                // etcd watch created
-            }
-            else
-            {
-                let stats_changed = false, changed = false, pg_states_changed = false;
-                if (this.verbose)
-                {
-                    console.log('Revision '+data.result.header.revision+' events: ');
-                }
-                this.etcd_watch_revision = BigInt(data.result.header.revision)+BigInt(1);
-                for (const e of data.result.events||[])
-                {
-                    this.parse_kv(e.kv);
-                    const key = e.kv.key.substr(this.etcd_prefix.length);
-                    if (key.substr(0, 11) == '/osd/state/')
-                    {
-                        stats_changed = true;
-                        changed = true;
-                    }
-                    else if (key.substr(0, 11) == '/osd/stats/' || key.substr(0, 10) == '/pg/stats/' || key.substr(0, 16) == '/osd/inodestats/')
-                    {
-                        stats_changed = true;
-                    }
-                    else if (key.substr(0, 10) == '/pg/state/')
-                    {
-                        pg_states_changed = true;
-                    }
-                    else if (key != '/stats' && key.substr(0, 13) != '/inode/stats/')
-                    {
-                        changed = true;
-                    }
-                    if (this.verbose)
-                    {
-                        console.log(JSON.stringify(e));
-                    }
-                }
-                if (pg_states_changed)
-                {
-                    this.save_last_clean().catch(this.die);
-                }
-                if (stats_changed)
-                {
-                    this.schedule_update_stats();
-                }
-                if (changed)
-                {
-                    this.schedule_recheck();
-                }
-            }
-        });
     }
 
     // Schedule save_last_clean() to to run after a small timeout (1s) (to not spam etcd)
@@ -395,7 +216,7 @@ class Mon
             new_clean_pgs.items[pool_id] = this.state.config.pgs.items[pool_id];
         }
         this.state.history.last_clean_pgs = new_clean_pgs;
-        await this.etcd_call('/kv/txn', {
+        await this.etcd.etcd_call('/kv/txn', {
             success: [ { requestPut: {
                 key: b64(this.etcd_prefix+'/history/last_clean_pgs'),
                 value: b64(JSON.stringify(this.state.history.last_clean_pgs))
@@ -413,11 +234,11 @@ class Mon
     {
         const max_ttl = this.config.etcd_mon_ttl + this.config.etcd_mon_timeout/1000*this.config.etcd_mon_retries;
         // Get lease
-        let res = await this.etcd_call('/lease/grant', { TTL: max_ttl }, this.config.etcd_mon_timeout, -1);
+        let res = await this.etcd.etcd_call('/lease/grant', { TTL: max_ttl }, this.config.etcd_mon_timeout, -1);
         this.etcd_lease_id = res.ID;
         // Register in /mon/member, just for the information
         const state = this.get_mon_state();
-        res = await this.etcd_call('/kv/put', {
+        res = await this.etcd.etcd_call('/kv/put', {
             key: b64(this.etcd_prefix+'/mon/member/'+this.etcd_lease_id),
             value: b64(JSON.stringify(state)),
             lease: ''+this.etcd_lease_id
@@ -425,7 +246,7 @@ class Mon
         // Set refresh timer
         this.lease_timer = setInterval(async () =>
         {
-            const res = await this.etcd_call('/lease/keepalive', { ID: this.etcd_lease_id }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
+            const res = await this.etcd.etcd_call('/lease/keepalive', { ID: this.etcd_lease_id }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
             if (!res.result.TTL)
             {
                 this.failconnect('Lease expired');
@@ -442,33 +263,13 @@ class Mon
     async on_stop(status)
     {
         clearInterval(this.lease_timer);
-        await this.etcd_call('/lease/revoke', { ID: this.etcd_lease_id }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
+        await this.etcd.etcd_call('/lease/revoke', { ID: this.etcd_lease_id }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
         process.exit(status);
-    }
-
-    async become_master()
-    {
-        const state = { ...this.get_mon_state(), id: ''+this.etcd_lease_id };
-        // eslint-disable-next-line no-constant-condition
-        while (1)
-        {
-            const res = await this.etcd_call('/kv/txn', {
-                compare: [ { target: 'CREATE', create_revision: 0, key: b64(this.etcd_prefix+'/mon/master') } ],
-                success: [ { requestPut: { key: b64(this.etcd_prefix+'/mon/master'), value: b64(JSON.stringify(state)), lease: ''+this.etcd_lease_id } } ],
-            }, this.etcd_start_timeout, 0);
-            if (res.succeeded)
-            {
-                break;
-            }
-            console.log('Waiting to become master');
-            await new Promise(ok => setTimeout(ok, this.etcd_start_timeout));
-        }
-        console.log('Became master');
     }
 
     async load_cluster_state()
     {
-        const res = await this.etcd_call('/kv/txn', { success: [
+        const res = await this.etcd.etcd_call('/kv/txn', { success: [
             { requestRange: { key: b64(this.etcd_prefix+'/'), range_end: b64(this.etcd_prefix+'0') } },
         ] }, this.etcd_start_timeout, -1);
         this.etcd_watch_revision = BigInt(res.header.revision)+BigInt(1);
@@ -641,7 +442,7 @@ class Mon
                 const key = b64(this.etcd_prefix+'/osd/state/'+osd_num);
                 checks.push({ key, target: 'MOD', result: 'LESS', mod_revision: ''+this.etcd_watch_revision });
             }
-            await this.etcd_call('/kv/txn', {
+            await this.etcd.etcd_call('/kv/txn', {
                 compare: [
                     { key: b64(this.etcd_prefix+'/mon/master'), target: 'LEASE', lease: ''+this.etcd_lease_id },
                     { key: b64(this.etcd_prefix+'/config/pgs'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
@@ -1139,7 +940,7 @@ class Mon
         etcd_request.success.push(
             { requestPut: { key: b64(this.etcd_prefix+'/config/pgs'), value: b64(JSON.stringify(new_config_pgs)) } },
         );
-        const txn_res = await this.etcd_call('/kv/txn', etcd_request, this.config.etcd_mon_timeout, 0);
+        const txn_res = await this.etcd.etcd_call('/kv/txn', etcd_request, this.config.etcd_mon_timeout, 0);
         return txn_res.succeeded;
     }
 
@@ -1238,7 +1039,7 @@ class Mon
         }
         if (txn.length)
         {
-            await this.etcd_call('/kv/txn', { success: txn }, this.config.etcd_mon_timeout, 0);
+            await this.etcd.etcd_call('/kv/txn', { success: txn }, this.config.etcd_mon_timeout, 0);
         }
     }
 
@@ -1327,46 +1128,6 @@ class Mon
         }
     }
 
-    async etcd_call(path, body, timeout, retries)
-    {
-        let retry = 0;
-        if (retries >= 0 && retries < 1)
-        {
-            retries = 1;
-        }
-        const tried = {};
-        while (retries < 0 || retry < retries)
-        {
-            retry++;
-            const base = this.pick_next_etcd();
-            let now = Date.now();
-            if (tried[base] && now-tried[base] < timeout)
-            {
-                await new Promise(ok => setTimeout(ok, timeout-(now-tried[base])));
-                now = Date.now();
-            }
-            tried[base] = now;
-            const res = await POST(base+path, body, timeout);
-            if (res.error)
-            {
-                if (this.selected_etcd_url == base)
-                    this.selected_etcd_url = null;
-                console.error('failed to query etcd: '+res.error);
-                continue;
-            }
-            if (res.json)
-            {
-                if (res.json.error)
-                {
-                    console.error('etcd returned error: '+res.json.error);
-                    break;
-                }
-                return res.json;
-            }
-        }
-        this.failconnect();
-    }
-
     _die(err, code)
     {
         // In fact we can just try to rejoin
@@ -1390,57 +1151,6 @@ class Mon
         }
         return ips;
     }
-}
-
-function POST(url, body, timeout)
-{
-    return new Promise(ok =>
-    {
-        const body_text = Buffer.from(JSON.stringify(body));
-        let timer_id = timeout > 0 ? setTimeout(() =>
-        {
-            if (req)
-                req.abort();
-            req = null;
-            ok({ error: 'timeout' });
-        }, timeout) : null;
-        let req = http.request(url, { method: 'POST', headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': body_text.length,
-        } }, (res) =>
-        {
-            if (!req)
-            {
-                return;
-            }
-            clearTimeout(timer_id);
-            let res_body = '';
-            res.setEncoding('utf8');
-            res.on('error', (error) => ok({ error }));
-            res.on('data', chunk => { res_body += chunk; });
-            res.on('end', () =>
-            {
-                if (res.statusCode != 200)
-                {
-                    ok({ error: res_body, code: res.statusCode });
-                    return;
-                }
-                try
-                {
-                    res_body = JSON.parse(res_body);
-                    ok({ response: res, json: res_body });
-                }
-                catch (e)
-                {
-                    ok({ error: e, response: res, body: res_body });
-                }
-            });
-        });
-        req.on('error', (error) => ok({ error }));
-        req.on('close', () => ok({ error: new Error('Connection closed prematurely') }));
-        req.write(body_text);
-        req.end();
-    });
 }
 
 function b64(str)
