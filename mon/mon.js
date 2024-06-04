@@ -5,18 +5,14 @@ const fs = require('fs');
 const crypto = require('crypto');
 const os = require('os');
 const EtcdAdapter = require('./etcd_adapter.js');
-const { RuleCombinator } = require('./lp_optimizer/dsl_pgs.js');
-const { SimpleCombinator, flatten_tree } = require('./lp_optimizer/simple_pgs.js');
 const { etcd_tree, etcd_allow, etcd_nonempty_keys } = require('./etcd_schema.js');
-const { validate_pool_cfg, get_pg_rules } = require('./pool_config.js');
+const { validate_pool_cfg } = require('./pool_config.js');
 const { sum_op_stats, sum_object_counts, sum_inode_stats, serialize_bigints } = require('./stats.js');
-const LPOptimizer = require('./lp_optimizer/lp_optimizer.js');
 const stableStringify = require('./stable-stringify.js');
-const { scale_pg_count, scale_pg_history } = require('./pg_utils.js');
-const { get_osd_tree, make_hier_tree, filter_osds_by_root_node,
-    filter_osds_by_tags, filter_osds_by_block_layout, get_affinity_osds } = require('./osd_tree.js');
+const { scale_pg_history } = require('./pg_utils.js');
+const { get_osd_tree } = require('./osd_tree.js');
+const { recheck_primary, save_new_pgs_txn, generate_pool_pgs } = require('./pg_gen.js');
 
-// FIXME Split into several files
 class Mon
 {
     constructor(config)
@@ -338,209 +334,6 @@ class Mon
         return !has_online;
     }
 
-    reset_rng()
-    {
-        this.seed = 0x5f020e43;
-    }
-
-    rng()
-    {
-        this.seed ^= this.seed << 13;
-        this.seed ^= this.seed >> 17;
-        this.seed ^= this.seed << 5;
-        return this.seed + 2147483648;
-    }
-
-    pick_primary(pool_id, osd_set, up_osds, aff_osds)
-    {
-        let alive_set;
-        if (this.state.config.pools[pool_id].scheme === 'replicated')
-        {
-            // Prefer "affinity" OSDs
-            alive_set = osd_set.filter(osd_num => osd_num && aff_osds[osd_num]);
-            if (!alive_set.length)
-                alive_set = osd_set.filter(osd_num => osd_num && up_osds[osd_num]);
-        }
-        else
-        {
-            // Prefer data OSDs for EC because they can actually read something without an additional network hop
-            const pg_data_size = (this.state.config.pools[pool_id].pg_size||0) -
-                (this.state.config.pools[pool_id].parity_chunks||0);
-            alive_set = osd_set.slice(0, pg_data_size).filter(osd_num => osd_num && aff_osds[osd_num]);
-            if (!alive_set.length)
-                alive_set = osd_set.filter(osd_num => osd_num && aff_osds[osd_num]);
-            if (!alive_set.length)
-            {
-                alive_set = osd_set.slice(0, pg_data_size).filter(osd_num => osd_num && up_osds[osd_num]);
-                if (!alive_set.length)
-                    alive_set = osd_set.filter(osd_num => osd_num && up_osds[osd_num]);
-            }
-        }
-        if (!alive_set.length)
-            return 0;
-        return alive_set[this.rng() % alive_set.length];
-    }
-
-    save_new_pgs_txn(save_to, request, pool_id, up_osds, osd_tree, prev_pgs, new_pgs, pg_history)
-    {
-        const aff_osds = get_affinity_osds(this.state.config.pools[pool_id] || {}, up_osds, osd_tree);
-        const pg_items = {};
-        this.reset_rng();
-        new_pgs.map((osd_set, i) =>
-        {
-            osd_set = osd_set.map(osd_num => osd_num === LPOptimizer.NO_OSD ? 0 : osd_num);
-            pg_items[i+1] = {
-                osd_set,
-                primary: this.pick_primary(pool_id, osd_set, up_osds, aff_osds),
-            };
-            if (prev_pgs[i] && prev_pgs[i].join(' ') != osd_set.join(' ') &&
-                prev_pgs[i].filter(osd_num => osd_num).length > 0)
-            {
-                pg_history[i] = pg_history[i] || {};
-                pg_history[i].osd_sets = pg_history[i].osd_sets || [];
-                pg_history[i].osd_sets.push(prev_pgs[i]);
-            }
-            if (pg_history[i] && pg_history[i].osd_sets)
-            {
-                pg_history[i].osd_sets = Object.values(pg_history[i].osd_sets
-                    .reduce((a, c) => { a[c.join(' ')] = c; return a; }, {}));
-            }
-        });
-        for (let i = 0; i < new_pgs.length || i < prev_pgs.length; i++)
-        {
-            // FIXME: etcd has max_txn_ops limit, and it's 128 by default
-            // Sooo we probably want to change our storage scheme for PG histories...
-            request.compare.push({
-                key: b64(this.etcd_prefix+'/pg/history/'+pool_id+'/'+(i+1)),
-                target: 'MOD',
-                mod_revision: ''+this.etcd_watch_revision,
-                result: 'LESS',
-            });
-            if (pg_history[i])
-            {
-                request.success.push({
-                    requestPut: {
-                        key: b64(this.etcd_prefix+'/pg/history/'+pool_id+'/'+(i+1)),
-                        value: b64(JSON.stringify(pg_history[i])),
-                    },
-                });
-            }
-            else
-            {
-                request.success.push({
-                    requestDeleteRange: {
-                        key: b64(this.etcd_prefix+'/pg/history/'+pool_id+'/'+(i+1)),
-                    },
-                });
-            }
-        }
-        save_to.items = save_to.items || {};
-        if (!new_pgs.length)
-        {
-            delete save_to.items[pool_id];
-        }
-        else
-        {
-            save_to.items[pool_id] = pg_items;
-        }
-    }
-
-    async generate_pool_pgs(pool_id, osd_tree, levels)
-    {
-        const pool_cfg = this.state.config.pools[pool_id];
-        if (!validate_pool_cfg(pool_id, pool_cfg, this.config.placement_levels, false))
-        {
-            return null;
-        }
-        let pool_tree = { ...osd_tree };
-        filter_osds_by_root_node(this.config, pool_tree, pool_cfg.root_node);
-        filter_osds_by_tags(pool_tree, pool_cfg.osd_tags);
-        filter_osds_by_block_layout(
-            pool_tree,
-            this.state.osd.stats,
-            pool_cfg.block_size || this.config.block_size || 131072,
-            pool_cfg.bitmap_granularity || this.config.bitmap_granularity || 4096,
-            pool_cfg.immediate_commit || this.config.immediate_commit || 'none'
-        );
-        pool_tree = make_hier_tree(this.config, pool_tree);
-        // First try last_clean_pgs to minimize data movement
-        let prev_pgs = [];
-        for (const pg in ((this.state.history.last_clean_pgs.items||{})[pool_id]||{}))
-        {
-            prev_pgs[pg-1] = [ ...this.state.history.last_clean_pgs.items[pool_id][pg].osd_set ];
-        }
-        if (!prev_pgs.length)
-        {
-            // Fall back to config/pgs if it's empty
-            for (const pg in ((this.state.config.pgs.items||{})[pool_id]||{}))
-            {
-                prev_pgs[pg-1] = [ ...this.state.config.pgs.items[pool_id][pg].osd_set ];
-            }
-        }
-        const old_pg_count = prev_pgs.length;
-        const optimize_cfg = {
-            osd_weights: Object.values(pool_tree).filter(item => item.level === 'osd').reduce((a, c) => { a[c.id] = c.size; return a; }, {}),
-            combinator: !this.config.use_old_pg_combinator || pool_cfg.level_placement || pool_cfg.raw_placement
-                // new algorithm:
-                ? new RuleCombinator(pool_tree, get_pg_rules(pool_id, pool_cfg, this.config.placement_levels), pool_cfg.max_osd_combinations)
-                // old algorithm:
-                : new SimpleCombinator(flatten_tree(pool_tree[''].children, levels, pool_cfg.failure_domain, 'osd'), pool_cfg.pg_size, pool_cfg.max_osd_combinations),
-            pg_count: pool_cfg.pg_count,
-            pg_size: pool_cfg.pg_size,
-            pg_minsize: pool_cfg.pg_minsize,
-            ordered: pool_cfg.scheme != 'replicated',
-        };
-        let optimize_result;
-        // Re-shuffle PGs if config/pgs.hash is empty
-        if (old_pg_count > 0 && this.state.config.pgs.hash)
-        {
-            if (prev_pgs.length != pool_cfg.pg_count)
-            {
-                // Scale PG count
-                // Do it even if old_pg_count is already equal to pool_cfg.pg_count,
-                // because last_clean_pgs may still contain the old number of PGs
-                scale_pg_count(prev_pgs, pool_cfg.pg_count);
-            }
-            for (const pg of prev_pgs)
-            {
-                while (pg.length < pool_cfg.pg_size)
-                {
-                    pg.push(0);
-                }
-            }
-            optimize_result = await LPOptimizer.optimize_change({
-                prev_pgs,
-                ...optimize_cfg,
-            });
-        }
-        else
-        {
-            optimize_result = await LPOptimizer.optimize_initial(optimize_cfg);
-        }
-        console.log(`Pool ${pool_id} (${pool_cfg.name || 'unnamed'}):`);
-        LPOptimizer.print_change_stats(optimize_result);
-        let pg_effsize = pool_cfg.pg_size;
-        for (const pg of optimize_result.int_pgs)
-        {
-            const this_pg_size = pg.filter(osd => osd != LPOptimizer.NO_OSD).length;
-            if (this_pg_size && this_pg_size < pg_effsize)
-            {
-                pg_effsize = this_pg_size;
-            }
-        }
-        return {
-            pool_id,
-            pgs: optimize_result.int_pgs,
-            stats: {
-                total_raw_tb: optimize_result.space,
-                pg_real_size: pg_effsize || pool_cfg.pg_size,
-                raw_to_usable: (pg_effsize || pool_cfg.pg_size) / (pool_cfg.scheme === 'replicated'
-                    ? 1 : (pool_cfg.pg_size - (pool_cfg.parity_chunks||0))),
-                space_efficiency: optimize_result.space/(optimize_result.total_space||1),
-            },
-        };
-    }
-
     async recheck_pgs()
     {
         if (this.recheck_pgs_active)
@@ -565,7 +358,7 @@ class Mon
             console.log('Pool configuration or OSD tree changed, re-optimizing');
             // First re-optimize PGs, but don't look at history yet
             const optimize_results = (await Promise.all(Object.keys(this.state.config.pools)
-                .map(pool_id => this.generate_pool_pgs(pool_id, osd_tree, levels)))).filter(r => r);
+                .map(pool_id => generate_pool_pgs(this.state, this.config, pool_id, osd_tree, levels)))).filter(r => r);
             // Then apply the modification in the form of an optimistic transaction,
             // each time considering new pg/history modifications (OSDs modify it during rebalance)
             while (!await this.apply_pool_pgs(optimize_results, up_osds, osd_tree, tree_hash))
@@ -600,44 +393,8 @@ class Mon
         else
         {
             // Nothing changed, but we still want to recheck the distribution of primaries
-            let new_config_pgs;
-            let changed = false;
-            for (const pool_id in this.state.config.pools)
-            {
-                const pool_cfg = this.state.config.pools[pool_id];
-                if (!validate_pool_cfg(pool_id, pool_cfg, this.config.placement_levels, false))
-                {
-                    continue;
-                }
-                const aff_osds = get_affinity_osds(pool_cfg, up_osds, osd_tree);
-                this.reset_rng();
-                for (let pg_num = 1; pg_num <= pool_cfg.pg_count; pg_num++)
-                {
-                    if (!this.state.config.pgs.items[pool_id])
-                    {
-                        continue;
-                    }
-                    const pg_cfg = this.state.config.pgs.items[pool_id][pg_num];
-                    if (pg_cfg)
-                    {
-                        const new_primary = this.pick_primary(pool_id, pg_cfg.osd_set, up_osds, aff_osds);
-                        if (pg_cfg.primary != new_primary)
-                        {
-                            if (!new_config_pgs)
-                            {
-                                new_config_pgs = JSON.parse(JSON.stringify(this.state.config.pgs));
-                            }
-                            console.log(
-                                `Moving pool ${pool_id} (${pool_cfg.name || 'unnamed'}) PG ${pg_num}`+
-                                ` primary OSD from ${pg_cfg.primary} to ${new_primary}`
-                            );
-                            changed = true;
-                            new_config_pgs.items[pool_id][pg_num].primary = new_primary;
-                        }
-                    }
-                }
-            }
-            if (changed)
+            let new_config_pgs = recheck_primary(this.state, this.config, up_osds, osd_tree);
+            if (new_config_pgs)
             {
                 const ok = await this.save_pg_config(new_config_pgs);
                 if (ok)
@@ -682,7 +439,8 @@ class Mon
                 etcd_request.success.push({ requestDeleteRange: {
                     key: b64(this.etcd_prefix+'/pool/stats/'+pool_id),
                 } });
-                this.save_new_pgs_txn(new_config_pgs, etcd_request, pool_id, up_osds, osd_tree, prev_pgs, [], []);
+                save_new_pgs_txn(new_config_pgs, etcd_request, this.state, this.etcd_prefix,
+                    this.etcd_watch_revision, pool_id, up_osds, osd_tree, prev_pgs, [], []);
             }
         }
         for (const pool_res of results)
@@ -724,7 +482,8 @@ class Mon
                 key: b64(this.etcd_prefix+'/pool/stats/'+pool_id),
                 value: b64(JSON.stringify(stats)),
             } });
-            this.save_new_pgs_txn(new_config_pgs, etcd_request, pool_id, up_osds, osd_tree, real_prev_pgs, pool_res.pgs, pg_history);
+            save_new_pgs_txn(new_config_pgs, etcd_request, this.state, this.etcd_prefix,
+                this.etcd_watch_revision, pool_id, up_osds, osd_tree, real_prev_pgs, pool_res.pgs, pg_history);
         }
         new_config_pgs.hash = tree_hash;
         return await this.save_pg_config(new_config_pgs, etcd_request);
