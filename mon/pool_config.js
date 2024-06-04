@@ -1,7 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-const { parse_level_indexes, parse_pg_dsl } = require('./dsl_pgs.js');
+const { parse_level_indexes, parse_pg_dsl } = require('./lp_optimizer/dsl_pgs.js');
 
 function validate_pool_cfg(pool_id, pool_cfg, placement_levels, warn)
 {

@@ -6,12 +6,12 @@ const http = require('http');
 const crypto = require('crypto');
 const os = require('os');
 const WebSocket = require('ws');
-const { RuleCombinator } = require('./dsl_pgs.js');
-const { SimpleCombinator, flatten_tree } = require('./simple_pgs.js');
+const { RuleCombinator } = require('./lp_optimizer/dsl_pgs.js');
+const { SimpleCombinator, flatten_tree } = require('./lp_optimizer/simple_pgs.js');
 const { etcd_tree, etcd_allow, etcd_nonempty_keys } = require('./etcd_schema.js');
 const { validate_pool_cfg, get_pg_rules } = require('./pool_config.js');
 const { sum_op_stats, sum_object_counts, sum_inode_stats, serialize_bigints } = require('./stats.js');
-const LPOptimizer = require('./lp-optimizer.js');
+const LPOptimizer = require('./lp_optimizer/lp_optimizer.js');
 const stableStringify = require('./stable-stringify.js');
 const PGUtil = require('./PGUtil.js');
 

@@ -2,7 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 const { compat } = require('./simple_pgs.js');
-const LPOptimizer = require('./lp-optimizer.js');
+const LPOptimizer = require('./lp_optimizer.js');
 
 const osd_tree = {
     100: {

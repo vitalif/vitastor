@@ -4,7 +4,7 @@
   "description": "Vitastor SDS monitor service",
   "main": "mon-main.js",
   "scripts": {
-    "lint": "eslint *.js"
+    "lint": "eslint *.js lp_optimizer/*.js scripts/*.js"
   },
   "author": "Vitaliy Filippov",
   "license": "UNLICENSED",

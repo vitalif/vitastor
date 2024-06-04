@@ -8,7 +8,7 @@
 // But we support this case with the "parity_space" parameter in optimize_initial()/optimize_change().
 
 const { SimpleCombinator } = require('./simple_pgs.js');
-const LPOptimizer = require('./lp-optimizer.js');
+const LPOptimizer = require('./lp_optimizer.js');
 
 const osd_tree = {
     ripper5: {
