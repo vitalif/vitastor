@@ -13,6 +13,8 @@ const { sum_op_stats, sum_object_counts, sum_inode_stats, serialize_bigints } = 
 const LPOptimizer = require('./lp_optimizer/lp_optimizer.js');
 const stableStringify = require('./stable-stringify.js');
 const { scale_pg_count, scale_pg_history } = require('./pg_utils.js');
+const { get_osd_tree, make_hier_tree, filter_osds_by_root_node,
+    filter_osds_by_tags, filter_osds_by_block_layout, get_affinity_osds } = require('./osd_tree.js');
 
 // FIXME Split into several files
 class Mon
@@ -288,127 +290,6 @@ class Mon
         return Object.keys(this.state.osd.stats);
     }
 
-    get_osd_tree()
-    {
-        const levels = this.config.placement_levels||{};
-        levels.host = levels.host || 100;
-        levels.osd = levels.osd || 101;
-        const tree = {};
-        let up_osds = {};
-        // This requires monitor system time to be in sync with OSD system times (at least to some extent)
-        const down_time = Date.now()/1000 - this.config.osd_out_time;
-        for (const osd_num of this.all_osds().sort((a, b) => a - b))
-        {
-            const stat = this.state.osd.stats[osd_num];
-            const osd_cfg = this.state.config.osd[osd_num];
-            let reweight = osd_cfg == null ? 1 : Number(osd_cfg.reweight);
-            if (reweight < 0 || isNaN(reweight))
-                reweight = 1;
-            if (stat && stat.size && reweight && (this.state.osd.state[osd_num] || Number(stat.time) >= down_time ||
-                osd_cfg && osd_cfg.noout))
-            {
-                // Numeric IDs are reserved for OSDs
-                if (this.state.osd.state[osd_num] && reweight > 0)
-                {
-                    // React to down OSDs immediately
-                    up_osds[osd_num] = true;
-                }
-                tree[osd_num] = tree[osd_num] || {};
-                tree[osd_num].id = osd_num;
-                tree[osd_num].parent = tree[osd_num].parent || stat.host;
-                tree[osd_num].level = 'osd';
-                tree[osd_num].size = reweight * stat.size / 1024 / 1024 / 1024 / 1024; // terabytes
-                if (osd_cfg && osd_cfg.tags)
-                {
-                    tree[osd_num].tags = (osd_cfg.tags instanceof Array ? [ ...osd_cfg.tags ] : [ osd_cfg.tags ])
-                        .reduce((a, c) => { a[c] = true; return a; }, {});
-                }
-                delete tree[osd_num].children;
-                if (!tree[stat.host])
-                {
-                    tree[stat.host] = {
-                        id: stat.host,
-                        level: 'host',
-                        parent: null,
-                        children: [],
-                    };
-                }
-            }
-        }
-        for (const node_id in this.state.config.node_placement||{})
-        {
-            const node_cfg = this.state.config.node_placement[node_id];
-            if (/^\d+$/.exec(node_id))
-            {
-                node_cfg.level = 'osd';
-            }
-            if (!node_id || !node_cfg.level || !levels[node_cfg.level] ||
-                node_cfg.level === 'osd' && !tree[node_id])
-            {
-                // All nodes must have non-empty IDs and valid levels
-                // OSDs have to actually exist
-                continue;
-            }
-            tree[node_id] = tree[node_id] || {};
-            tree[node_id].id = node_id;
-            tree[node_id].level = node_cfg.level;
-            tree[node_id].parent = node_cfg.parent;
-            if (node_cfg.level !== 'osd')
-            {
-                tree[node_id].children = [];
-            }
-        }
-        return { up_osds, levels, osd_tree: tree };
-    }
-
-    make_hier_tree(tree)
-    {
-        const levels = this.config.placement_levels||{};
-        levels.host = levels.host || 100;
-        levels.osd = levels.osd || 101;
-        tree = { ...tree };
-        for (const node_id in tree)
-        {
-            tree[node_id] = { ...tree[node_id], children: [] };
-        }
-        tree[''] = { children: [] };
-        for (const node_id in tree)
-        {
-            if (node_id === '' || tree[node_id].level === 'osd' && (!tree[node_id].size || tree[node_id].size <= 0))
-            {
-                continue;
-            }
-            const node_cfg = tree[node_id];
-            const node_level = levels[node_cfg.level] || node_cfg.level;
-            let parent_level = node_cfg.parent && tree[node_cfg.parent] && tree[node_cfg.parent].children
-                && tree[node_cfg.parent].level;
-            parent_level = parent_level ? (levels[parent_level] || parent_level) : null;
-            // Parent's level must be less than child's; OSDs must be leaves
-            const parent = parent_level && parent_level < node_level ? node_cfg.parent : '';
-            tree[parent].children.push(tree[node_id]);
-        }
-        // Delete empty nodes
-        let deleted = 0;
-        do
-        {
-            deleted = 0;
-            for (const node_id in tree)
-            {
-                if (tree[node_id].level !== 'osd' && (!tree[node_id].children || !tree[node_id].children.length))
-                {
-                    const parent = tree[node_id].parent;
-                    if (parent)
-                    {
-                        tree[parent].children = tree[parent].children.filter(c => c != tree[node_id]);
-                    }
-                    deleted++;
-                    delete tree[node_id];
-                }
-            }
-        } while (deleted > 0);
-        return tree;
-    }
-
     async stop_all_pgs(pool_id)
     {
         let has_online = false, paused = true;
@@ -502,7 +383,7 @@ class Mon
 
     save_new_pgs_txn(save_to, request, pool_id, up_osds, osd_tree, prev_pgs, new_pgs, pg_history)
     {
-        const aff_osds = this.get_affinity_osds(this.state.config.pools[pool_id] || {}, up_osds, osd_tree);
+        const aff_osds = get_affinity_osds(this.state.config.pools[pool_id] || {}, up_osds, osd_tree);
         const pg_items = {};
         this.reset_rng();
         new_pgs.map((osd_set, i) =>
@@ -564,89 +445,6 @@ class Mon
         }
     }
 
-    filter_osds_by_root_node(pool_tree, root_node)
-    {
-        if (!root_node)
-        {
-            return;
-        }
-        let hier_tree = this.make_hier_tree(pool_tree);
-        let included = [ ...(hier_tree[root_node] || {}).children||[] ];
-        for (let i = 0; i < included.length; i++)
-        {
-            if (included[i].children)
-            {
-                included.splice(i+1, 0, ...included[i].children);
-            }
-        }
-        let cur = pool_tree[root_node] || {};
-        while (cur && cur.id)
-        {
-            included.unshift(cur);
-            cur = pool_tree[cur.parent||''];
-        }
-        included = included.reduce((a, c) => { a[c.id||''] = true; return a; }, {});
-        for (const item in pool_tree)
-        {
-            if (!included[item])
-            {
-                delete pool_tree[item];
-            }
-        }
-    }
-
-    filter_osds_by_tags(orig_tree, tags)
-    {
-        if (!tags)
-        {
-            return;
-        }
-        for (const tag of (tags instanceof Array ? tags : [ tags ]))
-        {
-            for (const osd in orig_tree)
-            {
-                if (orig_tree[osd].level === 'osd' &&
-                    (!orig_tree[osd].tags || !orig_tree[osd].tags[tag]))
-                {
-                    delete orig_tree[osd];
-                }
-            }
-        }
-    }
-
-    filter_osds_by_block_layout(orig_tree, block_size, bitmap_granularity, immediate_commit)
-    {
-        for (const osd in orig_tree)
-        {
-            if (orig_tree[osd].level === 'osd')
-            {
-                const osd_stat = this.state.osd.stats[osd];
-                if (osd_stat && (osd_stat.bs_block_size && osd_stat.bs_block_size != block_size ||
-                    osd_stat.bitmap_granularity && osd_stat.bitmap_granularity != bitmap_granularity ||
-                    osd_stat.immediate_commit == 'small' && immediate_commit == 'all' ||
-                    osd_stat.immediate_commit == 'none' && immediate_commit != 'none'))
-                {
-                    delete orig_tree[osd];
-                }
-            }
-        }
-    }
-
-    get_affinity_osds(pool_cfg, up_osds, osd_tree)
-    {
-        let aff_osds = up_osds;
-        if (pool_cfg.primary_affinity_tags)
-        {
-            aff_osds = Object.keys(up_osds).reduce((a, c) => { a[c] = osd_tree[c]; return a; }, {});
-            this.filter_osds_by_tags(aff_osds, pool_cfg.primary_affinity_tags);
-            for (const osd in aff_osds)
-            {
-                aff_osds[osd] = true;
-            }
-        }
-        return aff_osds;
-    }
-
     async generate_pool_pgs(pool_id, osd_tree, levels)
     {
         const pool_cfg = this.state.config.pools[pool_id];
@@ -655,15 +453,16 @@ class Mon
             return null;
         }
         let pool_tree = { ...osd_tree };
-        this.filter_osds_by_root_node(pool_tree, pool_cfg.root_node);
-        this.filter_osds_by_tags(pool_tree, pool_cfg.osd_tags);
-        this.filter_osds_by_block_layout(
+        filter_osds_by_root_node(this.config, pool_tree, pool_cfg.root_node);
+        filter_osds_by_tags(pool_tree, pool_cfg.osd_tags);
+        filter_osds_by_block_layout(
             pool_tree,
+            this.state.osd.stats,
             pool_cfg.block_size || this.config.block_size || 131072,
             pool_cfg.bitmap_granularity || this.config.bitmap_granularity || 4096,
             pool_cfg.immediate_commit || this.config.immediate_commit || 'none'
         );
-        pool_tree = this.make_hier_tree(pool_tree);
+        pool_tree = make_hier_tree(this.config, pool_tree);
         // First try last_clean_pgs to minimize data movement
         let prev_pgs = [];
         for (const pg in ((this.state.history.last_clean_pgs.items||{})[pool_id]||{}))
@@ -753,7 +552,7 @@ class Mon
         // Take configuration and state, check it against the stored configuration hash
         // Recalculate PGs and save them to etcd if the configuration is changed
         // FIXME: Do not change anything if the distribution is good and random enough and no PGs are degraded
-        const { up_osds, levels, osd_tree } = this.get_osd_tree();
+        const { up_osds, levels, osd_tree } = get_osd_tree(this.config, this.state);
         const tree_cfg = {
             osd_tree,
             levels,
@@ -781,7 +580,7 @@ class Mon
                 {
                     await new Promise(ok => setTimeout(ok, this.config.mon_retry_change_timeout));
                 }
-                const new_ot = this.get_osd_tree();
+                const new_ot = get_osd_tree(this.config, this.state);
                 const new_tcfg = {
                     osd_tree: new_ot.osd_tree,
                     levels: new_ot.levels,
@@ -810,7 +609,7 @@ class Mon
                 {
                     continue;
                 }
-                const aff_osds = this.get_affinity_osds(pool_cfg, up_osds, osd_tree);
+                const aff_osds = get_affinity_osds(pool_cfg, up_osds, osd_tree);
                 this.reset_rng();
                 for (let pg_num = 1; pg_num <= pool_cfg.pg_count; pg_num++)
                 {
