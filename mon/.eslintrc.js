@@ -11,6 +11,7 @@ module.exports = {
         "ecmaVersion": 2020
     },
     "plugins": [
+        "import"
     ],
     "rules": {
         "indent": [
@@ -44,6 +45,10 @@ module.exports = {
         ],
         "node/shebang": [
             "off"
+        ],
+        "import/no-unresolved": [
+            2,
+            { "commonjs": true }
         ]
     }
 };
