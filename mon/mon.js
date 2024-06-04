@@ -13,7 +13,7 @@ const { validate_pool_cfg, get_pg_rules } = require('./pool_config.js');
 const { sum_op_stats, sum_object_counts, sum_inode_stats, serialize_bigints } = require('./stats.js');
 const LPOptimizer = require('./lp_optimizer/lp_optimizer.js');
 const stableStringify = require('./stable-stringify.js');
-const PGUtil = require('./PGUtil.js');
+const { scale_pg_count, scale_pg_history } = require('./pg_utils.js');
 
 // FIXME Split into several files
 class Mon
@@ -899,7 +899,7 @@ class Mon
                 // Scale PG count
                 // Do it even if old_pg_count is already equal to pool_cfg.pg_count,
                 // because last_clean_pgs may still contain the old number of PGs
-                PGUtil.scale_pg_count(prev_pgs, pool_cfg.pg_count);
+                scale_pg_count(prev_pgs, pool_cfg.pg_count);
             }
             for (const pg of prev_pgs)
             {
@@ -1109,7 +1109,7 @@ class Mon
                     `Changing PG count for pool ${pool_id} (${pool_cfg.name || 'unnamed'})`+
                     ` from: ${real_prev_pgs.length} to ${pool_res.pgs.length}`
                 );
-                pg_history = PGUtil.scale_pg_history(pg_history, real_prev_pgs, pool_res.pgs);
+                pg_history = scale_pg_history(pg_history, real_prev_pgs, pool_res.pgs);
                 // Drop stats
                 etcd_request.success.push({ requestDeleteRange: {
                     key: b64(this.etcd_prefix+'/pg/stats/'+pool_id+'/'),
