@@ -98,9 +98,9 @@ class EtcdAdapter
             const cur_addr = this.pick_next_etcd();
             const base = 'ws'+cur_addr.substr(4);
             let now = Date.now();
-            if (tried[base] && now-tried[base] < this.mon.etcd_start_timeout)
+            if (tried[base] && now-tried[base] < this.mon.config.etcd_start_timeout)
             {
-                await new Promise(ok => setTimeout(ok, this.mon.etcd_start_timeout-(now-tried[base])));
+                await new Promise(ok => setTimeout(ok, this.mon.config.etcd_start_timeout-(now-tried[base])));
                 now = Date.now();
             }
             tried[base] = now;
@@ -155,8 +155,8 @@ class EtcdAdapter
         this.ws.on('error', () => this.restart_watcher(cur_addr));
         this.ws.send(JSON.stringify({
             create_request: {
-                key: b64(this.mon.etcd_prefix+'/'),
-                range_end: b64(this.mon.etcd_prefix+'0'),
+                key: b64(this.mon.config.etcd_prefix+'/'),
+                range_end: b64(this.mon.config.etcd_prefix+'0'),
                 start_revision: ''+this.mon.etcd_watch_revision,
                 watch_id: 1,
                 progress_notify: true,
@@ -207,15 +207,15 @@ class EtcdAdapter
         while (1)
         {
             const res = await this.etcd_call('/kv/txn', {
-                compare: [ { target: 'CREATE', create_revision: 0, key: b64(this.mon.etcd_prefix+'/mon/master') } ],
-                success: [ { requestPut: { key: b64(this.mon.etcd_prefix+'/mon/master'), value: b64(JSON.stringify(state)), lease: ''+this.mon.etcd_lease_id } } ],
-            }, this.mon.etcd_start_timeout, 0);
+                compare: [ { target: 'CREATE', create_revision: 0, key: b64(this.mon.config.etcd_prefix+'/mon/master') } ],
+                success: [ { requestPut: { key: b64(this.mon.config.etcd_prefix+'/mon/master'), value: b64(JSON.stringify(state)), lease: ''+this.mon.etcd_lease_id } } ],
+            }, this.mon.config.etcd_start_timeout, 0);
             if (res.succeeded)
             {
                 break;
             }
             console.log('Waiting to become master');
-            await new Promise(ok => setTimeout(ok, this.mon.etcd_start_timeout));
+            await new Promise(ok => setTimeout(ok, this.mon.config.etcd_start_timeout));
         }
         console.log('Became master');
     }

@@ -19,19 +19,14 @@ class Mon
     {
         this.failconnect = (e) => this._die(e, 2);
         this.die = (e) => this._die(e, 1);
+        this.fileConfig = {};
         if (fs.existsSync(config.config_path||'/etc/vitastor/vitastor.conf'))
         {
-            config = {
-                ...JSON.parse(fs.readFileSync(config.config_path||'/etc/vitastor/vitastor.conf', { encoding: 'utf-8' })),
-                ...config,
-            };
+            this.fileConfig = JSON.parse(fs.readFileSync(config.config_path||'/etc/vitastor/vitastor.conf', { encoding: 'utf-8' }));
         }
-        this.verbose = config.verbose || 0;
-        this.initConfig = config;
-        this.config = { ...config };
-        this.etcd_prefix = config.etcd_prefix || '/vitastor';
-        this.etcd_prefix = this.etcd_prefix.replace(/\/\/+/g, '/').replace(/^\/?(.*[^\/])\/?$/, '/$1');
-        this.etcd_start_timeout = (config.etcd_start_timeout || 5) * 1000;
+        this.cliConfig = config;
+        this.config = { ...this.fileConfig, ...this.cliConfig };
+        this.check_config();
         this.state = JSON.parse(JSON.stringify(etcd_tree));
         this.prev_stats = { osd_stats: {}, osd_diff: {} };
         this.signals_set = false;
@@ -65,17 +60,19 @@ class Mon
     async load_config()
     {
         const res = await this.etcd.etcd_call('/kv/txn', { success: [
-            { requestRange: { key: b64(this.etcd_prefix+'/config/global') } }
-        ] }, this.etcd_start_timeout, -1);
+            { requestRange: { key: b64(this.config.etcd_prefix+'/config/global') } }
+        ] }, this.config.etcd_start_timeout, -1);
         if (res.responses[0].response_range.kvs)
         {
             this.parse_kv(res.responses[0].response_range.kvs[0]);
         }
-        this.check_config();
     }
 
     check_config()
     {
+        this.config.etcd_prefix = this.config.etcd_prefix || '/vitastor';
+        this.config.etcd_prefix = this.config.etcd_prefix.replace(/\/\/+/g, '/').replace(/^\/?(.*[^\/])\/?$/, '/$1');
+        this.config.etcd_start_timeout = (this.config.etcd_start_timeout || 5) * 1000;
         this.config.etcd_mon_ttl = Number(this.config.etcd_mon_ttl) || 5;
         if (this.config.etcd_mon_ttl < 1)
         {
@@ -117,7 +114,7 @@ class Mon
     on_message(msg)
     {
         let stats_changed = false, changed = false, pg_states_changed = false;
-        if (this.verbose)
+        if (this.config.verbose)
         {
             console.log('Revision '+msg.header.revision+' events: ');
         }
@@ -125,7 +122,7 @@ class Mon
         for (const e of msg.events||[])
         {
             this.parse_kv(e.kv);
-            const key = e.kv.key.substr(this.etcd_prefix.length);
+            const key = e.kv.key.substr(this.config.etcd_prefix.length);
             if (key.substr(0, 11) == '/osd/state/')
             {
                 stats_changed = true;
@@ -143,7 +140,7 @@ class Mon
             {
                 changed = true;
             }
-            if (this.verbose)
+            if (this.config.verbose)
             {
                 console.log(JSON.stringify(e));
             }
@@ -216,10 +213,10 @@ class Mon
         this.state.history.last_clean_pgs = new_clean_pgs;
         await this.etcd.etcd_call('/kv/txn', {
             success: [ { requestPut: {
-                key: b64(this.etcd_prefix+'/history/last_clean_pgs'),
+                key: b64(this.config.etcd_prefix+'/history/last_clean_pgs'),
                 value: b64(JSON.stringify(this.state.history.last_clean_pgs))
             } } ],
-        }, this.etcd_start_timeout, 0);
+        }, this.config.etcd_start_timeout, 0);
         this.save_last_clean_running = false;
     }
 
@@ -237,10 +234,10 @@ class Mon
         // Register in /mon/member, just for the information
         const state = this.get_mon_state();
         res = await this.etcd.etcd_call('/kv/put', {
-            key: b64(this.etcd_prefix+'/mon/member/'+this.etcd_lease_id),
+            key: b64(this.config.etcd_prefix+'/mon/member/'+this.etcd_lease_id),
             value: b64(JSON.stringify(state)),
             lease: ''+this.etcd_lease_id
-        }, this.etcd_start_timeout, 0);
+        }, this.config.etcd_start_timeout, 0);
         // Set refresh timer
         this.lease_timer = setInterval(async () =>
         {
@@ -268,8 +265,8 @@ class Mon
     async load_cluster_state()
     {
         const res = await this.etcd.etcd_call('/kv/txn', { success: [
-            { requestRange: { key: b64(this.etcd_prefix+'/'), range_end: b64(this.etcd_prefix+'0') } },
-        ] }, this.etcd_start_timeout, -1);
+            { requestRange: { key: b64(this.config.etcd_prefix+'/'), range_end: b64(this.config.etcd_prefix+'0') } },
+        ] }, this.config.etcd_start_timeout, -1);
         this.etcd_watch_revision = BigInt(res.header.revision)+BigInt(1);
         this.state = JSON.parse(JSON.stringify(etcd_tree));
         for (const response of res.responses)
@@ -316,17 +313,17 @@ class Mon
             const checks = [];
             for (const osd_num of this.all_osds())
             {
-                const key = b64(this.etcd_prefix+'/osd/state/'+osd_num);
+                const key = b64(this.config.etcd_prefix+'/osd/state/'+osd_num);
                 checks.push({ key, target: 'MOD', result: 'LESS', mod_revision: ''+this.etcd_watch_revision });
             }
             await this.etcd.etcd_call('/kv/txn', {
                 compare: [
-                    { key: b64(this.etcd_prefix+'/mon/master'), target: 'LEASE', lease: ''+this.etcd_lease_id },
-                    { key: b64(this.etcd_prefix+'/config/pgs'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
+                    { key: b64(this.config.etcd_prefix+'/mon/master'), target: 'LEASE', lease: ''+this.etcd_lease_id },
+                    { key: b64(this.config.etcd_prefix+'/config/pgs'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
                     ...checks,
                 ],
                 success: [
-                    { requestPut: { key: b64(this.etcd_prefix+'/config/pgs'), value: b64(JSON.stringify(new_cfg)) } },
+                    { requestPut: { key: b64(this.config.etcd_prefix+'/config/pgs'), value: b64(JSON.stringify(new_cfg)) } },
                 ],
             }, this.config.etcd_mon_timeout, 0);
             return false;
@@ -437,9 +434,9 @@ class Mon
                 }
                 // Also delete pool statistics
                 etcd_request.success.push({ requestDeleteRange: {
-                    key: b64(this.etcd_prefix+'/pool/stats/'+pool_id),
+                    key: b64(this.config.etcd_prefix+'/pool/stats/'+pool_id),
                 } });
-                save_new_pgs_txn(new_config_pgs, etcd_request, this.state, this.etcd_prefix,
+                save_new_pgs_txn(new_config_pgs, etcd_request, this.state, this.config.etcd_prefix,
                     this.etcd_watch_revision, pool_id, up_osds, osd_tree, prev_pgs, [], []);
             }
         }
@@ -470,8 +467,8 @@ class Mon
                 pg_history = scale_pg_history(pg_history, real_prev_pgs, pool_res.pgs);
                 // Drop stats
                 etcd_request.success.push({ requestDeleteRange: {
-                    key: b64(this.etcd_prefix+'/pg/stats/'+pool_id+'/'),
-                    range_end: b64(this.etcd_prefix+'/pg/stats/'+pool_id+'0'),
+                    key: b64(this.config.etcd_prefix+'/pg/stats/'+pool_id+'/'),
+                    range_end: b64(this.config.etcd_prefix+'/pg/stats/'+pool_id+'0'),
                 } });
             }
             const stats = {
@@ -479,10 +476,10 @@ class Mon
                 ...pool_res.stats,
             };
             etcd_request.success.push({ requestPut: {
-                key: b64(this.etcd_prefix+'/pool/stats/'+pool_id),
+                key: b64(this.config.etcd_prefix+'/pool/stats/'+pool_id),
                 value: b64(JSON.stringify(stats)),
             } });
-            save_new_pgs_txn(new_config_pgs, etcd_request, this.state, this.etcd_prefix,
+            save_new_pgs_txn(new_config_pgs, etcd_request, this.state, this.config.etcd_prefix,
                 this.etcd_watch_revision, pool_id, up_osds, osd_tree, real_prev_pgs, pool_res.pgs, pg_history);
         }
         new_config_pgs.hash = tree_hash;
@@ -492,11 +489,11 @@ class Mon
     async save_pg_config(new_config_pgs, etcd_request = { compare: [], success: [] })
     {
         etcd_request.compare.push(
-            { key: b64(this.etcd_prefix+'/mon/master'), target: 'LEASE', lease: ''+this.etcd_lease_id },
-            { key: b64(this.etcd_prefix+'/config/pgs'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
+            { key: b64(this.config.etcd_prefix+'/mon/master'), target: 'LEASE', lease: ''+this.etcd_lease_id },
+            { key: b64(this.config.etcd_prefix+'/config/pgs'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
         );
         etcd_request.success.push(
-            { requestPut: { key: b64(this.etcd_prefix+'/config/pgs'), value: b64(JSON.stringify(new_config_pgs)) } },
+            { requestPut: { key: b64(this.config.etcd_prefix+'/config/pgs'), value: b64(JSON.stringify(new_config_pgs)) } },
         );
         const txn_res = await this.etcd.etcd_call('/kv/txn', etcd_request, this.config.etcd_mon_timeout, 0);
         return txn_res.succeeded;
@@ -553,13 +550,13 @@ class Mon
         stats.object_bytes = object_bytes;
         stats = serialize_bigints(stats);
         inode_stats = serialize_bigints(inode_stats);
-        txn.push({ requestPut: { key: b64(this.etcd_prefix+'/stats'), value: b64(JSON.stringify(stats)) } });
+        txn.push({ requestPut: { key: b64(this.config.etcd_prefix+'/stats'), value: b64(JSON.stringify(stats)) } });
         for (const pool_id in inode_stats)
         {
             for (const inode_num in inode_stats[pool_id])
             {
                 txn.push({ requestPut: {
-                    key: b64(this.etcd_prefix+'/inode/stats/'+pool_id+'/'+inode_num),
+                    key: b64(this.config.etcd_prefix+'/inode/stats/'+pool_id+'/'+inode_num),
                     value: b64(JSON.stringify(inode_stats[pool_id][inode_num])),
                 } });
             }
@@ -571,7 +568,7 @@ class Mon
                 if (!inode_stats[pool_id] || !inode_stats[pool_id][inode_num])
                 {
                     txn.push({ requestDeleteRange: {
-                        key: b64(this.etcd_prefix+'/inode/stats/'+pool_id+'/'+inode_num),
+                        key: b64(this.config.etcd_prefix+'/inode/stats/'+pool_id+'/'+inode_num),
                     } });
                 }
             }
@@ -581,7 +578,7 @@ class Mon
             if (!seen_pools[pool_id])
             {
                 txn.push({ requestDeleteRange: {
-                    key: b64(this.etcd_prefix+'/pool/stats/'+pool_id),
+                    key: b64(this.config.etcd_prefix+'/pool/stats/'+pool_id),
                 } });
                 delete this.state.pool.stats[pool_id];
             }
@@ -590,7 +587,7 @@ class Mon
                 const pool_stats = { ...this.state.pool.stats[pool_id] };
                 serialize_bigints(pool_stats);
                 txn.push({ requestPut: {
-                    key: b64(this.etcd_prefix+'/pool/stats/'+pool_id),
+                    key: b64(this.config.etcd_prefix+'/pool/stats/'+pool_id),
                     value: b64(JSON.stringify(pool_stats)),
                 } });
             }
@@ -622,7 +619,7 @@ class Mon
         }
         kv.key = de64(kv.key);
         kv.value = kv.value ? de64(kv.value) : null;
-        let key = kv.key.substr(this.etcd_prefix.length+1);
+        let key = kv.key.substr(this.config.etcd_prefix.length+1);
         if (!etcd_allow.exec(key))
         {
             console.log('Bad key in etcd: '+kv.key+' = '+kv.value);
@@ -652,8 +649,9 @@ class Mon
         cur[key_parts[key_parts.length-1]] = kv.value;
         if (key === 'config/global')
         {
-            this.config = { ...this.initConfig, ...this.state.config.global };
+            this.config = { ...this.fileConfig, ...this.state.config.global, ...this.cliConfig };
             this.check_config();
+            this.etcd.parse_config(this.config);
             for (const osd_num in this.state.osd.stats)
             {
                 // Recheck PGs <osd_out_time> later
