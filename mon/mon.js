@@ -15,10 +15,38 @@ const { recheck_primary, save_new_pgs_txn, generate_pool_pgs } = require('./pg_g
 
 class Mon
 {
+    static run_forever(config)
+    {
+        let mon;
+        const run = () =>
+        {
+            console.log('Starting Monitor');
+            const my_mon = new Mon(config);
+            mon = my_mon;
+            my_mon.on_die = () =>
+            {
+                if (mon == my_mon)
+                {
+                    // Start a new instance
+                    run();
+                }
+            };
+            my_mon.start().catch(my_mon.die);
+        };
+        run();
+        const on_stop_cb = () => mon.on_stop().then(() => process.exit(0)).catch(err =>
+        {
+            console.error(err);
+            process.exit(0);
+        });
+        process.on('SIGINT', on_stop_cb);
+        process.on('SIGTERM', on_stop_cb);
+    }
+
     constructor(config)
     {
-        this.failconnect = (e) => this._die(e, 2);
-        this.die = (e) => this._die(e, 1);
+        this.stopped = false;
+        this.die = (e) => this._die(e);
         this.fileConfig = {};
         if (fs.existsSync(config.config_path||'/etc/vitastor/vitastor.conf'))
         {
@@ -29,8 +57,6 @@ class Mon
         this.check_config();
         this.state = JSON.parse(JSON.stringify(etcd_tree));
         this.prev_stats = { osd_stats: {}, osd_diff: {} };
-        this.signals_set = false;
-        this.on_stop_cb = () => this.on_stop(0).catch(console.error);
         this.recheck_pgs_active = false;
         this.etcd = new EtcdAdapter(this);
         this.etcd.parse_config(this.config);
@@ -162,6 +188,10 @@ class Mon
     // Schedule save_last_clean() to to run after a small timeout (1s) (to not spam etcd)
     schedule_save_last_clean()
     {
+        if (this.stopped)
+        {
+            return;
+        }
         if (!this.save_last_clean_timer)
         {
             this.save_last_clean_timer = setTimeout(() =>
@@ -239,27 +269,60 @@ class Mon
             lease: ''+this.etcd_lease_id
         }, this.config.etcd_start_timeout, 0);
         // Set refresh timer
-        this.lease_timer = setInterval(async () =>
+        this.lease_timer = setInterval(() =>
         {
-            const res = await this.etcd.etcd_call('/lease/keepalive', { ID: this.etcd_lease_id }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
-            if (!res.result.TTL)
-            {
-                this.failconnect('Lease expired');
-            }
+            this.etcd.etcd_call('/lease/keepalive', { ID: this.etcd_lease_id }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries)
+                .then(res =>
+                {
+                    if (!res.result.TTL)
+                        this.die('Lease expired');
+                })
+                .catch(this.die);
         }, this.config.etcd_mon_ttl*1000);
-        if (!this.signals_set)
-        {
-            process.on('SIGINT', this.on_stop_cb);
-            process.on('SIGTERM', this.on_stop_cb);
-            this.signals_set = true;
-        }
     }
 
-    async on_stop(status)
+    async on_stop()
     {
-        clearInterval(this.lease_timer);
-        await this.etcd.etcd_call('/lease/revoke', { ID: this.etcd_lease_id }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
-        process.exit(status);
+        console.log('Stopping Monitor');
+        this.etcd.stop_watcher();
+        if (this.save_last_clean_timer)
+        {
+            clearTimeout(this.save_last_clean_timer);
+            this.save_last_clean_timer = null;
+        }
+        if (this.next_recheck_timer)
+        {
+            clearTimeout(this.next_recheck_timer);
+            this.next_recheck_timer = null;
+        }
+        if (this.recheck_timer)
+        {
+            clearTimeout(this.recheck_timer);
+            this.recheck_timer = null;
+        }
+        if (this.stats_timer)
+        {
+            clearTimeout(this.stats_timer);
+            this.stats_timer = null;
+        }
+        if (this.lease_timer)
+        {
+            clearInterval(this.lease_timer);
+            this.lease_timer = null;
+        }
+        let p = null;
+        if (this.etcd_lease_id)
+        {
+            const lease_id = this.etcd_lease_id;
+            this.etcd_lease_id = null;
+            p = this.etcd.etcd_call('/lease/revoke', { ID: lease_id }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
+        }
+        // 'stopped' flag prevents all further etcd communications of this instance
+        this.stopped = true;
+        if (p)
+        {
+            await p;
+        }
     }
 
     async load_cluster_state()
@@ -333,6 +396,10 @@ class Mon
 
     async recheck_pgs()
     {
+        if (this.stopped)
+        {
+            return;
+        }
         if (this.recheck_pgs_active)
         {
             this.schedule_recheck();
@@ -502,6 +569,10 @@ class Mon
     // Schedule next recheck at least at <unixtime>
     schedule_next_recheck_at(unixtime)
     {
+        if (this.stopped)
+        {
+            return;
+        }
         this.next_recheck_at = !this.next_recheck_at || this.next_recheck_at > unixtime
             ? unixtime : this.next_recheck_at;
         const now = Date.now()/1000;
@@ -530,6 +601,10 @@ class Mon
     // This is required for multiple change events to trigger at most 1 recheck in 1s
     schedule_recheck()
     {
+        if (this.stopped)
+        {
+            return;
+        }
         if (!this.recheck_timer)
         {
             this.recheck_timer = setTimeout(() =>
@@ -600,7 +675,7 @@ class Mon
 
     schedule_update_stats()
     {
-        if (this.stats_timer)
+        if (this.stopped || this.stats_timer)
         {
             return;
         }
@@ -684,11 +759,12 @@ class Mon
         }
     }
 
-    _die(err, code)
+    _die(err)
     {
-        // In fact we can just try to rejoin
+        // Stop this instance of Monitor so we can restart
         console.error(err instanceof Error ? err : new Error(err || 'Cluster connection failed'));
-        process.exit(code || 2);
+        this.on_stop().catch(console.error);
+        this.on_die();
     }
 
     local_ips(all)

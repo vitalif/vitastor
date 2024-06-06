@@ -54,7 +54,7 @@ for i in $(seq 1 $OSD_COUNT); do
     start_osd $i
 done
 
-(while true; do set +e; node mon/mon-main.js --etcd_address $ETCD_URL --etcd_prefix "/vitastor" --verbose 1; if [[ $? -ne 2 ]]; then break; fi; done) >>./testdata/mon.log 2>&1 &
+node mon/mon-main.js --etcd_address $ETCD_URL --etcd_prefix "/vitastor" --verbose 1 >>./testdata/mon.log 2>&1 &
 MON_PID=$!
 
 if [ "$SCHEME" = "ec" ]; then

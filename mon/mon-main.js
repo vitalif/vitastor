@@ -23,4 +23,4 @@ for (let i = 2; i < process.argv.length; i++)
     }
 }
 
-new Mon(options).start().catch(e => { console.error(e); process.exit(1); });
+Mon.run_forever(options);

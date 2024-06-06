@@ -4,6 +4,8 @@
 const http = require('http');
 const WebSocket = require('ws');
 
+const MON_STOPPED = 'Monitor instance is stopped';
+
 class EtcdAdapter
 {
     constructor(mon)
@@ -66,10 +68,12 @@ class EtcdAdapter
         return this.selected_etcd_url;
     }
 
-    restart_watcher(cur_addr)
+    stop_watcher(cur_addr)
     {
+        cur_addr = cur_addr || this.selected_etcd_url;
         if (this.ws)
         {
+            console.log('Disconnected from etcd at '+this.ws_used_url);
             this.ws.close();
             this.ws = null;
         }
@@ -82,6 +86,11 @@ class EtcdAdapter
         {
             this.selected_etcd_url = null;
         }
+    }
+
+    restart_watcher(cur_addr)
+    {
+        this.stop_watcher(cur_addr);
         this.start_watcher(this.mon.config.etcd_mon_retries).catch(this.mon.die);
     }
 
@@ -104,15 +113,24 @@ class EtcdAdapter
                 now = Date.now();
             }
             tried[base] = now;
+            if (this.mon.stopped)
+            {
+                return;
+            }
             const ok = await new Promise(ok =>
             {
                 const timer_id = setTimeout(() =>
                 {
-                    this.ws.close();
-                    this.ws = null;
+                    if (this.ws)
+                    {
+                        console.log('Disconnected from etcd at '+this.ws_used_url);
+                        this.ws.close();
+                        this.ws = null;
+                    }
                     ok(false);
                 }, this.mon.config.etcd_mon_timeout);
                 this.ws = new WebSocket(base+'/watch');
+                this.ws_used_url = cur_addr;
                 const fail = () =>
                 {
                     ok(false);
@@ -135,13 +153,19 @@ class EtcdAdapter
         }
         if (!this.ws)
         {
-            this.mon.failconnect('Failed to open etcd watch websocket');
+            this.mon.die('Failed to open etcd watch websocket');
+            return;
+        }
+        if (this.mon.stopped)
+        {
+            this.stop_watcher();
+            return;
         }
         const cur_addr = this.selected_etcd_url;
         this.ws_alive = true;
         this.ws_keepalive_timer = setInterval(() =>
         {
-            if (this.ws_alive)
+            if (this.ws_alive && this.ws)
             {
                 this.ws_alive = false;
                 this.ws.send(JSON.stringify({ progress_request: {} }));
@@ -164,6 +188,11 @@ class EtcdAdapter
         }));
         this.ws.on('message', (msg) =>
         {
+            if (this.mon.stopped)
+            {
+                this.stop_watcher();
+                return;
+            }
             this.ws_alive = true;
             let data;
             try
@@ -183,15 +212,14 @@ class EtcdAdapter
                 if (data.result.compact_revision)
                 {
                     // we may miss events if we proceed
-                    console.error('Revisions before '+data.result.compact_revision+' were compacted by etcd, exiting');
-                    this.mon.on_stop(1);
+                    this.mon.die('Revisions before '+data.result.compact_revision+' were compacted by etcd, exiting');
                 }
-                console.error('Watch canceled by etcd, reason: '+data.result.cancel_reason+', exiting');
-                this.mon.on_stop(1);
+                this.mon.die('Watch canceled by etcd, reason: '+data.result.cancel_reason+', exiting');
             }
             else if (data.result.created)
             {
                 // etcd watch created
+                console.log('Successfully subscribed to etcd at '+this.selected_etcd_url+', revision '+data.result.header.revision);
             }
             else
             {
@@ -239,25 +267,33 @@ class EtcdAdapter
                 now = Date.now();
             }
             tried[base] = now;
+            if (this.mon.stopped)
+            {
+                throw new Error(MON_STOPPED);
+            }
             const res = await POST(base+path, body, timeout);
+            if (this.mon.stopped)
+            {
+                throw new Error(MON_STOPPED);
+            }
             if (res.error)
             {
                 if (this.selected_etcd_url == base)
                     this.selected_etcd_url = null;
-                console.error('failed to query etcd: '+res.error);
+                console.error('Failed to query etcd '+path+' (retry '+retry+'/'+retries+'): '+res.error);
                 continue;
             }
             if (res.json)
             {
                 if (res.json.error)
                 {
-                    console.error('etcd returned error: '+res.json.error);
+                    console.error(path+': etcd returned error: '+res.json.error);
                     break;
                 }
                 return res.json;
             }
         }
-        this.mon.failconnect();
+        throw new Error('Failed to query etcd ('+retries+' retries)');
     }
 }
 
