@@ -248,7 +248,7 @@ etcd_report_interval to guarantee that keepalive actually works.
 ## etcd_ws_keepalive_interval
 
 - Type: seconds
-- Default: 30
+- Default: 5
 - Can be changed online: yes
 
 etcd websocket ping interval required to keep the connection alive and

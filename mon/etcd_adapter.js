@@ -175,7 +175,7 @@ class EtcdAdapter
                 console.log('etcd websocket timed out, restarting it');
                 this.restart_watcher(cur_addr);
             }
-        }, (Number(this.mon.config.etcd_ws_keepalive_interval) || 30)*1000);
+        }, (Number(this.mon.config.etcd_ws_keepalive_interval) || 5)*1000);
         this.ws.on('error', () => this.restart_watcher(cur_addr));
         this.ws.send(JSON.stringify({
             create_request: {

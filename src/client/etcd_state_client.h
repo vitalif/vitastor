@@ -103,7 +103,7 @@ protected:
     void pick_next_etcd();
 public:
     int etcd_keepalive_timeout = 30;
-    int etcd_ws_keepalive_interval = 30;
+    int etcd_ws_keepalive_interval = 5;
     int max_etcd_attempts = 5;
     int etcd_quick_timeout = 1000;
     int etcd_slow_timeout = 5000;

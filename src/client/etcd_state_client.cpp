@@ -253,7 +253,7 @@ void etcd_state_client_t::parse_config(const json11::Json & config)
     this->etcd_ws_keepalive_interval = config["etcd_ws_keepalive_interval"].uint64_value();
     if (this->etcd_ws_keepalive_interval <= 0)
     {
-        this->etcd_ws_keepalive_interval = 30;
+        this->etcd_ws_keepalive_interval = 5;
     }
     this->max_etcd_attempts = config["max_etcd_attempts"].uint64_value();
     if (this->max_etcd_attempts <= 0)

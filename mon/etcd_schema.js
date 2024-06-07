@@ -91,7 +91,7 @@ const etcd_tree = {
             etcd_quick_timeout: 1000, // ms
             etcd_slow_timeout: 5000, // ms
             etcd_keepalive_timeout: 30, // seconds, default is max(30, etcd_report_interval*2)
-            etcd_ws_keepalive_interval: 30, // seconds
+            etcd_ws_keepalive_interval: 5, // seconds
             // osd
             etcd_report_interval: 5, // seconds
             etcd_stats_interval: 30, // seconds
