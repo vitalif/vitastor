@@ -3,6 +3,7 @@
 
 const http = require('http');
 const WebSocket = require('ws');
+const { b64, local_ips } = require('./utils.js');
 
 const MON_STOPPED = 'Monitor instance is stopped';
 
@@ -23,7 +24,7 @@ class EtcdAdapter
 
     parse_etcd_addresses(addrs)
     {
-        const is_local_ip = this.mon.local_ips(true).reduce((a, c) => { a[c] = true; return a; }, {});
+        const is_local_ip = local_ips(true).reduce((a, c) => { a[c] = true; return a; }, {});
         this.etcd_local = [];
         this.etcd_urls = [];
         this.selected_etcd_url = null;
@@ -346,11 +347,6 @@ function POST(url, body, timeout)
         req.write(body_text);
         req.end();
     });
-}
-
-function b64(str)
-{
-    return Buffer.from(str).toString('base64');
 }
 
 module.exports = EtcdAdapter;

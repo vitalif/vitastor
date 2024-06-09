@@ -5,6 +5,7 @@ const { URL } = require('url');
 const fs = require('fs');
 const crypto = require('crypto');
 const os = require('os');
+const AntiEtcdAdapter = require('./antietcd_adapter.js');
 const EtcdAdapter = require('./etcd_adapter.js');
 const { create_http_server } = require('./http_server.js');
 const { export_prometheus_metrics } = require('./prometheus.js');
@@ -14,17 +15,23 @@ const { sum_op_stats, sum_object_counts, sum_inode_stats, serialize_bigints } = 
 const stableStringify = require('./stable-stringify.js');
 const { scale_pg_history } = require('./pg_utils.js');
 const { get_osd_tree } = require('./osd_tree.js');
+const { b64, de64, local_ips } = require('./utils.js');
 const { recheck_primary, save_new_pgs_txn, generate_pool_pgs } = require('./pg_gen.js');
 
 class Mon
 {
-    static run_forever(config)
+    static async run_forever(config)
     {
+        let antietcd = await AntiEtcdAdapter.start_antietcd(config);
         let mon;
         const run = () =>
         {
             console.log('Starting Monitor');
             const my_mon = new Mon(config);
+            my_mon.etcd = antietcd
+                ? new AntiEtcdAdapter(my_mon, antietcd)
+                : new EtcdAdapter(my_mon);
+            my_mon.etcd.parse_config(my_mon.config);
             mon = my_mon;
             my_mon.on_die = () =>
             {
@@ -61,8 +68,6 @@ class Mon
         this.state = JSON.parse(JSON.stringify(etcd_tree));
         this.prev_stats = { osd_stats: {}, osd_diff: {} };
         this.recheck_pgs_active = false;
-        this.etcd = new EtcdAdapter(this);
-        this.etcd.parse_config(this.config);
         this.watcher_active = false;
         if (this.config.enable_prometheus || !('enable_prometheus' in this.config))
         {
@@ -177,8 +182,8 @@ class Mon
         this.etcd_watch_revision = BigInt(msg.header.revision)+BigInt(1);
         for (const e of msg.events||[])
         {
-            this.parse_kv(e.kv);
-            const key = e.kv.key.substr(this.config.etcd_prefix.length);
+            const kv = this.parse_kv(e.kv);
+            const key = kv.key.substr(this.config.etcd_prefix.length);
             if (key.substr(0, 11) == '/osd/state/')
             {
                 stats_changed = true;
@@ -198,7 +203,7 @@ class Mon
             }
             if (this.config.verbose)
             {
-                console.log(JSON.stringify(e));
+                console.log(JSON.stringify({ ...e, kv: kv || undefined }));
             }
         }
         if (pg_states_changed)
@@ -282,7 +287,7 @@ class Mon
 
     get_mon_state()
     {
-        return { ip: this.local_ips(), hostname: os.hostname() };
+        return { ip: local_ips(), hostname: os.hostname() };
     }
 
     async get_lease()
@@ -720,15 +725,16 @@ class Mon
     {
         if (!kv || !kv.key)
         {
-            return;
+            return kv;
         }
+        kv = { ...kv };
         kv.key = de64(kv.key);
         kv.value = kv.value ? de64(kv.value) : null;
         let key = kv.key.substr(this.config.etcd_prefix.length+1);
         if (!etcd_allow.exec(key))
         {
             console.log('Bad key in etcd: '+kv.key+' = '+kv.value);
-            return;
+            return kv;
         }
         try
         {
@@ -737,7 +743,7 @@ class Mon
         catch (e)
         {
             console.log('Bad value in etcd: '+kv.key+' = '+kv.value);
-            return;
+            return kv;
         }
         let key_parts = key.split('/');
         let cur = this.state;
@@ -787,6 +793,7 @@ class Mon
                 !this.state.osd.stats[osd_num] ? 0 : this.state.osd.stats[osd_num].time+this.config.osd_out_time
             );
         }
+        return kv;
     }
 
     _die(err)
@@ -796,33 +803,6 @@ class Mon
         this.on_stop().catch(console.error);
         this.on_die();
     }
-
-    local_ips(all)
-    {
-        const ips = [];
-        const ifaces = os.networkInterfaces();
-        for (const ifname in ifaces)
-        {
-            for (const iface of ifaces[ifname])
-            {
-                if (iface.family == 'IPv4' && !iface.internal || all)
-                {
-                    ips.push(iface.address);
-                }
-            }
-        }
-        return ips;
-    }
-}
-
-function b64(str)
-{
-    return Buffer.from(str).toString('base64');
-}
-
-function de64(str)
-{
-    return Buffer.from(str, 'base64').toString();
 }
 
 function sha1hex(str)

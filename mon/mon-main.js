@@ -23,4 +23,4 @@ for (let i = 2; i < process.argv.length; i++)
     }
 }
 
-Mon.run_forever(options);
+Mon.run_forever(options).catch(console.error);
