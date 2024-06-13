@@ -56,8 +56,6 @@ struct cluster_op_t
 protected:
     int state = 0;
     uint64_t cur_inode; // for snapshot reads
-    void *buf = NULL;
-    cluster_op_t *orig_op = NULL;
     bool needs_reslice = false;
     int retry_after = 0;
     int inflight_count = 0, done_count = 0;

@@ -77,11 +77,6 @@ cluster_client_t::~cluster_client_t()
 
 cluster_op_t::~cluster_op_t()
 {
-    if (buf)
-    {
-        free(buf);
-        buf = NULL;
-    }
     if (bitmap_buf)
     {
         free(bitmap_buf);
@@ -570,6 +565,14 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
 {
     op->cur_inode = op->inode;
     op->retval = 0;
+    op->state = 0;
+    op->retry_after = 0;
+    op->inflight_count = 0;
+    op->done_count = 0;
+    op->part_bitmaps = NULL;
+    op->bitmap_buf_size = 0;
+    op->prev_wait = 0;
+    assert(!op->prev && !op->next);
     // check alignment, readonly flag and so on
     if (!check_rw(op))
     {
@@ -1210,7 +1213,9 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
         // So do all these things after modifying operation state, otherwise we may hit reenterability bugs
         // FIXME postpone such things to set_immediate here to avoid bugs
         // Set op->retry_after to retry operation after a short pause (not immediately)
-        if (!op->retry_after)
+        if (!op->retry_after && (op->retval == -EPIPE ||
+            op->retval == -EIO && client_eio_retry_interval ||
+            op->retval == -ENOSPC && client_retry_enospc))
         {
             op->retry_after = op->retval != -EPIPE ? client_eio_retry_interval : client_retry_interval;
         }

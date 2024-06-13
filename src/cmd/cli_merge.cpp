@@ -479,9 +479,13 @@ struct snap_merger_t
         {
             if (op->retval != op->len)
             {
-                rwo->error_code = -op->retval;
+                rwo->error_code = op->retval;
                 rwo->error_offset = op->offset;
                 rwo->error_read = true;
+            }
+            else
+            {
+                rwo->error_code = 0;
             }
             continue_rwo.push_back(rwo);
             parent->ringloop->wakeup();
@@ -553,12 +557,15 @@ struct snap_merger_t
                 if (use_cas && subop->retval == -EINTR)
                 {
                     // CAS failure - reread and repeat optimistically
+                    assert(rwo->todo == 1); // initial refcount from read_and_write
+                    rwo->error_code = -EINTR;
                     rwo->start = rwo->end = 0;
+                    rwo->op.version = 0;
                     rwo_read(rwo);
                     delete subop;
                     return;
                 }
-                rwo->error_code = -subop->retval;
+                rwo->error_code = subop->retval;
                 rwo->error_offset = subop->offset;
                 rwo->error_read = false;
             }
@@ -633,7 +640,7 @@ struct snap_merger_t
             {
                 char buf[1024];
                 snprintf(buf, 1024, "Error %s target at offset %jx: %s",
-                    rwo->error_read ? "reading" : "writing", rwo->error_offset, strerror(rwo->error_code));
+                    rwo->error_read ? "reading" : "writing", rwo->error_offset, strerror(-rwo->error_code));
                 rwo_error = std::string(buf);
             }
             delete rwo;
