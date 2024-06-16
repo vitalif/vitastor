@@ -40,10 +40,14 @@ struct osd_tree_printer_t
     cli_tool_t *parent;
     json11::Json cfg;
     bool flat = false;
+    bool show_stats = false;
 
     int state = 0;
     cli_result_t result;
 
+    json11::Json node_placement;
+    std::map<uint64_t, json11::Json> osd_config;
+    std::map<uint64_t, json11::Json> osd_stats;
     std::shared_ptr<placement_tree_t> placement_tree;
 
     bool is_done() { return state == 100; }
@@ -83,17 +87,14 @@ resume_1:
             state = 100;
             return;
         }
-        json11::Json node_placement;
         for (auto & item: parent->etcd_result["responses"][0]["response_range"]["kvs"].array_items())
         {
             node_placement = parent->cli->st_cli.parse_etcd_kv(item).value;
         }
-        std::map<uint64_t, json11::Json> osd_config;
         parent->iterate_kvs_1(parent->etcd_result["responses"][1]["response_range"]["kvs"], "/config/osd/", [&](uint64_t cur_osd, json11::Json value)
         {
             osd_config[cur_osd] = value;
         });
-        std::map<uint64_t, json11::Json> osd_stats;
         parent->iterate_kvs_1(parent->etcd_result["responses"][2]["response_range"]["kvs"], "/osd/stats/", [&](uint64_t cur_osd, json11::Json value)
         {
             osd_stats[cur_osd] = value;
@@ -220,7 +221,7 @@ resume_1:
             for (uint64_t osd_num: node.child_osds)
             {
                 auto & osd = placement_tree->osds.at(osd_num);
-                fmt_items.push_back(json11::Json::object{
+                auto fmt = json11::Json::object{
                     { "type", (flat ? "osd" : str_repeat("  ", indents[i]+1) + "osd") },
                     { "name", osd.num },
                     { "parent", parent },
@@ -232,7 +233,21 @@ resume_1:
                     { "block", format_size(osd.block_size, false, true) },
                     { "bitmap", format_size(osd.bitmap_granularity, false, true) },
                     { "commit", osd.immediate_commit == IMMEDIATE_NONE ? "none" : (osd.immediate_commit == IMMEDIATE_ALL ? "all" : "small") },
-                });
+                };
+                if (show_stats)
+                {
+                    auto op_stat = osd_stats[osd_num]["op_stats"];
+                    fmt["read_bw"] = format_size(op_stat["primary_read"]["bps"].uint64_value())+"/s";
+                    fmt["write_bw"] = format_size(op_stat["primary_write"]["bps"].uint64_value())+"/s";
+                    fmt["delete_bw"] = format_size(op_stat["primary_delete"]["bps"].uint64_value())+"/s";
+                    fmt["read_iops"] = format_q(op_stat["primary_read"]["iops"].uint64_value());
+                    fmt["write_iops"] = format_q(op_stat["primary_write"]["iops"].uint64_value());
+                    fmt["delete_iops"] = format_q(op_stat["primary_delete"]["iops"].uint64_value());
+                    fmt["read_lat"] = format_lat(op_stat["primary_read"]["lat"].uint64_value());
+                    fmt["write_lat"] = format_lat(op_stat["primary_write"]["lat"].uint64_value());
+                    fmt["delete_lat"] = format_lat(op_stat["primary_delete"]["lat"].uint64_value());
+                }
+                fmt_items.push_back(std::move(fmt));
             }
         }
         json11::Json::array cols;
@@ -286,6 +301,45 @@ resume_1:
             { "key", "commit" },
             { "title", "IMM" },
         });
+        if (show_stats)
+        {
+            cols.push_back(json11::Json::object{
+                { "key", "read_bw" },
+                { "title", "READ" },
+            });
+            cols.push_back(json11::Json::object{
+                { "key", "read_iops" },
+                { "title", "IOPS" },
+            });
+            cols.push_back(json11::Json::object{
+                { "key", "read_lat" },
+                { "title", "LAT" },
+            });
+            cols.push_back(json11::Json::object{
+                { "key", "write_bw" },
+                { "title", "WRITE" },
+            });
+            cols.push_back(json11::Json::object{
+                { "key", "write_iops" },
+                { "title", "IOPS" },
+            });
+            cols.push_back(json11::Json::object{
+                { "key", "write_lat" },
+                { "title", "LAT" },
+            });
+            cols.push_back(json11::Json::object{
+                { "key", "delete_bw" },
+                { "title", "DEL" },
+            });
+            cols.push_back(json11::Json::object{
+                { "key", "delete_iops" },
+                { "title", "IOPS" },
+            });
+            cols.push_back(json11::Json::object{
+                { "key", "delete_lat" },
+                { "title", "LAT" },
+            });
+        }
         return print_table(fmt_items, cols, parent->color);
     }
 
@@ -308,6 +362,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_osd_tree(json11::Json cfg)
     osd_tree_printer->parent = this;
     osd_tree_printer->cfg = cfg;
     osd_tree_printer->flat = cfg["flat"].bool_value();
+    osd_tree_printer->show_stats = cfg["long"].bool_value();
     return [osd_tree_printer](cli_result_t & result)
     {
         osd_tree_printer->loop();
