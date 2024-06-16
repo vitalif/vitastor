@@ -57,22 +57,23 @@ public:
     friend struct snap_flattener_t;
     friend struct snap_remover_t;
 
-    std::function<bool(cli_result_t &)> start_status(json11::Json);
+    std::function<bool(cli_result_t &)> start_alloc_osd(json11::Json);
+    std::function<bool(cli_result_t &)> start_create(json11::Json);
     std::function<bool(cli_result_t &)> start_describe(json11::Json);
     std::function<bool(cli_result_t &)> start_fix(json11::Json);
-    std::function<bool(cli_result_t &)> start_ls(json11::Json);
-    std::function<bool(cli_result_t &)> start_create(json11::Json);
-    std::function<bool(cli_result_t &)> start_modify(json11::Json);
-    std::function<bool(cli_result_t &)> start_rm_data(json11::Json);
-    std::function<bool(cli_result_t &)> start_merge(json11::Json);
     std::function<bool(cli_result_t &)> start_flatten(json11::Json);
-    std::function<bool(cli_result_t &)> start_rm(json11::Json);
-    std::function<bool(cli_result_t &)> start_rm_osd(json11::Json cfg);
-    std::function<bool(cli_result_t &)> start_alloc_osd(json11::Json cfg);
+    std::function<bool(cli_result_t &)> start_ls(json11::Json);
+    std::function<bool(cli_result_t &)> start_merge(json11::Json);
+    std::function<bool(cli_result_t &)> start_modify(json11::Json);
+    std::function<bool(cli_result_t &)> start_osd_tree(json11::Json);
     std::function<bool(cli_result_t &)> start_pool_create(json11::Json);
     std::function<bool(cli_result_t &)> start_pool_modify(json11::Json);
     std::function<bool(cli_result_t &)> start_pool_rm(json11::Json);
     std::function<bool(cli_result_t &)> start_pool_ls(json11::Json);
+    std::function<bool(cli_result_t &)> start_rm(json11::Json);
+    std::function<bool(cli_result_t &)> start_rm_data(json11::Json);
+    std::function<bool(cli_result_t &)> start_rm_osd(json11::Json);
+    std::function<bool(cli_result_t &)> start_status(json11::Json);
 
     // Should be called like loop_and_wait(start_status(), <completion callback>)
     void loop_and_wait(std::function<bool(cli_result_t &)> loop_cb, std::function<void(const cli_result_t &)> complete_cb);

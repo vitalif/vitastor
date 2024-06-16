@@ -118,6 +118,12 @@ static const char* help_text =
     "  With --dry-run only checks if deletion is possible without data loss and\n"
     "  redundancy degradation.\n"
     "\n"
+    "vitastor-cli osd-tree\n"
+    "  Show current OSD tree.\n"
+    "\n"
+    "vitastor-cli osds|ls-osd|osd-ls\n"
+    "  Show current OSDs as list.\n"
+    "\n"
     "vitastor-cli create-pool|pool-create <name> (-s <pg_size>|--ec <N>+<K>) -n <pg_count> [OPTIONS]\n"
     "  Create a pool. Required parameters:\n"
     "    -s|--pg_size R   Number of replicas for replicated pools\n"
@@ -388,6 +394,17 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
     {
         // Allocate a new OSD number
         action_cb = p->start_alloc_osd(cfg);
+    }
+    else if (cmd[0] == "osd-tree")
+    {
+        // Print OSD tree
+        action_cb = p->start_osd_tree(cfg);
+    }
+    else if (cmd[0] == "osds" || cmd[0] == "ls-osds" || cmd[0] == "ls-osd" || cmd[0] == "osd-ls")
+    {
+        // Print OSD list
+        cfg["flat"] = true;
+        action_cb = p->start_osd_tree(cfg);
     }
     else if (cmd[0] == "create-pool" || cmd[0] == "pool-create")
     {

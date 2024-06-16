@@ -16,7 +16,7 @@ std::string strtolower(const std::string & in);
 std::string trim(const std::string & in, const char *rm_chars = " \n\r\t");
 std::string str_replace(const std::string & in, const std::string & needle, const std::string & replacement);
 uint64_t stoull_full(const std::string & str, int base = 0);
-std::string format_size(uint64_t size, bool nobytes = false);
+std::string format_size(uint64_t size, bool nobytes = false, bool nospace = false);
 void print_help(const char *help_text, std::string exe_name, std::string cmd, bool all);
 uint64_t parse_time(std::string time_str, bool *ok = NULL);
 std::string read_all_fd(int fd);

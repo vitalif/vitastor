@@ -151,10 +151,11 @@ static uint64_t size_thresh[] = { (uint64_t)1024*1024*1024*1024, (uint64_t)1024*
 static uint64_t size_thresh_d[] = { (uint64_t)1000000000000, (uint64_t)1000000000, (uint64_t)1000000, (uint64_t)1000, 0 };
 static const int size_thresh_n = sizeof(size_thresh)/sizeof(size_thresh[0]);
 static const char *size_unit = "TGMKB";
+static const char *size_unit_ns = "TGMk ";
 
-std::string format_size(uint64_t size, bool nobytes)
+std::string format_size(uint64_t size, bool nobytes, bool nospace)
 {
-    uint64_t *thr = nobytes ? size_thresh_d : size_thresh;
+    uint64_t *thr = (nobytes ? size_thresh_d : size_thresh);
     char buf[256];
     for (int i = 0; i < size_thresh_n; i++)
     {
@@ -165,9 +166,19 @@ std::string format_size(uint64_t size, bool nobytes)
             assert(l < sizeof(buf)-2);
             if (buf[l-1] == '0')
                 l -= 2;
-            buf[l] = i == size_thresh_n-1 && nobytes ? 0 : ' ';
-            buf[l+1] = i == size_thresh_n-1 && nobytes ? 0 : size_unit[i];
-            buf[l+2] = 0;
+            if (i == size_thresh_n-1 && nobytes)
+                buf[l] = 0;
+            else if (nospace)
+            {
+                buf[l] = size_unit_ns[i];
+                buf[l+1] = 0;
+            }
+            else
+            {
+                buf[l] = ' ';
+                buf[l+1] = size_unit[i];
+                buf[l+2] = 0;
+            }
             break;
         }
     }
