@@ -104,37 +104,16 @@ resume_1:
         {
             config_pools = parent->cli->st_cli.parse_etcd_kv(config_pools).value;
         }
-        for (auto & kv_item: space_info["responses"][0]["response_range"]["kvs"].array_items())
+        parent->iterate_kvs_1(space_info["responses"][0]["response_range"]["kvs"], "/pool/stats/", [&](uint64_t pool_id, json11::Json value)
         {
-            auto kv = parent->cli->st_cli.parse_etcd_kv(kv_item);
-            // pool ID
-            pool_id_t pool_id;
-            char null_byte = 0;
-            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(), "/pool/stats/%u%c", &pool_id, &null_byte);
-            if (scanned != 1 || !pool_id || pool_id >= POOL_ID_MAX)
-            {
-                fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
-                continue;
-            }
-            // pool/stats/<N>
-            pool_stats[pool_id] = kv.value.object_items();
-        }
+            pool_stats[pool_id] = value.object_items();
+        });
         std::map<pool_id_t, uint64_t> osd_free;
-        for (auto & kv_item: space_info["responses"][1]["response_range"]["kvs"].array_items())
+        parent->iterate_kvs_1(space_info["responses"][1]["response_range"]["kvs"], "/osd/stats/", [&](uint64_t osd_num, json11::Json value)
         {
-            auto kv = parent->cli->st_cli.parse_etcd_kv(kv_item);
-            // osd ID
-            osd_num_t osd_num;
-            char null_byte = 0;
-            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(), "/osd/stats/%ju%c", &osd_num, &null_byte);
-            if (scanned != 1 || !osd_num || osd_num >= POOL_ID_MAX)
-            {
-                fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
-                continue;
-            }
             // osd/stats/<N>::free
-            osd_free[osd_num] = kv.value["free"].uint64_value();
-        }
+            osd_free[osd_num] = value["free"].uint64_value();
+        });
         // Calculate max_avail for each pool
         for (auto & pp: parent->cli->st_cli.pool_config)
         {
@@ -254,29 +233,17 @@ resume_1:
             state = 100;
             return;
         }
-        auto pg_stats = parent->etcd_result["responses"][0]["response_range"]["kvs"];
         // Calculate recovery percent
         std::map<pool_id_t, object_counts_t> counts;
-        for (auto & kv_item: pg_stats.array_items())
+        parent->iterate_kvs_2(parent->etcd_result["responses"][0]["response_range"]["kvs"], "/pg/stats/",
+            [&](pool_id_t pool_id, uint64_t pg_num, json11::Json value)
         {
-            auto kv = parent->cli->st_cli.parse_etcd_kv(kv_item);
-            // pool ID & pg number
-            pool_id_t pool_id;
-            pg_num_t pg_num = 0;
-            char null_byte = 0;
-            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(),
-                "/pg/stats/%u/%u%c", &pool_id, &pg_num, &null_byte);
-            if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX)
-            {
-                fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
-                continue;
-            }
             auto & cnt = counts[pool_id];
-            cnt.object_count += kv.value["object_count"].uint64_value();
-            cnt.misplaced_count += kv.value["misplaced_count"].uint64_value();
-            cnt.degraded_count += kv.value["degraded_count"].uint64_value();
-            cnt.incomplete_count += kv.value["incomplete_count"].uint64_value();
-        }
+            cnt.object_count += value["object_count"].uint64_value();
+            cnt.misplaced_count += value["misplaced_count"].uint64_value();
+            cnt.degraded_count += value["degraded_count"].uint64_value();
+            cnt.incomplete_count += value["incomplete_count"].uint64_value();
+        });
         for (auto & pp: pool_stats)
         {
             auto & cnt = counts[pp.first];
@@ -317,35 +284,23 @@ resume_1:
             state = 100;
             return;
         }
-        auto inode_stats = parent->etcd_result["responses"][0]["response_range"]["kvs"];
         // Performance statistics
         std::map<pool_id_t, io_stats_t> pool_io;
-        for (auto & kv_item: inode_stats.array_items())
+        parent->iterate_kvs_2(parent->etcd_result["responses"][0]["response_range"]["kvs"], "/inode/stats/",
+            [&](pool_id_t pool_id, uint64_t inode_num, json11::Json value)
         {
-            auto kv = parent->cli->st_cli.parse_etcd_kv(kv_item);
-            // pool ID & inode number
-            pool_id_t pool_id;
-            inode_t only_inode_num;
-            char null_byte = 0;
-            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(),
-                "/inode/stats/%u/%ju%c", &pool_id, &only_inode_num, &null_byte);
-            if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX || INODE_POOL(only_inode_num) != 0)
-            {
-                fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
-                continue;
-            }
             auto & io = pool_io[pool_id];
-            io.read_iops += kv.value["read"]["iops"].uint64_value();
-            io.read_bps += kv.value["read"]["bps"].uint64_value();
-            io.read_lat += kv.value["read"]["lat"].uint64_value();
-            io.write_iops += kv.value["write"]["iops"].uint64_value();
-            io.write_bps += kv.value["write"]["bps"].uint64_value();
-            io.write_lat += kv.value["write"]["lat"].uint64_value();
-            io.delete_iops += kv.value["delete"]["iops"].uint64_value();
-            io.delete_bps += kv.value["delete"]["bps"].uint64_value();
-            io.delete_lat += kv.value["delete"]["lat"].uint64_value();
+            io.read_iops += value["read"]["iops"].uint64_value();
+            io.read_bps += value["read"]["bps"].uint64_value();
+            io.read_lat += value["read"]["lat"].uint64_value();
+            io.write_iops += value["write"]["iops"].uint64_value();
+            io.write_bps += value["write"]["bps"].uint64_value();
+            io.write_lat += value["write"]["lat"].uint64_value();
+            io.delete_iops += value["delete"]["iops"].uint64_value();
+            io.delete_bps += value["delete"]["bps"].uint64_value();
+            io.delete_lat += value["delete"]["lat"].uint64_value();
             io.count++;
-        }
+        });
         for (auto & pp: pool_stats)
         {
             auto & io = pool_io[pp.first];

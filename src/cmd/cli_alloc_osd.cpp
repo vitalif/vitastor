@@ -72,19 +72,10 @@ struct alloc_osd_t
             if (!parent->etcd_result["succeeded"].bool_value())
             {
                 std::vector<osd_num_t> used;
-                for (auto kv: parent->etcd_result["responses"][0]["response_range"]["kvs"].array_items())
+                parent->iterate_kvs_1(parent->etcd_result["responses"][0]["response_range"]["kvs"], "/osd/stats/", [&](uint64_t cur_osd, json11::Json value)
                 {
-                    std::string key = base64_decode(kv["key"].string_value());
-                    osd_num_t cur_osd;
-                    char null_byte = 0;
-                    int scanned = sscanf(key.c_str() + parent->cli->st_cli.etcd_prefix.length(), "/osd/stats/%ju%c", &cur_osd, &null_byte);
-                    if (scanned != 1 || !cur_osd)
-                    {
-                        fprintf(stderr, "Invalid key in etcd: %s\n", key.c_str());
-                        continue;
-                    }
                     used.push_back(cur_osd);
-                }
+                });
                 std::sort(used.begin(), used.end());
                 if (used[used.size()-1] == used.size())
                 {

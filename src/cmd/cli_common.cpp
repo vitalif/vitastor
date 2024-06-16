@@ -165,3 +165,43 @@ void cli_tool_t::loop_and_wait(std::function<bool(cli_result_t &)> loop_cb, std:
         ringloop->wakeup();
     });
 }
+
+void cli_tool_t::iterate_kvs_1(json11::Json kvs, const std::string & prefix, std::function<void(uint64_t, json11::Json)> cb)
+{
+    bool is_pool = prefix == "/pool/stats/";
+    for (auto & kv_item: kvs.array_items())
+    {
+        auto kv = cli->st_cli.parse_etcd_kv(kv_item);
+        uint64_t num = 0;
+        char null_byte = 0;
+        // OSD or pool number
+        int scanned = sscanf(kv.key.substr(cli->st_cli.etcd_prefix.size() + prefix.size()).c_str(), "%ju%c", &num, &null_byte);
+        if (scanned != 1 || !num || is_pool && num >= POOL_ID_MAX)
+        {
+            fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
+            continue;
+        }
+        cb(num, kv.value);
+    }
+}
+
+void cli_tool_t::iterate_kvs_2(json11::Json kvs, const std::string & prefix, std::function<void(pool_id_t pool_id, uint64_t num, json11::Json)> cb)
+{
+    bool is_inode = prefix == "/config/inode/" || prefix == "/inode/stats/";
+    for (auto & kv_item: kvs.array_items())
+    {
+        auto kv = cli->st_cli.parse_etcd_kv(kv_item);
+        pool_id_t pool_id = 0;
+        uint64_t num = 0;
+        char null_byte = 0;
+        // pool+pg or pool+inode
+        int scanned = sscanf(kv.key.substr(cli->st_cli.etcd_prefix.size() + prefix.size()).c_str(),
+            "%u/%ju%c", &pool_id, &num, &null_byte);
+        if (scanned != 2 || !pool_id || is_inode && INODE_POOL(num) || !is_inode && num >= UINT32_MAX)
+        {
+            fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
+            continue;
+        }
+        cb(pool_id, num, kv.value);
+    }
+}

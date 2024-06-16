@@ -7,6 +7,7 @@
 
 #include "json11/json11.hpp"
 #include "object_id.h"
+#include "osd_id.h"
 #include "ringloop.h"
 #include <functional>
 
@@ -77,6 +78,9 @@ public:
     void loop_and_wait(std::function<bool(cli_result_t &)> loop_cb, std::function<void(const cli_result_t &)> complete_cb);
 
     void etcd_txn(json11::Json txn);
+
+    void iterate_kvs_1(json11::Json kvs, const std::string & prefix, std::function<void(uint64_t num, json11::Json)> cb);
+    void iterate_kvs_2(json11::Json kvs, const std::string & prefix, std::function<void(pool_id_t pool_id, uint64_t num, json11::Json)> cb);
 };
 
 std::string print_table(json11::Json items, json11::Json header, bool use_esc);

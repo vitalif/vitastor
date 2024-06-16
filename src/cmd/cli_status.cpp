@@ -18,7 +18,7 @@ struct status_printer_t
     cli_tool_t *parent;
 
     int state = 0;
-    json11::Json::array mon_members, osd_stats;
+    json11::Json::array mon_members;
     json11::Json agg_stats;
     std::map<pool_id_t, json11::Json::object> pool_stats;
     json11::Json::array etcd_states;
@@ -93,7 +93,7 @@ resume_2:
             return;
         }
         mon_members = parent->etcd_result["responses"][0]["response_range"]["kvs"].array_items();
-        osd_stats = parent->etcd_result["responses"][1]["response_range"]["kvs"].array_items();
+        auto osd_stats = parent->etcd_result["responses"][1]["response_range"]["kvs"];
         if (parent->etcd_result["responses"][2]["response_range"]["kvs"].array_items().size() > 0)
         {
             agg_stats = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][2]["response_range"]["kvs"][0]).value;
@@ -133,20 +133,11 @@ resume_2:
         }
         int osd_count = 0, osd_up = 0;
         uint64_t total_raw = 0, free_raw = 0, free_down_raw = 0, down_raw = 0;
-        for (int i = 0; i < osd_stats.size(); i++)
+        parent->iterate_kvs_1(osd_stats, "/osd/stats", [&](uint64_t stat_osd_num, json11::Json value)
         {
-            auto kv = parent->cli->st_cli.parse_etcd_kv(osd_stats[i]);
-            osd_num_t stat_osd_num = 0;
-            char null_byte = 0;
-            int scanned = sscanf(kv.key.c_str() + parent->cli->st_cli.etcd_prefix.size(), "/osd/stats/%ju%c", &stat_osd_num, &null_byte);
-            if (scanned != 1 || !stat_osd_num)
-            {
-                fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
-                continue;
-            }
             osd_count++;
-            auto osd_size = kv.value["size"].uint64_value();
-            auto osd_free = kv.value["free"].uint64_value();
+            auto osd_size = value["size"].uint64_value();
+            auto osd_free = value["free"].uint64_value();
             total_raw += osd_size;
             free_raw += osd_free;
             if (!osd_free)
@@ -164,10 +155,10 @@ resume_2:
             }
             else
             {
-                down_raw += kv.value["size"].uint64_value();
-                free_down_raw += kv.value["free"].uint64_value();
+                down_raw += value["size"].uint64_value();
+                free_down_raw += value["free"].uint64_value();
             }
-        }
+        });
         int pool_count = 0, pools_active = 0;
         std::map<std::string, int> pgs_by_state;
         std::string pgs_by_state_str;
