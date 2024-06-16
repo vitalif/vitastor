@@ -189,6 +189,12 @@ void nfs_proxy_t::run(json11::Json cfg)
     cmd->epmgr = epmgr;
     cmd->cli = cli;
     watch_stats();
+    // Init Pseudo-FS before starting client because it depends on inode_change_hook
+    if (fsname == "")
+    {
+        blockfs = new block_fs_state_t();
+        blockfs->init(this, cfg);
+    }
     // Load image metadata
     while (!cli->is_ready())
     {
@@ -199,13 +205,8 @@ void nfs_proxy_t::run(json11::Json cfg)
     }
     // Check default pool
     check_default_pool();
-    // Check if we're using VitastorFS
-    if (fsname == "")
-    {
-        blockfs = new block_fs_state_t();
-        blockfs->init(this, cfg);
-    }
-    else
+    // Init VitastorFS after starting client because it depends on loaded inode configuration
+    if (fsname != "")
     {
         kvfs = new kv_fs_state_t();
         kvfs->init(this, cfg);
