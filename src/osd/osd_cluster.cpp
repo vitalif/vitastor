@@ -180,6 +180,12 @@ json11::Json osd_t::get_statistics()
     json11::Json::object st;
     timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
+    uint64_t ts_diff = 0;
+    if (report_stats_ts.tv_sec != 0)
+        ts_diff = (ts.tv_sec - report_stats_ts.tv_sec + (ts.tv_nsec - report_stats_ts.tv_nsec) / 1000000000);
+    if (!ts_diff)
+        ts_diff = 1;
+    report_stats_ts = ts;
     char time_str[50] = { 0 };
     sprintf(time_str, "%jd.%03ld", (uint64_t)ts.tv_sec, ts.tv_nsec/1000000);
     st["time"] = time_str;
@@ -196,33 +202,50 @@ json11::Json osd_t::get_statistics()
     json11::Json::object op_stats, subop_stats;
     for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)
     {
+        auto n = (msgr.stats.op_stat_count[i] - prev_report_stats.op_stat_count[i]);
         op_stats[osd_op_names[i]] = json11::Json::object {
             { "count", msgr.stats.op_stat_count[i] },
             { "usec", msgr.stats.op_stat_sum[i] },
             { "bytes", msgr.stats.op_stat_bytes[i] },
+            { "lat", (msgr.stats.op_stat_sum[i] - prev_report_stats.op_stat_sum[i]) / (n < 1 ? 1 : n) },
+            { "bps", (msgr.stats.op_stat_bytes[i] - prev_report_stats.op_stat_bytes[i]) / ts_diff },
+            { "iops", n / ts_diff },
         };
     }
     for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)
     {
+        auto n = (msgr.stats.subop_stat_count[i] - prev_report_stats.subop_stat_count[i]);
         subop_stats[osd_op_names[i]] = json11::Json::object {
             { "count", msgr.stats.subop_stat_count[i] },
             { "usec", msgr.stats.subop_stat_sum[i] },
+            { "lat", (msgr.stats.subop_stat_sum[i] - prev_report_stats.subop_stat_sum[i]) / (n < 1 ? 1 : n) },
+            { "iops", n / ts_diff },
         };
     }
     st["op_stats"] = op_stats;
     st["subop_stats"] = subop_stats;
+    auto n0 = recovery_stat[0].count - recovery_report_prev[0].count;
+    auto n1 = recovery_stat[1].count - recovery_report_prev[1].count;
     st["recovery_stats"] = json11::Json::object {
         { recovery_stat_names[0], json11::Json::object {
             { "count", recovery_stat[0].count },
             { "bytes", recovery_stat[0].bytes },
             { "usec", recovery_stat[0].usec },
+            { "lat", (recovery_stat[0].usec - recovery_report_prev[0].usec) / (n0 < 1 ? 1 : n0) },
+            { "bps", (recovery_stat[0].bytes - recovery_report_prev[0].bytes) / ts_diff },
+            { "iops", n0 / ts_diff },
         } },
         { recovery_stat_names[1], json11::Json::object {
             { "count", recovery_stat[1].count },
             { "bytes", recovery_stat[1].bytes },
             { "usec", recovery_stat[1].usec },
+            { "lat", (recovery_stat[1].usec - recovery_report_prev[1].usec) / (n1 < 1 ? 1 : n1) },
+            { "bps", (recovery_stat[1].bytes - recovery_report_prev[1].bytes) / ts_diff },
+            { "iops", n1 / ts_diff },
         } },
     };
+    prev_report_stats = msgr.stats;
+    memcpy(recovery_report_prev, recovery_stat, sizeof(recovery_stat));
     return st;
 }
 

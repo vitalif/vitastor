@@ -199,12 +199,14 @@ class osd_t
     ring_consumer_t consumer;
 
     // op statistics
-    osd_op_stats_t prev_stats;
+    osd_op_stats_t prev_stats, prev_report_stats;
+    timespec report_stats_ts;
     std::map<uint64_t, inode_stats_t> inode_stats;
     std::map<uint64_t, timespec> vanishing_inodes;
     const char* recovery_stat_names[2] = { "degraded", "misplaced" };
     recovery_stat_t recovery_stat[2];
     recovery_stat_t recovery_print_prev[2];
+    recovery_stat_t recovery_report_prev[2];
 
     // recovery auto-tuning
     int rtune_timer_id = -1;
