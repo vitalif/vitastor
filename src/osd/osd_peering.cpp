@@ -168,20 +168,15 @@ void osd_t::reset_pg(pg_t & pg)
     dirty_pgs.erase({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
 }
 
-// Repeer on each connect/disconnect peer event
-void osd_t::start_pg_peering(pg_t & pg)
+// Drop connections of clients who have this PG in dirty_pgs
+void osd_t::drop_dirty_pg_connections(pool_pg_num_t pg)
 {
-    pg.state = PG_PEERING;
-    this->peering_state |= OSD_PEERING_PGS;
-    reset_pg(pg);
-    report_pg_state(pg);
-    // Drop connections of clients who have this PG in dirty_pgs
     if (immediate_commit != IMMEDIATE_ALL)
     {
         std::vector<int> to_stop;
         for (auto & cp: msgr.clients)
         {
-            if (cp.second->dirty_pgs.find({ .pool_id = pg.pool_id, .pg_num = pg.pg_num }) != cp.second->dirty_pgs.end())
+            if (cp.second->dirty_pgs.find(pg) != cp.second->dirty_pgs.end())
             {
                 to_stop.push_back(cp.first);
             }
@@ -191,6 +186,16 @@ void osd_t::start_pg_peering(pg_t & pg)
             msgr.stop_client(peer_fd);
         }
     }
+}
+
+// Repeer on each connect/disconnect peer event
+void osd_t::start_pg_peering(pg_t & pg)
+{
+    pg.state = PG_PEERING;
+    this->peering_state |= OSD_PEERING_PGS;
+    reset_pg(pg);
+    report_pg_state(pg);
+    drop_dirty_pg_connections({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
     // Try to connect with current peers if they're up, but we don't have connections to them
     // Otherwise we may erroneously decide that the pg is incomplete :-)
     for (auto pg_osd: pg.all_peers)
@@ -460,6 +465,7 @@ bool osd_t::stop_pg(pg_t & pg)
     {
         return false;
     }
+    drop_dirty_pg_connections({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
     if (!(pg.state & (PG_ACTIVE | PG_REPEERING)))
     {
         finish_stop_pg(pg);
