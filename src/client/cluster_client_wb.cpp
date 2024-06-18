@@ -208,7 +208,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state)
     }
 }
 
-int writeback_cache_t::repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd)
+int writeback_cache_t::repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd, pool_id_t pool_id, pg_num_t pg_num)
 {
     int repeated = 0;
     if (dirty_buffers.size())
@@ -218,8 +218,11 @@ int writeback_cache_t::repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd)
         for (auto wr_it = dirty_buffers.begin(), flush_it = wr_it, last_it = wr_it; ; )
         {
             bool end = wr_it == dirty_buffers.end();
-            bool flush_this = !end && wr_it->second.state != CACHE_REPEATING &&
-                cli->affects_osd(wr_it->first.inode, wr_it->first.stripe, wr_it->second.len, peer_osd);
+            bool flush_this = !end && wr_it->second.state != CACHE_REPEATING;
+            if (peer_osd)
+                flush_this = flush_this && cli->affects_osd(wr_it->first.inode, wr_it->first.stripe, wr_it->second.len, peer_osd);
+            if (pool_id && pg_num)
+                flush_this = flush_this && cli->affects_pg(wr_it->first.inode, wr_it->first.stripe, wr_it->second.len, pool_id, pg_num);
             if (flush_it != wr_it && (end || !flush_this ||
                 wr_it->first.inode != flush_it->first.inode ||
                 wr_it->first.stripe != last_it->first.stripe+last_it->second.len))

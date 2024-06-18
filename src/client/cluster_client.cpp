@@ -34,7 +34,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         {
             // peer_osd just dropped connection
             // determine WHICH dirty_buffers are now obsolete and repeat them
-            if (wb->repeat_ops_for(this, peer_osd) > 0)
+            if (wb->repeat_ops_for(this, peer_osd, 0, 0) > 0)
             {
                 continue_ops();
             }
@@ -52,7 +52,8 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     st_cli.tfd = tfd;
     st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
     st_cli.on_change_osd_state_hook = [this](uint64_t peer_osd) { on_change_osd_state_hook(peer_osd); };
-    st_cli.on_change_hook = [this](std::map<std::string, etcd_kv_t> & changes) { on_change_hook(changes); };
+    st_cli.on_change_pool_config_hook = [this]() { on_change_pool_config_hook(); };
+    st_cli.on_change_pg_state_hook = [this](pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary) { on_change_pg_state_hook(pool_id, pg_num, prev_primary); };
     st_cli.on_load_pgs_hook = [this](bool success) { on_load_pgs_hook(success); };
     st_cli.on_reload_hook = [this]() { st_cli.load_global_config(); };
 
@@ -422,7 +423,7 @@ void cluster_client_t::on_load_pgs_hook(bool success)
     continue_ops();
 }
 
-void cluster_client_t::on_change_hook(std::map<std::string, etcd_kv_t> & changes)
+void cluster_client_t::on_change_pool_config_hook()
 {
     for (auto pool_item: st_cli.pool_config)
     {
@@ -443,6 +444,19 @@ void cluster_client_t::on_change_hook(std::map<std::string, etcd_kv_t> & changes
         }
     }
     continue_ops();
+}
+
+void cluster_client_t::on_change_pg_state_hook(pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary)
+{
+    auto & pg_cfg = st_cli.pool_config[pool_id].pg_config[pg_num];
+    if (pg_cfg.cur_primary != prev_primary)
+    {
+        // Repeat this PG operations because an OSD which stopped being primary may not fsync operations
+        if (wb->repeat_ops_for(this, 0, pool_id, pg_num) > 0)
+        {
+            continue_ops();
+        }
+    }
 }
 
 bool cluster_client_t::get_immediate_commit(uint64_t inode)
@@ -989,6 +1003,29 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
         op->parts[i].osd_num = 0;
         i++;
     }
+}
+
+bool cluster_client_t::affects_pg(uint64_t inode, uint64_t offset, uint64_t len, pool_id_t pool_id, pg_num_t pg_num)
+{
+    if (INODE_POOL(inode) != pool_id)
+    {
+        return false;
+    }
+    auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(inode));
+    uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+    uint64_t pg_block_size = pool_cfg.data_block_size * pg_data_size;
+    uint64_t first_stripe = (offset / pg_block_size) * pg_block_size;
+    uint64_t last_stripe = len > 0 ? ((offset + len - 1) / pg_block_size) * pg_block_size : first_stripe;
+    if ((last_stripe/pool_cfg.pg_stripe_size) - (first_stripe/pool_cfg.pg_stripe_size) + 1 >= pool_cfg.real_pg_count)
+    {
+        // All PGs are affected
+        return true;
+    }
+    pg_num_t first_pg_num = (first_stripe/pool_cfg.pg_stripe_size) % pool_cfg.real_pg_count + 1; // like map_to_pg()
+    pg_num_t last_pg_num = (last_stripe/pool_cfg.pg_stripe_size) % pool_cfg.real_pg_count + 1; // like map_to_pg()
+    return (first_pg_num <= last_pg_num
+        ? (pg_num >= first_pg_num && pg_num <= last_pg_num)
+        : (pg_num >= first_pg_num || pg_num <= last_pg_num));
 }
 
 bool cluster_client_t::affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd)

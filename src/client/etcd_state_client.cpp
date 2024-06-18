@@ -890,6 +890,10 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 }
             }
         }
+        if (on_change_pool_config_hook)
+        {
+            on_change_pool_config_hook();
+        }
     }
     else if (key == etcd_prefix+"/config/pgs")
     {
@@ -1028,13 +1032,19 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         else if (value.is_null())
         {
             auto & pg_cfg = this->pool_config[pool_id].pg_config[pg_num];
+            auto prev_primary = pg_cfg.cur_primary;
             pg_cfg.state_exists = false;
             pg_cfg.cur_primary = 0;
             pg_cfg.cur_state = 0;
+            if (on_change_pg_state_hook)
+            {
+                on_change_pg_state_hook(pool_id, pg_num, prev_primary);
+            }
         }
         else
         {
             auto & pg_cfg = this->pool_config[pool_id].pg_config[pg_num];
+            auto prev_primary = pg_cfg.cur_primary;
             pg_cfg.state_exists = true;
             osd_num_t cur_primary = value["primary"].uint64_value();
             int state = 0;
@@ -1065,6 +1075,10 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             }
             pg_cfg.cur_primary = cur_primary;
             pg_cfg.cur_state = state;
+            if (on_change_pg_state_hook)
+            {
+                on_change_pg_state_hook(pool_id, pg_num, prev_primary);
+            }
         }
     }
     else if (key.substr(0, etcd_prefix.length()+11) == etcd_prefix+"/osd/state/")

@@ -47,7 +47,7 @@ public:
     bool is_right_merged(dirty_buf_it_t dirty_it);
     bool is_merged(const dirty_buf_it_t & dirty_it);
     void copy_write(cluster_op_t *op, int state);
-    int repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd);
+    int repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd, pool_id_t pool_id, pg_num_t pg_num);
     void start_writebacks(cluster_client_t *cli, int count);
     bool read_from_cache(cluster_op_t *op, uint32_t bitmap_granularity);
     void flush_buffers(cluster_client_t *cli, dirty_buf_it_t from_it, dirty_buf_it_t to_it);

@@ -79,6 +79,7 @@ class cluster_client_t
     ring_loop_t *ringloop;
 
     std::map<pool_id_t, uint64_t> pg_counts;
+    std::map<pool_pg_num_t, osd_num_t> pg_primary;
     // client_max_dirty_* is actually "max unsynced", for the case when immediate_commit is off
     uint64_t client_max_dirty_bytes = 0;
     uint64_t client_max_dirty_ops = 0;
@@ -144,9 +145,11 @@ public:
 
 protected:
     bool affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd);
+    bool affects_pg(uint64_t inode, uint64_t offset, uint64_t len, pool_id_t pool_id, pg_num_t pg_num);
     void on_load_config_hook(json11::Json::object & config);
     void on_load_pgs_hook(bool success);
-    void on_change_hook(std::map<std::string, etcd_kv_t> & changes);
+    void on_change_pool_config_hook();
+    void on_change_pg_state_hook(pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary);
     void on_change_osd_state_hook(uint64_t peer_osd);
     void execute_internal(cluster_op_t *op);
     void unshift_op(cluster_op_t *op);
