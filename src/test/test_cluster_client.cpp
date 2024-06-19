@@ -43,8 +43,7 @@ void configure_single_pg_pool(cluster_client_t *cli)
         },
     });
     cli->st_cli.on_load_pgs_hook(true);
-    std::map<std::string, etcd_kv_t> changes;
-    cli->st_cli.on_change_hook(changes);
+    cli->st_cli.on_change_pool_config_hook();
 }
 
 int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c, std::function<void()> cb = NULL, bool instant = false)
@@ -281,7 +280,8 @@ void test1()
                     uint8_t c = offset < 0xE000 ? 0x56 : (offset < 0x10000 ? 0x57 : 0x58);
                     if (((uint8_t*)op->iov.buf[buf_idx].iov_base)[i] != c)
                     {
-                        printf("Write replay: mismatch at %ju\n", offset-op->req.rw.offset);
+                        printf("Write replay: mismatch at %ju (expected %02x, have %02x)\n", offset-op->req.rw.offset,
+                            c, ((uint8_t*)op->iov.buf[buf_idx].iov_base)[i]);
                         goto fail;
                     }
                 }
@@ -290,9 +290,9 @@ void test1()
             assert(offset == op->req.rw.offset+op->req.rw.len);
             replay_ops.push_back(op);
         }
-        if (replay_start != 0 || replay_end != 0x14000)
+        if (replay_start != 0 || replay_end != 0x10000)
         {
-            printf("Write replay: range mismatch: %jx-%jx\n", replay_start, replay_end);
+            printf("Write replay: range mismatch: 0x%jx-0x%jx (expected 0-0x10000)\n", replay_start, replay_end);
             assert(0);
         }
         for (auto op: replay_ops)
@@ -320,8 +320,6 @@ void test1()
     check_disconnected(cli, 1);
     pretend_connected(cli, 1);
     check_op_count(cli, 1, 1);
-    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), 0);
-    check_op_count(cli, 1, 1);
     can_complete(r1);
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), 0);
     check_completed(r1);
@@ -341,7 +339,7 @@ void test1()
     pretend_connected(cli, 1);
     cli->continue_ops(true);
     check_op_count(cli, 1, 1);
-    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x2000), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), 0);
     check_op_count(cli, 1, 1);
     can_complete(r2);
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x1000, 0x1000), 0);

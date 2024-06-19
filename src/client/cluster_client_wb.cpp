@@ -71,7 +71,7 @@ bool writeback_cache_t::is_merged(const dirty_buf_it_t & dirty_it)
     return is_left_merged(dirty_it) || is_right_merged(dirty_it);
 }
 
-void writeback_cache_t::copy_write(cluster_op_t *op, int state)
+void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flush_id)
 {
     // Save operation for replay when one of PGs goes out of sync
     // (primary OSD drops our connection in this case)
@@ -180,6 +180,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state)
         .buf = buf,
         .len = op->len,
         .state = state,
+        .flush_id = new_flush_id,
         .refcnt = refcnt,
     });
     if (state == CACHE_DIRTY)
@@ -268,7 +269,7 @@ void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from
     writebacks_active++;
     op->callback = [this, flush_id](cluster_op_t* op)
     {
-        // Buffer flushes should be always retried, regardless of the error,
+        // Buffer flushes are always retried, regardless of the error,
         // so they should never result in an error here
         assert(op->retval == op->len);
         for (auto fl_it = flushed_buffers.find(flush_id);
@@ -280,16 +281,7 @@ void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from
             }
             flushed_buffers.erase(fl_it++);
         }
-        for (auto dirty_it = find_dirty(op->inode, op->offset);
-            dirty_it != dirty_buffers.end() && dirty_it->first.inode == op->inode &&
-            dirty_it->first.stripe < op->offset+op->len; dirty_it++)
-        {
-            if (dirty_it->second.flush_id == flush_id && dirty_it->second.state == CACHE_REPEATING)
-            {
-                dirty_it->second.flush_id = 0;
-                dirty_it->second.state = CACHE_WRITTEN;
-            }
-        }
+        mark_flush_written(op->inode, op->offset, op->len, flush_id);
         delete op;
         writebacks_active--;
         // We can't call execute_internal because it affects an invalid copy of the list here
@@ -304,6 +296,20 @@ void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from
         // Insert repeated flushes into the beginning
         cli->unshift_op(op);
         cli->continue_rw(op);
+    }
+}
+
+void writeback_cache_t::mark_flush_written(uint64_t inode, uint64_t offset, uint64_t len, uint64_t flush_id)
+{
+    for (auto dirty_it = find_dirty(inode, offset);
+        dirty_it != dirty_buffers.end() && dirty_it->first.inode == inode &&
+        dirty_it->first.stripe < offset+len; dirty_it++)
+    {
+        if (dirty_it->second.flush_id == flush_id && dirty_it->second.state == CACHE_REPEATING)
+        {
+            dirty_it->second.flush_id = 0;
+            dirty_it->second.state = CACHE_WRITTEN;
+        }
     }
 }
 

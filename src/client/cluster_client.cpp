@@ -617,7 +617,9 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
     {
         if (!(op->flags & OP_FLUSH_BUFFER) && !op->version /* no CAS write-repeat */)
         {
-            wb->copy_write(op, CACHE_WRITTEN);
+            uint64_t flush_id = ++wb->last_flush_id;
+            wb->copy_write(op, CACHE_REPEATING, flush_id);
+            op->flush_id = flush_id;
         }
         if (dirty_bytes >= client_max_dirty_bytes || dirty_ops >= client_max_dirty_ops)
         {
@@ -832,6 +834,10 @@ resume_2:
         {
             auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(op->inode));
             op->retval = op->len / pool_cfg.bitmap_granularity;
+        }
+        if (op->flush_id)
+        {
+            wb->mark_flush_written(op->inode, op->offset, op->len, op->flush_id);
         }
         erase_op(op);
         return 1;

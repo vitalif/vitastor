@@ -46,11 +46,12 @@ public:
     bool is_left_merged(dirty_buf_it_t dirty_it);
     bool is_right_merged(dirty_buf_it_t dirty_it);
     bool is_merged(const dirty_buf_it_t & dirty_it);
-    void copy_write(cluster_op_t *op, int state);
+    void copy_write(cluster_op_t *op, int state, uint64_t new_flush_id = 0);
     int repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd, pool_id_t pool_id, pg_num_t pg_num);
     void start_writebacks(cluster_client_t *cli, int count);
     bool read_from_cache(cluster_op_t *op, uint32_t bitmap_granularity);
     void flush_buffers(cluster_client_t *cli, dirty_buf_it_t from_it, dirty_buf_it_t to_it);
+    void mark_flush_written(uint64_t inode, uint64_t offset, uint64_t len, uint64_t flush_id);
     void fsync_start();
     void fsync_error();
     void fsync_ok();

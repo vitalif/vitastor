@@ -64,6 +64,7 @@ protected:
     unsigned bitmap_buf_size = 0;
     cluster_op_t *prev = NULL, *next = NULL;
     int prev_wait = 0;
+    uint64_t flush_id = 0;
     friend class cluster_client_t;
     friend class writeback_cache_t;
 };
