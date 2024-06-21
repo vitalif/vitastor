@@ -141,6 +141,14 @@ void osd_t::parse_config(bool init)
     config = msgr.merge_configs(cli_config, file_config, etcd_global_config, etcd_osd_config);
     if (config.find("log_level") == this->config.end())
         config["log_level"] = 1;
+    if (init)
+    {
+        // OSD number
+        osd_num = config["osd_num"].uint64_value();
+        if (!osd_num)
+            throw std::runtime_error("osd_num is required in the configuration");
+        msgr.osd_num = osd_num;
+    }
     if (bs)
     {
         auto bs_cfg = json_to_bs(config);
@@ -150,11 +158,6 @@ void osd_t::parse_config(bool init)
     msgr.parse_config(config);
     if (init)
     {
-        // OSD number
-        osd_num = config["osd_num"].uint64_value();
-        if (!osd_num)
-            throw std::runtime_error("osd_num is required in the configuration");
-        msgr.osd_num = osd_num;
         // Vital Blockstore parameters
         bs_block_size = config["block_size"].uint64_value();
         if (!bs_block_size)

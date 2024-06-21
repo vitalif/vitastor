@@ -10,8 +10,9 @@
 
 #include "ringloop.h"
 
-ring_loop_t::ring_loop_t(int qd)
+ring_loop_t::ring_loop_t(int qd, bool multithreaded)
 {
+    mt = multithreaded;
     int ret = io_uring_queue_init(qd, &ring, 0);
     if (ret < 0)
     {
@@ -64,6 +65,25 @@ void ring_loop_t::unregister_consumer(ring_consumer_t *consumer)
     }
 }
 
+io_uring_sqe* ring_loop_t::get_sqe()
+{
+    if (mt)
+        mu.lock();
+    if (free_ring_data_ptr == 0)
+    {
+        if (mt)
+            mu.unlock();
+        return NULL;
+    }
+    struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
+    assert(sqe);
+    *sqe = { 0 };
+    io_uring_sqe_set_data(sqe, ring_datas + free_ring_data[--free_ring_data_ptr]);
+    if (mt)
+        mu.unlock();
+    return sqe;
+}
+
 void ring_loop_t::loop()
 {
     if (ring_eventfd >= 0)
@@ -79,6 +99,8 @@ void ring_loop_t::loop()
     struct io_uring_cqe *cqe;
     while (!io_uring_peek_cqe(&ring, &cqe))
     {
+        if (mt)
+            mu.lock();
         struct ring_data_t *d = (struct ring_data_t*)cqe->user_data;
         if (d->callback)
         {
@@ -90,12 +112,16 @@ void ring_loop_t::loop()
             dl.res = cqe->res;
             dl.callback.swap(d->callback);
             free_ring_data[free_ring_data_ptr++] = d - ring_datas;
+            if (mt)
+                mu.unlock();
             dl.callback(&dl);
         }
         else
         {
             fprintf(stderr, "Warning: empty callback in SQE\n");
             free_ring_data[free_ring_data_ptr++] = d - ring_datas;
+            if (mt)
+                mu.unlock();
         }
         io_uring_cqe_seen(&ring, cqe);
     }

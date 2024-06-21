@@ -11,6 +11,7 @@
 момент с помощью перезапуска OSD, а некоторые и без перезапуска, с помощью
 изменения конфигурации в etcd.
 
+- [osd_iothread_count](#osd_iothread_count)
 - [etcd_report_interval](#etcd_report_interval)
 - [etcd_stats_interval](#etcd_stats_interval)
 - [run_primary](#run_primary)
@@ -61,6 +62,19 @@
 - [recovery_tune_agg_interval](#recovery_tune_agg_interval)
 - [recovery_tune_sleep_min_us](#recovery_tune_sleep_min_us)
 - [recovery_tune_sleep_cutoff_us](#recovery_tune_sleep_cutoff_us)
+
+## osd_iothread_count
+
+- Тип: целое число
+- Значение по умолчанию: 0
+
+Число отдельных потоков для обработки ввода-вывода через TCP-сеть на
+стороне OSD. Включение опции позволяет каждому отдельному OSD передавать
+по сети больше данных, но ухудшает задержку из-за накладных расходов
+переключения потоков. На работу RDMA опция не влияет.
+
+Из-за задержек вместо включения потоков ввода-вывода OSD рекомендуется
+просто создавать по несколько OSD на каждом диске, или использовать RDMA.
 
 ## etcd_report_interval
 

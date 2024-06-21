@@ -189,7 +189,11 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
     }
     if (ringloop && !use_sync_send_recv)
     {
-        io_uring_sqe* sqe = ringloop->get_sqe();
+        auto iothread = iothreads.size() ? iothreads[peer_fd % iothreads.size()] : NULL;
+        io_uring_sqe sqe_local;
+        ring_data_t data_local;
+        sqe_local.user_data = (uint64_t)&data_local;
+        io_uring_sqe* sqe = (iothread ? &sqe_local : ringloop->get_sqe());
         if (!sqe)
         {
             return false;
@@ -200,6 +204,10 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
         ring_data_t* data = ((ring_data_t*)sqe->user_data);
         data->callback = [this, cl](ring_data_t *data) { handle_send(data->res, cl); };
         my_uring_prep_sendmsg(sqe, peer_fd, &cl->write_msg, 0);
+        if (iothread)
+        {
+            iothread->add_sqe(sqe_local);
+        }
     }
     else
     {

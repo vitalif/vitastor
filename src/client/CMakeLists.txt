@@ -12,6 +12,7 @@ add_library(vitastor_common STATIC
 	msgr_stop.cpp msgr_op.cpp msgr_send.cpp msgr_receive.cpp ../util/ringloop.cpp ../../json11/json11.cpp
 	http_client.cpp osd_ops.cpp pg_states.cpp ../util/timerfd_manager.cpp ../util/str_util.cpp ${MSGR_RDMA}
 )
+target_link_libraries(vitastor_common pthread)
 target_compile_options(vitastor_common PUBLIC -fPIC)
 
 # libvitastor_client.so

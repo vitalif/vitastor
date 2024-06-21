@@ -1,3 +1,32 @@
+- name: client_iothread_count
+  type: int
+  default: 0
+  online: false
+  info: |
+    Number of separate threads for handling TCP network I/O at client library
+    side. Enabling 4 threads usually allows to increase peak performance of each
+    client from approx. 2-3 to 7-8 GByte/s linear read/write and from approx.
+    100-150 to 400 thousand iops, but at the same time it increases latency.
+    Latency increase depends on CPU: with CPU power saving disabled latency
+    only increases by ~10 us (equivalent to Q=1 iops decrease from 10500 to 9500),
+    with CPU power saving enabled it may be as high as 500 us (equivalent to Q=1
+    iops decrease from 2000 to 1000). RDMA isn't affected by this option.
+
+    It's recommended to enable client I/O threads if you don't use RDMA and want
+    to increase peak client performance.
+  info_ru: |
+    Число отдельных потоков для обработки ввода-вывода через TCP сеть на стороне
+    клиентской библиотеки. Включение 4 потоков обычно позволяет поднять пиковую
+    производительность каждого клиента примерно с 2-3 до 7-8 Гбайт/с линейного
+    чтения/записи и примерно с 100-150 до 400 тысяч операций ввода-вывода в
+    секунду, но ухудшает задержку. Увеличение задержки зависит от процессора:
+    при отключённом энергосбережении CPU это всего ~10 микросекунд (равносильно
+    падению iops с Q=1 с 10500 до 9500), а при включённом это может быть
+    и 500 микросекунд (равносильно падению iops с Q=1 с 2000 до 1000). На работу
+    RDMA данная опция не влияет.
+
+    Рекомендуется включать клиентские потоки ввода-вывода, если вы не используете
+    RDMA и хотите повысить пиковую производительность клиентов.
 - name: client_retry_interval
   type: ms
   min: 10

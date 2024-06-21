@@ -10,6 +10,7 @@ These parameters only apply to OSDs, are not fixed at the moment of OSD drive
 initialization and can be changed - either with an OSD restart or, for some of
 them, even without restarting by updating configuration in etcd.
 
+- [osd_iothread_count](#osd_iothread_count)
 - [etcd_report_interval](#etcd_report_interval)
 - [etcd_stats_interval](#etcd_stats_interval)
 - [run_primary](#run_primary)
@@ -60,6 +61,18 @@ them, even without restarting by updating configuration in etcd.
 - [recovery_tune_agg_interval](#recovery_tune_agg_interval)
 - [recovery_tune_sleep_min_us](#recovery_tune_sleep_min_us)
 - [recovery_tune_sleep_cutoff_us](#recovery_tune_sleep_cutoff_us)
+
+## osd_iothread_count
+
+- Type: integer
+- Default: 0
+
+TCP network I/O thread count for OSD. When non-zero, a single OSD process
+may handle more TCP I/O, but at a cost of increased latency because thread
+switching overhead occurs. RDMA isn't affected by this option.
+
+Because of latency, instead of enabling OSD I/O threads it's recommended to
+just create multiple OSDs per disk, or use RDMA.
 
 ## etcd_report_interval
 

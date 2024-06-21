@@ -111,6 +111,44 @@ struct osd_op_stats_t
     uint64_t subop_stat_count[OSD_OP_MAX+1] = { 0 };
 };
 
+#include <mutex>
+#include <condition_variable>
+#include <thread>
+
+#ifdef __MOCK__
+class msgr_iothread_t;
+#else
+struct iothread_sqe_t
+{
+    io_uring_sqe sqe;
+    ring_data_t data;
+};
+
+class msgr_iothread_t
+{
+protected:
+    ring_loop_t ring;
+    ring_loop_t *outer_loop = NULL;
+    ring_data_t *outer_loop_data = NULL;
+    int eventfd = -1;
+    bool stopped = false;
+    std::mutex mu;
+    std::condition_variable cond;
+    std::vector<iothread_sqe_t> queue;
+    std::thread thread;
+
+    void run();
+public:
+
+    msgr_iothread_t();
+    ~msgr_iothread_t();
+
+    void add_sqe(io_uring_sqe & sqe);
+    void stop();
+    void add_to_ringloop(ring_loop_t *outer_loop);
+};
+#endif
+
 struct osd_messenger_t
 {
 protected:
@@ -123,6 +161,7 @@ protected:
     int osd_ping_timeout = 0;
     int log_level = 0;
     bool use_sync_send_recv = false;
+    int iothread_count = 0;
 
 #ifdef WITH_RDMA
     bool use_rdma = true;
@@ -134,6 +173,7 @@ protected:
     bool rdma_odp = false;
 #endif
 
+    std::vector<msgr_iothread_t*> iothreads;
     std::vector<int> read_ready_clients;
     std::vector<int> write_ready_clients;
     // We don't use ringloop->set_immediate here because we may have no ringloop in client :)

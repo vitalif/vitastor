@@ -1,3 +1,21 @@
+- name: osd_iothread_count
+  type: int
+  default: 0
+  info: |
+    TCP network I/O thread count for OSD. When non-zero, a single OSD process
+    may handle more TCP I/O, but at a cost of increased latency because thread
+    switching overhead occurs. RDMA isn't affected by this option.
+
+    Because of latency, instead of enabling OSD I/O threads it's recommended to
+    just create multiple OSDs per disk, or use RDMA.
+  info_ru: |
+    Число отдельных потоков для обработки ввода-вывода через TCP-сеть на
+    стороне OSD. Включение опции позволяет каждому отдельному OSD передавать
+    по сети больше данных, но ухудшает задержку из-за накладных расходов
+    переключения потоков. На работу RDMA опция не влияет.
+
+    Из-за задержек вместо включения потоков ввода-вывода OSD рекомендуется
+    просто создавать по несколько OSD на каждом диске, или использовать RDMA.
 - name: etcd_report_interval
   type: sec
   default: 5

@@ -14,6 +14,7 @@
 #include <string>
 #include <functional>
 #include <vector>
+#include <mutex>
 
 #define RINGLOOP_DEFAULT_SIZE 1024
 
@@ -124,28 +125,21 @@ class ring_loop_t
     std::vector<std::function<void()>> immediate_queue, immediate_queue2;
     std::vector<ring_consumer_t*> consumers;
     struct ring_data_t *ring_datas;
+    std::mutex mu;
+    bool mt;
     int *free_ring_data;
     unsigned free_ring_data_ptr;
     bool loop_again;
     struct io_uring ring;
     int ring_eventfd = -1;
 public:
-    ring_loop_t(int qd);
+    ring_loop_t(int qd, bool multithreaded = false);
     ~ring_loop_t();
     void register_consumer(ring_consumer_t *consumer);
     void unregister_consumer(ring_consumer_t *consumer);
     int register_eventfd();
 
-    inline struct io_uring_sqe* get_sqe()
-    {
-        if (free_ring_data_ptr == 0)
-            return NULL;
-        struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
-        assert(sqe);
-        *sqe = { 0 };
-        io_uring_sqe_set_data(sqe, ring_datas + free_ring_data[--free_ring_data_ptr]);
-        return sqe;
-    }
+    io_uring_sqe* get_sqe();
     inline void set_immediate(const std::function<void()> cb)
     {
         immediate_queue.push_back(cb);

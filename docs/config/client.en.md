@@ -9,6 +9,7 @@
 These parameters apply only to Vitastor clients (QEMU, fio, NBD and so on) and
 affect their interaction with the cluster.
 
+- [client_iothread_count](#client_iothread_count)
 - [client_retry_interval](#client_retry_interval)
 - [client_eio_retry_interval](#client_eio_retry_interval)
 - [client_retry_enospc](#client_retry_enospc)
@@ -22,6 +23,23 @@ affect their interaction with the cluster.
 - [nbd_max_devices](#nbd_max_devices)
 - [nbd_max_part](#nbd_max_part)
 - [osd_nearfull_ratio](#osd_nearfull_ratio)
+
+## client_iothread_count
+
+- Type: integer
+- Default: 0
+
+Number of separate threads for handling TCP network I/O at client library
+side. Enabling 4 threads usually allows to increase peak performance of each
+client from approx. 2-3 to 7-8 GByte/s linear read/write and from approx.
+100-150 to 400 thousand iops, but at the same time it increases latency.
+Latency increase depends on CPU: with CPU power saving disabled latency
+only increases by ~10 us (equivalent to Q=1 iops decrease from 10500 to 9500),
+with CPU power saving enabled it may be as high as 500 us (equivalent to Q=1
+iops decrease from 2000 to 1000). RDMA isn't affected by this option.
+
+It's recommended to enable client I/O threads if you don't use RDMA and want
+to increase peak client performance.
 
 ## client_retry_interval
 

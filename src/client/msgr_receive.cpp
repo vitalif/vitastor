@@ -30,7 +30,11 @@ void osd_messenger_t::read_requests()
         cl->refs++;
         if (ringloop && !use_sync_send_recv)
         {
-            io_uring_sqe* sqe = ringloop->get_sqe();
+            auto iothread = iothreads.size() ? iothreads[peer_fd % iothreads.size()] : NULL;
+            io_uring_sqe sqe_local;
+            ring_data_t data_local;
+            sqe_local.user_data = (uint64_t)&data_local;
+            io_uring_sqe* sqe = (iothread ? &sqe_local : ringloop->get_sqe());
             if (!sqe)
             {
                 cl->read_msg.msg_iovlen = 0;
@@ -40,6 +44,10 @@ void osd_messenger_t::read_requests()
             ring_data_t* data = ((ring_data_t*)sqe->user_data);
             data->callback = [this, cl](ring_data_t *data) { handle_read(data->res, cl); };
             my_uring_prep_recvmsg(sqe, peer_fd, &cl->read_msg, 0);
+            if (iothread)
+            {
+                iothread->add_sqe(sqe_local);
+            }
         }
         else
         {
