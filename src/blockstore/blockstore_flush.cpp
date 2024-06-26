@@ -366,6 +366,7 @@ resume_0:
         !flusher->flush_queue.size() || !flusher->dequeuing)
     {
 stop_flusher:
+        flusher->dequeuing = false;
         if (flusher->trim_wanted > 0 && try_trim)
         {
             // Attempt forced trim
@@ -373,7 +374,6 @@ stop_flusher:
             flusher->active_flushers++;
             goto trim_journal;
         }
-        flusher->dequeuing = false;
         wait_state = 0;
         return true;
     }
