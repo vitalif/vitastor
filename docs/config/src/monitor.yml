@@ -1,3 +1,34 @@
+- name: enable_prometheus
+  type: bool
+  default: true
+  info: Enable built-in Prometheus metrics exporter
+  info_ru: Включить встроенный Prometheus-экспортер метри
+- name: mon_http_port
+  type: int
+  default: 8060
+  info: HTTP port for monitors to listen on (including metrics exporter)
+  info_ru: Порт, на котором мониторы принимают HTTP-соединения (в том числе для отдачи метрик)
+- name: mon_http_ip
+  type: string
+  info: IP address for monitors to listen on (all addresses by default)
+  info_ru: IP-адрес, на котором мониторы принимают HTTP-соединения (по умолчанию все адреса)
+- name: mon_https_cert
+  type: string
+  info: Path to PEM SSL certificate file for monitor to listen using HTTPS
+  info_ru: Путь к PEM-файлу SSL-сертификата для монитора, чтобы принимать соединения через HTTPS
+- name: mon_https_key
+  type: string
+  info: Path to PEM SSL private key file for monitor to listen using HTTPS
+  info_ru: Путь к PEM-файлу секретного SSL-ключа для монитора, чтобы принимать соединения через HTTPS
+- name: mon_https_client_auth
+  type: bool
+  default: false
+  info: Enable HTTPS client certificate-based authorization for monitor connections
+  info_ru: Включить в HTTPS-сервере монитора авторизацию по клиентским сертификатам
+- name: mon_https_ca
+  type: string
+  info: Path to CA certificate for client HTTPS authorization
+  info_ru: Путь к удостоверяющему сертификату для авторизации клиентских HTTPS соединений
 - name: etcd_mon_ttl
   type: sec
   min: 5

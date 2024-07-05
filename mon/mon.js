@@ -1,10 +1,13 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+const { URL } = require('url');
 const fs = require('fs');
 const crypto = require('crypto');
 const os = require('os');
 const EtcdAdapter = require('./etcd_adapter.js');
+const { create_http_server } = require('./http_server.js');
+const { export_prometheus_metrics } = require('./prometheus.js');
 const { etcd_tree, etcd_allow, etcd_nonempty_keys } = require('./etcd_schema.js');
 const { validate_pool_cfg } = require('./pool_config.js');
 const { sum_op_stats, sum_object_counts, sum_inode_stats, serialize_bigints } = require('./stats.js');
@@ -60,6 +63,32 @@ class Mon
         this.recheck_pgs_active = false;
         this.etcd = new EtcdAdapter(this);
         this.etcd.parse_config(this.config);
+        this.watcher_active = false;
+        if (this.config.enable_prometheus || !('enable_prometheus' in this.config))
+        {
+            this.http = create_http_server(this.config, (req, res) =>
+            {
+                const u = new URL(req.url, 'http://'+(req.headers.host || 'localhost'));
+                if (u.pathname.replace(/\/+$/, '') == (this.config.prometheus_path||'/metrics'))
+                {
+                    if (!this.watcher_active)
+                    {
+                        res.writeHead(503);
+                        res.write('Monitor is in standby mode. Please retrieve metrics from master monitor instance\n');
+                    }
+                    else
+                    {
+                        res.write(export_prometheus_metrics(this.state));
+                    }
+                }
+                else
+                {
+                    res.writeHead(404);
+                    res.write('Not found. Metrics path: '+(this.config.prometheus_path||'/metrics\n'));
+                }
+                res.end();
+            });
+        }
     }
 
     async start()
@@ -69,6 +98,7 @@ class Mon
         await this.etcd.become_master();
         await this.load_cluster_state();
         await this.etcd.start_watcher(this.config.etcd_mon_retries);
+        this.watcher_active = true;
         for (const pool_id in this.state.config.pools)
         {
             if (!this.state.pool.stats[pool_id] ||

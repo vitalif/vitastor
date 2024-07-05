@@ -8,6 +8,13 @@
 
 Данные параметры используются только мониторами Vitastor.
 
+- [enable_prometheus](#enable_prometheus)
+- [mon_http_port](#mon_http_port)
+- [mon_http_ip](#mon_http_ip)
+- [mon_https_cert](#mon_https_cert)
+- [mon_https_key](#mon_https_key)
+- [mon_https_client_auth](#mon_https_client_auth)
+- [mon_https_ca](#mon_https_ca)
 - [etcd_mon_ttl](#etcd_mon_ttl)
 - [etcd_mon_timeout](#etcd_mon_timeout)
 - [etcd_mon_retries](#etcd_mon_retries)
@@ -16,6 +23,51 @@
 - [osd_out_time](#osd_out_time)
 - [placement_levels](#placement_levels)
 - [use_old_pg_combinator](#use_old_pg_combinator)
+
+## enable_prometheus
+
+- Тип: булево (да/нет)
+- Значение по умолчанию: true
+
+Включить встроенный Prometheus-экспортер метри
+
+## mon_http_port
+
+- Тип: целое число
+- Значение по умолчанию: 8060
+
+Порт, на котором мониторы принимают HTTP-соединения (в том числе для отдачи метрик)
+
+## mon_http_ip
+
+- Тип: строка
+
+IP-адрес, на котором мониторы принимают HTTP-соединения (по умолчанию все адреса)
+
+## mon_https_cert
+
+- Тип: строка
+
+Путь к PEM-файлу SSL-сертификата для монитора, чтобы принимать соединения через HTTPS
+
+## mon_https_key
+
+- Тип: строка
+
+Путь к PEM-файлу секретного SSL-ключа для монитора, чтобы принимать соединения через HTTPS
+
+## mon_https_client_auth
+
+- Тип: булево (да/нет)
+- Значение по умолчанию: false
+
+Включить в HTTPS-сервере монитора авторизацию по клиентским сертификатам
+
+## mon_https_ca
+
+- Тип: строка
+
+Путь к удостоверяющему сертификату для авторизации клиентских HTTPS соединений
 
 ## etcd_mon_ttl
 

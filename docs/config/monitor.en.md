@@ -8,6 +8,13 @@
 
 These parameters only apply to Monitors.
 
+- [enable_prometheus](#enable_prometheus)
+- [mon_http_port](#mon_http_port)
+- [mon_http_ip](#mon_http_ip)
+- [mon_https_cert](#mon_https_cert)
+- [mon_https_key](#mon_https_key)
+- [mon_https_client_auth](#mon_https_client_auth)
+- [mon_https_ca](#mon_https_ca)
 - [etcd_mon_ttl](#etcd_mon_ttl)
 - [etcd_mon_timeout](#etcd_mon_timeout)
 - [etcd_mon_retries](#etcd_mon_retries)
@@ -16,6 +23,51 @@ These parameters only apply to Monitors.
 - [osd_out_time](#osd_out_time)
 - [placement_levels](#placement_levels)
 - [use_old_pg_combinator](#use_old_pg_combinator)
+
+## enable_prometheus
+
+- Type: boolean
+- Default: true
+
+Enable built-in Prometheus metrics exporter
+
+## mon_http_port
+
+- Type: integer
+- Default: 8060
+
+HTTP port for monitors to listen on (including metrics exporter)
+
+## mon_http_ip
+
+- Type: string
+
+IP address for monitors to listen on (all addresses by default)
+
+## mon_https_cert
+
+- Type: string
+
+Path to PEM SSL certificate file for monitor to listen using HTTPS
+
+## mon_https_key
+
+- Type: string
+
+Path to PEM SSL private key file for monitor to listen using HTTPS
+
+## mon_https_client_auth
+
+- Type: boolean
+- Default: false
+
+Enable HTTPS client certificate-based authorization for monitor connections
+
+## mon_https_ca
+
+- Type: string
+
+Path to CA certificate for client HTTPS authorization
 
 ## etcd_mon_ttl
 

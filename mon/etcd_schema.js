@@ -245,6 +245,9 @@ const etcd_tree = {
         stats: {
             /* <osd_num_t>: {
                 time: number, // unix time
+                data_block_size: uint64_t, // bytes
+                bitmap_granularity: uint64_t, // bytes
+                immediate_commit: "all"|"small"|"none",
                 blockstore_ready: boolean,
                 size: uint64_t, // bytes
                 free: uint64_t, // bytes
@@ -282,7 +285,7 @@ const etcd_tree = {
         master: {
             /* ip: [ string ], id: uint64_t */
         },
-        standby: {
+        member: {
             /* <uint64_t>: { ip: [ string ] }, */
         },
     },
