@@ -178,7 +178,7 @@ resume_1:
         return tree;
     }
 
-    std::string format_tree()
+    void format_tree()
     {
         std::vector<std::string> node_seq = { "" };
         std::vector<int> indents = { -1 };
@@ -198,6 +198,38 @@ resume_1:
             }
         }
         json11::Json::array fmt_items;
+        if (parent->json_output)
+        {
+            for (int i = 1; i < node_seq.size(); i++)
+            {
+                auto & node = placement_tree->nodes.at(node_seq[i]);
+                fmt_items.push_back(json11::Json::object{
+                    { "type", node.level },
+                    { "name", node.name },
+                    { "parent", node.parent },
+                });
+                for (uint64_t osd_num: node.child_osds)
+                {
+                    auto & osd = placement_tree->osds.at(osd_num);
+                    fmt_items.push_back(json11::Json::object{
+                        { "type", "osd" },
+                        { "name", osd.num },
+                        { "parent", node.name },
+                        { "up", osd.up ? "up" : "down" },
+                        { "size", osd.size },
+                        { "free", osd.free },
+                        { "reweight", osd.reweight },
+                        { "tags", osd.tags },
+                        { "block", (uint64_t)osd.block_size },
+                        { "bitmap", (uint64_t)osd.bitmap_granularity },
+                        { "commit", osd.immediate_commit == IMMEDIATE_NONE ? "none" : (osd.immediate_commit == IMMEDIATE_ALL ? "all" : "small") },
+                        { "op_stats", osd_stats[osd_num]["op_stats"] },
+                    });
+                }
+            }
+            result.data = fmt_items;
+            return;
+        }
         for (int i = 1; i < node_seq.size(); i++)
         {
             auto & node = placement_tree->nodes.at(node_seq[i]);
@@ -340,7 +372,7 @@ resume_1:
                 { "title", "LAT" },
             });
         }
-        return print_table(fmt_items, cols, parent->color);
+        result.text = print_table(fmt_items, cols, parent->color);
     }
 
     void loop()
@@ -351,7 +383,7 @@ resume_1:
         load_osd_tree();
         if (parent->waiting > 0)
             return;
-        result.text = format_tree();
+        format_tree();
         state = 100;
     }
 };
