@@ -573,7 +573,7 @@ void etcd_state_client_t::load_global_config()
         {
             global_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
         }
-        global_immediate_commit = parse_immediate_commit(global_config["immediate_commit"].string_value());
+        global_immediate_commit = parse_immediate_commit(global_config["immediate_commit"].string_value(), IMMEDIATE_ALL);
         on_load_config_hook(global_config);
     });
 }
@@ -867,7 +867,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             pc.used_for_fs = pool_item.second["used_for_fs"].as_string();
             // Immediate Commit Mode
             pc.immediate_commit = pool_item.second["immediate_commit"].is_string()
-                ? parse_immediate_commit(pool_item.second["immediate_commit"].string_value())
+                ? parse_immediate_commit(pool_item.second["immediate_commit"].string_value(), IMMEDIATE_ALL)
                 : global_immediate_commit;
             // PG Stripe Size
             pc.pg_stripe_size = pool_item.second["pg_stripe_size"].uint64_value();
@@ -1175,10 +1175,11 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
     }
 }
 
-uint32_t etcd_state_client_t::parse_immediate_commit(const std::string & immediate_commit_str)
+uint32_t etcd_state_client_t::parse_immediate_commit(const std::string & immediate_commit_str, uint32_t default_value)
 {
-    return immediate_commit_str == "all" ? IMMEDIATE_ALL :
-        (immediate_commit_str == "small" ? IMMEDIATE_SMALL : IMMEDIATE_NONE);
+    return (immediate_commit_str == "all" ? IMMEDIATE_ALL :
+        (immediate_commit_str == "small" ? IMMEDIATE_SMALL :
+        (immediate_commit_str == "none" ? IMMEDIATE_NONE : default_value)));
 }
 
 uint32_t etcd_state_client_t::parse_scheme(const std::string & scheme)

@@ -69,7 +69,7 @@ const etcd_tree = {
             block_size: 131072,
             disk_alignment: 4096,
             bitmap_granularity: 4096,
-            immediate_commit: false, // 'all' or 'small'
+            immediate_commit: 'all', // 'none', 'all' or 'small'
             // client - configurable online
             client_max_dirty_bytes: 33554432,
             client_max_dirty_ops: 1024,
@@ -189,7 +189,7 @@ const etcd_tree = {
                 block_size: 131072,
                 bitmap_granularity: 4096,
                 // 'all'/'small'/'none', same as in OSD options
-                immediate_commit: 'none',
+                immediate_commit: 'all',
                 pg_stripe_size: 0,
                 root_node?: 'rack1',
                 // restrict pool to OSDs having all of these tags

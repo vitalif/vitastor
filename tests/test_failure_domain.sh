@@ -3,7 +3,7 @@
 . `dirname $0`/common.sh
 
 TIME=$(date '+%s')
-$ETCDCTL put /vitastor/config/global '{"placement_levels":{"rack":1,"host":2,"osd":3}}'
+$ETCDCTL put /vitastor/config/global '{"placement_levels":{"rack":1,"host":2,"osd":3},"immediate_commit":"none"}'
 $ETCDCTL put /vitastor/config/node_placement '{"rack1":{"level":"rack"},"rack2":{"level":"rack"},"host1":{"level":"host","parent":"rack1"},"host2":{"level":"host","parent":"rack1"},"host3":{"level":"host","parent":"rack2"},"host4":{"level":"host","parent":"rack2"}}'
 $ETCDCTL put /vitastor/osd/stats/1 '{"host":"host1","size":1073741824,"time":"'$TIME'"}'
 $ETCDCTL put /vitastor/osd/stats/2 '{"host":"host1","size":1073741824,"time":"'$TIME'"}'

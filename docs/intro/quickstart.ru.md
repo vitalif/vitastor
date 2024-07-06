@@ -69,11 +69,6 @@
     для журналов, на SSD должно быть доступно свободное нераспределённое место.
 - Вы можете менять параметры OSD в юнитах systemd или в `vitastor.conf`. Описания параметров
   смотрите в [справке по конфигурации](../config.ru.md).
-- Если все ваши диски - серверные с конденсаторами, и даже если нет, но при этом
-  вы не добавляли опцию `--disable_data_fsync off` на первом шаге, а `vitastor-disk`
-  не ругался на невозможность отключения кэша дисков, пропишите следующую настройку
-  в глобальную конфигурацию в etcd: \
-  `etcdctl --endpoints=... put /vitastor/config/global '{"immediate_commit":"all"}'`.
 - Запустите все OSD: `systemctl start vitastor.target`
 
 ## Создайте пул
@@ -89,6 +84,10 @@ vitastor-cli create-pool testpool --pg_size 2 --pg_count 256
 ```
 vitastor-cli create-pool testpool --ec 2+2 --pg_count 256
 ```
+
+Добавьте также опцию `--immediate_commit none`, если вы добавляли `--disable_data_fsync off`
+на этапе инициализации OSD, либо если `vitastor-disk` ругался на невозможность отключения
+кэша дисков.
 
 После этого один из мониторов должен сконфигурировать PG, а OSD должны запустить их.
 

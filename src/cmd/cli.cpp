@@ -136,7 +136,7 @@ static const char* help_text =
     "    --osd_tags <tag>[,<tag>]...   Put pool only on OSDs tagged with all specified tags\n"
     "    --block_size 128k             Put pool only on OSDs with this data block size\n"
     "    --bitmap_granularity 4k       Put pool only on OSDs with this logical sector size\n"
-    "    --immediate_commit none       Put pool only on OSDs with this or larger immediate_commit (none < small < all)\n"
+    "    --immediate_commit all        Put pool only on OSDs with this or larger immediate_commit (none < small < all)\n"
     "    --level_placement <rules>     Use additional failure domain rules (example: \"dc=112233\")\n"
     "    --raw_placement <rules>       Specify raw PG generation rules (see documentation for details)\n"
     "    --primary_affinity_tags tags  Prefer to put primary copies on OSDs with all specified tags\n"

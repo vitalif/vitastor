@@ -319,7 +319,7 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
     }
 
     // immediate_commit
-    if (!cfg["immediate_commit"].is_null() && !etcd_state_client_t::parse_immediate_commit(cfg["immediate_commit"].string_value()))
+    if (!cfg["immediate_commit"].is_null() && etcd_state_client_t::parse_immediate_commit(cfg["immediate_commit"].string_value(), UINT32_MAX) == UINT32_MAX)
     {
         return "immediate_commit must be one of \"all\", \"small\", or \"none\", but it is "+cfg["immediate_commit"].as_string();
     }

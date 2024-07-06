@@ -448,7 +448,7 @@ resume_8:
             ? cfg["bitmap_granularity"].uint64_value()
             : parent->cli->st_cli.global_bitmap_granularity;
         uint32_t p_immediate_commit = cfg["immediate_commit"].is_string()
-            ? etcd_state_client_t::parse_immediate_commit(cfg["immediate_commit"].string_value())
+            ? etcd_state_client_t::parse_immediate_commit(cfg["immediate_commit"].string_value(), IMMEDIATE_ALL)
             : parent->cli->st_cli.global_immediate_commit;
 
         for (size_t i = 0; i < osd_stats.size(); i++)
@@ -459,7 +459,7 @@ resume_8:
             if (!os["data_block_size"].is_null() && os["data_block_size"] != p_block_size ||
                 !os["bitmap_granularity"].is_null() && os["bitmap_granularity"] != p_bitmap_granularity ||
                 !os["immediate_commit"].is_null() &&
-                etcd_state_client_t::parse_immediate_commit(os["immediate_commit"].string_value()) < p_immediate_commit)
+                etcd_state_client_t::parse_immediate_commit(os["immediate_commit"].string_value(), IMMEDIATE_NONE) < p_immediate_commit)
             {
                 accepted_nodes.erase(osd_num);
             }

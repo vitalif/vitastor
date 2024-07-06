@@ -157,6 +157,6 @@ public:
     int address_count();
     ~etcd_state_client_t();
 
-    static uint32_t parse_immediate_commit(const std::string & immediate_commit_str);
+    static uint32_t parse_immediate_commit(const std::string & immediate_commit_str, uint32_t default_value);
     static uint32_t parse_scheme(const std::string & scheme_str);
 };

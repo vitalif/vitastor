@@ -23,7 +23,7 @@ if [ "$IMMEDIATE_COMMIT" != "" ]; then
     $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"recovery_tune_util_low":1,"immediate_commit":"all","client_enable_writeback":true,"client_max_writeback_iodepth":32'$GLOBAL_CONFIG'}'
 else
     NO_SAME="--journal_sector_buffer_count 1024 --log_level 10 --etcd_stats_interval 5 --min_flusher_count 16"
-    $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"recovery_tune_util_low":1,"client_enable_writeback":true,"client_max_writeback_iodepth":32'$GLOBAL_CONFIG'}'
+    $ETCDCTL put /vitastor/config/global '{"recovery_queue_depth":1,"recovery_tune_util_low":1,"immediate_commit":"none","client_enable_writeback":true,"client_max_writeback_iodepth":32'$GLOBAL_CONFIG'}'
 fi
 
 start_osd_on()

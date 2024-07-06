@@ -56,14 +56,24 @@ Can't be smaller than the OSD data device sector.
 ## immediate_commit
 
 - Type: string
-- Default: false
+- Default: all
 
-Another parameter which is really important for performance.
+One of "none", "all" or "small". Global value, may be overriden [at pool level](pool.en.md#immediate_commit).
+
+This parameter is also really important for performance.
+
+TLDR: default "all" is optimal for server-grade SSDs with supercapacitor-based
+power loss protection (nonvolatile write-through cache) and also for most HDDs.
+"none" or "small" should be only selected if you use desktop SSDs without
+capacitors or drives with slow write-back cache that can't be disabled. Check
+immediate_commit of your OSDs in [ls-osd](../usage/cli.en.md#ls-osd).
+
+Detailed explanation:
 
 Desktop SSDs are very fast (100000+ iops) for simple random writes
 without cache flush. However, they are really slow (only around 1000 iops)
-if you try to fsync() each write, that is, when you want to guarantee that
-each change gets immediately persisted to the physical media.
+if you try to fsync() each write, that is, if you want to guarantee that
+each change gets actually persisted to the physical media.
 
 Server-grade SSDs with "Advanced/Enhanced Power Loss Protection" or with
 "Supercapacitor-based Power Loss Protection", on the other hand, are equally
@@ -75,8 +85,8 @@ really slow when used with desktop SSDs. Vitastor, however, can also
 efficiently utilize desktop SSDs by postponing fsync until the client calls
 it explicitly.
 
-This is what this parameter regulates. When it's set to "all" the whole
-Vitastor cluster commits each change to disks immediately and clients just
+This is what this parameter regulates. When it's set to "all" Vitastor
+cluster commits each change to disks immediately and clients just
 ignore fsyncs because they know for sure that they're unneeded. This reduces
 the amount of network roundtrips performed by clients and improves
 performance. So it's always better to use server grade SSDs with
@@ -99,9 +109,5 @@ Setting this parameter to "all" or "small" in OSD parameters requires enabling
 [disable_journal_fsync](layout-osd.en.yml#disable_journal_fsync) and
 [disable_meta_fsync](layout-osd.en.yml#disable_meta_fsync), setting it to
 "all" also requires enabling [disable_data_fsync](layout-osd.en.yml#disable_data_fsync).
-
-TLDR: For optimal performance, set immediate_commit to "all" if you only use
-SSDs with supercapacitor-based power loss protection (nonvolatile
-write-through cache) for both data and journals in the whole Vitastor
-cluster. Set it to "small" if you only use such SSDs for journals. Leave
-empty if your drives have write-back cache.
+vitastor-disk tried to do that by default, first checking/disabling drive cache.
+If it can't disable drive cache, OSD get initialized with "none".

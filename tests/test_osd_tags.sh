@@ -19,7 +19,7 @@ $ETCDCTL put /vitastor/osd/stats/5 '{"host":"stor3","size":1073741824,"time":"'$
 $ETCDCTL put /vitastor/osd/stats/6 '{"host":"stor3","size":1073741824,"time":"'$TIME'"}'
 $ETCDCTL put /vitastor/osd/stats/7 '{"host":"stor4","size":1073741824,"time":"'$TIME'"}'
 $ETCDCTL put /vitastor/osd/stats/8 '{"host":"stor4","size":1073741824,"time":"'$TIME'"}'
-$ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":2,"pg_count":16,"failure_domain":"host","osd_tags":["a"]}}'
+$ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":2,"pg_count":16,"failure_domain":"host","osd_tags":["a"],"immediate_commit":"none"}}'
 
 node mon/mon-main.js --etcd_address $ETCD_URL --etcd_prefix "/vitastor" >>./testdata/mon.log 2>&1 &
 MON_PID=$!

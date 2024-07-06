@@ -11,7 +11,7 @@ for i in $(seq 1 $OSD_COUNT); do
     eval OSD${i}_PID=$!
 done
 
-$ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":1,"failure_domain":"osd"}}'
+$ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":1,"failure_domain":"osd","immediate_commit":"none"}}'
 
 $ETCDCTL put /vitastor/config/pgs '{"items":{"1":{"1":{"osd_set":[1,0],"primary":1}}}}'
 

@@ -68,10 +68,6 @@ On the monitor hosts:
     but some free unpartitioned space must be available because the script creates new partitions for journals.
 - You can change OSD configuration in units or in `vitastor.conf`.
   Check [Configuration Reference](../config.en.md) for parameter descriptions.
-- If all your drives have capacitors, and even if not, but if you ran `vitastor-disk`
-  without `--disable_data_fsync off` at the first step, then put the following
-  setting into etcd: \
-  `etcdctl --endpoints=... put /vitastor/config/global '{"immediate_commit":"all"}'`
 - Start all OSDs: `systemctl start vitastor.target`
 
 ## Create a pool
@@ -87,6 +83,10 @@ For EC pools the configuration should look like the following:
 ```
 vitastor-cli create-pool testpool --ec 2+2 --pg_count 256
 ```
+
+Add `--immediate_commit none` if you added `--disable_data_fsync off` at the OSD
+initialization step, or if `vitastor-disk` complained about impossibility to
+disable drive cache.
 
 After you do this, one of the monitors will configure PGs and OSDs will start them.
 

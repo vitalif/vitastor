@@ -174,7 +174,7 @@ async function generate_pool_pgs(state, global_config, pool_id, osd_tree, levels
         state.osd.stats,
         pool_cfg.block_size || global_config.block_size || 131072,
         pool_cfg.bitmap_granularity || global_config.bitmap_granularity || 4096,
-        pool_cfg.immediate_commit || global_config.immediate_commit || 'none'
+        pool_cfg.immediate_commit || global_config.immediate_commit || 'all'
     );
     pool_tree = make_hier_tree(global_config, pool_tree);
     // First try last_clean_pgs to minimize data movement

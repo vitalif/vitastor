@@ -134,7 +134,7 @@ resume_1:
                 .reweight = 1,
                 .block_size = (uint32_t)kv.second["data_block_size"].uint64_value(),
                 .bitmap_granularity = (uint32_t)kv.second["bitmap_granularity"].uint64_value(),
-                .immediate_commit = etcd_state_client_t::parse_immediate_commit(kv.second["immediate_commit"].string_value()),
+                .immediate_commit = etcd_state_client_t::parse_immediate_commit(kv.second["immediate_commit"].string_value(), IMMEDIATE_NONE),
             };
             if (tree->nodes.find(osd.parent) == tree->nodes.end())
             {
