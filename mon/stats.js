@@ -74,7 +74,7 @@ function sum_op_stats(all_osd, prev_stats)
         );
         prev_stats.osd_stats[osd] = cur;
     }
-    const sum_diff = { op_stats: {}, subop_stats: {}, recovery_stats: {} };
+    const sum_diff = { op_stats: {}, subop_stats: {}, recovery_stats: { degraded: {}, misplaced: {} } };
     // Sum derived values instead of deriving summed
     for (const osd in all_osd.state)
     {

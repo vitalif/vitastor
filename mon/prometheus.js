@@ -167,7 +167,25 @@ function export_prometheus_metrics(st)
 
         // PG states and pool up/down status
         const real_pg_count = (Object.keys(((st.config.pgs||{}).items||{})[pool_id]||{}).length) || (0|pool_cfg.pg_count);
-        const per_state = {};
+        const per_state = {
+            active: 0,
+            starting: 0,
+            peering: 0,
+            incomplete: 0,
+            repeering: 0,
+            stopping: 0,
+            offline: 0,
+            degraded: 0,
+            has_inconsistent: 0,
+            has_corrupted: 0,
+            has_incomplete: 0,
+            has_degraded: 0,
+            has_misplaced: 0,
+            has_unclean: 0,
+            has_invalid: 0,
+            left_on_dead: 0,
+            scrubbing: 0,
+        };
         const pool_pg_states = st.pg.state[pool_id] || {};
         for (let i = 1; i <= real_pg_count; i++)
         {
