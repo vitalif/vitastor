@@ -49,6 +49,13 @@ or antietcd_data_dir options). All other antietcd parameters
 cluster, cluster_key, persist_filter, stale_read can also be set in
 Vitastor configuration with `antietcd_` prefix.
 
+You can dump/load data to or from antietcd using Antietcd `anticli` tool:
+
+```
+npm exec anticli -e http://etcd:2379/v3 get --prefix '' --no-temp > dump.json
+npm exec anticli -e http://antietcd:2379/v3 load < dump.json
+```
+
 ## enable_prometheus
 
 - Type: boolean

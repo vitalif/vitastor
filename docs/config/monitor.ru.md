@@ -49,6 +49,14 @@ antietcd_data_file или antietcd_data_dir). Все остальные пара
 node_id, cluster, cluster_key, persist_filter, stale_read также можно задавать
 в конфигурации Vitastor с префиксом `antietcd_`.
 
+Вы можете выгружать/загружать данные в или из antietcd с помощью его инструмента
+`anticli`:
+
+```
+npm exec anticli -e http://etcd:2379/v3 get --prefix '' --no-temp > dump.json
+npm exec anticli -e http://antietcd:2379/v3 load < dump.json
+```
+
 ## enable_prometheus
 
 - Тип: булево (да/нет)

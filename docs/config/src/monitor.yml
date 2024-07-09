@@ -20,6 +20,13 @@
     (see [here](https://git.yourcmc.ru/vitalif/antietcd/)) except node_id,
     cluster, cluster_key, persist_filter, stale_read can also be set in
     Vitastor configuration with `antietcd_` prefix.
+
+    You can dump/load data to or from antietcd using Antietcd `anticli` tool:
+
+    ```
+    npm exec anticli -e http://etcd:2379/v3 get --prefix '' --no-temp > dump.json
+    npm exec anticli -e http://antietcd:2379/v3 load < dump.json
+    ```
   info_ru: |
     Включить экспериментальный встроенный заменитель etcd (кластерную БД ключ-значение):
     [antietcd](https://git.yourcmc.ru/vitalif/antietcd/).
@@ -39,6 +46,14 @@
     (смотрите [по ссылке](https://git.yourcmc.ru/vitalif/antietcd/)), за исключением
     node_id, cluster, cluster_key, persist_filter, stale_read также можно задавать
     в конфигурации Vitastor с префиксом `antietcd_`.
+
+    Вы можете выгружать/загружать данные в или из antietcd с помощью его инструмента
+    `anticli`:
+
+    ```
+    npm exec anticli -e http://etcd:2379/v3 get --prefix '' --no-temp > dump.json
+    npm exec anticli -e http://antietcd:2379/v3 load < dump.json
+    ```
 - name: enable_prometheus
   type: bool
   default: true
