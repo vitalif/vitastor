@@ -47,12 +47,16 @@
 
     Note that only the active (master) monitor exposes metrics, others return
     HTTP 503. So you should add all monitor URLs to your Prometheus job configuration.
+
+    Grafana dashboard suitable for this exporter is here: [Vitastor-Grafana-6+.json](../../mon/scripts/Vitastor-Grafana-6+.json).
   info_ru: |
     Включить встроенный Prometheus-экспортер метрик на порту mon_http_port (по умолчанию 8060).
 
     Обратите внимание, что метрики выставляет только активный (главный) монитор, остальные
     возвращают статус HTTP 503, поэтому вам следует добавлять адреса всех мониторов
     в задание по сбору метрик Prometheus.
+
+    Дашборд для Grafana, подходящий для этого экспортера: [Vitastor-Grafana-6+.json](../../mon/scripts/Vitastor-Grafana-6+.json).
 - name: mon_http_port
   type: int
   default: 8060

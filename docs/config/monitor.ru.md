@@ -60,6 +60,8 @@ node_id, cluster, cluster_key, persist_filter, stale_read также можно 
 возвращают статус HTTP 503, поэтому вам следует добавлять адреса всех мониторов
 в задание по сбору метрик Prometheus.
 
+Дашборд для Grafana, подходящий для этого экспортера: [Vitastor-Grafana-6+.json](../../mon/scripts/Vitastor-Grafana-6+.json).
+
 ## mon_http_port
 
 - Тип: целое число

@@ -59,6 +59,8 @@ Enable built-in Prometheus metrics exporter at mon_http_port (8060 by default).
 Note that only the active (master) monitor exposes metrics, others return
 HTTP 503. So you should add all monitor URLs to your Prometheus job configuration.
 
+Grafana dashboard suitable for this exporter is here: [Vitastor-Grafana-6+.json](../../mon/scripts/Vitastor-Grafana-6+.json).
+
 ## mon_http_port
 
 - Type: integer
