@@ -17,6 +17,7 @@ struct placement_osd_t
     uint64_t free;
     bool up;
     double reweight;
+    bool noout;
     uint32_t block_size, bitmap_granularity, immediate_commit;
 };
 
@@ -132,6 +133,7 @@ resume_1:
                 .free = kv.second["free"].uint64_value(),
                 .up = parent->cli->st_cli.peer_states.find(kv.first) != parent->cli->st_cli.peer_states.end(),
                 .reweight = 1,
+                .noout = false,
                 .block_size = (uint32_t)kv.second["data_block_size"].uint64_value(),
                 .bitmap_granularity = (uint32_t)kv.second["bitmap_granularity"].uint64_value(),
                 .immediate_commit = etcd_state_client_t::parse_immediate_commit(kv.second["immediate_commit"].string_value(), IMMEDIATE_NONE),
@@ -154,6 +156,7 @@ resume_1:
                     for (auto & jtag: osd_cfg["tags"].array_items())
                         osd.tags.push_back(jtag.string_value());
                 }
+                osd.noout = osd_cfg["noout"].bool_value();
             }
             auto np_it = node_placement.find(std::to_string(osd.num));
             if (np_it != node_placement.end())
@@ -219,6 +222,7 @@ resume_1:
                         { "size", osd.size },
                         { "free", osd.free },
                         { "reweight", osd.reweight },
+                        { "noout", osd.noout },
                         { "tags", osd.tags },
                         { "block", (uint64_t)osd.block_size },
                         { "bitmap", (uint64_t)osd.bitmap_granularity },
@@ -261,6 +265,7 @@ resume_1:
                     { "size", format_size(osd.size, false, true) },
                     { "used", format_q(100.0*(osd.size - osd.free)/osd.size)+" %" },
                     { "reweight", format_q(osd.reweight) },
+                    { "noout", osd.noout ? "noout" : "-" },
                     { "tags", implode(",", osd.tags) },
                     { "block", format_size(osd.block_size, false, true) },
                     { "bitmap", format_size(osd.bitmap_granularity, false, true) },
@@ -332,6 +337,10 @@ resume_1:
         cols.push_back(json11::Json::object{
             { "key", "commit" },
             { "title", "IMM" },
+        });
+        cols.push_back(json11::Json::object{
+            { "key", "noout" },
+            { "title", "NOOUT" },
         });
         if (show_stats)
         {

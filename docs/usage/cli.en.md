@@ -250,55 +250,61 @@ redundancy degradation.
 
 ## osd-tree
 
-`vitastor-cli osd-tree`
+`vitastor-cli osd-tree [-l|--long]`
 
-Show current OSD tree.
+Show current OSD tree, optionally with I/O statistics if -l is specified.
 
 Example output:
 
 ```
-TYPE     NAME       UP    SIZE  USED%    TAGS          WEIGHT  BLOCK  BITMAP  IMM
+TYPE     NAME       UP    SIZE  USED%    TAGS          WEIGHT  BLOCK  BITMAP  IMM   NOOUT
 host     kaveri
   disk   nvme0n1p1
-    osd  3          down  100G  0 %      abc,kaveri    1       128k   4k      none
-    osd  4          down  100G  0 %                    1       128k   4k      none
+    osd  3          down  100G  0 %      abc,kaveri    1       128k   4k      none  -
+    osd  4          down  100G  0 %                    1       128k   4k      none  -
   disk   nvme1n1p1
-    osd  5          down  100G  0 %      abc,kaveri    1       128k   4k      none
-    osd  6          down  100G  0 %                    1       128k   4k      none
+    osd  5          down  100G  0 %      abc,kaveri    1       128k   4k      none  -
+    osd  6          down  100G  0 %                    1       128k   4k      none  -
 host     stump
-  osd    1          up    100G  37.29 %  osdone        1       128k   4k      all
-  osd    2          up    100G  26.8 %   abc           1       128k   4k      all
-  osd    7          up    100G  21.84 %                1       128k   4k      all
-  osd    8          up    100G  21.63 %                1       128k   4k      all
-  osd    9          up    100G  20.69 %                1       128k   4k      all
-  osd    10         up    100G  21.61 %                1       128k   4k      all
-  osd    11         up    100G  21.53 %                1       128k   4k      all
-  osd    12         up    100G  22.4 %                 1       128k   4k      all
+  osd    1          up    100G  37.29 %  osdone        1       128k   4k      all   -
+  osd    2          up    100G  26.8 %   abc           1       128k   4k      all   -
+  osd    7          up    100G  21.84 %                1       128k   4k      all   -
+  osd    8          up    100G  21.63 %                1       128k   4k      all   -
+  osd    9          up    100G  20.69 %                1       128k   4k      all   -
+  osd    10         up    100G  21.61 %                1       128k   4k      all   -
+  osd    11         up    100G  21.53 %                1       128k   4k      all   -
+  osd    12         up    100G  22.4 %                 1       128k   4k      all   -
 ```
 
 ## ls-osd
 
-`vitastor-cli osds|ls-osd|osd-ls`
+`vitastor-cli osds|ls-osd|osd-ls [-l|--long]`
 
-Show current OSDs as list.
+Show current OSDs as list, optionally with I/O statistics if -l is specified.
 
 Example output:
 
 ```
-OSD  PARENT            UP    SIZE  USED%    TAGS          WEIGHT  BLOCK  BITMAP  IMM
-3    kaveri/nvme0n1p1  down  100G  0 %      globl,kaveri  1       128k   4k      none
-4    kaveri/nvme0n1p1  down  100G  0 %                    1       128k   4k      none
-5    kaveri/nvme1n1p1  down  100G  0 %      globl,kaveri  1       128k   4k      none
-6    kaveri/nvme1n1p1  down  100G  0 %                    1       128k   4k      none
-1    stump             up    100G  37.29 %  osdone        1       128k   4k      all
-2    stump             up    100G  26.8 %   globl         1       128k   4k      all
-7    stump             up    100G  21.84 %                1       128k   4k      all
-8    stump             up    100G  21.63 %                1       128k   4k      all
-9    stump             up    100G  20.69 %                1       128k   4k      all
-10   stump             up    100G  21.61 %                1       128k   4k      all
-11   stump             up    100G  21.53 %                1       128k   4k      all
-12   stump             up    100G  22.4 %                 1       128k   4k      all
+OSD  PARENT            UP    SIZE  USED%    TAGS          WEIGHT  BLOCK  BITMAP  IMM   NOOUT
+3    kaveri/nvme0n1p1  down  100G  0 %      globl,kaveri  1       128k   4k      none  -
+4    kaveri/nvme0n1p1  down  100G  0 %                    1       128k   4k      none  -
+5    kaveri/nvme1n1p1  down  100G  0 %      globl,kaveri  1       128k   4k      none  -
+6    kaveri/nvme1n1p1  down  100G  0 %                    1       128k   4k      none  -
+1    stump             up    100G  37.29 %  osdone        1       128k   4k      all   -
+2    stump             up    100G  26.8 %   globl         1       128k   4k      all   -
+7    stump             up    100G  21.84 %                1       128k   4k      all   -
+8    stump             up    100G  21.63 %                1       128k   4k      all   -
+9    stump             up    100G  20.69 %                1       128k   4k      all   -
+10   stump             up    100G  21.61 %                1       128k   4k      all   -
+11   stump             up    100G  21.53 %                1       128k   4k      all   -
+12   stump             up    100G  22.4 %                 1       128k   4k      all   -
 ```
+
+## modify-osd
+
+`vitastor-cli modify-osd [--tags tag1,tag2,...] [--reweight <number>] [--noout true/false] <osd_number>`
+
+Set OSD reweight, tags or noout flag. See detail description in [OSD config documentation](../config.pool.en.md#osd-settings).
 
 ## create-pool
 
