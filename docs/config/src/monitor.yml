@@ -1,8 +1,58 @@
+- name: use_antietcd
+  type: bool
+  default: false
+  info: |
+    Enable experimental built-in etcd replacement (clustered key-value database):
+    [antietcd](https://git.yourcmc.ru/vitalif/antietcd/).
+
+    When set to true, monitor runs internal antietcd automatically if it finds
+    a network interface with an IP address matching one of addresses in the
+    `etcd_address` configuration option (in `/etc/vitastor/vitastor.conf` or in
+    the monitor command line). If there are multiple matching addresses, it also
+    checks `antietcd_port` and antietcd is started for address with matching port.
+    By default, antietcd accepts connection on the selected IP address, but it
+    can also be overridden manually in the `antietcd_ip` option.
+
+    When antietcd is started, monitor stores cluster metadata itself and exposes
+    a etcd-compatible REST API. On disk, these metadata are stored in
+    `/var/lib/vitastor/mon_2379.json.gz` (can be overridden in antietcd_data_file
+    or antietcd_data_dir options). All other antietcd parameters
+    (see [here](https://git.yourcmc.ru/vitalif/antietcd/)) except node_id,
+    cluster, cluster_key, persist_filter, stale_read can also be set in
+    Vitastor configuration with `antietcd_` prefix.
+  info_ru: |
+    Включить экспериментальный встроенный заменитель etcd (кластерную БД ключ-значение):
+    [antietcd](https://git.yourcmc.ru/vitalif/antietcd/).
+
+    Если параметр установлен в true, монитор запускает antietcd автоматически,
+    если обнаруживает сетевой интерфейс с одним из адресов, указанных в опции
+    конфигурации `etcd_address` (в `/etc/vitastor/vitastor.conf` или в опциях
+    командной строки монитора). Если таких адресов несколько, также проверяется
+    опция `antietcd_port` и antietcd запускается для адреса с соответствующим
+    портом. По умолчанию antietcd принимает подключения по выбранному совпадающему
+    IP, но его также можно определить вручную опцией `antietcd_ip`.
+
+    При запуске antietcd монитор сам хранит центральные метаданные кластера и
+    выставляет etcd-совместимое REST API. На диске эти метаданные хранятся в файле
+    `/var/lib/vitastor/mon_2379.json.gz` (можно переопределить параметрами
+    antietcd_data_file или antietcd_data_dir). Все остальные параметры antietcd
+    (смотрите [по ссылке](https://git.yourcmc.ru/vitalif/antietcd/)), за исключением
+    node_id, cluster, cluster_key, persist_filter, stale_read также можно задавать
+    в конфигурации Vitastor с префиксом `antietcd_`.
 - name: enable_prometheus
   type: bool
   default: true
-  info: Enable built-in Prometheus metrics exporter
-  info_ru: Включить встроенный Prometheus-экспортер метри
+  info: |
+    Enable built-in Prometheus metrics exporter at mon_http_port (8060 by default).
+
+    Note that only the active (master) monitor exposes metrics, others return
+    HTTP 503. So you should add all monitor URLs to your Prometheus job configuration.
+  info_ru: |
+    Включить встроенный Prometheus-экспортер метрик на порту mon_http_port (по умолчанию 8060).
+
+    Обратите внимание, что метрики выставляет только активный (главный) монитор, остальные
+    возвращают статус HTTP 503, поэтому вам следует добавлять адреса всех мониторов
+    в задание по сбору метрик Prometheus.
 - name: mon_http_port
   type: int
   default: 8060

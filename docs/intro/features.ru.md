@@ -36,6 +36,8 @@
 - [Буферизация записи на стороне клиента](../config/client.ru.md#client_enable_writeback)
 - [Интеллектуальная автоподстройка скорости восстановления](../config/osd.ru.md#recovery_tune_interval)
 - [Кластерная файловая система](../usage/nfs.ru.md#vitastorfs)
+- [Экспериментальная встроенная замена etcd - antietcd](../config/monitor.ru.md#use_antietcd)
+- [Встроенный Prometheus-экспортер метрик](../config/monitor.ru.md#enable_prometheus)
 
 ## Драйверы и инструменты
 

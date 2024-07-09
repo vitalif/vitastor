@@ -8,6 +8,7 @@
 
 Данные параметры используются только мониторами Vitastor.
 
+- [use_antietcd](#use_antietcd)
 - [enable_prometheus](#enable_prometheus)
 - [mon_http_port](#mon_http_port)
 - [mon_http_ip](#mon_http_ip)
@@ -24,12 +25,40 @@
 - [placement_levels](#placement_levels)
 - [use_old_pg_combinator](#use_old_pg_combinator)
 
+## use_antietcd
+
+- Тип: булево (да/нет)
+- Значение по умолчанию: false
+
+Включить экспериментальный встроенный заменитель etcd (кластерную БД ключ-значение):
+[antietcd](https://git.yourcmc.ru/vitalif/antietcd/).
+
+Если параметр установлен в true, монитор запускает antietcd автоматически,
+если обнаруживает сетевой интерфейс с одним из адресов, указанных в опции
+конфигурации `etcd_address` (в `/etc/vitastor/vitastor.conf` или в опциях
+командной строки монитора). Если таких адресов несколько, также проверяется
+опция `antietcd_port` и antietcd запускается для адреса с соответствующим
+портом. По умолчанию antietcd принимает подключения по выбранному совпадающему
+IP, но его также можно определить вручную опцией `antietcd_ip`.
+
+При запуске antietcd монитор сам хранит центральные метаданные кластера и
+выставляет etcd-совместимое REST API. На диске эти метаданные хранятся в файле
+`/var/lib/vitastor/mon_2379.json.gz` (можно переопределить параметрами
+antietcd_data_file или antietcd_data_dir). Все остальные параметры antietcd
+(смотрите [по ссылке](https://git.yourcmc.ru/vitalif/antietcd/)), за исключением
+node_id, cluster, cluster_key, persist_filter, stale_read также можно задавать
+в конфигурации Vitastor с префиксом `antietcd_`.
+
 ## enable_prometheus
 
 - Тип: булево (да/нет)
 - Значение по умолчанию: true
 
-Включить встроенный Prometheus-экспортер метри
+Включить встроенный Prometheus-экспортер метрик на порту mon_http_port (по умолчанию 8060).
+
+Обратите внимание, что метрики выставляет только активный (главный) монитор, остальные
+возвращают статус HTTP 503, поэтому вам следует добавлять адреса всех мониторов
+в задание по сбору метрик Prometheus.
 
 ## mon_http_port
 

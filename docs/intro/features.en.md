@@ -34,6 +34,8 @@
 - [Client write-back cache](../config/client.en.md#client_enable_writeback)
 - [Intelligent recovery auto-tuning](../config/osd.en.md#recovery_tune_interval)
 - [Clustered file system](../usage/nfs.en.md#vitastorfs)
+- [Experimental internal etcd replacement - antietcd](../config/monitor.en.md#use_antietcd)
+- [Built-in Prometheus metric exporter](../config/monitor.en.md#enable_prometheus)
 
 ## Plugins and tools
 
