@@ -14,6 +14,7 @@ add_library(vitastor_cli STATIC
 	cli_modify.cpp
 	cli_modify_osd.cpp
 	cli_osd_tree.cpp
+	cli_pg_ls.cpp
 	cli_flatten.cpp
 	cli_merge.cpp
 	cli_rm_data.cpp

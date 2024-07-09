@@ -65,8 +65,9 @@ public:
     std::function<bool(cli_result_t &)> start_ls(json11::Json);
     std::function<bool(cli_result_t &)> start_merge(json11::Json);
     std::function<bool(cli_result_t &)> start_modify(json11::Json);
-    std::function<bool(cli_result_t &)> start_modify_osd(json11::Json cfg);
+    std::function<bool(cli_result_t &)> start_modify_osd(json11::Json);
     std::function<bool(cli_result_t &)> start_osd_tree(json11::Json);
+    std::function<bool(cli_result_t &)> start_pg_list(json11::Json);
     std::function<bool(cli_result_t &)> start_pool_create(json11::Json);
     std::function<bool(cli_result_t &)> start_pool_modify(json11::Json);
     std::function<bool(cli_result_t &)> start_pool_rm(json11::Json);

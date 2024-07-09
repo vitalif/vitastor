@@ -127,6 +127,15 @@ static const char* help_text =
     "vitastor-cli modify-osd [--tags tag1,tag2,...] [--reweight <number>] [--noout true/false] <osd_number>\n"
     "  Set OSD reweight, tags or noout flag.\n"
     "\n"
+    "vitastor-cli pg-list|pg-ls|list-pg|ls-pg|ls-pgs [OPTIONS] [state1+state2] [^state3] [...]\n"
+    "  List PGs with any of listed state filters (^ or ! in the beginning is negation). Options:\n"
+    "    --pool <pool name or number>  Only list PGs of the given pool.\n"
+    "    --min <min pg number>         Only list PGs with number >= min.\n"
+    "    --max <max pg number>         Only list PGs with number <= max.\n"
+    "  Examples:\n"
+    "    vitastor-cli pg-list active+degraded\n"
+    "    vitastor-cli pg-list ^active\n"
+    "\n"
     "vitastor-cli create-pool|pool-create <name> (-s <pg_size>|--ec <N>+<K>) -n <pg_count> [OPTIONS]\n"
     "  Create a pool. Required parameters:\n"
     "    -s|--pg_size R   Number of replicas for replicated pools\n"
@@ -408,6 +417,23 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         // Print OSD list
         cfg["flat"] = true;
         action_cb = p->start_osd_tree(cfg);
+    }
+    else if (cmd[0] == "modify-osd")
+    {
+        // Modify OSD configuration
+        if (cmd.size() > 1)
+            cfg["osd_num"] = cmd[1];
+        action_cb = p->start_modify_osd(cfg);
+    }
+    else if (cmd[0] == "pg-list" || cmd[0] == "pg-ls" || cmd[0] == "list-pg" || cmd[0] == "ls-pg" || cmd[0] == "ls-pgs")
+    {
+        // Modify OSD configuration
+        if (cmd.size() > 1)
+        {
+            cmd.erase(cmd.begin(), cmd.begin()+1);
+            cfg["pg_state"] = cmd;
+        }
+        action_cb = p->start_pg_list(cfg);
     }
     else if (cmd[0] == "create-pool" || cmd[0] == "pool-create")
     {
