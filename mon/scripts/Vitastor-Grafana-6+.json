@@ -2,6 +2,7 @@
   "annotations": {
     "list": [
       {
+        "$$hashKey": "object:7",
         "builtIn": 1,
         "datasource": "-- Grafana --",
         "enable": true,
@@ -20,6 +21,7 @@
   "panels": [
     {
       "collapsed": false,
+      "datasource": null,
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -42,6 +44,7 @@
         "rgba(237, 129, 40, 0.89)",
         "#299c46"
       ],
+      "datasource": null,
       "format": "none",
       "gauge": {
         "maxValue": 100,
@@ -73,7 +76,6 @@
       "maxDataPoints": 100,
       "nullPointMode": "connected",
       "nullText": null,
-      "options": {},
       "pluginVersion": "6.3.5",
       "postfix": "",
       "postfixFontSize": "50%",
@@ -102,7 +104,7 @@
           "displayAliasType": "Warning / Critical",
           "displayType": "Regular",
           "displayValueWithAlias": "Never",
-          "expr": "vitastor_monitor_info == 1",
+          "expr": "vitastor_monitor_info{clusterid=\"$Cluster\"} == 1",
           "legendFormat": "{{monitor_hostname}}",
           "refId": "A",
           "units": "none",
@@ -135,6 +137,7 @@
         "rgba(237, 129, 40, 0.89)",
         "#299c46"
       ],
+      "datasource": null,
       "format": "none",
       "gauge": {
         "maxValue": 100,
@@ -166,7 +169,6 @@
       "maxDataPoints": 100,
       "nullPointMode": "connected",
       "nullText": null,
-      "options": {},
       "postfix": "",
       "postfixFontSize": "50%",
       "prefix": "",
@@ -189,7 +191,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "count(vitastor_monitor_info == 0) or vector(0)",
+          "expr": "count(vitastor_monitor_info{clusterid=\"$Cluster\"} == 0) or vector(0)",
           "refId": "A"
         }
       ],
@@ -217,6 +219,7 @@
         "rgba(237, 129, 40, 0.89)",
         "#d44a3a"
       ],
+      "datasource": null,
       "format": "bytes",
       "gauge": {
         "maxValue": 100,
@@ -248,7 +251,6 @@
       "maxDataPoints": 100,
       "nullPointMode": "connected",
       "nullText": null,
-      "options": {},
       "postfix": "",
       "postfixFontSize": "50%",
       "prefix": "",
@@ -271,7 +273,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "sum(vitastor_osd_size_bytes)",
+          "expr": "sum(vitastor_osd_size_bytes{clusterid=\"$Cluster\"})",
           "refId": "A"
         }
       ],
@@ -299,6 +301,7 @@
         "rgba(237, 129, 40, 0.89)",
         "#d44a3a"
       ],
+      "datasource": null,
       "format": "bytes",
       "gauge": {
         "maxValue": 100,
@@ -330,7 +333,6 @@
       "maxDataPoints": 100,
       "nullPointMode": "connected",
       "nullText": null,
-      "options": {},
       "postfix": "",
       "postfixFontSize": "50%",
       "prefix": "",
@@ -353,7 +355,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "sum(vitastor_osd_size_bytes)-sum(vitastor_osd_free_bytes)",
+          "expr": "sum(vitastor_osd_size_bytes{clusterid=\"$Cluster\"})-sum(vitastor_osd_free_bytes{clusterid=\"$Cluster\"})",
           "refId": "A"
         }
       ],
@@ -381,6 +383,7 @@
         "rgba(237, 129, 40, 0.89)",
         "#d44a3a"
       ],
+      "datasource": null,
       "format": "percent",
       "gauge": {
         "maxValue": 100,
@@ -412,7 +415,6 @@
       "maxDataPoints": 100,
       "nullPointMode": "connected",
       "nullText": null,
-      "options": {},
       "postfix": "",
       "postfixFontSize": "50%",
       "prefix": "",
@@ -435,7 +437,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "(sum(vitastor_osd_size_bytes)-sum(vitastor_osd_free_bytes))*100/sum(vitastor_osd_size_bytes)",
+          "expr": "(sum(vitastor_osd_size_bytes{clusterid=\"$Cluster\"})-sum(vitastor_osd_free_bytes{clusterid=\"$Cluster\"}))*100/sum(vitastor_osd_size_bytes{clusterid=\"$Cluster\"})",
           "refId": "A"
         }
       ],
@@ -463,6 +465,7 @@
         "rgba(237, 129, 40, 0.89)",
         "#299c46"
       ],
+      "datasource": null,
       "format": "percent",
       "gauge": {
         "maxValue": 100,
@@ -494,7 +497,6 @@
       "maxDataPoints": 100,
       "nullPointMode": "connected",
       "nullText": null,
-      "options": {},
       "postfix": "",
       "postfixFontSize": "50%",
       "prefix": "",
@@ -517,7 +519,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "min(vitastor_pool_space_efficiency > 0)*100",
+          "expr": "min(vitastor_pool_space_efficiency{clusterid=\"$Cluster\"} > 0)*100",
           "refId": "A"
         }
       ],
@@ -547,6 +549,7 @@
         "rgba(237, 129, 40, 0.89)",
         "#299c46"
       ],
+      "datasource": null,
       "format": "none",
       "gauge": {
         "maxValue": 100,
@@ -578,7 +581,6 @@
       "maxDataPoints": 100,
       "nullPointMode": "connected",
       "nullText": null,
-      "options": {},
       "postfix": "",
       "postfixFontSize": "50%",
       "prefix": "",
@@ -601,7 +603,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "count(count(vitastor_osd_status > 0) by (host))",
+          "expr": "count(count(vitastor_osd_status{clusterid=\"$Cluster\"} > 0) by (host))",
           "refId": "A"
         }
       ],
@@ -631,6 +633,7 @@
         "rgba(237, 129, 40, 0.89)",
         "#299c46"
       ],
+      "datasource": null,
       "format": "none",
       "gauge": {
         "maxValue": 100,
@@ -662,7 +665,6 @@
       "maxDataPoints": 100,
       "nullPointMode": "connected",
       "nullText": null,
-      "options": {},
       "postfix": "",
       "postfixFontSize": "50%",
       "prefix": "",
@@ -685,7 +687,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "count(count(vitastor_osd_status < 1) by (host))",
+          "expr": "count(count(vitastor_osd_status{clusterid=\"$Cluster\"} < 1) by (host))",
           "refId": "A"
         }
       ],
@@ -715,6 +717,7 @@
         "rgba(237, 129, 40, 0.89)",
         "#299c46"
       ],
+      "datasource": null,
       "format": "none",
       "gauge": {
         "maxValue": 100,
@@ -746,7 +749,6 @@
       "maxDataPoints": 100,
       "nullPointMode": "connected",
       "nullText": null,
-      "options": {},
       "postfix": "",
       "postfixFontSize": "50%",
       "prefix": "",
@@ -769,7 +771,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "sum(vitastor_osd_status)",
+          "expr": "sum(vitastor_osd_status{clusterid=\"$Cluster\"})",
           "refId": "A"
         }
       ],
@@ -799,6 +801,7 @@
         "rgba(237, 129, 40, 0.89)",
         "#d44a3a"
       ],
+      "datasource": null,
       "format": "none",
       "gauge": {
         "maxValue": 100,
@@ -830,7 +833,6 @@
       "maxDataPoints": 100,
       "nullPointMode": "connected",
       "nullText": null,
-      "options": {},
       "postfix": "",
       "postfixFontSize": "50%",
       "prefix": "",
@@ -853,7 +855,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "count(vitastor_osd_status)-sum(vitastor_osd_status)",
+          "expr": "count(vitastor_osd_status{clusterid=\"$Cluster\"})-sum(vitastor_osd_status{clusterid=\"$Cluster\"})",
           "refId": "A"
         }
       ],
@@ -883,6 +885,7 @@
         "rgba(237, 129, 40, 0.89)",
         "#d44a3a"
       ],
+      "datasource": null,
       "format": "none",
       "gauge": {
         "maxValue": 100,
@@ -914,7 +917,6 @@
       "maxDataPoints": 100,
       "nullPointMode": "connected",
       "nullText": null,
-      "options": {},
       "postfix": "",
       "postfixFontSize": "50%",
       "prefix": "",
@@ -937,7 +939,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "count(vitastor_pool_status)-sum(vitastor_pool_status)",
+          "expr": "count(vitastor_pool_status{clusterid=\"$Cluster\"})-sum(vitastor_pool_status{clusterid=\"$Cluster\"})",
           "refId": "A"
         }
       ],
@@ -967,6 +969,7 @@
         "rgba(237, 129, 40, 0.89)",
         "#d44a3a"
       ],
+      "datasource": null,
       "format": "none",
       "gauge": {
         "maxValue": 100,
@@ -998,7 +1001,6 @@
       "maxDataPoints": 100,
       "nullPointMode": "connected",
       "nullText": null,
-      "options": {},
       "postfix": "",
       "postfixFontSize": "50%",
       "prefix": "",
@@ -1021,7 +1023,7 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "count(vitastor_pool_status == 0)",
+          "expr": "count(vitastor_pool_status{clusterid=\"$Cluster\"} == 0)",
           "refId": "A"
         }
       ],
@@ -1042,6 +1044,7 @@
     },
     {
       "collapsed": false,
+      "datasource": null,
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -1058,6 +1061,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -1066,6 +1070,7 @@
         "x": 0,
         "y": 9
       },
+      "hiddenSeries": false,
       "id": 25,
       "legend": {
         "avg": false,
@@ -1092,22 +1097,22 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(vitastor_stat_count{op=\"primary_read\",op_type=\"op\"}[60s])",
+          "expr": "rate(vitastor_stat_count{clusterid=\"$Cluster\",op=\"primary_read\",op_type=\"op\"}[60s])",
           "legendFormat": "read",
           "refId": "A"
         },
         {
-          "expr": "rate(vitastor_stat_count{op=\"primary_write\",op_type=\"op\"}[60s])",
+          "expr": "rate(vitastor_stat_count{clusterid=\"$Cluster\",op=\"primary_write\",op_type=\"op\"}[60s])",
           "legendFormat": "write",
           "refId": "B"
         },
         {
-          "expr": "rate(vitastor_stat_count{op=\"primary_del\",op_type=\"op\"}[60s])",
+          "expr": "rate(vitastor_stat_count{clusterid=\"$Cluster\",op=\"primary_del\",op_type=\"op\"}[60s])",
           "legendFormat": "delete",
           "refId": "C"
         },
         {
-          "expr": "rate(vitastor_stat_count{op=\"primary_sync\",op_type=\"op\"}[60s])",
+          "expr": "rate(vitastor_stat_count{clusterid=\"$Cluster\",op=\"primary_sync\",op_type=\"op\"}[60s])",
           "legendFormat": "sync",
           "refId": "D"
         }
@@ -1158,6 +1163,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -1166,6 +1172,7 @@
         "x": 8,
         "y": 9
       },
+      "hiddenSeries": false,
       "id": 18,
       "legend": {
         "avg": false,
@@ -1192,22 +1199,22 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(vitastor_stat_bytes{op=\"primary_read\",op_type=\"op\"}[60s])",
+          "expr": "rate(vitastor_stat_bytes{clusterid=\"$Cluster\",op=\"primary_read\",op_type=\"op\"}[60s])",
           "legendFormat": "read",
           "refId": "A"
         },
         {
-          "expr": "rate(vitastor_stat_bytes{op=\"primary_write\",op_type=\"op\"}[60s])",
+          "expr": "rate(vitastor_stat_bytes{clusterid=\"$Cluster\",op=\"primary_write\",op_type=\"op\"}[60s])",
           "legendFormat": "write",
           "refId": "B"
         },
         {
-          "expr": "rate(vitastor_stat_bytes{op=\"primary_del\",op_type=\"op\"}[60s])",
+          "expr": "rate(vitastor_stat_bytes{clusterid=\"$Cluster\",op=\"primary_del\",op_type=\"op\"}[60s])",
           "legendFormat": "delete",
           "refId": "C"
         },
         {
-          "expr": "rate(vitastor_stat_bytes{op=\"primary_sync\",op_type=\"op\"}[60s])",
+          "expr": "rate(vitastor_stat_bytes{clusterid=\"$Cluster\",op=\"primary_sync\",op_type=\"op\"}[60s])",
           "legendFormat": "sync",
           "refId": "D"
         }
@@ -1258,6 +1265,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -1266,6 +1274,7 @@
         "x": 16,
         "y": 9
       },
+      "hiddenSeries": false,
       "id": 19,
       "legend": {
         "avg": false,
@@ -1292,22 +1301,22 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(vitastor_stat_usec{op=\"primary_read\",op_type=\"op\"}[60s])/rate(vitastor_stat_count{op=\"primary_read\",op_type=\"op\"}[60s])",
+          "expr": "rate(vitastor_stat_usec{clusterid=\"$Cluster\",op=\"primary_read\",op_type=\"op\"}[60s])/rate(vitastor_stat_count{clusterid=\"$Cluster\",op=\"primary_read\",op_type=\"op\"}[60s])",
           "legendFormat": "read",
           "refId": "A"
         },
         {
-          "expr": "rate(vitastor_stat_usec{op=\"primary_write\",op_type=\"op\"}[60s])/rate(vitastor_stat_count{op=\"primary_write\",op_type=\"op\"}[60s])",
+          "expr": "rate(vitastor_stat_usec{clusterid=\"$Cluster\",op=\"primary_write\",op_type=\"op\"}[60s])/rate(vitastor_stat_count{clusterid=\"$Cluster\",op=\"primary_write\",op_type=\"op\"}[60s])",
           "legendFormat": "write",
           "refId": "B"
         },
         {
-          "expr": "rate(vitastor_stat_usec{op=\"primary_del\",op_type=\"op\"}[60s])/rate(vitastor_stat_count{op=\"primary_del\",op_type=\"op\"}[60s])",
+          "expr": "rate(vitastor_stat_usec{clusterid=\"$Cluster\",op=\"primary_del\",op_type=\"op\"}[60s])/rate(vitastor_stat_count{clusterid=\"$Cluster\",op=\"primary_del\",op_type=\"op\"}[60s])",
           "legendFormat": "delete",
           "refId": "C"
         },
         {
-          "expr": "rate(vitastor_stat_bytes{op=\"primary_sync\",op_type=\"op\"}[60s])/rate(vitastor_stat_count{op=\"primary_sync\",op_type=\"op\"}[60s])",
+          "expr": "rate(vitastor_stat_bytes{clusterid=\"$Cluster\",op=\"primary_sync\",op_type=\"op\"}[60s])/rate(vitastor_stat_count{clusterid=\"$Cluster\",op=\"primary_sync\",op_type=\"op\"}[60s])",
           "legendFormat": "sync",
           "refId": "D"
         }
@@ -1358,6 +1367,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -1366,6 +1376,7 @@
         "x": 0,
         "y": 16
       },
+      "hiddenSeries": false,
       "id": 32,
       "legend": {
         "avg": false,
@@ -1392,7 +1403,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(vitastor_stat_count{op_type=\"recovery\"}[60s])",
+          "expr": "rate(vitastor_stat_count{clusterid=\"$Cluster\",op_type=\"recovery\"}[60s])",
           "legendFormat": "{{op}}",
           "refId": "A"
         }
@@ -1443,6 +1454,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -1451,6 +1463,7 @@
         "x": 8,
         "y": 16
       },
+      "hiddenSeries": false,
       "id": 33,
       "legend": {
         "avg": false,
@@ -1477,7 +1490,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(vitastor_stat_bytes{op_type=\"recovery\"}[60s])",
+          "expr": "rate(vitastor_stat_bytes{clusterid=\"$Cluster\",op_type=\"recovery\"}[60s])",
           "legendFormat": "{{op}}",
           "refId": "A"
         }
@@ -1528,6 +1541,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -1536,6 +1550,7 @@
         "x": 16,
         "y": 16
       },
+      "hiddenSeries": false,
       "id": 34,
       "legend": {
         "avg": false,
@@ -1562,7 +1577,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(vitastor_stat_bytes{op_type=\"op\",op=\"scrub\"}[60s])",
+          "expr": "rate(vitastor_stat_bytes{clusterid=\"$Cluster\",op_type=\"op\",op=\"scrub\"}[60s])",
           "legendFormat": "",
           "refId": "A"
         }
@@ -1610,6 +1625,7 @@
     },
     {
       "collapsed": false,
+      "datasource": null,
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -1626,6 +1642,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -1634,6 +1651,7 @@
         "x": 0,
         "y": 24
       },
+      "hiddenSeries": false,
       "id": 20,
       "legend": {
         "avg": false,
@@ -1660,7 +1678,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "vitastor_object_bytes{object_type!=\"object\"}",
+          "expr": "vitastor_object_bytes{clusterid=\"$Cluster\",object_type!=\"object\"}",
           "legendFormat": "{{object_type}}",
           "refId": "A"
         }
@@ -1712,6 +1730,7 @@
       "cacheTimeout": null,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -1720,6 +1739,7 @@
         "x": 8,
         "y": 24
       },
+      "hiddenSeries": false,
       "id": 15,
       "legend": {
         "avg": false,
@@ -1753,7 +1773,7 @@
           "displayAliasType": "Warning / Critical",
           "displayType": "Regular",
           "displayValueWithAlias": "Never",
-          "expr": "vitastor_pool_space_efficiency * vitastor_pool_status * 100",
+          "expr": "vitastor_pool_space_efficiency{clusterid=\"$Cluster\"} * vitastor_pool_status{clusterid=\"$Cluster\"} * 100",
           "instant": false,
           "legendFormat": "{{pool_name}}",
           "refId": "A",
@@ -1808,6 +1828,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -1816,6 +1837,7 @@
         "x": 16,
         "y": 24
       },
+      "hiddenSeries": false,
       "id": 35,
       "legend": {
         "avg": false,
@@ -1842,7 +1864,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(vitastor_pg_count > 0) by (pg_state)",
+          "expr": "sum(vitastor_pg_count{clusterid=\"$Cluster\"} > 0) by (pg_state)",
           "legendFormat": "{{pg_state}}",
           "refId": "A"
         }
@@ -1890,6 +1912,7 @@
     },
     {
       "collapsed": false,
+      "datasource": null,
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -1907,6 +1930,7 @@
       "cacheTimeout": null,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "decimals": null,
       "fill": 1,
       "fillGradient": 0,
@@ -1916,6 +1940,7 @@
         "x": 0,
         "y": 32
       },
+      "hiddenSeries": false,
       "id": 43,
       "legend": {
         "alignAsTable": false,
@@ -1952,7 +1977,7 @@
           "displayAliasType": "Warning / Critical",
           "displayType": "Regular",
           "displayValueWithAlias": "Never",
-          "expr": "vitastor_osd_status",
+          "expr": "vitastor_osd_status{clusterid=\"$Cluster\"}",
           "instant": false,
           "legendFormat": "{{osd_num}}",
           "refId": "A",
@@ -2008,6 +2033,7 @@
       "cacheTimeout": null,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -2016,6 +2042,7 @@
         "x": 8,
         "y": 32
       },
+      "hiddenSeries": false,
       "id": 42,
       "legend": {
         "avg": false,
@@ -2049,7 +2076,7 @@
           "displayAliasType": "Warning / Critical",
           "displayType": "Regular",
           "displayValueWithAlias": "Never",
-          "expr": "vitastor_osd_size_bytes-vitastor_osd_free_bytes",
+          "expr": "vitastor_osd_size_bytes{clusterid=\"$Cluster\"}-vitastor_osd_free_bytes{clusterid=\"$Cluster\"}",
           "legendFormat": "{{osd_num}}",
           "refId": "A",
           "units": "none",
@@ -2103,6 +2130,7 @@
       "cacheTimeout": null,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -2111,6 +2139,7 @@
         "x": 16,
         "y": 32
       },
+      "hiddenSeries": false,
       "id": 21,
       "legend": {
         "avg": false,
@@ -2144,7 +2173,7 @@
           "displayAliasType": "Warning / Critical",
           "displayType": "Regular",
           "displayValueWithAlias": "Never",
-          "expr": "(vitastor_osd_size_bytes-vitastor_osd_free_bytes)*100/vitastor_osd_size_bytes",
+          "expr": "(vitastor_osd_size_bytes{clusterid=\"$Cluster\"}-vitastor_osd_free_bytes{clusterid=\"$Cluster\"})*100/vitastor_osd_size_bytes{clusterid=\"$Cluster\"}",
           "legendFormat": "{{osd_num}}",
           "refId": "A",
           "units": "none",
@@ -2197,6 +2226,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -2205,6 +2235,7 @@
         "x": 0,
         "y": 39
       },
+      "hiddenSeries": false,
       "id": 22,
       "legend": {
         "avg": false,
@@ -2231,7 +2262,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(vitastor_osd_stat_usec{op_type=\"op\",op=\"primary_read\"}[60s])/rate(vitastor_osd_stat_count{op_type=\"op\",op=\"primary_read\"}[60s]) > 0.001",
+          "expr": "rate(vitastor_osd_stat_usec{clusterid=\"$Cluster\",op_type=\"op\",op=\"primary_read\"}[60s])/rate(vitastor_osd_stat_count{clusterid=\"$Cluster\",op_type=\"op\",op=\"primary_read\"}[60s]) > 0.001",
           "legendFormat": "OSD {{osd_num}}",
           "refId": "A"
         }
@@ -2282,6 +2313,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -2290,6 +2322,7 @@
         "x": 8,
         "y": 39
       },
+      "hiddenSeries": false,
       "id": 40,
       "legend": {
         "avg": false,
@@ -2316,7 +2349,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(vitastor_osd_stat_usec{op_type=\"op\",op=\"primary_write\"}[60s])/rate(vitastor_osd_stat_count{op_type=\"op\",op=\"primary_write\"}[60s]) > 0.001",
+          "expr": "rate(vitastor_osd_stat_usec{clusterid=\"$Cluster\",op_type=\"op\",op=\"primary_write\"}[60s])/rate(vitastor_osd_stat_count{clusterid=\"$Cluster\",op_type=\"op\",op=\"primary_write\"}[60s]) > 0.001",
           "legendFormat": "OSD {{osd_num}}",
           "refId": "A"
         }
@@ -2367,6 +2400,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -2375,6 +2409,7 @@
         "x": 16,
         "y": 39
       },
+      "hiddenSeries": false,
       "id": 41,
       "legend": {
         "avg": false,
@@ -2401,12 +2436,12 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(vitastor_osd_stat_usec{op_type=\"op\",op=\"primary_sync\"}[60s])/rate(vitastor_osd_stat_count{op_type=\"op\",op=\"primary_sync\"}[60s]) > 0.001",
+          "expr": "rate(vitastor_osd_stat_usec{clusterid=\"$Cluster\",op_type=\"op\",op=\"primary_sync\"}[60s])/rate(vitastor_osd_stat_count{clusterid=\"$Cluster\",op_type=\"op\",op=\"primary_sync\"}[60s]) > 0.001",
           "legendFormat": "OSD {{osd_num}} - sync",
           "refId": "A"
         },
         {
-          "expr": "rate(vitastor_osd_stat_usec{op_type=\"op\",op=\"primary_delete\"}[60s])/rate(vitastor_osd_stat_count{op_type=\"op\",op=\"primary_delete\"}[60s]) > 0.001",
+          "expr": "rate(vitastor_osd_stat_usec{clusterid=\"$Cluster\",op_type=\"op\",op=\"primary_delete\"}[60s])/rate(vitastor_osd_stat_count{clusterid=\"$Cluster\",op_type=\"op\",op=\"primary_delete\"}[60s]) > 0.001",
           "legendFormat": "OSD {{osd_num}} - delete",
           "refId": "B"
         }
@@ -2457,6 +2492,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -2465,6 +2501,7 @@
         "x": 0,
         "y": 46
       },
+      "hiddenSeries": false,
       "id": 39,
       "legend": {
         "avg": false,
@@ -2491,7 +2528,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(vitastor_osd_stat_usec{op_type=\"op\",op=\"read\"}[60s])/rate(vitastor_osd_stat_count{op_type=\"op\",op=\"read\"}[60s]) > 0.001",
+          "expr": "rate(vitastor_osd_stat_usec{clusterid=\"$Cluster\",op_type=\"op\",op=\"read\"}[60s])/rate(vitastor_osd_stat_count{clusterid=\"$Cluster\",op_type=\"op\",op=\"read\"}[60s]) > 0.001",
           "legendFormat": "OSD {{osd_num}}",
           "refId": "A"
         }
@@ -2542,6 +2579,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -2550,6 +2588,7 @@
         "x": 8,
         "y": 46
       },
+      "hiddenSeries": false,
       "id": 38,
       "legend": {
         "avg": false,
@@ -2576,7 +2615,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(vitastor_osd_stat_usec{op_type=\"op\",op=~\"^(write|write_stable)$\"}[60s])/rate(vitastor_osd_stat_count{op_type=\"op\",op=~\"^(write|write_stable)$\"}[60s]) > 0.001",
+          "expr": "rate(vitastor_osd_stat_usec{clusterid=\"$Cluster\",op_type=\"op\",op=~\"^(write|write_stable)$\"}[60s])/rate(vitastor_osd_stat_count{clusterid=\"$Cluster\",op_type=\"op\",op=~\"^(write|write_stable)$\"}[60s]) > 0.001",
           "legendFormat": "OSD {{osd_num}}",
           "refId": "A"
         }
@@ -2627,6 +2666,7 @@
       "bars": false,
       "dashLength": 10,
       "dashes": false,
+      "datasource": null,
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -2635,6 +2675,7 @@
         "x": 16,
         "y": 46
       },
+      "hiddenSeries": false,
       "id": 37,
       "legend": {
         "avg": false,
@@ -2661,7 +2702,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(vitastor_stat_usec{op_type=\"subop\"}[60s])/rate(vitastor_stat_count{op_type=\"subop\"}[60s]) - ignoring(op_type) rate(vitastor_stat_usec{op_type=\"op\"}[60s])/rate(vitastor_stat_count{op_type=\"op\"}[60s])\n",
+          "expr": "rate(vitastor_stat_usec{clusterid=\"$Cluster\",op_type=\"subop\"}[60s])/rate(vitastor_stat_count{clusterid=\"$Cluster\",op_type=\"subop\"}[60s]) - ignoring(op_type) rate(vitastor_stat_usec{clusterid=\"$Cluster\",op_type=\"op\"}[60s])/rate(vitastor_stat_count{clusterid=\"$Cluster\",op_type=\"op\"}[60s])\n",
           "legendFormat": "{{op}}",
           "refId": "C"
         }
@@ -2709,11 +2750,45 @@
     }
   ],
   "refresh": false,
-  "schemaVersion": 19,
+  "schemaVersion": 22,
   "style": "dark",
   "tags": [],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "allValue": null,
+        "current": {
+          "text": "stump",
+          "value": "stump"
+        },
+        "datasource": "prometheus",
+        "definition": "label_values(clusterid)",
+        "hide": 0,
+        "includeAll": false,
+        "index": -1,
+        "label": "",
+        "multi": false,
+        "name": "Cluster",
+        "options": [
+          {
+            "$$hashKey": "object:222",
+            "selected": true,
+            "text": "stump",
+            "value": "stump"
+          }
+        ],
+        "query": "label_values(clusterid)",
+        "refresh": 0,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "tagValuesQuery": "",
+        "tags": [],
+        "tagsQuery": "",
+        "type": "query",
+        "useTags": false
+      }
+    ]
   },
   "time": {
     "from": "now-1h",
@@ -2736,5 +2811,8 @@
   "timezone": "",
   "title": "Vitastor",
   "uid": "UUGLcVlIk",
-  "version": 49
+  "variables": {
+    "list": []
+  },
+  "version": 50
 }
