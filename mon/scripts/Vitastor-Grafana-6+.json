@@ -104,7 +104,7 @@
           "displayAliasType": "Warning / Critical",
           "displayType": "Regular",
           "displayValueWithAlias": "Never",
-          "expr": "vitastor_monitor_info{clusterid=\"$Cluster\"} == 1",
+          "expr": "sum(vitastor_monitor_info{clusterid=\"$Cluster\"} == 1) by (monitor_hostname)",
           "legendFormat": "{{monitor_hostname}}",
           "refId": "A",
           "units": "none",
@@ -2814,5 +2814,5 @@
   "variables": {
     "list": []
   },
-  "version": 51
+  "version": 52
 }
