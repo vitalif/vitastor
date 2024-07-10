@@ -8,17 +8,18 @@
 #include "nfs_proxy.h"
 #include "nfs_kv.h"
 
-// FIXME: Implement shared inode defragmentator
 // FIXME: Implement fsck for vitastor-fs and for vitastor-kv
 
 struct nfs_kv_write_state
 {
-    nfs_client_t *self = NULL;
+    nfs_proxy_t *proxy = NULL;
     rpc_op_t *rop = NULL;
     uint64_t ino = 0;
     uint64_t offset = 0, size = 0;
     bool stable = false;
     uint8_t *buf = NULL;
+    uint64_t force_move_from_inode = 0; // force move from this shared inode ID
+    uint64_t force_move_from_offset = 0;
     std::function<void(int res)> cb;
     // state
     bool allow_cache = true;
@@ -46,14 +47,14 @@ struct nfs_kv_write_state
     }
 };
 
-#define align_down(size) ((size) & ~(st->self->parent->kvfs->pool_alignment-1))
-#define align_up(size) (((size) + st->self->parent->kvfs->pool_alignment-1) & ~(st->self->parent->kvfs->pool_alignment-1))
+#define align_down(size) ((size) & ~(st->proxy->kvfs->pool_alignment-1))
+#define align_up(size) (((size) + st->proxy->kvfs->pool_alignment-1) & ~(st->proxy->kvfs->pool_alignment-1))
 
 static void nfs_kv_continue_write(nfs_kv_write_state *st, int state);
 
 static void allocate_shared_space(nfs_kv_write_state *st)
 {
-    auto kvfs = st->self->parent->kvfs;
+    auto kvfs = st->proxy->kvfs;
     st->shared_inode = kvfs->cur_shared_inode;
     if (st->new_size < 3*kvfs->pool_alignment - sizeof(shared_file_header_t))
     {
@@ -67,13 +68,13 @@ static void allocate_shared_space(nfs_kv_write_state *st)
         st->shared_offset = align_up(kvfs->cur_shared_offset + sizeof(shared_file_header_t)) - sizeof(shared_file_header_t);
         st->shared_alloc = sizeof(shared_file_header_t) + align_up(st->new_size);
     }
-    st->self->parent->kvfs->cur_shared_offset = st->shared_offset + st->shared_alloc;
+    st->proxy->kvfs->cur_shared_offset = st->shared_offset + st->shared_alloc;
 }
 
-static void finish_allocate_shared(nfs_client_t *self, int res)
+static void finish_allocate_shared(nfs_proxy_t *proxy, int res)
 {
     std::vector<shared_alloc_queue_t> waiting;
-    waiting.swap(self->parent->kvfs->allocating_shared);
+    waiting.swap(proxy->kvfs->allocating_shared);
     for (auto & w: waiting)
     {
         auto st = w.st;
@@ -88,31 +89,44 @@ static void finish_allocate_shared(nfs_client_t *self, int res)
 
 static void allocate_shared_inode(nfs_kv_write_state *st, int state)
 {
-    if (st->self->parent->kvfs->cur_shared_inode == 0)
+    if (st->proxy->kvfs->cur_shared_inode == 0)
     {
-        st->self->parent->kvfs->allocating_shared.push_back({ st, state });
-        if (st->self->parent->kvfs->allocating_shared.size() > 1)
+        st->proxy->kvfs->allocating_shared.push_back({ st, state });
+        if (st->proxy->kvfs->allocating_shared.size() > 1)
         {
             return;
         }
-        allocate_new_id(st->self, st->self->parent->default_pool_id, [st](int res, uint64_t new_id)
+        allocate_new_id(st->proxy, st->proxy->default_pool_id, [st](int res, uint64_t new_id)
         {
             if (res < 0)
             {
-                finish_allocate_shared(st->self, res);
+                finish_allocate_shared(st->proxy, res);
                 return;
             }
-            st->self->parent->kvfs->cur_shared_inode = new_id;
-            st->self->parent->kvfs->cur_shared_offset = 0;
-            st->self->parent->db->set(
+            st->proxy->kvfs->cur_shared_inode = new_id;
+            st->proxy->kvfs->volume_touch_ctr = 0;
+            st->proxy->kvfs->cur_shared_offset = 0;
+            st->proxy->db->set(
                 kv_inode_key(new_id), json11::Json(json11::Json::object{ { "type", "shared" } }).dump(),
                 [st](int res)
                 {
                     if (res < 0)
                     {
-                        st->self->parent->kvfs->cur_shared_inode = 0;
+                        st->proxy->kvfs->cur_shared_inode = 0;
+                        finish_allocate_shared(st->proxy, res);
                     }
-                    finish_allocate_shared(st->self, res);
+                    else
+                    {
+                        st->proxy->db->set(
+                            kv_inode_prefix_key(st->proxy->kvfs->cur_shared_inode, "shared"),
+                            "{}", [st](int res)
+                            {
+                                if (res < 0)
+                                    st->proxy->kvfs->cur_shared_inode = 0;
+                                finish_allocate_shared(st->proxy, res);
+                            }
+                        );
+                    }
                 },
                 [](int res, const std::string & old_value)
                 {
@@ -151,7 +165,7 @@ static void nfs_do_write(uint64_t ino, uint64_t offset, uint64_t size, std::func
             nfs_kv_continue_write(st, state);
         }
     };
-    st->self->parent->cli->execute(op);
+    st->proxy->cli->execute(op);
 }
 
 static void nfs_do_unshare_write(nfs_kv_write_state *st, int state)
@@ -162,7 +176,7 @@ static void nfs_do_unshare_write(nfs_kv_write_state *st, int state)
     {
         op->iov.push_back(st->aligned_buf, size);
         if (aligned_size > size)
-            op->iov.push_back(st->self->parent->kvfs->zero_block.data(), aligned_size-size);
+            op->iov.push_back(st->proxy->kvfs->zero_block.data(), aligned_size-size);
     }, st, state);
 }
 
@@ -269,7 +283,7 @@ static void nfs_do_shared_read(nfs_kv_write_state *st, int state)
     auto pre = shared_offset-align_down(shared_offset);
     if (pre > 0)
     {
-        op->iov.push_back(st->self->parent->kvfs->scrap_block.data(), pre);
+        op->iov.push_back(st->proxy->kvfs->scrap_block.data(), pre);
     }
     op->iov.push_back(&st->shdr, sizeof(shared_file_header_t));
     op->iov.push_back(st->aligned_buf, data_size);
@@ -277,7 +291,7 @@ static void nfs_do_shared_read(nfs_kv_write_state *st, int state)
     post = align_up(post) - post;
     if (post > 0)
     {
-        op->iov.push_back(st->self->parent->kvfs->scrap_block.data(), post);
+        op->iov.push_back(st->proxy->kvfs->scrap_block.data(), post);
     }
     op->len = pre+sizeof(shared_file_header_t)+data_size+post;
     op->callback = [st, state](cluster_op_t *op)
@@ -302,7 +316,7 @@ static void nfs_do_shared_read(nfs_kv_write_state *st, int state)
             nfs_kv_continue_write(st, state);
         }
     };
-    st->self->parent->cli->execute(op);
+    st->proxy->cli->execute(op);
 }
 
 static void nfs_do_fsync(nfs_kv_write_state *st, int state)
@@ -315,10 +329,10 @@ static void nfs_do_fsync(nfs_kv_write_state *st, int state)
         delete op;
         nfs_kv_continue_write(st, state);
     };
-    st->self->parent->cli->execute(op);
+    st->proxy->cli->execute(op);
 }
 
-static bool nfs_do_shared_readmodify(nfs_kv_write_state *st, int base_state, int state, bool unshare)
+static bool nfs_do_shared_readmodify(nfs_kv_write_state *st, int base_state, int state)
 {
     assert(state <= base_state);
     if (state < base_state)       goto resume_0;
@@ -382,7 +396,7 @@ static void nfs_do_shared_write(nfs_kv_write_state *st, int state)
         if (unaligned_is_free && aligned_offset < write_offset)
         {
             // zero padding
-            op->iov.push_back(st->self->parent->kvfs->zero_block.data(), write_offset-aligned_offset);
+            op->iov.push_back(st->proxy->kvfs->zero_block.data(), write_offset-aligned_offset);
         }
         // header
         op->iov.push_back(&st->shdr, sizeof(shared_file_header_t));
@@ -394,10 +408,13 @@ static void nfs_do_shared_write(nfs_kv_write_state *st, int state)
                 op->iov.push_back(st->aligned_buf, st->offset);
             }
             else
-                add_zero(op, st->offset, st->self->parent->kvfs->zero_block);
+                add_zero(op, st->offset, st->proxy->kvfs->zero_block);
         }
         // new data
-        op->iov.push_back(st->buf, st->size);
+        if (st->size > 0)
+        {
+            op->iov.push_back(st->buf, st->size);
+        }
         if (st->offset+st->size < st->new_size)
         {
             if (has_old)
@@ -406,19 +423,19 @@ static void nfs_do_shared_write(nfs_kv_write_state *st, int state)
                 op->iov.push_back(st->aligned_buf+st->offset+st->size, st->new_size-(st->offset+st->size));
             }
             else
-                add_zero(op, st->offset, st->self->parent->kvfs->zero_block);
+                add_zero(op, st->offset, st->proxy->kvfs->zero_block);
         }
         if (unaligned_is_free && (aligned_size+aligned_offset) > (write_size+write_offset))
         {
             // zero padding
-            op->iov.push_back(st->self->parent->kvfs->zero_block.data(), aligned_size+aligned_offset - (write_size+write_offset));
+            op->iov.push_back(st->proxy->kvfs->zero_block.data(), aligned_size+aligned_offset - (write_size+write_offset));
         }
     }, st, state);
 }
 
 static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t offset, uint64_t shared_alloc, int state)
 {
-    auto alignment = st->self->parent->kvfs->pool_alignment;
+    auto alignment = st->proxy->kvfs->pool_alignment;
     uint64_t end = (offset+st->size);
     uint8_t *good_buf = st->buf;
     uint64_t good_offset = offset;
@@ -467,7 +484,7 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
                 good_size = 0;
             s = s > st->size ? st->size : s;
             st->rmw[0] = (nfs_rmw_t){
-                .parent = st->self->parent,
+                .parent = st->proxy,
                 .ino = ino,
                 .offset = offset,
                 .buf = st->buf,
@@ -496,7 +513,7 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
             else
                 good_size = 0;
             st->rmw[1] = (nfs_rmw_t){
-                .parent = st->self->parent,
+                .parent = st->proxy,
                 .ino = ino,
                 .offset = end - s,
                 .buf = st->buf + st->size - s,
@@ -521,7 +538,7 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
                 op->iov.push_back(&st->shdr, sizeof(shared_file_header_t));
             op->iov.push_back(good_buf, good_size);
             if (end_pad)
-                op->iov.push_back(st->self->parent->kvfs->zero_block.data(), end_pad);
+                op->iov.push_back(st->proxy->kvfs->zero_block.data(), end_pad);
         }, st, state);
     }
     st->waiting--;
@@ -590,7 +607,7 @@ static void nfs_kv_extend_inode(nfs_kv_write_state *st, int state, int base_stat
     st->ext->cur_extend = st->ext->next_extend;
     st->ext->next_extend = 0;
     st->res2 = -EAGAIN;
-    st->self->parent->db->set(kv_inode_key(st->ino), new_normal_ientry(st), [st, base_state](int res)
+    st->proxy->db->set(kv_inode_key(st->ino), new_normal_ientry(st), [st, base_state](int res)
     {
         st->res = res;
         nfs_kv_continue_write(st, base_state+1);
@@ -738,13 +755,13 @@ static void nfs_kv_continue_write(nfs_kv_write_state *st, int state)
         abort();
     }
 resume_0:
-    if (!st->size)
+    if (!st->size && !st->force_move_from_inode)
     {
         auto cb = std::move(st->cb);
         cb(0);
         return;
     }
-    kv_read_inode(st->self->parent, st->ino, [st](int res, const std::string & value, json11::Json attrs)
+    kv_read_inode(st->proxy, st->ino, [st](int res, const std::string & value, json11::Json attrs)
     {
         st->res = res;
         st->ientry_text = value;
@@ -759,22 +776,30 @@ resume_1:
         cb(st->res == 0 ? -EINVAL : st->res);
         return;
     }
-    st->was_immediate = st->self->parent->cli->get_immediate_commit(st->ino);
+    st->was_immediate = st->proxy->cli->get_immediate_commit(st->ino);
     st->new_size = st->ientry["size"].uint64_value();
     if (st->new_size < st->offset + st->size)
     {
         st->new_size = st->offset + st->size;
     }
-    if (st->offset + st->size + sizeof(shared_file_header_t) < st->self->parent->kvfs->shared_inode_threshold)
+    if (st->offset + st->size + sizeof(shared_file_header_t) < st->proxy->kvfs->shared_inode_threshold)
     {
-        if (st->ientry["size"].uint64_value() == 0 &&
-            st->ientry["shared_ino"].uint64_value() == 0 ||
+        if (// Zero size, should be allocated to handle write
+            st->ientry["size"].uint64_value() == 0 &&
+            st->ientry["shared_ino"].uint64_value() == 0 &&
+            st->offset+st->size > 0 ||
+            // Empty with non-zero size, fits shared inode threshold
             st->ientry["empty"].bool_value() &&
-            (st->ientry["size"].uint64_value() + sizeof(shared_file_header_t)) < st->self->parent->kvfs->shared_inode_threshold ||
+            (st->ientry["size"].uint64_value() + sizeof(shared_file_header_t)) < st->proxy->kvfs->shared_inode_threshold ||
+            // Shared, does not fit currently allocated shared inode space
             st->ientry["shared_ino"].uint64_value() != 0 &&
-            st->ientry["shared_alloc"].uint64_value() < sizeof(shared_file_header_t)+st->offset+st->size)
+            st->ientry["shared_alloc"].uint64_value() < sizeof(shared_file_header_t)+st->offset+st->size ||
+            // Shared, requested to be moved away forcibly by defrag
+            st->force_move_from_inode != 0 &&
+            st->ientry["shared_ino"].uint64_value() == st->force_move_from_inode &&
+            st->ientry["shared_offset"].uint64_value() == st->force_move_from_offset)
         {
-            // Either empty, or shared and requires moving into a larger place (redirect-write)
+            // Inode requires moving into a larger place (redirect-write)
             allocate_shared_inode(st, 2);
             return;
 resume_2:
@@ -785,7 +810,7 @@ resume_2:
                 return;
             }
 resume_3:
-            if (!nfs_do_shared_readmodify(st, 3, state, false))
+            if (!nfs_do_shared_readmodify(st, 3, state))
             {
                 return;
             }
@@ -803,7 +828,7 @@ resume_4:
                 cb(st->res);
                 return;
             }
-            st->self->parent->db->set(kv_inode_key(st->ino), new_moved_ientry(st), [st](int res)
+            st->proxy->db->set(kv_inode_key(st->ino), new_moved_ientry(st), [st](int res)
             {
                 st->res = res;
                 nfs_kv_continue_write(st, 5);
@@ -831,7 +856,7 @@ resume_5:
             cb(0);
             return;
         }
-        else if (st->ientry["shared_ino"].uint64_value() != 0)
+        else if (st->ientry["shared_ino"].uint64_value() != 0 && st->size > 0)
         {
             // Non-empty, shared, can be updated in-place
             nfs_do_align_write(st, st->ientry["shared_ino"].uint64_value(),
@@ -846,7 +871,7 @@ resume_7:
             }
 resume_8:
             // We always have to change inode entry on shared writes
-            st->self->parent->db->set(kv_inode_key(st->ino), new_shared_ientry(st), [st](int res)
+            st->proxy->db->set(kv_inode_key(st->ino), new_shared_ientry(st), [st](int res)
             {
                 st->res = res;
                 nfs_kv_continue_write(st, 9);
@@ -865,6 +890,12 @@ resume_9:
             return;
         }
         // Fall through for non-shared
+    }
+    if (!st->size)
+    {
+        auto cb = std::move(st->cb);
+        cb(0);
+        return;
     }
     // Unshare?
     if (st->ientry["shared_ino"].uint64_value() != 0)
@@ -889,7 +920,7 @@ resume_11:
                 return;
             }
         }
-        st->self->parent->db->set(kv_inode_key(st->ino), new_unshared_ientry(st), [st](int res)
+        st->proxy->db->set(kv_inode_key(st->ino), new_unshared_ientry(st), [st](int res)
         {
             st->res = res;
             nfs_kv_continue_write(st, 12);
@@ -910,6 +941,8 @@ resume_12:
             cb(st->res);
             return;
         }
+        // Record removed part of the shared inode as obsolete in statistics
+        st->proxy->kvfs->volume_removed[st->ientry["shared_ino"].uint64_value()] += st->ientry["shared_alloc"].uint64_value();
         st->ientry_text = new_unshared_ientry(st);
     }
     // Non-shared write
@@ -932,7 +965,7 @@ resume_14:
         st->ientry["size"].uint64_value() < st->new_size ||
         st->ientry["shared_ino"].uint64_value() != 0)
     {
-        st->ext = &st->self->parent->kvfs->extends[st->ino];
+        st->ext = &st->proxy->kvfs->extends[st->ino];
         st->ext->refcnt++;
 resume_15:
         if (st->ext->next_extend < st->new_size)
@@ -957,12 +990,12 @@ resume_16:
         assert(st->ext->refcnt >= 0);
         if (st->ext->refcnt == 0)
         {
-            st->self->parent->kvfs->extends.erase(st->ino);
+            st->proxy->kvfs->extends.erase(st->ino);
         }
     }
     else
     {
-        st->self->parent->kvfs->touch_queue.insert(st->ino);
+        st->proxy->kvfs->touch_queue.insert(st->ino);
     }
     if (st->res == -EAGAIN)
     {
@@ -976,15 +1009,16 @@ resume_16:
 int kv_nfs3_write_proc(void *opaque, rpc_op_t *rop)
 {
     nfs_kv_write_state *st = new nfs_kv_write_state;
-    st->self = (nfs_client_t*)opaque;
+    nfs_client_t *self = (nfs_client_t*)opaque;
+    st->proxy = ((nfs_client_t*)opaque)->parent;
     st->rop = rop;
     WRITE3args *args = (WRITE3args*)rop->request;
     WRITE3res *reply = (WRITE3res*)rop->reply;
     st->ino = kv_fh_inode(args->file);
     st->offset = args->offset;
     st->size = (args->count > args->data.size ? args->data.size : args->count);
-    if (st->self->parent->trace)
-        fprintf(stderr, "[%d] WRITE %ju %ju+%ju\n", st->self->nfs_fd, st->ino, st->offset, st->size);
+    if (st->proxy->trace)
+        fprintf(stderr, "[%d] WRITE %ju %ju+%ju\n", self->nfs_fd, st->ino, st->offset, st->size);
     if (!st->ino || st->size > MAX_REQUEST_SIZE)
     {
         *reply = (WRITE3res){ .status = NFS3ERR_INVAL };
@@ -1002,11 +1036,31 @@ int kv_nfs3_write_proc(void *opaque, rpc_op_t *rop)
         {
             reply->resok.count = (unsigned)st->size;
             reply->resok.committed = st->stable || st->was_immediate ? FILE_SYNC : UNSTABLE;
-            *(uint64_t*)reply->resok.verf = st->self->parent->server_id;
+            *(uint64_t*)reply->resok.verf = st->proxy->server_id;
         }
         rpc_queue_reply(st->rop);
         delete st;
     };
     nfs_kv_continue_write(st, 0);
     return 1;
+}
+
+void nfs_move_inode_from(nfs_proxy_t *proxy, uint64_t ino, uint64_t shared_ino, uint64_t shared_offset, std::function<void(int res, bool moved)> cb)
+{
+    nfs_kv_write_state *st = new nfs_kv_write_state;
+    st->proxy = proxy;
+    st->ino = ino;
+    st->offset = 0;
+    st->size = 0;
+    st->force_move_from_inode = shared_ino;
+    st->force_move_from_offset = shared_offset;
+    st->buf = NULL;
+    st->stable = true;
+    st->allow_cache = false;
+    st->cb = [cb, st](int res)
+    {
+        cb(res, st->shared_inode != 0);
+        delete st;
+    };
+    nfs_kv_continue_write(st, 0);
 }

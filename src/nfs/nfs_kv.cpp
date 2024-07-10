@@ -116,15 +116,35 @@ std::string kv_direntry_filename(const std::string & key)
     return key;
 }
 
-std::string kv_inode_key(uint64_t ino)
+std::string kv_inode_prefix_key(uint64_t ino, const char *prefix)
 {
-    char key[32] = { 0 };
-    snprintf(key, sizeof(key), "i%x", INODE_POOL(ino));
-    int n = strnlen(key, sizeof(key)-1);
-    snprintf(key+n+1, sizeof(key)-n-1, "%jx", INODE_NO_POOL(ino));
-    int m = strnlen(key+n+1, sizeof(key)-n-2);
+    int max = 32+strlen(prefix);
+    char key[max] = { 0 };
+    snprintf(key, max, "%s%x", prefix, INODE_POOL(ino));
+    int n = strnlen(key, max-1);
+    snprintf(key+n+1, max-n-1, "%jx", INODE_NO_POOL(ino));
+    int m = strnlen(key+n+1, max-n-2);
     key[n] = 'G'+m;
     return std::string(key);
+}
+
+std::string kv_inode_key(uint64_t ino)
+{
+    return kv_inode_prefix_key(ino, "i");
+}
+
+uint64_t kv_key_inode(const std::string & key, int prefix_len)
+{
+    if (key.size() < prefix_len)
+        return 0;
+    uint32_t pool_id = 0;
+    char len_plus_g = 0;
+    uint64_t inode_id = 0;
+    char null_byte = 0;
+    int scanned = sscanf(key.c_str()+prefix_len, "%x%c%jx%c", &pool_id, &len_plus_g, &inode_id, &null_byte);
+    if (scanned != 3 || !inode_id || INODE_POOL(inode_id) != 0)
+        return 0;
+    return INODE_WITH_POOL(pool_id, inode_id);
 }
 
 std::string kv_fh(uint64_t ino)
@@ -248,8 +268,36 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
     if (!id_alloc_batch_size)
         id_alloc_batch_size = 200;
     touch_interval = cfg["touch_interval"].uint64_value();
-    if (touch_interval < 100) // ms
+    if (!touch_interval)
+        touch_interval = 1000; // ms
+    else if (touch_interval < 100)
         touch_interval = 100;
+    volume_stats_interval_mul = cfg["volume_stats_interval"].uint64_value() / touch_interval;
+    if (!volume_stats_interval_mul)
+        volume_stats_interval_mul = 1;
+    volume_touch_interval_mul = cfg["volume_touch_interval"].uint64_value() / touch_interval;
+    if (!volume_touch_interval_mul)
+        volume_touch_interval_mul = 30;
+    volume_untouched_sec = cfg["volume_untouched"].uint64_value();
+    if (!volume_untouched_sec)
+        volume_untouched_sec = 86400;
+    if (volume_untouched_sec < 60)
+        volume_untouched_sec = 60;
+    defrag_percent = cfg["defrag_percent"].is_null() ? 50 : cfg["defrag_percent"].uint64_value();
+    if (defrag_percent < 0)
+        defrag_percent = 0;
+    if (defrag_percent > 100)
+        defrag_percent = 100;
+    defrag_block_count = cfg["defrag_block_count"].is_null() ? 16 : cfg["defrag_block_count"].uint64_value();
+    if (defrag_block_count < 1)
+        defrag_block_count = 1;
+    if (defrag_block_count > 1048576)
+        defrag_block_count = 1048576;
+    defrag_iodepth = cfg["defrag_iodepth"].is_null() ? 16 : cfg["defrag_iodepth"].uint64_value();
+    if (defrag_iodepth < 1)
+        defrag_iodepth = 1;
+    if (defrag_iodepth > 1048576)
+        defrag_iodepth = 1048576;
     pool_block_size = pool_cfg.pg_stripe_size;
     pool_alignment = pool_cfg.bitmap_granularity;
     // Open DB and wait
@@ -261,6 +309,7 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
     {
         kv_cfg[kv.first] = kv.second.as_string();
     }
+    // Open K/V DB
     proxy->db->open(fs_kv_inode, kv_cfg, [&](int res)
     {
         open_done = true;
@@ -279,6 +328,7 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
             strerror(-open_res), open_res);
         exit(1);
     }
+    // Proceed
     fs_inode_count = ((uint64_t)1 << (64-POOL_ID_BITS)) - 1;
     shared_inode_threshold = pool_block_size;
     if (!cfg["shared_inode_threshold"].is_null())
@@ -299,30 +349,35 @@ kv_fs_state_t::~kv_fs_state_t()
     }
 }
 
-static void touch_inode(nfs_proxy_t *proxy, inode_t ino, bool allow_cache)
+void kv_fs_state_t::update_inode(inode_t ino, bool allow_cache, std::function<void(json11::Json::object &)> change, std::function<void(int)> cb)
 {
-    kv_read_inode(proxy, ino, [proxy, ino](int res, const std::string & value, json11::Json attrs)
+    // FIXME: Use "update" query
+    kv_read_inode(proxy, ino, [=](int res, const std::string & value, json11::Json attrs)
     {
         if (!res)
         {
             auto ientry = attrs.object_items();
-            ientry["mtime"] = ientry["ctime"] = nfstime_now_str();
-            ientry.erase("verf");
-            // FIXME: Use "update" query
+            change(ientry);
             bool *found = new bool;
             *found = true;
-            proxy->db->set(kv_inode_key(ino), json11::Json(ientry).dump(), [proxy, ino, found](int res)
+            proxy->db->set(kv_inode_key(ino), json11::Json(ientry).dump(), [=](int res)
             {
                 if (!*found)
                     res = -ENOENT;
                 delete found;
                 if (res == -EAGAIN)
-                    touch_inode(proxy, ino, false);
+                    update_inode(ino, false, change, cb);
+                else if (cb)
+                    cb(res);
             }, [value, found](int res, const std::string & old_value)
             {
                 *found = res == 0;
                 return res == 0 && old_value == value;
             });
+        }
+        else if (cb)
+        {
+            cb(res);
         }
     }, allow_cache);
 }
@@ -332,6 +387,31 @@ void kv_fs_state_t::touch_inodes()
     std::set<inode_t> q = std::move(touch_queue);
     for (auto ino: q)
     {
-        touch_inode(proxy, ino, true);
+        update_inode(ino, true, [](json11::Json::object & ientry)
+        {
+            ientry["mtime"] = ientry["ctime"] = nfstime_now_str();
+            ientry.erase("verf");
+        }, NULL);
+    }
+    if (++volume_stats_ctr >= volume_stats_interval_mul)
+    {
+        volume_stats_ctr = 0;
+        auto shr = std::move(volume_removed);
+        for (auto & sp: shr)
+        {
+            update_inode(sp.first, true, [removed = sp.second](json11::Json::object & ientry)
+            {
+                ientry["removed"] = ientry["removed"].uint64_value() + removed;
+            }, NULL);
+        }
+    }
+    if (!((volume_touch_ctr++) % volume_touch_interval_mul) && cur_shared_inode)
+    {
+        volume_touch_ctr = 1;
+        update_inode(cur_shared_inode, true, [size = cur_shared_offset](json11::Json::object & ientry)
+        {
+            ientry["opentime"] = nfstime_now_str();
+            ientry["size"] = size;
+        }, NULL);
     }
 }

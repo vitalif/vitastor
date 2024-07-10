@@ -228,28 +228,35 @@ resume_6:
         return;
     }
     // (6) If regular file and inode is deleted: delete data
-    if ((!st->type || st->type == NF3REG) && st->ientry["nlink"].uint64_value() <= 1 &&
-        !st->ientry["shared_ino"].uint64_value())
+    if ((!st->type || st->type == NF3REG) && st->ientry["nlink"].uint64_value() <= 1)
     {
-        // Remove data
-        st->self->parent->cmd->loop_and_wait(st->self->parent->cmd->start_rm_data(json11::Json::object {
-            { "inode", INODE_NO_POOL(st->ino) },
-            { "pool", (uint64_t)INODE_POOL(st->ino) },
-        }), [st](const cli_result_t & r)
+        if (!st->ientry["shared_ino"].uint64_value())
         {
-            if (r.err)
+            // Remove data
+            st->self->parent->cmd->loop_and_wait(st->self->parent->cmd->start_rm_data(json11::Json::object {
+                { "inode", INODE_NO_POOL(st->ino) },
+                { "pool", (uint64_t)INODE_POOL(st->ino) },
+            }), [st](const cli_result_t & r)
             {
-                fprintf(stderr, "Failed to remove inode %jx data: %s (code %d)\n",
-                    st->ino, r.text.c_str(), r.err);
-            }
-            st->res = r.err;
-            nfs_kv_continue_delete(st, 7);
-        });
-        return;
+                if (r.err)
+                {
+                    fprintf(stderr, "Failed to remove inode %jx data: %s (code %d)\n",
+                        st->ino, r.text.c_str(), r.err);
+                }
+                st->res = r.err;
+                nfs_kv_continue_delete(st, 7);
+            });
+            return;
 resume_7:
-        auto cb = std::move(st->cb);
-        cb(st->res);
-        return;
+            auto cb = std::move(st->cb);
+            cb(st->res);
+            return;
+        }
+        else
+        {
+            // Record removed part of the shared inode as obsolete in statistics
+            st->self->parent->kvfs->volume_removed[st->ientry["shared_ino"].uint64_value()] += st->ientry["shared_alloc"].uint64_value();
+        }
     }
     if (!st->res)
     {

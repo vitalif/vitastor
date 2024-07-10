@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 #include <fcntl.h>
 #include "str_util.h"
 
@@ -473,4 +474,14 @@ std::string realpath_str(std::string path, bool nofail)
     std::string rp(p);
     free(p);
     return rp;
+}
+
+std::string format_datetime(uint64_t unixtime)
+{
+    char buf[128];
+    time_t ut = (time_t)unixtime;
+    tm lt;
+    localtime_r(&ut, &lt);
+    int len = strftime(buf, 128, "%Y-%m-%d %H:%M:%S", &lt);
+    return std::string(buf, len);
 }

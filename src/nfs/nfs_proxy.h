@@ -66,6 +66,7 @@ public:
 
     static json11::Json::object parse_args(int narg, const char *args[]);
     void run(json11::Json cfg);
+    void run_server(json11::Json cfg);
     void watch_stats();
     void parse_stats(etcd_kv_t & kv);
     void check_default_pool();

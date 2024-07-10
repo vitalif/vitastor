@@ -9,9 +9,9 @@
 #include "nfs_proxy.h"
 #include "nfs_kv.h"
 
-void allocate_new_id(nfs_client_t *self, pool_id_t pool_id, std::function<void(int res, uint64_t new_id)> cb)
+void allocate_new_id(nfs_proxy_t *proxy, pool_id_t pool_id, std::function<void(int res, uint64_t new_id)> cb)
 {
-    auto & idgen = self->parent->kvfs->idgen[pool_id];
+    auto & idgen = proxy->kvfs->idgen[pool_id];
     if (idgen.unallocated_ids.size())
     {
         auto new_id = idgen.unallocated_ids.back();
@@ -31,9 +31,9 @@ void allocate_new_id(nfs_client_t *self, pool_id_t pool_id, std::function<void(i
         cb(-ENOSPC, 0);
         return;
     }
-    self->parent->db->get((pool_id ? "id"+std::to_string(pool_id) : "id"), [=](int res, const std::string & prev_str)
+    proxy->db->get((pool_id ? "id"+std::to_string(pool_id) : "id"), [=](int res, const std::string & prev_str)
     {
-        auto & idgen = self->parent->kvfs->idgen[pool_id];
+        auto & idgen = proxy->kvfs->idgen[pool_id];
         if (res < 0 && res != -ENOENT)
         {
             cb(res, 0);
@@ -49,17 +49,21 @@ void allocate_new_id(nfs_client_t *self, pool_id_t pool_id, std::function<void(i
         {
             prev_val = idgen.min_id;
         }
-        uint64_t new_val = prev_val + self->parent->kvfs->id_alloc_batch_size;
-        if (new_val >= self->parent->kvfs->fs_inode_count)
+        uint64_t new_val = prev_val + proxy->kvfs->id_alloc_batch_size;
+        if (new_val >= proxy->kvfs->fs_inode_count)
         {
-            new_val = self->parent->kvfs->fs_inode_count;
+            new_val = proxy->kvfs->fs_inode_count;
         }
-        self->parent->db->set((pool_id ? "id"+std::to_string(pool_id) : "id"), std::to_string(new_val), [=](int res)
+        if (!pool_id && res == -ENOENT)
+        {
+            proxy->db->set("version", "1", [](int){});
+        }
+        proxy->db->set((pool_id ? "id"+std::to_string(pool_id) : "id"), std::to_string(new_val), [=](int res)
         {
             if (res == -EAGAIN)
             {
                 // CAS failure - retry
-                allocate_new_id(self, pool_id, cb);
+                allocate_new_id(proxy, pool_id, cb);
             }
             else if (res < 0)
             {
@@ -67,7 +71,7 @@ void allocate_new_id(nfs_client_t *self, pool_id_t pool_id, std::function<void(i
             }
             else
             {
-                auto & idgen = self->parent->kvfs->idgen[pool_id];
+                auto & idgen = proxy->kvfs->idgen[pool_id];
                 idgen.next_id = prev_val+2;
                 idgen.allocated_id = new_val;
                 cb(0, INODE_WITH_POOL(pool_id, prev_val+1));
@@ -125,7 +129,7 @@ resume_1:
     st->pool_id = kv_map_type(st->attrs["type"].string_value()) == NF3REG
         ? st->self->parent->default_pool_id
         : 0;
-    allocate_new_id(st->self, st->pool_id, [st](int res, uint64_t new_id)
+    allocate_new_id(st->self->parent, st->pool_id, [st](int res, uint64_t new_id)
     {
         st->res = res;
         st->new_id = new_id;

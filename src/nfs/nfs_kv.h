@@ -60,6 +60,13 @@ struct kv_fs_state_t
     uint64_t pool_alignment = 0;
     uint64_t shared_inode_threshold = 0;
     uint64_t touch_interval = 1000;
+    uint64_t volume_stats_interval_mul = 1;
+    uint64_t volume_touch_interval_mul = 30;
+    uint64_t volume_untouched_sec = 86400;
+    uint64_t defrag_percent = 50;
+    uint64_t defrag_block_count = 16;
+    uint64_t defrag_iodepth = 16;
+    bool dry_run = false;
 
     std::map<list_cookie_t, list_cookie_val_t> list_cookies;
     std::map<pool_id_t, kv_idgen_t> idgen;
@@ -67,12 +74,19 @@ struct kv_fs_state_t
     uint64_t cur_shared_inode = 0, cur_shared_offset = 0;
     std::map<inode_t, kv_inode_extend_t> extends;
     std::set<inode_t> touch_queue;
+    std::map<inode_t, uint64_t> volume_removed;
+    uint64_t volume_stats_ctr = 0;
+    uint64_t volume_touch_ctr = 0;
 
     std::vector<uint8_t> zero_block;
     std::vector<uint8_t> scrap_block;
 
     void init(nfs_proxy_t *proxy, json11::Json cfg);
     void touch_inodes();
+    void update_inode(inode_t ino, bool allow_cache, std::function<void(json11::Json::object &)> change, std::function<void(int)> cb);
+    void upgrade_db(std::function<void(int)> cb);
+    void defrag_all(json11::Json cfg, std::function<void(int)> cb);
+    void defrag_volume(inode_t ino, bool no_rm, bool dry_run, std::function<void(int, uint64_t, uint64_t, uint64_t)> cb);
     ~kv_fs_state_t();
 };
 
@@ -105,16 +119,20 @@ int kv_map_type(const std::string & type);
 fattr3 get_kv_attributes(nfs_client_t *self, uint64_t ino, json11::Json attrs);
 std::string kv_direntry_key(uint64_t dir_ino, const std::string & filename);
 std::string kv_direntry_filename(const std::string & key);
+std::string kv_inode_prefix_key(uint64_t ino, const char *prefix);
 std::string kv_inode_key(uint64_t ino);
+uint64_t kv_key_inode(const std::string & key, int prefix_len = 1);
 std::string kv_fh(uint64_t ino);
 uint64_t kv_fh_inode(const std::string & fh);
 bool kv_fh_valid(const std::string & fh);
-void allocate_new_id(nfs_client_t *self, pool_id_t pool_id, std::function<void(int res, uint64_t new_id)> cb);
+void allocate_new_id(nfs_proxy_t *proxy, pool_id_t pool_id, std::function<void(int res, uint64_t new_id)> cb);
 void kv_read_inode(nfs_proxy_t *proxy, uint64_t ino,
     std::function<void(int res, const std::string & value, json11::Json ientry)> cb,
     bool allow_cache = false);
 uint64_t align_shared_size(nfs_client_t *self, uint64_t size);
 void nfs_do_rmw(nfs_rmw_t *rmw);
+void nfs_move_inode_from(nfs_proxy_t *proxy, uint64_t ino, uint64_t shared_ino,
+    uint64_t shared_offset, std::function<void(int res, bool moved)> cb);
 
 int kv_nfs3_getattr_proc(void *opaque, rpc_op_t *rop);
 int kv_nfs3_setattr_proc(void *opaque, rpc_op_t *rop);

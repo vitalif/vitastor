@@ -68,6 +68,32 @@ static const char* help_text =
     "  --port <PORT>     use port <PORT> for NFS services (default is 2049)\n"
     "  --portmap 0       do not listen on port 111 (portmap/rpcbind, requires root)\n"
     "\n"
+    "vitastor-nfs --fs <NAME> upgrade\n"
+    "  Upgrade FS metadata. Can be run online, but server should be restarted\n"
+    "  after upgrade.\n"
+    "\n"
+    "vitastor-nfs --fs <NAME> defrag [OPTIONS] [--dry-run]\n"
+    "  Defragment volumes used for small file storage having more than\n"
+    "  <defrag_percent> %% of data removed. Can be run online. Options:\n"
+    "  --volume_untouched 86400\n"
+    "    Defragment volumes last appended to at least this number of seconds ago\n"
+    "  --defrag_percent 50\n"
+    "    Defragment volumes with at least this %% of removed data\n"
+    "  --defrag_block_count 16\n"
+    "    Read this number of pool blocks at once during defrag\n"
+    "  --defrag_iodepth 16\n"
+    "    Move up to this number of files in parallel during defrag\n"
+    "  --trace\n"
+    "    Print verbose defragmentation status\n"
+    "  --dry-run\n"
+    "    Skip modifications, only print status\n"
+    "  --recalc-stats\n"
+    "    Recalculate all volume statistics\n"
+    "  --include-empty\n"
+    "    Include old and empty volumes; make sure to restart NFS servers before using it\n"
+    "  --no-rm\n"
+    "    Move, but do not delete data\n"
+    "\n"
     "OPTIONS:\n"
     "  --fs <NAME>       use VitastorFS with metadata in image <NAME>\n"
     "  --block           use pseudo-FS presenting images as files\n"
@@ -113,7 +139,9 @@ json11::Json::object nfs_proxy_t::parse_args(int narg, const char *args[])
         else if (args[i][0] == '-' && args[i][1] == '-')
         {
             const char *opt = args[i]+2;
-            cfg[opt] = !strcmp(opt, "json") || !strcmp(opt, "block") || i == narg-1 ? "1" : args[++i];
+            cfg[str_replace(opt, "-", "_")] = !strcmp(opt, "json") || !strcmp(opt, "block") ||
+                !strcmp(opt, "dry-run") || !strcmp(opt, "recalc-stats") ||
+                !strcmp(opt, "include-empty") || !strcmp(opt, "no-rm") || i == narg-1 ? "1" : args[++i];
         }
         else
         {
@@ -131,6 +159,10 @@ json11::Json::object nfs_proxy_t::parse_args(int narg, const char *args[])
     }
     else if (cmd.size() >= 1 && cmd[0] == "start")
     {
+    }
+    else if (cmd.size() >= 1 && (cmd[0] == "upgrade" || cmd[0] == "defrag") && cfg["fs"].string_value() != "")
+    {
+        cfg["cmd"] = cmd[0];
     }
     else
     {
@@ -211,6 +243,50 @@ void nfs_proxy_t::run(json11::Json cfg)
         kvfs = new kv_fs_state_t();
         kvfs->init(this, cfg);
     }
+    if (cfg["cmd"].is_null())
+    {
+        run_server(cfg);
+    }
+    else if (cfg["cmd"] == "defrag")
+    {
+        kvfs->defrag_all(cfg, [this](int res) { finished = true; });
+    }
+    else if (cfg["cmd"] == "upgrade")
+    {
+        kvfs->upgrade_db([this](int res) { finished = true; });
+    }
+    while (!finished)
+    {
+        ringloop->loop();
+        ringloop->wait();
+    }
+    // Destroy the client
+    cli->flush();
+    if (kvfs)
+    {
+        delete kvfs;
+        kvfs = NULL;
+    }
+    if (blockfs)
+    {
+        delete blockfs;
+        blockfs = NULL;
+    }
+    if (db)
+    {
+        delete db;
+        db = NULL;
+    }
+    delete cli;
+    delete epmgr;
+    delete ringloop;
+    cli = NULL;
+    epmgr = NULL;
+    ringloop = NULL;
+}
+
+void nfs_proxy_t::run_server(json11::Json cfg)
+{
     // Self-register portmap and NFS
     pmap.reg_ports.insert((portmap_id_t){
         .prog = PMAP_PROGRAM,
@@ -285,34 +361,6 @@ void nfs_proxy_t::run(json11::Json cfg)
     {
         write_pid();
     }
-    while (!finished)
-    {
-        ringloop->loop();
-        ringloop->wait();
-    }
-    // Destroy the client
-    cli->flush();
-    if (kvfs)
-    {
-        delete kvfs;
-        kvfs = NULL;
-    }
-    if (blockfs)
-    {
-        delete blockfs;
-        blockfs = NULL;
-    }
-    if (db)
-    {
-        delete db;
-        db = NULL;
-    }
-    delete cli;
-    delete epmgr;
-    delete ringloop;
-    cli = NULL;
-    epmgr = NULL;
-    ringloop = NULL;
 }
 
 void nfs_proxy_t::watch_stats()

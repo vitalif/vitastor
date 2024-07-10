@@ -70,6 +70,7 @@ static const char* help_text =
     "  --wait-list   Retrieve full objects listings before starting to remove objects.\n"
     "                Requires more memory, but allows to show correct removal progress.\n"
     "  --min-offset  Purge only data starting with specified offset.\n"
+    "  --max-offset  Purge only data before specified offset.\n"
     "\n"
     "vitastor-cli merge-data <from> <to> [--target <target>]\n"
     "  Merge layer data without changing metadata. Merge <from>..<to> to <target>.\n"

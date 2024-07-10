@@ -25,6 +25,7 @@ struct rm_inode_t
     uint64_t inode = 0;
     pool_id_t pool_id = 0;
     uint64_t min_offset = 0;
+    uint64_t max_offset = 0;
     bool down_ok = false;
 
     cli_tool_t *parent = NULL;
@@ -52,7 +53,7 @@ struct rm_inode_t
                 .obj_done = 0,
                 .synced = parent->cli->get_immediate_commit(inode),
             });
-            if (min_offset == 0)
+            if (min_offset == 0 && max_offset == 0)
             {
                 total_count += objects.size();
             }
@@ -60,7 +61,7 @@ struct rm_inode_t
             {
                 for (object_id oid: objects)
                 {
-                    if (oid.stripe >= min_offset)
+                    if (oid.stripe >= min_offset && (!max_offset || oid.stripe < max_offset))
                     {
                         total_count++;
                     }
@@ -116,7 +117,7 @@ struct rm_inode_t
         }
         while (cur_list->in_flight < parent->iodepth && cur_list->obj_pos != cur_list->objects.end())
         {
-            if (cur_list->obj_pos->stripe >= min_offset)
+            if (cur_list->obj_pos->stripe >= min_offset && (!max_offset || cur_list->obj_pos->stripe < max_offset))
             {
                 osd_op_t *op = new osd_op_t();
                 op->op_type = OSD_OP_OUT;
@@ -287,6 +288,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_rm_data(json11::Json cfg)
     remover->down_ok = cfg["down_ok"].bool_value();
     remover->pool_id = INODE_POOL(remover->inode);
     remover->min_offset = cfg["min_offset"].uint64_value();
+    remover->max_offset = cfg["max_offset"].uint64_value();
     return [remover](cli_result_t & result)
     {
         remover->loop();

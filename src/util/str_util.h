@@ -30,3 +30,4 @@ std::string scan_escaped(const std::string & cmd, size_t & pos, bool allow_unquo
 std::string auto_addslashes(const std::string & str, const char *toescape = "\\\"");
 std::string addslashes(const std::string & str, const char *toescape = "\\\"");
 std::string realpath_str(std::string path, bool nofail = true);
+std::string format_datetime(uint64_t unixtime);

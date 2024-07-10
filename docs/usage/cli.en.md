@@ -176,6 +176,7 @@ Remove inode data without changing metadata.
 --wait-list   Retrieve full objects listings before starting to remove objects.
               Requires more memory, but allows to show correct removal progress.
 --min-offset  Purge only data starting with specified offset.
+--max-offset  Purge only data before specified offset.
 ```
 
 ## merge-data

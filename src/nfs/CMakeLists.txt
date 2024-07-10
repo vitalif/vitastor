@@ -8,6 +8,7 @@ add_executable(vitastor-nfs
 	nfs_block.cpp
 	nfs_kv.cpp
 	nfs_kv_create.cpp
+	nfs_kv_defrag.cpp
 	nfs_kv_getattr.cpp
 	nfs_kv_link.cpp
 	nfs_kv_lookup.cpp
