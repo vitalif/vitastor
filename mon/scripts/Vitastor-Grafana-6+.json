@@ -2615,7 +2615,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(vitastor_osd_stat_usec{clusterid=\"$Cluster\",op_type=\"op\",op=~\"^(write|write_stable)$\"}[60s])/rate(vitastor_osd_stat_count{clusterid=\"$Cluster\",op_type=\"op\",op=~\"^(write|write_stable)$\"}[60s]) > 0.001",
+          "expr": "avg(rate(vitastor_osd_stat_usec{clusterid=\"$Cluster\",op_type=\"op\",op=~\"^(write|write_stable)$\"}[60s])/rate(vitastor_osd_stat_count{clusterid=\"$Cluster\",op_type=\"op\",op=~\"^(write|write_stable)$\"}[60s]) > 0.001) without (op)",
           "legendFormat": "OSD {{osd_num}}",
           "refId": "A"
         }
@@ -2814,5 +2814,5 @@
   "variables": {
     "list": []
   },
-  "version": 50
+  "version": 51
 }
