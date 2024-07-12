@@ -11,6 +11,8 @@ Vitastor has two file system implementations. Both can be used via `vitastor-nfs
 Commands:
 - [mount](#mount)
 - [start](#start)
+- [upgrade](#upgrade)
+- [defrag](#defrag)
 
 ## Pseudo-FS
 
@@ -86,10 +88,6 @@ POSIX features currently not implemented in VitastorFS:
 - Modification time (`mtime`) is updated lazily every second (like `-o lazytime`)
 
 Other notable missing features which should be addressed in the future:
-- Defragmentation of "shared" inodes. Files smaller than pool object size (block_size
-  multiplied by data part count if pool is EC) are internally stored in large block
-  volumes sequentially, one after another, and leave garbage after deleting or resizing.
-  Defragmentator will be implemented to collect this garbage.
 - Inode ID reuse. Currently inode IDs always grow, the limit is 2^48 inodes, so
   in theory you may hit it if you create and delete a very large number of files
 - Compaction of the key-value B-Tree. Current implementation never merges or deletes
@@ -138,6 +136,37 @@ Start network NFS server. Options:
 | `--bind <IP>`   | bind service to \<IP> address (default 0.0.0.0)            |
 | `--port <PORT>` | use port \<PORT> for NFS services (default is 2049)        |
 | `--portmap 0`   | do not listen on port 111 (portmap/rpcbind, requires root) |
+
+### upgrade
+
+`vitastor-nfs --fs <NAME> upgrade`
+
+Upgrade FS metadata. Can be run online, but server(s) should be restarted after upgrade.
+
+### defrag
+
+`vitastor-nfs --fs <NAME> defrag [OPTIONS] [--dry-run]`
+
+Defragment volumes used for small file storage having more than \<defrag_percent> %
+of data removed. Can be run online.
+
+In VitastorFS, small files are stored in large "volumes" / "shared inodes" one
+after another. When you delete or extend such files, they are moved and garbage is left
+behind. Defragmentation removes garbage and moves data still in use to new volumes.
+
+Options:
+
+| <!-- -->                 | <!-- -->                                                                |
+|--------------------------|------------------------------------------------------------------------ |
+| --volume_untouched 86400 | Defragment volumes last appended to at least this number of seconds ago |
+| --defrag_percent 50      | Defragment volumes with at least this % of removed data                 |
+| --defrag_block_count 16  | Read this number of pool blocks at once during defrag                   |
+| --defrag_iodepth 16      | Move up to this number of files in parallel during defrag               |
+| --trace                  | Print verbose defragmentation status                                    |
+| --dry-run                | Skip modifications, only print status                                   |
+| --recalc-stats           | Recalculate all volume statistics                                       |
+| --include-empty          | Include old and empty volumes; make sure to restart NFS servers before using it |
+| --no-rm                  | Move, but do not delete data                                            |
 
 ## Common options
 

@@ -139,8 +139,10 @@ void kv_fs_defrag_t::handle_read()
                     {
                         fprintf(
                             stderr, was_moved
-                                ? "Moved inode 0x%jx (%ju bytes) from volume 0x%jx offset 0x%ju\n"
-                                : "Inode 0x%jx (%ju bytes) data in volume 0x%jx at offset 0x%ju is unused",
+                                ? (dry_run
+                                    ? "In use inode 0x%jx (%ju bytes) in volume 0x%jx at offset 0x%jx\n"
+                                    : "Moved inode 0x%jx (%ju bytes) in volume 0x%jx at offset 0x%jx\n")
+                                : "Unused inode 0x%jx (%ju bytes) in volume 0x%jx at offset 0x%jx\n",
                             ino, alloc, shared_ino, shared_offset
                         );
                     }
