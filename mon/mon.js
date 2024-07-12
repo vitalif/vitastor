@@ -757,7 +757,14 @@ class Mon
             kv.value = kv.value || {};
         }
         const old = cur[key_parts[key_parts.length-1]];
-        cur[key_parts[key_parts.length-1]] = kv.value;
+        if (kv.value == null)
+        {
+            delete cur[key_parts[key_parts.length-1]];
+        }
+        else
+        {
+            cur[key_parts[key_parts.length-1]] = kv.value;
+        }
         if (key === 'config/global')
         {
             this.config = { ...this.fileConfig, ...this.state.config.global, ...this.cliConfig };
