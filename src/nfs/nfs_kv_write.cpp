@@ -30,6 +30,7 @@ struct nfs_kv_write_state
     uint64_t new_size = 0;
     uint64_t aligned_size = 0;
     uint8_t *aligned_buf = NULL;
+    int retry = 0;
     // new shared parameters
     uint64_t shared_inode = 0, shared_offset = 0, shared_alloc = 0;
     bool was_immediate = false;
@@ -301,6 +302,10 @@ static void nfs_do_shared_read(nfs_kv_write_state *st, int state)
         if (st->shdr.magic != SHARED_FILE_MAGIC_V1 || st->shdr.inode != st->ino)
         {
             // Got unrelated data - retry from the beginning
+            fprintf(stderr, "Warning: got unrelated data for inode 0x%jx from shared inode"
+                " 0x%jx offset 0x%jx: probably a read/write conflict, retrying\n",
+                st->ino, st->ientry["shared_ino"].uint64_value(), st->ientry["shared_offset"].uint64_value());
+            st->retry++;
             st->allow_cache = false;
             free(st->aligned_buf);
             st->aligned_buf = NULL;
@@ -764,6 +769,11 @@ resume_0:
     kv_read_inode(st->proxy, st->ino, [st](int res, const std::string & value, json11::Json attrs)
     {
         st->res = res;
+        if (st->retry > 0 && !res && st->ientry_text == value)
+        {
+            fprintf(stderr, "Error: inode 0x%jx didn't change after retry - file data is lost?\n", st->ino);
+            st->res = -EIO;
+        }
         st->ientry_text = value;
         st->ientry = attrs;
         nfs_kv_continue_write(st, 1);

@@ -20,10 +20,12 @@ struct nfs_kv_read_state
     int res = 0;
     int eof = 0;
     json11::Json ientry;
+    std::string ientry_text;
     uint64_t aligned_size = 0, aligned_offset = 0;
     uint8_t *aligned_buf = NULL;
     cluster_op_t *op = NULL;
     uint8_t *buf = NULL;
+    int retry = 0;
 };
 
 #define align_down(size) ((size) & ~(st->self->parent->kvfs->pool_alignment-1))
@@ -46,6 +48,12 @@ resume_0:
         kv_read_inode(st->self->parent, st->ino, [st](int res, const std::string & value, json11::Json attrs)
         {
             st->res = res;
+            if (st->retry > 0 && !res && st->ientry_text == value)
+            {
+                fprintf(stderr, "Error: inode 0x%jx didn't change after retry - file data is lost?\n", st->ino);
+                st->res = -EIO;
+            }
+            st->ientry_text = value;
             st->ientry = attrs;
             nfs_kv_continue_read(st, 1);
         }, st->allow_cache);
@@ -119,6 +127,10 @@ resume_2:
             if (hdr->magic != SHARED_FILE_MAGIC_V1 || hdr->inode != st->ino)
             {
                 // Got unrelated data - retry from the beginning
+                fprintf(stderr, "Warning: got unrelated data for inode 0x%jx from shared inode"
+                    " 0x%jx offset 0x%jx: probably a read/write conflict, retrying\n",
+                    st->ino, st->ientry["shared_ino"].uint64_value(), st->ientry["shared_offset"].uint64_value());
+                st->retry++;
                 free(st->aligned_buf);
                 st->aligned_buf = NULL;
                 st->allow_cache = false;
