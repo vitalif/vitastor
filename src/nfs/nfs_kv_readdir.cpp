@@ -190,12 +190,12 @@ resume_2:
         {
             st->start = st->prefix+lc_it->second.key;
             st->to_skip = 1;
-            st->offset = st->cookie;
+            st->offset = st->cookie+1;
         }
         else
         {
             st->to_skip = st->cookie-2;
-            st->offset = 2;
+            st->offset = st->cookie;
             st->cookieverf = ((uint64_t)lrand48() | ((uint64_t)lrand48() << 31) | ((uint64_t)lrand48() << 62));
         }
     }
