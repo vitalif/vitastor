@@ -179,7 +179,7 @@ bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, void *curbuf, int rem
 
 bool osd_messenger_t::handle_finished_read(osd_client_t *cl)
 {
-    cl->ping_time_remaining = osd_ping_timeout;
+    cl->ping_time_remaining = 0;
     cl->idle_time_remaining = osd_idle_timeout;
     cl->recv_list.reset();
     if (cl->read_state == CL_READ_HDR)
