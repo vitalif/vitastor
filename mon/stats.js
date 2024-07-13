@@ -3,10 +3,10 @@
 
 function derive_osd_stats(st, prev, prev_diff)
 {
-    const diff = prev_diff || { op_stats: {}, subop_stats: {}, recovery_stats: {}, inode_stats: {} };
+    const diff = { op_stats: {}, subop_stats: {}, recovery_stats: {}, inode_stats: {} };
     if (!st || !st.time || !prev || !prev.time || prev.time >= st.time)
     {
-        return diff;
+        return prev_diff || diff;
     }
     const timediff = BigInt(st.time*1000 - prev.time*1000);
     for (const op in st.op_stats||{})
