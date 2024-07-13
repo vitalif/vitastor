@@ -3,10 +3,10 @@
 
 function derive_osd_stats(st, prev, prev_diff)
 {
-    const diff = { op_stats: {}, subop_stats: {}, recovery_stats: {}, inode_stats: {} };
+    const diff = prev_diff || { op_stats: {}, subop_stats: {}, recovery_stats: {}, inode_stats: {} };
     if (!st || !st.time || !prev || !prev.time || prev.time >= st.time)
     {
-        return prev_diff || diff;
+        return diff;
     }
     const timediff = BigInt(st.time*1000 - prev.time*1000);
     for (const op in st.op_stats||{})
@@ -17,8 +17,7 @@ function derive_osd_stats(st, prev, prev_diff)
         const b = c.bytes - BigInt(pr && pr.bytes||0);
         const us = c.usec - BigInt(pr && pr.usec||0);
         const n = c.count - BigInt(pr && pr.count||0);
-        if (n > 0)
-            diff.op_stats[op] = { ...c, bps: b*1000n/timediff, iops: n*1000n/timediff, lat: us/n };
+        diff.op_stats[op] = { ...c, bps: b*1000n/timediff, iops: n*1000n/timediff, lat: n ? us/n : 0n };
     }
     for (const op in st.subop_stats||{})
     {
@@ -27,8 +26,7 @@ function derive_osd_stats(st, prev, prev_diff)
         c = { usec: BigInt(c.usec||0), count: BigInt(c.count||0) };
         const us = c.usec - BigInt(pr && pr.usec||0);
         const n = c.count - BigInt(pr && pr.count||0);
-        if (n > 0)
-            diff.subop_stats[op] = { ...c, iops: n*1000n/timediff, lat: us/n };
+        diff.subop_stats[op] = { ...c, iops: n*1000n/timediff, lat: n ? us/n : 0n };
     }
     for (const op in st.recovery_stats||{})
     {
@@ -37,8 +35,7 @@ function derive_osd_stats(st, prev, prev_diff)
         c = { bytes: BigInt(c.bytes||0), count: BigInt(c.count||0) };
         const b = c.bytes - BigInt(pr && pr.bytes||0);
         const n = c.count - BigInt(pr && pr.count||0);
-        if (n > 0)
-            diff.recovery_stats[op] = { ...c, bps: b*1000n/timediff, iops: n*1000n/timediff };
+        diff.recovery_stats[op] = { ...c, bps: b*1000n/timediff, iops: n*1000n/timediff };
     }
     for (const pool_id in st.inode_stats||{})
     {
