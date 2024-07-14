@@ -17,7 +17,7 @@ function derive_osd_stats(st, prev, prev_diff)
         const b = c.bytes - BigInt(pr && pr.bytes||0);
         const us = c.usec - BigInt(pr && pr.usec||0);
         const n = c.count - BigInt(pr && pr.count||0);
-        diff.op_stats[op] = { ...c, bps: b*1000n/timediff, iops: n*1000n/timediff, lat: n ? us/n : 0n };
+        diff.op_stats[op] = { ...c, bps: n > 0 ? b*1000n/timediff : 0n, iops: n > 0 ? n*1000n/timediff : 0n, lat: n > 0 ? us/n : 0n };
     }
     for (const op in st.subop_stats||{})
     {
@@ -26,7 +26,7 @@ function derive_osd_stats(st, prev, prev_diff)
         c = { usec: BigInt(c.usec||0), count: BigInt(c.count||0) };
         const us = c.usec - BigInt(pr && pr.usec||0);
         const n = c.count - BigInt(pr && pr.count||0);
-        diff.subop_stats[op] = { ...c, iops: n*1000n/timediff, lat: n ? us/n : 0n };
+        diff.subop_stats[op] = { ...c, iops: n > 0 ? n*1000n/timediff : 0n, lat: n > 0 ? us/n : 0n };
     }
     for (const op in st.recovery_stats||{})
     {
@@ -35,7 +35,7 @@ function derive_osd_stats(st, prev, prev_diff)
         c = { bytes: BigInt(c.bytes||0), count: BigInt(c.count||0) };
         const b = c.bytes - BigInt(pr && pr.bytes||0);
         const n = c.count - BigInt(pr && pr.count||0);
-        diff.recovery_stats[op] = { ...c, bps: b*1000n/timediff, iops: n*1000n/timediff };
+        diff.recovery_stats[op] = { ...c, bps: n > 0 ? b*1000n/timediff : 0n, iops: n > 0 ? n*1000n/timediff : 0n };
     }
     for (const pool_id in st.inode_stats||{})
     {
@@ -50,9 +50,9 @@ function derive_osd_stats(st, prev, prev_diff)
                     prev.inode_stats[pool_id][inode_num] && prev.inode_stats[pool_id][inode_num][op];
                 const n = BigInt(c.count||0) - BigInt(pr && pr.count||0);
                 inode_diff[op] = {
-                    bps: (BigInt(c.bytes||0) - BigInt(pr && pr.bytes||0))*1000n/timediff,
-                    iops: n*1000n/timediff,
-                    lat: (BigInt(c.usec||0) - BigInt(pr && pr.usec||0))/(n || 1n),
+                    bps: n > 0 ? (BigInt(c.bytes||0) - BigInt(pr && pr.bytes||0))*1000n/timediff : 0n,
+                    iops: n > 0 ? n*1000n/timediff : 0n,
+                    lat: n > 0 ? (BigInt(c.usec||0) - BigInt(pr && pr.usec||0))/n : 0n,
                 };
             }
         }
