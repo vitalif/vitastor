@@ -35,7 +35,8 @@ ADD . /root/vitastor
 RUN set -e; \
     cd /root/vitastor/rpm; \
     sh build-tarball.sh; \
-    cp /root/vitastor-1.6.1.el8.tar.gz ~/rpmbuild/SOURCES; \
+    VER=$(grep ^Version: vitastor-el8.spec | awk '{print $2}'); \
+    cp /root/vitastor-$VER.el8.tar.gz ~/rpmbuild/SOURCES; \
     cp vitastor-el8.spec ~/rpmbuild/SPECS/vitastor.spec; \
     cd ~/rpmbuild/SPECS/; \
     rpmbuild -ba vitastor.spec; \

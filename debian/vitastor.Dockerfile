@@ -25,7 +25,7 @@ RUN apt-get update
 RUN apt-get -y install fio liburing-dev libgoogle-perftools-dev devscripts
 RUN apt-get -y build-dep fio
 RUN apt-get --download-only source fio
-RUN apt-get update && apt-get -y install libjerasure-dev cmake libibverbs-dev libisal-dev libnl-3-dev libnl-genl-3-dev
+RUN apt-get update && apt-get -y install libjerasure-dev cmake libibverbs-dev libisal-dev libnl-3-dev libnl-genl-3-dev curl
 
 ADD . /root/vitastor
 RUN set -e -x; \
@@ -37,8 +37,10 @@ RUN set -e -x; \
     mkdir -p /root/packages/vitastor-$REL; \
     rm -rf /root/packages/vitastor-$REL/*; \
     cd /root/packages/vitastor-$REL; \
-    cp -r /root/vitastor vitastor-1.6.1; \
-    cd vitastor-1.6.1; \
+    FULLVER=$(head -n1 /root/vitastor/debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
+    VER=${FULLVER%%-*}; \
+    cp -r /root/vitastor vitastor-$VER; \
+    cd vitastor-$VER; \
     ln -s /root/fio-build/fio-*/ ./fio; \
     FIO=$(head -n1 fio/debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
     ls /usr/include/linux/raw.h || cp ./debian/raw.h /usr/include/linux/raw.h; \
@@ -50,10 +52,14 @@ RUN set -e -x; \
     echo fio-headers.patch >> debian/patches/series; \
     rm -rf a b; \
     echo "dep:fio=$FIO" > debian/fio_version; \
+    cd /root/packages/vitastor-$REL/vitastor-$VER; \
+    mkdir mon/node_modules; \
+    cd mon/node_modules; \
+    curl -s https://git.yourcmc.ru/vitalif/antietcd/archive/master.tar.gz | tar -zx; \
+    curl -s https://git.yourcmc.ru/vitalif/tinyraft/archive/master.tar.gz | tar -zx; \
     cd /root/packages/vitastor-$REL; \
-    tar --sort=name --mtime='2020-01-01' --owner=0 --group=0 --exclude=debian -cJf vitastor_1.6.1.orig.tar.xz vitastor-1.6.1; \
-    cd vitastor-1.6.1; \
-    V=$(head -n1 debian/changelog | perl -pe 's/^.*\((.*?)\).*$/$1/'); \
-    DEBFULLNAME="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v "$V""$REL" "Rebuild for $REL"; \
+    tar --sort=name --mtime='2020-01-01' --owner=0 --group=0 --exclude=debian -cJf vitastor_$VER.orig.tar.xz vitastor-$VER; \
+    cd vitastor-$VER; \
+    DEBFULLNAME="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v "$FULLVER""$REL" "Rebuild for $REL"; \
     DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto -sa; \
     rm -rf /root/packages/vitastor-$REL/vitastor-*/
