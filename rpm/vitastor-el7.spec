@@ -161,6 +161,7 @@ mkdir -p /etc/vitastor
 
 %files -n vitastor-client-devel
 %_includedir/vitastor_c.h
+%_includedir/vitastor_kv.h
 %_libdir/pkgconfig
 
 
