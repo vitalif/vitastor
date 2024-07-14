@@ -69,9 +69,13 @@ class Mon
         this.prev_stats = { osd_stats: {}, osd_diff: {} };
         this.recheck_pgs_active = false;
         this.watcher_active = false;
+    }
+
+    async start()
+    {
         if (this.config.enable_prometheus || !('enable_prometheus' in this.config))
         {
-            this.http = create_http_server(this.config, (req, res) =>
+            this.http = await create_http_server(this.config, (req, res) =>
             {
                 const u = new URL(req.url, 'http://'+(req.headers.host || 'localhost'));
                 if (u.pathname.replace(/\/+$/, '') == (this.config.prometheus_path||'/metrics'))
@@ -93,11 +97,13 @@ class Mon
                 }
                 res.end();
             });
+            this.http_connections = new Set();
+            this.http.on('connection', conn =>
+            {
+                this.http_connections.add(conn);
+                conn.once('close', () => this.http_connections.delete(conn));
+            });
         }
-    }
-
-    async start()
-    {
         await this.load_config();
         await this.get_lease();
         await this.etcd.become_master();
@@ -319,6 +325,16 @@ class Mon
     async on_stop()
     {
         console.log('Stopping Monitor');
+        if (this.http)
+        {
+            await new Promise(ok =>
+            {
+                this.http.close(ok);
+                for (const conn of this.http_connections)
+                    conn.destroy();
+            });
+            this.http = null;
+        }
         this.etcd.stop_watcher();
         if (this.save_last_clean_timer)
         {
