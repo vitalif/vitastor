@@ -141,6 +141,8 @@ mkdir -p /etc/vitastor
 groupadd -r -f vitastor 2>/dev/null ||:
 useradd -r -g vitastor -s /sbin/nologin -c "Vitastor daemons" -M -d /nonexistent vitastor 2>/dev/null ||:
 mkdir -p /etc/vitastor
+mkdir -p /var/lib/vitastor
+chown vitastor:vitastor /var/lib/vitastor
 
 
 %files -n vitastor-client
