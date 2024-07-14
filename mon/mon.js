@@ -22,6 +22,11 @@ class Mon
 {
     static async run_forever(config)
     {
+        if (fs.existsSync(config.config_path||'/etc/vitastor/vitastor.conf'))
+        {
+            const fileConfig = JSON.parse(fs.readFileSync(config.config_path||'/etc/vitastor/vitastor.conf', { encoding: 'utf-8' }));
+            config = { ...fileConfig, config };
+        }
         let antietcd = await AntiEtcdAdapter.start_antietcd(config);
         let mon;
         const run = () =>
