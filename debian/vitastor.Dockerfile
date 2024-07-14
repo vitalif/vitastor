@@ -9,7 +9,14 @@ ARG REL=
 
 WORKDIR /root
 
-RUN if [ "$REL" = "buster" -o "$REL" = "bullseye" ]; then \
+RUN set -e -x; \
+    if [ "$REL" = "buster" ]; then \
+        apt-get update; \
+        apt-get -y install wget; \
+        wget https://vitastor.io/debian/pubkey.gpg -O /etc/apt/trusted.gpg.d/vitastor.gpg; \
+        echo "deb https://vitastor.io/debian $REL main" >> /etc/apt/sources.list; \
+    fi; \
+    if [ "$REL" = "bullseye" ]; then \
         echo "deb http://deb.debian.org/debian $REL-backports main" >> /etc/apt/sources.list; \
         echo >> /etc/apt/preferences; \
         echo 'Package: *' >> /etc/apt/preferences; \
