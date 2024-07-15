@@ -19,6 +19,9 @@ struct pool_creator_t
     bool force = false;
     bool wait = false;
 
+    uint64_t block_size = 0, bitmap_granularity = 0;
+    uint32_t immediate_commit = 0;
+
     int state = 0;
     cli_result_t result;
 
@@ -187,13 +190,23 @@ resume_4:
 
                 if (cfg["pg_size"].uint64_value() > max_pg_size)
                 {
+                    std::string pool_err = "Not enough matching OSDs to create pool."
+                        " Change parameters or add --force to create a degraded pool."
+                        "\n\nAt least "+std::to_string(cfg["pg_size"].uint64_value())+
+                        " (pg_size="+std::to_string(cfg["pg_size"].uint64_value())+") OSDs should have:"
+                        "\n- block_size "+format_size(block_size, false, true)+
+                        "\n- bitmap_granularity "+format_size(bitmap_granularity, false, true);
+                    if (immediate_commit == IMMEDIATE_ALL)
+                        pool_err += "\n- immediate_commit all";
+                    else if (immediate_commit == IMMEDIATE_SMALL)
+                        pool_err += "\n- immediate_commit all or small";
+                    if (cfg["osd_tags"].array_items().size())
+                        pool_err += "\n- '"+implode("', '", cfg["osd_tags"])+(cfg["osd_tags"].array_items().size() > 1 ? "' tags" : "' tag");
+                    if (failure_domain != "osd")
+                        pool_err += "\n- different parent '"+failure_domain+"' nodes";
                     result = (cli_result_t){
                         .err = EINVAL,
-                        .text =
-                            "There are "+std::to_string(max_pg_size)+" \""+failure_domain+"\" failure domains with OSDs matching tags and"
-                            " block_size/bitmap_granularity/immediate_commit parameters, but you want to create a"
-                            " pool with "+cfg["pg_size"].as_string()+" OSDs from different failure domains in a PG."
-                            " Change parameters or add --force if you want to create a degraded pool and add OSDs later."
+                        .text = pool_err,
                     };
                     state = 100;
                     return;
@@ -441,13 +454,13 @@ resume_8:
         // List of accepted osds
         std::vector<std::string> accepted_osds;
 
-        uint64_t p_block_size = cfg["block_size"].uint64_value()
+        block_size = cfg["block_size"].uint64_value()
             ? cfg["block_size"].uint64_value()
             : parent->cli->st_cli.global_block_size;
-        uint64_t p_bitmap_granularity = cfg["bitmap_granularity"].uint64_value()
+        bitmap_granularity = cfg["bitmap_granularity"].uint64_value()
             ? cfg["bitmap_granularity"].uint64_value()
             : parent->cli->st_cli.global_bitmap_granularity;
-        uint32_t p_immediate_commit = cfg["immediate_commit"].is_string()
+        immediate_commit = cfg["immediate_commit"].is_string()
             ? etcd_state_client_t::parse_immediate_commit(cfg["immediate_commit"].string_value(), IMMEDIATE_ALL)
             : parent->cli->st_cli.global_immediate_commit;
 
@@ -456,10 +469,10 @@ resume_8:
             auto & os = osd_stats[i];
             // Get osd number
             auto osd_num = osds[i].as_string();
-            if (!os["data_block_size"].is_null() && os["data_block_size"] != p_block_size ||
-                !os["bitmap_granularity"].is_null() && os["bitmap_granularity"] != p_bitmap_granularity ||
+            if (!os["data_block_size"].is_null() && os["data_block_size"] != block_size ||
+                !os["bitmap_granularity"].is_null() && os["bitmap_granularity"] != bitmap_granularity ||
                 !os["immediate_commit"].is_null() &&
-                etcd_state_client_t::parse_immediate_commit(os["immediate_commit"].string_value(), IMMEDIATE_NONE) < p_immediate_commit)
+                etcd_state_client_t::parse_immediate_commit(os["immediate_commit"].string_value(), IMMEDIATE_NONE) < immediate_commit)
             {
                 accepted_nodes.erase(osd_num);
             }
