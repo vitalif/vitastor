@@ -16,8 +16,6 @@
   - Debian 10 (Buster): `deb https://vitastor.io/debian buster main`
   - Добавьте `-oldstable` к слову bookworm/bullseye/buster в этой строке, чтобы
     установить последнюю стабильную версию из ветки 0.9.x вместо 1.x
-- Для Debian 10 (Buster) также включите репозиторий backports:
-  `deb http://deb.debian.org/debian buster-backports main`
 - Установите пакеты: `apt update; apt install vitastor lp-solve etcd linux-image-amd64 qemu-system-x86`
 
 ## CentOS

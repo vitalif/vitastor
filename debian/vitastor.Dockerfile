@@ -16,23 +16,15 @@ RUN set -e -x; \
         wget https://vitastor.io/debian/pubkey.gpg -O /etc/apt/trusted.gpg.d/vitastor.gpg; \
         echo "deb https://vitastor.io/debian $REL main" >> /etc/apt/sources.list; \
     fi; \
-    if [ "$REL" = "bullseye" ]; then \
-        echo "deb http://deb.debian.org/debian $REL-backports main" >> /etc/apt/sources.list; \
-        echo >> /etc/apt/preferences; \
-        echo 'Package: *' >> /etc/apt/preferences; \
-        echo "Pin: release a=$REL-backports" >> /etc/apt/preferences; \
-        echo 'Pin-Priority: 500' >> /etc/apt/preferences; \
-    fi; \
     grep '^deb ' /etc/apt/sources.list | perl -pe 's/^deb/deb-src/' >> /etc/apt/sources.list; \
     perl -i -pe 's/Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources || true; \
     echo 'APT::Install-Recommends false;' >> /etc/apt/apt.conf; \
     echo 'APT::Install-Suggests false;' >> /etc/apt/apt.conf
 
 RUN apt-get update
-RUN apt-get -y install fio liburing-dev libgoogle-perftools-dev devscripts
+RUN apt-get -y install fio liburing-dev libgoogle-perftools-dev devscripts libjerasure-dev cmake libibverbs-dev libisal-dev libnl-3-dev libnl-genl-3-dev curl
 RUN apt-get -y build-dep fio
 RUN apt-get --download-only source fio
-RUN apt-get update && apt-get -y install libjerasure-dev cmake libibverbs-dev libisal-dev libnl-3-dev libnl-genl-3-dev curl
 
 ADD . /root/vitastor
 RUN set -e -x; \
