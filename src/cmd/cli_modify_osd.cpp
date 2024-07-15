@@ -119,7 +119,7 @@ resume_1:
                 { "result", "LESS" },
                 { "mod_revision", osd_cfg_mod_rev+1 },
             });
-            if (osd_cfg.size())
+            if (!osd_cfg.size())
             {
                 success.push_back(json11::Json::object {
                     { "request_delete_range", json11::Json::object {
