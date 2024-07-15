@@ -22,12 +22,13 @@ class Mon
 {
     static async run_forever(config)
     {
+        let mergedConfig = config;
         if (fs.existsSync(config.config_path||'/etc/vitastor/vitastor.conf'))
         {
             const fileConfig = JSON.parse(fs.readFileSync(config.config_path||'/etc/vitastor/vitastor.conf', { encoding: 'utf-8' }));
-            config = { ...fileConfig, config };
+            mergedConfig = { ...fileConfig, ...config };
         }
-        let antietcd = await AntiEtcdAdapter.start_antietcd(config);
+        let antietcd = await AntiEtcdAdapter.start_antietcd(mergedConfig);
         let mon;
         const run = () =>
         {
