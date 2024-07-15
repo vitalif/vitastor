@@ -26,6 +26,8 @@ It supports the following commands:
 - [rm-osd](#rm-osd)
 - [osd-tree](#osd-tree)
 - [ls-osd](#ls-osd)
+- [modify-osd](#modify-osd)
+- [pg-list](#pg-list)
 - [create-pool](#create-pool)
 - [modify-pool](#modify-pool)
 - [ls-pools](#ls-pools)
@@ -306,6 +308,24 @@ OSD  PARENT            UP    SIZE  USED%    TAGS          WEIGHT  BLOCK  BITMAP 
 `vitastor-cli modify-osd [--tags tag1,tag2,...] [--reweight <number>] [--noout true/false] <osd_number>`
 
 Set OSD reweight, tags or noout flag. See detail description in [OSD config documentation](../config.pool.en.md#osd-settings).
+
+## pg-list
+
+`vitastor-cli pg-list|pg-ls|list-pg|ls-pg|ls-pgs [OPTIONS] [state1+state2] [^state3] [...]`
+
+List PGs with any of listed state filters (^ or ! in the beginning is negation). Options:
+
+```
+--pool <pool name or number>  Only list PGs of the given pool.
+--min <min pg number>         Only list PGs with number >= min.
+--max <max pg number>         Only list PGs with number <= max.
+```
+
+Examples:
+
+`vitastor-cli pg-list active+degraded`
+
+`vitastor-cli pg-list ^active`
 
 ## create-pool
 
