@@ -71,7 +71,7 @@ index c9baeda639..85e1df5a56 100644
         description: 'OpenGL support')
  option('rdma', type : 'feature', value : 'auto',
 diff --git a/qapi/block-core.json b/qapi/block-core.json
-index ca390c5700..8f11ae9fa5 100644
+index ca390c5700..d2dbaeb279 100644
 --- a/qapi/block-core.json
 +++ b/qapi/block-core.json
 @@ -3201,7 +3201,7 @@
@@ -120,7 +120,7 @@ index ca390c5700..8f11ae9fa5 100644
        'virtio-blk-vfio-pci':
                      { 'type': 'BlockdevOptionsVirtioBlkVfioPci',
                        'if': 'CONFIG_BLKIO' },
-@@ -5148,6 +5171,17 @@
+@@ -5148,6 +5171,20 @@
              '*cluster-size' :   'size',
              '*encrypt' :        'RbdEncryptionCreateOptions' } }
  
@@ -128,6 +128,9 @@ index ca390c5700..8f11ae9fa5 100644
 +# @BlockdevCreateOptionsVitastor:
 +#
 +# Driver specific image creation options for Vitastor.
++#
++# @location: Where to store the new image file.  This location cannot
++#     point to a snapshot.
 +#
 +# @size: Size of the virtual disk in bytes
 +##
@@ -138,7 +141,7 @@ index ca390c5700..8f11ae9fa5 100644
  ##
  # @BlockdevVmdkSubformat:
  #
-@@ -5370,6 +5404,7 @@
+@@ -5370,6 +5407,7 @@
        'ssh':            'BlockdevCreateOptionsSsh',
        'vdi':            'BlockdevCreateOptionsVdi',
        'vhdx':           'BlockdevCreateOptionsVhdx',
