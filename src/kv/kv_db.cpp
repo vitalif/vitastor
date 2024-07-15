@@ -501,7 +501,7 @@ void kv_block_t::dump(int base_level)
 
 void kv_db_t::open(inode_t inode_id, json11::Json cfg, std::function<void(int)> cb)
 {
-    if (block_cache.size() > 0 || inode_id)
+    if (block_cache.size() > 0 || this->inode_id)
     {
         cb(-EINVAL);
         return;
