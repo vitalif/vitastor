@@ -107,15 +107,16 @@ If a PG is active it can also have any number of the following additional states
 
 ## Removing a healthy disk
 
-Befor removing a healthy disk from the cluster set its OSD weight(s) to 0 to
-move data away. To do that, add `"reweight":0` to etcd key `/vitastor/config/osd/<OSD_NUMBER>`.
-For example:
+Before removing a healthy disk from the cluster set its OSD weight(s) to 0 to
+move data away. To do that, run `vitastor-cli modify-osd --reweight 0 <НОМЕР_OSD>`.
+
+Then wait until rebalance finishes and remove OSD by running `vitastor-disk purge /dev/vitastor/osdN-data`.
+
+Zero weight can also be put manually into etcd key `/vitastor/config/osd/<НОМЕР_OSD>`, for example:
 
 ```
 etcdctl --endpoints=http://1.1.1.1:2379/v3 put /vitastor/config/osd/1 '{"reweight":0}'
 ```
-
-Then wait until rebalance finishes and remove OSD by running `vitastor-disk purge /dev/vitastor/osdN-data`.
 
 ## Removing a failed disk
 
