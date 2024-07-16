@@ -383,7 +383,7 @@ int disk_tool_t::pre_exec_osd(std::string device)
 
 int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
 {
-    std::vector<uint64_t> osd_numbers;
+    std::set<uint64_t> osd_numbers;
     json11::Json::array superblocks;
     for (auto & device: devices)
     {
@@ -391,8 +391,11 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
         if (!sb.is_null())
         {
             uint64_t osd_num = sb["params"]["osd_num"].uint64_value();
-            osd_numbers.push_back(osd_num);
-            superblocks.push_back(sb);
+            if (osd_numbers.find(osd_num) == osd_numbers.end())
+            {
+                osd_numbers.insert(osd_num);
+                superblocks.push_back(sb);
+            }
         }
     }
     if (!osd_numbers.size())
