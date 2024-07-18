@@ -261,7 +261,7 @@ void osd_t::start_pg_peering(pg_t & pg)
                     }
                 }
             }
-            if (found < (nonzero >= pg.pg_data_size ? pg.pg_data_size : 1))
+            if (nonzero >= pg.pg_data_size && found < pg.pg_data_size)
             {
                 pg.state = PG_INCOMPLETE;
                 report_pg_state(pg);
