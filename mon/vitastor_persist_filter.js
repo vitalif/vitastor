@@ -24,7 +24,7 @@ function vitastor_persist_filter(cfg)
                 catch (e)
                 {
                     console.error('invalid JSON in '+key+' = '+value+': '+e);
-                    value = {};
+                    value = '{}';
                 }
             }
             else

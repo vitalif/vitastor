@@ -35,7 +35,7 @@ class AntiEtcdAdapter
                     ip: selected[0][0],
                     port: selected[0][1],
                     data: config.antietcd_data_file || ((config.antietcd_data_dir || '/var/lib/vitastor') + '/mon_'+selected[0][1]+'.json.gz'),
-                    persist_filter: vitastor_persist_filter(config.etcd_prefix || '/vitastor'),
+                    persist_filter: vitastor_persist_filter({ vitastor_prefix: config.etcd_prefix || '/vitastor' }),
                     node_id: selected[0][0]+':'+selected[0][1], // node_id = ip:port
                     cluster: (cluster.length == 1 ? null : cluster.reduce((a, c) => { a[c] = "http://"+c; return a; }, {})),
                     cluster_key: (config.etcd_prefix || '/vitastor'),
