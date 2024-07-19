@@ -169,6 +169,7 @@ json11::Json osd_t::get_osd_state()
     else
         st["addresses"] = getifaddr_list();
     st["host"] = std::string(hostname.data(), hostname.size());
+    st["version"] = VITASTOR_VERSION;
     st["port"] = listening_port;
     st["primary_enabled"] = run_primary;
     st["blockstore_enabled"] = bs ? true : false;
@@ -199,6 +200,7 @@ json11::Json osd_t::get_statistics()
     st["bitmap_granularity"] = (uint64_t)bs_bitmap_granularity;
     st["immediate_commit"] = immediate_commit == IMMEDIATE_ALL ? "all" : (immediate_commit == IMMEDIATE_SMALL ? "small" : "none");
     st["host"] = self_state["host"];
+    st["version"] = VITASTOR_VERSION;
     json11::Json::object op_stats, subop_stats;
     for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)
     {
