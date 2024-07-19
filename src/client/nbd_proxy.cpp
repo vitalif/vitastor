@@ -253,7 +253,7 @@ nla_put_failure:
 const char *exe_name = NULL;
 
 const char *help_text =
-    "Vitastor NBD proxy " VERSION "\n"
+    "Vitastor NBD proxy " VITASTOR_VERSION "\n"
     "(c) Vitaliy Filippov, 2020+ (VNPL-1.1)\n"
     "\n"
     "COMMANDS:\n"

@@ -5,7 +5,7 @@
 #include "str_util.h"
 
 static const char *help_text =
-    "Vitastor disk management tool " VERSION "\n"
+    "Vitastor disk management tool " VITASTOR_VERSION "\n"
     "(c) Vitaliy Filippov, 2022+ (VNPL-1.1)\n"
     "\n"
     "COMMANDS:\n"

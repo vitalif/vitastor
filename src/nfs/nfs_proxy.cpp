@@ -53,7 +53,7 @@ nfs_proxy_t::~nfs_proxy_t()
 }
 
 static const char* help_text =
-    "Vitastor NFS 3.0 proxy " VERSION "\n"
+    "Vitastor NFS 3.0 proxy " VITASTOR_VERSION "\n"
     "(c) Vitaliy Filippov, 2021+ (VNPL-1.1)\n"
     "\n"
     "vitastor-nfs (--fs <NAME> | --block) [-o <OPT>] mount <MOUNTPOINT>\n"

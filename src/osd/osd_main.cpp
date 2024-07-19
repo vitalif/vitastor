@@ -20,7 +20,7 @@ static void handle_sigint(int sig)
 }
 
 static const char* help_text =
-    "Vitastor OSD (block object storage daemon) " VERSION "\n"
+    "Vitastor OSD (block object storage daemon) " VITASTOR_VERSION "\n"
     "(c) Vitaliy Filippov, 2019+ (VNPL-1.1)\n"
     "\n"
     "OSDs are usually started by vitastor-disk.\n"

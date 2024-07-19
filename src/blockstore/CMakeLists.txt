@@ -13,7 +13,7 @@ target_link_libraries(vitastor_blk
 	# for timerfd_manager
 	vitastor_common
 )
-set_target_properties(vitastor_blk PROPERTIES VERSION ${VERSION} SOVERSION 0)
+set_target_properties(vitastor_blk PROPERTIES VERSION ${VITASTOR_VERSION} SOVERSION 0)
 
 if (${WITH_FIO})
 	# libfio_vitastor_blk.so

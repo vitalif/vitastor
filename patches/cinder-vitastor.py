@@ -50,7 +50,7 @@ from cinder.volume import configuration
 from cinder.volume import driver
 from cinder.volume import volume_utils
 
-VERSION = '1.7.1'
+VITASTOR_VERSION = '1.7.1'
 
 LOG = logging.getLogger(__name__)
 
@@ -238,7 +238,7 @@ class VitastorDriver(driver.CloneableImageVD,
 
         stats = {
             'vendor_name': 'Vitastor',
-            'driver_version': self.VERSION,
+            'driver_version': VITASTOR_VERSION,
             'storage_protocol': 'vitastor',
             'total_capacity_gb': 'unknown',
             'free_capacity_gb': 'unknown',
