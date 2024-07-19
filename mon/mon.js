@@ -75,6 +75,8 @@ class Mon
         this.prev_stats = { osd_stats: {}, osd_diff: {} };
         this.recheck_pgs_active = false;
         this.watcher_active = false;
+        this.old_pg_config = false;
+        this.old_pg_stats_seen = false;
     }
 
     async start()
@@ -203,6 +205,11 @@ class Mon
             }
             else if (key.substr(0, 11) == '/osd/stats/' || key.substr(0, 9) == '/pgstats/' || key.substr(0, 16) == '/osd/inodestats/')
             {
+                stats_changed = true;
+            }
+            else if (key.substr(0, 10) == '/pg/stats/')
+            {
+                this.old_pg_stats_seen = true;
                 stats_changed = true;
             }
             else if (key.substr(0, 10) == '/pg/state/')
@@ -396,6 +403,50 @@ class Mon
                 this.parse_kv(kv);
             }
         }
+        if (Object.keys((this.state.config.pgs||{}).items||{}).length)
+        {
+            // Support seamless upgrade to new OSDs
+            if (!Object.keys((this.state.pg.config||{}).items||{}).length)
+            {
+                const pgs = JSON.stringify(this.state.config.pgs);
+                this.state.pg.config = JSON.parse(pgs);
+                const res = await this.etcd.etcd_call('/kv/txn', {
+                    success: [
+                        { requestPut: { key: b64(this.config.etcd_prefix+'/pg/config'), value: b64(pgs) } },
+                    ],
+                    compare: [
+                        { key: b64(this.config.etcd_prefix+'/pg/config'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
+                    ],
+                }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
+                if (!res.succeeded)
+                    throw new Error('Failed to duplicate old PG config to new PG config');
+            }
+            this.old_pg_config = true;
+            this.old_pg_config_timer = setInterval(() => this.check_clear_old_config().catch(console.error),
+                this.config.old_pg_config_clear_interval||3600000);
+        }
+    }
+
+    async check_clear_old_config()
+    {
+        if (this.old_pg_config && this.old_pg_stats_seen)
+        {
+            this.old_pg_stats_seen = false;
+            return;
+        }
+        if (this.old_pg_config)
+        {
+            await this.etcd.etcd_call('/kv/txn', { success: [
+                { requestDeleteRange: { key: b64(this.config.etcd_prefix+'/config/pgs') } },
+                { requestDeleteRange: { key: b64(this.config.etcd_prefix+'/pg/stats/'), range_end: b64(this.config.etcd_prefix+'/pg/stats0') } },
+            ] }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
+            this.old_pg_config = false;
+        }
+        if (this.old_pg_config_timer)
+        {
+            clearInterval(this.old_pg_config_timer);
+            this.old_pg_config_timer = null;
+        }
     }
 
     all_osds()
@@ -430,22 +481,26 @@ class Mon
             // Check that no OSDs change their state before we pause PGs
             // Doing this we make sure that OSDs don't wake up in the middle of our "transaction"
             // and can't see the old PG configuration
-            const checks = [];
+            const checks = [
+                { key: b64(this.config.etcd_prefix+'/mon/master'), target: 'LEASE', lease: ''+this.etcd_lease_id },
+                { key: b64(this.config.etcd_prefix+'/pg/config'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
+            ];
             for (const osd_num of this.all_osds())
             {
                 const key = b64(this.config.etcd_prefix+'/osd/state/'+osd_num);
                 checks.push({ key, target: 'MOD', result: 'LESS', mod_revision: ''+this.etcd_watch_revision });
             }
-            await this.etcd.etcd_call('/kv/txn', {
-                compare: [
-                    { key: b64(this.config.etcd_prefix+'/mon/master'), target: 'LEASE', lease: ''+this.etcd_lease_id },
-                    { key: b64(this.config.etcd_prefix+'/pg/config'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
-                    ...checks,
-                ],
+            const txn = {
+                compare: checks,
                 success: [
                     { requestPut: { key: b64(this.config.etcd_prefix+'/pg/config'), value: b64(JSON.stringify(new_cfg)) } },
                 ],
-            }, this.config.etcd_mon_timeout, 0);
+            };
+            if (this.old_pg_config)
+            {
+                txn.success.push({ requestPut: { key: b64(this.config.etcd_prefix+'/config/pgs'), value: b64(JSON.stringify(new_cfg)) } });
+            }
+            await this.etcd.etcd_call('/kv/txn', txn, this.config.etcd_mon_timeout, 0);
             return false;
         }
         return !has_online;
@@ -619,6 +674,10 @@ class Mon
         etcd_request.success.push(
             { requestPut: { key: b64(this.config.etcd_prefix+'/pg/config'), value: b64(JSON.stringify(new_pg_config)) } },
         );
+        if (this.old_pg_config)
+        {
+            etcd_request.success.push({ requestPut: { key: b64(this.config.etcd_prefix+'/config/pgs'), value: b64(JSON.stringify(new_pg_config)) } });
+        }
         const txn_res = await this.etcd.etcd_call('/kv/txn', etcd_request, this.config.etcd_mon_timeout, 0);
         return txn_res.succeeded;
     }
