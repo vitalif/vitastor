@@ -30,7 +30,11 @@ async function create_http_server(cfg, handler)
     }
     try
     {
+        let err;
+        server.once('error', e => err = e);
         server.listen(cfg.mon_http_port || 8060, cfg.mon_http_ip || undefined);
+        if (err)
+            throw err;
     }
     catch (e)
     {

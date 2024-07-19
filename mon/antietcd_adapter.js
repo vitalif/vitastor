@@ -26,7 +26,7 @@ class AntiEtcdAdapter
                 cluster = cluster ? (''+(cluster||'')).split(/,+/) : [];
             cluster = Object.keys(cluster.reduce((a, url) =>
             {
-                a[url.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')] = true;
+                a[url.toLowerCase().replace(/^(https?:\/\/)/, '').replace(/\/.*$/, '')] = true;
                 return a;
             }, {}));
             const cfg_port = mergedConfig.antietcd_port;
@@ -45,7 +45,7 @@ class AntiEtcdAdapter
                     data: mergedConfig.antietcd_data_file || ((mergedConfig.antietcd_data_dir || '/var/lib/vitastor') + '/mon_'+selected[0][1]+'.json.gz'),
                     persist_filter: vitastor_persist_filter(mergedConfig.etcd_prefix || '/vitastor'),
                     node_id: selected[0][0]+':'+selected[0][1], // node_id = ip:port
-                    cluster: (cluster.length == 1 ? null : cluster),
+                    cluster: (cluster.length == 1 ? null : cluster.reduce((a, c) => { a[c] = "http://"+c; return a; }, {})),
                     cluster_key: (mergedConfig.etcd_prefix || '/vitastor'),
                     stale_read: 1,
                 };
@@ -60,6 +60,7 @@ class AntiEtcdAdapter
                         }
                     }
                 }
+                console.log('Starting Antietcd node '+antietcd_config.node_id);
                 antietcd = new AntiEtcd(antietcd_config);
                 await antietcd.start();
             }
@@ -128,20 +129,23 @@ class AntiEtcdAdapter
 
     async become_master()
     {
-        if (!this.antietcd.raft)
+        if (!this.antietcd.cluster)
         {
             console.log('Running in non-clustered mode');
         }
         else
         {
             console.log('Waiting to become master');
-            await new Promise(ok => this.on_leader.push(ok));
+            if (this.antietcd.cluster.raft.state !== 'leader')
+            {
+                await new Promise(ok => this.on_leader.push(ok));
+            }
         }
         const state = { ...this.mon.get_mon_state(), id: ''+this.mon.etcd_lease_id };
         await this.etcd_call('/kv/txn', {
             success: [ { requestPut: { key: b64(this.mon.config.etcd_prefix+'/mon/master'), value: b64(JSON.stringify(state)), lease: ''+this.mon.etcd_lease_id } } ],
         }, this.mon.config.etcd_start_timeout, 0);
-        if (this.antietcd.raft)
+        if (this.antietcd.cluster)
         {
             console.log('Became master');
         }
