@@ -6,7 +6,7 @@ const etcd_nonempty_keys = {
     'config/global': 1,
     'config/node_placement': 1,
     'config/pools': 1,
-    'config/pgs': 1,
+    'pg/config': 1,
     'history/last_clean_pgs': 1,
     'stats': 1,
 };
@@ -15,7 +15,8 @@ const etcd_allow = new RegExp('^'+[
     'config/node_placement',
     'config/pools',
     'config/osd/[1-9]\\d*',
-    'config/pgs',
+    'config/pgs', // old name
+    'pg/config',
     'config/inode/[1-9]\\d*/[1-9]\\d*',
     'osd/state/[1-9]\\d*',
     'osd/stats/[1-9]\\d*',
@@ -24,7 +25,8 @@ const etcd_allow = new RegExp('^'+[
     'mon/master',
     'mon/member/[a-f0-9]+',
     'pg/state/[1-9]\\d*/[1-9]\\d*',
-    'pg/stats/[1-9]\\d*/[1-9]\\d*',
+    'pg/stats/[1-9]\\d*/[1-9]\\d*', // old name
+    'pgstats/[1-9]\\d*/[1-9]\\d*',
     'pg/history/[1-9]\\d*/[1-9]\\d*',
     'history/last_clean_pgs',
     'inode/stats/[1-9]\\d*/\\d+',
@@ -205,19 +207,6 @@ const etcd_tree = {
         osd: {
             /* <id>: { reweight?: 1, tags?: [ 'nvme', ... ], noout?: true }, ... */
         },
-        /* pgs: {
-            hash: string,
-            items: {
-                <pool_id>: {
-                    <pg_id>: {
-                        osd_set: [ 1, 2, 3 ],
-                        primary: 1,
-                        pause: false,
-                    }
-                }
-            }
-        }, */
-        pgs: {},
         /* inode: {
             <pool_id>: {
                 <inode_t>: {
@@ -290,6 +279,19 @@ const etcd_tree = {
         },
     },
     pg: {
+        /* config: {
+            hash: string,
+            items: {
+                <pool_id>: {
+                    <pg_id>: {
+                        osd_set: [ 1, 2, 3 ],
+                        primary: 1,
+                        pause: false,
+                    }
+                }
+            }
+        }, */
+        config: {},
         state: {
             /* <pool_id>: {
                 <pg_id>: {
@@ -298,18 +300,6 @@ const etcd_tree = {
                         "degraded"|"has_incomplete"|"has_degraded"|"has_misplaced"|"has_unclean"|
                         "has_invalid"|"has_inconsistent"|"has_corrupted"|"left_on_dead"|"scrubbing")[],
                 }
-            }, */
-        },
-        stats: {
-            /* <pool_id>: {
-                <pg_id>: {
-                    object_count: uint64_t,
-                    clean_count: uint64_t,
-                    misplaced_count: uint64_t,
-                    degraded_count: uint64_t,
-                    incomplete_count: uint64_t,
-                    write_osd_set: osd_num_t[],
-                },
             }, */
         },
         history: {
@@ -322,6 +312,18 @@ const etcd_tree = {
                 },
             }, */
         },
+    },
+    pgstats: {
+        /* <pool_id>: {
+            <pg_id>: {
+                object_count: uint64_t,
+                clean_count: uint64_t,
+                misplaced_count: uint64_t,
+                degraded_count: uint64_t,
+                incomplete_count: uint64_t,
+                write_osd_set: osd_num_t[],
+            },
+        }, */
     },
     inode: {
         stats: {

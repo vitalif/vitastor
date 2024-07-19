@@ -214,10 +214,10 @@ resume_1:
                 json11::Json::object {
                     { "request_range", json11::Json::object {
                         { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/pg/stats/"
+                            parent->cli->st_cli.etcd_prefix+"/pgstats/"
                         ) },
                         { "range_end", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/pg/stats0"
+                            parent->cli->st_cli.etcd_prefix+"/pgstats0"
                         ) },
                     } },
                 },
@@ -235,7 +235,7 @@ resume_1:
         }
         // Calculate recovery percent
         std::map<pool_id_t, object_counts_t> counts;
-        parent->iterate_kvs_2(parent->etcd_result["responses"][0]["response_range"]["kvs"], "/pg/stats/",
+        parent->iterate_kvs_2(parent->etcd_result["responses"][0]["response_range"]["kvs"], "/pgstats/",
             [&](pool_id_t pool_id, uint64_t pg_num, json11::Json value)
         {
             auto & cnt = counts[pool_id];

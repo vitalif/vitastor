@@ -21,9 +21,7 @@ $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicate
 
 sleep 2
 
-$ETCDCTL get --prefix /vitastor/config/pgs --print-value-only
-
-if ! ($ETCDCTL get --prefix /vitastor/config/pgs --print-value-only | \
+if ! ($ETCDCTL get --prefix /vitastor/pg/config --print-value-only | \
     jq -s -e '[ [ .[0].items["1"] | .[].osd_set | map(. | select(. != "" and (.|tonumber) < 5)) ][] | select((. | length) == 2) ] | length == 16'); then
     format_error "Some PGs missing replicas"
 fi

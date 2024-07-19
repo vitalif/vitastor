@@ -23,7 +23,7 @@ try_change()
     $ETCDCTL put /vitastor/config/pools '{"1":{'$POOLCFG',"pg_size":'$PG_SIZE',"pg_minsize":'$PG_MINSIZE',"pg_count":'$n'}}'
 
     for i in {1..60}; do
-        ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(.[0].items["1"] | map((.osd_set | select(. > 0)) | length == 2) | length) == '$n) && \
+        ($ETCDCTL get /vitastor/pg/config --print-value-only | jq -s -e '(.[0].items["1"] | map((.osd_set | select(. > 0)) | length == 2) | length) == '$n) && \
             ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select(.state == ["active"] or .state == ["active", "has_misplaced"]) ] | length) == '$n'') && \
             break
         sleep 1
@@ -36,14 +36,14 @@ try_change()
         sleep 1
     done
 
-    if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(.[0].items["1"] | map((.osd_set | select(. > 0)) | length == 2) | length) == '$n); then
-        $ETCDCTL get /vitastor/config/pgs
+    if ! ($ETCDCTL get /vitastor/pg/config --print-value-only | jq -s -e '(.[0].items["1"] | map((.osd_set | select(. > 0)) | length == 2) | length) == '$n); then
+        $ETCDCTL get /vitastor/pg/config
         $ETCDCTL get --prefix /vitastor/pg/state/
         format_error "FAILED: $n PGS NOT CONFIGURED"
     fi
 
     if ! ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select(.state == ["active"]) ] | length) == '$n); then
-        $ETCDCTL get /vitastor/config/pgs
+        $ETCDCTL get /vitastor/pg/config
         $ETCDCTL get --prefix /vitastor/pg/state/
         format_error "FAILED: $n PGS NOT UP"
     fi
@@ -53,7 +53,7 @@ try_change()
     nobj=0
     waittime=0
     while [[ $nobj -ne $NOBJ && $waittime -lt 7 ]]; do
-        nobj=`$ETCDCTL get --prefix '/vitastor/pg/stats' --print-value-only | jq -s '[ .[].object_count ] | reduce .[] as $num (0; .+$num)'`
+        nobj=`$ETCDCTL get --prefix '/vitastor/pgstats' --print-value-only | jq -s '[ .[].object_count ] | reduce .[] as $num (0; .+$num)'`
         if [[ $nobj -ne $NOBJ ]]; then
             waittime=$((waittime+1))
             sleep 1

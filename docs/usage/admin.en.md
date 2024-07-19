@@ -42,7 +42,7 @@ PG state always includes exactly 1 of the following base states:
 - **offline** — PG isn't activated by any OSD at all. Either primary OSD isn't set for
   this PG at all (if the pool is just created), or an unavailable OSD is set as primary,
   or the primary OSD refuses to start this PG (for example, because of wrong block_size),
-  or the PG is stopped by the monitor using `pause: true` flag in `/vitastor/config/pgs` in etcd.
+  or the PG is stopped by the monitor using `pause: true` flag in `/vitastor/pg/config` in etcd.
 - **starting** — primary OSD has acquired PG lock in etcd, PG is starting.
 - **peering** — primary OSD requests PG object listings from secondary OSDs and calculates
   the PG state.

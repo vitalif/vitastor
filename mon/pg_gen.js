@@ -57,7 +57,7 @@ function pick_primary(pool_config, osd_set, up_osds, aff_osds)
 
 function recheck_primary(state, global_config, up_osds, osd_tree)
 {
-    let new_config_pgs;
+    let new_pg_config;
     for (const pool_id in state.config.pools)
     {
         const pool_cfg = state.config.pools[pool_id];
@@ -69,30 +69,30 @@ function recheck_primary(state, global_config, up_osds, osd_tree)
         reset_rng();
         for (let pg_num = 1; pg_num <= pool_cfg.pg_count; pg_num++)
         {
-            if (!state.config.pgs.items[pool_id])
+            if (!state.pg.config.items[pool_id])
             {
                 continue;
             }
-            const pg_cfg = state.config.pgs.items[pool_id][pg_num];
+            const pg_cfg = state.pg.config.items[pool_id][pg_num];
             if (pg_cfg)
             {
                 const new_primary = pick_primary(state.config.pools[pool_id], pg_cfg.osd_set, up_osds, aff_osds);
                 if (pg_cfg.primary != new_primary)
                 {
-                    if (!new_config_pgs)
+                    if (!new_pg_config)
                     {
-                        new_config_pgs = JSON.parse(JSON.stringify(state.config.pgs));
+                        new_pg_config = JSON.parse(JSON.stringify(state.pg.config));
                     }
                     console.log(
                         `Moving pool ${pool_id} (${pool_cfg.name || 'unnamed'}) PG ${pg_num}`+
                         ` primary OSD from ${pg_cfg.primary} to ${new_primary}`
                     );
-                    new_config_pgs.items[pool_id][pg_num].primary = new_primary;
+                    new_pg_config.items[pool_id][pg_num].primary = new_primary;
                 }
             }
         }
     }
-    return new_config_pgs;
+    return new_pg_config;
 }
 
 function save_new_pgs_txn(save_to, request, state, etcd_prefix, etcd_watch_revision, pool_id, up_osds, osd_tree, prev_pgs, new_pgs, pg_history)
@@ -185,10 +185,10 @@ async function generate_pool_pgs(state, global_config, pool_id, osd_tree, levels
     }
     if (!prev_pgs.length)
     {
-        // Fall back to config/pgs if it's empty
-        for (const pg in ((state.config.pgs.items||{})[pool_id]||{}))
+        // Fall back to pg/config if it's empty
+        for (const pg in ((state.pg.config.items||{})[pool_id]||{}))
         {
-            prev_pgs[pg-1] = [ ...state.config.pgs.items[pool_id][pg].osd_set ];
+            prev_pgs[pg-1] = [ ...state.pg.config.items[pool_id][pg].osd_set ];
         }
     }
     const old_pg_count = prev_pgs.length;
@@ -205,8 +205,8 @@ async function generate_pool_pgs(state, global_config, pool_id, osd_tree, levels
         ordered: pool_cfg.scheme != 'replicated',
     };
     let optimize_result;
-    // Re-shuffle PGs if config/pgs.hash is empty
-    if (old_pg_count > 0 && state.config.pgs.hash)
+    // Re-shuffle PGs if pg/config.hash is empty
+    if (old_pg_count > 0 && state.pg.config.hash)
     {
         if (prev_pgs.length != pool_cfg.pg_count)
         {

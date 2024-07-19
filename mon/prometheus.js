@@ -166,7 +166,7 @@ function export_prometheus_metrics(st)
         res += `vitastor_pool_used_raw_tb{${pool_label}} ${pool_stat.used_raw_tb||0}\n`;
 
         // PG states and pool up/down status
-        const real_pg_count = (Object.keys(((st.config.pgs||{}).items||{})[pool_id]||{}).length) || (0|pool_cfg.pg_count);
+        const real_pg_count = (Object.keys(((st.pg.config||{}).items||{})[pool_id]||{}).length) || (0|pool_cfg.pg_count);
         const per_state = {
             active: 0,
             starting: 0,

@@ -13,14 +13,14 @@ start_osd 4
 sleep 2
 
 for i in {1..30}; do
-    ($ETCDCTL get /vitastor/config/pgs --print-value-only |\
+    ($ETCDCTL get /vitastor/pg/config --print-value-only |\
         jq -s -e '([ .[0].items["1"] | map(.osd_set)[][] ] | sort | unique == ["1","2","3","4"])') && \
         ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select(.state == ["active"]) ] | length) == '$PG_COUNT) && \
         break
     sleep 1
 done
 
-if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only |\
+if ! ($ETCDCTL get /vitastor/pg/config --print-value-only |\
     jq -s -e '([ .[0].items["1"] | map(.osd_set)[][] ] | sort | unique == ["1","2","3","4"])'); then
     format_error "FAILED: OSD NOT ADDED INTO DISTRIBUTION"
 fi
@@ -35,14 +35,14 @@ build/src/cmd/vitastor-cli --etcd_address $ETCD_URL rm-osd --force 4
 sleep 2
 
 for i in {1..30}; do
-    ($ETCDCTL get /vitastor/config/pgs --print-value-only |\
+    ($ETCDCTL get /vitastor/pg/config --print-value-only |\
         jq -s -e '([ .[0].items["1"] | map(.osd_set)[][] ] | sort | unique == ["1","2","3"])') && \
         ($ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '([ .[] | select(.state == ["active"] or .state == ["active", "left_on_dead"]) ] | length) == '$PG_COUNT'') && \
         break
     sleep 1
 done
 
-if ! ($ETCDCTL get /vitastor/config/pgs --print-value-only |\
+if ! ($ETCDCTL get /vitastor/pg/config --print-value-only |\
     jq -s -e '([ .[0].items["1"] | map(.osd_set)[][] ] | sort | unique == ["1","2","3"])'); then
     format_error "FAILED: OSD NOT REMOVED FROM DISTRIBUTION"
 fi

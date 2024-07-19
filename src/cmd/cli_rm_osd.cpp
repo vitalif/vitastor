@@ -176,7 +176,7 @@ struct rm_osd_t
             json11::Json::object {
                 { "request_range", json11::Json::object {
                     { "key", base64_encode(
-                        parent->cli->st_cli.etcd_prefix+"/config/pgs"
+                        parent->cli->st_cli.etcd_prefix+"/pg/config"
                     ) },
                 } },
             },
@@ -229,7 +229,7 @@ struct rm_osd_t
             }
             if (!new_pgs.is_null())
             {
-                auto pgs_key = base64_encode(parent->cli->st_cli.etcd_prefix+"/config/pgs");
+                auto pgs_key = base64_encode(parent->cli->st_cli.etcd_prefix+"/pg/config");
                 rm_items.push_back(json11::Json::object {
                     { "request_put", json11::Json::object {
                         { "key", pgs_key },

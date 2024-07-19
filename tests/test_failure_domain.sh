@@ -28,7 +28,7 @@ $ETCDCTL get --print-value-only /vitastor/config/pools | jq -s -e '. == [{"1":{"
 
 sleep 2
 
-$ETCDCTL get --prefix /vitastor/config/pgs --print-value-only | \
+$ETCDCTL get --prefix /vitastor/pg/config --print-value-only | \
     jq -s -e '([ .[0].items["1"] | .[].osd_set | map_values(. | tonumber) | select((.[0] <= 4) != (.[1] <= 4)) ] | length) == 4'
 
 format_green OK

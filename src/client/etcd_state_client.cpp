@@ -353,7 +353,6 @@ void etcd_state_client_t::start_etcd_watcher()
                     uint64_t watch_id = data["result"]["watch_id"].uint64_value();
                     if (watch_id == ETCD_CONFIG_WATCH_ID ||
                         watch_id == ETCD_PG_STATE_WATCH_ID ||
-                        watch_id == ETCD_PG_HISTORY_WATCH_ID ||
                         watch_id == ETCD_OSD_STATE_WATCH_ID)
                         etcd_watches_initialised++;
                     if (etcd_watches_initialised == ETCD_TOTAL_WATCHES && this->log_level > 0)
@@ -395,8 +394,8 @@ void etcd_state_client_t::start_etcd_watcher()
                 }
                 if (etcd_watches_initialised == ETCD_TOTAL_WATCHES && !data["result"]["header"]["revision"].is_null())
                 {
-                    // Protect against a revision beign split into multiple messages and some
-                    // of them being lost. Even though I'm not sure if etcd actually splits them
+                    // Protect against a revision being split into multiple messages and some
+                    // of them being lost.
                     // Also sometimes etcd sends something without a header, like:
                     // {"error": {"grpc_code": 14, "http_code": 503, "http_status": "Service Unavailable", "message": "error reading from server: EOF"}}
                     etcd_watch_revision = data["result"]["header"]["revision"].uint64_value();
@@ -473,22 +472,14 @@ void etcd_state_client_t::start_etcd_watcher()
     }).dump());
     http_post_message(etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
         { "create_request", json11::Json::object {
-            { "key", base64_encode(etcd_prefix+"/pg/state/") },
-            { "range_end", base64_encode(etcd_prefix+"/pg/state0") },
+            { "key", base64_encode(etcd_prefix+"/pg/") },
+            { "range_end", base64_encode(etcd_prefix+"/pg0") },
             { "start_revision", etcd_watch_revision },
             { "watch_id", ETCD_PG_STATE_WATCH_ID },
             { "progress_notify", true },
         } }
     }).dump());
-    http_post_message(etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
-        { "create_request", json11::Json::object {
-            { "key", base64_encode(etcd_prefix+"/pg/history/") },
-            { "range_end", base64_encode(etcd_prefix+"/pg/history0") },
-            { "start_revision", etcd_watch_revision },
-            { "watch_id", ETCD_PG_HISTORY_WATCH_ID },
-            { "progress_notify", true },
-        } }
-    }).dump());
+    // FIXME: Do not watch /pg/history/ at all in client code (not in OSD)
     if (on_start_watcher_hook)
     {
         on_start_watcher_hook(etcd_watch_ws);
@@ -589,6 +580,11 @@ void etcd_state_client_t::load_pgs()
         json11::Json::object {
             { "request_range", json11::Json::object {
                 { "key", base64_encode(etcd_prefix+"/config/pgs") },
+            } }
+        },
+        json11::Json::object {
+            { "request_range", json11::Json::object {
+                { "key", base64_encode(etcd_prefix+"/pg/config") },
             } }
         },
         json11::Json::object {
@@ -895,8 +891,17 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             on_change_pool_config_hook();
         }
     }
-    else if (key == etcd_prefix+"/config/pgs")
+    else if (key == etcd_prefix+"/pg/config" || key == etcd_prefix+"/config/pgs")
     {
+        if (key == etcd_prefix+"/pg/config")
+        {
+            new_pg_config = !value.is_null();
+        }
+        else if (new_pg_config)
+        {
+            // Ignore old key if the new one is present
+            return;
+        }
         for (auto & pool_item: this->pool_config)
         {
             for (auto & pg_item: pool_item.second.pg_config)

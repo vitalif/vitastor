@@ -10,10 +10,9 @@
 #include "timerfd_manager.h"
 
 #define ETCD_CONFIG_WATCH_ID 1
-#define ETCD_PG_STATE_WATCH_ID 2
-#define ETCD_PG_HISTORY_WATCH_ID 3
-#define ETCD_OSD_STATE_WATCH_ID 4
-#define ETCD_TOTAL_WATCHES 4
+#define ETCD_OSD_STATE_WATCH_ID 2
+#define ETCD_PG_STATE_WATCH_ID 3
+#define ETCD_TOTAL_WATCHES 3
 
 #define DEFAULT_BLOCK_SIZE 128*1024
 #define MIN_DATA_BLOCK_SIZE 4*1024
@@ -96,6 +95,7 @@ protected:
     std::vector<std::string> addresses_to_try;
     std::vector<inode_watch_t*> watches;
     http_co_t *etcd_watch_ws = NULL, *keepalive_client = NULL;
+    bool new_pg_config = false;
     int ws_keepalive_timer = -1;
     int ws_alive = 0;
     bool rand_initialized = false;

@@ -49,8 +49,8 @@ struct pg_lister_t
             { "success", json11::Json::array {
                 json11::Json::object {
                     { "request_range", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/pg/stats"+(pool_id ? "/"+std::to_string(pool_id)+"/" : "/")) },
-                        { "range_end", base64_encode(parent->cli->st_cli.etcd_prefix+"/pg/stats"+(pool_id ? "/"+std::to_string(pool_id)+"0" : "0")) },
+                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/pgstats"+(pool_id ? "/"+std::to_string(pool_id)+"/" : "/")) },
+                        { "range_end", base64_encode(parent->cli->st_cli.etcd_prefix+"/pgstats"+(pool_id ? "/"+std::to_string(pool_id)+"0" : "0")) },
                     } },
                 },
             } },
@@ -65,7 +65,7 @@ resume_1:
             state = 100;
             return;
         }
-        parent->iterate_kvs_2(parent->etcd_result["responses"][0]["response_range"]["kvs"], "/pg/stats/", [&](pool_id_t pool_id, uint64_t pg_num, json11::Json value)
+        parent->iterate_kvs_2(parent->etcd_result["responses"][0]["response_range"]["kvs"], "/pgstats/", [&](pool_id_t pool_id, uint64_t pg_num, json11::Json value)
         {
             pg_stats[(pool_pg_num_t){ .pool_id = pool_id, .pg_num = (pg_num_t)pg_num }] = value;
         });

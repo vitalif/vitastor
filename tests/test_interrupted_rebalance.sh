@@ -43,7 +43,7 @@ wait_finish_rebalance 300
 #fi
 
 # Check that no objects are lost !
-nobj=`$ETCDCTL get --prefix '/vitastor/pg/stats' --print-value-only | jq -s '[ .[].object_count ] | reduce .[] as $num (0; .+$num)'`
+nobj=`$ETCDCTL get --prefix '/vitastor/pgstats' --print-value-only | jq -s '[ .[].object_count ] | reduce .[] as $num (0; .+$num)'`
 if [ "$nobj" -ne $((IMG_SIZE*8/PG_DATA_SIZE)) ]; then
     format_error "Data lost after multiple interrupted rebalancings"
 fi

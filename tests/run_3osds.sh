@@ -89,7 +89,7 @@ wait_up()
     local i=0
     local configured=0
     while [[ $i -lt $sec ]]; do
-        if $ETCDCTL get /vitastor/config/pgs --print-value-only | jq -s -e '(. | length) != 0 and ([ .[0].items["1"][] |
+        if $ETCDCTL get /vitastor/pg/config --print-value-only | jq -s -e '(. | length) != 0 and ([ .[0].items["1"][] |
             select(((.osd_set | select(. != 0) | sort | unique) | length) == '$PG_SIZE') ] | length) == '$PG_COUNT; then
             configured=1
             if $ETCDCTL get /vitastor/pg/state/1/ --prefix --print-value-only | jq -s -e '[ .[] | select(.state == ["active"]) ] | length == '$PG_COUNT; then

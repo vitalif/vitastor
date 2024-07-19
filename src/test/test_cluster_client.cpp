@@ -22,7 +22,7 @@ void configure_single_pg_pool(cluster_client_t *cli)
         },
     });
     cli->st_cli.parse_state((etcd_kv_t){
-        .key = "/config/pgs",
+        .key = "/pg/config",
         .value = json11::Json::object {
             { "items", json11::Json::object {
                 { "1", json11::Json::object {

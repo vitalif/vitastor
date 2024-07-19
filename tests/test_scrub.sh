@@ -21,7 +21,7 @@ LD_PRELOAD="build/src/client/libfio_vitastor.so" \
         -mirror_file=./testdata/mirror.bin -end_fsync=1 -rw=write -etcd=$ETCD_URL -image=testimg
 
 # Save PG primary
-primary=$($ETCDCTL get --print-value-only /vitastor/config/pgs | jq -r '.items["1"]["1"].primary')
+primary=$($ETCDCTL get --print-value-only /vitastor/pg/config | jq -r '.items["1"]["1"].primary')
 
 # Intentionally corrupt OSD data and restart it
 zero_osd_pid=OSD${ZERO_OSD}_PID
@@ -38,7 +38,7 @@ start_osd $ZERO_OSD
 wait_up 10
 
 # Wait until PG is back on the same primary
-wait_condition 10 "$ETCDCTL"$' get --print-value-only /vitastor/config/pgs | jq -s -e \'.[0].items["1"]["1"].primary == "'$primary'"'"'"
+wait_condition 10 "$ETCDCTL"$' get --print-value-only /vitastor/pg/config | jq -s -e \'.[0].items["1"]["1"].primary == "'$primary'"'"'"
 
 # Trigger scrub
 $ETCDCTL put /vitastor/pg/history/1/1 `$ETCDCTL get --print-value-only /vitastor/pg/history/1/1 | jq -s -c '(.[0] // {}) + {"next_scrub":1}'`

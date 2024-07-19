@@ -100,10 +100,10 @@ function sum_object_counts(state, global_config)
 {
     const object_counts = { object: 0n, clean: 0n, misplaced: 0n, degraded: 0n, incomplete: 0n };
     const object_bytes = { object: 0n, clean: 0n, misplaced: 0n, degraded: 0n, incomplete: 0n };
-    for (const pool_id in state.pg.stats)
+    for (const pool_id in state.pgstats)
     {
         let object_size = 0;
-        for (const osd_num of state.pg.stats[pool_id].write_osd_set||[])
+        for (const osd_num of state.pgstats[pool_id].write_osd_set||[])
         {
             if (osd_num && state.osd.stats[osd_num] && state.osd.stats[osd_num].block_size)
             {
@@ -121,9 +121,9 @@ function sum_object_counts(state, global_config)
             object_size *= ((pool_cfg.pg_size||0) - (pool_cfg.parity_chunks||0));
         }
         object_size = BigInt(object_size);
-        for (const pg_num in state.pg.stats[pool_id])
+        for (const pg_num in state.pgstats[pool_id])
         {
-            const st = state.pg.stats[pool_id][pg_num];
+            const st = state.pgstats[pool_id][pg_num];
             if (st)
             {
                 for (const k in object_counts)

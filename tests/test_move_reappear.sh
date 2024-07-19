@@ -15,7 +15,7 @@ done
 
 $ETCDCTL put /vitastor/config/pools '{"1":{"name":"testpool","scheme":"replicated","pg_size":2,"pg_minsize":1,"pg_count":1,"failure_domain":"osd","immediate_commit":"none"}}'
 
-$ETCDCTL put /vitastor/config/pgs '{"items":{"1":{"1":{"osd_set":[1,0],"primary":1}}}}'
+$ETCDCTL put /vitastor/pg/config '{"items":{"1":{"1":{"osd_set":[1,0],"primary":1}}}}'
 
 for i in {1..30}; do
     sleep 1
@@ -30,7 +30,7 @@ LD_PRELOAD="build/src/client/libfio_vitastor.so" \
 fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write \
     -etcd=$ETCD_URL -pool=1 -inode=2 -size=32M -cluster_log_level=10
 
-$ETCDCTL put /vitastor/config/pgs '{"items":{"1":{"1":{"osd_set":[1,0],"primary":0}}}}'
+$ETCDCTL put /vitastor/pg/config '{"items":{"1":{"1":{"osd_set":[1,0],"primary":0}}}}'
 
 for i in {1..30}; do
     sleep 1
@@ -43,7 +43,7 @@ done
 
 $ETCDCTL put /vitastor/pg/history/1/1 '{"all_peers":[1,2,3]}'
 
-$ETCDCTL put /vitastor/config/pgs '{"items":{"1":{"1":{"osd_set":[4,5],"primary":4}}}}'
+$ETCDCTL put /vitastor/pg/config '{"items":{"1":{"1":{"osd_set":[4,5],"primary":4}}}}'
 
 sleep 5
 for i in {1..30}; do
@@ -60,7 +60,7 @@ LD_PRELOAD="build/src/client/libfio_vitastor.so" \
 fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4k -direct=1 -iodepth=1 -fsync=1 -number_ios=2 -rw=write \
     -etcd=$ETCD_URL -pool=1 -inode=2 -size=32M -cluster_log_level=10
 
-$ETCDCTL put /vitastor/config/pgs '{"items":{"1":{"1":{"osd_set":[4,5],"primary":0}}}}'
+$ETCDCTL put /vitastor/pg/config '{"items":{"1":{"1":{"osd_set":[4,5],"primary":0}}}}'
 
 $ETCDCTL put /vitastor/pg/history/1/1 '{"all_peers":[1,2,3]}'
 
@@ -76,7 +76,7 @@ done
 cp testdata/osd4.log testdata/osd4_pre.log
 >testdata/osd4.log
 
-$ETCDCTL put /vitastor/config/pgs '{"items":{"1":{"1":{"osd_set":[4,5],"primary":4}}}}'
+$ETCDCTL put /vitastor/pg/config '{"items":{"1":{"1":{"osd_set":[4,5],"primary":4}}}}'
 
 for i in {1..30}; do
     sleep 1

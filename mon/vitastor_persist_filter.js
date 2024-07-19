@@ -35,7 +35,8 @@ function vitastor_persist_filter(cfg)
         }
         else if (key.substr(0, prefix.length+'/osd/'.length) == prefix+'/osd/' ||
             key.substr(0, prefix.length+'/inode/stats/'.length) == prefix+'/inode/stats/' ||
-            key.substr(0, prefix.length+'/pg/stats/'.length) == prefix+'/pg/stats/' ||
+            key.substr(0, prefix.length+'/pg/stats/'.length) == prefix+'/pg/stats/' || // old name
+            key.substr(0, prefix.length+'/pgstats/'.length) == prefix+'/pgstats/' ||
             key.substr(0, prefix.length+'/pool/stats/'.length) == prefix+'/pool/stats/' ||
             key == prefix+'/stats')
         {

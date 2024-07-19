@@ -122,7 +122,7 @@ class Mon
                 !Number(this.state.pool.stats[pool_id].pg_real_size))
             {
                 // Generate missing data in etcd
-                this.state.config.pgs.hash = null;
+                this.state.pg.config.hash = null;
                 break;
             }
         }
@@ -201,7 +201,7 @@ class Mon
                 stats_changed = true;
                 changed = true;
             }
-            else if (key.substr(0, 11) == '/osd/stats/' || key.substr(0, 10) == '/pg/stats/' || key.substr(0, 16) == '/osd/inodestats/')
+            else if (key.substr(0, 11) == '/osd/stats/' || key.substr(0, 9) == '/pgstats/' || key.substr(0, 16) == '/osd/inodestats/')
             {
                 stats_changed = true;
             }
@@ -285,7 +285,7 @@ class Mon
                     continue next_pool;
                 }
             }
-            new_clean_pgs.items[pool_id] = this.state.config.pgs.items[pool_id];
+            new_clean_pgs.items[pool_id] = this.state.pg.config.items[pool_id];
         }
         this.state.history.last_clean_pgs = new_clean_pgs;
         await this.etcd.etcd_call('/kv/txn', {
@@ -406,7 +406,7 @@ class Mon
     async stop_all_pgs(pool_id)
     {
         let has_online = false, paused = true;
-        for (const pg in this.state.config.pgs.items[pool_id]||{})
+        for (const pg in this.state.pg.config.items[pool_id]||{})
         {
             // FIXME: Change all (||{}) to ?. (optional chaining) at some point
             const cur_state = (((this.state.pg.state[pool_id]||{})[pg]||{}).state||[]).join(',');
@@ -414,7 +414,7 @@ class Mon
             {
                 has_online = true;
             }
-            if (!this.state.config.pgs.items[pool_id][pg].pause)
+            if (!this.state.pg.config.items[pool_id][pg].pause)
             {
                 paused = false;
             }
@@ -422,7 +422,7 @@ class Mon
         if (!paused)
         {
             console.log('Stopping all PGs for pool '+pool_id+' before changing PG count');
-            const new_cfg = JSON.parse(JSON.stringify(this.state.config.pgs));
+            const new_cfg = JSON.parse(JSON.stringify(this.state.pg.config));
             for (const pg in new_cfg.items[pool_id])
             {
                 new_cfg.items[pool_id][pg].pause = true;
@@ -439,11 +439,11 @@ class Mon
             await this.etcd.etcd_call('/kv/txn', {
                 compare: [
                     { key: b64(this.config.etcd_prefix+'/mon/master'), target: 'LEASE', lease: ''+this.etcd_lease_id },
-                    { key: b64(this.config.etcd_prefix+'/config/pgs'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
+                    { key: b64(this.config.etcd_prefix+'/pg/config'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
                     ...checks,
                 ],
                 success: [
-                    { requestPut: { key: b64(this.config.etcd_prefix+'/config/pgs'), value: b64(JSON.stringify(new_cfg)) } },
+                    { requestPut: { key: b64(this.config.etcd_prefix+'/pg/config'), value: b64(JSON.stringify(new_cfg)) } },
                 ],
             }, this.config.etcd_mon_timeout, 0);
             return false;
@@ -473,7 +473,7 @@ class Mon
             pools: this.state.config.pools,
         };
         const tree_hash = sha1hex(stableStringify(tree_cfg));
-        if (this.state.config.pgs.hash != tree_hash)
+        if (this.state.pg.config.hash != tree_hash)
         {
             // Something has changed
             console.log('Pool configuration or OSD tree changed, re-optimizing');
@@ -514,10 +514,10 @@ class Mon
         else
         {
             // Nothing changed, but we still want to recheck the distribution of primaries
-            let new_config_pgs = recheck_primary(this.state, this.config, up_osds, osd_tree);
-            if (new_config_pgs)
+            let new_pg_config = recheck_primary(this.state, this.config, up_osds, osd_tree);
+            if (new_pg_config)
             {
-                const ok = await this.save_pg_config(new_config_pgs);
+                const ok = await this.save_pg_config(new_pg_config);
                 if (ok)
                     console.log('PG configuration successfully changed');
                 else
@@ -532,12 +532,12 @@ class Mon
 
     async apply_pool_pgs(results, up_osds, osd_tree, tree_hash)
     {
-        for (const pool_id in (this.state.config.pgs||{}).items||{})
+        for (const pool_id in (this.state.pg.config||{}).items||{})
         {
             // We should stop all PGs when deleting a pool or changing its PG count
             if (!this.state.config.pools[pool_id] ||
-                this.state.config.pgs.items[pool_id] && this.state.config.pools[pool_id].pg_count !=
-                Object.keys(this.state.config.pgs.items[pool_id]).reduce((a, c) => (a < (0|c) ? (0|c) : a), 0))
+                this.state.pg.config.items[pool_id] && this.state.config.pools[pool_id].pg_count !=
+                Object.keys(this.state.pg.config.items[pool_id]).reduce((a, c) => (a < (0|c) ? (0|c) : a), 0))
             {
                 if (!await this.stop_all_pgs(pool_id))
                 {
@@ -545,22 +545,22 @@ class Mon
                 }
             }
         }
-        const new_config_pgs = JSON.parse(JSON.stringify(this.state.config.pgs));
+        const new_pg_config = JSON.parse(JSON.stringify(this.state.pg.config));
         const etcd_request = { compare: [], success: [] };
-        for (const pool_id in (new_config_pgs||{}).items||{})
+        for (const pool_id in (new_pg_config||{}).items||{})
         {
             if (!this.state.config.pools[pool_id])
             {
                 const prev_pgs = [];
-                for (const pg in new_config_pgs.items[pool_id]||{})
+                for (const pg in new_pg_config.items[pool_id]||{})
                 {
-                    prev_pgs[pg-1] = new_config_pgs.items[pool_id][pg].osd_set;
+                    prev_pgs[pg-1] = new_pg_config.items[pool_id][pg].osd_set;
                 }
                 // Also delete pool statistics
                 etcd_request.success.push({ requestDeleteRange: {
                     key: b64(this.config.etcd_prefix+'/pool/stats/'+pool_id),
                 } });
-                save_new_pgs_txn(new_config_pgs, etcd_request, this.state, this.config.etcd_prefix,
+                save_new_pgs_txn(new_pg_config, etcd_request, this.state, this.config.etcd_prefix,
                     this.etcd_watch_revision, pool_id, up_osds, osd_tree, prev_pgs, [], []);
             }
         }
@@ -569,7 +569,7 @@ class Mon
             const pool_id = pool_res.pool_id;
             const pool_cfg = this.state.config.pools[pool_id];
             let pg_history = [];
-            for (const pg in ((this.state.config.pgs.items||{})[pool_id]||{}))
+            for (const pg in ((this.state.pg.config.items||{})[pool_id]||{}))
             {
                 if (this.state.pg.history[pool_id] &&
                     this.state.pg.history[pool_id][pg])
@@ -578,9 +578,9 @@ class Mon
                 }
             }
             const real_prev_pgs = [];
-            for (const pg in ((this.state.config.pgs.items||{})[pool_id]||{}))
+            for (const pg in ((this.state.pg.config.items||{})[pool_id]||{}))
             {
-                real_prev_pgs[pg-1] = [ ...this.state.config.pgs.items[pool_id][pg].osd_set ];
+                real_prev_pgs[pg-1] = [ ...this.state.pg.config.items[pool_id][pg].osd_set ];
             }
             if (real_prev_pgs.length > 0 && real_prev_pgs.length != pool_res.pgs.length)
             {
@@ -591,8 +591,8 @@ class Mon
                 pg_history = scale_pg_history(pg_history, real_prev_pgs, pool_res.pgs);
                 // Drop stats
                 etcd_request.success.push({ requestDeleteRange: {
-                    key: b64(this.config.etcd_prefix+'/pg/stats/'+pool_id+'/'),
-                    range_end: b64(this.config.etcd_prefix+'/pg/stats/'+pool_id+'0'),
+                    key: b64(this.config.etcd_prefix+'/pgstats/'+pool_id+'/'),
+                    range_end: b64(this.config.etcd_prefix+'/pgstats/'+pool_id+'0'),
                 } });
             }
             const stats = {
@@ -603,21 +603,21 @@ class Mon
                 key: b64(this.config.etcd_prefix+'/pool/stats/'+pool_id),
                 value: b64(JSON.stringify(stats)),
             } });
-            save_new_pgs_txn(new_config_pgs, etcd_request, this.state, this.config.etcd_prefix,
+            save_new_pgs_txn(new_pg_config, etcd_request, this.state, this.config.etcd_prefix,
                 this.etcd_watch_revision, pool_id, up_osds, osd_tree, real_prev_pgs, pool_res.pgs, pg_history);
         }
-        new_config_pgs.hash = tree_hash;
-        return await this.save_pg_config(new_config_pgs, etcd_request);
+        new_pg_config.hash = tree_hash;
+        return await this.save_pg_config(new_pg_config, etcd_request);
     }
 
-    async save_pg_config(new_config_pgs, etcd_request = { compare: [], success: [] })
+    async save_pg_config(new_pg_config, etcd_request = { compare: [], success: [] })
     {
         etcd_request.compare.push(
             { key: b64(this.config.etcd_prefix+'/mon/master'), target: 'LEASE', lease: ''+this.etcd_lease_id },
-            { key: b64(this.config.etcd_prefix+'/config/pgs'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
+            { key: b64(this.config.etcd_prefix+'/pg/config'), target: 'MOD', mod_revision: ''+this.etcd_watch_revision, result: 'LESS' },
         );
         etcd_request.success.push(
-            { requestPut: { key: b64(this.config.etcd_prefix+'/config/pgs'), value: b64(JSON.stringify(new_config_pgs)) } },
+            { requestPut: { key: b64(this.config.etcd_prefix+'/pg/config'), value: b64(JSON.stringify(new_pg_config)) } },
         );
         const txn_res = await this.etcd.etcd_call('/kv/txn', etcd_request, this.config.etcd_mon_timeout, 0);
         return txn_res.succeeded;
