@@ -1,8 +1,6 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-const fs = require('fs');
-
 const AntiEtcd = require('antietcd');
 
 const vitastor_persist_filter = require('./vitastor_persist_filter.js');
@@ -15,13 +13,7 @@ class AntiEtcdAdapter
         let antietcd;
         if (config.use_antietcd)
         {
-            let fileConfig = {};
-            if (fs.existsSync(config.config_path||'/etc/vitastor/vitastor.conf'))
-            {
-                fileConfig = JSON.parse(fs.readFileSync(config.config_path||'/etc/vitastor/vitastor.conf', { encoding: 'utf-8' }));
-            }
-            let mergedConfig = { ...fileConfig, ...config };
-            let cluster = mergedConfig.etcd_address;
+            let cluster = config.etcd_address;
             if (!(cluster instanceof Array))
                 cluster = cluster ? (''+(cluster||'')).split(/,+/) : [];
             cluster = Object.keys(cluster.reduce((a, url) =>
@@ -29,7 +21,7 @@ class AntiEtcdAdapter
                 a[url.toLowerCase().replace(/^(https?:\/\/)/, '').replace(/\/.*$/, '')] = true;
                 return a;
             }, {}));
-            const cfg_port = mergedConfig.antietcd_port;
+            const cfg_port = config.antietcd_port;
             const is_local = local_ips(true).reduce((a, c) => { a[c] = true; return a; }, {});
             const selected = cluster.map(s => s.split(':', 2)).filter(ip => is_local[ip[0]] && (!cfg_port || ip[1] == cfg_port));
             if (selected.length > 1)
@@ -42,12 +34,13 @@ class AntiEtcdAdapter
                 const antietcd_config = {
                     ip: selected[0][0],
                     port: selected[0][1],
-                    data: mergedConfig.antietcd_data_file || ((mergedConfig.antietcd_data_dir || '/var/lib/vitastor') + '/mon_'+selected[0][1]+'.json.gz'),
-                    persist_filter: vitastor_persist_filter(mergedConfig.etcd_prefix || '/vitastor'),
+                    data: config.antietcd_data_file || ((config.antietcd_data_dir || '/var/lib/vitastor') + '/mon_'+selected[0][1]+'.json.gz'),
+                    persist_filter: vitastor_persist_filter(config.etcd_prefix || '/vitastor'),
                     node_id: selected[0][0]+':'+selected[0][1], // node_id = ip:port
                     cluster: (cluster.length == 1 ? null : cluster.reduce((a, c) => { a[c] = "http://"+c; return a; }, {})),
-                    cluster_key: (mergedConfig.etcd_prefix || '/vitastor'),
+                    cluster_key: (config.etcd_prefix || '/vitastor'),
                     stale_read: 1,
+                    log_level: 1,
                 };
                 for (const key in config)
                 {
