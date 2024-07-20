@@ -372,24 +372,6 @@ void nfs_proxy_t::watch_stats()
     assert(cli->st_cli.on_start_watcher_hook == NULL);
     cli->st_cli.on_start_watcher_hook = [this](http_co_t *etcd_watch_ws)
     {
-        http_post_message(etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
-            { "create_request", json11::Json::object {
-                { "key", base64_encode(cli->st_cli.etcd_prefix+"/inode/stats/") },
-                { "range_end", base64_encode(cli->st_cli.etcd_prefix+"/inode/stats0") },
-                { "start_revision", cli->st_cli.etcd_watch_revision },
-                { "watch_id", ETCD_INODE_STATS_WATCH_ID },
-                { "progress_notify", true },
-            } }
-        }).dump());
-        http_post_message(etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
-            { "create_request", json11::Json::object {
-                { "key", base64_encode(cli->st_cli.etcd_prefix+"/pool/stats/") },
-                { "range_end", base64_encode(cli->st_cli.etcd_prefix+"/pool/stats0") },
-                { "start_revision", cli->st_cli.etcd_watch_revision },
-                { "watch_id", ETCD_POOL_STATS_WATCH_ID },
-                { "progress_notify", true },
-            } }
-        }).dump());
         cli->st_cli.etcd_txn_slow(json11::Json::object {
             { "success", json11::Json::array {
                 json11::Json::object {
@@ -414,6 +396,28 @@ void nfs_proxy_t::watch_stats()
                     etcd_kv_t kv = cli->st_cli.parse_etcd_kv(item);
                     parse_stats(kv);
                 }
+            }
+            if (cli->st_cli.etcd_watch_ws)
+            {
+                auto watch_rev = res["header"]["revision"].uint64_value()+1;
+                http_post_message(cli->st_cli.etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
+                    { "create_request", json11::Json::object {
+                        { "key", base64_encode(cli->st_cli.etcd_prefix+"/inode/stats/") },
+                        { "range_end", base64_encode(cli->st_cli.etcd_prefix+"/inode/stats0") },
+                        { "start_revision", watch_rev },
+                        { "watch_id", ETCD_INODE_STATS_WATCH_ID },
+                        { "progress_notify", true },
+                    } }
+                }).dump());
+                http_post_message(cli->st_cli.etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
+                    { "create_request", json11::Json::object {
+                        { "key", base64_encode(cli->st_cli.etcd_prefix+"/pool/stats/") },
+                        { "range_end", base64_encode(cli->st_cli.etcd_prefix+"/pool/stats0") },
+                        { "start_revision", watch_rev },
+                        { "watch_id", ETCD_POOL_STATS_WATCH_ID },
+                        { "progress_notify", true },
+                    } }
+                }).dump());
             }
         });
     };

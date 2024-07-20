@@ -427,7 +427,7 @@ struct rm_osd_t
                         { "target", "MOD" },
                         { "key", history_key },
                         { "result", "LESS" },
-                        { "mod_revision", parent->cli->st_cli.etcd_watch_revision+1 },
+                        { "mod_revision", parent->cli->st_cli.etcd_watch_revision_pg+1 },
                     });
                 }
             }

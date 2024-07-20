@@ -905,7 +905,7 @@ void osd_t::report_pg_states()
                             { "target", "MOD" },
                             { "key", state_key_base64 },
                             { "result", "LESS" },
-                            { "mod_revision", st_cli.etcd_watch_revision+1 },
+                            { "mod_revision", st_cli.etcd_watch_revision_pg+1 },
                         });
                         continue;
                     }
@@ -976,7 +976,7 @@ void osd_t::report_pg_states()
                     { "target", "MOD" },
                     { "key", history_key },
                     { "result", "LESS" },
-                    { "mod_revision", st_cli.etcd_watch_revision+1 },
+                    { "mod_revision", st_cli.etcd_watch_revision_pg+1 },
                 });
                 success.push_back(json11::Json::object {
                     { "request_put", json11::Json::object {

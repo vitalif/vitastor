@@ -94,7 +94,6 @@ protected:
     std::string selected_etcd_address;
     std::vector<std::string> addresses_to_try;
     std::vector<inode_watch_t*> watches;
-    http_co_t *etcd_watch_ws = NULL, *keepalive_client = NULL;
     bool new_pg_config = false;
     int ws_keepalive_timer = -1;
     int ws_alive = 0;
@@ -115,8 +114,11 @@ public:
     int log_level = 0;
     timerfd_manager_t *tfd = NULL;
 
+    http_co_t *etcd_watch_ws = NULL, *keepalive_client = NULL;
     int etcd_watches_initialised = 0;
-    uint64_t etcd_watch_revision = 0;
+    uint64_t etcd_watch_revision_config = 0;
+    uint64_t etcd_watch_revision_osd = 0;
+    uint64_t etcd_watch_revision_pg = 0;
     std::map<pool_id_t, pool_config_t> pool_config;
     std::map<osd_num_t, json11::Json> peer_states;
     std::set<osd_num_t> seen_peers;

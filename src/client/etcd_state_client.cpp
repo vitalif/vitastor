@@ -333,7 +333,10 @@ void etcd_state_client_t::start_etcd_watcher()
         etcd_watch_ws = NULL;
     }
     if (this->log_level > 1)
-        fprintf(stderr, "Trying to connect to etcd websocket at %s, watch from revision %ju\n", etcd_address.c_str(), etcd_watch_revision);
+    {
+        fprintf(stderr, "Trying to connect to etcd websocket at %s, watch from revision %ju/%ju/%ju\n", etcd_address.c_str(),
+            etcd_watch_revision_config, etcd_watch_revision_osd, etcd_watch_revision_pg);
+    }
     etcd_watch_ws = open_websocket(tfd, etcd_address, etcd_api_path+"/watch", etcd_slow_timeout,
         [this, cur_addr = selected_etcd_address](const http_response_t *msg)
     {
@@ -348,15 +351,20 @@ void etcd_state_client_t::start_etcd_watcher()
             }
             else
             {
+                uint64_t watch_id = data["result"]["watch_id"].uint64_value();
                 if (data["result"]["created"].bool_value())
                 {
-                    uint64_t watch_id = data["result"]["watch_id"].uint64_value();
                     if (watch_id == ETCD_CONFIG_WATCH_ID ||
                         watch_id == ETCD_PG_STATE_WATCH_ID ||
                         watch_id == ETCD_OSD_STATE_WATCH_ID)
+                    {
                         etcd_watches_initialised++;
+                    }
                     if (etcd_watches_initialised == ETCD_TOTAL_WATCHES && this->log_level > 0)
-                        fprintf(stderr, "Successfully subscribed to etcd at %s, revision %ju\n", cur_addr.c_str(), etcd_watch_revision);
+                    {
+                        fprintf(stderr, "Successfully subscribed to etcd at %s, revision %ju/%ju/%ju\n", cur_addr.c_str(),
+                            etcd_watch_revision_config, etcd_watch_revision_osd, etcd_watch_revision_pg);
+                    }
                 }
                 if (data["result"]["canceled"].bool_value())
                 {
@@ -374,7 +382,7 @@ void etcd_state_client_t::start_etcd_watcher()
                                     data["result"]["compact_revision"].uint64_value());
                                 http_close(etcd_watch_ws);
                                 etcd_watch_ws = NULL;
-                                etcd_watch_revision = 0;
+                                etcd_watch_revision_config = etcd_watch_revision_osd = etcd_watch_revision_pg = 0;
                                 on_reload_hook();
                             }
                             return;
@@ -392,13 +400,29 @@ void etcd_state_client_t::start_etcd_watcher()
                         exit(1);
                     }
                 }
+                // Save revision only if it's present in the message - because sometimes etcd sends something without a header, like:
+                // {"error": {"grpc_code": 14, "http_code": 503, "http_status": "Service Unavailable", "message": "error reading from server: EOF"}}
                 if (etcd_watches_initialised == ETCD_TOTAL_WATCHES && !data["result"]["header"]["revision"].is_null())
                 {
-                    // Protect against a revision being split into multiple messages and some
-                    // of them being lost.
-                    // Also sometimes etcd sends something without a header, like:
-                    // {"error": {"grpc_code": 14, "http_code": 503, "http_status": "Service Unavailable", "message": "error reading from server: EOF"}}
-                    etcd_watch_revision = data["result"]["header"]["revision"].uint64_value();
+                    // Restart watchers from the same revision number as in the last received message,
+                    // not from the next one to protect against revision being split into multiple messages,
+                    // even though etcd guarantees not to do that **within a single watcher** without fragment=true:
+                    // https://etcd.io/docs/v3.5/learning/api_guarantees/#watch-apis
+                    // Revision contents are ALWAYS split into separate messages for different watchers though!
+                    // So generally we have to resume each watcher from its own revision...
+                    // Progress messages may have watch_id=-1 if sent on behalf of multiple watchers though.
+                    // And antietcd has an advanced semantic which merges the same revision for all watchers
+                    // into one message and just omits watch_id.
+                    // So we also have to handle the case where watch_id is -1 or not present (0).
+                    auto watch_rev = data["result"]["header"]["revision"].uint64_value();
+                    if (!watch_id || watch_id == UINT64_MAX)
+                        etcd_watch_revision_config = etcd_watch_revision_osd = etcd_watch_revision_pg = watch_rev;
+                    else if (watch_id == ETCD_CONFIG_WATCH_ID)
+                        etcd_watch_revision_config = watch_rev;
+                    else if (watch_id == ETCD_PG_STATE_WATCH_ID)
+                        etcd_watch_revision_pg = watch_rev;
+                    else if (watch_id == ETCD_OSD_STATE_WATCH_ID)
+                        etcd_watch_revision_osd = watch_rev;
                     addresses_to_try.clear();
                 }
                 // First gather all changes into a hash to remove multiple overwrites
@@ -456,7 +480,7 @@ void etcd_state_client_t::start_etcd_watcher()
         { "create_request", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/config/") },
             { "range_end", base64_encode(etcd_prefix+"/config0") },
-            { "start_revision", etcd_watch_revision },
+            { "start_revision", etcd_watch_revision_config },
             { "watch_id", ETCD_CONFIG_WATCH_ID },
             { "progress_notify", true },
         } }
@@ -465,7 +489,7 @@ void etcd_state_client_t::start_etcd_watcher()
         { "create_request", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/osd/state/") },
             { "range_end", base64_encode(etcd_prefix+"/osd/state0") },
-            { "start_revision", etcd_watch_revision },
+            { "start_revision", etcd_watch_revision_osd },
             { "watch_id", ETCD_OSD_STATE_WATCH_ID },
             { "progress_notify", true },
         } }
@@ -474,7 +498,7 @@ void etcd_state_client_t::start_etcd_watcher()
         { "create_request", json11::Json::object {
             { "key", base64_encode(etcd_prefix+"/pg/") },
             { "range_end", base64_encode(etcd_prefix+"/pg0") },
-            { "start_revision", etcd_watch_revision },
+            { "start_revision", etcd_watch_revision_pg },
             { "watch_id", ETCD_PG_STATE_WATCH_ID },
             { "progress_notify", true },
         } }
@@ -636,13 +660,10 @@ void etcd_state_client_t::load_pgs()
             return;
         }
         reset_pg_exists();
-        if (!etcd_watch_revision)
+        etcd_watch_revision_config = etcd_watch_revision_osd = etcd_watch_revision_pg = data["header"]["revision"].uint64_value()+1;
+        if (this->log_level > 3)
         {
-            etcd_watch_revision = data["header"]["revision"].uint64_value()+1;
-            if (this->log_level > 3)
-            {
-                fprintf(stderr, "Loaded revision %ju of PG configuration\n", etcd_watch_revision-1);
-            }
+            fprintf(stderr, "Loaded revision %ju of PG configuration\n", etcd_watch_revision_pg-1);
         }
         for (auto & res: data["responses"].array_items())
         {
