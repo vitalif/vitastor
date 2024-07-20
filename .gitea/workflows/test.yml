@@ -16,6 +16,7 @@ env:
   BUILDENV_IMAGE: git.yourcmc.ru/vitalif/vitastor/buildenv
   TEST_IMAGE: git.yourcmc.ru/vitalif/vitastor/test
   OSD_ARGS: '--etcd_quick_timeout 2000'
+  USE_RAMDISK: 1
 
 concurrency:
   group: ci-${{ github.ref }}

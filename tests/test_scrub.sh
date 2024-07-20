@@ -18,7 +18,7 @@ $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testimg","size":'$((IMG_SIZE*1
 # Write
 LD_PRELOAD="build/src/client/libfio_vitastor.so" \
     fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=1M -direct=1 -iodepth=4 \
-        -mirror_file=./testdata/mirror.bin -end_fsync=1 -rw=write -etcd=$ETCD_URL -image=testimg
+        -mirror_file=./testdata/bin/mirror.bin -end_fsync=1 -rw=write -etcd=$ETCD_URL -image=testimg
 
 # Save PG primary
 primary=$($ETCDCTL get --print-value-only /vitastor/pg/config | jq -r '.items["1"]["1"].primary')
@@ -28,9 +28,9 @@ zero_osd_pid=OSD${ZERO_OSD}_PID
 kill ${!zero_osd_pid}
 sleep 1
 kill -9 ${!zero_osd_pid} || true
-data_offset=$(build/src/disk_tool/vitastor-disk simple-offsets ./testdata/test_osd$ZERO_OSD.bin $OFFSET_ARGS | grep data_offset | awk '{print $2}')
-truncate -s $data_offset ./testdata/test_osd$ZERO_OSD.bin
-dd if=/dev/zero of=./testdata/test_osd$ZERO_OSD.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
+data_offset=$(build/src/disk_tool/vitastor-disk simple-offsets ./testdata/bin/test_osd$ZERO_OSD.bin $OFFSET_ARGS | grep data_offset | awk '{print $2}')
+truncate -s $data_offset ./testdata/bin/test_osd$ZERO_OSD.bin
+dd if=/dev/zero of=./testdata/bin/test_osd$ZERO_OSD.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
 $ETCDCTL del /vitastor/osd/state/$ZERO_OSD
 start_osd $ZERO_OSD
 
@@ -64,8 +64,8 @@ fi
 # Read everything back
 qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testimg" \
-    -O raw ./testdata/read.bin
+    -O raw ./testdata/bin/read.bin
 
-diff ./testdata/read.bin ./testdata/mirror.bin
+diff ./testdata/bin/read.bin ./testdata/bin/mirror.bin
 
 format_green OK

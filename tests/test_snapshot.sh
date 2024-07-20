@@ -34,21 +34,21 @@ qemu-img convert -p \
 
 qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:pool=1:inode=3:size=$((32*1024*1024))" \
-    -O raw ./testdata/merged.bin
+    -O raw ./testdata/bin/merged.bin
 
 qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testimg@0" \
-    -O raw ./testdata/layer0.bin
+    -O raw ./testdata/bin/layer0.bin
 
 $ETCDCTL put /vitastor/config/inode/1/3 '{"name":"testimg","size":'$((32*1024*1024))'}'
 
 qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testimg" \
-    -O raw ./testdata/layer1.bin
+    -O raw ./testdata/bin/layer1.bin
 
-node tests/merge.js ./testdata/layer0.bin ./testdata/layer1.bin ./testdata/check.bin
+node tests/merge.js ./testdata/bin/layer0.bin ./testdata/bin/layer1.bin ./testdata/bin/check.bin
 
-cmp ./testdata/merged.bin ./testdata/check.bin
+cmp ./testdata/bin/merged.bin ./testdata/bin/check.bin
 
 # Test merge
 
@@ -58,22 +58,22 @@ build/src/cmd/vitastor-cli rm --etcd_address $ETCD_URL testimg@0
 
 qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testimg" \
-    -O raw ./testdata/merged-by-tool.bin
+    -O raw ./testdata/bin/merged-by-tool.bin
 
-cmp ./testdata/merged.bin ./testdata/merged-by-tool.bin
+cmp ./testdata/bin/merged.bin ./testdata/bin/merged-by-tool.bin
 
 # Test merge by qemu-img
 
 qemu-img rebase -u -b layer0.qcow2 -F qcow2 ./testdata/layer1.qcow2
 
-qemu-img convert -S 4096 -f qcow2 ./testdata/layer1.qcow2 -O raw ./testdata/rebased.bin
+qemu-img convert -S 4096 -f qcow2 ./testdata/layer1.qcow2 -O raw ./testdata/bin/rebased.bin
 
-cmp ./testdata/merged.bin ./testdata/rebased.bin
+cmp ./testdata/bin/merged.bin ./testdata/bin/rebased.bin
 
 qemu-img rebase -u -b '' ./testdata/layer1.qcow2
 
-qemu-img convert -S 4096 -f qcow2 ./testdata/layer1.qcow2 -O raw ./testdata/rebased.bin
+qemu-img convert -S 4096 -f qcow2 ./testdata/layer1.qcow2 -O raw ./testdata/bin/rebased.bin
 
-cmp ./testdata/layer1.bin ./testdata/rebased.bin
+cmp ./testdata/bin/layer1.bin ./testdata/bin/rebased.bin
 
 format_green OK

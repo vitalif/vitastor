@@ -43,10 +43,10 @@ LD_PRELOAD="build/src/client/libfio_vitastor.so" \
 
 qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:pool=1:inode=1:size=$((128*1024*1024))" \
-    -O raw ./testdata/read.bin
+    -O raw ./testdata/bin/read.bin
 
 qemu-img convert -S 4096 -p \
-    -f raw ./testdata/read.bin \
+    -f raw ./testdata/bin/read.bin \
     -O raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:pool=1:inode=1:size=$((128*1024*1024))"
 
 format_green OK

@@ -14,7 +14,7 @@ LD_PRELOAD="build/src/client/libfio_vitastor.so" \
 
 qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:pool=1:inode=1:size=$((256*1024*1024))" \
-    -O raw ./testdata/before.bin
+    -O raw ./testdata/bin/before.bin
 
 for i in $(seq 1 $OSD_COUNT); do
     pid=OSD${i}_PID
@@ -23,19 +23,19 @@ for i in $(seq 1 $OSD_COUNT); do
 done
 
 for i in $(seq 1 $OSD_COUNT); do
-    offsets=$(build/src/disk_tool/vitastor-disk simple-offsets --format json ./testdata/test_osd$i.bin)
+    offsets=$(build/src/disk_tool/vitastor-disk simple-offsets --format json ./testdata/bin/test_osd$i.bin)
     meta_offset=$(echo $offsets | jq -r .meta_offset)
     data_offset=$(echo $offsets | jq -r .data_offset)
-    build/src/disk_tool/vitastor-disk dump-journal --json ./testdata/test_osd$i.bin 4096 0 $meta_offset >./testdata/journal_before_resize.json
-    build/src/disk_tool/vitastor-disk dump-meta ./testdata/test_osd$i.bin 4096 $meta_offset $((data_offset-meta_offset)) >./testdata/meta_before_resize.json
+    build/src/disk_tool/vitastor-disk dump-journal --json ./testdata/bin/test_osd$i.bin 4096 0 $meta_offset >./testdata/journal_before_resize.json
+    build/src/disk_tool/vitastor-disk dump-meta ./testdata/bin/test_osd$i.bin 4096 $meta_offset $((data_offset-meta_offset)) >./testdata/meta_before_resize.json
     build/src/disk_tool/vitastor-disk resize \
-        $(build/src/disk_tool/vitastor-disk simple-offsets --format options ./testdata/test_osd$i.bin 2>/dev/null) \
+        $(build/src/disk_tool/vitastor-disk simple-offsets --format options ./testdata/bin/test_osd$i.bin 2>/dev/null) \
         --new_meta_offset 0 \
         --new_meta_len $((1024*1024)) \
         --new_journal_offset $((1024*1024)) \
         --new_data_offset $((128*1024*1024))
-    build/src/disk_tool/vitastor-disk dump-journal --json ./testdata/test_osd$i.bin 4096 $((1024*1024)) $((127*1024*1024)) >./testdata/journal_after_resize.json
-    build/src/disk_tool/vitastor-disk dump-meta ./testdata/test_osd$i.bin 4096 0 $((1024*1024)) >./testdata/meta_after_resize.json
+    build/src/disk_tool/vitastor-disk dump-journal --json ./testdata/bin/test_osd$i.bin 4096 $((1024*1024)) $((127*1024*1024)) >./testdata/journal_after_resize.json
+    build/src/disk_tool/vitastor-disk dump-meta ./testdata/bin/test_osd$i.bin 4096 0 $((1024*1024)) >./testdata/meta_after_resize.json
     if ! (cat ./testdata/meta_before_resize.json ./testdata/meta_after_resize.json | \
         jq -e -s 'map([ .entries[] | del(.block) ] | sort_by(.pool, .inode, .stripe)) | .[0] == .[1] and (.[0] | length) > 1000'); then
         format_error "OSD $i metadata corrupted after resizing"
@@ -50,7 +50,7 @@ $ETCDCTL del --prefix /vitastor/osd/state/
 
 for i in $(seq 1 $OSD_COUNT); do
     build/src/osd/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $NO_SAME $OSD_ARGS --etcd_address $ETCD_URL \
-        --data_device ./testdata/test_osd$i.bin \
+        --data_device ./testdata/bin/test_osd$i.bin \
         --meta_offset 0 \
         --journal_offset $((1024*1024)) \
         --data_offset $((128*1024*1024)) >>./testdata/osd$i.log 2>&1 &
@@ -59,9 +59,9 @@ done
 
 qemu-img convert -S 4096 -p \
     -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:pool=1:inode=1:size=$((256*1024*1024))" \
-    -O raw ./testdata/after.bin
+    -O raw ./testdata/bin/after.bin
 
-if ! cmp ./testdata/before.bin ./testdata/after.bin; then
+if ! cmp ./testdata/bin/before.bin ./testdata/bin/after.bin; then
     format_error "Data differs after resizing"
 fi
 

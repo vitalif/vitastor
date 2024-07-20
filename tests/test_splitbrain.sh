@@ -23,7 +23,7 @@ LD_PRELOAD="build/src/client/libfio_vitastor.so" \
 
 kill $OSD2_PID
 build/src/osd/vitastor-osd --osd_num 1 --bind_address 127.0.0.1 $NO_SAME $OSD_ARGS --etcd_address $ETCD_URL \
-    $(build/src/disk_tool/vitastor-disk simple-offsets --format options --device ./testdata/test_osd2.bin 2>/dev/null) >>./testdata/osd2.log 2>&1 &
+    $(build/src/disk_tool/vitastor-disk simple-offsets --format options --device ./testdata/bin/test_osd2.bin 2>/dev/null) >>./testdata/osd2.log 2>&1 &
 sleep 2
 
 # Check PG state - it should NOT become active

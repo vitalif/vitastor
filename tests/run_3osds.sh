@@ -50,8 +50,8 @@ if ! type -t osd_dev; then
     osd_dev()
     {
         local i=$1
-        [[ -f ./testdata/test_osd$i.bin ]] || dd if=/dev/zero of=./testdata/test_osd$i.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
-        echo ./testdata/test_osd$i.bin
+        [[ -f ./testdata/bin/test_osd$i.bin ]] || dd if=/dev/zero of=./testdata/bin/test_osd$i.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
+        echo ./testdata/bin/test_osd$i.bin
     }
 fi
 

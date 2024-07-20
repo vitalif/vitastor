@@ -25,11 +25,22 @@ ETCD_IP=${ETCD_IP:-127.0.0.1}
 ETCD_PORT=${ETCD_PORT:-12379}
 ETCD_COUNT=${ETCD_COUNT:-1}
 ANTIETCD=${ANTIETCD}
+USE_RAMDISK=${USE_RAMDISK}
 
-if [ "$KEEP_DATA" = "" ]; then
+RAMDISK=/run/user/$(id -u)
+findmnt $RAMDISK >/dev/null || (sudo mkdir -p $RAMDISK && sudo mount -t tmpfs tmpfs $RAMDISK)
+
+if [[ -z "$KEEP_DATA" ]]; then
     rm -rf ./testdata
-    rm -rf /run/user/$(id -u)/testdata_etcd*
+    rm -rf /run/user/$(id -u)/testdata_etcd* /run/user/$(id -u)/testdata_bin
     mkdir -p ./testdata
+    if [[ -n "$USE_RAMDISK" ]]; then
+        OSD_ARGS="$OSD_ARGS --data_io cached"
+        mkdir -p /run/user/$(id -u)/testdata_bin
+        ln -s /run/user/$(id -u)/testdata_bin ./testdata/bin
+    else
+        mkdir -p ./testdata/bin
+    fi
 fi
 
 ETCD_URL="http://$ETCD_IP:$ETCD_PORT"
@@ -41,9 +52,7 @@ start_etcd()
 {
     local i=$1
     if [[ -z "$ANTIETCD" ]]; then
-        local t=/run/user/$(id -u)
-        findmnt $t >/dev/null || (sudo mkdir -p $t && sudo mount -t tmpfs tmpfs $t)
-        ionice -c2 -n0 $ETCD -name etcd$i --data-dir /run/user/$(id -u)/testdata_etcd$i \
+        ionice -c2 -n0 $ETCD -name etcd$i --data-dir $RAMDISK/testdata_etcd$i \
             --advertise-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) --listen-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) \
             --initial-advertise-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) --listen-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) \
             --initial-cluster-token vitastor-tests-etcd --initial-cluster-state new \
