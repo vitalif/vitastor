@@ -150,7 +150,7 @@ POOL_ID=1
 ALL_OSDS=$(etcdctl --endpoints=your_etcd_address:2379 get --keys-only --prefix /vitastor/osd/stats/ | \
     perl -e '$/ = undef; $a = <>; $a =~ s/\s*$//; $a =~ s!/vitastor/osd/stats/!!g; $a =~ s/\s+/,/g; print $a')
 for i in $(seq 1 $PG_COUNT); do
-    etcdctl --endpoints=your_etcd_address:2379 put /vitastor/pg/history/$POOL_ID/$i '{"all_peers":['$ALL_OSDS']}'; done
+    etcdctl --endpoints=your_etcd_address:2379 put /vitastor/pg/history/$POOL_ID/$i '{"all_peers":['$ALL_OSDS']}'
 done
 ```
 
@@ -169,21 +169,51 @@ Upgrading is performed without stopping clients (VMs/containers), you just need 
 upgrade and restart servers one by one. However, ideally you should restart VMs too
 to make them use the new version of the client library.
 
-Exceptions (specific upgrade instructions):
-- Upgrading <= 1.1.x to 1.2.0 or later, if you use EC n+k with k>=2, is recommended
-  to be performed with full downtime: first you should stop all clients, then all OSDs,
-  then upgrade and start everything back — because versions before 1.2.0 have several
-  bugs leading to invalid data being read in EC n+k, k>=2 configurations in degraded pools.
-- Versions <= 0.8.7 are incompatible with versions >= 0.9.0, so you should first
-  upgrade from <= 0.8.7 to 0.8.8 or 0.8.9, and only then to >= 0.9.x. If you upgrade
-  without this intermediate step, client I/O will hang until the end of upgrade process.
-- Upgrading from <= 0.5.x to >= 0.6.x is not supported.
+### 1.1.x to 1.2.0
 
-Rollback:
-- Version 1.0.0 has a new disk format, so OSDs initiaziled on 1.0.0 can't be rolled
-  back to 0.9.x or previous versions.
-- Versions before 0.8.0 don't have vitastor-disk, so OSDs, initialized by it, won't
-  start with 0.7.x or 0.6.x. :-)
+Upgrading version <= 1.1.x to version >= 1.2.0, if you use EC n+k with k>=2, is recommended
+to be performed with full downtime: first you should stop all clients, then all OSDs,
+then upgrade and start everything back — because versions before 1.2.0 have several
+bugs leading to invalid data being read in EC n+k, k>=2 configurations in degraded pools.
+
+### 0.8.7 to 0.9.0
+
+Versions <= 0.8.7 are incompatible with versions >= 0.9.0, so you should first
+upgrade from <= 0.8.7 to 0.8.8 or 0.8.9, and only then to >= 0.9.x. If you upgrade
+without this intermediate step, client I/O will hang until the end of upgrade process.
+
+### 0.5.x to 0.6.x
+
+Upgrading from <= 0.5.x to >= 0.6.x is not supported.
+
+## Downgrade
+
+Downgrade are also allowed freely, except the following specific instructions:
+
+### 1.8.0 to 1.7.1
+
+Before downgrading from version >= 1.8.0 to version <= 1.7.1
+you have to copy /vitastor/pg/config etcd key to /vitastor/config/pgs:
+
+```
+etcdctl --endpoints=http://... get --print-value-only /vitastor/pg/config | \
+  etcdctl --endpoints=http://... put /vitastor/config/pgs
+```
+
+Then you can just install older packages and restart all services.
+
+If you performed downgrade without first copying that key, run "add all OSDs into the
+history records of all PGs" from [Restoring from lost pool configuration](#restoring-from-lost-pool-configuration).
+
+### 1.0.0 to 0.9.x
+
+Version 1.0.0 has a new disk format, so OSDs initialized on 1.0.0 or later can't
+be rolled back to 0.9.x or previous versions.
+
+### 0.8.0 to 0.7.x
+
+Versions before 0.8.0 don't have vitastor-disk, so OSDs, initialized by it, won't
+start with older versions (0.4.x - 0.7.x). :-)
 
 ## OSD memory usage
 
