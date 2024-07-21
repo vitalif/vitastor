@@ -452,11 +452,10 @@ void cluster_client_t::on_change_pg_state_hook(pool_id_t pool_id, pg_num_t pg_nu
     if (pg_cfg.cur_primary != prev_primary)
     {
         // Repeat this PG operations because an OSD which stopped being primary may not fsync operations
-        if (wb->repeat_ops_for(this, 0, pool_id, pg_num) > 0)
-        {
-            continue_ops();
-        }
+        wb->repeat_ops_for(this, 0, pool_id, pg_num);
     }
+    // Always continue to resume operations hung because of lack of the primary OSD
+    continue_ops();
 }
 
 bool cluster_client_t::get_immediate_commit(uint64_t inode)
@@ -1066,11 +1065,11 @@ bool cluster_client_t::try_send(cluster_op_t *op, int i)
         !pg_it->second.pause && pg_it->second.cur_primary)
     {
         osd_num_t primary_osd = pg_it->second.cur_primary;
+        part->osd_num = primary_osd;
         auto peer_it = msgr.osd_peer_fds.find(primary_osd);
         if (peer_it != msgr.osd_peer_fds.end())
         {
             int peer_fd = peer_it->second;
-            part->osd_num = primary_osd;
             part->flags |= PART_SENT;
             op->inflight_count++;
             uint64_t pg_bitmap_size = (pool_cfg.data_block_size / pool_cfg.bitmap_granularity / 8) * (
