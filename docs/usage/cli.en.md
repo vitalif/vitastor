@@ -307,7 +307,7 @@ OSD  PARENT            UP    SIZE  USED%    TAGS          WEIGHT  BLOCK  BITMAP 
 
 `vitastor-cli modify-osd [--tags tag1,tag2,...] [--reweight <number>] [--noout true/false] <osd_number>`
 
-Set OSD reweight, tags or noout flag. See detail description in [OSD config documentation](../config.pool.en.md#osd-settings).
+Set OSD reweight, tags or noout flag. See detail description in [OSD config documentation](../config/pool.en.md#osd-settings).
 
 ## pg-list
 

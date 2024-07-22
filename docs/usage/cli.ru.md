@@ -324,7 +324,7 @@ OSD  PARENT            UP    SIZE  USED%    TAGS          WEIGHT  BLOCK  BITMAP 
 
 `vitastor-cli modify-osd [--tags tag1,tag2,...] [--reweight <number>] [--noout true/false] <osd_number>`
 
-Установить вес OSD, теги или флаг noout. Смотрите подробное описание в [документации настроек OSD](../config.pool.ru.md#настройки-osd).
+Установить вес OSD, теги или флаг noout. Смотрите подробное описание в [документации настроек OSD](../config/pool.ru.md#настройки-osd).
 
 ## pg-list
 
