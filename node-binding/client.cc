@@ -24,6 +24,7 @@ public:
     }
 
     iovec iov;
+    std::vector<iovec> iov_list;
     NodeVitastorImage *img = NULL;
     int op = 0;
     uint64_t offset = 0, len = 0, version = 0;
@@ -141,10 +142,8 @@ NAN_METHOD(NodeVitastor::Read)
 static NodeVitastorRequest* getWriteRequest(const Nan::FunctionCallbackInfo<v8::Value> & info, int argpos)
 {
     uint64_t offset = Nan::To<int64_t>(info[argpos+0]).FromJust();
-    char *buf = node::Buffer::Data(info[argpos+1]);
-    uint64_t len = node::Buffer::Length(info[argpos+1]);
+    const auto & bufarg = info[argpos+1];
     uint64_t version = 0;
-
     if (!info[argpos+2].IsEmpty() && info[argpos+2]->IsObject())
     {
         auto key = Nan::New<v8::String>("version").ToLocalChecked();
@@ -159,14 +158,33 @@ static NodeVitastorRequest* getWriteRequest(const Nan::FunctionCallbackInfo<v8::
     auto req = new NodeVitastorRequest(callback);
 
     req->offset = offset;
-    req->len = len;
     req->version = version;
-    req->iov = { .iov_base = buf, .iov_len = req->len };
+
+    if (bufarg->IsArray())
+    {
+        auto buffers = bufarg.As<v8::Array>();
+        req->len = 0;
+        for (uint32_t i = 0; i < buffers->Length(); i++)
+        {
+            auto buffer_obj = Nan::Get(buffers, i).ToLocalChecked();
+            char *buf = node::Buffer::Data(buffer_obj);
+            uint64_t len = node::Buffer::Length(buffer_obj);
+            req->iov_list.push_back({ .iov_base = buf, .iov_len = len });
+            req->len += len;
+        }
+    }
+    else
+    {
+        char *buf = node::Buffer::Data(bufarg);
+        uint64_t len = node::Buffer::Length(bufarg);
+        req->iov = { .iov_base = buf, .iov_len = req->len };
+        req->len = len;
+    }
 
     return req;
 }
 
-// write(pool, inode, offset, buffer, { version }?, callback(err))
+// write(pool, inode, offset, buf: Buffer | Buffer[], { version }?, callback(err))
 NAN_METHOD(NodeVitastor::Write)
 {
     TRACE("NodeVitastor::Write");
@@ -179,7 +197,10 @@ NAN_METHOD(NodeVitastor::Write)
     auto req = getWriteRequest(info, 2);
 
     std::unique_lock<std::mutex> lock(self->mu);
-    vitastor_c_write(self->c, ((pool << (64-POOL_ID_BITS)) | inode), req->offset, req->len, req->version, &req->iov, 1, on_write_finish, req);
+    vitastor_c_write(self->c, ((pool << (64-POOL_ID_BITS)) | inode), req->offset, req->len, req->version,
+        req->iov_list.size() ? req->iov_list.data() : &req->iov,
+        req->iov_list.size() ? req->iov_list.size() : 1,
+        on_write_finish, req);
 }
 
 // sync(callback(err))
@@ -421,7 +442,10 @@ void NodeVitastorImage::exec_request(NodeVitastorRequest *req)
     else if (req->op == NODE_VITASTOR_WRITE)
     {
         uint64_t ino = vitastor_c_inode_get_num(watch);
-        vitastor_c_write(cli->c, ino, req->offset, req->len, req->version, &req->iov, 1, NodeVitastor::on_write_finish, req);
+        vitastor_c_write(cli->c, ino, req->offset, req->len, req->version,
+            req->iov_list.size() ? req->iov_list.data() : &req->iov,
+            req->iov_list.size() ? req->iov_list.size() : 1,
+            NodeVitastor::on_write_finish, req);
     }
     else if (req->op == NODE_VITASTOR_SYNC)
     {

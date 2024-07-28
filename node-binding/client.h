@@ -19,7 +19,7 @@ public:
     static NAN_METHOD(Create);
     // read(pool, inode, offset, len, callback(err, buffer, version))
     static NAN_METHOD(Read);
-    // write(pool, inode, offset, buffer, { version }?, callback(err))
+    // write(pool, inode, offset, buf: Buffer | Buffer[], { version }?, callback(err))
     static NAN_METHOD(Write);
     // sync(callback(err))
     static NAN_METHOD(Sync);
@@ -56,7 +56,7 @@ public:
     static NAN_METHOD(Create);
     // read(offset, len, callback(err, buffer, version))
     static NAN_METHOD(Read);
-    // write(offset, buffer, { version }?, callback(err))
+    // write(offset, buf: Buffer | Buffer[], { version }?, callback(err))
     static NAN_METHOD(Write);
     // sync(callback(err))
     static NAN_METHOD(Sync);
