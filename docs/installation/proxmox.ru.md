@@ -16,10 +16,10 @@
 - Перезапустите демон Proxmox: `systemctl restart pvedaemon`
 
 Пример `/etc/pve/storage.cfg` (единственная обязательная опция - vitastor_pool, все остальные
-перечислены внизу для понимания значений по умолчанию):
+перечислены внизу для понимания значений по умолчанию; `vitastor_ssd` - имя хранилища в Proxmox):
 
 ```
-vitastor: vitastor
+vitastor: vitastor_ssd
     # Пул, в который будут помещаться образы дисков
     vitastor_pool testpool
     # Путь к файлу конфигурации

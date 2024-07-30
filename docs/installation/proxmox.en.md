@@ -17,10 +17,10 @@ To enable Vitastor support in Proxmox Virtual Environment (6.4-8.1 are supported
 - Restart pvedaemon: `systemctl restart pvedaemon`
 
 `/etc/pve/storage.cfg` example (the only required option is vitastor_pool, all others
-are listed below with their default values):
+are listed below with their default values; `vitastor_ssd` is Proxmox storage pool id):
 
 ```
-vitastor: vitastor
+vitastor: vitastor_ssd
     # pool to put new images into
     vitastor_pool testpool
     # path to the configuration file
