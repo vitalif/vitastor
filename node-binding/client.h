@@ -4,8 +4,6 @@
 #ifndef NODE_VITASTOR_CLIENT_H
 #define NODE_VITASTOR_CLIENT_H
 
-#include <mutex>
-
 #include <nan.h>
 #include <vitastor_c.h>
 #include <vitastor_kv.h>
@@ -34,8 +32,6 @@ private:
     vitastor_c *c = NULL;
     int eventfd = -1;
     uv_poll_t poll_watcher;
-    // FIXME: Is it really needed?
-    std::mutex mu;
 
     NodeVitastor();
 
@@ -43,6 +39,9 @@ private:
     static void on_read_finish(void *opaque, long retval, uint64_t version);
     static void on_write_finish(void *opaque, long retval);
     static void on_read_bitmap_finish(void *opaque, long retval, uint8_t *bitmap);
+
+    NodeVitastorRequest* get_read_request(const Nan::FunctionCallbackInfo<v8::Value> & info, int argpos);
+    NodeVitastorRequest* get_write_request(const Nan::FunctionCallbackInfo<v8::Value> & info, int argpos);
 
     friend class NodeVitastorImage;
     friend class NodeVitastorKV;
@@ -74,8 +73,6 @@ private:
     std::vector<NodeVitastorRequest*> on_init;
     Nan::Persistent<v8::Object> cliObj;
 
-    NodeVitastorImage();
-
     static void on_watch_start(void *opaque, long retval);
     void exec_request(NodeVitastorRequest *req);
     void exec_or_wait(NodeVitastorRequest *req);
@@ -86,7 +83,7 @@ class NodeVitastorKV: public Nan::ObjectWrap
 public:
     // constructor(node_vitastor)
     static NAN_METHOD(Create);
-    // open(inode_id, { ...config }, callback(err))
+    // open(pool_id, inode_num, { ...config }, callback(err))
     static NAN_METHOD(Open);
     // set_config({ ...config })
     static NAN_METHOD(SetConfig);
@@ -98,9 +95,9 @@ public:
     static NAN_METHOD(Get);
     // get_cached(key, callback(err, value))
     static NAN_METHOD(GetCached);
-    // set(key, value, callback(err), cas_compare(old_value))
+    // set(key, value, callback(err), cas_compare(old_value)?)
     static NAN_METHOD(Set);
-    // del(key, callback(err), cas_compare(old_value))
+    // del(key, callback(err), cas_compare(old_value)?)
     static NAN_METHOD(Del);
     // list(start_key?)
     static NAN_METHOD(List);
@@ -113,8 +110,6 @@ private:
     NodeVitastor *cli = NULL;
     vitastorkv_dbw_t *dbw = NULL;
 
-    NodeVitastorKV();
-
     static void get_impl(const Nan::FunctionCallbackInfo<v8::Value> & info, bool allow_cache);
 
     friend class NodeVitastorKVListing;
@@ -125,7 +120,7 @@ class NodeVitastorKVListing: public Nan::ObjectWrap
 public:
     // constructor(node_vitastor_kv, start_key?)
     static NAN_METHOD(Create);
-    // next(callback(err, value))
+    // next(callback(err, value)?)
     static NAN_METHOD(Next);
     // close()
     static NAN_METHOD(Close);
@@ -135,8 +130,7 @@ public:
 private:
     NodeVitastorKV *kv = NULL;
     void *handle = NULL;
-
-    NodeVitastorKVListing();
+    NodeVitastorRequest *iter = NULL;
 };
 
 #endif

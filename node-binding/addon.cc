@@ -24,7 +24,7 @@ NAN_MODULE_INIT(InitAddon)
 
     tpl = Nan::New<v8::FunctionTemplate>(NodeVitastorImage::Create);
     tpl->SetClassName(Nan::New("Image").ToLocalChecked());
-    tpl->InstanceTemplate()->SetInternalFieldCount(2);
+    tpl->InstanceTemplate()->SetInternalFieldCount(1);
 
     Nan::SetPrototypeMethod(tpl, "read", NodeVitastorImage::Read);
     Nan::SetPrototypeMethod(tpl, "write", NodeVitastorImage::Write);
@@ -67,7 +67,7 @@ NAN_MODULE_INIT(InitAddon)
 
     tpl = Nan::New<v8::FunctionTemplate>(NodeVitastorKVListing::Create);
     tpl->SetClassName(Nan::New("KVListing").ToLocalChecked());
-    tpl->InstanceTemplate()->SetInternalFieldCount(2);
+    tpl->InstanceTemplate()->SetInternalFieldCount(1);
 
     Nan::SetPrototypeMethod(tpl, "next", NodeVitastorKVListing::Next);
     Nan::SetPrototypeMethod(tpl, "close", NodeVitastorKVListing::Close);

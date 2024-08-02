@@ -13,7 +13,8 @@
         '<!(pkg-config --cflags vitastor)'
       ],
       'libraries': [
-        '<!(pkg-config --libs vitastor)'
+        '<!(pkg-config --libs vitastor)',
+        '-lvitastor_kv'
       ]
     }
   ]
