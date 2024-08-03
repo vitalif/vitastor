@@ -730,7 +730,7 @@ void etcd_state_client_t::clean_nonexistent_pgs()
             {
                 if (!pg_cfg.state_exists)
                 {
-                    if (this->log_level > 3)
+                    if (this->log_level > 3 && (pg_cfg.cur_primary || pg_cfg.cur_state))
                     {
                         fprintf(stderr, "PG %u/%u primary OSD disappeared after reload, forgetting it\n", pool_item.first, pg_it->first);
                     }
@@ -740,7 +740,7 @@ void etcd_state_client_t::clean_nonexistent_pgs()
                 }
                 if (!pg_cfg.history_exists)
                 {
-                    if (this->log_level > 3)
+                    if (this->log_level > 3 && (pg_cfg.target_history.size() || pg_cfg.all_peers.size() || pg_cfg.epoch || pg_cfg.next_scrub))
                     {
                         fprintf(stderr, "PG %u/%u history disappeared after reload, forgetting it\n", pool_item.first, pg_it->first);
                     }
