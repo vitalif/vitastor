@@ -344,7 +344,7 @@ static int check_disabled_cache(std::string dev)
             stderr, "Error: fsync is disabled for %s, but its cache is in write-back mode"
             " and we failed to make it write-through. Data loss is presumably possible."
             " Either switch the cache to write-through mode yourself or disable the check"
-            " using skip_cache_check=1 in the superblock.\n", dev.c_str()
+            " using skip_cache_check=true in the superblock.\n", dev.c_str()
         );
         return 1;
     }
@@ -358,7 +358,7 @@ int disk_tool_t::pre_exec_osd(std::string device)
     {
         return 1;
     }
-    if (!sb["params"]["skip_cache_check"].uint64_value())
+    if (!json_is_true(sb["params"]["skip_cache_check"]))
     {
         if (json_is_true(sb["params"]["disable_data_fsync"]) &&
             check_disabled_cache(sb["real_data_device"].string_value()) != 0)
