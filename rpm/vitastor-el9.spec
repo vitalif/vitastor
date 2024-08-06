@@ -74,7 +74,7 @@ Vitastor library headers for development.
 Summary:        Vitastor - fio drivers
 Group:          Development/Libraries
 Requires:       vitastor-client = %{version}-%{release}
-Requires:       fio = 3.27-8.el9
+Requires:       fio = 3.35-1.el9
 
 
 %description -n vitastor-fio
