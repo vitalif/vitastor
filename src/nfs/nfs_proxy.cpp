@@ -528,11 +528,9 @@ void nfs_proxy_t::do_accept(int listen_fd)
             // Handle incoming event
             if (epoll_events & EPOLLRDHUP)
             {
-                auto parent = cli->parent;
-                if (parent->trace)
+                if (cli->parent->trace)
                     fprintf(stderr, "Client %d disconnected\n", nfs_fd);
                 cli->stop();
-                parent->check_exit();
                 return;
             }
             cli->epoll_events |= epoll_events;
@@ -781,11 +779,13 @@ void nfs_client_t::stop()
     stopped = true;
     if (refs <= 0)
     {
+        auto parent = this->parent;
         parent->rpc_clients.erase(nfs_fd);
         parent->active_connections--;
         parent->epmgr->tfd->set_fd_handler(nfs_fd, true, NULL);
         close(nfs_fd);
         delete this;
+        parent->check_exit();
     }
 }
 
