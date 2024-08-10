@@ -695,6 +695,8 @@ void nfs_client_t::handle_read(int result)
                         frag_num++;
                     }
                 }
+                // Increase client refcount while the RPC call is being processed
+                refs++;
                 // Handle full message
                 int referenced = handle_rpc_message(cur_buffer.buf, data+4, wanted-4*fragments);
                 cur_buffer.refs += referenced ? 1 : 0;
@@ -776,11 +778,11 @@ bool nfs_client_t::deref()
 
 void nfs_client_t::stop()
 {
-    parent->rpc_clients.erase(nfs_fd);
-    parent->active_connections--;
     stopped = true;
     if (refs <= 0)
     {
+        parent->rpc_clients.erase(nfs_fd);
+        parent->active_connections--;
         parent->epmgr->tfd->set_fd_handler(nfs_fd, true, NULL);
         close(nfs_fd);
         delete this;
@@ -836,6 +838,10 @@ void nfs_client_t::handle_send(int result)
                         }
                     }
                     free(rop);
+                    if (deref())
+                    {
+                        return;
+                    }
                 }
                 result -= iov.iov_len;
                 done++;
