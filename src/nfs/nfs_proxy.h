@@ -21,6 +21,7 @@ class cli_tool_t;
 
 struct kv_fs_state_t;
 struct block_fs_state_t;
+class nfs_client_t;
 
 class nfs_proxy_t
 {
@@ -54,6 +55,7 @@ public:
     vitastorkv_dbw_t *db = NULL;
     kv_fs_state_t *kvfs = NULL;
     block_fs_state_t *blockfs = NULL;
+    std::map<int, nfs_client_t*> rpc_clients;
 
     std::vector<XDR*> xdr_pool;
 

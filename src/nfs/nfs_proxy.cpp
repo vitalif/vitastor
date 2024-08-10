@@ -522,6 +522,7 @@ void nfs_proxy_t::do_accept(int listen_fd)
         {
             cli->proc_table.insert(fn);
         }
+        rpc_clients[nfs_fd] = cli;
         epmgr->tfd->set_fd_handler(nfs_fd, true, [cli](int nfs_fd, int epoll_events)
         {
             // Handle incoming event
@@ -531,7 +532,6 @@ void nfs_proxy_t::do_accept(int listen_fd)
                 if (parent->trace)
                     fprintf(stderr, "Client %d disconnected\n", nfs_fd);
                 cli->stop();
-                parent->active_connections--;
                 parent->check_exit();
                 return;
             }
@@ -776,6 +776,8 @@ bool nfs_client_t::deref()
 
 void nfs_client_t::stop()
 {
+    parent->rpc_clients.erase(nfs_fd);
+    parent->active_connections--;
     stopped = true;
     if (refs <= 0)
     {
@@ -1056,6 +1058,11 @@ int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg
 
 void nfs_proxy_t::daemonize()
 {
+    // Stop all clients because client I/O sometimes breaks during daemonize
+    // I.e. the new process stops receiving events on the old FD
+    // It doesn't happen if we call sleep(1) here, but we don't want to call sleep(1)...
+    for (auto & clp: rpc_clients)
+        clp.second->stop();
     if (fork())
         exit(0);
     setsid();
