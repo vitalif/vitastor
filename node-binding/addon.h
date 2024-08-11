@@ -11,10 +11,10 @@
 
 #define ERRORF(format, ...) fprintf(stderr, format "\n", __VA_ARGS__);
 
-#define TRACEF(format, ...) fprintf(stderr, format "\n", __VA_ARGS__);
-#define TRACE(msg) fprintf(stderr, "%s\n", msg);
+//#define TRACEF(format, ...) fprintf(stderr, format "\n", __VA_ARGS__);
+//#define TRACE(msg) fprintf(stderr, "%s\n", msg);
 
-//#define TRACEF(format, arg) ;
-//#define TRACE(msg) ;
+#define TRACEF(format, ...) ;
+#define TRACE(msg) ;
 
 #endif
