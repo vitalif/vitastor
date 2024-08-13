@@ -358,7 +358,7 @@ int disk_tool_t::pre_exec_osd(std::string device)
     {
         return 1;
     }
-    if (!sb["params"]["skip_cache_check"].uint64_value())
+    if (!json_is_true(sb["params"]["skip_cache_check"]))
     {
         if (json_is_true(sb["params"]["disable_data_fsync"]) &&
             check_disabled_cache(sb["real_data_device"].string_value()) != 0)
