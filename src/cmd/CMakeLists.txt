@@ -11,6 +11,7 @@ add_library(vitastor_cli STATIC
 	cli_fix.cpp
 	cli_ls.cpp
 	cli_create.cpp
+	cli_dd.cpp
 	cli_modify.cpp
 	cli_modify_osd.cpp
 	cli_osd_tree.cpp

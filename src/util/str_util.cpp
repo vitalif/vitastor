@@ -485,3 +485,21 @@ std::string format_datetime(uint64_t unixtime)
     int len = strftime(buf, 128, "%Y-%m-%d %H:%M:%S", &lt);
     return std::string(buf, len);
 }
+
+bool is_zero(void *buf, size_t size)
+{
+    size_t i = 0;
+    while (i <= size-8)
+    {
+        if (*(uint64_t*)((uint8_t*)buf + i))
+            return false;
+        i += 8;
+    }
+    while (i < size)
+    {
+        if (*((uint8_t*)buf + i))
+            return false;
+        i++;
+    }
+    return true;
+}

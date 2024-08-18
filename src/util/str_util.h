@@ -31,3 +31,4 @@ std::string auto_addslashes(const std::string & str, const char *toescape = "\\\
 std::string addslashes(const std::string & str, const char *toescape = "\\\"");
 std::string realpath_str(std::string path, bool nofail = true);
 std::string format_datetime(uint64_t unixtime);
+bool is_zero(void *buf, size_t size);

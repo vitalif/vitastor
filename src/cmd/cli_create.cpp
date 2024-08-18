@@ -26,7 +26,7 @@ struct image_creator_t
     std::string new_pool_name;
     std::string image_name, new_snap, new_parent;
     json11::Json new_meta;
-    uint64_t size;
+    uint64_t size = 0;
     bool force = false;
     bool force_size = false;
 
@@ -554,10 +554,10 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_create(json11::Json cfg)
         image_creator->new_snap = cfg["snapshot"].string_value();
     }
     image_creator->new_parent = cfg["parent"].string_value();
-    if (cfg["size"].string_value() != "")
+    if (!cfg["size"].is_null())
     {
         bool ok;
-        image_creator->size = parse_size(cfg["size"].string_value(), &ok);
+        image_creator->size = parse_size(cfg["size"].as_string(), &ok);
         if (!ok)
         {
             return [size = cfg["size"].string_value()](cli_result_t & result)

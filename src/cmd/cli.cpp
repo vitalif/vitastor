@@ -62,6 +62,31 @@ static const char* help_text =
     "  Other options:\n"
     "  --down-ok  Continue deletion/merging even if some data will be left on unavailable OSDs.\n"
     "\n"
+    "vitastor-cli dd [iimg=<image> | if=<file>] [oimg=<image> | of=<file>] [bs=1M]\n"
+    "    [count=N] [seek/oseek=N] [skip/iseek=M] [iodepth=N] [status=progress]\n"
+    "    [conv=nocreat,noerror,nofsync,trunc,nosparse] [iflag=direct] [oflag=direct,append]\n"
+    "  Copy data between Vitastor images, files and pipes.\n"
+    "  Options can be specified in classic dd style (key=value) or like usual (--key value).\n"
+    "  iimg=<image>   Copy from Vitastor image <image>\n"
+    "  if=<file>      Copy from file <file>\n"
+    "  oimg=<image>   Copy to Vitastor image <image>\n"
+    "  of=<file>      Copy to file <file>\n"
+    "  bs=1M          Set copy block size\n"
+    "  count=N        Copy only N input blocks. If N ends in B it counts bytes, not blocks\n"
+    "  seek/oseek=N   Skip N output blocks. If N ends in B it counts bytes, not blocks\n"
+    "  skip/iseek=N   Skip N input blocks. If N ends in B it counts bytes, not blocks\n"
+    "  iodepth=N      Send N reads or writes in parallel (default 4)\n"
+    "  status=LEVEL   The LEVEL of information to print to stderr: none/noxfer/progress\n"
+    "  size=N         Specify size for the created output file/image (defaults to input size)\n"
+    "  iflag=direct   For files only: use direct I/O\n"
+    "  oflag=direct   For files only: use direct I/O\n"
+    "  oflag=append   For files only: append to output file\n"
+    "  conv=nocreat   Do not create output file/image\n"
+    "  conv=trunc     For files only: truncate output file\n"
+    "  conv=noerror   Continue read after errors\n"
+    "  conv=nofsync   Do not call fsync before finishing (default behaviour is fsync)\n"
+    "  conv=nosparse  Write all output blocks including all-zero blocks\n"
+    "\n"
     "vitastor-cli flatten <layer>\n"
     "  Flatten a layer, i.e. merge data and detach it from parents.\n"
     "\n"
@@ -381,6 +406,20 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
             cfg["image"] = cmd[1];
         }
         action_cb = p->start_flatten(cfg);
+    }
+    else if (cmd[0] == "dd")
+    {
+        // Read or write to/from cluster
+        for (int i = 0; i < cmd.size(); i++)
+        {
+            auto arg = cmd[i].string_value();
+            ssize_t p = arg.find("=");
+            if (p != std::string::npos)
+            {
+                cfg[arg.substr(0, p)] = arg.substr(p+1);
+            }
+        }
+        action_cb = p->start_dd(cfg);
     }
     else if (cmd[0] == "rm")
     {

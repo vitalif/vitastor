@@ -671,17 +671,6 @@ void kv_db_t::stop_writing_new(uint64_t offset)
     }
 }
 
-static bool is_zero(void *buf, int size)
-{
-    assert(!(size % 8));
-    size /= 8;
-    uint64_t *ptr = (uint64_t*)buf;
-    for (int i = 0; i < size/8; i++)
-        if (ptr[i])
-            return false;
-    return true;
-}
-
 // Find approximate index size
 // Phase 1: try 2^i-1 for i=0,1,2,... * ino_block_size
 // Phase 2: binary search between 2^(N-1)-1 and 2^N-1 * ino_block_size
