@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# Vitastor OpenNebula driver
+# Copyright (c) Vitaliy Filippov, 2024+
+# License: Apache-2.0 http://www.apache.org/licenses/LICENSE-2.0
+
+# This script is used to monitor the free and used space of a datastore
+
+# -------- Set up the environment to source common tools & conf ------------
+
+if [ -z "${ONE_LOCATION}" ]; then
+    LIB_LOCATION=/usr/lib/one
+else
+    LIB_LOCATION=$ONE_LOCATION/lib
+fi
+
+. $LIB_LOCATION/sh/scripts_common.sh
+
+DRIVER_PATH=$(dirname $0)
+source ${DRIVER_PATH}/../../datastore/libfs.sh
+
+# -------- Get datastore arguments from OpenNebula core ------------
+
+DRV_ACTION=`cat -`
+ID=$1
+
+XPATH="${DRIVER_PATH}/../../datastore/xpath.rb -b $DRV_ACTION"
+
+unset i j XPATH_ELEMENTS
+
+while IFS= read -r -d '' element; do
+    XPATH_ELEMENTS[i++]="$element"
+done < <($XPATH \
+    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/BRIDGE_LIST \
+    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/POOL_NAME \
+    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/VITASTOR_CONF)
+
+BRIDGE_LIST="${XPATH_ELEMENTS[j++]}"
+POOL_NAME="${XPATH_ELEMENTS[j++]}"
+VITASTOR_CONF="${XPATH_ELEMENTS[j++]}"
+
+HOST=`get_destination_host`
+
+if [ -z "$HOST" ]; then
+    error_message "Datastore template missing 'BRIDGE_LIST' attribute."
+    exit -1
+fi
+
+CLI=vitastor-cli
+if [ -n "$VITASTOR_CONF" ]; then
+    CLI="$CLI --config_path ${VITASTOR_CONF}"
+fi
+
+# ------------ Compute datastore usage -------------
+
+MONITOR_SCRIPT=$(cat <<EOF
+vitastor-cli df --json | jq -r '.[] | select(.name == "${POOL_NAME}") |
+    "TOTAL_MB="+(.total_raw/.raw_to_usable/1024/1024 | tostring)+
+    "\nUSED_MB="+(.used_raw/.raw_to_usable/1024/1024 | tostring)+
+    "\nFREE_MB="+(.max_available/1024/1024 | tostring)'
+EOF
+)
+
+ssh_monitor_and_log $HOST "$MONITOR_SCRIPT 2>&1" "Error monitoring ${POOL_NAME} in $HOST"

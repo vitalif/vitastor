@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# Vitastor OpenNebula driver
+# Copyright (c) Vitaliy Filippov, 2024+
+# License: Apache-2.0 http://www.apache.org/licenses/LICENSE-2.0
+
+export LIVE=1
+`dirname $0`/prebackup $@

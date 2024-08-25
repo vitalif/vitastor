@@ -1,0 +1,60 @@
+diff --git /var/lib/one/remotes/datastore/downloader.sh /var/lib/one/remotes/datastore/downloader.sh
+index 9b75d8ee4b..09d2a5d41d 100755
+--- /var/lib/one/remotes/datastore/downloader.sh
++++ /var/lib/one/remotes/datastore/downloader.sh
+@@ -295,6 +295,45 @@ function get_rbd_cmd
+     echo "ssh '$(esc_sq "$DST_HOST")' \"$RBD export '$(esc_sq "$SOURCE")' -\""
+ }
+ 
++function get_vitastor_cmd
++{
++    local i j URL_ELEMENTS
++
++    FROM="$1"
++
++    URL_RB="$DRIVER_PATH/url.rb"
++
++    while IFS= read -r -d '' element; do
++        URL_ELEMENTS[i++]="$element"
++    done < <($URL_RB    "$FROM" \
++                        USER \
++                        HOST \
++                        SOURCE \
++                        PARAM_DS \
++                        PARAM_VITASTOR_CONF)
++
++    USER="${URL_ELEMENTS[j++]}"
++    DST_HOST="${URL_ELEMENTS[j++]}"
++    SOURCE="${URL_ELEMENTS[j++]}"
++    DS="${URL_ELEMENTS[j++]}"
++    VITASTOR_CONF="${URL_ELEMENTS[j++]}"
++
++    # Remove leading '/'
++    SOURCE="${SOURCE#/}"
++
++    if [ -n "$USER" ]; then
++        DST_HOST="$USER@$DST_HOST"
++    fi
++
++    local CLI
++    CLI="vitastor-cli"
++    if [ -n "$VITASTOR_CONF" ]; then
++        CLI="$CLI --config_path '$(esc_sq "${VITASTOR_CONF}")'"
++    fi
++
++    echo "ssh '$(esc_sq "$DST_HOST")' \"$CLI dd iimg='$(esc_sq "$SOURCE")'\""
++}
++
+ # Compare 2 version strings using sort -V
+ # Usage:
+ #   verlte "3.2.9" "3.4.0"
+@@ -424,6 +463,9 @@ s3://*)
+ rbd://*)
+     command="$(get_rbd_cmd "$FROM")"
+     ;;
++vitastor://*)
++    command="$(get_vitastor_cmd "$FROM")"
++    ;;
+ vcenter://*)
+     command="$VAR_LOCATION/remotes/datastore/vcenter_downloader.rb '$(esc_sq "$FROM")'"
+     ;;

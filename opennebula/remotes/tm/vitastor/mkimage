@@ -1,0 +1,120 @@
+#!/bin/bash
+
+# Vitastor OpenNebula driver
+# Copyright (c) Vitaliy Filippov, 2024+
+# License: Apache-2.0 http://www.apache.org/licenses/LICENSE-2.0
+
+# mkimage size format host:remote_system_ds/disk.i vmid dsid
+#   - size in MB of the image
+#   - format for the image
+#   - host is the target host to deploy the VM
+#   - remote_system_ds is the path for the system datastore in the host
+#   - vmid is the id of the VM
+#   - dsid is the target datastore (0 is the system datastore)
+
+SIZE=$1
+FORMAT=$2
+DST=$3
+
+VMID=$4
+DSID=$5
+
+#-------------------------------------------------------------------------------
+
+if [ -z "${ONE_LOCATION}" ]; then
+    TMCOMMON=/var/lib/one/remotes/tm/tm_common.sh
+    LIB_LOCATION=/usr/lib/one
+else
+    TMCOMMON=$ONE_LOCATION/var/remotes/tm/tm_common.sh
+    LIB_LOCATION=$ONE_LOCATION/lib
+fi
+
+DRIVER_PATH=$(dirname $0)
+
+source $TMCOMMON
+
+source ${DRIVER_PATH}/../../etc/datastore/datastore.conf
+source ${DRIVER_PATH}/../../datastore/libfs.sh
+
+#-------------------------------------------------------------------------------
+# Set dst path and dir
+#-------------------------------------------------------------------------------
+
+DST_PATH=`arg_path $DST`
+DST_HOST=`arg_host $DST`
+DST_DIR=`dirname $DST_PATH`
+
+DISK_ID=$(echo $DST|awk -F. '{print $NF}')
+
+#-------------------------------------------------------------------------------
+# Get Image information
+#-------------------------------------------------------------------------------
+
+XPATH="${DRIVER_PATH}/../../datastore/xpath.rb --stdin"
+
+unset i j XPATH_ELEMENTS
+
+while IFS= read -r -d '' element; do
+    XPATH_ELEMENTS[i++]="$element"
+done < <(onevm show -x $VMID | $XPATH \
+    /VM/TEMPLATE/DISK[DISK_ID=$DISK_ID]/VITASTOR_CONF \
+    /VM/TEMPLATE/DISK[DISK_ID=$DISK_ID]/POOL_NAME \
+    /VM/TEMPLATE/DISK[DISK_ID=$DISK_ID]/IMAGE_PREFIX \
+    /VM/TEMPLATE/DISK[DISK_ID=$DISK_ID]/FS)
+
+VITASTOR_CONF="${XPATH_ELEMENTS[j++]}"
+POOL_NAME="${XPATH_ELEMENTS[j++]}"
+IMAGE_PREFIX="${XPATH_ELEMENTS[j++]}"
+FS="${XPATH_ELEMENTS[j++]}"
+
+CLI=
+QEMU_ARG=""
+if [ -n "$VITASTOR_CONF" ]; then
+    CLI="$CLI --config_path ${VITASTOR_CONF}"
+    QEMU_ARG=":config_path=${VITASTOR_CONF}"
+fi
+
+IMAGE_NAME="${IMAGE_PREFIX}one-sys-${VMID}-${DISK_ID}"
+
+ssh_make_path $DST_HOST $DST_DIR
+
+set -e -o pipefail
+
+# if user requested a swap or specifies a FS, we need to create a local
+# formatted image and upload into existing Vitastor image
+FS_OPTS=$(eval $(echo "echo \$FS_OPTS_$FS"))
+
+MKIMAGE_CMD=$(cat <<EOF
+    set -e -o pipefail
+    export PATH=/usr/sbin:/sbin:\$PATH
+    vitastor-cli $CLI create --pool "${POOL_NAME}" "$IMAGE_NAME" --size "${SIZE}M"
+EOF
+)
+
+if [ -n "$FS" -o "$FORMAT" = "swap" ]; then
+    MKFS_CMD=`mkfs_command '$NBD' raw "$SIZE" "$SUPPORTED_FS" "$FS" "$FS_OPTS" | grep -v $QEMU_IMG`
+    MKIMAGE_CMD=$(cat <<EOF
+    $MKIMAGE_CMD
+    NBD=\$(sudo vitastor-nbd $CLI map --image "$IMAGE_NAME")
+    trap "sudo vitastor-nbd $CLI unmap \$NBD" EXIT
+    $MKFS_CMD
+EOF
+)
+fi
+
+DELIMAGE_CMD=$(cat <<EOF
+    vitastor-cli $CLI rm "$IMAGE_NAME"
+EOF
+)
+
+log "Making volatile disk of ${SIZE}M at $DST"
+
+ssh_exec_and_log_no_error "$DST_HOST" "$MKIMAGE_CMD" "Error creating volatile disk.$DISK_ID ($IMAGE_NAME) in $DST_HOST in pool $POOL_NAME."
+
+rc=$?
+
+if [ $rc != 0 ]; then
+    ssh_exec_and_log_no_error "$DST_HOST" "$DELIMAGE_CMD" "Error removing image"
+fi
+
+exit $rc

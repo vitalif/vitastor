@@ -81,6 +81,19 @@ Requires:       fio = 3.27-8.el9
 Vitastor fio drivers for benchmarking.
 
 
+%package -n opennebula-vitastor
+Summary:        Vitastor for OpenNebula
+Group:          Development/Libraries
+Requires:       vitastor-client
+Requires:       jq
+Requires:       python3-lxml
+Requires:       patch
+
+
+%description -n opennebula-vitastor
+Vitastor storage plugin for OpenNebula.
+
+
 %prep
 %setup -q
 
@@ -103,6 +116,11 @@ mkdir -p %buildroot/lib/systemd/system
 cp mon/scripts/vitastor.target mon/scripts/vitastor-mon.service mon/scripts/vitastor-osd@.service %buildroot/lib/systemd/system
 mkdir -p %buildroot/lib/udev/rules.d
 cp mon/scripts/90-vitastor.rules %buildroot/lib/udev/rules.d
+mkdir -p %buildroot/var/lib/one
+cp -r opennebula/remotes %buildroot/var/lib/one
+cp opennebula/install.sh %buildroot/var/lib/one/remotes/datastore/vitastor/
+mkdir -p %buildroot/etc/
+cp -r opennebula/sudoers.d %buildroot/etc/
 
 
 %files
@@ -161,6 +179,16 @@ chown vitastor:vitastor /var/lib/vitastor
 %_libdir/libfio_vitastor.so
 %_libdir/libfio_vitastor_blk.so
 %_libdir/libfio_vitastor_sec.so
+
+
+%files -n opennebula-vitastor
+/var/lib/one
+/etc/sudoers.d/opennebula-vitastor
+
+
+%triggerin -n opennebula-vitastor -- opennebula
+[ $2 = 0 ] || exit 0
+/var/lib/one/remotes/datastore/vitastor/install.sh
 
 
 %changelog

@@ -1,0 +1,3 @@
+opennebula/remotes var/lib/one/
+opennebula/sudoers.d etc/
+opennebula/install.sh var/lib/one/remotes/datastore/vitastor/

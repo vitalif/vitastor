@@ -43,5 +43,5 @@ RUN set -e; \
     rpmbuild -ba vitastor.spec; \
     mkdir -p /root/packages/vitastor-el7; \
     rm -rf /root/packages/vitastor-el7/*; \
-    cp ~/rpmbuild/RPMS/*/vitastor* /root/packages/vitastor-el7/; \
+    cp ~/rpmbuild/RPMS/*/*vitastor* /root/packages/vitastor-el7/; \
     cp ~/rpmbuild/SRPMS/vitastor* /root/packages/vitastor-el7/

@@ -1,0 +1,81 @@
+#!/bin/bash
+
+# Vitastor OpenNebula driver
+# Copyright (c) Vitaliy Filippov, 2024+
+# License: Apache-2.0 http://www.apache.org/licenses/LICENSE-2.0
+
+# resize image size vmid
+
+SRC=$1
+SIZE=$2
+VM_ID=$3
+
+#--------------------------------------------------------------------------------
+
+if [ -z "${ONE_LOCATION}" ]; then
+    TMCOMMON=/var/lib/one/remotes/tm/tm_common.sh
+    LIB_LOCATION=/usr/lib/one
+else
+    TMCOMMON=$ONE_LOCATION/var/remotes/tm/tm_common.sh
+    LIB_LOCATION=$ONE_LOCATION/lib
+fi
+
+DRIVER_PATH=$(dirname $0)
+
+source $TMCOMMON
+
+#-------------------------------------------------------------------------------
+# Set dst path and dir
+#-------------------------------------------------------------------------------
+
+SRC_HOST=`arg_host $SRC`
+SRC_PATH=`arg_path $SRC`
+
+#-------------------------------------------------------------------------------
+# Get Image information
+#-------------------------------------------------------------------------------
+
+DISK_ID=$(echo "$SRC_PATH" | $AWK -F. '{print $NF}')
+
+XPATH="${DRIVER_PATH}/../../datastore/xpath.rb --stdin"
+
+unset i j XPATH_ELEMENTS
+
+while IFS= read -r -d '' element; do
+    XPATH_ELEMENTS[i++]="$element"
+done < <(onevm show -x $VM_ID | $XPATH \
+    /VM/TEMPLATE/DISK[DISK_ID=$DISK_ID]/SOURCE \
+    /VM/TEMPLATE/DISK[DISK_ID=$DISK_ID]/VITASTOR_CONF \
+    /VM/TEMPLATE/DISK[DISK_ID=$DISK_ID]/IMAGE_PREFIX \
+    /VM/TEMPLATE/DISK[DISK_ID=$DISK_ID]/PERSISTENT)
+
+SRC_IMAGE="${XPATH_ELEMENTS[j++]}"
+VITASTOR_CONF="${XPATH_ELEMENTS[j++]}"
+IMAGE_PREFIX="${XPATH_ELEMENTS[j++]}"
+PERSISTENT="${XPATH_ELEMENTS[j++]}"
+
+if [ -n "${SRC_IMAGE}" ]; then
+    if [ "${PERSISTENT}" != 'YES' ]; then
+        SRC_IMAGE="${SRC_IMAGE}-${VM_ID}-${DISK_ID}"
+    fi
+else
+    SRC_IMAGE="${IMAGE_PREFIX}one-sys-${VM_ID}-${DISK_ID}"
+fi
+
+#-------------------------------------------------------------------------------
+# Resize disk
+#-------------------------------------------------------------------------------
+
+CLI=vitastor-cli
+if [ -n "$VITASTOR_CONF" ]; then
+    CLI="$CLI --config_path ${VITASTOR_CONF}"
+fi
+
+RESIZE_CMD=$(cat <<EOF
+    $CLI modify --resize ${SIZE}M "$SRC_IMAGE"
+EOF
+)
+
+ssh_exec_and_log "$SRC_HOST" "$RESIZE_CMD" "Error resizing disk $SRC_IMAGE"
+
+exit 0

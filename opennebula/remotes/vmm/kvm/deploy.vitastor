@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# Vitastor OpenNebula driver
+# Copyright (c) Vitaliy Filippov, 2024+
+# License: Apache-2.0 http://www.apache.org/licenses/LICENSE-2.0
+
+DRIVER_PATH=$(dirname $0)
+DEP_FILE=$1
+DEP_FILE_LOCATION=$(dirname $DEP_FILE)
+
+cat > $DEP_FILE
+
+python3 $DRIVER_PATH/deploy_vitastor.py $DEP_FILE $DEP_FILE_LOCATION/vm.xml
+
+cat $DEP_FILE | $DRIVER_PATH/deploy $@

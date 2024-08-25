@@ -1,0 +1,4 @@
+interest /var/lib/one/remotes/datastore/downloader.sh
+interest /etc/one/oned.conf
+interest /etc/one/vmm_exec/vmm_execrc
+interest /etc/apparmor.d/local/abstractions/libvirt-qemu

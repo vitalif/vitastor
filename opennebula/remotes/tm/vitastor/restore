@@ -1,0 +1,203 @@
+#!/usr/bin/env ruby
+
+# Vitastor OpenNebula driver
+# Copyright (c) Vitaliy Filippov, 2024+
+# License: Apache-2.0 http://www.apache.org/licenses/LICENSE-2.0
+
+ONE_LOCATION = ENV['ONE_LOCATION']
+
+if !ONE_LOCATION
+    RUBY_LIB_LOCATION = '/usr/lib/one/ruby'
+    GEMS_LOCATION     = '/usr/share/one/gems'
+    VMDIR             = '/var/lib/one'
+    CONFIG_FILE       = '/var/lib/one/config'
+else
+    RUBY_LIB_LOCATION = ONE_LOCATION + '/lib/ruby'
+    GEMS_LOCATION     = ONE_LOCATION + '/share/gems'
+    VMDIR             = ONE_LOCATION + '/var'
+    CONFIG_FILE       = ONE_LOCATION + '/var/config'
+end
+
+# %%RUBYGEMS_SETUP_BEGIN%%
+if File.directory?(GEMS_LOCATION)
+    real_gems_path = File.realpath(GEMS_LOCATION)
+    if !defined?(Gem) || Gem.path != [real_gems_path]
+        $LOAD_PATH.reject! {|l| l =~ /vendor_ruby/ }
+
+        # Suppress warnings from Rubygems
+        # https://github.com/OpenNebula/one/issues/5379
+        begin
+            verb = $VERBOSE
+            $VERBOSE = nil
+            require 'rubygems'
+            Gem.use_paths(real_gems_path)
+        ensure
+            $VERBOSE = verb
+        end
+    end
+end
+# %%RUBYGEMS_SETUP_END%%
+
+$LOAD_PATH << RUBY_LIB_LOCATION
+
+require 'rexml/document'
+require 'json'
+require 'securerandom'
+
+require_relative '../lib/tm_action'
+require_relative '../lib/datastore'
+
+def get_vitastor_disks(vm_xml)
+    vm_xml  = REXML::Document.new(vm_xml) if vm_xml.is_a?(String)
+    vm      = vm_xml.root
+    vmid    = vm.elements['VMID'].text
+
+    indexed_disks = []
+    vm.elements.each('DISK[TM_MAD="vitastor"]') do |d|
+        disk = new(vmid, d)
+        indexed_disks[disk.id] = disk
+    end
+
+    indexed_disks
+end
+
+#-------------------------------------------------------------------------------
+# RESTORE vm_id img_id inc_id disk_id
+#-------------------------------------------------------------------------------
+_dir      = ARGV[0].split ':'
+vm_id     = ARGV[1]
+bk_img_id = ARGV[2].to_i
+inc_id    = ARGV[3]
+disk_id   = ARGV[4].to_i
+
+begin
+    action = TransferManager::Action.new(:action_name => 'restore',
+                                         :vm_id => vm_id)
+    # --------------------------------------------------------------------------
+    # Image & Datastore information
+    # --------------------------------------------------------------------------
+    bk_img = OpenNebula::Image.new_with_id(bk_img_id, action.one)
+
+    rc = bk_img.info
+    raise rc.message.to_s if OpenNebula.is_error?(rc)
+
+    bk_ds = TransferManager::Datastore.from_image_ds(:image  => bk_img,
+                                                     :client => action.one)
+
+    # --------------------------------------------------------------------------
+    # Backup information
+    # sample output: {"0":"rsync://100//0:3ffce7/var/lib/one/datastores/100/1/3ffce7/disk.0.0"}
+    # --------------------------------------------------------------------------
+    xml_data = <<~EOS
+        #{action.vm.to_xml}
+        #{bk_img.to_xml}
+    EOS
+
+    rc = bk_ds.action("ls -i #{inc_id}", xml_data)
+
+    raise 'cannot list backup contents' unless rc.code == 0
+
+    disk_urls = JSON.parse(rc.stdout)
+    disk_urls = disk_urls.select {|id, _url| id.to_i == disk_id } if disk_id != -1
+
+    # --------------------------------------------------------------------------
+    # Restore disk_urls in Host VM folder
+    # --------------------------------------------------------------------------
+    vitastor_disks = get_vitastor_disks(action.vm.template_xml)
+    success_disks = []
+
+    info = {}
+
+    disk_urls.each do |id, url|
+        vitastor_disk = vitastor_disks[id.to_i]
+        randsuffix = SecureRandom.hex(5)
+
+        vitastor_one_ds = OpenNebula::Datastore.new_with_id(
+            action.vm["/VM/TEMPLATE/DISK[DISK_ID = #{id}]/DATASTORE_ID"].to_i, action.one
+        )
+        vitastor_ds = TransferManager::Datastore.new(:ds => vitastor_one_ds, :client => action.one)
+
+        src_image = vitastor_disk.elements['SOURCE'].text
+        disk_id = vitastor_disk.elements['DISK_ID'].text
+        if vitastor_disk.elements['CLONE'].text == 'YES'
+            src_image += '-'+vm_id+'-'+disk_id
+        end
+
+        cli = 'vitastor-cli'
+        config_path = vitastor_disk.elements['VITASTOR_CONF']
+        qemu_args = ''
+        if config_path:
+            cli += ' --config_path "'+config_path.text+'"'
+            qemu_args += ':config_path='+config_path.text
+
+        info[vitastor_disk] = {
+            :br  => vitastor_ds.pick_bridge,
+            :bak => "#{src_image}.backup.#{randsuffix}",
+            :old => "#{src_image}.old.#{randsuffix}",
+            :cli => cli,
+            :img => src_image,
+        }
+
+        upload_vitastor = <<~EOS
+            set -e
+            tmpimg="$(mktemp -t disk#{id}.XXXX)"
+            #{__dir__}/../../datastore/downloader.sh --nodecomp #{url} $tmpimg
+            #{cli} create -s $(qemu-img info --output json $tmpimg | jq -r '.["virtual-size"]') #{info[vitastor_disk][:bak]}
+            qemu-img convert -m 4 -O raw $tmpimg "vitastor:image=#{info[vitastor_disk][:bak]}#{qemu_args}"
+            rm -f $tmpimg
+        EOS
+
+        rc = action.ssh(:host => info[vitastor_disk][:br],
+                        :cmds => upload_ceph,
+                        :forward  => false,
+                        :nostdout => false,
+                        :nostderr => false)
+
+        break if rc.code != 0
+
+        success_disks << vitastor_disk
+    end
+
+    # Rollback and raise error if it was unable to backup all disks
+    if success_disks.length != disk_urls.length
+        success_disks.each do |vitastor_disk|
+            cleanup = <<~EOS
+                #{info[vitastor_disk][:cli]} rm #{info[vitastor_disk][:bak]}
+            EOS
+
+            action.ssh(:host => info[vitastor_disk][:br],
+                       :cmds => cleanup,
+                       :forward  => false,
+                       :nostdout => false,
+                       :nostderr => false)
+        end
+
+        raise "error uploading backup disk to Vitastor (#{success_disks.length}/#{disk_urls.length})"
+    end
+
+    # --------------------------------------------------------------------------
+    # Replace VM disk_urls with backup copies (~prolog)
+    # --------------------------------------------------------------------------
+    success_disks.each do |vitastor_disk|
+        move = <<~EOS
+            set -e
+            #{info[vitastor_disk][:cli]} mv #{info[vitastor_disk][:img]} #{info[vitastor_disk][:old]};
+            #{info[vitastor_disk][:cli]} mv #{info[vitastor_disk][:bak]} #{info[vitastor_disk][:img]};
+            for i in $(#{info[vitastor_disk][:cli]} ls --json "#{info[vitastor_disk][:img]}@*"); do
+                #{info[vitastor_disk][:cli]} rm "$i"
+            done
+            #{info[vitastor_disk][:cli]} rm #{info[vitastor_disk][:old]}
+        EOS
+
+        rc = action.ssh(:host => info[vitastor_disk][:br],
+                        :cmds => move,
+                        :forward  => false,
+                        :nostdout => false,
+                        :nostderr => false)
+
+        warn 'cannot restore disk backup' if rc.code != 0
+    end
+rescue StandardError => e
+    STDERR.puts "Error restoring VM disks: #{e.message}"
+    exit(1)
+end

@@ -1,0 +1,12 @@
+diff --git /etc/one/vmm_exec/vmm_execrc /etc/one/vmm_exec/vmm_execrc
+index e210526e63..cb51d3b5e8 100644
+--- /etc/one/vmm_exec/vmm_execrc
++++ /etc/one/vmm_exec/vmm_execrc
+@@ -1,6 +1,6 @@
+ # Space separated list of VMM-TM pairs that support live disk snapshots. VMM
+ # and TM must be separated by '-'
+-LIVE_DISK_SNAPSHOTS="kvm-qcow2 kvm-shared kvm-ceph kvm-ssh qemu-qcow2 qemu-shared qemu-ceph qemu-ssh"
++LIVE_DISK_SNAPSHOTS="kvm-qcow2 kvm-shared kvm-ceph kvm-vitastor kvm-ssh qemu-qcow2 qemu-shared qemu-ceph qemu-ssh"
+ 
+ # Space separated list VNM_MAD-ACTION pairs that run locally
+ VNMAD_LOCAL_ACTIONS="elastic-post elastic-clean"

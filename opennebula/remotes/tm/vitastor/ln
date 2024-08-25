@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Vitastor OpenNebula driver
+# Copyright (c) Vitaliy Filippov, 2024+
+# License: Apache-2.0 http://www.apache.org/licenses/LICENSE-2.0
+
+# <CLONE|LN>(.tm_mad_system) tm_mad fe:SOURCE host:remote_system_ds/disk.i vmid dsid
+
+# LN = Attach disk to a VM (Vitastor doesn't need to do anything in this case)
+
+SRC=$1
+DST=$2
+VM_ID=$3
+DS_ID=$4
+
+exit 0

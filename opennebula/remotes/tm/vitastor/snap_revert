@@ -1,0 +1,79 @@
+#!/bin/bash
+
+# Vitastor OpenNebula driver
+# Copyright (c) Vitaliy Filippov, 2024+
+# License: Apache-2.0 http://www.apache.org/licenses/LICENSE-2.0
+
+# snap_revert host:parent_image snap_id vmid ds_id
+
+SRC=$1
+SNAP_ID=$2
+VM_ID=$3
+DS_ID=$4
+
+#--------------------------------------------------------------------------------
+
+if [ -z "${ONE_LOCATION}" ]; then
+    TMCOMMON=/var/lib/one/remotes/tm/tm_common.sh
+    LIB_LOCATION=/usr/lib/one
+else
+    TMCOMMON=$ONE_LOCATION/var/remotes/tm/tm_common.sh
+    LIB_LOCATION=$ONE_LOCATION/lib
+fi
+
+DRIVER_PATH=$(dirname $0)
+
+source $TMCOMMON
+
+#-------------------------------------------------------------------------------
+# Set dst path and dir
+#-------------------------------------------------------------------------------
+
+SRC_HOST=`arg_host $SRC`
+SRC_PATH=`arg_path $SRC`
+
+#-------------------------------------------------------------------------------
+# Get Image information
+#-------------------------------------------------------------------------------
+
+DISK_ID=$(echo "$SRC_PATH" | $AWK -F. '{print $NF}')
+
+XPATH="${DRIVER_PATH}/../../datastore/xpath.rb --stdin"
+
+unset i j XPATH_ELEMENTS
+
+while IFS= read -r -d '' element; do
+    XPATH_ELEMENTS[i++]="$element"
+done < <(onevm show -x $VM_ID | $XPATH \
+    /VM/TEMPLATE/DISK[DISK_ID=$DISK_ID]/SOURCE \
+    /VM/TEMPLATE/DISK[DISK_ID=$DISK_ID]/CLONE \
+    /VM/TEMPLATE/DISK[DISK_ID=$DISK_ID]/VITASTOR_CONF \
+    /VM/TEMPLATE/DISK[DISK_ID=$DISK_ID]/TYPE )
+
+SRC_IMAGE="${XPATH_ELEMENTS[j++]}"
+CLONE="${XPATH_ELEMENTS[j++]}"
+VITASTOR_CONF="${XPATH_ELEMENTS[j++]}"
+TYPE="${XPATH_ELEMENTS[j++]}"
+
+if [ "$CLONE" = "YES" ]; then
+    SRC_IMAGE="${SRC_IMAGE}-${VM_ID}-${DISK_ID}"
+fi
+
+CLI=vitastor-cli
+if [ -n "$VITASTOR_CONF" ]; then
+    CLI="$CLI --config_path ${VITASTOR_CONF}"
+fi
+
+#-------------------------------------------------------------------------------
+# Revert to snapshot (== remove current image and recreate it as a clone)
+#-------------------------------------------------------------------------------
+
+SNAP_REVERT_CMD=$(cat <<EOF
+    set -e
+    $CLI ls --json "$SRC_IMAGE@$SNAP_ID" | jq -s -e '[ .[][] | select(.name == "$SRC_IMAGE@$SNAP_ID") ] | length > 0'
+    $CLI rm "$SRC_IMAGE" || true
+    $CLI create --parent "$SRC_IMAGE@$SNAP_ID" "$SRC_IMAGE"
+EOF
+)
+
+ssh_exec_and_log "$SRC_HOST" "$SNAP_REVERT_CMD" "Error reverting snapshot $SNAP_ID for $SRC_IMAGE"

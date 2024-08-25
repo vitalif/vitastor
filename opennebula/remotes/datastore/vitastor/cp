@@ -1,0 +1,135 @@
+#!/bin/bash
+
+# Vitastor OpenNebula driver
+# Copyright (c) Vitaliy Filippov, 2024+
+# License: Apache-2.0 http://www.apache.org/licenses/LICENSE-2.0
+
+# This script is used to copy a local image SRC to the image repository as DST
+
+# -------- Set up the environment to source common tools & conf ------------
+
+if [ -z "${ONE_LOCATION}" ]; then
+    LIB_LOCATION=/usr/lib/one
+else
+    LIB_LOCATION=$ONE_LOCATION/lib
+fi
+
+. $LIB_LOCATION/sh/scripts_common.sh
+
+DRIVER_PATH=$(dirname $0)
+source ${DRIVER_PATH}/../libfs.sh
+
+# -------- Get cp and datastore arguments from OpenNebula core ------------
+
+DRV_ACTION=`cat -`
+ID=$1
+
+export DRV_ACTION
+
+UTILS_PATH="${DRIVER_PATH}/.."
+
+XPATH="$UTILS_PATH/xpath.rb -b $DRV_ACTION"
+
+unset i XPATH_ELEMENTS
+
+while IFS= read -r -d '' element; do
+    XPATH_ELEMENTS[i++]="$element"
+done < <($XPATH \
+    /DS_DRIVER_ACTION_DATA/DATASTORE/BASE_PATH \
+    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/RESTRICTED_DIRS \
+    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/SAFE_DIRS \
+    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/BRIDGE_LIST \
+    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/POOL_NAME \
+    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/IMAGE_PREFIX \
+    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/STAGING_DIR \
+    /DS_DRIVER_ACTION_DATA/IMAGE/PATH \
+    /DS_DRIVER_ACTION_DATA/IMAGE/SIZE \
+    /DS_DRIVER_ACTION_DATA/IMAGE/TEMPLATE/MD5 \
+    /DS_DRIVER_ACTION_DATA/IMAGE/TEMPLATE/SHA1 \
+    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/NO_DECOMPRESS \
+    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/LIMIT_TRANSFER_BW \
+    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/VITASTOR_CONF)
+
+unset i
+
+BASE_PATH="${XPATH_ELEMENTS[i++]}"
+RESTRICTED_DIRS="${XPATH_ELEMENTS[i++]}"
+SAFE_DIRS="${XPATH_ELEMENTS[i++]}"
+BRIDGE_LIST="${XPATH_ELEMENTS[i++]}"
+POOL_NAME="${XPATH_ELEMENTS[i++]}"
+IMAGE_PREFIX="${XPATH_ELEMENTS[i++]}"
+STAGING_DIR="${XPATH_ELEMENTS[i++]:-$STAGING_DIR}"
+SRC="${XPATH_ELEMENTS[i++]}"
+SIZE="${XPATH_ELEMENTS[i++]}"
+MD5="${XPATH_ELEMENTS[i++]}"
+SHA1="${XPATH_ELEMENTS[i++]}"
+NO_DECOMPRESS="${XPATH_ELEMENTS[i++]}"
+LIMIT_TRANSFER_BW="${XPATH_ELEMENTS[i++]}"
+VITASTOR_CONF="${XPATH_ELEMENTS[i++]}"
+
+DST_HOST=`get_destination_host $ID`
+
+if [ -z "$DST_HOST" ]; then
+    error_message "Datastore template missing 'BRIDGE_LIST' attribute."
+    exit -1
+fi
+
+CLI=vitastor-cli
+QEMU_ARG=""
+if [ -n "$VITASTOR_CONF" ]; then
+    CLI="$CLI --config_path ${VITASTOR_CONF}"
+    QEMU_ARG=":config_path=${VITASTOR_CONF}"
+fi
+if [ -n "$POOL_NAME" ]; then
+    CLI="$CLI --pool ${POOL_NAME}"
+fi
+
+set_up_datastore "$BASE_PATH" "$RESTRICTED_DIRS" "$SAFE_DIRS"
+
+IMAGE_HASH=`generate_image_hash`
+TMP_DST="$STAGING_DIR/$IMAGE_HASH"
+
+DST="${IMAGE_PREFIX}one-${ID}"
+
+DOWNLOADER_ARGS=`set_downloader_args "$MD5" "$SHA1" "$NO_DECOMPRESS" "$LIMIT_TRANSFER_BW" "$SRC" -`
+
+COPY_COMMAND="$UTILS_PATH/downloader.sh $DOWNLOADER_ARGS"
+
+case $SRC in
+http://*|https://*)
+    log "Downloading $SRC to the image repository"
+
+    DUMP="$COPY_COMMAND"
+    ;;
+
+*)
+    if [ `check_restricted $SRC` -eq 1 ]; then
+        log_error "Not allowed to copy images from $RESTRICTED_DIRS"
+        error_message "Not allowed to copy image file $SRC"
+        exit -1
+    fi
+
+    log "Copying local image $SRC to the image repository"
+
+    DUMP="$COPY_COMMAND"
+    ;;
+esac
+
+multiline_exec_and_log "set -e -o pipefail; $DUMP | $SSH $DST_HOST $DD of=$TMP_DST bs=1M" \
+    "Error copying $SRC to $DST_HOST:$TMP_DST"
+
+REGISTER_CMD=$(cat <<EOF
+    set -e -o pipefail
+
+    SIZE=\$($QEMU_IMG info --output json "$TMP_DST" | jq -r '.["virtual-size"]')
+    $CLI create -s \$SIZE "$DST"
+    $QEMU_IMG convert -O raw "$TMP_DST" "vitastor:image=$DST$QEMU_ARG"
+
+    # remove original
+    $RM -f $TMP_DST
+EOF
+)
+
+ssh_exec_and_log "$DST_HOST" "$REGISTER_CMD" "Error registering $DST in $DST_HOST"
+
+echo "$DST raw"

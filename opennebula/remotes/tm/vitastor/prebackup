@@ -1,0 +1,152 @@
+#!/usr/bin/env ruby
+
+# Vitastor OpenNebula driver
+# Copyright (c) Vitaliy Filippov, 2024+
+# License: Apache-2.0 http://www.apache.org/licenses/LICENSE-2.0
+
+ONE_LOCATION = ENV['ONE_LOCATION']
+LIVE = ENV['LIVE']
+
+if !ONE_LOCATION
+    RUBY_LIB_LOCATION = '/usr/lib/one/ruby'
+    GEMS_LOCATION     = '/usr/share/one/gems'
+    VMDIR             = '/var/lib/one'
+    CONFIG_FILE       = '/var/lib/one/config'
+else
+    RUBY_LIB_LOCATION = ONE_LOCATION + '/lib/ruby'
+    GEMS_LOCATION     = ONE_LOCATION + '/share/gems'
+    VMDIR             = ONE_LOCATION + '/var'
+    CONFIG_FILE       = ONE_LOCATION + '/var/config'
+end
+
+# %%RUBYGEMS_SETUP_BEGIN%%
+if File.directory?(GEMS_LOCATION)
+    real_gems_path = File.realpath(GEMS_LOCATION)
+    if !defined?(Gem) || Gem.path != [real_gems_path]
+        $LOAD_PATH.reject! {|l| l =~ /vendor_ruby/ }
+
+        # Suppress warnings from Rubygems
+        # https://github.com/OpenNebula/one/issues/5379
+        begin
+            verb = $VERBOSE
+            $VERBOSE = nil
+            require 'rubygems'
+            Gem.use_paths(real_gems_path)
+        ensure
+            $VERBOSE = verb
+        end
+    end
+end
+# %%RUBYGEMS_SETUP_END%%
+
+$LOAD_PATH << RUBY_LIB_LOCATION
+
+require 'rexml/document'
+
+require_relative '../lib/tm_action'
+require_relative '../lib/kvm'
+require_relative '../lib/datastore'
+
+if LIVE
+    # TODO: fsfreeze for each hypervisor based on VM_MAD
+    include TransferManager::KVM
+end
+
+#-------------------------------------------------------------------------------
+# BACKUP tm_mad host:remote_dir DISK_ID:...:DISK_ID deploy_id bjid vmid dsid
+#-------------------------------------------------------------------------------
+TransferManager::Datastore.load_env
+
+vm_xml = STDIN.read
+
+dir       = ARGV[0].split ':'
+disks     = ARGV[1].split ':'
+deploy_id = ARGV[2]
+_bjid     = ARGV[3]
+vmid      = ARGV[4]
+_dsid     = ARGV[5]
+
+rhost     = dir[0]
+rdir      = dir[1]
+
+xml_doc = REXML::Document.new(vm_xml)
+vm      = xml_doc.root
+
+ds = TransferManager::Datastore.from_vm_backup_ds(:vm_xml => vm_xml)
+
+base_path = ENV['BACKUP_BASE_PATH']
+
+bck_dir = if base_path
+              "#{base_path}/#{vmid}/backup"
+          else
+              "#{rdir}/backup"
+          end
+
+snap_cmd = ''
+expo_cmd = ''
+clup_cmd = ''
+
+vm.elements.each 'TEMPLATE/DISK' do |d|
+    did = d.elements['DISK_ID'].text
+    next unless disks.include? did
+
+    src  = d.elements['SOURCE'].text
+    clon = d.elements['CLONE'].text
+
+    src_image = if clon == 'NO' then src else "#{src}-#{vmid}-#{did}" end
+
+    cmd = 'vitastor-cli'
+    qemu_arg = ''
+    if d.elements['VITASTOR_CONF']
+        cmd = cmd + ' --config_path ' + d.elements['VITASTOR_CONF']
+        qemu_arg += 'config_path='+d.elements['VITASTOR_CONF']+':'
+    end
+
+    draw = "#{bck_dir}/disk.#{did}.raw"
+    ddst = "#{bck_dir}/disk.#{did}.0"
+
+    expo_cmd << ds.cmd_confinement("qemu-img convert -m 4 -O qcow2 'vitastor:#{qemu_arg}image=#{src_image}' #{ddst}\n", rdir)
+
+    clup_cmd << "rm -f #{draw}\n"
+rescue StandardError => e
+    STDERR.puts "Missing configuration attributes in DISK: #{e.message}"
+    exit(1)
+end
+
+if LIVE
+    freeze, thaw = fsfreeze(vm, deploy_id)
+end
+
+script = <<~EOS
+    set -ex -o pipefail
+
+    # Prepare backup folder
+    [ -d #{bck_dir} ] && rm -rf #{bck_dir}
+
+    mkdir -p #{bck_dir}
+
+    echo "#{Base64.encode64(vm_xml)}" > #{bck_dir}/vm.xml
+
+    #{freeze}
+
+    #{snap_cmd}
+
+    #{thaw}
+
+    #{expo_cmd}
+
+    #{clup_cmd}
+EOS
+
+rc = TransferManager::Action.ssh('prebackup_live',
+    :host => rhost,
+    :cmds => script,
+    :nostdout => false,
+    :nostderr => false
+)
+
+if rc.code != 0
+    STDERR.puts "Error preparing disk files: #{rc.stdout} #{rc.stderr}"
+end
+
+exit(rc.code)
