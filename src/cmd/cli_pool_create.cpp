@@ -193,6 +193,7 @@ resume_4:
                     auto kv = parent->cli->st_cli.parse_etcd_kv(ocr["response_range"]["kvs"][0]);
                     osd_stats.push_back(kv.value);
                 }
+                guess_block_size(osd_stats);
                 state_node_tree = filter_state_node_tree_by_stats(state_node_tree, osd_stats);
             }
 
@@ -453,6 +454,80 @@ resume_8:
         }
 
         return json11::Json::object { { "osds", accepted_osds }, { "nodes", accepted_nodes } };
+    }
+
+    // Autodetect block size for the pool if not specified
+    void guess_block_size(std::vector<json11::Json> & osd_stats)
+    {
+        json11::Json::object upd;
+        if (!cfg["block_size"].uint64_value())
+        {
+            uint64_t osd_bs = 0;
+            for (auto & os: osd_stats)
+            {
+                if (!os["data_block_size"].is_null())
+                {
+                    if (osd_bs == 0)
+                        osd_bs = os["data_block_size"].uint64_value();
+                    else if (osd_bs != os["data_block_size"].uint64_value())
+                        osd_bs = UINT32_MAX;
+                }
+            }
+            if (osd_bs && osd_bs != UINT32_MAX && osd_bs != parent->cli->st_cli.global_block_size)
+            {
+                fprintf(stderr, "Auto-selecting block_size=%s because all pool OSDs use it\n", format_size(osd_bs).c_str());
+                upd["block_size"] = osd_bs;
+            }
+        }
+        if (!cfg["bitmap_granularity"].uint64_value())
+        {
+            uint64_t osd_bg = 0;
+            for (auto & os: osd_stats)
+            {
+                if (!os["bitmap_granularity"].is_null())
+                {
+                    if (osd_bg == 0)
+                        osd_bg = os["bitmap_granularity"].uint64_value();
+                    else if (osd_bg != os["bitmap_granularity"].uint64_value())
+                        osd_bg = UINT32_MAX;
+                }
+            }
+            if (osd_bg && osd_bg != UINT32_MAX && osd_bg != parent->cli->st_cli.global_bitmap_granularity)
+            {
+                fprintf(stderr, "Auto-selecting bitmap_granularity=%s because all pool OSDs use it\n", format_size(osd_bg).c_str());
+                upd["bitmap_granularity"] = osd_bg;
+            }
+        }
+        if (cfg["immediate_commit"].is_null())
+        {
+            uint32_t osd_imm = UINT32_MAX;
+            for (auto & os: osd_stats)
+            {
+                if (!os["immediate_commit"].is_null())
+                {
+                    uint32_t imm = etcd_state_client_t::parse_immediate_commit(os["immediate_commit"].string_value(), IMMEDIATE_NONE);
+                    if (osd_imm == UINT32_MAX)
+                        osd_imm = imm;
+                    else if (osd_imm != imm)
+                        osd_imm = UINT32_MAX-1;
+                }
+            }
+            if (osd_imm < UINT32_MAX-1 && osd_imm != parent->cli->st_cli.global_immediate_commit)
+            {
+                const char *imm_str = osd_imm == IMMEDIATE_NONE ? "none" : (osd_imm == IMMEDIATE_ALL ? "all" : "small");
+                fprintf(stderr, "Auto-selecting immediate_commit=%s because all pool OSDs use it\n", imm_str);
+                upd["immediate_commit"] = imm_str;
+            }
+        }
+        if (upd.size())
+        {
+            json11::Json::object cfg_obj = cfg.object_items();
+            for (auto & kv: upd)
+            {
+                cfg_obj[kv.first] = kv.second;
+            }
+            cfg = cfg_obj;
+        }
     }
 
     // Returns new state_node_tree based on given state_node_tree with osds
