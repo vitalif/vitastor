@@ -70,6 +70,21 @@ struct pool_creator_t
             state = 100;
             return;
         }
+
+        // Validate pool name
+        for (auto & pp: parent->cli->st_cli.pool_config)
+        {
+            if (pp.second.name == cfg["name"].string_value())
+            {
+                result = (cli_result_t){
+                    .err = EAGAIN,
+                    .text = "Pool "+cfg["name"].string_value()+" already exists",
+                };
+                state = 100;
+                return;
+            }
+        }
+
         state = 1;
 resume_1:
         // If not forced, check that we have enough osds for pg_size
@@ -117,7 +132,7 @@ resume_2:
                             } }
                         });
                     }
-                    parent->etcd_txn(json11::Json::object { { "success", osd_configs, }, });
+                    parent->etcd_txn(json11::Json::object{ { "success", osd_configs } });
                 }
 
                 state = 3;
@@ -156,7 +171,7 @@ resume_3:
                     });
                 }
 
-                parent->etcd_txn(json11::Json::object { { "success", osd_stats, }, });
+                parent->etcd_txn(json11::Json::object{ { "success", osd_stats } });
             }
 
             state = 4;
@@ -322,7 +337,7 @@ resume_8:
 
         if (!create_check.passed)
         {
-            result = (cli_result_t) {
+            result = (cli_result_t){
                 .err = EAGAIN,
                 .text = "Pool "+cfg["name"].string_value()+" was created, but failed to become active."
                     " This may indicate that cluster state has changed while the pool was being created."
