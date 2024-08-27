@@ -485,8 +485,6 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         p->ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
         p->epmgr = new epoll_manager_t(p->ringloop);
         p->cli = new cluster_client_t(p->ringloop, p->epmgr->tfd, cfg_j);
-        // Smaller timeout by default for more interactiveness
-        p->cli->st_cli.etcd_slow_timeout = p->cli->st_cli.etcd_quick_timeout;
         p->loop_and_wait(action_cb, [&](const cli_result_t & r)
         {
             result = r;

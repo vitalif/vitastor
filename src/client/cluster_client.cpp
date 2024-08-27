@@ -58,6 +58,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     st_cli.on_reload_hook = [this]() { st_cli.load_global_config(); };
 
     st_cli.parse_config(config);
+    st_cli.infinite_start = false;
     st_cli.load_global_config();
 
     scrap_buffer_size = SCRAP_BUFFER_SIZE;

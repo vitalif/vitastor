@@ -121,6 +121,7 @@ void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int t
         "Connection: keep-alive\r\n"
         "Keep-Alive: timeout="+std::to_string(etcd_keepalive_timeout)+"\r\n"
         "\r\n"+req;
+    retries--;
     auto cb = [this, api, payload, timeout, retries, interval, callback,
         cur_addr = selected_etcd_address](const http_response_t *response)
     {
@@ -144,11 +145,11 @@ void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int t
                 {
                     tfd->set_timer(interval, false, [this, api, payload, timeout, retries, interval, callback](int)
                     {
-                        etcd_call(api, payload, timeout, retries-1, interval, callback);
+                        etcd_call(api, payload, timeout, retries, interval, callback);
                     });
                 }
                 else
-                    etcd_call(api, payload, timeout, retries-1, interval, callback);
+                    etcd_call(api, payload, timeout, retries, interval, callback);
             }
             else
                 callback(err, data);
@@ -558,15 +559,22 @@ void etcd_state_client_t::load_global_config()
 {
     etcd_call("/kv/range", json11::Json::object {
         { "key", base64_encode(etcd_prefix+"/config/global") }
-    }, etcd_slow_timeout, max_etcd_attempts, 0, [this](std::string err, json11::Json data)
+    }, etcd_quick_timeout, max_etcd_attempts, 0, [this](std::string err, json11::Json data)
     {
         if (err != "")
         {
-            fprintf(stderr, "Error reading OSD configuration from etcd: %s\n", err.c_str());
-            tfd->set_timer(etcd_slow_timeout, false, [this](int timer_id)
+            fprintf(stderr, "Error reading configuration from etcd: %s\n", err.c_str());
+            if (infinite_start)
             {
-                load_global_config();
-            });
+                tfd->set_timer(etcd_slow_timeout, false, [this](int timer_id)
+                {
+                    load_global_config();
+                });
+            }
+            else
+            {
+                exit(1);
+            }
             return;
         }
         json11::Json::object global_config;

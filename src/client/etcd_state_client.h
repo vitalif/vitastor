@@ -106,6 +106,7 @@ public:
     int max_etcd_attempts = 5;
     int etcd_quick_timeout = 1000;
     int etcd_slow_timeout = 5000;
+    bool infinite_start = true;
     uint64_t global_block_size = DEFAULT_BLOCK_SIZE;
     uint32_t global_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
     uint32_t global_immediate_commit = IMMEDIATE_NONE;
