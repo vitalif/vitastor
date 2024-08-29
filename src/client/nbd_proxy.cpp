@@ -626,7 +626,6 @@ help:
                     }
                     else
                     {
-                        printf("%d %d\n", r, errno);
                         perror("run_nbd");
                         exit(1);
                     }
