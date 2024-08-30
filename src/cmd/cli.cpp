@@ -54,14 +54,18 @@ static const char* help_text =
     "  -f|--force  Proceed with shrinking or setting readwrite flag even if the image has children.\n"
     "  --down-ok   Proceed with shrinking even if some data will be left on unavailable OSDs.\n"
     "\n"
-    "vitastor-cli rm <from> [<to>] [--writers-stopped] [--down-ok]\n"
-    "  Remove <from> or all layers between <from> and <to> (<to> must be a child of <from>),\n"
-    "  rebasing all their children accordingly. --writers-stopped allows merging to be a bit\n"
-    "  more effective in case of a single 'slim' read-write child and 'fat' removed parent:\n"
-    "  the child is merged into parent and parent is renamed to child in that case.\n"
-    "  In other cases parent layers are always merged into children.\n"
-    "  Other options:\n"
-    "  --down-ok  Continue deletion/merging even if some data will be left on unavailable OSDs.\n"
+    "vitastor-cli rm <from> [<to>]\n"
+    "vitastor-cli rm (--exact|--matching) <glob> ...\n"
+    "  Remove layer(s) and rebase all their children accordingly.\n"
+    "  In the first form, remove <from> or layers between <from> and its child <to>.\n"
+    "  In the second form, remove all images with exact or pattern-matched names.\n"
+    "  --writers-stopped allows optimised removal in case of a single 'slim' read-write\n"
+    "  child and 'fat' removed parent: the child is merged into parent and parent is renamed\n"
+    "  to child in that case. In other cases parent layers are always merged into children.\n"
+    "  --exact            Remove multiple images with names matching given glob patterns.\n"
+    "  --matching         Remove multiple images with given names\n"
+    "  --writers-stopped  Allow renaming inodes over their read/write children.\n"
+    "  --down-ok          Continue deletion/merging even if some data will be left on unavailable OSDs.\n"
     "\n"
     "vitastor-cli dd [iimg=<image> | if=<file>] [oimg=<image> | of=<file>] [bs=1M]\n"
     "    [count=N] [seek/oseek=N] [skip/iseek=M] [iodepth=N] [status=progress]\n"
@@ -276,7 +280,8 @@ static json11::Json::object parse_args(int narg, const char *args[])
                 !strcmp(opt, "allow-data-loss") || !strcmp(opt, "allow_data_loss") ||
                 !strcmp(opt, "down-ok") || !strcmp(opt, "down_ok") ||
                 !strcmp(opt, "dry-run") || !strcmp(opt, "dry_run") ||
-                !strcmp(opt, "help") || !strcmp(opt, "all") || !strcmp(opt, "exact") ||
+                !strcmp(opt, "help") || !strcmp(opt, "all") ||
+                !strcmp(opt, "exact") || !strcmp(opt, "matching") ||
                 !strcmp(opt, "writers-stopped") || !strcmp(opt, "writers_stopped"))
             {
                 cfg[opt] = "1";

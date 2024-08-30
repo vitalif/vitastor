@@ -19,6 +19,7 @@ add_library(vitastor_cli STATIC
 	cli_flatten.cpp
 	cli_merge.cpp
 	cli_rm_data.cpp
+	cli_rm_wildcard.cpp
 	cli_rm.cpp
 	cli_rm_osd.cpp
 	cli_pool_cfg.cpp

@@ -75,6 +75,7 @@ public:
     std::function<bool(cli_result_t &)> start_rm(json11::Json);
     std::function<bool(cli_result_t &)> start_rm_data(json11::Json);
     std::function<bool(cli_result_t &)> start_rm_osd(json11::Json);
+    std::function<bool(cli_result_t &)> start_rm_wildcard(json11::Json);
     std::function<bool(cli_result_t &)> start_status(json11::Json);
     std::function<bool(cli_result_t &)> start_dd(json11::Json);
 

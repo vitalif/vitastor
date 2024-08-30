@@ -689,6 +689,10 @@ resume_100:
 
 std::function<bool(cli_result_t &)> cli_tool_t::start_rm(json11::Json cfg)
 {
+    if (cfg["exact"].bool_value() || cfg["matching"].bool_value())
+    {
+        return start_rm_wildcard(cfg);
+    }
     auto snap_remover = new snap_remover_t();
     snap_remover->parent = this;
     snap_remover->from_name = cfg["from"].string_value();
