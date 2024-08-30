@@ -181,11 +181,9 @@ begin
     success_disks.each do |vitastor_disk|
         move = <<~EOS
             set -e
-            #{info[vitastor_disk][:cli]} mv #{info[vitastor_disk][:img]} #{info[vitastor_disk][:old]};
-            #{info[vitastor_disk][:cli]} mv #{info[vitastor_disk][:bak]} #{info[vitastor_disk][:img]};
-            for i in $(#{info[vitastor_disk][:cli]} ls --json "#{info[vitastor_disk][:img]}@*"); do
-                #{info[vitastor_disk][:cli]} rm "$i"
-            done
+            #{info[vitastor_disk][:cli]} mv #{info[vitastor_disk][:img]} #{info[vitastor_disk][:old]}
+            #{info[vitastor_disk][:cli]} mv #{info[vitastor_disk][:bak]} #{info[vitastor_disk][:img]}
+            #{info[vitastor_disk][:cli]} rm --matching "#{info[vitastor_disk][:img]}@*"
             #{info[vitastor_disk][:cli]} rm #{info[vitastor_disk][:old]}
         EOS
 

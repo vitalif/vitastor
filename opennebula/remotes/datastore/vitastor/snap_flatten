@@ -59,12 +59,10 @@ if [ -n "$VITASTOR_CONF" ]; then
 fi
 
 SNAP_FLATTEN_CMD=$(cat <<EOF
-    $CLI ls --json ${IMAGE_NAME}@${SNAP_ID} | jq -e 'length > 0'
-    $CLI rm ${IMAGE_NAME}.flatten || true
-    $CLI create --pool "${POOL_NAME}" --parent ${IMAGE_NAME}@${SNAP_ID} ${IMAGE_NAME}.flatten
-    $CLI flatten ${IMAGE_NAME}.flatten
-    $CLI rm ${IMAGE_NAME} || true
-    $CLI modify ${IMAGE_NAME}.flatten --rename ${IMAGE_NAME}
+    set -e
+    $CLI flatten "$IMAGE_NAME@$SNAP_ID"
+    $CLI modify "$IMAGE_NAME@$SNAP_ID" --rename "$IMAGE_NAME"
+    $CLI rm --matching "$IMAGE_NAME@*"
 EOF
 )
 
