@@ -30,6 +30,7 @@ static const char* help_text =
     "\n"
     "vitastor-cli ls [-l] [-p POOL] [--sort FIELD] [-r] [-n N] [<glob> ...]\n"
     "  List images (only matching <glob> patterns if passed).\n"
+    "  --exact         Do not match glob patterns as names, select only exact name matches.\n"
     "  -p|--pool POOL  Filter images by pool ID or name\n"
     "  -l|--long       Also report allocated size and I/O statistics\n"
     "  --del           Also include delete operation statistics\n"
@@ -275,7 +276,7 @@ static json11::Json::object parse_args(int narg, const char *args[])
                 !strcmp(opt, "allow-data-loss") || !strcmp(opt, "allow_data_loss") ||
                 !strcmp(opt, "down-ok") || !strcmp(opt, "down_ok") ||
                 !strcmp(opt, "dry-run") || !strcmp(opt, "dry_run") ||
-                !strcmp(opt, "help") || !strcmp(opt, "all") ||
+                !strcmp(opt, "help") || !strcmp(opt, "all") || !strcmp(opt, "exact") ||
                 !strcmp(opt, "writers-stopped") || !strcmp(opt, "writers_stopped"))
             {
                 cfg[opt] = "1";

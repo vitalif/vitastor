@@ -18,6 +18,7 @@ struct image_lister_t
     std::string sort_field;
     std::set<std::string> only_names;
     bool reverse = false;
+    bool exact = false;
     int max_count = 0;
     bool show_stats = false, show_delete = false;
 
@@ -208,9 +209,9 @@ resume_1:
             }
             else
             {
-                for (auto glob: only_names)
+                for (auto & glob: only_names)
                 {
-                    if (stupid_glob(kv.second["name"].string_value(), glob))
+                    if (exact ? (kv.second["name"].string_value() == glob) : stupid_glob(kv.second["name"].string_value(), glob))
                     {
                         list.push_back(kv.second);
                         break;
@@ -538,6 +539,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_ls(json11::Json cfg)
 {
     auto lister = new image_lister_t();
     lister->parent = this;
+    lister->exact = cfg["exact"].bool_value();
     lister->list_pool_id = cfg["pool"].uint64_value();
     lister->list_pool_name = lister->list_pool_id ? "" : cfg["pool"].as_string();
     lister->show_stats = cfg["long"].bool_value();
