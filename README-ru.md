@@ -42,6 +42,7 @@ Vitastor поддерживает QEMU-драйвер, протоколы NBD и
 - Установка
   - [Пакеты](docs/installation/packages.ru.md)
   - [Proxmox](docs/installation/proxmox.ru.md)
+  - [OpenNebula](docs/installation/opennebula.ru.md)
   - [OpenStack](docs/installation/openstack.ru.md)
   - [Kubernetes CSI](docs/installation/kubernetes.ru.md)
   - [Сборка из исходных кодов](docs/installation/source.ru.md)

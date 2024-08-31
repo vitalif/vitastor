@@ -42,6 +42,7 @@ Read more details below in the documentation.
 - Installation
   - [Packages](docs/installation/packages.en.md)
   - [Proxmox](docs/installation/proxmox.en.md)
+  - [OpenNebula](docs/installation/opennebula.en.md)
   - [OpenStack](docs/installation/openstack.en.md)
   - [Kubernetes CSI](docs/installation/kubernetes.en.md)
   - [Building from Source](docs/installation/source.en.md)

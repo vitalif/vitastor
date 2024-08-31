@@ -39,6 +39,10 @@
 
 ## Plugins and tools
 
+- [Proxmox storage plugin and packages](../installation/proxmox.en.md)
+- [OpenNebula storage plugin](../installation/opennebula.en.md)
+- [CSI plugin for Kubernetes](../installation/kubernetes.en.md)
+- [OpenStack support: Cinder driver, Nova and libvirt patches](../installation/openstack.en.md)
 - [Debian and CentOS packages](../installation/packages.en.md)
 - [Image management CLI (vitastor-cli)](../usage/cli.en.md)
 - [Disk management CLI (vitastor-disk)](../usage/disk.en.md)
@@ -46,9 +50,6 @@
 - [Native QEMU driver](../usage/qemu.en.md)
 - [Loadable fio engine for benchmarks](../usage/fio.en.md)
 - [NBD proxy for kernel mounts](../usage/nbd.en.md)
-- [CSI plugin for Kubernetes](../installation/kubernetes.en.md)
-- [OpenStack support: Cinder driver, Nova and libvirt patches](../installation/openstack.en.md)
-- [Proxmox storage plugin and packages](../installation/proxmox.en.md)
 - [Simplified NFS proxy for file-based image access emulation (suitable for VMWare)](../usage/nfs.en.md#pseudo-fs)
 
 ## Roadmap
@@ -58,7 +59,6 @@ The following features are planned for the future:
 - Control plane optimisation
 - Other administrative tools
 - Web GUI
-- OpenNebula plugin
 - iSCSI and NVMeoF gateways
 - Multi-threaded client
 - Faster failover

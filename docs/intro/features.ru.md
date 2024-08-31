@@ -41,6 +41,10 @@
 
 ## Драйверы и инструменты
 
+- [Плагин для Proxmox](../installation/proxmox.ru.md)
+- [Плагин для OpenNebula](../installation/opennebula.ru.md)
+- [CSI-плагин для Kubernetes](../installation/kubernetes.ru.md)
+- [Базовая поддержка OpenStack: драйвер Cinder, патчи для Nova и libvirt](../installation/openstack.ru.md)
 - [Пакеты для Debian и CentOS](../installation/packages.ru.md)
 - [Консольный интерфейс управления образами (vitastor-cli)](../usage/cli.ru.md)
 - [Инструмент управления дисками (vitastor-disk)](../usage/disk.ru.md)
@@ -48,9 +52,6 @@
 - [Драйвер диска для QEMU](../usage/qemu.ru.md)
 - [Драйвер диска для утилиты тестирования производительности fio](../usage/fio.ru.md)
 - [NBD-прокси для монтирования образов ядром](../usage/nbd.ru.md) ("блочное устройство в режиме пользователя")
-- [CSI-плагин для Kubernetes](../installation/kubernetes.ru.md)
-- [Базовая поддержка OpenStack: драйвер Cinder, патчи для Nova и libvirt](../installation/openstack.ru.md)
-- [Плагин для Proxmox](../installation/proxmox.ru.md)
 - [Упрощённая NFS-прокси для эмуляции файлового доступа к образам (подходит для VMWare)](../usage/nfs.ru.md#псевдо-фс)
 
 ## Планы развития
@@ -58,7 +59,6 @@
 - Оптимизация слоя управления
 - Другие инструменты администрирования
 - Web-интерфейс
-- Плагин для OpenNebula
 - iSCSI и NVMeoF прокси
 - Многопоточный клиент
 - Более быстрое переключение при отказах
