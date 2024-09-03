@@ -64,7 +64,7 @@ done < <(onevm show -x $VMID | $XPATH \
 
 VITASTOR_CONF="${XPATH_ELEMENTS[j++]}"
 POOL_NAME="${XPATH_ELEMENTS[j++]}"
-IMAGE_PREFIX="${XPATH_ELEMENTS[j++]}"
+IMAGE_PREFIX="${XPATH_ELEMENTS[j++]:-one}"
 FS="${XPATH_ELEMENTS[j++]}"
 
 CLI=
@@ -74,7 +74,7 @@ if [ -n "$VITASTOR_CONF" ]; then
     QEMU_ARG=":config_path=${VITASTOR_CONF}"
 fi
 
-IMAGE_NAME="${IMAGE_PREFIX}one-sys-${VMID}-${DISK_ID}"
+IMAGE_NAME="${IMAGE_PREFIX}-sys-${VMID}-${DISK_ID}"
 
 ssh_make_path $DST_HOST $DST_DIR
 

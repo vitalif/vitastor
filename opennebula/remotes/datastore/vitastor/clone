@@ -43,7 +43,7 @@ unset i
 BASE_PATH="${XPATH_ELEMENTS[i++]}"
 BRIDGE_LIST="${XPATH_ELEMENTS[i++]}"
 POOL_NAME="${XPATH_ELEMENTS[i++]}"
-IMAGE_PREFIX="${XPATH_ELEMENTS[i++]}"
+IMAGE_PREFIX="${XPATH_ELEMENTS[i++]:-one}"
 SRC="${XPATH_ELEMENTS[i++]}"
 SIZE="${XPATH_ELEMENTS[i++]}"
 VITASTOR_CONF="${XPATH_ELEMENTS[i++]}"
@@ -65,12 +65,11 @@ fi
 
 SAFE_DIRS=""
 
-DST="${IMAGE_PREFIX}one-${ID}"
+DST="${IMAGE_PREFIX}-${ID}"
 
 ssh_exec_and_log "$DST_HOST" "$CLI create --parent $SRC $DST" \
     "Error during $CLI create --parent $SRC $DST in $DST_HOST"
 
-# FIXME: Is it really required?
 ssh_exec_and_log "$DST_HOST" "$CLI flatten $DST" \
     "Error during $CLI create flatten $DST in $DST_HOST"
 

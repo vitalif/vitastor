@@ -51,7 +51,7 @@ done < <(onevm show -x $VM_ID | $XPATH \
 
 SRC_IMAGE="${XPATH_ELEMENTS[j++]}"
 VITASTOR_CONF="${XPATH_ELEMENTS[j++]}"
-IMAGE_PREFIX="${XPATH_ELEMENTS[j++]}"
+IMAGE_PREFIX="${XPATH_ELEMENTS[j++]:-one}"
 PERSISTENT="${XPATH_ELEMENTS[j++]}"
 
 if [ -n "${SRC_IMAGE}" ]; then
@@ -59,7 +59,7 @@ if [ -n "${SRC_IMAGE}" ]; then
         SRC_IMAGE="${SRC_IMAGE}-${VM_ID}-${DISK_ID}"
     fi
 else
-    SRC_IMAGE="${IMAGE_PREFIX}one-sys-${VM_ID}-${DISK_ID}"
+    SRC_IMAGE="${IMAGE_PREFIX}-sys-${VM_ID}-${DISK_ID}"
 fi
 
 #-------------------------------------------------------------------------------
