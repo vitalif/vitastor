@@ -28,7 +28,7 @@ Install OpenNebula. Then, on each node:
 
 ### oned.conf changes
 
-1. Add deploy script override in kvm VM_MAD: add `-l deploy.vitastor` to ARGUMENTS:
+1. Add deploy script override in kvm VM_MAD: add `-l deploy.vitastor` to ARGUMENTS.
 
 ```diff
  VM_MAD = [
@@ -48,6 +48,10 @@ Install OpenNebula. Then, on each node:
          resize, updateconf, update"
  ]
 ```
+
+Optional: if you also want to save VM RAM checkpoints to Vitastor, use
+`-l deploy=deploy.vitastor,save=save.vitastor,restore=restore.vitastor`
+instead of just `-l deploy=deploy.vitastor`.
 
 2. Add `vitastor` to TM_MAD.ARGUMENTS and DATASTORE_MAD.ARGUMENTS:
 
@@ -141,6 +145,8 @@ The OpenNebula plugin includes quite a bit of bash scripts, so here's their desc
 | Script                  | Action                                    | How to Test                                                                          |
 | ----------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------ |
 | vmm/kvm/deploy.vitastor | Start a VM                                | Create and start a VM with Vitastor disk(s): persistent / non-persistent / volatile. |
+| vmm/kvm/save.vitastor   | Save VM memory checkpoint                 | Stop a VM using "Stop" command.                                                      |
+| vmm/kvm/restore.vitastor| Restore VM memory checkpoint              | Start a VM back after stopping it.                                                   |
 | datastore/clone         | Copy an image as persistent               | Create a VM template and instantiate it as persistent.                               |
 | datastore/cp            | Import an external image                  | Import a VM template with images from Marketplace.                                   |
 | datastore/export        | Export an image as URL                    | Probably: export a VM template with images to Marketplace.                           |

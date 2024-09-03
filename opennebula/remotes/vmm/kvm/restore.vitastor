@@ -19,7 +19,7 @@ XPATH="${DRIVER_PATH}/../../datastore/xpath.rb --stdin"
 
 while IFS= read -r -d '' element; do
     XPATH_ELEMENTS[i++]="$element"
-done < <($XPATH \
+done < <(cat | $XPATH \
     /VMM_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/VITASTOR_CONF \
     /VMM_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/IMAGE_PREFIX)
 
@@ -35,3 +35,5 @@ SRC_IMAGE="${IMAGE_PREFIX}-sys-${VM_ID}-checkpoint"
 
 exec_and_log "$CLI dd iimg=$SRC_IMAGE of=$FILE" "Error exporting checkpoint into from $SRC_IMAGE to $FILE"
 exec_and_log "$CLI rm $SRC_IMAGE" "Error removing checkpoint $SRC_IMAGE"
+
+"$DRIVER_PATH"/restore $@
