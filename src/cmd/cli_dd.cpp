@@ -44,7 +44,7 @@ struct dd_in_info_t
     inode_watch_t *iwatch = NULL;
     int ifd = -1;
     uint64_t in_size = 0;
-    uint32_t in_granularity = 0;
+    uint32_t in_granularity = 1;
     bool in_seekable = false;
 
     void open_input(cli_tool_t *parent)
@@ -154,9 +154,10 @@ struct dd_out_info_t
     uint64_t out_size = 0;
 
     cli_result_t result;
+    bool old_progress = false;
     inode_watch_t *owatch = NULL;
     int ofd = -1;
-    uint32_t out_granularity = 0;
+    uint32_t out_granularity = 1;
     bool out_seekable = false;
     std::function<bool(cli_result_t &)> sub_cb;
 
@@ -217,6 +218,7 @@ struct dd_out_info_t
             {
                 out_size += (4096 - (out_size % 4096));
             }
+            old_progress = parent->progress;
             if (!owatch->cfg.num)
             {
                 if (!out_create)
@@ -250,7 +252,8 @@ struct dd_out_info_t
                     return true;
                 }
                 // Resize output image
-                sub_cb = parent->start_create(json11::Json::object {
+                parent->progress = false;
+                sub_cb = parent->start_modify(json11::Json::object {
                     { "image", oimg },
                     { "resize", out_size },
                 });
@@ -267,6 +270,7 @@ resume_1:
                 state = base_state;
                 return false;
             }
+            parent->progress = old_progress;
             sub_cb = NULL;
             if (result.err)
             {
@@ -375,6 +379,7 @@ struct cli_dd_t
     uint64_t in_iodepth = 0, out_iodepth = 0;
     uint64_t read_offset = 0, read_end = 0;
     std::vector<dd_buf_t*> read_buffers, short_reads, short_writes;
+    std::vector<uint8_t*> zero_buf;
     bool in_eof = false;
     uint64_t written_size = 0;
     uint64_t written_progress = 0;
@@ -405,6 +410,11 @@ struct cli_dd_t
         return 0;
     }
 
+    uint64_t round_up(uint64_t n, uint64_t align)
+    {
+        return (n % align) ? (n + align - (n % align)) : n;
+    }
+
     void vitastor_read_bitmap(dd_buf_t *cur_read)
     {
         cluster_op_t *read_op = new cluster_op_t;
@@ -412,22 +422,19 @@ struct cli_dd_t
         read_op->inode = iinfo.iwatch->cfg.num;
         // FIXME: Support unaligned read?
         read_op->offset = cur_read->offset + iseek;
-        read_op->len = cur_read->max;
+        read_op->len = round_up(round_up(cur_read->max, iinfo.in_granularity), oinfo.out_granularity);
         in_waiting++;
         read_op->callback = [this, cur_read](cluster_op_t *read_op)
         {
             in_waiting--;
             if (read_op->retval < 0)
             {
-                if (ignore_errors)
-                {
-                    fprintf(
-                        stderr, "Failed to read bitmap for %lu bytes from image %s at offset %lu: %s (code %d)\n",
-                        read_op->len, iinfo.iimg.c_str(), read_op->offset,
-                        strerror(read_op->retval < 0 ? -read_op->retval : EIO), read_op->retval
-                    );
-                }
-                else
+                fprintf(
+                    stderr, "Failed to read bitmap for %lu bytes from image %s at offset %lu: %s (code %d)\n",
+                    read_op->len, iinfo.iimg.c_str(), read_op->offset,
+                    strerror(read_op->retval < 0 ? -read_op->retval : EIO), read_op->retval
+                );
+                if (!ignore_errors)
                 {
                     copy_error = read_op->retval < 0 ? -read_op->retval : EIO;
                 }
@@ -454,23 +461,25 @@ struct cli_dd_t
         read_op->inode = iinfo.iwatch->cfg.num;
         // FIXME: Support unaligned read?
         read_op->offset = cur_read->offset + iseek;
-        read_op->len = cur_read->max;
+        read_op->len = round_up(round_up(cur_read->max, iinfo.in_granularity), oinfo.out_granularity);
         read_op->iov.push_back(cur_read->buf, cur_read->max);
+        if (cur_read->max < read_op->len)
+        {
+            // Zero pad
+            read_op->iov.push_back(zero_buf.data(), read_op->len - cur_read->max);
+        }
         in_waiting++;
         read_op->callback = [this, cur_read](cluster_op_t *read_op)
         {
             in_waiting--;
             if (read_op->retval != read_op->len)
             {
-                if (ignore_errors)
-                {
-                    fprintf(
-                        stderr, "Failed to read %lu bytes from image %s at offset %lu: %s (code %d)\n",
-                        read_op->len, iinfo.iimg.c_str(), read_op->offset,
-                        strerror(read_op->retval < 0 ? -read_op->retval : EIO), read_op->retval
-                    );
-                }
-                else
+                fprintf(
+                    stderr, "Failed to read %lu bytes from image %s at offset %lu: %s (code %d)\n",
+                    read_op->len, iinfo.iimg.c_str(), read_op->offset,
+                    strerror(read_op->retval < 0 ? -read_op->retval : EIO), read_op->retval
+                );
+                if (!ignore_errors)
                 {
                     copy_error = read_op->retval < 0 ? -read_op->retval : EIO;
                 }
@@ -536,15 +545,12 @@ struct cli_dd_t
                 in_waiting--;
                 if (data->res < 0)
                 {
-                    if (ignore_errors)
-                    {
-                        fprintf(
-                            stderr, "Failed to read %lu bytes from %s at offset %lu: %s (code %d)\n",
-                            data->iov.iov_len, iinfo.ifile == "" ? "stdin" : iinfo.ifile.c_str(), cur_read->offset,
-                            strerror(-data->res), data->res
-                        );
-                    }
-                    else
+                    fprintf(
+                        stderr, "Failed to read %lu bytes from %s at offset %lu: %s (code %d)\n",
+                        data->iov.iov_len, iinfo.ifile == "" ? "stdin" : iinfo.ifile.c_str(), cur_read->offset,
+                        strerror(-data->res), data->res
+                    );
+                    if (!ignore_errors)
                     {
                         copy_error = -data->res;
                     }
@@ -623,23 +629,25 @@ struct cli_dd_t
             write_op->inode = oinfo.owatch->cfg.num;
             // FIXME: Support unaligned write?
             write_op->offset = cur_read->offset + oseek;
-            write_op->len = cur_read->max;
+            write_op->len = round_up(cur_read->max, oinfo.out_granularity);
             write_op->iov.push_back(cur_read->buf, cur_read->max);
+            if (cur_read->max < write_op->len)
+            {
+                // Zero pad
+                write_op->iov.push_back(zero_buf.data(), write_op->len - cur_read->max);
+            }
             out_waiting++;
             write_op->callback = [this, cur_read](cluster_op_t *write_op)
             {
                 out_waiting--;
                 if (write_op->retval != write_op->len)
                 {
-                    if (ignore_errors)
-                    {
-                        fprintf(
-                            stderr, "Failed to write %lu bytes to image %s at offset %lu: %s (code %d)\n",
-                            write_op->len, oinfo.oimg.c_str(), write_op->offset,
-                            strerror(write_op->retval < 0 ? -write_op->retval : EIO), write_op->retval
-                        );
-                    }
-                    else
+                    fprintf(
+                        stderr, "Failed to write %lu bytes to image %s at offset %lu: %s (code %d)\n",
+                        write_op->len, oinfo.oimg.c_str(), write_op->offset,
+                        strerror(write_op->retval < 0 ? -write_op->retval : EIO), write_op->retval
+                    );
+                    if (!ignore_errors)
                     {
                         copy_error = write_op->retval < 0 ? -write_op->retval : EIO;
                     }
@@ -670,16 +678,13 @@ struct cli_dd_t
                 out_waiting--;
                 if (data->res < 0)
                 {
-                    if (ignore_errors)
-                    {
-                        fprintf(
-                            stderr, "Failed to write %lu bytes to %s at offset %lu: %s (code %d)\n",
-                            data->iov.iov_len, oinfo.ofile == "" ? "stdout" : oinfo.ofile.c_str(),
-                            oinfo.out_seekable ? cur_read->offset+cur_read->len+oseek : 0,
-                            strerror(-data->res), data->res
-                        );
-                    }
-                    else
+                    fprintf(
+                        stderr, "Failed to write %lu bytes to %s at offset %lu: %s (code %d)\n",
+                        data->iov.iov_len, oinfo.ofile == "" ? "stdout" : oinfo.ofile.c_str(),
+                        oinfo.out_seekable ? cur_read->offset+cur_read->len+oseek : 0,
+                        strerror(-data->res), data->res
+                    );
+                    if (!ignore_errors)
                     {
                         copy_error = -data->res;
                     }
@@ -773,11 +778,19 @@ struct cli_dd_t
             state = 100;
             return;
         }
+        zero_buf.resize(blocksize);
         // Open input and output
         iinfo.open_input(parent);
         if (iinfo.result.err)
         {
             result = iinfo.result;
+            state = 100;
+            return;
+        }
+        if (iinfo.iwatch && ((iseek % iinfo.in_granularity) || (blocksize % iinfo.in_granularity)))
+        {
+            iinfo.close_input(parent);
+            result = (cli_result_t){ .err = EINVAL, .text = "Unaligned read from Vitastor is not supported" };
             state = 100;
             return;
         }
@@ -797,6 +810,11 @@ resume_2:
             result = oinfo.result;
             state = 100;
             return;
+        }
+        if (oinfo.owatch && ((oseek % oinfo.out_granularity) || (blocksize % oinfo.out_granularity)))
+        {
+            result = (cli_result_t){ .err = EINVAL, .text = "Unaligned write to Vitastor is not supported" };
+            goto close_end;
         }
         // Copy data
         if (iinfo.in_seekable && iseek >= iinfo.in_size)
