@@ -3,9 +3,9 @@
 set -e
 
 reapply_patch() {
-	if ! patch -f --dry-run -l -R $1 < $2 >/dev/null; then
+	if ! patch -f --dry-run -F 0 -R $1 < $2 >/dev/null; then
 		already_applied=0
-		if ! patch --no-backup-if-mismatch -r - -l -f $1 < $2; then
+		if ! patch --no-backup-if-mismatch -r - -F 0 -f $1 < $2; then
 			applied_ok=0
 			echo "ERROR: Failed to patch file $1, please apply the patch $2 manually"
 		fi

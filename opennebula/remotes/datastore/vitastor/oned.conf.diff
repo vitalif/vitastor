@@ -54,7 +54,10 @@ index be02d646a8..27f876ec36 100644
  TM_MAD_CONF = [
      NAME = "iscsi_libvirt", LN_TARGET = "NONE", CLONE_TARGET = "SELF", SHARED = "YES",
      DS_MIGRATE = "NO", DRIVER = "raw"
-@@ -1219,6 +1230,13 @@ DS_MAD_CONF = [
+@@ -1219,9 +1230,16 @@ DS_MAD_CONF = [
+     NAME = "ceph",
+     REQUIRED_ATTRS = "DISK_TYPE,BRIDGE_LIST",
+     PERSISTENT_ONLY = "NO",
      MARKETPLACE_ACTIONS = "export"
  ]
  
