@@ -16,6 +16,7 @@ It supports the following commands:
 - [create](#create)
 - [snap-create](#create)
 - [modify](#modify)
+- [dd](#dd)
 - [rm](#rm)
 - [flatten](#flatten)
 - [rm-data](#rm-data)
@@ -148,19 +149,60 @@ You should resize file system in the image, if present, before shrinking it.
 * `-f|--force` - Proceed with shrinking or setting readwrite flag even if the image has children.
 * `--down-ok` - Proceed with shrinking even if some data will be left on unavailable OSDs.
 
+## dd
+
+```
+vitastor-cli dd [iimg=<image> | if=<file>] [oimg=<image> | of=<file>] [bs=1M] \
+    [count=N] [seek/oseek=N] [skip/iseek=M] [iodepth=N] [status=progress] \
+    [conv=nocreat,noerror,nofsync,trunc,nosparse] [iflag=direct] [oflag=direct,append]
+```
+
+Copy data between Vitastor images, files and pipes.
+
+Options can be specified in classic dd style (`key=value`) or like usual (`--key value`).
+
+| <!-- -->        | <!-- -->                                                                |
+|-----------------|-------------------------------------------------------------------------|
+| `iimg=<image>`  | Copy from Vitastor image `<image>`                                      |
+| `if=<file>`     | Copy from file `<file>`                                                 |
+| `oimg=<image>`  | Copy to Vitastor image `<image>`                                        |
+| `of=<file>`     | Copy to file `<file>`                                                   |
+| `bs=1M`         | Set copy block size                                                     |
+| `count=N`       | Copy only N input blocks. If N ends in B it counts bytes, not blocks    |
+| `seek/oseek=N`  | Skip N output blocks. If N ends in B it counts bytes, not blocks        |
+| `skip/iseek=N`  | Skip N input blocks. If N ends in B it counts bytes, not blocks         |
+| `iodepth=N`     | Send N reads or writes in parallel (default 4)                          |
+| `status=LEVEL`  | The LEVEL of information to print to stderr: none/noxfer/progress       |
+| `size=N`        | Specify size for the created output file/image (defaults to input size) |
+| `iflag=direct`  | For input files only: use direct I/O                                    |
+| `oflag=direct`  | For output files only: use direct I/O                                   |
+| `oflag=append`  | For files only: append to output file                                   |
+| `conv=nocreat`  | Do not create output file/image                                         |
+| `conv=trunc`    | Truncate output file/image                                              |
+| `conv=noerror`  | Continue copying after errors                                           |
+| `conv=nofsync`  | Do not call fsync before finishing (default behaviour is fsync)         |
+| `conv=nosparse` | Write all output blocks including all-zero blocks                       |
+
 ## rm
 
 `vitastor-cli rm <from> [<to>] [--writers-stopped] [--down-ok]`
 
-Remove `<from>` or all layers between `<from>` and `<to>` (`<to>` must be a child of `<from>`),
-rebasing all their children accordingly. --writers-stopped allows merging to be a bit
-more effective in case of a single 'slim' read-write child and 'fat' removed parent:
-the child is merged into parent and parent is renamed to child in that case.
-In other cases parent layers are always merged into children.
+`vitastor-cli rm (--exact|--matching) <glob> ...`
 
-Other options:
+Remove layer(s) and rebase all their children accordingly.
 
-* `--down-ok` - Continue deletion/merging even if some data will be left on unavailable OSDs.
+In the first form, remove `<from>` or layers between `<from>` and its child `<to>`.
+
+In the second form, remove all images with exact or pattern-matched names.
+
+Options:
+
+* `--writers-stopped` allows optimised removal in case of a single 'slim' read-write
+  child and 'fat' removed parent: the child is merged into parent and parent is renamed
+  to child in that case. In other cases parent layers are always merged into children.
+* `--exact` - remove multiple images with names matching given glob patterns.
+* `--matching` - remove multiple images with given names
+* `--down-ok` - continue deletion/merging even if some data will be left on unavailable OSDs.
 
 ## flatten
 
