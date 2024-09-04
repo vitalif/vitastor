@@ -19,7 +19,7 @@ supports TCP and RDMA and may achieve 4 KB read and write latency as low as ~0.1
 with proper hardware which is ~10 times faster than other popular SDS's like Ceph
 or internal systems of public clouds.
 
-Vitastor supports QEMU, NBD, NFS protocols, OpenStack, Proxmox, Kubernetes drivers.
+Vitastor supports QEMU, NBD, NFS protocols, OpenStack, OpenNebula, Proxmox, Kubernetes drivers.
 More drivers may be created easily.
 
 Read more details below in the documentation.
