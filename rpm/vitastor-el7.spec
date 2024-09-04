@@ -89,16 +89,17 @@ Requires:       fio = 3.7-1.el7
 Vitastor fio drivers for benchmarking.
 
 
-%package -n opennebula-vitastor
+%package -n vitastor-opennebula
 Summary:        Vitastor for OpenNebula
 Group:          Development/Libraries
 Requires:       vitastor-client
 Requires:       jq
 Requires:       python3-lxml
 Requires:       patch
+Requires:       qemu-kvm-block-vitastor
 
 
-%description -n opennebula-vitastor
+%description -n vitastor-opennebula
 Vitastor storage plugin for OpenNebula.
 
 
@@ -191,12 +192,12 @@ chown vitastor:vitastor /var/lib/vitastor
 %_libdir/libfio_vitastor_sec.so
 
 
-%files -n opennebula-vitastor
+%files -n vitastor-opennebula
 /var/lib/one
 /etc/sudoers.d/opennebula-vitastor
 
 
-%triggerin -n opennebula-vitastor -- opennebula
+%triggerin -n vitastor-opennebula -- opennebula
 [ $2 = 0 ] || exit 0
 /var/lib/one/remotes/datastore/vitastor/install.sh
 

@@ -6,11 +6,13 @@
 
 ## Автоматическая установка
 
-Плагин OpenNebula Vitastor распространяется как Debian и RPM пакет `opennebula-vitastor`, начиная с версии Vitastor 1.9.0. Так что:
+Плагин OpenNebula Vitastor распространяется как Debian и RPM пакет `vitastor-opennebula`, начиная с версии Vitastor 1.9.0. Так что:
 
-- Запустите `apt-get install opennebula-vitastor` или `yum install vitastor` после установки OpenNebula на всех серверах
+- Запустите `apt-get install vitastor-opennebula` или `yum install vitastor-opennebula` после установки OpenNebula на всех серверах
 - Проверьте, что он выводит "OK, Vitastor OpenNebula patches successfully applied" или "OK, Vitastor OpenNebula patches are already applied" в процессе установки
 - Если сообщение не выведено, пройдите по шагам инструкцию [Ручная установка](#ручная-установка) и примените правки файлов конфигурации вручную
+- Удостоверьтесь, что установлены версии QEMU и libvirt с изменениями Vitastor
+  (`dpkg -l qemu-system-x86`, `dpkg -l | grep libvirt`, `rpm -qa | grep qemu`, `rpm -qa | grep qemu`, `rpm -qa | grep libvirt-libs` должны показывать "vitastor" в номере версии)
 - [Заблокируйте доступ виртуальных машин в Vitastor](#блокировка-доступа-вм-в-vitastor)
 
 ## Ручная установка

@@ -6,11 +6,13 @@
 
 ## Automatic Installation
 
-OpenNebula plugin is packaged as `opennebula-vitastor` Debian and RPM package since Vitastor 1.9.0. So:
+OpenNebula plugin is packaged as `vitastor-opennebula` Debian and RPM package since Vitastor 1.9.0. So:
 
-- Run `apt-get install opennebula-vitastor` or `yum install vitastor` after installing OpenNebula on all nodes
+- Run `apt-get install vitastor-opennebula` or `yum install vitastor-opennebula` after installing OpenNebula on all nodes
 - Check that it prints "OK, Vitastor OpenNebula patches successfully applied" or "OK, Vitastor OpenNebula patches are already applied"
 - If it does not, refer to [Manual Installation](#manual-installation) and apply configuration file changes manually
+- Make sure that Vitastor patched versions of QEMU and libvirt are installed
+  (`dpkg -l qemu-system-x86`, `dpkg -l | grep libvirt`, `rpm -qa | grep qemu`, `rpm -qa | grep qemu`, `rpm -qa | grep libvirt-libs` should show "vitastor" in version names)
 - [Block VM access to Vitastor cluster](#block-vm-access-to-vitastor-cluster)
 
 ## Manual Installation

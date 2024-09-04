@@ -54,7 +54,7 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, vitastor-client (= ${binary:Version
 Description: Vitastor Proxmox Virtual Environment storage plugin
  Vitastor storage plugin for Proxmox Virtual Environment.
 
-Package: opennebula-vitastor
+Package: vitastor-opennebula
 Architecture: amd64
 Depends: ${shlibs:Depends}, ${misc:Depends}, vitastor-client, patch, python3, jq
 Description: Vitastor OpenNebula storage plugin
