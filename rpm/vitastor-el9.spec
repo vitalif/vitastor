@@ -192,4 +192,8 @@ chown vitastor:vitastor /var/lib/vitastor
 /var/lib/one/remotes/datastore/vitastor/install.sh
 
 
+# Turn off the brp-python-bytecompile script
+%global __os_install_post %(echo '%{__os_install_post}' | sed -e 's!/usr/lib[^[:space:]]*/brp-python-bytecompile[[:space:]].*$!!g')
+
+
 %changelog
