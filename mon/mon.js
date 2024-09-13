@@ -422,30 +422,6 @@ class Mon
                     throw new Error('Failed to duplicate old PG config to new PG config');
             }
             this.old_pg_config = true;
-            this.old_pg_config_timer = setInterval(() => this.check_clear_old_config().catch(console.error),
-                this.config.old_pg_config_clear_interval||3600000);
-        }
-    }
-
-    async check_clear_old_config()
-    {
-        if (this.old_pg_config && this.old_pg_stats_seen)
-        {
-            this.old_pg_stats_seen = false;
-            return;
-        }
-        if (this.old_pg_config)
-        {
-            await this.etcd.etcd_call('/kv/txn', { success: [
-                { requestDeleteRange: { key: b64(this.config.etcd_prefix+'/config/pgs') } },
-                { requestDeleteRange: { key: b64(this.config.etcd_prefix+'/pg/stats/'), range_end: b64(this.config.etcd_prefix+'/pg/stats0') } },
-            ] }, this.config.etcd_mon_timeout, this.config.etcd_mon_retries);
-            this.old_pg_config = false;
-        }
-        if (this.old_pg_config_timer)
-        {
-            clearInterval(this.old_pg_config_timer);
-            this.old_pg_config_timer = null;
         }
     }
 
