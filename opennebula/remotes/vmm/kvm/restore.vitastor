@@ -10,7 +10,7 @@ source $DRIVER_PATH/../../etc/vmm/kvm/kvmrc
 source $DRIVER_PATH/../../scripts_common.sh
 
 FILE=$1
-HOST=$2
+DST_HOST=$2
 DEPLOY_ID=$3
 VM_ID=$4
 DS_ID=$5
@@ -33,7 +33,8 @@ fi
 
 SRC_IMAGE="${IMAGE_PREFIX}-sys-${VM_ID}-checkpoint"
 
-exec_and_log "$CLI dd iimg=$SRC_IMAGE of=$FILE" "Error exporting checkpoint into from $SRC_IMAGE to $FILE"
-exec_and_log "$CLI rm $SRC_IMAGE" "Error removing checkpoint $SRC_IMAGE"
+ssh_exec_and_log "$DST_HOST" "$CLI dd iimg=$SRC_IMAGE of=$FILE" "Error exporting checkpoint into from $SRC_IMAGE to $FILE"
+ssh_exec_and_log "$DST_HOST" "$CLI rm $SRC_IMAGE" "Error removing checkpoint $SRC_IMAGE"
 
-"$DRIVER_PATH"/restore $@
+set -e
+ssh "$DST_HOST" "'${SCRIPTS_REMOTE_DIR:-/var/tmp/one}/vmm/kvm/restore' $@"
