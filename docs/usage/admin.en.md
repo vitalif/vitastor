@@ -169,6 +169,18 @@ Upgrading is performed without stopping clients (VMs/containers), you just need 
 upgrade and restart servers one by one. However, ideally you should restart VMs too
 to make them use the new version of the client library.
 
+### 1.7.x to 1.8.0
+
+After upgrading version <= 1.7.x to version >= 1.8.0, BUT <= 1.9.0: restart all clients
+(VMs and so on), otherwise they will hang when monitor clears old PG configuration key,
+which happens 24 hours after upgrade.
+
+This is fixed in 1.9.1. So, after upgrading version <= 1.7.x directly to version >= 1.9.1,
+you DO NOT have to restart all old clients immediately - they will work like before until
+you decide to upgrade them too. The downside is that you'll have to remove the old PG
+configuration key (`/vitastor/config/pgs`) from etcd by hand when you make sure that all
+your clients are restarted.
+
 ### 1.1.x to 1.2.0
 
 Upgrading version <= 1.1.x to version >= 1.2.0, if you use EC n+k with k>=2, is recommended
