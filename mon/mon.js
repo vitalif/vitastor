@@ -218,6 +218,10 @@ class Mon
             }
             else if (key != '/stats' && key.substr(0, 13) != '/inode/stats/')
             {
+                if (key == '/config/pgs' && !kv.value)
+                {
+                    this.old_pg_config = false;
+                }
                 changed = true;
             }
             if (this.config.verbose)
