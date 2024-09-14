@@ -22,7 +22,7 @@ or internal systems of public clouds.
 Vitastor supports QEMU, NBD, NFS protocols, OpenStack, OpenNebula, Proxmox, Kubernetes drivers.
 More drivers may be created easily.
 
-Read more details below in the documentation.
+Read more details in the documentation. You can start from here: [Quick Start](docs/intro/quickstart.en.md).
 
 ## Talks and presentations
 

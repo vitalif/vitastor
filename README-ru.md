@@ -1,4 +1,4 @@
-## Vitastor
+# Vitastor
 
 [Read English version](README.md)
 
@@ -22,7 +22,7 @@ TCP и RDMA и на хорошем железе может достигать з
 Vitastor поддерживает QEMU-драйвер, протоколы NBD и NFS, драйверы OpenStack, OpenNebula, Proxmox, Kubernetes.
 Другие драйверы могут также быть легко реализованы.
 
-Подробности смотрите в документации по ссылкам ниже.
+Подробности смотрите в документации по ссылкам. Можете начать отсюда: [Быстрый старт](docs/intro/quickstart.ru.md).
 
 ## Презентации и записи докладов
 
@@ -51,7 +51,7 @@ Vitastor поддерживает QEMU-драйвер, протоколы NBD и
   - Параметры
     - [Общие](docs/config/common.ru.md)
     - [Сетевые](docs/config/network.ru.md)
-    - [Клиентский код](docs/config/client.en.md)
+    - [Клиентский код](docs/config/client.ru.md)
     - [Глобальные дисковые параметры](docs/config/layout-cluster.ru.md)
     - [Дисковые параметры OSD](docs/config/layout-osd.ru.md)
     - [Прочие параметры OSD](docs/config/osd.ru.md)

@@ -55,7 +55,7 @@ Examples:
 OSD placement tree is set in a separate etcd key `/vitastor/config/node_placement`
 in the following JSON format:
 
-`
+```
 {
   "<node name or OSD number>": {
     "level": "<level>",
@@ -63,7 +63,7 @@ in the following JSON format:
   },
   ...
 }
-`
+```
 
 Here, if a node name is a number then it is assumed to refer to an OSD.
 Level of the OSD is always "osd" and cannot be overriden. You may only

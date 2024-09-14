@@ -4,6 +4,8 @@
 
 [Читать на русском](opennebula.ru.md)
 
+# OpenNebula
+
 ## Automatic Installation
 
 OpenNebula plugin is packaged as `vitastor-opennebula` Debian and RPM package since Vitastor 1.9.0. So:

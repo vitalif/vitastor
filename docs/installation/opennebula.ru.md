@@ -4,6 +4,8 @@
 
 [Read in English](opennebula.en.md)
 
+# OpenNebula
+
 ## Автоматическая установка
 
 Плагин OpenNebula Vitastor распространяется как Debian и RPM пакет `vitastor-opennebula`, начиная с версии Vitastor 1.9.0. Так что:
