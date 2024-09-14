@@ -54,5 +54,4 @@ for disk in dep.findall('./devices/disk[@type="file"]'):
     except Exception as e:
         print("Error: {}".format(e), file=stderr)
 
-if changed:
-    ET.ElementTree(dep).write(dep_file)
+ET.ElementTree(dep).write(dep_file)
