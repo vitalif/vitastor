@@ -19,7 +19,7 @@ if("${CMAKE_INSTALL_PREFIX}" MATCHES "^/usr/local/?$")
 	set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
 endif()
 
-add_definitions(-DVITASTOR_VERSION="1.9.0")
+add_definitions(-DVITASTOR_VERSION="1.9.1")
 add_definitions(-D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fdiagnostics-color=always -fno-omit-frame-pointer -I ${CMAKE_SOURCE_DIR}/src)
 add_link_options(-fno-omit-frame-pointer)
 if (${WITH_ASAN})
