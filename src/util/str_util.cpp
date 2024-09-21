@@ -489,7 +489,7 @@ std::string format_datetime(uint64_t unixtime)
 bool is_zero(void *buf, size_t size)
 {
     size_t i = 0;
-    while (i <= size-8)
+    while (i+8 <= size)
     {
         if (*(uint64_t*)((uint8_t*)buf + i))
             return false;
