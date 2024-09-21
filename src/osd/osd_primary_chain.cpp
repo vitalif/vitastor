@@ -369,12 +369,15 @@ std::vector<osd_chain_read_t> osd_t::collect_chained_read_requests(osd_op_t *cur
                 global_bitmap[cur>>3] = global_bitmap[cur>>3] | (part_bitmap[cur>>3] & (1 << (cur&7)));
             }
             // Add request
-            chain_reads.push_back((osd_chain_read_t){
-                .chain_pos = chain_pos,
-                .inode = op_data->read_chain[chain_pos],
-                .offset = start*bs_bitmap_granularity,
-                .len = (end-start)*bs_bitmap_granularity,
-            });
+            if (cur_op->req.rw.len)
+            {
+                chain_reads.push_back((osd_chain_read_t){
+                    .chain_pos = chain_pos,
+                    .inode = op_data->read_chain[chain_pos],
+                    .offset = start*bs_bitmap_granularity,
+                    .len = (end-start)*bs_bitmap_granularity,
+                });
+            }
         }
     }
     return chain_reads;
