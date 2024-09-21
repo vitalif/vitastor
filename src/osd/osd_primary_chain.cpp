@@ -337,7 +337,7 @@ std::vector<osd_chain_read_t> osd_t::collect_chained_read_requests(osd_op_t *cur
     {
         uint8_t *part_bitmap = ((uint8_t*)op_data->snapshot_bitmaps) + chain_pos*stripe_count*clean_entry_bitmap_size;
         int start = !cur_op->req.rw.len ? 0 : (cur_op->req.rw.offset - op_data->oid.stripe)/bs_bitmap_granularity;
-        int end = !cur_op->req.rw.len ? op_data->pg_data_size*clean_entry_bitmap_size : start + cur_op->req.rw.len/bs_bitmap_granularity;
+        int end = !cur_op->req.rw.len ? op_data->pg_data_size*clean_entry_bitmap_size*8 : start + cur_op->req.rw.len/bs_bitmap_granularity;
         // Skip unneeded part in the beginning
         while (start < end && (
             ((global_bitmap[start>>3] >> (start&7)) & 1) ||
