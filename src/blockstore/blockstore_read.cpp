@@ -993,7 +993,8 @@ int blockstore_impl_t::read_bitmap(object_id oid, uint64_t target_version, void 
     {
         while (dirty_it->first.oid == oid)
         {
-            if (target_version >= dirty_it->first.version)
+            // Condition has to be the same as in dequeue_read()
+            if (!IS_IN_FLIGHT(dirty_it->second.state) && target_version >= dirty_it->first.version)
             {
                 if (result_version)
                     *result_version = dirty_it->first.version;
