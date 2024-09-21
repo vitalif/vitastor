@@ -12,6 +12,11 @@ target_link_libraries(stub_bench tcmalloc_minimal)
 add_executable(osd_test osd_test.cpp ../util/rw_blocking.cpp ../util/addr_util.cpp)
 target_link_libraries(osd_test tcmalloc_minimal)
 
+# bindiff
+add_executable(bindiff
+	bindiff.c
+)
+
 # stub_uring_osd
 add_executable(stub_uring_osd
 	stub_uring_osd.cpp

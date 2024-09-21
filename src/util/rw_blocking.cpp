@@ -10,7 +10,7 @@
 
 #include "rw_blocking.h"
 
-int read_blocking(int fd, void *read_buf, size_t remaining)
+size_t read_blocking(int fd, void *read_buf, size_t remaining)
 {
     size_t done = 0;
     while (done < remaining)
@@ -30,13 +30,13 @@ int read_blocking(int fd, void *read_buf, size_t remaining)
             }
             continue;
         }
-        done += r;
+        done += (size_t)r;
         read_buf = (uint8_t*)read_buf + r;
     }
     return done;
 }
 
-int write_blocking(int fd, void *write_buf, size_t remaining)
+size_t write_blocking(int fd, void *write_buf, size_t remaining)
 {
     size_t done = 0;
     while (done < remaining)
@@ -51,7 +51,7 @@ int write_blocking(int fd, void *write_buf, size_t remaining)
             }
             continue;
         }
-        done += r;
+        done += (size_t)r;
         write_buf = (uint8_t*)write_buf + r;
     }
     return done;
