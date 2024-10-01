@@ -955,7 +955,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
             ? (stripe + pg_block_size) : (op->offset + op->len);
         op->parts[i].iov.reset();
         op->parts[i].flags = 0;
-        if (op->cur_inode != op->inode || op->opcode == OSD_OP_READ && dirty_copied)
+        if (op->opcode != OSD_OP_READ_CHAIN_BITMAP && op->cur_inode != op->inode || op->opcode == OSD_OP_READ && dirty_copied)
         {
             // Read remaining parts from upper layers
             uint64_t prev = begin, cur = begin;

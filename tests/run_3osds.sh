@@ -83,16 +83,19 @@ fi
 POOLCFG='"name":"testpool","failure_domain":"osd",'$POOLCFG
 $ETCDCTL put /vitastor/config/pools '{"1":{'$POOLCFG',"pg_size":'$PG_SIZE',"pg_minsize":'$PG_MINSIZE',"pg_count":'$PG_COUNT'}}'
 
-wait_up()
+wait_pool_up()
 {
     local sec=$1
+    local pool=$2
+    local pgsize=$3
+    local pgcount=$4
     local i=0
     local configured=0
     while [[ $i -lt $sec ]]; do
-        if $ETCDCTL get /vitastor/pg/config --print-value-only | jq -s -e '(. | length) != 0 and ([ .[0].items["1"][] |
-            select(((.osd_set | select(. != 0) | sort | unique) | length) == '$PG_SIZE') ] | length) == '$PG_COUNT; then
+        if $ETCDCTL get /vitastor/pg/config --print-value-only | jq -s -e '(. | length) != 0 and ([ .[0].items["'$pool'"][] |
+            select(((.osd_set | select(. != 0) | sort | unique) | length) == '$pgsize') ] | length) == '$pgcount; then
             configured=1
-            if $ETCDCTL get /vitastor/pg/state/1/ --prefix --print-value-only | jq -s -e '[ .[] | select(.state == ["active"]) ] | length == '$PG_COUNT; then
+            if $ETCDCTL get /vitastor/pg/state/$pool/ --prefix --print-value-only | jq -s -e '[ .[] | select(.state == ["active"]) ] | length == '$pgcount; then
                 break
             fi
         fi
@@ -105,6 +108,11 @@ wait_up()
             format_error "FAILED: $PG_COUNT PG(s) NOT UP"
         fi
     done
+}
+
+wait_up()
+{
+    wait_pool_up "$1" 1 $PG_SIZE $PG_COUNT
 }
 
 if [[ $OSD_COUNT -gt 0 ]]; then
