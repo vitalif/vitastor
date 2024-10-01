@@ -106,8 +106,8 @@ SSD cache or "media-cache" - for example, a lot of Seagate EXOS drives have
 it (they have internal SSD cache even though it's not stated in datasheets).
 
 Setting this parameter to "all" or "small" in OSD parameters requires enabling
-[disable_journal_fsync](layout-osd.en.yml#disable_journal_fsync) and
-[disable_meta_fsync](layout-osd.en.yml#disable_meta_fsync), setting it to
-"all" also requires enabling [disable_data_fsync](layout-osd.en.yml#disable_data_fsync).
+[disable_journal_fsync](layout-osd.en.md#disable_journal_fsync) and
+[disable_meta_fsync](layout-osd.en.md#disable_meta_fsync), setting it to
+"all" also requires enabling [disable_data_fsync](layout-osd.en.md#disable_data_fsync).
 vitastor-disk tried to do that by default, first checking/disabling drive cache.
 If it can't disable drive cache, OSD get initialized with "none".
