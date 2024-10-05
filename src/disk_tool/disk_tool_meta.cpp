@@ -243,12 +243,16 @@ int disk_tool_t::write_json_meta(json11::Json meta)
         ? meta["data_block_size"].uint64_value() : 131072;
     new_hdr->bitmap_granularity = meta["bitmap_granularity"].uint64_value()
         ? meta["bitmap_granularity"].uint64_value() : 4096;
-    new_hdr->data_csum_type = meta["data_csum_type"].is_number()
-        ? meta["data_csum_type"].uint64_value()
-        : (meta["data_csum_type"].string_value() == "crc32c"
-            ? BLOCKSTORE_CSUM_CRC32C
-            : BLOCKSTORE_CSUM_NONE);
-    new_hdr->csum_block_size = meta["csum_block_size"].uint64_value();
+    if (new_hdr->version >= BLOCKSTORE_META_FORMAT_V2)
+    {
+        new_hdr->data_csum_type = meta["data_csum_type"].is_number()
+            ? meta["data_csum_type"].uint64_value()
+            : (meta["data_csum_type"].string_value() == "crc32c"
+                ? BLOCKSTORE_CSUM_CRC32C
+                : BLOCKSTORE_CSUM_NONE);
+        new_hdr->csum_block_size = meta["csum_block_size"].uint64_value();
+        new_hdr->header_csum = crc32c(0, new_hdr, sizeof(*new_hdr));
+    }
     uint32_t new_clean_entry_header_size = (new_hdr->version == BLOCKSTORE_META_FORMAT_V1
         ? sizeof(clean_disk_entry) : sizeof(clean_disk_entry) + 4 /*entry_csum*/);
     new_clean_entry_bitmap_size = (new_hdr->data_block_size / new_hdr->bitmap_granularity + 7) / 8;
