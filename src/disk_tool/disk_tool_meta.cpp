@@ -176,7 +176,7 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v2_t *hdr)
         {
             printf(
                 "{\"version\":\"0.9\",\"meta_block_size\":%u,\"data_block_size\":%u,\"bitmap_granularity\":%u,"
-                "\"data_csum_type\":%s,\"csum_block_size\":%u,\"entries\":[\n",
+                "\"data_csum_type\":\"%s\",\"csum_block_size\":%u,\"entries\":[\n",
                 hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity,
                 csum_type_str(hdr->data_csum_type).c_str(), hdr->csum_block_size
             );
