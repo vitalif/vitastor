@@ -979,7 +979,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_dd(json11::Json cfg)
     dd->oseek = parse_blocks(cfg["oseek"], dd->blocksize, 0);
     if (!dd->oseek)
         dd->oseek = parse_blocks(cfg["seek"], dd->blocksize, 0);
-    dd->iseek = parse_blocks(cfg["oseek"], dd->blocksize, 0);
+    dd->iseek = parse_blocks(cfg["iseek"], dd->blocksize, 0);
     if (!dd->iseek)
         dd->iseek = parse_blocks(cfg["skip"], dd->blocksize, 0);
     dd->iodepth = cfg["iodepth"].uint64_value();
