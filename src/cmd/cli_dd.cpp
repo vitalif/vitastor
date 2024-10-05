@@ -369,6 +369,7 @@ struct cli_dd_t
 {
     cli_tool_t *parent;
 
+    std::vector<std::string> conv, iflag, oflag;
     dd_in_info_t iinfo;
     dd_out_info_t oinfo;
 
@@ -766,6 +767,49 @@ struct cli_dd_t
             goto resume_3;
         else if (state == 4)
             goto resume_4;
+        for (int i = 0; i < conv.size(); i++)
+        {
+            if (conv[i] == "nofsync")
+                oinfo.end_fsync = false;
+            else if (conv[i] == "trunc")
+                oinfo.out_trunc = true;
+            else if (conv[i] == "nocreat")
+                oinfo.out_create = false;
+            else if (conv[i] == "noerror")
+                ignore_errors = true;
+            else if (conv[i] == "nosparse")
+                write_zero = true;
+            else
+            {
+                result = (cli_result_t){ .err = EINVAL, .text = "Unknown option conv="+conv[i] };
+                state = 100;
+                return;
+            }
+        }
+        for (int i = 0; i < iflag.size(); i++)
+        {
+            if (iflag[i] == "direct")
+                iinfo.in_direct = true;
+            else
+            {
+                result = (cli_result_t){ .err = EINVAL, .text = "Unknown option iflag="+iflag[i] };
+                state = 100;
+                return;
+            }
+        }
+        for (int i = 0; i < oflag.size(); i++)
+        {
+            if (oflag[i] == "direct")
+                oinfo.out_direct = true;
+            else if (oflag[i] == "append")
+                oinfo.out_append = true;
+            else
+            {
+                result = (cli_result_t){ .err = EINVAL, .text = "Unknown option oflag="+oflag[i] };
+                state = 100;
+                return;
+            }
+        }
         if ((oinfo.oimg != "" && oinfo.ofile != "") || (iinfo.iimg != "" && iinfo.ifile != ""))
         {
             result = (cli_result_t){ .err = EINVAL, .text = "Image and file can't be specified at the same time" };
@@ -908,6 +952,18 @@ static uint64_t parse_blocks(json11::Json v, uint64_t bs, uint64_t def)
     return res;
 }
 
+static std::vector<std::string> explode_json(const std::string & sep, json11::Json opt)
+{
+    if (opt.is_array())
+    {
+        std::vector<std::string> arr;
+        for (auto & item: opt.array_items())
+            arr.push_back(item.as_string());
+        return arr;
+    }
+    return explode(sep, opt.as_string(), true);
+}
+
 std::function<bool(cli_result_t &)> cli_tool_t::start_dd(json11::Json cfg)
 {
     auto dd = new cli_dd_t();
@@ -935,25 +991,9 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_dd(json11::Json cfg)
         progress = true;
     dd->iinfo.detect_size = cfg["size"].is_null();
     dd->oinfo.out_size = parse_size(cfg["size"].as_string());
-    std::vector<std::string> conv = explode(",", cfg["conv"].string_value(), true);
-    if (std::find(conv.begin(), conv.end(), "nofsync") != conv.end())
-        dd->oinfo.end_fsync = false;
-    if (std::find(conv.begin(), conv.end(), "trunc") != conv.end())
-        dd->oinfo.out_trunc = true;
-    if (std::find(conv.begin(), conv.end(), "nocreat") != conv.end())
-        dd->oinfo.out_create = false;
-    if (std::find(conv.begin(), conv.end(), "noerror") != conv.end())
-        dd->ignore_errors = true;
-    if (std::find(conv.begin(), conv.end(), "nosparse") != conv.end())
-        dd->write_zero = true;
-    conv = explode(",", cfg["iflag"].string_value(), true);
-    if (std::find(conv.begin(), conv.end(), "direct") != conv.end())
-        dd->iinfo.in_direct = true;
-    conv = explode(",", cfg["oflag"].string_value(), true);
-    if (std::find(conv.begin(), conv.end(), "direct") != conv.end())
-        dd->oinfo.out_direct = true;
-    if (std::find(conv.begin(), conv.end(), "append") != conv.end())
-        dd->oinfo.out_append = true;
+    dd->conv = explode_json(",", cfg["conv"]);
+    dd->iflag = explode_json(",", cfg["iflag"]);
+    dd->oflag = explode_json(",", cfg["oflag"]);
     return [dd](cli_result_t & result)
     {
         dd->loop();
