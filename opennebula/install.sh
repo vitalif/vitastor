@@ -3,7 +3,9 @@
 set -e
 
 reapply_patch() {
-	if ! patch -f --dry-run -F 0 -R $1 < $2 >/dev/null; then
+	if ! [[ -e $1 ]]; then
+		echo "$1 does not exist, OpenNebula is not installed"
+	elif ! patch -f --dry-run -F 0 -R $1 < $2 >/dev/null; then
 		already_applied=0
 		if ! patch --no-backup-if-mismatch -r - -F 0 -f $1 < $2; then
 			applied_ok=0
@@ -15,8 +17,13 @@ echo "Reapplying Vitastor patches to OpenNebula's oned.conf, vmm_execrc and down
 already_applied=1
 applied_ok=1
 reapply_patch /var/lib/one/remotes/datastore/downloader.sh /var/lib/one/remotes/datastore/vitastor/downloader-vitastor.sh.diff
-reapply_patch /etc/one/oned.conf /var/lib/one/remotes/datastore/vitastor/oned.conf.diff
 reapply_patch /etc/one/vmm_exec/vmm_execrc /var/lib/one/remotes/datastore/vitastor/vmm_execrc.diff
+if [[ -e /etc/one/oned.conf ]]; then
+	if ! /var/lib/one/remotes/datastore/vitastor/patch-oned-conf.py /etc/one/oned.conf; then
+		applied_ok=0
+		already_applied=0
+	fi
+fi
 if [[ "$already_applied" = 1 ]]; then
 	echo "OK: Vitastor OpenNebula patches are already applied"
 elif [[ "$applied_ok" = 1 ]]; then
