@@ -143,8 +143,10 @@ static const char *help_text =
     "  For now, this only checks that device cache is in write-through mode if fsync is disabled.\n"
     "  Intended for use from startup scripts (i.e. from systemd units).\n"
     "\n"
+    "vitastor-disk dump-journal [OPTIONS] <osd_device>\n"
     "vitastor-disk dump-journal [OPTIONS] <journal_file> <journal_block_size> <offset> <size>\n"
-    "  Dump journal in human-readable or JSON (if --json is specified) format.\n"
+    "  Dump journal in text or JSON (if --json is specified) format.\n"
+    "  You can specify any OSD device (data, metadata or journal), or the layout manually.\n"
     "  Options:\n"
     "  --all             Scan the whole journal area for entries and dump them, even outdated ones\n"
     "  --json            Dump journal in JSON format\n"
@@ -152,16 +154,21 @@ static const char *help_text =
     "  --format data     Same as \"entries\", but also include small write data\n"
     "  --format blocks   Dump as an array of journal blocks each containing array of entries\n"
     "\n"
+    "vitastor-disk write-journal <osd_device>\n"
     "vitastor-disk write-journal <journal_file> <journal_block_size> <bitmap_size> <offset> <size>\n"
     "  Write journal from JSON taken from standard input in the same format as produced by\n"
     "  `dump-journal --json --format data`.\n"
+    "  You can specify any OSD device (data, metadata or journal), or the layout manually.\n"
     "\n"
+    "vitastor-disk dump-meta <osd_device>\n"
     "vitastor-disk dump-meta <meta_file> <meta_block_size> <offset> <size>\n"
     "  Dump metadata in JSON format.\n"
+    "  You can specify any OSD device (data, metadata or journal), or the layout manually.\n"
     "\n"
+    "vitastor-disk write-meta <osd_device>\n"
     "vitastor-disk write-meta <meta_file> <offset> <size>\n"
-    "  Write metadata from JSON taken from standard input in the same format as produced by\n"
-    "  `dump-meta`. Intended for debugging.\n"
+    "  Write metadata from JSON taken from standard input in the same format as produced by `dump-meta`.\n"
+    "  You can specify any OSD device (data, metadata or journal), or the layout manually.\n"
     "\n"
     "vitastor-disk simple-offsets <device>\n"
     "  Calculate offsets for old simple&stupid (no superblock) OSD deployment. Options:\n"
@@ -249,29 +256,49 @@ int main(int argc, char *argv[])
     }
     if (!strcmp(cmd[0], "dump-journal"))
     {
-        if (cmd.size() < 5)
+        if (cmd.size() != 2 && cmd.size() < 5)
         {
             print_help(help_text, aliased ? "vitastor-dump-journal" : "vitastor-disk", cmd[0], false);
             return 1;
         }
         self.dsk.journal_device = cmd[1];
-        self.dsk.journal_block_size = strtoul(cmd[2], NULL, 10);
-        self.dsk.journal_offset = strtoull(cmd[3], NULL, 10);
-        self.dsk.journal_len = strtoull(cmd[4], NULL, 10);
+        if (cmd.size() > 2)
+        {
+            self.dsk.journal_block_size = strtoul(cmd[2], NULL, 10);
+            self.dsk.journal_offset = strtoull(cmd[3], NULL, 10);
+            self.dsk.journal_len = strtoull(cmd[4], NULL, 10);
+        }
+        else
+        {
+            // First argument is an OSD device - take metadata layout parameters from it
+            if (self.dump_load_check_superblock(self.dsk.journal_device))
+                return 1;
+        }
         return self.dump_journal();
     }
     else if (!strcmp(cmd[0], "write-journal"))
     {
-        if (cmd.size() < 6)
+        if (cmd.size() != 2 && cmd.size() < 6)
         {
             print_help(help_text, "vitastor-disk", cmd[0], false);
             return 1;
         }
         self.new_journal_device = cmd[1];
-        self.dsk.journal_block_size = strtoul(cmd[2], NULL, 10);
-        self.dsk.clean_entry_bitmap_size = strtoul(cmd[3], NULL, 10);
-        self.new_journal_offset = strtoull(cmd[4], NULL, 10);
-        self.new_journal_len = strtoull(cmd[5], NULL, 10);
+        if (cmd.size() > 2)
+        {
+            self.dsk.journal_block_size = strtoul(cmd[2], NULL, 10);
+            self.dsk.clean_entry_bitmap_size = strtoul(cmd[3], NULL, 10);
+            self.new_journal_offset = strtoull(cmd[4], NULL, 10);
+            self.new_journal_len = strtoull(cmd[5], NULL, 10);
+        }
+        else
+        {
+            // First argument is an OSD device - take metadata layout parameters from it
+            if (self.dump_load_check_superblock(self.new_journal_device))
+                return 1;
+            self.new_journal_offset = self.dsk.journal_offset;
+            self.new_journal_len = self.dsk.journal_len;
+        }
         std::string json_err;
         json11::Json entries = json11::Json::parse(read_all_fd(0), json_err);
         if (json_err != "")
@@ -296,27 +323,47 @@ int main(int argc, char *argv[])
     }
     else if (!strcmp(cmd[0], "dump-meta"))
     {
-        if (cmd.size() < 5)
+        if (cmd.size() != 2 && cmd.size() < 5)
         {
             print_help(help_text, "vitastor-disk", cmd[0], false);
             return 1;
         }
         self.dsk.meta_device = cmd[1];
-        self.dsk.meta_block_size = strtoul(cmd[2], NULL, 10);
-        self.dsk.meta_offset = strtoull(cmd[3], NULL, 10);
-        self.dsk.meta_len = strtoull(cmd[4], NULL, 10);
+        if (cmd.size() > 2)
+        {
+            self.dsk.meta_block_size = strtoul(cmd[2], NULL, 10);
+            self.dsk.meta_offset = strtoull(cmd[3], NULL, 10);
+            self.dsk.meta_len = strtoull(cmd[4], NULL, 10);
+        }
+        else
+        {
+            // First argument is an OSD device - take metadata layout parameters from it
+            if (self.dump_load_check_superblock(self.dsk.meta_device))
+                return 1;
+        }
         return self.dump_meta();
     }
     else if (!strcmp(cmd[0], "write-meta"))
     {
-        if (cmd.size() < 4)
+        if (cmd.size() != 2 && cmd.size() < 4)
         {
             print_help(help_text, "vitastor-disk", cmd[0], false);
             return 1;
         }
         self.new_meta_device = cmd[1];
-        self.new_meta_offset = strtoull(cmd[2], NULL, 10);
-        self.new_meta_len = strtoull(cmd[3], NULL, 10);
+        if (cmd.size() > 2)
+        {
+            self.new_meta_offset = strtoull(cmd[2], NULL, 10);
+            self.new_meta_len = strtoull(cmd[3], NULL, 10);
+        }
+        else
+        {
+            // First argument is an OSD device - take metadata layout parameters from it
+            if (self.dump_load_check_superblock(self.new_meta_device))
+                return 1;
+            self.new_meta_offset = self.dsk.meta_offset;
+            self.new_meta_len = self.dsk.meta_len;
+        }
         std::string json_err;
         json11::Json meta = json11::Json::parse(read_all_fd(0), json_err);
         if (json_err != "")

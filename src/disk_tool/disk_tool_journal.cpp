@@ -517,6 +517,12 @@ int disk_tool_t::write_json_journal(json11::Json entries)
             uint32_t data_csum_size = !dsk.data_csum_type ? 0 : ne->small_write.len/dsk.csum_block_size*(dsk.data_csum_type & 0xFF);
             fromhexstr(rec["bitmap"].string_value(), dsk.clean_entry_bitmap_size, ((uint8_t*)ne) + sizeof(journal_entry_small_write) + data_csum_size);
             fromhexstr(rec["data"].string_value(), ne->small_write.len, new_journal_data);
+            if (ne->small_write.len > 0 && !rec["data"].is_string())
+            {
+                fprintf(stderr, "Error: entry data is missing, please generate the dump with --json --format data\n");
+                free(new_journal_buf);
+                return 1;
+            }
             if (dsk.data_csum_type)
                 fromhexstr(rec["block_csums"].string_value(), data_csum_size, ((uint8_t*)ne) + sizeof(journal_entry_small_write));
             if (rec["data"].is_string())

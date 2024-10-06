@@ -93,6 +93,8 @@ struct disk_tool_t
     void dump_meta_header(blockstore_meta_header_v2_t *hdr);
     void dump_meta_entry(uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap);
 
+    int dump_load_check_superblock(const std::string & device);
+
     int write_json_journal(json11::Json entries);
     int write_json_meta(json11::Json meta);
 

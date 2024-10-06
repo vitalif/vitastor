@@ -14,19 +14,7 @@
 #include "osd.h"
 #include "http_client.h"
 #include "str_util.h"
-
-static blockstore_config_t json_to_bs(const json11::Json::object & config)
-{
-    blockstore_config_t bs;
-    for (auto kv: config)
-    {
-        if (kv.second.is_string())
-            bs[kv.first] = kv.second.string_value();
-        else if (!kv.second.is_null())
-            bs[kv.first] = kv.second.dump();
-    }
-    return bs;
-}
+#include "json_util.h"
 
 osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
 {
@@ -46,7 +34,7 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
 
     if (!json_is_true(this->config["disable_blockstore"]))
     {
-        auto bs_cfg = json_to_bs(this->config);
+        auto bs_cfg = json_to_string_map(this->config);
         this->bs = new blockstore_t(bs_cfg, ringloop, tfd);
         // Wait for blockstore initialisation before actually starting OSD logic
         // to prevent peering timeouts during restart with filled databases
@@ -151,7 +139,7 @@ void osd_t::parse_config(bool init)
     }
     if (bs)
     {
-        auto bs_cfg = json_to_bs(config);
+        auto bs_cfg = json_to_string_map(config);
         bs->parse_config(bs_cfg);
     }
     st_cli.parse_config(config);

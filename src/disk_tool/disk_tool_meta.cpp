@@ -4,6 +4,7 @@
 #include "disk_tool.h"
 #include "rw_blocking.h"
 #include "osd_id.h"
+#include "json_util.h"
 
 int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)> hdr_fn,
     std::function<void(uint64_t, clean_disk_entry*, uint8_t*)> record_fn)
@@ -146,6 +147,31 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
     free(data);
     close(dsk.meta_fd);
     dsk.meta_fd = -1;
+    return 0;
+}
+
+int disk_tool_t::dump_load_check_superblock(const std::string & device)
+{
+    json11::Json sb = read_osd_superblock(device, true, false);
+    if (sb.is_null())
+        return 1;
+    try
+    {
+        auto cfg = json_to_string_map(sb["params"].object_items());
+        dsk.parse_config(cfg);
+        dsk.data_io = dsk.meta_io = dsk.journal_io = "cached";
+        dsk.open_data();
+        dsk.open_meta();
+        dsk.open_journal();
+        dsk.calc_lengths(true);
+    }
+    catch (std::exception & e)
+    {
+        dsk.close_all();
+        fprintf(stderr, "%s\n", e.what());
+        return 1;
+    }
+    dsk.close_all();
     return 0;
 }
 
