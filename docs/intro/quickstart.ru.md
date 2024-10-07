@@ -22,7 +22,7 @@
   использовать и десктопные SSD, включив режим отложенного fsync, но производительность будет хуже.
   О конденсаторах читайте [здесь](../config/layout-cluster.ru.md#immediate_commit).
 - Если хотите использовать HDD, берите современные модели с Media или SSD кэшем - HGST Ultrastar,
-  Toshiba MG08, Seagate EXOS или что-то похожее. Если такого кэша у ваших дисков нет,
+  Toshiba MG, Seagate EXOS или что-то похожее. Если такого кэша у ваших дисков нет,
   обязательно возьмите SSD под метаданные и журнал (маленькие, буквально 2 ГБ на 1 ТБ HDD-места).
 - Возьмите быструю сеть, минимум 10 гбит/с. Идеал - что-то вроде Mellanox ConnectX-4 с RoCEv2.
 - Для лучшей производительности отключите энергосбережение CPU: `cpupower idle-set -D 0 && cpupower frequency-set -g performance`.
@@ -33,7 +33,7 @@
 - SATA SSD: Micron 5100/5200/5300/5400, Samsung PM863/PM883/PM893, Intel D3-S4510/4520/4610/4620, Kingston DC500M
 - NVMe: Micron 9100/9200/9300/9400, Micron 7300/7450, Samsung PM983/PM9A3, Samsung PM1723/1735/1743,
   Intel DC-P3700/P4500/P4600, Intel D7-P5500/P5600, Intel Optane, Kingston DC1000B/DC1500M
-- HDD: HGST Ultrastar, Toshiba MG06/MG07/MG08, Seagate EXOS
+- HDD: HGST Ultrastar, Toshiba MG, Seagate EXOS
 
 ## Настройте мониторы
 

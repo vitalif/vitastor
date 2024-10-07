@@ -154,9 +154,9 @@ VDUSE - на данный момент лучший интерфейс для п
 Чтобы попробовать VDUSE, вам нужно ядро Linux как минимум версии 5.15, собранное с поддержкой
 VDUSE (CONFIG_VDPA=m, CONFIG_VDPA_USER=m, CONFIG_VIRTIO_VDPA=m).
 
-В ядрах в Debian Linux поддержка пока отключена по умолчанию, так что чтобы попробовать VDUSE
-на Debian, поставьте ядро из Ubuntu [kernel-ppa/mainline](https://kernel.ubuntu.com/~kernel-ppa/mainline/),
-из Proxmox или соберите модули для ядра Debian вручную:
+В ядрах в Debian Linux эти опции включены, только начиная с 6.6, так что установите свежее ядро
+из bookworm-backports, trixie или из более новой версии Debian, если хотите попробовать VDUSE.
+Либо же вы можете самостоятельно собрать модули для установленного ядра:
 
 ```
 mkdir build

@@ -151,9 +151,9 @@ Example performance comparison:
 To try VDUSE you need at least Linux 5.15, built with VDUSE support
 (CONFIG_VDPA=m, CONFIG_VDPA_USER=m, CONFIG_VIRTIO_VDPA=m).
 
-Debian Linux kernels have these options disabled by now, so if you want to try it on Debian,
-use a kernel from Ubuntu [kernel-ppa/mainline](https://kernel.ubuntu.com/~kernel-ppa/mainline/), Proxmox,
-or build modules for Debian kernel manually:
+Debian Linux kernels had these options disabled until 6.6, so make sure you install a newer kernel
+(from bookworm-backports, trixie or newer Debian version) if you want to try VDUSE. You can also
+build modules for an existing kernel manually:
 
 ```
 mkdir build
