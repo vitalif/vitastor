@@ -156,17 +156,17 @@ behind. Defragmentation removes garbage and moves data still in use to new volum
 
 Options:
 
-| <!-- -->                 | <!-- -->                                                                |
-|--------------------------|------------------------------------------------------------------------ |
-| --volume_untouched 86400 | Defragment volumes last appended to at least this number of seconds ago |
-| --defrag_percent 50      | Defragment volumes with at least this % of removed data                 |
-| --defrag_block_count 16  | Read this number of pool blocks at once during defrag                   |
-| --defrag_iodepth 16      | Move up to this number of files in parallel during defrag               |
-| --trace                  | Print verbose defragmentation status                                    |
-| --dry-run                | Skip modifications, only print status                                   |
-| --recalc-stats           | Recalculate all volume statistics                                       |
-| --include-empty          | Include old and empty volumes; make sure to restart NFS servers before using it |
-| --no-rm                  | Move, but do not delete data                                            |
+| <!-- -->                   | <!-- -->                                                                |
+|----------------------------|------------------------------------------------------------------------ |
+| `--volume_untouched 86400` | Defragment volumes last appended to at least this number of seconds ago |
+| `--defrag_percent 50`      | Defragment volumes with at least this % of removed data                 |
+| `--defrag_block_count 16`  | Read this number of pool blocks at once during defrag                   |
+| `--defrag_iodepth 16`      | Move up to this number of files in parallel during defrag               |
+| `--trace`                  | Print verbose defragmentation status                                    |
+| `--dry-run`                | Skip modifications, only print status                                   |
+| `--recalc-stats`           | Recalculate all volume statistics                                       |
+| `--include-empty`          | Include old and empty volumes; make sure to restart NFS servers before using it |
+| `--no-rm`                  | Move, but do not delete data                                            |
 
 ## Common options
 
