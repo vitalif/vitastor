@@ -156,6 +156,8 @@ resume_1:
                     for (auto & jtag: osd_cfg["tags"].array_items())
                         osd.tags.push_back(jtag.string_value());
                 }
+                else if (osd_cfg["tags"].is_string())
+                    osd.tags.push_back(osd_cfg["tags"].string_value());
                 osd.noout = osd_cfg["noout"].bool_value();
             }
             auto np_it = node_placement.find(std::to_string(osd.num));
