@@ -18,7 +18,7 @@ struct resizer_data_moving_t
     uint64_t old_loc, new_loc;
 };
 
-int disk_tool_t::resize_data()
+int disk_tool_t::raw_resize()
 {
     int r;
     // Parse parameters

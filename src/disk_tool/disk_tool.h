@@ -98,7 +98,11 @@ struct disk_tool_t
     int write_json_journal(json11::Json entries);
     int write_json_meta(json11::Json meta);
 
-    int resize_data();
+    int resize_data(std::string device);
+    int resize_parse_move_journal(std::map<std::string, std::string> & move_options, bool dry_run);
+    int resize_parse_move_meta(std::map<std::string, std::string> & move_options, bool dry_run);
+
+    int raw_resize();
     int resize_parse_params();
     void resize_init(blockstore_meta_header_v2_t *hdr);
     int resize_remap_blocks();

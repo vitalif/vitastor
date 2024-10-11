@@ -92,8 +92,22 @@ static const char *help_text =
     "  \n"
     "  Requires the `sfdisk` utility.\n"
     "\n"
-    "vitastor-disk resize <ALL_OSD_PARAMETERS> <NEW_LAYOUT> [--iodepth 32]\n"
-    "  Resize data area and/or rewrite/move journal and metadata\n"
+    "vitastor-disk resize <osd_num>|<osd_device> [OPTIONS]\n"
+    "  Resize data area and/or move journal and metadata:\n"
+    "    --move-journal TARGET    move journal to TARGET\n"
+    "    --move-meta TARGET       move metadata to TARGET\n"
+    "    --journal-size NEW_SIZE  resize journal to NEW_SIZE\n"
+    "    --data-size NEW_SIZE     resize data device to NEW_SIZE\n"
+    "    --dry-run                only show new layout, do not apply it\n"
+    "  \n"
+    "  NEW_SIZE may include k/m/g/t suffixes.\n"
+    "  TARGET may be one of:\n"
+    "    <partition>    move journal/metadata to an existing GPT partition\n"
+    "    <raw_device>   create a GPT partition on <raw_device> and move journal/metadata to it\n"
+    "    \"\"           (empty string) move journal/metadata back to the data device\n"
+    "\n"
+    "vitastor-disk raw-resize <ALL_OSD_PARAMETERS> <NEW_LAYOUT> [--iodepth 32]\n"
+    "  Resize data area and/or rewrite/move journal and metadata (manual format).\n"
     "  ALL_OSD_PARAMETERS must include all (at least all disk-related)\n"
     "  parameters from OSD command line (i.e. from systemd unit or superblock).\n"
     "  NEW_LAYOUT may include new disk layout parameters:\n"
@@ -236,6 +250,10 @@ int main(int argc, char *argv[])
         {
             self.options["force"] = "1";
         }
+        else if (!strcmp(argv[i], "--dry-run") || !strcmp(argv[i], "--dry_run"))
+        {
+            self.options["dry_run"] = "1";
+        }
         else if (!strcmp(argv[i], "--allow-data-loss"))
         {
             self.options["allow_data_loss"] = "1";
@@ -243,7 +261,7 @@ int main(int argc, char *argv[])
         else if (argv[i][0] == '-' && argv[i][1] == '-' && i < argc-1)
         {
             char *key = argv[i]+2;
-            self.options[key] = argv[++i];
+            self.options[str_replace(key, "-", "_")] = argv[++i];
         }
         else
         {
@@ -375,7 +393,16 @@ int main(int argc, char *argv[])
     }
     else if (!strcmp(cmd[0], "resize"))
     {
-        return self.resize_data();
+        if (cmd.size() != 2)
+        {
+            fprintf(stderr, "Exactly 1 OSD number or OSD device path argument is required\n");
+            return 1;
+        }
+        return self.resize_data(cmd[1]);
+    }
+    else if (!strcmp(cmd[0], "raw-resize"))
+    {
+        return self.raw_resize();
     }
     else if (!strcmp(cmd[0], "simple-offsets"))
     {

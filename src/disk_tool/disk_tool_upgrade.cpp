@@ -101,7 +101,7 @@ int disk_tool_t::upgrade_simple_unit(std::string unit)
         resizer.options = options;
         for (auto & kv: resize)
             resizer.options[kv.first] = std::to_string(kv.second);
-        if (resizer.resize_data() != 0)
+        if (resizer.raw_resize() != 0)
         {
             // FIXME: Resize with backup or journal
             fprintf(
