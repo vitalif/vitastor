@@ -147,13 +147,6 @@ std::string get_parent_device(std::string dev)
     return dev.substr(0, i);
 }
 
-bool json_is_true(const json11::Json & val)
-{
-    if (val.is_string())
-        return val == "true" || val == "yes" || val == "1";
-    return val.bool_value();
-}
-
 int shell_exec(const std::vector<std::string> & cmd, const std::string & in, std::string *out, std::string *err)
 {
     int child_stdin[2], child_stdout[2], child_stderr[2];

@@ -21,6 +21,3 @@ template<class T> void remove_duplicates(std::vector<T> & ret)
     }
     ret.resize(j+1);
 }
-
-// from http_client.cpp...
-bool json_is_false(const json11::Json & val);

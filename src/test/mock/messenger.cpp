@@ -55,10 +55,3 @@ json11::Json::object osd_messenger_t::merge_configs(const json11::Json::object &
 {
     return cli_config;
 }
-
-bool json_is_true(const json11::Json & val)
-{
-    if (val.is_string())
-        return val == "true" || val == "yes" || val == "1";
-    return val.bool_value();
-}

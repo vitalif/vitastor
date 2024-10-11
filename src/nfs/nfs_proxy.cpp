@@ -19,6 +19,7 @@
 
 #include "addr_util.h"
 #include "str_util.h"
+#include "json_util.h"
 #include "nfs_proxy.h"
 #include "nfs_kv.h"
 #include "nfs_block.h"

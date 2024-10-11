@@ -15,6 +15,7 @@
 
 #include "addr_util.h"
 #include "str_util.h"
+#include "json_util.h"
 #include "json11/json11.hpp"
 #include "http_client.h"
 #include "timerfd_manager.h"
@@ -723,23 +724,4 @@ static bool ws_parse_frame(std::string & buf, int & type, std::string & res)
     res += buf.substr(hdr, len);
     buf = buf.substr(hdr+len);
     return true;
-}
-
-// FIXME: move to utils
-bool json_is_true(const json11::Json & val)
-{
-    if (val.is_string())
-        return val == "true" || val == "yes" || val == "1";
-    return val.bool_value();
-}
-
-bool json_is_false(const json11::Json & val)
-{
-    if (val.is_string())
-        return val.string_value() == "false" || val.string_value() == "no" || val.string_value() == "0";
-    if (val.is_number())
-        return val.number_value() == 0;
-    if (val.is_bool())
-        return !val.bool_value();
-    return false;
 }

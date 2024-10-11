@@ -136,7 +136,6 @@ uint64_t sscanf_json(const char *fmt, const json11::Json & str);
 void fromhexstr(const std::string & from, int bytes, uint8_t *to);
 int disable_cache(std::string dev);
 std::string get_parent_device(std::string dev);
-bool json_is_true(const json11::Json & val);
 int shell_exec(const std::vector<std::string> & cmd, const std::string & in, std::string *out, std::string *err);
 int write_zero(int fd, uint64_t offset, uint64_t size);
 json11::Json read_parttable(std::string dev);

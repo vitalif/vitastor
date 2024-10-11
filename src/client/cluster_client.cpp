@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <assert.h>
 #include "cluster_client_impl.h"
-#include "http_client.h" // json_is_true
+#include "json_util.h"
 
 cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json config)
 {

@@ -4,6 +4,7 @@
 #include "cli.h"
 #include "cluster_client.h"
 #include "str_util.h"
+#include "json_util.h"
 #include "http_client.h"
 
 // Reweight OSD, change tags or set noout flag

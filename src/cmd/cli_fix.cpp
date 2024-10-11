@@ -5,6 +5,7 @@
 #include "cluster_client.h"
 #include "pg_states.h"
 #include "str_util.h"
+#include "json_util.h"
 
 struct cli_fix_t
 {

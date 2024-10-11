@@ -3,6 +3,7 @@
 
 #include "disk_tool.h"
 #include "str_util.h"
+#include "json_util.h"
 #include "osd_id.h"
 
 int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_hdd)

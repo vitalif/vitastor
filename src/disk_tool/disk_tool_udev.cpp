@@ -6,6 +6,7 @@
 #include "disk_tool.h"
 #include "rw_blocking.h"
 #include "str_util.h"
+#include "json_util.h"
 
 struct __attribute__((__packed__)) vitastor_disk_superblock_t
 {

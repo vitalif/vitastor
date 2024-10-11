@@ -48,9 +48,3 @@ void http_request(http_co_t *handler, const std::string & host, const std::strin
     const http_options_t & options, std::function<void(const http_response_t *response)> response_callback);
 void http_post_message(http_co_t *handler, int type, const std::string & msg);
 void http_close(http_co_t *co);
-
-// Utils
-std::string strtolower(const std::string & in);
-// FIXME: move to json11
-bool json_is_true(const json11::Json & val);
-bool json_is_false(const json11::Json & val);
