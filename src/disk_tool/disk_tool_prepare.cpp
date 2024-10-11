@@ -54,23 +54,8 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
             }
             if (i == 0 && is_hdd == -1)
                 is_hdd = trim(read_file("/sys/block/"+parent_dev+"/queue/rotational")) == "1";
-            std::string out;
-            if (shell_exec({ "wipefs", dev }, "", &out, NULL) != 0 || out != "")
-            {
-                fprintf(stderr, "%s contains data, not creating OSD without --force. wipefs shows:\n%s", dev.c_str(), out.c_str());
+            if (check_existing_partition(dev) != 0)
                 return 1;
-            }
-            json11::Json sb = read_osd_superblock(dev, false);
-            if (!sb.is_null())
-            {
-                fprintf(stderr, "%s already contains Vitastor OSD superblock, not creating OSD without --force\n", dev.c_str());
-                return 1;
-            }
-            if (fix_partition_type(dev) != 0)
-            {
-                fprintf(stderr, "%s has incorrect type and we failed to change it to Vitastor type\n", dev.c_str());
-                return 1;
-            }
         }
     }
     for (auto dev: std::vector<std::string>{"data", "meta", "journal"})
@@ -222,6 +207,28 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     return 0;
 }
 
+int disk_tool_t::check_existing_partition(const std::string & dev)
+{
+    std::string out;
+    if (shell_exec({ "wipefs", dev }, "", &out, NULL) != 0 || out != "")
+    {
+        fprintf(stderr, "%s contains data, not creating OSD without --force. wipefs shows:\n%s", dev.c_str(), out.c_str());
+        return 1;
+    }
+    json11::Json sb = read_osd_superblock(dev, false);
+    if (!sb.is_null())
+    {
+        fprintf(stderr, "%s already contains Vitastor OSD superblock, not creating OSD without --force\n", dev.c_str());
+        return 1;
+    }
+    if (fix_partition_type(dev) != 0)
+    {
+        fprintf(stderr, "%s has incorrect type and we failed to change it to Vitastor type\n", dev.c_str());
+        return 1;
+    }
+    return 0;
+}
+
 std::vector<vitastor_dev_info_t> disk_tool_t::collect_devices(const std::vector<std::string> & devices)
 {
     std::vector<vitastor_dev_info_t> devinfo;
@@ -233,33 +240,16 @@ std::vector<vitastor_dev_info_t> disk_tool_t::collect_devices(const std::vector<
             fprintf(stderr, "%s does not start with /dev/, ignoring\n", dev.c_str());
             continue;
         }
-        struct stat dev_st, sys_st;
-        if (stat(dev.c_str(), &dev_st) < 0)
+        struct stat sys_st;
+        uint64_t dev_size = get_device_size(dev, false);
+        if (dev_size == UINT64_MAX)
         {
-            if (errno == ENOENT)
-            {
-                fprintf(stderr, "%s does not exist, skipping\n", dev.c_str());
-                continue;
-            }
-            fprintf(stderr, "Error checking %s: %s\n", dev.c_str(), strerror(errno));
             return {};
         }
-        uint64_t dev_size = dev_st.st_size;
-        if (S_ISBLK(dev_st.st_mode))
+        else if (!dev_size)
         {
-            int fd = open(dev.c_str(), O_DIRECT|O_RDWR);
-            if (fd < 0)
-            {
-                fprintf(stderr, "Failed to open %s: %s\n", dev.c_str(), strerror(errno));
-                return {};
-            }
-            if (ioctl(fd, BLKGETSIZE64, &dev_size) < 0)
-            {
-                fprintf(stderr, "Failed to get %s size: %s\n", dev.c_str(), strerror(errno));
-                close(fd);
-                return {};
-            }
-            close(fd);
+            fprintf(stderr, "%s does not exist, skipping\n", dev.c_str());
+            continue;
         }
         if (stat(("/sys/block/"+dev.substr(5)).c_str(), &sys_st) < 0)
         {

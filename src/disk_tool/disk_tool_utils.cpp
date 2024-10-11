@@ -117,6 +117,38 @@ int disable_cache(std::string dev)
     return 0;
 }
 
+uint64_t get_device_size(const std::string & dev, bool should_exist)
+{
+    struct stat dev_st;
+    if (stat(dev.c_str(), &dev_st) < 0)
+    {
+        if (errno == ENOENT && !should_exist)
+        {
+            return 0;
+        }
+        fprintf(stderr, "Error checking %s: %s\n", dev.c_str(), strerror(errno));
+        return UINT64_MAX;
+    }
+    uint64_t dev_size = dev_st.st_size;
+    if (S_ISBLK(dev_st.st_mode))
+    {
+        int fd = open(dev.c_str(), O_DIRECT|O_RDWR);
+        if (fd < 0)
+        {
+            fprintf(stderr, "Failed to open %s: %s\n", dev.c_str(), strerror(errno));
+            return UINT64_MAX;
+        }
+        if (ioctl(fd, BLKGETSIZE64, &dev_size) < 0)
+        {
+            fprintf(stderr, "Failed to get %s size: %s\n", dev.c_str(), strerror(errno));
+            close(fd);
+            return UINT64_MAX;
+        }
+        close(fd);
+    }
+    return dev_size;
+}
+
 std::string get_parent_device(std::string dev)
 {
     if (dev.substr(0, 5) != "/dev/")
@@ -125,16 +157,26 @@ std::string get_parent_device(std::string dev)
         return "";
     }
     dev = dev.substr(5);
+    // check if it's a partition - partitions aren't present in /sys/block/
+    struct stat st;
+    auto chk = "/sys/block/"+dev;
+    if (stat(chk.c_str(), &st) == 0)
+    {
+        // present in /sys/block/ - not a partition
+        return dev;
+    }
+    else if (errno != ENOENT)
+    {
+        fprintf(stderr, "Failed to stat %s: %s\n", chk.c_str(), strerror(errno));
+        return "";
+    }
     int i = dev.size();
     while (i > 0 && isdigit(dev[i-1]))
         i--;
-    if (i >= 1 && dev[i-1] == '-') // dm-0, dm-1
-        return dev;
-    else if (i >= 2 && dev[i-1] == 'p' && isdigit(dev[i-2])) // nvme0n1p1
+    if (i >= 2 && dev[i-1] == 'p' && isdigit(dev[i-2])) // nvme0n1p1
         i--;
     // Check that such block device exists
-    struct stat st;
-    auto chk = "/sys/block/"+dev.substr(0, i);
+    chk = "/sys/block/"+dev.substr(0, i);
     if (stat(chk.c_str(), &st) < 0)
     {
         if (errno != ENOENT)

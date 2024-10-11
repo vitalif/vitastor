@@ -121,6 +121,7 @@ struct disk_tool_t
     uint32_t write_osd_superblock(std::string device, json11::Json params);
 
     int prepare_one(std::map<std::string, std::string> options, int is_hdd = -1);
+    int check_existing_partition(const std::string & dev);
     int prepare(std::vector<std::string> devices);
     std::vector<vitastor_dev_info_t> collect_devices(const std::vector<std::string> & devices);
     json11::Json add_partitions(vitastor_dev_info_t & devinfo, std::vector<std::string> sizes);
@@ -135,6 +136,7 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output);
 uint64_t sscanf_json(const char *fmt, const json11::Json & str);
 void fromhexstr(const std::string & from, int bytes, uint8_t *to);
 int disable_cache(std::string dev);
+uint64_t get_device_size(const std::string & dev, bool should_exist = false);
 std::string get_parent_device(std::string dev);
 int shell_exec(const std::vector<std::string> & cmd, const std::string & in, std::string *out, std::string *err);
 int write_zero(int fd, uint64_t offset, uint64_t size);
