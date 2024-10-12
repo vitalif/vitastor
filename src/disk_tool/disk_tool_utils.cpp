@@ -377,7 +377,7 @@ int fix_partition_type(std::string dev_by_uuid)
         script += "\n";
     }
     std::string out;
-    return shell_exec({ "sfdisk", "--no-reread", "--force", parent_dev }, script, &out, NULL);
+    return shell_exec({ "sfdisk", "--no-reread", "--no-tell-kernel", "--force", parent_dev }, script, &out, NULL);
 }
 
 std::string csum_type_str(uint32_t data_csum_type)

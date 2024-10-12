@@ -328,7 +328,7 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
         script += "+ "+size+" "+std::string(VITASTOR_PART_TYPE)+"\n";
     }
     std::string out;
-    if (shell_exec({ "sfdisk", "--no-reread", "--force", devinfo.path }, script, &out, NULL) != 0)
+    if (shell_exec({ "sfdisk", "--no-reread", "--no-tell-kernel", "--force", devinfo.path }, script, &out, NULL) != 0)
     {
         fprintf(stderr, "Failed to add %zu partition(s) with sfdisk\n", sizes.size());
         return {};
@@ -355,8 +355,9 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
     {
         for (const auto & part: new_parts)
         {
+            std::string link_path = "/dev/disk/by-partuuid/"+strtolower(part["uuid"].string_value());
             struct stat st;
-            if (stat(part["node"].string_value().c_str(), &st) < 0)
+            if (lstat(link_path.c_str(), &st) < 0)
             {
                 if (errno == ENOENT)
                 {
@@ -377,7 +378,7 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
                 }
                 else
                 {
-                    fprintf(stderr, "Failed to lstat %s: %s\n", part["node"].string_value().c_str(), strerror(errno));
+                    fprintf(stderr, "Failed to lstat %s: %s\n", link_path.c_str(), strerror(errno));
                     return {};
                 }
             }
@@ -386,8 +387,9 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
     }
     // Wait until device symlinks in /dev/disk/by-partuuid/ appear
     bool exists = false;
+    const int max_iter = 300; // max 30 sec
     iter = 0;
-    while (!exists && iter < 300) // max 30 sec
+    while (!exists && iter < max_iter)
     {
         exists = true;
         for (const auto & part: new_parts)
@@ -397,7 +399,13 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
             if (lstat(link_path.c_str(), &st) < 0)
             {
                 if (errno == ENOENT)
+                {
                     exists = false;
+                    if (iter == 4)
+                    {
+                        fprintf(stderr, "Waiting for %s to appear for up to %d sec...\n", link_path.c_str(), max_iter/10);
+                    }
+                }
                 else
                 {
                     fprintf(stderr, "Failed to lstat %s: %s\n", link_path.c_str(), strerror(errno));
