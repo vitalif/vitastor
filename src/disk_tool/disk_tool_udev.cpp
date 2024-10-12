@@ -382,6 +382,34 @@ int disk_tool_t::pre_exec_osd(std::string device)
     return 0;
 }
 
+int disk_tool_t::clear_osd_superblock(const std::string & dev)
+{
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+    int fd = -1, r = open(dev.c_str(), O_DIRECT|O_RDWR);
+    if (r >= 0)
+    {
+        fd = r;
+        r = read_blocking(fd, buf, 4096);
+        if (r == 4096)
+        {
+            // Clear magic and CRC
+            memset(buf, 0, 12);
+            r = lseek64(fd, 0, 0);
+            if (r == 0)
+            {
+                r = write_blocking(fd, buf, 4096);
+                if (r == 4096)
+                    r = 0;
+            }
+        }
+    }
+    if (fd >= 0)
+        close(fd);
+    free(buf);
+    buf = NULL;
+    return r;
+}
+
 int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
 {
     std::set<uint64_t> osd_numbers;
@@ -440,7 +468,6 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
         return 1;
     }
     // Destroy OSD superblocks
-    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
     for (auto & sb: superblocks)
     {
         for (auto dev_type: std::vector<std::string>{ "data", "meta", "journal" })
@@ -448,26 +475,7 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
             auto dev = sb["real_"+dev_type+"_device"].string_value();
             if (dev != "")
             {
-                int fd = -1, r = open(dev.c_str(), O_DIRECT|O_RDWR);
-                if (r >= 0)
-                {
-                    fd = r;
-                    r = read_blocking(fd, buf, 4096);
-                    if (r == 4096)
-                    {
-                        // Clear magic and CRC
-                        memset(buf, 0, 12);
-                        r = lseek64(fd, 0, 0);
-                        if (r == 0)
-                        {
-                            r = write_blocking(fd, buf, 4096);
-                            if (r == 4096)
-                                r = 0;
-                        }
-                    }
-                }
-                if (fd >= 0)
-                    close(fd);
+                int r = clear_osd_superblock(dev);
                 if (r != 0)
                 {
                     fprintf(stderr, "Failed to clear OSD %ju %s device %s superblock: %s\n",
@@ -517,7 +525,5 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
             }
         }
     }
-    free(buf);
-    buf = NULL;
     return 0;
 }
