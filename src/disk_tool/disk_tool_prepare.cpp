@@ -53,7 +53,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
                 return 1;
             }
             if (i == 0 && is_hdd == -1)
-                is_hdd = trim(read_file("/sys/block/"+parent_dev+"/queue/rotational")) == "1";
+                is_hdd = trim(read_file("/sys/block/"+parent_dev.substr(5)+"/queue/rotational")) == "1";
             if (check_existing_partition(dev) != 0)
                 return 1;
         }

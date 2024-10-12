@@ -60,14 +60,14 @@ int disable_cache(std::string dev)
     auto parent_dev = get_parent_device(dev);
     if (parent_dev == "")
         return 1;
-    auto scsi_disk = "/sys/block/"+parent_dev+"/device/scsi_disk";
+    auto scsi_disk = "/sys/block/"+parent_dev.substr(5)+"/device/scsi_disk";
     DIR *dir = opendir(scsi_disk.c_str());
     if (!dir)
     {
         if (errno == ENOENT)
         {
             // Not a SCSI/SATA device, just check /sys/block/.../queue/write_cache
-            return check_queue_cache(dev.substr(5), parent_dev);
+            return check_queue_cache(dev.substr(5), parent_dev.substr(5));
         }
         else
         {
@@ -84,7 +84,7 @@ int disable_cache(std::string dev)
         {
             // Not a SCSI/SATA device, just check /sys/block/.../queue/write_cache
             closedir(dir);
-            return check_queue_cache(dev.substr(5), parent_dev);
+            return check_queue_cache(dev.substr(5), parent_dev.substr(5));
         }
         scsi_disk += "/";
         scsi_disk += de->d_name;
@@ -163,7 +163,7 @@ std::string get_parent_device(std::string dev)
     if (stat(chk.c_str(), &st) == 0)
     {
         // present in /sys/block/ - not a partition
-        return dev;
+        return "/dev/"+dev;
     }
     else if (errno != ENOENT)
     {
@@ -184,9 +184,9 @@ std::string get_parent_device(std::string dev)
             fprintf(stderr, "Failed to stat %s: %s\n", chk.c_str(), strerror(errno));
             return "";
         }
-        return dev;
+        return "/dev/"+dev;
     }
-    return dev.substr(0, i);
+    return "/dev/"+dev.substr(0, i);
 }
 
 int shell_exec(const std::vector<std::string> & cmd, const std::string & in, std::string *out, std::string *err)
@@ -349,7 +349,7 @@ int fix_partition_type(std::string dev_by_uuid)
     std::string parent_dev = get_parent_device(realpath_str(dev_by_uuid, false));
     if (parent_dev == "")
         return 1;
-    auto pt = read_parttable("/dev/"+parent_dev);
+    auto pt = read_parttable(parent_dev);
     if (pt.is_null() || pt.is_bool())
         return 1;
     std::string script = "label: gpt\n\n";
@@ -377,7 +377,7 @@ int fix_partition_type(std::string dev_by_uuid)
         script += "\n";
     }
     std::string out;
-    return shell_exec({ "sfdisk", "--no-reread", "--force", "/dev/"+parent_dev }, script, &out, NULL);
+    return shell_exec({ "sfdisk", "--no-reread", "--force", parent_dev }, script, &out, NULL);
 }
 
 std::string csum_type_str(uint32_t data_csum_type)

@@ -496,7 +496,7 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
                         fprintf(stderr, "Failed to delete partition %s: failed to find parent device\n", dev.c_str());
                         continue;
                     }
-                    auto pt = read_parttable("/dev/"+parent_dev);
+                    auto pt = read_parttable(parent_dev);
                     if (!pt.is_object())
                         continue;
                     json11::Json::array newpt = pt["partitions"].array_items();
@@ -507,7 +507,7 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
                             auto old_part = newpt[i];
                             newpt.erase(newpt.begin()+i, newpt.begin()+i+1);
                             vitastor_dev_info_t devinfo = {
-                                .path = "/dev/"+parent_dev,
+                                .path = parent_dev,
                                 .pt = json11::Json::object{ { "partitions", newpt } },
                             };
                             add_partitions(devinfo, {});
@@ -516,7 +516,7 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
                                 errno != ENOENT)
                             {
                                 std::string out;
-                                shell_exec({ "partprobe", "/dev/"+parent_dev }, "", &out, NULL);
+                                shell_exec({ "partprobe", parent_dev }, "", &out, NULL);
                             }
                             break;
                         }
