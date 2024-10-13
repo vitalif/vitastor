@@ -158,6 +158,12 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
         return nil, status.Error(codes.InvalidArgument, "volume capabilities is a required field")
     }
 
+    err := cs.checkCaps(volumeCapabilities)
+    if (err != nil)
+    {
+        return nil, err
+    }
+
     etcdVolumePrefix := req.Parameters["etcdVolumePrefix"]
     poolId, _ := strconv.ParseUint(req.Parameters["poolId"], 10, 64)
     if (poolId == 0)
@@ -301,12 +307,42 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
         return nil, status.Error(codes.InvalidArgument, "volumeCapabilities is nil")
     }
 
+    err := cs.checkCaps(volumeCapabilities)
+    if (err != nil)
+    {
+        return nil, err
+    }
+
+    return &csi.ValidateVolumeCapabilitiesResponse{
+        Confirmed: &csi.ValidateVolumeCapabilitiesResponse_Confirmed{
+            VolumeCapabilities: req.VolumeCapabilities,
+        },
+    }, nil
+}
+
+func (cs *ControllerServer) checkCaps(volumeCapabilities []*csi.VolumeCapability) error {
     var volumeCapabilityAccessModes []*csi.VolumeCapability_AccessMode
     for _, mode := range []csi.VolumeCapability_AccessMode_Mode{
         csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
-        csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+        csi.VolumeCapability_AccessMode_SINGLE_NODE_READER_ONLY,
+        csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
+        csi.VolumeCapability_AccessMode_SINGLE_NODE_SINGLE_WRITER,
+        csi.VolumeCapability_AccessMode_SINGLE_NODE_MULTI_WRITER,
     } {
         volumeCapabilityAccessModes = append(volumeCapabilityAccessModes, &csi.VolumeCapability_AccessMode{Mode: mode})
+    }
+    for _, capability := range volumeCapabilities
+    {
+        if (capability.GetBlock() != nil)
+        {
+            for _, mode := range []csi.VolumeCapability_AccessMode_Mode{
+                csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER,
+                csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+            } {
+                volumeCapabilityAccessModes = append(volumeCapabilityAccessModes, &csi.VolumeCapability_AccessMode{Mode: mode})
+            }
+            break
+        }
     }
 
     capabilitySupport := false
@@ -323,14 +359,10 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
 
     if (!capabilitySupport)
     {
-        return nil, status.Errorf(codes.NotFound, "%v not supported", req.GetVolumeCapabilities())
+        return status.Errorf(codes.NotFound, "%v not supported", volumeCapabilities)
     }
 
-    return &csi.ValidateVolumeCapabilitiesResponse{
-        Confirmed: &csi.ValidateVolumeCapabilitiesResponse_Confirmed{
-            VolumeCapabilities: req.VolumeCapabilities,
-        },
-    }, nil
+    return nil
 }
 
 // ListVolumes returns a list of volumes
