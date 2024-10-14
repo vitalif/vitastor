@@ -228,6 +228,26 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 
     // Check that it's not already mounted
     _, err = mount.IsNotMountPoint(ns.mounter, targetPath)
+    if (err == nil)
+    {
+        var finfo os.FileInfo
+        finfo, err = os.Stat(targetPath)
+        if (err != nil)
+        {
+            klog.Errorf("failed to stat %s: %v", targetPath, err)
+            return nil, err
+        }
+        if (finfo.IsDir() != (!isBlock))
+        {
+            err = os.Remove(targetPath)
+            if (err != nil)
+            {
+                klog.Errorf("failed to remove %s (to recreate it with correct type): %v", targetPath, err)
+                return nil, err
+            }
+            err = os.ErrNotExist
+        }
+    }
     if (err != nil)
     {
         if (os.IsNotExist(err))
@@ -385,7 +405,7 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
     defer ns.unlockVolume(ctxVars["configPath"]+":"+volName)
 
     targetPath := req.GetStagingTargetPath()
-    devicePath, refCount, err := mount.GetDeviceNameFromMount(ns.mounter, targetPath)
+    devicePath, _, err := mount.GetDeviceNameFromMount(ns.mounter, targetPath)
     if (err != nil)
     {
         if (os.IsNotExist(err))
@@ -402,6 +422,16 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
         return &csi.NodeUnstageVolumeResponse{}, nil
     }
 
+    refList, err := ns.mounter.GetMountRefs(targetPath)
+    if (err != nil)
+    {
+        return nil, err
+    }
+    if (len(refList) > 0)
+    {
+        klog.Warningf("%s is still referenced: %v", targetPath, refList)
+    }
+
     // unmount
     err = mount.CleanupMountPoint(targetPath, ns.mounter, false)
     if (err != nil)
@@ -410,7 +440,7 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
     }
 
     // unmap device
-    if (refCount == 1)
+    if (len(refList) == 0)
     {
         if (!ns.useVduse)
         {

@@ -320,7 +320,8 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
     }, nil
 }
 
-func (cs *ControllerServer) checkCaps(volumeCapabilities []*csi.VolumeCapability) error {
+func (cs *ControllerServer) checkCaps(volumeCapabilities []*csi.VolumeCapability) error
+{
     var volumeCapabilityAccessModes []*csi.VolumeCapability_AccessMode
     for _, mode := range []csi.VolumeCapability_AccessMode_Mode{
         csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
