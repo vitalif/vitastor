@@ -13,6 +13,7 @@ It supports the following commands:
 - [prepare](#prepare)
 - [upgrade-simple](#upgrade-simple)
 - [resize](#resize)
+- [raw-resize](#raw-resize)
 - [start/stop/restart/enable/disable](#start/stop/restart/enable/disable)
 - [purge](#purge)
 - [read-sb](#read-sb)
@@ -127,25 +128,49 @@ Requires the `sfdisk` utility.
 
 ## resize
 
-`vitastor-disk resize <ALL_OSD_PARAMETERS> <NEW_LAYOUT> [--iodepth 32]`
+`vitastor-disk resize <osd_num>|<osd_device> [OPTIONS]`
 
-Resize data area and/or rewrite/move journal and metadata.
+Resize data area and/or move journal and metadata:
+
+| <!-- -->                  | <!-- -->                               |
+|---------------------------|----------------------------------------|
+| `--move-journal TARGET`   | move journal to `TARGET`               |
+| `--move-meta TARGET`      | move metadata to `TARGET`              |
+| `--journal-size NEW_SIZE` | resize journal to `NEW_SIZE`           |
+| `--data-size NEW_SIZE`    | resize data device to `NEW_SIZE`       |
+| `--dry-run`               | only show new layout, do not apply it  |
+
+`NEW_SIZE` may include k/m/g/t suffixes.
+
+`TARGET` may be one of:
+
+| <!-- -->       | <!-- -->                                                                 |
+|----------------|--------------------------------------------------------------------------|
+| `<partition>`  | move journal/metadata to an existing GPT partition                       |
+| `<raw_device>` | create a GPT partition on `<raw_device>` and move journal/metadata to it |
+| `""`           | (empty string) move journal/metadata back to the data device             |
+
+## raw-resize
+
+`vitastor-disk raw-resize <ALL_OSD_PARAMETERS> <NEW_LAYOUT> [--iodepth 32]`
+
+Resize data area and/or rewrite/move journal and metadata (manual format).
 
 `ALL_OSD_PARAMETERS` must include all (at least all disk-related)
 parameters from OSD command line (i.e. from systemd unit or superblock).
 
 `NEW_LAYOUT` may include new disk layout parameters:
 
-```
---new_data_offset SIZE     resize data area so it starts at SIZE
---new_data_len SIZE        resize data area to SIZE bytes
---new_meta_device PATH     use PATH for new metadata
---new_meta_offset SIZE     make new metadata area start at SIZE
---new_meta_len SIZE        make new metadata area SIZE bytes long
---new_journal_device PATH  use PATH for new journal
---new_journal_offset SIZE  make new journal area start at SIZE
---new_journal_len SIZE     make new journal area SIZE bytes long
-```
+| <!-- -->                    | <!-- -->                                  |
+|-----------------------------|-------------------------------------------|
+| `--new_data_offset SIZE`    | resize data area so it starts at `SIZE`   |
+| `--new_data_len SIZE`       | resize data area to `SIZE` bytes          |
+| `--new_meta_device PATH`    | use `PATH` for new metadata               |
+| `--new_meta_offset SIZE`    | make new metadata area start at `SIZE`    |
+| `--new_meta_len SIZE`       | make new metadata area `SIZE` bytes long  |
+| `--new_journal_device PATH` | use `PATH` for new journal                |
+| `--new_journal_offset SIZE` | make new journal area start at `SIZE`     |
+| `--new_journal_len SIZE`    | make new journal area `SIZE` bytes long   |
 
 SIZE may include k/m/g/t suffixes. If any of the new layout parameter
 options are not specified, old values will be used.
@@ -217,9 +242,13 @@ Intended for use from startup scripts (i.e. from systemd units).
 
 ## dump-journal
 
+`vitastor-disk dump-journal [OPTIONS] <osd_device>`
+
 `vitastor-disk dump-journal [OPTIONS] <journal_file> <journal_block_size> <offset> <size>`
 
 Dump journal in human-readable or JSON (if `--json` is specified) format.
+
+You can specify any OSD device (data, metadata or journal), or the layout manually.
 
 Options:
 
@@ -233,22 +262,34 @@ Options:
 
 ## write-journal
 
+`vitastor-disk write-journal <osd_device>`
+
 `vitastor-disk write-journal <journal_file> <journal_block_size> <bitmap_size> <offset> <size>`
 
 Write journal from JSON taken from standard input in the same format as produced by
 `dump-journal --json --format data`.
 
+You can specify any OSD device (data, metadata or journal), or the layout manually.
+
 ## dump-meta
+
+`vitastor-disk dump-meta <osd_device>`
 
 `vitastor-disk dump-meta <meta_file> <meta_block_size> <offset> <size>`
 
 Dump metadata in JSON format.
 
+You can specify any OSD device (data, metadata or journal), or the layout manually.
+
 ## write-meta
+
+`vitastor-disk write-meta <osd_device>`
 
 `vitastor-disk write-meta <meta_file> <offset> <size>`
 
 Write metadata from JSON taken from standard input in the same format as produced by `dump-meta`.
+
+You can specify any OSD device (data, metadata or journal), or the layout manually.
 
 ## simple-offsets
 
