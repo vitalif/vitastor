@@ -4,6 +4,7 @@
 package vitastor
 
 import (
+    "bytes"
     "errors"
     "encoding/json"
     "fmt"
@@ -15,6 +16,8 @@ import (
     "syscall"
 
     "k8s.io/klog"
+    "google.golang.org/grpc/codes"
+    "google.golang.org/grpc/status"
 )
 
 func Contains(list []string, s string) bool
@@ -73,6 +76,10 @@ func checkVduseSupport() bool
             " For VDUSE you need at least Linux 5.15 and the following kernel modules: vdpa, virtio-vdpa, vduse.",
         )
     }
+    else
+    {
+        klog.Infof("VDUSE support enabled successfully")
+    }
     return vduse
 }
 
@@ -97,6 +104,7 @@ func mapNbd(volName string, ctxVars map[string]string, readonly bool) (string, e
     {
         return "", fmt.Errorf("vitastor-nbd did not return the name of NBD device. output: %s", stderr)
     }
+    klog.Infof("Attached volume %s via NBD as %s", volName, dev)
     return dev, err
 }
 
@@ -217,6 +225,7 @@ func mapVduse(stateDir string, volName string, ctxVars map[string]string, readon
                     err = os.WriteFile(stateFile, stateJSON, 0600)
                     if (err == nil)
                     {
+                        klog.Infof("Attached volume %s via VDUSE as %s (VDPA ID %s)", volName, blockdev, vdpaId)
                         return blockdev, vdpaId, nil
                     }
                 }
@@ -298,4 +307,36 @@ func unmapVduseById(stateDir, vdpaId string)
         }
         os.Remove(pidFile)
     }
+}
+
+func system(program string, args ...string) ([]byte, []byte, error)
+{
+    klog.Infof("Running "+program+" "+strings.Join(args, " "))
+    c := exec.Command(program, args...)
+    var stdout, stderr bytes.Buffer
+    c.Stdout, c.Stderr = &stdout, &stderr
+    err := c.Run()
+    if (err != nil)
+    {
+        stdoutStr, stderrStr := string(stdout.Bytes()), string(stderr.Bytes())
+        klog.Errorf(program+" "+strings.Join(args, " ")+" failed: %s\nOutput:\n%s", err, stdoutStr+stderrStr)
+        return nil, nil, status.Error(codes.Internal, stdoutStr+stderrStr+" (status "+err.Error()+")")
+    }
+    return stdout.Bytes(), stderr.Bytes(), nil
+}
+
+func systemCombined(program string, args ...string) ([]byte, error)
+{
+    klog.Infof("Running "+program+" "+strings.Join(args, " "))
+    c := exec.Command(program, args...)
+    var out bytes.Buffer
+    c.Stdout, c.Stderr = &out, &out
+    err := c.Run()
+    if (err != nil)
+    {
+        outStr := string(out.Bytes())
+        klog.Errorf(program+" "+strings.Join(args, " ")+" failed: %s, status %s\n", outStr, err)
+        return nil, status.Error(codes.Internal, outStr+" (status "+err.Error()+")")
+    }
+    return out.Bytes(), nil
 }

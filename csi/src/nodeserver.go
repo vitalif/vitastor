@@ -300,6 +300,7 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
     diskMounter := &mount.SafeFormatAndMount{Interface: ns.mounter, Exec: utilexec.New()}
     if (isBlock)
     {
+        klog.Infof("bind-mounting %s to %s", devicePath, targetPath)
         err = diskMounter.Mount(devicePath, targetPath, "", []string{"bind"})
     }
     else
@@ -329,39 +330,40 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
         readOnly := Contains(opt, "ro")
         if (existingFormat == "" && !readOnly)
         {
-            var cmdOut []byte
             switch fsType
             {
                 case "ext4":
                     args := []string{"-m0", "-Enodiscard,lazy_itable_init=1,lazy_journal_init=1", devicePath}
-                    cmdOut, err = diskMounter.Exec.Command("mkfs.ext4", args...).CombinedOutput()
+                    _, err = systemCombined("mkfs.ext4", args...)
                 case "xfs":
-                    cmdOut, err = diskMounter.Exec.Command("mkfs.xfs", "-K", devicePath).CombinedOutput()
+                    _, err = systemCombined("mkfs.xfs", "-K", devicePath)
             }
             if (err != nil)
             {
-                klog.Errorf("failed to run mkfs error: %v, output: %v", err, string(cmdOut))
                 goto unmap
             }
         }
 
+        klog.Infof("formatting and mounting %s to %s with FS %s, options: %v", devicePath, targetPath, fsType, opt)
         err = diskMounter.FormatAndMount(devicePath, targetPath, fsType, opt)
+        if (err == nil)
+        {
+            klog.Infof("successfully mounted %s to %s", devicePath, targetPath)
+        }
 
         // Try to run online resize on mount.
         // FIXME: Implement online resize. It requires online resize support in vitastor-nbd.
         if (err == nil && existingFormat != "" && !readOnly)
         {
-            var cmdOut []byte
             switch (fsType)
             {
                 case "ext4":
-                    cmdOut, err = diskMounter.Exec.Command("resize2fs", devicePath).CombinedOutput()
+                    _, err = systemCombined("resize2fs", devicePath)
                 case "xfs":
-                    cmdOut, err = diskMounter.Exec.Command("xfs_growfs", devicePath).CombinedOutput()
+                    _, err = systemCombined("xfs_growfs", devicePath)
             }
             if (err != nil)
             {
-                klog.Errorf("failed to run resizefs error: %v, output: %v", err, string(cmdOut))
                 goto unmap
             }
         }

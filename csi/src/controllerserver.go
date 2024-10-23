@@ -8,11 +8,9 @@ import (
     "encoding/json"
     "fmt"
     "strings"
-    "bytes"
     "strconv"
     "time"
     "os"
-    "os/exec"
     "io/ioutil"
 
     "github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
@@ -112,22 +110,6 @@ func GetConnectionParams(params map[string]string) (map[string]string, error)
         return nil, status.Error(codes.InvalidArgument, "etcd_address is missing in "+configPath)
     }
     return ctxVars, nil
-}
-
-func system(program string, args ...string) ([]byte, []byte, error)
-{
-    klog.Infof("Running "+program+" "+strings.Join(args, " "))
-    c := exec.Command(program, args...)
-    var stdout, stderr bytes.Buffer
-    c.Stdout, c.Stderr = &stdout, &stderr
-    err := c.Run()
-    if (err != nil)
-    {
-        stdoutStr, stderrStr := string(stdout.Bytes()), string(stderr.Bytes())
-        klog.Errorf(program+" "+strings.Join(args, " ")+" failed: %s, status %s\n", stdoutStr+stderrStr, err)
-        return nil, nil, status.Error(codes.Internal, stdoutStr+stderrStr+" (status "+err.Error()+")")
-    }
-    return stdout.Bytes(), stderr.Bytes(), nil
 }
 
 func invokeCLI(ctxVars map[string]string, args []string) ([]byte, error)
