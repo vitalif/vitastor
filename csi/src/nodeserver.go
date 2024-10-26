@@ -227,9 +227,14 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
     isBlock := req.GetVolumeCapability().GetBlock() != nil
 
     // Check that it's not already mounted
-    _, err = mount.IsNotMountPoint(ns.mounter, targetPath)
+    notmnt, err := mount.IsNotMountPoint(ns.mounter, targetPath)
     if (err == nil)
     {
+        if (!notmnt)
+        {
+            klog.Errorf("target path %s is already mounted", targetPath)
+            return nil, fmt.Errorf("target path %s is already mounted", targetPath)
+        }
         var finfo os.FileInfo
         finfo, err = os.Stat(targetPath)
         if (err != nil)
@@ -483,15 +488,20 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
     isBlock := req.GetVolumeCapability().GetBlock() != nil
 
     // Check that stagingTargetPath is mounted
-    _, err = mount.IsNotMountPoint(ns.mounter, stagingTargetPath)
+    notmnt, err := mount.IsNotMountPoint(ns.mounter, stagingTargetPath)
     if (err != nil)
     {
-        klog.Errorf("staging path %v is not mounted: %v", stagingTargetPath, err)
-        return nil, fmt.Errorf("staging path %v is not mounted: %v", stagingTargetPath, err)
+        klog.Errorf("staging path %v is not mounted: %w", stagingTargetPath, err)
+        return nil, fmt.Errorf("staging path %v is not mounted: %w", stagingTargetPath, err)
+    }
+    else if (notmnt)
+    {
+        klog.Errorf("staging path %v is not mounted", stagingTargetPath)
+        return nil, fmt.Errorf("staging path %v is not mounted", stagingTargetPath)
     }
 
     // Check that targetPath is not already mounted
-    _, err = mount.IsNotMountPoint(ns.mounter, targetPath)
+    notmnt, err = mount.IsNotMountPoint(ns.mounter, targetPath)
     if (err != nil)
     {
         if (os.IsNotExist(err))
@@ -525,6 +535,11 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
         {
             return nil, err
         }
+    }
+    else if (!notmnt)
+    {
+        klog.Errorf("target path %s is already mounted", targetPath)
+        return nil, fmt.Errorf("target path %s is already mounted", targetPath)
     }
 
     execArgs := []string{"--bind", stagingTargetPath, targetPath}
