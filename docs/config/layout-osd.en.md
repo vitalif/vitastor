@@ -118,12 +118,13 @@ Physical block size of the journal device. Must be a multiple of
 - Type: boolean
 - Default: false
 
-Do not issue fsyncs to the data device, i.e. do not flush its cache.
-Safe ONLY if your data device has write-through cache. If you disable
-the cache yourself using `hdparm` or `scsi_disk/cache_type` then make sure
-that the cache disable command is run every time before starting Vitastor
-OSD, for example, in the systemd unit. See also `immediate_commit` option
-for the instructions to disable cache and how to benefit from it.
+Do not issue fsyncs to the data device, i.e. do not force it to flush cache.
+Safe ONLY if your data device has write-through cache or if write-back
+cache is disabled. If you disable drive cache manually with `hdparm` or
+writing to `/sys/.../scsi_disk/cache_type` then make sure that you do it
+every time before starting Vitastor OSD (vitastor-disk does it automatically).
+See also [immediate_commit](layout-cluster.en.md#immediate_commit)
+for information about how to benefit from disabled cache.
 
 ## disable_meta_fsync
 
@@ -171,8 +172,7 @@ size, it actually has to write the whole 4 KB sector.
 
 Because of this it can actually be beneficial to use SSDs which work well
 with 512 byte sectors and use 512 byte disk_alignment, journal_block_size
-and meta_block_size. But the only SSD that may fit into this category is
-Intel Optane (probably, not tested yet).
+and meta_block_size. But at the moment, no such SSDs are known...
 
 Clients don't need to be aware of disk_alignment, so it's not required to
 put a modified value into etcd key /vitastor/config/global.

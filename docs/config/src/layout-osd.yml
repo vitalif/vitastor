@@ -110,20 +110,22 @@
   type: bool
   default: false
   info: |
-    Do not issue fsyncs to the data device, i.e. do not flush its cache.
-    Safe ONLY if your data device has write-through cache. If you disable
-    the cache yourself using `hdparm` or `scsi_disk/cache_type` then make sure
-    that the cache disable command is run every time before starting Vitastor
-    OSD, for example, in the systemd unit. See also `immediate_commit` option
-    for the instructions to disable cache and how to benefit from it.
+    Do not issue fsyncs to the data device, i.e. do not force it to flush cache.
+    Safe ONLY if your data device has write-through cache or if write-back
+    cache is disabled. If you disable drive cache manually with `hdparm` or
+    writing to `/sys/.../scsi_disk/cache_type` then make sure that you do it
+    every time before starting Vitastor OSD (vitastor-disk does it automatically).
+    See also [immediate_commit](layout-cluster.en.md#immediate_commit)
+    for information about how to benefit from disabled cache.
   info_ru: |
-    Не отправлять fsync-и устройству данных, т.е. не сбрасывать его кэш.
+    Не отправлять fsync-и устройству данных, т.е. не заставлять его сбрасывать кэш.
     Безопасно, ТОЛЬКО если ваше устройство данных имеет кэш со сквозной
-    записью (write-through). Если вы отключаете кэш через `hdparm` или
-    `scsi_disk/cache_type`, то удостоверьтесь, что команда отключения кэша
-    выполняется перед каждым запуском Vitastor OSD, например, в systemd unit-е.
-    Смотрите также опцию `immediate_commit` для инструкций по отключению кэша
-    и о том, как из этого извлечь выгоду.
+    записью (write-through) или если кэш с отложенной записью (write-back) отключён.
+    Если вы отключаете кэш вручную через `hdparm` или запись в `/sys/.../scsi_disk/cache_type`,
+    то удостоверьтесь, что вы делаете это каждый раз перед запуском Vitastor OSD
+    (vitastor-disk делает это автоматически). Смотрите также опцию
+    [immediate_commit](layout-cluster.ru.md#immediate_commit) для информации о том,
+    как извлечь выгоду из отключённого кэша.
 - name: disable_meta_fsync
   type: bool
   default: false
@@ -179,8 +181,7 @@
 
     Because of this it can actually be beneficial to use SSDs which work well
     with 512 byte sectors and use 512 byte disk_alignment, journal_block_size
-    and meta_block_size. But the only SSD that may fit into this category is
-    Intel Optane (probably, not tested yet).
+    and meta_block_size. But at the moment, no such SSDs are known...
 
     Clients don't need to be aware of disk_alignment, so it's not required to
     put a modified value into etcd key /vitastor/config/global.
@@ -198,9 +199,8 @@
 
     Поэтому, на самом деле, может быть выгодно найти SSD, хорошо работающие с
     меньшими, 512-байтными, блоками и использовать 512-байтные disk_alignment,
-    journal_block_size и meta_block_size. Однако единственные SSD, которые
-    теоретически могут попасть в эту категорию - это Intel Optane (но и это
-    пока не проверялось автором).
+    journal_block_size и meta_block_size. Однако на данный момент такие SSD
+    не известны...
 
     Клиентам не обязательно знать про disk_alignment, так что помещать значение
     этого параметра в etcd в /vitastor/config/global не нужно.
