@@ -567,6 +567,7 @@ class Mon
 
     async apply_pool_pgs(results, up_osds, osd_tree, tree_hash)
     {
+        const etcd_request = { compare: [], success: [] };
         for (const pool_id in (this.state.pg.config||{}).items||{})
         {
             // We should stop all PGs when deleting a pool or changing its PG count
@@ -579,9 +580,24 @@ class Mon
                     return false;
                 }
             }
+            if (!this.state.config.pools[pool_id])
+            {
+                // Delete PG history and stats of the deleted pool
+                etcd_request.success.push({ requestDeleteRange: {
+                    key: b64(this.config.etcd_prefix+'/pg/history/'+pool_id+'/'),
+                    range_end: b64(this.config.etcd_prefix+'/pg/history/'+pool_id+'0'),
+                } });
+                etcd_request.success.push({ requestDeleteRange: {
+                    key: b64(this.config.etcd_prefix+'/pg/stats/'+pool_id+'/'),
+                    range_end: b64(this.config.etcd_prefix+'/pg/stats/'+pool_id+'0'),
+                } });
+                etcd_request.success.push({ requestDeleteRange: {
+                    key: b64(this.config.etcd_prefix+'/pgstats/'+pool_id+'/'),
+                    range_end: b64(this.config.etcd_prefix+'/pgstats/'+pool_id+'0'),
+                } });
+            }
         }
         const new_pg_config = JSON.parse(JSON.stringify(this.state.pg.config));
-        const etcd_request = { compare: [], success: [] };
         for (const pool_id in (new_pg_config||{}).items||{})
         {
             if (!this.state.config.pools[pool_id])
