@@ -22,6 +22,7 @@
 #define VITASTOR_DISK_MAX_SB_SIZE 128*1024
 #define VITASTOR_PART_TYPE "e7009fac-a5a1-4d72-af72-53de13059903"
 #define DEFAULT_HYBRID_JOURNAL "1G"
+#define DEFAULT_HYBRID_SSD_JOURNAL "128M"
 
 struct resizer_data_moving_t;
 

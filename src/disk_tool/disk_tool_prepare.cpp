@@ -232,8 +232,14 @@ int disk_tool_t::check_existing_partition(const std::string & dev)
 std::vector<vitastor_dev_info_t> disk_tool_t::collect_devices(const std::vector<std::string> & devices)
 {
     std::vector<vitastor_dev_info_t> devinfo;
+    std::set<std::string> seen;
     for (auto & dev: devices)
     {
+        if (seen.find(dev) != seen.end())
+        {
+            fprintf(stderr, "%s is specified multiple times, ignoring\n", dev.c_str());
+            continue;
+        }
         // Check if the device is a whole disk
         if (dev.substr(0, 5) != "/dev/")
         {
@@ -293,10 +299,6 @@ std::vector<vitastor_dev_info_t> disk_tool_t::collect_devices(const std::vector<
             .size = !pt.is_null() ? dev_size_from_parttable(pt) : dev_size,
             .free = !pt.is_null() ? free_from_parttable(pt) : dev_size,
         });
-    }
-    if (!devinfo.size())
-    {
-        fprintf(stderr, "No suitable devices found\n");
     }
     return devinfo;
 }
@@ -549,9 +551,12 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
 {
     if (options.find("data_device") != options.end() && options["data_device"] != "")
     {
-        if (options.find("hybrid") != options.end() || options.find("osd_per_disk") != options.end() || devices.size())
+        if (options.find("hybrid") != options.end() ||
+            options.find("fast_devices") != options.end() ||
+            options.find("osd_per_disk") != options.end() ||
+            devices.size())
         {
-            fprintf(stderr, "Device list (positional arguments), --osd_per_disk and --hybrid are incompatible with --data_device\n");
+            fprintf(stderr, "Device list (positional arguments), --osd_per_disk, --hybrid and --fast-devices are incompatible with --data_device\n");
             return 1;
         }
         return prepare_one(options, options.find("hdd") != options.end() ? 1 : 0);
@@ -568,8 +573,10 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
     auto devinfo = collect_devices(devices);
     if (!devinfo.size())
     {
+        fprintf(stderr, "No suitable devices found\n");
         return 1;
     }
+    bool explicit_fast = options.find("fast_devices") != options.end();
     uint64_t osd_per_disk = stoull_full(options["osd_per_disk"]);
     if (!osd_per_disk)
         osd_per_disk = 1;
@@ -588,21 +595,55 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
         if (options.find("disable_meta_fsync") == options.end())
             options["disable_meta_fsync"] = "auto";
         options["disable_journal_fsync"] = options["disable_meta_fsync"];
-        for (auto & dev: devinfo)
-            if (!dev.is_hdd)
-                ssds.push_back(dev);
-        if (!ssds.size())
+        if (explicit_fast)
         {
-            fprintf(stderr, "No SSDs found\n");
-            return 1;
+            auto fast = explode(",", options["fast_devices"], true);
+            ssds = collect_devices(fast);
+            if (!ssds.size())
+            {
+                fprintf(stderr, "No fast devices found\n");
+                return 1;
+            }
+            if (options["journal_size"] == "")
+            {
+                auto auto_journal_size = DEFAULT_HYBRID_SSD_JOURNAL;
+                for (auto & dev: devinfo)
+                {
+                    if (dev.is_hdd)
+                    {
+                        auto_journal_size = DEFAULT_HYBRID_JOURNAL;
+                        break;
+                    }
+                }
+                options["journal_size"] = auto_journal_size;
+            }
         }
-        else if (ssds.size() == devinfo.size())
+        else
         {
-            fprintf(stderr, "No HDDs found\n");
-            return 1;
+            std::vector<vitastor_dev_info_t> hdds;
+            for (auto & dev: devinfo)
+            {
+                if (!dev.is_hdd)
+                    ssds.push_back(dev);
+                else
+                    hdds.push_back(dev);
+            }
+            if (!ssds.size())
+            {
+                fprintf(stderr, "No SSDs found\n");
+                return 1;
+            }
+            if (!hdds.size())
+            {
+                fprintf(stderr, "No HDDs found\n");
+                return 1;
+            }
+            devinfo = hdds;
+            if (options["journal_size"] == "")
+            {
+                options["journal_size"] = DEFAULT_HYBRID_JOURNAL;
+            }
         }
-        if (options["journal_size"] == "")
-            options["journal_size"] = DEFAULT_HYBRID_JOURNAL;
     }
     else
     {
@@ -612,31 +653,28 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
     auto journal_size = options["journal_size"];
     for (auto & dev: devinfo)
     {
-        if (!hybrid || dev.is_hdd)
+        // Select new partitions and create an OSD on each of them
+        for (const auto & uuid: get_new_data_parts(dev, osd_per_disk, max_other_percent))
         {
-            // Select new partitions and create an OSD on each of them
-            for (const auto & uuid: get_new_data_parts(dev, osd_per_disk, max_other_percent))
+            options["force"] = true;
+            options["data_device"] = "/dev/disk/by-partuuid/"+strtolower(uuid);
+            if (hybrid)
             {
-                options["force"] = true;
-                options["data_device"] = "/dev/disk/by-partuuid/"+strtolower(uuid);
-                if (hybrid)
+                // Select/create journal and metadata partitions
+                int r = get_meta_partition(ssds, options);
+                if (r != 0)
                 {
-                    // Select/create journal and metadata partitions
-                    int r = get_meta_partition(ssds, options);
-                    if (r != 0)
-                    {
-                        return 1;
-                    }
-                    options.erase("journal_size");
+                    return 1;
                 }
-                // Treat all disks as SSDs if not in the hybrid mode
-                prepare_one(options, dev.is_hdd ? 1 : 0);
-                if (hybrid)
-                {
-                    options["journal_size"] = journal_size;
-                    options.erase("journal_device");
-                    options.erase("meta_device");
-                }
+                options.erase("journal_size");
+            }
+            // Treat all disks as SSDs if not in the hybrid mode
+            prepare_one(options, dev.is_hdd ? 1 : 0);
+            if (hybrid)
+            {
+                options["journal_size"] = journal_size;
+                options.erase("journal_device");
+                options.erase("meta_device");
             }
         }
     }

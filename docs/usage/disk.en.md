@@ -51,12 +51,16 @@ Options (automatic mode):
 --osd_per_disk <N>
   Create <N> OSDs on each disk (default 1)
 --hybrid
-  Prepare hybrid (HDD+SSD) OSDs using provided devices. SSDs will be used for
-  journals and metadata, HDDs will be used for data. Partitions for journals and
-  metadata will be created automatically. Whether disks are SSD or HDD is decided
-  by the `/sys/block/.../queue/rotational` flag. In hybrid mode, default object
-  size is 1 MB instead of 128 KB, default journal size is 1 GB instead of 32 MB,
-  and throttle_small_writes is enabled by default.
+  Prepare hybrid (HDD+SSD, NVMe+SATA or etc) OSDs using provided devices. By default,
+  any passed SSDs will be used for journals and metadata, HDDs will be used for data,
+  but you can override this behaviour with --fast-devices option. Journal and metadata
+  partitions will be created automatically. In the default mode, SSD and HDD disks
+  are distinguished by the `/sys/block/.../queue/rotational` flag. When HDDs are used
+  for data in hybrid mode, default block_size is 1 MB instead of 128 KB, default journal
+  size is 1 GB instead of 32 MB, and throttle_small_writes is enabled by default.
+--fast-devices /dev/nvmeX,/dev/nvmeY
+  In --hybrid mode, use these devices for journal and metadata instead of auto-detecting
+  and extracting them from the main [devices...] list.
 --disable_data_fsync auto
   Disable data device cache and fsync (1/yes/true = on, default auto)
 --disable_meta_fsync auto
