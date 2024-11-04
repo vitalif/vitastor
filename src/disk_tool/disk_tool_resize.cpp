@@ -123,6 +123,14 @@ int disk_tool_t::resize_parse_params()
         ? parse_size(options["new_journal_offset"]) : dsk.journal_offset;
     new_journal_len = options.find("new_journal_len") != options.end()
         ? parse_size(options["new_journal_len"]) : dsk.journal_len;
+    if (new_data_len+new_data_offset > dsk.data_device_size)
+        new_data_len = dsk.data_device_size-new_data_offset;
+    if (new_meta_device == dsk.data_device && new_data_offset < new_meta_offset &&
+        new_data_len+new_data_offset > new_meta_offset)
+        new_data_len = new_meta_offset-new_data_offset;
+    if (new_journal_device == dsk.data_device && new_data_offset < new_journal_offset &&
+        new_data_len+new_data_offset > new_journal_offset)
+        new_data_len = new_journal_offset-new_data_offset;
     if (new_meta_device == dsk.meta_device &&
         new_journal_device == dsk.journal_device &&
         new_data_offset == dsk.data_offset &&
@@ -220,10 +228,10 @@ int disk_tool_t::resize_remap_blocks()
     }
     for (uint64_t i = 0; i < free_last; i++)
     {
-        if (data_alloc->get(total_blocks-i))
-            data_remap[total_blocks-i] = 0;
+        if (data_alloc->get(total_blocks-i-1))
+            data_remap[total_blocks-i-1] = 0;
         else
-            data_alloc->set(total_blocks-i, true);
+            data_alloc->set(total_blocks-i-1, true);
     }
     for (auto & p: data_remap)
     {
@@ -482,7 +490,7 @@ int disk_tool_t::resize_rewrite_meta()
                 block_num = remap_it->second;
             if (block_num < free_first || block_num >= total_blocks-free_last)
             {
-                fprintf(stderr, "BUG: remapped block not in range\n");
+                fprintf(stderr, "BUG: remapped block %lu not in range %lu..%lu\n", block_num, free_first, total_blocks-free_last);
                 exit(1);
             }
             block_num += data_idx_diff;
