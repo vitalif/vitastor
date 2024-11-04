@@ -467,12 +467,13 @@ int disk_tool_t::resize_rewrite_meta()
             blockstore_meta_header_v2_t *new_hdr = (blockstore_meta_header_v2_t *)new_meta_buf;
             new_hdr->zero = 0;
             new_hdr->magic = BLOCKSTORE_META_MAGIC_V1;
-            new_hdr->version = BLOCKSTORE_META_FORMAT_V1;
+            new_hdr->version = BLOCKSTORE_META_FORMAT_V2;
             new_hdr->meta_block_size = dsk.meta_block_size;
             new_hdr->data_block_size = dsk.data_block_size;
             new_hdr->bitmap_granularity = dsk.bitmap_granularity ? dsk.bitmap_granularity : 4096;
             new_hdr->data_csum_type = dsk.data_csum_type;
             new_hdr->csum_block_size = dsk.csum_block_size;
+            new_hdr->header_csum = crc32c(0, new_hdr, sizeof(*new_hdr));
         },
         [this](uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap)
         {
@@ -494,6 +495,8 @@ int disk_tool_t::resize_rewrite_meta()
                 memcpy(new_entry->bitmap, bitmap, 2*new_clean_entry_bitmap_size + new_data_csum_size);
             else
                 memset(new_entry->bitmap, 0xff, 2*new_clean_entry_bitmap_size);
+            uint32_t *new_entry_csum = (uint32_t*)(((uint8_t*)new_entry) + new_clean_entry_size - 4);
+            *new_entry_csum = crc32c(0, new_entry, new_clean_entry_size - 4);
         }
     );
     if (r != 0)

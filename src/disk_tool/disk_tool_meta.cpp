@@ -315,8 +315,7 @@ int disk_tool_t::write_json_meta(json11::Json meta)
                 fromhexstr(e["data_csum"].string_value(), new_data_csum_size,
                     ((uint8_t*)new_entry) + sizeof(clean_disk_entry) + 2*new_clean_entry_bitmap_size);
             }
-            uint32_t *new_entry_csum = (uint32_t*)(((uint8_t*)new_entry) + sizeof(clean_disk_entry) +
-                2*new_clean_entry_bitmap_size + new_data_csum_size);
+            uint32_t *new_entry_csum = (uint32_t*)(((uint8_t*)new_entry) + new_clean_entry_size - 4);
             *new_entry_csum = crc32c(0, new_entry, new_clean_entry_size - 4);
         }
     }
