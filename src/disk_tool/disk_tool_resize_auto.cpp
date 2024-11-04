@@ -48,6 +48,16 @@ int disk_tool_t::resize_data(std::string device)
         if (options.find("move_journal") == options.end())
             options["move_journal"] = dsk.journal_device == dsk.data_device ? "" : dsk.journal_device;
     }
+    uint64_t new_data_dev_size = 0;
+    if (options.find("data_size") != options.end())
+    {
+        new_data_dev_size = parse_size(options["data_size"]);
+        new_data_dev_size = options["data_size"] == "max" || new_data_dev_size > dsk.data_device_size
+            ? dsk.data_device_size : new_data_dev_size;
+        dsk.data_device_size = new_data_dev_size;
+        dsk.cfg_data_size = 0;
+        dsk.calc_lengths(true);
+    }
     std::map<std::string, std::string> move_options;
     if (options.find("move_journal") != options.end())
     {
@@ -69,14 +79,8 @@ int disk_tool_t::resize_data(std::string device)
     new_data_offset += ((dsk.data_offset-new_data_offset) % dsk.data_block_size);
     if (new_data_offset != dsk.data_offset)
         move_options["new_data_offset"] = std::to_string(new_data_offset);
-    if (options.find("data_size") != options.end())
-    {
-        auto new_data_dev_size = parse_size(options["data_size"]);
-        new_data_dev_size = options["data_size"] == "max" || new_data_dev_size > dsk.data_device_size
-            ? dsk.data_device_size : new_data_dev_size;
-        if (new_data_dev_size-dsk.data_offset != dsk.data_len)
-            move_options["new_data_len"] = std::to_string(new_data_dev_size-new_data_offset);
-    }
+    if (new_data_dev_size != 0)
+        move_options["new_data_len"] = std::to_string(new_data_dev_size-new_data_offset);
     new_meta_offset = 4096 + (new_meta_device == new_journal_device ? new_journal_len : 0);
     if (new_meta_offset != dsk.meta_offset)
         move_options["new_meta_offset"] = std::to_string(new_meta_offset);
