@@ -551,7 +551,7 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
     {
         if (options.find("hybrid") != options.end() || options.find("osd_per_disk") != options.end() || devices.size())
         {
-            fprintf(stderr, "Device list (positional arguments) and --hybrid are incompatible with --data_device\n");
+            fprintf(stderr, "Device list (positional arguments), --osd_per_disk and --hybrid are incompatible with --data_device\n");
             return 1;
         }
         return prepare_one(options, options.find("hdd") != options.end() ? 1 : 0);
