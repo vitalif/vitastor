@@ -343,7 +343,7 @@ uint64_t free_from_parttable(json11::Json pt)
     return free;
 }
 
-int fix_partition_type(std::string dev_by_uuid)
+int fix_partition_type_uuid(std::string dev_by_uuid, const std::string & type_uuid)
 {
     auto uuid = strtolower(dev_by_uuid.substr(dev_by_uuid.rfind('/')+1));
     std::string parent_dev = get_parent_device(realpath_str(dev_by_uuid, false));
@@ -356,7 +356,7 @@ int fix_partition_type(std::string dev_by_uuid)
     for (const auto & part: pt["partitions"].array_items())
     {
         bool this_part = (strtolower(part["uuid"].string_value()) == uuid);
-        if (this_part && strtolower(part["type"].string_value()) == "e7009fac-a5a1-4d72-af72-53de13059903")
+        if (this_part && strtolower(part["type"].string_value()) == type_uuid)
         {
             // Already correct type
             return 0;
@@ -369,7 +369,7 @@ int fix_partition_type(std::string dev_by_uuid)
             {
                 script += (first ? "" : ", ")+kv.first+"="+
                     (kv.first == "type" && this_part
-                        ? "e7009fac-a5a1-4d72-af72-53de13059903"
+                        ? type_uuid
                         : (kv.second.is_string() ? kv.second.string_value() : kv.second.dump()));
                 first = false;
             }

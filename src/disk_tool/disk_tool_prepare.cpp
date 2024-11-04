@@ -159,7 +159,11 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         return 1;
     }
     std::string osd_num_str;
-    if (shell_exec({ "vitastor-cli", "alloc-osd" }, "", &osd_num_str, NULL) != 0)
+    if (test_mode && options.find("osd_num") != options.end())
+    {
+        osd_num_str = options["osd_num"];
+    }
+    else if (shell_exec({ "vitastor-cli", "alloc-osd" }, "", &osd_num_str, NULL) != 0)
     {
         dsk.close_all();
         return 1;
@@ -199,10 +203,13 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     if (sep_j)
         desc += (sep_m ? " and journal on " : " with journal on ") + realpath_str(options["journal_device"]);
     fprintf(stderr, "Initialized OSD %ju on %s\n", osd_num, desc.c_str());
-    if (shell_exec({ "systemctl", "enable", "--now", "vitastor-osd@"+std::to_string(osd_num) }, "", NULL, NULL) != 0)
+    if (!test_mode || options.find("no_init") == options.end())
     {
-        fprintf(stderr, "Failed to enable systemd unit vitastor-osd@%ju\n", osd_num);
-        return 1;
+        if (shell_exec({ "systemctl", "enable", "--now", "vitastor-osd@"+std::to_string(osd_num) }, "", NULL, NULL) != 0)
+        {
+            fprintf(stderr, "Failed to enable systemd unit vitastor-osd@%ju\n", osd_num);
+            return 1;
+        }
     }
     return 0;
 }
@@ -227,6 +234,16 @@ int disk_tool_t::check_existing_partition(const std::string & dev)
         return 1;
     }
     return 0;
+}
+
+int disk_tool_t::fix_partition_type(const std::string & dev)
+{
+    std::string type_uuid = VITASTOR_PART_TYPE;
+    if (test_mode && options.find("part_type_uuid") != options.end())
+    {
+        type_uuid = options["part_type_uuid"];
+    }
+    return fix_partition_type_uuid(dev, type_uuid);
 }
 
 std::vector<vitastor_dev_info_t> disk_tool_t::collect_devices(const std::vector<std::string> & devices)

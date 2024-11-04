@@ -224,6 +224,10 @@ int main(int argc, char *argv[])
         cmd.push_back((char*)"dump-journal");
         aliased = true;
     }
+    else if (!strcmp(exe_name, "vitastor-disk-test"))
+    {
+        self.test_mode = true;
+    }
     for (int i = 1; i < argc; i++)
     {
         if (!strcmp(argv[i], "--all"))

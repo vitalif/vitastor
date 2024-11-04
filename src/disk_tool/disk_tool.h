@@ -41,6 +41,7 @@ struct disk_tool_t
     /**** Parameters ****/
 
     std::map<std::string, std::string> options;
+    bool test_mode = false;
     bool all, json, now;
     bool dump_with_blocks, dump_with_data;
     blockstore_disk_t dsk;
@@ -128,6 +129,7 @@ struct disk_tool_t
 
     int prepare_one(std::map<std::string, std::string> options, int is_hdd = -1);
     int check_existing_partition(const std::string & dev);
+    int fix_partition_type(const std::string & dev_by_uuid);
     int prepare(std::vector<std::string> devices);
     std::vector<vitastor_dev_info_t> collect_devices(const std::vector<std::string> & devices);
     json11::Json add_partitions(vitastor_dev_info_t & devinfo, std::vector<std::string> sizes);
@@ -149,6 +151,6 @@ int write_zero(int fd, uint64_t offset, uint64_t size);
 json11::Json read_parttable(std::string dev);
 uint64_t dev_size_from_parttable(json11::Json pt);
 uint64_t free_from_parttable(json11::Json pt);
-int fix_partition_type(std::string dev_by_uuid);
+int fix_partition_type_uuid(std::string dev_by_uuid, const std::string & type_uuid);
 std::string csum_type_str(uint32_t data_csum_type);
 uint32_t csum_type_from_str(std::string data_csum_type);
