@@ -318,6 +318,7 @@ int main(int argc, char *argv[])
             // First argument is an OSD device - take metadata layout parameters from it
             if (self.dump_load_check_superblock(self.new_journal_device))
                 return 1;
+            self.new_journal_device = self.dsk.journal_device;
             self.new_journal_offset = self.dsk.journal_offset;
             self.new_journal_len = self.dsk.journal_len;
         }
@@ -383,6 +384,7 @@ int main(int argc, char *argv[])
             // First argument is an OSD device - take metadata layout parameters from it
             if (self.dump_load_check_superblock(self.new_meta_device))
                 return 1;
+            self.new_meta_device = self.dsk.meta_device;
             self.new_meta_offset = self.dsk.meta_offset;
             self.new_meta_len = self.dsk.meta_len;
         }
