@@ -348,47 +348,12 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
         fprintf(stderr, "Failed to add %zu partition(s) with sfdisk: new partitions not found in table\n", sizes.size());
         return {};
     }
-    // Check if new nodes exist and run partprobe if not
+    // Check if new devices exist, run partprobe if not, then wait until they appear
     // FIXME: We could use parted instead of sfdisk because partprobe is already a part of parted
-    int iter = 0, r;
-    while (true)
-    {
-        for (const auto & part: new_parts)
-        {
-            std::string link_path = "/dev/disk/by-partuuid/"+strtolower(part["uuid"].string_value());
-            struct stat st;
-            if (lstat(link_path.c_str(), &st) < 0)
-            {
-                if (errno == ENOENT)
-                {
-                    iter++;
-                    // Run partprobe
-                    std::string out;
-                    if (iter > 1 || (r = shell_exec({ "partprobe", devinfo.path }, "", &out, NULL)) != 0)
-                    {
-                        fprintf(
-                            stderr, iter == 1 && r == 255
-                                ? "partprobe utility is required to reread partition table while disk %s is in use\n"
-                                : "partprobe failed to re-read partition table while disk %s is in use\n",
-                            devinfo.path.c_str()
-                        );
-                        return {};
-                    }
-                    break;
-                }
-                else
-                {
-                    fprintf(stderr, "Failed to lstat %s: %s\n", link_path.c_str(), strerror(errno));
-                    return {};
-                }
-            }
-        }
-        break;
-    }
-    // Wait until device symlinks in /dev/disk/by-partuuid/ appear
     bool exists = false;
     const int max_iter = 300; // max 30 sec
-    iter = 0;
+    int iter = 0;
+    int r = 0;
     while (!exists && iter < max_iter)
     {
         exists = true;
@@ -396,28 +361,48 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
         {
             std::string link_path = "/dev/disk/by-partuuid/"+strtolower(part["uuid"].string_value());
             struct stat st;
-            if (lstat(link_path.c_str(), &st) < 0)
+            if (stat(part["node"].string_value().c_str(), &st) < 0 ||
+                lstat(link_path.c_str(), &st) < 0)
             {
                 if (errno == ENOENT)
                 {
                     exists = false;
                     if (iter == 4)
                     {
+                        // Print message after 400ms
                         fprintf(stderr, "Waiting for %s to appear for up to %d sec...\n", link_path.c_str(), max_iter/10);
                     }
                 }
                 else
                 {
-                    fprintf(stderr, "Failed to lstat %s: %s\n", link_path.c_str(), strerror(errno));
+                    fprintf(stderr, "Failed to stat %s or lstat %s: %s\n", part["node"].string_value().c_str(),
+                        link_path.c_str(), strerror(errno));
                     return {};
                 }
             }
         }
-        if (!exists)
+        if (exists)
         {
-            struct timespec ts = { .tv_sec = 0, .tv_nsec = 100000000 }; // 100ms
-            iter += (nanosleep(&ts, NULL) == 0);
+            break;
         }
+        if (!exists && iter == 0)
+        {
+            // Run partprobe
+            std::string out;
+            r = shell_exec({ "partprobe", devinfo.path }, "", &out, NULL);
+            if (r != 0)
+            {
+                fprintf(
+                    stderr, r == 255
+                        ? "partprobe utility is required to reread partition table while disk %s is in use\n"
+                        : "partprobe failed to re-read partition table while disk %s is in use\n",
+                    devinfo.path.c_str()
+                );
+                return {};
+            }
+        }
+        struct timespec ts = { .tv_sec = 0, .tv_nsec = 100000000 }; // 100ms
+        iter += (nanosleep(&ts, NULL) == 0 || !iter);
     }
     devinfo.pt = newpt;
     devinfo.osd_part_count += sizes.size();
