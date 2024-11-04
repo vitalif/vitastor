@@ -61,6 +61,10 @@ pkg_check_modules(ISAL libisal)
 if (ISAL_LIBRARIES)
 	add_definitions(-DWITH_ISAL)
 endif (ISAL_LIBRARIES)
+pkg_check_modules(RDMACM librdmacm)
+if (RDMACM_LIBRARIES)
+	add_definitions(-DWITH_RDMACM)
+endif (RDMACM_LIBRARIES)
 
 add_custom_target(build_tests)
 add_custom_target(test

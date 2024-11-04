@@ -315,8 +315,7 @@ static int block_nfs3_read_proc(void *opaque, rpc_op_t *rop)
     if (aligned_count % alignment)
         aligned_count = aligned_count + alignment - (aligned_count % alignment);
     aligned_count -= aligned_offset;
-    void *buf = malloc_or_die(aligned_count);
-    xdr_add_malloc(rop->xdrs, buf);
+    void *buf = self->malloc_or_rdma(rop, aligned_count);
     cluster_op_t *op = new cluster_op_t;
     op->opcode = OSD_OP_READ;
     op->inode = ino_it->second;

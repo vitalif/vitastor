@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rpc.h"
+#include "rpc_rdma.h"
 
 struct rpc_op_t;
 
@@ -27,12 +28,16 @@ inline bool operator < (const rpc_service_proc_t & a, const rpc_service_proc_t &
     return a.prog < b.prog || a.prog == b.prog && (a.vers < b.vers || a.vers == b.vers && a.proc < b.proc);
 }
 
+struct rdma_msg;
+
 struct rpc_op_t
 {
     void *client;
-    uint8_t *buffer;
+    void *buffer;
     XDR *xdrs;
     rpc_msg in_msg, out_msg;
+    rdma_msg in_rdma_msg;
+    rpc_rdma_errcode rdma_error;
     void *request;
     void *reply;
     xdrproc_t reply_fn;

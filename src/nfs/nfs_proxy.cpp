@@ -34,6 +34,9 @@ const char *exe_name = NULL;
 
 nfs_proxy_t::~nfs_proxy_t()
 {
+#ifdef WITH_RDMACM
+    destroy_rdma();
+#endif
     if (kvfs)
         delete kvfs;
     if (blockfs)
@@ -65,9 +68,14 @@ static const char* help_text =
     "\n"
     "vitastor-nfs (--fs <NAME> | --block) start\n"
     "  Start network NFS server. Options:\n"
-    "  --bind <IP>       bind service to <IP> address (default 0.0.0.0)\n"
-    "  --port <PORT>     use port <PORT> for NFS services (default is 2049)\n"
-    "  --portmap 0       do not listen on port 111 (portmap/rpcbind, requires root)\n"
+    "  --bind <IP>           bind service to <IP> address (default 0.0.0.0)\n"
+    "  --port <PORT>         use port <PORT> for NFS services (default is 2049)\n"
+    "  --portmap 0           do not listen on port 111 (portmap/rpcbind, requires root)\n"
+    "  --nfs_rdma <PORT>     enable NFS-RDMA at RDMA-CM port <PORT> (you can try 20049)\n"
+    "  --nfs_rdma_credit 16  maximum operation credit for RDMA clients (max iodepth)\n"
+    "  --nfs_rdma_send 1024  maximum RDMA send operation count (should be larger than iodepth)\n"
+    "  --nfs_rdma_alloc 1M   RDMA memory allocation rounding\n"
+    "  --nfs_rdma_gc 500M    maximum unused RDMA buffers\n"
     "\n"
     "vitastor-nfs --fs <NAME> upgrade\n"
     "  Upgrade FS metadata. Can be run online, but server(s) should be restarted\n"
@@ -184,6 +192,7 @@ void nfs_proxy_t::run(json11::Json cfg)
     srand48(tv.tv_sec*1000000000 + tv.tv_nsec);
     server_id = (uint64_t)lrand48() | ((uint64_t)lrand48() << 31) | ((uint64_t)lrand48() << 62);
     // Parse options
+    mountpoint = cfg["mount"].string_value();
     if (cfg["logfile"].string_value() != "")
         logfile = cfg["logfile"].string_value();
     pidfile = cfg["pidfile"].string_value();
@@ -194,8 +203,22 @@ void nfs_proxy_t::run(json11::Json cfg)
     default_pool = cfg["pool"].as_string();
     portmap_enabled = !json_is_false(cfg["portmap"]);
     nfs_port = cfg["port"].uint64_value() & 0xffff;
+    nfs_rdma_port = cfg["nfs_rdma"].uint64_value() & 0xffff;
+    // Allow RDMA-only mode if port is explicitly set to 0
     if (!nfs_port)
-        nfs_port = 2049;
+        nfs_port = !cfg["port"].is_null() && nfs_rdma_port ? -1 : 2049;
+    nfs_rdma_credit = cfg["nfs_rdma_credit"].uint64_value();
+    if (!nfs_rdma_credit)
+        nfs_rdma_credit = 16;
+    nfs_rdma_max_send = cfg["nfs_rdma_send"].uint64_value();
+    if (!nfs_rdma_max_send)
+        nfs_rdma_max_send = 1024;
+    nfs_rdma_alloc = cfg["nfs_rdma_alloc"].uint64_value();
+    if (!nfs_rdma_alloc)
+        nfs_rdma_alloc = 1048576;
+    nfs_rdma_gc = cfg["nfs_rdma_gc"].uint64_value();
+    if (!nfs_rdma_gc)
+        nfs_rdma_gc = 500*1048576;
     export_root = cfg["nfspath"].string_value();
     if (!export_root.size())
         export_root = "/";
@@ -207,7 +230,6 @@ void nfs_proxy_t::run(json11::Json cfg)
         obj["client_writeback_allowed"] = true;
         cfg = obj;
     }
-    mountpoint = cfg["mount"].string_value();
     if (mountpoint != "")
     {
         bind_address = "127.0.0.1";
@@ -292,49 +314,56 @@ void nfs_proxy_t::run(json11::Json cfg)
 
 void nfs_proxy_t::run_server(json11::Json cfg)
 {
+    if (nfs_port != -1)
+    {
+        // Create NFS socket and add it to epoll
+        int nfs_socket = create_and_bind_socket(bind_address, nfs_port, 128, &listening_port);
+        fcntl(nfs_socket, F_SETFL, fcntl(nfs_socket, F_GETFL, 0) | O_NONBLOCK);
+        epmgr->tfd->set_fd_handler(nfs_socket, false, [this](int nfs_socket, int epoll_events)
+        {
+            if (epoll_events & EPOLLRDHUP)
+            {
+                fprintf(stderr, "Listening portmap socket disconnected, exiting\n");
+                exit(1);
+            }
+            else
+            {
+                do_accept(nfs_socket);
+            }
+        });
+    }
+    else
+    {
+        listening_port = nfs_rdma_port;
+    }
     // Self-register portmap and NFS
     pmap.reg_ports.insert((portmap_id_t){
         .prog = PMAP_PROGRAM,
         .vers = PMAP_V2,
-        .port = portmap_enabled ? 111 : nfs_port,
+        .port = (unsigned)(portmap_enabled ? 111 : listening_port),
         .owner = "portmapper-service",
-        .addr = portmap_enabled ? "0.0.0.0.0.111" : ("0.0.0.0.0."+std::to_string(nfs_port)),
+        .addr = portmap_enabled ? "0.0.0.0.0.111" : ("0.0.0.0.0."+std::to_string(listening_port)),
     });
     pmap.reg_ports.insert((portmap_id_t){
         .prog = PMAP_PROGRAM,
         .vers = PMAP_V3,
-        .port = portmap_enabled ? 111 : nfs_port,
+        .port = (unsigned)(portmap_enabled ? 111 : listening_port),
         .owner = "portmapper-service",
-        .addr = portmap_enabled ? "0.0.0.0.0.111" : ("0.0.0.0.0."+std::to_string(nfs_port)),
+        .addr = portmap_enabled ? "0.0.0.0.0.111" : ("0.0.0.0.0."+std::to_string(listening_port)),
     });
     pmap.reg_ports.insert((portmap_id_t){
         .prog = NFS_PROGRAM,
         .vers = NFS_V3,
-        .port = nfs_port,
+        .port = (unsigned)listening_port,
         .owner = "nfs-server",
-        .addr = "0.0.0.0.0."+std::to_string(nfs_port),
+        .addr = "0.0.0.0.0."+std::to_string(listening_port),
     });
     pmap.reg_ports.insert((portmap_id_t){
         .prog = MOUNT_PROGRAM,
         .vers = MOUNT_V3,
-        .port = nfs_port,
+        .port = (unsigned)listening_port,
         .owner = "rpc.mountd",
-        .addr = "0.0.0.0.0."+std::to_string(nfs_port),
-    });
-    // Create NFS socket and add it to epoll
-    int nfs_socket = create_and_bind_socket(bind_address, nfs_port, 128, &listening_port);
-    fcntl(nfs_socket, F_SETFL, fcntl(nfs_socket, F_GETFL, 0) | O_NONBLOCK);
-    epmgr->tfd->set_fd_handler(nfs_socket, false, [this](int nfs_socket, int epoll_events)
-    {
-        if (epoll_events & EPOLLRDHUP)
-        {
-            fprintf(stderr, "Listening portmap socket disconnected, exiting\n");
-            exit(1);
-        }
-        else
-        {
-            do_accept(nfs_socket);
-        }
+        .addr = "0.0.0.0.0."+std::to_string(listening_port),
     });
     if (portmap_enabled)
     {
@@ -353,6 +382,10 @@ void nfs_proxy_t::run_server(json11::Json cfg)
                 do_accept(portmap_socket);
             }
         });
+    }
+    if (nfs_rdma_port)
+    {
+        rdma_context = create_rdma(bind_address, nfs_rdma_port, nfs_rdma_credit, nfs_rdma_max_send, nfs_rdma_alloc, nfs_rdma_gc);
     }
     if (mountpoint != "")
     {
@@ -499,6 +532,20 @@ void nfs_proxy_t::check_default_pool()
     }
 }
 
+nfs_client_t *nfs_proxy_t::create_client()
+{
+    auto cli = new nfs_client_t();
+    cli->parent = this;
+    if (kvfs)
+        nfs_kv_procs(cli);
+    else
+        nfs_block_procs(cli);
+    for (auto & fn: pmap.proc_table)
+        cli->proc_table.insert(fn);
+    rpc_clients.insert(cli);
+    return cli;
+}
+
 void nfs_proxy_t::do_accept(int listen_fd)
 {
     struct sockaddr_storage addr;
@@ -512,18 +559,8 @@ void nfs_proxy_t::do_accept(int listen_fd)
         fcntl(nfs_fd, F_SETFL, fcntl(nfs_fd, F_GETFL, 0) | O_NONBLOCK);
         int one = 1;
         setsockopt(nfs_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
-        auto cli = new nfs_client_t();
-        if (kvfs)
-            nfs_kv_procs(cli);
-        else
-            nfs_block_procs(cli);
-        cli->parent = this;
+        auto cli = this->create_client();
         cli->nfs_fd = nfs_fd;
-        for (auto & fn: pmap.proc_table)
-        {
-            cli->proc_table.insert(fn);
-        }
-        rpc_clients[nfs_fd] = cli;
         epmgr->tfd->set_fd_handler(nfs_fd, true, [cli](int nfs_fd, int epoll_events)
         {
             // Handle incoming event
@@ -780,11 +817,17 @@ void nfs_client_t::stop()
     stopped = true;
     if (refs <= 0)
     {
+#ifdef WITH_RDMACM
+        destroy_rdma_conn();
+#endif
         auto parent = this->parent;
-        parent->rpc_clients.erase(nfs_fd);
+        parent->rpc_clients.erase(this);
         parent->active_connections--;
-        parent->epmgr->tfd->set_fd_handler(nfs_fd, true, NULL);
-        close(nfs_fd);
+        if (nfs_fd >= 0)
+        {
+            parent->epmgr->tfd->set_fd_handler(nfs_fd, true, NULL);
+            close(nfs_fd);
+        }
         delete this;
         parent->check_exit();
     }
@@ -813,8 +856,7 @@ void nfs_client_t::handle_send(int result)
                 if (rop)
                 {
                     // Reply fully sent
-                    xdr_reset(rop->xdrs);
-                    parent->xdr_pool.push_back(rop->xdrs);
+                    parent->free_xdr(rop->xdrs);
                     if (rop->buffer && rop->referenced)
                     {
                         // Dereference the buffer
@@ -831,7 +873,7 @@ void nfs_client_t::handle_send(int result)
                             {
                                 // FIXME Maybe put free_buffers into parent
                                 free_buffers.push_back((rpc_free_buffer_t){
-                                    .buf = rop->buffer,
+                                    .buf = (uint8_t*)rop->buffer,
                                     .size = ub.size,
                                 });
                                 used_buffers.erase(rop->buffer);
@@ -876,8 +918,6 @@ void nfs_client_t::handle_send(int result)
 void rpc_queue_reply(rpc_op_t *rop)
 {
     nfs_client_t *self = (nfs_client_t*)rop->client;
-    iovec *iov_list = NULL;
-    unsigned iov_count = 0;
     int r = xdr_encode(rop->xdrs, (xdrproc_t)xdr_rpc_msg, &rop->out_msg);
     assert(r);
     if (rop->reply_fn != NULL)
@@ -885,55 +925,78 @@ void rpc_queue_reply(rpc_op_t *rop)
         r = xdr_encode(rop->xdrs, rop->reply_fn, rop->reply);
         assert(r);
     }
-    xdr_encode_finish(rop->xdrs, &iov_list, &iov_count);
-    assert(iov_count > 0);
-    rop->reply_marker = 0;
-    for (unsigned i = 0; i < iov_count; i++)
+#ifdef WITH_RDMACM
+    if (!self->rdma_conn)
+#endif
     {
-        rop->reply_marker += iov_list[i].iov_len;
-    }
-    rop->reply_marker = htobe32(rop->reply_marker | 0x80000000);
-    auto & to_send_list = self->write_msg.msg_iovlen ? self->next_send_list : self->send_list;
-    auto & to_outbox = self->write_msg.msg_iovlen ? self->next_outbox : self->outbox;
-    to_send_list.push_back((iovec){ .iov_base = &rop->reply_marker, .iov_len = 4 });
-    to_outbox.push_back(NULL);
-    for (unsigned i = 0; i < iov_count; i++)
-    {
-        to_send_list.push_back(iov_list[i]);
+        iovec *iov_list = NULL;
+        unsigned iov_count = 0;
+        xdr_encode_finish(rop->xdrs, &iov_list, &iov_count);
+        assert(iov_count > 0);
+        rop->reply_marker = 0;
+        for (unsigned i = 0; i < iov_count; i++)
+        {
+            rop->reply_marker += iov_list[i].iov_len;
+        }
+        rop->reply_marker = htobe32(rop->reply_marker | 0x80000000);
+        auto & to_send_list = self->write_msg.msg_iovlen ? self->next_send_list : self->send_list;
+        auto & to_outbox = self->write_msg.msg_iovlen ? self->next_outbox : self->outbox;
+        to_send_list.push_back((iovec){ .iov_base = &rop->reply_marker, .iov_len = 4 });
         to_outbox.push_back(NULL);
+        for (unsigned i = 0; i < iov_count; i++)
+        {
+            to_send_list.push_back(iov_list[i]);
+            to_outbox.push_back(NULL);
+        }
+        to_outbox[to_outbox.size()-1] = rop;
+        self->submit_send();
     }
-    to_outbox[to_outbox.size()-1] = rop;
-    self->submit_send();
+#ifdef WITH_RDMACM
+    else
+    {
+        self->rdma_queue_reply(rop);
+    }
+#endif
 }
 
-int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg_len)
+XDR *nfs_proxy_t::get_xdr()
 {
     // Take an XDR object from the pool
     XDR *xdrs;
-    if (parent->xdr_pool.size())
+    if (xdr_pool.size())
     {
-        xdrs = parent->xdr_pool.back();
-        parent->xdr_pool.pop_back();
+        xdrs = xdr_pool.back();
+        xdr_pool.pop_back();
     }
     else
     {
         xdrs = xdr_create();
     }
+    return xdrs;
+}
+
+void nfs_proxy_t::free_xdr(XDR *xdrs)
+{
+    xdr_reset(xdrs);
+    xdr_pool.push_back(xdrs);
+}
+
+int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg_len)
+{
+    XDR *xdrs = parent->get_xdr();
     // Decode the RPC header
     char inmsg_data[sizeof(rpc_msg)];
     rpc_msg *inmsg = (rpc_msg*)&inmsg_data;
     if (!xdr_decode(xdrs, msg_buf, msg_len, (xdrproc_t)xdr_rpc_msg, inmsg))
     {
         // Invalid message, ignore it
-        xdr_reset(xdrs);
-        parent->xdr_pool.push_back(xdrs);
+        parent->free_xdr(xdrs);
         return 0;
     }
     if (inmsg->body.dir != RPC_CALL)
     {
         // Reply sent to the server? Strange thing. Also ignore it
-        xdr_reset(xdrs);
-        parent->xdr_pool.push_back(xdrs);
+        parent->free_xdr(xdrs);
         return 0;
     }
     if (inmsg->body.cbody.rpcvers != RPC_MSG_VERSION)
@@ -968,6 +1031,17 @@ int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg
         // Incoming buffer isn't needed to handle request, so return 0
         return 0;
     }
+    auto rop = create_rpc_op(xdrs, base_buf, inmsg, NULL);
+    if (!rop)
+    {
+        // No such procedure
+        return 0;
+    }
+    return handle_rpc_op(rop);
+}
+
+rpc_op_t *nfs_client_t::create_rpc_op(XDR *xdrs, void *buffer, rpc_msg *inmsg, rdma_msg *rmsg)
+{
     // Find decoder for the request
     auto proc_it = proc_table.find((rpc_service_proc_t){
         .prog = inmsg->body.cbody.prog,
@@ -995,6 +1069,7 @@ int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg
         rpc_op_t *rop = (rpc_op_t*)malloc_or_die(sizeof(rpc_op_t));
         *rop = (rpc_op_t){
             .client = this,
+            .buffer = buffer,
             .xdrs = xdrs,
             .out_msg = (rpc_msg){
                 .xid = inmsg->xid,
@@ -1017,9 +1092,15 @@ int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg
                 },
             },
         };
+        // FIXME: malloc and avoid copy?
+        memcpy(&rop->in_msg, inmsg, sizeof(rpc_msg));
+        if (rmsg)
+        {
+            memcpy(&rop->in_rdma_msg, rmsg, sizeof(rdma_msg));
+        }
         rpc_queue_reply(rop);
         // Incoming buffer isn't needed to handle request, so return 0
-        return 0;
+        return NULL;
     }
     // Allocate memory
     rpc_op_t *rop = (rpc_op_t*)malloc_or_die(
@@ -1028,7 +1109,7 @@ int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg
     rpc_reply_stat x = RPC_MSG_ACCEPTED;
     *rop = (rpc_op_t){
         .client = this,
-        .buffer = (uint8_t*)base_buf,
+        .buffer = buffer,
         .xdrs = xdrs,
         .out_msg = (rpc_msg){
             .xid = inmsg->xid,
@@ -1045,10 +1126,25 @@ int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg
         .request = ((uint8_t*)rop) + sizeof(rpc_op_t),
         .reply = ((uint8_t*)rop) + sizeof(rpc_op_t) + proc_it->req_size,
     };
+    // FIXME: malloc and avoid copy?
     memcpy(&rop->in_msg, inmsg, sizeof(rpc_msg));
+    if (rmsg)
+    {
+        memcpy(&rop->in_rdma_msg, rmsg, sizeof(rdma_msg));
+    }
+    return rop;
+}
+
+int nfs_client_t::handle_rpc_op(rpc_op_t *rop)
+{
     // Try to decode the request
     // req_fn may be NULL, that means function has no arguments
-    if (proc_it->req_fn && !proc_it->req_fn(xdrs, rop->request))
+    auto proc_it = proc_table.find((rpc_service_proc_t){
+        .prog = rop->in_msg.body.cbody.prog,
+        .vers = rop->in_msg.body.cbody.vers,
+        .proc = rop->in_msg.body.cbody.proc,
+    });
+    if (proc_it == proc_table.end() || proc_it->req_fn && !proc_it->req_fn(rop->xdrs, rop->request))
     {
         // Invalid request
         rop->out_msg.body.rbody.areply.reply_data.stat = RPC_GARBAGE_ARGS;
@@ -1058,9 +1154,46 @@ int nfs_client_t::handle_rpc_message(void *base_buf, void *msg_buf, uint32_t msg
     }
     rop->out_msg.body.rbody.areply.reply_data.stat = RPC_SUCCESS;
     rop->reply_fn = proc_it->resp_fn;
+    rop->referenced = 0;
     int ref = proc_it->handler_fn(proc_it->opaque, rop);
-    rop->referenced = ref ? 1 : 0;
+    if (ref)
+        rop->referenced = 1;
     return ref;
+}
+
+void *nfs_client_t::malloc_or_rdma(rpc_op_t *rop, size_t size)
+{
+#ifdef WITH_RDMACM
+    if (!rdma_conn)
+    {
+#endif
+        void *buf = malloc_or_die(size);
+        xdr_add_malloc(rop->xdrs, buf);
+        return buf;
+#ifdef WITH_RDMACM
+    }
+    void *buf = rdma_malloc(size);
+    xdr_set_rdma_chunk(rop->xdrs, buf);
+    return buf;
+#endif
+}
+
+void nfs_client_t::free_or_rdma(rpc_op_t *rop, void *buf)
+{
+#ifdef WITH_RDMACM
+    if (!rdma_conn)
+    {
+#endif
+        xdr_del_malloc(rop->xdrs, buf);
+        free(buf);
+#ifdef WITH_RDMACM
+    }
+    else
+    {
+        xdr_set_rdma_chunk(rop->xdrs, NULL);
+        rdma_free(buf);
+    }
+#endif
 }
 
 void nfs_proxy_t::daemonize()
@@ -1068,8 +1201,8 @@ void nfs_proxy_t::daemonize()
     // Stop all clients because client I/O sometimes breaks during daemonize
     // I.e. the new process stops receiving events on the old FD
     // It doesn't happen if we call sleep(1) here, but we don't want to call sleep(1)...
-    for (auto & clp: rpc_clients)
-        clp.second->stop();
+    for (auto & cli: rpc_clients)
+        cli->stop();
     if (fork())
         exit(0);
     setsid();

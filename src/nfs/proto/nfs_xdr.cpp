@@ -272,7 +272,7 @@ xdr_WRITE3args (XDR *xdrs, WRITE3args *objp)
 		 return FALSE;
 	 if (!xdr_stable_how (xdrs, &objp->stable))
 		 return FALSE;
-	 if (!xdr_bytes(xdrs, &objp->data, ~0))
+	 if (!xdr_bytes(xdrs, &objp->data, ~0, true))
 		 return FALSE;
 	return TRUE;
 }
@@ -829,7 +829,7 @@ xdr_READ3resok (XDR *xdrs, READ3resok *objp)
 		 return FALSE;
 	 if (!xdr_bool (xdrs, &objp->eof))
 		 return FALSE;
-	 if (!xdr_bytes(xdrs, &objp->data, ~0))
+	 if (!xdr_bytes(xdrs, &objp->data, ~0, true))
 		 return FALSE;
 	return TRUE;
 }
@@ -1173,10 +1173,10 @@ xdr_PATHCONF3res (XDR *xdrs, PATHCONF3res *objp)
 }
 
 bool_t
-xdr_nfspath3 (XDR *xdrs, nfspath3 *objp)
+xdr_nfspath3 (XDR *xdrs, nfspath3 *objp, bool rdma_chunk)
 {
 	
-	 if (!xdr_string (xdrs, objp, ~0))
+	 if (!xdr_string (xdrs, objp, ~0, rdma_chunk))
 		 return FALSE;
 	return TRUE;
 }
@@ -1187,7 +1187,7 @@ xdr_symlinkdata3 (XDR *xdrs, symlinkdata3 *objp)
 	
 	 if (!xdr_sattr3 (xdrs, &objp->symlink_attributes))
 		 return FALSE;
-	 if (!xdr_nfspath3 (xdrs, &objp->symlink_data))
+	 if (!xdr_nfspath3 (xdrs, &objp->symlink_data, true))
 		 return FALSE;
 	return TRUE;
 }
@@ -1259,7 +1259,7 @@ xdr_READLINK3resok (XDR *xdrs, READLINK3resok *objp)
 	
 	 if (!xdr_post_op_attr (xdrs, &objp->symlink_attributes))
 		 return FALSE;
-	 if (!xdr_nfspath3 (xdrs, &objp->data))
+	 if (!xdr_nfspath3 (xdrs, &objp->data, true))
 		 return FALSE;
 	return TRUE;
 }

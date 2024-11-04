@@ -91,10 +91,14 @@ int kv_nfs3_readlink_proc(void *opaque, rpc_op_t *rop)
         }
         else
         {
+            std::string link_target = attrs["symlink"].string_value();
+            char *cp = (char*)self->malloc_or_rdma(rop, link_target.size()+1);
+            memcpy(cp, link_target.data(), link_target.size());
+            cp[link_target.size()] = 0;
             *reply = (READLINK3res){
                 .status = NFS3_OK,
                 .resok = (READLINK3resok){
-                    .data = xdr_copy_string(rop->xdrs, attrs["symlink"].string_value()),
+                    .data = (xdr_string_t){ link_target.size(), cp },
                 },
             };
         }

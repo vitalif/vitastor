@@ -168,7 +168,7 @@ struct WRITE3args {
 	offset3     offset;
 	count3      count;
 	stable_how  stable;
-	opaque      data<>;
+	opaque      data<>; /* RDMA DDP-eligible */
 };
 
 typedef opaque writeverf3[NFS3_WRITEVERFSIZE];
@@ -409,7 +409,7 @@ struct READ3resok {
 	post_op_attr   file_attributes;
 	count3         count;
 	bool           eof;
-	opaque         data<>;
+	opaque         data<>; /* RDMA DDP-eligible */
 };
 
 struct READ3resfail {
@@ -514,7 +514,7 @@ typedef string nfspath3<>;
 
 struct symlinkdata3 {
 	sattr3    symlink_attributes;
-	nfspath3  symlink_data;
+	nfspath3  symlink_data; /* RDMA DDP-eligible */
 };
 
 struct SYMLINK3args {
@@ -546,7 +546,7 @@ struct READLINK3args {
 
 struct READLINK3resok {
 	post_op_attr   symlink_attributes;
-	nfspath3       data;
+	nfspath3       data; /* RDMA DDP-eligible */
 };
 
 struct READLINK3resfail {

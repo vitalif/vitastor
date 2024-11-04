@@ -46,3 +46,5 @@ run_rpcgen() {
 run_rpcgen nfs
 run_rpcgen rpc
 run_rpcgen portmap
+run_rpcgen rpc_rdma
+patch nfs_xdr.cpp < nfs_xdr.cpp.diff

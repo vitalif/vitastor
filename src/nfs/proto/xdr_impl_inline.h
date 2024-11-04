@@ -28,6 +28,19 @@
 // RPC over TCP:
 //
 // BE 32bit length, then rpc_msg, then the procedure message itself
+//
+// RPC over RDMA:
+// RFC 8166 - Remote Direct Memory Access Transport for Remote Procedure Call Version 1
+// RFC 8267 - Network File System (NFS) Upper-Layer Binding to RPC-over-RDMA Version 1
+// RFC 8797 - Remote Direct Memory Access - Connection Manager (RDMA-CM) Private Data for RPC-over-RDMA Version 1
+// message is received in an RDMA Receive operation
+// message: list of read chunks, list of write chunks, optional reply write chunk, then actual RPC body if present
+// read chunk: BE 32bit position, BE 32bit registered memory key, BE 32bit length, BE 64bit offset
+// write chunk: BE 32bit registered memory key, BE 32bit length, BE 64bit offset
+// in reality for NFS 3.0: only 1 read chunk in write3 and symlink3, only 1 write chunk in read3 and readlink3
+// read chunk is read by the server using RDMA Read from the client memory after receiving RPC request
+// write chunk is pushed by the server using RDMA Write to the client memory before sending RPC reply
+// connection is established using RDMA-CM at default port 20049
 
 #pragma once
 
@@ -35,6 +48,7 @@
 
 #include <string.h>
 #include <endian.h>
+#include <assert.h>
 #include <vector>
 
 #include "malloc_or_die.h"
@@ -61,6 +75,9 @@ struct xdr_linked_list_t
 struct XDR
 {
     int x_op;
+    bool rdma = false;
+    void *rdma_chunk = NULL;
+    bool rdma_chunk_used = false;
 
     // For decoding:
     uint8_t *buf = NULL;
@@ -106,13 +123,22 @@ inline int xdr_opaque(XDR *xdrs, void *data, uint32_t len)
     return 1;
 }
 
-inline int xdr_bytes(XDR *xdrs, xdr_string_t *data, uint32_t maxlen)
+inline int xdr_bytes(XDR *xdrs, xdr_string_t *data, uint32_t maxlen, bool rdma_chunk = false)
 {
     if (xdrs->x_op == XDR_DECODE)
     {
         if (xdrs->avail < 4)
             return 0;
         uint32_t len = be32toh(*((uint32_t*)xdrs->buf));
+        if (rdma_chunk && xdrs->rdma && xdrs->rdma_chunk)
+        {
+            // Take (only a single) RDMA chunk from xdrs->rdma_chunk while decoding
+            assert(!xdrs->rdma_chunk_used);
+            xdrs->rdma_chunk_used = true;
+            data->data = (char*)xdrs->rdma_chunk;
+            data->size = len;
+            return 1;
+        }
         uint32_t padded = len_pad4(len);
         if (xdrs->avail < 4+padded)
             return 0;
@@ -123,7 +149,8 @@ inline int xdr_bytes(XDR *xdrs, xdr_string_t *data, uint32_t maxlen)
     }
     else
     {
-        if (data->size < XDR_COPY_LENGTH)
+        // Always encode RDMA chunks as separate iovecs
+        if (data->size < XDR_COPY_LENGTH && (!rdma_chunk || !xdrs->rdma))
         {
             unsigned old = xdrs->cur_out.size();
             xdrs->cur_out.resize(old + 4+data->size);
@@ -146,8 +173,9 @@ inline int xdr_bytes(XDR *xdrs, xdr_string_t *data, uint32_t maxlen)
                 .iov_len = data->size,
             });
         }
-        if (data->size & 3)
+        if ((data->size & 3) && (!rdma_chunk || !xdrs->rdma))
         {
+            // No padding for RDMA chunks
             int pad = 4-(data->size & 3);
             unsigned old = xdrs->cur_out.size();
             xdrs->cur_out.resize(old+pad);
@@ -158,9 +186,9 @@ inline int xdr_bytes(XDR *xdrs, xdr_string_t *data, uint32_t maxlen)
     return 1;
 }
 
-inline int xdr_string(XDR *xdrs, xdr_string_t *data, uint32_t maxlen)
+inline int xdr_string(XDR *xdrs, xdr_string_t *data, uint32_t maxlen, bool rdma_chunk = false)
 {
-    return xdr_bytes(xdrs, data, maxlen);
+    return xdr_bytes(xdrs, data, maxlen, rdma_chunk);
 }
 
 inline int xdr_u_int(XDR *xdrs, void *data)
@@ -180,6 +208,11 @@ inline int xdr_u_int(XDR *xdrs, void *data)
         *(uint32_t*)(xdrs->cur_out.data() + old) = htobe32(*(uint32_t*)data);
     }
     return 1;
+}
+
+inline int xdr_uint32_t(XDR *xdrs, void *data)
+{
+    return xdr_u_int(xdrs, data);
 }
 
 inline int xdr_enum(XDR *xdrs, void *data)

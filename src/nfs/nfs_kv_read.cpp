@@ -96,7 +96,7 @@ resume_1:
                 }
                 read_size += sizeof(shared_file_header_t);
                 assert(!st->aligned_buf);
-                st->aligned_buf = (uint8_t*)malloc_or_die(read_size);
+                st->aligned_buf = (uint8_t*)st->self->malloc_or_rdma(st->rop, read_size);
                 st->buf = st->aligned_buf + sizeof(shared_file_header_t) + st->offset;
                 st->op->iov.push_back(st->aligned_buf, read_size);
                 st->op->len = align_up(read_offset+read_size) - st->op->offset;
@@ -117,7 +117,7 @@ resume_1:
 resume_2:
             if (st->res < 0)
             {
-                free(st->aligned_buf);
+                st->self->free_or_rdma(st->rop, st->aligned_buf);
                 st->aligned_buf = NULL;
                 auto cb = std::move(st->cb);
                 cb(st->res);
@@ -131,7 +131,7 @@ resume_2:
                     " 0x%jx offset 0x%jx: probably a read/write conflict, retrying\n",
                     st->ino, st->ientry["shared_ino"].uint64_value(), st->ientry["shared_offset"].uint64_value());
                 st->retry++;
-                free(st->aligned_buf);
+                st->self->free_or_rdma(st->rop, st->aligned_buf);
                 st->aligned_buf = NULL;
                 st->allow_cache = false;
                 goto resume_0;
@@ -144,7 +144,7 @@ resume_2:
     st->aligned_offset = align_down(st->offset);
     st->aligned_size = align_up(st->offset+st->size) - st->aligned_offset;
     assert(!st->aligned_buf);
-    st->aligned_buf = (uint8_t*)malloc_or_die(st->aligned_size);
+    st->aligned_buf = (uint8_t*)st->self->malloc_or_rdma(st->rop, st->aligned_size);
     st->buf = st->aligned_buf + st->offset - st->aligned_offset;
     st->op = new cluster_op_t;
     st->op->opcode = OSD_OP_READ;
@@ -163,7 +163,7 @@ resume_2:
 resume_3:
     if (st->res < 0)
     {
-        free(st->aligned_buf);
+        st->self->free_or_rdma(st->rop, st->aligned_buf);
         st->aligned_buf = NULL;
     }
     auto cb = std::move(st->cb);
@@ -194,7 +194,6 @@ int kv_nfs3_read_proc(void *opaque, rpc_op_t *rop)
         *reply = (READ3res){ .status = vitastor_nfs_map_err(res) };
         if (res == 0)
         {
-            xdr_add_malloc(st->rop->xdrs, st->aligned_buf);
             reply->resok.data.data = (char*)st->buf;
             reply->resok.data.size = st->size;
             reply->resok.count = st->size;

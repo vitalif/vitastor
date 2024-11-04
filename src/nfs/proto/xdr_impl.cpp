@@ -16,6 +16,22 @@ void xdr_destroy(XDR* xdrs)
     delete xdrs;
 }
 
+void xdr_set_rdma(XDR *xdrs)
+{
+    xdrs->rdma = true;
+}
+
+void xdr_set_rdma_chunk(XDR *xdrs, void *chunk)
+{
+    assert(!xdrs->rdma_chunk || !chunk);
+    xdrs->rdma_chunk = chunk;
+}
+
+void* xdr_get_rdma_chunk(XDR *xdrs)
+{
+    return xdrs->rdma_chunk;
+}
+
 void xdr_reset(XDR *xdrs)
 {
     for (auto buf: xdrs->allocs)
@@ -23,6 +39,9 @@ void xdr_reset(XDR *xdrs)
         free(buf);
     }
     xdrs->buf = NULL;
+    xdrs->rdma = false;
+    xdrs->rdma_chunk = NULL;
+    xdrs->rdma_chunk_used = false;
     xdrs->avail = 0;
     xdrs->allocs.resize(0);
     xdrs->in_linked_list.resize(0);
@@ -43,6 +62,20 @@ int xdr_encode(XDR *xdrs, xdrproc_t fn, void *data)
 {
     xdrs->x_op = XDR_ENCODE;
     return fn(xdrs, data);
+}
+
+size_t xdr_encode_get_size(XDR *xdrs)
+{
+    size_t len = 0;
+    for (auto & buf: xdrs->buf_list)
+    {
+        len += buf.iov_len;
+    }
+    if (xdrs->last_end < xdrs->cur_out.size())
+    {
+        len += xdrs->cur_out.size() - xdrs->last_end;
+    }
+    return len;
 }
 
 void xdr_encode_finish(XDR *xdrs, iovec **iov_list, unsigned *iov_count)
@@ -81,6 +114,18 @@ void xdr_dump_encoded(XDR *xdrs)
 void xdr_add_malloc(XDR *xdrs, void *buf)
 {
     xdrs->allocs.push_back(buf);
+}
+
+void xdr_del_malloc(XDR *xdrs, void *buf)
+{
+    for (int i = 0; i < xdrs->allocs.size(); i++)
+    {
+        if (xdrs->allocs[i] == buf)
+        {
+            xdrs->allocs.erase(xdrs->allocs.begin()+i);
+            break;
+        }
+    }
 }
 
 xdr_string_t xdr_copy_string(XDR *xdrs, const std::string & str)
