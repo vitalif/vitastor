@@ -170,10 +170,10 @@ void disk_tool_t::resize_init(blockstore_meta_header_v2_t *hdr)
         dsk.data_csum_type = hdr->data_csum_type;
         dsk.csum_block_size = hdr->csum_block_size;
     }
-    if (((new_data_len-dsk.data_len) % dsk.data_block_size) ||
-        ((new_data_offset-dsk.data_offset) % dsk.data_block_size))
+    if (((new_data_offset-dsk.data_offset) % dsk.data_block_size))
     {
-        fprintf(stderr, "Data alignment mismatch\n");
+        fprintf(stderr, "Data alignment mismatch: old data offset is 0x%jx, new is 0x%jx, but alignment on %x should be equal\n",
+            dsk.data_offset, new_data_offset, dsk.data_block_size);
         exit(1);
     }
     data_idx_diff = ((int64_t)(dsk.data_offset-new_data_offset)) / dsk.data_block_size;
@@ -493,7 +493,7 @@ int disk_tool_t::resize_rewrite_meta()
                 block_num = remap_it->second;
             if (block_num < free_first || block_num >= total_blocks-free_last)
             {
-                fprintf(stderr, "BUG: remapped block %lu not in range %lu..%lu\n", block_num, free_first, total_blocks-free_last);
+                fprintf(stderr, "BUG: remapped block %ju not in range %ju..%ju\n", block_num, free_first, total_blocks-free_last);
                 exit(1);
             }
             block_num += data_idx_diff;
