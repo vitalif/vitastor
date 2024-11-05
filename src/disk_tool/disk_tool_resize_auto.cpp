@@ -37,6 +37,8 @@ int disk_tool_t::resize_data(std::string device)
         fprintf(stderr, "%s\n", e.what());
         return 1;
     }
+    // Save FD numbers because calc_lengths() relies on them
+    int old_journal_fd = dsk.journal_fd, old_meta_fd = dsk.meta_fd, old_data_fd = dsk.data_fd;
     dsk.close_all();
     bool dry_run = options.find("dry_run") != options.end();
     auto old_journal_device = dsk.journal_device;
@@ -56,7 +58,13 @@ int disk_tool_t::resize_data(std::string device)
             ? dsk.data_device_size : new_data_dev_size;
         dsk.data_device_size = new_data_dev_size;
         dsk.cfg_data_size = 0;
+        dsk.journal_fd = old_journal_fd;
+        dsk.meta_fd = old_meta_fd;
+        dsk.data_fd = old_data_fd;
         dsk.calc_lengths(true);
+        dsk.journal_fd = -1;
+        dsk.meta_fd = -1;
+        dsk.data_fd = -1;
     }
     std::map<std::string, std::string> move_options;
     if (options.find("move_journal") != options.end())
