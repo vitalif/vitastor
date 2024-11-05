@@ -343,23 +343,42 @@ uint64_t free_from_parttable(json11::Json pt)
     return free;
 }
 
-int fix_partition_type_uuid(std::string dev_by_uuid, const std::string & type_uuid)
+int fix_partition_type_uuid(std::string & dev_by_uuid, const std::string & type_uuid)
 {
-    auto uuid = strtolower(dev_by_uuid.substr(dev_by_uuid.rfind('/')+1));
-    std::string parent_dev = get_parent_device(realpath_str(dev_by_uuid, false));
+    bool is_partuuid = dev_by_uuid.substr(0, 22) == "/dev/disk/by-partuuid/";
+    auto uuid = is_partuuid ? strtolower(dev_by_uuid.substr(22)) : "";
+    auto node = realpath_str(dev_by_uuid, false);
+    std::string parent_dev = get_parent_device(node);
     if (parent_dev == "")
         return 1;
     auto pt = read_parttable(parent_dev);
     if (pt.is_null() || pt.is_bool())
         return 1;
+    bool found = false;
     std::string script = "label: gpt\n\n";
     for (const auto & part: pt["partitions"].array_items())
     {
-        bool this_part = (strtolower(part["uuid"].string_value()) == uuid);
-        if (this_part && strtolower(part["type"].string_value()) == type_uuid)
+        bool this_part = (part["node"].string_value() == node) &&
+            (!is_partuuid || strtolower(part["uuid"].string_value()) == uuid);
+        if (this_part)
         {
-            // Already correct type
-            return 0;
+            found = true;
+            if (!is_partuuid)
+            {
+                if (part["uuid"] == "")
+                {
+                    fprintf(stderr, "Could not determine partition UUID for %s. Please use GPT partitions\n", dev_by_uuid.c_str());
+                    return 1;
+                }
+                auto new_dev = "/dev/disk/by-partuuid/"+strtolower(part["uuid"].string_value());
+                fprintf(stderr, "Using %s instead of %s\n", new_dev.c_str(), dev_by_uuid.c_str());
+                dev_by_uuid = new_dev;
+            }
+            if (strtolower(part["type"].string_value()) == type_uuid)
+            {
+                // Already correct type
+                return 0;
+            }
         }
         script += part["node"].string_value()+": ";
         bool first = true;
@@ -375,6 +394,11 @@ int fix_partition_type_uuid(std::string dev_by_uuid, const std::string & type_uu
             }
         }
         script += "\n";
+    }
+    if (!found)
+    {
+        fprintf(stderr, "Could not find partition table entry for %s\n", dev_by_uuid.c_str());
+        return 1;
     }
     std::string out;
     return shell_exec({ "sfdisk", "--no-reread", "--no-tell-kernel", "--force", parent_dev }, script, &out, NULL);

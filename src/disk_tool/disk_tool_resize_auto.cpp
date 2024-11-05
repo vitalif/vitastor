@@ -192,17 +192,12 @@ int disk_tool_t::resize_parse_move_journal(std::map<std::string, std::string> & 
             else
                 options["move_journal"] = "<new journal partition on "+parent_dev+">";
         }
-        else if (options["move_journal"].substr(0, 22) != "/dev/disk/by-partuuid/")
-        {
-            // Partitions should be identified by GPT partition UUID
-            fprintf(stderr, "%s does not start with /dev/disk/by-partuuid/. Partitions should be identified by GPT partition UUIDs\n", options["move_journal"].c_str());
-            return 1;
-        }
         else
         {
             // already a partition - check that it's a GPT partition with correct type
-            if (options.find("force") == options.end() &&
-                check_existing_partition(real_dev) != 0)
+            if ((options.find("force") == options.end()
+                ? check_existing_partition(options["move_journal"])
+                : fix_partition_type(options["move_journal"])) != 0)
             {
                 return 1;
             }
@@ -273,17 +268,12 @@ int disk_tool_t::resize_parse_move_meta(std::map<std::string, std::string> & mov
             else
                 options["move_meta"] = "<new metadata partition on "+parent_dev+">";
         }
-        else if (options["move_meta"].substr(0, 22) != "/dev/disk/by-partuuid/")
-        {
-            // Partitions should be identified by GPT partition UUID
-            fprintf(stderr, "%s does not start with /dev/disk/by-partuuid/. Partitions should be identified by GPT partition UUIDs\n", options["move_meta"].c_str());
-            return 1;
-        }
         else
         {
             // already a partition - check that it's a GPT partition with correct type
-            if (options.find("force") == options.end() &&
-                check_existing_partition(real_dev) != 0)
+            if ((options.find("force") == options.end()
+                ? check_existing_partition(options["move_meta"])
+                : fix_partition_type(options["move_meta"])) != 0)
             {
                 return 1;
             }

@@ -29,18 +29,12 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     };
     if (options.find("force") == options.end())
     {
-        std::vector<std::string> all_devs = { options["data_device"], options["meta_device"], options["journal_device"] };
-        for (int i = 0; i < all_devs.size(); i++)
+        std::string* all_devs[] = { &options["data_device"], &options["meta_device"], &options["journal_device"] };
+        for (int i = 0; i < 3; i++)
         {
-            const auto & dev = all_devs[i];
+            auto & dev = *all_devs[i];
             if (dev == "")
                 continue;
-            if (dev.substr(0, 22) != "/dev/disk/by-partuuid/")
-            {
-                // Partitions should be identified by GPT partition UUID
-                fprintf(stderr, "%s does not start with /dev/disk/by-partuuid/. Partitions should be identified by GPT partition UUIDs\n", dev.c_str());
-                return 1;
-            }
             std::string real_dev = realpath_str(dev, false);
             if (real_dev == "")
                 return 1;
@@ -214,7 +208,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     return 0;
 }
 
-int disk_tool_t::check_existing_partition(const std::string & dev)
+int disk_tool_t::check_existing_partition(std::string & dev)
 {
     std::string out;
     if (shell_exec({ "wipefs", dev }, "", &out, NULL) != 0 || out != "")
@@ -236,7 +230,7 @@ int disk_tool_t::check_existing_partition(const std::string & dev)
     return 0;
 }
 
-int disk_tool_t::fix_partition_type(const std::string & dev)
+int disk_tool_t::fix_partition_type(std::string & dev)
 {
     std::string type_uuid = VITASTOR_PART_TYPE;
     if (test_mode && options.find("part_type_uuid") != options.end())
