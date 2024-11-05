@@ -114,7 +114,10 @@ int disk_tool_t::resize_parse_params()
     new_data_offset = options.find("new_data_offset") != options.end()
         ? parse_size(options["new_data_offset"]) : dsk.data_offset;
     new_data_len = options.find("new_data_len") != options.end()
-        ? parse_size(options["new_data_len"]) : dsk.data_len;
+        ? parse_size(options["new_data_len"])
+        : (options.find("new_data_offset") != options.end()
+            ? dsk.data_device_size-new_data_offset
+            : dsk.data_len);
     new_meta_offset = options.find("new_meta_offset") != options.end()
         ? parse_size(options["new_meta_offset"]) : dsk.meta_offset;
     new_meta_len = options.find("new_meta_len") != options.end()
