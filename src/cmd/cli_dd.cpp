@@ -431,7 +431,7 @@ struct cli_dd_t
             if (read_op->retval < 0)
             {
                 fprintf(
-                    stderr, "Failed to read bitmap for %lu bytes from image %s at offset %lu: %s (code %d)\n",
+                    stderr, "Failed to read bitmap for %ju bytes from image %s at offset %ju: %s (code %d)\n",
                     read_op->len, iinfo.iimg.c_str(), read_op->offset,
                     strerror(read_op->retval < 0 ? -read_op->retval : EIO), read_op->retval
                 );
@@ -476,7 +476,7 @@ struct cli_dd_t
             if (read_op->retval != read_op->len)
             {
                 fprintf(
-                    stderr, "Failed to read %lu bytes from image %s at offset %lu: %s (code %d)\n",
+                    stderr, "Failed to read %ju bytes from image %s at offset %ju: %s (code %d)\n",
                     read_op->len, iinfo.iimg.c_str(), read_op->offset,
                     strerror(read_op->retval < 0 ? -read_op->retval : EIO), read_op->retval
                 );
@@ -547,7 +547,7 @@ struct cli_dd_t
                 if (data->res < 0)
                 {
                     fprintf(
-                        stderr, "Failed to read %lu bytes from %s at offset %lu: %s (code %d)\n",
+                        stderr, "Failed to read %ju bytes from %s at offset %ju: %s (code %d)\n",
                         data->iov.iov_len, iinfo.ifile == "" ? "stdin" : iinfo.ifile.c_str(), cur_read->offset,
                         strerror(-data->res), data->res
                     );
@@ -644,7 +644,7 @@ struct cli_dd_t
                 if (write_op->retval != write_op->len)
                 {
                     fprintf(
-                        stderr, "Failed to write %lu bytes to image %s at offset %lu: %s (code %d)\n",
+                        stderr, "Failed to write %ju bytes to image %s at offset %ju: %s (code %d)\n",
                         write_op->len, oinfo.oimg.c_str(), write_op->offset,
                         strerror(write_op->retval < 0 ? -write_op->retval : EIO), write_op->retval
                     );
@@ -680,7 +680,7 @@ struct cli_dd_t
                 if (data->res < 0)
                 {
                     fprintf(
-                        stderr, "Failed to write %lu bytes to %s at offset %lu: %s (code %d)\n",
+                        stderr, "Failed to write %ju bytes to %s at offset %ju: %s (code %d)\n",
                         data->iov.iov_len, oinfo.ofile == "" ? "stdout" : oinfo.ofile.c_str(),
                         oinfo.out_seekable ? cur_read->offset+cur_read->len+oseek : 0,
                         strerror(-data->res), data->res
@@ -727,7 +727,7 @@ struct cli_dd_t
         {
             char buf[256];
             snprintf(
-                buf, sizeof(buf), "%lu bytes (%s) copied, %.1f s, %sB/s",
+                buf, sizeof(buf), "%ju bytes (%s) copied, %.1f s, %sB/s",
                 written_size, format_size(written_size).c_str(), sec_total,
                 format_size((uint64_t)(written_size/sec_total), true).c_str()
             );
@@ -749,7 +749,7 @@ struct cli_dd_t
         else
         {
             fprintf(
-                stderr, "\r%lu bytes (%s) copied, %.1f s, %sB/s, avg %sB/s\033[K",
+                stderr, "\r%ju bytes (%s) copied, %.1f s, %sB/s, avg %sB/s\033[K",
                 written_size, format_size(written_size).c_str(), sec_total,
                 format_size((uint64_t)(delta/sec_delta), true).c_str(),
                 format_size((uint64_t)(written_size/sec_total), true).c_str()
