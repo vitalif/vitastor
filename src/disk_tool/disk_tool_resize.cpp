@@ -91,7 +91,7 @@ int disk_tool_t::resize_parse_params()
     try
     {
         dsk.parse_config(options);
-        dsk.data_io = dsk.meta_io = dsk.journal_io = "direct";
+        dsk.data_io = dsk.meta_io = dsk.journal_io = "cached";
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();

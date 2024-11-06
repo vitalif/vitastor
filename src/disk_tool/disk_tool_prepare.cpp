@@ -108,7 +108,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     try
     {
         dsk.parse_config(options);
-        dsk.data_io = dsk.meta_io = dsk.journal_io = "direct";
+        dsk.data_io = dsk.meta_io = dsk.journal_io = (options["io"] == "cached" ? "cached" : "direct");
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
@@ -498,7 +498,7 @@ int disk_tool_t::get_meta_partition(std::vector<vitastor_dev_info_t> & ssds, std
     {
         blockstore_disk_t dsk;
         dsk.parse_config(options);
-        dsk.data_io = dsk.meta_io = dsk.journal_io = "direct";
+        dsk.data_io = dsk.meta_io = dsk.journal_io = "cached";
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
@@ -508,6 +508,7 @@ int disk_tool_t::get_meta_partition(std::vector<vitastor_dev_info_t> & ssds, std
     }
     catch (std::exception & e)
     {
+        dsk.close_all();
         fprintf(stderr, "%s\n", e.what());
         return 1;
     }

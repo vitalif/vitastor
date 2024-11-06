@@ -159,7 +159,7 @@ int disk_tool_t::dump_load_check_superblock(const std::string & device)
     {
         auto cfg = json_to_string_map(sb["params"].object_items());
         dsk.parse_config(cfg);
-        dsk.data_io = dsk.meta_io = dsk.journal_io = "direct";
+        dsk.data_io = dsk.meta_io = dsk.journal_io = "cached";
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
