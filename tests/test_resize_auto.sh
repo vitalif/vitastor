@@ -33,6 +33,7 @@ diff ./testdata/j1.json ./testdata/j2.json
 
 # write fake metadata items in the end
 DATA_DEV_SIZE=$(sudo blockdev --getsize64 ${LOOP1}p1)
+BLOCK_COUNT=$(((DATA_DEV_SIZE-4096)/128/1024))
 node <<EOF > ./testdata/meta.json
 console.log(JSON.stringify({
     version: "0.9",
@@ -42,7 +43,7 @@ console.log(JSON.stringify({
     data_csum_type: "none",
     csum_block_size: 0,
     entries: [ ...new Array(100).keys() ].map(i => ({
-        block: (819183-100)+i, // 819183 = (rounded partition size-4k) / 128k
+        block: ($BLOCK_COUNT-100)+i,
         pool: 1,
         inode: "0x1",
         stripe: "0x"+Number(i*0x20000).toString(16),
@@ -80,7 +81,7 @@ sudo build/src/disk_tool/vitastor-disk dump-journal --json --format data ${LOOP1
 # reduce data device size by exactly 128k * 99 (occupied blocks); exactly 1 should be left in place :)
 sudo build/src/disk_tool/vitastor-disk-test resize --data-size $((DATA_DEV_SIZE-128*1024*99)) ${LOOP1}p1
 sudo build/src/disk_tool/vitastor-disk dump-meta ${LOOP1}p1 | jq -S > ./testdata/2.json
-jq -S '. + {"entries": ([ .entries[] | (. + { "block": (.block | if . > 819183-100 then .-(819183-100+1) else 819183-100 end) }) ] | .[1:] + [ .[0] ])}' < ./testdata/meta.json > ./testdata/1.json
+jq -S '. + {"entries": ([ .entries[] | (. + { "block": (.block | if . > '$BLOCK_COUNT'-100 then .-('$BLOCK_COUNT'-100+1) else '$BLOCK_COUNT'-100 end) }) ] | .[1:] + [ .[0] ])}' < ./testdata/meta.json > ./testdata/1.json
 diff ./testdata/1.json ./testdata/2.json
 jq -S '[ .[] + {"valid":true} ]' < ./testdata/journal.json > ./testdata/j1.json
 sudo build/src/disk_tool/vitastor-disk dump-journal --json --format data ${LOOP1}p1 | jq -S '[ .[] | del(.crc32, .crc32_prev) ]' > ./testdata/j2.json
