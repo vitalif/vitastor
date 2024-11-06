@@ -122,7 +122,7 @@ uint32_t disk_tool_t::write_osd_superblock(std::string device, json11::Json para
     sb->size = sb_size;
     memcpy(sb->json_data, json_data.c_str(), json_data.size());
     sb->crc32c = crc32c(0, &sb->size, sb->size - ((uint8_t*)&sb->size - buf));
-    int fd = open(device.c_str(), O_DIRECT|O_RDWR);
+    int fd = open(device.c_str(), (options["io"] == "cached" ? 0 : O_DIRECT) | O_RDWR);
     if (fd < 0)
     {
         fprintf(stderr, "Failed to open device %s: %s\n", device.c_str(), strerror(errno));
@@ -150,7 +150,7 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_ex
     json11::Json osd_params;
     std::string json_err;
     std::string real_device, device_type, real_data, real_meta, real_journal;
-    int r, fd = open(device.c_str(), O_DIRECT|O_RDWR);
+    int r, fd = open(device.c_str(), (options["io"] == "cached" ? 0 : O_DIRECT) | O_RDWR);
     if (fd < 0)
     {
         fprintf(stderr, "Failed to open device %s: %s\n", device.c_str(), strerror(errno));
@@ -385,7 +385,7 @@ int disk_tool_t::pre_exec_osd(std::string device)
 int disk_tool_t::clear_osd_superblock(const std::string & dev)
 {
     uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
-    int fd = -1, r = open(dev.c_str(), O_DIRECT|O_RDWR);
+    int fd = -1, r = open(dev.c_str(), (options["io"] == "cached" ? 0 : O_DIRECT) | O_RDWR);
     if (r >= 0)
     {
         fd = r;

@@ -18,7 +18,7 @@ int disk_tool_t::dump_journal()
         printf("[\n");
     if (all)
     {
-        dsk.journal_fd = open(dsk.journal_device.c_str(), O_DIRECT|O_RDONLY);
+        dsk.journal_fd = open(dsk.journal_device.c_str(), (options["io"] == "cached" ? 0 : O_DIRECT) | O_RDONLY);
         if (dsk.journal_fd < 0)
         {
             fprintf(stderr, "Failed to open journal device %s: %s\n", dsk.journal_device.c_str(), strerror(errno));
@@ -121,7 +121,7 @@ int disk_tool_t::dump_journal()
 
 int disk_tool_t::process_journal(std::function<int(void*)> block_fn)
 {
-    dsk.journal_fd = open(dsk.journal_device.c_str(), O_DIRECT|O_RDONLY);
+    dsk.journal_fd = open(dsk.journal_device.c_str(), (options["io"] == "cached" ? 0 : O_DIRECT) | O_RDONLY);
     if (dsk.journal_fd < 0)
     {
         fprintf(stderr, "Failed to open journal device %s: %s\n", dsk.journal_device.c_str(), strerror(errno));

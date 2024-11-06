@@ -200,6 +200,7 @@ static const char *help_text =
     "    --device_size 0          Set device size\n"
     "    --format text            Result format: json, options, env, or text\n"
     "\n"
+    "Default I/O mode for commands involving disk I/O is O_DIRECT. If you don't want it, add --io cached.\n"
     "Use vitastor-disk --help <command> for command details or vitastor-disk --help --all for all details.\n"
 ;
 

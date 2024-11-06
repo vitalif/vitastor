@@ -257,7 +257,7 @@ int disk_tool_t::resize_copy_data()
         iodepth = 32;
     }
     ringloop = new ring_loop_t(iodepth < RINGLOOP_DEFAULT_SIZE ? RINGLOOP_DEFAULT_SIZE : iodepth);
-    dsk.data_fd = open(dsk.data_device.c_str(), O_DIRECT|O_RDWR);
+    dsk.data_fd = open(dsk.data_device.c_str(), (options["io"] == "cached" ? 0 : O_DIRECT) | O_RDWR);
     if (dsk.data_fd < 0)
     {
         fprintf(stderr, "Failed to open data device %s: %s\n", dsk.data_device.c_str(), strerror(errno));
@@ -452,7 +452,7 @@ int disk_tool_t::resize_rewrite_journal()
 
 int disk_tool_t::resize_write_new_journal()
 {
-    new_journal_fd = open(new_journal_device.c_str(), O_DIRECT|O_RDWR);
+    new_journal_fd = open(new_journal_device.c_str(), (options["io"] == "cached" ? 0 : O_DIRECT) | O_RDWR);
     if (new_journal_fd < 0)
     {
         fprintf(stderr, "Failed to open new journal device %s: %s\n", new_journal_device.c_str(), strerror(errno));
@@ -521,7 +521,7 @@ int disk_tool_t::resize_rewrite_meta()
 
 int disk_tool_t::resize_write_new_meta()
 {
-    new_meta_fd = open(new_meta_device.c_str(), O_DIRECT|O_RDWR);
+    new_meta_fd = open(new_meta_device.c_str(), (options["io"] == "cached" ? 0 : O_DIRECT) | O_RDWR);
     if (new_meta_fd < 0)
     {
         fprintf(stderr, "Failed to open new metadata device %s: %s\n", new_meta_device.c_str(), strerror(errno));

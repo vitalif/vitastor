@@ -14,7 +14,7 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
         fprintf(stderr, "Invalid metadata block size: is not a multiple of %d\n", DIRECT_IO_ALIGNMENT);
         return 1;
     }
-    dsk.meta_fd = open(dsk.meta_device.c_str(), O_DIRECT|O_RDONLY);
+    dsk.meta_fd = open(dsk.meta_device.c_str(), (options["io"] == "cached" ? 0 : O_DIRECT) | O_RDONLY);
     if (dsk.meta_fd < 0)
     {
         fprintf(stderr, "Failed to open metadata device %s: %s\n", dsk.meta_device.c_str(), strerror(errno));
