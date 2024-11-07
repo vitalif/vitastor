@@ -16,7 +16,6 @@
 #include "qapi/error.h"
 #include "qapi/qmp/qdict.h"
 #include "qapi/qmp/qerror.h"
-#include "qemu/uri.h"
 #include "qemu/error-report.h"
 #include "qemu/module.h"
 #include "qemu/option.h"
@@ -1021,7 +1020,11 @@ static BlockDriver bdrv_vitastor = {
     // FIXME: Implement it along with per-inode statistics
     //.bdrv_get_allocated_file_size   = vitastor_get_allocated_file_size,
 
+#if QEMU_VERSION_MAJOR > 9 || QEMU_VERSION_MAJOR == 9 && QEMU_VERSION_MINOR > 0
+    .bdrv_open                      = vitastor_file_open,
+#else
     .bdrv_file_open                 = vitastor_file_open,
+#endif
     .bdrv_close                     = vitastor_close,
 
     // Option list for the create operation
