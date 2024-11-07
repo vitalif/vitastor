@@ -108,6 +108,10 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     try
     {
         dsk.parse_config(options);
+        // Set all offsets to 4096 to calculate metadata size with excess
+        dsk.journal_offset = 4096;
+        dsk.meta_offset = 4096;
+        dsk.data_offset = 4096;
         dsk.data_io = dsk.meta_io = dsk.journal_io = (options["io"] == "cached" ? "cached" : "direct");
         dsk.open_data();
         dsk.open_meta();
@@ -171,8 +175,8 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     }
     sb["osd_num"] = osd_num;
     // Zero out metadata and journal
-    if (write_zero(dsk.meta_fd, dsk.meta_offset, dsk.meta_len) != 0 ||
-        write_zero(dsk.journal_fd, dsk.journal_offset, dsk.journal_len) != 0)
+    if (write_zero(dsk.meta_fd, sb["meta_offset"].uint64_value(), dsk.meta_len) != 0 ||
+        write_zero(dsk.journal_fd, sb["journal_offset"].uint64_value(), dsk.journal_len) != 0)
     {
         fprintf(stderr, "Failed to zero out metadata or journal: %s\n", strerror(errno));
         dsk.close_all();
@@ -498,6 +502,9 @@ int disk_tool_t::get_meta_partition(std::vector<vitastor_dev_info_t> & ssds, std
     {
         blockstore_disk_t dsk;
         dsk.parse_config(options);
+        dsk.journal_offset = 4096;
+        dsk.meta_offset = 4096;
+        dsk.data_offset = 4096;
         dsk.data_io = dsk.meta_io = dsk.journal_io = "cached";
         dsk.open_data();
         dsk.open_meta();
