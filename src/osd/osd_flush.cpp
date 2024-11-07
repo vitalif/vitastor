@@ -13,10 +13,11 @@ void osd_t::submit_pg_flush_ops(pg_t & pg)
     bool first = true;
     while (it != pg.flush_actions.end())
     {
-        if (!first && (it->first.oid.inode != prev_it->first.oid.inode ||
-            (it->first.oid.stripe & ~STRIPE_MASK) != (prev_it->first.oid.stripe & ~STRIPE_MASK)) &&
-            fb->rollback_lists[it->first.osd_num].size() >= FLUSH_BATCH ||
-            fb->stable_lists[it->first.osd_num].size() >= FLUSH_BATCH)
+        if (!first &&
+            (it->first.oid.inode != prev_it->first.oid.inode ||
+                (it->first.oid.stripe & ~STRIPE_MASK) != (prev_it->first.oid.stripe & ~STRIPE_MASK)) &&
+            (fb->rollback_lists[it->first.osd_num].size() >= FLUSH_BATCH ||
+                fb->stable_lists[it->first.osd_num].size() >= FLUSH_BATCH))
         {
             // Stop only at the object boundary
             break;
