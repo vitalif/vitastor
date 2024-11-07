@@ -6,7 +6,12 @@
 
 # Architecture
 
+- [Server-side components](#server-side-components)
 - [Basic concepts](#basic-concepts)
+- [Client-side components](#client-side-components)
+- [Additional utilities](#additional-utilities)
+- [Overall read/write process](#overall-read-write-process)
+  - [Nuances of request handling](#nuances-of-request-handling)
 - [Similarities to Ceph](#similarities-to-ceph)
 - [Differences from Ceph](#differences-from-ceph)
 - [Implementation Principles](#implementation-principles)
@@ -39,10 +44,10 @@
 
 ## Client-side components
 
-- **Client library** incapsulates client I/O logic. Client library connects to etcd and to all OSDs,
+- **Client library** encapsulates client I/O logic. Client library connects to etcd and to all OSDs,
   receives cluster state from etcd, sends read and write requests directly to all OSDs. Due
   to the symmetric distributed architecture, all data blocks (each 128 KB by default) are placed
-  to different OSDs, but clients always knows where each data block is stored and connects directly
+  to different OSDs, but clients always know where each data block is stored and connect directly
   to the right OSD.
 
 All other client-side components are based on the client library:
@@ -77,8 +82,8 @@ All other client-side components are based on the client library:
 
 ## Additional utilities
 
-- **vitastor-disk** — утилита для разметки дисков под Vitastor OSD. С её помощью можно
-  создавать, удалять, менять размеры или перемещать разделы OSD.
+- **vitastor-disk** — a Vitastor OSD disk management tool. You can create, remove,
+  resize and move OSD partitions with it.
 
 ## Overall read/write process
 
