@@ -306,12 +306,12 @@ index e5ff653a60..884ecc79ea 100644
 +        etcd = virBufferContentAndReset(&buf);
 +    }
 +
-+    if (virJSONValueObjectCreate(&ret,
-+                                 "S:etcd-host", etcd,
-+                                 "S:etcd-prefix", src->query,
-+                                 "S:config-path", src->configFile,
-+                                 "s:image", src->path,
-+                                 NULL) < 0)
++    if (virJSONValueObjectAdd(&ret,
++                              "S:etcd-host", etcd,
++                              "S:etcd-prefix", src->query,
++                              "S:config-path", src->configFile,
++                              "s:image", src->path,
++                              NULL) < 0)
 +        return NULL;
 +
 +    return ret;
