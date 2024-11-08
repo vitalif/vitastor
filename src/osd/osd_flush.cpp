@@ -76,6 +76,7 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
         // Throw the result away
         return;
     }
+    fb->flush_done++;
     if (retval != 0)
     {
         if (peer_osd == this->osd_num)
@@ -93,12 +94,11 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
             auto fd_it = msgr.osd_peer_fds.find(peer_osd);
             if (fd_it != msgr.osd_peer_fds.end())
             {
+                // Will repeer/stop this PG
                 msgr.stop_client(fd_it->second);
             }
-            return;
         }
     }
-    fb->flush_done++;
     if (fb->flush_done == fb->flush_ops)
     {
         // This flush batch is done
