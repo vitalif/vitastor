@@ -171,7 +171,14 @@ to make them use the new version of the client library.
 
 ### 1.7.x to 1.8.0
 
-After upgrading version <= 1.7.x to version >= 1.8.0, BUT <= 1.9.0: restart all clients
+It's recommended to upgrade from version <= 1.7.x to version >= 1.8.0 with full downtime,
+i.e. you should first stop clients and then the cluster (OSDs and monitor), because 1.8.0
+includes a fix for etcd event stream inconsistency which could lead to "incomplete" objects
+appearing in EC pools, and in rare cases, probably, even to data corruption during mass OSD
+restarts. It doesn't mean that you WILL hit this problem if you upgrade without full downtime,
+but it's better to secure yourself against it.
+
+Also, if you upgrade version from <= 1.7.x to version >= 1.8.0, BUT <= 1.9.0: restart all clients
 (VMs and so on), otherwise they will hang when monitor clears old PG configuration key,
 which happens 24 hours after upgrade.
 
