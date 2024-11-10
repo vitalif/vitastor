@@ -65,6 +65,7 @@ void osd_messenger_t::read_requests()
 bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
 {
     bool ret = false;
+    int peer_fd = cl->peer_fd;
     cl->read_msg.msg_iovlen = 0;
     cl->refs--;
     if (cl->peer_state == PEER_STOPPED)
@@ -101,7 +102,8 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
         {
             if (!handle_read_buffer(cl, cl->in_buf, result))
             {
-                goto fin;
+                clear_immediate_ops(peer_fd);
+                return false;
             }
         }
         else
@@ -113,7 +115,8 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
             {
                 if (!handle_finished_read(cl))
                 {
-                    goto fin;
+                    clear_immediate_ops(peer_fd);
+                    return false;
                 }
             }
         }
@@ -122,13 +125,45 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
             ret = true;
         }
     }
-fin:
-    for (auto cb: set_immediate)
-    {
-        cb();
-    }
-    set_immediate.clear();
+    handle_immediate_ops();
     return ret;
+}
+
+void osd_messenger_t::clear_immediate_ops(int peer_fd)
+{
+    size_t i = 0, j = 0;
+    while (i < set_immediate_ops.size())
+    {
+        if (set_immediate_ops[i]->peer_fd == peer_fd)
+        {
+            delete set_immediate_ops[i];
+        }
+        else
+        {
+            if (i != j)
+                set_immediate_ops[j] = set_immediate_ops[i];
+            j++;
+        }
+        i++;
+    }
+    set_immediate_ops.resize(j);
+}
+
+void osd_messenger_t::handle_immediate_ops()
+{
+    for (auto op: set_immediate_ops)
+    {
+        if (op->op_type == OSD_OP_IN)
+        {
+            exec_op(op);
+        }
+        else
+        {
+            // Copy lambda to be unaffected by `delete op`
+            std::function<void(osd_op_t*)>(op->callback)(op);
+        }
+    }
+    set_immediate_ops.clear();
 }
 
 bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, void *curbuf, int remain)
@@ -199,7 +234,7 @@ bool osd_messenger_t::handle_finished_read(osd_client_t *cl)
     {
         // Operation is ready
         cl->received_ops.push_back(cl->read_op);
-        set_immediate.push_back([this, op = cl->read_op]() { exec_op(op); });
+        set_immediate_ops.push_back(cl->read_op);
         cl->read_op = NULL;
         cl->read_state = 0;
     }
@@ -295,7 +330,7 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
     {
         // Operation is ready
         cl->received_ops.push_back(cur_op);
-        set_immediate.push_back([this, cur_op]() { exec_op(cur_op); });
+        set_immediate_ops.push_back(cur_op);
         cl->read_op = NULL;
         cl->read_state = 0;
     }
@@ -416,9 +451,5 @@ void osd_messenger_t::handle_reply_ready(osd_op_t *op)
         (tv_end.tv_sec - op->tv_begin.tv_sec)*1000000 +
         (tv_end.tv_nsec - op->tv_begin.tv_nsec)/1000
     );
-    set_immediate.push_back([op]()
-    {
-        // Copy lambda to be unaffected by `delete op`
-        std::function<void(osd_op_t*)>(op->callback)(op);
-    });
+    set_immediate_ops.push_back(op);
 }

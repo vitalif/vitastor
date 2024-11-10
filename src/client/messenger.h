@@ -177,7 +177,7 @@ protected:
     std::vector<int> read_ready_clients;
     std::vector<int> write_ready_clients;
     // We don't use ringloop->set_immediate here because we may have no ringloop in client :)
-    std::vector<std::function<void()>> set_immediate;
+    std::vector<osd_op_t*> set_immediate_ops;
 
 public:
     timerfd_manager_t *tfd;
@@ -237,6 +237,8 @@ protected:
     void handle_op_hdr(osd_client_t *cl);
     bool handle_reply_hdr(osd_client_t *cl);
     void handle_reply_ready(osd_op_t *op);
+    void handle_immediate_ops();
+    void clear_immediate_ops(int peer_fd);
 
 #ifdef WITH_RDMA
     void try_send_rdma(osd_client_t *cl);
