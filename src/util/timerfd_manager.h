@@ -26,7 +26,7 @@ class timerfd_manager_t
     std::vector<timerfd_timer_t> timers;
 
     void inc_timer(timerfd_timer_t & t);
-    void set_nearest();
+    void set_nearest(bool trigger_inline);
     void trigger_nearest();
     void handle_readable();
 public:

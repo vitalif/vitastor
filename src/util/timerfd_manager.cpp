@@ -62,7 +62,7 @@ int timerfd_manager_t::set_timer_us(uint64_t micros, bool repeat, std::function<
         .callback = callback,
     });
     inc_timer(timers[timers.size()-1]);
-    set_nearest();
+    set_nearest(false);
     return timer_id;
 }
 
@@ -82,13 +82,13 @@ void timerfd_manager_t::clear_timer(int timer_id)
             {
                 nearest--;
             }
-            set_nearest();
+            set_nearest(false);
             break;
         }
     }
 }
 
-void timerfd_manager_t::set_nearest()
+void timerfd_manager_t::set_nearest(bool trigger_inline)
 {
     if (onstack > 0)
     {
@@ -134,10 +134,13 @@ again:
         }
         if (exp.it_value.tv_sec < 0 || exp.it_value.tv_sec == 0 && exp.it_value.tv_nsec <= 0)
         {
-            // It already happened
-            // FIXME: Postpone to setImmediate/BH to avoid reenterability problems
-            trigger_nearest();
-            goto again;
+            // It already happened - set minimal timeout
+            if (trigger_inline)
+            {
+                trigger_nearest();
+                goto again;
+            }
+            exp.it_value = { .tv_sec = 0, .tv_nsec = 1 };
         }
         if (timerfd_settime(timerfd, 0, &exp, NULL))
         {
@@ -157,7 +160,7 @@ void timerfd_manager_t::handle_readable()
         trigger_nearest();
     }
     wait_state = 0;
-    set_nearest();
+    set_nearest(true);
 }
 
 void timerfd_manager_t::trigger_nearest()
