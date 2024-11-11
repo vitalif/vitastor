@@ -62,6 +62,7 @@ struct http_co_t
     inline void end() { ended = true; if (!onstack) { delete this; } }
     void run_cb_and_clear();
     void start_connection();
+    void start_ws_connection();
     void close_connection();
     void next_request();
     void handle_events();
@@ -112,7 +113,7 @@ http_co_t* open_websocket(timerfd_manager_t *tfd, const std::string & host, cons
     handler->keepalive = false;
     handler->request = request;
     handler->response_callback = response_callback;
-    handler->start_connection();
+    handler->start_ws_connection();
     return handler;
 }
 
@@ -280,6 +281,27 @@ void http_co_t::close_connection()
     connected_host = "";
     response = "";
     epoll_events = 0;
+}
+
+void http_co_t::start_ws_connection()
+{
+    stackin();
+    start_connection();
+    if (request_timeout > 0)
+    {
+        timeout_id = tfd->set_timer(request_timeout, false, [this](int timer_id)
+        {
+            stackin();
+            if (state != HTTP_CO_WEBSOCKET)
+            {
+                close_connection();
+                parsed = { .error = "Websocket connection timed out" };
+                run_cb_and_clear();
+            }
+            stackout();
+        });
+    }
+    stackout();
 }
 
 void http_co_t::start_connection()
