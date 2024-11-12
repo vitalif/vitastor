@@ -176,7 +176,7 @@ void etcd_state_client_t::add_etcd_url(std::string addr)
             exit(1);
         }
         if (!local_ips.size())
-            local_ips = getifaddr_list();
+            local_ips = getifaddr_list(std::vector<std::string>(), true);
         std::string check_addr;
         int pos = addr.find('/');
         int pos2 = addr.find(':');

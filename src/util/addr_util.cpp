@@ -65,7 +65,7 @@ std::string addr_to_string(const sockaddr_storage &addr)
     return std::string(peer_str)+":"+std::to_string(port);
 }
 
-static bool cidr_match(const in_addr &addr, const in_addr &net, uint8_t bits)
+bool cidr_match(const in_addr &addr, const in_addr &net, uint8_t bits)
 {
     if (bits == 0)
     {
@@ -75,7 +75,7 @@ static bool cidr_match(const in_addr &addr, const in_addr &net, uint8_t bits)
     return !((addr.s_addr ^ net.s_addr) & htonl(0xFFFFFFFFu << (32 - bits)));
 }
 
-static bool cidr6_match(const in6_addr &address, const in6_addr &network, uint8_t bits)
+bool cidr6_match(const in6_addr &address, const in6_addr &network, uint8_t bits)
 {
     const uint32_t *a = address.s6_addr32;
     const uint32_t *n = network.s6_addr32;
@@ -93,47 +93,49 @@ static bool cidr6_match(const in6_addr &address, const in6_addr &network, uint8_
     return true;
 }
 
-struct addr_mask_t
+addr_mask_t cidr_parse(std::string mask)
 {
-    sa_family_t family;
+    unsigned bits = 255;
+    int p = mask.find('/');
+    if (p != std::string::npos)
+    {
+        char null_byte = 0;
+        if (sscanf(mask.c_str()+p+1, "%u%c", &bits, &null_byte) != 1 || bits > 128)
+            throw std::runtime_error("Invalid IP address mask: " + mask);
+        mask = mask.substr(0, p);
+    }
     in_addr ipv4;
     in6_addr ipv6;
-    uint8_t bits;
-};
+    if (inet_pton(AF_INET, mask.c_str(), &ipv4) == 1)
+    {
+        if (bits == 255)
+            bits = 32;
+        if (bits > 32)
+            throw std::runtime_error("Invalid IP address mask: " + mask);
+        return (addr_mask_t){ .family = AF_INET, .ipv4 = ipv4, .bits = (uint8_t)(bits ? bits : 32) };
+    }
+    else if (inet_pton(AF_INET6, mask.c_str(), &ipv6) == 1)
+    {
+        if (bits == 255)
+            bits = 128;
+        return (addr_mask_t){ .family = AF_INET6, .ipv6 = ipv6, .bits = (uint8_t)bits };
+    }
+    else
+    {
+        throw std::runtime_error("Invalid IP address mask: " + mask);
+    }
+}
 
 std::vector<std::string> getifaddr_list(std::vector<std::string> mask_cfg, bool include_v6)
 {
     std::vector<addr_mask_t> masks;
     for (auto mask: mask_cfg)
     {
-        unsigned bits = 0;
-        int p = mask.find('/');
-        if (p != std::string::npos)
+        masks.push_back(cidr_parse(mask));
+        if (masks[masks.size()-1].family == AF_INET6)
         {
-            char null_byte = 0;
-            if (sscanf(mask.c_str()+p+1, "%u%c", &bits, &null_byte) != 1 || bits > 128)
-            {
-                throw std::runtime_error((include_v6 ? "Invalid IPv4 address mask: " : "Invalid IP address mask: ") + mask);
-            }
-            mask = mask.substr(0, p);
-        }
-        in_addr ipv4;
-        in6_addr ipv6;
-        if (inet_pton(AF_INET, mask.c_str(), &ipv4) == 1)
-        {
-            if (bits > 32)
-            {
-                throw std::runtime_error((include_v6 ? "Invalid IPv4 address mask: " : "Invalid IP address mask: ") + mask);
-            }
-            masks.push_back((addr_mask_t){ .family = AF_INET, .ipv4 = ipv4, .bits = (uint8_t)bits });
-        }
-        else if (include_v6 && inet_pton(AF_INET6, mask.c_str(), &ipv6) == 1)
-        {
-            masks.push_back((addr_mask_t){ .family = AF_INET6, .ipv6 = ipv6, .bits = (uint8_t)bits });
-        }
-        else
-        {
-            throw std::runtime_error((include_v6 ? "Invalid IPv4 address mask: " : "Invalid IP address mask: ") + mask);
+            // Auto-enable IPv6 addresses
+            include_v6 = true;
         }
     }
     std::set<std::string> addresses;

@@ -121,7 +121,7 @@ void osd_messenger_t::init()
     if (use_rdma)
     {
         rdma_context = msgr_rdma_context_t::create(
-            rdma_device != "" ? rdma_device.c_str() : NULL,
+            osd_networks, rdma_device != "" ? rdma_device.c_str() : NULL,
             rdma_port_num, rdma_gid_index, rdma_mtu, rdma_odp, log_level
         );
         if (!rdma_context)
@@ -266,7 +266,8 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     this->rdma_port_num = (uint8_t)config["rdma_port_num"].uint64_value();
     if (!this->rdma_port_num)
         this->rdma_port_num = 1;
-    this->rdma_gid_index = (uint8_t)config["rdma_gid_index"].uint64_value();
+    if (!config["rdma_gid_index"].is_null())
+        this->rdma_gid_index = (uint8_t)config["rdma_gid_index"].uint64_value();
     this->rdma_mtu = (uint32_t)config["rdma_mtu"].uint64_value();
     this->rdma_max_sge = config["rdma_max_sge"].uint64_value();
     if (!this->rdma_max_sge)
@@ -281,6 +282,15 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     if (!this->rdma_max_msg || this->rdma_max_msg > 128*1024*1024)
         this->rdma_max_msg = 129*1024;
     this->rdma_odp = config["rdma_odp"].bool_value();
+    std::vector<std::string> mask;
+    if (config["bind_address"].is_string())
+        mask.push_back(config["bind_address"].string_value());
+    else if (config["osd_network"].is_string())
+        mask.push_back(config["osd_network"].string_value());
+    else
+        for (auto v: config["osd_network"].array_items())
+            mask.push_back(v.string_value());
+    this->osd_networks = mask;
 #endif
     if (!osd_num)
         this->iothread_count = (uint32_t)config["client_iothread_count"].uint64_value();

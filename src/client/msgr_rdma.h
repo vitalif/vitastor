@@ -31,12 +31,12 @@ struct msgr_rdma_context_t
     uint8_t ib_port;
     uint8_t gid_index;
     uint16_t my_lid;
-    ibv_gid my_gid;
+    ibv_gid_entry my_gid;
     uint32_t mtu;
     int max_cqe = 0;
     int used_max_cqe = 0;
 
-    static msgr_rdma_context_t *create(const char *ib_devname, uint8_t ib_port, uint8_t gid_index, uint32_t mtu, bool odp, int log_level);
+    static msgr_rdma_context_t *create(std::vector<std::string> osd_networks, const char *ib_devname, uint8_t ib_port, uint8_t gid_index, uint32_t mtu, bool odp, int log_level);
     ~msgr_rdma_context_t();
 };
 
