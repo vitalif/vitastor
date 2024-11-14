@@ -9,6 +9,10 @@ void osd_t::autosync()
 {
     if (immediate_commit != IMMEDIATE_ALL && !autosync_op)
     {
+        if (autosync_copies_to_delete > 0)
+        {
+            autosync_copies_to_delete--;
+        }
         autosync_op = new osd_op_t();
         autosync_op->op_type = OSD_OP_IN;
         autosync_op->peer_fd = SELF_FD;
@@ -29,6 +33,11 @@ void osd_t::autosync()
             }
             delete autosync_op;
             autosync_op = NULL;
+            if (autosync_copies_to_delete > 0)
+            {
+                // Trigger the second "copies_to_delete" autosync
+                autosync();
+            }
         };
         exec_op(autosync_op);
     }

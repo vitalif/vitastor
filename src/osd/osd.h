@@ -150,7 +150,7 @@ class osd_t
     bool pg_config_applied = false;
     bool etcd_reporting_pg_state = false;
     bool etcd_reporting_stats = false;
-    int autosync_timer_id = -1, print_stats_timer_id = -1, slow_log_timer_id = -1;
+    int print_stats_timer_id = -1, slow_log_timer_id = -1;
 
     // peers and PGs
 
@@ -168,6 +168,8 @@ class osd_t
     object_id recovery_last_oid;
     int recovery_pg_done = 0, recovery_done = 0;
     osd_op_t *autosync_op = NULL;
+    int autosync_copies_to_delete = 0;
+    int autosync_timer_id = -1;
 
     // Scrubbing
     uint64_t scrub_nearest_ts = 0;

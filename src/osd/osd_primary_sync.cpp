@@ -213,6 +213,15 @@ resume_8:
         {
             goto resume_6;
         }
+        if (immediate_commit == IMMEDIATE_NONE)
+        {
+            // Mark OSDs as dirty because deletions have to be synced too!
+            for (int i = 0; i < op_data->copies_to_delete_count; i++)
+            {
+                auto & chunk = op_data->copies_to_delete[i];
+                this->dirty_osds.insert(chunk.osd_num);
+            }
+        }
     }
     for (int i = 0; i < op_data->dirty_pg_count; i++)
     {
@@ -227,7 +236,7 @@ resume_8:
             start_pg_peering(pg);
         }
     }
-    // FIXME: Free those in the destructor?
+    // FIXME: Free those in the destructor (not here)?
     free(op_data->dirty_pgs);
     op_data->dirty_pgs = NULL;
     op_data->dirty_osds = NULL;

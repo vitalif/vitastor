@@ -645,6 +645,18 @@ void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **objec
     {
         throw std::runtime_error("BUG: Invalid object state: "+std::to_string((*object_state)->state));
     }
+    if (changed && immediate_commit != IMMEDIATE_ALL)
+    {
+        // Trigger double automatic sync after changing PG state when we're running with fsyncs.
+        // First autosync commits all written objects and applies copies_to_delete_after_sync;
+        // Second autosync commits all deletions run by the first sync.
+        // Without it, rebalancing in a cluster without load may result in some small amount of
+        // garbage left on "extra" OSDs of the PG, because last deletions are not synced at all.
+        // FIXME: 1000% correct way is to switch PG state only after copies_to_delete_after_sync.
+        // But it's much more complicated.
+        unstable_write_count += autosync_writes;
+        autosync_copies_to_delete = 2;
+    }
     if (changed && report)
     {
         report_pg_state(pg);
