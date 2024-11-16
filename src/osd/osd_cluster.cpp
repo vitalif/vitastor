@@ -201,6 +201,14 @@ json11::Json osd_t::get_statistics()
     st["immediate_commit"] = immediate_commit == IMMEDIATE_ALL ? "all" : (immediate_commit == IMMEDIATE_SMALL ? "small" : "none");
     st["host"] = self_state["host"];
     st["version"] = VITASTOR_VERSION;
+    if (cur_slow_op_primary > 0)
+    {
+        st["slow_ops_primary"] = cur_slow_op_primary;
+    }
+    if (cur_slow_op_secondary > 0)
+    {
+        st["slow_ops_secondary"] = cur_slow_op_secondary;
+    }
     json11::Json::object op_stats, subop_stats;
     for (int i = OSD_OP_MIN; i <= OSD_OP_MAX; i++)
     {

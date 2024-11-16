@@ -134,6 +134,7 @@ resume_2:
         }
         int osd_count = 0, osd_up = 0;
         uint64_t total_raw = 0, free_raw = 0, free_down_raw = 0, down_raw = 0;
+        std::vector<uint64_t> slow_op_primary_osds, slow_op_secondary_osds;
         parent->iterate_kvs_1(osd_stats, "/osd/stats/", [&](uint64_t stat_osd_num, json11::Json value)
         {
             osd_count++;
@@ -153,6 +154,14 @@ resume_2:
             if (peer_it != parent->cli->st_cli.peer_states.end())
             {
                 osd_up++;
+                if (value["slow_ops_primary"].uint64_value() > 0)
+                {
+                    slow_op_primary_osds.push_back(stat_osd_num);
+                }
+                if (value["slow_ops_secondary"].uint64_value() > 0)
+                {
+                    slow_op_secondary_osds.push_back(stat_osd_num);
+                }
             }
             else
             {
@@ -216,6 +225,10 @@ resume_2:
                 { "mon_master", mon_master },
                 { "osd_up", osd_up },
                 { "osd_count", osd_count },
+                { "osds_full", osds_full },
+                { "osds_nearfull", osds_nearfull },
+                { "osds_primary_slow_ops", slow_op_primary_osds },
+                { "osds_secondary_slow_ops", slow_op_secondary_osds },
                 { "total_raw", total_raw },
                 { "free_raw", free_raw },
                 { "down_raw", down_raw },
@@ -299,6 +312,26 @@ resume_2:
         {
             warning_str += "    "+std::to_string(osds_nearfull)+
                 (osds_nearfull > 1 ? " osds are almost full\n" : " osd is almost full\n");
+        }
+        if (slow_op_primary_osds.size() > 0)
+        {
+            warning_str += "    "+std::to_string(slow_op_primary_osds.size());
+            warning_str += (slow_op_primary_osds.size() > 1 ? " osds have" : " osd has");
+            warning_str += " slow client ops: ";
+            for (int i = 0; i < slow_op_primary_osds.size(); i++)
+            {
+                warning_str += (i > 0 ? ", " : "")+std::to_string(slow_op_primary_osds[i])+"\n";
+            }
+        }
+        if (slow_op_secondary_osds.size() > 0)
+        {
+            warning_str += "    "+std::to_string(slow_op_secondary_osds.size());
+            warning_str += (slow_op_secondary_osds.size() > 1 ? " osds have" : " osd has");
+            warning_str += " slow replication ops: ";
+            for (int i = 0; i < slow_op_secondary_osds.size(); i++)
+            {
+                warning_str += (i > 0 ? ", " : "")+std::to_string(slow_op_secondary_osds[i])+"\n";
+            }
         }
         if (warning_str != "")
         {

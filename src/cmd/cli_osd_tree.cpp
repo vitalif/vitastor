@@ -216,7 +216,7 @@ resume_1:
                 for (uint64_t osd_num: node.child_osds)
                 {
                     auto & osd = placement_tree->osds.at(osd_num);
-                    fmt_items.push_back(json11::Json::object{
+                    auto json_osd = json11::Json::object{
                         { "type", "osd" },
                         { "name", osd.num },
                         { "parent", node.name },
@@ -230,7 +230,16 @@ resume_1:
                         { "bitmap", (uint64_t)osd.bitmap_granularity },
                         { "commit", osd.immediate_commit == IMMEDIATE_NONE ? "none" : (osd.immediate_commit == IMMEDIATE_ALL ? "all" : "small") },
                         { "op_stats", osd_stats[osd_num]["op_stats"] },
-                    });
+                    };
+                    if (osd_stats[osd_num]["slow_ops_primary"].uint64_value() > 0)
+                    {
+                        json_osd["slow_ops_primary"] = osd_stats[osd_num]["slow_ops_primary"];
+                    }
+                    if (osd_stats[osd_num]["slow_ops_secondary"].uint64_value() > 0)
+                    {
+                        json_osd["slow_ops_secondary"] = osd_stats[osd_num]["slow_ops_secondary"];
+                    }
+                    fmt_items.push_back(json_osd);
                 }
             }
             result.data = fmt_items;

@@ -535,10 +535,12 @@ void osd_t::print_stats()
 
 void osd_t::print_slow()
 {
-    bool has_slow = false;
+    cur_slow_op_primary = 0;
+    cur_slow_op_secondary = 0;
     char alloc[1024];
     timespec now;
     clock_gettime(CLOCK_REALTIME, &now);
+    // FIXME: Also track slow local blockstore ops and recovery/flush/scrub ops
     for (auto & kv: msgr.clients)
     {
         for (auto op: kv.second->received_ops)
@@ -608,6 +610,7 @@ void osd_t::print_slow()
                     op->req.hdr.opcode == OSD_OP_SEC_STABILIZE || op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK ||
                     op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
                 {
+                    cur_slow_op_secondary++;
                     bufprintf(" state=%d", op->bs_op ? PRIV(op->bs_op)->op_state : -1);
                     int wait_for = op->bs_op ? PRIV(op->bs_op)->wait_for : 0;
                     if (wait_for)
@@ -618,15 +621,19 @@ void osd_t::print_slow()
                 else if (op->req.hdr.opcode == OSD_OP_READ || op->req.hdr.opcode == OSD_OP_WRITE ||
                     op->req.hdr.opcode == OSD_OP_SYNC || op->req.hdr.opcode == OSD_OP_DELETE)
                 {
+                    cur_slow_op_primary++;
                     bufprintf(" state=%d", !op->op_data ? -1 : op->op_data->st);
+                }
+                else
+                {
+                    cur_slow_op_primary++;
                 }
 #undef bufprintf
                 printf("%s\n", alloc);
-                has_slow = true;
             }
         }
     }
-    if (has_slow && bs)
+    if ((cur_slow_op_primary+cur_slow_op_secondary) > 0 && bs)
     {
         bs->dump_diagnostics();
     }

@@ -151,6 +151,8 @@ class osd_t
     bool etcd_reporting_pg_state = false;
     bool etcd_reporting_stats = false;
     int print_stats_timer_id = -1, slow_log_timer_id = -1;
+    uint64_t cur_slow_op_primary = 0;
+    uint64_t cur_slow_op_secondary = 0;
 
     // peers and PGs
 
