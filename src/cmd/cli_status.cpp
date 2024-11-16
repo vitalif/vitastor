@@ -142,13 +142,16 @@ resume_2:
             auto osd_free = value["free"].uint64_value();
             total_raw += osd_size;
             free_raw += osd_free;
-            if (!osd_free)
+            if (osd_size)
             {
-                osds_full++;
-            }
-            else if (osd_free < (uint64_t)(osd_size*(1-osd_nearfull_ratio)))
-            {
-                osds_nearfull++;
+                if (!osd_free)
+                {
+                    osds_full++;
+                }
+                else if (osd_free < (uint64_t)(osd_size*(1-osd_nearfull_ratio)))
+                {
+                    osds_nearfull++;
+                }
             }
             auto peer_it = parent->cli->st_cli.peer_states.find(stat_osd_num);
             if (peer_it != parent->cli->st_cli.peer_states.end())
