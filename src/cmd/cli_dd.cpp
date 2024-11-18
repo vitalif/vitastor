@@ -261,6 +261,7 @@ struct dd_out_info_t
             else
             {
                 // ok
+                out_size = owatch->cfg.size;
                 return true;
             }
             // Wait for sub-command
@@ -882,6 +883,8 @@ resume_2:
         oinfo.end_fsync = oinfo.end_fsync && oinfo.out_seekable;
         read_offset = 0;
         read_end = iinfo.in_seekable ? iinfo.in_size-iseek : 0;
+        if (oinfo.out_size && (!read_end || read_end > oinfo.out_size-oseek))
+            read_end = oinfo.out_size-oseek;
         if (bytelimit && (!read_end || read_end > bytelimit))
             read_end = bytelimit;
         clock_gettime(CLOCK_REALTIME, &tv_begin);
