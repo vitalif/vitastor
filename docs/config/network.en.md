@@ -68,11 +68,15 @@ but they are not connected to the cluster.
 - Type: string
 
 RDMA device name to use for Vitastor OSD communications (for example,
-"rocep5s0f0"). Now Vitastor supports all adapters, even ones without
-ODP support, like Mellanox ConnectX-3 and non-Mellanox cards.
+"rocep5s0f0"). If not specified, Vitastor will try to find an RoCE
+device matching [osd_network](osd.en.md#osd_network), preferring RoCEv2,
+or choose the first available RDMA device if no RoCE devices are
+found or if `osd_network` is not specified.
 
-Versions up to Vitastor 1.2.0 required ODP which is only present in
-Mellanox ConnectX >= 4. See also [rdma_odp](#rdma_odp).
+Vitastor supports all adapters, even ones without ODP support, like
+Mellanox ConnectX-3 and non-Mellanox cards. Versions up to Vitastor
+1.2.0 required ODP which is only present in Mellanox ConnectX >= 4.
+See also [rdma_odp](#rdma_odp).
 
 Run `ibv_devinfo -v` as root to list available RDMA devices and their
 features.
@@ -95,15 +99,16 @@ your device has.
 ## rdma_gid_index
 
 - Type: integer
-- Default: 0
 
 Global address identifier index of the RDMA device to use. Different GID
 indexes may correspond to different protocols like RoCEv1, RoCEv2 and iWARP.
 Search for "GID" in `ibv_devinfo -v` output to determine which GID index
 you need.
 
-**IMPORTANT:** If you want to use RoCEv2 (as recommended) then the correct
-rdma_gid_index is usually 1 (IPv6) or 3 (IPv4).
+If not specified, Vitastor will try to auto-select a RoCEv2 IPv4 GID, then
+RoCEv2 IPv6 GID, then RoCEv1 IPv4 GID, then RoCEv1 IPv6 GID, then IB GID.
+
+A correct rdma_gid_index for RoCEv2 is usually 1 (IPv6) or 3 (IPv4).
 
 ## rdma_mtu
 

@@ -131,6 +131,7 @@ static matched_dev match_device(ibv_device **dev_list, addr_mask_t *networks, in
     ibv_port_attr portinfo;
     ibv_gid_entry best_gidx;
     int res;
+    bool have_non_roce = false, have_roce = false;
     for (int i = 0; dev_list[i]; ++i)
     {
         auto dev = dev_list[i];
@@ -161,6 +162,11 @@ static matched_dev match_device(ibv_device **dev_list, addr_mask_t *networks, in
                     else
                         break;
                 }
+                if (gidx.gid_type != IBV_GID_TYPE_ROCE_V1 &&
+                    gidx.gid_type != IBV_GID_TYPE_ROCE_V2)
+                    have_non_roce = true;
+                else
+                    have_roce = true;
                 if (match_gid(&gidx, networks, nnet))
                 {
                     // Prefer RoCEv2
@@ -185,6 +191,10 @@ cleanup:
     if (best.dev >= 0 && log_level > 0)
     {
         log_rdma_dev_port_gid(dev_list[best.dev], best.port, best.gid, best_gidx);
+    }
+    if (best.dev < 0 && have_non_roce && !have_roce)
+    {
+        best.dev = -2;
     }
     return best;
 }
@@ -237,11 +247,17 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(std::vector<std::string> osd_ne
             nets.push_back(cidr_parse(netstr));
         }
         auto best = match_device(dev_list, nets.data(), nets.size(), log_level);
-        if (best.dev < 0)
+        if (best.dev == -2)
+        {
+            best.dev = 0;
+            if (log_level > 0)
+                fprintf(stderr, "No RoCE devices found, using first available RDMA device %s\n", ibv_get_device_name(*dev_list));
+        }
+        else if (best.dev < 0)
         {
             if (log_level > 0)
-                fprintf(stderr, "RDMA device matching osd_network is not found, using first available device\n");
-            best.dev = 0;
+                fprintf(stderr, "RDMA device matching osd_network is not found, disabling RDMA\n");
+            goto cleanup;
         }
         else
         {
@@ -301,10 +317,11 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(std::vector<std::string> osd_ne
             {
                 continue;
             }
-            // Prefer IPv4 RoCEv2 GID by default
+            // Prefer IPv4 RoCEv2 -> IPv6 RoCEv2 -> IPv4 RoCEv1 -> IPv6 RoCEv1 -> IB
             if (gid_index == -1 ||
-                gidx.gid_type == IBV_GID_TYPE_ROCE_V2 &&
-                (ctx->my_gid.gid_type != IBV_GID_TYPE_ROCE_V2 || is_ipv4_gid(&gidx)))
+                gidx.gid_type == IBV_GID_TYPE_ROCE_V2 && ctx->my_gid.gid_type != IBV_GID_TYPE_ROCE_V2 ||
+                gidx.gid_type == IBV_GID_TYPE_ROCE_V1 && ctx->my_gid.gid_type == IBV_GID_TYPE_IB ||
+                gidx.gid_type == ctx->my_gid.gid_type && is_ipv4_gid(&gidx))
             {
                 gid_index = k;
                 ctx->my_gid = gidx;
