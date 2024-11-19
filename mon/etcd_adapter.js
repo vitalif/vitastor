@@ -232,6 +232,7 @@ class EtcdAdapter
     async become_master()
     {
         const state = { ...this.mon.get_mon_state(), id: ''+this.mon.etcd_lease_id };
+        console.log('Waiting to become master');
         // eslint-disable-next-line no-constant-condition
         while (1)
         {
@@ -243,7 +244,6 @@ class EtcdAdapter
             {
                 break;
             }
-            console.log('Waiting to become master');
             await new Promise(ok => setTimeout(ok, this.mon.config.etcd_start_timeout));
         }
         console.log('Became master');
