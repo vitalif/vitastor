@@ -74,6 +74,7 @@ class Mon
         this.state = JSON.parse(JSON.stringify(etcd_tree));
         this.prev_stats = { osd_stats: {}, osd_diff: {} };
         this.recheck_pgs_active = false;
+        this.updating_total_stats = false;
         this.watcher_active = false;
         this.old_pg_config = false;
         this.old_pg_stats_seen = false;
@@ -658,7 +659,13 @@ class Mon
                 this.etcd_watch_revision, pool_id, up_osds, osd_tree, real_prev_pgs, pool_res.pgs, pg_history);
         }
         new_pg_config.hash = tree_hash;
-        return await this.save_pg_config(new_pg_config, etcd_request);
+        const { backfillfull_pools } = sum_object_counts({ ...this.state, pg: { ...this.state.pg, config: new_pg_config } }, this.config);
+        new_pg_config.backfillfull_pools = backfillfull_pools.length ? backfillfull_pools : undefined;
+        if (!await this.save_pg_config(new_pg_config, etcd_request))
+        {
+            return false;
+        }
+        return true;
     }
 
     async save_pg_config(new_pg_config, etcd_request = { compare: [], success: [] })
@@ -730,7 +737,7 @@ class Mon
     async update_total_stats()
     {
         const txn = [];
-        const { object_counts, object_bytes } = sum_object_counts(this.state, this.config);
+        const { object_counts, object_bytes, backfillfull_pools } = sum_object_counts(this.state, this.config);
         let stats = sum_op_stats(this.state.osd, this.prev_stats);
         let { inode_stats, seen_pools } = sum_inode_stats(this.state, this.prev_stats);
         stats.object_counts = object_counts;
@@ -783,6 +790,16 @@ class Mon
         {
             await this.etcd.etcd_call('/kv/txn', { success: txn }, this.config.etcd_mon_timeout, 0);
         }
+        if (!this.recheck_pgs_active &&
+            backfillfull_pools.join(',') != ((this.state.pg.config||{}).no_rebalance_pools||[]).join(','))
+        {
+            console.log(
+                (backfillfull_pools.length ? 'Pool(s) '+backfillfull_pools.join(', ') : 'No pools')+
+                ' are backfillfull, applying rebalance configuration'
+            );
+            const new_pg_config = { ...this.state.pg.config, backfillfull_pools: backfillfull_pools.length ? backfillfull_pools : undefined };
+            await this.save_pg_config(new_pg_config);
+        }
     }
 
     schedule_update_stats()
@@ -794,7 +811,21 @@ class Mon
         this.stats_timer = setTimeout(() =>
         {
             this.stats_timer = null;
-            this.update_total_stats().catch(console.error);
+            if (this.updating_total_stats)
+            {
+                this.schedule_update_stats();
+                return;
+            }
+            this.updating_total_stats = true;
+            try
+            {
+                this.update_total_stats().catch(console.error);
+            }
+            catch (e)
+            {
+                console.error(e);
+            }
+            this.updating_total_stats = false;
         }, this.config.mon_stats_timeout);
     }
 

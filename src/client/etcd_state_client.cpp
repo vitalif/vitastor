@@ -785,7 +785,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         }
         for (auto & pool_item: value.object_items())
         {
-            pool_config_t pc;
+            pool_config_t pc = {};
             // ID
             pool_id_t pool_id;
             char null_byte = 0;
@@ -931,12 +931,28 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             // Ignore old key if the new one is present
             return;
         }
+        for (auto & pool_id_json: value["backfillfull_pools"].array_items())
+        {
+            auto pool_id = pool_id_json.uint64_value();
+            auto pool_it = this->pool_config.find(pool_id);
+            if (pool_it != this->pool_config.end())
+            {
+                pool_it->second.backfillfull |= 2;
+            }
+        }
         for (auto & pool_item: this->pool_config)
         {
             for (auto & pg_item: pool_item.second.pg_config)
             {
                 pg_item.second.config_exists = false;
             }
+            // 3 = was 1 and became 1, 0 = was 0 and became 0
+            if (pool_item.second.backfillfull == 2 || pool_item.second.backfillfull == 1)
+            {
+                if (on_change_backfillfull_hook)
+                    on_change_backfillfull_hook(pool_item.first);
+            }
+            pool_item.second.backfillfull = pool_item.second.backfillfull >> 1;
         }
         for (auto & pool_item: value["items"].object_items())
         {

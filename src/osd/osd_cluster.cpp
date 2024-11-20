@@ -65,6 +65,7 @@ void osd_t::init_cluster()
         st_cli.tfd = tfd;
         st_cli.log_level = log_level;
         st_cli.on_change_osd_state_hook = [this](osd_num_t peer_osd) { on_change_osd_state_hook(peer_osd); };
+        st_cli.on_change_backfillfull_hook = [this](pool_id_t pool_id) { on_change_backfillfull_hook(pool_id); };
         st_cli.on_change_pg_history_hook = [this](pool_id_t pool_id, pg_num_t pg_num) { on_change_pg_history_hook(pool_id, pg_num); };
         st_cli.on_change_hook = [this](std::map<std::string, etcd_kv_t> & changes) { on_change_etcd_state_hook(changes); };
         st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
@@ -411,6 +412,14 @@ void osd_t::on_change_osd_state_hook(osd_num_t peer_osd)
     if (msgr.wanted_peers.find(peer_osd) != msgr.wanted_peers.end())
     {
         msgr.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
+    }
+}
+
+void osd_t::on_change_backfillfull_hook(pool_id_t pool_id)
+{
+    if (!(peering_state & (OSD_RECOVERING | OSD_FLUSHING_PGS)))
+    {
+        peering_state = peering_state | OSD_RECOVERING;
     }
 }
 

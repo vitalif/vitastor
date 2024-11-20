@@ -252,10 +252,18 @@ bool osd_t::pick_next_recovery(osd_recovery_op_t &op)
             auto mask = recovery_last_degraded ? (PG_ACTIVE | PG_HAS_DEGRADED) : (PG_ACTIVE | PG_DEGRADED | PG_HAS_MISPLACED);
             auto check = recovery_last_degraded ? (PG_ACTIVE | PG_HAS_DEGRADED) : (PG_ACTIVE | PG_HAS_MISPLACED);
             // Restart scanning from the same PG as the last time
+        restart:
             for (auto pg_it = pgs.lower_bound(recovery_last_pg); pg_it != pgs.end(); pg_it++)
             {
                 if ((pg_it->second.state & mask) == check)
                 {
+                    auto pool_it = st_cli.pool_config.find(pg_it->first.pool_id);
+                    if (pool_it != st_cli.pool_config.end() && pool_it->second.backfillfull)
+                    {
+                        // Skip the pool
+                        recovery_last_pg.pool_id++;
+                        goto restart;
+                    }
                     auto & src = recovery_last_degraded ? pg_it->second.degraded_objects : pg_it->second.misplaced_objects;
                     assert(src.size() > 0);
                     // Restart scanning from the next object

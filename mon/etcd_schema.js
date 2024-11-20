@@ -56,6 +56,7 @@ const etcd_tree = {
             osd_out_time: 600, // seconds. min: 0
             placement_levels: { datacenter: 1, rack: 2, host: 3, osd: 4, ... },
             use_old_pg_combinator: false,
+            osd_backfillfull_ratio: 0.99,
             // client and osd
             tcp_header_buffer_size: 65536,
             use_sync_send_recv: false,
