@@ -31,7 +31,7 @@ struct msgr_rdma_context_t
     uint8_t ib_port;
     uint8_t gid_index;
     uint16_t my_lid;
-    ibv_gid_entry my_gid;
+    ibv_gid my_gid;
     uint32_t mtu;
     int max_cqe = 0;
     int used_max_cqe = 0;

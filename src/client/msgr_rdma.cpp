@@ -70,6 +70,7 @@ msgr_rdma_connection_t::~msgr_rdma_connection_t()
     send_out_size = 0;
 }
 
+#ifdef IBV_ADVISE_MR_ADVICE_PREFETCH_NO_FAULT
 static bool is_ipv4_gid(ibv_gid_entry *gidx)
 {
     return (((uint64_t*)gidx->gid.raw)[0] == 0 &&
@@ -198,6 +199,7 @@ cleanup:
     }
     return best;
 }
+#endif
 
 msgr_rdma_context_t *msgr_rdma_context_t::create(std::vector<std::string> osd_networks, const char *ib_devname, uint8_t ib_port, uint8_t gid_index, uint32_t mtu, bool odp, int log_level)
 {
@@ -239,6 +241,7 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(std::vector<std::string> osd_ne
             goto cleanup;
         }
     }
+#ifdef IBV_ADVISE_MR_ADVICE_PREFETCH_NO_FAULT
     else if (osd_networks.size())
     {
         std::vector<addr_mask_t> nets;
@@ -266,6 +269,7 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(std::vector<std::string> osd_ne
         }
         ctx->dev = dev_list[best.dev];
     }
+#endif
     else
     {
         ctx->dev = *dev_list;
@@ -291,18 +295,22 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(std::vector<std::string> osd_ne
         goto cleanup;
     }
 
+#ifdef IBV_ADVISE_MR_ADVICE_PREFETCH_NO_FAULT
     if (gid_index != -1)
+#endif
     {
-        ctx->gid_index = gid_index;
-        if (ibv_query_gid_ex(ctx->context, ib_port, gid_index, &ctx->my_gid, 0))
+        ctx->gid_index = gid_index < 0 ? 0 : gid_index;
+        if (ibv_query_gid(ctx->context, ib_port, gid_index, &ctx->my_gid))
         {
             fprintf(stderr, "Couldn't read RDMA device %s GID index %d\n", ibv_get_device_name(ctx->dev), gid_index);
             goto cleanup;
         }
     }
+#ifdef IBV_ADVISE_MR_ADVICE_PREFETCH_NO_FAULT
     else
     {
         // Auto-guess GID
+        ibv_gid_entry best_gidx;
         for (int k = 0; k < ctx->portinfo.gid_tbl_len; k++)
         {
             ibv_gid_entry gidx;
@@ -319,20 +327,22 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(std::vector<std::string> osd_ne
             }
             // Prefer IPv4 RoCEv2 -> IPv6 RoCEv2 -> IPv4 RoCEv1 -> IPv6 RoCEv1 -> IB
             if (gid_index == -1 ||
-                gidx.gid_type == IBV_GID_TYPE_ROCE_V2 && ctx->my_gid.gid_type != IBV_GID_TYPE_ROCE_V2 ||
-                gidx.gid_type == IBV_GID_TYPE_ROCE_V1 && ctx->my_gid.gid_type == IBV_GID_TYPE_IB ||
-                gidx.gid_type == ctx->my_gid.gid_type && is_ipv4_gid(&gidx))
+                gidx.gid_type == IBV_GID_TYPE_ROCE_V2 && best_gidx.gid_type != IBV_GID_TYPE_ROCE_V2 ||
+                gidx.gid_type == IBV_GID_TYPE_ROCE_V1 && best_gidx.gid_type == IBV_GID_TYPE_IB ||
+                gidx.gid_type == best_gidx.gid_type && is_ipv4_gid(&gidx))
             {
                 gid_index = k;
-                ctx->my_gid = gidx;
+                best_gidx = gidx;
             }
         }
         ctx->gid_index = gid_index = (gid_index == -1 ? 0 : gid_index);
         if (log_level > 0)
         {
-            log_rdma_dev_port_gid(ctx->dev, ctx->ib_port, ctx->gid_index, ctx->my_gid);
+            log_rdma_dev_port_gid(ctx->dev, ctx->ib_port, ctx->gid_index, best_gidx);
         }
+        ctx->my_gid = best_gidx.gid;
     }
+#endif
 
     ctx->pd = ibv_alloc_pd(ctx->context);
     if (!ctx->pd)
@@ -448,7 +458,7 @@ msgr_rdma_connection_t *msgr_rdma_connection_t::create(msgr_rdma_context_t *ctx,
     }
 
     conn->addr.lid = ctx->my_lid;
-    conn->addr.gid = ctx->my_gid.gid;
+    conn->addr.gid = ctx->my_gid;
     conn->addr.qpn = conn->qp->qp_num;
     conn->addr.psn = lrand48() & 0xffffff;
 
