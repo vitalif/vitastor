@@ -35,6 +35,7 @@ struct pool_creator_t
     uint64_t new_pools_mod_rev;
     json11::Json state_node_tree;
     json11::Json new_pools;
+    std::map<osd_num_t, json11::Json> osd_stats;
 
     bool is_done() { return state == 100; }
 
@@ -46,8 +47,6 @@ struct pool_creator_t
             goto resume_2;
         else if (state == 3)
             goto resume_3;
-        else if (state == 4)
-            goto resume_4;
         else if (state == 5)
             goto resume_5;
         else if (state == 6)
@@ -121,15 +120,15 @@ resume_2:
             // Get state_node_tree based on node_placement and osd stats
             {
                 auto node_placement_kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
-                std::map<osd_num_t, json11::Json> osd_stats;
                 timespec tv_now;
                 clock_gettime(CLOCK_REALTIME, &tv_now);
                 uint64_t osd_out_time = parent->cli->config["osd_out_time"].uint64_value();
                 if (!osd_out_time)
                     osd_out_time = 600;
+                osd_stats.clear();
                 parent->iterate_kvs_1(parent->etcd_result["responses"][1]["response_range"]["kvs"], "/osd/stats/", [&](uint64_t cur_osd, json11::Json value)
                 {
-                    if (value["time"].uint64_value()+osd_out_time >= tv_now.tv_sec)
+                    if ((uint64_t)value["time"].number_value()+osd_out_time >= tv_now.tv_sec)
                         osd_stats[cur_osd] = value;
                 });
                 state_node_tree = get_state_node_tree(node_placement_kv.value.object_items(), osd_stats);
@@ -175,42 +174,18 @@ resume_3:
                 }
             }
 
-            // Get stats (for block_size, bitmap_granularity, ...) of osds in state_node_tree
-            {
-                json11::Json::array osd_stats;
-
-                for (auto osd_num: state_node_tree["osds"].array_items())
-                {
-                    osd_stats.push_back(json11::Json::object {
-                        { "request_range", json11::Json::object {
-                            { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/osd/stats/"+osd_num.as_string()) },
-                        } }
-                    });
-                }
-
-                parent->etcd_txn(json11::Json::object{ { "success", osd_stats } });
-            }
-
-            state = 4;
-resume_4:
-            if (parent->waiting > 0)
-                return;
-            if (parent->etcd_err.err)
-            {
-                result = parent->etcd_err;
-                state = 100;
-                return;
-            }
-
             // Filter osds from state_node_tree based on pool parameters and osd stats
             {
-                std::vector<json11::Json> osd_stats;
-                for (auto & ocr: parent->etcd_result["responses"].array_items())
+                std::vector<json11::Json> filtered_osd_stats;
+                for (auto & osd_num: state_node_tree["osds"].array_items())
                 {
-                    auto kv = parent->cli->st_cli.parse_etcd_kv(ocr["response_range"]["kvs"][0]);
-                    osd_stats.push_back(kv.value);
+                    auto st_it = osd_stats.find(osd_num.uint64_value());
+                    if (st_it != osd_stats.end())
+                    {
+                        filtered_osd_stats.push_back(st_it->second);
+                    }
                 }
-                guess_block_size(osd_stats);
+                guess_block_size(filtered_osd_stats);
                 state_node_tree = filter_state_node_tree_by_stats(state_node_tree, osd_stats);
             }
 
@@ -218,8 +193,7 @@ resume_4:
             {
                 auto failure_domain = cfg["failure_domain"].string_value() == ""
                     ? "host" : cfg["failure_domain"].string_value();
-                uint64_t max_pg_size = get_max_pg_size(state_node_tree["nodes"].object_items(),
-                    failure_domain, cfg["root_node"].string_value());
+                uint64_t max_pg_size = get_max_pg_size(state_node_tree, failure_domain, cfg["root_node"].string_value());
 
                 if (cfg["pg_size"].uint64_value() > max_pg_size)
                 {
@@ -411,13 +385,11 @@ resume_8:
                 };
             }
 
-            // Add osd if necessary
-            if (node_placement.find(osd_num) == node_placement.end())
-            {
-                node_placement[osd_num] = json11::Json::object {
-                    { "parent", osd_host }
-                };
-            }
+            // Add osd
+            node_placement[osd_num] = json11::Json::object {
+                { "parent", node_placement[osd_num]["parent"].is_null() ? osd_host : node_placement[osd_num]["parent"] },
+                { "level", "osd" },
+            };
         }
 
         return json11::Json::object { { "osds", existing_osds }, { "nodes", node_placement } };
@@ -547,15 +519,13 @@ resume_8:
     // filtered out by stats parameters (block_size, bitmap_granularity) in
     // given osd_stats and current pool config.
     // Requires: state_node_tree["osds"] must match osd_stats 1-1
-    json11::Json filter_state_node_tree_by_stats(const json11::Json & state_node_tree, std::vector<json11::Json> & osd_stats)
+    json11::Json filter_state_node_tree_by_stats(const json11::Json & state_node_tree, std::map<osd_num_t, json11::Json> & osd_stats)
     {
-        auto & osds = state_node_tree["osds"].array_items();
-
         // Accepted state_node_tree nodes
         auto accepted_nodes = state_node_tree["nodes"].object_items();
 
         // List of accepted osds
-        std::vector<std::string> accepted_osds;
+        json11::Json::array accepted_osds;
 
         block_size = cfg["block_size"].uint64_value()
             ? cfg["block_size"].uint64_value()
@@ -567,21 +537,25 @@ resume_8:
             ? etcd_state_client_t::parse_immediate_commit(cfg["immediate_commit"].string_value(), IMMEDIATE_ALL)
             : parent->cli->st_cli.global_immediate_commit;
 
-        for (size_t i = 0; i < osd_stats.size(); i++)
+        for (auto osd_num_json: state_node_tree["osds"].array_items())
         {
-            auto & os = osd_stats[i];
-            // Get osd number
-            auto osd_num = osds[i].as_string();
+            auto osd_num = osd_num_json.uint64_value();
+            auto os_it = osd_stats.find(osd_num);
+            if (os_it == osd_stats.end())
+            {
+                continue;
+            }
+            auto & os = os_it->second;
             if (!os["data_block_size"].is_null() && os["data_block_size"] != block_size ||
                 !os["bitmap_granularity"].is_null() && os["bitmap_granularity"] != bitmap_granularity ||
                 !os["immediate_commit"].is_null() &&
                 etcd_state_client_t::parse_immediate_commit(os["immediate_commit"].string_value(), IMMEDIATE_NONE) < immediate_commit)
             {
-                accepted_nodes.erase(osd_num);
+                accepted_nodes.erase(osd_num_json.as_string());
             }
             else
             {
-                accepted_osds.push_back(osd_num);
+                accepted_osds.push_back(osd_num_json);
             }
         }
 
@@ -589,81 +563,28 @@ resume_8:
     }
 
     // Returns maximum pg_size possible for given node_tree and failure_domain, starting at parent_node
-    uint64_t get_max_pg_size(json11::Json::object node_tree, const std::string & level, const std::string & parent_node)
+    uint64_t get_max_pg_size(json11::Json state_node_tree, const std::string & level, const std::string & root_node)
     {
-        uint64_t max_pg_sz = 0;
-
-        std::vector<std::string> nodes;
-
-        // Check if parent node is an osd (numeric)
-        if (parent_node != "" && stoull_full(parent_node))
+        std::set<std::string> level_seen;
+        for (auto & osd: state_node_tree["osds"].array_items())
         {
-            // Add it to node list if osd is in node tree
-            if (node_tree.find(parent_node) != node_tree.end())
-                nodes.push_back(parent_node);
-        }
-        // If parent node given, ...
-        else if (parent_node != "")
-        {
-            // ... look for child nodes of this parent
-            for (auto & sn: node_tree)
+            // find OSD parent at <level>, but stop at <root_node>
+            auto cur_id = osd.string_value();
+            auto cur = state_node_tree["nodes"][cur_id];
+            while (!cur.is_null())
             {
-                if (sn.second["parent"] == parent_node)
+                if (cur["level"] == level)
                 {
-                    nodes.push_back(sn.first);
-
-                    // If we're not looking for all osds, we only need a single
-                    // child osd node
-                    if (level != "osd" && stoull_full(sn.first))
-                        break;
+                    level_seen.insert(cur_id);
+                    break;
                 }
+                if (cur_id == root_node)
+                    break;
+                cur_id = cur["parent"].string_value();
+                cur = state_node_tree["nodes"][cur_id];
             }
         }
-        // No parent node given, and we're not looking for all osds
-        else if (level != "osd")
-        {
-            // ... look for all level nodes
-            for (auto & sn: node_tree)
-            {
-                if (sn.second["level"] == level)
-                {
-                    nodes.push_back(sn.first);
-                }
-            }
-        }
-        // Otherwise, ...
-        else
-        {
-            // ... we're looking for osd nodes only
-            for (auto & sn: node_tree)
-            {
-                if (stoull_full(sn.first))
-                {
-                    nodes.push_back(sn.first);
-                }
-            }
-        }
-
-        // Process gathered nodes
-        for (auto & node: nodes)
-        {
-            // Check for osd node, return constant max size
-            if (stoull_full(node))
-            {
-                max_pg_sz += 1;
-            }
-            // Otherwise, ...
-            else
-            {
-                // ... exclude parent node from tree, and ...
-                node_tree.erase(parent_node);
-
-                // ... descend onto the resulting tree
-                max_pg_sz += get_max_pg_size(node_tree, level, node);
-            }
-        }
-
-        return max_pg_sz;
+        return level_seen.size();
     }
 
     json11::Json create_pool(const etcd_kv_t & kv)
