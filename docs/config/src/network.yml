@@ -51,7 +51,9 @@
     "rocep5s0f0"). If not specified, Vitastor will try to find an RoCE
     device matching [osd_network](osd.en.md#osd_network), preferring RoCEv2,
     or choose the first available RDMA device if no RoCE devices are
-    found or if `osd_network` is not specified.
+    found or if `osd_network` is not specified. Auto-selection is also
+    unsupported with old libibverbs < v32, like in Debian 10 Buster or
+    CentOS 7.
 
     Vitastor supports all adapters, even ones without ODP support, like
     Mellanox ConnectX-3 and non-Mellanox cards. Versions up to Vitastor
@@ -71,7 +73,8 @@
     Если не указано, Vitastor попробует найти RoCE-устройство, соответствующее
     [osd_network](osd.en.md#osd_network), предпочитая RoCEv2, или выбрать первое
     попавшееся RDMA-устройство, если RoCE-устройств нет или если сеть `osd_network`
-    не задана.
+    не задана. Также автовыбор не поддерживается со старыми версиями библиотеки
+    libibverbs < v32, например в Debian 10 Buster или CentOS 7.
 
     Vitastor поддерживает все модели адаптеров, включая те, у которых
     нет поддержки ODP, то есть вы можете использовать RDMA с ConnectX-3 и
@@ -110,6 +113,7 @@
 
     If not specified, Vitastor will try to auto-select a RoCEv2 IPv4 GID, then
     RoCEv2 IPv6 GID, then RoCEv1 IPv4 GID, then RoCEv1 IPv6 GID, then IB GID.
+    GID auto-selection is unsupported with libibverbs < v32.
 
     A correct rdma_gid_index for RoCEv2 is usually 1 (IPv6) or 3 (IPv4).
   info_ru: |
@@ -120,7 +124,8 @@
 
     Если не указан, Vitastor попробует автоматически выбрать сначала GID,
     соответствующий RoCEv2 IPv4, потом RoCEv2 IPv6, потом RoCEv1 IPv4, потом
-    RoCEv1 IPv6, потом IB.
+    RoCEv1 IPv6, потом IB. Авто-выбор GID не поддерживается со старыми версиями
+    libibverbs < v32.
 
     Правильный rdma_gid_index для RoCEv2, как правило, 1 (IPv6) или 3 (IPv4).
 - name: rdma_mtu

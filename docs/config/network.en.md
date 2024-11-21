@@ -71,7 +71,9 @@ RDMA device name to use for Vitastor OSD communications (for example,
 "rocep5s0f0"). If not specified, Vitastor will try to find an RoCE
 device matching [osd_network](osd.en.md#osd_network), preferring RoCEv2,
 or choose the first available RDMA device if no RoCE devices are
-found or if `osd_network` is not specified.
+found or if `osd_network` is not specified. Auto-selection is also
+unsupported with old libibverbs < v32, like in Debian 10 Buster or
+CentOS 7.
 
 Vitastor supports all adapters, even ones without ODP support, like
 Mellanox ConnectX-3 and non-Mellanox cards. Versions up to Vitastor
@@ -107,6 +109,7 @@ you need.
 
 If not specified, Vitastor will try to auto-select a RoCEv2 IPv4 GID, then
 RoCEv2 IPv6 GID, then RoCEv1 IPv4 GID, then RoCEv1 IPv6 GID, then IB GID.
+GID auto-selection is unsupported with libibverbs < v32.
 
 A correct rdma_gid_index for RoCEv2 is usually 1 (IPv6) or 3 (IPv4).
 
