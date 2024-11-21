@@ -90,13 +90,19 @@ resume_1:
         // If not forced, check that we have enough osds for pg_size
         if (!force)
         {
-            // Get node_placement configuration from etcd
+            // Get node_placement configuration from etcd and OSD stats
             parent->etcd_txn(json11::Json::object {
                 { "success", json11::Json::array {
                     json11::Json::object {
                         { "request_range", json11::Json::object {
                             { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/node_placement") },
-                        } }
+                        } },
+                    },
+                    json11::Json::object {
+                        { "request_range", json11::Json::object {
+                            { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/osd/stats/") },
+                            { "range_end", base64_encode(parent->cli->st_cli.etcd_prefix+"/osd/stats0") },
+                        } },
                     },
                 } },
             });
@@ -112,10 +118,21 @@ resume_2:
                 return;
             }
 
-            // Get state_node_tree based on node_placement and osd peer states
+            // Get state_node_tree based on node_placement and osd stats
             {
-                auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
-                state_node_tree = get_state_node_tree(kv.value.object_items());
+                auto node_placement_kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
+                std::map<osd_num_t, json11::Json> osd_stats;
+                timespec tv_now;
+                clock_gettime(CLOCK_REALTIME, &tv_now);
+                uint64_t osd_out_time = parent->cli->config["osd_out_time"].uint64_value();
+                if (!osd_out_time)
+                    osd_out_time = 600;
+                parent->iterate_kvs_1(parent->etcd_result["responses"][1]["response_range"]["kvs"], "/osd/stats/", [&](uint64_t cur_osd, json11::Json value)
+                {
+                    if (value["time"].uint64_value()+osd_out_time >= tv_now.tv_sec)
+                        osd_stats[cur_osd] = value;
+                });
+                state_node_tree = get_state_node_tree(node_placement_kv.value.object_items(), osd_stats);
             }
 
             // Skip tag checks, if pool has none
@@ -358,56 +375,52 @@ resume_8:
 
     // Returns a JSON object of form {"nodes": {...}, "osds": [...]} that
     // contains: all nodes (osds, hosts, ...) based on node_placement config
-    // and current peer state, and a list of active peer osds.
-    json11::Json get_state_node_tree(json11::Json::object node_placement)
+    // and current osd stats.
+    json11::Json get_state_node_tree(json11::Json::object node_placement, std::map<osd_num_t, json11::Json> & osd_stats)
     {
-        // Erase non-peer osd nodes from node_placement
+        // Erase non-existing osd nodes from node_placement
         for (auto np_it = node_placement.begin(); np_it != node_placement.end();)
         {
             // Numeric nodes are osds
             osd_num_t osd_num = stoull_full(np_it->first);
 
-            // If node is osd and it is not in peer states, erase it
-            if (osd_num > 0 &&
-                parent->cli->st_cli.peer_states.find(osd_num) == parent->cli->st_cli.peer_states.end())
-            {
+            // If node is osd and its stats do not exist, erase it
+            if (osd_num > 0 && osd_stats.find(osd_num) == osd_stats.end())
                 node_placement.erase(np_it++);
-            }
             else
                 np_it++;
         }
 
-        // List of peer osds
-        std::vector<std::string> peer_osds;
+        // List of osds
+        std::vector<std::string> existing_osds;
 
-        // Record peer osds and add missing osds/hosts to np
-        for (auto & ps: parent->cli->st_cli.peer_states)
+        // Record osds and add missing osds/hosts to np
+        for (auto & ps: osd_stats)
         {
             std::string osd_num = std::to_string(ps.first);
 
-            // Record peer osd
-            peer_osds.push_back(osd_num);
+            // Record osd
+            existing_osds.push_back(osd_num);
 
-            // Add osd, if necessary
+            // Add host if necessary
+            std::string osd_host = ps.second["host"].as_string();
+            if (node_placement.find(osd_host) == node_placement.end())
+            {
+                node_placement[osd_host] = json11::Json::object {
+                    { "level", "host" }
+                };
+            }
+
+            // Add osd if necessary
             if (node_placement.find(osd_num) == node_placement.end())
             {
-                std::string osd_host = ps.second["host"].as_string();
-
-                // Add host, if necessary
-                if (node_placement.find(osd_host) == node_placement.end())
-                {
-                    node_placement[osd_host] = json11::Json::object {
-                        { "level", "host" }
-                    };
-                }
-
                 node_placement[osd_num] = json11::Json::object {
                     { "parent", osd_host }
                 };
             }
         }
 
-        return json11::Json::object { { "osds", peer_osds }, { "nodes", node_placement } };
+        return json11::Json::object { { "osds", existing_osds }, { "nodes", node_placement } };
     }
 
     // Returns new state_node_tree based on given state_node_tree with osds
@@ -592,13 +605,10 @@ resume_8:
         // If parent node given, ...
         else if (parent_node != "")
         {
-            // ... look for children nodes of this parent
+            // ... look for child nodes of this parent
             for (auto & sn: node_tree)
             {
-                auto & props = sn.second.object_items();
-
-                auto parent_prop = props.find("parent");
-                if (parent_prop != props.end() && (parent_prop->second.as_string() == parent_node))
+                if (sn.second["parent"] == parent_node)
                 {
                     nodes.push_back(sn.first);
 
@@ -615,10 +625,7 @@ resume_8:
             // ... look for all level nodes
             for (auto & sn: node_tree)
             {
-                auto & props = sn.second.object_items();
-
-                auto level_prop = props.find("level");
-                if (level_prop != props.end() && (level_prop->second.as_string() == level))
+                if (sn.second["level"] == level)
                 {
                     nodes.push_back(sn.first);
                 }

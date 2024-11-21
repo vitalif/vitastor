@@ -19,8 +19,11 @@ ANTIETCD=1 ./test_etcd_fail.sh
 
 ./test_interrupted_rebalance.sh
 IMMEDIATE_COMMIT=1 ./test_interrupted_rebalance.sh
+
 SCHEME=ec ./test_interrupted_rebalance.sh
 SCHEME=ec IMMEDIATE_COMMIT=1 ./test_interrupted_rebalance.sh
+
+./test_create_halfhost.sh
 
 ./test_failure_domain.sh
 
