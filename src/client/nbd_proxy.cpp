@@ -64,7 +64,7 @@ static void netlink_sock_alloc(struct netlink_ctx *ctx)
     if (nl_driver_id < 0)
     {
         nl_socket_free(sk);
-        fail("Couldn't resolve the nbd netlink family\n");
+        fail("Couldn't resolve the nbd netlink family: %s (code %d)\n", nl_geterror(nl_driver_id), nl_driver_id);
     }
 
     ctx->driver_id = nl_driver_id;
@@ -555,7 +555,12 @@ help:
         fcntl(sockfd[0], F_SETFL, fcntl(sockfd[0], F_GETFL, 0) | O_NONBLOCK);
         nbd_fd = sockfd[0];
         load_module();
+
         bool bg = cfg["foreground"].is_null();
+        if (cfg["logfile"].string_value() != "")
+        {
+            logfile = cfg["logfile"].string_value();
+        }
 
         if (netlink)
         {
@@ -588,6 +593,10 @@ help:
             }
             close(sockfd[1]);
             printf("/dev/nbd%d\n", err);
+            if (bg)
+            {
+                daemonize_reopen_stdio();
+            }
 #else
             fprintf(stderr, "netlink support is disabled in this build\n");
             exit(1);
@@ -631,14 +640,10 @@ help:
                     }
                 }
             }
-        }
-        if (cfg["logfile"].string_value() != "")
-        {
-            logfile = cfg["logfile"].string_value();
-        }
-        if (bg)
-        {
-            daemonize();
+            if (bg)
+            {
+                daemonize();
+            }
         }
         // Initialize read state
         read_state = CL_READ_HDR;
@@ -716,13 +721,17 @@ help:
         }
     }
 
-    void daemonize()
+    void daemonize_fork()
     {
         if (fork())
             exit(0);
         setsid();
         if (fork())
             exit(0);
+    }
+
+    void daemonize_reopen_stdio()
+    {
         close(0);
         close(1);
         close(2);
@@ -731,6 +740,12 @@ help:
         open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT, 0666);
         if (chdir("/") != 0)
             fprintf(stderr, "Warning: Failed to chdir into /\n");
+    }
+
+    void daemonize()
+    {
+        daemonize_fork();
+        daemonize_reopen_stdio();
     }
 
     json11::Json::object list_mapped()
@@ -783,8 +798,9 @@ help:
                 if (!strcmp(pid_filename, self_filename))
                 {
                     json11::Json::object cfg = nbd_proxy::parse_args(argv.size(), argv.data());
-                    if (cfg["command"] == "map")
+                    if (cfg["command"] == "map" || cfg["command"] == "netlink-map")
                     {
+                        cfg["interface"] = (cfg["command"] == "netlink-map") ? "netlink" : "nbd";
                         cfg.erase("command");
                         cfg["pid"] = pid;
                         mapped["/dev/nbd"+std::to_string(dev_num)] = cfg;
