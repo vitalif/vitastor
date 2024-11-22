@@ -147,7 +147,7 @@ function sum_object_counts(state, global_config)
                 }
                 if (st.object_count)
                 {
-                    for (const pg_osd in (((state.pg.config.items||{})[pool_id]||{})[pg_num]||{}).osd_set||[])
+                    for (const pg_osd of (((state.pg.config.items||{})[pool_id]||{})[pg_num]||{}).osd_set||[])
                     {
                         if (!(pg_osd in clean_per_osd))
                         {
@@ -163,12 +163,19 @@ function sum_object_counts(state, global_config)
     }
     // If clean_per_osd[osd] is larger than osd capacity then it will fill up during rebalance
     let backfillfull_pools = {};
+    let backfillfull_osds = {};
     for (const osd in clean_per_osd)
     {
         const st = state.osd.stats[osd];
-        if (st && st.size && st.data_block_size && (BigInt(st.size)/BigInt(st.data_block_size)*
-            BigInt((global_config.osd_backfillfull_ratio||0.99)*1000000)/1000000n) < clean_per_osd[osd])
+        if (!st || !st.size || !st.data_block_size)
         {
+            continue;
+        }
+        let cap = BigInt(st.size)/BigInt(st.data_block_size);
+        cap = cap * BigInt((global_config.osd_backfillfull_ratio||0.99)*1000000) / 1000000n;
+        if (cap < clean_per_osd[osd])
+        {
+            backfillfull_osds[osd] = { cap: BigInt(st.size), clean: clean_per_osd[osd]*BigInt(st.data_block_size) };
             for (const pool_id in pool_per_osd[osd])
             {
                 backfillfull_pools[pool_id] = true;
@@ -176,7 +183,7 @@ function sum_object_counts(state, global_config)
         }
     }
     backfillfull_pools = Object.keys(backfillfull_pools).sort();
-    return { object_counts, object_bytes, backfillfull_pools };
+    return { object_counts, object_bytes, backfillfull_pools, backfillfull_osds };
 }
 
 // sum_inode_stats(this.state, this.prev_stats)
