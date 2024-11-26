@@ -218,5 +218,5 @@ All other client-side components are based on the client library:
 - Deleting images in a degraded cluster may currently lead to objects reappearing
   after dead OSDs come back, and in case of erasure-coded pools, they may even
   reappear as incomplete. Just repeat the removal request again in this case.
-  This problem will be fixed in the nearest future, the fix is already implemented
-  in the "epoch-deletions" branch.
+  This problem will be fixed in the future, along with the metadata disk storage
+  format update.
