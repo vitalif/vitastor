@@ -584,6 +584,10 @@ help:
             if (!cfg["nbd_disconnect_on_close"].is_null())
                 cflags |= NBD_CFLAG_DISCONNECT_ON_CLOSE;
 #endif
+            if (bg)
+            {
+                daemonize_fork();
+            }
             int err = netlink_configure(sockfd + 1, 1, devnum, device_size, 4096, flags, cflags, nbd_timeout, nbd_conn_timeout, NULL, revive);
             if (err < 0)
             {
