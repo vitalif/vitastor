@@ -1057,22 +1057,25 @@ static void block_nfs3_readdir_common(void *opaque, rpc_op_t *rop, bool is_plus)
     void *prev = NULL;
     for (auto it = entries.begin(); it != entries.end();)
     {
-        entryplus3 *entry = &it->second;
-        // First fields of entry3 and entryplus3 are the same: fileid, name, cookie
-        entry->name = xdr_copy_string(rop->xdrs, it->first);
-        entry->cookie = idx++;
-        if (prev)
-        {
-            if (is_plus)
-                ((entryplus3*)prev)->nextentry = entry;
-            else
-                ((entry3*)prev)->nextentry = (entry3*)entry;
-        }
-        prev = entry;
-        if (args->cookie > 0 && entry->cookie == args->cookie)
-            entries.erase(entries.begin(), ++it);
+        if (args->cookie > 0 && idx <= args->cookie)
+            entries.erase(it++);
         else
+        {
+            entryplus3 *entry = &it->second;
+            // First fields of entry3 and entryplus3 are the same: fileid, name, cookie
+            entry->name = xdr_copy_string(rop->xdrs, it->first);
+            entry->cookie = idx;
+            if (prev)
+            {
+                if (is_plus)
+                    ((entryplus3*)prev)->nextentry = entry;
+                else
+                    ((entry3*)prev)->nextentry = (entry3*)entry;
+            }
+            prev = entry;
             it++;
+        }
+        idx++;
     }
     // Now limit results based on maximum reply size
     // Sadly we have to calculate reply size by hand
