@@ -259,6 +259,7 @@ inline int xdr_pointer(XDR *xdrs, char **data, unsigned entry_size, xdrproc_t en
                     *(void**)((uint8_t*)ll.base + i*ll.entry_size + ll.link_offset) =
                         (uint8_t*)ll.base + (i+1)*ll.entry_size;
                 }
+                *data = (char*)ll.base;
                 xdrs->allocs.push_back(ll.base);
                 xdrs->in_linked_list.pop_back();
             }
