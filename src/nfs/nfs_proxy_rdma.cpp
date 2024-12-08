@@ -40,29 +40,85 @@ struct nfs_rdma_buf_t
 
 struct nfs_rdma_conn_t;
 
+struct nfs_rdma_dev_state_t
+{
+    rdma_cm_id *cmid = NULL;
+    ibv_device_attr dev_attr;
+    ibv_comp_channel *channel = NULL;
+    ibv_cq *cq = NULL;
+    rdma_allocator_t *alloc = NULL;
+    int max_cqe = 0, used_max_cqe = 0;
+
+    static nfs_rdma_dev_state_t *create(rdma_cm_id *cmid, uint64_t rdma_malloc_round_to, uint64_t rdma_max_unused_buffers);
+    ~nfs_rdma_dev_state_t();
+};
+
+nfs_rdma_dev_state_t *nfs_rdma_dev_state_t::create(rdma_cm_id *cmid, uint64_t rdma_malloc_round_to, uint64_t rdma_max_unused_buffers)
+{
+    nfs_rdma_dev_state_t *self = new nfs_rdma_dev_state_t;
+    self->cmid = cmid;
+    int r = ibv_query_device(cmid->verbs, &self->dev_attr);
+    if (r != 0)
+    {
+        fprintf(stderr, "Failed to query listerning RDMA device: %s (code %d)\n", strerror(r), r);
+        delete self;
+        return NULL;
+    }
+    self->channel = ibv_create_comp_channel(cmid->verbs);
+    if (!self->channel)
+    {
+        fprintf(stderr, "Couldn't create RDMA completion channel\n");
+        delete self;
+        return NULL;
+    }
+    self->max_cqe = 4096;
+    self->cq = ibv_create_cq(cmid->verbs, self->max_cqe, NULL, self->channel, 0);
+    if (!self->cq)
+    {
+        fprintf(stderr, "Couldn't create RDMA completion queue\n");
+        delete self;
+        return NULL;
+    }
+    self->alloc = rdma_malloc_create(cmid->pd, rdma_malloc_round_to, rdma_max_unused_buffers, IBV_ACCESS_LOCAL_WRITE);
+    fcntl(self->channel->fd, F_SETFL, fcntl(self->channel->fd, F_GETFL, 0) | O_NONBLOCK);
+    return self;
+}
+
+nfs_rdma_dev_state_t::~nfs_rdma_dev_state_t()
+{
+    if (cq)
+    {
+        ibv_destroy_cq(cq);
+        cq = NULL;
+    }
+    if (channel)
+    {
+        ibv_destroy_comp_channel(channel);
+        channel = NULL;
+    }
+    if (alloc)
+    {
+        rdma_malloc_destroy(alloc);
+        alloc = NULL;
+    }
+}
+
 struct nfs_rdma_context_t
 {
     std::string bind_address;
     int rdmacm_port = 0;
     uint32_t max_iodepth = 16, max_send_wr = 1024;
-    uint64_t rdma_malloc_round_to = 1048576, rdma_max_unused_buffers = 500*1048576;
+    uint64_t rdma_malloc_round_to = 1048576, rdma_max_unused_buffers = 64*1048576;
     uint64_t max_send_size = 256*1024, max_recv_size = 256*1024;
 
     nfs_proxy_t *proxy = NULL;
     epoll_manager_t *epmgr = NULL;
 
-    int max_cqe = 0, used_max_cqe = 0;
     rdma_event_channel *rdmacm_evch = NULL;
     rdma_cm_id *listener_id = NULL;
-    ibv_device_attr listener_dev_attr; // present only if bound to a specific device
-    ibv_comp_channel *channel = NULL;
-    ibv_cq *cq = NULL;
-    rdma_allocator_t *alloc = NULL;
     std::map<rdma_cm_id*, nfs_rdma_conn_t*> rdma_connections;
-    std::map<uint32_t, nfs_rdma_conn_t*> rdma_connections_by_qp;
 
     ~nfs_rdma_context_t();
-    void handle_io();
     void handle_rdmacm_events();
     void rdmacm_accept(rdma_cm_event *ev);
     void rdmacm_established(rdma_cm_event *ev);
@@ -72,6 +128,7 @@ struct nfs_rdma_conn_t
 {
     nfs_rdma_context_t *ctx = NULL;
     nfs_client_t *client = NULL;
+    nfs_rdma_dev_state_t *conn_dev = NULL;
     rdma_cm_id *id = NULL;
     int max_send_size = 256*1024, max_recv_size = 256*1024;
     int max_buf_size = 256*1024;
@@ -90,6 +147,7 @@ struct nfs_rdma_conn_t
     std::vector<rpc_op_t*> chunk_inbox, chunk_read_postponed;
     int outbox_pos = 0;
 
+    void handle_io();
     void post_initial_receives();
     ~nfs_rdma_conn_t();
     nfs_rdma_buf_t create_buf(size_t len);
@@ -154,40 +212,6 @@ nfs_rdma_context_t* nfs_proxy_t::create_rdma(const std::string & bind_address, i
         delete self;
         return NULL;
     }
-    if (self->listener_id->verbs)
-    {
-        r = ibv_query_device(self->listener_id->verbs, &self->listener_dev_attr);
-        if (r != 0)
-        {
-            fprintf(stderr, "Failed to query listerning RDMA device: %s (code %d)\n", strerror(r), r);
-            delete self;
-            return NULL;
-        }
-    }
-    // FIXME: What if self->listener_id->verbs is empty...
-    self->channel = ibv_create_comp_channel(self->listener_id->verbs);
-    if (!self->channel)
-    {
-        fprintf(stderr, "Couldn't create RDMA completion channel\n");
-        delete self;
-        return NULL;
-    }
-    self->max_cqe = 4096;
-    self->cq = ibv_create_cq(self->listener_id->verbs, self->max_cqe, NULL, self->channel, 0);
-    if (!self->cq)
-    {
-        fprintf(stderr, "Couldn't create RDMA completion queue\n");
-        delete self;
-        return NULL;
-    }
-    self->alloc = rdma_malloc_create(self->listener_id->pd, self->rdma_malloc_round_to, self->rdma_max_unused_buffers, IBV_ACCESS_LOCAL_WRITE);
-    fcntl(self->channel->fd, F_SETFL, fcntl(self->channel->fd, F_GETFL, 0) | O_NONBLOCK);
-    epmgr->tfd->set_fd_handler(self->channel->fd, false, [self](int channel_eventfd, int epoll_events)
-    {
-        self->handle_io();
-    });
-    // run handle_io() once to reset poll state
-    self->handle_io();
     return self;
 }
 
@@ -215,22 +239,6 @@ nfs_rdma_context_t::~nfs_rdma_context_t()
         epmgr->tfd->set_fd_handler(rdmacm_evch->fd, false, NULL);
         rdma_destroy_event_channel(rdmacm_evch);
         rdmacm_evch = NULL;
-    }
-    if (cq)
-    {
-        ibv_destroy_cq(cq);
-        cq = NULL;
-    }
-    if (channel)
-    {
-        epmgr->tfd->set_fd_handler(channel->fd, false, NULL);
-        ibv_destroy_comp_channel(channel);
-        channel = NULL;
-    }
-    if (alloc)
-    {
-        rdma_malloc_destroy(alloc);
-        alloc = NULL;
     }
 }
 
@@ -303,26 +311,15 @@ void nfs_rdma_context_t::handle_rdmacm_events()
 
 void nfs_rdma_context_t::rdmacm_accept(rdma_cm_event *ev)
 {
-    this->used_max_cqe += max_iodepth*2;
-    if (this->used_max_cqe > this->max_cqe)
+    nfs_rdma_dev_state_t *conn_dev = nfs_rdma_dev_state_t::create(ev->id, rdma_malloc_round_to, rdma_max_unused_buffers);
+    if (!conn_dev)
     {
-        // Resize CQ
-        int new_max_cqe = this->max_cqe;
-        while (this->used_max_cqe > new_max_cqe)
-        {
-            new_max_cqe *= 2;
-        }
-        if (ibv_resize_cq(this->cq, new_max_cqe) != 0)
-        {
-            fprintf(stderr, "Couldn't resize RDMA completion queue to %d entries\n", new_max_cqe);
-            rdma_destroy_id(ev->id);
-            return;
-        }
-        this->max_cqe = new_max_cqe;
+        rdma_destroy_id(ev->id);
+        return;
     }
     ibv_qp_init_attr init_attr = {
-        .send_cq = this->cq,
-        .recv_cq = this->cq,
+        .send_cq = conn_dev->cq,
+        .recv_cq = conn_dev->cq,
         .cap     = {
             // each op at each moment takes 1 RDMA_RECV or 1 RDMA_READ or 1 RDMA_WRITE + 1 RDMA_SEND
             .max_send_wr  = max_send_wr,
@@ -336,11 +333,12 @@ void nfs_rdma_context_t::rdmacm_accept(rdma_cm_event *ev)
     if (r != 0)
     {
         fprintf(stderr, "Failed to create a queue pair via RDMA-CM: %s (code %d)\n", strerror(errno), errno);
+        delete conn_dev;
         rdma_destroy_id(ev->id);
         return;
     }
-    assert(ev->id->qp->send_cq == this->cq);
-    assert(ev->id->qp->recv_cq == this->cq);
+    assert(ev->id->qp->send_cq == conn_dev->cq);
+    assert(ev->id->qp->recv_cq == conn_dev->cq);
     nfs_rdmacm_private private_data = {
         .format_identifier = NFS_RDMACM_PRIVATE_DATA_MAGIC_LE,
         .version = 1,
@@ -352,10 +350,10 @@ void nfs_rdma_context_t::rdmacm_accept(rdma_cm_event *ev)
     // so probably RDMA-CM swaps these values in _accept for the "convenience" :)
     int max_rdma_reads = ev->param.conn.initiator_depth;
     // just 16 on ConnectX-4...
-    if (!max_rdma_reads || max_rdma_reads > listener_dev_attr.max_qp_rd_atom)
-        max_rdma_reads = listener_dev_attr.max_qp_rd_atom;
-    if (max_rdma_reads > listener_dev_attr.max_qp_init_rd_atom)
-        max_rdma_reads = listener_dev_attr.max_qp_init_rd_atom;
+    if (!max_rdma_reads || max_rdma_reads > conn_dev->dev_attr.max_qp_rd_atom)
+        max_rdma_reads = conn_dev->dev_attr.max_qp_rd_atom;
+    if (max_rdma_reads > conn_dev->dev_attr.max_qp_init_rd_atom)
+        max_rdma_reads = conn_dev->dev_attr.max_qp_init_rd_atom;
     if (max_rdma_reads > 255)
         max_rdma_reads = 255;
     rdma_conn_param conn_params = {
@@ -365,12 +363,12 @@ void nfs_rdma_context_t::rdmacm_accept(rdma_cm_event *ev)
         .initiator_depth = (uint8_t)max_rdma_reads, // max_qp_init_rd_atom of the local device
         .rnr_retry_count = 7,
     };
-    assert(ev->id->verbs == listener_id->verbs);
     r = rdma_accept(ev->id, &conn_params);
     if (r != 0)
     {
         fprintf(stderr, "Failed to accept RDMA-CM connection: %s (code %d)\n", strerror(errno), errno);
         rdma_destroy_qp(ev->id);
+        delete conn_dev;
         rdma_destroy_id(ev->id);
     }
     else
@@ -383,7 +381,6 @@ void nfs_rdma_context_t::rdmacm_accept(rdma_cm_event *ev)
         conn->max_recv_size = max_recv_size;
         conn->max_rdma_reads = max_rdma_reads;
         rdma_connections[ev->id] = conn;
-        rdma_connections_by_qp[conn->id->qp->qp_num] = conn;
         // Handle NFS private_data
         if (ev->param.conn.private_data_len >= sizeof(nfs_rdmacm_private))
         {
@@ -399,8 +396,15 @@ void nfs_rdma_context_t::rdmacm_accept(rdma_cm_event *ev)
             }
         }
         auto cli = this->proxy->create_client();
-        conn->client = cli;
         cli->rdma_conn = conn;
+        conn->client = cli;
+        conn->conn_dev = conn_dev;
+        epmgr->tfd->set_fd_handler(conn_dev->channel->fd, false, [conn](int channel_eventfd, int epoll_events)
+        {
+            conn->handle_io();
+        });
+        // run handle_io() once to reset poll state
+        conn->handle_io();
         // Post initial receive requests
         conn->post_initial_receives();
     }
@@ -417,12 +421,17 @@ nfs_rdma_conn_t::~nfs_rdma_conn_t()
         free(b.buf);
     }
     recv_buffers.clear();
+    if (conn_dev)
+    {
+        ctx->epmgr->tfd->set_fd_handler(conn_dev->channel->fd, false, NULL);
+        delete conn_dev;
+        conn_dev = NULL;
+    }
     if (id)
     {
         ctx->rdma_connections.erase(id);
         if (id->qp)
         {
-            ctx->rdma_connections_by_qp.erase(id->qp->qp_num);
             rdma_destroy_qp(id);
         }
         rdma_destroy_id(id);
@@ -647,8 +656,8 @@ chunk_error:
         int wr_pos = 0;
         // Use a buffer from rdma_malloc for the reply
         assert(!rop->buffer);
-        rop->buffer = rdma_malloc_alloc(ctx->alloc, hdr_size+msg_size);
-        auto buf_lkey = rdma_malloc_get_lkey(ctx->alloc, rop->buffer);
+        rop->buffer = rdma_malloc_alloc(conn_dev->alloc, hdr_size+msg_size);
+        auto buf_lkey = rdma_malloc_get_lkey(conn_dev->alloc, rop->buffer);
         size_t pos = 0;
         {
             // Copy and free the RDMA-RPC header
@@ -707,7 +716,7 @@ chunk_error:
             sges[wr_pos] = {
                 .addr = (uintptr_t)chunk_iov->iov_base,
                 .length = (uint32_t)chunk_iov->iov_len,
-                .lkey = rdma_malloc_get_lkey(ctx->alloc, chunk_iov->iov_base),
+                .lkey = rdma_malloc_get_lkey(conn_dev->alloc, chunk_iov->iov_base),
             };
             wrs[wr_pos] = {
                 .wr_id = 4, // 4 is chunk write
@@ -757,17 +766,18 @@ chunk_error:
 
 #define RDMA_EVENTS_AT_ONCE 32
 
-void nfs_rdma_context_t::handle_io()
+void nfs_rdma_conn_t::handle_io()
 {
+    auto conn = this;
     // Request next notification
     ibv_cq *ev_cq;
     void *ev_ctx;
     // This is inefficient as it calls read()... (but there is no other way)
-    if (ibv_get_cq_event(channel, &ev_cq, &ev_ctx) == 0)
+    if (ibv_get_cq_event(conn_dev->channel, &ev_cq, &ev_ctx) == 0)
     {
-        ibv_ack_cq_events(cq, 1);
+        ibv_ack_cq_events(conn_dev->cq, 1);
     }
-    if (ibv_req_notify_cq(cq, 0) != 0)
+    if (ibv_req_notify_cq(conn_dev->cq, 0) != 0)
     {
         fprintf(stderr, "Failed to request RDMA completion notification, exiting\n");
         exit(1);
@@ -776,15 +786,9 @@ void nfs_rdma_context_t::handle_io()
     int event_count;
     do
     {
-        event_count = ibv_poll_cq(cq, RDMA_EVENTS_AT_ONCE, wc);
+        event_count = ibv_poll_cq(conn_dev->cq, RDMA_EVENTS_AT_ONCE, wc);
         for (int i = 0; i < event_count; i++)
         {
-            auto conn_it = rdma_connections_by_qp.find(wc[i].qp_num);
-            if (conn_it == rdma_connections_by_qp.end())
-            {
-                continue;
-            }
-            auto conn = conn_it->second;
             if (wc[i].status != IBV_WC_SUCCESS)
             {
                 fprintf(stderr, "RDMA work request failed for queue %d with status: %s, stopping client\n", wc[i].qp_num, ibv_wc_status_str(wc[i].status));
@@ -849,13 +853,13 @@ void nfs_rdma_conn_t::free_rdma_rpc_op(rpc_op_t *rop)
 {
     if (rop->buffer)
     {
-        rdma_malloc_free(ctx->alloc, rop->buffer);
+        rdma_malloc_free(conn_dev->alloc, rop->buffer);
         rop->buffer = NULL;
     }
     auto rdma_chunk = xdr_get_rdma_chunk(rop->xdrs);
     if (rdma_chunk)
     {
-        rdma_malloc_free(ctx->alloc, rdma_chunk);
+        rdma_malloc_free(conn_dev->alloc, rdma_chunk);
         xdr_set_rdma_chunk(rop->xdrs, NULL);
     }
     ctx->proxy->free_xdr(rop->xdrs);
@@ -1004,8 +1008,8 @@ int nfs_rdma_conn_t::post_chunk_reads(rpc_op_t *rop, bool push)
             chunk_read_postponed.push_back(rop);
         return 0;
     }
-    void *buf = rdma_malloc_alloc(ctx->alloc, read_chunk_size);
-    auto buf_lkey = rdma_malloc_get_lkey(ctx->alloc, buf);
+    void *buf = rdma_malloc_alloc(conn_dev->alloc, read_chunk_size);
+    auto buf_lkey = rdma_malloc_get_lkey(conn_dev->alloc, buf);
     ibv_sge chunk_sge[read_chunk_count];
     ibv_send_wr chunk_wr[read_chunk_count];
     size_t i = 0;
@@ -1052,7 +1056,7 @@ int nfs_rdma_conn_t::post_chunk_reads(rpc_op_t *rop, bool push)
 
 void *nfs_client_t::rdma_malloc(size_t size)
 {
-    return rdma_malloc_alloc(rdma_conn->ctx->alloc, size);
+    return rdma_malloc_alloc(rdma_conn->conn_dev->alloc, size);
 }
 
 void nfs_client_t::rdma_free(void *buf)

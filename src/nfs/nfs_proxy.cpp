@@ -75,7 +75,7 @@ static const char* help_text =
     "  --nfs_rdma_credit 16  maximum operation credit for RDMA clients (max iodepth)\n"
     "  --nfs_rdma_send 1024  maximum RDMA send operation count (should be larger than iodepth)\n"
     "  --nfs_rdma_alloc 1M   RDMA memory allocation rounding\n"
-    "  --nfs_rdma_gc 500M    maximum unused RDMA buffers\n"
+    "  --nfs_rdma_gc 64M     maximum unused RDMA buffers\n"
     "\n"
     "vitastor-nfs --fs <NAME> upgrade\n"
     "  Upgrade FS metadata. Can be run online, but server(s) should be restarted\n"
@@ -218,7 +218,7 @@ void nfs_proxy_t::run(json11::Json cfg)
         nfs_rdma_alloc = 1048576;
     nfs_rdma_gc = cfg["nfs_rdma_gc"].uint64_value();
     if (!nfs_rdma_gc)
-        nfs_rdma_gc = 500*1048576;
+        nfs_rdma_gc = 64*1048576;
     export_root = cfg["nfspath"].string_value();
     if (!export_root.size())
         export_root = "/";
