@@ -57,7 +57,7 @@ static void kv_getattr_next(nfs_kv_readdir_state *st)
                 st->entries[idx].name_attributes = (post_op_attr){
                     // FIXME: maybe do not read parent attributes and leave them to a GETATTR?
                     .attributes_follow = 1,
-                    .attributes = get_kv_attributes(st->self, st->entries[idx].fileid, ientry),
+                    .attributes = get_kv_attributes(st->self->parent, st->entries[idx].fileid, ientry),
                 };
             }
             st->getattr_running--;
@@ -126,7 +126,7 @@ resume_1:
             dot.fileid = st->dir_ino;
             dot.name_attributes = (post_op_attr){
                 .attributes_follow = 1,
-                .attributes = get_kv_attributes(st->self, st->dir_ino, st->ientry),
+                .attributes = get_kv_attributes(st->self->parent, st->dir_ino, st->ientry),
             };
             dot.name_handle = (post_op_fh3){
                 .handle_follows = 1,
@@ -169,7 +169,7 @@ resume_2:
         dotdot.name_attributes = (post_op_attr){
             // FIXME: maybe do not read parent attributes and leave them to a GETATTR?
             .attributes_follow = 1,
-            .attributes = get_kv_attributes(st->self,
+            .attributes = get_kv_attributes(st->self->parent,
                 st->parent_ino ? st->parent_ino : st->dir_ino,
                 st->parent_ino ? st->parent_ientry : st->ientry),
         };

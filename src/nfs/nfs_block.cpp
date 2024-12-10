@@ -334,10 +334,22 @@ static int block_nfs3_read_proc(void *opaque, rpc_op_t *rop)
         }
         else
         {
+            nfs_client_t *self = (nfs_client_t*)rop->client;
             auto & reply_ok = reply->resok;
             // reply_ok.data.data is already set above
             reply_ok.count = reply_ok.data.size;
             reply_ok.eof = 0;
+            if (self->rdma_conn)
+            {
+                // FIXME Linux NFS RDMA transport has a bug - when the reply
+                // doesn't contain post_op_attr, the data gets offsetted by
+                // 84 bytes (size of attributes)...
+                // So we have to fill it with RDMA. :-(
+                reply_ok.file_attributes = (post_op_attr){
+                    .attributes_follow = 1,
+                    .attributes = get_file_attributes(self, op->inode),
+                };
+            }
         }
         rpc_queue_reply(rop);
         delete op;

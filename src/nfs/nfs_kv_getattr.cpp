@@ -68,7 +68,7 @@ int kv_nfs3_getattr_proc(void *opaque, rpc_op_t *rop)
             *reply = (GETATTR3res){
                 .status = NFS3_OK,
                 .resok = (GETATTR3resok){
-                    .obj_attributes = get_kv_attributes(self, ino, attrs),
+                    .obj_attributes = get_kv_attributes(self->parent, ino, attrs),
                 },
             };
         }

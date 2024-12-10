@@ -37,6 +37,7 @@ static void nfs_kv_continue_read(nfs_kv_read_state *st, int state)
     else if (state == 1) goto resume_1;
     else if (state == 2) goto resume_2;
     else if (state == 3) goto resume_3;
+    else if (state == 4) goto resume_4;
     else
     {
         fprintf(stderr, "BUG: invalid state in nfs_kv_continue_read()");
@@ -141,6 +142,35 @@ resume_2:
             return;
         }
     }
+    else if (st->self->rdma_conn)
+    {
+        // Take ientry from read_hack_cache for RDMA connections
+        {
+            auto rh_it = st->self->parent->kvfs->read_hack_cache.find(st->ino);
+            if (rh_it != st->self->parent->kvfs->read_hack_cache.end())
+            {
+                st->ientry = rh_it->second;
+            }
+        }
+        if (st->ientry.is_null())
+        {
+            kv_read_inode(st->self->parent, st->ino, [st](int res, const std::string & value, json11::Json attrs)
+            {
+                st->res = res;
+                st->ientry = attrs;
+                nfs_kv_continue_read(st, 4);
+            }, st->allow_cache);
+            return;
+resume_4:
+            if (st->res < 0 || kv_map_type(st->ientry["type"].string_value()) != NF3REG)
+            {
+                auto cb = std::move(st->cb);
+                cb(st->res < 0 ? st->res : -EINVAL);
+                return;
+            }
+            st->self->parent->kvfs->read_hack_cache[st->ino] = st->ientry;
+        }
+    }
     st->aligned_offset = align_down(st->offset);
     st->aligned_size = align_up(st->offset+st->size) - st->aligned_offset;
     assert(!st->aligned_buf);
@@ -198,6 +228,17 @@ int kv_nfs3_read_proc(void *opaque, rpc_op_t *rop)
             reply->resok.data.size = st->size;
             reply->resok.count = st->size;
             reply->resok.eof = st->eof;
+            if (st->self->rdma_conn)
+            {
+                // FIXME Linux NFS RDMA transport has a bug - when the reply
+                // doesn't contain post_op_attr, the data gets offsetted by
+                // 84 bytes (size of attributes)...
+                // So we have to fill it with RDMA. :-(
+                reply->resok.file_attributes = (post_op_attr){
+                    .attributes_follow = 1,
+                    .attributes = get_kv_attributes(st->self->parent, st->ino, st->ientry),
+                };
+            }
         }
         rpc_queue_reply(st->rop);
         delete st;

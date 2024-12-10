@@ -55,7 +55,7 @@ int kv_nfs3_lookup_proc(void *opaque, rpc_op_t *rop)
                     .object = xdr_copy_string(rop->xdrs, kv_fh(ino)),
                     .obj_attributes = {
                         .attributes_follow = 1,
-                        .attributes = get_kv_attributes(self, ino, ientry),
+                        .attributes = get_kv_attributes(self->parent, ino, ientry),
                     },
                 },
             };

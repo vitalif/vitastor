@@ -84,7 +84,7 @@ resume_1:
     }
     st->new_attrs.erase("verf");
     st->new_attrs["ctime"] = nfstime_now_str();
-    st->self->parent->db->set(kv_inode_key(st->ino), json11::Json(st->new_attrs).dump(), [st](int res)
+    st->self->parent->kvfs->write_inode(st->ino, st->new_attrs, false, [st](int res)
     {
         st->res = res;
         nfs_kv_continue_setattr(st, 2);
@@ -190,7 +190,7 @@ int kv_nfs3_setattr_proc(void *opaque, rpc_op_t *rop)
                     .obj_wcc = (wcc_data){
                         .after = (post_op_attr){
                             .attributes_follow = 1,
-                            .attributes = get_kv_attributes(st->self, st->ino, st->new_attrs),
+                            .attributes = get_kv_attributes(st->self->parent, st->ino, st->new_attrs),
                         },
                     },
                 },

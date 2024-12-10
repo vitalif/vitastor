@@ -75,6 +75,7 @@ struct kv_fs_state_t
     std::map<inode_t, kv_inode_extend_t> extends;
     std::set<inode_t> touch_queue;
     std::map<inode_t, uint64_t> volume_removed;
+    std::map<inode_t, json11::Json> read_hack_cache;
     uint64_t volume_stats_ctr = 0;
     uint64_t volume_touch_ctr = 0;
 
@@ -87,6 +88,7 @@ struct kv_fs_state_t
     void upgrade_db(std::function<void(int)> cb);
     void defrag_all(json11::Json cfg, std::function<void(int)> cb);
     void defrag_volume(inode_t ino, bool no_rm, bool dry_run, std::function<void(int, uint64_t, uint64_t, uint64_t)> cb);
+    void write_inode(inode_t ino, json11::Json value, bool hack_cache, std::function<void(int)> cb, std::function<bool(int, const std::string &)> cas_cb);
     ~kv_fs_state_t();
 };
 
@@ -116,7 +118,7 @@ nfstime3 nfstime_from_str(const std::string & s);
 std::string nfstime_to_str(nfstime3 t);
 std::string nfstime_now_str();
 int kv_map_type(const std::string & type);
-fattr3 get_kv_attributes(nfs_client_t *self, uint64_t ino, json11::Json attrs);
+fattr3 get_kv_attributes(nfs_proxy_t *proxy, uint64_t ino, json11::Json attrs);
 std::string kv_direntry_key(uint64_t dir_ino, const std::string & filename);
 std::string kv_direntry_filename(const std::string & key);
 std::string kv_inode_prefix_key(uint64_t ino, const char *prefix);

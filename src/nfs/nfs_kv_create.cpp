@@ -143,7 +143,7 @@ resume_2:
         cb(st->res);
         return;
     }
-    st->self->parent->db->set(kv_inode_key(st->new_id), st->attrs.dump().c_str(), [st](int res)
+    st->self->parent->kvfs->write_inode(st->new_id, st->attrs, false, [st](int res)
     {
         st->res = res;
         kv_continue_create(st, 3);
@@ -267,7 +267,7 @@ template<class T, class Tok> static void kv_create_reply(kv_create_state *st, in
                 },
                 .obj_attributes = {
                     .attributes_follow = 1,
-                    .attributes = get_kv_attributes(st->self, st->new_id, st->attrs),
+                    .attributes = get_kv_attributes(st->self->parent, st->new_id, st->attrs),
                 },
             },
         };

@@ -102,7 +102,7 @@ resume_2:
         new_ientry["ctime"] = nfstime_now_str();
         st->ientry = new_ientry;
     }
-    st->self->parent->db->set(kv_inode_key(st->ino), st->ientry.dump(), [st](int res)
+    st->self->parent->kvfs->write_inode(st->ino, st->ientry, false, [st](int res)
     {
         st->res = res;
         nfs_kv_continue_link(st, 3);
@@ -180,7 +180,7 @@ int kv_nfs3_link_proc(void *opaque, rpc_op_t *rop)
                 .resok = (LINK3resok){
                     .file_attributes = (post_op_attr){
                         .attributes_follow = 1,
-                        .attributes = get_kv_attributes(st->self, st->ino, st->ientry),
+                        .attributes = get_kv_attributes(st->self->parent, st->ino, st->ientry),
                     },
                 },
             };

@@ -553,7 +553,7 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
     }
 }
 
-static std::string new_normal_ientry(nfs_kv_write_state *st)
+static json11::Json new_normal_ientry(nfs_kv_write_state *st)
 {
     auto ni = st->ientry.object_items();
     ni.erase("empty");
@@ -564,10 +564,10 @@ static std::string new_normal_ientry(nfs_kv_write_state *st)
     ni["size"] = st->ext->cur_extend;
     ni["ctime"] = ni["mtime"] = nfstime_now_str();
     ni.erase("verf");
-    return json11::Json(ni).dump();
+    return ni;
 }
 
-static std::string new_moved_ientry(nfs_kv_write_state *st)
+static json11::Json new_moved_ientry(nfs_kv_write_state *st)
 {
     auto ni = st->ientry.object_items();
     ni.erase("empty");
@@ -578,10 +578,10 @@ static std::string new_moved_ientry(nfs_kv_write_state *st)
     ni["size"] = st->new_size;
     ni["ctime"] = ni["mtime"] = nfstime_now_str();
     ni.erase("verf");
-    return json11::Json(ni).dump();
+    return ni;
 }
 
-static std::string new_shared_ientry(nfs_kv_write_state *st)
+static json11::Json new_shared_ientry(nfs_kv_write_state *st)
 {
     auto ni = st->ientry.object_items();
     ni.erase("empty");
@@ -589,10 +589,10 @@ static std::string new_shared_ientry(nfs_kv_write_state *st)
     ni["ctime"] = ni["mtime"] = nfstime_now_str();
     ni["shared_ver"] = ni["shared_ver"].uint64_value()+1;
     ni.erase("verf");
-    return json11::Json(ni).dump();
+    return ni;
 }
 
-static std::string new_unshared_ientry(nfs_kv_write_state *st)
+static json11::Json new_unshared_ientry(nfs_kv_write_state *st)
 {
     auto ni = st->ientry.object_items();
     ni.erase("empty");
@@ -602,7 +602,7 @@ static std::string new_unshared_ientry(nfs_kv_write_state *st)
     ni.erase("shared_ver");
     ni["ctime"] = ni["mtime"] = nfstime_now_str();
     ni.erase("verf");
-    return json11::Json(ni).dump();
+    return ni;
 }
 
 static void nfs_kv_extend_inode(nfs_kv_write_state *st, int state, int base_state)
@@ -612,7 +612,7 @@ static void nfs_kv_extend_inode(nfs_kv_write_state *st, int state, int base_stat
     st->ext->cur_extend = st->ext->next_extend;
     st->ext->next_extend = 0;
     st->res2 = -EAGAIN;
-    st->proxy->db->set(kv_inode_key(st->ino), new_normal_ientry(st), [st, base_state](int res)
+    st->proxy->kvfs->write_inode(st->ino, new_normal_ientry(st), true, [st, base_state](int res)
     {
         st->res = res;
         nfs_kv_continue_write(st, base_state+1);
@@ -838,7 +838,7 @@ resume_4:
                 cb(st->res);
                 return;
             }
-            st->proxy->db->set(kv_inode_key(st->ino), new_moved_ientry(st), [st](int res)
+            st->proxy->kvfs->write_inode(st->ino, new_moved_ientry(st), true, [st](int res)
             {
                 st->res = res;
                 nfs_kv_continue_write(st, 5);
@@ -881,7 +881,7 @@ resume_7:
             }
 resume_8:
             // We always have to change inode entry on shared writes
-            st->proxy->db->set(kv_inode_key(st->ino), new_shared_ientry(st), [st](int res)
+            st->proxy->kvfs->write_inode(st->ino, new_shared_ientry(st), true, [st](int res)
             {
                 st->res = res;
                 nfs_kv_continue_write(st, 9);
@@ -930,7 +930,7 @@ resume_11:
                 return;
             }
         }
-        st->proxy->db->set(kv_inode_key(st->ino), new_unshared_ientry(st), [st](int res)
+        st->proxy->kvfs->write_inode(st->ino, new_unshared_ientry(st), true, [st](int res)
         {
             st->res = res;
             nfs_kv_continue_write(st, 12);
@@ -953,7 +953,7 @@ resume_12:
         }
         // Record removed part of the shared inode as obsolete in statistics
         st->proxy->kvfs->volume_removed[st->ientry["shared_ino"].uint64_value()] += st->ientry["shared_alloc"].uint64_value();
-        st->ientry_text = new_unshared_ientry(st);
+        st->ientry_text = new_unshared_ientry(st).dump();
     }
     // Non-shared write
     nfs_do_align_write(st, st->ino, st->offset, 0, 13);

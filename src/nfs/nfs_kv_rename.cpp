@@ -240,7 +240,7 @@ resume_7:
                 copy["nlink"] = st->new_ientry["nlink"].uint64_value()-1;
                 copy["ctime"] = nfstime_now_str();
                 copy.erase("verf");
-                st->self->parent->db->set(kv_inode_key(st->new_direntry["ino"].uint64_value()), json11::Json(copy).dump(), [st](int res)
+                st->self->parent->kvfs->write_inode(st->new_direntry["ino"].uint64_value(), copy, false, [st](int res)
                 {
                     st->res = res;
                     nfs_kv_continue_rename(st, 8);
@@ -328,7 +328,7 @@ resume_11:
             ientry_new["parent_ino"] = st->new_dir_ino;
             ientry_new["ctime"] = nfstime_now_str();
             ientry_new.erase("verf");
-            st->self->parent->db->set(kv_inode_key(st->old_direntry["ino"].uint64_value()), json11::Json(ientry_new).dump(), [st](int res)
+            st->self->parent->kvfs->write_inode(st->old_direntry["ino"].uint64_value(), ientry_new, false, [st](int res)
             {
                 st->res = res;
                 nfs_kv_continue_rename(st, 12);

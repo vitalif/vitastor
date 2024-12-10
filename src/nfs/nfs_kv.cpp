@@ -65,7 +65,7 @@ int kv_map_type(const std::string & type)
         (type == "fifo" ? NF3FIFO : -1)))))));
 }
 
-fattr3 get_kv_attributes(nfs_client_t *self, uint64_t ino, json11::Json attrs)
+fattr3 get_kv_attributes(nfs_proxy_t *proxy, uint64_t ino, json11::Json attrs)
 {
     auto type = kv_map_type(attrs["type"].string_value());
     auto mode = attrs["mode"].uint64_value();
@@ -86,7 +86,7 @@ fattr3 get_kv_attributes(nfs_client_t *self, uint64_t ino, json11::Json attrs)
         .rdev = (type == NF3BLK || type == NF3CHR
             ? (specdata3){ (uint32_t)attrs["major"].uint64_value(), (uint32_t)attrs["minor"].uint64_value() }
             : (specdata3){}),
-        .fsid = self->parent->fsid,
+        .fsid = proxy->fsid,
         .fileid = ino,
         .atime = atime,
         .mtime = mtime,
@@ -349,6 +349,27 @@ kv_fs_state_t::~kv_fs_state_t()
     }
 }
 
+void kv_fs_state_t::write_inode(inode_t ino, json11::Json value, bool hack_cache, std::function<void(int)> cb, std::function<bool(int, const std::string &)> cas_cb)
+{
+    if (!proxy->rdma_context)
+    {
+        proxy->db->set(kv_inode_key(ino), value.dump(), cb, cas_cb);
+        return;
+    }
+    // FIXME Linux NFS RDMA transport has a bug - it corrupts the data (by offsetting it 84 bytes)
+    // when the READ reply doesn't contain post_op_attr. So we have to fill post_op_attr with RDMA. :-(
+    // So we at least cache it to not repeat K/V requests every read.
+    read_hack_cache.erase(ino);
+    proxy->db->set(kv_inode_key(ino), value.dump(), [=](int res)
+    {
+        if (hack_cache || res != 0)
+            read_hack_cache.erase(ino);
+        else
+            read_hack_cache[ino] = value;
+        cb(res);
+    }, cas_cb);
+}
+
 void kv_fs_state_t::update_inode(inode_t ino, bool allow_cache, std::function<void(json11::Json::object &)> change, std::function<void(int)> cb)
 {
     // FIXME: Use "update" query
@@ -356,12 +377,15 @@ void kv_fs_state_t::update_inode(inode_t ino, bool allow_cache, std::function<vo
     {
         if (!res)
         {
+            read_hack_cache.erase(ino);
             auto ientry = attrs.object_items();
             change(ientry);
             bool *found = new bool;
             *found = true;
-            proxy->db->set(kv_inode_key(ino), json11::Json(ientry).dump(), [=](int res)
+            json11::Json ientry_json(ientry);
+            proxy->db->set(kv_inode_key(ino), ientry_json.dump(), [=](int res)
             {
+                read_hack_cache.erase(ino);
                 if (!*found)
                     res = -ENOENT;
                 delete found;
@@ -384,6 +408,8 @@ void kv_fs_state_t::update_inode(inode_t ino, bool allow_cache, std::function<vo
 
 void kv_fs_state_t::touch_inodes()
 {
+    // Clear RDMA read fattr3 "hack" cache every second
+    read_hack_cache.clear();
     std::set<inode_t> q = std::move(touch_queue);
     for (auto ino: q)
     {
