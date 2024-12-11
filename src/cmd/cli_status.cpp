@@ -323,8 +323,9 @@ resume_2:
             warning_str += " slow client ops: ";
             for (int i = 0; i < slow_op_primary_osds.size(); i++)
             {
-                warning_str += (i > 0 ? ", " : "")+std::to_string(slow_op_primary_osds[i])+"\n";
+                warning_str += (i > 0 ? ", " : "")+std::to_string(slow_op_primary_osds[i]);
             }
+            warning_str += "\n";
         }
         if (slow_op_secondary_osds.size() > 0)
         {
@@ -333,8 +334,9 @@ resume_2:
             warning_str += " slow replication ops: ";
             for (int i = 0; i < slow_op_secondary_osds.size(); i++)
             {
-                warning_str += (i > 0 ? ", " : "")+std::to_string(slow_op_secondary_osds[i])+"\n";
+                warning_str += (i > 0 ? ", " : "")+std::to_string(slow_op_secondary_osds[i]);
             }
+            warning_str += "\n";
         }
         if (warning_str != "")
         {

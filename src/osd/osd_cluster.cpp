@@ -1024,9 +1024,6 @@ void osd_t::report_pg_states()
                 rpgnames += (rpgnames.size() ? ", " : "")+std::to_string(pp.pool_pg_num.pool_id)+"/"+std::to_string(pp.pool_pg_num.pg_num);
             }
             printf("Error reporting PG %s states, will repeat the attempt: %s\n", rpgnames.c_str(), err.c_str());
-        }
-        if (!data["succeeded"].bool_value())
-        {
             // One of PG state updates failed, put dirty flags back
             for (auto pp: reporting_pgs)
             {
