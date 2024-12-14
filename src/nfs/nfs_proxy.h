@@ -34,6 +34,7 @@ public:
     std::string default_pool;
     std::string export_root;
     bool portmap_enabled;
+    bool nfs_port_auto = false;
     unsigned nfs_port = 0;
     unsigned nfs_rdma_port = 0;
     uint32_t nfs_rdma_credit = 16;

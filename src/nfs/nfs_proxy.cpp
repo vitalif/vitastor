@@ -70,8 +70,10 @@ static const char* help_text =
     "  Start network NFS server. Options:\n"
     "  --bind <IP>           bind service to <IP> address (default 0.0.0.0)\n"
     "  --port <PORT>         use port <PORT> for NFS services (default is 2049)\n"
+    "                        specify \"auto\" to auto-select and print port\n"
     "  --portmap 0           do not listen on port 111 (portmap/rpcbind, requires root)\n"
     "  --nfs_rdma <PORT>     enable NFS-RDMA at RDMA-CM port <PORT> (you can try 20049)\n"
+    "                        if RDMA is enabled and --port is set to 0, TCP will be disabled\n"
     "  --nfs_rdma_credit 16  maximum operation credit for RDMA clients (max iodepth)\n"
     "  --nfs_rdma_send 1024  maximum RDMA send operation count (should be larger than iodepth)\n"
     "  --nfs_rdma_alloc 1M   RDMA memory allocation rounding\n"
@@ -205,8 +207,10 @@ void nfs_proxy_t::run(json11::Json cfg)
     nfs_port = cfg["port"].uint64_value() & 0xffff;
     nfs_rdma_port = cfg["nfs_rdma"].uint64_value() & 0xffff;
     // Allow RDMA-only mode if port is explicitly set to 0
+    // Allow port auto-selection in server mode if explicitly set to --port auto
+    nfs_port_auto = cfg["port"] == "auto";
     if (!nfs_port)
-        nfs_port = !cfg["port"].is_null() && nfs_rdma_port ? -1 : 2049;
+        nfs_port = nfs_port_auto ? 0 : (!cfg["port"].is_null() && nfs_rdma_port ? -1 : 2049);
     nfs_rdma_credit = cfg["nfs_rdma_credit"].uint64_value();
     if (!nfs_rdma_credit)
         nfs_rdma_credit = 16;
@@ -331,6 +335,10 @@ void nfs_proxy_t::run_server(json11::Json cfg)
                 do_accept(nfs_socket);
             }
         });
+        if (nfs_port_auto)
+        {
+            printf("Port: %d\n", listening_port);
+        }
     }
     else
     {
