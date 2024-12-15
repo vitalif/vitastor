@@ -5,11 +5,15 @@ package vitastor
 
 import (
     "context"
+    "crypto/sha1"
+    "encoding/hex"
     "encoding/json"
     "fmt"
     "os"
     "os/exec"
     "path/filepath"
+    "regexp"
+    "strconv"
     "strings"
     "sync"
     "syscall"
@@ -29,13 +33,14 @@ import (
 type NodeServer struct
 {
     *Driver
-    useVduse bool
-    stateDir string
-    mounter mount.Interface
+    useVduse        bool
+    stateDir        string
+    nfsStageDir     string
+    mounter         mount.Interface
     restartInterval time.Duration
-    mu sync.Mutex
-    cond *sync.Cond
-    volumeLocks map[string]bool
+    mu              sync.Mutex
+    cond            *sync.Cond
+    volumeLocks     map[string]bool
 }
 
 type DeviceState struct
@@ -46,6 +51,15 @@ type DeviceState struct
     Blockdev   string `json:"blockdev"`
     Readonly   bool   `json:"readonly"`
     PidFile    string `json:"pidFile"`
+}
+
+type NfsState struct
+{
+    ConfigPath string `json:"configPath"`
+    FsName     string `json:"fsName"`
+    Pool       string `json:"pool"`
+    Path       string `json:"path"`
+    Port       int    `json:"port"`
 }
 
 // NewNodeServer create new instance node
@@ -60,11 +74,17 @@ func NewNodeServer(driver *Driver) *NodeServer
     {
         stateDir += "/"
     }
+    nfsStageDir := os.Getenv("NFS_STAGE_DIR")
+    if (nfsStageDir == "")
+    {
+        nfsStageDir = "/var/lib/kubelet/plugins/csi.vitastor.io/nfs"
+    }
     ns := &NodeServer{
-        Driver: driver,
-        useVduse: checkVduseSupport(),
-        stateDir: stateDir,
-        mounter: mount.New(""),
+        Driver:      driver,
+        useVduse:    checkVduseSupport(),
+        stateDir:    stateDir,
+        nfsStageDir: nfsStageDir,
+        mounter:     mount.New(""),
         volumeLocks: make(map[string]bool),
     }
     ns.cond = sync.NewCond(&ns.mu)
@@ -123,12 +143,12 @@ func (ns *NodeServer) restarter()
 func (ns *NodeServer) restoreVduseDaemons()
 {
     pattern := ns.stateDir+"vitastor-vduse-*.json"
-    matches, err := filepath.Glob(pattern)
+    stateFiles, err := filepath.Glob(pattern)
     if (err != nil)
     {
         klog.Errorf("failed to list %s: %v", pattern, err)
     }
-    if (len(matches) == 0)
+    if (len(stateFiles) == 0)
     {
         return
     }
@@ -146,59 +166,162 @@ func (ns *NodeServer) restoreVduseDaemons()
         klog.Errorf("/sbin/vdpa -j dev list returned bad JSON (error %v): %v", err, string(devListJSON))
         return
     }
-    for _, stateFile := range matches
+    for _, stateFile := range stateFiles
     {
-        vdpaId := filepath.Base(stateFile)
-        vdpaId = vdpaId[0:len(vdpaId)-5]
-        // Check if VDPA device is still added to the bus
-        if (devs[vdpaId] == nil)
-        {
-            // Unused, clean it up
-            unmapVduseById(ns.stateDir, vdpaId)
-            continue
-        }
+        ns.checkVduseState(stateFile, devs)
+    }
+}
 
-        stateJSON, err := os.ReadFile(stateFile)
+func (ns *NodeServer) checkVduseState(stateFile string, devs map[string]interface{})
+{
+    // Check if VDPA device is still added to the bus
+    vdpaId := filepath.Base(stateFile)
+    vdpaId = vdpaId[0:len(vdpaId)-5]
+    if (devs[vdpaId] == nil)
+    {
+        // Unused, clean it up
+        unmapVduseById(ns.stateDir, vdpaId)
+        return
+    }
+
+    // Read state file
+    stateJSON, err := os.ReadFile(stateFile)
+    if (err != nil)
+    {
+        klog.Warningf("error reading state file %v: %v", stateFile, err)
+        return
+    }
+    var state DeviceState
+    err = json.Unmarshal(stateJSON, &state)
+    if (err != nil)
+    {
+        klog.Warningf("state file %v contains invalid JSON (error %v): %v", stateFile, err, string(stateJSON))
+        return
+    }
+
+    // Lock volume
+    ns.lockVolume(state.ConfigPath+":block:"+state.Image)
+    defer ns.unlockVolume(state.ConfigPath+":block:"+state.Image)
+
+    // Recheck state file after locking
+    _, err = os.ReadFile(stateFile)
+    if (err != nil)
+    {
+        klog.Warningf("state file %v disappeared, skipping volume", stateFile)
+        return
+    }
+
+    // Check if the storage daemon is still active
+    pidFile := ns.stateDir + vdpaId + ".pid"
+    exists := false
+    proc, err := findByPidFile(pidFile)
+    if (err == nil)
+    {
+        exists = proc.Signal(syscall.Signal(0)) == nil
+    }
+    if (!exists)
+    {
+        // Restart daemon
+        klog.Warningf("restarting storage daemon for volume %v (VDPA ID %v)", state.Image, vdpaId)
+        err = startStorageDaemon(vdpaId, state.Image, pidFile, state.ConfigPath, state.Readonly)
         if (err != nil)
         {
-            klog.Warningf("error reading state file %v: %v", stateFile, err)
-            continue
+            klog.Warningf("failed to restart storage daemon for volume %v: %v", state.Image, err)
         }
-        var state DeviceState
-        err = json.Unmarshal(stateJSON, &state)
+    }
+}
+
+func (ns *NodeServer) restoreNfsDaemons()
+{
+    pattern := ns.stateDir+"vitastor-nfs-*.json"
+    stateFiles, err := filepath.Glob(pattern)
+    if (err != nil)
+    {
+        klog.Errorf("failed to list %s: %v", pattern, err)
+    }
+    if (len(stateFiles) == 0)
+    {
+        return
+    }
+    activeNFS, err := ns.listActiveNFS()
+    if (err != nil)
+    {
+        return
+    }
+    // Check all state files and try to restore active mounts
+    for _, stateFile := range stateFiles
+    {
+        ns.checkNfsState(stateFile, activeNFS)
+    }
+}
+
+func (ns *NodeServer) readNfsState(stateFile string, allowNotExists bool) (*NfsState, error)
+{
+    stateJSON, err := os.ReadFile(stateFile)
+    if (err != nil)
+    {
+        if (allowNotExists && os.IsNotExist(err))
+        {
+            return nil, nil
+        }
+        klog.Warningf("error reading state file %v: %v", stateFile, err)
+        return nil, err
+    }
+    var state NfsState
+    err = json.Unmarshal(stateJSON, &state)
+    if (err != nil)
+    {
+        klog.Warningf("state file %v contains invalid JSON (error %v): %v", stateFile, err, string(stateJSON))
+        return nil, err
+    }
+    return &state, nil
+}
+
+func (ns *NodeServer) checkNfsState(stateFile string, activeNfs map[int][]string)
+{
+    // Read state file
+    state, err := ns.readNfsState(stateFile, false)
+    if (err != nil)
+    {
+        return
+    }
+    // Lock FS
+    ns.lockVolume(state.ConfigPath+":fs:"+state.FsName)
+    defer ns.unlockVolume(state.ConfigPath+":fs:"+state.FsName)
+    // Check if NFS at this port is still mounted
+    pidFile := ns.stateDir + filepath.Base(stateFile)
+    pidFile = pidFile[0:len(pidFile)-5] + ".pid"
+    if (len(activeNfs[state.Port]) == 0)
+    {
+        // this is a stale state file, remove it
+        klog.Warningf("state file %v contains stale mount at port %d, removing it", stateFile, state.Port)
+        ns.stopNFS(stateFile, pidFile)
+        return
+    }
+    // Check PID file
+    exists := false
+    proc, err := findByPidFile(pidFile)
+    if (err == nil)
+    {
+        exists = proc.Signal(syscall.Signal(0)) == nil
+    }
+    if (!exists)
+    {
+        // Restart vitastor-nfs server
+        klog.Warningf("restarting NFS server for FS %v at port %v", state.FsName, state.Port)
+        _, _, err := system(
+            "/usr/bin/vitastor-nfs", "start",
+            "--pidfile", pidFile,
+            "--bind", "127.0.0.1",
+            "--port", fmt.Sprintf("%d", state.Port),
+            "--fs", state.FsName,
+            "--pool", state.Pool,
+            "--portmap", "0",
+        )
         if (err != nil)
         {
-            klog.Warningf("state file %v contains invalid JSON (error %v): %v", stateFile, err, string(stateJSON))
-            continue
+            klog.Warningf("failed to restart NFS server for FS %v: %v", state.FsName, err)
         }
-
-        ns.lockVolume(state.ConfigPath+":"+state.Image)
-
-        // Recheck state file after locking
-        _, err = os.ReadFile(stateFile)
-        if (err != nil)
-        {
-            klog.Warningf("state file %v disappeared, skipping volume", stateFile)
-            ns.unlockVolume(state.ConfigPath+":"+state.Image)
-            continue
-        }
-
-        // Check if the storage daemon is still active
-        pidFile := ns.stateDir + vdpaId + ".pid"
-        exists := false
-        proc, err := findByPidFile(pidFile)
-        if (err == nil)
-        {
-            exists = proc.Signal(syscall.Signal(0)) == nil
-        }
-        if (!exists)
-        {
-            // Restart daemon
-            klog.Warningf("restarting storage daemon for volume %v (VDPA ID %v)", state.Image, vdpaId)
-            _ = startStorageDaemon(vdpaId, state.Image, pidFile, state.ConfigPath, state.Readonly)
-        }
-
-        ns.unlockVolume(state.ConfigPath+":"+state.Image)
     }
 }
 
@@ -220,8 +343,13 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
     }
     volName := ctxVars["name"]
 
-    ns.lockVolume(ctxVars["configPath"]+":"+volName)
-    defer ns.unlockVolume(ctxVars["configPath"]+":"+volName)
+    if (ctxVars["vitastorfs"] != "")
+    {
+        return &csi.NodeStageVolumeResponse{}, nil
+    }
+
+    ns.lockVolume(ctxVars["configPath"]+":block:"+volName)
+    defer ns.unlockVolume(ctxVars["configPath"]+":block:"+volName)
 
     targetPath := req.GetStagingTargetPath()
     isBlock := req.GetVolumeCapability().GetBlock() != nil
@@ -408,8 +536,13 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
     }
     volName := ctxVars["name"]
 
-    ns.lockVolume(ctxVars["configPath"]+":"+volName)
-    defer ns.unlockVolume(ctxVars["configPath"]+":"+volName)
+    if (ctxVars["vitastorfs"] != "")
+    {
+        return &csi.NodeUnstageVolumeResponse{}, nil
+    }
+
+    ns.lockVolume(ctxVars["configPath"]+":block:"+volName)
+    defer ns.unlockVolume(ctxVars["configPath"]+":block:"+volName)
 
     targetPath := req.GetStagingTargetPath()
     devicePath, _, err := mount.GetDeviceNameFromMount(ns.mounter, targetPath)
@@ -462,6 +595,153 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
     return &csi.NodeUnstageVolumeResponse{}, nil
 }
 
+// Mount or check if NFS is already mounted
+func (ns *NodeServer) mountNFS(ctxVars map[string]string) (string, error)
+{
+    sum := sha1.Sum([]byte(ctxVars["configPath"]+":fs:"+ctxVars["vitastorfs"]))
+    nfsHash := hex.EncodeToString(sum[:])
+    stateFile := ns.stateDir+"vitastor-nfs-"+nfsHash+".json"
+    pidFile := ns.stateDir+"vitastor-nfs-"+nfsHash+".pid"
+    mountPath := ns.nfsStageDir+"/"+nfsHash
+    state, err := ns.readNfsState(stateFile, true)
+    if (state != nil)
+    {
+        return state.Path, nil
+    }
+    if (err != nil)
+    {
+        return "", err
+    }
+    err = os.MkdirAll(mountPath, 0777)
+    if (err != nil)
+    {
+        return "", err
+    }
+    // Create a new mount
+    state = &NfsState{
+        ConfigPath: ctxVars["configPath"],
+        FsName:     ctxVars["vitastorfs"],
+        Pool:       ctxVars["pool"],
+        Path:       mountPath,
+    }
+    klog.Infof("starting new NFS server for FS %v", state.FsName)
+    stdout, _, err := system(
+        "/usr/bin/vitastor-nfs", "start",
+        "--pidfile", pidFile,
+        "--bind", "127.0.0.1",
+        "--port", "auto",
+        "--fs", state.FsName,
+        "--pool", state.Pool,
+        "--portmap", "0",
+    )
+    if (err != nil)
+    {
+        return "", err
+    }
+    match := regexp.MustCompile("Port: (\\d+)").FindStringSubmatch(string(stdout))
+    if (match == nil)
+    {
+        klog.Errorf("failed to find port in vitastor-nfs output: %v", string(stdout))
+        ns.stopNFS(stateFile, pidFile)
+        return "", fmt.Errorf("failed to find port in vitastor-nfs output (bad vitastor-nfs version?)")
+    }
+    port, _ := strconv.ParseUint(match[1], 0, 16)
+    state.Port = int(port)
+    // Write state file
+    stateJSON, _ := json.Marshal(state)
+    err = os.WriteFile(stateFile, stateJSON, 0600)
+    if (err != nil)
+    {
+        klog.Errorf("failed to write state file %v", stateFile)
+        ns.stopNFS(stateFile, pidFile)
+        return "", err
+    }
+    // Mount NFS
+    _, _, err = system(
+        "mount", "-t", "nfs", "127.0.0.1:/", state.Path,
+        "-o", fmt.Sprintf("port=%d,mountport=%d,nfsvers=3,soft,nolock,tcp", port, port),
+    )
+    if (err != nil)
+    {
+        ns.stopNFS(stateFile, pidFile)
+        return "", err
+    }
+    return state.Path, nil
+}
+
+// Mount or check if NFS is already mounted
+func (ns *NodeServer) checkStopNFS(ctxVars map[string]string)
+{
+    sum := sha1.Sum([]byte(ctxVars["configPath"]+":fs:"+ctxVars["vitastorfs"]))
+    nfsHash := hex.EncodeToString(sum[:])
+    stateFile := ns.stateDir+"vitastor-nfs-"+nfsHash+".json"
+    pidFile := ns.stateDir+"vitastor-nfs-"+nfsHash+".pid"
+    mountPath := ns.nfsStageDir+"/"+nfsHash
+    state, err := ns.readNfsState(stateFile, true)
+    if (state == nil)
+    {
+        return
+    }
+    activeNFS, err := ns.listActiveNFS()
+    if (err != nil)
+    {
+        return
+    }
+    if (len(activeNFS[state.Port]) > 0)
+    {
+        return
+    }
+    // All volume mounts are detached, unmount the root mount and kill the server
+    err = mount.CleanupMountPoint(mountPath, ns.mounter, false)
+    if (err != nil)
+    {
+        klog.Errorf("failed to unmount %v: %v", mountPath, err)
+        return
+    }
+    ns.stopNFS(stateFile, pidFile)
+}
+
+func (ns *NodeServer) stopNFS(stateFile, pidFile string)
+{
+    err := killByPidFile(pidFile)
+    if (err != nil)
+    {
+        klog.Errorf("failed to kill process with pid from %v: %v", pidFile, err)
+    }
+    os.Remove(pidFile)
+    os.Remove(stateFile)
+}
+
+func (ns *NodeServer) listActiveNFS() (map[int][]string, error)
+{
+    mounts, err := mount.ParseMountInfo("/proc/self/mountinfo")
+    if (err != nil)
+    {
+        klog.Errorf("failed to list mounts: %v", err)
+        return nil, err
+    }
+    activeNFS := make(map[int][]string)
+    for _, mount := range mounts
+    {
+        // Volume mounts always refer to subpaths
+        if (mount.FsType == "nfs" && mount.Root != "/")
+        {
+            for _, opt := range mount.MountOptions
+            {
+                if (strings.HasPrefix(opt, "port="))
+                {
+                    port64, err := strconv.ParseUint(opt[5:], 10, 16)
+                    if (err == nil)
+                    {
+                        activeNFS[int(port64)] = append(activeNFS[int(port64)], mount.MountPoint)
+                    }
+                }
+            }
+        }
+    }
+    return activeNFS, nil
+}
+
 // NodePublishVolume mounts the volume mounted to the staging path to the target path
 func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error)
 {
@@ -480,28 +760,39 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
     }
     volName := ctxVars["name"]
 
-    ns.lockVolume(ctxVars["configPath"]+":"+volName)
-    defer ns.unlockVolume(ctxVars["configPath"]+":"+volName)
+    if (ctxVars["vitastorfs"] != "")
+    {
+        ns.lockVolume(ctxVars["configPath"]+":fs:"+ctxVars["vitastorfs"])
+        defer ns.unlockVolume(ctxVars["configPath"]+":fs:"+ctxVars["vitastorfs"])
+    }
+    else
+    {
+        ns.lockVolume(ctxVars["configPath"]+":block:"+volName)
+        defer ns.unlockVolume(ctxVars["configPath"]+":block:"+volName)
+    }
 
     stagingTargetPath := req.GetStagingTargetPath()
     targetPath := req.GetTargetPath()
     isBlock := req.GetVolumeCapability().GetBlock() != nil
 
-    // Check that stagingTargetPath is mounted
-    notmnt, err := mount.IsNotMountPoint(ns.mounter, stagingTargetPath)
-    if (err != nil)
+    if (ctxVars["vitastorfs"] == "")
     {
-        klog.Errorf("staging path %v is not mounted: %w", stagingTargetPath, err)
-        return nil, fmt.Errorf("staging path %v is not mounted: %w", stagingTargetPath, err)
-    }
-    else if (notmnt)
-    {
-        klog.Errorf("staging path %v is not mounted", stagingTargetPath)
-        return nil, fmt.Errorf("staging path %v is not mounted", stagingTargetPath)
+        // Check that stagingTargetPath is mounted
+        notmnt, err := mount.IsNotMountPoint(ns.mounter, stagingTargetPath)
+        if (err != nil)
+        {
+            klog.Errorf("staging path %v is not mounted: %w", stagingTargetPath, err)
+            return nil, fmt.Errorf("staging path %v is not mounted: %w", stagingTargetPath, err)
+        }
+        else if (notmnt)
+        {
+            klog.Errorf("staging path %v is not mounted", stagingTargetPath)
+            return nil, fmt.Errorf("staging path %v is not mounted", stagingTargetPath)
+        }
     }
 
     // Check that targetPath is not already mounted
-    notmnt, err = mount.IsNotMountPoint(ns.mounter, targetPath)
+    notmnt, err := mount.IsNotMountPoint(ns.mounter, targetPath)
     if (err != nil)
     {
         if (os.IsNotExist(err))
@@ -542,6 +833,24 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
         return nil, fmt.Errorf("target path %s is already mounted", targetPath)
     }
 
+    if (ctxVars["vitastorfs"] != "")
+    {
+        nfspath, err := ns.mountNFS(ctxVars)
+        if (err != nil)
+        {
+            ns.checkStopNFS(ctxVars)
+            return nil, err
+        }
+        // volName should include prefix
+        stagingTargetPath = nfspath+"/"+volName
+        err = os.MkdirAll(stagingTargetPath, 0777)
+        if (err != nil && !os.IsExist(err))
+        {
+            ns.checkStopNFS(ctxVars)
+            return nil, err
+        }
+    }
+
     execArgs := []string{"--bind", stagingTargetPath, targetPath}
     if (req.GetReadonly())
     {
@@ -553,6 +862,10 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
     out, err := cmd.Output()
     if (err != nil)
     {
+        if (ctxVars["vitastorfs"] != "")
+        {
+            ns.checkStopNFS(ctxVars)
+        }
         return nil, fmt.Errorf("Error running mount %v: %s", strings.Join(execArgs, " "), out)
     }
 
@@ -572,8 +885,16 @@ func (ns *NodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
     }
     volName := ctxVars["name"]
 
-    ns.lockVolume(ctxVars["configPath"]+":"+volName)
-    defer ns.unlockVolume(ctxVars["configPath"]+":"+volName)
+    if (ctxVars["vitastorfs"] != "")
+    {
+        ns.lockVolume(ctxVars["configPath"]+":fs:"+ctxVars["vitastorfs"])
+        defer ns.unlockVolume(ctxVars["configPath"]+":fs:"+ctxVars["vitastorfs"])
+    }
+    else
+    {
+        ns.lockVolume(ctxVars["configPath"]+":block:"+volName)
+        defer ns.unlockVolume(ctxVars["configPath"]+":block:"+volName)
+    }
 
     targetPath := req.GetTargetPath()
     devicePath, _, err := mount.GetDeviceNameFromMount(ns.mounter, targetPath)
@@ -598,6 +919,11 @@ func (ns *NodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
     if (err != nil)
     {
         return nil, err
+    }
+
+    if (ctxVars["vitastorfs"] != "")
+    {
+        ns.checkStopNFS(ctxVars)
     }
 
     return &csi.NodeUnpublishVolumeResponse{}, nil

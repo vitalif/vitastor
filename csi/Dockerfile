@@ -22,6 +22,8 @@ RUN apt-get update && \
     (echo "APT::Install-Recommends false;" > /etc/apt/apt.conf) && \
     apt-get update && \
     apt-get install -y e2fsprogs xfsprogs kmod iproute2 \
+        # NFS mount dependencies
+        nfs-common netbase \
         # dependencies of qemu-storage-daemon
         libnuma1 liburing2 libglib2.0-0 libfuse3-3 libaio1 libzstd1 libnettle8 \
         libgmp10 libhogweed6 libp11-kit0 libidn2-0 libunistring2 libtasn1-6 libpcre2-8-0 libffi8 && \

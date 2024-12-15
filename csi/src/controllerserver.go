@@ -8,7 +8,6 @@ import (
     "encoding/json"
     "fmt"
     "strings"
-    "strconv"
     "time"
     "os"
     "io/ioutil"
@@ -68,9 +67,10 @@ func GetConnectionParams(params map[string]string) (map[string]string, error)
     {
         configPath = "/etc/vitastor/vitastor.conf"
     }
-    else
+    ctxVars["configPath"] = configPath
+    if (params["vitastorfs"] != "")
     {
-        ctxVars["configPath"] = configPath
+        ctxVars["vitastorfs"] = params["vitastorfs"]
     }
     config := make(map[string]interface{})
     configFD, err := os.Open(configPath)
@@ -140,33 +140,57 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
         return nil, status.Error(codes.InvalidArgument, "volume capabilities is a required field")
     }
 
-    err := cs.checkCaps(volumeCapabilities)
-    if (err != nil)
-    {
-        return nil, err
-    }
-
-    etcdVolumePrefix := req.Parameters["etcdVolumePrefix"]
-    poolId, _ := strconv.ParseUint(req.Parameters["poolId"], 10, 64)
-    if (poolId == 0)
-    {
-        return nil, status.Error(codes.InvalidArgument, "poolId is missing in storage class configuration")
-    }
-
-    volName := etcdVolumePrefix + req.GetName()
-    volSize := 1 * GB
-    if capRange := req.GetCapacityRange(); capRange != nil
-    {
-        volSize = ((capRange.GetRequiredBytes() + MB - 1) / MB) * MB
-    }
-
     ctxVars, err := GetConnectionParams(req.Parameters)
     if (err != nil)
     {
         return nil, err
     }
 
-    args := []string{ "create", volName, "-s", fmt.Sprintf("%v", volSize), "--pool", fmt.Sprintf("%v", poolId) }
+    err = cs.checkCaps(volumeCapabilities, ctxVars["vitastorfs"] != "")
+    if (err != nil)
+    {
+        return nil, err
+    }
+
+    pool := req.Parameters["poolId"]
+    if (pool == "")
+    {
+        return nil, status.Error(codes.InvalidArgument, "poolId is missing in storage class configuration")
+    }
+    volumePrefix := req.Parameters["volumePrefix"]
+    if (volumePrefix == "")
+    {
+        // Old name
+        volumePrefix = req.Parameters["etcdVolumePrefix"]
+    }
+    volName := volumePrefix + req.GetName()
+    volSize := 1 * GB
+    if capRange := req.GetCapacityRange(); capRange != nil
+    {
+        volSize = ((capRange.GetRequiredBytes() + MB - 1) / MB) * MB
+    }
+
+    if (ctxVars["vitastorfs"] != "")
+    {
+        // Nothing to create, subdirectories are created during mounting
+        // FIXME: It would be cool to support quotas some day and set it here
+        if (req.VolumeContentSource.GetSnapshot() != nil)
+        {
+            return nil, status.Error(codes.InvalidArgument, "VitastorFS doesn't support snapshots")
+        }
+        ctxVars["name"] = volName
+        ctxVars["pool"] = pool
+        volumeIdJson, _ := json.Marshal(ctxVars)
+        return &csi.CreateVolumeResponse{
+            Volume: &csi.Volume{
+                // Ugly, but VolumeContext isn't passed to DeleteVolume :-(
+                VolumeId: string(volumeIdJson),
+                CapacityBytes: volSize,
+            },
+        }, nil
+    }
+
+    args := []string{ "create", volName, "-s", fmt.Sprintf("%v", volSize), "--pool", pool }
 
     // Support creation from snapshot
     var src *csi.VolumeContentSource
@@ -249,6 +273,12 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
         return nil, err
     }
 
+    if (ctxVars["vitastorfs"] != "")
+    {
+        // FIXME: Delete FS subdirectory
+        return &csi.DeleteVolumeResponse{}, nil
+    }
+
     _, err = invokeCLI(ctxVars, []string{ "rm", volName })
     if (err != nil)
     {
@@ -283,13 +313,25 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
     {
         return nil, status.Error(codes.InvalidArgument, "volumeId is nil")
     }
+    volVars := make(map[string]string)
+    err := json.Unmarshal([]byte(volumeID), &volVars)
+    if (err != nil)
+    {
+        return nil, status.Error(codes.Internal, "volume ID not in JSON format")
+    }
+    ctxVars, err := GetConnectionParams(volVars)
+    if (err != nil)
+    {
+        return nil, err
+    }
+
     volumeCapabilities := req.GetVolumeCapabilities()
     if (volumeCapabilities == nil)
     {
         return nil, status.Error(codes.InvalidArgument, "volumeCapabilities is nil")
     }
 
-    err := cs.checkCaps(volumeCapabilities)
+    err = cs.checkCaps(volumeCapabilities, ctxVars["vitastorfs"] != "")
     if (err != nil)
     {
         return nil, err
@@ -302,7 +344,7 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
     }, nil
 }
 
-func (cs *ControllerServer) checkCaps(volumeCapabilities []*csi.VolumeCapability) error
+func (cs *ControllerServer) checkCaps(volumeCapabilities []*csi.VolumeCapability, fs bool) error
 {
     var volumeCapabilityAccessModes []*csi.VolumeCapability_AccessMode
     for _, mode := range []csi.VolumeCapability_AccessMode_Mode{
@@ -318,6 +360,10 @@ func (cs *ControllerServer) checkCaps(volumeCapabilities []*csi.VolumeCapability
     {
         if (capability.GetBlock() != nil)
         {
+            if (fs)
+            {
+                return status.Errorf(codes.InvalidArgument, "%v not supported with FS-based volumes", capability)
+            }
             for _, mode := range []csi.VolumeCapability_AccessMode_Mode{
                 csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER,
                 csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
@@ -326,6 +372,12 @@ func (cs *ControllerServer) checkCaps(volumeCapabilities []*csi.VolumeCapability
             }
             break
         }
+    }
+
+    if (fs)
+    {
+        // All access modes including RWX are supported with FS-based volumes
+        return nil
     }
 
     capabilitySupport := false
@@ -342,7 +394,7 @@ func (cs *ControllerServer) checkCaps(volumeCapabilities []*csi.VolumeCapability
 
     if (!capabilitySupport)
     {
-        return status.Errorf(codes.NotFound, "%v not supported", volumeCapabilities)
+        return status.Errorf(codes.InvalidArgument, "%v not supported", volumeCapabilities)
     }
 
     return nil
@@ -434,6 +486,12 @@ func (cs *ControllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateS
     {
         return nil, status.Error(codes.Internal, "volume ID not in JSON format")
     }
+
+    if (ctxVars["vitastorfs"] != "")
+    {
+        return nil, status.Error(codes.InvalidArgument, "VitastorFS doesn't support snapshots")
+    }
+
     volName := ctxVars["name"]
 
     // Create image using vitastor-cli
@@ -492,6 +550,11 @@ func (cs *ControllerServer) DeleteSnapshot(ctx context.Context, req *csi.DeleteS
         return nil, err
     }
 
+    if (ctxVars["vitastorfs"] != "")
+    {
+        return nil, status.Error(codes.InvalidArgument, "VitastorFS doesn't support snapshots")
+    }
+
     _, err = invokeCLI(ctxVars, []string{ "rm", volName+"@"+snapName })
     if (err != nil)
     {
@@ -521,6 +584,11 @@ func (cs *ControllerServer) ListSnapshots(ctx context.Context, req *csi.ListSnap
     if (err != nil)
     {
         return nil, err
+    }
+
+    if (ctxVars["vitastorfs"] != "")
+    {
+        return nil, status.Error(codes.InvalidArgument, "VitastorFS doesn't support snapshots")
     }
 
     inodeCfg, err := invokeList(ctxVars, volName+"@*", false)
@@ -584,6 +652,16 @@ func (cs *ControllerServer) ControllerExpandVolume(ctx context.Context, req *csi
     if (err != nil)
     {
         return nil, err
+    }
+
+    if (ctxVars["vitastorfs"] != "")
+    {
+        // Nothing to change
+        // FIXME: Support quotas and change quota here
+        return &csi.ControllerExpandVolumeResponse{
+            CapacityBytes: req.CapacityRange.RequiredBytes,
+            NodeExpansionRequired: false,
+        }, nil
     }
 
     inodeCfg, err := invokeList(ctxVars, volName, true)

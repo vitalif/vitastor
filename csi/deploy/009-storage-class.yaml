@@ -9,8 +9,16 @@ metadata:
 provisioner: csi.vitastor.io
 volumeBindingMode: Immediate
 parameters:
-  etcdVolumePrefix: ""
-  poolId: "1"
+  # CSI driver can create block-based volumes and VitastorFS-based volumes
+  # only VitastorFS-based volumes and raw block volumes (without FS) support ReadWriteMany mode
+  # set this parameter to VitastorFS metadata volume name to use VitastorFS
+  # if unset, block-based volumes will be created
+  vitastorfs: ""
+  # for block-based storage classes, pool ID may be either a string (name) or a number (ID)
+  # for vitastorFS-based storage classes it must be a string - name of the default pool for FS data
+  poolId: "testpool"
+  # volume name prefix for block-based storage classes or NFS subdirectory (including /) for FS-based volumes
+  volumePrefix: ""
   # you can choose other configuration file if you have it in the config map
   # different etcd URLs and prefixes should also be put in the config
   #configPath: "/etc/vitastor/vitastor.conf"
