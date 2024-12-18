@@ -172,3 +172,27 @@
   info_ru: |
     Использовать старый генератор комбинаций PG, не поддерживающий [level_placement](pool.ru.md#level_placement)
     и [raw_placement](pool.ru.md#raw_placement) для пулов, которые не используют данные функции.
+- name: osd_backfillfull_ratio
+  type: float
+  default: 0.99
+  info: |
+    Monitors try to prevent OSDs becoming 100% full during rebalance or recovery by
+    calculating how much space will be occupied on every OSD after all rebalance
+    and recovery operations finish, and pausing rebalance and recovery if that
+    amount of space exceeds OSD capacity multiplied by the value of this
+    configuration parameter.
+
+    Future used space is calculated by summing space used by all user data blocks
+    (objects) in all PGs placed on a specific OSD, even if some of these objects
+    currently reside on a different set of OSDs.
+  info_ru: |
+    Мониторы стараются предотвратить 100% заполнение OSD в процессе ребаланса
+    или восстановления, рассчитывая, сколько места будет занято на каждом OSD после
+    завершения всех операций ребаланса и восстановления, и приостанавливая
+    ребаланс и восстановление, если рассчитанный объём превышает ёмкость OSD,
+    умноженную на значение данного параметра.
+
+    Будущее занятое место рассчитывается сложением места, занятого всеми
+    пользовательскими блоками данных (объектами) во всех PG, расположенных
+    на конкретном OSD, даже если часть этих объектов в данный момент находится
+    на другом наборе OSD.

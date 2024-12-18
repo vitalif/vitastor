@@ -24,6 +24,7 @@ These parameters only apply to Monitors.
 - [osd_out_time](#osd_out_time)
 - [placement_levels](#placement_levels)
 - [use_old_pg_combinator](#use_old_pg_combinator)
+- [osd_backfillfull_ratio](#osd_backfillfull_ratio)
 
 ## use_antietcd
 
@@ -175,3 +176,18 @@ present in the configuration, then it is defined with the default priority
 
 Use the old PG combination generator which doesn't support [level_placement](pool.en.md#level_placement)
 and [raw_placement](pool.en.md#raw_placement) for pools which don't use this features.
+
+## osd_backfillfull_ratio
+
+- Type: number
+- Default: 0.99
+
+Monitors try to prevent OSDs becoming 100% full during rebalance or recovery by
+calculating how much space will be occupied on every OSD after all rebalance
+and recovery operations finish, and pausing rebalance and recovery if that
+amount of space exceeds OSD capacity multiplied by the value of this
+configuration parameter.
+
+Future used space is calculated by summing space used by all user data blocks
+(objects) in all PGs placed on a specific OSD, even if some of these objects
+currently reside on a different set of OSDs.
