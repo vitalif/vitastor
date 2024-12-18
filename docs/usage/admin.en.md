@@ -58,8 +58,9 @@ and during switching primary OSD of PGs.
 
 **starting**, **repeering**, **stopping** states normally almost aren't visible at all.
 If you notice them for any noticeable time — chances are some operations on some OSDs hung.
-Search for "slow op" in OSD logs to find them — operations hung for more than
-[slow_log_interval](../config/osd.en.md#slow_log_interval) are logged as "slow ops".
+Check `vitastor-cli status` and search for "slow op" in OSD logs to find them — operations
+hung for more than [slow_log_interval](../config/osd.en.md#slow_log_interval) are logged as
+"slow ops" and displayed in `status`.
 
 State transition diagram:
 
