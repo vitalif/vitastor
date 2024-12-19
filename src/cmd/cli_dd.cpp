@@ -324,7 +324,7 @@ resume_2:
                 cluster_op_t *sync_op = new cluster_op_t;
                 sync_op->opcode = OSD_OP_SYNC;
                 parent->waiting++;
-                sync_op->callback = [this, parent](cluster_op_t *sync_op)
+                sync_op->callback = [parent](cluster_op_t *sync_op)
                 {
                     parent->waiting--;
                     delete sync_op;
@@ -539,7 +539,7 @@ struct cli_dd_t
                     in_eof = true;
             }
             ring_data_t *data = ((ring_data_t*)sqe->user_data);
-            data->iov = (iovec){ cur_read->buf + cur_read->len, cur_read->max - cur_read->len };
+            data->iov = (iovec){ (uint8_t*)cur_read->buf + cur_read->len, cur_read->max - cur_read->len };
             my_uring_prep_readv(sqe, iinfo.ifd, &data->iov, 1, iinfo.in_seekable ? iseek + cur_read->offset + cur_read->len : -1);
             in_waiting++;
             data->callback = [this, cur_read](ring_data_t *data)
@@ -672,7 +672,7 @@ struct cli_dd_t
                 return false;
             }
             ring_data_t *data = ((ring_data_t*)sqe->user_data);
-            data->iov = (iovec){ .iov_base = cur_read->buf+cur_read->len, .iov_len = cur_read->max-cur_read->len };
+            data->iov = (iovec){ .iov_base = (uint8_t*)cur_read->buf+cur_read->len, .iov_len = cur_read->max-cur_read->len };
             my_uring_prep_writev(sqe, oinfo.ofd, &data->iov, 1, oinfo.out_seekable ? cur_read->offset+cur_read->len+oseek : -1);
             out_waiting++;
             data->callback = [this, cur_read](ring_data_t *data)

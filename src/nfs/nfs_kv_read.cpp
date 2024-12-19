@@ -107,7 +107,7 @@ resume_1:
                         st->op->offset+st->op->len - (read_offset+read_size));
                 }
             }
-            st->op->callback = [st, state](cluster_op_t *op)
+            st->op->callback = [st](cluster_op_t *op)
             {
                 st->res = op->retval == op->len ? 0 : op->retval;
                 delete op;

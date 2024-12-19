@@ -119,7 +119,7 @@ std::string kv_direntry_filename(const std::string & key)
 std::string kv_inode_prefix_key(uint64_t ino, const char *prefix)
 {
     int max = 32+strlen(prefix);
-    char key[max] = { 0 };
+    char key[max];
     snprintf(key, max, "%s%x", prefix, INODE_POOL(ino));
     int n = strnlen(key, max-1);
     snprintf(key+n+1, max-n-1, "%jx", INODE_NO_POOL(ino));

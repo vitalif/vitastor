@@ -81,7 +81,7 @@ resume_1:
         {
             st->res = res;
             nfs_kv_continue_link(st, 2);
-        }, [st](int res, const std::string & old_value)
+        }, [](int res, const std::string & old_value)
         {
             return res == -ENOENT;
         });

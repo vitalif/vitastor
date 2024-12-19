@@ -201,7 +201,7 @@ cleanup:
 }
 #endif
 
-msgr_rdma_context_t *msgr_rdma_context_t::create(std::vector<std::string> osd_networks, const char *ib_devname, uint8_t ib_port, uint8_t gid_index, uint32_t mtu, bool odp, int log_level)
+msgr_rdma_context_t *msgr_rdma_context_t::create(std::vector<std::string> osd_networks, const char *ib_devname, uint8_t ib_port, int gid_index, uint32_t mtu, bool odp, int log_level)
 {
     int res;
     ibv_device **dev_list = NULL;
@@ -601,7 +601,7 @@ static int try_send_rdma_copy(osd_client_t *cl, uint8_t *dst, int dst_len)
         iovec & iov = cl->send_list[rc->send_pos];
         uint32_t len = (uint32_t)(iov.iov_len-rc->send_buf_pos < dst_len
             ? iov.iov_len-rc->send_buf_pos : dst_len);
-        memcpy(dst, iov.iov_base+rc->send_buf_pos, len);
+        memcpy(dst, (uint8_t*)iov.iov_base+rc->send_buf_pos, len);
         dst += len;
         dst_len -= len;
         rc->send_buf_pos += len;

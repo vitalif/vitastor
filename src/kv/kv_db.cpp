@@ -1448,7 +1448,7 @@ void kv_op_t::update()
 
 void kv_op_t::update_find()
 {
-    get_block(db, cur_block, cur_level, recheck_policy, [=, checked_block = cur_block](int res, int refresh)
+    get_block(db, cur_block, cur_level, recheck_policy, [=](int res, int refresh)
     {
         res = handle_block(res, refresh, true);
         if (res == -EAGAIN)

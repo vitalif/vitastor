@@ -147,7 +147,7 @@ resume_2:
     {
         st->res = res;
         kv_continue_create(st, 3);
-    }, [st](int res, const std::string & value)
+    }, [](int res, const std::string & value)
     {
         return res == -ENOENT;
     });

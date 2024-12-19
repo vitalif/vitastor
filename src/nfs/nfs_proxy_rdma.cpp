@@ -520,7 +520,7 @@ void nfs_rdma_conn_t::rdma_encode_header(XDR *xdrs, rpc_op_t *rop, bool nomsg)
     else
     {
         // Copy chunks... it's a real shit
-        outrmsg.rdma_body.rdma_msg = {
+        outrmsg.rdma_body.rdma_msg = (rpc_rdma_header){
             .rdma_writes = rop->in_rdma_msg.rdma_body.rdma_msg.rdma_writes,
             .rdma_reply = rop->in_rdma_msg.rdma_body.rdma_msg.rdma_reply,
         };
@@ -667,7 +667,7 @@ chunk_error:
             assert(hdr_iov_count > 0);
             for (unsigned i = 0; i < hdr_iov_count; i++)
             {
-                memcpy(rop->buffer + pos, hdr_iov_list[i].iov_base, hdr_iov_list[i].iov_len);
+                memcpy((uint8_t*)rop->buffer + pos, hdr_iov_list[i].iov_base, hdr_iov_list[i].iov_len);
                 pos += hdr_iov_list[i].iov_len;
             }
             assert(pos == hdr_size);
@@ -675,7 +675,7 @@ chunk_error:
         }
         for (unsigned i = 0; i < iov_count; i++)
         {
-            memcpy(rop->buffer + pos, iov_list[i].iov_base, iov_list[i].iov_len);
+            memcpy((uint8_t*)rop->buffer + pos, iov_list[i].iov_base, iov_list[i].iov_len);
             pos += iov_list[i].iov_len;
         }
         // Include header size in msg_size now and then
@@ -690,11 +690,11 @@ chunk_error:
                 uint32_t len = (reply_chunk->target.target_val[i].length < msg_size-pos
                     ? reply_chunk->target.target_val[i].length : msg_size-pos);
                 sges[wr_pos] = {
-                    .addr = (uintptr_t)(rop->buffer + pos),
+                    .addr = (uintptr_t)((uint8_t*)rop->buffer + pos),
                     .length = len,
                     .lkey = buf_lkey,
                 };
-                wrs[wr_pos] = {
+                wrs[wr_pos] = (ibv_send_wr){
                     .wr_id = 4, // 4 is chunk write
                     .opcode = IBV_WR_RDMA_WRITE,
                     .wr = {
@@ -718,7 +718,7 @@ chunk_error:
                 .length = (uint32_t)chunk_iov->iov_len,
                 .lkey = rdma_malloc_get_lkey(conn_dev->alloc, chunk_iov->iov_base),
             };
-            wrs[wr_pos] = {
+            wrs[wr_pos] = (ibv_send_wr){
                 .wr_id = 4, // 4 is chunk write
                 .opcode = IBV_WR_RDMA_WRITE,
                 .wr = {
@@ -736,7 +736,7 @@ chunk_error:
             .length = (uint32_t)(reply_chunk ? hdr_size : msg_size),
             .lkey = buf_lkey,
         };
-        wrs[wr_pos] = {
+        wrs[wr_pos] = (ibv_send_wr){
             .wr_id = 2, // 2 is send
             .opcode = remote_invalidate && !reply_chunk && wr_chunk ? IBV_WR_SEND_WITH_INV : IBV_WR_SEND,
             .send_flags = IBV_SEND_SIGNALED,
@@ -1021,7 +1021,7 @@ int nfs_rdma_conn_t::post_chunk_reads(rpc_op_t *rop, bool push)
             .length = cur->entry.target.length,
             .lkey = buf_lkey,
         };
-        chunk_wr[i] = {
+        chunk_wr[i] = (ibv_send_wr){
             .wr_id = 3, // 3 is chunk read
             .next = (i == read_chunk_count-1 ? NULL : &chunk_wr[i+1]),
             .sg_list = &chunk_sge[i],

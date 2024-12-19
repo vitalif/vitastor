@@ -169,7 +169,7 @@ resume_4:
             {
                 st->res2 = res;
                 nfs_kv_continue_delete(st, 5);
-            }, [st](int res, const std::string & value)
+            }, [](int res, const std::string & value)
             {
                 return res == -ENOENT;
             });

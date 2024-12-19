@@ -546,7 +546,7 @@ void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<vo
             auto & key = cmd[1];
             if (opname == "get")
             {
-                db->get(key, [this, cb](int res, const std::string & value)
+                db->get(key, [cb](int res, const std::string & value)
                 {
                     if (res < 0)
                         fprintf(stderr, "Error: %s (code %d)\n", strerror(-res), res);

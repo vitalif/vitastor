@@ -81,12 +81,12 @@ void kv_fs_defrag_t::read()
             empty = true;
             for (; bitmap_pos < bitmap_size; bitmap_pos += 8)
             {
-                if (*((uint64_t*)(op->bitmap_buf + bitmap_pos)))
+                if (*((uint64_t*)((uint8_t*)op->bitmap_buf + bitmap_pos)))
                     empty = false;
             }
             for (; bitmap_pos < bitmap_size; bitmap_pos++)
             {
-                if (*((uint8_t*)(op->bitmap_buf + bitmap_pos)))
+                if (*((uint8_t*)((uint8_t*)op->bitmap_buf + bitmap_pos)))
                     empty = false;
             }
             buf_pos = 0;
