@@ -38,6 +38,7 @@
 - [Кластерная файловая система](../usage/nfs.ru.md#vitastorfs)
 - [Экспериментальная встроенная замена etcd - antietcd](../config/monitor.ru.md#use_antietcd)
 - [Встроенный Prometheus-экспортер метрик](../config/monitor.ru.md#enable_prometheus)
+- [Поддержка NFS RDMA](../usage/nfs.ru.md#rdma) (вероятно, также подходящая для GPUDirect)
 
 ## Драйверы и инструменты
 

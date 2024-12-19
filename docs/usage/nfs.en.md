@@ -111,6 +111,21 @@ settings, because Vitastor NFS proxy doesn't keep uncommitted data in memory
 with these settings. But it may even work without `immediate_commit=all` because
 the Linux NFS client repeats all uncommitted writes if it loses the connection.
 
+## RDMA
+
+vitastor-nfs supports NFS over RDMA, which, in theory, should also allow to use
+VitastorFS from GPUDirect.
+
+You can test NFS-RDMA even if you don't have an RDMA NIC using SoftROCE:
+
+1. First, add SoftROCE device on both servers: `rdma link add rxe0 type rxe netdev eth0`.
+   Here, `rdma` utility is a part the iproute2 package, and `eth0` should be replaced with
+   the name of your Ethernet NIC.
+
+2. Start vitastor-nfs with RDMA: `vitastor-nfs start (--fs <NAME> | --block) --pool <POOL> --port 20049 --nfs_rdma 20049 --portmap 0`
+
+3. Mount the FS: `mount 192.168.0.10:/mnt/test/ /mnt/vita/ -o port=20049,mountport=20049,nfsvers=3,soft,nolock,rdma`
+
 ## Commands
 
 ### mount
@@ -131,11 +146,16 @@ The server will be automatically stopped when the FS is unmounted.
 
 Start network NFS server. Options:
 
-| <!-- -->        | <!-- -->                                                   |
-|-----------------|------------------------------------------------------------|
-| `--bind <IP>`   | bind service to \<IP> address (default 0.0.0.0)            |
-| `--port <PORT>` | use port \<PORT> for NFS services (default is 2049)        |
-| `--portmap 0`   | do not listen on port 111 (portmap/rpcbind, requires root) |
+| <!-- -->               | <!-- -->                                                                                                                    |
+|------------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| `--bind <IP>`          | bind service to \<IP> address (default 0.0.0.0)                                                                             |
+| `--port <PORT>`        | use port \<PORT> for NFS services (default is 2049). Specify "auto" to auto-select and print port                           |
+| `--portmap 0`          | do not listen on port 111 (portmap/rpcbind, requires root)                                                                  |
+| `--nfs_rdma <PORT>`    | enable NFS-RDMA at RDMA-CM port \<PORT> (you can try 20049). If RDMA is enabled and --port is set to 0, TCP will be disabled |
+| `--nfs_rdma_credit 16` | maximum operation credit for RDMA clients (max iodepth)                                                                     |
+| `--nfs_rdma_send 1024` | maximum RDMA send operation count (should be larger than iodepth)                                                           |
+| `--nfs_rdma_alloc 1M`  | RDMA memory allocation rounding                                                                                             |
+| `--nfs_rdma_gc 64M`    | maximum unused RDMA buffers                                                                                                 |
 
 ### upgrade
 

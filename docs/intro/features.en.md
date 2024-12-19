@@ -36,6 +36,7 @@
 - [Clustered file system](../usage/nfs.en.md#vitastorfs)
 - [Experimental internal etcd replacement - antietcd](../config/monitor.en.md#use_antietcd)
 - [Built-in Prometheus metric exporter](../config/monitor.en.md#enable_prometheus)
+- [NFS RDMA support](../usage/nfs.en.md#rdma) (probably also usable for GPUDirect)
 
 ## Plugins and tools
 
