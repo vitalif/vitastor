@@ -21,10 +21,10 @@ RUN set -e -x; \
     echo 'APT::Install-Recommends false;' >> /etc/apt/apt.conf; \
     echo 'APT::Install-Suggests false;' >> /etc/apt/apt.conf
 
-RUN apt-get update
-RUN apt-get -y install fio liburing-dev libgoogle-perftools-dev devscripts libjerasure-dev cmake libibverbs-dev libisal-dev libnl-3-dev libnl-genl-3-dev curl
-RUN apt-get -y build-dep fio
-RUN apt-get --download-only source fio
+RUN apt-get update && \
+    apt-get -y install fio liburing-dev libgoogle-perftools-dev devscripts libjerasure-dev cmake libibverbs-dev librdmacm-dev libisal-dev libnl-3-dev libnl-genl-3-dev curl && \
+    apt-get -y build-dep fio && \
+    apt-get --download-only source fio
 
 ADD . /root/vitastor
 RUN set -e -x; \

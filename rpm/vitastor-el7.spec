@@ -15,7 +15,7 @@ BuildRequires:  rh-nodejs12-npm
 BuildRequires:  jerasure-devel
 BuildRequires:  libisa-l-devel
 BuildRequires:  gf-complete-devel
-BuildRequires:  libibverbs-devel
+BuildRequires:  rdma-core-devel
 BuildRequires:  cmake3
 BuildRequires:  libnl3-devel
 Requires:       vitastor-osd = %{version}-%{release}
