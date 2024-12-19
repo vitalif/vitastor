@@ -96,7 +96,7 @@ Example output (JSON format):
 vitastor-nbd netlink-map [/dev/nbdN] (--image <image> | --pool <pool> --inode <inode> --size <size in bytes>)
 ```
 
-On recent kernel versions it's also possinle to map NBD devices using netlink interface.
+On recent kernel versions it's also possible to map NBD devices using netlink interface.
 
 This is an experimental feature because it doesn't solve all issues of NBD. Differences from regular ioctl-based 'map':
 

@@ -65,8 +65,9 @@ All other client-side components are based on the client library:
   (at least by now). NBD is an older, non-recommended way to attach disks — you should use
   VDUSE whenever you can.
 - **[CSI driver](../installation/kubernetes.en.md)** — driver for attaching Vitastor images
-  as Kubernetes persistent volumes. Works through VDUSE (when available) or NBD — images are
-  attached as kernel block devices and mounted into containers.
+  and VitastorFS subdirectories as Kubernetes persistent volumes. Block-based CSI uses
+  VDUSE (when available) or NBD — images are attached as kernel block devices and mounted
+  into containers. FS-based CSI uses **[vitastor-nfs](../usage/nfs.en.md)**.
 - **Drivers for Proxmox, OpenStack and so on** — pluggable modules for corresponding systems,
   allowing to use Vitastor as storage in them.
 - **[vitastor-nfs](../usage/nfs.en.md)** — NFS 3.0 server allowing export of two file system variants:

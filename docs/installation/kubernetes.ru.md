@@ -6,7 +6,17 @@
 
 # Kubernetes CSI
 
-У Vitastor есть CSI-плагин для Kubernetes, поддерживающий RWO, а также блочные RWX, тома.
+У Vitastor есть CSI-плагин для Kubernetes, поддерживающий блочные тома и тома на основе
+кластерной ФС VitastorFS.
+
+Блочные тома могут быть отформатированы и примонтированы со стандартной ФС (ext4 или xfs).
+Такие тома поддерживают только режим RWO (ReadWriteOnce, одновременный доступ с одного узла).
+
+Блочные тома также могут не форматироваться и подключаться в контейнер в виде блочного устройства.
+В таком случае их можно подключать в режиме RWX (ReadWriteMany, одновременный доступ с многих узлов).
+
+Тома на основе VitastorFS используют кластерную ФС и поэтому также поддерживают режим RWX
+(ReadWriteMany). Однако, такие тома не поддерживают ограничение размера и снимки.
 
 Для установки возьмите манифесты из директории [csi/deploy/](../../csi/deploy/), поместите
 вашу конфигурацию подключения к Vitastor в [csi/deploy/001-csi-config-map.yaml](../../csi/deploy/001-csi-config-map.yaml),
@@ -33,6 +43,7 @@ CSI-плагин Vitastor поддерживает:
 - Версии Kubernetes, начиная с 1.20 (или с 1.17 для более старых vitastor-csi <= 1.1.0)
 - Файловые RWO (ReadWriteOnce) тома. Пример: [PVC](../../csi/deploy/example-pvc.yaml), [под](../../csi/deploy/example-test-pod.yaml)
 - Сырые блочные RWX (ReadWriteMany) тома. Пример: [PVC](../../csi/deploy/example-pvc-block.yaml), [под](../../csi/deploy/example-test-pod-block.yaml)
+- Основанные на VitastorFS RWX (ReadWriteMany) тома. Пример: [класс хранения](../../csi/deploy/example-storage-class-fs.yaml)
 - Расширение размера томов
 - Снимки томов. Пример: [класс снимков](../../csi/deploy/example-snapshot-class.yaml), [снимок](../../csi/deploy/example-snapshot.yaml), [клон снимка](../../csi/deploy/example-snapshot-clone.yaml)
 - Способы подключения устройств [VDUSE](../usage/qemu.ru.md#vduse) (предпочитаемый) и [NBD](../usage/nbd.ru.md)

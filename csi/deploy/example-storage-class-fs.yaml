@@ -1,0 +1,25 @@
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  namespace: vitastor-system
+  name: vitastor
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: csi.vitastor.io
+volumeBindingMode: Immediate
+parameters:
+  # CSI driver can create block-based volumes and VitastorFS-based volumes
+  # only VitastorFS-based volumes and raw block volumes (without FS) support ReadWriteMany mode
+  # set this parameter to VitastorFS metadata volume name to use VitastorFS
+  # if unset, block-based volumes will be created
+  vitastorfs: "testfs"
+  # for block-based storage classes, pool ID may be either a string (name) or a number (ID)
+  # for vitastorFS-based storage classes it must be a string - name of the default pool for FS data
+  poolId: "testpool"
+  # volume name prefix for block-based storage classes or NFS subdirectory (including /) for FS-based volumes
+  volumePrefix: "k8s/"
+  # you can choose other configuration file if you have it in the config map
+  # different etcd URLs and prefixes should also be put in the config
+  #configPath: "/etc/vitastor/vitastor.conf"
+allowVolumeExpansion: true
