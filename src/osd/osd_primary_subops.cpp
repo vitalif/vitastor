@@ -304,11 +304,23 @@ void osd_t::handle_primary_bs_subop(osd_op_t *subop)
         (bs_op->opcode != BS_OP_WRITE && bs_op->opcode != BS_OP_WRITE_STABLE ||
         bs_op->retval != -ENOSPC))
     {
-        // die on any error except ENOSPC
-        throw std::runtime_error(
-            "local blockstore modification failed (opcode = "+std::to_string(bs_op->opcode)+
-            " retval = "+std::to_string(bs_op->retval)+")"
-        );
+        // die on any error except ENOSPC during write
+        if (bs_op->opcode == BS_OP_WRITE || bs_op->opcode == BS_OP_WRITE_STABLE)
+        {
+            printf(
+                "%s subop to %jx:%jx v%ju failed locally: retval = %d (expected %d)\n",
+                osd_op_names[bs_op_to_osd_op[bs_op->opcode]],
+                bs_op->oid.inode, bs_op->oid.stripe, bs_op->version, bs_op->retval, expected
+            );
+        }
+        else
+        {
+            printf(
+                "%s subop failed locally: retval = %d (expected %d)\n",
+                osd_op_names[bs_op_to_osd_op[bs_op->opcode]], bs_op->retval, expected
+            );
+        }
+        throw std::runtime_error("local blockstore modification failed");
     }
     bool recovery_related = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB;
     add_bs_subop_stats(subop, recovery_related);
@@ -383,9 +395,11 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
     {
         uint64_t version = subop->reply.sec_rw.version;
 #ifdef OSD_DEBUG
-        uint64_t peer_osd = msgr.clients.find(subop->peer_fd) != msgr.clients.end()
-            ? msgr.clients[subop->peer_fd]->osd_num : osd_num;
-        printf("subop %s %jx:%jx from osd %ju: version = %ju\n", osd_op_names[opcode], subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, peer_osd, version);
+        int64_t peer_osd = subop->peer_fd == SELF_FD ? osd_num :
+            (msgr.clients.find(subop->peer_fd) != msgr.clients.end()
+                ? msgr.clients[subop->peer_fd]->osd_num : -subop->peer_fd);
+        printf("subop %s %jx:%jx from osd %jd: version = %ju\n", osd_op_names[opcode],
+            subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, peer_osd, version);
 #endif
         if (op_data->fact_ver != UINT64_MAX)
         {
@@ -403,21 +417,23 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
     }
     if (retval != expected)
     {
+        int64_t peer_osd = (msgr.clients.find(subop->peer_fd) != msgr.clients.end()
+            ? msgr.clients[subop->peer_fd]->osd_num : -subop->peer_fd);
         if (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE || opcode == OSD_OP_SEC_WRITE_STABLE)
         {
             printf(
                 subop->peer_fd >= 0
-                    ? "%1$s subop to %2$jx:%3$jx v%4$ju failed on peer %7$d: retval = %5$d (expected %6$d)\n"
+                    ? "%1$s subop to %2$jx:%3$jx v%4$ju failed on osd %7$jd: retval = %5$d (expected %6$d)\n"
                     : "%1$s subop to %2$jx:%3$jx v%4$ju failed locally: retval = %5$d (expected %6$d)\n",
                 osd_op_names[opcode], subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, subop->req.sec_rw.version,
-                retval, expected, subop->peer_fd
+                retval, expected, peer_osd
             );
         }
         else
         {
             printf(
-                "%s subop failed on peer %d: retval = %d (expected %d)\n",
-                osd_op_names[opcode], subop->peer_fd, retval, expected
+                "%s subop failed on osd %jd: retval = %d (expected %d)\n",
+                osd_op_names[opcode], peer_osd, retval, expected
             );
         }
         subop->rmw_buf = NULL;
