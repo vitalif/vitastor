@@ -744,7 +744,7 @@ void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd
     for (int role = 0; role < op_data->pg_size; role++)
     {
         if (osd_set[role] != 0 && !stripes[role].read_error &&
-            msgr.osd_peer_fds.find(osd_set[role]) != msgr.osd_peer_fds.end())
+            (osd_set[role] == this->osd_num || msgr.osd_peer_fds.find(osd_set[role]) != msgr.osd_peer_fds.end()))
         {
             n_subops++;
         }
@@ -761,7 +761,7 @@ void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd
     for (int role = 0; role < op_data->pg_size; role++)
     {
         if (osd_set[role] != 0 && !stripes[role].read_error &&
-            msgr.osd_peer_fds.find(osd_set[role]) != msgr.osd_peer_fds.end())
+            (osd_set[role] == this->osd_num || msgr.osd_peer_fds.find(osd_set[role]) != msgr.osd_peer_fds.end()))
         {
             osd_op_t *subop = &op_data->subops[i];
             op_data->unstable_writes[i] = (obj_ver_id){

@@ -260,11 +260,6 @@ resume_4:
     op_data->st = 4;
     return;
 resume_5:
-    if (op_data->scheme != POOL_SCHEME_REPLICATED)
-    {
-        // Remove version override just after the write, but before stabilizing
-        pg.ver_override.erase(op_data->oid);
-    }
     if (op_data->errors > 0)
     {
         // Handle ENOSPC/EDOM/ERANGE/EIO. If some subops fail, but others succeed,
@@ -276,7 +271,7 @@ resume_5:
         {
             if (op_data->scheme != POOL_SCHEME_REPLICATED)
             {
-                submit_primary_rollback_subops(cur_op, op_data->prev_set);
+                submit_primary_rollback_subops(cur_op, pg.cur_set.data());
 resume_11:
                 op_data->st = 11;
                 return;
@@ -287,14 +282,21 @@ resume_12:
             }
             else
             {
+                pg.ver_override.erase(op_data->oid);
                 mark_partial_write(pg, op_data->oid, op_data->object_state, op_data->stripes, true);
                 pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
                 return;
             }
         }
+        pg.ver_override.erase(op_data->oid);
         deref_object_state(pg, &op_data->object_state, true);
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
         return;
+    }
+    if (op_data->scheme != POOL_SCHEME_REPLICATED)
+    {
+        // Remove version override just after the write, but before stabilizing
+        pg.ver_override.erase(op_data->oid);
     }
     if (op_data->object_state)
     {
