@@ -185,6 +185,7 @@ resume_1:
                 { "space_efficiency", pool_stats[pool_cfg.id]["space_efficiency"].number_value() },
                 { "pg_real_size", pool_stats[pool_cfg.id]["pg_real_size"].uint64_value() },
                 { "osd_count", (uint64_t)pg_per_osd.size() },
+                { "backfillfull", pool_cfg.backfillfull },
             };
         }
         // Include full pool config
@@ -484,6 +485,7 @@ resume_3:
                     st["block_size_fmt"] = format_size(st["block_size"].uint64_value());
                 if (st["bitmap_granularity"].uint64_value())
                     st["bitmap_granularity_fmt"] = format_size(st["bitmap_granularity"].uint64_value());
+                st["backfillfull_fmt"] = st["backfillfull"].bool_value() ? "yes" : "";
             }
             // All pool parameters are only displayed in the "detailed" mode
             // because there's too many of them to show them in table
@@ -493,6 +495,7 @@ resume_3:
                 { "scheme_name", "Scheme" },
                 { "used_for_fs", "Used for VitastorFS" },
                 { "status", "Status" },
+                { "backfillfull_fmt", "Backfillfull" },
                 { "pg_count_fmt", "PGs" },
                 { "pg_minsize", "PG minsize" },
                 { "failure_domain", "Failure domain" },

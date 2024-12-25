@@ -173,6 +173,8 @@ resume_2:
             }
         });
         int pool_count = 0, pools_active = 0;
+        json11::Json::array backfillfull_pool_ids;
+        std::string backfillfull_pool_names;
         std::map<std::string, int> pgs_by_state;
         std::string pgs_by_state_str;
         for (auto & pool_pair: parent->cli->st_cli.pool_config)
@@ -203,6 +205,13 @@ resume_2:
             if (active)
             {
                 pools_active++;
+            }
+            if (pool_cfg.backfillfull)
+            {
+                backfillfull_pool_ids.push_back((uint64_t)pool_pair.first);
+                if (backfillfull_pool_names != "")
+                    backfillfull_pool_names += ", ";
+                backfillfull_pool_names += pool_cfg.name;
             }
         }
         for (auto & kv: pgs_by_state)
@@ -242,6 +251,7 @@ resume_2:
                 { "no_scrub", no_scrub },
                 { "pool_count", pool_count },
                 { "active_pool_count", pools_active },
+                { "backfillfull_pools", backfillfull_pool_ids },
                 { "pg_states", pgs_by_state },
                 { "op_stats", agg_stats["op_stats"] },
                 { "recovery_stats", agg_stats["recovery_stats"] },
@@ -337,6 +347,13 @@ resume_2:
                 warning_str += (i > 0 ? ", " : "")+std::to_string(slow_op_secondary_osds[i]);
             }
             warning_str += "\n";
+        }
+        if (backfillfull_pool_names != "")
+        {
+            if (backfillfull_pool_ids.size() > 1)
+                warning_str += "    pools "+backfillfull_pool_names+" are backfillfull\n";
+            else
+                warning_str += "    pool "+backfillfull_pool_names+" is backfillfull\n";
         }
         if (warning_str != "")
         {
