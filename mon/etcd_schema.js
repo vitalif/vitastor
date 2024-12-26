@@ -216,6 +216,7 @@ const etcd_tree = {
                     parent_pool?: <pool_id>,
                     parent_id?: <inode_t>,
                     readonly?: boolean,
+                    deleted?: boolean,
                 }
             }
         }, */

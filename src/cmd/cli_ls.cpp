@@ -371,7 +371,8 @@ resume_1:
                 kv.second["delete_q"] = format_q(kv.second["delete_queue"].number_value());
             }
             kv.second["size_fmt"] = format_size(kv.second["size"].uint64_value());
-            kv.second["ro"] = kv.second["readonly"].bool_value() ? "RO" : "-";
+            kv.second["ro"] = kv.second["deleted"].bool_value() ? "DEL" :
+                (kv.second["readonly"].bool_value() ? "RO" : "-");
         }
         result.text = print_table(to_list(), cols, parent->color);
         state = 100;

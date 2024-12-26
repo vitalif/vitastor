@@ -146,6 +146,7 @@ Rename, resize image or change its readonly status. Images with children can't b
 If the new size is smaller than the old size, extra data will be purged.
 You should resize file system in the image, if present, before shrinking it.
 
+* `--deleted 1|0` - Set/clear 'deleted image' flag (set automatically during unfinished deletes).
 * `-f|--force` - Proceed with shrinking or setting readwrite flag even if the image has children.
 * `--down-ok` - Proceed with shrinking even if some data will be left on unavailable OSDs.
 

@@ -1217,6 +1217,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                     .size = value["size"].uint64_value(),
                     .parent_id = parent_inode_num,
                     .readonly = value["readonly"].bool_value(),
+                    .deleted = value["deleted"].bool_value(),
                     .meta = value["meta"],
                     .mod_revision = kv.mod_revision,
                 });
@@ -1304,6 +1305,10 @@ json11::Json::object etcd_state_client_t::serialize_inode_cfg(inode_config_t *cf
     if (cfg->readonly)
     {
         new_cfg["readonly"] = true;
+    }
+    if (cfg->deleted)
+    {
+        new_cfg["deleted"] = true;
     }
     if (cfg->meta.is_object())
     {

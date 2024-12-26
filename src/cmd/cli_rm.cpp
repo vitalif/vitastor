@@ -95,6 +95,10 @@ struct snap_remover_t
             goto resume_7;
         else if (state == 8)
             goto resume_8;
+        else if (state == 9)
+            goto resume_9;
+        else if (state == 10)
+            goto resume_10;
         else if (state == 100)
             goto resume_100;
         assert(!state);
@@ -129,23 +133,9 @@ resume_1:
                 continue;
             rebased_images.push_back(parent->cli->st_cli.inode_config.at(merge_children[current_child]).name);
             start_merge_child(merge_children[current_child], merge_children[current_child]);
-            if (state == 100)
-                return;
 resume_2:
-            while (!cb(result))
-            {
-                state = 2;
+            while (!wait_result(2))
                 return;
-            }
-            cb = NULL;
-            if (result.err)
-            {
-                result.data = my_result(result.data);
-                state = 100;
-                return;
-            }
-            else if (parent->progress)
-                printf("%s\n", result.text.c_str());
             parent->change_parent(merge_children[current_child], new_parent, &result);
             state = 3;
 resume_3:
@@ -164,42 +154,19 @@ resume_3:
         if (inverse_child != 0)
         {
             start_merge_child(inverse_child, inverse_parent);
-            if (state == 100)
-                return;
 resume_4:
-            while (!cb(result))
-            {
-                state = 4;
+            while (!wait_result(4))
                 return;
-            }
-            cb = NULL;
-            if (result.err)
-            {
-                result.data = my_result(result.data);
-                state = 100;
+            // Mark child as deleted
+            start_mark_deleted(inverse_child);
+resume_9:
+            while (!wait_result(9))
                 return;
-            }
-            else if (parent->progress)
-                printf("%s\n", result.text.c_str());
             // Delete "inverse" child data
             start_delete_source(inverse_child);
-            if (state == 100)
-                return;
 resume_5:
-            while (!cb(result))
-            {
-                state = 5;
+            while (!wait_result(5))
                 return;
-            }
-            cb = NULL;
-            if (result.err)
-            {
-                result.data = my_result(result.data);
-                state = 100;
-                return;
-            }
-            else if (parent->progress)
-                printf("%s\n", result.text.c_str());
             // Delete "inverse" child metadata, rename parent over it,
             // and also change parent links of the previous "inverse" child
             rename_inverse_parent();
@@ -221,22 +188,15 @@ resume_6:
                     deleted_images.push_back(parent_it->second.name);
                 deleted_ids.push_back(chain_list[current_child]);
             }
+            // Mark child as deleted
+            start_mark_deleted(chain_list[current_child]);
+resume_10:
+            while (!wait_result(10))
+                return;
             start_delete_source(chain_list[current_child]);
 resume_7:
-            while (!cb(result))
-            {
-                state = 7;
+            while (!wait_result(7))
                 return;
-            }
-            cb = NULL;
-            if (result.err)
-            {
-                result.data = my_result(result.data);
-                state = 100;
-                return;
-            }
-            else if (parent->progress)
-                printf("%s\n", result.text.c_str());
             delete_inode_config(chain_list[current_child]);
             if (state == 100)
                 return;
@@ -254,6 +214,26 @@ resume_8:
 resume_100:
         // Done
         return;
+    }
+
+    bool wait_result(int base_state)
+    {
+        if (state == 100 || !cb)
+            return true;
+        while (!cb(result))
+        {
+            state = base_state;
+            return false;
+        }
+        cb = NULL;
+        if (result.err)
+        {
+            result.data = my_result(result.data);
+            state = 100;
+        }
+        else if (parent->progress)
+            printf("%s\n", result.text.c_str());
+        return true;
     }
 
     json11::Json my_result(json11::Json src)
@@ -664,6 +644,27 @@ resume_100:
             { "delete-source", false },
             { "cas", use_cas },
             { "fsync-interval", fsync_interval },
+        });
+    }
+
+    void start_mark_deleted(inode_t inode)
+    {
+        auto ino_it = parent->cli->st_cli.inode_config.find(inode);
+        if (ino_it == parent->cli->st_cli.inode_config.end())
+        {
+            char buf[1024];
+            snprintf(buf, 1024, "Inode 0x%jx disappeared", inode);
+            result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
+            state = 100;
+            return;
+        }
+        if (ino_it->second.deleted)
+        {
+            return;
+        }
+        cb = parent->start_modify(json11::Json::object {
+            { "image", ino_it->second.name },
+            { "deleted", true },
         });
     }
 

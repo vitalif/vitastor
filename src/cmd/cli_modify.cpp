@@ -4,6 +4,7 @@
 #include "cli.h"
 #include "cluster_client.h"
 #include "str_util.h"
+#include "json_util.h"
 
 // Rename, resize image (and purge extra data on shrink) or change its readonly status
 struct image_changer_t
@@ -15,6 +16,7 @@ struct image_changer_t
     uint64_t new_size = 0;
     bool force_size = false, inc_size = false;
     bool set_readonly = false, set_readwrite = false, force = false;
+    bool set_deleted = false, new_deleted = false;
     bool down_ok = false;
     // interval between fsyncs
     int fsync_interval = 128;
@@ -82,6 +84,7 @@ struct image_changer_t
         }
         if ((!set_readwrite || !cfg.readonly) &&
             (!set_readonly || cfg.readonly) &&
+            (!set_deleted || cfg.deleted == new_deleted) &&
             (!new_size && !force_size || cfg.size == new_size || cfg.size >= new_size && inc_size) &&
             (new_name == "" || new_name == image_name))
         {
@@ -140,6 +143,10 @@ resume_1:
                 state = 100;
                 return;
             }
+        }
+        if (set_deleted)
+        {
+            cfg.deleted = new_deleted;
         }
         if (new_name != "")
         {
@@ -251,6 +258,8 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_modify(json11::Json cfg)
     changer->force = cfg["force"].bool_value();
     changer->set_readonly = cfg["readonly"].bool_value();
     changer->set_readwrite = cfg["readwrite"].bool_value();
+    changer->set_deleted = !cfg["deleted"].is_null();
+    changer->new_deleted = json_is_true(cfg["deleted"]);
     changer->fsync_interval = cfg["fsync_interval"].uint64_value();
     if (!changer->fsync_interval)
         changer->fsync_interval = 128;
