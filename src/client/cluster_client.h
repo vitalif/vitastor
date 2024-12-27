@@ -136,8 +136,9 @@ public:
     bool get_immediate_commit(uint64_t inode);
 
     void continue_ops(int time_passed = 0);
+    // FIXME: list_inode_start/list_inode_next - not an ideal interface :)
     inode_list_t *list_inode_start(inode_t inode,
-        std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback);
+        std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int errcode, int status)> callback);
     int list_pg_count(inode_list_t *lst);
     const std::vector<osd_num_t> & list_inode_get_inactive_osds(inode_list_t *lst);
     const std::vector<pg_num_t> & list_inode_get_inactive_pgs(inode_list_t *lst);

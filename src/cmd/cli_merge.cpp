@@ -51,6 +51,7 @@ struct snap_merger_t
     btree::safe_btree_set<uint64_t> merge_offsets;
     btree::safe_btree_set<uint64_t>::iterator oit;
     std::map<inode_t, std::vector<uint64_t>> layer_lists;
+    std::map<inode_t, int> list_errcode;
     std::map<inode_t, uint64_t> layer_block_size;
     std::map<inode_t, uint64_t> layer_list_pos;
     std::vector<snap_rw_op_t*> continue_rwo, continue_rwo2;
@@ -251,12 +252,22 @@ struct snap_merger_t
         // Get parents and so on
         start_merge();
         // First list lower layers
+        list_errcode.clear();
         list_layers(true);
         state = 1;
     resume_1:
         while (lists_todo > 0)
         {
             // Wait for lists
+            return;
+        }
+        if (list_errcode.size())
+        {
+            result = (cli_result_t){
+                .err = EIO,
+                .text = "Failed to list lower layer(s) in some PGs, merging would be incorrect",
+            };
+            state = 100;
             return;
         }
         if (merge_offsets.size() > 0)
@@ -295,12 +306,22 @@ struct snap_merger_t
         state = 3;
     resume_3:
         // Then list upper layers
+        list_errcode.clear();
         list_layers(false);
         state = 4;
     resume_4:
         while (lists_todo > 0)
         {
             // Wait for lists
+            return;
+        }
+        if (list_errcode.size() > 0)
+        {
+            result = (cli_result_t){
+                .err = EIO,
+                .text = "Failed to list upper layer(s) in some PGs, merging would be incorrect",
+            };
+            state = 100;
             return;
         }
         state = 5;
@@ -369,8 +390,12 @@ struct snap_merger_t
             {
                 lists_todo++;
                 inode_list_t* lst = parent->cli->list_inode_start(src, [this, src](
-                    inode_list_t *lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)
+                    inode_list_t *lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int errcode, int status)
                 {
+                    if (errcode)
+                    {
+                        list_errcode[src] = errcode;
+                    }
                     uint64_t layer_block = layer_block_size.at(src);
                     for (object_id obj: objects)
                     {
@@ -394,9 +419,15 @@ struct snap_merger_t
                     if (status & INODE_LIST_DONE)
                     {
                         auto & name = parent->cli->st_cli.inode_config.at(src).name;
-                        if (parent->progress)
+                        if (list_errcode.find(src) != list_errcode.end())
                         {
-                            printf("Got listing of layer %s (inode %ju in pool %u)\n", name.c_str(), INODE_NO_POOL(src), INODE_POOL(src));
+                            fprintf(stderr, "Failed to get listing of layer %s (inode %ju in pool %u): %s (code %d)\n",
+                                name.c_str(), INODE_NO_POOL(src), INODE_POOL(src), strerror(-list_errcode[src]), list_errcode[src]);
+                        }
+                        else if (parent->progress)
+                        {
+                            fprintf(stderr, "Got listing of layer %s (inode %ju in pool %u)\n",
+                                name.c_str(), INODE_NO_POOL(src), INODE_POOL(src));
                         }
                         if (delete_source)
                         {
@@ -428,7 +459,7 @@ struct snap_merger_t
         {
             if (op->retval < 0)
             {
-                fprintf(stderr, "error reading target bitmap at offset %jx: %s\n", op->offset, strerror(-op->retval));
+                fprintf(stderr, "Warning: failed to read target bitmap at offset %jx: %s\n", op->offset, strerror(-op->retval));
             }
             else
             {

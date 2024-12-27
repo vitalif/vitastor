@@ -32,7 +32,7 @@ struct rm_inode_t
     inode_list_t *lister = NULL;
     std::vector<rm_pg_t*> lists;
     std::vector<osd_num_t> inactive_osds;
-    std::vector<uint64_t> inactive_pgs;
+    std::set<pg_num_t> inactive_pgs;
     uint64_t total_count = 0, total_done = 0, total_prev_pct = 0;
     uint64_t pgs_to_list = 0;
     bool lists_done = false;
@@ -44,8 +44,12 @@ struct rm_inode_t
     void start_delete()
     {
         lister = parent->cli->list_inode_start(inode, [this](inode_list_t *lst,
-            std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)
+            std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int errcode, int status)
         {
+            if (errcode)
+            {
+                inactive_pgs.insert(pg_num);
+            }
             rm_pg_t *rm = new rm_pg_t((rm_pg_t){
                 .pg_num = pg_num,
                 .rm_osd_num = primary_osd,
@@ -99,17 +103,6 @@ struct rm_inode_t
             for (int i = 0; i < inactive_osds.size(); i++)
             {
                 fprintf(stderr, i > 0 ? ", %ju" : "%ju", inactive_osds[i]);
-            }
-            fprintf(stderr, "\n");
-        }
-        auto inactive_pgs = parent->cli->list_inode_get_inactive_pgs(lister);
-        if (inactive_pgs.size() && !parent->json_output)
-        {
-            fprintf(stderr, "Some data may remain after delete in PGs which are currently inactive: ");
-            for (int i = 0; i < inactive_pgs.size(); i++)
-            {
-                this->inactive_pgs.push_back((uint64_t)inactive_pgs[i]);
-                fprintf(stderr, i > 0 ? ", %u" : "%u", inactive_pgs[i]);
             }
             fprintf(stderr, "\n");
         }
@@ -237,6 +230,16 @@ struct rm_inode_t
             {
                 fprintf(stderr, "\n");
             }
+            if (inactive_pgs.size() && !parent->json_output)
+            {
+                fprintf(stderr, "Failed to list some PGs, deletion is not complete: PG ");
+                int i = 0;
+                for (auto pg_num: inactive_pgs)
+                {
+                    fprintf(stderr, (i++) > 0 ? ", %u" : "%u", pg_num);
+                }
+                fprintf(stderr, "\n");
+            }
             bool is_error = (total_done < total_count || inactive_osds.size() > 0 || inactive_pgs.size() > 0 || error_count > 0);
             if (parent->progress && is_error)
             {
@@ -245,6 +248,11 @@ struct rm_inode_t
                     "Use `vitastor-cli rm-data --pool %u --inode %ju` if you encounter it in listings.\n",
                     pool_id, INODE_NO_POOL(inode), pool_id, INODE_NO_POOL(inode)
                 );
+            }
+            json11::Json::array inactive_pgs_json;
+            for (auto pg_num: inactive_pgs)
+            {
+                inactive_pgs_json.push_back((uint64_t)pg_num);
             }
             result = (cli_result_t){
                 .err = is_error && !down_ok ? EIO : 0,
@@ -255,7 +263,7 @@ struct rm_inode_t
                     { "removed_objects", total_done },
                     { "total_objects", total_count },
                     { "inactive_osds", inactive_osds },
-                    { "inactive_pgs", inactive_pgs },
+                    { "inactive_pgs", inactive_pgs_json },
                 },
             };
             state = 100;

@@ -20,6 +20,7 @@ struct inode_list_pg_t
 {
     inode_list_t *lst = NULL;
     int pos = 0;
+    int errcode = 0;
     pg_num_t pg_num;
     osd_num_t cur_primary;
     bool has_unstable = false;
@@ -40,11 +41,11 @@ struct inode_list_t
     std::vector<osd_num_t> inactive_osds;
     std::vector<pg_num_t> inactive_pgs;
     std::vector<inode_list_pg_t*> pgs;
-    std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback;
+    std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int errcode, int status)> callback;
 };
 
 inode_list_t* cluster_client_t::list_inode_start(inode_t inode,
-    std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback)
+    std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int errcode, int status)> callback)
 {
     init_msgr();
     pool_id_t pool_id = INODE_POOL(inode);
@@ -211,6 +212,7 @@ void cluster_client_t::continue_listing(inode_list_t *lst)
         }
         else if (!lst->pgs[i]->list_osds.size())
         {
+            lst->pgs[i]->errcode = -EIO;
             finish_list_pg(lst->pgs[i]);
             if (check_finish_listing(lst))
             {
@@ -259,6 +261,7 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
         {
             fprintf(stderr, "Failed to get PG %u/%u object list from OSD %ju (retval=%jd), skipping\n",
                 cur_list->pg->lst->pool_id, cur_list->pg->pg_num, cur_list->osd_num, op->reply.hdr.retval);
+            cur_list->pg->errcode = op->reply.hdr.retval;
         }
         else
         {
@@ -317,7 +320,7 @@ void cluster_client_t::finish_list_pg(inode_list_pg_t *pg)
             status |= INODE_LIST_HAS_UNSTABLE;
         }
         lst->pgs[pg->pos] = NULL;
-        lst->callback(lst, std::move(pg->objects), pg->pg_num, pg->cur_primary, status);
+        lst->callback(lst, std::move(pg->objects), pg->pg_num, pg->cur_primary, pg->errcode, status);
         delete pg;
     }
     else
