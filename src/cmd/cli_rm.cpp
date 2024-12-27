@@ -230,6 +230,7 @@ resume_100:
         {
             result.data = my_result(result.data);
             state = 100;
+            return false;
         }
         else if (parent->progress)
             printf("%s\n", result.text.c_str());

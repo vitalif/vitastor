@@ -36,7 +36,9 @@ struct inode_list_t
     inode_t inode = 0;
     int done_pgs = 0;
     int want = 0;
+    int onstack = 0;
     std::vector<osd_num_t> inactive_osds;
+    std::vector<pg_num_t> inactive_pgs;
     std::vector<inode_list_pg_t*> pgs;
     std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback;
 };
@@ -45,7 +47,6 @@ inode_list_t* cluster_client_t::list_inode_start(inode_t inode,
     std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback)
 {
     init_msgr();
-    int skipped_pgs = 0;
     pool_id_t pool_id = INODE_POOL(inode);
     if (!pool_id || st_cli.pool_config.find(pool_id) == st_cli.pool_config.end())
     {
@@ -67,7 +68,7 @@ inode_list_t* cluster_client_t::list_inode_start(inode_t inode,
         auto & pg = pg_item.second;
         if (pg.pause || !pg.cur_primary || !(pg.cur_state & PG_ACTIVE))
         {
-            skipped_pgs++;
+            lst->inactive_pgs.push_back(pg_item.first);
             if (log_level > 0)
             {
                 fprintf(stderr, "PG %u is inactive, skipping\n", pg_item.first);
@@ -122,7 +123,9 @@ inode_list_t* cluster_client_t::list_inode_start(inode_t inode,
                 }
             }
         }
-        else
+        // FIXME: We should retry (or at least OPTIONALLY retry) connecting during delete, but only _for_some_time_
+        // FIXME: Also we should handle the case when the OSD is disconnected during delete
+        else if (st_cli.peer_states.find(pg.cur_primary) != st_cli.peer_states.end())
         {
             // Clean
             r->list_osds.push_back((inode_list_osd_t){
@@ -130,6 +133,10 @@ inode_list_t* cluster_client_t::list_inode_start(inode_t inode,
                 .osd_num = pg.cur_primary,
                 .sent = false,
             });
+        }
+        else
+        {
+            inactive_osd_set.insert(pg.cur_primary);
         }
         lst->pgs.push_back(r);
     }
@@ -156,6 +163,11 @@ const std::vector<osd_num_t> & cluster_client_t::list_inode_get_inactive_osds(in
     return lst->inactive_osds;
 }
 
+const std::vector<pg_num_t> & cluster_client_t::list_inode_get_inactive_pgs(inode_list_t *lst)
+{
+    return lst->inactive_pgs;
+}
+
 void cluster_client_t::list_inode_next(inode_list_t *lst, int next_pgs)
 {
     if (next_pgs >= 0)
@@ -175,20 +187,39 @@ void cluster_client_t::continue_listing(inode_list_t *lst)
     {
         return;
     }
+    if (lst->onstack > 0)
+    {
+        return;
+    }
+    lst->onstack++;
     for (int i = 0; i < lst->pgs.size(); i++)
     {
-        if (lst->pgs[i] && lst->pgs[i]->sent < lst->pgs[i]->list_osds.size())
+        if (!lst->pgs[i])
+        {
+        }
+        else if (lst->pgs[i]->sent < lst->pgs[i]->list_osds.size())
         {
             for (int j = 0; j < lst->pgs[i]->list_osds.size(); j++)
             {
                 send_list(&lst->pgs[i]->list_osds[j]);
                 if (lst->want <= 0)
                 {
+                    lst->onstack--;
                     return;
                 }
             }
         }
+        else if (!lst->pgs[i]->list_osds.size())
+        {
+            finish_list_pg(lst->pgs[i]);
+            if (check_finish_listing(lst))
+            {
+                // Do not change lst->onstack because it's already freed
+                return;
+            }
+        }
     }
+    lst->onstack--;
 }
 
 void cluster_client_t::send_list(inode_list_osd_t *cur_list)
@@ -257,48 +288,61 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
         }
         delete op;
         auto lst = cur_list->pg->lst;
-        auto pg = cur_list->pg;
-        pg->done++;
-        if (pg->done >= pg->list_osds.size())
+        cur_list->pg->done++;
+        finish_list_pg(cur_list->pg);
+        if (!check_finish_listing(lst))
         {
-            int status = 0;
-            lst->done_pgs++;
-            if (lst->done_pgs >= lst->pgs.size())
-            {
-                status |= INODE_LIST_DONE;
-            }
-            if (pg->has_unstable)
-            {
-                status |= INODE_LIST_HAS_UNSTABLE;
-            }
-            lst->callback(lst, std::move(pg->objects), pg->pg_num, pg->cur_primary, status);
-            lst->pgs[pg->pos] = NULL;
-            delete pg;
-            if (lst->done_pgs >= lst->pgs.size())
-            {
-                // All done
-                for (int i = 0; i < lists.size(); i++)
-                {
-                    if (lists[i] == lst)
-                    {
-                        lists.erase(lists.begin()+i, lists.begin()+i+1);
-                        break;
-                    }
-                }
-                delete lst;
-                return;
-            }
+            continue_listing(lst);
         }
-        else
-        {
-            lst->want++;
-        }
-        continue_listing(lst);
     };
     msgr.outbox_push(op);
     cur_list->sent = true;
     cur_list->pg->sent++;
     cur_list->pg->lst->want--;
+}
+
+void cluster_client_t::finish_list_pg(inode_list_pg_t *pg)
+{
+    auto lst = pg->lst;
+    if (pg->done >= pg->list_osds.size())
+    {
+        int status = 0;
+        lst->done_pgs++;
+        if (lst->done_pgs >= lst->pgs.size())
+        {
+            status |= INODE_LIST_DONE;
+        }
+        if (pg->has_unstable)
+        {
+            status |= INODE_LIST_HAS_UNSTABLE;
+        }
+        lst->pgs[pg->pos] = NULL;
+        lst->callback(lst, std::move(pg->objects), pg->pg_num, pg->cur_primary, status);
+        delete pg;
+    }
+    else
+    {
+        lst->want++;
+    }
+}
+
+bool cluster_client_t::check_finish_listing(inode_list_t *lst)
+{
+    if (lst->done_pgs >= lst->pgs.size())
+    {
+        // All done
+        for (int i = 0; i < lists.size(); i++)
+        {
+            if (lists[i] == lst)
+            {
+                lists.erase(lists.begin()+i, lists.begin()+i+1);
+                break;
+            }
+        }
+        delete lst;
+        return true;
+    }
+    return false;
 }
 
 void cluster_client_t::continue_lists()

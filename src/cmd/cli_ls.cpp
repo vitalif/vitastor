@@ -68,6 +68,7 @@ struct image_lister_t
                 { "pool_name", good_pool ? pool_it->second.name : "? (ID:"+std::to_string(INODE_POOL(ic.second.num))+")" },
                 { "inode_num", INODE_NO_POOL(ic.second.num) },
                 { "inode_id", ic.second.num },
+                { "deleted", ic.second.deleted },
             };
             if (ic.second.parent_id)
             {

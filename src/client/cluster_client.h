@@ -71,6 +71,7 @@ protected:
 
 struct inode_list_t;
 struct inode_list_osd_t;
+struct inode_list_pg_t;
 class writeback_cache_t;
 
 // FIXME: Split into public and private interfaces
@@ -139,6 +140,7 @@ public:
         std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int status)> callback);
     int list_pg_count(inode_list_t *lst);
     const std::vector<osd_num_t> & list_inode_get_inactive_osds(inode_list_t *lst);
+    const std::vector<pg_num_t> & list_inode_get_inactive_pgs(inode_list_t *lst);
     void list_inode_next(inode_list_t *lst, int next_pgs);
     //inline uint32_t get_bs_bitmap_granularity() { return st_cli.global_bitmap_granularity; }
     //inline uint64_t get_bs_block_size() { return st_cli.global_block_size; }
@@ -169,6 +171,8 @@ protected:
     void continue_lists();
     void continue_listing(inode_list_t *lst);
     void send_list(inode_list_osd_t *cur_list);
+    void finish_list_pg(inode_list_pg_t *pg);
+    bool check_finish_listing(inode_list_t *lst);
     void continue_raw_ops(osd_num_t peer_osd);
 
     friend class writeback_cache_t;

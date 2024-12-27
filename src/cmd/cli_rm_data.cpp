@@ -32,6 +32,7 @@ struct rm_inode_t
     inode_list_t *lister = NULL;
     std::vector<rm_pg_t*> lists;
     std::vector<osd_num_t> inactive_osds;
+    std::vector<uint64_t> inactive_pgs;
     uint64_t total_count = 0, total_done = 0, total_prev_pct = 0;
     uint64_t pgs_to_list = 0;
     bool lists_done = false;
@@ -51,7 +52,7 @@ struct rm_inode_t
                 .objects = objects,
                 .obj_count = objects.size(),
                 .obj_done = 0,
-                .synced = parent->cli->get_immediate_commit(inode),
+                .synced = !objects.size() || parent->cli->get_immediate_commit(inode),
             });
             if (min_offset == 0 && max_offset == 0)
             {
@@ -98,6 +99,17 @@ struct rm_inode_t
             for (int i = 0; i < inactive_osds.size(); i++)
             {
                 fprintf(stderr, i > 0 ? ", %ju" : "%ju", inactive_osds[i]);
+            }
+            fprintf(stderr, "\n");
+        }
+        auto inactive_pgs = parent->cli->list_inode_get_inactive_pgs(lister);
+        if (inactive_pgs.size() && !parent->json_output)
+        {
+            fprintf(stderr, "Some data may remain after delete in PGs which are currently inactive: ");
+            for (int i = 0; i < inactive_pgs.size(); i++)
+            {
+                this->inactive_pgs.push_back((uint64_t)inactive_pgs[i]);
+                fprintf(stderr, i > 0 ? ", %u" : "%u", inactive_pgs[i]);
             }
             fprintf(stderr, "\n");
         }
@@ -225,7 +237,7 @@ struct rm_inode_t
             {
                 fprintf(stderr, "\n");
             }
-            bool is_error = (total_done < total_count || inactive_osds.size() > 0 || error_count > 0);
+            bool is_error = (total_done < total_count || inactive_osds.size() > 0 || inactive_pgs.size() > 0 || error_count > 0);
             if (parent->progress && is_error)
             {
                 fprintf(
@@ -243,6 +255,7 @@ struct rm_inode_t
                     { "removed_objects", total_done },
                     { "total_objects", total_count },
                     { "inactive_osds", inactive_osds },
+                    { "inactive_pgs", inactive_pgs },
                 },
             };
             state = 100;
