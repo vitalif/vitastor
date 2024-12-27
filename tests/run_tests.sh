@@ -36,6 +36,8 @@ SCHEME=ec ./test_snapshot.sh
 
 ./test_rm.sh
 
+./test_rm_degraded.sh
+
 ./test_snapshot_chain.sh
 SCHEME=ec ./test_snapshot_chain.sh
 
