@@ -73,8 +73,11 @@ struct wildcard_remover_t
             {
                 auto & inode_cfg = parent->cli->st_cli.inode_config.at(child_id);
                 ver_chain.push_back((inode_rev_t){ .inode_num = child_id, .meta_rev = inode_cfg.mod_revision });
-                child_id = inode_cfg.parent_id;
-            } while (child_id && child_id != parent_id);
+                if (child_id == parent_id)
+                    break;
+                else
+                    child_id = inode_cfg.parent_id;
+            } while (child_id);
             versioned_chains.push_back(std::move(ver_chain));
         }
         // Sort chains based on parent inode rank to first delete child-most layers
