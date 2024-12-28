@@ -23,6 +23,9 @@ class AntiEtcdAdapter
             }, {}));
             const cfg_port = config.antietcd_port;
             const is_local = local_ips(true).reduce((a, c) => { a[c] = true; return a; }, {});
+            is_local['0.0.0.0'] = true;
+            is_local['::'] = true;
+            is_local[''] = true;
             const selected = cluster.map(s => s.split(':', 2)).filter(ip => is_local[ip[0]] && (!cfg_port || ip[1] == cfg_port));
             if (selected.length > 1)
             {
