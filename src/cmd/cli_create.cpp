@@ -401,7 +401,7 @@ resume_3:
                 auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
                 size = kv.value["size"].uint64_value();
                 new_parent_id = kv.value["parent_id"].uint64_value();
-                uint64_t parent_pool_id = kv.value["parent_pool_id"].uint64_value();
+                uint64_t parent_pool_id = kv.value["parent_pool"].uint64_value();
                 if (new_parent_id)
                 {
                     new_parent_id = INODE_WITH_POOL(parent_pool_id ? parent_pool_id : old_pool_id, new_parent_id);
