@@ -460,7 +460,7 @@ resume_8:
             }
             if (osd_bs && osd_bs != UINT32_MAX && osd_bs != parent->cli->st_cli.global_block_size)
             {
-                fprintf(stderr, "Auto-selecting block_size=%s because all pool OSDs use it\n", format_size(osd_bs).c_str());
+                fprintf(stderr, "Auto-selecting block_size=%s because all pool OSDs use it\n", format_size(osd_bs, false, true).c_str());
                 upd["block_size"] = osd_bs;
             }
         }
@@ -479,7 +479,7 @@ resume_8:
             }
             if (osd_bg && osd_bg != UINT32_MAX && osd_bg != parent->cli->st_cli.global_bitmap_granularity)
             {
-                fprintf(stderr, "Auto-selecting bitmap_granularity=%s because all pool OSDs use it\n", format_size(osd_bg).c_str());
+                fprintf(stderr, "Auto-selecting bitmap_granularity=%s because all pool OSDs use it\n", format_size(osd_bg, false, true).c_str());
                 upd["bitmap_granularity"] = osd_bg;
             }
         }
