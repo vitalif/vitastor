@@ -431,13 +431,22 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
     else if (cmd[0] == "rm")
     {
         // Remove multiple snapshots and rebase their children
-        if (cmd.size() > 1)
+        if (cfg["exact"].bool_value() || cfg["matching"].bool_value())
         {
-            cfg["from"] = cmd[1];
-            if (cmd.size() > 2)
-                cfg["to"] = cmd[2];
+            cmd.erase(cmd.begin(), cmd.begin()+1);
+            cfg["globs"] = cmd;
+            action_cb = p->start_rm_wildcard(cfg);
         }
-        action_cb = p->start_rm(cfg);
+        else
+        {
+            if (cmd.size() > 1)
+            {
+                cfg["from"] = cmd[1];
+                if (cmd.size() > 2)
+                    cfg["to"] = cmd[2];
+            }
+            action_cb = p->start_rm(cfg);
+        }
     }
     else if (cmd[0] == "describe")
     {

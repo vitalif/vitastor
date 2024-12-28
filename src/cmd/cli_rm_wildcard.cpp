@@ -146,6 +146,7 @@ struct wildcard_remover_t
                 sub_cfg = cfg.object_items();
                 sub_cfg.erase("globs");
                 sub_cfg.erase("exact");
+                sub_cfg.erase("matching");
                 sub_cfg["from"] = from_cfg.name;
                 sub_cfg["to"] = to_cfg.name;
                 sub_cb = parent->start_rm(sub_cfg);
