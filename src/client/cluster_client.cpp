@@ -1079,7 +1079,7 @@ bool cluster_client_t::try_send(cluster_op_t *op, int i)
             uint64_t meta_rev = 0;
             if (op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_DELETE)
             {
-                auto ino_it = st_cli.inode_config.find(op->inode);
+                auto ino_it = st_cli.inode_config.find(op->cur_inode);
                 if (ino_it != st_cli.inode_config.end())
                     meta_rev = ino_it->second.mod_revision;
             }
