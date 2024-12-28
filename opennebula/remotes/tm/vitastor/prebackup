@@ -98,8 +98,8 @@ vm.elements.each 'TEMPLATE/DISK' do |d|
     cmd = 'vitastor-cli'
     qemu_arg = ''
     if d.elements['VITASTOR_CONF']
-        cmd = cmd + ' --config_path ' + d.elements['VITASTOR_CONF']
-        qemu_arg += 'config_path='+d.elements['VITASTOR_CONF']+':'
+        cmd = cmd + ' --config_path ' + d.elements['VITASTOR_CONF'].text
+        qemu_arg += 'config_path=' + d.elements['VITASTOR_CONF'].text + ':'
     end
 
     draw = "#{bck_dir}/disk.#{did}.raw"
