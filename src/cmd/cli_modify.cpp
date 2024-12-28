@@ -226,7 +226,7 @@ resume_2:
             return;
         }
         // Save into inode_config for library users to be able to take it from there immediately
-        cfg.mod_revision = parent->etcd_result["responses"][0]["response_put"]["header"]["revision"].uint64_value();
+        cfg.mod_revision = parent->etcd_result["header"]["revision"].uint64_value();
         if (new_name != "")
         {
             parent->cli->st_cli.inode_by_name.erase(image_name);

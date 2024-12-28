@@ -192,7 +192,7 @@ resume_3:
             }
         } while (!parent->etcd_result["succeeded"].bool_value());
         // Save into inode_config for library users to be able to take it from there immediately
-        new_cfg.mod_revision = parent->etcd_result["responses"][0]["response_put"]["header"]["revision"].uint64_value();
+        new_cfg.mod_revision = parent->etcd_result["header"]["revision"].uint64_value();
         parent->cli->st_cli.insert_inode_config(new_cfg);
         result = (cli_result_t){
             .err = 0,
@@ -269,7 +269,7 @@ resume_4:
             }
         } while (!parent->etcd_result["succeeded"].bool_value());
         // Save into inode_config for library users to be able to take it from there immediately
-        new_cfg.mod_revision = parent->etcd_result["responses"][0]["response_put"]["header"]["revision"].uint64_value();
+        new_cfg.mod_revision = parent->etcd_result["header"]["revision"].uint64_value();
         parent->cli->st_cli.insert_inode_config(new_cfg);
         result = (cli_result_t){
             .err = 0,
