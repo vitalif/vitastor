@@ -37,16 +37,6 @@ sub run_cli
     $json = 1 if !defined $json;
     my $binary = delete $args{binary};
     $binary = '/usr/bin/vitastor-cli' if !defined $binary;
-    if (!exists($args{errfunc}))
-    {
-        $args{errfunc} = sub
-        {
-            my $line = shift;
-            print STDERR $line;
-            *STDERR->flush();
-            $stderr .= $line;
-        };
-    }
     if (!exists($args{outfunc}))
     {
         $retval = '';
