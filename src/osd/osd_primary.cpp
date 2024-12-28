@@ -68,11 +68,20 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
             return false;
         }
         // Find parents from the same pool. Optimized reads only work within pools
-        while (inode_it != st_cli.inode_config.end() && inode_it->second.parent_id &&
-            INODE_POOL(inode_it->second.parent_id) == pg_it->second.pool_id &&
-            // Check for loops
-            inode_it->second.parent_id != cur_op->req.rw.inode)
+        while (inode_it != st_cli.inode_config.end() &&
+            inode_it->second.parent_id &&
+            INODE_POOL(inode_it->second.parent_id) == pg_it->second.pool_id)
         {
+            // Check for loops
+            if (inode_it->second.parent_id == cur_op->req.rw.inode ||
+                inode_it->second.parent_id == inode_it->second.num ||
+                chain_size > st_cli.inode_config.size())
+            {
+                printf("Inode %ju from pool %u has a parent_id loop, returning EINVAL in response to read\n",
+                    INODE_NO_POOL(cur_op->req.rw.inode), INODE_POOL(cur_op->req.rw.inode));
+                finish_op(cur_op, -EINVAL);
+                return false;
+            }
             chain_size++;
             inode_it = st_cli.inode_config.find(inode_it->second.parent_id);
         }
