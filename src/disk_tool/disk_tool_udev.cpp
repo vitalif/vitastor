@@ -427,8 +427,12 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
             }
         }
     }
+    json11::Json::object result;
+    result["removed_osds"] = std::vector<uint64_t>(osd_numbers.begin(), osd_numbers.end());
     if (!osd_numbers.size())
     {
+        if (json)
+            printf("%s\n", json11::Json(result).dump().c_str());
         return 0;
     }
     std::vector<std::string> rm_osd_cli = { "vitastor-cli", "rm-osd" };
@@ -457,17 +461,18 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
     {
         systemctl_cli.push_back("vitastor-osd@"+std::to_string(osd_num));
     }
-    if (shell_exec(systemctl_cli, "", NULL, NULL) != 0)
+    if (shell_exec(systemctl_cli, "", json ? &dry_run_ignore_stdout : NULL, NULL) != 0)
     {
         return 1;
     }
     // Remove OSD metadata
     rm_osd_cli.pop_back();
-    if (shell_exec(rm_osd_cli, "", NULL, NULL) != 0)
+    if (shell_exec(rm_osd_cli, "", json ? &dry_run_ignore_stdout : NULL, NULL) != 0)
     {
         return 1;
     }
     // Destroy OSD superblocks
+    json11::Json::array removed_devices;
     for (auto & sb: superblocks)
     {
         for (auto dev_type: std::vector<std::string>{ "data", "meta", "journal" })
@@ -521,9 +526,15 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
                             break;
                         }
                     }
+                    removed_devices.push_back(dev);
                 }
             }
         }
+    }
+    if (json)
+    {
+        result["removed_devices"] = removed_devices;
+        printf("%s\n", json11::Json(result).dump().c_str());
     }
     return 0;
 }

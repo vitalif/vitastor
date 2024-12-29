@@ -6,7 +6,7 @@
 #include "json_util.h"
 #include "osd_id.h"
 
-int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_hdd)
+int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_hdd, json11::Json::object & result)
 {
     static const char *allow_additional_params[] = {
         "autosync_writes",
@@ -203,12 +203,14 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     fprintf(stderr, "Initialized OSD %ju on %s\n", osd_num, desc.c_str());
     if (!test_mode || options.find("no_init") == options.end())
     {
-        if (shell_exec({ "systemctl", "enable", "--now", "vitastor-osd@"+std::to_string(osd_num) }, "", NULL, NULL) != 0)
+        std::string out;
+        if (shell_exec({ "systemctl", "enable", "--now", "vitastor-osd@"+std::to_string(osd_num) }, "", json ? &out : NULL, NULL) != 0)
         {
             fprintf(stderr, "Failed to enable systemd unit vitastor-osd@%ju\n", osd_num);
             return 1;
         }
     }
+    result = sb;
     return 0;
 }
 
@@ -578,7 +580,13 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
             fprintf(stderr, "Device list (positional arguments), --osd_per_disk, --hybrid and --fast-devices are incompatible with --data_device\n");
             return 1;
         }
-        return prepare_one(options, options.find("hdd") != options.end() ? 1 : 0);
+        json11::Json::object result;
+        int r = prepare_one(options, options.find("hdd") != options.end() ? 1 : 0, result);
+        if (r)
+            return r;
+        if (json)
+            printf("%s\n", json11::Json(result).dump().c_str());
+        return 0;
     }
     if (!devices.size())
     {
@@ -669,6 +677,7 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
         options.erase("disable_meta_fsync");
         options.erase("disable_journal_fsync");
     }
+    json11::Json::array all_results, errors;
     auto journal_size = options["journal_size"];
     for (auto & dev: devinfo)
     {
@@ -688,7 +697,15 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
                 options.erase("journal_size");
             }
             // Treat all disks as SSDs if not in the hybrid mode
-            prepare_one(options, dev.is_hdd ? 1 : 0);
+            json11::Json::object result;
+            int r = prepare_one(options, dev.is_hdd ? 1 : 0, result);
+            if (json)
+            {
+                if (!r)
+                    all_results.push_back(std::move(result));
+                else
+                    errors.push_back(options);
+            }
             if (hybrid)
             {
                 options["journal_size"] = journal_size;
@@ -696,6 +713,10 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
                 options.erase("meta_device");
             }
         }
+    }
+    if (json)
+    {
+        printf("%s\n", json11::Json(json11::Json::object{ { "osds", all_results }, { "errors", errors } }).dump().c_str());
     }
     return 0;
 }

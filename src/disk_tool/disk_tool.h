@@ -42,7 +42,7 @@ struct disk_tool_t
 
     std::map<std::string, std::string> options;
     bool test_mode = false;
-    bool all, json, now;
+    bool all = false, json = false, now = false;
     bool dump_with_blocks, dump_with_data;
     blockstore_disk_t dsk;
 
@@ -127,7 +127,7 @@ struct disk_tool_t
     json11::Json read_osd_superblock(std::string device, bool expect_exist = true, bool ignore_nonref = false);
     uint32_t write_osd_superblock(std::string device, json11::Json params);
 
-    int prepare_one(std::map<std::string, std::string> options, int is_hdd = -1);
+    int prepare_one(std::map<std::string, std::string> options, int is_hdd, json11::Json::object & result);
     int check_existing_partition(std::string & dev_by_uuid);
     int fix_partition_type(std::string & dev_by_uuid);
     int prepare(std::vector<std::string> devices);
