@@ -51,6 +51,8 @@
 #define LOC_CORRUPTED 2
 #define LOC_INCONSISTENT 4
 
+#define OSD_LIST_PRIMARY 1
+
 // common request and reply headers
 struct __attribute__((__packed__)) osd_op_header_t
 {
@@ -196,6 +198,9 @@ struct __attribute__((__packed__)) osd_op_sec_list_t
     uint64_t min_stripe, max_stripe;
     // max stable object count
     uint32_t stable_limit;
+    // flags - OSD_LIST_PRIMARY or 0
+    // for OSD_LIST_PRIMARY, only a single-PG listing is allowed
+    uint64_t flags;
 };
 
 struct __attribute__((__packed__)) osd_reply_sec_list_t
@@ -204,6 +209,8 @@ struct __attribute__((__packed__)) osd_reply_sec_list_t
     // stable object version count. header.retval = total object version count
     // FIXME: maybe change to the number of bytes in the reply...
     uint64_t stable_count;
+    // flags - OSD_LIST_PRIMARY or 0
+    uint64_t flags;
 };
 
 // read or write to the primary OSD (must be within individual stripe)

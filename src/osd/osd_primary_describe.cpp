@@ -138,3 +138,108 @@ void osd_t::continue_primary_describe(osd_op_t *cur_op)
         cur_op->iov.push_back(res.items, res.size * sizeof(osd_reply_describe_item_t));
     finish_op(cur_op, res.size);
 }
+
+static void add_primary_list(btree::btree_map<object_id, pg_osd_set_state_t*> & list, osd_op_sec_list_t & req, std::set<object_id> & oids)
+{
+    auto begin_it = list.begin();
+    auto end_it = list.end();
+    if (req.min_inode)
+        begin_it = list.lower_bound((object_id){ .inode = req.min_inode, .stripe = req.min_stripe });
+    if (req.max_inode)
+        end_it = list.upper_bound((object_id){ .inode = req.max_inode, .stripe = (req.max_stripe ? req.max_stripe : UINT64_MAX) });
+    for (auto list_it = begin_it; list_it != end_it; list_it++)
+        oids.insert(list_it->first);
+}
+
+void osd_t::continue_primary_list(osd_op_t *cur_op)
+{
+    auto pool_cfg_it = st_cli.pool_config.find(INODE_POOL(cur_op->req.sec_list.min_inode));
+    // Validate the request
+    if (!cur_op->req.sec_list.list_pg ||
+        !INODE_POOL(cur_op->req.sec_list.min_inode) ||
+        INODE_NO_POOL(cur_op->req.sec_list.min_inode) != INODE_NO_POOL(cur_op->req.sec_list.max_inode) ||
+        INODE_POOL(cur_op->req.sec_list.max_inode) != INODE_POOL(cur_op->req.sec_list.min_inode) ||
+        cur_op->req.sec_list.stable_limit ||
+        pool_cfg_it == st_cli.pool_config.end() ||
+        (cur_op->req.sec_list.pg_stripe_size != 0 && cur_op->req.sec_list.pg_stripe_size != pool_cfg_it->second.pg_stripe_size) ||
+        (cur_op->req.sec_list.pg_count != 0 && cur_op->req.sec_list.pg_count != pool_cfg_it->second.real_pg_count))
+    {
+        finish_op(cur_op, -EINVAL);
+        return;
+    }
+    auto pg_it = pgs.find({ .pool_id = INODE_POOL(cur_op->req.sec_list.min_inode), .pg_num = cur_op->req.sec_list.list_pg });
+    if (pg_it == pgs.end())
+    {
+        // Not primary
+        finish_op(cur_op, -EPIPE);
+        return;
+    }
+    cur_op->bs_op = new blockstore_op_t();
+    cur_op->bs_op->opcode = BS_OP_LIST;
+    cur_op->bs_op->pg_alignment = pool_cfg_it->second.pg_stripe_size;
+    cur_op->bs_op->pg_count = pool_cfg_it->second.real_pg_count;
+    cur_op->bs_op->pg_number = cur_op->req.sec_list.list_pg - 1;
+    cur_op->bs_op->min_oid.inode = cur_op->req.sec_list.min_inode;
+    cur_op->bs_op->min_oid.stripe = cur_op->req.sec_list.min_stripe;
+    cur_op->bs_op->max_oid.inode = cur_op->req.sec_list.max_inode;
+    if (cur_op->req.sec_list.max_inode && cur_op->req.sec_list.max_stripe != UINT64_MAX)
+    {
+        cur_op->bs_op->max_oid.stripe = cur_op->req.sec_list.max_stripe
+            ? cur_op->req.sec_list.max_stripe : UINT64_MAX;
+    }
+    cur_op->bs_op->callback = [this, cur_op](blockstore_op_t* bs_op)
+    {
+        if (bs_op->retval < 0)
+        {
+            auto retval = bs_op->retval;
+            delete bs_op;
+            cur_op->bs_op = NULL;
+            finish_op(cur_op, retval);
+            return;
+        }
+        // Move into a set
+        std::set<object_id> oids;
+        obj_ver_id *rbuf = (obj_ver_id*)bs_op->buf;
+        uint64_t total_count = bs_op->retval;
+        for (uint64_t i = 0; i < total_count; i++)
+        {
+            oids.insert(rbuf[i].oid);
+        }
+        if (bs_op->buf)
+        {
+            free(bs_op->buf);
+            bs_op->buf = NULL;
+        }
+        delete bs_op;
+        cur_op->bs_op = NULL;
+        // Check if still primary
+        auto pg_it = pgs.find({ .pool_id = INODE_POOL(cur_op->req.sec_list.min_inode), .pg_num = cur_op->req.sec_list.list_pg });
+        if (pg_it == pgs.end())
+        {
+            finish_op(cur_op, -EPIPE);
+            return;
+        }
+        // Add unclean objects which may be not present on the primary OSD
+        auto & pg = pg_it->second;
+        add_primary_list(pg.inconsistent_objects, cur_op->req.sec_list, oids);
+        add_primary_list(pg.incomplete_objects, cur_op->req.sec_list, oids);
+        add_primary_list(pg.degraded_objects, cur_op->req.sec_list, oids);
+        add_primary_list(pg.misplaced_objects, cur_op->req.sec_list, oids);
+        // Generate the result
+        if (oids.size())
+        {
+            rbuf = (obj_ver_id*)malloc_or_die(sizeof(obj_ver_id) * oids.size());
+            uint64_t i = 0;
+            for (auto oid: oids)
+            {
+                rbuf[i++] = (obj_ver_id){ .oid = oid };
+            }
+            cur_op->buf = rbuf;
+            cur_op->iov.push_back(rbuf, sizeof(obj_ver_id) * oids.size());
+        }
+        cur_op->reply.sec_list.stable_count = oids.size();
+        cur_op->reply.sec_list.flags = OSD_LIST_PRIMARY;
+        finish_op(cur_op, oids.size());
+    };
+    bs->enqueue_op(cur_op->bs_op);
+}

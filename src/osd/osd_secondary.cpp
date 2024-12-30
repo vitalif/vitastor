@@ -81,6 +81,12 @@ void osd_t::exec_secondary(osd_op_t *op)
 
 void osd_t::exec_secondary_real(osd_op_t *cur_op)
 {
+    if (cur_op->req.hdr.opcode == OSD_OP_SEC_LIST &&
+        (cur_op->req.sec_list.flags & OSD_LIST_PRIMARY))
+    {
+        continue_primary_list(cur_op);
+        return;
+    }
     if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
     {
         int n = cur_op->req.sec_read_bmp.len / sizeof(obj_ver_id);

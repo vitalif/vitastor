@@ -301,6 +301,7 @@ class osd_t
     void continue_primary_read(osd_op_t *cur_op);
     void continue_primary_scrub(osd_op_t *cur_op);
     void continue_primary_describe(osd_op_t *cur_op);
+    void continue_primary_list(osd_op_t *cur_op);
     void continue_primary_write(osd_op_t *cur_op);
     void cancel_primary_write(osd_op_t *cur_op);
     void continue_primary_sync(osd_op_t *cur_op);
