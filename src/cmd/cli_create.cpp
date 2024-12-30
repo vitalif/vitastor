@@ -413,7 +413,7 @@ resume_3:
 
     void attempt_create()
     {
-        new_cfg = {
+        new_cfg = (inode_config_t){
             .num = INODE_WITH_POOL(new_pool_id, new_id),
             .name = image_name,
             .size = size,
