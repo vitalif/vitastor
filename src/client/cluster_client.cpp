@@ -73,6 +73,12 @@ cluster_client_t::~cluster_client_t()
         retry_timeout_duration = 0;
         retry_timeout_id = -1;
     }
+    if (list_retry_timeout_id >= 0)
+    {
+        tfd->clear_timer(list_retry_timeout_id);
+        list_retry_timeout_id = -1;
+        list_retry_time = {};
+    }
     msgr.repeer_pgs = [](osd_num_t){};
     if (ringloop)
     {
@@ -403,6 +409,19 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
     }
     // client_retry_enospc
     client_retry_enospc = config["client_retry_enospc"].is_null() ? true : config["client_retry_enospc"].bool_value();
+    // peer_connect_timeout, wait_up_timeout
+    peer_connect_timeout = config["peer_connect_timeout"].uint64_value();
+    if (!peer_connect_timeout)
+        peer_connect_timeout = 5;
+    if (!config["wait_up_timeout"].is_null())
+        wait_up_timeout = config["wait_up_timeout"].uint64_value();
+    else
+    {
+        auto etcd_report_interval = config["etcd_report_interval"].uint64_value();
+        if (!etcd_report_interval)
+            etcd_report_interval = 5;
+        wait_up_timeout = 1+etcd_report_interval+(st_cli.max_etcd_attempts*(2*st_cli.etcd_quick_timeout)+999)/1000;
+    }
     // log_level
     log_level = config["log_level"].uint64_value();
     msgr.parse_config(config);
@@ -463,6 +482,7 @@ void cluster_client_t::on_change_pg_state_hook(pool_id_t pool_id, pg_num_t pg_nu
     }
     // Always continue to resume operations hung because of lack of the primary OSD
     continue_ops();
+    continue_lists();
 }
 
 bool cluster_client_t::get_immediate_commit(uint64_t inode)
@@ -483,6 +503,7 @@ void cluster_client_t::on_change_osd_state_hook(uint64_t peer_osd)
     if (msgr.wanted_peers.find(peer_osd) != msgr.wanted_peers.end())
     {
         msgr.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
+        continue_lists();
     }
 }
 

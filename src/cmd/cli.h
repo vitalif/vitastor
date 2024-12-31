@@ -30,7 +30,7 @@ struct cli_result_t
 class cli_tool_t
 {
 public:
-    uint64_t iodepth = 4, parallel_osds = 32;
+    uint64_t iodepth = 32, parallel_osds = 4;
     bool progress = false;
     bool list_first = false;
     bool json_output = false;

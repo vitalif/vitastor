@@ -2,8 +2,15 @@
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
 #include <algorithm>
+#include "assert.h"
 #include "pg_states.h"
 #include "cluster_client.h"
+
+#define LIST_PG_INIT 0
+#define LIST_PG_WAIT_ACTIVE 1
+#define LIST_PG_WAIT_CONNECT 2
+#define LIST_PG_SENT 3
+#define LIST_PG_DONE 4
 
 struct inode_list_t;
 
@@ -13,21 +20,22 @@ struct inode_list_osd_t
 {
     inode_list_pg_t *pg = NULL;
     osd_num_t osd_num = 0;
-    bool sent = false;
 };
 
 struct inode_list_pg_t
 {
     inode_list_t *lst = NULL;
-    int pos = 0;
     int errcode = 0;
-    pg_num_t pg_num;
-    osd_num_t cur_primary;
-    bool has_unstable = false;
-    int sent = 0;
-    int done = 0;
+    pg_num_t pg_num = 0;
+    osd_num_t cur_primary = 0;
+    int state = 0;
+    int inflight_ops = 0;
+    timespec wait_until;
     std::vector<inode_list_osd_t> list_osds;
+
+    bool has_unstable = false;
     std::set<object_id> objects;
+    std::vector<osd_num_t> inactive_osds;
 };
 
 struct inode_list_t
@@ -35,17 +43,19 @@ struct inode_list_t
     cluster_client_t *cli = NULL;
     pool_id_t pool_id = 0;
     inode_t inode = 0;
+    int max_parallel_pgs = 16;
+
+    int inflight_pgs = 0;
+    std::map<osd_num_t, int> inflight_per_osd;
     int done_pgs = 0;
-    int want = 0;
     int onstack = 0;
-    std::vector<osd_num_t> inactive_osds;
-    std::vector<pg_num_t> inactive_pgs;
     std::vector<inode_list_pg_t*> pgs;
-    std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int errcode, int status)> callback;
+    pg_num_t real_pg_count = 0;
+    std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, std::vector<osd_num_t> && inactive_osds, int errcode, int status)> callback;
 };
 
-inode_list_t* cluster_client_t::list_inode_start(inode_t inode,
-    std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int errcode, int status)> callback)
+inode_list_t* cluster_client_t::list_inode_start(inode_t inode, int max_parallel_pgs, std::function<void(
+    inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, std::vector<osd_num_t> && inactive_osds, int errcode, int status)> callback)
 {
     init_msgr();
     pool_id_t pool_id = INODE_POOL(inode);
@@ -62,180 +72,257 @@ inode_list_t* cluster_client_t::list_inode_start(inode_t inode,
     lst->pool_id = pool_id;
     lst->inode = inode;
     lst->callback = callback;
-    auto pool_cfg = st_cli.pool_config[pool_id];
-    std::set<osd_num_t> inactive_osd_set;
-    for (auto & pg_item: pool_cfg.pg_config)
-    {
-        auto & pg = pg_item.second;
-        if (pg.pause || !pg.cur_primary || !(pg.cur_state & PG_ACTIVE))
-        {
-            lst->inactive_pgs.push_back(pg_item.first);
-            if (log_level > 0)
-            {
-                fprintf(stderr, "PG %u is inactive, skipping\n", pg_item.first);
-            }
-            continue;
-        }
-        inode_list_pg_t *r = new inode_list_pg_t();
-        r->lst = lst;
-        r->pg_num = pg_item.first;
-        r->cur_primary = pg.cur_primary;
-        if (pg.cur_state != PG_ACTIVE)
-        {
-            // Not clean
-            std::set<osd_num_t> all_peers;
-            for (osd_num_t pg_osd: pg.target_set)
-            {
-                if (pg_osd != 0)
-                {
-                    all_peers.insert(pg_osd);
-                }
-            }
-            for (osd_num_t pg_osd: pg.all_peers)
-            {
-                if (pg_osd != 0)
-                {
-                    all_peers.insert(pg_osd);
-                }
-            }
-            for (auto & hist_item: pg.target_history)
-            {
-                for (auto pg_osd: hist_item)
-                {
-                    if (pg_osd != 0)
-                    {
-                        all_peers.insert(pg_osd);
-                    }
-                }
-            }
-            for (osd_num_t peer_osd: all_peers)
-            {
-                if (st_cli.peer_states.find(peer_osd) != st_cli.peer_states.end())
-                {
-                    r->list_osds.push_back((inode_list_osd_t){
-                        .pg = r,
-                        .osd_num = peer_osd,
-                        .sent = false,
-                    });
-                }
-                else
-                {
-                    inactive_osd_set.insert(peer_osd);
-                }
-            }
-        }
-        // FIXME: We should retry (or at least OPTIONALLY retry) connecting during delete, but only _for_some_time_
-        // FIXME: Also we should handle the case when the OSD is disconnected during delete
-        else if (st_cli.peer_states.find(pg.cur_primary) != st_cli.peer_states.end())
-        {
-            // Clean
-            r->list_osds.push_back((inode_list_osd_t){
-                .pg = r,
-                .osd_num = pg.cur_primary,
-                .sent = false,
-            });
-        }
-        else
-        {
-            inactive_osd_set.insert(pg.cur_primary);
-        }
-        lst->pgs.push_back(r);
-    }
-    std::sort(lst->pgs.begin(), lst->pgs.end(), [](inode_list_pg_t *a, inode_list_pg_t *b)
-    {
-        return a->cur_primary < b->cur_primary ? true : false;
-    });
-    for (int i = 0; i < lst->pgs.size(); i++)
-    {
-        lst->pgs[i]->pos = i;
-    }
-    lst->inactive_osds.insert(lst->inactive_osds.end(), inactive_osd_set.begin(), inactive_osd_set.end());
+    lst->max_parallel_pgs = max_parallel_pgs <= 0 ? 16 : max_parallel_pgs;
     lists.push_back(lst);
+    if (!continue_listing(lst))
+    {
+        return NULL;
+    }
     return lst;
 }
 
 int cluster_client_t::list_pg_count(inode_list_t *lst)
 {
-    return lst->pgs.size();
+    return lst->pgs.size() - lst->done_pgs;
 }
 
-const std::vector<osd_num_t> & cluster_client_t::list_inode_get_inactive_osds(inode_list_t *lst)
+void cluster_client_t::list_inode_next(inode_list_t *lst)
 {
-    return lst->inactive_osds;
-}
-
-const std::vector<pg_num_t> & cluster_client_t::list_inode_get_inactive_pgs(inode_list_t *lst)
-{
-    return lst->inactive_pgs;
-}
-
-void cluster_client_t::list_inode_next(inode_list_t *lst, int next_pgs)
-{
-    if (next_pgs >= 0)
-    {
-        lst->want += next_pgs;
-    }
     continue_listing(lst);
 }
 
-void cluster_client_t::continue_listing(inode_list_t *lst)
+bool cluster_client_t::continue_listing(inode_list_t *lst)
 {
-    if (lst->done_pgs >= lst->pgs.size())
-    {
-        return;
-    }
-    if (lst->want <= 0)
-    {
-        return;
-    }
     if (lst->onstack > 0)
     {
-        return;
+        return true;
     }
     lst->onstack++;
-    for (int i = 0; i < lst->pgs.size(); i++)
+    if (restart_listing(lst))
     {
-        if (!lst->pgs[i])
+        for (int i = 0; i < lst->pgs.size() && lst->inflight_pgs < lst->max_parallel_pgs; i++)
         {
+            retry_start_pg_listing(lst->pgs[i]);
         }
-        else if (lst->pgs[i]->sent < lst->pgs[i]->list_osds.size())
+    }
+    if (check_finish_listing(lst))
+    {
+        // Do not change lst->onstack because it's already freed
+        return false;
+    }
+    lst->onstack--;
+    return true;
+}
+
+bool cluster_client_t::restart_listing(inode_list_t* lst)
+{
+    auto pool_it = st_cli.pool_config.find(lst->pool_id);
+    // We want listing to be consistent. To achieve it we should:
+    // 1) retry listing of each PG if its state changes
+    // 2) abort listing if PG count changes during listing
+    // 3) ideally, only talk to the primary OSD - this will be done separately
+    // So first we add all PGs without checking their state
+    if (pool_it == st_cli.pool_config.end() ||
+        lst->real_pg_count != pool_it->second.real_pg_count)
+    {
+        for (auto pg: lst->pgs)
         {
-            for (int j = 0; j < lst->pgs[i]->list_osds.size(); j++)
+            if (pg->inflight_ops > 0)
             {
-                send_list(&lst->pgs[i]->list_osds[j]);
-                if (lst->want <= 0)
-                {
-                    lst->onstack--;
-                    return;
-                }
+                // Wait until all in-progress listings complete or fail
+                return false;
             }
         }
-        else if (!lst->pgs[i]->list_osds.size())
+        for (auto pg: lst->pgs)
         {
-            lst->pgs[i]->errcode = -EIO;
-            finish_list_pg(lst->pgs[i]);
-            if (check_finish_listing(lst))
+            delete pg;
+        }
+        if (log_level > 0 && lst->real_pg_count)
+        {
+            fprintf(stderr, "PG count in pool %u changed during listing\n", lst->pool_id);
+        }
+        lst->pgs.clear();
+        if (pool_it == st_cli.pool_config.end())
+        {
+            // Unknown pool
+            lst->callback(lst, std::set<object_id>(), 0, std::vector<osd_num_t>(), -EINVAL, INODE_LIST_DONE);
+            return false;
+        }
+        else if (lst->done_pgs)
+        {
+            // PG count changed during listing, it should fail
+            lst->callback(lst, std::set<object_id>(), 0, std::vector<osd_num_t>(), -EAGAIN, INODE_LIST_DONE);
+            return false;
+        }
+        else
+        {
+            lst->real_pg_count = pool_it->second.real_pg_count;
+            for (pg_num_t pg_num = 1; pg_num <= lst->real_pg_count; pg_num++)
             {
-                // Do not change lst->onstack because it's already freed
-                return;
+                inode_list_pg_t *pg = new inode_list_pg_t();
+                pg->lst = lst;
+                pg->pg_num = pg_num;
+                lst->pgs.push_back(pg);
             }
         }
     }
-    lst->onstack--;
+    return true;
+}
+
+void cluster_client_t::retry_start_pg_listing(inode_list_pg_t *pg)
+{
+    if (pg->state == LIST_PG_SENT || pg->state == LIST_PG_DONE)
+    {
+        return;
+    }
+    int new_st = start_pg_listing(pg);
+    if (new_st == LIST_PG_SENT)
+    {
+        pg->state = LIST_PG_SENT;
+        return;
+    }
+    if (new_st == LIST_PG_WAIT_ACTIVE && pg->state != LIST_PG_WAIT_ACTIVE ||
+        new_st == LIST_PG_WAIT_CONNECT && pg->state != LIST_PG_WAIT_CONNECT)
+    {
+        int sec = (new_st == LIST_PG_WAIT_ACTIVE ? wait_up_timeout : peer_connect_timeout);
+        if (sec)
+        {
+            pg->state = new_st;
+            clock_gettime(CLOCK_REALTIME, &pg->wait_until);
+            pg->wait_until.tv_sec += sec;
+            if (new_st == LIST_PG_WAIT_ACTIVE)
+            {
+                if (log_level > 1)
+                    fprintf(stderr, "Waiting for PG %u/%u to become active for %d seconds\n", pg->lst->pool_id, pg->pg_num, wait_up_timeout);
+            }
+            else
+            {
+                if (log_level > 2)
+                    fprintf(stderr, "Waiting for connection to PG %u/%u OSDs for %d seconds\n", pg->lst->pool_id, pg->pg_num, peer_connect_timeout);
+            }
+            if (!list_retry_time.tv_sec || list_retry_time.tv_sec > pg->wait_until.tv_sec ||
+                list_retry_time.tv_sec == pg->wait_until.tv_sec && list_retry_time.tv_nsec > pg->wait_until.tv_nsec)
+            {
+                list_retry_time = pg->wait_until;
+                if (list_retry_timeout_id >= 0)
+                {
+                    tfd->clear_timer(list_retry_timeout_id);
+                }
+                list_retry_timeout_id = tfd->set_timer(sec*1000, false, [this](int timer_id)
+                {
+                    continue_lists();
+                });
+            }
+            return;
+        }
+    }
+    assert(pg->state == LIST_PG_WAIT_ACTIVE || pg->state == LIST_PG_WAIT_CONNECT);
+    // Check if the timeout expired
+    timespec tv;
+    clock_gettime(CLOCK_REALTIME, &tv);
+    if (tv.tv_sec > pg->wait_until.tv_sec ||
+        tv.tv_sec == pg->wait_until.tv_sec && tv.tv_nsec >= pg->wait_until.tv_nsec)
+    {
+        fprintf(stderr, "Failed to wait for PG %u/%u to become %s, skipping listing\n", pg->lst->pool_id, pg->pg_num,
+            pg->state == LIST_PG_WAIT_ACTIVE ? "active" : "connected");
+        pg->errcode = -EPIPE;
+        pg->list_osds.clear();
+        pg->objects.clear();
+        finish_list_pg(pg);
+    }
+}
+
+int cluster_client_t::start_pg_listing(inode_list_pg_t *pg)
+{
+    auto & pool_cfg = st_cli.pool_config[pg->lst->pool_id];
+    auto pg_it = pool_cfg.pg_config.find(pg->pg_num);
+    assert(pg->lst->real_pg_count == pool_cfg.real_pg_count);
+    if (pg_it == pool_cfg.pg_config.end() ||
+        pg_it->second.pause ||
+        !pg_it->second.cur_primary ||
+        !(pg_it->second.cur_state & PG_ACTIVE))
+    {
+        // PG is (temporarily?) unavailable
+        return LIST_PG_WAIT_ACTIVE;
+    }
+    pg->inactive_osds.clear();
+    std::set<osd_num_t> all_peers;
+    if (pg_it->second.cur_state != PG_ACTIVE)
+    {
+        // Not clean
+        for (osd_num_t pg_osd: pg_it->second.target_set)
+            all_peers.insert(pg_osd);
+        for (osd_num_t pg_osd: pg_it->second.all_peers)
+            all_peers.insert(pg_osd);
+        for (auto & hist_item: pg_it->second.target_history)
+            for (auto pg_osd: hist_item)
+                all_peers.insert(pg_osd);
+        // Remove zero OSD number
+        all_peers.erase(0);
+        // Remove unconnectable peers except cur_primary
+        for (auto peer_it = all_peers.begin(); peer_it != all_peers.end(); )
+        {
+            if (*peer_it != pg_it->second.cur_primary &&
+                st_cli.peer_states[*peer_it].is_null())
+            {
+                pg->inactive_osds.push_back(*peer_it);
+printf("OSD is inactive: %lu\n", *peer_it);
+                all_peers.erase(peer_it++);
+            }
+            else
+                peer_it++;
+        }
+    }
+    else
+    {
+        // Clean
+        all_peers.insert(pg_it->second.cur_primary);
+    }
+    // Check that we're connected to all PG OSDs
+    bool conn = true;
+    for (osd_num_t peer_osd: all_peers)
+    {
+        if (msgr.osd_peer_fds.find(peer_osd) == msgr.osd_peer_fds.end())
+        {
+            // Initiate connection
+            if (st_cli.peer_states[peer_osd].is_null())
+            {
+                return LIST_PG_WAIT_ACTIVE;
+            }
+            msgr.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
+            conn = false;
+        }
+    }
+    if (!conn)
+    {
+        return LIST_PG_WAIT_CONNECT;
+    }
+    // Send all listings at once as the simplest way to guarantee that we connect
+    // to the exact same OSDs that are listed in PG state
+    pg->errcode = 0;
+    pg->list_osds.clear();
+    pg->has_unstable = false;
+    pg->objects.clear();
+    pg->cur_primary = pg_it->second.cur_primary;
+    for (osd_num_t peer_osd: all_peers)
+    {
+        pg->list_osds.push_back((inode_list_osd_t){
+            .pg = pg,
+            .osd_num = peer_osd,
+        });
+    }
+    for (auto & list_osd: pg->list_osds)
+    {
+        send_list(&list_osd);
+    }
+    return LIST_PG_SENT;
 }
 
 void cluster_client_t::send_list(inode_list_osd_t *cur_list)
 {
-    if (cur_list->sent)
-    {
-        return;
-    }
-    if (msgr.osd_peer_fds.find(cur_list->osd_num) == msgr.osd_peer_fds.end())
-    {
-        // Initiate connection
-        msgr.connect_peer(cur_list->osd_num, st_cli.peer_states[cur_list->osd_num]);
-        return;
-    }
+    if (!cur_list->pg->inflight_ops)
+        cur_list->pg->lst->inflight_pgs++;
+    cur_list->pg->inflight_ops++;
     auto & pool_cfg = st_cli.pool_config[cur_list->pg->lst->pool_id];
     osd_op_t *op = new osd_op_t();
     op->op_type = OSD_OP_OUT;
@@ -290,27 +377,24 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
             }
         }
         delete op;
-        auto lst = cur_list->pg->lst;
-        cur_list->pg->done++;
+        cur_list->pg->inflight_ops--;
+        if (!cur_list->pg->inflight_ops)
+            cur_list->pg->lst->inflight_pgs--;
+        // FIXME: Retry listing after <client_retry_interval> ms on EPIPE
         finish_list_pg(cur_list->pg);
-        if (!check_finish_listing(lst))
-        {
-            continue_listing(lst);
-        }
+        continue_listing(cur_list->pg->lst);
     };
     msgr.outbox_push(op);
-    cur_list->sent = true;
-    cur_list->pg->sent++;
-    cur_list->pg->lst->want--;
 }
 
 void cluster_client_t::finish_list_pg(inode_list_pg_t *pg)
 {
     auto lst = pg->lst;
-    if (pg->done >= pg->list_osds.size())
+    if (pg->inflight_ops == 0)
     {
-        int status = 0;
         lst->done_pgs++;
+        pg->state = LIST_PG_DONE;
+        int status = 0;
         if (lst->done_pgs >= lst->pgs.size())
         {
             status |= INODE_LIST_DONE;
@@ -319,13 +403,15 @@ void cluster_client_t::finish_list_pg(inode_list_pg_t *pg)
         {
             status |= INODE_LIST_HAS_UNSTABLE;
         }
-        lst->pgs[pg->pos] = NULL;
-        lst->callback(lst, std::move(pg->objects), pg->pg_num, pg->cur_primary, pg->errcode, status);
-        delete pg;
+        lst->callback(lst, std::move(pg->objects), pg->pg_num, std::move(pg->inactive_osds), pg->errcode, status);
     }
-    else
+}
+
+void cluster_client_t::continue_lists()
+{
+    for (int i = lists.size()-1; i >= 0; i--)
     {
-        lst->want++;
+        continue_listing(lists[i]);
     }
 }
 
@@ -333,7 +419,11 @@ bool cluster_client_t::check_finish_listing(inode_list_t *lst)
 {
     if (lst->done_pgs >= lst->pgs.size())
     {
-        // All done
+        for (auto pg: lst->pgs)
+        {
+            delete pg;
+        }
+        lst->pgs.clear();
         for (int i = 0; i < lists.size(); i++)
         {
             if (lists[i] == lst)
@@ -346,12 +436,4 @@ bool cluster_client_t::check_finish_listing(inode_list_t *lst)
         return true;
     }
     return false;
-}
-
-void cluster_client_t::continue_lists()
-{
-    for (auto lst: lists)
-    {
-        continue_listing(lst);
-    }
 }

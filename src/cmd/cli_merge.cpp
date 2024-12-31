@@ -389,8 +389,8 @@ struct snap_merger_t
             if (lower ? (sp.second < target_rank) : (sp.second > target_rank))
             {
                 lists_todo++;
-                inode_list_t* lst = parent->cli->list_inode_start(src, [this, src](
-                    inode_list_t *lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int errcode, int status)
+                inode_list_t* lst = parent->cli->list_inode_start(src, parent->parallel_osds, [this, src](
+                    inode_list_t *lst, std::set<object_id>&& objects, pg_num_t pg_num, std::vector<osd_num_t> && inactive_osds, int errcode, int status)
                 {
                     if (errcode)
                     {
@@ -439,10 +439,10 @@ struct snap_merger_t
                     }
                     else
                     {
-                        parent->cli->list_inode_next(lst, 1);
+                        parent->cli->list_inode_next(lst);
                     }
                 });
-                parent->cli->list_inode_next(lst, parent->parallel_osds);
+                parent->cli->list_inode_next(lst);
             }
         }
     }

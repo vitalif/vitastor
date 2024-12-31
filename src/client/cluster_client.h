@@ -96,6 +96,8 @@ class cluster_client_t
     int client_retry_interval = 50; // ms
     int client_eio_retry_interval = 1000; // ms
     bool client_retry_enospc = true;
+    int peer_connect_timeout = 5; // sec
+    int wait_up_timeout = 10; // sec (for listings)
 
     int retry_timeout_id = -1;
     int retry_timeout_duration = 0;
@@ -111,6 +113,8 @@ class cluster_client_t
     bool pgs_loaded = false;
     ring_consumer_t consumer;
     std::vector<std::function<void(void)>> on_ready_hooks;
+    int list_retry_timeout_id = -1;
+    timespec list_retry_time;
     std::vector<inode_list_t*> lists;
     std::multimap<osd_num_t, osd_op_t*> raw_ops;
     int continuing_ops = 0;
@@ -136,13 +140,12 @@ public:
     bool get_immediate_commit(uint64_t inode);
 
     void continue_ops(int time_passed = 0);
-    // FIXME: list_inode_start/list_inode_next - not an ideal interface :)
-    inode_list_t *list_inode_start(inode_t inode,
-        std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int errcode, int status)> callback);
+
+    inode_list_t *list_inode_start(inode_t inode, int max_parallel_pgs, std::function<void(
+        inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, std::vector<osd_num_t> && inactive_osds, int errcode, int status)> callback);
+    void list_inode_next(inode_list_t *lst);
     int list_pg_count(inode_list_t *lst);
-    const std::vector<osd_num_t> & list_inode_get_inactive_osds(inode_list_t *lst);
-    const std::vector<pg_num_t> & list_inode_get_inactive_pgs(inode_list_t *lst);
-    void list_inode_next(inode_list_t *lst, int next_pgs);
+
     //inline uint32_t get_bs_bitmap_granularity() { return st_cli.global_bitmap_granularity; }
     //inline uint64_t get_bs_block_size() { return st_cli.global_block_size; }
     uint64_t next_op_id();
@@ -170,7 +173,10 @@ protected:
     void calc_wait(cluster_op_t *op);
     void inc_wait(uint64_t opcode, uint64_t flags, cluster_op_t *next, int inc);
     void continue_lists();
-    void continue_listing(inode_list_t *lst);
+    bool continue_listing(inode_list_t *lst);
+    bool restart_listing(inode_list_t* lst);
+    void retry_start_pg_listing(inode_list_pg_t *pg);
+    int start_pg_listing(inode_list_pg_t *pg);
     void send_list(inode_list_osd_t *cur_list);
     void finish_list_pg(inode_list_pg_t *pg);
     bool check_finish_listing(inode_list_t *lst);

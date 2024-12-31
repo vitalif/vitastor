@@ -31,11 +31,11 @@ struct rm_inode_t
     cli_tool_t *parent = NULL;
     inode_list_t *lister = NULL;
     std::vector<rm_pg_t*> lists;
-    std::vector<osd_num_t> inactive_osds;
+    std::set<osd_num_t> inactive_osds;
     std::set<pg_num_t> inactive_pgs;
     uint64_t total_count = 0, total_done = 0, total_prev_pct = 0;
-    uint64_t pgs_to_list = 0;
     bool lists_done = false;
+    int pgs_to_list = 0;
     int state = 0;
     int error_count = 0;
 
@@ -43,47 +43,70 @@ struct rm_inode_t
 
     void start_delete()
     {
-        lister = parent->cli->list_inode_start(inode, [this](inode_list_t *lst,
-            std::set<object_id>&& objects, pg_num_t pg_num, osd_num_t primary_osd, int errcode, int status)
+        lister = parent->cli->list_inode_start(inode, parent->parallel_osds, [this](inode_list_t *lst,
+            std::set<object_id>&& objects, pg_num_t pg_num, std::vector<osd_num_t> && inactive_osds, int errcode, int status)
         {
+            osd_num_t rm_osd_num = 0;
+            auto pool_it = parent->cli->st_cli.pool_config.find(pool_id);
+            if (pool_it != parent->cli->st_cli.pool_config.end())
+            {
+                auto pg_it = pool_it->second.pg_config.find(pg_num);
+                if (pg_it != pool_it->second.pg_config.end())
+                    rm_osd_num = pg_it->second.primary;
+            }
+            if (!rm_osd_num)
+            {
+                fprintf(stderr, "PG %u/%u is down, skipping\n", pool_id, pg_num);
+                errcode = -EPIPE;
+            }
             if (errcode)
             {
                 inactive_pgs.insert(pg_num);
             }
-            rm_pg_t *rm = new rm_pg_t((rm_pg_t){
-                .pg_num = pg_num,
-                .rm_osd_num = primary_osd,
-                .objects = objects,
-                .obj_count = objects.size(),
-                .obj_done = 0,
-                .synced = !objects.size() || parent->cli->get_immediate_commit(inode),
-            });
-            if (min_offset == 0 && max_offset == 0)
-            {
-                total_count += objects.size();
-            }
             else
             {
-                for (object_id oid: objects)
+                for (auto osd_num: inactive_osds)
                 {
-                    if (oid.stripe >= min_offset && (!max_offset || oid.stripe < max_offset))
+                    this->inactive_osds.insert(osd_num);
+                }
+                rm_pg_t *rm = new rm_pg_t((rm_pg_t){
+                    .pg_num = pg_num,
+                    .rm_osd_num = rm_osd_num,
+                    .objects = std::move(objects),
+                    .obj_done = 0,
+                    .synced = !objects.size() || parent->cli->get_immediate_commit(inode),
+                });
+                if (min_offset == 0 && max_offset == 0)
+                {
+                    total_count += objects.size();
+                }
+                else
+                {
+                    for (object_id oid: objects)
                     {
-                        total_count++;
+                        if (oid.stripe >= min_offset && (!max_offset || oid.stripe < max_offset))
+                        {
+                            total_count++;
+                        }
                     }
                 }
+                rm->obj_pos = rm->objects.begin();
+                lists.push_back(rm);
             }
-            rm->obj_pos = rm->objects.begin();
-            lists.push_back(rm);
             if (parent->list_first && !(status & INODE_LIST_DONE))
             {
                 // The listing object is dead when DONE => don't call next()
-                parent->cli->list_inode_next(lister, 1);
+                parent->cli->list_inode_next(lister);
             }
             if (status & INODE_LIST_DONE)
             {
                 lists_done = true;
+                pgs_to_list = 0;
             }
-            pgs_to_list--;
+            else
+            {
+                pgs_to_list = parent->cli->list_pg_count(lister);
+            }
             continue_delete();
         });
         if (!lister)
@@ -96,18 +119,8 @@ struct rm_inode_t
             state = 100;
             return;
         }
-        inactive_osds = parent->cli->list_inode_get_inactive_osds(lister);
-        if (inactive_osds.size() && !parent->json_output)
-        {
-            fprintf(stderr, "Some data may remain after delete on OSDs which are currently down: ");
-            for (int i = 0; i < inactive_osds.size(); i++)
-            {
-                fprintf(stderr, i > 0 ? ", %ju" : "%ju", inactive_osds[i]);
-            }
-            fprintf(stderr, "\n");
-        }
         pgs_to_list = parent->cli->list_pg_count(lister);
-        parent->cli->list_inode_next(lister, parent->parallel_osds);
+        parent->cli->list_inode_next(lister);
     }
 
     void send_ops(rm_pg_t *cur_list)
@@ -209,7 +222,7 @@ struct rm_inode_t
                 i--;
                 if (!lists_done)
                 {
-                    parent->cli->list_inode_next(lister, 1);
+                    parent->cli->list_inode_next(lister);
                 }
             }
             else
@@ -220,14 +233,24 @@ struct rm_inode_t
         if (parent->progress && total_count > 0 && total_done*1000/total_count != total_prev_pct)
         {
             fprintf(stderr, parent->color
-                ? "\rRemoved %ju/%ju objects, %ju more PGs to list..."
-                : "Removed %ju/%ju objects, %ju more PGs to list...\n", total_done, total_count, pgs_to_list);
+                ? "\rRemoved %ju/%ju objects, %u more PGs to list..."
+                : "Removed %ju/%ju objects, %u more PGs to list...\n", total_done, total_count, pgs_to_list);
             total_prev_pct = total_done*1000/total_count;
         }
         if (lists_done && !lists.size())
         {
             if (parent->progress && total_count > 0)
             {
+                fprintf(stderr, "\n");
+            }
+            if (inactive_osds.size() && !parent->json_output)
+            {
+                fprintf(stderr, "Some data may remain after delete on OSDs which are currently down: ");
+                int i = 0;
+                for (auto osd_num: inactive_osds)
+                {
+                    fprintf(stderr, (i++) ? ", %ju" : "%ju", osd_num);
+                }
                 fprintf(stderr, "\n");
             }
             if (inactive_pgs.size() && !parent->json_output)
@@ -240,33 +263,45 @@ struct rm_inode_t
                 }
                 fprintf(stderr, "\n");
             }
-            bool is_error = (total_done < total_count || inactive_osds.size() > 0 || inactive_pgs.size() > 0 || error_count > 0);
-            if (parent->progress && is_error)
-            {
-                fprintf(
-                    stderr, "Warning: Pool:%u,ID:%ju inode data may not have been fully removed.\n"
-                    "Use `vitastor-cli rm-data --pool %u --inode %ju` if you encounter it in listings.\n",
-                    pool_id, INODE_NO_POOL(inode), pool_id, INODE_NO_POOL(inode)
-                );
-            }
             json11::Json::array inactive_pgs_json;
             for (auto pg_num: inactive_pgs)
             {
                 inactive_pgs_json.push_back((uint64_t)pg_num);
             }
-            result = (cli_result_t){
-                .err = is_error && !down_ok ? EIO : 0,
-                .text = is_error ? "Some blocks were not removed" : (
-                    "Done, inode "+std::to_string(INODE_NO_POOL(inode))+" from pool "+
-                    std::to_string(pool_id)+" removed"),
-                .data = json11::Json::object {
-                    { "removed_objects", total_done },
-                    { "total_objects", total_count },
-                    { "inactive_osds", inactive_osds },
-                    { "inactive_pgs", inactive_pgs_json },
-                },
+            json11::Json data = json11::Json::object {
+                { "removed_objects", total_done },
+                { "total_objects", total_count },
+                { "inactive_osds", json11::Json::array(inactive_osds.begin(), inactive_osds.end()) },
+                { "inactive_pgs", inactive_pgs_json },
             };
             state = 100;
+            if (total_done < total_count || inactive_pgs.size() > 0 || error_count > 0 ||
+                inactive_osds.size() > 0 && !down_ok)
+            {
+                // Error
+                result = (cli_result_t){
+                    .err = EIO,
+                    .text = "Some blocks were not removed",
+                    .data = data,
+                };
+            }
+            else
+            {
+                if (parent->progress && inactive_osds.size() > 0 && down_ok)
+                {
+                    fprintf(
+                        stderr, "Warning: --down-ok is set and some OSDs are down.\n"
+                        "Pool:%u,ID:%ju inode data may not have been fully removed.\n"
+                        "Use `vitastor-cli rm-data --pool %u --inode %ju` if you encounter it in listings.\n",
+                        pool_id, INODE_NO_POOL(inode), pool_id, INODE_NO_POOL(inode)
+                    );
+                }
+                result = (cli_result_t){
+                    .text = "Done, inode "+std::to_string(INODE_NO_POOL(inode))+" from pool "+
+                        std::to_string(pool_id)+" removed",
+                    .data = data,
+                };
+            }
         }
     }
 
