@@ -67,6 +67,12 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
 
 cluster_client_t::~cluster_client_t()
 {
+    if (retry_timeout_id >= 0)
+    {
+        tfd->clear_timer(retry_timeout_id);
+        retry_timeout_duration = 0;
+        retry_timeout_id = -1;
+    }
     msgr.repeer_pgs = [](osd_num_t){};
     if (ringloop)
     {
@@ -314,7 +320,7 @@ void cluster_client_t::reset_retry_timer(int new_duration)
     {
         return;
     }
-    if (retry_timeout_id)
+    if (retry_timeout_id >= 0)
     {
         tfd->clear_timer(retry_timeout_id);
     }
@@ -322,7 +328,7 @@ void cluster_client_t::reset_retry_timer(int new_duration)
     retry_timeout_id = tfd->set_timer(retry_timeout_duration, false, [this](int)
     {
         int time_passed = retry_timeout_duration;
-        retry_timeout_id = 0;
+        retry_timeout_id = -1;
         retry_timeout_duration = 0;
         continue_ops(time_passed);
     });

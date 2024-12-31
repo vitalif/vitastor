@@ -97,7 +97,7 @@ class cluster_client_t
     int client_eio_retry_interval = 1000; // ms
     bool client_retry_enospc = true;
 
-    int retry_timeout_id = 0;
+    int retry_timeout_id = -1;
     int retry_timeout_duration = 0;
     std::vector<cluster_op_t*> offline_ops;
     cluster_op_t *op_queue_head = NULL, *op_queue_tail = NULL;
