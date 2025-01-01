@@ -43,8 +43,16 @@ struct rm_inode_t
 
     void start_delete()
     {
-        lister = parent->cli->list_inode_start(inode, parent->parallel_osds, [this](inode_list_t *lst,
-            std::set<object_id>&& objects, pg_num_t pg_num, std::vector<osd_num_t> && inactive_osds, int errcode, int status)
+        auto pool_it = parent->cli->st_cli.pool_config.find(pool_id);
+        if (pool_it == parent->cli->st_cli.pool_config.end())
+        {
+            result = (cli_result_t){ .err = EINVAL, .text = "Pool does not exist" };
+            state = 100;
+            return;
+        }
+        pgs_to_list = pool_it->second.real_pg_count;
+        parent->cli->list_inode(inode, parent->parallel_osds, [this](
+            int errcode, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects, std::vector<osd_num_t> && inactive_osds)
         {
             osd_num_t rm_osd_num = 0;
             auto pool_it = parent->cli->st_cli.pool_config.find(pool_id);
@@ -93,34 +101,10 @@ struct rm_inode_t
                 rm->obj_pos = rm->objects.begin();
                 lists.push_back(rm);
             }
-            if (parent->list_first && !(status & INODE_LIST_DONE))
-            {
-                // The listing object is dead when DONE => don't call next()
-                parent->cli->list_inode_next(lister);
-            }
-            if (status & INODE_LIST_DONE)
-            {
-                lists_done = true;
-                pgs_to_list = 0;
-            }
-            else
-            {
-                pgs_to_list = parent->cli->list_pg_count(lister);
-            }
+            pgs_to_list = pgs_left;
+            lists_done = !pgs_to_list;
             continue_delete();
         });
-        if (!lister)
-        {
-            result = (cli_result_t){
-                .err = EIO,
-                .text = "Failed to list objects of inode "+std::to_string(INODE_NO_POOL(inode))+
-                    " from pool "+std::to_string(INODE_POOL(inode)),
-            };
-            state = 100;
-            return;
-        }
-        pgs_to_list = parent->cli->list_pg_count(lister);
-        parent->cli->list_inode_next(lister);
     }
 
     void send_ops(rm_pg_t *cur_list)
@@ -220,10 +204,6 @@ struct rm_inode_t
                 delete lists[i];
                 lists.erase(lists.begin()+i, lists.begin()+i+1);
                 i--;
-                if (!lists_done)
-                {
-                    parent->cli->list_inode_next(lister);
-                }
             }
             else
             {
@@ -263,6 +243,10 @@ struct rm_inode_t
                 }
                 fprintf(stderr, "\n");
             }
+            if (error_count > 0)
+            {
+                fprintf(stderr, "Failed to delete %u objects from active OSD(s).\n", error_count);
+            }
             json11::Json::array inactive_pgs_json;
             for (auto pg_num: inactive_pgs)
             {
@@ -271,6 +255,7 @@ struct rm_inode_t
             json11::Json data = json11::Json::object {
                 { "removed_objects", total_done },
                 { "total_objects", total_count },
+                { "error_count", error_count },
                 { "inactive_osds", json11::Json::array(inactive_osds.begin(), inactive_osds.end()) },
                 { "inactive_pgs", inactive_pgs_json },
             };
@@ -281,7 +266,7 @@ struct rm_inode_t
                 // Error
                 result = (cli_result_t){
                     .err = EIO,
-                    .text = "Some blocks were not removed",
+                    .text = "Failed: some blocks were not removed",
                     .data = data,
                 };
             }

@@ -389,8 +389,8 @@ struct snap_merger_t
             if (lower ? (sp.second < target_rank) : (sp.second > target_rank))
             {
                 lists_todo++;
-                inode_list_t* lst = parent->cli->list_inode_start(src, parent->parallel_osds, [this, src](
-                    inode_list_t *lst, std::set<object_id>&& objects, pg_num_t pg_num, std::vector<osd_num_t> && inactive_osds, int errcode, int status)
+                parent->cli->list_inode(src, parent->parallel_osds, [this, src](
+                    int errcode, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects, std::vector<osd_num_t> && inactive_osds)
                 {
                     if (errcode)
                     {
@@ -416,7 +416,7 @@ struct snap_merger_t
                             layer_list[pos++] = obj.stripe;
                         }
                     }
-                    if (status & INODE_LIST_DONE)
+                    if (!pgs_left)
                     {
                         auto & name = parent->cli->st_cli.inode_config.at(src).name;
                         if (list_errcode.find(src) != list_errcode.end())
@@ -437,12 +437,7 @@ struct snap_merger_t
                         lists_todo--;
                         continue_merge_reent();
                     }
-                    else
-                    {
-                        parent->cli->list_inode_next(lst);
-                    }
                 });
-                parent->cli->list_inode_next(lst);
             }
         }
     }

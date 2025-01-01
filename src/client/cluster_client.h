@@ -11,8 +11,6 @@
 #define DEFAULT_CLIENT_MAX_BUFFERED_BYTES 32*1024*1024
 #define DEFAULT_CLIENT_MAX_BUFFERED_OPS 1024
 #define DEFAULT_CLIENT_MAX_WRITEBACK_IODEPTH 256
-#define INODE_LIST_DONE 1
-#define INODE_LIST_HAS_UNSTABLE 2
 #define OSD_OP_READ_BITMAP OSD_OP_SEC_READ_BMP
 #define OSD_OP_READ_CHAIN_BITMAP 0x102
 
@@ -141,10 +139,8 @@ public:
 
     void continue_ops(int time_passed = 0);
 
-    inode_list_t *list_inode_start(inode_t inode, int max_parallel_pgs, std::function<void(
-        inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, std::vector<osd_num_t> && inactive_osds, int errcode, int status)> callback);
-    void list_inode_next(inode_list_t *lst);
-    int list_pg_count(inode_list_t *lst);
+    void list_inode(inode_t inode, int max_parallel_pgs, std::function<void(
+        int status, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects, std::vector<osd_num_t> && inactive_osds)> pg_callback);
 
     //inline uint32_t get_bs_bitmap_granularity() { return st_cli.global_bitmap_granularity; }
     //inline uint64_t get_bs_block_size() { return st_cli.global_block_size; }

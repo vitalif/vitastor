@@ -52,43 +52,28 @@ struct inode_list_t
     int onstack = 0;
     std::vector<inode_list_pg_t*> pgs;
     pg_num_t real_pg_count = 0;
-    std::function<void(inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, std::vector<osd_num_t> && inactive_osds, int errcode, int status)> callback;
+    std::function<void(int status, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects, std::vector<osd_num_t> && inactive_osds)> callback;
 };
 
-inode_list_t* cluster_client_t::list_inode_start(inode_t inode, int max_parallel_pgs, std::function<void(
-    inode_list_t* lst, std::set<object_id>&& objects, pg_num_t pg_num, std::vector<osd_num_t> && inactive_osds, int errcode, int status)> callback)
+void cluster_client_t::list_inode(inode_t inode, int max_parallel_pgs, std::function<void(
+    int status, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects, std::vector<osd_num_t> && inactive_osds)> pg_callback)
 {
     init_msgr();
     pool_id_t pool_id = INODE_POOL(inode);
     if (!pool_id || st_cli.pool_config.find(pool_id) == st_cli.pool_config.end())
     {
         if (log_level > 0)
-        {
             fprintf(stderr, "Pool %u does not exist\n", pool_id);
-        }
-        return NULL;
+        pg_callback(-EINVAL, 0, 0, std::set<object_id>(), std::vector<osd_num_t>());
+        return;
     }
     inode_list_t *lst = new inode_list_t();
     lst->cli = this;
     lst->pool_id = pool_id;
     lst->inode = inode;
-    lst->callback = callback;
+    lst->callback = pg_callback;
     lst->max_parallel_pgs = max_parallel_pgs <= 0 ? 16 : max_parallel_pgs;
     lists.push_back(lst);
-    if (!continue_listing(lst))
-    {
-        return NULL;
-    }
-    return lst;
-}
-
-int cluster_client_t::list_pg_count(inode_list_t *lst)
-{
-    return lst->pgs.size() - lst->done_pgs;
-}
-
-void cluster_client_t::list_inode_next(inode_list_t *lst)
-{
     continue_listing(lst);
 }
 
@@ -146,13 +131,13 @@ bool cluster_client_t::restart_listing(inode_list_t* lst)
         if (pool_it == st_cli.pool_config.end())
         {
             // Unknown pool
-            lst->callback(lst, std::set<object_id>(), 0, std::vector<osd_num_t>(), -EINVAL, INODE_LIST_DONE);
+            lst->callback(-EINVAL, 0, 0, std::set<object_id>(), std::vector<osd_num_t>());
             return false;
         }
         else if (lst->done_pgs)
         {
             // PG count changed during listing, it should fail
-            lst->callback(lst, std::set<object_id>(), 0, std::vector<osd_num_t>(), -EAGAIN, INODE_LIST_DONE);
+            lst->callback(-EAGAIN, 0, 0, std::set<object_id>(), std::vector<osd_num_t>());
             return false;
         }
         else
@@ -420,16 +405,9 @@ void cluster_client_t::finish_list_pg(inode_list_pg_t *pg, bool retry_epipe)
         }
         lst->done_pgs++;
         pg->state = LIST_PG_DONE;
-        int status = 0;
-        if (lst->done_pgs >= lst->pgs.size())
-        {
-            status |= INODE_LIST_DONE;
-        }
-        if (pg->has_unstable)
-        {
-            status |= INODE_LIST_HAS_UNSTABLE;
-        }
-        lst->callback(lst, std::move(pg->objects), pg->pg_num, std::move(pg->inactive_osds), pg->errcode, status);
+        lst->callback(pg->errcode, lst->pgs.size()-lst->done_pgs, pg->pg_num, std::move(pg->objects), std::move(pg->inactive_osds));
+        pg->objects.clear();
+        pg->inactive_osds.clear();
     }
 }
 
