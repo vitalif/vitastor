@@ -94,8 +94,7 @@ class cluster_client_t
     int client_retry_interval = 50; // ms
     int client_eio_retry_interval = 1000; // ms
     bool client_retry_enospc = true;
-    int peer_connect_timeout = 5; // sec
-    int wait_up_timeout = 10; // sec (for listings)
+    int client_wait_up_timeout = 16; // sec (for listings)
 
     int retry_timeout_id = -1;
     int retry_timeout_duration = 0;

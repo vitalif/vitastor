@@ -173,43 +173,42 @@ void cluster_client_t::retry_start_pg_listing(inode_list_pg_t *pg)
         }
     }
     int new_st = start_pg_listing(pg);
-    if (new_st == LIST_PG_SENT)
+    if (new_st == LIST_PG_SENT || new_st == LIST_PG_WAIT_CONNECT)
     {
-        pg->state = LIST_PG_SENT;
+        // sent => wait for completion
+        // not connected, but OSD state exists => wait for PG or OSD state change infinitely
+        pg->state = new_st;
         return;
     }
-    if (new_st == LIST_PG_WAIT_ACTIVE && pg->state != LIST_PG_WAIT_ACTIVE ||
-        new_st == LIST_PG_WAIT_CONNECT && pg->state != LIST_PG_WAIT_CONNECT)
+    if (new_st == LIST_PG_WAIT_ACTIVE && pg->state != LIST_PG_WAIT_ACTIVE)
     {
-        int sec = (new_st == LIST_PG_WAIT_ACTIVE ? wait_up_timeout : peer_connect_timeout);
-        if (sec)
+        if (!client_wait_up_timeout)
         {
-            pg->state = new_st;
-            clock_gettime(CLOCK_REALTIME, &pg->wait_until);
-            pg->wait_until.tv_sec += sec;
-            if (new_st == LIST_PG_WAIT_ACTIVE)
-            {
-                if (log_level > 1)
-                    fprintf(stderr, "Waiting for PG %u/%u to become active for %d seconds\n", pg->lst->pool_id, pg->pg_num, wait_up_timeout);
-            }
-            else
-            {
-                if (log_level > 2)
-                    fprintf(stderr, "Waiting for connection to PG %u/%u OSDs for %d seconds\n", pg->lst->pool_id, pg->pg_num, peer_connect_timeout);
-            }
-            set_list_retry_timeout(sec*1000, pg->wait_until);
+            fprintf(stderr, "PG %u/%u is inactive, skipping listing\n", pg->lst->pool_id, pg->pg_num);
+            pg->errcode = -EPIPE;
+            pg->list_osds.clear();
+            pg->objects.clear();
+            finish_list_pg(pg, false);
             return;
         }
+        pg->state = new_st;
+        clock_gettime(CLOCK_REALTIME, &pg->wait_until);
+        pg->wait_until.tv_sec += client_wait_up_timeout;
+        if (log_level > 1)
+        {
+            fprintf(stderr, "Waiting for PG %u/%u to become active for %d seconds\n", pg->lst->pool_id, pg->pg_num, client_wait_up_timeout);
+        }
+        set_list_retry_timeout(client_wait_up_timeout*1000, pg->wait_until);
+        return;
     }
-    assert(pg->state == LIST_PG_WAIT_ACTIVE || pg->state == LIST_PG_WAIT_CONNECT);
+    assert(pg->state == LIST_PG_WAIT_ACTIVE);
     // Check if the timeout expired
     timespec tv;
     clock_gettime(CLOCK_REALTIME, &tv);
     if (tv.tv_sec > pg->wait_until.tv_sec ||
         tv.tv_sec == pg->wait_until.tv_sec && tv.tv_nsec >= pg->wait_until.tv_nsec)
     {
-        fprintf(stderr, "Failed to wait for PG %u/%u to become %s, skipping listing\n", pg->lst->pool_id, pg->pg_num,
-            pg->state == LIST_PG_WAIT_ACTIVE ? "active" : "connected");
+        fprintf(stderr, "Failed to wait for PG %u/%u to become active, skipping listing\n", pg->lst->pool_id, pg->pg_num);
         pg->errcode = -EPIPE;
         pg->list_osds.clear();
         pg->objects.clear();
@@ -229,6 +228,8 @@ void cluster_client_t::set_list_retry_timeout(int ms, timespec new_time)
         }
         list_retry_timeout_id = tfd->set_timer(ms, false, [this](int timer_id)
         {
+            list_retry_timeout_id = -1;
+            list_retry_time = {};
             continue_lists();
         });
     }
