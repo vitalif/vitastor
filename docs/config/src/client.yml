@@ -61,6 +61,24 @@
   info_ru: |
     Повторять запросы записи, завершившиеся с ошибками нехватки места, т.е.
     ожидать, пока на OSD не освободится место.
+- name: client_wait_up_timeout
+  type: sec
+  default: 16
+  online: true
+  info: |
+    Wait for this number of seconds until PGs are up when doing operations
+    which require all PGs to be up. Currently only used by object listings
+    in delete and merge-based commands ([vitastor-cli rm](../usage/cli.en.md#rm), merge and so on).
+
+    The default value is calculated as `1 + OSD lease timeout`, which is
+    `1 + etcd_report_interval + max_etcd_attempts*2*etcd_quick_timeout`.
+  info_ru: |
+    Время ожидания поднятия PG при операциях, требующих активности всех PG.
+    В данный момент используется листингами объектов в командах, использующих
+    удаление и слияние ([vitastor-cli rm](../usage/cli.ru.md#rm), merge и подобные).
+
+    Значение по умолчанию вычисляется как `1 + время lease OSD`, равное
+    `1 + etcd_report_interval + max_etcd_attempts*2*etcd_quick_timeout`.
 - name: client_max_dirty_bytes
   type: int
   default: 33554432

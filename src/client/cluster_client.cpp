@@ -413,8 +413,8 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
     peer_connect_timeout = config["peer_connect_timeout"].uint64_value();
     if (!peer_connect_timeout)
         peer_connect_timeout = 5;
-    if (!config["wait_up_timeout"].is_null())
-        wait_up_timeout = config["wait_up_timeout"].uint64_value();
+    if (!config["client_wait_up_timeout"].is_null())
+        wait_up_timeout = config["client_wait_up_timeout"].uint64_value();
     else
     {
         auto etcd_report_interval = config["etcd_report_interval"].uint64_value();

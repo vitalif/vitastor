@@ -222,6 +222,7 @@ Remove inode data without changing metadata.
               Requires more memory, but allows to show correct removal progress.
 --min-offset  Purge only data starting with specified offset.
 --max-offset  Purge only data before specified offset.
+--client_wait_up_timeout 16  Timeout for waiting until PGs are up in seconds.
 ```
 
 ## merge-data
