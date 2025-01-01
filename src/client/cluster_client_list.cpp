@@ -9,8 +9,9 @@
 #define LIST_PG_INIT 0
 #define LIST_PG_WAIT_ACTIVE 1
 #define LIST_PG_WAIT_CONNECT 2
-#define LIST_PG_SENT 3
-#define LIST_PG_DONE 4
+#define LIST_PG_WAIT_RETRY 3
+#define LIST_PG_SENT 4
+#define LIST_PG_DONE 5
 
 struct inode_list_t;
 
@@ -175,6 +176,17 @@ void cluster_client_t::retry_start_pg_listing(inode_list_pg_t *pg)
     {
         return;
     }
+    if (pg->state == LIST_PG_WAIT_RETRY)
+    {
+        // Check if the timeout expired
+        timespec tv;
+        clock_gettime(CLOCK_REALTIME, &tv);
+        if (tv.tv_sec < pg->wait_until.tv_sec ||
+            tv.tv_sec == pg->wait_until.tv_sec && tv.tv_nsec < pg->wait_until.tv_nsec)
+        {
+            return;
+        }
+    }
     int new_st = start_pg_listing(pg);
     if (new_st == LIST_PG_SENT)
     {
@@ -200,19 +212,7 @@ void cluster_client_t::retry_start_pg_listing(inode_list_pg_t *pg)
                 if (log_level > 2)
                     fprintf(stderr, "Waiting for connection to PG %u/%u OSDs for %d seconds\n", pg->lst->pool_id, pg->pg_num, peer_connect_timeout);
             }
-            if (!list_retry_time.tv_sec || list_retry_time.tv_sec > pg->wait_until.tv_sec ||
-                list_retry_time.tv_sec == pg->wait_until.tv_sec && list_retry_time.tv_nsec > pg->wait_until.tv_nsec)
-            {
-                list_retry_time = pg->wait_until;
-                if (list_retry_timeout_id >= 0)
-                {
-                    tfd->clear_timer(list_retry_timeout_id);
-                }
-                list_retry_timeout_id = tfd->set_timer(sec*1000, false, [this](int timer_id)
-                {
-                    continue_lists();
-                });
-            }
+            set_list_retry_timeout(sec*1000, pg->wait_until);
             return;
         }
     }
@@ -228,7 +228,24 @@ void cluster_client_t::retry_start_pg_listing(inode_list_pg_t *pg)
         pg->errcode = -EPIPE;
         pg->list_osds.clear();
         pg->objects.clear();
-        finish_list_pg(pg);
+        finish_list_pg(pg, false);
+    }
+}
+
+void cluster_client_t::set_list_retry_timeout(int ms, timespec new_time)
+{
+    if (!list_retry_time.tv_sec || list_retry_time.tv_sec > new_time.tv_sec ||
+        list_retry_time.tv_sec == new_time.tv_sec && list_retry_time.tv_nsec > new_time.tv_nsec)
+    {
+        list_retry_time = new_time;
+        if (list_retry_timeout_id >= 0)
+        {
+            tfd->clear_timer(list_retry_timeout_id);
+        }
+        list_retry_timeout_id = tfd->set_timer(ms, false, [this](int timer_id)
+        {
+            continue_lists();
+        });
     }
 }
 
@@ -266,7 +283,6 @@ int cluster_client_t::start_pg_listing(inode_list_pg_t *pg)
                 st_cli.peer_states[*peer_it].is_null())
             {
                 pg->inactive_osds.push_back(*peer_it);
-printf("OSD is inactive: %lu\n", *peer_it);
                 all_peers.erase(peer_it++);
             }
             else
@@ -380,18 +396,28 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
         cur_list->pg->inflight_ops--;
         if (!cur_list->pg->inflight_ops)
             cur_list->pg->lst->inflight_pgs--;
-        // FIXME: Retry listing after <client_retry_interval> ms on EPIPE
-        finish_list_pg(cur_list->pg);
+        finish_list_pg(cur_list->pg, true);
         continue_listing(cur_list->pg->lst);
     };
     msgr.outbox_push(op);
 }
 
-void cluster_client_t::finish_list_pg(inode_list_pg_t *pg)
+void cluster_client_t::finish_list_pg(inode_list_pg_t *pg, bool retry_epipe)
 {
     auto lst = pg->lst;
     if (pg->inflight_ops == 0)
     {
+        if (pg->errcode == -EPIPE && retry_epipe)
+        {
+            // Retry listing after <client_retry_interval> ms on EPIPE
+            pg->state = LIST_PG_WAIT_RETRY;
+            clock_gettime(CLOCK_REALTIME, &pg->wait_until);
+            pg->wait_until.tv_nsec += client_retry_interval*1000000;
+            pg->wait_until.tv_sec += (pg->wait_until.tv_nsec / 1000000000);
+            pg->wait_until.tv_nsec = (pg->wait_until.tv_nsec % 1000000000);
+            set_list_retry_timeout(client_retry_interval, pg->wait_until);
+            return;
+        }
         lst->done_pgs++;
         pg->state = LIST_PG_DONE;
         int status = 0;

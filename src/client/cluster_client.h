@@ -178,7 +178,8 @@ protected:
     void retry_start_pg_listing(inode_list_pg_t *pg);
     int start_pg_listing(inode_list_pg_t *pg);
     void send_list(inode_list_osd_t *cur_list);
-    void finish_list_pg(inode_list_pg_t *pg);
+    void set_list_retry_timeout(int ms, timespec new_time);
+    void finish_list_pg(inode_list_pg_t *pg, bool retry_epipe);
     bool check_finish_listing(inode_list_t *lst);
     void continue_raw_ops(osd_num_t peer_osd);
 
