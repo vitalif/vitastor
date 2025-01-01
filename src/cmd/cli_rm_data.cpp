@@ -51,7 +51,7 @@ struct rm_inode_t
             return;
         }
         pgs_to_list = pool_it->second.real_pg_count;
-        parent->cli->list_inode(inode, parent->parallel_osds, [this](
+        parent->cli->list_inode(inode, min_offset, max_offset, parent->parallel_osds, [this](
             int errcode, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects, std::vector<osd_num_t> && inactive_osds)
         {
             osd_num_t rm_osd_num = 0;
@@ -142,6 +142,7 @@ struct rm_inode_t
                     cur_list->in_flight--;
                     if (op->reply.hdr.retval < 0)
                     {
+                        // FIXME: Retry -EPIPE
                         fprintf(stderr, "Failed to remove object %jx:%jx from PG %u (OSD %ju) (retval=%jd)\n",
                             op->req.rw.inode, op->req.rw.offset,
                             cur_list->pg_num, cur_list->rm_osd_num, op->reply.hdr.retval);
@@ -153,9 +154,13 @@ struct rm_inode_t
                     continue_delete();
                 };
                 cur_list->in_flight++;
+                cur_list->obj_pos++;
                 parent->cli->msgr.outbox_push(op);
             }
-            cur_list->obj_pos++;
+            else
+            {
+                cur_list->obj_pos++;
+            }
         }
         if (cur_list->in_flight == 0 && cur_list->obj_pos == cur_list->objects.end() &&
             !cur_list->synced)

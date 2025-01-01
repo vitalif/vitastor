@@ -44,6 +44,8 @@ struct inode_list_t
     cluster_client_t *cli = NULL;
     pool_id_t pool_id = 0;
     inode_t inode = 0;
+    uint64_t min_offset = 0;
+    uint64_t max_offset = 0;
     int max_parallel_pgs = 16;
 
     int inflight_pgs = 0;
@@ -55,7 +57,7 @@ struct inode_list_t
     std::function<void(int status, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects, std::vector<osd_num_t> && inactive_osds)> callback;
 };
 
-void cluster_client_t::list_inode(inode_t inode, int max_parallel_pgs, std::function<void(
+void cluster_client_t::list_inode(inode_t inode, uint64_t min_offset, uint64_t max_offset, int max_parallel_pgs, std::function<void(
     int status, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects, std::vector<osd_num_t> && inactive_osds)> pg_callback)
 {
     init_msgr();
@@ -67,10 +69,15 @@ void cluster_client_t::list_inode(inode_t inode, int max_parallel_pgs, std::func
         pg_callback(-EINVAL, 0, 0, std::set<object_id>(), std::vector<osd_num_t>());
         return;
     }
+    auto pg_stripe_size = st_cli.pool_config.at(pool_id).pg_stripe_size;
+    if (min_offset)
+        min_offset = (min_offset/pg_stripe_size) * pg_stripe_size;
     inode_list_t *lst = new inode_list_t();
     lst->cli = this;
     lst->pool_id = pool_id;
     lst->inode = inode;
+    lst->min_offset = min_offset;
+    lst->max_offset = max_offset;
     lst->callback = pg_callback;
     lst->max_parallel_pgs = max_parallel_pgs <= 0 ? 16 : max_parallel_pgs;
     lists.push_back(lst);
@@ -342,6 +349,8 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
             .pg_stripe_size = pool_cfg.pg_stripe_size,
             .min_inode = cur_list->pg->lst->inode,
             .max_inode = cur_list->pg->lst->inode,
+            .min_stripe = cur_list->pg->lst->min_offset,
+            .max_stripe = cur_list->pg->lst->max_offset,
         },
     };
     op->callback = [this, cur_list](osd_op_t *op)

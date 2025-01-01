@@ -138,7 +138,7 @@ public:
 
     void continue_ops(int time_passed = 0);
 
-    void list_inode(inode_t inode, int max_parallel_pgs, std::function<void(
+    void list_inode(inode_t inode, uint64_t min_offset, uint64_t max_offset, int max_parallel_pgs, std::function<void(
         int status, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects, std::vector<osd_num_t> && inactive_osds)> pg_callback);
 
     //inline uint32_t get_bs_bitmap_granularity() { return st_cli.global_bitmap_granularity; }
