@@ -15,6 +15,7 @@
 #define OSD_OP_READ_CHAIN_BITMAP 0x102
 
 #define OSD_OP_IGNORE_READONLY 0x08
+#define OSD_OP_WAIT_UP_TIMEOUT 0x10
 
 struct cluster_op_t;
 
@@ -39,7 +40,8 @@ struct cluster_op_t
     // for reads and writes within a single object (stripe),
     // reads can return current version and writes can use "CAS" semantics
     uint64_t version = 0;
-    // now only OSD_OP_IGNORE_READONLY is supported
+    // flags: OSD_OP_IGNORE_READONLY - ignore inode readonly flag
+    // OSD_OP_WAIT_UP_TIMEOUT - do not retry the operation infinitely if PG is inactive, only for for <wait_up_timeout>
     uint64_t flags = 0;
     // negative retval is an error number
     // write and read return len on success
@@ -57,6 +59,7 @@ protected:
     bool needs_reslice = false;
     int retry_after = 0;
     int inflight_count = 0, done_count = 0;
+    timespec wait_up_until = {};
     std::vector<cluster_op_part_t> parts;
     void *part_bitmaps = NULL;
     unsigned bitmap_buf_size = 0;
@@ -159,7 +162,7 @@ protected:
     bool check_rw(cluster_op_t *op);
     void slice_rw(cluster_op_t *op);
     void reset_retry_timer(int new_duration);
-    bool try_send(cluster_op_t *op, int i);
+    int try_send(cluster_op_t *op, int i);
     int continue_sync(cluster_op_t *op);
     void send_sync(cluster_op_t *op, cluster_op_part_t *part);
     void handle_op_part(cluster_op_part_t *part);

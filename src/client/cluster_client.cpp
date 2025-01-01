@@ -6,6 +6,10 @@
 #include "cluster_client_impl.h"
 #include "json_util.h"
 
+#define TRY_SEND_OFFLINE 0
+#define TRY_SEND_CONNECTING 1
+#define TRY_SEND_OK 2
+
 cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json config)
 {
     wb = new writeback_cache_t();
@@ -146,12 +150,12 @@ void cluster_client_t::unshift_op(cluster_op_t *op)
 void cluster_client_t::calc_wait(cluster_op_t *op)
 {
     op->prev_wait = 0;
-    if (op->opcode == OSD_OP_WRITE)
+    if (op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE)
     {
         for (auto prev = op->prev; prev; prev = prev->prev)
         {
             if (prev->opcode == OSD_OP_SYNC ||
-                prev->opcode == OSD_OP_WRITE && !(op->flags & OP_FLUSH_BUFFER) && (prev->flags & OP_FLUSH_BUFFER))
+                (prev->opcode == OSD_OP_WRITE || prev->opcode == OSD_OP_DELETE) && !(op->flags & OP_FLUSH_BUFFER) && (prev->flags & OP_FLUSH_BUFFER))
             {
                 op->prev_wait++;
             }
@@ -163,7 +167,8 @@ void cluster_client_t::calc_wait(cluster_op_t *op)
     {
         for (auto prev = op->prev; prev; prev = prev->prev)
         {
-            if (prev->opcode == OSD_OP_SYNC || prev->opcode == OSD_OP_WRITE && (!(prev->flags & OP_IMMEDIATE_COMMIT) || enable_writeback))
+            if (prev->opcode == OSD_OP_SYNC || (prev->opcode == OSD_OP_WRITE || prev->opcode == OSD_OP_DELETE) &&
+                (!(prev->flags & OP_IMMEDIATE_COMMIT) || enable_writeback))
             {
                 op->prev_wait++;
             }
@@ -179,7 +184,7 @@ void cluster_client_t::calc_wait(cluster_op_t *op)
 
 void cluster_client_t::inc_wait(uint64_t opcode, uint64_t flags, cluster_op_t *next, int inc)
 {
-    if (opcode != OSD_OP_WRITE && opcode != OSD_OP_SYNC)
+    if (opcode != OSD_OP_WRITE && opcode != OSD_OP_DELETE && opcode != OSD_OP_SYNC)
     {
         return;
     }
@@ -188,10 +193,10 @@ void cluster_client_t::inc_wait(uint64_t opcode, uint64_t flags, cluster_op_t *n
     while (next)
     {
         auto n2 = next->next;
-        if (opcode == OSD_OP_WRITE
+        if ((opcode == OSD_OP_WRITE || opcode == OSD_OP_DELETE)
             ? (next->opcode == OSD_OP_SYNC && (!(flags & OP_IMMEDIATE_COMMIT) || enable_writeback) ||
-                next->opcode == OSD_OP_WRITE && (flags & OP_FLUSH_BUFFER) && !(next->flags & OP_FLUSH_BUFFER))
-            : (next->opcode == OSD_OP_SYNC || next->opcode == OSD_OP_WRITE))
+                (next->opcode == OSD_OP_WRITE || next->opcode == OSD_OP_DELETE) && (flags & OP_FLUSH_BUFFER) && !(next->flags & OP_FLUSH_BUFFER))
+            : (next->opcode == OSD_OP_SYNC || next->opcode == OSD_OP_WRITE || next->opcode == OSD_OP_DELETE))
         {
             next->prev_wait += inc;
             assert(next->prev_wait >= 0);
@@ -456,7 +461,7 @@ void cluster_client_t::on_change_pool_config_hook()
             // And now they have to be resliced!
             for (auto op = op_queue_head; op; op = op->next)
             {
-                if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_READ ||
+                if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE || op->opcode == OSD_OP_READ ||
                     op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP) &&
                     INODE_POOL(op->cur_inode) == pool_item.first)
                 {
@@ -583,7 +588,8 @@ bool cluster_client_t::flush()
 void cluster_client_t::execute(cluster_op_t *op)
 {
     if (op->opcode != OSD_OP_SYNC && op->opcode != OSD_OP_READ &&
-        op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_READ_CHAIN_BITMAP && op->opcode != OSD_OP_WRITE)
+        op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_READ_CHAIN_BITMAP &&
+        op->opcode != OSD_OP_WRITE && op->opcode != OSD_OP_DELETE)
     {
         op->retval = -EINVAL;
         auto cb = std::move(op->callback);
@@ -595,7 +601,7 @@ void cluster_client_t::execute(cluster_op_t *op)
         offline_ops.push_back(op);
         return;
     }
-    op->flags = op->flags & OSD_OP_IGNORE_READONLY; // the only allowed flag
+    op->flags = op->flags & (OSD_OP_IGNORE_READONLY | OSD_OP_WAIT_UP_TIMEOUT); // allowed client flags
     execute_internal(op);
 }
 
@@ -639,6 +645,7 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
     }
     if (op->opcode == OSD_OP_WRITE && !(op->flags & OP_IMMEDIATE_COMMIT))
     {
+        // FIXME: Deletes should also be remembered and then repeated when OSD disconnects
         if (!(op->flags & OP_FLUSH_BUFFER) && !op->version /* no CAS write-repeat */)
         {
             uint64_t flush_id = ++wb->last_flush_id;
@@ -801,9 +808,48 @@ resume_1:
     {
         if (!(op->parts[i].flags & PART_SENT))
         {
-            if (!try_send(op, i))
+            int is_ok = try_send(op, i);
+            if (is_ok != TRY_SEND_OK)
             {
                 // We'll need to retry again
+                if (op->flags & OSD_OP_WAIT_UP_TIMEOUT)
+                {
+                    if (is_ok != TRY_SEND_OFFLINE)
+                    {
+                        // Reset "wait_up" timer
+                        op->wait_up_until = {};
+                    }
+                    else if (!op->wait_up_until.tv_sec && !client_wait_up_timeout)
+                    {
+                        // Don't wait for the PG to come up at all and fail
+                        op->parts[i].flags |= PART_ERROR;
+                        if (!op->retval)
+                            op->retval = -ETIMEDOUT;
+                        break;
+                    }
+                    else if (!op->wait_up_until.tv_sec)
+                    {
+                        // Set "wait_up" timer
+                        clock_gettime(CLOCK_REALTIME, &op->wait_up_until);
+                        op->wait_up_until.tv_sec += client_wait_up_timeout;
+                    }
+                    else
+                    {
+                        // Check if the timeout expired
+                        timespec tv;
+                        clock_gettime(CLOCK_REALTIME, &tv);
+                        if (tv.tv_sec > op->wait_up_until.tv_sec ||
+                            tv.tv_sec == op->wait_up_until.tv_sec &&
+                            tv.tv_nsec > op->wait_up_until.tv_nsec)
+                        {
+                            // Fail
+                            op->parts[i].flags |= PART_ERROR;
+                            if (!op->retval)
+                                op->retval = -ETIMEDOUT;
+                            break;
+                        }
+                    }
+                }
                 if (op->parts[i].flags & PART_RETRY)
                 {
                     op->retry_after = client_retry_interval;
@@ -1077,7 +1123,7 @@ bool cluster_client_t::affects_osd(uint64_t inode, uint64_t offset, uint64_t len
     return false;
 }
 
-bool cluster_client_t::try_send(cluster_op_t *op, int i)
+int cluster_client_t::try_send(cluster_op_t *op, int i)
 {
     if (!msgr_initialized)
     {
@@ -1133,14 +1179,15 @@ bool cluster_client_t::try_send(cluster_op_t *op, int i)
             };
             part->op.iov = part->iov;
             msgr.outbox_push(&part->op);
-            return true;
+            return TRY_SEND_OK;
         }
         else if (msgr.wanted_peers.find(primary_osd) == msgr.wanted_peers.end())
         {
             msgr.connect_peer(primary_osd, st_cli.peer_states[primary_osd]);
+            return TRY_SEND_CONNECTING;
         }
     }
-    return false;
+    return TRY_SEND_OFFLINE;
 }
 
 int cluster_client_t::continue_sync(cluster_op_t *op)
@@ -1212,13 +1259,12 @@ resume_1:
 
 void cluster_client_t::send_sync(cluster_op_t *op, cluster_op_part_t *part)
 {
-    auto peer_it = msgr.osd_peer_fds.find(part->osd_num);
-    assert(peer_it != msgr.osd_peer_fds.end());
+    auto peer_fd = msgr.osd_peer_fds.at(part->osd_num);
     part->flags |= PART_SENT;
     op->inflight_count++;
     part->op = (osd_op_t){
         .op_type = OSD_OP_OUT,
-        .peer_fd = peer_it->second,
+        .peer_fd = peer_fd,
         .req = {
             .hdr = {
                 .magic = SECONDARY_OSD_OP_MAGIC,
@@ -1252,9 +1298,11 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
     {
         // Operation failed, retry
         part->flags |= PART_ERROR;
-        if (!op->retval || op->retval == -EPIPE || part->op.reply.hdr.retval == -EIO)
+        if (!op->retval || op->retval == -EPIPE ||
+            part->op.reply.hdr.retval == -ENOSPC && op->retval == -ETIMEDOUT ||
+            part->op.reply.hdr.retval == -EIO)
         {
-            // Error priority: EIO > ENOSPC > EPIPE
+            // Error priority: EIO > ENOSPC > ETIMEDOUT > EPIPE
             op->retval = part->op.reply.hdr.retval;
         }
         int stop_fd = -1;
@@ -1317,7 +1365,7 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
                 op->version = op->parts.size() == 1 ? part->op.reply.rw.version : 0;
             }
         }
-        else if (op->opcode == OSD_OP_WRITE)
+        else if (op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE)
         {
             op->version = op->parts.size() == 1 ? part->op.reply.rw.version : 0;
         }

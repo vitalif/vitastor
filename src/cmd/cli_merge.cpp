@@ -611,7 +611,7 @@ struct snap_merger_t
         subop->inode = inode_num;
         subop->offset = offset;
         subop->len = 0;
-        subop->flags = OSD_OP_IGNORE_READONLY;
+        subop->flags = OSD_OP_IGNORE_READONLY | OSD_OP_WAIT_UP_TIMEOUT;
         subop->callback = [](cluster_op_t *subop)
         {
             if (subop->retval != 0)

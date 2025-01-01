@@ -11,7 +11,6 @@
 struct rm_pg_t
 {
     pg_num_t pg_num;
-    osd_num_t rm_osd_num;
     std::set<object_id> objects;
     std::set<object_id>::iterator obj_pos;
     uint64_t obj_count = 0, obj_done = 0;
@@ -54,19 +53,6 @@ struct rm_inode_t
         parent->cli->list_inode(inode, min_offset, max_offset, parent->parallel_osds, [this](
             int errcode, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects, std::vector<osd_num_t> && inactive_osds)
         {
-            osd_num_t rm_osd_num = 0;
-            auto pool_it = parent->cli->st_cli.pool_config.find(pool_id);
-            if (pool_it != parent->cli->st_cli.pool_config.end())
-            {
-                auto pg_it = pool_it->second.pg_config.find(pg_num);
-                if (pg_it != pool_it->second.pg_config.end())
-                    rm_osd_num = pg_it->second.primary;
-            }
-            if (!rm_osd_num)
-            {
-                fprintf(stderr, "PG %u/%u is down, skipping\n", pool_id, pg_num);
-                errcode = -EPIPE;
-            }
             if (errcode)
             {
                 inactive_pgs.insert(pg_num);
@@ -79,7 +65,6 @@ struct rm_inode_t
                 }
                 rm_pg_t *rm = new rm_pg_t((rm_pg_t){
                     .pg_num = pg_num,
-                    .rm_osd_num = rm_osd_num,
                     .objects = std::move(objects),
                     .obj_done = 0,
                     .synced = !objects.size() || parent->cli->get_immediate_commit(inode),
@@ -109,43 +94,23 @@ struct rm_inode_t
 
     void send_ops(rm_pg_t *cur_list)
     {
-        parent->cli->init_msgr();
-        if (parent->cli->msgr.osd_peer_fds.find(cur_list->rm_osd_num) ==
-            parent->cli->msgr.osd_peer_fds.end())
-        {
-            // Initiate connection
-            parent->cli->msgr.connect_peer(cur_list->rm_osd_num, parent->cli->st_cli.peer_states[cur_list->rm_osd_num]);
-            return;
-        }
         while (cur_list->in_flight < parent->iodepth && cur_list->obj_pos != cur_list->objects.end())
         {
             if (cur_list->obj_pos->stripe >= min_offset && (!max_offset || cur_list->obj_pos->stripe < max_offset))
             {
-                osd_op_t *op = new osd_op_t();
-                op->op_type = OSD_OP_OUT;
-                // Already checked that it exists above, but anyway
-                op->peer_fd = parent->cli->msgr.osd_peer_fds.at(cur_list->rm_osd_num);
-                op->req = (osd_any_op_t){
-                    .rw = {
-                        .header = {
-                            .magic = SECONDARY_OSD_OP_MAGIC,
-                            .id = parent->cli->next_op_id(),
-                            .opcode = OSD_OP_DELETE,
-                        },
-                        .inode = cur_list->obj_pos->inode,
-                        .offset = cur_list->obj_pos->stripe,
-                        .len = 0,
-                    },
-                };
-                op->callback = [this, cur_list](osd_op_t *op)
+                cluster_op_t *op = new cluster_op_t;
+                op->opcode = OSD_OP_DELETE;
+                op->inode = cur_list->obj_pos->inode;
+                op->offset = cur_list->obj_pos->stripe;
+                op->len = 0;
+                op->flags = OSD_OP_IGNORE_READONLY | OSD_OP_WAIT_UP_TIMEOUT;
+                op->callback = [this, cur_list](cluster_op_t *op)
                 {
                     cur_list->in_flight--;
-                    if (op->reply.hdr.retval < 0)
+                    if (op->retval < 0)
                     {
-                        // FIXME: Retry -EPIPE
-                        fprintf(stderr, "Failed to remove object %jx:%jx from PG %u (OSD %ju) (retval=%jd)\n",
-                            op->req.rw.inode, op->req.rw.offset,
-                            cur_list->pg_num, cur_list->rm_osd_num, op->reply.hdr.retval);
+                        fprintf(stderr, "Failed to remove object %jx:%jx from PG %u (retval=%d)\n",
+                            op->inode, op->offset, cur_list->pg_num, op->retval);
                         error_count++;
                     }
                     delete op;
@@ -155,7 +120,7 @@ struct rm_inode_t
                 };
                 cur_list->in_flight++;
                 cur_list->obj_pos++;
-                parent->cli->msgr.outbox_push(op);
+                parent->cli->execute(op);
             }
             else
             {
@@ -165,33 +130,22 @@ struct rm_inode_t
         if (cur_list->in_flight == 0 && cur_list->obj_pos == cur_list->objects.end() &&
             !cur_list->synced)
         {
-            osd_op_t *op = new osd_op_t();
-            op->op_type = OSD_OP_OUT;
-            op->peer_fd = parent->cli->msgr.osd_peer_fds.at(cur_list->rm_osd_num);
-            op->req = (osd_any_op_t){
-                .sync = {
-                    .header = {
-                        .magic = SECONDARY_OSD_OP_MAGIC,
-                        .id = parent->cli->next_op_id(),
-                        .opcode = OSD_OP_SYNC,
-                    },
-                },
-            };
-            op->callback = [this, cur_list](osd_op_t *op)
+            cluster_op_t *op = new cluster_op_t;
+            op->opcode = OSD_OP_SYNC;
+            op->callback = [this, cur_list](cluster_op_t *op)
             {
                 cur_list->in_flight--;
                 cur_list->synced = true;
-                if (op->reply.hdr.retval < 0)
+                if (op->retval < 0)
                 {
-                    fprintf(stderr, "Failed to sync OSD %ju (retval=%jd)\n",
-                        cur_list->rm_osd_num, op->reply.hdr.retval);
+                    fprintf(stderr, "Failed to sync after deletion (retval=%d)\n", op->retval);
                     error_count++;
                 }
                 delete op;
                 continue_delete();
             };
             cur_list->in_flight++;
-            parent->cli->msgr.outbox_push(op);
+            parent->cli->execute(op);
         }
     }
 
