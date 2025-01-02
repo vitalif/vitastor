@@ -182,6 +182,7 @@ struct rm_inode_t
             {
                 fprintf(stderr, "\n");
             }
+            // FIXME: for 100% correctness inactive_osds should be taken from OSD_OP_DELETE reply, not from the listing
             if (inactive_osds.size() && !parent->json_output)
             {
                 fprintf(stderr, "Some data may remain after delete on OSDs which are currently down: ");

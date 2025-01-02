@@ -213,7 +213,7 @@ struct __attribute__((__packed__)) osd_reply_sec_list_t
     uint64_t flags;
 };
 
-// read or write to the primary OSD (must be within individual stripe)
+// read, write or delete command for the primary OSD (must be within individual stripe)
 struct __attribute__((__packed__)) osd_op_rw_t
 {
     osd_op_header_t header;

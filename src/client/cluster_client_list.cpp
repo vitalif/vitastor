@@ -48,6 +48,7 @@ struct inode_list_t
     uint64_t max_offset = 0;
     int max_parallel_pgs = 16;
 
+    bool fallback = false;
     int inflight_pgs = 0;
     std::map<osd_num_t, int> inflight_per_osd;
     int done_pgs = 0;
@@ -259,7 +260,7 @@ int cluster_client_t::start_pg_listing(inode_list_pg_t *pg)
     std::set<osd_num_t> all_peers;
     if (pg_it->second.cur_state != PG_ACTIVE)
     {
-        // Not clean
+        // Not clean and OSDs don't support listing from primary
         for (osd_num_t pg_osd: pg_it->second.target_set)
             all_peers.insert(pg_osd);
         for (osd_num_t pg_osd: pg_it->second.all_peers)
@@ -282,9 +283,10 @@ int cluster_client_t::start_pg_listing(inode_list_pg_t *pg)
                 peer_it++;
         }
     }
-    else
+    if (pg_it->second.cur_state == PG_ACTIVE || !pg->lst->fallback)
     {
         // Clean
+        all_peers.clear();
         all_peers.insert(pg_it->second.cur_primary);
     }
     // Check that we're connected to all PG OSDs
@@ -351,6 +353,7 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
             .max_inode = cur_list->pg->lst->inode,
             .min_stripe = cur_list->pg->lst->min_offset,
             .max_stripe = cur_list->pg->lst->max_offset,
+            .flags = (uint64_t)(cur_list->pg->lst->fallback ? 0 : OSD_LIST_PRIMARY),
         },
     };
     op->callback = [this, cur_list](osd_op_t *op)
@@ -359,7 +362,29 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
         {
             fprintf(stderr, "Failed to get PG %u/%u object list from OSD %ju (retval=%jd), skipping\n",
                 cur_list->pg->lst->pool_id, cur_list->pg->pg_num, cur_list->osd_num, op->reply.hdr.retval);
-            cur_list->pg->errcode = op->reply.hdr.retval;
+            if (!cur_list->pg->errcode ||
+                cur_list->pg->errcode == -EPIPE ||
+                op->reply.hdr.retval != -EPIPE)
+            {
+                cur_list->pg->errcode = op->reply.hdr.retval;
+            }
+        }
+        else if ((op->req.sec_list.flags & OSD_LIST_PRIMARY) &&
+            !(op->reply.sec_list.flags & OSD_LIST_PRIMARY))
+        {
+            // OSD is old and doesn't support listing from primary
+            if (log_level > 0)
+            {
+                fprintf(
+                    stderr, "[PG %u/%u] Primary OSD doesn't support consistent listings, falling back to listings from all peers\n",
+                    cur_list->pg->lst->pool_id, cur_list->pg->pg_num
+                );
+            }
+            cur_list->pg->lst->fallback = true;
+            if (!cur_list->pg->errcode)
+            {
+                cur_list->pg->errcode = -EPIPE;
+            }
         }
         else
         {
