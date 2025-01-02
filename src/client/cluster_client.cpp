@@ -622,7 +622,7 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
     {
         return;
     }
-    if (op->opcode == OSD_OP_WRITE && enable_writeback && !(op->flags & OP_FLUSH_BUFFER) &&
+    if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && enable_writeback && !(op->flags & OP_FLUSH_BUFFER) &&
         !op->version /* no CAS writeback */)
     {
         if (wb->writebacks_active >= client_max_writeback_iodepth)
@@ -643,9 +643,8 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
         cb(op);
         return;
     }
-    if (op->opcode == OSD_OP_WRITE && !(op->flags & OP_IMMEDIATE_COMMIT))
+    if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && !(op->flags & OP_IMMEDIATE_COMMIT))
     {
-        // FIXME: Deletes should also be remembered and then repeated when OSD disconnects
         if (!(op->flags & OP_FLUSH_BUFFER) && !op->version /* no CAS write-repeat */)
         {
             uint64_t flush_id = ++wb->last_flush_id;
@@ -664,7 +663,10 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
             };
             execute_internal(sync_op);
         }
-        dirty_bytes += op->len;
+        if (op->opcode != OSD_OP_DELETE)
+        {
+            dirty_bytes += op->len;
+        }
         dirty_ops++;
     }
     else if (op->opcode == OSD_OP_SYNC)

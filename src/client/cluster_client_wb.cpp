@@ -43,6 +43,7 @@ bool writeback_cache_t::is_left_merged(dirty_buf_it_t dirty_it)
         auto prev_it = dirty_it;
         prev_it--;
         if (prev_it->first.inode == dirty_it->first.inode &&
+            (prev_it->second.buf != NULL) == (dirty_it->second.buf != NULL) &&
             prev_it->first.stripe+prev_it->second.len == dirty_it->first.stripe &&
             prev_it->second.state == CACHE_DIRTY)
         {
@@ -58,6 +59,7 @@ bool writeback_cache_t::is_right_merged(dirty_buf_it_t dirty_it)
     next_it++;
     if (next_it != dirty_buffers.end() &&
         next_it->first.inode == dirty_it->first.inode &&
+        (next_it->second.buf != NULL) == (dirty_it->second.buf != NULL) &&
         next_it->first.stripe == dirty_it->first.stripe+dirty_it->second.len &&
         next_it->second.state == CACHE_DIRTY)
     {
@@ -99,7 +101,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
                     .inode = op->inode,
                     .stripe = new_end,
                 }, (cluster_buffer_t){
-                    .buf = dirty_it->second.buf + new_end - dirty_it->first.stripe,
+                    .buf = dirty_it->second.buf ? dirty_it->second.buf + new_end - dirty_it->first.stripe : NULL,
                     .len = old_end - new_end,
                     .state = dirty_it->second.state,
                     .flush_id = dirty_it->second.flush_id,
@@ -143,7 +145,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
                 .inode = op->inode,
                 .stripe = new_end,
             }, (cluster_buffer_t){
-                .buf = dirty_it->second.buf + new_end - dirty_it->first.stripe,
+                .buf = dirty_it->second.buf ? dirty_it->second.buf + new_end - dirty_it->first.stripe : NULL,
                 .len = old_end - new_end,
                 .state = dirty_it->second.state,
                 .flush_id = dirty_it->second.flush_id,
@@ -170,8 +172,9 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
         }
     }
     // Overlapping buffers are removed, just insert the new one
-    uint64_t *refcnt = (uint64_t*)malloc_or_die(sizeof(uint64_t) + op->len);
-    uint8_t *buf = (uint8_t*)refcnt + sizeof(uint64_t);
+    bool is_del = op->opcode == OSD_OP_DELETE;
+    uint64_t *refcnt = is_del ? NULL : (uint64_t*)malloc_or_die(sizeof(uint64_t) + op->len);
+    uint8_t *buf = is_del ? NULL : ((uint8_t*)refcnt + sizeof(uint64_t));
     *refcnt = 1;
     dirty_it = dirty_buffers.emplace_hint(dirty_it, (object_id){
         .inode = op->inode,
@@ -185,7 +188,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
     });
     if (state == CACHE_DIRTY)
     {
-        writeback_bytes += op->len;
+        writeback_bytes += is_del ? 0 : op->len;
         // Track consecutive write-back operations
         if (!is_merged(dirty_it))
         {
@@ -199,13 +202,16 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
             });
         }
     }
-    uint64_t pos = 0, len = op->len, iov_idx = 0;
-    while (len > 0 && iov_idx < op->iov.count)
+    if (!is_del)
     {
-        auto & iov = op->iov.buf[iov_idx];
-        memcpy(buf + pos, iov.iov_base, iov.iov_len);
-        pos += iov.iov_len;
-        iov_idx++;
+        uint64_t pos = 0, len = op->len, iov_idx = 0;
+        while (len > 0 && iov_idx < op->iov.count)
+        {
+            auto & iov = op->iov.buf[iov_idx];
+            memcpy(buf + pos, iov.iov_base, iov.iov_len);
+            pos += iov.iov_len;
+            iov_idx++;
+        }
     }
 }
 
@@ -250,7 +256,7 @@ void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from
     bool is_writeback = from_it->second.state == CACHE_DIRTY;
     cluster_op_t *op = new cluster_op_t;
     op->flags = OSD_OP_IGNORE_READONLY|OP_FLUSH_BUFFER;
-    op->opcode = OSD_OP_WRITE;
+    op->opcode = from_it->second.buf ? OSD_OP_WRITE : OSD_OP_DELETE;
     op->cur_inode = op->inode = from_it->first.inode;
     op->offset = from_it->first.stripe;
     op->len = prev_it->first.stripe + prev_it->second.len - from_it->first.stripe;
@@ -260,9 +266,12 @@ void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from
     {
         it->second.state = CACHE_REPEATING;
         it->second.flush_id = flush_id;
-        (*it->second.refcnt)++;
-        flushed_buffers.emplace(flush_id, it->second.refcnt);
-        op->iov.push_back(it->second.buf, it->second.len);
+        if (it->second.buf)
+        {
+            (*it->second.refcnt)++;
+            flushed_buffers.emplace(flush_id, it->second.refcnt);
+            op->iov.push_back(it->second.buf, it->second.len);
+        }
         calc_len += it->second.len;
     }
     assert(calc_len == op->len);
@@ -334,10 +343,12 @@ void writeback_cache_t::start_writebacks(cluster_client_t *cli, int count)
         }
         auto from_it = dirty_it;
         uint64_t off = dirty_it->first.stripe;
+        bool is_del = (dirty_it->second.buf == NULL);
         while (from_it != dirty_buffers.begin())
         {
             from_it--;
             if (from_it->second.state != CACHE_DIRTY ||
+                (from_it->second.buf == NULL) != is_del ||
                 from_it->first.inode != req.inode ||
                 from_it->first.stripe+from_it->second.len != off)
             {
@@ -352,6 +363,7 @@ void writeback_cache_t::start_writebacks(cluster_client_t *cli, int count)
         while (to_it != dirty_buffers.end())
         {
             if (to_it->second.state != CACHE_DIRTY ||
+                (to_it->second.buf == NULL) != is_del ||
                 to_it->first.inode != req.inode ||
                 to_it->first.stripe != off)
             {
@@ -391,14 +403,26 @@ static void copy_to_op(cluster_op_t *op, uint64_t offset, uint8_t *buf, uint64_t
             auto & v = op->iov.buf[iov_idx];
             auto begin = (cur_offset < offset ? offset : cur_offset);
             auto end = (cur_offset+v.iov_len > offset+len ? offset+len : cur_offset+v.iov_len);
-            memcpy(
-                (uint8_t*)v.iov_base + begin - cur_offset,
-                buf + (cur_offset <= offset ? 0 : cur_offset-offset),
-                end - begin
-            );
+            if (!buf)
+            {
+                memset((uint8_t*)v.iov_base + begin - cur_offset, 0, end - begin);
+            }
+            else
+            {
+                memcpy(
+                    (uint8_t*)v.iov_base + begin - cur_offset,
+                    buf + (cur_offset <= offset ? 0 : cur_offset-offset),
+                    end - begin
+                );
+            }
             cur_offset += v.iov_len;
             iov_idx++;
         }
+    }
+    if (!buf)
+    {
+        // Bitmap is initially zero, don't set it
+        return;
     }
     // Set bitmap bits
     int start_bit = (offset-op->offset)/bitmap_granularity;
@@ -449,7 +473,8 @@ bool writeback_cache_t::read_from_cache(cluster_op_t *op, uint32_t bitmap_granul
                     {
                         // Copy data
                         dirty_copied = true;
-                        copy_to_op(op, prev, dirty_it->second.buf + prev - dirty_it->first.stripe, cur-prev, bitmap_granularity);
+                        copy_to_op(op, prev, dirty_it->second.buf ? (dirty_it->second.buf + prev - dirty_it->first.stripe) : NULL,
+                            cur-prev, bitmap_granularity);
                     }
                     skip_prev = skip;
                     prev = cur;
@@ -461,7 +486,8 @@ bool writeback_cache_t::read_from_cache(cluster_op_t *op, uint32_t bitmap_granul
             {
                 // Copy data
                 dirty_copied = true;
-                copy_to_op(op, prev, dirty_it->second.buf + prev - dirty_it->first.stripe, cur-prev, bitmap_granularity);
+                copy_to_op(op, prev, dirty_it->second.buf ? (dirty_it->second.buf + prev - dirty_it->first.stripe) : NULL,
+                    cur-prev, bitmap_granularity);
             }
             dirty_it++;
         }

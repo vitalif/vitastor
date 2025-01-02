@@ -37,6 +37,7 @@ struct rm_inode_t
     int pgs_to_list = 0;
     int state = 0;
     int error_count = 0;
+    bool in_continue = false;
 
     cli_result_t result;
 
@@ -155,6 +156,11 @@ struct rm_inode_t
         {
             return;
         }
+        if (in_continue)
+        {
+            return;
+        }
+        in_continue = true;
         for (int i = 0; i < lists.size(); i++)
         {
             if (!lists[i]->in_flight && lists[i]->obj_pos == lists[i]->objects.end() &&
@@ -248,6 +254,7 @@ struct rm_inode_t
                 };
             }
         }
+        in_continue = false;
     }
 
     bool is_done()
