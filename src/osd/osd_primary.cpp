@@ -783,6 +783,20 @@ resume_5:
     }
     pg.total_count--;
     cur_op->reply.hdr.retval = 0;
+    // indicate possibly unfinished (left_on_dead) deletions
+    cur_op->reply.del.flags = OSD_DEL_SUPPORT_LEFT_ON_DEAD;
+    if (pg.dead_peers.size() > 0)
+    {
+        int max_del = (OSD_PACKET_SIZE-sizeof(cur_op->reply.del)) / sizeof(uint32_t);
+        cur_op->reply.del.flags |= OSD_DEL_LEFT_ON_DEAD;
+        cur_op->reply.del.left_on_dead_count = pg.dead_peers.size() < max_del
+            ? pg.dead_peers.size() : max_del;
+        uint32_t *left_on_dead = (uint32_t*)((&cur_op->reply.del) + 1);
+        for (int i = 0; i < cur_op->reply.del.left_on_dead_count; i++)
+        {
+            left_on_dead[i] = pg.dead_peers[i];
+        }
+    }
 continue_others:
     osd_op_t *next_op = NULL;
     auto next_it = pg.write_queue.find(op_data->oid);

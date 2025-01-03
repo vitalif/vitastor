@@ -103,6 +103,46 @@ cluster_op_t::~cluster_op_t()
     }
 }
 
+bool cluster_op_t::support_left_on_dead()
+{
+    if (!parts.size())
+    {
+        return false;
+    }
+    for (auto & part: parts)
+    {
+        if (!(part.flags & PART_DONE) ||
+            part.op.reply.hdr.opcode != OSD_OP_DELETE ||
+            part.op.reply.hdr.retval != 0 ||
+            !(part.op.reply.del.flags & OSD_DEL_SUPPORT_LEFT_ON_DEAD))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::vector<osd_num_t> cluster_op_t::get_left_on_dead()
+{
+    std::set<osd_num_t> osds;
+    for (auto & part: parts)
+    {
+        if ((part.flags & PART_DONE) ||
+            part.op.reply.hdr.opcode == OSD_OP_DELETE &&
+            part.op.reply.hdr.retval == 0 &&
+            (part.op.reply.del.flags & OSD_DEL_LEFT_ON_DEAD) != 0)
+        {
+            int del_count = (OSD_PACKET_SIZE-sizeof(part.op.reply.del)) / sizeof(uint32_t);
+            if (del_count > part.op.reply.del.left_on_dead_count)
+                del_count = part.op.reply.del.left_on_dead_count;
+            uint32_t *left_on_dead = (uint32_t*)((&part.op.reply.del) + 1);
+            for (int i = 0; i < del_count; i++)
+                osds.insert(left_on_dead[i]);
+        }
+    }
+    return std::vector<osd_num_t>(osds.begin(), osds.end());
+}
+
 void cluster_client_t::continue_raw_ops(osd_num_t peer_osd)
 {
     auto it = raw_ops.find(peer_osd);

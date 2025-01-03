@@ -53,6 +53,10 @@ struct cluster_op_t
     void *bitmap_buf = NULL;
     std::function<void(cluster_op_t*)> callback;
     ~cluster_op_t();
+
+    // for deletions, remove after 'atomic delete':
+    bool support_left_on_dead();
+    std::vector<osd_num_t> get_left_on_dead();
 protected:
     int state = 0;
     uint64_t cur_inode; // for snapshot reads
@@ -142,7 +146,7 @@ public:
     void continue_ops(int time_passed = 0);
 
     void list_inode(inode_t inode, uint64_t min_offset, uint64_t max_offset, int max_parallel_pgs, std::function<void(
-        int status, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects, std::vector<osd_num_t> && inactive_osds)> pg_callback);
+        int status, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects)> pg_callback);
 
     //inline uint32_t get_bs_bitmap_granularity() { return st_cli.global_bitmap_granularity; }
     //inline uint64_t get_bs_block_size() { return st_cli.global_block_size; }

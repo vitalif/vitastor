@@ -133,6 +133,7 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
 void osd_t::reset_pg(pg_t & pg)
 {
     pg.cur_peers.clear();
+    pg.dead_peers.clear();
     pg.state_dict.clear();
     copies_to_delete_after_sync_count -= pg.copies_to_delete_after_sync.size();
     pg.copies_to_delete_after_sync.clear();
@@ -235,13 +236,16 @@ void osd_t::start_pg_peering(pg_t & pg)
         return;
     }
     std::set<osd_num_t> cur_peers;
+    std::set<osd_num_t> dead_peers;
     for (auto pg_osd: pg.all_peers)
     {
         if (pg_osd == this->osd_num || msgr.osd_peer_fds.find(pg_osd) != msgr.osd_peer_fds.end())
-        {
             cur_peers.insert(pg_osd);
-        }
+        else
+            dead_peers.insert(pg_osd);
     }
+    pg.cur_peers.insert(pg.cur_peers.begin(), cur_peers.begin(), cur_peers.end());
+    pg.dead_peers.insert(pg.dead_peers.begin(), dead_peers.begin(), dead_peers.end());
     if (pg.target_history.size())
     {
         // Refuse to start PG if no peers are available from any of the historical OSD sets
@@ -269,7 +273,6 @@ void osd_t::start_pg_peering(pg_t & pg)
             }
         }
     }
-    pg.cur_peers.insert(pg.cur_peers.begin(), cur_peers.begin(), cur_peers.end());
     if (pg.peering_state)
     {
         // Adjust the peering operation that's still in progress - discard unneeded results

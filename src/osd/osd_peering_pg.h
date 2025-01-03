@@ -97,6 +97,8 @@ struct pg_t
     bool history_changed = false;
     // peer list from the last peering event
     std::vector<osd_num_t> cur_peers;
+    // dead_peers = all_peers - cur_peers
+    std::vector<osd_num_t> dead_peers;
     // target_set is the "correct" peer OSD set for this PG
     std::vector<osd_num_t> target_set;
     // cur_set is the current set of connected peer OSDs for this PG

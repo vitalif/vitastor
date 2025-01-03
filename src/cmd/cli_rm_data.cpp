@@ -32,6 +32,7 @@ struct rm_inode_t
     std::vector<rm_pg_t*> lists;
     std::set<osd_num_t> inactive_osds;
     std::set<pg_num_t> inactive_pgs;
+    std::set<pg_num_t> fallback_pgs;
     uint64_t total_count = 0, total_done = 0, total_prev_pct = 0;
     bool lists_done = false;
     int pgs_to_list = 0;
@@ -52,7 +53,7 @@ struct rm_inode_t
         }
         pgs_to_list = pool_it->second.real_pg_count;
         parent->cli->list_inode(inode, min_offset, max_offset, parent->parallel_osds, [this](
-            int errcode, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects, std::vector<osd_num_t> && inactive_osds)
+            int errcode, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects)
         {
             if (errcode)
             {
@@ -60,10 +61,6 @@ struct rm_inode_t
             }
             else
             {
-                for (auto osd_num: inactive_osds)
-                {
-                    this->inactive_osds.insert(osd_num);
-                }
                 rm_pg_t *rm = new rm_pg_t((rm_pg_t){
                     .pg_num = pg_num,
                     .objects = std::move(objects),
@@ -113,6 +110,13 @@ struct rm_inode_t
                         fprintf(stderr, "Failed to remove object %jx:%jx from PG %u (retval=%d)\n",
                             op->inode, op->offset, cur_list->pg_num, op->retval);
                         error_count++;
+                    }
+                    else
+                    {
+                        if (!op->support_left_on_dead())
+                            fallback_pgs.insert(cur_list->pg_num);
+                        for (auto inactive_osd: op->get_left_on_dead())
+                            inactive_osds.insert(inactive_osd);
                     }
                     delete op;
                     cur_list->obj_done++;
@@ -188,7 +192,36 @@ struct rm_inode_t
             {
                 fprintf(stderr, "\n");
             }
-            // FIXME: for 100% correctness inactive_osds should be taken from OSD_OP_DELETE reply, not from the listing
+            if (fallback_pgs.size() && !parent->json_output)
+            {
+                fprintf(stderr, "Warning: some OSDs don't indicate left_on_dead PG OSDs"
+                    " in delete replies, falling back to simpler checks\n");
+                auto pool_it = parent->cli->st_cli.pool_config.find(pool_id);
+                if (pool_it != parent->cli->st_cli.pool_config.end())
+                {
+                    std::set<osd_num_t> all_peers;
+                    for (auto pg_num: fallback_pgs)
+                    {
+                        auto pg_it = pool_it->second.pg_config.find(pg_num);
+                        if (pg_it != pool_it->second.pg_config.end())
+                        {
+                            for (osd_num_t pg_osd: pg_it->second.target_set)
+                                all_peers.insert(pg_osd);
+                            for (osd_num_t pg_osd: pg_it->second.all_peers)
+                                all_peers.insert(pg_osd);
+                            for (auto & hist_item: pg_it->second.target_history)
+                                for (auto pg_osd: hist_item)
+                                    all_peers.insert(pg_osd);
+                        }
+                    }
+                    all_peers.erase(0);
+                    for (auto peer_osd: all_peers)
+                    {
+                        if (parent->cli->st_cli.peer_states[peer_osd].is_null())
+                            inactive_osds.insert(peer_osd);
+                    }
+                }
+            }
             if (inactive_osds.size() && !parent->json_output)
             {
                 fprintf(stderr, "Some data may remain after delete on OSDs which are currently down: ");
@@ -209,7 +242,7 @@ struct rm_inode_t
                 }
                 fprintf(stderr, "\n");
             }
-            if (error_count > 0)
+            if (error_count > 0 && !parent->json_output)
             {
                 fprintf(stderr, "Failed to delete %u objects from active OSD(s).\n", error_count);
             }

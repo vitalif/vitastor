@@ -390,7 +390,7 @@ struct snap_merger_t
             {
                 lists_todo++;
                 parent->cli->list_inode(src, 0, 0, parent->parallel_osds, [this, src](
-                    int errcode, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects, std::vector<osd_num_t> && inactive_osds)
+                    int errcode, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects)
                 {
                     if (errcode)
                     {

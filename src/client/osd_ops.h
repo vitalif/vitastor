@@ -53,6 +53,9 @@
 
 #define OSD_LIST_PRIMARY 1
 
+#define OSD_DEL_SUPPORT_LEFT_ON_DEAD 1
+#define OSD_DEL_LEFT_ON_DEAD         2
+
 // common request and reply headers
 struct __attribute__((__packed__)) osd_op_header_t
 {
@@ -242,6 +245,20 @@ struct __attribute__((__packed__)) osd_reply_rw_t
     uint64_t version;
 };
 
+struct __attribute__((__packed__)) osd_reply_del_t
+{
+    osd_reply_header_t header;
+    // OSD_DEL_SUPPORT_LEFT_ON_DEAD and/or OSD_DEL_LEFT_ON_DEAD or 0
+    uint32_t flags;
+    // for deletes, if flags & OSD_DEL_LEFT_ON_DEAD:
+    // count of OSDs from which the object could be not deleted
+    // these come directly after this del_left_on_dead_list_size as uint32_t[]
+    // FIXME it's kind of a hack and will be removed in the future, when Vitastor will
+    // have 'atomic deletions', i.e. when it will be able to remember deleted objects
+    // and complete deletions automatically after extra OSDs are started
+    uint32_t left_on_dead_count;
+};
+
 // sync to the primary OSD
 struct __attribute__((__packed__)) osd_op_sync_t
 {
@@ -314,6 +331,7 @@ union osd_any_reply_t
     osd_reply_sec_list_t sec_list;
     osd_reply_show_config_t show_conf;
     osd_reply_rw_t rw;
+    osd_reply_del_t del;
     osd_reply_sync_t sync;
     osd_reply_describe_t describe;
     uint8_t buf[OSD_PACKET_SIZE];
