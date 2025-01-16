@@ -773,23 +773,27 @@ class Mon
                 }
             }
         }
-        for (const pool_id in this.state.pool.stats)
+        if (!this.recheck_pgs_active)
         {
-            if (!seen_pools[pool_id])
+            // PG recheck also modifies /pool/stats, so don't touch it here if it's active
+            for (const pool_id in this.state.pool.stats)
             {
-                txn.push({ requestDeleteRange: {
-                    key: b64(this.config.etcd_prefix+'/pool/stats/'+pool_id),
-                } });
-                delete this.state.pool.stats[pool_id];
-            }
-            else
-            {
-                const pool_stats = { ...this.state.pool.stats[pool_id] };
-                serialize_bigints(pool_stats);
-                txn.push({ requestPut: {
-                    key: b64(this.config.etcd_prefix+'/pool/stats/'+pool_id),
-                    value: b64(JSON.stringify(pool_stats)),
-                } });
+                if (!seen_pools[pool_id])
+                {
+                    txn.push({ requestDeleteRange: {
+                        key: b64(this.config.etcd_prefix+'/pool/stats/'+pool_id),
+                    } });
+                    delete this.state.pool.stats[pool_id];
+                }
+                else
+                {
+                    const pool_stats = { ...this.state.pool.stats[pool_id] };
+                    serialize_bigints(pool_stats);
+                    txn.push({ requestPut: {
+                        key: b64(this.config.etcd_prefix+'/pool/stats/'+pool_id),
+                        value: b64(JSON.stringify(pool_stats)),
+                    } });
+                }
             }
         }
         if (txn.length)
