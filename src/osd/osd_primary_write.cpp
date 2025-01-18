@@ -44,7 +44,7 @@ void osd_t::continue_primary_write(osd_op_t *cur_op)
         return;
     }
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
+    auto & pg = *cur_op->op_data->pg;
     if (op_data->st == 1)      goto resume_1;
     else if (op_data->st == 2) goto resume_2;
     else if (op_data->st == 3) goto resume_3;
@@ -73,7 +73,7 @@ resume_1:
         op_data->object_state->ref_count++;
     }
 retry_1:
-    if (op_data->scheme == POOL_SCHEME_REPLICATED)
+    if (pg.scheme == POOL_SCHEME_REPLICATED)
     {
         // Simplified algorithm
         op_data->stripes[0].write_start = op_data->stripes[0].req_start;
@@ -99,7 +99,7 @@ retry_1:
     {
         assert(!cur_op->rmw_buf);
         cur_op->rmw_buf = calc_rmw(cur_op->buf, op_data->stripes, op_data->prev_set,
-            pg.pg_size, op_data->pg_data_size, pg.pg_cursize, pg.cur_set.data(), bs_block_size, clean_entry_bitmap_size);
+            pg.pg_size, pg.pg_data_size, pg.pg_cursize, pg.cur_set.data(), bs_block_size, clean_entry_bitmap_size);
         if (!cur_op->rmw_buf)
         {
             // Refuse partial overwrite of an incomplete object
@@ -114,7 +114,7 @@ retry_1:
             // Allow to read version number (just version number!) from corrupted chunks
             // to allow full overwrite of a corrupted object
             bool found = false;
-            for (int role = 0; role < op_data->pg_size; role++)
+            for (int role = 0; role < pg.pg_size; role++)
             {
                 if (op_data->prev_set[role] != 0 || op_data->stripes[role].read_end > op_data->stripes[role].read_start)
                 {
@@ -124,8 +124,8 @@ retry_1:
             }
             if (!found)
             {
-                osd_num_t corrupted_target[op_data->pg_size];
-                for (int role = 0; role < op_data->pg_size; role++)
+                osd_num_t corrupted_target[pg.pg_size];
+                for (int role = 0; role < pg.pg_size; role++)
                 {
                     corrupted_target[role] = 0;
                 }
@@ -172,7 +172,7 @@ resume_3:
         cur_op->reply.rw.version = op_data->fact_ver;
         goto continue_others;
     }
-    if (op_data->scheme == POOL_SCHEME_REPLICATED)
+    if (pg.scheme == POOL_SCHEME_REPLICATED)
     {
         // Set bitmap bits
         bitmap_set(op_data->stripes[0].bmp_buf, op_data->stripes[0].write_start,
@@ -203,7 +203,7 @@ resume_3:
         }
         else if (pg.scheme == POOL_SCHEME_EC)
         {
-            calc_rmw_parity_ec(op_data->stripes, pg.pg_size, op_data->pg_data_size, op_data->prev_set, pg.cur_set.data(), bs_block_size, clean_entry_bitmap_size);
+            calc_rmw_parity_ec(op_data->stripes, pg.pg_size, pg.pg_data_size, op_data->prev_set, pg.cur_set.data(), bs_block_size, clean_entry_bitmap_size);
         }
     }
     // Send writes
@@ -269,7 +269,7 @@ resume_5:
         // and rollback successful part updates in case of EC.
         if (op_data->done > 0 && !op_data->drops)
         {
-            if (op_data->scheme != POOL_SCHEME_REPLICATED)
+            if (pg.scheme != POOL_SCHEME_REPLICATED)
             {
                 submit_primary_rollback_subops(cur_op, pg.cur_set.data());
 resume_11:
@@ -293,7 +293,7 @@ resume_12:
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
         return;
     }
-    if (op_data->scheme != POOL_SCHEME_REPLICATED)
+    if (pg.scheme != POOL_SCHEME_REPLICATED)
     {
         // Remove version override just after the write, but before stabilizing
         pg.ver_override.erase(op_data->oid);
@@ -329,7 +329,7 @@ resume_7:
                 memset(&recovery_stat[recovery_type], 0, sizeof(recovery_stat[recovery_type]));
                 recovery_stat[recovery_type].count++;
             }
-            for (int role = 0; role < (op_data->scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_size); role++)
+            for (int role = 0; role < (pg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_size); role++)
             {
                 recovery_stat[recovery_type].bytes += op_data->stripes[role].write_end - op_data->stripes[role].write_start;
             }
@@ -353,7 +353,7 @@ resume_7:
             for (auto & chunk: op_data->object_state->osd_set)
             {
                 // Check is the same as in submit_primary_del_subops()
-                if (op_data->scheme == POOL_SCHEME_REPLICATED
+                if (pg.scheme == POOL_SCHEME_REPLICATED
                     ? !contains_osd(pg.cur_set.data(), pg.pg_size, chunk.osd_num)
                     : (chunk.osd_num != pg.cur_set[chunk.role]))
                 {
@@ -361,7 +361,7 @@ resume_7:
                         .osd_num = chunk.osd_num,
                         .oid = {
                             .inode = op_data->oid.inode,
-                            .stripe = op_data->oid.stripe | (op_data->scheme == POOL_SCHEME_REPLICATED ? 0 : chunk.role),
+                            .stripe = op_data->oid.stripe | (pg.scheme == POOL_SCHEME_REPLICATED ? 0 : chunk.role),
                         },
                         .version = op_data->fact_ver,
                     });
@@ -472,7 +472,7 @@ bool osd_t::remember_unstable_write(osd_op_t *cur_op, pg_t & pg, pg_osd_set_t & 
     if (immediate_commit == IMMEDIATE_ALL)
     {
 immediate:
-        if (op_data->scheme != POOL_SCHEME_REPLICATED)
+        if (pg.scheme != POOL_SCHEME_REPLICATED)
         {
             // Send STABILIZE ops immediately
             op_data->unstable_write_osds = new std::vector<unstable_osd_num_t>();
@@ -515,7 +515,7 @@ resume_7:
     }
     else if (immediate_commit == IMMEDIATE_SMALL)
     {
-        int stripe_count = (op_data->scheme == POOL_SCHEME_REPLICATED ? 1 : op_data->pg_size);
+        int stripe_count = (pg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_size);
         for (int role = 0; role < stripe_count; role++)
         {
             if (op_data->stripes[role].write_start == 0 &&
@@ -531,7 +531,7 @@ resume_7:
     {
 lazy:
         unstable_write_count++;
-        if (op_data->scheme != POOL_SCHEME_REPLICATED)
+        if (pg.scheme != POOL_SCHEME_REPLICATED)
         {
             // Remember version as unstable for EC/XOR
             for (auto & chunk: loc_set)

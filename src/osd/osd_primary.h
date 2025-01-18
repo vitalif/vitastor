@@ -20,14 +20,14 @@ struct unstable_osd_num_t
 struct osd_primary_op_data_t
 {
     int st = 0;
-    pg_num_t pg_num;
-    object_id oid;
-    uint64_t target_ver;
+    pg_num_t pg_num = 0;
+    object_id oid = {};
+    uint64_t target_ver = 0;
     uint64_t orig_ver = 0, fact_ver = 0;
-    uint64_t scheme = 0;
     int n_subops = 0, done = 0, errors = 0, drops = 0, errcode = 0;
-    int degraded = 0, pg_size, pg_data_size;
-    osd_rmw_stripe_t *stripes;
+    int degraded = 0;
+    osd_rmw_stripe_t *stripes = NULL;
+    pg_t *pg = NULL;
     osd_op_t *subops = NULL;
     uint64_t *prev_set = NULL;
     pg_osd_set_state_t *object_state = NULL;

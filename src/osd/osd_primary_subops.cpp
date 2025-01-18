@@ -67,7 +67,7 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
         if (cur_op->req.hdr.opcode == OSD_OP_DELETE)
         {
             if (cur_op->op_data)
-                inode_stats[cur_op->req.rw.inode].op_bytes[inode_st_op] += cur_op->op_data->pg_data_size * bs_block_size;
+                inode_stats[cur_op->req.rw.inode].op_bytes[inode_st_op] += cur_op->op_data->pg->pg_data_size * bs_block_size;
         }
         else
             inode_stats[cur_op->req.rw.inode].op_bytes[inode_st_op] += cur_op->req.rw.len;
@@ -76,7 +76,7 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     {
         if (cur_op->op_data->pg_num > 0)
         {
-            auto & pg = pgs.at({ .pool_id = INODE_POOL(cur_op->op_data->oid.inode), .pg_num = cur_op->op_data->pg_num });
+            auto & pg = *cur_op->op_data->pg;
             pg.inflight--;
             assert(pg.inflight >= 0);
             if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch)
@@ -126,10 +126,10 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, const ui
     bool wr = submit_type == SUBMIT_WRITE;
     osd_primary_op_data_t *op_data = cur_op->op_data;
     osd_rmw_stripe_t *stripes = op_data->stripes;
-    bool rep = op_data->scheme == POOL_SCHEME_REPLICATED;
+    bool rep = op_data->pg->scheme == POOL_SCHEME_REPLICATED;
     // Allocate subops
     int n_subops = 0, zero_read = -1;
-    for (int role = 0; role < op_data->pg_size; role++)
+    for (int role = 0; role < op_data->pg->pg_size; role++)
     {
         if (osd_set[role] == this->osd_num || osd_set[role] != 0 && zero_read == -1)
             zero_read = role;
@@ -154,9 +154,9 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
 {
     bool wr = submit_type == SUBMIT_WRITE;
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    bool rep = op_data->scheme == POOL_SCHEME_REPLICATED;
+    bool rep = op_data->pg->scheme == POOL_SCHEME_REPLICATED;
     int i = subop_idx;
-    for (int role = 0; role < op_data->pg_size; role++)
+    for (int role = 0; role < op_data->pg->pg_size; role++)
     {
         // We always submit zero-length writes to all replicas, even if the stripe is not modified
         if (!(wr || !rep && stripes[role].read_end != 0 || zero_read == role || submit_type == SUBMIT_SCRUB_READ))
@@ -526,7 +526,7 @@ bool contains_osd(osd_num_t *osd_set, uint64_t size, osd_num_t osd_num)
 void osd_t::submit_primary_del_subops(osd_op_t *cur_op, osd_num_t *cur_set, uint64_t set_size, pg_osd_set_t & loc_set)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    bool rep = op_data->scheme == POOL_SCHEME_REPLICATED;
+    bool rep = op_data->pg->scheme == POOL_SCHEME_REPLICATED;
     obj_ver_osd_t extra_chunks[loc_set.size()];
     int chunks_to_del = 0;
     for (auto & chunk: loc_set)
@@ -738,10 +738,10 @@ void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     osd_rmw_stripe_t *stripes = op_data->stripes;
-    assert(op_data->scheme != POOL_SCHEME_REPLICATED);
+    assert(op_data->pg->scheme != POOL_SCHEME_REPLICATED);
     // Allocate subops
     int n_subops = 0;
-    for (int role = 0; role < op_data->pg_size; role++)
+    for (int role = 0; role < op_data->pg->pg_size; role++)
     {
         if (osd_set[role] != 0 && !stripes[role].read_error &&
             (osd_set[role] == this->osd_num || msgr.osd_peer_fds.find(osd_set[role]) != msgr.osd_peer_fds.end()))
@@ -758,7 +758,7 @@ void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd
     op_data->subops = new osd_op_t[n_subops];
     op_data->unstable_writes = new obj_ver_id[n_subops];
     int i = 0;
-    for (int role = 0; role < op_data->pg_size; role++)
+    for (int role = 0; role < op_data->pg->pg_size; role++)
     {
         if (osd_set[role] != 0 && !stripes[role].read_error &&
             (osd_set[role] == this->osd_num || msgr.osd_peer_fds.find(osd_set[role]) != msgr.osd_peer_fds.end()))

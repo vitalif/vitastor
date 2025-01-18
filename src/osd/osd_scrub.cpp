@@ -379,7 +379,7 @@ void osd_t::continue_primary_scrub(osd_op_t *cur_op)
     else if (op_data->st == 2)
         goto resume_2;
     {
-        auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
+        auto & pg = *cur_op->op_data->pg;
         cur_op->req.rw.len = bs_block_size * pg.pg_data_size;
         // Determine version
         auto vo_it = pg.ver_override.find(op_data->oid);
@@ -389,7 +389,7 @@ void osd_t::continue_primary_scrub(osd_op_t *cur_op)
         // Read all available chunks
         int n_copies = 0;
         op_data->degraded = false;
-        for (int role = 0; role < op_data->pg_size; role++)
+        for (int role = 0; role < pg.pg_size; role++)
         {
             op_data->stripes[role].write_buf = NULL;
             op_data->stripes[role].read_start = 0;
@@ -401,19 +401,19 @@ void osd_t::continue_primary_scrub(osd_op_t *cur_op)
             else
             {
                 op_data->stripes[role].missing = true;
-                if (op_data->scheme != POOL_SCHEME_REPLICATED && role < op_data->pg_data_size)
+                if (pg.scheme != POOL_SCHEME_REPLICATED && role < pg.pg_data_size)
                 {
                     op_data->degraded = true;
                 }
             }
         }
-        if (n_copies <= op_data->pg_data_size)
+        if (n_copies <= pg.pg_data_size)
         {
             // Nothing to compare, even if we'd like to
             finish_op(cur_op, 0);
             return;
         }
-        cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->pg_size, 0);
+        cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0);
         // Submit reads
         osd_op_t *subops = new osd_op_t[n_copies];
         op_data->fact_ver = 0;
@@ -434,12 +434,12 @@ resume_2:
         {
             // I/O or checksum error
             int n_copies = 0;
-            for (int role = 0; role < op_data->pg_size; role++)
+            for (int role = 0; role < op_data->pg->pg_size; role++)
             {
                 if (op_data->stripes[role].read_error)
                 {
                     op_data->stripes[role].missing = true;
-                    if (op_data->scheme != POOL_SCHEME_REPLICATED && role < op_data->pg_data_size)
+                    if (op_data->pg->scheme != POOL_SCHEME_REPLICATED && role < op_data->pg->pg_data_size)
                     {
                         op_data->degraded = true;
                     }
@@ -449,14 +449,13 @@ resume_2:
                     n_copies++;
                 }
             }
-            if (n_copies <= op_data->pg_data_size)
+            if (n_copies <= op_data->pg->pg_data_size)
             {
                 // Nothing to compare, just mark the object as corrupted
-                auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
                 // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
-                op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, false, false);
+                op_data->object_state = mark_object_corrupted(*op_data->pg, op_data->oid, op_data->object_state, op_data->stripes, false, false);
                 // Operation is treated as unsuccessful only if the object becomes unreadable
-                finish_op(cur_op, n_copies < op_data->pg_data_size ? op_data->errcode : 0);
+                finish_op(cur_op, n_copies < op_data->pg->pg_data_size ? op_data->errcode : 0);
                 return;
             }
             // Proceed, we can still compare chunks that were successfully read
@@ -468,12 +467,12 @@ resume_2:
         }
     }
     bool inconsistent = false;
-    if (op_data->scheme == POOL_SCHEME_REPLICATED)
+    if (op_data->pg->scheme == POOL_SCHEME_REPLICATED)
     {
         // Check that all chunks have returned the same data
         int total = 0;
-        int eq_to[op_data->pg_size];
-        for (int role = 0; role < op_data->pg_size; role++)
+        int eq_to[op_data->pg->pg_size];
+        for (int role = 0; role < op_data->pg->pg_size; role++)
         {
             eq_to[role] = -1;
             if (op_data->stripes[role].read_end != 0 && !op_data->stripes[role].missing &&
@@ -492,16 +491,16 @@ resume_2:
                 }
             }
         }
-        int votes[op_data->pg_size];
-        for (int role = 0; role < op_data->pg_size; role++)
+        int votes[op_data->pg->pg_size];
+        for (int role = 0; role < op_data->pg->pg_size; role++)
             votes[role] = 0;
-        for (int role = 0; role < op_data->pg_size; role++)
+        for (int role = 0; role < op_data->pg->pg_size; role++)
         {
             if (eq_to[role] != -1)
                 votes[eq_to[role]]++;
         }
         int best = -1;
-        for (int role = 0; role < op_data->pg_size; role++)
+        for (int role = 0; role < op_data->pg->pg_size; role++)
         {
             if (votes[role] > (best >= 0 ? votes[best] : 0))
                 best = role;
@@ -509,7 +508,7 @@ resume_2:
         if (best >= 0 && votes[best] < total)
         {
             bool unknown = false;
-            for (int role = 0; role < op_data->pg_size; role++)
+            for (int role = 0; role < op_data->pg->pg_size; role++)
             {
                 if (role != best && votes[role] == votes[best])
                 {
@@ -550,9 +549,9 @@ resume_2:
     }
     else
     {
-        assert(op_data->scheme == POOL_SCHEME_EC || op_data->scheme == POOL_SCHEME_XOR);
+        assert(op_data->pg->scheme == POOL_SCHEME_EC || op_data->pg->scheme == POOL_SCHEME_XOR);
         auto good_subset = ec_find_good(
-            op_data->stripes, op_data->pg_size, op_data->pg_data_size, op_data->scheme == POOL_SCHEME_XOR,
+            op_data->stripes, op_data->pg->pg_size, op_data->pg->pg_data_size, op_data->pg->scheme == POOL_SCHEME_XOR,
             bs_block_size, clean_entry_bitmap_size, scrub_ec_max_bruteforce
         );
         if (!good_subset.size())
@@ -567,7 +566,7 @@ resume_2:
         else
         {
             int total = 0;
-            for (int role = 0; role < op_data->pg_size; role++)
+            for (int role = 0; role < op_data->pg->pg_size; role++)
             {
                 if (!op_data->stripes[role].missing)
                 {
@@ -579,7 +578,7 @@ resume_2:
             {
                 op_data->stripes[role].read_error = false;
             }
-            for (int role = 0; role < op_data->pg_size; role++)
+            for (int role = 0; role < op_data->pg->pg_size; role++)
             {
                 if (!op_data->stripes[role].missing && op_data->stripes[role].read_error)
                 {
@@ -600,7 +599,7 @@ resume_2:
                     INODE_POOL(op_data->oid.inode), op_data->pg_num,
                     op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver
                 );
-                for (int role = 0; role < op_data->pg_size; role++)
+                for (int role = 0; role < op_data->pg->pg_size; role++)
                 {
                     if (!op_data->stripes[role].missing && op_data->stripes[role].read_error)
                     {
@@ -611,16 +610,15 @@ resume_2:
             }
         }
     }
-    for (int role = 0; role < op_data->pg_size; role++)
+    for (int role = 0; role < op_data->pg->pg_size; role++)
     {
         if (op_data->stripes[role].osd_num != 0 &&
             (op_data->stripes[role].read_error || op_data->stripes[role].not_exists) ||
             inconsistent)
         {
             // Got at least 1 read error or mismatch, mark the object as corrupted
-            auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
             // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
-            op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, false, inconsistent);
+            op_data->object_state = mark_object_corrupted(*op_data->pg, op_data->oid, op_data->object_state, op_data->stripes, false, inconsistent);
             break;
         }
     }

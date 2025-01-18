@@ -28,7 +28,6 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         return false;
     }
     auto & pool_cfg = pool_cfg_it->second;
-    // FIXME: op_data->pg_data_size can probably be removed (there's pg.pg_data_size)
     uint64_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
     uint64_t pg_block_size = bs_block_size * pg_data_size;
     object_id oid = {
@@ -110,12 +109,10 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     );
     void *data_buf = (uint8_t*)op_data + sizeof(osd_primary_op_data_t);
     op_data->pg_num = pg_num;
+    op_data->pg = &pg_it->second;
     op_data->oid = oid;
     op_data->stripes = (osd_rmw_stripe_t*)data_buf;
     data_buf = (uint8_t*)data_buf + sizeof(osd_rmw_stripe_t) * stripe_count;
-    op_data->scheme = pool_cfg.scheme;
-    op_data->pg_data_size = pg_data_size;
-    op_data->pg_size = pg_it->second.pg_size;
     cur_op->op_data = op_data;
     split_stripes(pg_data_size, bs_block_size, (uint32_t)(cur_op->req.rw.offset - oid.stripe), cur_op->req.rw.len, op_data->stripes);
     // Resulting bitmaps have to survive op_data and be freed with the op itself
@@ -205,11 +202,11 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
 resume_0:
     cur_op->reply.rw.bitmap_len = 0;
     {
-        auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
+        auto & pg = *op_data->pg;
         if (cur_op->req.rw.len == 0)
         {
             // len=0 => bitmap read
-            for (int role = 0; role < op_data->pg_data_size; role++)
+            for (int role = 0; role < pg.pg_data_size; role++)
             {
                 op_data->stripes[role].read_start = 0;
                 op_data->stripes[role].read_end = UINT32_MAX;
@@ -217,7 +214,7 @@ resume_0:
         }
         else
         {
-            for (int role = 0; role < op_data->pg_data_size; role++)
+            for (int role = 0; role < pg.pg_data_size; role++)
             {
                 op_data->stripes[role].read_start = op_data->stripes[role].req_start;
                 op_data->stripes[role].read_end = op_data->stripes[role].req_end;
@@ -228,29 +225,27 @@ resume_0:
         op_data->target_ver = vo_it != pg.ver_override.end() ? vo_it->second : UINT64_MAX;
         // PG may have degraded or misplaced objects
         op_data->prev_set = get_object_osd_set(pg, op_data->oid, &op_data->object_state);
-        if (pg.state == PG_ACTIVE || op_data->scheme == POOL_SCHEME_REPLICATED)
+        if (pg.state == PG_ACTIVE || pg.scheme == POOL_SCHEME_REPLICATED)
         {
             // Fast happy-path
-            if (op_data->scheme == POOL_SCHEME_REPLICATED &&
+            if (pg.scheme == POOL_SCHEME_REPLICATED &&
                 op_data->object_state && (op_data->object_state->state & OBJ_INCOMPLETE))
             {
                 finish_op(cur_op, -EIO);
                 return;
             }
-            cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->pg_data_size, 0);
+            cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_data_size, 0);
             submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, op_data->prev_set, cur_op);
             op_data->st = 1;
         }
         else
         {
-            if (extend_missing_stripes(op_data->stripes, op_data->prev_set, op_data->pg_data_size, pg.pg_size) < 0)
+            if (extend_missing_stripes(op_data->stripes, op_data->prev_set, pg.pg_data_size, pg.pg_size) < 0)
             {
                 finish_op(cur_op, -EIO);
                 return;
             }
             // Submit reads
-            op_data->pg_size = pg.pg_size;
-            op_data->scheme = pg.scheme;
             op_data->degraded = 1;
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0);
             submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, op_data->prev_set, cur_op);
@@ -265,30 +260,29 @@ resume_2:
         if (op_data->errcode == -EIO || op_data->errcode == -EDOM)
         {
             // I/O or checksum error
-            auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
             // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
-            op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, false, false);
+            op_data->object_state = mark_object_corrupted(*op_data->pg, op_data->oid, op_data->object_state, op_data->stripes, false, false);
             goto resume_0;
         }
         finish_op(cur_op, op_data->errcode);
         return;
     }
     cur_op->reply.rw.version = op_data->fact_ver;
-    cur_op->reply.rw.bitmap_len = op_data->pg_data_size * clean_entry_bitmap_size;
+    cur_op->reply.rw.bitmap_len = op_data->pg->pg_data_size * clean_entry_bitmap_size;
     if (op_data->degraded)
     {
         // Reconstruct missing stripes
         osd_rmw_stripe_t *stripes = op_data->stripes;
-        if (op_data->scheme == POOL_SCHEME_XOR)
+        if (op_data->pg->scheme == POOL_SCHEME_XOR)
         {
-            reconstruct_stripes_xor(stripes, op_data->pg_size, clean_entry_bitmap_size);
+            reconstruct_stripes_xor(stripes, op_data->pg->pg_size, clean_entry_bitmap_size);
         }
-        else if (op_data->scheme == POOL_SCHEME_EC)
+        else if (op_data->pg->scheme == POOL_SCHEME_EC)
         {
-            reconstruct_stripes_ec(stripes, op_data->pg_size, op_data->pg_data_size, clean_entry_bitmap_size);
+            reconstruct_stripes_ec(stripes, op_data->pg->pg_size, op_data->pg->pg_data_size, clean_entry_bitmap_size);
         }
         cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
-        for (int role = 0; role < op_data->pg_size; role++)
+        for (int role = 0; role < op_data->pg->pg_size; role++)
         {
             if (stripes[role].req_end != 0)
             {
@@ -695,7 +689,7 @@ void osd_t::continue_primary_del(osd_op_t *cur_op)
         return;
     }
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
+    auto & pg = *op_data->pg;
     if (op_data->st == 1)      goto resume_1;
     else if (op_data->st == 2) goto resume_2;
     else if (op_data->st == 3) goto resume_3;

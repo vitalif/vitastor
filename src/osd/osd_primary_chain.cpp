@@ -7,7 +7,7 @@
 void osd_t::continue_chained_read(osd_op_t *cur_op)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    auto & pg = pgs.at({ .pool_id = INODE_POOL(op_data->oid.inode), .pg_num = op_data->pg_num });
+    auto & pg = *op_data->pg;
     if (op_data->st == 1)
         goto resume_1;
     else if (op_data->st == 2)
@@ -17,7 +17,7 @@ void osd_t::continue_chained_read(osd_op_t *cur_op)
     else if (op_data->st == 4)
         goto resume_4;
     cur_op->reply.rw.bitmap_len = 0;
-    for (int role = 0; role < op_data->pg_data_size; role++)
+    for (int role = 0; role < pg.pg_data_size; role++)
     {
         op_data->stripes[role].read_start = op_data->stripes[role].req_start;
         op_data->stripes[role].read_end = op_data->stripes[role].req_end;
@@ -329,7 +329,7 @@ std::vector<osd_chain_read_t> osd_t::collect_chained_read_requests(osd_op_t *cur
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     std::vector<osd_chain_read_t> chain_reads;
-    int stripe_count = (op_data->scheme == POOL_SCHEME_REPLICATED ? 1 : op_data->pg_size);
+    int stripe_count = (op_data->pg->scheme == POOL_SCHEME_REPLICATED ? 1 : op_data->pg->pg_size);
     memset(op_data->stripes[0].bmp_buf, 0, stripe_count * clean_entry_bitmap_size);
     uint8_t *global_bitmap = (uint8_t*)op_data->stripes[0].bmp_buf;
     // We always use at most 1 read request per layer
@@ -337,7 +337,7 @@ std::vector<osd_chain_read_t> osd_t::collect_chained_read_requests(osd_op_t *cur
     {
         uint8_t *part_bitmap = ((uint8_t*)op_data->snapshot_bitmaps) + chain_pos*stripe_count*clean_entry_bitmap_size;
         int start = !cur_op->req.rw.len ? 0 : (cur_op->req.rw.offset - op_data->oid.stripe)/bs_bitmap_granularity;
-        int end = !cur_op->req.rw.len ? op_data->pg_data_size*clean_entry_bitmap_size*8 : start + cur_op->req.rw.len/bs_bitmap_granularity;
+        int end = !cur_op->req.rw.len ? op_data->pg->pg_data_size*clean_entry_bitmap_size*8 : start + cur_op->req.rw.len/bs_bitmap_granularity;
         // Skip unneeded part in the beginning
         while (start < end && (
             ((global_bitmap[start>>3] >> (start&7)) & 1) ||
@@ -410,11 +410,11 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
         // FIXME: maybe introduce split_read_stripes to shorten these lines and to remove read_start=req_start
         osd_rmw_stripe_t *stripes = chain_stripes + chain_reads[cri].chain_pos*stripe_count;
         split_stripes(pg.pg_data_size, bs_block_size, chain_reads[cri].offset, chain_reads[cri].len, stripes);
-        if (op_data->scheme == POOL_SCHEME_REPLICATED && !stripes[0].req_end)
+        if (pg.scheme == POOL_SCHEME_REPLICATED && !stripes[0].req_end)
         {
             continue;
         }
-        for (int role = 0; role < op_data->pg_data_size; role++)
+        for (int role = 0; role < pg.pg_data_size; role++)
         {
             stripes[role].read_start = stripes[role].req_start;
             stripes[role].read_end = stripes[role].req_end;
@@ -423,7 +423,7 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
         if (pg.state != PG_ACTIVE)
         {
             cur_set = get_object_osd_set(pg, cur_oid, &op_data->chain_states[chain_reads[cri].chain_pos]);
-            if (op_data->scheme != POOL_SCHEME_REPLICATED)
+            if (pg.scheme != POOL_SCHEME_REPLICATED)
             {
                 if (extend_missing_stripes(stripes, cur_set, pg.pg_data_size, pg.pg_size) < 0)
                 {
@@ -446,7 +446,7 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
                 }
             }
         }
-        if (op_data->scheme == POOL_SCHEME_REPLICATED)
+        if (pg.scheme == POOL_SCHEME_REPLICATED)
         {
             n_subops++;
             read_buffer_size += stripes[0].read_end - stripes[0].read_start;
@@ -491,7 +491,7 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
     for (int cri = 0; cri < chain_reads.size(); cri++)
     {
         osd_rmw_stripe_t *stripes = chain_stripes + chain_reads[cri].chain_pos*stripe_count;
-        if (op_data->scheme == POOL_SCHEME_REPLICATED && !stripes[0].req_end)
+        if (pg.scheme == POOL_SCHEME_REPLICATED && !stripes[0].req_end)
         {
             continue;
         }
@@ -501,9 +501,9 @@ int osd_t::submit_chained_read_requests(pg_t & pg, osd_op_t *cur_op)
         auto cur_state = op_data->chain_states[chain_reads[cri].chain_pos];
         uint64_t *cur_set = (pg.state != PG_ACTIVE && cur_state ? cur_state->read_target.data() : pg.cur_set.data());
         int zero_read = -1;
-        if (op_data->scheme == POOL_SCHEME_REPLICATED)
+        if (pg.scheme == POOL_SCHEME_REPLICATED)
         {
-            for (int role = 0; role < op_data->pg_size; role++)
+            for (int role = 0; role < pg.pg_size; role++)
                 if (cur_set[role] == this->osd_num || zero_read == -1)
                     zero_read = role;
         }
@@ -555,18 +555,18 @@ void osd_t::send_chained_read_results(pg_t & pg, osd_op_t *cur_op)
         {
             // Reconstruct missing stripes
             osd_rmw_stripe_t *stripes = chain_stripes + op_data->chain_reads[cri].chain_pos*stripe_count;
-            if (op_data->scheme == POOL_SCHEME_XOR)
+            if (pg.scheme == POOL_SCHEME_XOR)
             {
                 reconstruct_stripes_xor(stripes, pg.pg_size, clean_entry_bitmap_size);
             }
-            else if (op_data->scheme == POOL_SCHEME_EC)
+            else if (pg.scheme == POOL_SCHEME_EC)
             {
                 reconstruct_stripes_ec(stripes, pg.pg_size, pg.pg_data_size, clean_entry_bitmap_size);
             }
         }
     }
     // Send bitmap
-    cur_op->reply.rw.bitmap_len = op_data->pg_data_size * clean_entry_bitmap_size;
+    cur_op->reply.rw.bitmap_len = pg.pg_data_size * clean_entry_bitmap_size;
     cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
     // And finally compose the result
     uint64_t sent = 0;
