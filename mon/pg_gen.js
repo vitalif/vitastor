@@ -8,23 +8,9 @@ const LPOptimizer = require('./lp_optimizer/lp_optimizer.js');
 const { scale_pg_count } = require('./pg_utils.js');
 const { make_hier_tree, filter_osds_by_root_node,
     filter_osds_by_tags, filter_osds_by_block_layout, get_affinity_osds } = require('./osd_tree.js');
+const { select_murmur3 } = require('./lp_optimizer/murmur3.js');
 
-let seed;
-
-function reset_rng()
-{
-    seed = 0x5f020e43;
-}
-
-function rng()
-{
-    seed ^= seed << 13;
-    seed ^= seed >> 17;
-    seed ^= seed << 5;
-    return seed + 2147483648;
-}
-
-function pick_primary(pool_config, osd_set, up_osds, aff_osds)
+function pick_primary(pool_id, pg_num, pool_config, osd_set, up_osds, aff_osds)
 {
     let alive_set;
     if (pool_config.scheme === 'replicated')
@@ -52,7 +38,7 @@ function pick_primary(pool_config, osd_set, up_osds, aff_osds)
     {
         return 0;
     }
-    return alive_set[rng() % alive_set.length];
+    return alive_set[select_murmur3(alive_set.length, osd_num => pool_id+'/'+pg_num+'/'+osd_num)];
 }
 
 function recheck_primary(state, global_config, up_osds, osd_tree)
@@ -66,7 +52,6 @@ function recheck_primary(state, global_config, up_osds, osd_tree)
             continue;
         }
         const aff_osds = get_affinity_osds(pool_cfg, up_osds, osd_tree);
-        reset_rng();
         for (let pg_num = 1; pg_num <= pool_cfg.pg_count; pg_num++)
         {
             if (!state.pg.config.items[pool_id])
@@ -76,7 +61,7 @@ function recheck_primary(state, global_config, up_osds, osd_tree)
             const pg_cfg = state.pg.config.items[pool_id][pg_num];
             if (pg_cfg)
             {
-                const new_primary = pick_primary(state.config.pools[pool_id], pg_cfg.osd_set, up_osds, aff_osds);
+                const new_primary = pick_primary(pool_id, pg_num, state.config.pools[pool_id], pg_cfg.osd_set, up_osds, aff_osds);
                 if (pg_cfg.primary != new_primary)
                 {
                     if (!new_pg_config)
@@ -99,13 +84,12 @@ function save_new_pgs_txn(save_to, request, state, etcd_prefix, etcd_watch_revis
 {
     const aff_osds = get_affinity_osds(state.config.pools[pool_id] || {}, up_osds, osd_tree);
     const pg_items = {};
-    reset_rng();
     new_pgs.map((osd_set, i) =>
     {
         osd_set = osd_set.map(osd_num => osd_num === LPOptimizer.NO_OSD ? 0 : osd_num);
         pg_items[i+1] = {
             osd_set,
-            primary: pick_primary(state.config.pools[pool_id], osd_set, up_osds, aff_osds),
+            primary: pick_primary(pool_id, i+1, state.config.pools[pool_id], osd_set, up_osds, aff_osds),
         };
         if (prev_pgs[i] && prev_pgs[i].join(' ') != osd_set.join(' ') &&
             prev_pgs[i].filter(osd_num => osd_num).length > 0)
