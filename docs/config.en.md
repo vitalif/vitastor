@@ -13,7 +13,7 @@ Vitastor configuration consists of:
 - [Separate OSD settings](config/pool.en.md#osd-settings)
 - [Inode configuration](config/inode.en.md) i.e. image metadata like name, size and parent reference
 
-Configuration parameters can be set in 3 places:
+Configuration parameters can be set in 4 places:
 - Configuration file (`/etc/vitastor/vitastor.conf` or other path)
 - etcd key `/vitastor/config/global`. Most variables can be set there, but etcd
   connection parameters should obviously be set in the configuration file.
