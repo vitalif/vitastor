@@ -535,7 +535,7 @@ void osd_t::check_corrupted_chained(pg_t & pg, osd_op_t *cur_op)
         }
         if (corrupted)
         {
-            mark_object_corrupted(pg, cur_oid, op_data->chain_states[op_data->chain_reads[cri].chain_pos], stripes, false, false);
+            mark_object_corrupted(pg, cur_oid, op_data->chain_states[op_data->chain_reads[cri].chain_pos], stripes, false);
         }
     }
 }

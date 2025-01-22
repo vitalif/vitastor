@@ -369,113 +369,102 @@ void osd_t::schedule_scrub(pg_t & pg)
     }
 }
 
-void osd_t::continue_primary_scrub(osd_op_t *cur_op)
+void osd_t::submit_scrub_subops(osd_op_t *cur_op)
 {
-    if (!cur_op->op_data && !prepare_primary_rw(cur_op))
-        return;
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    if (op_data->st == 1)
-        goto resume_1;
-    else if (op_data->st == 2)
-        goto resume_2;
+    assert(!op_data->stripe_count);
+    cur_op->req.rw.len = bs_block_size * op_data->pg->pg_data_size;
+    // Determine version
+    auto vo_it = op_data->pg->ver_override.find(op_data->oid);
+    op_data->target_ver = vo_it != op_data->pg->ver_override.end() ? vo_it->second : UINT64_MAX;
+    // Find object state
+    op_data->prev_set = get_object_osd_set(*op_data->pg, op_data->oid, &op_data->object_state);
+    if (!op_data->object_state)
     {
-        auto & pg = *cur_op->op_data->pg;
-        cur_op->req.rw.len = bs_block_size * pg.pg_data_size;
-        // Determine version
-        auto vo_it = pg.ver_override.find(op_data->oid);
-        op_data->target_ver = vo_it != pg.ver_override.end() ? vo_it->second : UINT64_MAX;
-        // PG may have degraded or misplaced objects
-        op_data->prev_set = get_object_osd_set(pg, op_data->oid, &op_data->object_state);
-        // Read all available chunks
-        int n_copies = 0;
-        op_data->degraded = false;
-        for (int role = 0; role < pg.pg_size; role++)
+        op_data->stripe_count = op_data->pg->pg_size;
+        op_data->stripes = (osd_rmw_stripe_t*)calloc_or_die(op_data->stripe_count, sizeof(osd_rmw_stripe_t));
+        for (int i = 0; i < op_data->pg->pg_size; i++)
         {
-            op_data->stripes[role].write_buf = NULL;
-            op_data->stripes[role].read_start = 0;
-            op_data->stripes[role].read_end = bs_block_size;
-            if (op_data->prev_set[role] != 0)
-            {
-                n_copies++;
-            }
-            else
-            {
-                op_data->stripes[role].missing = true;
-                if (pg.scheme != POOL_SCHEME_REPLICATED && role < pg.pg_data_size)
-                {
-                    op_data->degraded = true;
-                }
-            }
-        }
-        if (n_copies <= pg.pg_data_size)
-        {
-            // Nothing to compare, even if we'd like to
-            finish_op(cur_op, 0);
-            return;
-        }
-        cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0);
-        // Submit reads
-        osd_op_t *subops = new osd_op_t[n_copies];
-        op_data->fact_ver = 0;
-        op_data->done = op_data->errors = op_data->errcode = 0;
-        op_data->n_subops = n_copies;
-        op_data->subops = subops;
-        int sent = submit_primary_subop_batch(SUBMIT_SCRUB_READ, op_data->oid.inode, op_data->target_ver,
-            op_data->stripes, op_data->prev_set, cur_op, 0, -1);
-        assert(sent == n_copies);
-        op_data->st = 1;
-    }
-resume_1:
-    return;
-resume_2:
-    if (op_data->errors > 0)
-    {
-        if (op_data->errcode == -EIO || op_data->errcode == -EDOM)
-        {
-            // I/O or checksum error
-            int n_copies = 0;
-            for (int role = 0; role < op_data->pg->pg_size; role++)
-            {
-                if (op_data->stripes[role].read_error)
-                {
-                    op_data->stripes[role].missing = true;
-                    if (op_data->pg->scheme != POOL_SCHEME_REPLICATED && role < op_data->pg->pg_data_size)
-                    {
-                        op_data->degraded = true;
-                    }
-                }
-                else if (!op_data->stripes[role].missing)
-                {
-                    n_copies++;
-                }
-            }
-            if (n_copies <= op_data->pg->pg_data_size)
-            {
-                // Nothing to compare, just mark the object as corrupted
-                // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
-                op_data->object_state = mark_object_corrupted(*op_data->pg, op_data->oid, op_data->object_state, op_data->stripes, false, false);
-                // Operation is treated as unsuccessful only if the object becomes unreadable
-                finish_op(cur_op, n_copies < op_data->pg->pg_data_size ? op_data->errcode : 0);
-                return;
-            }
-            // Proceed, we can still compare chunks that were successfully read
-        }
-        else
-        {
-            finish_op(cur_op, op_data->errcode);
-            return;
+            op_data->stripes[i].osd_num = op_data->prev_set[i];
+            op_data->stripes[i].role = (op_data->pg->scheme == POOL_SCHEME_REPLICATED ? 0 : i);
+            op_data->stripes[i].read_end = bs_block_size;
         }
     }
+    else
+    {
+        op_data->stripe_count = 0;
+        for (auto & chunk: op_data->object_state->osd_set)
+        {
+            // Read all chunks except outdated
+            if (!(chunk.loc_bad & LOC_OUTDATED))
+                op_data->stripe_count++;
+        }
+        op_data->stripes = (osd_rmw_stripe_t*)calloc_or_die(op_data->stripe_count, sizeof(osd_rmw_stripe_t));
+        int i = 0;
+        for (auto & chunk: op_data->object_state->osd_set)
+        {
+            if (!(chunk.loc_bad & LOC_OUTDATED))
+            {
+                op_data->stripes[i].osd_num = chunk.osd_num;
+                op_data->stripes[i].role = chunk.role;
+                op_data->stripes[i].read_end = bs_block_size;
+                i++;
+            }
+        }
+    }
+    assert(!cur_op->bitmap_buf);
+    cur_op->bitmap_buf = calloc_or_die(1, clean_entry_bitmap_size * op_data->stripe_count);
+    for (int i = 0; i < op_data->stripe_count; i++)
+    {
+        op_data->stripes[i].bmp_buf = (uint8_t*)cur_op->bitmap_buf + clean_entry_bitmap_size * i;
+    }
+    cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->stripe_count, 0);
+    op_data->fact_ver = 0;
+    op_data->done = op_data->errors = op_data->errcode = 0;
+    op_data->n_subops = op_data->stripe_count;
+    op_data->subops = new osd_op_t[op_data->stripe_count];
+    op_data->st = 1;
+    for (int i = 0; i < op_data->stripe_count; i++)
+    {
+        submit_primary_subop(cur_op, &op_data->subops[i], &op_data->stripes[i],
+            false, op_data->oid.inode, op_data->target_ver);
+    }
+}
+
+// The idea is that scrub should not only find out if the object
+// is corrupted, but it should also verify availability of all copies
+void osd_t::scrub_check_results(osd_op_t *cur_op)
+{
+    osd_primary_op_data_t *op_data = cur_op->op_data;
     bool inconsistent = false;
+    int total = 0;
+    for (int role = 0; role < op_data->stripe_count; role++)
+    {
+        if (!op_data->stripes[role].not_exists)
+            total++;
+    }
+    if (!total)
+    {
+        // Object is deleted manually from all OSDs, forget it
+        printf(
+            "[PG %u/%u] Scrub detected a deleted object %jx:%jx\n",
+            INODE_POOL(op_data->oid.inode), op_data->pg_num,
+            op_data->oid.inode, op_data->oid.stripe
+        );
+        remove_object_from_state(op_data->oid, &op_data->object_state, *op_data->pg, false);
+        deref_object_state(*op_data->pg, &op_data->object_state, true);
+        return;
+    }
     if (op_data->pg->scheme == POOL_SCHEME_REPLICATED)
     {
         // Check that all chunks have returned the same data
         int total = 0;
-        int eq_to[op_data->pg->pg_size];
-        for (int role = 0; role < op_data->pg->pg_size; role++)
+        int eq_to[op_data->stripe_count];
+        for (int role = 0; role < op_data->stripe_count; role++)
         {
             eq_to[role] = -1;
-            if (op_data->stripes[role].read_end != 0 && !op_data->stripes[role].missing &&
+            if (op_data->stripes[role].read_end != 0 &&
+                !op_data->stripes[role].read_error &&
                 !op_data->stripes[role].not_exists)
             {
                 total++;
@@ -491,16 +480,16 @@ resume_2:
                 }
             }
         }
-        int votes[op_data->pg->pg_size];
-        for (int role = 0; role < op_data->pg->pg_size; role++)
+        int votes[op_data->stripe_count];
+        for (int role = 0; role < op_data->stripe_count; role++)
             votes[role] = 0;
-        for (int role = 0; role < op_data->pg->pg_size; role++)
+        for (int role = 0; role < op_data->stripe_count; role++)
         {
             if (eq_to[role] != -1)
                 votes[eq_to[role]]++;
         }
         int best = -1;
-        for (int role = 0; role < op_data->pg->pg_size; role++)
+        for (int role = 0; role < op_data->stripe_count; role++)
         {
             if (votes[role] > (best >= 0 ? votes[best] : 0))
                 best = role;
@@ -508,7 +497,7 @@ resume_2:
         if (best >= 0 && votes[best] < total)
         {
             bool unknown = false;
-            for (int role = 0; role < op_data->pg->pg_size; role++)
+            for (int role = 0; role < op_data->stripe_count; role++)
             {
                 if (role != best && votes[role] == votes[best])
                 {
@@ -551,8 +540,9 @@ resume_2:
     {
         assert(op_data->pg->scheme == POOL_SCHEME_EC || op_data->pg->scheme == POOL_SCHEME_XOR);
         auto good_subset = ec_find_good(
-            op_data->stripes, op_data->pg->pg_size, op_data->pg->pg_data_size, op_data->pg->scheme == POOL_SCHEME_XOR,
-            bs_block_size, clean_entry_bitmap_size, scrub_ec_max_bruteforce
+            op_data->stripes, op_data->stripe_count,
+            op_data->pg->pg_size, op_data->pg->pg_data_size, op_data->pg->scheme == POOL_SCHEME_XOR,
+            bs_block_size, clean_entry_bitmap_size, scrub_ec_max_bruteforce, scrub_find_best
         );
         if (!good_subset.size())
         {
@@ -566,61 +556,115 @@ resume_2:
         else
         {
             int total = 0;
-            for (int role = 0; role < op_data->pg->pg_size; role++)
+            for (int i = 0; i < op_data->stripe_count; i++)
             {
-                if (!op_data->stripes[role].missing)
+                if (!op_data->stripes[i].not_exists)
                 {
+                    // use "missing" flag to distinguish actual read errors and inconsistent chunks
                     total++;
-                    op_data->stripes[role].read_error = true;
+                    op_data->stripes[i].missing = true;
                 }
             }
-            for (int role: good_subset)
+            for (int i: good_subset)
             {
-                op_data->stripes[role].read_error = false;
+                op_data->stripes[i].missing = false;
             }
-            for (int role = 0; role < op_data->pg->pg_size; role++)
+            for (int i = 0; i < op_data->stripe_count; i++)
             {
-                if (!op_data->stripes[role].missing && op_data->stripes[role].read_error)
+                if (op_data->stripes[i].missing)
                 {
+                    op_data->stripes[i].read_error = true;
                     printf(
                         "[PG %u/%u] Object %jx:%jx v%ju chunk %d on OSD %ju doesn't match other chunks%s\n",
                         INODE_POOL(op_data->oid.inode), op_data->pg_num,
                         op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver,
-                        role, op_data->stripes[role].osd_num,
+                        op_data->stripes[i].role, op_data->stripes[i].osd_num,
                         scrub_find_best ? ", marking it as corrupted" : ""
                     );
                 }
             }
-            if (!scrub_find_best && good_subset.size() < total)
+        }
+    }
+    bool mark = inconsistent;
+    for (int role = 0; !mark && role < op_data->stripe_count; role++)
+    {
+        if (op_data->stripes[role].read_error || op_data->stripes[role].not_exists)
+            mark = true;
+    }
+    if (!mark)
+    {
+        return;
+    }
+    // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
+    op_data->object_state = mark_object(*op_data->pg, op_data->oid, op_data->object_state, false /*ref*/, [op_data, inconsistent](pg_osd_set_t & new_set)
+    {
+        // Mark object chunk(s) as corrupted and/or missing and/or inconsistent
+        int changes = 0;
+        for (int i = 0; i < op_data->stripe_count; i++)
+        {
+            // Find the same stripe in new_set
+            int set_pos = 0;
+            while (set_pos < new_set.size() && (op_data->stripes[i].osd_num != new_set[set_pos].osd_num ||
+                op_data->stripes[i].role != new_set[set_pos].role))
             {
-                inconsistent = true;
-                printf(
-                    "[PG %u/%u] Object %jx:%jx v%ju is marked as inconsistent because scrub_find_best is turned off. Use vitastor-cli fix to fix it\n",
-                    INODE_POOL(op_data->oid.inode), op_data->pg_num,
-                    op_data->oid.inode, op_data->oid.stripe, op_data->fact_ver
-                );
-                for (int role = 0; role < op_data->pg->pg_size; role++)
-                {
-                    if (!op_data->stripes[role].missing && op_data->stripes[role].read_error)
-                    {
-                        // Undo error locator marking chunk as bad
-                        op_data->stripes[role].read_error = false;
-                    }
-                }
+                set_pos++;
+            }
+            if (set_pos >= new_set.size())
+            {
+                continue;
+            }
+            if (op_data->stripes[i].not_exists)
+            {
+                changes++;
+                new_set.erase(new_set.begin()+set_pos, new_set.begin()+set_pos+1);
+                continue;
+            }
+            auto & chunk = new_set[set_pos];
+            if (op_data->stripes[i].read_error && chunk.loc_bad != LOC_CORRUPTED)
+            {
+                changes++;
+                chunk.loc_bad = LOC_CORRUPTED;
+            }
+            else if (op_data->stripes[i].read_end > 0 && !op_data->stripes[chunk.role].missing &&
+                (chunk.loc_bad & LOC_CORRUPTED))
+            {
+                changes++;
+                chunk.loc_bad &= ~LOC_CORRUPTED;
+            }
+            if (inconsistent && !(chunk.loc_bad & LOC_INCONSISTENT))
+            {
+                changes++;
+                chunk.loc_bad |= LOC_INCONSISTENT;
+            }
+            else if (!inconsistent && (chunk.loc_bad & LOC_INCONSISTENT))
+            {
+                changes++;
+                chunk.loc_bad &= ~LOC_INCONSISTENT;
             }
         }
-    }
-    for (int role = 0; role < op_data->pg->pg_size; role++)
+        return changes;
+    });
+}
+
+void osd_t::continue_primary_scrub(osd_op_t *cur_op)
+{
+    if (!cur_op->op_data && !prepare_primary_rw(cur_op))
+        return;
+    if (cur_op->op_data->st == 1)
+        goto resume_1;
+    else if (cur_op->op_data->st == 2)
+        goto resume_2;
+    submit_scrub_subops(cur_op);
+resume_1:
+    return;
+resume_2:
+    if (cur_op->op_data->errors > 0 &&
+        // I/O and checksum errors (represented by stripes[i].read_error) are OK
+        (cur_op->op_data->errcode != -EIO && cur_op->op_data->errcode != -EDOM))
     {
-        if (op_data->stripes[role].osd_num != 0 &&
-            (op_data->stripes[role].read_error || op_data->stripes[role].not_exists) ||
-            inconsistent)
-        {
-            // Got at least 1 read error or mismatch, mark the object as corrupted
-            // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
-            op_data->object_state = mark_object_corrupted(*op_data->pg, op_data->oid, op_data->object_state, op_data->stripes, false, inconsistent);
-            break;
-        }
+        finish_op(cur_op, cur_op->op_data->errcode);
+        return;
     }
+    scrub_check_results(cur_op);
     finish_op(cur_op, 0);
 }

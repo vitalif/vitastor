@@ -151,7 +151,7 @@ resume_3:
         if (op_data->errcode == -EIO || op_data->errcode == -EDOM)
         {
             // Mark object corrupted and retry
-            op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, true, false);
+            op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, true);
             op_data->prev_set = op_data->object_state ? op_data->object_state->read_target.data() : pg.cur_set.data();
             if (cur_op->rmw_buf)
             {

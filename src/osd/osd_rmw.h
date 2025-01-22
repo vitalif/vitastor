@@ -28,6 +28,7 @@ struct osd_rmw_stripe_t
     uint32_t read_start, read_end;
     uint32_t write_start, write_end;
     osd_num_t osd_num;
+    int role;
     bool missing: 1;
     bool read_error: 1;
     bool not_exists: 1;
@@ -57,5 +58,5 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
 void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
     uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t bitmap_size);
 
-std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, bool is_xor,
-    uint32_t chunk_size, uint32_t bitmap_size, int max_bruteforce);
+std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int stripe_count, int pg_size, int pg_minsize, bool is_xor,
+    uint32_t chunk_size, uint32_t bitmap_size, uint64_t max_bruteforce, bool find_best);

@@ -26,6 +26,7 @@ struct osd_primary_op_data_t
     uint64_t orig_ver = 0, fact_ver = 0;
     int n_subops = 0, done = 0, errors = 0, drops = 0, errcode = 0;
     int degraded = 0;
+    int stripe_count = 0;
     osd_rmw_stripe_t *stripes = NULL;
     pg_t *pg = NULL;
     osd_op_t *subops = NULL;

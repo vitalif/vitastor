@@ -1118,139 +1118,230 @@ static bool next_combination(int *subset, int k, int n)
     return true;
 }
 
-static int c_n_k(int n, int k)
+static uint64_t c_n_k(uint64_t n, uint64_t k)
 {
-    int c = 1;
-    for (int i = n; i > k; i--)
+    uint64_t c = 1;
+    for (uint64_t i = n; i > k; i--)
+    {
+        if ((c*i) < i)
+            return UINT64_MAX;
         c *= i;
-    for (int i = 2; i <= (n-k); i++)
+    }
+    for (uint64_t i = 2; i <= (n-k); i++)
         c /= i;
     return c;
 }
 
-std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, bool is_xor,
-    uint32_t chunk_size, uint32_t bitmap_size, int max_bruteforce)
+static std::vector<int> ec_check_combination(osd_rmw_stripe_t *stripes, int stripe_count,
+    int *subset, int pg_size, int pg_minsize, bool is_xor,
+    uint32_t chunk_size, uint32_t bitmap_size, uint8_t *tmp_buf)
+{
+    osd_num_t fake_osd_set[pg_size];
+    for (int i = 0; i < pg_size; i++)
+    {
+        fake_osd_set[i] = i+1;
+    }
+    osd_rmw_stripe_t brute_stripes[pg_size];
+    memset(brute_stripes, 0, sizeof(osd_rmw_stripe_t)*pg_size);
+    for (int i = 0; i < pg_size; i++)
+    {
+        auto & bs = brute_stripes[i];
+        bs.req_end = bs.read_end = chunk_size;
+    }
+    for (int i = 0; i < pg_minsize; i++)
+    {
+        auto & src = stripes[subset[i]];
+        auto & bs = brute_stripes[src.role];
+        bs.bmp_buf = src.bmp_buf;
+        bs.write_buf = bs.read_buf = src.read_buf;
+    }
+    for (int i = 0; i < pg_size; i++)
+    {
+        auto & bs = brute_stripes[i];
+        if (!bs.read_buf)
+        {
+            // missing chunks are recovered in read_bufs and write_bufs are used as source for parity
+            bs.missing = true;
+            bs.read_buf = bs.write_buf = tmp_buf+i*chunk_size;
+            bs.bmp_buf = tmp_buf + stripe_count*chunk_size + i*bitmap_size;
+        }
+        else if (i >= pg_minsize)
+        {
+            // parity chunks are regenerated in their write_bufs, so use a temporary buffer
+            bs.write_buf = tmp_buf+i*chunk_size;
+        }
+    }
+    if (is_xor)
+    {
+        assert(pg_size == pg_minsize+1);
+        reconstruct_stripes_xor(brute_stripes, pg_size, bitmap_size);
+    }
+    else
+    {
+        reconstruct_stripes_ec(brute_stripes, pg_size, pg_minsize, bitmap_size);
+        calc_rmw_parity_ec(brute_stripes, pg_size, pg_minsize, fake_osd_set, fake_osd_set, chunk_size, bitmap_size);
+    }
+    bool matched_other = false;
+    std::vector<int> good_set;
+    for (int i = 0; i < stripe_count; i++)
+    {
+        if (stripes[i].read_error || stripes[i].not_exists)
+        {
+            continue;
+        }
+        auto & bs = brute_stripes[stripes[i].role];
+        if (!bs.missing && bs.read_buf == stripes[i].read_buf)
+        {
+            // source chunk, mark OK
+            good_set.push_back(i);
+        }
+        else if (memcmp(stripes[i].role < pg_minsize ? bs.read_buf : bs.write_buf, stripes[i].read_buf, chunk_size) == 0)
+        {
+            // matching chunk, mark OK
+            good_set.push_back(i);
+            matched_other = true;
+        }
+    }
+    if (!matched_other)
+    {
+        good_set.clear();
+    }
+    return good_set;
+}
+
+static int count_roles(osd_rmw_stripe_t *stripes, std::vector<int> & valid_chunks, int pg_size)
+{
+    bool role_ok[pg_size];
+    for (int i = 0; i < pg_size; i++)
+    {
+        role_ok[i] = false;
+    }
+    for (int idx: valid_chunks)
+    {
+        role_ok[stripes[idx].role] = true;
+    }
+    int ok_count = 0;
+    for (int i = 0; i < pg_size; i++)
+    {
+        if (role_ok[i])
+            ok_count++;
+    }
+    return ok_count;
+}
+
+std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int stripe_count, int pg_size, int pg_minsize, bool is_xor,
+    uint32_t chunk_size, uint32_t bitmap_size, uint64_t max_bruteforce, bool find_best)
 {
     std::vector<int> found_valid;
-    int cur_live[pg_size], live_count = 0, exists_count = 0;
-    osd_num_t fake_osd_set[pg_size];
-    for (int role = 0; role < pg_size; role++)
+    std::vector<std::vector<int>> live_variants(pg_size);
+    int eq_to[stripe_count];
+    int live_roles = 0, live_total = 0;
+    for (int i = 0; i < pg_size; i++)
     {
-        if (!stripes[role].missing)
-        {
-            if (!stripes[role].not_exists)
-                exists_count++;
-            cur_live[live_count++] = role;
-            fake_osd_set[role] = role+1;
-        }
+        eq_to[i] = i;
     }
-    if (live_count <= pg_minsize)
+    for (int i = 0; i < stripe_count; i++)
     {
-        return std::vector<int>();
-    }
-    if (exists_count <= pg_minsize)
-    {
-        // Special case: user manually deleted some chunks
-        for (int role = 0; role < pg_size; role++)
-            if (!stripes[role].missing && !stripes[role].not_exists)
-                found_valid.push_back(role);
-        return found_valid;
-    }
-    // Try to locate errors using brute force if there isn't too many combinations
-    osd_rmw_stripe_t brute_stripes[pg_size];
-    int out_count = live_count-pg_minsize;
-    bool brute_force = out_count > 1 && c_n_k(live_count-1, out_count-1) <= max_bruteforce;
-    int subset[pg_minsize], outset[out_count];
-    // Select all combinations with items except the last one (== anything to compare)
-    first_combination(subset, pg_minsize, live_count-1);
-    uint8_t *tmp_buf = (uint8_t*)malloc_or_die(pg_size*chunk_size);
-    do
-    {
-        memcpy(brute_stripes, stripes, sizeof(osd_rmw_stripe_t)*pg_size);
-        int i = 0, j = 0, k = 0;
-        for (; i < pg_minsize; i++, j++)
-            while (j < subset[i])
-                outset[k++] = j++;
-        while (j < pg_size)
-            outset[k++] = j++;
-        for (int i = 0; i < out_count; i++)
+        if (!stripes[i].read_error && !stripes[i].not_exists)
         {
-            brute_stripes[cur_live[outset[i]]].missing = true;
-            brute_stripes[cur_live[outset[i]]].read_buf = tmp_buf+cur_live[outset[i]]*chunk_size;
-        }
-        for (int i = 0; i < pg_minsize; i++)
-        {
-            brute_stripes[i].write_buf = brute_stripes[i].read_buf;
-            brute_stripes[i].req_start = 0;
-            brute_stripes[i].req_end = chunk_size;
-        }
-        for (int i = pg_minsize; i < pg_size; i++)
-        {
-            brute_stripes[i].write_buf = tmp_buf+i*chunk_size;
-        }
-        if (is_xor)
-        {
-            assert(pg_size == pg_minsize+1);
-            reconstruct_stripes_xor(brute_stripes, pg_size, bitmap_size);
-        }
-        else
-        {
-            reconstruct_stripes_ec(brute_stripes, pg_size, pg_minsize, bitmap_size);
-            calc_rmw_parity_ec(brute_stripes, pg_size, pg_minsize, fake_osd_set, fake_osd_set, chunk_size, bitmap_size);
-        }
-        for (int i = pg_minsize; i < pg_size; i++)
-        {
-            brute_stripes[i].read_buf = brute_stripes[i].write_buf;
-        }
-        int valid_count = 0;
-        for (int i = 0; i < out_count; i++)
-        {
-            if (memcmp(brute_stripes[cur_live[outset[i]]].read_buf,
-                    stripes[cur_live[outset[i]]].read_buf, chunk_size) == 0)
+            if (live_variants[stripes[i].role].size() > 0)
             {
-                brute_stripes[cur_live[outset[i]]].missing = false;
-                valid_count++;
-            }
-        }
-        if (valid_count > 0)
-        {
-            if (found_valid.size())
-            {
-                // Check if we found the same set from the different point of view,
-                // like 1 2 3 -> valid 4 5 and 1 3 4 -> valid 2 5
-                for (int i = 0, j = 0; i < pg_size; i++)
+                for (int j = 0; j < i; j++)
                 {
-                    if (!brute_stripes[i].missing)
+                    if (stripes[j].role == stripes[i].role &&
+                        memcmp(stripes[i].read_buf, stripes[j].read_buf, chunk_size) == 0)
                     {
-                        if (j >= found_valid.size() || found_valid[j] != i)
-                        {
-                            // Ambiguity: we found multiple valid sets and don't know which one is correct
-                            found_valid.clear();
-                            break;
-                        }
-                        j++;
+                        eq_to[i] = eq_to[j];
+                        break;
                     }
-                }
-                if (!found_valid.size())
-                {
-                    break;
                 }
             }
             else
             {
-                for (int i = 0; i < pg_size; i++)
+                live_roles++;
+            }
+            if (eq_to[i] == i)
+            {
+                live_variants[stripes[i].role].push_back(i);
+                live_total++;
+            }
+        }
+    }
+    if (live_roles == pg_minsize && live_total > pg_minsize)
+    {
+        // Nothing to validate and there are chunks with different data => object is inconsistent
+        return std::vector<int>();
+    }
+    if (live_roles <= pg_minsize)
+    {
+        // Nothing to validate, just return all live chunks
+        for (int i = 0; i < stripe_count; i++)
+            if (!stripes[i].read_error)
+                found_valid.push_back(i);
+        return found_valid;
+    }
+    // Try to locate errors using brute force if there isn't too many combinations
+    bool brute_force = c_n_k(live_roles, pg_minsize) <= max_bruteforce;
+    int combination[pg_minsize], subset[pg_minsize], subvar[pg_minsize];
+    // To translate 0..live_roles into 0..pg_size
+    int comb_to_subset[live_roles];
+    for (int i = 0, r = 0; i < pg_size; i++)
+    {
+        if (live_variants[i].size() > 0)
+            comb_to_subset[r++] = i;
+    }
+    // Select all combinations with items except the last one (== anything to compare)
+    first_combination(combination, pg_minsize, live_roles);
+    uint8_t *tmp_buf = (uint8_t*)malloc_or_die(stripe_count*(chunk_size+bitmap_size));
+    do
+    {
+        // Then loop over all subvariants (if some roles have multiple diverged variants of data)
+        for (int i = 0; i < pg_minsize; i++)
+        {
+            subvar[i] = 0;
+        }
+        while (true)
+        {
+            // Transform combination[] + subvar[] into subset[]
+            for (int i = 0; i < pg_minsize; i++)
+            {
+                subset[i] = live_variants[comb_to_subset[combination[i]]][subvar[i]];
+            }
+            // Check the combination
+            auto valid_chunks = ec_check_combination(stripes, stripe_count, subset, pg_size, pg_minsize, is_xor, chunk_size, bitmap_size, tmp_buf);
+            // The same set may be found from different points of view,
+            // like 1 2 3 -> valid 4 5 and 1 3 4 -> valid 2 5
+            if (valid_chunks.size() > 0)
+            {
+                if (found_valid.size() >= valid_chunks.size() && found_valid != valid_chunks)
                 {
-                    if (!brute_stripes[i].missing)
-                    {
-                        found_valid.push_back(i);
-                    }
+                    // Ambiguity: we found multiple valid sets and don't know which one is correct
+                    printf("Scrub found 2 different correct chunk subsets: OSD ");
+                    for (int i = 0; i < found_valid.size(); i++)
+                        printf(i > 0 ? ", %ju" : "%ju", stripes[found_valid[i]].osd_num);
+                    printf(" and OSD ");
+                    for (int i = 0; i < valid_chunks.size(); i++)
+                        printf(i > 0 ? ", %ju" : "%ju", stripes[valid_chunks[i]].osd_num);
+                    printf("\n");
+                    found_valid.clear();
+                    goto out;
+                }
+                else if (!found_valid.size() && (find_best || count_roles(stripes, valid_chunks, pg_size) >= pg_size))
+                {
+                    found_valid = valid_chunks;
                 }
             }
-            if (valid_count == out_count)
+            // Select next subvariant
+            int i = 0;
+            for (i = 0; i < pg_minsize; i++)
             {
-                // All chunks are good
-                break;
+                subvar[i]++;
+                if (subvar[i] < live_variants[combination[i]].size())
+                    break;
+                subvar[i] = 0;
             }
+            if (i >= pg_minsize)
+                break;
         }
         if (!brute_force)
         {
@@ -1258,7 +1349,8 @@ std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int pg_size, int pg_min
             // if we find it we won't be able to check that it's the only good one
             break;
         }
-    } while (out_count > 1 && next_combination(subset, pg_minsize, live_count-1));
+    } while (next_combination(combination, pg_minsize, live_roles));
+out:
     free(tmp_buf);
     return found_valid;
 }

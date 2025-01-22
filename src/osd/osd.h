@@ -281,6 +281,8 @@ class osd_t
     int pick_next_scrub(object_id & next_oid);
     void submit_scrub_op(object_id oid);
     bool continue_scrub();
+    void submit_scrub_subops(osd_op_t *cur_op);
+    void scrub_check_results(osd_op_t *cur_op);
     void plan_scrub(pg_t & pg, bool report_state = true);
     void schedule_scrub(pg_t & pg);
 
@@ -313,7 +315,7 @@ class osd_t
     pg_osd_set_state_t *mark_object(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state, bool ref,
         std::function<int(pg_osd_set_t & new_set)> calc_set);
     pg_osd_set_state_t *mark_object_corrupted(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state,
-        osd_rmw_stripe_t *stripes, bool ref, bool inconsistent);
+        osd_rmw_stripe_t *stripes, bool ref);
     pg_osd_set_state_t *mark_partial_write(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state,
         osd_rmw_stripe_t *stripes, bool ref);
     void deref_object_state(pg_t & pg, pg_osd_set_state_t **object_state, bool deref);
@@ -326,6 +328,8 @@ class osd_t
     void submit_primary_subops(int submit_type, uint64_t op_version, const uint64_t* osd_set, osd_op_t *cur_op);
     int submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t op_version,
         osd_rmw_stripe_t *stripes, const uint64_t* osd_set, osd_op_t *cur_op, int subop_idx, int zero_read);
+    void submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
+        osd_rmw_stripe_t *si, bool wr, inode_t inode, uint64_t op_version);
     void submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, uint64_t set_size, pg_osd_set_t & loc_set);
     void submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_delete, int chunks_to_delete_count);
     int submit_primary_sync_subops(osd_op_t *cur_op);

@@ -1160,24 +1160,26 @@ void test_ec43_error_bruteforce()
         stripes[i].read_end = 4096;
         stripes[i].read_buf = write_buf+i*4096;
         stripes[i].write_buf = NULL;
+        stripes[i].role = i;
+        stripes[i].osd_num = i+1;
     }
     // All good chunks
-    auto res = ec_find_good(stripes, 7, 4, false, 4096, 0, 100);
+    auto res = ec_find_good(stripes, 7, 7, 4, false, 4096, 0, 100, true);
     assert_eq_vec(res, std::vector<int>({0, 1, 2, 3, 4, 5, 6}));
     // 1 missing chunk
     set_pattern(write_buf+1*4096, 4096, 0);
-    res = ec_find_good(stripes, 7, 4, false, 4096, 0, 100);
+    res = ec_find_good(stripes, 7, 7, 4, false, 4096, 0, 100, true);
     assert_eq_vec(res, std::vector<int>({0, 2, 3, 4, 5, 6}));
     // 2 missing chunks
     set_pattern(write_buf+1*4096, 4096, 0);
     set_pattern(write_buf+5*4096, 4096, 0);
-    res = ec_find_good(stripes, 7, 4, false, 4096, 0, 100);
+    res = ec_find_good(stripes, 7, 7, 4, false, 4096, 0, 100, true);
     assert_eq_vec(res, std::vector<int>({0, 2, 3, 4, 6}));
     // 3 missing chunks
     set_pattern(write_buf+1*4096, 4096, 0);
     set_pattern(write_buf+5*4096, 4096, 0);
     set_pattern(write_buf+6*4096, 4096, 0);
-    res = ec_find_good(stripes, 7, 4, false, 4096, 0, 100);
+    res = ec_find_good(stripes, 7, 7, 4, false, 4096, 0, 100, true);
     assert_eq_vec(res, std::vector<int>());
     // Done
     free(rmw_buf);

@@ -51,9 +51,8 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         finish_op(cur_op, -EINVAL);
         return false;
     }
-    // Scrub is similar to r/w, so it's also handled here
-    int stripe_count = (pool_cfg.scheme == POOL_SCHEME_REPLICATED
-        && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? 1 : pg_it->second.pg_size);
+    int stripe_count = (cur_op->req.hdr.opcode == OSD_OP_SCRUB ? 0 :
+        (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_size));
     int chain_size = 0;
     if (cur_op->req.hdr.opcode == OSD_OP_READ && cur_op->req.rw.meta_revision > 0)
     {
@@ -112,15 +111,19 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     op_data->pg = &pg_it->second;
     op_data->oid = oid;
     op_data->stripes = (osd_rmw_stripe_t*)data_buf;
+    op_data->stripe_count = stripe_count;
     data_buf = (uint8_t*)data_buf + sizeof(osd_rmw_stripe_t) * stripe_count;
     cur_op->op_data = op_data;
-    split_stripes(pg_data_size, bs_block_size, (uint32_t)(cur_op->req.rw.offset - oid.stripe), cur_op->req.rw.len, op_data->stripes);
-    // Resulting bitmaps have to survive op_data and be freed with the op itself
-    assert(!cur_op->bitmap_buf);
-    cur_op->bitmap_buf = calloc_or_die(1, clean_entry_bitmap_size * stripe_count);
-    for (int i = 0; i < stripe_count; i++)
+    if (cur_op->req.hdr.opcode != OSD_OP_SCRUB)
     {
-        op_data->stripes[i].bmp_buf = (uint8_t*)cur_op->bitmap_buf + clean_entry_bitmap_size * i;
+        split_stripes(pg_data_size, bs_block_size, (uint32_t)(cur_op->req.rw.offset - oid.stripe), cur_op->req.rw.len, op_data->stripes);
+        // Resulting bitmaps have to survive op_data and be freed with the op itself
+        assert(!cur_op->bitmap_buf);
+        cur_op->bitmap_buf = calloc_or_die(1, clean_entry_bitmap_size * stripe_count);
+        for (int i = 0; i < stripe_count; i++)
+        {
+            op_data->stripes[i].bmp_buf = (uint8_t*)cur_op->bitmap_buf + clean_entry_bitmap_size * i;
+        }
     }
     op_data->chain_size = chain_size;
     if (chain_size > 0)
@@ -261,7 +264,7 @@ resume_2:
         {
             // I/O or checksum error
             // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
-            op_data->object_state = mark_object_corrupted(*op_data->pg, op_data->oid, op_data->object_state, op_data->stripes, false, false);
+            op_data->object_state = mark_object_corrupted(*op_data->pg, op_data->oid, op_data->object_state, op_data->stripes, false);
             goto resume_0;
         }
         finish_op(cur_op, op_data->errcode);
@@ -354,10 +357,10 @@ pg_osd_set_state_t *osd_t::mark_object(pg_t & pg, object_id oid, pg_osd_set_stat
     return object_state;
 }
 
-pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state,
-    osd_rmw_stripe_t *stripes, bool ref, bool inconsistent)
+pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid,
+    pg_osd_set_state_t *prev_object_state, osd_rmw_stripe_t *stripes, bool ref)
 {
-    return mark_object(pg, oid, prev_object_state, ref, [stripes, inconsistent](pg_osd_set_t & new_set)
+    return mark_object(pg, oid, prev_object_state, ref, [stripes](pg_osd_set_t & new_set)
     {
         // Mark object chunk(s) as corrupted
         int changes = 0;
@@ -383,16 +386,6 @@ pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid, pg_os
                     changes++;
                     chunk.loc_bad &= ~LOC_CORRUPTED;
                 }
-            }
-            if (inconsistent && !chunk.loc_bad)
-            {
-                changes++;
-                chunk.loc_bad |= LOC_INCONSISTENT;
-            }
-            else if (!inconsistent && (chunk.loc_bad & LOC_INCONSISTENT))
-            {
-                changes++;
-                chunk.loc_bad &= ~LOC_INCONSISTENT;
             }
             chunk_it++;
         }

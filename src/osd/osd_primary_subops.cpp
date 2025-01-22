@@ -152,9 +152,9 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, const ui
 int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t op_version,
     osd_rmw_stripe_t *stripes, const uint64_t* osd_set, osd_op_t *cur_op, int subop_idx, int zero_read)
 {
+    bool rep = cur_op->op_data->pg->scheme == POOL_SCHEME_REPLICATED;
     bool wr = submit_type == SUBMIT_WRITE;
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    bool rep = op_data->pg->scheme == POOL_SCHEME_REPLICATED;
     int i = subop_idx;
     for (int role = 0; role < op_data->pg->pg_size; role++)
     {
@@ -168,109 +168,9 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
         osd_rmw_stripe_t *si = stripes + (submit_type == SUBMIT_SCRUB_READ ? role : stripe_num);
         if (role_osd_num != 0)
         {
-            osd_op_t *subop = op_data->subops + i;
-            uint32_t subop_len = wr
-                ? si->write_end - si->write_start
-                : si->read_end - si->read_start;
-            if (!wr && si->read_end == UINT32_MAX)
-            {
-                subop_len = 0;
-            }
             si->osd_num = role_osd_num;
-            si->read_error = false;
-            subop->bitmap = si->bmp_buf;
-            subop->bitmap_len = clean_entry_bitmap_size;
-            // Using rmw_buf to pass pointer to stripes. Dirty but should work
-            subop->rmw_buf = si;
-            if (role_osd_num == this->osd_num)
-            {
-                clock_gettime(CLOCK_REALTIME, &subop->tv_begin);
-                subop->op_type = (uint64_t)cur_op;
-                subop->bs_op = new blockstore_op_t((blockstore_op_t){
-                    .opcode = (uint64_t)(wr ? (rep ? BS_OP_WRITE_STABLE : BS_OP_WRITE) : BS_OP_READ),
-                    .callback = [subop, this](blockstore_op_t *bs_subop)
-                    {
-                        handle_primary_bs_subop(subop);
-                    },
-                    { {
-                        .oid = (object_id){
-                            .inode = inode,
-                            .stripe = op_data->oid.stripe | stripe_num,
-                        },
-                        .version = op_version,
-                        .offset = wr ? si->write_start : si->read_start,
-                        .len = subop_len,
-                    } },
-                    .buf = wr ? si->write_buf : si->read_buf,
-                    .bitmap = si->bmp_buf,
-                });
-#ifdef OSD_DEBUG
-                printf(
-                    "Submit %s to local: %jx:%jx v%ju %u-%u\n", wr ? "write" : "read",
-                    inode, op_data->oid.stripe | stripe_num, op_version,
-                    subop->bs_op->offset, subop->bs_op->len
-                );
-#endif
-                bs->enqueue_op(subop->bs_op);
-            }
-            else
-            {
-                subop->op_type = OSD_OP_OUT;
-                subop->req.sec_rw = {
-                    .header = {
-                        .magic = SECONDARY_OSD_OP_MAGIC,
-                        .id = msgr.next_subop_id++,
-                        .opcode = (uint64_t)(wr ? (rep ? OSD_OP_SEC_WRITE_STABLE : OSD_OP_SEC_WRITE) : OSD_OP_SEC_READ),
-                    },
-                    .oid = {
-                        .inode = inode,
-                        .stripe = op_data->oid.stripe | stripe_num,
-                    },
-                    .version = op_version,
-                    .offset = wr ? si->write_start : si->read_start,
-                    .len = subop_len,
-                    .attr_len = wr ? clean_entry_bitmap_size : 0,
-                    .flags = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
-                };
-#ifdef OSD_DEBUG
-                printf(
-                    "Submit %s to osd %ju: %jx:%jx v%ju %u-%u\n", wr ? "write" : "read", role_osd_num,
-                    inode, op_data->oid.stripe | stripe_num, op_version,
-                    subop->req.sec_rw.offset, subop->req.sec_rw.len
-                );
-#endif
-                if (wr)
-                {
-                    if (si->write_end > si->write_start)
-                    {
-                        subop->iov.push_back(si->write_buf, si->write_end - si->write_start);
-                    }
-                }
-                else
-                {
-                    if (subop_len > 0)
-                    {
-                        subop->iov.push_back(si->read_buf, subop_len);
-                    }
-                }
-                subop->callback = [cur_op, this](osd_op_t *subop)
-                {
-                    handle_primary_subop(subop, cur_op);
-                };
-                auto peer_fd_it = msgr.osd_peer_fds.find(role_osd_num);
-                if (peer_fd_it != msgr.osd_peer_fds.end())
-                {
-                    subop->peer_fd = peer_fd_it->second;
-                    msgr.outbox_push(subop);
-                }
-                else
-                {
-                    // Fail it immediately
-                    subop->peer_fd = -1;
-                    subop->reply.hdr.retval = -EPIPE;
-                    ringloop->set_immediate([subop]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
-                }
-            }
+            si->role = stripe_num;
+            submit_primary_subop(cur_op, &op_data->subops[i], si, wr, inode, op_version);
             i++;
         }
         else
@@ -279,6 +179,112 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
         }
     }
     return i-subop_idx;
+}
+
+void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
+    osd_rmw_stripe_t *si, bool wr, inode_t inode, uint64_t op_version)
+{
+    uint32_t subop_len = wr
+        ? si->write_end - si->write_start
+        : si->read_end - si->read_start;
+    if (!wr && si->read_end == UINT32_MAX)
+    {
+        subop_len = 0;
+    }
+    si->read_error = false;
+    subop->bitmap = si->bmp_buf;
+    subop->bitmap_len = clean_entry_bitmap_size;
+    // Using rmw_buf to pass pointer to stripes. Dirty but works
+    subop->rmw_buf = si;
+    if (si->osd_num == this->osd_num)
+    {
+        clock_gettime(CLOCK_REALTIME, &subop->tv_begin);
+        subop->op_type = (uint64_t)cur_op; // also dirty
+        subop->bs_op = new blockstore_op_t((blockstore_op_t){
+            .opcode = (uint64_t)(wr ? (cur_op->op_data->pg->scheme == POOL_SCHEME_REPLICATED ? BS_OP_WRITE_STABLE : BS_OP_WRITE) : BS_OP_READ),
+            .callback = [subop, this](blockstore_op_t *bs_subop)
+            {
+                handle_primary_bs_subop(subop);
+            },
+            { {
+                .oid = (object_id){
+                    .inode = inode,
+                    .stripe = cur_op->op_data->oid.stripe | si->role,
+                },
+                .version = op_version,
+                .offset = wr ? si->write_start : si->read_start,
+                .len = subop_len,
+            } },
+            .buf = wr ? si->write_buf : si->read_buf,
+            .bitmap = si->bmp_buf,
+        });
+#ifdef OSD_DEBUG
+         printf(
+             "Submit %s to local: %jx:%jx v%ju %u-%u\n", wr ? "write" : "read",
+             inode, op_data->oid.stripe | si->role, op_version,
+             subop->bs_op->offset, subop->bs_op->len
+         );
+#endif
+        bs->enqueue_op(subop->bs_op);
+    }
+    else
+    {
+        subop->op_type = OSD_OP_OUT;
+        subop->req.sec_rw = (osd_op_sec_rw_t){
+            .header = {
+                .magic = SECONDARY_OSD_OP_MAGIC,
+                .id = msgr.next_subop_id++,
+                .opcode = (uint64_t)(wr ? (cur_op->op_data->pg->scheme == POOL_SCHEME_REPLICATED ? OSD_OP_SEC_WRITE_STABLE : OSD_OP_SEC_WRITE) : OSD_OP_SEC_READ),
+            },
+            .oid = {
+                .inode = inode,
+                .stripe = cur_op->op_data->oid.stripe | si->role,
+            },
+            .version = op_version,
+            .offset = wr ? si->write_start : si->read_start,
+            .len = subop_len,
+            .attr_len = wr ? clean_entry_bitmap_size : 0,
+            .flags = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
+        };
+#ifdef OSD_DEBUG
+        printf(
+            "Submit %s to osd %ju: %jx:%jx v%ju %u-%u\n", wr ? "write" : "read", si->osd_num,
+            inode, op_data->oid.stripe | si->role, op_version,
+            subop->req.sec_rw.offset, subop->req.sec_rw.len
+        );
+#endif
+        if (wr)
+        {
+            if (si->write_end > si->write_start)
+            {
+                subop->iov.push_back(si->write_buf, si->write_end - si->write_start);
+            }
+        }
+        else
+        {
+            if (subop_len > 0)
+            {
+                subop->iov.push_back(si->read_buf, subop_len);
+            }
+        }
+        subop->callback = [cur_op, this](osd_op_t *subop)
+        {
+            handle_primary_subop(subop, cur_op);
+        };
+        auto peer_fd_it = msgr.osd_peer_fds.find(si->osd_num);
+        if (peer_fd_it != msgr.osd_peer_fds.end())
+        {
+            subop->peer_fd = peer_fd_it->second;
+            msgr.outbox_push(subop);
+        }
+        else
+        {
+            // Fail it immediately
+            subop->peer_fd = -1;
+            subop->reply.hdr.retval = -EPIPE;
+            ringloop->set_immediate([subop]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
+        }
+    }
 }
 
 static uint64_t bs_op_to_osd_op[] = {
@@ -401,7 +407,7 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
         printf("subop %s %jx:%jx from osd %jd: version = %ju\n", osd_op_names[opcode],
             subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, peer_osd, version);
 #endif
-        if (op_data->fact_ver != UINT64_MAX)
+        if (version != 0 && op_data->fact_ver != UINT64_MAX)
         {
             if (op_data->fact_ver != 0 && op_data->fact_ver != version)
             {
