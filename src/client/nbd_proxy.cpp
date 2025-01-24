@@ -313,7 +313,7 @@ const char *help_text =
 #endif
     "Use vitastor-nbd --help <command> for command details or vitastor-nbd --help --all for all details.\n"
     "\n"
-    "All usual Vitastor config options like --config_file <path_to_config> may also be specified in CLI.\n"
+    "All usual Vitastor config options like --config_path <path_to_config> may also be specified in CLI.\n"
 ;
 
 class nbd_proxy

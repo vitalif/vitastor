@@ -224,7 +224,7 @@ static const char* help_text =
     "Use vitastor-cli --help <command> for command details or vitastor-cli --help --all for all details.\n"
     "\n"
     "GLOBAL OPTIONS:\n"
-    "  --config_file FILE  Path to Vitastor configuration file\n"
+    "  --config_path FILE  Path to Vitastor configuration file\n"
     "  --etcd_address URL  Etcd connection address\n"
     "  --iodepth N         Send N operations in parallel to each OSD when possible (default 32)\n"
     "  --parallel_osds M   Work with M osds in parallel when possible (default 4)\n"

@@ -37,7 +37,7 @@ It supports the following commands:
 Global options:
 
 ```
---config_file FILE   Path to Vitastor configuration file
+--config_path FILE   Path to Vitastor configuration file
 --etcd_address URL   Etcd connection address
 --iodepth N          Send N operations in parallel to each OSD when possible (default 32)
 --parallel_osds M    Work with M osds in parallel when possible (default 4)

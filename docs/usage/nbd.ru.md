@@ -41,7 +41,7 @@ vitastor-nbd map [/dev/nbdN] --image testimg
 Для обращения по номеру инода, аналогично другим командам, можно использовать опции
 `--pool <POOL> --inode <INODE> --size <SIZE>` вместо `--image testimg`.
 
-vitastor-nbd поддерживает все обычные опции Vitastor, например, `--config_file <path_to_config>`,
+vitastor-nbd поддерживает все обычные опции Vitastor, например, `--config_path <path_to_config>`,
 плюс специфичные для NBD:
 
 * `--nbd_timeout 0` \
@@ -62,7 +62,7 @@ vitastor-nbd поддерживает все обычные опции Vitastor,
 
 Обратите внимание, что опции `nbd_timeout`, `nbd_max_devices` и `nbd_max_part` можно
 также задавать в `/etc/vitastor/vitastor.conf` или в другом файле конфигурации,
-заданном опцией `--config_file`.
+заданном опцией `--config_path`.
 
 ## unmap
 

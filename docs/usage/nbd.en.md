@@ -36,7 +36,7 @@ It will output a block device name like /dev/nbd0 which you can then use as a no
 
 You can also use `--pool <POOL> --inode <INODE> --size <SIZE>` instead of `--image <IMAGE>` if you want.
 
-vitastor-nbd supports all usual Vitastor configuration options like `--config_file <path_to_config>` plus NBD-specific:
+vitastor-nbd supports all usual Vitastor configuration options like `--config_path <path_to_config>` plus NBD-specific:
 
 * `--nbd_timeout 0` \
   Timeout for I/O operations in seconds after exceeding which the kernel stops the device.
@@ -54,7 +54,7 @@ vitastor-nbd supports all usual Vitastor configuration options like `--config_fi
   Stay in foreground, do not daemonize.
 
 Note that `nbd_timeout`, `nbd_max_devices` and `nbd_max_part` options may also be specified
-in `/etc/vitastor/vitastor.conf` or in other configuration file specified with `--config_file`.
+in `/etc/vitastor/vitastor.conf` or in other configuration file specified with `--config_path`.
 
 ## unmap
 
