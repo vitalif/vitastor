@@ -222,6 +222,14 @@ int vitastor_c_is_ready(vitastor_c *client)
     return client->cli->is_ready();
 }
 
+void vitastor_c_on_ready(vitastor_c *client, VitastorIOHandler cb, void *opaque)
+{
+    client->cli->on_ready([=]()
+    {
+        cb(opaque, 0);
+    });
+}
+
 void vitastor_c_uring_wait_ready(vitastor_c *client)
 {
     while (!client->cli->is_ready())

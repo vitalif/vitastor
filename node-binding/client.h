@@ -15,14 +15,20 @@ class NodeVitastor: public Nan::ObjectWrap
 public:
     // constructor({ ...config })
     static NAN_METHOD(Create);
-    // read(pool, inode, offset, len, callback(err, buffer, version))
+    // read(pool_id, inode, offset, len, callback(err, buffer, version))
     static NAN_METHOD(Read);
-    // write(pool, inode, offset, buf: Buffer | Buffer[], { version }?, callback(err))
+    // write(pool_id, inode, offset, buf: Buffer | Buffer[], { version }?, callback(err))
     static NAN_METHOD(Write);
     // sync(callback(err))
     static NAN_METHOD(Sync);
-    // read_bitmap(pool, inode, offset, len, with_parents, callback(err, bitmap_buffer))
+    // read_bitmap(pool_id, inode, offset, len, with_parents, callback(err, bitmap_buffer))
     static NAN_METHOD(ReadBitmap);
+    // on_ready(callback(err))
+    static NAN_METHOD(OnReady);
+    // get_min_io_size(pool_id)
+    static NAN_METHOD(GetMinIoSize);
+    // get_max_atomic_write_size(pool_id)
+    static NAN_METHOD(GetMaxAtomicWriteSize);
 //    // destroy()
 //    static NAN_METHOD(Destroy);
 
@@ -37,6 +43,7 @@ private:
 
     static void on_io_readable(uv_poll_t* handle, int status, int revents);
     static void on_read_finish(void *opaque, long retval, uint64_t version);
+    static void on_ready_finish(void *opaque, long retval);
     static void on_write_finish(void *opaque, long retval);
     static void on_read_bitmap_finish(void *opaque, long retval, uint8_t *bitmap);
 

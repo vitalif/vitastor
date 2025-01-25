@@ -267,6 +267,53 @@ static void on_error(NodeVitastorRequest *req, Nan::Callback & nanCallback, long
     nanCallback.Call(1, args, req);
 }
 
+// on_ready(callback(err))
+NAN_METHOD(NodeVitastor::OnReady)
+{
+    TRACE("NodeVitastor::OnReady");
+    if (info.Length() < 1)
+        Nan::ThrowError("Not enough arguments to on_ready(callback(err))");
+    NodeVitastor* self = Nan::ObjectWrap::Unwrap<NodeVitastor>(info.This());
+    v8::Local<v8::Function> callback = info[0].As<v8::Function>();
+    auto req = new NodeVitastorRequest(self, callback);
+    self->Ref();
+    vitastor_c_on_ready(self->c, on_ready_finish, req);
+}
+
+void NodeVitastor::on_ready_finish(void *opaque, long retval)
+{
+    TRACE("NodeVitastor::on_ready_finish");
+    auto req = (NodeVitastorRequest*)opaque;
+    auto self = req->cli;
+    Nan::HandleScope scope;
+    Nan::Callback nanCallback(Nan::New(req->callback));
+    nanCallback.Call(0, NULL, req);
+    self->Unref();
+    delete req;
+}
+
+// get_min_io_size(pool_id)
+NAN_METHOD(NodeVitastor::GetMinIoSize)
+{
+    TRACE("NodeVitastor::GetMinIoSize");
+    if (info.Length() < 1)
+        Nan::ThrowError("Not enough arguments to get_min_io_size(pool_id)");
+    NodeVitastor* self = Nan::ObjectWrap::Unwrap<NodeVitastor>(info.This());
+    uint64_t pool = get_ui64(info[0]);
+    info.GetReturnValue().Set(Nan::New<v8::Number>(vitastor_c_inode_get_bitmap_granularity(self->c, INODE_WITH_POOL(pool, 1))));
+}
+
+// get_max_atomic_write_size(pool_id)
+NAN_METHOD(NodeVitastor::GetMaxAtomicWriteSize)
+{
+    TRACE("NodeVitastor::GetMaxAtomicWriteSize");
+    if (info.Length() < 1)
+        Nan::ThrowError("Not enough arguments to get_max_atomic_write_size(pool_id)");
+    NodeVitastor* self = Nan::ObjectWrap::Unwrap<NodeVitastor>(info.This());
+    uint64_t pool = get_ui64(info[0]);
+    info.GetReturnValue().Set(Nan::New<v8::Number>(vitastor_c_inode_get_block_size(self->c, INODE_WITH_POOL(pool, 1))));
+}
+
 void NodeVitastor::on_read_finish(void *opaque, long retval, uint64_t version)
 {
     TRACE("NodeVitastor::on_read_finish");

@@ -16,6 +16,9 @@ NAN_MODULE_INIT(InitAddon)
     Nan::SetPrototypeMethod(tpl, "write", NodeVitastor::Write);
     Nan::SetPrototypeMethod(tpl, "sync", NodeVitastor::Sync);
     Nan::SetPrototypeMethod(tpl, "read_bitmap", NodeVitastor::ReadBitmap);
+    Nan::SetPrototypeMethod(tpl, "on_ready", NodeVitastor::OnReady);
+    Nan::SetPrototypeMethod(tpl, "get_min_io_size", NodeVitastor::GetMinIoSize);
+    Nan::SetPrototypeMethod(tpl, "get_max_atomic_write_size", NodeVitastor::GetMaxAtomicWriteSize);
     //Nan::SetPrototypeMethod(tpl, "destroy", NodeVitastor::Destroy);
 
     Nan::Set(target, Nan::New("Client").ToLocalChecked(), Nan::GetFunction(tpl).ToLocalChecked());
