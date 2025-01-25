@@ -165,6 +165,7 @@ resume_3:
         return;
     }
     // Check CAS version
+    // FIXME: Handle CAS writes as "immediate" in non-immediate_commit pools, otherwise CAS doesn't make sense
     if (cur_op->req.rw.version && op_data->fact_ver != (cur_op->req.rw.version-1))
     {
         deref_object_state(pg, &op_data->object_state, true);
