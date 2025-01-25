@@ -29,6 +29,8 @@ public:
     static NAN_METHOD(GetMinIoSize);
     // get_max_atomic_write_size(pool_id)
     static NAN_METHOD(GetMaxAtomicWriteSize);
+    // get_immediate_commit(pool_id)
+    static NAN_METHOD(GetImmediateCommit);
 //    // destroy()
 //    static NAN_METHOD(Destroy);
 

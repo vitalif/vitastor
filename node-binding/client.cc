@@ -314,6 +314,17 @@ NAN_METHOD(NodeVitastor::GetMaxAtomicWriteSize)
     info.GetReturnValue().Set(Nan::New<v8::Number>(vitastor_c_inode_get_block_size(self->c, INODE_WITH_POOL(pool, 1))));
 }
 
+// get_immediate_commit(pool_id)
+NAN_METHOD(NodeVitastor::GetImmediateCommit)
+{
+    TRACE("NodeVitastor::GetImmediateCommit");
+    if (info.Length() < 1)
+        Nan::ThrowError("Not enough arguments to get_immediate_commit(pool_id)");
+    NodeVitastor* self = Nan::ObjectWrap::Unwrap<NodeVitastor>(info.This());
+    uint64_t pool = get_ui64(info[0]);
+    info.GetReturnValue().Set(Nan::New<v8::Number>(vitastor_c_inode_get_immediate_commit(self->c, INODE_WITH_POOL(pool, 1))));
+}
+
 void NodeVitastor::on_read_finish(void *opaque, long retval, uint64_t version)
 {
     TRACE("NodeVitastor::on_read_finish");

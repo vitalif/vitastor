@@ -19,6 +19,7 @@ NAN_MODULE_INIT(InitAddon)
     Nan::SetPrototypeMethod(tpl, "on_ready", NodeVitastor::OnReady);
     Nan::SetPrototypeMethod(tpl, "get_min_io_size", NodeVitastor::GetMinIoSize);
     Nan::SetPrototypeMethod(tpl, "get_max_atomic_write_size", NodeVitastor::GetMaxAtomicWriteSize);
+    Nan::SetPrototypeMethod(tpl, "get_immediate_commit", NodeVitastor::GetImmediateCommit);
     //Nan::SetPrototypeMethod(tpl, "destroy", NodeVitastor::Destroy);
 
     Nan::Set(target, Nan::New("Client").ToLocalChecked(), Nan::GetFunction(tpl).ToLocalChecked());
@@ -65,6 +66,10 @@ NAN_MODULE_INIT(InitAddon)
     Nan::Set(target, Nan::New("ENOTBLK").ToLocalChecked(), Nan::New<v8::Int32>(-ENOTBLK));
     Nan::Set(target, Nan::New("ENOSYS").ToLocalChecked(), Nan::New<v8::Int32>(-ENOSYS));
     Nan::Set(target, Nan::New("EAGAIN").ToLocalChecked(), Nan::New<v8::Int32>(-EAGAIN));
+
+    Nan::Set(target, Nan::New("IMMEDIATE_NONE").ToLocalChecked(), Nan::New<v8::Int32>(IMMEDIATE_NONE));
+    Nan::Set(target, Nan::New("IMMEDIATE_SMALL").ToLocalChecked(), Nan::New<v8::Int32>(IMMEDIATE_SMALL));
+    Nan::Set(target, Nan::New("IMMEDIATE_ALL").ToLocalChecked(), Nan::New<v8::Int32>(IMMEDIATE_ALL));
 
     // Listing handle
 
