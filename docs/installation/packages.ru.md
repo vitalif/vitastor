@@ -14,6 +14,7 @@
   - Debian 12 (Bookworm/Sid): `deb https://vitastor.io/debian bookworm main`
   - Debian 11 (Bullseye): `deb https://vitastor.io/debian bullseye main`
   - Debian 10 (Buster): `deb https://vitastor.io/debian buster main`
+  - Ubuntu 22.04 (Jammy): `deb https://vitastor.io/debian jammy main`
   - Добавьте `-oldstable` к слову bookworm/bullseye/buster в этой строке, чтобы
     установить последнюю стабильную версию из ветки 0.9.x вместо 1.x
 - Установите пакеты: `apt update; apt install vitastor lp-solve etcd linux-image-amd64 qemu-system-x86`
