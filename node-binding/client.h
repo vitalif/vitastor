@@ -15,13 +15,15 @@ class NodeVitastor: public Nan::ObjectWrap
 public:
     // constructor({ ...config })
     static NAN_METHOD(Create);
-    // read(pool_id, inode, offset, len, callback(err, buffer, version))
+    // read(pool_id, inode, offset, length, callback(err, buffer, version))
     static NAN_METHOD(Read);
     // write(pool_id, inode, offset, buf: Buffer | Buffer[], { version }?, callback(err))
     static NAN_METHOD(Write);
+    // delete(pool_id, inode, offset, length, { version }?, callback(err))
+    static NAN_METHOD(Delete);
     // sync(callback(err))
     static NAN_METHOD(Sync);
-    // read_bitmap(pool_id, inode, offset, len, with_parents, callback(err, bitmap_buffer))
+    // read_bitmap(pool_id, inode, offset, length, with_parents, callback(err, bitmap_buffer))
     static NAN_METHOD(ReadBitmap);
     // on_ready(callback(err))
     static NAN_METHOD(OnReady);
@@ -51,6 +53,7 @@ private:
 
     NodeVitastorRequest* get_read_request(const Nan::FunctionCallbackInfo<v8::Value> & info, int argpos);
     NodeVitastorRequest* get_write_request(const Nan::FunctionCallbackInfo<v8::Value> & info, int argpos);
+    NodeVitastorRequest* get_delete_request(const Nan::FunctionCallbackInfo<v8::Value> & info, int argpos);
 
     friend class NodeVitastorImage;
     friend class NodeVitastorKV;
@@ -62,13 +65,15 @@ class NodeVitastorImage: public Nan::ObjectWrap
 public:
     // constructor(node_vitastor, name)
     static NAN_METHOD(Create);
-    // read(offset, len, callback(err, buffer, version))
+    // read(offset, length, callback(err, buffer, version))
     static NAN_METHOD(Read);
     // write(offset, buf: Buffer | Buffer[], { version }?, callback(err))
     static NAN_METHOD(Write);
+    // delete(offset, length, { version }?, callback(err))
+    static NAN_METHOD(Delete);
     // sync(callback(err))
     static NAN_METHOD(Sync);
-    // read_bitmap(offset, len, with_parents, callback(err, bitmap_buffer))
+    // read_bitmap(offset, length, with_parents, callback(err, bitmap_buffer))
     static NAN_METHOD(ReadBitmap);
     // get_info(callback({ num, name, size, parent_id?, readonly?, meta?, mod_revision, block_size, bitmap_granularity, immediate_commit }))
     static NAN_METHOD(GetInfo);
@@ -129,7 +134,7 @@ class NodeVitastorKVListing: public Nan::ObjectWrap
 public:
     // constructor(node_vitastor_kv, start_key?)
     static NAN_METHOD(Create);
-    // next(callback(err, value)?)
+    // next(callback(err, key, value)?)
     static NAN_METHOD(Next);
     // close()
     static NAN_METHOD(Close);

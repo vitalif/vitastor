@@ -14,6 +14,7 @@ NAN_MODULE_INIT(InitAddon)
 
     Nan::SetPrototypeMethod(tpl, "read", NodeVitastor::Read);
     Nan::SetPrototypeMethod(tpl, "write", NodeVitastor::Write);
+    Nan::SetPrototypeMethod(tpl, "delete", NodeVitastor::Delete);
     Nan::SetPrototypeMethod(tpl, "sync", NodeVitastor::Sync);
     Nan::SetPrototypeMethod(tpl, "read_bitmap", NodeVitastor::ReadBitmap);
     Nan::SetPrototypeMethod(tpl, "on_ready", NodeVitastor::OnReady);

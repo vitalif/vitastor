@@ -5,9 +5,10 @@
 
 #define NODE_VITASTOR_READ 1
 #define NODE_VITASTOR_WRITE 2
-#define NODE_VITASTOR_SYNC 3
-#define NODE_VITASTOR_READ_BITMAP 4
-#define NODE_VITASTOR_GET_INFO 5
+#define NODE_VITASTOR_DELETE 3
+#define NODE_VITASTOR_SYNC 4
+#define NODE_VITASTOR_READ_BITMAP 5
+#define NODE_VITASTOR_GET_INFO 6
 
 #ifndef INODE_POOL
 #define INODE_POOL(inode) (uint32_t)((inode) >> (64 - POOL_ID_BITS))
@@ -133,12 +134,12 @@ NodeVitastorRequest* NodeVitastor::get_read_request(const Nan::FunctionCallbackI
     return req;
 }
 
-// read(pool, inode, offset, len, callback(err, buffer, version))
+// read(pool, inode, offset, length, callback(err, buffer, version))
 NAN_METHOD(NodeVitastor::Read)
 {
     TRACE("NodeVitastor::Read");
     if (info.Length() < 5)
-        Nan::ThrowError("Not enough arguments to read(pool, inode, offset, len, callback(err, buffer, version))");
+        Nan::ThrowError("Not enough arguments to read(pool, inode, offset, length, callback(err, buffer, version))");
 
     NodeVitastor* self = Nan::ObjectWrap::Unwrap<NodeVitastor>(info.This());
 
@@ -219,6 +220,52 @@ NAN_METHOD(NodeVitastor::Write)
         on_write_finish, req);
 }
 
+NodeVitastorRequest* NodeVitastor::get_delete_request(const Nan::FunctionCallbackInfo<v8::Value> & info, int argpos)
+{
+    uint64_t offset = get_ui64(info[argpos+0]);
+    uint64_t len = get_ui64(info[argpos+1]);
+    uint64_t version = 0;
+    if (!info[argpos+2].IsEmpty() &&
+        !info[argpos+2]->IsFunction() &&
+        info[argpos+2]->IsObject())
+    {
+        auto key = Nan::New<v8::String>("version").ToLocalChecked();
+        auto params = info[argpos+2].As<v8::Object>();
+        auto versionObj = Nan::Get(params, key).ToLocalChecked();
+        if (!versionObj.IsEmpty())
+            version = get_ui64(versionObj);
+        argpos++;
+    }
+
+    v8::Local<v8::Function> callback = info[argpos+2].As<v8::Function>();
+    auto req = new NodeVitastorRequest(this, callback);
+
+    req->offset = offset;
+    req->len = len;
+    req->version = version;
+
+    return req;
+}
+
+// delete(pool, inode, offset, length, { version }?, callback(err))
+NAN_METHOD(NodeVitastor::Delete)
+{
+    TRACE("NodeVitastor::Delete");
+    if (info.Length() < 5)
+        Nan::ThrowError("Not enough arguments to delete(pool, inode, offset, length, { version }?, callback(err))");
+
+    NodeVitastor* self = Nan::ObjectWrap::Unwrap<NodeVitastor>(info.This());
+
+    uint64_t pool = get_ui64(info[0]);
+    uint64_t inode = get_ui64(info[1]);
+
+    auto req = self->get_delete_request(info, 2);
+
+    self->Ref();
+    vitastor_c_delete(self->c, ((pool << (64-POOL_ID_BITS)) | inode), req->offset, req->len, req->version,
+        on_write_finish, req);
+}
+
 // sync(callback(err))
 NAN_METHOD(NodeVitastor::Sync)
 {
@@ -235,12 +282,12 @@ NAN_METHOD(NodeVitastor::Sync)
     vitastor_c_sync(self->c, on_write_finish, req);
 }
 
-// read_bitmap(pool, inode, offset, len, with_parents, callback(err, bitmap_buffer))
+// read_bitmap(pool, inode, offset, length, with_parents, callback(err, bitmap_buffer))
 NAN_METHOD(NodeVitastor::ReadBitmap)
 {
     TRACE("NodeVitastor::ReadBitmap");
     if (info.Length() < 6)
-        Nan::ThrowError("Not enough arguments to read_bitmap(pool, inode, offset, len, with_parents, callback(err, bitmap_buffer))");
+        Nan::ThrowError("Not enough arguments to read_bitmap(pool, inode, offset, length, with_parents, callback(err, bitmap_buffer))");
 
     NodeVitastor* self = Nan::ObjectWrap::Unwrap<NodeVitastor>(info.This());
 
@@ -436,12 +483,12 @@ NodeVitastorImage::~NodeVitastorImage()
     cli->Unref();
 }
 
-// read(offset, len, callback(err, buffer, version))
+// read(offset, length, callback(err, buffer, version))
 NAN_METHOD(NodeVitastorImage::Read)
 {
     TRACE("NodeVitastorImage::Read");
     if (info.Length() < 3)
-        Nan::ThrowError("Not enough arguments to read(offset, len, callback(err, buffer, version))");
+        Nan::ThrowError("Not enough arguments to read(offset, length, callback(err, buffer, version))");
 
     NodeVitastorImage* img = Nan::ObjectWrap::Unwrap<NodeVitastorImage>(info.This());
 
@@ -452,18 +499,34 @@ NAN_METHOD(NodeVitastorImage::Read)
     img->exec_or_wait(req);
 }
 
-// write(offset, buffer, { version }?, callback(err))
+// write(offset, buf: Buffer | Buffer[], { version }?, callback(err))
 NAN_METHOD(NodeVitastorImage::Write)
 {
     TRACE("NodeVitastorImage::Write");
     if (info.Length() < 3)
-        Nan::ThrowError("Not enough arguments to write(offset, buffer, { version }?, callback(err))");
+        Nan::ThrowError("Not enough arguments to write(offset, buf: Buffer | Buffer[], { version }?, callback(err))");
 
     NodeVitastorImage* img = Nan::ObjectWrap::Unwrap<NodeVitastorImage>(info.This());
 
     auto req = img->cli->get_write_request(info, 0);
     req->img = img;
     req->op = NODE_VITASTOR_WRITE;
+
+    img->exec_or_wait(req);
+}
+
+// delete(offset, length, { version }?, callback(err))
+NAN_METHOD(NodeVitastorImage::Delete)
+{
+    TRACE("NodeVitastorImage::Delete");
+    if (info.Length() < 3)
+        Nan::ThrowError("Not enough arguments to delete(offset, length, { version }?, callback(err))");
+
+    NodeVitastorImage* img = Nan::ObjectWrap::Unwrap<NodeVitastorImage>(info.This());
+
+    auto req = img->cli->get_delete_request(info, 0);
+    req->img = img;
+    req->op = NODE_VITASTOR_DELETE;
 
     img->exec_or_wait(req);
 }
@@ -485,12 +548,12 @@ NAN_METHOD(NodeVitastorImage::Sync)
     img->exec_or_wait(req);
 }
 
-// read_bitmap(offset, len, with_parents, callback(err, bitmap_buffer))
+// read_bitmap(offset, length, with_parents, callback(err, bitmap_buffer))
 NAN_METHOD(NodeVitastorImage::ReadBitmap)
 {
     TRACE("NodeVitastorImage::ReadBitmap");
     if (info.Length() < 4)
-        Nan::ThrowError("Not enough arguments to read_bitmap(offset, len, with_parents, callback(err, bitmap_buffer))");
+        Nan::ThrowError("Not enough arguments to read_bitmap(offset, length, with_parents, callback(err, bitmap_buffer))");
 
     NodeVitastorImage* img = Nan::ObjectWrap::Unwrap<NodeVitastorImage>(info.This());
 
@@ -554,6 +617,13 @@ void NodeVitastorImage::exec_request(NodeVitastorRequest *req)
         vitastor_c_write(cli->c, ino, req->offset, req->len, req->version,
             req->iov_list.size() ? req->iov_list.data() : &req->iov,
             req->iov_list.size() ? req->iov_list.size() : 1,
+            NodeVitastor::on_write_finish, req);
+    }
+    else if (req->op == NODE_VITASTOR_DELETE)
+    {
+        uint64_t ino = vitastor_c_inode_get_num(watch);
+        cli->Ref();
+        vitastor_c_delete(cli->c, ino, req->offset, req->len, req->version,
             NodeVitastor::on_write_finish, req);
     }
     else if (req->op == NODE_VITASTOR_SYNC)
@@ -967,7 +1037,7 @@ NodeVitastorKVListing::~NodeVitastorKVListing()
     kv->Unref();
 }
 
-// next(callback(err, value)?)
+// next(callback(err, key, value)?)
 NAN_METHOD(NodeVitastorKVListing::Next)
 {
     TRACE("NodeVitastorKVListing::Next");

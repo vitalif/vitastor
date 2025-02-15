@@ -307,6 +307,23 @@ void vitastor_c_write(vitastor_c *client, uint64_t inode, uint64_t offset, uint6
     client->cli->execute(op);
 }
 
+void vitastor_c_delete(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len, uint64_t check_version,
+    VitastorIOHandler cb, void *opaque)
+{
+    cluster_op_t *op = new cluster_op_t;
+    op->opcode = OSD_OP_DELETE;
+    op->inode = inode;
+    op->offset = offset;
+    op->len = len;
+    op->version = check_version;
+    op->callback = [cb, opaque](cluster_op_t *op)
+    {
+        cb(opaque, op->retval);
+        delete op;
+    };
+    client->cli->execute(op);
+}
+
 void vitastor_c_read_bitmap(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
     int with_parents, VitastorReadBitmapHandler cb, void *opaque)
 {
