@@ -673,7 +673,7 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
         }
         // Just copy and acknowledge the operation
         wb->copy_write(op, CACHE_DIRTY);
-        while (wb->writeback_bytes + op->len > client_max_buffered_bytes || wb->writeback_queue_size > client_max_buffered_ops)
+        while (wb->writeback_bytes > client_max_buffered_bytes || wb->writeback_queue_size > client_max_buffered_ops)
         {
             // Initiate some writeback (asynchronously)
             wb->start_writebacks(this, 1);

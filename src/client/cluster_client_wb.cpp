@@ -105,7 +105,10 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
                 (*dirty_it->second.refcnt)++;
                 if (dirty_it->second.state == CACHE_DIRTY)
                 {
-                    writeback_bytes -= op->len;
+                    if (dirty_it->second.buf)
+                    {
+                        writeback_bytes -= op->len;
+                    }
                     writeback_queue_size++;
                 }
                 break;
@@ -115,7 +118,10 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
                 // Only leave the beginning
                 if (dirty_it->second.state == CACHE_DIRTY)
                 {
-                    writeback_bytes -= old_end - op->offset;
+                    if (dirty_it->second.buf)
+                    {
+                        writeback_bytes -= old_end - op->offset;
+                    }
                     if (is_right_merged(dirty_it))
                     {
                         writeback_queue_size++;
@@ -130,7 +136,10 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
             // Only leave the end
             if (dirty_it->second.state == CACHE_DIRTY)
             {
-                writeback_bytes -= new_end - dirty_it->first.stripe;
+                if (dirty_it->second.buf)
+                {
+                    writeback_bytes -= new_end - dirty_it->first.stripe;
+                }
                 if (is_left_merged(dirty_it))
                 {
                     writeback_queue_size++;
@@ -155,7 +164,10 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
             // Remove the whole buffer
             if (dirty_it->second.state == CACHE_DIRTY)
             {
-                writeback_bytes -= dirty_it->second.len;
+                if (dirty_it->second.buf)
+                {
+                    writeback_bytes -= dirty_it->second.len;
+                }
                 bool lm = is_left_merged(dirty_it);
                 bool rm = is_right_merged(dirty_it);
                 if (!lm && !rm)
@@ -387,6 +399,7 @@ void writeback_cache_t::start_writebacks(cluster_client_t *cli, int count)
         assert(writeback_queue_size > 0);
         writeback_queue_size--;
         writeback_bytes -= off - from_it->first.stripe;
+        assert(writeback_queue_size > 0 || !writeback_bytes);
         flush_buffers(cli, from_it, to_it);
     }
     queue_copy.erase(queue_copy.begin(), queue_copy.begin()+i);
