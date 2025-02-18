@@ -1,8 +1,10 @@
 # Build patched QEMU for Debian inside a container
 # cd ..; podman build --build-arg REL=bullseye -v `pwd`/packages:/root/packages -f debian/patched-qemu.Dockerfile .
 
+ARG DISTRO=debian
 ARG REL=
-FROM debian:$REL
+FROM $DISTRO:$REL
+ARG DISTRO=debian
 ARG REL=
 
 WORKDIR /root
@@ -20,8 +22,8 @@ RUN if [ "$REL" = "buster" -o "$REL" = "bullseye" -o "$REL" = "bookworm" ]; then
     echo 'APT::Install-Suggests false;' >> /etc/apt/apt.conf
 
 RUN apt-get update
-RUN apt-get -y install fio liburing-dev libgoogle-perftools-dev devscripts
-RUN apt-get -y build-dep qemu
+RUN DEBIAN_FRONTEND=noninteractive TZ=Europe/Moscow apt-get -y install fio liburing-dev libgoogle-perftools-dev devscripts
+RUN DEBIAN_FRONTEND=noninteractive TZ=Europe/Moscow apt-get -y build-dep qemu
 # To build a custom version
 #RUN cp /root/packages/qemu-orig/* /root
 RUN apt-get --download-only source qemu
@@ -38,9 +40,9 @@ ADD src/client/qemu_driver.c /root/qemu_driver.c
 #    apt-get install -y vitastor-client vitastor-client-dev quilt
 
 RUN set -e; \
-    dpkg -i /root/packages/vitastor-$REL/vitastor-client_*.deb /root/packages/vitastor-$REL/vitastor-client-dev_*.deb; \
+    DEBIAN_FRONTEND=noninteractive TZ=Europe/Moscow apt-get -y install /root/packages/vitastor-$REL/vitastor-client_*.deb /root/packages/vitastor-$REL/vitastor-client-dev_*.deb; \
     apt-get update; \
-    apt-get install -y quilt; \
+    DEBIAN_FRONTEND=noninteractive TZ=Europe/Moscow apt-get -y install quilt; \
     mkdir -p /root/packages/qemu-$REL; \
     rm -rf /root/packages/qemu-$REL/*; \
     cd /root/packages/qemu-$REL; \
