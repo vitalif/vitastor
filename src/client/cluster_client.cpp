@@ -309,16 +309,17 @@ void cluster_client_t::erase_op(cluster_op_t *op)
     }
     if (flags & OP_FLUSH_BUFFER)
     {
+        auto overflow = std::move(wb->writeback_overflow);
         int i = 0;
-        while (i < wb->writeback_overflow.size() && wb->writebacks_active < client_max_writeback_iodepth)
+        while (i < overflow.size() && wb->writebacks_active < client_max_writeback_iodepth)
         {
-            execute_internal(wb->writeback_overflow[i]);
+            execute_internal(overflow[i]);
             i++;
         }
         if (i > 0)
-        {
-            wb->writeback_overflow.erase(wb->writeback_overflow.begin(), wb->writeback_overflow.begin()+i);
-        }
+            overflow.erase(overflow.begin(), overflow.begin()+i);
+        assert(!wb->writeback_overflow.size());
+        wb->writeback_overflow.swap(overflow);
     }
 }
 
