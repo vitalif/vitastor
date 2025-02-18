@@ -480,10 +480,76 @@ void test_writeback()
     printf("[ok] writeback test\n");
 }
 
+static void copy_write_for_test(writeback_cache_t *wb, uint64_t offset, uint64_t len, int state, uint64_t new_flush_id)
+{
+    void *buf = malloc_or_die(len);
+    cluster_op_t *op = new cluster_op_t();
+    op->opcode = OSD_OP_WRITE;
+    op->inode = 0x1000000000001;
+    op->offset = offset;
+    op->len = len;
+    op->iov.push_back(buf, len);
+    wb->copy_write(op, state, new_flush_id);
+    delete op;
+    free(buf);
+}
+
+void test_writeback_merge()
+{
+    writeback_cache_t *wb = new writeback_cache_t;
+    // [1000..3000]
+    copy_write_for_test(wb, 1000, 2000, CACHE_DIRTY, 0);
+    assert(wb->writeback_bytes == 2000);
+    assert(wb->writeback_queue_size == 1);
+    // [1000..3000][3000..4000]
+    copy_write_for_test(wb, 3000, 1000, CACHE_DIRTY, 0);
+    assert(wb->writeback_bytes == 3000);
+    assert(wb->writeback_queue_size == 1);
+    // [1000..3000][3000..4000], [5000..6000]
+    copy_write_for_test(wb, 5000, 1000, CACHE_DIRTY, 0);
+    assert(wb->writeback_bytes == 4000);
+    assert(wb->writeback_queue_size == 2);
+    // [1000..2500], [3500..4000], [5000..6000]
+    copy_write_for_test(wb, 2500, 1000, CACHE_WRITTEN, 0);
+    assert(wb->writeback_bytes == 3000);
+    assert(wb->writeback_queue_size == 3);
+    // [1000..2500], [3500..4000][4000...5000][5000..6000]
+    copy_write_for_test(wb, 4000, 1000, CACHE_DIRTY, 0);
+    assert(wb->writeback_bytes == 4000);
+    assert(wb->writeback_queue_size == 2);
+    // [1000..2500], [3500..4500][4500...5000][5000..6000]
+    copy_write_for_test(wb, 3500, 1000, CACHE_DIRTY, 0);
+    assert(wb->writeback_bytes == 4000);
+    assert(wb->writeback_queue_size == 2);
+    // [1000..2500], [3500..4500], [5000..6000]
+    copy_write_for_test(wb, 4500, 500, CACHE_WRITTEN, 0);
+    assert(wb->writeback_bytes == 3500);
+    assert(wb->writeback_queue_size == 3);
+    // [1000..2500][2500..3500][3500..4500], [5000..6000]
+    copy_write_for_test(wb, 2500, 1000, CACHE_DIRTY, 0);
+    assert(wb->writeback_bytes == 4500);
+    assert(wb->writeback_queue_size == 2);
+    // [1000..2500][2500..3500][3500..4500], [5500..6000]
+    copy_write_for_test(wb, 5000, 500, CACHE_WRITTEN, 0);
+    assert(wb->writeback_bytes == 4000);
+    assert(wb->writeback_queue_size == 2);
+    // [1000..2500][2500..3500][3500..4000], [5500..6000]
+    copy_write_for_test(wb, 4000, 1000, CACHE_WRITTEN, 0);
+    assert(wb->writeback_bytes == 3500);
+    assert(wb->writeback_queue_size == 2);
+    // [1000..2500][2500..3500][3500..4000][4000..5500][5500..6000]
+    copy_write_for_test(wb, 4000, 1500, CACHE_DIRTY, 0);
+    assert(wb->writeback_bytes == 5000);
+    assert(wb->writeback_queue_size == 1);
+    delete wb;
+    printf("[ok] writeback merge test\n");
+}
+
 int main(int narg, char *args[])
 {
     test1();
     test2();
     test_writeback();
+    test_writeback_merge();
     return 0;
 }

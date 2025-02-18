@@ -68,11 +68,6 @@ bool writeback_cache_t::is_right_merged(dirty_buf_it_t dirty_it)
     return false;
 }
 
-bool writeback_cache_t::is_merged(const dirty_buf_it_t & dirty_it)
-{
-    return is_left_merged(dirty_it) || is_right_merged(dirty_it);
-}
-
 void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flush_id)
 {
     // Save operation for replay when one of PGs goes out of sync
@@ -121,7 +116,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
                 if (dirty_it->second.state == CACHE_DIRTY)
                 {
                     writeback_bytes -= old_end - op->offset;
-                    if (is_left_merged(dirty_it) && !is_right_merged(dirty_it))
+                    if (is_right_merged(dirty_it))
                     {
                         writeback_queue_size++;
                     }
@@ -136,7 +131,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
             if (dirty_it->second.state == CACHE_DIRTY)
             {
                 writeback_bytes -= new_end - dirty_it->first.stripe;
-                if (!is_left_merged(dirty_it) && is_right_merged(dirty_it))
+                if (is_left_merged(dirty_it))
                 {
                     writeback_queue_size++;
                 }
@@ -158,11 +153,20 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
         else
         {
             // Remove the whole buffer
-            if (dirty_it->second.state == CACHE_DIRTY && !is_merged(dirty_it))
+            if (dirty_it->second.state == CACHE_DIRTY)
             {
                 writeback_bytes -= dirty_it->second.len;
-                assert(writeback_queue_size > 0);
-                writeback_queue_size--;
+                bool lm = is_left_merged(dirty_it);
+                bool rm = is_right_merged(dirty_it);
+                if (!lm && !rm)
+                {
+                    assert(writeback_queue_size > 0);
+                    writeback_queue_size--;
+                }
+                else if (lm && rm)
+                {
+                    writeback_queue_size++;
+                }
             }
             if (!--(*dirty_it->second.refcnt))
             {
@@ -190,7 +194,9 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
     {
         writeback_bytes += is_del ? 0 : op->len;
         // Track consecutive write-back operations
-        if (!is_merged(dirty_it))
+        bool lm = is_left_merged(dirty_it);
+        bool rm = is_right_merged(dirty_it);
+        if (!lm && !rm)
         {
             // <writeback_queue> is OK to contain more than actual number of consecutive
             // requests as long as it doesn't miss anything. But <writeback_queue_size>
@@ -200,6 +206,11 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
                 .inode = op->inode,
                 .stripe = op->offset,
             });
+        }
+        else if (lm && rm)
+        {
+            assert(writeback_queue_size > 0);
+            writeback_queue_size--;
         }
     }
     if (!is_del)
