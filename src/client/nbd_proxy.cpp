@@ -381,8 +381,9 @@ public:
             }
             else if (pos == 1)
             {
+                char c = 0;
                 int n = 0;
-                if (sscanf(args[i], "/dev/nbd%d", &n) > 0)
+                if (sscanf(args[i], "/dev/nbd%d%c", &n, &c) == 1)
                     cfg["dev_num"] = n;
                 else
                     cfg["dev_num"] = args[i];
@@ -404,18 +405,14 @@ public:
         }
         else if (cfg["command"] == "unmap")
         {
-            if (cfg["dev_num"].is_null())
+            if (!cfg["dev_num"].is_number() &&
+                cfg["dev_num"].string_value() != "0" &&
+                !cfg["dev_num"].uint64_value())
             {
                 fprintf(stderr, "device name or number is missing\n");
                 exit(1);
             }
-            if (cfg["netlink"].is_null())
-            {
-                ioctl_unmap(cfg["dev_num"].uint64_value());
-            }
-            else
-            {
-            }
+            ioctl_unmap(cfg["dev_num"].uint64_value());
         }
 #ifdef HAVE_NBD_NETLINK_H
         else if (cfg["command"] == "netlink-map")
