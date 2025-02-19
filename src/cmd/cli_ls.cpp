@@ -546,7 +546,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_ls(json11::Json cfg)
     lister->list_pool_name = lister->list_pool_id ? "" : cfg["pool"].as_string();
     lister->show_stats = cfg["long"].bool_value();
     lister->show_delete = cfg["del"].bool_value();
-    lister->sort_field = cfg["sort"].string_value();
+    lister->sort_field = cfg["sort"].string_value() != "" ? cfg["sort"].string_value() : "name";
     lister->reverse = cfg["reverse"].bool_value();
     lister->max_count = cfg["count"].uint64_value();
     for (auto & item: cfg["names"].array_items())
