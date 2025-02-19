@@ -256,6 +256,7 @@ resume_2:
     }
     if (entries_to_zero.size() && !bs->inmemory_meta && !bs->readonly)
     {
+        std::sort(entries_to_zero.begin(), entries_to_zero.end());
         // we have to zero out additional entries
         for (i = 0; i < entries_to_zero.size(); )
         {
@@ -338,6 +339,15 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
                 if (*entry_csum != crc32c(0, entry, bs->dsk.clean_entry_size - 4))
                 {
                     printf("Metadata entry %ju is corrupt (checksum mismatch), skipping\n", done_cnt+i);
+                    // zero out the invalid entry, otherwise we'll hit "tried to overwrite non-zero metadata entry" later
+                    if (bs->inmemory_meta)
+                    {
+                        memset(entry, 0, bs->dsk.clean_entry_size);
+                    }
+                    else
+                    {
+                        entries_to_zero.push_back(done_cnt+i);
+                    }
                     continue;
                 }
             }
