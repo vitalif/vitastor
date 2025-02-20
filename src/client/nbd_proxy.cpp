@@ -617,36 +617,43 @@ help:
         {
             if (!cfg["dev_num"].is_null())
             {
-                if (run_nbd(sockfd, cfg["dev_num"].int64_value(), device_size, NBD_FLAG_SEND_FLUSH, nbd_timeout, bg) < 0)
+                int r;
+                if ((r = run_nbd(sockfd, cfg["dev_num"].int64_value(), device_size, NBD_FLAG_SEND_FLUSH, nbd_timeout, bg)) != 0)
                 {
-                    perror("run_nbd");
+                    fprintf(stderr, "run_nbd: %s\n", strerror(-r));
                     exit(1);
                 }
             }
             else
             {
                 // Find an unused device
+                auto mapped = list_mapped();
                 int i = 0;
                 while (true)
                 {
+                    if (mapped.find("/dev/nbd"+std::to_string(i)) != mapped.end())
+                    {
+                        i++;
+                        continue;
+                    }
                     int r = run_nbd(sockfd, i, device_size, NBD_FLAG_SEND_FLUSH, nbd_timeout, bg);
                     if (r == 0)
                     {
                         printf("/dev/nbd%d\n", i);
                         break;
                     }
-                    else if (r == -1 && errno == ENOENT)
+                    else if (r == -ENOENT)
                     {
                         fprintf(stderr, "No free NBD devices found\n");
                         exit(1);
                     }
-                    else if (r == -2 && errno == EBUSY)
+                    else if (r == -EBUSY)
                     {
                         i++;
                     }
                     else
                     {
-                        perror("run_nbd");
+                        fprintf(stderr, "run_nbd: %s\n", strerror(-r));
                         exit(1);
                     }
                 }
@@ -702,13 +709,21 @@ help:
             ringloop->loop();
             ringloop->wait();
         }
-        cli->flush();
-        delete cli;
-        delete epmgr;
-        delete ringloop;
-        cli = NULL;
-        epmgr = NULL;
-        ringloop = NULL;
+        destroy_client();
+    }
+
+    void destroy_client()
+    {
+        if (cli)
+        {
+            cli->flush();
+            delete cli;
+            delete epmgr;
+            delete ringloop;
+            cli = NULL;
+            epmgr = NULL;
+            ringloop = NULL;
+        }
     }
 
     void load_module()
@@ -876,81 +891,115 @@ protected:
         // Check handle size
         assert(sizeof(cur_req.handle) == 8);
         char path[64] = { 0 };
-        sprintf(path, "/dev/nbd%d", dev_num);
-        int r, nbd = open(path, O_RDWR), qd_fd;
-        if (nbd < 0)
+        int notifyfd[2] = { 0 };
+        if (socketpair(AF_UNIX, SOCK_STREAM, 0, notifyfd) < 0)
         {
-            return -1;
+            return -errno;
         }
-        r = ioctl(nbd, NBD_SET_SOCK, sockfd[1]);
-        if (r < 0)
+        if (!fork())
         {
-            goto end_close;
-        }
-        r = ioctl(nbd, NBD_SET_BLKSIZE, 4096);
-        if (r < 0)
-        {
-            goto end_unmap;
-        }
-        r = ioctl(nbd, NBD_SET_SIZE, size);
-        if (r < 0)
-        {
-            goto end_unmap;
-        }
-        ioctl(nbd, NBD_SET_FLAGS, flags);
-        if (timeout > 0)
-        {
-            r = ioctl(nbd, NBD_SET_TIMEOUT, (unsigned long)timeout);
+            // Do all NBD configuration in the child process, after the last fork.
+            // Why? It's needed because there is a race condition in the Linux kernel nbd driver
+            // in nbd_add_socket() - it saves `current` task pointer as `nbd->task_setup` and
+            // then rechecks if the new `current` is the same. Problem is that if that process
+            // is already dead, `current` may be freed and then replaced by another process
+            // with the same pointer value. So the check passes and NBD allows a different process
+            // to set up a device which is already set up. Proper fix would have to be done in the
+            // kernel code, but the workaround is obviously to perform NBD setup from the process
+            // which will then actually call NBD_DO_IT. That process stays alive during the whole
+            // time of NBD device execution and the (nbd->task_setup != current) check always
+            // works correctly, and we don't accidentally break previous NBD devices while setting
+            // up a new device. Forking to check every device is of course rather slow, so we also
+            // do an additional check by calling list_mapped() before searching for a free NBD device.
+            destroy_client();
+            if (bg)
+            {
+                daemonize_fork();
+            }
+            close(notifyfd[0]);
+            sprintf(path, "/dev/nbd%d", dev_num);
+            int r, nbd = open(path, O_RDWR), qd_fd;
+            if (nbd < 0)
+            {
+                write(notifyfd[1], &errno, sizeof(errno));
+                exit(1);
+            }
+            r = ioctl(nbd, NBD_SET_SOCK, sockfd[1]);
+            if (r < 0)
+            {
+                goto end_close;
+            }
+            r = ioctl(nbd, NBD_SET_BLKSIZE, 4096);
             if (r < 0)
             {
                 goto end_unmap;
             }
-        }
-        // Configure request size
-        sprintf(path, "/sys/block/nbd%d/queue/max_sectors_kb", dev_num);
-        qd_fd = open(path, O_WRONLY);
-        if (qd_fd < 0)
-        {
-            goto end_unmap;
-        }
-        r = write(qd_fd, "32768", 5);
-        if (r != 5)
-        {
-            fprintf(stderr, "Warning: Failed to configure max_sectors_kb\n");
-        }
-        close(qd_fd);
-        if (!fork())
-        {
-            // Run in child
+            r = ioctl(nbd, NBD_SET_SIZE, size);
+            if (r < 0)
+            {
+                goto end_unmap;
+            }
+            ioctl(nbd, NBD_SET_FLAGS, flags);
+            if (timeout > 0)
+            {
+                r = ioctl(nbd, NBD_SET_TIMEOUT, (unsigned long)timeout);
+                if (r < 0)
+                {
+                    goto end_unmap;
+                }
+            }
+            // Configure request size
+            sprintf(path, "/sys/block/nbd%d/queue/max_sectors_kb", dev_num);
+            qd_fd = open(path, O_WRONLY);
+            if (qd_fd < 0)
+            {
+                goto end_unmap;
+            }
+            r = write(qd_fd, "32768", 5);
+            if (r != 5)
+            {
+                fprintf(stderr, "Warning: Failed to configure max_sectors_kb\n");
+            }
+            close(qd_fd);
+            // Notify parent
+            errno = 0;
+            write(notifyfd[1], &errno, sizeof(errno));
+            close(notifyfd[1]);
             close(sockfd[0]);
             if (bg)
             {
-                daemonize();
+                daemonize_reopen_stdio();
             }
             r = ioctl(nbd, NBD_DO_IT);
             if (r < 0)
             {
-                fprintf(stderr, "NBD device terminated with error: %s\n", strerror(errno));
+                fprintf(stderr, "NBD device /dev/nbd%d terminated with error: %s\n", dev_num, strerror(errno));
             }
             close(sockfd[1]);
             ioctl(nbd, NBD_CLEAR_QUE);
             ioctl(nbd, NBD_CLEAR_SOCK);
             exit(0);
-        }
-        close(sockfd[1]);
-        close(nbd);
-        return 0;
     end_close:
-        r = errno;
-        close(nbd);
-        errno = r;
-        return -2;
+            write(notifyfd[1], &errno, sizeof(errno));
+            close(nbd);
+            exit(2);
     end_unmap:
-        r = errno;
-        ioctl(nbd, NBD_CLEAR_SOCK);
-        close(nbd);
-        errno = r;
-        return -3;
+            write(notifyfd[1], &errno, sizeof(errno));
+            ioctl(nbd, NBD_CLEAR_SOCK);
+            close(nbd);
+            exit(3);
+        }
+        // Parent - check status
+        close(notifyfd[1]);
+        int child_errno = 0;
+        int ok = read(notifyfd[0], &child_errno, sizeof(child_errno));
+        close(notifyfd[0]);
+        if (ok && !child_errno)
+        {
+            close(sockfd[1]);
+            return 0;
+        }
+        return -child_errno;
     }
 
     void submit_send()
