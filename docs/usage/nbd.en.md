@@ -61,8 +61,10 @@ in `/etc/vitastor/vitastor.conf` or in other configuration file specified with `
 To unmap the device run:
 
 ```
-vitastor-nbd unmap /dev/nbd0
+vitastor-nbd unmap [--force] /dev/nbd0
 ```
+
+If `--force` is specified, `vitastor-nbd` doesn't check if the device is actually mapped.
 
 ## ls
 

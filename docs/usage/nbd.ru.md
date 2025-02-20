@@ -69,8 +69,11 @@ vitastor-nbd поддерживает все обычные опции Vitastor,
 Для отключения устройства выполните:
 
 ```
-vitastor-nbd unmap /dev/nbd0
+vitastor-nbd unmap [--force] /dev/nbd0
 ```
+
+Если задана опция `--force`, `vitastor-nbd` не проверяет, подключено ли устройство,
+перед попыткой его отключить.
 
 ## ls
 

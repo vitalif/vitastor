@@ -275,8 +275,8 @@ const char *help_text =
     "  --foreground 1\n"
     "    Stay in foreground, do not daemonize.\n"
     "\n"
-    "vitastor-nbd unmap /dev/nbdN\n"
-    "  Unmap an ioctl-mapped NBD device.\n"
+    "vitastor-nbd unmap [--force] /dev/nbdN\n"
+    "  Unmap an ioctl-mapped NBD device. Do not check if it's actually mapped if --force is specified.\n"
     "\n"
     "vitastor-nbd ls [--json]\n"
     "  List ioctl-mapped Vitastor NBD devices, optionally in JSON format.\n"
@@ -372,7 +372,8 @@ public:
             else if (args[i][0] == '-' && args[i][1] == '-')
             {
                 const char *opt = args[i]+2;
-                cfg[opt] = !strcmp(opt, "json") || !strcmp(opt, "all") || i == narg-1 ? "1" : args[++i];
+                cfg[opt] = !strcmp(opt, "json") || !strcmp(opt, "all") ||
+                    !strcmp(opt, "force") || i == narg-1 ? "1" : args[++i];
             }
             else if (pos == 0)
             {
@@ -412,7 +413,7 @@ public:
                 fprintf(stderr, "device name or number is missing\n");
                 exit(1);
             }
-            ioctl_unmap(cfg["dev_num"].uint64_value());
+            ioctl_unmap(cfg["dev_num"].uint64_value(), cfg["force"].bool_value());
         }
 #ifdef HAVE_NBD_NETLINK_H
         else if (cfg["command"] == "netlink-map")
@@ -441,9 +442,18 @@ help:
         }
     }
 
-    void ioctl_unmap(int dev_num)
+    void ioctl_unmap(int dev_num, bool force)
     {
         char path[64] = { 0 };
+        // Check if mapped
+        sprintf(path, "/sys/block/nbd%d/pid", dev_num);
+        if (access(path, F_OK) != 0)
+        {
+            fprintf(stderr, "/dev/nbd%d is not mapped: /sys/block/nbd%d/pid does not exist\n", dev_num, dev_num);
+            if (!force)
+                exit(1);
+        }
+        // Run unmap
         sprintf(path, "/dev/nbd%d", dev_num);
         int r, nbd = open(path, O_RDWR);
         if (nbd < 0)
