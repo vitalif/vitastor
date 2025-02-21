@@ -12,7 +12,7 @@ $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testimg","size":'$((IMG_SIZE*1
 
 NBD_DEV=$(sudo build/src/client/vitastor-nbd map --nbd_timeout 180 --etcd_address $ETCD_URL --image testimg --logfile ./testdata/nbd.log &)
 
-trap "sudo build/src/client/vitastor-nbd unmap $NBD_DEV"'; kill -9 $(jobs -p)' EXIT
+trap "sudo build/src/client/vitastor-nbd unmap $NBD_DEV"' || true; kill -9 $(jobs -p)' EXIT
 
 sudo chown $(id -u) $NBD_DEV
 
