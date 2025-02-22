@@ -42,6 +42,7 @@ public:
     std::multimap<uint64_t, uint64_t*> flushed_buffers; // flush_id => refcnt
 
     ~writeback_cache_t();
+    bool has_inode(uint64_t inode);
     dirty_buf_it_t find_dirty(uint64_t inode, uint64_t offset);
     bool is_left_merged(dirty_buf_it_t dirty_it);
     bool is_right_merged(dirty_buf_it_t dirty_it);

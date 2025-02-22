@@ -60,7 +60,8 @@ struct cluster_op_t
 protected:
     int state = 0;
     uint64_t cur_inode; // for snapshot reads
-    bool needs_reslice = false;
+    bool needs_reslice: 1;
+    bool deoptimise_snapshot: 1;
     int retry_after = 0;
     int inflight_count = 0, done_count = 0;
     timespec wait_up_until = {};

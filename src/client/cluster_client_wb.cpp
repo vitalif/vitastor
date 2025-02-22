@@ -17,6 +17,15 @@ writeback_cache_t::~writeback_cache_t()
     dirty_buffers.clear();
 }
 
+bool writeback_cache_t::has_inode(uint64_t inode)
+{
+    auto dirty_it = dirty_buffers.lower_bound((object_id){
+        .inode = inode,
+        .stripe = 0,
+    });
+    return dirty_it != dirty_buffers.end() && dirty_it->first.inode == inode;
+}
+
 dirty_buf_it_t writeback_cache_t::find_dirty(uint64_t inode, uint64_t offset)
 {
     auto dirty_it = dirty_buffers.lower_bound((object_id){
@@ -33,7 +42,11 @@ dirty_buf_it_t writeback_cache_t::find_dirty(uint64_t inode, uint64_t offset)
             break;
         }
     }
-    return dirty_it;
+    if (dirty_it != dirty_buffers.end() && dirty_it->first.inode == inode)
+    {
+        return dirty_it;
+    }
+    return dirty_buffers.end();
 }
 
 bool writeback_cache_t::is_left_merged(dirty_buf_it_t dirty_it)

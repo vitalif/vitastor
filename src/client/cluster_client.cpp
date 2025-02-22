@@ -792,6 +792,36 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
             return false;
         }
     }
+    op->deoptimise_snapshot = false;
+    if (enable_writeback && (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP))
+    {
+        auto ino_it = st_cli.inode_config.find(op->inode);
+        if (ino_it != st_cli.inode_config.end())
+        {
+            int chain_size = 0;
+            while (ino_it != st_cli.inode_config.end() && ino_it->second.parent_id)
+            {
+                // Check for loops - FIXME check it in etcd_state_client
+                if (ino_it->second.parent_id == op->inode ||
+                    chain_size > st_cli.inode_config.size())
+                {
+                    op->retval = -EINVAL;
+                    auto cb = std::move(op->callback);
+                    cb(op);
+                    return false;
+                }
+                if (INODE_POOL(ino_it->second.parent_id) == INODE_POOL(ino_it->first) &&
+                    wb->has_inode(ino_it->second.parent_id))
+                {
+                    // Deoptimise reads - we have dirty data for one of the parent layer(s).
+                    op->deoptimise_snapshot = true;
+                    break;
+                }
+                chain_size++;
+                ino_it = st_cli.inode_config.find(ino_it->second.parent_id);
+            }
+        }
+    }
     return true;
 }
 
@@ -923,12 +953,21 @@ resume_2:
         {
             // Check parent inode
             auto ino_it = st_cli.inode_config.find(op->cur_inode);
-            while (ino_it != st_cli.inode_config.end() && ino_it->second.parent_id &&
-                INODE_POOL(ino_it->second.parent_id) == INODE_POOL(op->cur_inode) &&
-                // Check for loops
-                ino_it->second.parent_id != op->inode)
+            // Skip parents from the same pool
+            int skipped = 0;
+            while (!op->deoptimise_snapshot &&
+                ino_it != st_cli.inode_config.end() && ino_it->second.parent_id &&
+                INODE_POOL(ino_it->second.parent_id) == INODE_POOL(op->cur_inode))
             {
-                // Skip parents from the same pool
+                // Check for loops - FIXME check it in etcd_state_client
+                if (ino_it->second.parent_id == op->inode ||
+                    skipped > st_cli.inode_config.size())
+                {
+                    op->retval = -EINVAL;
+                    erase_op(op);
+                    return 1;
+                }
+                skipped++;
                 ino_it = st_cli.inode_config.find(ino_it->second.parent_id);
             }
             if (ino_it != st_cli.inode_config.end() &&
@@ -1107,7 +1146,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
             if (end == begin)
             {
                 op->done_count++;
-                op->parts[i].flags = PART_DONE;
+                op->parts[i].flags = PART_SENT|PART_DONE;
             }
         }
         else if (op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_READ_CHAIN_BITMAP && op->opcode != OSD_OP_DELETE)
@@ -1190,7 +1229,7 @@ int cluster_client_t::try_send(cluster_op_t *op, int i)
                 pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks
             );
             uint64_t meta_rev = 0;
-            if (op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_DELETE)
+            if (op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_DELETE && !op->deoptimise_snapshot)
             {
                 auto ino_it = st_cli.inode_config.find(op->cur_inode);
                 if (ino_it != st_cli.inode_config.end())

@@ -57,6 +57,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     if (cur_op->req.hdr.opcode == OSD_OP_READ && cur_op->req.rw.meta_revision > 0)
     {
         // Chained read
+        // FIXME: Introduce an explicit opcode for chained reads
         auto inode_it = st_cli.inode_config.find(cur_op->req.rw.inode);
         if (inode_it->second.mod_revision != cur_op->req.rw.meta_revision)
         {
@@ -70,7 +71,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
             inode_it->second.parent_id &&
             INODE_POOL(inode_it->second.parent_id) == pg_it->second.pool_id)
         {
-            // Check for loops
+            // Check for loops - FIXME check it in etcd_state_client
             if (inode_it->second.parent_id == cur_op->req.rw.inode ||
                 inode_it->second.parent_id == inode_it->second.num ||
                 chain_size > st_cli.inode_config.size())
