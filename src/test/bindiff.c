@@ -173,5 +173,7 @@ int main(int narg, char *args[])
     {
         fprintf(stderr, "Files are equal\n");
     }
+    free(buf1);
+    free(buf2);
     return 0;
 }
