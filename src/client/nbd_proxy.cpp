@@ -709,21 +709,13 @@ help:
             ringloop->loop();
             ringloop->wait();
         }
-        destroy_client();
-    }
-
-    void destroy_client()
-    {
-        if (cli)
-        {
-            cli->flush();
-            delete cli;
-            delete epmgr;
-            delete ringloop;
-            cli = NULL;
-            epmgr = NULL;
-            ringloop = NULL;
-        }
+        cli->flush();
+        delete cli;
+        delete epmgr;
+        delete ringloop;
+        cli = NULL;
+        epmgr = NULL;
+        ringloop = NULL;
     }
 
     void load_module()
@@ -911,7 +903,6 @@ protected:
             // works correctly, and we don't accidentally break previous NBD devices while setting
             // up a new device. Forking to check every device is of course rather slow, so we also
             // do an additional check by calling list_mapped() before searching for a free NBD device.
-            destroy_client();
             if (bg)
             {
                 daemonize_fork();
