@@ -248,7 +248,7 @@ int writeback_cache_t::repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd,
         for (auto wr_it = dirty_buffers.begin(), flush_it = wr_it, last_it = wr_it; ; )
         {
             bool end = wr_it == dirty_buffers.end();
-            bool flush_this = !end && wr_it->second.state != CACHE_REPEATING;
+            bool flush_this = !end && wr_it->second.state != CACHE_REPEATING && wr_it->second.state != CACHE_DIRTY;
             if (peer_osd)
                 flush_this = flush_this && cli->affects_osd(wr_it->first.inode, wr_it->first.stripe, wr_it->second.len, peer_osd);
             if (pool_id && pg_num)
