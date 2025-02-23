@@ -1,6 +1,6 @@
 # Build Docker image with Vitastor packages
 
-FROM debian:bullseye
+FROM debian:bookworm
 
 ADD vitastor.list /etc/apt/sources.list.d
 ADD vitastor.gpg /etc/apt/trusted.gpg.d
