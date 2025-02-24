@@ -3,6 +3,7 @@
 
 #include "osd.h"
 
+#include <sys/prctl.h>
 #include <signal.h>
 
 static osd_t *osd = NULL;
@@ -56,6 +57,9 @@ int main(int narg, char *args[])
         printf("%s", help_text);
         return 1;
     }
+    char osdname[16] = { 0 };
+    snprintf(osdname, 16, "osd%lu", config["osd_num"].uint64_value());
+    prctl(PR_SET_NAME, (unsigned long)osdname, 0, 0, 0);
     signal(SIGINT, handle_sigint);
     signal(SIGTERM, handle_sigint);
     ring_loop_t *ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
