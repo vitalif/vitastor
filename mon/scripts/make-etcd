@@ -52,8 +52,8 @@ async function run()
         console.log('No matching IPs in etcd_address from '+config_path);
         process.exit(0);
     }
-    const etcd_cluster = etcds.map((e, i) => `etcd${i}=http://${e}:2380`).join(',');
-    await system(`mkdir -p /var/lib/etcd${num}.etcd`);
+    const etcd_cluster = etcds.map(e => `etcd${e.replace(/[^0-9a-z_]/ig, '_')}=http://${e}:2380`).join(',');
+    await system(`mkdir -p /var/lib/etcd`);
     fs.writeFileSync(
         "/etc/systemd/system/etcd.service",
 `[Unit]
@@ -64,14 +64,14 @@ Wants=network-online.target local-fs.target time-sync.target
 [Service]
 Restart=always
 Environment=GOGC=50
-ExecStart=etcd -name etcd${num} --data-dir /var/lib/etcd${num}.etcd \\
+ExecStart=etcd --name etcd${etcds[num].replace(/[^0-9a-z_]/ig, '_')} --data-dir /var/lib/etcd \\
     --snapshot-count 10000 --advertise-client-urls http://${etcds[num]}:2379 --listen-client-urls http://${etcds[num]}:2379 \\
     --initial-advertise-peer-urls http://${etcds[num]}:2380 --listen-peer-urls http://${etcds[num]}:2380 \\
     --initial-cluster-token vitastor-etcd-1 --initial-cluster ${etcd_cluster} \\
     --initial-cluster-state new --max-txn-ops=100000 --max-request-bytes=104857600 \\
     --auto-compaction-retention=10 --auto-compaction-mode=revision
-WorkingDirectory=/var/lib/etcd${num}.etcd
-ExecStartPre=+chown -R etcd /var/lib/etcd${num}.etcd
+WorkingDirectory=/var/lib/etcd
+ExecStartPre=+chown -R etcd /var/lib/etcd
 User=etcd
 PrivateTmp=false
 TasksMax=infinity
