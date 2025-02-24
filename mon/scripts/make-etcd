@@ -33,9 +33,11 @@ async function run()
         console.log(config_path+' is missing');
         process.exit(1);
     }
-    if (fs.existsSync("/etc/systemd/system/etcd.service"))
+    const in_docker = fs.existsSync("/etc/vitastor/etcd.conf") &&
+        fs.existsSync("/etc/vitastor/docker.conf");
+    if (!in_docker && fs.existsSync("/etc/systemd/system/vitastor-etcd.service"))
     {
-        console.log("/etc/systemd/system/etcd.service already exists");
+        console.log("/etc/systemd/system/vitastor-etcd.service already exists");
         process.exit(1);
     }
     const config = JSON.parse(fs.readFileSync(config_path, { encoding: 'utf-8' }));
@@ -52,10 +54,21 @@ async function run()
         console.log('No matching IPs in etcd_address from '+config_path);
         process.exit(0);
     }
+    const etcd_name = 'etcd'+etcds[num].replace(/[^0-9a-z_]/ig, '_');
     const etcd_cluster = etcds.map(e => `etcd${e.replace(/[^0-9a-z_]/ig, '_')}=http://${e}:2380`).join(',');
+    if (in_docker)
+    {
+        let etcd_conf = fs.readFileSync("/etc/vitastor/etcd.conf", { encoding: 'utf-8' });
+        etcd_conf = replace_env(etcd_conf, 'ETCD_NAME', etcd_name);
+        etcd_conf = replace_env(etcd_conf, 'ETCD_IP', etcds[num]);
+        etcd_conf = replace_env(etcd_conf, 'ETCD_INITIAL_CLUSTER', etcd_cluster);
+        fs.writeFileSync("/etc/vitastor/etcd.conf", etcd_conf);
+        console.log('etcd for Vitastor configured. Run `systemctl enable --now vitastor-etcd` to start etcd');
+        process.exit(0);
+    }
     await system(`mkdir -p /var/lib/etcd`);
     fs.writeFileSync(
-        "/etc/systemd/system/etcd.service",
+        "/etc/systemd/system/vitastor-etcd.service",
 `[Unit]
 Description=etcd for vitastor
 After=network-online.target local-fs.target time-sync.target
@@ -64,7 +77,7 @@ Wants=network-online.target local-fs.target time-sync.target
 [Service]
 Restart=always
 Environment=GOGC=50
-ExecStart=etcd --name etcd${etcds[num].replace(/[^0-9a-z_]/ig, '_')} --data-dir /var/lib/etcd \\
+ExecStart=etcd --name ${etcd_name} --data-dir /var/lib/etcd \\
     --snapshot-count 10000 --advertise-client-urls http://${etcds[num]}:2379 --listen-client-urls http://${etcds[num]}:2379 \\
     --initial-advertise-peer-urls http://${etcds[num]}:2380 --listen-peer-urls http://${etcds[num]}:2380 \\
     --initial-cluster-token vitastor-etcd-1 --initial-cluster ${etcd_cluster} \\
@@ -87,6 +100,13 @@ WantedBy=multi-user.target
     await system(`systemctl enable etcd`);
     await system(`systemctl start etcd`);
     process.exit(0);
+}
+
+function replace_env(text, key, value)
+{
+    let found = false;
+    text = text.replace(new RegExp('^'+key+'\\s*=.*', 'm'), () => { found = true; return key+'='+value; });
+    return found ? text : text.replace(/\s*$/, '\n')+key+'='+value+'\n';
 }
 
 function select_local_etcd(etcds)

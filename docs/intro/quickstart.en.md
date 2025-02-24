@@ -26,7 +26,7 @@
   you also need small SSDs for journal and metadata (even 2 GB per 1 TB of HDD space is enough).
 - Get a fast network (at least 10 Gbit/s). Something like Mellanox ConnectX-4 with RoCEv2 is ideal.
 - Disable CPU powersaving: `cpupower idle-set -D 0 && cpupower frequency-set -g performance`.
-- [Install Vitastor packages](../installation/packages.en.md).
+- Either [install Vitastor packages](../installation/packages.en.md) or [install Vitastor in Docker](../installation/docker.en.md).
 
 ## Recommended drives
 
@@ -45,7 +45,8 @@ On the monitor hosts:
   }
   ```
 - Create systemd units for etcd by running: `/usr/lib/vitastor/mon/make-etcd`
-- Start etcd and monitors: `systemctl enable --now etcd vitastor-mon`
+  Or, if you installed Vitastor in Docker, run `systemctl start vitastor-host; docker exec vitastor make-etcd`.
+- Start etcd and monitors: `systemctl enable --now vitastor-etcd vitastor-mon`
 
 ## Configure OSDs
 

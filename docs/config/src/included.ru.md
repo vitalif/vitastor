@@ -14,7 +14,11 @@
 
 {{../../installation/packages.ru.md}}
 
+{{../../installation/docker.ru.md}}
+
 {{../../installation/proxmox.ru.md}}
+
+{{../../installation/opennebula.ru.md}}
 
 {{../../installation/openstack.ru.md}}
 

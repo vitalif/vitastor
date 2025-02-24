@@ -2,8 +2,10 @@
 
 FROM debian:bookworm
 
-ADD vitastor.list /etc/apt/sources.list.d
-ADD vitastor.gpg /etc/apt/trusted.gpg.d
-ADD vitastor.pref /etc/apt/preferences.d
-ADD apt.conf /etc/apt/
-RUN apt-get update && apt-get -y install vitastor qemu-system-x86 qemu-system-common qemu-block-extra qemu-utils && apt-get clean
+ADD etc/apt /etc/apt/
+RUN apt-get update && apt-get -y install vitastor qemu-system-x86 qemu-system-common qemu-block-extra qemu-utils jq nfs-common && apt-get clean
+ADD sleep.sh /usr/bin/
+ADD install.sh /usr/bin/
+ADD scripts /opt/scripts/
+ADD etc /etc/
+RUN ln -s /usr/lib/vitastor/mon/make-etcd /usr/bin/make-etcd

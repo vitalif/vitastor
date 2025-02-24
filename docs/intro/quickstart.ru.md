@@ -26,7 +26,7 @@
   обязательно возьмите SSD под метаданные и журнал (маленькие, буквально 2 ГБ на 1 ТБ HDD-места).
 - Возьмите быструю сеть, минимум 10 гбит/с. Идеал - что-то вроде Mellanox ConnectX-4 с RoCEv2.
 - Для лучшей производительности отключите энергосбережение CPU: `cpupower idle-set -D 0 && cpupower frequency-set -g performance`.
-- [Установите пакеты Vitastor](../installation/packages.ru.md).
+- Либо [установите пакеты Vitastor](../installation/packages.ru.md), либо [установите Vitastor в Docker](../installation/docker.ru.md).
 
 ## Рекомендуемые диски
 
@@ -44,8 +44,9 @@
     "etcd_address": ["10.200.1.10:2379","10.200.1.11:2379","10.200.1.12:2379"]
   }
   ```
-- Инициализируйте сервисы etcd, запустив `/usr/lib/vitastor/mon/make-etcd`
-- Запустите etcd и мониторы: `systemctl enable --now etcd vitastor-mon`
+- Инициализируйте сервисы etcd, запустив `/usr/lib/vitastor/mon/make-etcd`.\
+  Либо, если вы установили Vitastor в Docker, запустите `systemctl start vitastor-host; docker exec vitastor make-etcd`.
+- Запустите etcd и мониторы: `systemctl enable --now vitastor-etcd vitastor-mon`
 
 ## Настройте OSD
 

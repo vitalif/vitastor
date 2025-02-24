@@ -1,0 +1,27 @@
+[Unit]
+Description=Containerized etcd for Vitastor
+After=network-online.target local-fs.target time-sync.target docker.service vitastor-host.service
+Wants=network-online.target local-fs.target time-sync.target docker.service vitastor-host.service
+PartOf=vitastor.target
+
+[Service]
+Restart=always
+Environment=GOGC=50
+EnvironmentFile=/etc/vitastor/docker.conf
+EnvironmentFile=/etc/vitastor/etcd.conf
+SyslogIdentifier=etcd
+ExecStart=bash -c 'docker run --rm -i -v /var/lib/vitastor/etcd:/data \
+    --log-driver none --network host $CONTAINER_OPTIONS --name vitastor-etcd \
+    $ETCD_IMAGE /usr/local/bin/etcd --name "$ETCD_NAME" --data-dir /data \
+    --snapshot-count 10000 --advertise-client-urls http://$ETCD_IP:2379 --listen-client-urls http://$ETCD_IP:2379 \
+    --initial-advertise-peer-urls http://$ETCD_IP:2380 --listen-peer-urls http://$ETCD_IP:2380 \
+    --initial-cluster-token vitastor-etcd-1 --initial-cluster "$ETCD_INITIAL_CLUSTER" \
+    --initial-cluster-state new --max-txn-ops=100000 --max-request-bytes=104857600 \
+    --auto-compaction-retention=10 --auto-compaction-mode=revision'
+ExecStop=docker stop vitastor-etcd
+Restart=always
+StartLimitInterval=0
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

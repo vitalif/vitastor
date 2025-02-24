@@ -5,6 +5,7 @@ Wants=network-online.target local-fs.target time-sync.target
 
 [Service]
 Restart=always
+SyslogIdentifier=vitastor-mon
 ExecStart=node /usr/lib/vitastor/mon/mon-main.js
 WorkingDirectory=/
 User=vitastor

@@ -14,7 +14,11 @@
 
 {{../../installation/packages.en.md}}
 
+{{../../installation/docker.en.md}}
+
 {{../../installation/proxmox.en.md}}
+
+{{../../installation/opennebula.en.md}}
 
 {{../../installation/openstack.en.md}}
 

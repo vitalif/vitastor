@@ -41,6 +41,7 @@ Read more details in the documentation. You can start from here: [Quick Start](d
   - [Author and license](docs/intro/author.en.md)
 - Installation
   - [Packages](docs/installation/packages.en.md)
+  - [Docker](docs/installation/docker.en.md)
   - [Proxmox](docs/installation/proxmox.en.md)
   - [OpenNebula](docs/installation/opennebula.en.md)
   - [OpenStack](docs/installation/openstack.en.md)
