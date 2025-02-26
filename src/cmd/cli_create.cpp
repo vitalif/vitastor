@@ -215,6 +215,7 @@ resume_3:
             goto resume_3;
         else if (state == 4)
             goto resume_4;
+        // FIXME: take all info from etcd requests, not mixed with st_cli.inode_config
         for (auto & ic: parent->cli->st_cli.inode_config)
         {
             if (ic.second.name == image_name+"@"+new_snap)
@@ -286,6 +287,7 @@ resume_4:
 
     json11::Json::object get_next_id()
     {
+        assert(new_pool_id);
         return json11::Json::object {
             { "request_range", json11::Json::object {
                 { "key", base64_encode(
@@ -321,6 +323,17 @@ resume_4:
             goto resume_2;
         else if (state == 3)
             goto resume_3;
+        if (!new_pool_id)
+        {
+            for (auto & ic: parent->cli->st_cli.inode_config)
+            {
+                if (ic.second.name == image_name)
+                {
+                    new_pool_id = INODE_POOL(ic.first);
+                    break;
+                }
+            }
+        }
         parent->etcd_txn(json11::Json::object { { "success", json11::Json::array {
             get_next_id(),
             json11::Json::object {
