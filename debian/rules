@@ -4,6 +4,14 @@ export DH_VERBOSE = 1
 %:
 	dh $@
 
+override_dh_install:
+	perl -pe 's!prefix=/usr!prefix='`pwd`'/debian/tmp/usr!' < obj-x86_64-linux-gnu/src/client/vitastor.pc > node-binding/vitastor.pc
+	cd node-binding && PKG_CONFIG_PATH=./ PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1 npm install --unsafe-perm || exit 1
+	mkdir -p debian/tmp/usr/lib/x86_64-linux-gnu/nodejs/vitastor/build/Release
+	cp -v node-binding/package.json node-binding/index.js node-binding/addon.cc node-binding/addon.h node-binding/client.cc node-binding/client.h debian/tmp/usr/lib/x86_64-linux-gnu/nodejs/vitastor
+	cp -v node-binding/build/Release/addon.node debian/tmp/usr/lib/x86_64-linux-gnu/nodejs/vitastor/build/Release
+	dh_install
+
 override_dh_installdeb:
 	cat debian/fio_version >> debian/vitastor-fio.substvars
 	[ -f debian/qemu_version ] && (cat debian/qemu_version >> debian/vitastor-qemu.substvars) || true

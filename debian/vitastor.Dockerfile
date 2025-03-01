@@ -22,7 +22,8 @@ RUN set -e -x; \
     echo 'APT::Install-Suggests false;' >> /etc/apt/apt.conf
 
 RUN apt-get update && \
-    apt-get -y install fio liburing-dev libgoogle-perftools-dev devscripts libjerasure-dev cmake libibverbs-dev librdmacm-dev libisal-dev libnl-3-dev libnl-genl-3-dev curl && \
+    apt-get -y install fio liburing-dev libgoogle-perftools-dev devscripts libjerasure-dev cmake \
+        libibverbs-dev librdmacm-dev libisal-dev libnl-3-dev libnl-genl-3-dev curl nodejs npm node-nan node-bindings && \
     apt-get -y build-dep fio && \
     apt-get --download-only source fio
 

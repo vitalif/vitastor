@@ -2,7 +2,10 @@ Source: vitastor
 Section: admin
 Priority: optional
 Maintainer: Vitaliy Filippov <vitalif@yourcmc.ru>
-Build-Depends: debhelper, liburing-dev (>= 0.6), g++ (>= 8), libstdc++6 (>= 8), linux-libc-dev, libgoogle-perftools-dev, libjerasure-dev, libgf-complete-dev, libibverbs-dev, libisal-dev, cmake, pkg-config, libnl-3-dev, libnl-genl-3-dev
+Build-Depends: debhelper, liburing-dev (>= 0.6), g++ (>= 8), libstdc++6 (>= 8),
+  linux-libc-dev, libgoogle-perftools-dev, libjerasure-dev, libgf-complete-dev,
+  libibverbs-dev, libisal-dev, cmake, pkg-config, libnl-3-dev, libnl-genl-3-dev,
+  node-bindings <!nocheck>, node-gyp, node-nan
 Standards-Version: 4.5.0
 Homepage: https://vitastor.io/
 Rules-Requires-Root: no
@@ -59,3 +62,9 @@ Architecture: amd64
 Depends: ${shlibs:Depends}, ${misc:Depends}, vitastor-client, patch, python3, jq
 Description: Vitastor OpenNebula storage plugin
  Vitastor storage plugin for OpenNebula.
+
+Package: node-vitastor
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, node-bindings
+Description: Node.js bindings for Vitastor client
+ Node.js native bindings for the Vitastor client library (vitastor-client).
