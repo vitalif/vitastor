@@ -83,7 +83,6 @@ NAN_METHOD(NodeVitastor::Create)
     delete[] c_cfg;
     if (!cli->c)
     {
-        ERRORF("NodeVitastor: failed to initialize io_uring (old kernel or insufficient ulimit -l?)");
         Nan::ThrowError("failed to initialize io_uring (old kernel or insufficient ulimit -l?)");
         return;
     }
@@ -156,6 +155,7 @@ NAN_METHOD(NodeVitastor::Read)
 
     self->Ref();
     vitastor_c_read(self->c, ((pool << (64-POOL_ID_BITS)) | inode), req->offset, req->len, &req->iov, 1, on_read_finish, req);
+    vitastor_c_uring_handle_events(self->c);
 }
 
 NodeVitastorRequest* NodeVitastor::get_write_request(const Nan::FunctionCallbackInfo<v8::Value> & info, int argpos)
@@ -224,6 +224,7 @@ NAN_METHOD(NodeVitastor::Write)
         req->iov_list.size() ? req->iov_list.data() : &req->iov,
         req->iov_list.size() ? req->iov_list.size() : 1,
         on_write_finish, req);
+    vitastor_c_uring_handle_events(self->c);
 }
 
 NodeVitastorRequest* NodeVitastor::get_delete_request(const Nan::FunctionCallbackInfo<v8::Value> & info, int argpos)
@@ -270,6 +271,7 @@ NAN_METHOD(NodeVitastor::Delete)
     self->Ref();
     vitastor_c_delete(self->c, ((pool << (64-POOL_ID_BITS)) | inode), req->offset, req->len, req->version,
         on_write_finish, req);
+    vitastor_c_uring_handle_events(self->c);
 }
 
 // sync(callback(err))
@@ -286,6 +288,7 @@ NAN_METHOD(NodeVitastor::Sync)
 
     self->Ref();
     vitastor_c_sync(self->c, on_write_finish, req);
+    vitastor_c_uring_handle_events(self->c);
 }
 
 // read_bitmap(pool, inode, offset, length, with_parents, callback(err, bitmap_buffer))
@@ -307,6 +310,7 @@ NAN_METHOD(NodeVitastor::ReadBitmap)
     auto req = new NodeVitastorRequest(self, callback);
     self->Ref();
     vitastor_c_read_bitmap(self->c, ((pool << (64-POOL_ID_BITS)) | inode), offset, len, with_parents, on_read_bitmap_finish, req);
+    vitastor_c_uring_handle_events(self->c);
 }
 
 static void on_error(NodeVitastorRequest *req, Nan::Callback & nanCallback, long retval)
@@ -331,6 +335,7 @@ NAN_METHOD(NodeVitastor::OnReady)
     auto req = new NodeVitastorRequest(self, callback);
     self->Ref();
     vitastor_c_on_ready(self->c, on_ready_finish, req);
+    vitastor_c_uring_handle_events(self->c);
 }
 
 void NodeVitastor::on_ready_finish(void *opaque, long retval)
@@ -475,6 +480,7 @@ NAN_METHOD(NodeVitastorImage::Create)
     img->Ref();
     cli->Ref();
     vitastor_c_watch_inode(cli->c, (char*)img->name.c_str(), on_watch_start, img);
+    vitastor_c_uring_handle_events(cli->c);
 
     info.GetReturnValue().Set(info.This());
 }
@@ -615,6 +621,7 @@ void NodeVitastorImage::exec_request(NodeVitastorRequest *req)
         uint64_t ino = vitastor_c_inode_get_num(watch);
         cli->Ref();
         vitastor_c_read(cli->c, ino, req->offset, req->len, &req->iov, 1, NodeVitastor::on_read_finish, req);
+        vitastor_c_uring_handle_events(cli->c);
     }
     else if (req->op == NODE_VITASTOR_WRITE)
     {
@@ -624,6 +631,7 @@ void NodeVitastorImage::exec_request(NodeVitastorRequest *req)
             req->iov_list.size() ? req->iov_list.data() : &req->iov,
             req->iov_list.size() ? req->iov_list.size() : 1,
             NodeVitastor::on_write_finish, req);
+        vitastor_c_uring_handle_events(cli->c);
     }
     else if (req->op == NODE_VITASTOR_DELETE)
     {
@@ -631,6 +639,7 @@ void NodeVitastorImage::exec_request(NodeVitastorRequest *req)
         cli->Ref();
         vitastor_c_delete(cli->c, ino, req->offset, req->len, req->version,
             NodeVitastor::on_write_finish, req);
+        vitastor_c_uring_handle_events(cli->c);
     }
     else if (req->op == NODE_VITASTOR_SYNC)
     {
@@ -640,6 +649,7 @@ void NodeVitastorImage::exec_request(NodeVitastorRequest *req)
         if (imm != IMMEDIATE_ALL)
         {
             vitastor_c_sync(cli->c, NodeVitastor::on_write_finish, req);
+            vitastor_c_uring_handle_events(cli->c);
         }
         else
         {
@@ -651,6 +661,7 @@ void NodeVitastorImage::exec_request(NodeVitastorRequest *req)
         uint64_t ino = vitastor_c_inode_get_num(watch);
         cli->Ref();
         vitastor_c_read_bitmap(cli->c, ino, req->offset, req->len, req->with_parents, NodeVitastor::on_read_bitmap_finish, req);
+        vitastor_c_uring_handle_events(cli->c);
     }
     else if (req->op == NODE_VITASTOR_GET_INFO)
     {
@@ -782,6 +793,7 @@ NAN_METHOD(NodeVitastorKV::Open)
         delete req;
         kv->Unref();
     });
+    vitastor_c_uring_handle_events(kv->cli->c);
 }
 
 // close(callback(err))
@@ -805,6 +817,7 @@ NAN_METHOD(NodeVitastorKV::Close)
         delete req;
         kv->Unref();
     });
+    vitastor_c_uring_handle_events(kv->cli->c);
 }
 
 // set_config({ ...config })
@@ -863,6 +876,7 @@ void NodeVitastorKV::get_impl(const Nan::FunctionCallbackInfo<v8::Value> & info,
         delete req;
         kv->Unref();
     }, allow_cache);
+    vitastor_c_uring_handle_events(kv->cli->c);
 }
 
 // get(key, callback(err, value))
@@ -935,6 +949,7 @@ NAN_METHOD(NodeVitastorKV::Set)
             delete cas_req;
         kv->Unref();
     }, cas_cb);
+    vitastor_c_uring_handle_events(kv->cli->c);
 }
 
 // del(key, callback(err), cas_compare(old_value)?)
@@ -973,6 +988,7 @@ NAN_METHOD(NodeVitastorKV::Del)
             delete cas_req;
         kv->Unref();
     }, cas_cb);
+    vitastor_c_uring_handle_events(kv->cli->c);
 }
 
 // list(start_key?)
@@ -1093,6 +1109,7 @@ NAN_METHOD(NodeVitastorKVListing::Next)
             list->iter = req;
         list->kv->Unref();
     });
+    vitastor_c_uring_handle_events(list->kv->cli->c);
 }
 
 // close()
