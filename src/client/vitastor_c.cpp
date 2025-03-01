@@ -127,6 +127,7 @@ vitastor_c *vitastor_c_create_qemu_uring(QEMUSetFDHandler *aio_set_fd_handler, v
     auto self = vitastor_c_create_qemu_common(aio_set_fd_handler, aio_context);
     self->ringloop = ringloop;
     self->cli = new cluster_client_t(self->ringloop, self->tfd, cfg_json);
+    ringloop->loop();
     return self;
 }
 
@@ -150,6 +151,7 @@ vitastor_c *vitastor_c_create_uring(const char *config_path, const char *etcd_ho
     self->ringloop = ringloop;
     self->epmgr = new epoll_manager_t(self->ringloop);
     self->cli = new cluster_client_t(self->ringloop, self->epmgr->tfd, cfg_json);
+    ringloop->loop();
     return self;
 }
 
@@ -183,6 +185,7 @@ vitastor_c *vitastor_c_create_uring_json(const char **options, int options_len)
     self->ringloop = ringloop;
     self->epmgr = new epoll_manager_t(self->ringloop);
     self->cli = new cluster_client_t(self->ringloop, self->epmgr->tfd, cfg_json);
+    ringloop->loop();
     return self;
 }
 
@@ -228,6 +231,10 @@ void vitastor_c_on_ready(vitastor_c *client, VitastorIOHandler cb, void *opaque)
     {
         cb(opaque, 0);
     });
+    if (client->ringloop)
+    {
+        client->ringloop->loop();
+    }
 }
 
 void vitastor_c_uring_wait_ready(vitastor_c *client)
@@ -284,6 +291,10 @@ void vitastor_c_read(vitastor_c *client, uint64_t inode, uint64_t offset, uint64
         delete op;
     };
     client->cli->execute(op);
+    if (client->ringloop)
+    {
+        client->ringloop->loop();
+    }
 }
 
 void vitastor_c_write(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len, uint64_t check_version,
@@ -305,6 +316,10 @@ void vitastor_c_write(vitastor_c *client, uint64_t inode, uint64_t offset, uint6
         delete op;
     };
     client->cli->execute(op);
+    if (client->ringloop)
+    {
+        client->ringloop->loop();
+    }
 }
 
 void vitastor_c_delete(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len, uint64_t check_version,
@@ -322,6 +337,10 @@ void vitastor_c_delete(vitastor_c *client, uint64_t inode, uint64_t offset, uint
         delete op;
     };
     client->cli->execute(op);
+    if (client->ringloop)
+    {
+        client->ringloop->loop();
+    }
 }
 
 void vitastor_c_read_bitmap(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
@@ -344,6 +363,10 @@ void vitastor_c_read_bitmap(vitastor_c *client, uint64_t inode, uint64_t offset,
         delete op;
     };
     client->cli->execute(op);
+    if (client->ringloop)
+    {
+        client->ringloop->loop();
+    }
 }
 
 void vitastor_c_sync(vitastor_c *client, VitastorIOHandler cb, void *opaque)
@@ -356,6 +379,10 @@ void vitastor_c_sync(vitastor_c *client, VitastorIOHandler cb, void *opaque)
         delete op;
     };
     client->cli->execute(op);
+    if (client->ringloop)
+    {
+        client->ringloop->loop();
+    }
 }
 
 void vitastor_c_watch_inode(vitastor_c *client, char *image, VitastorIOHandler cb, void *opaque)
@@ -365,6 +392,10 @@ void vitastor_c_watch_inode(vitastor_c *client, char *image, VitastorIOHandler c
         auto watch = client->cli->st_cli.watch_inode(std::string(image));
         cb(opaque, (long)watch);
     });
+    if (client->ringloop)
+    {
+        client->ringloop->loop();
+    }
 }
 
 void vitastor_c_close_watch(vitastor_c *client, void *handle)
