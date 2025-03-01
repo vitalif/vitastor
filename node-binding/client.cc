@@ -81,6 +81,12 @@ NAN_METHOD(NodeVitastor::Create)
     NodeVitastor* cli = new NodeVitastor();
     cli->c = vitastor_c_create_uring_json(c_cfg, cfg.size());
     delete[] c_cfg;
+    if (!cli->c)
+    {
+        ERRORF("NodeVitastor: failed to initialize io_uring (old kernel or insufficient ulimit -l?)");
+        Nan::ThrowError("failed to initialize io_uring (old kernel or insufficient ulimit -l?)");
+        return;
+    }
 
     int res = vitastor_c_uring_register_eventfd(cli->c);
     if (res >= 0)
