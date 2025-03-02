@@ -3,6 +3,7 @@
 
 #include <sys/epoll.h>
 #include <sys/poll.h>
+#include <poll.h>
 #include <unistd.h>
 #include <stdexcept>
 
@@ -74,6 +75,27 @@ void epoll_manager_t::set_fd_handler(int fd, bool wr, std::function<void(int, in
             throw std::runtime_error(std::string("epoll_ctl: ") + strerror(errno));
         }
         epoll_handlers[fd] = handler;
+        // We use edge-triggered epoll so it may miss events which already happened
+        // on the FD at the moment of adding it to epoll. So check for these with poll()
+        struct pollfd initpoll = { .fd = fd, .events = (short)((wr ? POLLOUT : 0) | POLLIN | POLLRDHUP) };
+        int r = poll(&initpoll, 1, 0);
+        if (r < 0)
+            throw std::runtime_error(std::string("poll: ") + strerror(errno));
+        if (r > 0)
+        {
+            auto events = ((initpoll.revents & POLLOUT) ? EPOLLOUT : 0) |
+                ((initpoll.revents & POLLIN) ? EPOLLIN : 0) |
+                ((initpoll.revents & POLLRDHUP) ? EPOLLRDHUP : 0);
+            tfd->set_timer_us(1, false, [this, fd, events](int)
+            {
+                auto cb_it = epoll_handlers.find(fd);
+                if (cb_it != epoll_handlers.end())
+                {
+                    auto & cb = cb_it->second;
+                    cb(fd, events);
+                }
+            });
+        }
     }
     else
     {
