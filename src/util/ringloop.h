@@ -129,6 +129,7 @@ class ring_loop_t
     bool mt;
     int *free_ring_data;
     unsigned free_ring_data_ptr;
+    bool in_loop;
     bool loop_again;
     struct io_uring ring;
     int ring_eventfd = -1;

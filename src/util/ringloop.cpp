@@ -29,6 +29,7 @@ ring_loop_t::ring_loop_t(int qd, bool multithreaded)
     {
         free_ring_data[i] = i;
     }
+    in_loop = false;
 }
 
 ring_loop_t::~ring_loop_t()
@@ -86,6 +87,11 @@ io_uring_sqe* ring_loop_t::get_sqe()
 
 void ring_loop_t::loop()
 {
+    if (in_loop)
+    {
+        return;
+    }
+    in_loop = true;
     if (ring_eventfd >= 0)
     {
         // Reset eventfd counter
@@ -140,6 +146,7 @@ void ring_loop_t::loop()
             }
         }
     } while (loop_again);
+    in_loop = false;
 }
 
 unsigned ring_loop_t::save()
@@ -189,5 +196,7 @@ int ring_loop_t::register_eventfd()
         ring_eventfd = -1;
         return r;
     }
+    // Loop once to prevent skipping events happened before eventfd was registered
+    loop();
     return ring_eventfd;
 }
