@@ -9,7 +9,7 @@ writeback_cache_t::~writeback_cache_t()
 {
     for (auto & bp: dirty_buffers)
     {
-        if (!--(*bp.second.refcnt))
+        if (bp.second.buf && !--(*bp.second.refcnt))
         {
             free(bp.second.refcnt); // refcnt is allocated with the buffer
         }
@@ -115,7 +115,10 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
                     .flush_id = dirty_it->second.flush_id,
                     .refcnt = dirty_it->second.refcnt,
                 });
-                (*dirty_it->second.refcnt)++;
+                if (dirty_it->second.buf)
+                {
+                    (*dirty_it->second.refcnt)++;
+                }
                 if (dirty_it->second.state == CACHE_DIRTY)
                 {
                     if (dirty_it->second.buf)
@@ -193,7 +196,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
                     writeback_queue_size++;
                 }
             }
-            if (!--(*dirty_it->second.refcnt))
+            if (dirty_it->second.buf && !--(*dirty_it->second.refcnt))
             {
                 free(dirty_it->second.refcnt);
             }
@@ -204,7 +207,10 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
     bool is_del = op->opcode == OSD_OP_DELETE;
     uint64_t *refcnt = is_del ? NULL : (uint64_t*)malloc_or_die(sizeof(uint64_t) + op->len);
     uint8_t *buf = is_del ? NULL : ((uint8_t*)refcnt + sizeof(uint64_t));
-    *refcnt = 1;
+    if (!is_del)
+    {
+        *refcnt = 1;
+    }
     dirty_it = dirty_buffers.emplace_hint(dirty_it, (object_id){
         .inode = op->inode,
         .stripe = op->offset,
@@ -560,8 +566,10 @@ void writeback_cache_t::fsync_ok()
     {
         if (uw_it->second.state == CACHE_FLUSHING)
         {
-            if (!--(*uw_it->second.refcnt))
+            if (uw_it->second.buf && !--(*uw_it->second.refcnt))
+            {
                 free(uw_it->second.refcnt);
+            }
             dirty_buffers.erase(uw_it++);
         }
         else
