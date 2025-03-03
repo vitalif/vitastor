@@ -722,54 +722,58 @@ resume_3:
         cur_op->reply.rw.version = op_data->fact_ver;
         goto continue_others;
     }
-    // Save version override for parallel reads
-    pg.ver_override[op_data->oid] = op_data->fact_ver;
-    // Submit deletes
-    op_data->fact_ver++;
-    submit_primary_del_subops(cur_op, NULL, 0, op_data->object_state ? op_data->object_state->osd_set : pg.cur_loc_set);
+    // If not already deleted:
+    if (op_data->fact_ver)
+    {
+        // Save version override for parallel reads
+        pg.ver_override[op_data->oid] = op_data->fact_ver;
+        // Submit deletes
+        op_data->fact_ver++;
+        submit_primary_del_subops(cur_op, NULL, 0, op_data->object_state ? op_data->object_state->osd_set : pg.cur_loc_set);
 resume_4:
-    op_data->st = 4;
-    return;
-resume_5:
-    if (op_data->errors > 0)
-    {
-        deref_object_state(pg, &op_data->object_state, true);
-        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
+        op_data->st = 4;
         return;
-    }
-    // Remove version override
-    pg.ver_override.erase(op_data->oid);
-    // Adjust PG stats after "instant stabilize", because we need object_state above
-    if (!op_data->object_state)
-    {
-        pg.clean_count--;
-    }
-    else
-    {
-        remove_object_from_state(op_data->oid, &op_data->object_state, pg);
-        deref_object_state(pg, &op_data->object_state, true);
-    }
-    // Mark PG and OSDs as dirty
-    for (auto & chunk: (op_data->object_state ? op_data->object_state->osd_set : pg.cur_loc_set))
-    {
-        this->dirty_osds.insert(chunk.osd_num);
-    }
-    for (auto cl_it = msgr.clients.find(cur_op->peer_fd); cl_it != msgr.clients.end(); )
-    {
-        cl_it->second->dirty_pgs.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
-        break;
-    }
-    dirty_pgs.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
-    if (immediate_commit == IMMEDIATE_NONE)
-    {
-        unstable_write_count++;
-        if (unstable_write_count >= autosync_writes)
+resume_5:
+        if (op_data->errors > 0)
         {
-            unstable_write_count = 0;
-            autosync();
+            deref_object_state(pg, &op_data->object_state, true);
+            pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
+            return;
         }
+        // Remove version override
+        pg.ver_override.erase(op_data->oid);
+        // Adjust PG stats after "instant stabilize", because we need object_state above
+        if (!op_data->object_state)
+        {
+            pg.clean_count--;
+        }
+        else
+        {
+            remove_object_from_state(op_data->oid, &op_data->object_state, pg);
+            deref_object_state(pg, &op_data->object_state, true);
+        }
+        // Mark PG and OSDs as dirty
+        for (auto & chunk: (op_data->object_state ? op_data->object_state->osd_set : pg.cur_loc_set))
+        {
+            this->dirty_osds.insert(chunk.osd_num);
+        }
+        for (auto cl_it = msgr.clients.find(cur_op->peer_fd); cl_it != msgr.clients.end(); )
+        {
+            cl_it->second->dirty_pgs.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
+            break;
+        }
+        dirty_pgs.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
+        if (immediate_commit == IMMEDIATE_NONE)
+        {
+            unstable_write_count++;
+            if (unstable_write_count >= autosync_writes)
+            {
+                unstable_write_count = 0;
+                autosync();
+            }
+        }
+        pg.total_count--;
     }
-    pg.total_count--;
     cur_op->reply.hdr.retval = 0;
     // indicate possibly unfinished (left_on_dead) deletions
     cur_op->reply.del.flags = OSD_DEL_SUPPORT_LEFT_ON_DEAD;
