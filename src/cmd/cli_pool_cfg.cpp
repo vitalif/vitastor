@@ -90,8 +90,8 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
             value = sz;
         }
         else if (key == "name" || key == "scheme" || key == "immediate_commit" ||
-            key == "failure_domain" || key == "root_node" || key == "scrub_interval" || key == "used_for_fs" ||
-            key == "raw_placement")
+            key == "failure_domain" || key == "root_node" || key == "scrub_interval" || key == "used_for_app" ||
+            key == "used_for_fs" || key == "raw_placement")
         {
             if (!value.is_string())
             {
@@ -156,8 +156,13 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
     {
         new_cfg.erase("parity_chunks");
     }
-    if (new_cfg.find("used_for_fs") != new_cfg.end() && new_cfg["used_for_fs"].string_value() == "")
+    if (new_cfg.find("used_for_app") != new_cfg.end() && new_cfg["used_for_app"].string_value() == "")
     {
+        new_cfg.erase("used_for_app");
+    }
+    if (new_cfg.find("used_for_app") == new_cfg.end() && new_cfg.find("used_for_fs") != new_cfg.end())
+    {
+        new_cfg["used_for_app"] = "fs:"+new_cfg["used_for_fs"].string_value();
         new_cfg.erase("used_for_fs");
     }
 

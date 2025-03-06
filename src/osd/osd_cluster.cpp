@@ -673,7 +673,7 @@ void osd_t::apply_no_inode_stats()
     std::vector<uint64_t> no_inode_stats;
     for (auto & pool_item: st_cli.pool_config)
     {
-        if (!pool_item.second.used_for_fs.empty())
+        if (!pool_item.second.used_for_app.empty())
         {
             no_inode_stats.push_back(pool_item.first);
         }

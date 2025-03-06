@@ -13,6 +13,7 @@
 - [client_retry_interval](#client_retry_interval)
 - [client_eio_retry_interval](#client_eio_retry_interval)
 - [client_retry_enospc](#client_retry_enospc)
+- [client_wait_up_timeout](#client_wait_up_timeout)
 - [client_max_dirty_bytes](#client_max_dirty_bytes)
 - [client_max_dirty_ops](#client_max_dirty_ops)
 - [client_enable_writeback](#client_enable_writeback)
@@ -71,6 +72,19 @@ RDMA и хотите повысить пиковую производитель�
 
 Повторять запросы записи, завершившиеся с ошибками нехватки места, т.е.
 ожидать, пока на OSD не освободится место.
+
+## client_wait_up_timeout
+
+- Тип: секунды
+- Значение по умолчанию: 16
+- Можно менять на лету: да
+
+Время ожидания поднятия PG при операциях, требующих активности всех PG.
+В данный момент используется листингами объектов в командах, использующих
+удаление и слияние ([vitastor-cli rm](../usage/cli.ru.md#rm), merge и подобные).
+
+Значение по умолчанию вычисляется как `1 + время lease OSD`, равное
+`1 + etcd_report_interval + max_etcd_attempts*2*etcd_quick_timeout`.
 
 ## client_max_dirty_bytes
 

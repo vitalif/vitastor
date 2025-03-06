@@ -889,7 +889,11 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             if (!pc.scrub_interval)
                 pc.scrub_interval = 0;
             // Mark pool as VitastorFS pool (disable per-inode stats and block volume creation)
-            pc.used_for_fs = pool_item.second["used_for_fs"].as_string();
+            pc.used_for_app = pool_item.second["used_for_fs"].as_string();
+            if (pc.used_for_app != "")
+                pc.used_for_app = "fs:"+pc.used_for_app;
+            else
+                pc.used_for_app = pool_item.second["used_for_app"].as_string();
             // Immediate Commit Mode
             pc.immediate_commit = pool_item.second["immediate_commit"].is_string()
                 ? parse_immediate_commit(pool_item.second["immediate_commit"].string_value(), IMMEDIATE_ALL)

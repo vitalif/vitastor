@@ -245,10 +245,10 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
     if (proxy->cli->st_cli.inode_config.find(fs_kv_inode) != proxy->cli->st_cli.inode_config.end())
     {
         auto & name = proxy->cli->st_cli.inode_config.at(fs_kv_inode).name;
-        if (pool_cfg.used_for_fs != name)
+        if (pool_cfg.used_for_app != "fs:"+name)
         {
-            fprintf(stderr, "Please mark pool as used for this file system with `vitastor-cli modify-pool --used-for-fs %s %s`\n",
-                name.c_str(), cfg["fs"].string_value().c_str());
+            fprintf(stderr, "Please mark pool as used for this file system with `vitastor-cli modify-pool --used-for-app fs:%s %s`\n",
+                name.c_str(), pool_cfg.name.c_str());
             exit(1);
         }
     }

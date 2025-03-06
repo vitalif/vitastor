@@ -199,7 +199,9 @@ resume_1:
             auto & st = pool_stats[pool_id];
             for (auto & kv: pp.second.object_items())
             {
-                if (st.find(kv.first) == st.end())
+                if (kv.first == "used_for_fs" && st.find("used_for_app") == st.end())
+                    st["used_for_app"] = "fs:"+kv.second.string_value();
+                else if (st.find(kv.first) == st.end())
                     st[kv.first] = kv.second;
             }
         }
@@ -493,7 +495,7 @@ resume_3:
                 { "name", "Name" },
                 { "id", "ID" },
                 { "scheme_name", "Scheme" },
-                { "used_for_fs", "Used for VitastorFS" },
+                { "used_for_app", "Used for app" },
                 { "status", "Status" },
                 { "backfillfull_fmt", "Backfillfull" },
                 { "pg_count_fmt", "PGs" },

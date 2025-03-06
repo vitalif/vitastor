@@ -13,6 +13,7 @@ affect their interaction with the cluster.
 - [client_retry_interval](#client_retry_interval)
 - [client_eio_retry_interval](#client_eio_retry_interval)
 - [client_retry_enospc](#client_retry_enospc)
+- [client_wait_up_timeout](#client_wait_up_timeout)
 - [client_max_dirty_bytes](#client_max_dirty_bytes)
 - [client_max_dirty_ops](#client_max_dirty_ops)
 - [client_enable_writeback](#client_enable_writeback)
@@ -69,6 +70,19 @@ and clients are not blocked and just get EIO error code instead.
 
 Retry writes on out of space errors to wait until some space is freed on
 OSDs.
+
+## client_wait_up_timeout
+
+- Type: seconds
+- Default: 16
+- Can be changed online: yes
+
+Wait for this number of seconds until PGs are up when doing operations
+which require all PGs to be up. Currently only used by object listings
+in delete and merge-based commands ([vitastor-cli rm](../usage/cli.en.md#rm), merge and so on).
+
+The default value is calculated as `1 + OSD lease timeout`, which is
+`1 + etcd_report_interval + max_etcd_attempts*2*etcd_quick_timeout`.
 
 ## client_max_dirty_bytes
 

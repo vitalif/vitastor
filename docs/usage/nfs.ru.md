@@ -60,7 +60,7 @@ JSON-формате :-). Для инспекции содержимого БД �
    или по крайней мере на HDD, но без EC), но можно и в том же пуле, что данные
    (размер образа значения не имеет):
    `vitastor-cli create -s 10G -p fastpool testfs`
-3. Пометьте пул данных как ФС-пул: `vitastor-cli modify-pool --used-for-fs testfs data-pool`
+3. Пометьте пул данных как ФС-пул: `vitastor-cli modify-pool --used-for-app fs:testfs data-pool`
 4. Либо примонтируйте ФС: `vitastor-nfs mount --fs testfs --pool data-pool /mnt/vita`
 5. Либо запустите сетевой NFS-сервер: `vitastor-nfs start --fs testfs --pool data-pool`
 

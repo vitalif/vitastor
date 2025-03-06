@@ -112,19 +112,21 @@ resume_1:
                 return;
             }
 
-            if (new_cfg.find("used_for_fs") != new_cfg.end() && !force)
+            if (new_cfg.find("used_for_app") != new_cfg.end() && !force)
             {
                 // Check that pool doesn't have images
                 auto img_it = parent->cli->st_cli.inode_config.lower_bound(INODE_WITH_POOL(pool_id, 0));
-                if (img_it != parent->cli->st_cli.inode_config.end() && INODE_POOL(img_it->first) == pool_id &&
-                    img_it->second.name == new_cfg["used_for_fs"].string_value())
+                if (img_it != parent->cli->st_cli.inode_config.end() &&
+                    INODE_POOL(img_it->first) == pool_id &&
+                    new_cfg["used_for_app"].string_value().substr(0, 3) == "fs:" &&
+                    img_it->second.name == new_cfg["used_for_app"].string_value().substr(3))
                 {
                     // Only allow metadata image to exist in the FS pool
                     img_it++;
                 }
                 if (img_it != parent->cli->st_cli.inode_config.end() && INODE_POOL(img_it->first) == pool_id)
                 {
-                    result = (cli_result_t){ .err = ENOENT, .text = "Pool "+pool_name+" has block images, delete them before using it for VitastorFS" };
+                    result = (cli_result_t){ .err = ENOENT, .text = "Pool "+pool_name+" has block images, delete them before using it for VitastorFS, S3 or another app" };
                     state = 100;
                     return;
                 }

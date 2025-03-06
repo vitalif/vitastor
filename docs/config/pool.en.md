@@ -43,7 +43,7 @@ Parameters:
 - [osd_tags](#osd_tags)
 - [primary_affinity_tags](#primary_affinity_tags)
 - [scrub_interval](#scrub_interval)
-- [used_for_fs](#used_for_fs)
+- [used_for_app](#used_for_app)
 
 Examples:
 
@@ -377,24 +377,37 @@ of the OSDs containing a data chunk for a PG.
 Automatic scrubbing interval for this pool. Overrides
 [global scrub_interval setting](osd.en.md#scrub_interval).
 
-## used_for_fs
+## used_for_app
 
 - Type: string
 
-If non-empty, the pool is marked as used for VitastorFS with metadata stored
-in block image (regular Vitastor volume) named as the value of this pool parameter.
+If non-empty, the pool is marked as used for a separate application, for example,
+VitastorFS or S3, which allocates Vitastor volume IDs by itself and does not use
+image/inode metadata in etcd.
 
-When a pool is marked as used for VitastorFS, regular block volume creation in it
+When a pool is marked as used for such app, regular block volume creation in it
 is disabled (vitastor-cli refuses to create images without --force) to protect
-the user from block volume and FS file ID collisions and data loss.
+the user from block volume and FS/S3 volume ID collisions and data loss.
 
-[vitastor-nfs](../usage/nfs.ru.md), in its turn, refuses to use pools not marked
+Also such pools do not calculate per-inode space usage statistics in etcd because
+using it for an external application implies that it may contain a very large
+number of volumes and their statistics may take too much space in etcd.
+
+Setting used_for_app to `fs:<name>` tells Vitastor that the pool is used for VitastorFS
+with VitastorKV metadata base stored in a block image (regular Vitastor volume) named
+`<name>`.
+
+[vitastor-nfs](../usage/nfs.en.md), in its turn, refuses to use pools not marked
 for the corresponding FS when starting. This also implies that you can use one
 pool only for one VitastorFS.
 
-The second thing that is disabled for VitastorFS pools is reporting per-inode space
-usage statistics in etcd because a FS pool may store a very large number of files
-and statistics for them all would take a lot of space in etcd.
+If you plan to use the pool for S3, set its used_for_app to `s3:<name>`. `<name>` may
+be basically anything you want (for example, `s3:standard`) - it's not validated
+by Vitastor S3 components in any way.
+
+All other values except prefixed with `fs:` or `s3:` may be used freely and don't
+mean anything special for Vitastor core components. For now, you can use them as
+you wish.
 
 # Examples
 

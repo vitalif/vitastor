@@ -58,7 +58,7 @@ To use VitastorFS:
 2. Create an image for FS metadata, preferably in a faster (SSD or replica-HDD) pool,
    but you can create it in the data pool too if you want (image size doesn't matter):
    `vitastor-cli create -s 10G -p fastpool testfs`
-3. Mark data pool as an FS pool: `vitastor-cli modify-pool --used-for-fs testfs data-pool`
+3. Mark data pool as an FS pool: `vitastor-cli modify-pool --used-for-app fs:testfs data-pool`
 4. Either mount the FS: `vitastor-nfs mount --fs testfs --pool data-pool /mnt/vita`
 5. Or start the NFS server: `vitastor-nfs start --fs testfs --pool data-pool`
 

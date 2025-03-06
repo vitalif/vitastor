@@ -92,12 +92,12 @@ struct image_creator_t
         {
             new_pool_id = pools.begin()->first;
         }
-        if (new_pool_id && !pools.at(new_pool_id).used_for_fs.empty() && !force)
+        if (new_pool_id && !pools.at(new_pool_id).used_for_app.empty() && !force)
         {
             result = (cli_result_t){
                 .err = EINVAL,
                 .text = "Pool "+pools.at(new_pool_id).name+
-                    " is used for VitastorFS "+pools.at(new_pool_id).used_for_fs+
+                    " is used for application "+pools.at(new_pool_id).used_for_app+
                     ". Use --force if you really know what you are doing",
             };
             state = 100;

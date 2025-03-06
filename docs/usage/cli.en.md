@@ -398,7 +398,8 @@ Optional parameters:
 | `--raw_placement <rules>`      | Specify raw PG generation rules ([details](../config/pool.en.md#raw_placement)) |
 | `--primary_affinity_tags tags` | Prefer to put primary copies on OSDs with all specified tags               |
 | `--scrub_interval <time>`      | Enable regular scrubbing for this pool. Format: number + unit s/m/h/d/M/y  |
-| `--used_for_fs <name>`         | Mark pool as used for VitastorFS with metadata in image <name>             |
+| `--used_for_app fs:<name>`     | Mark pool as used for VitastorFS with metadata in image `<name>`           |
+| `--used_for_app s3:<name>`     | Mark pool as used for S3 location with name `<name>`                       |
 | `--pg_stripe_size <number>`    | Increase object grouping stripe                                            |
 | `--max_osd_combinations 10000` | Maximum number of random combinations for LP solver input                  |
 | `--wait`                       | Wait for the new pool to come online                                       |

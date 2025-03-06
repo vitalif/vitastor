@@ -315,7 +315,7 @@
     decrease write performance for fast disks because page cache is an overhead
     itself.
 
-    Choose "directsync" to use [immediate_commit](layout-cluster.ru.md#immediate_commit)
+    Choose "directsync" to use [immediate_commit](layout-cluster.en.md#immediate_commit)
     (which requires disable_data_fsync) with drives having write-back cache
     which can't be turned off, for example, Intel Optane. Also note that *some*
     desktop SSDs (for example, HP EX950) may ignore O_SYNC thus making
