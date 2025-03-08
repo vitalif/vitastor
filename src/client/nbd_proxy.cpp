@@ -1194,7 +1194,7 @@ protected:
         }
         else
         {
-            if (cur_op->opcode == OSD_OP_WRITE && watch->cfg.readonly)
+            if (cur_op->opcode == OSD_OP_WRITE && !inode && watch->cfg.readonly)
             {
                 cur_op->retval = -EROFS;
                 std::function<void(cluster_op_t*)>(cur_op->callback)(cur_op);
