@@ -33,6 +33,7 @@ public:
     uint64_t offset = 0, len = 0, version = 0;
     bool with_parents = false;
     Nan::Persistent<v8::Function> callback;
+    Nan::Persistent<v8::Value> buffer_ref;
 };
 
 static uint64_t get_ui64(const v8::Local<v8::Value> & val)
@@ -182,6 +183,7 @@ NodeVitastorRequest* NodeVitastor::get_write_request(const Nan::FunctionCallback
 
     req->offset = offset;
     req->version = version;
+    req->buffer_ref.Reset(bufarg);
 
     if (bufarg->IsArray())
     {
