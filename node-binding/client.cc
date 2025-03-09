@@ -19,10 +19,15 @@
 class NodeVitastorRequest: public Nan::AsyncResource
 {
 public:
-    NodeVitastorRequest(NodeVitastor *cli, v8::Local<v8::Function> cb): Nan::AsyncResource("NodeVitastorRequest")
+    NodeVitastorRequest(NodeVitastor *cli, const v8::Local<v8::Function> & cb): Nan::AsyncResource("NodeVitastorRequest")
     {
         this->cli = cli;
         callback.Reset(cb);
+    }
+    ~NodeVitastorRequest()
+    {
+        callback.Reset();
+        buffer_ref.Reset();
     }
 
     iovec iov;
@@ -130,8 +135,8 @@ NodeVitastorRequest* NodeVitastor::get_read_request(const Nan::FunctionCallbackI
         Nan::ThrowError("failed to allocate memory");
         return NULL;
     }
-    v8::Local<v8::Function> callback = info[argpos+2].As<v8::Function>();
-    auto req = new NodeVitastorRequest(this, callback);
+
+    auto req = new NodeVitastorRequest(this, info[argpos+2].As<v8::Function>());
 
     req->offset = offset;
     req->len = len;
@@ -178,8 +183,7 @@ NodeVitastorRequest* NodeVitastor::get_write_request(const Nan::FunctionCallback
         argpos++;
     }
 
-    v8::Local<v8::Function> callback = info[argpos+2].As<v8::Function>();
-    auto req = new NodeVitastorRequest(this, callback);
+    auto req = new NodeVitastorRequest(this, info[argpos+2].As<v8::Function>());
 
     req->offset = offset;
     req->version = version;
@@ -250,8 +254,7 @@ NodeVitastorRequest* NodeVitastor::get_delete_request(const Nan::FunctionCallbac
         argpos++;
     }
 
-    v8::Local<v8::Function> callback = info[argpos+2].As<v8::Function>();
-    auto req = new NodeVitastorRequest(this, callback);
+    auto req = new NodeVitastorRequest(this, info[argpos+2].As<v8::Function>());
 
     req->offset = offset;
     req->len = len;
@@ -291,8 +294,7 @@ NAN_METHOD(NodeVitastor::Sync)
 
     NodeVitastor* self = Nan::ObjectWrap::Unwrap<NodeVitastor>(info.This());
 
-    v8::Local<v8::Function> callback = info[0].As<v8::Function>();
-    auto req = new NodeVitastorRequest(self, callback);
+    auto req = new NodeVitastorRequest(self, info[0].As<v8::Function>());
 
     self->Ref();
     vitastor_c_sync(self->c, on_write_finish, req);
@@ -315,9 +317,8 @@ NAN_METHOD(NodeVitastor::ReadBitmap)
     uint64_t offset = get_ui64(info[2]);
     uint64_t len = get_ui64(info[3]);
     bool with_parents = Nan::To<bool>(info[4]).FromJust();
-    v8::Local<v8::Function> callback = info[5].As<v8::Function>();
 
-    auto req = new NodeVitastorRequest(self, callback);
+    auto req = new NodeVitastorRequest(self, info[5].As<v8::Function>());
     self->Ref();
     vitastor_c_read_bitmap(self->c, ((pool << (64-POOL_ID_BITS)) | inode), offset, len, with_parents, on_read_bitmap_finish, req);
 #if !defined VITASTOR_C_API_VERSION || VITASTOR_C_API_VERSION < 5
@@ -343,8 +344,7 @@ NAN_METHOD(NodeVitastor::OnReady)
     if (info.Length() < 1)
         Nan::ThrowError("Not enough arguments to on_ready(callback(err))");
     NodeVitastor* self = Nan::ObjectWrap::Unwrap<NodeVitastor>(info.This());
-    v8::Local<v8::Function> callback = info[0].As<v8::Function>();
-    auto req = new NodeVitastorRequest(self, callback);
+    auto req = new NodeVitastorRequest(self, info[0].As<v8::Function>());
     self->Ref();
     vitastor_c_on_ready(self->c, on_ready_finish, req);
 #if !defined VITASTOR_C_API_VERSION || VITASTOR_C_API_VERSION < 5
@@ -568,8 +568,7 @@ NAN_METHOD(NodeVitastorImage::Sync)
 
     NodeVitastorImage* img = Nan::ObjectWrap::Unwrap<NodeVitastorImage>(info.This());
 
-    v8::Local<v8::Function> callback = info[0].As<v8::Function>();
-    auto req = new NodeVitastorRequest(img->cli, callback);
+    auto req = new NodeVitastorRequest(img->cli, info[0].As<v8::Function>());
     req->img = img;
     req->op = NODE_VITASTOR_SYNC;
 
@@ -588,9 +587,8 @@ NAN_METHOD(NodeVitastorImage::ReadBitmap)
     uint64_t offset = get_ui64(info[0]);
     uint64_t len = get_ui64(info[1]);
     bool with_parents = Nan::To<bool>(info[2]).FromJust();
-    v8::Local<v8::Function> callback = info[3].As<v8::Function>();
 
-    auto req = new NodeVitastorRequest(img->cli, callback);
+    auto req = new NodeVitastorRequest(img->cli, info[3].As<v8::Function>());
     req->img = img;
     req->op = NODE_VITASTOR_READ_BITMAP;
     req->offset = offset;
@@ -609,8 +607,7 @@ NAN_METHOD(NodeVitastorImage::GetInfo)
 
     NodeVitastorImage* img = Nan::ObjectWrap::Unwrap<NodeVitastorImage>(info.This());
 
-    v8::Local<v8::Function> callback = info[0].As<v8::Function>();
-    auto req = new NodeVitastorRequest(img->cli, callback);
+    auto req = new NodeVitastorRequest(img->cli, info[0].As<v8::Function>());
     req->img = img;
     req->op = NODE_VITASTOR_GET_INFO;
 
@@ -805,8 +802,7 @@ NAN_METHOD(NodeVitastorKV::Open)
         cfg[std::string(*Nan::Utf8String(key))] = std::string(*Nan::Utf8String(Nan::Get(jsParams, key).ToLocalChecked()));
     }
 
-    v8::Local<v8::Function> callback = info[3].As<v8::Function>();
-    auto req = new NodeVitastorRequest(kv->cli, callback);
+    auto req = new NodeVitastorRequest(kv->cli, info[3].As<v8::Function>());
 
     kv->Ref();
     kv->dbw->open(inode_id, cfg, [kv, req](int res)
@@ -833,8 +829,7 @@ NAN_METHOD(NodeVitastorKV::Close)
 
     NodeVitastorKV* kv = Nan::ObjectWrap::Unwrap<NodeVitastorKV>(info.This());
 
-    v8::Local<v8::Function> callback = info[0].As<v8::Function>();
-    auto req = new NodeVitastorRequest(kv->cli, callback);
+    auto req = new NodeVitastorRequest(kv->cli, info[0].As<v8::Function>());
 
     kv->Ref();
     kv->dbw->close([kv, req]()
@@ -891,8 +886,7 @@ void NodeVitastorKV::get_impl(const Nan::FunctionCallbackInfo<v8::Value> & info,
     // FIXME: Handle Buffer too
     std::string key(*Nan::Utf8String(info[0].As<v8::String>()));
 
-    v8::Local<v8::Function> callback = info[1].As<v8::Function>();
-    auto req = new NodeVitastorRequest(kv->cli, callback);
+    auto req = new NodeVitastorRequest(kv->cli, info[1].As<v8::Function>());
 
     kv->Ref();
     kv->dbw->get(key, [kv, req](int res, const std::string & value)
@@ -957,14 +951,12 @@ NAN_METHOD(NodeVitastorKV::Set)
     std::string key(*Nan::Utf8String(info[0].As<v8::String>()));
     std::string value(*Nan::Utf8String(info[1].As<v8::String>()));
 
-    v8::Local<v8::Function> callback = info[2].As<v8::Function>();
-    NodeVitastorRequest *req = new NodeVitastorRequest(kv->cli, callback), *cas_req = NULL;
+    NodeVitastorRequest *req = new NodeVitastorRequest(kv->cli, info[2].As<v8::Function>()), *cas_req = NULL;
 
     std::function<bool(int, const std::string &)> cas_cb;
     if (info.Length() > 3 && info[3]->IsObject())
     {
-        v8::Local<v8::Function> cas_callback = info[3].As<v8::Function>();
-        cas_req = new NodeVitastorRequest(kv->cli, cas_callback);
+        cas_req = new NodeVitastorRequest(kv->cli, info[3].As<v8::Function>());
         cas_cb = make_cas_callback(cas_req);
     }
 
@@ -998,14 +990,12 @@ NAN_METHOD(NodeVitastorKV::Del)
     // FIXME: Handle Buffer too
     std::string key(*Nan::Utf8String(info[0].As<v8::String>()));
 
-    v8::Local<v8::Function> callback = info[1].As<v8::Function>();
-    NodeVitastorRequest *req = new NodeVitastorRequest(kv->cli, callback), *cas_req = NULL;
+    NodeVitastorRequest *req = new NodeVitastorRequest(kv->cli, info[1].As<v8::Function>()), *cas_req = NULL;
 
     std::function<bool(int, const std::string &)> cas_cb;
     if (info.Length() > 2 && info[2]->IsObject())
     {
-        v8::Local<v8::Function> cas_callback = info[2].As<v8::Function>();
-        cas_req = new NodeVitastorRequest(kv->cli, cas_callback);
+        cas_req = new NodeVitastorRequest(kv->cli, info[2].As<v8::Function>());
         cas_cb = make_cas_callback(cas_req);
     }
 
@@ -1104,12 +1094,11 @@ NAN_METHOD(NodeVitastorKVListing::Next)
 
     if (info.Length() > 0)
     {
-        v8::Local<v8::Function> callback = info[0].As<v8::Function>();
         if (list->iter)
         {
             delete list->iter;
         }
-        list->iter = new NodeVitastorRequest(list->kv->cli, callback);
+        list->iter = new NodeVitastorRequest(list->kv->cli, info[0].As<v8::Function>());
     }
     if (!list->handle)
     {
