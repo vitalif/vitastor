@@ -12,7 +12,8 @@ EnvironmentFile=/etc/vitastor/docker.conf
 SyslogIdentifier=vitastor-osd%i
 ExecStart=bash -c 'docker run --rm -i -v /etc/vitastor:/etc/vitastor -v /dev:/dev \
     $(for i in $(ls /dev/vitastor/osd%i-*); do echo --device $i:$i; done) \
-    --log-driver none --network host --ulimit nofile=1048576 --ulimit memlock=-1 $CONTAINER_OPTIONS --name vitastor-osd%i \
+    --log-driver none --network host --ulimit nofile=1048576 --ulimit memlock=-1 \
+    --security-opt seccomp=unconfined $CONTAINER_OPTIONS --name vitastor-osd%i \
     vitastor:$VITASTOR_VERSION vitastor-disk exec-osd /dev/vitastor/osd%i-data'
 ExecStartPre=+docker exec vitastor vitastor-disk pre-exec /dev/vitastor/osd%i-data
 ExecStop=docker stop vitastor-etcd%i

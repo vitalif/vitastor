@@ -8,7 +8,7 @@ PartOf=vitastor.target
 Restart=always
 EnvironmentFile=/etc/vitastor/docker.conf
 ExecStart=bash -c 'docker run --rm -i -v /etc/vitastor:/etc/vitastor -v /dev:/dev -v /run:/run \
-    --privileged --log-driver none --network host --name vitastor vitastor:$VITASTOR_VERSION \
+    --security-opt seccomp=unconfined --privileged --log-driver none --network host --name vitastor vitastor:$VITASTOR_VERSION \
     sleep.sh'
 ExecStartPost=udevadm trigger
 ExecStop=docker stop vitastor
