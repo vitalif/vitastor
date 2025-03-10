@@ -52,6 +52,7 @@ public:
     bool read_from_cache(cluster_op_t *op, uint32_t bitmap_granularity);
     void flush_buffers(cluster_client_t *cli, dirty_buf_it_t from_it, dirty_buf_it_t to_it);
     void mark_flush_written(uint64_t inode, uint64_t offset, uint64_t len, uint64_t flush_id);
+    void delete_flush(uint64_t inode, uint64_t offset, uint64_t len, uint64_t flush_id);
     void fsync_start();
     void fsync_error();
     void fsync_ok();

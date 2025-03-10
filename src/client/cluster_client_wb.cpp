@@ -332,7 +332,14 @@ void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from
             }
             flushed_buffers.erase(fl_it++);
         }
-        mark_flush_written(op->inode, op->offset, op->len, flush_id);
+        if (op->flags & OP_IMMEDIATE_COMMIT)
+        {
+            delete_flush(op->inode, op->offset, op->len, flush_id);
+        }
+        else
+        {
+            mark_flush_written(op->inode, op->offset, op->len, flush_id);
+        }
         delete op;
         writebacks_active--;
         // We can't call execute_internal because it affects an invalid copy of the list here
@@ -347,6 +354,25 @@ void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from
         // Insert repeated flushes into the beginning
         cli->unshift_op(op);
         cli->continue_rw(op);
+    }
+}
+
+void writeback_cache_t::delete_flush(uint64_t inode, uint64_t offset, uint64_t len, uint64_t flush_id)
+{
+    for (auto dirty_it = find_dirty(inode, offset);
+        dirty_it != dirty_buffers.end() && dirty_it->first.inode == inode &&
+        dirty_it->first.stripe < offset+len; )
+    {
+        if (dirty_it->second.flush_id == flush_id && dirty_it->second.state == CACHE_REPEATING)
+        {
+            if (dirty_it->second.buf && !--(*dirty_it->second.refcnt))
+            {
+                free(dirty_it->second.refcnt);
+            }
+            dirty_buffers.erase(dirty_it++);
+        }
+        else
+            dirty_it++;
     }
 }
 
