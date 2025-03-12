@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <malloc.h>
 
-allocator::allocator(uint64_t blocks)
+allocator_t::allocator_t(uint64_t blocks)
 {
     if (blocks >= 0x80000000 || blocks <= 1)
     {
@@ -32,12 +32,12 @@ allocator::allocator(uint64_t blocks)
     }
 }
 
-allocator::~allocator()
+allocator_t::~allocator_t()
 {
     delete[] mask;
 }
 
-bool allocator::get(uint64_t addr)
+bool allocator_t::get(uint64_t addr)
 {
     if (addr >= size)
     {
@@ -52,7 +52,7 @@ bool allocator::get(uint64_t addr)
     return ((mask[offset + addr/64] >> (addr % 64)) & 1);
 }
 
-void allocator::set(uint64_t addr, bool value)
+void allocator_t::set(uint64_t addr, bool value)
 {
     if (addr >= size)
     {
@@ -109,7 +109,7 @@ void allocator::set(uint64_t addr, bool value)
     }
 }
 
-uint64_t allocator::find_free()
+uint64_t allocator_t::find_free()
 {
     uint64_t p2 = 1, offset = 0, addr = 0, f, i;
     while (p2 < size)
@@ -138,7 +138,7 @@ uint64_t allocator::find_free()
     return addr;
 }
 
-uint64_t allocator::get_free_count()
+uint64_t allocator_t::get_free_count()
 {
     return free;
 }

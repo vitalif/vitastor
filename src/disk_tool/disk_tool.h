@@ -60,7 +60,7 @@ struct disk_tool_t
 
     bool first_block, first_entry;
 
-    allocator *data_alloc;
+    allocator_t *data_alloc;
     std::map<uint64_t, uint64_t> data_remap;
     std::map<uint64_t, uint64_t>::iterator remap_it;
     ring_loop_t *ringloop;

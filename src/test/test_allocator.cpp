@@ -7,7 +7,7 @@
 
 void alloc_all(int size)
 {
-    allocator *a = new allocator(size);
+    allocator_t *a = new allocator_t(size);
     for (int i = 0; i < size; i++)
     {
         uint64_t x = a->find_free();

@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 // Hierarchical bitmap allocator
-class allocator
+class allocator_t
 {
     uint64_t total;
     uint64_t size;
@@ -14,8 +14,8 @@ class allocator
     uint64_t last_one_mask;
     uint64_t *mask;
 public:
-    allocator(uint64_t blocks);
-    ~allocator();
+    allocator_t(uint64_t blocks);
+    ~allocator_t();
     bool get(uint64_t addr);
     void set(uint64_t addr, bool value);
     uint64_t find_free();

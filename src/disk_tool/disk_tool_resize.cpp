@@ -27,7 +27,7 @@ int disk_tool_t::raw_resize()
         return r;
     // Check parameters and fill allocator
     fprintf(stderr, "Reading metadata\n");
-    data_alloc = new allocator((new_data_len < dsk.data_len ? dsk.data_len : new_data_len) / dsk.data_block_size);
+    data_alloc = new allocator_t((new_data_len < dsk.data_len ? dsk.data_len : new_data_len) / dsk.data_block_size);
     r = process_meta(
         [this](blockstore_meta_header_v2_t *hdr)
         {

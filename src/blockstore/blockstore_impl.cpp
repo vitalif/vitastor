@@ -20,7 +20,7 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *
         dsk.open_meta();
         dsk.open_journal();
         calc_lengths();
-        data_alloc = new allocator(dsk.block_count);
+        data_alloc = new allocator_t(dsk.block_count);
     }
     catch (std::exception & e)
     {
