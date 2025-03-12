@@ -12,6 +12,8 @@
 // Lower byte of checksum type is its length
 #define BLOCKSTORE_CSUM_CRC32C 0x104
 
+class allocator_t;
+
 struct blockstore_disk_t
 {
     std::string data_device, meta_device, journal_device;
@@ -34,6 +36,10 @@ struct blockstore_disk_t
     // I/O modes for data, metadata and journal: direct or "" = O_DIRECT, cached = O_SYNC, directsync = O_DIRECT|O_SYNC
     // O_SYNC without O_DIRECT = use Linux page cache for reads and writes
     std::string data_io, meta_io, journal_io;
+    // Data discard granularity and minimum size (for the sake of performance)
+    bool discard_on_start = false;
+    uint64_t min_discard_size = 1024*1024;
+    uint64_t discard_granularity = 0;
 
     int meta_fd = -1, data_fd = -1, journal_fd = -1;
     uint64_t meta_offset, meta_device_sect, meta_device_size, meta_len, meta_format = 0;
@@ -50,6 +56,7 @@ struct blockstore_disk_t
     void open_journal();
     void calc_lengths(bool skip_meta_check = false);
     void close_all();
+    int trim_data(allocator_t *alloc);
 
     inline uint64_t dirty_dyn_size(uint64_t offset, uint64_t len)
     {

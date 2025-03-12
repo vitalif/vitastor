@@ -25,7 +25,7 @@ int disk_tool_t::raw_resize()
     r = resize_parse_params();
     if (r != 0)
         return r;
-    // Check parameters and fill allocator
+    // Fill allocator
     fprintf(stderr, "Reading metadata\n");
     data_alloc = new allocator_t((new_data_len < dsk.data_len ? dsk.data_len : new_data_len) / dsk.data_block_size);
     r = process_meta(

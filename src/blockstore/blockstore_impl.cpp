@@ -83,14 +83,20 @@ void blockstore_impl_t::loop()
             {
                 delete journal_init_reader;
                 journal_init_reader = NULL;
-                if (journal.flush_journal)
-                    initialized = 3;
-                else
-                    initialized = 10;
+                initialized = 3;
                 ringloop->wakeup();
             }
         }
         if (initialized == 3)
+        {
+            if (!readonly && dsk.discard_on_start)
+                dsk.trim_data(data_alloc);
+            if (journal.flush_journal)
+                initialized = 4;
+            else
+                initialized = 10;
+        }
+        if (initialized == 4)
         {
             if (readonly)
             {

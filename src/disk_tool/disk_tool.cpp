@@ -68,6 +68,8 @@ static const char *help_text =
     "    --data_device_block 4k     Override data device block size\n"
     "    --meta_device_block 4k     Override metadata device block size\n"
     "    --journal_device_block 4k  Override journal device block size\n"
+    "    --discard_on_start 0       TRIM unused data device blocks every OSD start (default off)\n"
+    "    --min_discard_size 1M      Minimum TRIM block size\n"
     "    --json                     Enable JSON output\n"
     "  \n"
     "  immediate_commit setting is automatically derived from \"disable fsync\" options.\n"
@@ -127,6 +129,12 @@ static const char *help_text =
     "    --new_journal_len SIZE     make new journal area SIZE bytes long\n"
     "  SIZE may include k/m/g/t suffixes. If any of the new layout parameter\n"
     "  options are not specified, old values will be used.\n"
+    "\n"
+    "vitastor-disk trim <osd_num>|<osd_device> [<osd_num>|<osd_device>...]\n"
+    "  Try to discard unused blocks (SSD TRIM) on the data device of each of the OSD(s).\n"
+    "  May only be used on stopped OSDs. Options:\n"
+    "    --min_discard_size 1M      Minimum TRIM block size\n"
+    "    --discard_granularity 0    Override device's discard granularity\n"
     "\n"
     "vitastor-disk start|stop|restart|enable|disable [--now] <device> [device2 device3 ...]\n"
     "  Manipulate Vitastor OSDs using systemd by their device paths.\n"
@@ -426,6 +434,19 @@ int main(int argc, char *argv[])
             self.options["device"] = cmd[1];
         }
         disk_tool_simple_offsets(self.options, self.json);
+        return 0;
+    }
+    else if (!strcmp(cmd[0], "trim"))
+    {
+        if (cmd.size() < 2)
+        {
+            fprintf(stderr, "OSD number(s) or device path(s) are required\n");
+            return 1;
+        }
+        for (int i = 1; i < cmd.size(); i++)
+        {
+            self.trim_data(cmd[i]);
+        }
         return 0;
     }
     else if (!strcmp(cmd[0], "udev"))

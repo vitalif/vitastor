@@ -26,6 +26,9 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         "throttle_target_mbs",
         "throttle_target_parallelism",
         "throttle_threshold_us",
+        "discard_on_start",
+        "min_discard_size",
+        "discard_granularity",
     };
     if (options.find("force") == options.end())
     {

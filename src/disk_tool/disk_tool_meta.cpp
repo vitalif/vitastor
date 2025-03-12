@@ -7,18 +7,26 @@
 #include "json_util.h"
 
 int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)> hdr_fn,
-    std::function<void(uint64_t, clean_disk_entry*, uint8_t*)> record_fn)
+    std::function<void(uint64_t, clean_disk_entry*, uint8_t*)> record_fn, bool do_open)
 {
     if (dsk.meta_block_size % DIRECT_IO_ALIGNMENT)
     {
         fprintf(stderr, "Invalid metadata block size: is not a multiple of %d\n", DIRECT_IO_ALIGNMENT);
         return 1;
     }
-    dsk.meta_fd = open(dsk.meta_device.c_str(), (options["io"] == "cached" ? 0 : O_DIRECT) | O_RDONLY);
-    if (dsk.meta_fd < 0)
+    if (do_open)
     {
-        fprintf(stderr, "Failed to open metadata device %s: %s\n", dsk.meta_device.c_str(), strerror(errno));
-        return 1;
+        if (dsk.meta_fd >= 0)
+        {
+            fprintf(stderr, "Bug: Metadata device is already opened\n");
+            return 1;
+        }
+        dsk.meta_fd = open(dsk.meta_device.c_str(), (options["io"] == "cached" ? 0 : O_DIRECT) | O_RDONLY);
+        if (dsk.meta_fd < 0)
+        {
+            fprintf(stderr, "Failed to open metadata device %s: %s\n", dsk.meta_device.c_str(), strerror(errno));
+            return 1;
+        }
     }
     int buf_size = 1024*1024;
     if (buf_size % dsk.meta_block_size)
@@ -47,8 +55,11 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
             {
                 fprintf(stderr, "I don't know checksum format %u, the only supported format is crc32c = %u.\n", hdr->data_csum_type, BLOCKSTORE_CSUM_CRC32C);
                 free(data);
-                close(dsk.meta_fd);
-                dsk.meta_fd = -1;
+                if (do_open)
+                {
+                    close(dsk.meta_fd);
+                    dsk.meta_fd = -1;
+                }
                 return 1;
             }
         }
@@ -57,8 +68,11 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
             // Unsupported version
             fprintf(stderr, "Metadata format is too new for me (stored version is %ju, max supported %u).\n", hdr->version, BLOCKSTORE_META_FORMAT_V2);
             free(data);
-            close(dsk.meta_fd);
-            dsk.meta_fd = -1;
+            if (do_open)
+            {
+                close(dsk.meta_fd);
+                dsk.meta_fd = -1;
+            }
             return 1;
         }
         if (hdr->meta_block_size != dsk.meta_block_size)
@@ -145,8 +159,11 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
         }
     }
     free(data);
-    close(dsk.meta_fd);
-    dsk.meta_fd = -1;
+    if (do_open)
+    {
+        close(dsk.meta_fd);
+        dsk.meta_fd = -1;
+    }
     return 0;
 }
 

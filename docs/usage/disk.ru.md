@@ -99,6 +99,9 @@ vitastor-disk - инструмент командной строки для уп
 --data_device_block 4k     Задать размер блока устройства данных
 --meta_device_block 4k     Задать размер блока метаданных
 --journal_device_block 4k  Задать размер блока журнала
+--discard_on_start 0       Выполнять TRIM пустых блоков данных при запуске OSD (по умолчанию нет)
+--min_discard_size 1M      Минимальный размер блока для TRIM
+--json                     Включить JSON-вывод
 ```
 
 Настройка [immediate_commit](../config/layout-cluster.ru.md#immediate_commit)
@@ -181,6 +184,20 @@ throttle_target_mbs, throttle_target_parallelism, throttle_threshold_us.
 
 `РАЗМЕР` может быть указан с суффиксами k/m/g/t. Если любой из новых параметров
 расположения не указан, он принимается равным старому значению.
+
+## trim
+
+`vitastor-disk trim <osd_num>|<osd_device> [<osd_num>|<osd_device>...]`
+
+Попробовать пометить пустые блоки дисков данных всех указанных OSD неиспользуемыми
+(выполнить команду SSD TRIM).
+
+Можно использовать только с остановленными OSD. Опции:
+
+```
+--min_discard_size 1M      Минимальный размер блока для TRIM
+--discard_granularity 0    Кратность размера блока для TRIM
+```
 
 ## start/stop/restart/enable/disable
 

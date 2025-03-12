@@ -86,10 +86,10 @@ struct disk_tool_t
 
     int dump_journal();
     void dump_journal_entry(int num, journal_entry *je, bool json);
-    int process_journal(std::function<int(void*)> block_fn);
+    int process_journal(std::function<int(void*)> block_fn, bool do_open = true);
     int process_journal_block(void *buf, std::function<void(int, journal_entry*)> iter_fn);
     int process_meta(std::function<void(blockstore_meta_header_v2_t *)> hdr_fn,
-        std::function<void(uint64_t, clean_disk_entry*, uint8_t*)> record_fn);
+        std::function<void(uint64_t, clean_disk_entry*, uint8_t*)> record_fn, bool do_open = true);
 
     int dump_meta();
     void dump_meta_header(blockstore_meta_header_v2_t *hdr);
@@ -123,6 +123,7 @@ struct disk_tool_t
     int pre_exec_osd(std::string device);
     int purge_devices(const std::vector<std::string> & devices);
     int clear_osd_superblock(const std::string & dev);
+    int trim_data(std::string device);
 
     json11::Json read_osd_superblock(std::string device, bool expect_exist = true, bool ignore_nonref = false);
     uint32_t write_osd_superblock(std::string device, json11::Json params);

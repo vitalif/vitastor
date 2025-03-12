@@ -119,13 +119,21 @@ int disk_tool_t::dump_journal()
     return 0;
 }
 
-int disk_tool_t::process_journal(std::function<int(void*)> block_fn)
+int disk_tool_t::process_journal(std::function<int(void*)> block_fn, bool do_open)
 {
-    dsk.journal_fd = open(dsk.journal_device.c_str(), (options["io"] == "cached" ? 0 : O_DIRECT) | O_RDONLY);
-    if (dsk.journal_fd < 0)
+    if (do_open)
     {
-        fprintf(stderr, "Failed to open journal device %s: %s\n", dsk.journal_device.c_str(), strerror(errno));
-        return 1;
+        if (dsk.journal_fd >= 0)
+        {
+            fprintf(stderr, "Bug: journal device is already opened\n");
+            return 1;
+        }
+        dsk.journal_fd = open(dsk.journal_device.c_str(), (options["io"] == "cached" ? 0 : O_DIRECT) | O_RDONLY);
+        if (dsk.journal_fd < 0)
+        {
+            fprintf(stderr, "Failed to open journal device %s: %s\n", dsk.journal_device.c_str(), strerror(errno));
+            return 1;
+        }
     }
     void *data = memalign_or_die(MEM_ALIGNMENT, dsk.journal_block_size);
     journal_pos = 0;
@@ -170,8 +178,11 @@ int disk_tool_t::process_journal(std::function<int(void*)> block_fn)
                 break;
         }
     }
-    close(dsk.journal_fd);
-    dsk.journal_fd = -1;
+    if (do_open)
+    {
+        close(dsk.journal_fd);
+        dsk.journal_fd = -1;
+    }
     free(data);
     return r;
 }

@@ -14,6 +14,7 @@ It supports the following commands:
 - [upgrade-simple](#upgrade-simple)
 - [resize](#resize)
 - [raw-resize](#raw-resize)
+- [trim](#trim)
 - [start/stop/restart/enable/disable](#start/stop/restart/enable/disable)
 - [purge](#purge)
 - [read-sb](#read-sb)
@@ -97,6 +98,9 @@ Options (both modes):
 --data_device_block 4k     Override data device block size
 --meta_device_block 4k     Override metadata device block size
 --journal_device_block 4k  Override journal device block size
+--discard_on_start 0       TRIM unused data device blocks every OSD start (default off)
+--min_discard_size 1M      Minimum TRIM block size
+--json                     Enable JSON output
 ```
 
 [immediate_commit](../config/layout-cluster.en.md#immediate_commit) setting is
@@ -178,6 +182,19 @@ parameters from OSD command line (i.e. from systemd unit or superblock).
 
 SIZE may include k/m/g/t suffixes. If any of the new layout parameter
 options are not specified, old values will be used.
+
+## trim
+
+`vitastor-disk trim <osd_num>|<osd_device> [<osd_num>|<osd_device>...]`
+
+Try to discard unused blocks (SSD TRIM) on the data device of each of the OSD(s).
+
+May only be used on stopped OSDs. Options:
+
+```
+--min_discard_size 1M      Minimum TRIM block size
+--discard_granularity 0    Override device's discard granularity
+```
 
 ## start/stop/restart/enable/disable
 

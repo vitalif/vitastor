@@ -8,6 +8,7 @@
 #include "blockstore_impl.h"
 #include "blockstore_disk.h"
 #include "str_util.h"
+#include "allocator.h"
 
 static uint32_t is_power_of_two(uint64_t value)
 {
@@ -83,6 +84,12 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
         throw std::runtime_error("data_csum_type="+config["data_csum_type"]+" is unsupported, only \"crc32c\" and \"none\" are supported");
     }
     csum_block_size = parse_size(config["csum_block_size"]);
+    discard_on_start = config.find("discard_on_start") != config.end() &&
+        (config["discard_on_start"] == "true" || config["discard_on_start"] == "1" || config["discard_on_start"] == "yes");
+    min_discard_size = parse_size(config["min_discard_size"]);
+    if (!min_discard_size)
+        min_discard_size = 1024*1024;
+    discard_granularity = parse_size(config["discard_granularity"]);
     // Validate
     if (!data_block_size)
     {
@@ -418,4 +425,45 @@ void blockstore_disk_t::close_all()
     if (journal_fd >= 0 && journal_fd != meta_fd)
         close(journal_fd);
     data_fd = meta_fd = journal_fd = -1;
+}
+
+// Sadly DISCARD only works through ioctl(), but it seems to always block the device queue,
+// so it's not a big deal that we can only run it synchronously.
+int blockstore_disk_t::trim_data(allocator_t *alloc)
+{
+    int r = 0;
+    uint64_t j = 0, i = 0;
+    uint64_t discarded = 0;
+    for (; i <= block_count; i++)
+    {
+        if (i >= block_count || alloc->get(i))
+        {
+            if (i > j && (i-j)*data_block_size >= min_discard_size)
+            {
+                uint64_t range[2] = { data_offset + j*data_block_size, (i-j)*data_block_size };
+                if (discard_granularity)
+                {
+                    range[1] += range[0];
+                    if (range[1] % discard_granularity)
+                        range[1] = range[1] - (range[1] % discard_granularity);
+                    if (range[0] % discard_granularity)
+                        range[0] = range[0] + discard_granularity - (range[0] % discard_granularity);
+                    if (range[0] >= range[1])
+                        continue;
+                    range[1] -= range[0];
+                }
+                r = ioctl(data_fd, BLKDISCARD, &range);
+                if (r != 0)
+                {
+                    fprintf(stderr, "Failed to execute BLKDISCARD %ju+%ju on %s: %s (code %d)\n",
+                        range[0], range[1], data_device.c_str(), strerror(-r), r);
+                    return -errno;
+                }
+                discarded += range[1];
+            }
+            j = i+1;
+        }
+    }
+    fprintf(stderr, "%s (%ju bytes) of unused data discarded on %s\n", format_size(discarded).c_str(), discarded, data_device.c_str());
+    return 0;
 }
