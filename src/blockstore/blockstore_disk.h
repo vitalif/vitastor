@@ -40,8 +40,8 @@ struct blockstore_disk_t
     uint64_t data_offset, data_device_sect, data_device_size, data_len;
     uint64_t journal_offset, journal_device_sect, journal_device_size, journal_len;
 
-    uint32_t block_order;
-    uint64_t block_count;
+    uint32_t block_order = 0;
+    uint64_t block_count = 0;
     uint32_t clean_entry_bitmap_size = 0, clean_entry_size = 0, clean_dyn_size = 0;
 
     void parse_config(std::map<std::string, std::string> & config);

@@ -138,7 +138,11 @@ resume_1:
                 exit(1);
             }
             hdr->header_csum = csum;
-            bs->dsk.meta_format = BLOCKSTORE_META_FORMAT_V2;
+            if (bs->dsk.meta_format != BLOCKSTORE_META_FORMAT_V2)
+            {
+                bs->dsk.meta_format = BLOCKSTORE_META_FORMAT_V2;
+                bs->dsk.calc_lengths();
+            }
         }
         else if (hdr->version == BLOCKSTORE_META_FORMAT_V1)
         {
@@ -146,11 +150,15 @@ resume_1:
             hdr->csum_block_size = 0;
             hdr->header_csum = 0;
             // Enable compatibility mode - entries without checksums
-            bs->dsk.clean_entry_size = sizeof(clean_disk_entry) + bs->dsk.clean_entry_bitmap_size*2;
-            bs->dsk.meta_len = (1 + (bs->dsk.block_count - 1 + bs->dsk.meta_block_size / bs->dsk.clean_entry_size)
-                / (bs->dsk.meta_block_size / bs->dsk.clean_entry_size)) * bs->dsk.meta_block_size;
-            bs->dsk.meta_format = BLOCKSTORE_META_FORMAT_V1;
-            printf("Warning: Starting with metadata in the old format without checksums, as stored on disk\n");
+            if (bs->dsk.meta_format != BLOCKSTORE_META_FORMAT_V1 ||
+                bs->dsk.data_csum_type != 0 || bs->dsk.csum_block_size != 0)
+            {
+                bs->dsk.data_csum_type = 0;
+                bs->dsk.csum_block_size = 0;
+                bs->dsk.meta_format = BLOCKSTORE_META_FORMAT_V1;
+                bs->dsk.calc_lengths();
+                printf("Warning: Starting with metadata in the old format without checksums, as stored on disk\n");
+            }
         }
         else if (hdr->version > BLOCKSTORE_META_FORMAT_V2)
         {
@@ -338,7 +346,7 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
                 uint32_t *entry_csum = (uint32_t*)((uint8_t*)entry + bs->dsk.clean_entry_size - 4);
                 if (*entry_csum != crc32c(0, entry, bs->dsk.clean_entry_size - 4))
                 {
-                    printf("Metadata entry %ju is corrupt (checksum mismatch), skipping\n", done_cnt+i);
+                    printf("Metadata entry %ju is corrupt (checksum mismatch: %08x vs %08x), skipping\n", done_cnt+i, *entry_csum, crc32c(0, entry, bs->dsk.clean_entry_size - 4));
                     // zero out the invalid entry, otherwise we'll hit "tried to overwrite non-zero metadata entry" later
                     if (bs->inmemory_meta)
                     {

@@ -79,28 +79,59 @@ int disk_tool_t::upgrade_simple_unit(std::string unit)
     {
         // Resize data
         uint64_t blk = stoull_full(options["block_size"]);
-        blk = blk ? blk : 128*1024;
+        blk = blk ? blk : (1 << DEFAULT_DATA_BLOCK_ORDER);
         std::map<std::string, uint64_t> resize;
         if (d_o < 4096 || m_is_d && m_o < 4096 && m_o < d_o || j_is_d && j_o < 4096 && j_o < d_o)
         {
-            resize["new_data_offset"] = d_o+blk;
+            d_o += blk;
             if (m_is_d && m_o < d_o)
-                resize["new_meta_offset"] = m_o+blk;
+                m_o += blk;
             if (j_is_d && j_o < d_o)
-                resize["new_journal_offset"] = j_o+blk;
+                j_o += blk;
         }
         if (!m_is_d && m_o < 4096)
         {
-            resize["new_meta_offset"] = m_o+4096;
+            m_o += 4096;
             if (j_is_m && m_o < j_o)
-                resize["new_journal_offset"] = j_o+4096;
+                j_o += 4096;
         }
         if (!j_is_d && !j_is_m && j_o < 4096)
-            resize["new_journal_offset"] = j_o+4096;
+            j_o += 4096;
+        if (options["meta_format"] == "" || options["meta_format"] == "1")
+        {
+            blockstore_disk_t dsk;
+            options["meta_format"] = std::to_string(BLOCKSTORE_META_FORMAT_V2);
+            try
+            {
+                dsk.parse_config(options);
+                dsk.open_data();
+                dsk.open_meta();
+                dsk.open_journal();
+                dsk.calc_lengths(true);
+                dsk.close_all();
+            }
+            catch (std::exception & e)
+            {
+                dsk.close_all();
+                fprintf(stderr, "Error: %s\n", e.what());
+                return 1;
+            }
+            options.erase("meta_format");
+            if (m_is_d && m_o < d_o && d_o-m_o < dsk.meta_len)
+                d_o += ((dsk.meta_len - (d_o-m_o) + blk-1) / blk) * blk;
+        }
+        resize["new_data_offset"] = d_o;
+        resize["new_meta_offset"] = m_o;
+        resize["new_journal_offset"] = j_o;
         disk_tool_t resizer;
         resizer.options = options;
         for (auto & kv: resize)
             resizer.options[kv.first] = std::to_string(kv.second);
+        std::string cmd;
+        for (auto & kv: resizer.options)
+            if (kv.second != "")
+                cmd += "  "+kv.first+" = "+kv.second+"\n";
+        fprintf(stderr, "Running resize:\n%s", cmd.c_str());
         if (resizer.raw_resize() != 0)
         {
             // FIXME: Resize with backup or journal

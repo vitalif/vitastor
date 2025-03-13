@@ -172,10 +172,6 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     {
         throw std::runtime_error("journal_offset must be a multiple of journal_block_size = "+std::to_string(journal_block_size));
     }
-    clean_entry_bitmap_size = data_block_size / bitmap_granularity / 8;
-    clean_dyn_size = clean_entry_bitmap_size*2 + (csum_block_size
-        ? data_block_size/csum_block_size*(data_csum_type & 0xFF) : 0);
-    clean_entry_size = sizeof(clean_disk_entry) + clean_dyn_size + 4 /*entry_csum*/;
 }
 
 void blockstore_disk_t::calc_lengths(bool skip_meta_check)
@@ -224,9 +220,13 @@ void blockstore_disk_t::calc_lengths(bool skip_meta_check)
     }
     // required metadata size
     block_count = data_len / data_block_size;
+    clean_entry_bitmap_size = data_block_size / bitmap_granularity / 8;
+    clean_dyn_size = clean_entry_bitmap_size*2 + (csum_block_size
+        ? data_block_size/csum_block_size*(data_csum_type & 0xFF) : 0);
+    clean_entry_size = sizeof(clean_disk_entry) + clean_dyn_size + 4 /*entry_csum*/;
     meta_len = (1 + (block_count - 1 + meta_block_size / clean_entry_size) / (meta_block_size / clean_entry_size)) * meta_block_size;
-    if (meta_format == BLOCKSTORE_META_FORMAT_V1 ||
-        !meta_format && !skip_meta_check && meta_area_size < meta_len && !data_csum_type)
+    bool new_doesnt_fit = (!meta_format && !skip_meta_check && meta_area_size < meta_len && !data_csum_type);
+    if (meta_format == BLOCKSTORE_META_FORMAT_V1 || new_doesnt_fit)
     {
         uint64_t clean_entry_v0_size = sizeof(clean_disk_entry) + 2*clean_entry_bitmap_size;
         uint64_t meta_v0_len = (1 + (block_count - 1 + meta_block_size / clean_entry_v0_size)
@@ -234,7 +234,11 @@ void blockstore_disk_t::calc_lengths(bool skip_meta_check)
         if (meta_format == BLOCKSTORE_META_FORMAT_V1 || meta_area_size >= meta_v0_len)
         {
             // Old metadata fits.
-            printf("Warning: Using old metadata format without checksums because the new format doesn't fit into provided area\n");
+            if (new_doesnt_fit)
+            {
+                printf("Warning: Using old metadata format without checksums because the new format"
+                    " doesn't fit into provided area (%lu bytes required, %lu bytes available)\n", meta_len, meta_area_size);
+            }
             clean_entry_size = clean_entry_v0_size;
             meta_len = meta_v0_len;
             meta_format = BLOCKSTORE_META_FORMAT_V1;
@@ -246,7 +250,7 @@ void blockstore_disk_t::calc_lengths(bool skip_meta_check)
         meta_format = BLOCKSTORE_META_FORMAT_V2;
     if (!skip_meta_check && meta_area_size < meta_len)
     {
-        throw std::runtime_error("Metadata area is too small, need at least "+std::to_string(meta_len)+" bytes");
+        throw std::runtime_error("Metadata area is too small, need at least "+std::to_string(meta_len)+" bytes, have only "+std::to_string(meta_area_size)+" bytes");
     }
     // requested journal size
     if (!skip_meta_check && cfg_journal_size > journal_len)
