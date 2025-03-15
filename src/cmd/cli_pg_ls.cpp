@@ -11,6 +11,7 @@ struct pg_lister_t
     cli_tool_t *parent;
 
     uint64_t pool_id = 0;
+    std::set<osd_num_t> osd_nums;
     std::string pool_name;
     std::vector<std::string> pg_state;
     uint64_t min_pg_num = 0;
@@ -136,6 +137,22 @@ resume_1:
                     if (min_pg_num && pgp.first < min_pg_num || max_pg_num && pgp.first > max_pg_num)
                     {
                         continue;
+                    }
+                    if (osd_nums.size())
+                    {
+                        bool found = false;
+                        for (int i = 0; !found && i < pgp.second.target_set.size(); i++)
+                            if (osd_nums.find(pgp.second.target_set[i]) != osd_nums.end())
+                                found = true;
+                        for (int i = 0; !found && i < pgp.second.target_history.size(); i++)
+                            for (int j = 0; !found && j < pgp.second.target_history[i].size(); j++)
+                                if (osd_nums.find(pgp.second.target_history[i][j]) != osd_nums.end())
+                                    found = true;
+                        for (int i = 0; !found && i < pgp.second.all_peers.size(); i++)
+                            if (osd_nums.find(pgp.second.all_peers[i]) != osd_nums.end())
+                                found = true;
+                        if (!found)
+                            continue;
                     }
                     if (masks.size())
                     {
@@ -274,6 +291,14 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_pg_list(json11::Json cfg)
         pg_lister->pg_state.push_back(cfg["pg_state"].string_value());
     pg_lister->min_pg_num = cfg["min"].uint64_value();
     pg_lister->max_pg_num = cfg["max"].uint64_value();
+    if (cfg["osd"].is_array())
+        for (auto & osd_num_json: cfg["osd"].array_items())
+            pg_lister->osd_nums.insert(osd_num_json.uint64_value());
+    else if (cfg["osd"].is_string())
+        for (auto & osd_num_str: explode(",", cfg["osd"].string_value(), true))
+            pg_lister->osd_nums.insert(stoull_full(osd_num_str));
+    else if (cfg["osd"].uint64_value())
+        pg_lister->osd_nums.insert(cfg["osd"].uint64_value());
     return [pg_lister](cli_result_t & result)
     {
         pg_lister->loop();

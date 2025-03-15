@@ -375,9 +375,10 @@ OSD  PARENT            UP    SIZE  USED%    TAGS          WEIGHT  BLOCK  BITMAP 
 в начале фильтра означает отрицание). Опции:
 
 ```
---pool <pool name or number>  Only list PGs of the given pool.
---min <min pg number>         Only list PGs with number >= min.
---max <max pg number>         Only list PGs with number <= max.
+--pool <pool name or number>  Вывести только PG в заданном пуле.
+--min <min pg number>         Вывести только PG с номерами >= min.
+--max <max pg number>         Вывести только PG с номерами <= max.
+--osd 1,2,...                 Вывести только PG с данными на заданных OSD.
 ```
 
 Примеры:

@@ -355,7 +355,7 @@ Set OSD reweight, tags or noout flag. See detail description in [OSD config docu
 
 ## pg-list
 
-`vitastor-cli pg-list|pg-ls|list-pg|ls-pg|ls-pgs [OPTIONS] [state1+state2] [^state3] [...]`
+`vitastor-cli pg-list|pg-ls|list-pg|ls-pg|ls-pgs|pgs [OPTIONS] [state1+state2] [^state3] [...]`
 
 List PGs with any of listed state filters (^ or ! in the beginning is negation). Options:
 
@@ -363,6 +363,7 @@ List PGs with any of listed state filters (^ or ! in the beginning is negation).
 --pool <pool name or number>  Only list PGs of the given pool.
 --min <min pg number>         Only list PGs with number >= min.
 --max <max pg number>         Only list PGs with number <= max.
+--osd 1,2,...                 Only list PGs with some data on specified OSD(s).
 ```
 
 Examples:

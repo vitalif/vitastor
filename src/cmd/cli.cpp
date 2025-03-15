@@ -160,11 +160,12 @@ static const char* help_text =
     "vitastor-cli modify-osd [--tags tag1,tag2,...] [--reweight <number>] [--noout true/false] <osd_number>\n"
     "  Set OSD reweight, tags or noout flag.\n"
     "\n"
-    "vitastor-cli pg-list|pg-ls|list-pg|ls-pg|ls-pgs [OPTIONS] [state1+state2] [^state3] [...]\n"
+    "vitastor-cli pg-list|pg-ls|list-pg|ls-pg|ls-pgs|pgs [OPTIONS] [state1+state2] [^state3] [...]\n"
     "  List PGs with any of listed state filters (^ or ! in the beginning is negation). Options:\n"
     "    --pool <pool name or number>  Only list PGs of the given pool.\n"
     "    --min <min pg number>         Only list PGs with number >= min.\n"
     "    --max <max pg number>         Only list PGs with number <= max.\n"
+    "    --osd 1,2,...                 Only list PGs with some data on specified OSD(s).\n"
     "  Examples:\n"
     "    vitastor-cli pg-list active+degraded\n"
     "    vitastor-cli pg-list ^active\n"
@@ -483,7 +484,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
             cfg["osd_num"] = cmd[1];
         action_cb = p->start_modify_osd(cfg);
     }
-    else if (cmd[0] == "pg-list" || cmd[0] == "pg-ls" || cmd[0] == "list-pg" || cmd[0] == "ls-pg" || cmd[0] == "ls-pgs")
+    else if (cmd[0] == "pg-list" || cmd[0] == "pg-ls" || cmd[0] == "list-pg" || cmd[0] == "ls-pg" || cmd[0] == "ls-pgs" || cmd[0] == "pgs")
     {
         // Modify OSD configuration
         if (cmd.size() > 1)
