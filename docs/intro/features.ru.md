@@ -39,6 +39,7 @@
 - [Экспериментальная встроенная замена etcd - antietcd](../config/monitor.ru.md#use_antietcd)
 - [Встроенный Prometheus-экспортер метрик](../config/monitor.ru.md#enable_prometheus)
 - [Поддержка NFS RDMA](../usage/nfs.ru.md#rdma) (вероятно, также подходящая для GPUDirect)
+- [S3](../installation/s3.ru.md)
 
 ## Драйверы и инструменты
 
@@ -63,7 +64,6 @@
 - iSCSI и NVMeoF прокси
 - Многопоточный клиент
 - Более быстрое переключение при отказах
-- S3
 - Поддержка SSD-кэширования (tiered storage)
 - Поддержка NVDIMM
 - Возможно, сжатие

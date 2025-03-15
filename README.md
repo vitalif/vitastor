@@ -6,7 +6,7 @@
 
 Make Clustered Block Storage Fast Again.
 
-Vitastor is a distributed block and file SDS, direct replacement of Ceph RBD and CephFS,
+Vitastor is a distributed block, file and object SDS, direct replacement of Ceph RBD, CephFS and RGW,
 and also internal SDS's of public clouds. However, in contrast to them, Vitastor is fast
 and simple at the same time. The only thing is it's slightly young :-).
 
@@ -46,6 +46,7 @@ Read more details in the documentation. You can start from here: [Quick Start](d
   - [OpenNebula](docs/installation/opennebula.en.md)
   - [OpenStack](docs/installation/openstack.en.md)
   - [Kubernetes CSI](docs/installation/kubernetes.en.md)
+  - [S3](docs/installation/s3.en.md)
   - [Building from Source](docs/installation/source.en.md)
 - Configuration
   - [Overview](docs/config.en.md)

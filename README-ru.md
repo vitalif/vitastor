@@ -6,7 +6,7 @@
 
 Вернём былую скорость кластерному блочному хранилищу!
 
-Vitastor - распределённая блочная и файловая SDS (программная СХД), прямой аналог Ceph RBD и CephFS,
+Vitastor - распределённая блочная, файловая и объектная SDS (программная СХД), прямой аналог Ceph RBD, CephFS и RGW,
 а также внутренних СХД популярных облачных провайдеров. Однако, в отличие от них, Vitastor
 быстрый и при этом простой. Только пока маленький :-).
 
@@ -46,6 +46,7 @@ Vitastor поддерживает QEMU-драйвер, протоколы NBD и
   - [OpenNebula](docs/installation/opennebula.ru.md)
   - [OpenStack](docs/installation/openstack.ru.md)
   - [Kubernetes CSI](docs/installation/kubernetes.ru.md)
+  - [S3](docs/installation/s3.ru.md)
   - [Сборка из исходных кодов](docs/installation/source.ru.md)
 - Конфигурация
   - [Обзор](docs/config.ru.md)

@@ -37,6 +37,7 @@
 - [Experimental internal etcd replacement - antietcd](../config/monitor.en.md#use_antietcd)
 - [Built-in Prometheus metric exporter](../config/monitor.en.md#enable_prometheus)
 - [NFS RDMA support](../usage/nfs.en.md#rdma) (probably also usable for GPUDirect)
+- [S3](../installation/s3.en.md)
 
 ## Plugins and tools
 
@@ -63,7 +64,6 @@ The following features are planned for the future:
 - iSCSI and NVMeoF gateways
 - Multi-threaded client
 - Faster failover
-- S3
 - Tiered storage (SSD caching)
 - NVDIMM support
 - Compression (possibly)
