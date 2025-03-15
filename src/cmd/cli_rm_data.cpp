@@ -69,11 +69,11 @@ struct rm_inode_t
                 });
                 if (min_offset == 0 && max_offset == 0)
                 {
-                    total_count += objects.size();
+                    total_count += rm->objects.size();
                 }
                 else
                 {
-                    for (object_id oid: objects)
+                    for (object_id oid: rm->objects)
                     {
                         if (oid.stripe >= min_offset && (!max_offset || oid.stripe < max_offset))
                         {
