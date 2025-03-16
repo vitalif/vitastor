@@ -281,7 +281,7 @@ class blockstore_impl_t
     int unsynced_queued_ops = 0;
     allocator_t *data_alloc = NULL;
     uint64_t used_blocks = 0;
-    uint8_t *zero_object;
+    uint8_t *zero_object = NULL;
 
     void *metadata_buffer = NULL;
 

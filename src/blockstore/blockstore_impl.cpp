@@ -12,14 +12,14 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *
     ringloop->register_consumer(&ring_consumer);
     initialized = 0;
     parse_config(config, true);
-    zero_object = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.data_block_size);
-    alloc_dyn_data = dsk.clean_dyn_size > sizeof(void*) || dsk.csum_block_size > 0;
     try
     {
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
         calc_lengths();
+        alloc_dyn_data = dsk.clean_dyn_size > sizeof(void*) || dsk.csum_block_size > 0;
+        zero_object = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.data_block_size);
         data_alloc = new allocator_t(dsk.block_count);
     }
     catch (std::exception & e)
@@ -34,7 +34,8 @@ blockstore_impl_t::~blockstore_impl_t()
 {
     delete data_alloc;
     delete flusher;
-    free(zero_object);
+    if (zero_object)
+        free(zero_object);
     ringloop->unregister_consumer(&ring_consumer);
     dsk.close_all();
     if (metadata_buffer)
