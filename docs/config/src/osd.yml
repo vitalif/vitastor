@@ -765,3 +765,12 @@
     Максимальное возможное значение авто-подстроенного recovery_sleep_us.
     Большие значения считаются случайными выбросами и игнорируются в
     усреднении.
+- name: discard_on_start
+  type: bool
+  info: Discard (SSD TRIM) unused data device blocks on every OSD startup.
+  info_ru: Освобождать (SSD TRIM) неиспользуемые блоки диска данных при каждом запуске OSD.
+- name: min_discard_size
+  type: int
+  default: 1048576
+  info: Minimum consecutive block size to TRIM it.
+  info_ru: Минимальный размер последовательного блока данных, чтобы освобождать его через TRIM.

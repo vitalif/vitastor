@@ -8,8 +8,8 @@
 
 Данные параметры используются только OSD, но, в отличие от дисковых параметров,
 не фиксируются в момент инициализации дисков OSD и могут быть изменены в любой
-момент с помощью перезапуска OSD, а некоторые и без перезапуска, с помощью
-изменения конфигурации в etcd.
+момент с перезапуском OSD в /etc/vitastor/vitastor.conf или [vitastor-disk update-sb](../usage/disk.ru.md#update-sb),
+а некоторые и без перезапуска, с помощью изменения конфигурации в etcd.
 
 - [osd_iothread_count](#osd_iothread_count)
 - [etcd_report_interval](#etcd_report_interval)
@@ -62,6 +62,8 @@
 - [recovery_tune_agg_interval](#recovery_tune_agg_interval)
 - [recovery_tune_sleep_min_us](#recovery_tune_sleep_min_us)
 - [recovery_tune_sleep_cutoff_us](#recovery_tune_sleep_cutoff_us)
+- [discard_on_start](#discard_on_start)
+- [min_discard_size](#min_discard_size)
 
 ## osd_iothread_count
 
@@ -660,3 +662,16 @@ EC (кодов коррекции ошибок) с более, чем 1 диск
 Максимальное возможное значение авто-подстроенного recovery_sleep_us.
 Большие значения считаются случайными выбросами и игнорируются в
 усреднении.
+
+## discard_on_start
+
+- Тип: булево (да/нет)
+
+Освобождать (SSD TRIM) неиспользуемые блоки диска данных при каждом запуске OSD.
+
+## min_discard_size
+
+- Тип: целое число
+- Значение по умолчанию: 1048576
+
+Минимальный размер последовательного блока данных, чтобы освобождать его через TRIM.

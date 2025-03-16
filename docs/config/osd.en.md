@@ -7,8 +7,8 @@
 # Runtime OSD Parameters
 
 These parameters only apply to OSDs, are not fixed at the moment of OSD drive
-initialization and can be changed - either with an OSD restart or, for some of
-them, even without restarting by updating configuration in etcd.
+initialization and can be changed - in /etc/vitastor/vitastor.conf or [vitastor-disk update-sb](../usage/disk.en.md#update-sb)
+with an OSD restart or, for some of them, even without restarting by updating configuration in etcd.
 
 - [osd_iothread_count](#osd_iothread_count)
 - [etcd_report_interval](#etcd_report_interval)
@@ -61,6 +61,8 @@ them, even without restarting by updating configuration in etcd.
 - [recovery_tune_agg_interval](#recovery_tune_agg_interval)
 - [recovery_tune_sleep_min_us](#recovery_tune_sleep_min_us)
 - [recovery_tune_sleep_cutoff_us](#recovery_tune_sleep_cutoff_us)
+- [discard_on_start](#discard_on_start)
+- [min_discard_size](#min_discard_size)
 
 ## osd_iothread_count
 
@@ -629,3 +631,16 @@ are changed to 0.
 
 Maximum possible value for auto-tuned recovery_sleep_us. Higher values
 are treated as outliers and ignored in aggregation.
+
+## discard_on_start
+
+- Type: boolean
+
+Discard (SSD TRIM) unused data device blocks on every OSD startup.
+
+## min_discard_size
+
+- Type: integer
+- Default: 1048576
+
+Minimum consecutive block size to TRIM it.
