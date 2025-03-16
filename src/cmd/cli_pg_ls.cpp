@@ -104,7 +104,7 @@ resume_1:
                                 {
                                     if (pg_state_names[i] == bit)
                                     {
-                                        mask |= (uint64_t)1 << i;
+                                        mask |= pg_state_bits[i];
                                         found = true;
                                         break;
                                     }
@@ -173,7 +173,7 @@ resume_1:
                     json11::Json::array state_names;
                     for (int i = 0; i < pg_state_bit_count; i++)
                     {
-                        if (pgp.second.cur_state & (1 << i))
+                        if (pgp.second.cur_state & pg_state_bits[i])
                         {
                             state_names.push_back(std::string(pg_state_names[i]));
                         }
