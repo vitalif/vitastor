@@ -31,6 +31,11 @@ etcd_state_client_t::~etcd_state_client_t()
         keepalive_client = NULL;
     }
 #endif
+    if (load_pgs_timer_id >= 0)
+    {
+        tfd->clear_timer(load_pgs_timer_id);
+        load_pgs_timer_id = -1;
+    }
 }
 
 #ifndef __MOCK__
@@ -143,6 +148,7 @@ void etcd_state_client_t::etcd_call(std::string api, json11::Json payload, int t
                 }
                 if (interval > 0)
                 {
+                    // FIXME: Prevent destruction of etcd_state_client if timers or requests are active
                     tfd->set_timer(interval, false, [this, api, payload, timeout, retries, interval, callback](int)
                     {
                         etcd_call(api, payload, timeout, retries, interval, callback);
@@ -270,6 +276,11 @@ void etcd_state_client_t::parse_config(const json11::Json & config)
     if (this->etcd_quick_timeout <= 0)
     {
         this->etcd_quick_timeout = 1000;
+    }
+    this->etcd_min_reload_interval = config["etcd_min_reload_interval"].uint64_value();
+    if (this->etcd_min_reload_interval <= 0)
+    {
+        this->etcd_min_reload_interval = 50;
     }
     if (this->etcd_ws_keepalive_interval != old_etcd_ws_keepalive_interval && ws_keepalive_timer >= 0)
     {
@@ -603,6 +614,23 @@ void etcd_state_client_t::load_global_config()
 
 void etcd_state_client_t::load_pgs()
 {
+    timespec tv;
+    clock_gettime(CLOCK_REALTIME, &tv);
+    uint64_t ms_passed = (tv.tv_sec-etcd_last_reload.tv_sec)*1000 + (tv.tv_nsec-etcd_last_reload.tv_nsec)/1000000;
+    if (ms_passed < etcd_min_reload_interval)
+    {
+        if (load_pgs_timer_id < 0)
+        {
+            load_pgs_timer_id = tfd->set_timer(etcd_min_reload_interval+50-ms_passed, false, [this](int) { load_pgs(); });
+        }
+        return;
+    }
+    etcd_last_reload = tv;
+    if (load_pgs_timer_id >= 0)
+    {
+        tfd->clear_timer(load_pgs_timer_id);
+        load_pgs_timer_id = -1;
+    }
     json11::Json::array txn = {
         json11::Json::object {
             { "request_range", json11::Json::object {

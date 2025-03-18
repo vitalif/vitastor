@@ -30,6 +30,7 @@ between clients, OSDs and etcd.
 - [etcd_slow_timeout](#etcd_slow_timeout)
 - [etcd_keepalive_timeout](#etcd_keepalive_timeout)
 - [etcd_ws_keepalive_interval](#etcd_ws_keepalive_interval)
+- [etcd_min_reload_interval](#etcd_min_reload_interval)
 
 ## tcp_header_buffer_size
 
@@ -261,3 +262,13 @@ etcd_report_interval to guarantee that keepalive actually works.
 
 etcd websocket ping interval required to keep the connection alive and
 detect disconnections quickly.
+
+## etcd_min_reload_interval
+
+- Type: milliseconds
+- Default: 1000
+- Can be changed online: yes
+
+Minimum interval for full etcd state reload. Introduced to prevent
+excessive load on etcd during outages when etcd can't keep up with event
+streams and cancels them.

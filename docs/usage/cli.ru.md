@@ -22,6 +22,8 @@ vitastor-cli - интерфейс командной строки для адм�
 - [flatten](#flatten)
 - [rm-data](#rm-data)
 - [merge-data](#merge-data)
+- [describe](#describe)
+- [fix](#fix)
 - [alloc-osd](#alloc-osd)
 - [rm-osd](#rm-osd)
 - [osd-tree](#osd-tree)

@@ -108,6 +108,7 @@ public:
     int max_etcd_attempts = 5;
     int etcd_quick_timeout = 1000;
     int etcd_slow_timeout = 5000;
+    int etcd_min_reload_interval = 1000;
     bool infinite_start = true;
     uint64_t global_block_size = DEFAULT_BLOCK_SIZE;
     uint32_t global_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
@@ -122,6 +123,8 @@ public:
     uint64_t etcd_watch_revision_config = 0;
     uint64_t etcd_watch_revision_osd = 0;
     uint64_t etcd_watch_revision_pg = 0;
+    timespec etcd_last_reload = {};
+    int load_pgs_timer_id = -1;
     std::map<pool_id_t, pool_config_t> pool_config;
     std::map<osd_num_t, json11::Json> peer_states;
     std::set<osd_num_t> seen_peers;

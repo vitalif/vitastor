@@ -30,6 +30,7 @@
 - [etcd_slow_timeout](#etcd_slow_timeout)
 - [etcd_keepalive_timeout](#etcd_keepalive_timeout)
 - [etcd_ws_keepalive_interval](#etcd_ws_keepalive_interval)
+- [etcd_min_reload_interval](#etcd_min_reload_interval)
 
 ## tcp_header_buffer_size
 
@@ -271,3 +272,13 @@ etcd_report_interval, чтобы keepalive гарантированно рабо
 - Можно менять на лету: да
 
 Интервал проверки живости вебсокет-подключений к etcd.
+
+## etcd_min_reload_interval
+
+- Тип: миллисекунды
+- Значение по умолчанию: 1000
+- Можно менять на лету: да
+
+Минимальный интервал полной перезагрузки состояния из etcd. Добавлено для
+предотвращения избыточной нагрузки на etcd во время отказов, когда etcd не
+успевает рассылать потоки событий и отменяет их.

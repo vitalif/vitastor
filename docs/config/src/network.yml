@@ -306,3 +306,15 @@
     detect disconnections quickly.
   info_ru: |
     Интервал проверки живости вебсокет-подключений к etcd.
+- name: etcd_min_reload_interval
+  type: ms
+  default: 1000
+  online: true
+  info: |
+    Minimum interval for full etcd state reload. Introduced to prevent
+    excessive load on etcd during outages when etcd can't keep up with event
+    streams and cancels them.
+  info_ru: |
+    Минимальный интервал полной перезагрузки состояния из etcd. Добавлено для
+    предотвращения избыточной нагрузки на etcd во время отказов, когда etcd не
+    успевает рассылать потоки событий и отменяет их.
