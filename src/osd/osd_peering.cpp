@@ -199,6 +199,7 @@ void osd_t::start_pg_peering(pg_t & pg)
     drop_dirty_pg_connections({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
     // Try to connect with current peers if they're up, but we don't have connections to them
     // Otherwise we may erroneously decide that the pg is incomplete :-)
+    bool all_connected = true;
     for (auto pg_osd: pg.all_peers)
     {
         if (pg_osd != this->osd_num &&
@@ -206,7 +207,16 @@ void osd_t::start_pg_peering(pg_t & pg)
             msgr.wanted_peers.find(pg_osd) == msgr.wanted_peers.end())
         {
             msgr.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
+            if (!st_cli.peer_states[pg_osd].is_null())
+                all_connected = false;
         }
+    }
+    if (!all_connected)
+    {
+        // Wait until all OSDs are either connected or their /osd/state disappears from etcd
+        pg.state = PG_INCOMPLETE;
+        report_pg_state(pg);
+        return;
     }
     // Calculate current write OSD set
     pg.pg_cursize = 0;
