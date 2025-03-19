@@ -29,8 +29,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         if (msgr.osd_peer_fds.find(peer_osd) != msgr.osd_peer_fds.end())
         {
             // peer_osd just connected
-            // retry operations waiting for connection immediately
-            continue_ops(client_retry_interval);
+            continue_ops();
             continue_lists();
             continue_raw_ops(peer_osd);
         }

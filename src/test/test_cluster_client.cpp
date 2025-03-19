@@ -256,7 +256,7 @@ void test1()
 
     pretend_disconnected(cli, 1);
     pretend_connected(cli, 1);
-    cli->continue_ops(true);
+    cli->continue_ops(cli->client_retry_interval);
 
     // Check replay
     {
@@ -319,6 +319,7 @@ void test1()
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), -EPIPE);
     check_disconnected(cli, 1);
     pretend_connected(cli, 1);
+    cli->continue_ops(cli->client_retry_interval);
     check_op_count(cli, 1, 1);
     can_complete(r1);
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), 0);
@@ -337,7 +338,7 @@ void test1()
     check_completed(r1);
     check_disconnected(cli, 1);
     pretend_connected(cli, 1);
-    cli->continue_ops(true);
+    cli->continue_ops(cli->client_retry_interval);
     check_op_count(cli, 1, 1);
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), 0);
     check_op_count(cli, 1, 1);

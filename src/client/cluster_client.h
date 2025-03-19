@@ -83,6 +83,9 @@ class writeback_cache_t;
 // FIXME: Split into public and private interfaces
 class cluster_client_t
 {
+#ifdef __MOCK__
+public:
+#endif
     timerfd_manager_t *tfd;
     ring_loop_t *ringloop;
 
@@ -144,14 +147,17 @@ public:
 
     bool get_immediate_commit(uint64_t inode);
 
-    void continue_ops(int time_passed = 0);
-
     void list_inode(inode_t inode, uint64_t min_offset, uint64_t max_offset, int max_parallel_pgs, std::function<void(
         int status, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects)> pg_callback);
 
     //inline uint32_t get_bs_bitmap_granularity() { return st_cli.global_bitmap_granularity; }
     //inline uint64_t get_bs_block_size() { return st_cli.global_block_size; }
     uint64_t next_op_id();
+
+#ifndef __MOCK__
+protected:
+#endif
+    void continue_ops(int time_passed = 0);
 
 protected:
     bool affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd);
