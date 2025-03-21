@@ -568,6 +568,22 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
 static void vitastor_close(BlockDriverState *bs)
 {
     VitastorClient *client = bs->opaque;
+    if (client->uring_eventfd >= 0)
+    {
+        // clear the eventfd handler
+        universal_aio_set_fd_handler(client->ctx, client->uring_eventfd, NULL, NULL, NULL);
+        int wait_bh = 0;
+        qemu_mutex_lock(&client->mutex);
+        // clear uring_eventfd itself to prevent future scheduling of new B/H
+        client->uring_eventfd = -1;
+        wait_bh = client->bh_uring_scheduled;
+        qemu_mutex_unlock(&client->mutex);
+        if (wait_bh)
+        {
+            // wait until existing scheduled B/H is ran
+            BDRV_POLL_WHILE(bs, client->bh_uring_scheduled);
+        }
+    }
     vitastor_c_destroy(client->proxy);
     if (client->fds)
     {
