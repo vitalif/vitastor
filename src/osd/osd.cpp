@@ -186,6 +186,7 @@ void osd_t::parse_config(bool init)
     no_recovery = json_is_true(config["no_recovery"]);
     auto old_no_scrub = no_scrub;
     no_scrub = json_is_true(config["no_scrub"]);
+    allow_net_split = json_is_true(config["allow_net_split"]);
     auto old_autosync_interval = autosync_interval;
     if (!config["autosync_interval"].is_null())
     {

@@ -35,10 +35,19 @@ PG state consists of exactly 1 base state and an arbitrary number of additional 
 
 PG state always includes exactly 1 of the following base states:
 - **active** — PG is active and handles user I/O.
-- **incomplete** — Not enough OSDs are available to activate this PG. That is, more disks
-  are lost than it's allowed by the pool's redundancy scheme. For example, if the pool has
-  pg_size=3 and pg_minsize=1, part of the data may be written only to 1 OSD. If that exact
-  OSD is lost, PG will become **incomplete**.
+- **incomplete** — Not enough OSDs are available to activate this PG. More exactly, that
+  means one of the following:
+  - Less than pg_minsize current target OSDs are available for the PG. I.e. more disks
+    are lost than allowed by the pool's redundancy scheme.
+  - All OSDs of some of PG's history records are unavailable, or, for EC pools, less
+    than (pg_size-parity_chunks) OSDs are available in one of the history records.
+    In other words it means that some data in this PG was written to a such OSD set that
+    it's currently impossible to read it back because these OSDs are down. For example,
+    if the pool has pg_size=3 and pg_minsize=1, part of the data may be written only to
+    1 OSD. If that exact OSD is lost, PG will become **incomplete**.
+  - [allow_net_split](../config/osd.en.md#allow_net_split) is disabled (default) and
+    primary OSD of the PG can't connect to some secondary OSDs marked as alive in etcd.
+    I.e. a network partition happened: OSDs can talk to etcd, but not to some other OSDs.
 - **offline** — PG isn't activated by any OSD at all. Either primary OSD isn't set for
   this PG at all (if the pool is just created), or an unavailable OSD is set as primary,
   or the primary OSD refuses to start this PG (for example, because of wrong block_size),

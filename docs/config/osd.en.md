@@ -63,6 +63,7 @@ with an OSD restart or, for some of them, even without restarting by updating co
 - [recovery_tune_sleep_cutoff_us](#recovery_tune_sleep_cutoff_us)
 - [discard_on_start](#discard_on_start)
 - [min_discard_size](#min_discard_size)
+- [allow_net_split](#allow_net_split)
 
 ## osd_iothread_count
 
@@ -644,3 +645,17 @@ Discard (SSD TRIM) unused data device blocks on every OSD startup.
 - Default: 1048576
 
 Minimum consecutive block size to TRIM it.
+
+## allow_net_split
+
+- Type: boolean
+- Default: false
+
+Allow "safe" cases of network splits/partitions - allow to start PGs without
+connections to some OSDs currently registered as alive in etcd, if the number
+of actually connected PG OSDs is at least pg_minsize. That is, allow some OSDs to lose
+connectivity with some other OSDs as long as it doesn't break pg_minsize guarantees.
+The downside is that it increases the probability of writing data into just pg_minsize
+OSDs during failover which can lead to PGs becoming incomplete after additional outages.
+
+The old behaviour in versions up to 2.0.0 was equal to enabled allow_net_split.

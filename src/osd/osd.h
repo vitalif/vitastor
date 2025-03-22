@@ -106,6 +106,7 @@ class osd_t
     bool no_rebalance = false;
     bool no_recovery = false;
     bool no_scrub = false;
+    bool allow_net_split = false;
     std::string bind_address;
     int bind_port, listen_backlog = 128;
     // FIXME: Implement client queue depth limit

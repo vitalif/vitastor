@@ -211,7 +211,7 @@ void osd_t::start_pg_peering(pg_t & pg)
                 all_connected = false;
         }
     }
-    if (!all_connected)
+    if (!all_connected && !allow_net_split)
     {
         // Wait until all OSDs are either connected or their /osd/state disappears from etcd
         pg.state = PG_INCOMPLETE;

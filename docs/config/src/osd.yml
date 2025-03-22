@@ -774,3 +774,25 @@
   default: 1048576
   info: Minimum consecutive block size to TRIM it.
   info_ru: Минимальный размер последовательного блока данных, чтобы освобождать его через TRIM.
+- name: allow_net_split
+  type: bool
+  default: false
+  info: |
+    Allow "safe" cases of network splits/partitions - allow to start PGs without
+    connections to some OSDs currently registered as alive in etcd, if the number
+    of actually connected PG OSDs is at least pg_minsize. That is, allow some OSDs to lose
+    connectivity with some other OSDs as long as it doesn't break pg_minsize guarantees.
+    The downside is that it increases the probability of writing data into just pg_minsize
+    OSDs during failover which can lead to PGs becoming incomplete after additional outages.
+
+    The old behaviour in versions up to 2.0.0 was equal to enabled allow_net_split.
+  info_ru: |
+    Разрешить "безопасные" случаи разделений сети - разрешить активировать PG без
+    соединений к некоторым OSD, помеченным активными в etcd, если общее число активных
+    OSD в PG составляет как минимум pg_minsize. То есть, разрешать некоторым OSD терять
+    соединения с некоторыми другими OSD, если это не нарушает гарантий pg_minsize.
+    Минус такого разрешения в том, что оно повышает вероятность записи данных ровно в
+    pg_minsize OSD во время переключений, что может потом привести к тому, что PG станут
+    неполными (incomplete), если упадут ещё какие-то OSD.
+
+    Старое поведение в версиях до 2.0.0 было идентично включённому allow_net_split.

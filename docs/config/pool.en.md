@@ -189,6 +189,9 @@ So, pg_minsize regulates the number of failures that a pool can tolerate
 without temporary downtime for [osd_out_time](monitor.en.md#osd_out_time),
 but at a cost of slightly reduced storage reliability.
 
+See also [allow_net_split](osd.en.md#allow_net_split) and
+[PG state descriptions](../usage/admin.en.md#pg-states).
+
 FIXME: pg_minsize behaviour may be changed in the future to only make PGs
 read-only instead of deactivating them.
 
