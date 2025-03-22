@@ -138,7 +138,7 @@ struct wildcard_remover_t
                     if (inode_it != parent->cli->st_cli.inode_config.end())
                         fprintf(stderr, "Warning: image %s modified by someone else during deletion, restarting wildcard deletion\n", inode_it->second.name.c_str());
                     else
-                        fprintf(stderr, "Warning: inode %lx modified by someone else during deletion, retrying wildcard deletion\n", irev.inode_num);
+                        fprintf(stderr, "Warning: inode %jx modified by someone else during deletion, retrying wildcard deletion\n", irev.inode_num);
                     goto resume_0;
                 }
             }

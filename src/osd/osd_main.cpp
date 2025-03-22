@@ -58,7 +58,7 @@ int main(int narg, char *args[])
         return 1;
     }
     char osdname[16] = { 0 };
-    snprintf(osdname, 16, "osd%lu", config["osd_num"].uint64_value());
+    snprintf(osdname, 16, "osd%ju", config["osd_num"].uint64_value());
     prctl(PR_SET_NAME, (unsigned long)osdname, 0, 0, 0);
     signal(SIGINT, handle_sigint);
     signal(SIGTERM, handle_sigint);

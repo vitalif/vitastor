@@ -244,7 +244,7 @@ void blockstore_disk_t::calc_lengths(bool skip_meta_check)
             if (new_doesnt_fit)
             {
                 printf("Warning: Using old metadata format without checksums because the new format"
-                    " doesn't fit into provided area (%lu bytes required, %lu bytes available)\n", meta_len, meta_area_size);
+                    " doesn't fit into provided area (%ju bytes required, %ju bytes available)\n", meta_len, meta_area_size);
             }
             clean_entry_size = clean_entry_v0_size;
             meta_len = meta_v0_len;

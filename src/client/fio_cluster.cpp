@@ -377,7 +377,7 @@ static void io_callback(void *opaque, long retval)
     bsd->completed.push_back(io);
     if (bsd->trace)
     {
-        printf("--- %s 0x%jx retval=%ld\n", io->ddir == DDIR_READ ? "READ" :
+        printf("--- %s 0x%jx retval=%jd\n", io->ddir == DDIR_READ ? "READ" :
             (io->ddir == DDIR_WRITE ? "WRITE" : "SYNC"), (uint64_t)io, retval);
     }
 }
