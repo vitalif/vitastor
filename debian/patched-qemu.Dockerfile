@@ -10,7 +10,11 @@ ARG REL=
 WORKDIR /root
 
 RUN if [ "$REL" = "buster" -o "$REL" = "bullseye" -o "$REL" = "bookworm" ]; then \
-        echo "deb http://deb.debian.org/debian $REL-backports main" >> /etc/apt/sources.list; \
+        if [ "$REL" = "buster" ]; then \
+            echo "deb http://archive.debian.org/debian $REL-backports main" >> /etc/apt/sources.list; \
+        else \
+            echo "deb http://deb.debian.org/debian $REL-backports main" >> /etc/apt/sources.list; \
+        fi; \
         echo >> /etc/apt/preferences; \
         echo 'Package: *' >> /etc/apt/preferences; \
         echo "Pin: release n=$REL-backports" >> /etc/apt/preferences; \
@@ -56,7 +60,7 @@ RUN set -e; \
     quilt add block/vitastor.c; \
     cp /root/qemu_driver.c block/vitastor.c; \
     quilt refresh; \
-    V=$(head -n1 debian/changelog | perl -pe 's/5\.2\+dfsg-9/5.2+dfsg-11/; s/^.*\((.*?)(~bpo[\d\+]*)?\).*$/$1/')+vitastor4; \
+    V=$(head -n1 debian/changelog | perl -pe 's/5\.2\+dfsg-9/5.2+dfsg-11/; s/^.*\((.*?)(\+deb\d+u\d+)?(~bpo[\d\+]*)?\).*$/$1/')+vitastor5; \
     if [ "$REL" = bullseye ]; then V=${V}bullseye; fi; \
     DEBEMAIL="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v $V 'Plug Vitastor block driver'; \
     DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto -sa; \
