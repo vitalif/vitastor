@@ -582,7 +582,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
         {
             osd_num_t peer_osd = cl->osd_num;
             stop_client(op->peer_fd);
-            on_connect_peer(peer_osd, -1);
+            on_connect_peer(peer_osd, -EINVAL);
             delete op;
             return;
         }
@@ -602,7 +602,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
                 // FIXME: Keep TCP connection in this case
                 osd_num_t peer_osd = cl->osd_num;
                 stop_client(cl->peer_fd);
-                on_connect_peer(peer_osd, -1);
+                on_connect_peer(peer_osd, -EINVAL);
                 delete op;
                 return;
             }

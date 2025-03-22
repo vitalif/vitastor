@@ -469,9 +469,10 @@ msgr_rdma_connection_t *msgr_rdma_connection_t::create(msgr_rdma_context_t *ctx,
         .port_num        = ctx->ib_port,
     };
 
-    if (ibv_modify_qp(conn->qp, &attr, IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS))
+    int r = 0;
+    if ((r = ibv_modify_qp(conn->qp, &attr, IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS)) != 0)
     {
-        fprintf(stderr, "Failed to switch RDMA queue pair to INIT state\n");
+        fprintf(stderr, "Failed to switch RDMA queue pair to INIT state: %s (code %d)\n", strerror(r), r);
         delete conn;
         return NULL;
     }
@@ -522,18 +523,19 @@ int msgr_rdma_connection_t::connect(msgr_rdma_address_t *dest)
         .rnr_retry      = 7,
     };
     // FIXME No idea if ibv_modify_qp is a blocking operation or not. No idea if it has a timeout and what it is.
-    if (ibv_modify_qp(conn->qp, &attr, IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU |
-        IBV_QP_DEST_QPN | IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER))
+    int r;
+    if ((r = ibv_modify_qp(conn->qp, &attr, IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU |
+        IBV_QP_DEST_QPN | IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER)) != 0)
     {
-        fprintf(stderr, "Failed to switch RDMA queue pair to RTR (ready-to-receive) state\n");
-        return 1;
+        fprintf(stderr, "Failed to switch RDMA queue pair to RTR (ready-to-receive) state: %s (code %d)\n", strerror(r), r);
+        return -r;
     }
     attr.qp_state = IBV_QPS_RTS;
-    if (ibv_modify_qp(conn->qp, &attr, IBV_QP_STATE | IBV_QP_TIMEOUT |
-        IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC))
+    if ((r = ibv_modify_qp(conn->qp, &attr, IBV_QP_STATE | IBV_QP_TIMEOUT |
+        IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC)) != 0)
     {
-        fprintf(stderr, "Failed to switch RDMA queue pair to RTS (ready-to-send) state\n");
-        return 1;
+        fprintf(stderr, "Failed to switch RDMA queue pair to RTS (ready-to-send) state: %s (code %d)\n", strerror(r), r);
+        return -r;
     }
     return 0;
 }
