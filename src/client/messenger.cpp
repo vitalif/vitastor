@@ -117,31 +117,31 @@ void msgr_iothread_t::run()
 
 void osd_messenger_t::init()
 {
-    // FIXME: Support multiple RDMA networks?!
 #ifdef WITH_RDMA
     if (use_rdma)
     {
-        rdma_context = msgr_rdma_context_t::create(
+        rdma_contexts = msgr_rdma_context_t::create_all(
             osd_num && osd_cluster_network_masks.size() ? osd_cluster_network_masks : osd_network_masks,
             rdma_device != "" ? rdma_device.c_str() : NULL,
             rdma_port_num, rdma_gid_index, rdma_mtu, rdma_odp, log_level
         );
-        if (!rdma_context)
+        if (!rdma_contexts.size())
         {
             if (log_level > 0)
                 fprintf(stderr, "[OSD %ju] Couldn't initialize RDMA, proceeding with TCP only\n", osd_num);
         }
         else
         {
-            rdma_max_sge = rdma_max_sge < rdma_context->attrx.orig_attr.max_sge
-                ? rdma_max_sge : rdma_context->attrx.orig_attr.max_sge;
             fprintf(stderr, "[OSD %ju] RDMA initialized successfully\n", osd_num);
-            fcntl(rdma_context->channel->fd, F_SETFL, fcntl(rdma_context->channel->fd, F_GETFL, 0) | O_NONBLOCK);
-            tfd->set_fd_handler(rdma_context->channel->fd, false, [this](int notify_fd, int epoll_events)
+            for (msgr_rdma_context_t* rdma_context: rdma_contexts)
             {
-                handle_rdma_events();
-            });
-            handle_rdma_events();
+                fcntl(rdma_context->channel->fd, F_SETFL, fcntl(rdma_context->channel->fd, F_GETFL, 0) | O_NONBLOCK);
+                tfd->set_fd_handler(rdma_context->channel->fd, false, [this, rdma_context](int notify_fd, int epoll_events)
+                {
+                    handle_rdma_events(rdma_context);
+                });
+                handle_rdma_events(rdma_context);
+            }
         }
     }
 #endif
@@ -249,10 +249,11 @@ osd_messenger_t::~osd_messenger_t()
         iothreads.clear();
     }
 #ifdef WITH_RDMA
-    if (rdma_context)
+    for (auto rdma_context: rdma_contexts)
     {
         delete rdma_context;
     }
+    rdma_contexts.clear();
 #endif
 }
 
@@ -266,8 +267,6 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     }
     this->rdma_device = config["rdma_device"].string_value();
     this->rdma_port_num = (uint8_t)config["rdma_port_num"].uint64_value();
-    if (!this->rdma_port_num)
-        this->rdma_port_num = 1;
     if (!config["rdma_gid_index"].is_null())
         this->rdma_gid_index = (uint8_t)config["rdma_gid_index"].uint64_value();
     this->rdma_mtu = (uint32_t)config["rdma_mtu"].uint64_value();
@@ -366,9 +365,7 @@ void osd_messenger_t::connect_peer(uint64_t peer_osd, json11::Json peer_state)
                     bool matches = false;
                     for (auto & mask: match_masks)
                     {
-                        if (mask.family == addr.ss_family && (mask.family == AF_INET
-                            ? cidr_match(*(in_addr*)&addr, mask.ipv4, mask.bits)
-                            : cidr6_match(*(in6_addr*)&addr, mask.ipv6, mask.bits)))
+                        if (cidr_sockaddr_match(addr, mask))
                         {
                             matches = true;
                             break;
@@ -580,20 +577,30 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
         },
     };
 #ifdef WITH_RDMA
-    if (rdma_context)
+    if (rdma_contexts.size())
     {
-        cl->rdma_conn = msgr_rdma_connection_t::create(rdma_context, rdma_max_send, rdma_max_recv, rdma_max_sge, rdma_max_msg);
-        if (cl->rdma_conn)
+        // Choose the right context for the selected network
+        msgr_rdma_context_t *selected_ctx = choose_rdma_context(cl);
+        if (!selected_ctx)
         {
-            json11::Json payload = json11::Json::object {
-                { "connect_rdma", cl->rdma_conn->addr.to_string() },
-                { "rdma_max_msg", cl->rdma_conn->max_msg },
-            };
-            std::string payload_str = payload.dump();
-            op->req.show_conf.json_len = payload_str.size();
-            op->buf = malloc_or_die(payload_str.size());
-            op->iov.push_back(op->buf, payload_str.size());
-            memcpy(op->buf, payload_str.c_str(), payload_str.size());
+            if (log_level > 0)
+                fprintf(stderr, "No RDMA context for OSD %ju connection (peer %d), using only TCP\n", cl->osd_num, cl->peer_fd);
+        }
+        else
+        {
+            cl->rdma_conn = msgr_rdma_connection_t::create(selected_ctx, rdma_max_send, rdma_max_recv, rdma_max_sge, rdma_max_msg);
+            if (cl->rdma_conn)
+            {
+                json11::Json payload = json11::Json::object {
+                    { "connect_rdma", cl->rdma_conn->addr.to_string() },
+                    { "rdma_max_msg", cl->rdma_conn->max_msg },
+                };
+                std::string payload_str = payload.dump();
+                op->req.show_conf.json_len = payload_str.size();
+                op->buf = malloc_or_die(payload_str.size());
+                op->iov.push_back(op->buf, payload_str.size());
+                memcpy(op->buf, payload_str.c_str(), payload_str.size());
+            }
         }
     }
 #endif
@@ -723,9 +730,24 @@ void osd_messenger_t::accept_connections(int listen_fd)
 }
 
 #ifdef WITH_RDMA
+msgr_rdma_context_t* osd_messenger_t::choose_rdma_context(osd_client_t *cl)
+{
+    // Choose the right context for the selected network
+    msgr_rdma_context_t *selected_ctx = NULL;
+    for (auto rdma_ctx: rdma_contexts)
+    {
+        if (!rdma_ctx->net_mask.family && !selected_ctx ||
+            rdma_ctx->net_mask.family && cidr_sockaddr_match(cl->peer_addr, rdma_ctx->net_mask))
+        {
+            selected_ctx = rdma_ctx;
+        }
+    }
+    return selected_ctx;
+}
+
 bool osd_messenger_t::is_rdma_enabled()
 {
-    return rdma_context != NULL;
+    return rdma_contexts.size() > 0;
 }
 #endif
 

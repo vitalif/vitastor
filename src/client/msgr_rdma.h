@@ -21,7 +21,6 @@ struct msgr_rdma_address_t
 struct msgr_rdma_context_t
 {
     ibv_context *context = NULL;
-    ibv_device *dev = NULL;
     ibv_device_attr_ex attrx;
     ibv_pd *pd = NULL;
     bool odp = false;
@@ -36,8 +35,13 @@ struct msgr_rdma_context_t
     uint32_t mtu;
     int max_cqe = 0;
     int used_max_cqe = 0;
+    addr_mask_t net_mask = {};
 
-    static msgr_rdma_context_t *create(const std::vector<addr_mask_t> & osd_network_masks, const char *ib_devname, uint8_t ib_port, int gid_index, uint32_t mtu, bool odp, int log_level);
+    static std::vector<msgr_rdma_context_t*> create_all(const std::vector<addr_mask_t> & osd_network_masks,
+        const char *sel_dev_name, int sel_port_num, int sel_gid_index, uint32_t sel_mtu, bool odp, int log_level);
+    static msgr_rdma_context_t *create(ibv_device *dev, ibv_port_attr & portinfo,
+        int ib_port, int gid_index, uint32_t mtu, bool odp, int log_level);
+
     ~msgr_rdma_context_t();
 };
 

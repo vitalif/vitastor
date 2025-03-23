@@ -6,6 +6,32 @@
 #include "msgr_rdma.h"
 #include "messenger.h"
 
+static uint32_t ibv_mtu_to_bytes(ibv_mtu mtu)
+{
+    switch (mtu)
+    {
+        case IBV_MTU_256:  return 256;
+        case IBV_MTU_512:  return 512;
+        case IBV_MTU_1024: return 1024;
+        case IBV_MTU_2048: return 2048;
+        case IBV_MTU_4096: return 4096;
+    }
+    return 4096;
+}
+
+static ibv_mtu bytes_to_ibv_mtu(uint32_t mtu)
+{
+    switch (mtu)
+    {
+        case 256:  return IBV_MTU_256;
+        case 512:  return IBV_MTU_512;
+        case 1024: return IBV_MTU_1024;
+        case 2048: return IBV_MTU_2048;
+        case 4096: return IBV_MTU_4096;
+    }
+    return IBV_MTU_4096;
+}
+
 std::string msgr_rdma_address_t::to_string()
 {
     char msg[sizeof "0000:00000000:00000000:00000000000000000000000000000000"];
@@ -76,21 +102,21 @@ static bool is_ipv4_gid(ibv_gid_entry *gidx)
         ((uint32_t*)gidx->gid.raw)[2] == 0xffff0000);
 }
 
-static bool match_gid(ibv_gid_entry *gidx, const addr_mask_t *networks, int nnet)
+static int match_gid(ibv_gid_entry *gidx, const addr_mask_t *networks, int nnet)
 {
     if (gidx->gid_type != IBV_GID_TYPE_ROCE_V1 &&
         gidx->gid_type != IBV_GID_TYPE_ROCE_V2 ||
         ((uint64_t*)gidx->gid.raw)[0] == 0 &&
         ((uint64_t*)gidx->gid.raw)[1] == 0)
     {
-        return false;
+        return -1;
     }
     if (is_ipv4_gid(gidx))
     {
         for (int i = 0; i < nnet; i++)
         {
             if (networks[i].family == AF_INET && cidr_match(*(in_addr*)(gidx->gid.raw+12), networks[i].ipv4, networks[i].bits))
-                return true;
+                return i;
         }
     }
     else
@@ -98,119 +124,67 @@ static bool match_gid(ibv_gid_entry *gidx, const addr_mask_t *networks, int nnet
         for (int i = 0; i < nnet; i++)
         {
             if (networks[i].family == AF_INET6 && cidr6_match(*(in6_addr*)gidx->gid.raw, networks[i].ipv6, networks[i].bits))
-                return true;
+                return i;
         }
     }
-    return false;
+    return -1;
 }
 
-struct matched_dev
-{
-    int dev = -1;
-    int port = -1;
-    int gid = -1;
-    bool rocev2 = false;
-};
-
-static void log_rdma_dev_port_gid(ibv_device *dev, int ib_port, int gid_index, ibv_gid_entry & gidx)
+static void log_rdma_dev_port_gid(ibv_device *dev, int ib_port, int gid_index, int mtu, ibv_gid_entry & gidx)
 {
     bool is4 = ((uint64_t*)gidx.gid.raw)[0] == 0 && ((uint32_t*)gidx.gid.raw)[2] == 0xffff0000;
     char buf[256];
     inet_ntop(is4 ? AF_INET : AF_INET6, is4 ? gidx.gid.raw+12 : gidx.gid.raw, buf, sizeof(buf));
     fprintf(
-        stderr, "Auto-selected RDMA device %s port %d GID %d - ROCEv%d IPv%d %s\n",
+        stderr, "Selected RDMA device %s port %d GID %d - ROCEv%d IPv%d %s, MTU %d\n",
         ibv_get_device_name(dev), ib_port, gid_index,
-        gidx.gid_type == IBV_GID_TYPE_ROCE_V2 ? 2 : 1, is4 ? 4 : 6, buf
+        gidx.gid_type == IBV_GID_TYPE_ROCE_V2 ? 2 : 1, is4 ? 4 : 6, buf, mtu
     );
 }
 
-static matched_dev match_device(ibv_device **dev_list, const addr_mask_t *networks, int nnet, int log_level)
+static int match_port_gid(const std::vector<addr_mask_t> & osd_network_masks, ibv_context *context,
+    int port_num, int gid_count, int log_level, ibv_gid_entry *best_gidx, int *net_num)
 {
-    matched_dev best;
-    ibv_device_attr attr;
-    ibv_port_attr portinfo;
-    ibv_gid_entry best_gidx;
-    int res;
-    bool have_non_roce = false, have_roce = false;
-    for (int i = 0; dev_list[i]; ++i)
+    // Try to find a port with matching address
+    int best_gid_idx = -1, res = 0;
+    for (int k = 0; k < gid_count; k++)
     {
-        auto dev = dev_list[i];
-        ibv_context *context = ibv_open_device(dev_list[i]);
-        if ((res = ibv_query_device(context, &attr)) != 0)
+        ibv_gid_entry gidx;
+        if ((res = ibv_query_gid_ex(context, port_num, k, &gidx, 0)) != 0)
         {
-            fprintf(stderr, "Couldn't query RDMA device %s for its features: %s\n", ibv_get_device_name(dev_list[i]), strerror(res));
-            goto cleanup;
-        }
-        for (int j = 1; j <= attr.phys_port_cnt; j++)
-        {
-            // Try to find a port with matching address
-            if ((res = ibv_query_port(context, j, &portinfo)) != 0)
+            if (res != ENODATA)
             {
-                fprintf(stderr, "Couldn't get RDMA device %s port %d info: %s\n", ibv_get_device_name(dev), j, strerror(res));
-                goto cleanup;
+                fprintf(stderr, "Couldn't read RDMA device %s GID index %d: %s\n", ibv_get_device_name(context->device), k, strerror(res));
+                continue;
             }
-            for (int k = 0; k < portinfo.gid_tbl_len; k++)
+            else
+                break;
+        }
+        if ((res = match_gid(&gidx, osd_network_masks.data(), osd_network_masks.size())) >= 0)
+        {
+            // Prefer RoCEv2
+            if (best_gid_idx < 0 || best_gidx->gid_type != IBV_GID_TYPE_ROCE_V2 && gidx.gid_type == IBV_GID_TYPE_ROCE_V2)
             {
-                ibv_gid_entry gidx;
-                if ((res = ibv_query_gid_ex(context, j, k, &gidx, 0)) != 0)
-                {
-                    if (res != ENODATA)
-                    {
-                        fprintf(stderr, "Couldn't read RDMA device %s GID index %d: %s\n", ibv_get_device_name(dev), k, strerror(res));
-                        goto cleanup;
-                    }
-                    else
-                        break;
-                }
-                if (gidx.gid_type != IBV_GID_TYPE_ROCE_V1 &&
-                    gidx.gid_type != IBV_GID_TYPE_ROCE_V2)
-                    have_non_roce = true;
-                else
-                    have_roce = true;
-                if (match_gid(&gidx, networks, nnet))
-                {
-                    // Prefer RoCEv2
-                    if (!best.rocev2)
-                    {
-                        best.dev = i;
-                        best.port = j;
-                        best.gid = k;
-                        best.rocev2 = (gidx.gid_type == IBV_GID_TYPE_ROCE_V2);
-                        best_gidx = gidx;
-                    }
-                }
+                best_gid_idx = k;
+                *best_gidx = gidx;
+                *net_num = res;
             }
         }
-cleanup:
-        ibv_close_device(context);
-        if (best.rocev2)
-        {
-            break;
-        }
     }
-    if (best.dev >= 0 && log_level > 0)
-    {
-        log_rdma_dev_port_gid(dev_list[best.dev], best.port, best.gid, best_gidx);
-    }
-    if (best.dev < 0 && have_non_roce && !have_roce)
-    {
-        best.dev = -2;
-    }
-    return best;
+    return best_gid_idx;
 }
 #endif
 
-msgr_rdma_context_t *msgr_rdma_context_t::create(const std::vector<addr_mask_t> & osd_network_masks, const char *ib_devname, uint8_t ib_port, int gid_index, uint32_t mtu, bool odp, int log_level)
+std::vector<msgr_rdma_context_t*> msgr_rdma_context_t::create_all(const std::vector<addr_mask_t> & osd_network_masks,
+    const char *sel_dev_name, int sel_port_num, int sel_gid_index, uint32_t sel_mtu, bool odp, int log_level)
 {
     int res;
+    std::vector<msgr_rdma_context_t*> ret;
+    ibv_device **raw_dev_list = NULL;
     ibv_device **dev_list = NULL;
-    msgr_rdma_context_t *ctx = new msgr_rdma_context_t();
-    ctx->mtu = mtu;
+    ibv_device *single_list[2] = {};
 
-    timespec tv;
-    clock_gettime(CLOCK_REALTIME, &tv);
-    srand48(tv.tv_sec*1000000000 + tv.tv_nsec);
-    dev_list = ibv_get_device_list(NULL);
+    raw_dev_list = dev_list = ibv_get_device_list(NULL);
     if (!dev_list || !*dev_list)
     {
         if (errno == -ENOSYS || errno == ENOSYS)
@@ -227,116 +201,131 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(const std::vector<addr_mask_t> 
             fprintf(stderr, "Failed to get RDMA device list: %s\n", strerror(errno));
         goto cleanup;
     }
-    if (ib_devname)
+
+    if (sel_dev_name)
     {
         int i;
         for (i = 0; dev_list[i]; ++i)
-            if (!strcmp(ibv_get_device_name(dev_list[i]), ib_devname))
+            if (!strcmp(ibv_get_device_name(dev_list[i]), sel_dev_name))
                 break;
-        ctx->dev = dev_list[i];
-        if (!ctx->dev)
+        if (!dev_list[i])
         {
-            fprintf(stderr, "RDMA device %s not found\n", ib_devname);
+            fprintf(stderr, "RDMA device %s not found\n", sel_dev_name);
             goto cleanup;
         }
-    }
-#ifdef IBV_ADVISE_MR_ADVICE_PREFETCH_NO_FAULT
-    else if (osd_network_masks.size())
-    {
-        auto best = match_device(dev_list, osd_network_masks.data(), osd_network_masks.size(), log_level);
-        if (best.dev == -2)
-        {
-            best.dev = 0;
-            if (log_level > 0)
-                fprintf(stderr, "No RoCE devices found, using first available RDMA device %s\n", ibv_get_device_name(*dev_list));
-        }
-        else if (best.dev < 0)
-        {
-            if (log_level > 0)
-                fprintf(stderr, "RDMA device matching osd_network is not found, disabling RDMA\n");
-            goto cleanup;
-        }
-        else
-        {
-            ib_port = best.port;
-            gid_index = best.gid;
-        }
-        ctx->dev = dev_list[best.dev];
-    }
-#endif
-    else
-    {
-        ctx->dev = *dev_list;
+        single_list[0] = dev_list[i];
+        dev_list = single_list;
     }
 
-    ctx->context = ibv_open_device(ctx->dev);
-    if (!ctx->context)
+    for (int i = 0; dev_list[i]; ++i)
     {
-        fprintf(stderr, "Couldn't get RDMA context for %s\n", ibv_get_device_name(ctx->dev));
-        goto cleanup;
-    }
-
-    ctx->ib_port = ib_port;
-    if ((res = ibv_query_port(ctx->context, ib_port, &ctx->portinfo)) != 0)
-    {
-        fprintf(stderr, "Couldn't get RDMA device %s port %d info: %s\n", ibv_get_device_name(ctx->dev), ib_port, strerror(res));
-        goto cleanup;
-    }
-    ctx->my_lid = ctx->portinfo.lid;
-    if (ctx->portinfo.link_layer != IBV_LINK_LAYER_ETHERNET && !ctx->my_lid)
-    {
-        fprintf(stderr, "RDMA device %s must have local LID because it's not Ethernet, but LID is zero\n", ibv_get_device_name(ctx->dev));
-        goto cleanup;
-    }
-
-#ifdef IBV_ADVISE_MR_ADVICE_PREFETCH_NO_FAULT
-    if (gid_index != -1)
-#endif
-    {
-        ctx->gid_index = gid_index < 0 ? 0 : gid_index;
-        if (ibv_query_gid(ctx->context, ib_port, gid_index, &ctx->my_gid))
+        auto dev = dev_list[i];
+        ibv_context *context = ibv_open_device(dev);
+        if (!context)
         {
-            fprintf(stderr, "Couldn't read RDMA device %s GID index %d\n", ibv_get_device_name(ctx->dev), gid_index);
-            goto cleanup;
+            fprintf(stderr, "Couldn't get RDMA context for %s\n", ibv_get_device_name(dev));
+            continue;
         }
-    }
-#ifdef IBV_ADVISE_MR_ADVICE_PREFETCH_NO_FAULT
-    else
-    {
-        // Auto-guess GID
-        ibv_gid_entry best_gidx;
-        for (int k = 0; k < ctx->portinfo.gid_tbl_len; k++)
+        ibv_device_attr attr;
+        if ((res = ibv_query_device(context, &attr)) != 0)
         {
-            ibv_gid_entry gidx;
-            if (ibv_query_gid_ex(ctx->context, ib_port, k, &gidx, 0) != 0)
+            fprintf(stderr, "Couldn't query RDMA device %s for its features: %s\n", ibv_get_device_name(dev), strerror(res));
+            goto cleanup_dev;
+        }
+        if (sel_port_num && sel_port_num > attr.phys_port_cnt)
+        {
+            fprintf(stderr, "RDMA device %s port %d does not exist\n", ibv_get_device_name(dev), sel_port_num);
+            goto cleanup_dev;
+        }
+        for (int port_num = (sel_port_num ? sel_port_num : 1); port_num <= (sel_port_num ? sel_port_num : attr.phys_port_cnt); port_num++)
+        {
+            ibv_port_attr portinfo;
+            if ((res = ibv_query_port(context, port_num, &portinfo)) != 0)
             {
-                fprintf(stderr, "Couldn't read RDMA device %s GID index %d\n", ibv_get_device_name(ctx->dev), k);
-                goto cleanup;
+                fprintf(stderr, "Couldn't get RDMA device %s port %d info: %s\n", ibv_get_device_name(dev), port_num, strerror(res));
+                continue;
             }
-            // Skip empty GID
-            if (((uint64_t*)gidx.gid.raw)[0] == 0 &&
-                ((uint64_t*)gidx.gid.raw)[1] == 0)
+            if (portinfo.state != IBV_PORT_ACTIVE)
             {
                 continue;
             }
-            // Prefer IPv4 RoCEv2 -> IPv6 RoCEv2 -> IPv4 RoCEv1 -> IPv6 RoCEv1 -> IB
-            if (gid_index == -1 ||
-                gidx.gid_type == IBV_GID_TYPE_ROCE_V2 && best_gidx.gid_type != IBV_GID_TYPE_ROCE_V2 ||
-                gidx.gid_type == IBV_GID_TYPE_ROCE_V1 && best_gidx.gid_type == IBV_GID_TYPE_IB ||
-                gidx.gid_type == best_gidx.gid_type && is_ipv4_gid(&gidx))
+            if (sel_gid_index >= (int)portinfo.gid_tbl_len)
             {
-                gid_index = k;
-                best_gidx = gidx;
+                fprintf(stderr, "RDMA device %s port %d GID %d does not exist\n", ibv_get_device_name(dev), port_num, sel_gid_index);
+                continue;
+            }
+            uint32_t port_mtu = sel_mtu ? sel_mtu : ibv_mtu_to_bytes(portinfo.active_mtu);
+#ifdef IBV_ADVISE_MR_ADVICE_PREFETCH_NO_FAULT
+            if (sel_gid_index < 0)
+            {
+                ibv_gid_entry best_gidx;
+                int net_num = 0;
+                int best_gid_idx = match_port_gid(osd_network_masks, context, port_num, portinfo.gid_tbl_len, log_level, &best_gidx, &net_num);
+                if (best_gid_idx >= 0)
+                {
+                    if (log_level > 0)
+                        log_rdma_dev_port_gid(dev, port_num, best_gid_idx, port_mtu, best_gidx);
+                    auto ctx = msgr_rdma_context_t::create(dev, portinfo, port_num, best_gid_idx, port_mtu, odp, log_level);
+                    if (ctx)
+                    {
+                        ctx->net_mask = osd_network_masks[net_num];
+                        ret.push_back(ctx);
+                    }
+                }
+            }
+            else
+#endif
+            {
+                int best_gid_idx = sel_gid_index >= 0 ? sel_gid_index : 0;
+#ifdef IBV_ADVISE_MR_ADVICE_PREFETCH_NO_FAULT
+                if (log_level > 0)
+                {
+                    ibv_gid_entry gidx;
+                    ibv_query_gid_ex(context, port_num, best_gid_idx, &gidx, 0);
+                    log_rdma_dev_port_gid(dev, port_num, best_gid_idx, port_mtu, gidx);
+                }
+#endif
+                auto ctx = msgr_rdma_context_t::create(dev, portinfo, port_num, best_gid_idx, port_mtu, odp, log_level);
+                if (ctx)
+                    ret.push_back(ctx);
             }
         }
-        ctx->gid_index = gid_index = (gid_index == -1 ? 0 : gid_index);
-        if (log_level > 0)
-        {
-            log_rdma_dev_port_gid(ctx->dev, ctx->ib_port, ctx->gid_index, best_gidx);
-        }
-        ctx->my_gid = best_gidx.gid;
+cleanup_dev:
+        ibv_close_device(context);
     }
-#endif
+
+cleanup:
+    if (raw_dev_list)
+        ibv_free_device_list(raw_dev_list);
+    return ret;
+}
+
+msgr_rdma_context_t *msgr_rdma_context_t::create(ibv_device *dev, ibv_port_attr & portinfo, int ib_port, int gid_index, uint32_t mtu, bool odp, int log_level)
+{
+    msgr_rdma_context_t *ctx = new msgr_rdma_context_t();
+    ibv_context *context = ibv_open_device(dev);
+    if (!context)
+    {
+        fprintf(stderr, "Couldn't get RDMA context for %s\n", ibv_get_device_name(dev));
+        goto cleanup;
+    }
+
+    ctx->mtu = mtu;
+    ctx->context = context;
+    ctx->ib_port = ib_port;
+    ctx->portinfo = portinfo;
+    ctx->my_lid = ctx->portinfo.lid;
+    if (ctx->portinfo.link_layer != IBV_LINK_LAYER_ETHERNET && !ctx->my_lid)
+    {
+        fprintf(stderr, "RDMA device %s must have local LID because it's not Ethernet, but LID is zero\n", ibv_get_device_name(dev));
+        goto cleanup;
+    }
+    ctx->gid_index = gid_index;
+    if (ibv_query_gid(ctx->context, ib_port, gid_index, &ctx->my_gid))
+    {
+        fprintf(stderr, "Couldn't read RDMA device %s GID index %d\n", ibv_get_device_name(dev), gid_index);
+        goto cleanup;
+    }
 
     ctx->pd = ibv_alloc_pd(ctx->context);
     if (!ctx->pd)
@@ -345,18 +334,19 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(const std::vector<addr_mask_t> 
         goto cleanup;
     }
 
+    if (ibv_query_device_ex(ctx->context, NULL, &ctx->attrx))
     {
-        if (ibv_query_device_ex(ctx->context, NULL, &ctx->attrx))
-        {
-            fprintf(stderr, "Couldn't query RDMA device for its features\n");
-            goto cleanup;
-        }
-        ctx->odp = odp;
-        if (ctx->odp &&
-            (!(ctx->attrx.odp_caps.general_caps & IBV_ODP_SUPPORT) ||
+        fprintf(stderr, "Couldn't query RDMA device for its features\n");
+        goto cleanup;
+    }
+
+    ctx->odp = odp;
+    if (ctx->odp)
+    {
+        if (!(ctx->attrx.odp_caps.general_caps & IBV_ODP_SUPPORT) ||
             !(ctx->attrx.odp_caps.general_caps & IBV_ODP_SUPPORT_IMPLICIT) ||
             !(ctx->attrx.odp_caps.per_transport_caps.rc_odp_caps & IBV_ODP_SUPPORT_SEND) ||
-            !(ctx->attrx.odp_caps.per_transport_caps.rc_odp_caps & IBV_ODP_SUPPORT_RECV)))
+            !(ctx->attrx.odp_caps.per_transport_caps.rc_odp_caps & IBV_ODP_SUPPORT_RECV))
         {
             ctx->odp = false;
             if (log_level > 0)
@@ -389,14 +379,12 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(const std::vector<addr_mask_t> 
         goto cleanup;
     }
 
-    if (dev_list)
-        ibv_free_device_list(dev_list);
     return ctx;
 
 cleanup:
+    if (context)
+        ibv_close_device(context);
     delete ctx;
-    if (dev_list)
-        ibv_free_device_list(dev_list);
     return NULL;
 }
 
@@ -474,25 +462,12 @@ msgr_rdma_connection_t *msgr_rdma_connection_t::create(msgr_rdma_context_t *ctx,
     return conn;
 }
 
-static ibv_mtu mtu_to_ibv_mtu(uint32_t mtu)
-{
-    switch (mtu)
-    {
-        case 256:  return IBV_MTU_256;
-        case 512:  return IBV_MTU_512;
-        case 1024: return IBV_MTU_1024;
-        case 2048: return IBV_MTU_2048;
-        case 4096: return IBV_MTU_4096;
-    }
-    return IBV_MTU_4096;
-}
-
 int msgr_rdma_connection_t::connect(msgr_rdma_address_t *dest)
 {
     auto conn = this;
     ibv_qp_attr attr = {
         .qp_state       = IBV_QPS_RTR,
-        .path_mtu       = mtu_to_ibv_mtu(conn->ctx->mtu),
+        .path_mtu       = bytes_to_ibv_mtu(conn->ctx->mtu),
         .rq_psn         = dest->psn,
         .sq_psn         = conn->addr.psn,
         .dest_qp_num    = dest->qpn,
@@ -544,7 +519,15 @@ bool osd_messenger_t::connect_rdma(int peer_fd, std::string rdma_address, uint64
         {
             client_max_msg = rdma_max_msg;
         }
-        auto rdma_conn = msgr_rdma_connection_t::create(rdma_context, rdma_max_send, rdma_max_recv, rdma_max_sge, client_max_msg);
+        auto cl = clients.at(peer_fd);
+        msgr_rdma_context_t *selected_ctx = choose_rdma_context(cl);
+        if (!selected_ctx)
+        {
+            if (log_level > 0)
+                fprintf(stderr, "No RDMA context for peer %d, using only TCP\n", cl->peer_fd);
+            return false;
+        }
+        msgr_rdma_connection_t *rdma_conn = msgr_rdma_connection_t::create(selected_ctx, rdma_max_send, rdma_max_recv, rdma_max_sge, client_max_msg);
         if (rdma_conn)
         {
             int r = rdma_conn->connect(&addr);
@@ -582,7 +565,7 @@ static void try_send_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
     int err = ibv_post_send(cl->rdma_conn->qp, &wr, &bad_wr);
     if (err || bad_wr)
     {
-        fprintf(stderr, "RDMA send failed: %s\n", strerror(err));
+        fprintf(stderr, "RDMA send failed: %s (code %d)\n", strerror(err), err);
         exit(1);
     }
     cl->rdma_conn->cur_send++;
@@ -663,9 +646,9 @@ void osd_messenger_t::try_send_rdma_nodp(osd_client_t *cl)
         // Allocate send ring buffer, if not yet
         rc->send_out_size = rc->max_msg*rdma_max_send;
         rc->send_out.buf = malloc_or_die(rc->send_out_size);
-        if (!rdma_context->odp)
+        if (!rc->ctx->odp)
         {
-            rc->send_out.mr = ibv_reg_mr(rdma_context->pd, rc->send_out.buf, rc->send_out_size, 0);
+            rc->send_out.mr = ibv_reg_mr(rc->ctx->pd, rc->send_out.buf, rc->send_out_size, 0);
             if (!rc->send_out.mr)
             {
                 fprintf(stderr, "Failed to register RDMA memory region: %s\n", strerror(errno));
@@ -695,7 +678,7 @@ void osd_messenger_t::try_send_rdma_nodp(osd_client_t *cl)
             ibv_sge sge = {
                 .addr = (uintptr_t)dst,
                 .length = (uint32_t)copied,
-                .lkey = rdma_context->odp ? rdma_context->mr->lkey : rc->send_out.mr->lkey,
+                .lkey = rc->ctx->odp ? rc->ctx->mr->lkey : rc->send_out.mr->lkey,
             };
             try_send_rdma_wr(cl, &sge, 1);
             rc->send_sizes.push_back(copied);
@@ -705,7 +688,7 @@ void osd_messenger_t::try_send_rdma_nodp(osd_client_t *cl)
 
 void osd_messenger_t::try_send_rdma(osd_client_t *cl)
 {
-    if (rdma_context->odp)
+    if (cl->rdma_conn->ctx->odp)
         try_send_rdma_odp(cl);
     else
         try_send_rdma_nodp(cl);
@@ -740,9 +723,9 @@ bool osd_messenger_t::try_recv_rdma(osd_client_t *cl)
     {
         msgr_rdma_buf_t b;
         b.buf = malloc_or_die(rc->max_msg);
-        if (!rdma_context->odp)
+        if (!rc->ctx->odp)
         {
-            b.mr = ibv_reg_mr(rdma_context->pd, b.buf, rc->max_msg, IBV_ACCESS_LOCAL_WRITE);
+            b.mr = ibv_reg_mr(rc->ctx->pd, b.buf, rc->max_msg, IBV_ACCESS_LOCAL_WRITE);
             if (!b.mr)
             {
                 fprintf(stderr, "Failed to register RDMA memory region: %s\n", strerror(errno));
@@ -757,7 +740,7 @@ bool osd_messenger_t::try_recv_rdma(osd_client_t *cl)
 
 #define RDMA_EVENTS_AT_ONCE 32
 
-void osd_messenger_t::handle_rdma_events()
+void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
 {
     // Request next notification
     ibv_cq *ev_cq;

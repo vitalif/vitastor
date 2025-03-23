@@ -93,6 +93,13 @@ bool cidr6_match(const in6_addr &address, const in6_addr &network, uint8_t bits)
     return true;
 }
 
+bool cidr_sockaddr_match(const sockaddr_storage &addr, const addr_mask_t &mask)
+{
+    return mask.family == addr.ss_family && (mask.family == AF_INET
+        ? cidr_match(((sockaddr_in*)&addr)->sin_addr, mask.ipv4, mask.bits)
+        : cidr6_match(((sockaddr_in6*)&addr)->sin6_addr, mask.ipv6, mask.bits));
+}
+
 addr_mask_t cidr_parse(std::string mask)
 {
     unsigned bits = 255;

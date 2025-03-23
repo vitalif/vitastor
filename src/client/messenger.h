@@ -168,9 +168,10 @@ protected:
 #ifdef WITH_RDMA
     bool use_rdma = true;
     std::string rdma_device;
-    uint64_t rdma_port_num = 1, rdma_mtu = 0;
+    uint64_t rdma_port_num = 1;
+    int rdma_mtu = 0;
     int rdma_gid_index = -1;
-    msgr_rdma_context_t *rdma_context = NULL;
+    std::vector<msgr_rdma_context_t *> rdma_contexts;
     uint64_t rdma_max_sge = 0, rdma_max_send = 0, rdma_max_recv = 0;
     uint64_t rdma_max_msg = 0;
     bool rdma_odp = false;
@@ -254,6 +255,7 @@ protected:
     void try_send_rdma_odp(osd_client_t *cl);
     void try_send_rdma_nodp(osd_client_t *cl);
     bool try_recv_rdma(osd_client_t *cl);
-    void handle_rdma_events();
+    void handle_rdma_events(msgr_rdma_context_t *rdma_context);
+    msgr_rdma_context_t* choose_rdma_context(osd_client_t *cl);
 #endif
 };
