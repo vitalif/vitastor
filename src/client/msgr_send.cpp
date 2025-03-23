@@ -187,6 +187,7 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
     {
         return true;
     }
+    assert(cl->peer_state != PEER_RDMA);
     if (ringloop && !use_sync_send_recv)
     {
         auto iothread = iothreads.size() ? iothreads[peer_fd % iothreads.size()] : NULL;
