@@ -587,24 +587,18 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
             return;
         }
 #ifdef WITH_RDMA
-        if (config["rdma_address"].is_string())
+        if (cl->rdma_conn && config["rdma_address"].is_string())
         {
             msgr_rdma_address_t addr;
             if (!msgr_rdma_address_t::from_string(config["rdma_address"].string_value().c_str(), &addr) ||
                 cl->rdma_conn->connect(&addr) != 0)
             {
                 fprintf(
-                    stderr, "Failed to connect to OSD %ju (address %s) using RDMA\n",
+                    stderr, "Failed to connect to OSD %ju (address %s) using RDMA, switching back to TCP\n",
                     cl->osd_num, config["rdma_address"].string_value().c_str()
                 );
                 delete cl->rdma_conn;
                 cl->rdma_conn = NULL;
-                // FIXME: Keep TCP connection in this case
-                osd_num_t peer_osd = cl->osd_num;
-                stop_client(cl->peer_fd);
-                on_connect_peer(peer_osd, -EINVAL);
-                delete op;
-                return;
             }
             else
             {
