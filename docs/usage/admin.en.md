@@ -41,10 +41,10 @@ PG state always includes exactly 1 of the following base states:
     are lost than allowed by the pool's redundancy scheme.
   - All OSDs of some of PG's history records are unavailable, or, for EC pools, less
     than (pg_size-parity_chunks) OSDs are available in one of the history records.
-    In other words it means that some data in this PG was written to a such OSD set that
+    In other words it means that some data in this PG was written to an OSD set such that
     it's currently impossible to read it back because these OSDs are down. For example,
     if the pool has pg_size=3 and pg_minsize=1, part of the data may be written only to
-    1 OSD. If that exact OSD is lost, PG will become **incomplete**.
+    1 OSD. If that exact OSD is lost, PG becomes **incomplete**.
   - [allow_net_split](../config/osd.en.md#allow_net_split) is disabled (default) and
     primary OSD of the PG can't connect to some secondary OSDs marked as alive in etcd.
     I.e. a network partition happened: OSDs can talk to etcd, but not to some other OSDs.
