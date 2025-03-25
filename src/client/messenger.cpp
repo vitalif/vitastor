@@ -117,11 +117,13 @@ void msgr_iothread_t::run()
 
 void osd_messenger_t::init()
 {
+    // FIXME: Support multiple RDMA networks?!
 #ifdef WITH_RDMA
     if (use_rdma)
     {
         rdma_context = msgr_rdma_context_t::create(
-            osd_networks, rdma_device != "" ? rdma_device.c_str() : NULL,
+            osd_num && osd_cluster_network_masks.size() ? osd_cluster_network_masks : osd_network_masks,
+            rdma_device != "" ? rdma_device.c_str() : NULL,
             rdma_port_num, rdma_gid_index, rdma_mtu, rdma_odp, log_level
         );
         if (!rdma_context)
@@ -282,15 +284,6 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     if (!this->rdma_max_msg || this->rdma_max_msg > 128*1024*1024)
         this->rdma_max_msg = 129*1024;
     this->rdma_odp = config["rdma_odp"].bool_value();
-    std::vector<std::string> mask;
-    if (config["bind_address"].is_string())
-        mask.push_back(config["bind_address"].string_value());
-    else if (config["osd_network"].is_string())
-        mask.push_back(config["osd_network"].string_value());
-    else
-        for (auto v: config["osd_network"].array_items())
-            mask.push_back(v.string_value());
-    this->osd_networks = mask;
 #endif
     if (!osd_num)
         this->iothread_count = (uint32_t)config["client_iothread_count"].uint64_value();
@@ -314,23 +307,86 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     if (!this->osd_ping_timeout)
         this->osd_ping_timeout = 5;
     this->log_level = config["log_level"].uint64_value();
+    // OSD public & cluster networks
+    this->osd_networks.clear();
+    if (config["osd_network"].is_string())
+        this->osd_networks.push_back(config["osd_network"].string_value());
+    else
+        for (auto v: config["osd_network"].array_items())
+            this->osd_networks.push_back(v.string_value());
+    this->osd_cluster_networks.clear();
+    if (config["osd_cluster_network"].is_string())
+        this->osd_cluster_networks.push_back(config["osd_cluster_network"].string_value());
+    else
+        for (auto v: config["osd_cluster_network"].array_items())
+            this->osd_cluster_networks.push_back(v.string_value());
+    if (this->osd_cluster_networks.size())
+        for (auto & net: this->osd_cluster_networks)
+            for (int i = this->osd_networks.size()-1; i >= 0; i--)
+                if (this->osd_networks[i] == net)
+                    this->osd_networks.erase(this->osd_networks.begin()+i, this->osd_networks.begin()+i+1);
+    this->osd_network_masks.clear();
+    for (auto & netstr: this->osd_networks)
+        this->osd_network_masks.push_back(cidr_parse(netstr));
+    this->osd_cluster_network_masks.clear();
+    for (auto & netstr: this->osd_cluster_networks)
+        this->osd_cluster_network_masks.push_back(cidr_parse(netstr));
+    this->all_osd_networks.clear();
+    this->all_osd_networks.insert(this->all_osd_networks.end(), this->osd_networks.begin(), this->osd_networks.end());
+    this->all_osd_networks.insert(this->all_osd_networks.end(), this->osd_cluster_networks.begin(), this->osd_cluster_networks.end());
+    this->all_osd_network_masks.clear();
+    this->all_osd_network_masks.insert(this->all_osd_network_masks.end(), this->osd_network_masks.begin(), this->osd_network_masks.end());
+    this->all_osd_network_masks.insert(this->all_osd_network_masks.end(), this->osd_cluster_network_masks.begin(), this->osd_cluster_network_masks.end());
+    if (!this->osd_networks.size())
+    {
+        this->osd_networks = this->osd_cluster_networks;
+        this->osd_network_masks = this->osd_cluster_network_masks;
+    }
 }
 
 void osd_messenger_t::connect_peer(uint64_t peer_osd, json11::Json peer_state)
 {
-    if (wanted_peers.find(peer_osd) == wanted_peers.end())
+    if (wanted_peers[peer_osd].raw_address_list != peer_state["addresses"])
     {
-        wanted_peers[peer_osd] = (osd_wanted_peer_t){
-            .address_list = peer_state["addresses"],
-            .port = (int)peer_state["port"].int64_value(),
-        };
+        wanted_peers[peer_osd].raw_address_list = peer_state["addresses"];
+        // We are an OSD -> try to select a cluster address
+        // We are a client -> try to select a public address
+        // OSD only has 1 address -> don't try anything, it's pointless
+        // FIXME: Maybe support optional fallback from cluster to public network?
+        auto & match_masks = (this->osd_num ? osd_cluster_network_masks : osd_network_masks);
+        if (peer_state["addresses"].array_items().size() > 1 && match_masks.size())
+        {
+            json11::Json::array address_list;
+            for (auto json_addr: peer_state["addresses"].array_items())
+            {
+                struct sockaddr_storage addr;
+                auto ok = string_to_addr(json_addr.string_value(), false, 0, &addr);
+                if (ok)
+                {
+                    bool matches = false;
+                    for (auto & mask: match_masks)
+                    {
+                        if (mask.family == addr.ss_family && (mask.family == AF_INET
+                            ? cidr_match(*(in_addr*)&addr, mask.ipv4, mask.bits)
+                            : cidr6_match(*(in6_addr*)&addr, mask.ipv6, mask.bits)))
+                        {
+                            matches = true;
+                            break;
+                        }
+                    }
+                    if (matches)
+                        address_list.push_back(json_addr);
+                }
+            }
+            if (!address_list.size())
+                address_list = peer_state["addresses"].array_items();
+            wanted_peers[peer_osd].address_list = address_list;
+        }
+        else
+            wanted_peers[peer_osd].address_list = peer_state["addresses"];
+        wanted_peers[peer_osd].address_changed = true;
     }
-    else
-    {
-        wanted_peers[peer_osd].address_list = peer_state["addresses"];
-        wanted_peers[peer_osd].port = (int)peer_state["port"].int64_value();
-    }
-    wanted_peers[peer_osd].address_changed = true;
+    wanted_peers[peer_osd].port = (int)peer_state["port"].int64_value();
     try_connect_peer(peer_osd);
 }
 

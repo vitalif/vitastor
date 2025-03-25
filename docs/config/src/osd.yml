@@ -1,3 +1,52 @@
+- name: osd_network
+  type: string or array of strings
+  type_ru: строка или массив строк
+  info: |
+    Network mask of public OSD network(s) (IPv4 or IPv6). Each OSD listens on all
+    addresses of UP + RUNNING interfaces matching one of these networks, on the
+    same port. Port is auto-selected except if [bind_port](#bind_port) is
+    explicitly specified. Bind address(es) may also be overridden manually by
+    specifying [bind_address](#bind_address). If OSD networks are not specified
+    at all, OSD just listens on a wildcard address (0.0.0.0).
+  info_ru: |
+    Маски подсетей (IPv4 или IPv6) публичной сети или сетей OSD. Каждый OSD слушает
+    один и тот же порт на всех адресах поднятых (UP + RUNNING) сетевых интерфейсов,
+    соответствующих одной из указанных сетей. Порт выбирается автоматически, если
+    только [bind_port](#bind_port) не задан явно. Адреса для подключений можно
+    также переопределить явно, задав [bind_address](#bind_address). Если сети OSD
+    не заданы вообще, OSD слушает все адреса (0.0.0.0).
+- name: osd_cluster_network
+  type: string or array of strings
+  type_ru: строка или массив строк
+  info: |
+    Network mask of separate network(s) (IPv4 or IPv6) to use for OSD
+    cluster connections. I.e. OSDs will always attempt to use these networks
+    to connect to other OSDs, while clients will attempt to use networks from
+    [osd_network](#osd_network).
+  info_ru: |
+    Маски подсетей (IPv4 или IPv6) отдельной кластерной сети или сетей OSD.
+    То есть, OSD будут всегда стараться использовать эти сети для соединений
+    с другими OSD, а клиенты будут стараться использовать сети из [osd_network](#osd_network).
+- name: bind_address
+  type: string or array of strings
+  type_ru: строка или массив строк
+  info: |
+    Instead of the network mask, you can also set OSD listen addresses explicitly
+    using this parameter. May be useful if you want to start OSDs on interfaces
+    that are not UP + RUNNING.
+  info_ru: |
+    Этим параметром можно явным образом задать адрес(а), на котором будет ожидать
+    соединений OSD (вместо использования маски подсети). Может быть полезно,
+    например, чтобы запускать OSD на неподнятых интерфейсах (не UP + RUNNING).
+- name: bind_port
+  type: int
+  info: |
+    By default, OSDs pick random ports to use for incoming connections
+    automatically. With this option you can set a specific port for a specific
+    OSD by hand.
+  info_ru: |
+    По умолчанию OSD сами выбирают случайные порты для входящих подключений.
+    С помощью данной опции вы можете задать порт для отдельного OSD вручную.
 - name: osd_iothread_count
   type: int
   default: 0
@@ -56,44 +105,6 @@
     реализовать дополнительный режим для монитора, который позволит отделять
     первичные OSD от вторичных, но пока не понятно, зачем это может кому-то
     понадобиться, поэтому это не реализовано.
-- name: osd_network
-  type: string or array of strings
-  type_ru: строка или массив строк
-  info: |
-    Network mask of the network (IPv4 or IPv6) to use for OSDs. Note that
-    although it's possible to specify multiple networks here, this does not
-    mean that OSDs will create multiple listening sockets - they'll only
-    pick the first matching address of an UP + RUNNING interface. Separate
-    networks for cluster and client connections are also not implemented, but
-    they are mostly useless anyway, so it's not a big deal.
-  info_ru: |
-    Маска подсети (IPv4 или IPv6) для использования для соединений с OSD.
-    Имейте в виду, что хотя сейчас и можно передать в этот параметр несколько
-    подсетей, это не означает, что OSD будут создавать несколько слушающих
-    сокетов - они лишь будут выбирать адрес первого поднятого (состояние UP +
-    RUNNING), подходящий под заданную маску. Также не реализовано разделение
-    кластерной и публичной сетей OSD. Правда, от него обычно всё равно довольно
-    мало толку, так что особенной проблемы в этом нет.
-- name: bind_address
-  type: string
-  default: "0.0.0.0"
-  info: |
-    Instead of the network mask, you can also set OSD listen address explicitly
-    using this parameter. May be useful if you want to start OSDs on interfaces
-    that are not UP + RUNNING.
-  info_ru: |
-    Этим параметром можно явным образом задать адрес, на котором будет ожидать
-    соединений OSD (вместо использования маски подсети). Может быть полезно,
-    например, чтобы запускать OSD на неподнятых интерфейсах (не UP + RUNNING).
-- name: bind_port
-  type: int
-  info: |
-    By default, OSDs pick random ports to use for incoming connections
-    automatically. With this option you can set a specific port for a specific
-    OSD by hand.
-  info_ru: |
-    По умолчанию OSD сами выбирают случайные порты для входящих подключений.
-    С помощью данной опции вы можете задать порт для отдельного OSD вручную.
 - name: autosync_interval
   type: sec
   default: 5

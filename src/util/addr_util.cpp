@@ -126,13 +126,11 @@ addr_mask_t cidr_parse(std::string mask)
     }
 }
 
-std::vector<std::string> getifaddr_list(std::vector<std::string> mask_cfg, bool include_v6)
+std::vector<std::string> getifaddr_list(const std::vector<addr_mask_t> & masks, bool include_v6)
 {
-    std::vector<addr_mask_t> masks;
-    for (auto mask: mask_cfg)
+    for (auto & mask: masks)
     {
-        masks.push_back(cidr_parse(mask));
-        if (masks[masks.size()-1].family == AF_INET6)
+        if (mask.family == AF_INET6)
         {
             // Auto-enable IPv6 addresses
             include_v6 = true;

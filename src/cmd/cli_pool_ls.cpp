@@ -5,6 +5,7 @@
 #include "cli.h"
 #include "cluster_client.h"
 #include "str_util.h"
+#include "json_util.h"
 #include "pg_states.h"
 
 // List pools with space statistics
@@ -664,20 +665,4 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_pool_ls(json11::Json cfg)
         }
         return false;
     };
-}
-
-std::string implode(const std::string & sep, json11::Json array)
-{
-    if (array.is_number() || array.is_bool() || array.is_string())
-    {
-        return array.as_string();
-    }
-    std::string res;
-    bool first = true;
-    for (auto & item: array.array_items())
-    {
-        res += (first ? item.as_string() : sep+item.as_string());
-        first = false;
-    }
-    return res;
 }

@@ -33,3 +33,19 @@ bool json_is_false(const json11::Json & val)
         return !val.bool_value();
     return false;
 }
+
+std::string implode(const std::string & sep, json11::Json array)
+{
+    if (array.is_number() || array.is_bool() || array.is_string())
+    {
+        return array.as_string();
+    }
+    std::string res;
+    bool first = true;
+    for (auto & item: array.array_items())
+    {
+        res += (first ? item.as_string() : sep+item.as_string());
+        first = false;
+    }
+    return res;
+}

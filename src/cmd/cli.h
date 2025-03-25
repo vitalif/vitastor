@@ -98,5 +98,3 @@ std::string format_lat(uint64_t lat);
 std::string format_q(double depth);
 
 bool stupid_glob(const std::string str, const std::string glob);
-
-std::string implode(const std::string & sep, json11::Json array);

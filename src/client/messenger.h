@@ -16,6 +16,7 @@
 #include "json11/json11.hpp"
 #include "msgr_op.h"
 #include "timerfd_manager.h"
+#include "addr_util.h"
 #include <ringloop.h>
 
 #define CL_READ_HDR 1
@@ -93,13 +94,14 @@ struct osd_client_t
 
 struct osd_wanted_peer_t
 {
+    json11::Json raw_address_list;
     json11::Json address_list;
-    int port;
-    time_t last_connect_attempt;
-    bool connecting, address_changed;
-    int address_index;
+    int port = 0;
+    time_t last_connect_attempt = 0;
+    bool connecting = false, address_changed = false;
+    int address_index = 0;
     std::string cur_addr;
-    int cur_port;
+    int cur_port = 0;
 };
 
 struct osd_op_stats_t
@@ -165,7 +167,6 @@ protected:
 
 #ifdef WITH_RDMA
     bool use_rdma = true;
-    std::vector<std::string> osd_networks;
     std::string rdma_device;
     uint64_t rdma_port_num = 1, rdma_mtu = 0;
     int rdma_gid_index = -1;
@@ -190,6 +191,12 @@ public:
     std::map<int, osd_client_t*> clients;
     std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
     std::map<uint64_t, int> osd_peer_fds;
+    std::vector<std::string> osd_networks;
+    std::vector<addr_mask_t> osd_network_masks;
+    std::vector<std::string> osd_cluster_networks;
+    std::vector<addr_mask_t> osd_cluster_network_masks;
+    std::vector<std::string> all_osd_networks;
+    std::vector<addr_mask_t> all_osd_network_masks;
     // op statistics
     osd_op_stats_t stats, recovery_stats;
 

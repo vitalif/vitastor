@@ -120,7 +120,9 @@ osd_t::~osd_t()
     delete epmgr;
     if (bs)
         delete bs;
-    close(listen_fd);
+    for (auto listen_fd: listen_fds)
+        close(listen_fd);
+    listen_fds.clear();
     free(zero_buffer);
 }
 
@@ -162,9 +164,15 @@ void osd_t::parse_config(bool init)
         else
             immediate_commit = IMMEDIATE_NONE;
         // Bind address
-        bind_address = config["bind_address"].string_value();
-        if (bind_address == "")
-            bind_address = "0.0.0.0";
+        cfg_bind_addresses.clear();
+        if (config.find("bind_address") != config.end())
+        {
+            if (config["bind_address"].is_string())
+                cfg_bind_addresses.push_back(config["bind_address"].string_value());
+            else if (config["bind_address"].is_array())
+                for (auto & addr: config["bind_address"].array_items())
+                    cfg_bind_addresses.push_back(addr.string_value());
+        }
         bind_port = config["bind_port"].uint64_value();
         if (bind_port <= 0 || bind_port > 65535)
             bind_port = 0;
@@ -322,41 +330,34 @@ void osd_t::parse_config(bool init)
 
 void osd_t::bind_socket()
 {
-    if (config["osd_network"].is_string() ||
-        config["osd_network"].is_array())
+    if (cfg_bind_addresses.size())
     {
-        std::vector<std::string> mask;
-        if (config["osd_network"].is_string())
-            mask.push_back(config["osd_network"].string_value());
-        else
-            for (auto v: config["osd_network"].array_items())
-                mask.push_back(v.string_value());
-        auto matched_addrs = getifaddr_list(mask);
-        if (matched_addrs.size() > 1)
+        bind_addresses = cfg_bind_addresses;
+    }
+    else if (msgr.all_osd_network_masks.size())
+    {
+        bind_addresses = getifaddr_list(msgr.all_osd_network_masks);
+        if (!bind_addresses.size())
         {
-            fprintf(stderr, "More than 1 address matches requested network(s): %s\n", json11::Json(matched_addrs).dump().c_str());
-            force_stop(1);
-        }
-        if (!matched_addrs.size())
-        {
-            std::string nets;
-            for (auto v: mask)
-                nets += (nets == "" ? v : ","+v);
+            auto nets = implode(", ", msgr.all_osd_networks);
             fprintf(stderr, "Addresses matching osd_network(s) %s not found\n", nets.c_str());
             force_stop(1);
         }
-        bind_address = matched_addrs[0];
     }
-
-    // FIXME Support multiple listening sockets
-
-    listen_fd = create_and_bind_socket(bind_address, bind_port, listen_backlog, &listening_port);
-    fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
-
-    epmgr->set_fd_handler(listen_fd, false, [this](int fd, int events)
+    else
     {
-        msgr.accept_connections(listen_fd);
-    });
+        bind_addresses.push_back("0.0.0.0");
+    }
+    for (auto & bind_address: bind_addresses)
+    {
+        int listen_fd = create_and_bind_socket(bind_address, listening_port ? listening_port : bind_port, listen_backlog, &listening_port);
+        fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
+        epmgr->set_fd_handler(listen_fd, false, [this](int fd, int events)
+        {
+            msgr.accept_connections(fd);
+        });
+        listen_fds.push_back(listen_fd);
+    }
 }
 
 bool osd_t::shutdown()

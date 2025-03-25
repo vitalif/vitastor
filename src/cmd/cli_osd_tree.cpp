@@ -7,6 +7,7 @@
 #include "epoll_manager.h"
 #include "pg_states.h"
 #include "str_util.h"
+#include "json_util.h"
 
 struct placement_osd_t
 {

@@ -5,6 +5,7 @@
 #include <infiniband/verbs.h>
 #include <string>
 #include <vector>
+#include "addr_util.h"
 
 struct msgr_rdma_address_t
 {
@@ -36,7 +37,7 @@ struct msgr_rdma_context_t
     int max_cqe = 0;
     int used_max_cqe = 0;
 
-    static msgr_rdma_context_t *create(std::vector<std::string> osd_networks, const char *ib_devname, uint8_t ib_port, int gid_index, uint32_t mtu, bool odp, int log_level);
+    static msgr_rdma_context_t *create(const std::vector<addr_mask_t> & osd_network_masks, const char *ib_devname, uint8_t ib_port, int gid_index, uint32_t mtu, bool odp, int log_level);
     ~msgr_rdma_context_t();
 };
 

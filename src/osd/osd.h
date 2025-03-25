@@ -107,7 +107,7 @@ class osd_t
     bool no_recovery = false;
     bool no_scrub = false;
     bool allow_net_split = false;
-    std::string bind_address;
+    std::vector<std::string> cfg_bind_addresses;
     int bind_port, listen_backlog = 128;
     // FIXME: Implement client queue depth limit
     int client_queue_depth = 128;
@@ -200,7 +200,8 @@ class osd_t
     epoll_manager_t *epmgr = NULL;
 
     int listening_port = 0;
-    int listen_fd = 0;
+    std::vector<std::string> bind_addresses;
+    std::vector<int> listen_fds;
     ring_consumer_t consumer;
 
     // op statistics

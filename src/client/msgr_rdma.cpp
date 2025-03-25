@@ -3,7 +3,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include "addr_util.h"
 #include "msgr_rdma.h"
 #include "messenger.h"
 
@@ -77,7 +76,7 @@ static bool is_ipv4_gid(ibv_gid_entry *gidx)
         ((uint32_t*)gidx->gid.raw)[2] == 0xffff0000);
 }
 
-static bool match_gid(ibv_gid_entry *gidx, addr_mask_t *networks, int nnet)
+static bool match_gid(ibv_gid_entry *gidx, const addr_mask_t *networks, int nnet)
 {
     if (gidx->gid_type != IBV_GID_TYPE_ROCE_V1 &&
         gidx->gid_type != IBV_GID_TYPE_ROCE_V2 ||
@@ -125,7 +124,7 @@ static void log_rdma_dev_port_gid(ibv_device *dev, int ib_port, int gid_index, i
     );
 }
 
-static matched_dev match_device(ibv_device **dev_list, addr_mask_t *networks, int nnet, int log_level)
+static matched_dev match_device(ibv_device **dev_list, const addr_mask_t *networks, int nnet, int log_level)
 {
     matched_dev best;
     ibv_device_attr attr;
@@ -201,7 +200,7 @@ cleanup:
 }
 #endif
 
-msgr_rdma_context_t *msgr_rdma_context_t::create(std::vector<std::string> osd_networks, const char *ib_devname, uint8_t ib_port, int gid_index, uint32_t mtu, bool odp, int log_level)
+msgr_rdma_context_t *msgr_rdma_context_t::create(const std::vector<addr_mask_t> & osd_network_masks, const char *ib_devname, uint8_t ib_port, int gid_index, uint32_t mtu, bool odp, int log_level)
 {
     int res;
     ibv_device **dev_list = NULL;
@@ -242,14 +241,9 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(std::vector<std::string> osd_ne
         }
     }
 #ifdef IBV_ADVISE_MR_ADVICE_PREFETCH_NO_FAULT
-    else if (osd_networks.size())
+    else if (osd_network_masks.size())
     {
-        std::vector<addr_mask_t> nets;
-        for (auto & netstr: osd_networks)
-        {
-            nets.push_back(cidr_parse(netstr));
-        }
-        auto best = match_device(dev_list, nets.data(), nets.size(), log_level);
+        auto best = match_device(dev_list, osd_network_masks.data(), osd_network_masks.size(), log_level);
         if (best.dev == -2)
         {
             best.dev = 0;
