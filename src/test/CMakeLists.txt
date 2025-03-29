@@ -25,6 +25,7 @@ target_link_libraries(stub_uring_osd
 	vitastor_common
 	${LIBURING_LIBRARIES}
 	${IBVERBS_LIBRARIES}
+	${RDMACM_LIBRARIES}
 	tcmalloc_minimal
 )
 

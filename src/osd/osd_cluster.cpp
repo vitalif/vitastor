@@ -172,6 +172,10 @@ json11::Json osd_t::get_osd_state()
     st["host"] = std::string(hostname.data(), hostname.size());
     st["version"] = VITASTOR_VERSION;
     st["port"] = listening_port;
+#ifdef WITH_RDMACM
+    if (rdmacm_listeners.size())
+        st["rdmacm"] = true;
+#endif
     st["primary_enabled"] = run_primary;
     st["blockstore_enabled"] = bs ? true : false;
     return st;

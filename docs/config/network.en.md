@@ -12,6 +12,8 @@ between clients, OSDs and etcd.
 - [tcp_header_buffer_size](#tcp_header_buffer_size)
 - [use_sync_send_recv](#use_sync_send_recv)
 - [use_rdma](#use_rdma)
+- [use_rdmacm](#use_rdmacm)
+- [disable_tcp](#disable_tcp)
 - [rdma_device](#rdma_device)
 - [rdma_port_num](#rdma_port_num)
 - [rdma_gid_index](#rdma_gid_index)
@@ -59,10 +61,33 @@ but may be required for clients with old kernel versions.
 - Type: boolean
 - Default: true
 
-Try to use RDMA for communication if it's available. Disable if you don't
-want Vitastor to use RDMA. TCP-only clients can also talk to an RDMA-enabled
-cluster, so disabling RDMA may be needed if clients have RDMA devices,
-but they are not connected to the cluster.
+Try to use RDMA through libibverbs for communication if it's available.
+Disable if you don't want Vitastor to use RDMA. TCP-only clients can also
+talk to an RDMA-enabled cluster, so disabling RDMA may be needed if clients
+have RDMA devices, but they are not connected to the cluster.
+
+`use_rdma` works with RoCEv1/RoCEv2 networks, but not with iWARP and,
+maybe, with some Infiniband configurations which require RDMA-CM.
+Consider `use_rdmacm` for such networks.
+
+## use_rdmacm
+
+- Type: boolean
+- Default: true
+
+Use an alternative implementation of RDMA through RDMA-CM (Connection
+Manager). Works with all RDMA networks: Infiniband, iWARP and
+RoCEv1/RoCEv2, and even allows to disable TCP and run only with RDMA.
+When enabled, OSDs listen on the same address(es) and port(s) using
+TCP and RDMA-CM. `use_rdma` is automatically disabled when `use_rdmacm`
+is enabled.
+
+## disable_tcp
+
+- Type: boolean
+- Default: true
+
+Fully disable TCP and only use RDMA-CM for OSD communication.
 
 ## rdma_device
 
@@ -93,11 +118,12 @@ PFC (Priority Flow Control) and ECN (Explicit Congestion Notification).
 ## rdma_port_num
 
 - Type: integer
-- Default: 1
 
 RDMA device port number to use. Only for devices that have more than 1 port.
 See `phys_port_cnt` in `ibv_devinfo -v` output to determine how many ports
 your device has.
+
+Not relevant for RDMA-CM (use_rdmacm).
 
 ## rdma_gid_index
 
@@ -114,13 +140,14 @@ GID auto-selection is unsupported with libibverbs < v32.
 
 A correct rdma_gid_index for RoCEv2 is usually 1 (IPv6) or 3 (IPv4).
 
+Not relevant for RDMA-CM (use_rdmacm).
+
 ## rdma_mtu
 
 - Type: integer
-- Default: 4096
 
-RDMA Path MTU to use. Must be 1024, 2048 or 4096. There is usually no
-sense to change it from the default 4096.
+RDMA Path MTU to use. Must be 1024, 2048 or 4096. Default is to use the
+RDMA device's MTU.
 
 ## rdma_max_sge
 

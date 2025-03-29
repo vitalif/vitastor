@@ -7,10 +7,14 @@ set(MSGR_RDMA "")
 if (IBVERBS_LIBRARIES)
 	set(MSGR_RDMA "msgr_rdma.cpp")
 endif (IBVERBS_LIBRARIES)
+set(MSGR_RDMACM "")
+if (RDMACM_LIBRARIES)
+	set(MSGR_RDMACM "msgr_rdmacm.cpp")
+endif (RDMACM_LIBRARIES)
 add_library(vitastor_common STATIC
 	../util/epoll_manager.cpp etcd_state_client.cpp messenger.cpp ../util/addr_util.cpp
 	msgr_stop.cpp msgr_op.cpp msgr_send.cpp msgr_receive.cpp ../util/ringloop.cpp ../../json11/json11.cpp
-	http_client.cpp osd_ops.cpp pg_states.cpp ../util/timerfd_manager.cpp ../util/str_util.cpp ../util/json_util.cpp ${MSGR_RDMA}
+	http_client.cpp osd_ops.cpp pg_states.cpp ../util/timerfd_manager.cpp ../util/str_util.cpp ../util/json_util.cpp ${MSGR_RDMA} ${MSGR_RDMACM}
 )
 target_link_libraries(vitastor_common pthread)
 target_compile_options(vitastor_common PUBLIC -fPIC)
@@ -28,6 +32,7 @@ target_link_libraries(vitastor_client
 	vitastor_cli
 	${LIBURING_LIBRARIES}
 	${IBVERBS_LIBRARIES}
+	${RDMACM_LIBRARIES}
 )
 set_target_properties(vitastor_client PROPERTIES VERSION ${VITASTOR_VERSION} SOVERSION 0)
 configure_file(vitastor.pc.in vitastor.pc @ONLY)

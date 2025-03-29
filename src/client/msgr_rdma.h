@@ -2,6 +2,9 @@
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
 #pragma once
+#ifdef WITH_RDMACM
+#include <rdma/rdma_cma.h>
+#endif
 #include <infiniband/verbs.h>
 #include <string>
 #include <vector>
@@ -36,11 +39,15 @@ struct msgr_rdma_context_t
     int max_cqe = 0;
     int used_max_cqe = 0;
     addr_mask_t net_mask = {};
+    bool is_cm = false;
+    int cm_refs = 0;
 
     static std::vector<msgr_rdma_context_t*> create_all(const std::vector<addr_mask_t> & osd_network_masks,
         const char *sel_dev_name, int sel_port_num, int sel_gid_index, uint32_t sel_mtu, bool odp, int log_level);
     static msgr_rdma_context_t *create(ibv_device *dev, ibv_port_attr & portinfo,
         int ib_port, int gid_index, uint32_t mtu, bool odp, int log_level);
+    static msgr_rdma_context_t* create_cm(ibv_context *ctx);
+    bool reserve_cqe(int n);
 
     ~msgr_rdma_context_t();
 };
@@ -55,11 +62,14 @@ struct msgr_rdma_connection_t
 {
     msgr_rdma_context_t *ctx = NULL;
     ibv_qp *qp = NULL;
+#ifdef WITH_RDMACM
+    rdma_cm_id *cmid = NULL;
+#endif
     msgr_rdma_address_t addr;
     int max_send = 0, max_recv = 0, max_sge = 0;
-    int cur_send = 0, cur_recv = 0;
     uint64_t max_msg = 0;
 
+    int cur_send = 0, cur_recv = 0;
     int send_pos = 0, send_buf_pos = 0;
     int next_recv_buf = 0;
     std::vector<msgr_rdma_buf_t> recv_buffers;

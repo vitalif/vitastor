@@ -30,7 +30,7 @@
 - Именование инодов через хранение их метаданных в etcd
 - Снапшоты и copy-on-write клоны
 - [Сглаживание производительности случайной записи в SSD+HDD конфигурациях](../config/osd.ru.md#throttle_small_writes)
-- [Поддержка RDMA/RoCEv2 через libibverbs](../config/network.ru.md#rdma_device)
+- Поддержка RDMA/RoCEv2 [через libibverbs](../config/network.ru.md#use_rdma) или [RDMA-CM](../config/network.ru.md#use_rdmacm)
 - [Фоновая проверка целостности](../config/osd.ru.md#auto_scrub) (сверка копий)
 - [Контрольные суммы](../config/layout-osd.ru.md#data_csum_type)
 - [Буферизация записи на стороне клиента](../config/client.ru.md#client_enable_writeback)

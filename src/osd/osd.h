@@ -109,6 +109,8 @@ class osd_t
     bool allow_net_split = false;
     std::vector<std::string> cfg_bind_addresses;
     int bind_port, listen_backlog = 128;
+    bool use_rdmacm = false;
+    bool disable_tcp = false;
     // FIXME: Implement client queue depth limit
     int client_queue_depth = 128;
     bool allow_test_ops = false;
@@ -202,6 +204,9 @@ class osd_t
     int listening_port = 0;
     std::vector<std::string> bind_addresses;
     std::vector<int> listen_fds;
+#ifdef WITH_RDMACM
+    std::vector<rdma_cm_id *> rdmacm_listeners;
+#endif
     ring_consumer_t consumer;
 
     // op statistics

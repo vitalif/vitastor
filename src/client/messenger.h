@@ -50,10 +50,10 @@ struct osd_client_t
 {
     int refs = 0;
 
-    sockaddr_storage peer_addr;
-    int peer_port;
+    sockaddr_storage peer_addr = {};
+    int peer_port = 0;
     int peer_fd = -1;
-    int peer_state;
+    int peer_state = 0;
     int connect_timeout_id = -1;
     int ping_time_remaining = 0;
     int idle_time_remaining = 0;
@@ -96,6 +96,7 @@ struct osd_wanted_peer_t
 {
     json11::Json raw_address_list;
     json11::Json address_list;
+    bool peer_rdmacm = false;
     int port = 0;
     time_t last_connect_attempt = 0;
     bool connecting = false, address_changed = false;
@@ -151,6 +152,15 @@ public:
 };
 #endif
 
+#ifdef WITH_RDMA
+struct rdma_event_channel;
+struct rdma_cm_id;
+struct rdma_cm_event;
+struct ibv_context;
+struct osd_messenger_t;
+struct rdmacm_connecting_t;
+#endif
+
 struct osd_messenger_t
 {
 protected:
@@ -167,6 +177,8 @@ protected:
 
 #ifdef WITH_RDMA
     bool use_rdma = true;
+    bool use_rdmacm = false;
+    bool disable_tcp = false;
     std::string rdma_device;
     uint64_t rdma_port_num = 1;
     int rdma_mtu = 0;
@@ -175,6 +187,9 @@ protected:
     uint64_t rdma_max_sge = 0, rdma_max_send = 0, rdma_max_recv = 0;
     uint64_t rdma_max_msg = 0;
     bool rdma_odp = false;
+    rdma_event_channel *rdmacm_evch = NULL;
+    std::map<rdma_cm_id*, osd_client_t*> rdmacm_connections;
+    std::map<rdma_cm_id*, rdmacm_connecting_t*> rdmacm_connecting;
 #endif
 
     std::vector<msgr_iothread_t*> iothreads;
@@ -224,13 +239,18 @@ public:
     bool is_rdma_enabled();
     bool connect_rdma(int peer_fd, std::string rdma_address, uint64_t client_max_msg);
 #endif
+#ifdef WITH_RDMACM
+    bool is_use_rdmacm();
+    rdma_cm_id *rdmacm_listen(const std::string & bind_address, int rdmacm_port, int *bound_port, int log_level);
+    void rdmacm_destroy_listener(rdma_cm_id *listener);
+#endif
 
     void inc_op_stats(osd_op_stats_t & stats, uint64_t opcode, timespec & tv_begin, timespec & tv_end, uint64_t len);
     void measure_exec(osd_op_t *cur_op);
 
 protected:
     void try_connect_peer(uint64_t osd_num);
-    void try_connect_peer_addr(osd_num_t peer_osd, const char *peer_host, int peer_port);
+    void try_connect_peer_tcp(osd_num_t peer_osd, const char *peer_host, int peer_port);
     void handle_peer_epoll(int peer_fd, int epoll_events);
     void handle_connect_epoll(int peer_fd);
     void on_connect_peer(osd_num_t peer_osd, int peer_fd);
@@ -257,5 +277,16 @@ protected:
     bool try_recv_rdma(osd_client_t *cl);
     void handle_rdma_events(msgr_rdma_context_t *rdma_context);
     msgr_rdma_context_t* choose_rdma_context(osd_client_t *cl);
+#endif
+#ifdef WITH_RDMACM
+    void handle_rdmacm_events();
+    msgr_rdma_context_t* rdmacm_get_context(ibv_context *verbs);
+    msgr_rdma_context_t* rdmacm_create_qp(rdma_cm_id *cmid);
+    void rdmacm_accept(rdma_cm_event *ev);
+    void rdmacm_try_connect_peer(uint64_t peer_osd, const std::string & addr, int peer_port);
+    void rdmacm_on_connect_peer_error(rdma_cm_id *cmid, int res);
+    void rdmacm_address_resolved(rdma_cm_event *ev);
+    void rdmacm_route_resolved(rdma_cm_event *ev);
+    void rdmacm_established(rdma_cm_event *ev);
 #endif
 };

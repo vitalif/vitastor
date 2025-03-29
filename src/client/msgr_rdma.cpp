@@ -63,15 +63,22 @@ msgr_rdma_context_t::~msgr_rdma_context_t()
         ibv_dereg_mr(mr);
     if (pd)
         ibv_dealloc_pd(pd);
-    if (context)
+    if (context && !is_cm)
         ibv_close_device(context);
 }
 
 msgr_rdma_connection_t::~msgr_rdma_connection_t()
 {
-    ctx->used_max_cqe -= max_send+max_recv;
-    if (qp)
+    ctx->reserve_cqe(-max_send-max_recv);
+    if (qp && !cmid)
         ibv_destroy_qp(qp);
+    if (cmid)
+    {
+        ctx->cm_refs--;
+        if (cmid->qp)
+            rdma_destroy_qp(cmid);
+        rdma_destroy_id(cmid);
+    }
     if (recv_buffers.size())
     {
         for (auto b: recv_buffers)
@@ -388,9 +395,34 @@ cleanup:
     return NULL;
 }
 
+bool msgr_rdma_context_t::reserve_cqe(int n)
+{
+    this->used_max_cqe += n;
+    if (this->used_max_cqe > this->max_cqe)
+    {
+        // Resize CQ
+        // Mellanox ConnectX-4 supports up to 4194303 CQEs, so it's fine to put everything into a single CQ
+        int new_max_cqe = this->max_cqe;
+        while (this->used_max_cqe > new_max_cqe)
+        {
+            new_max_cqe *= 2;
+        }
+        if (ibv_resize_cq(this->cq, new_max_cqe) != 0)
+        {
+            fprintf(stderr, "Couldn't resize RDMA completion queue to %d entries\n", new_max_cqe);
+            return false;
+        }
+        this->max_cqe = new_max_cqe;
+    }
+    return true;
+}
+
 msgr_rdma_connection_t *msgr_rdma_connection_t::create(msgr_rdma_context_t *ctx, uint32_t max_send,
     uint32_t max_recv, uint32_t max_sge, uint32_t max_msg)
 {
+    if (!ctx->reserve_cqe(max_send+max_recv))
+        return NULL;
+
     msgr_rdma_connection_t *conn = new msgr_rdma_connection_t;
 
     max_sge = max_sge > ctx->attrx.orig_attr.max_sge ? ctx->attrx.orig_attr.max_sge : max_sge;
@@ -400,25 +432,6 @@ msgr_rdma_connection_t *msgr_rdma_connection_t::create(msgr_rdma_context_t *ctx,
     conn->max_recv = max_recv;
     conn->max_sge = max_sge;
     conn->max_msg = max_msg;
-
-    ctx->used_max_cqe += max_send+max_recv;
-    if (ctx->used_max_cqe > ctx->max_cqe)
-    {
-        // Resize CQ
-        // Mellanox ConnectX-4 supports up to 4194303 CQEs, so it's fine to put everything into a single CQ
-        int new_max_cqe = ctx->max_cqe;
-        while (ctx->used_max_cqe > new_max_cqe)
-        {
-            new_max_cqe *= 2;
-        }
-        if (ibv_resize_cq(ctx->cq, new_max_cqe) != 0)
-        {
-            fprintf(stderr, "Couldn't resize RDMA completion queue to %d entries\n", new_max_cqe);
-            delete conn;
-            return NULL;
-        }
-        ctx->max_cqe = new_max_cqe;
-    }
 
     ibv_qp_init_attr init_attr = {
         .send_cq = ctx->cq,

@@ -28,7 +28,7 @@
 - Per-OSD and per-image I/O and space usage statistics in etcd
 - Snapshots and copy-on-write image clones
 - [Write throttling to smooth random write workloads in SSD+HDD configurations](../config/osd.en.md#throttle_small_writes)
-- [RDMA/RoCEv2 support via libibverbs](../config/network.en.md#rdma_device)
+- RDMA/RoCEv2 support [via libibverbs](../config/network.en.md#use_rdma) or [RDMA-CM](../config/network.en.md#use_rdmacm)
 - [Scrubbing](../config/osd.en.md#auto_scrub) (verification of copies)
 - [Checksums](../config/layout-osd.en.md#data_csum_type)
 - [Client write-back cache](../config/client.en.md#client_enable_writeback)

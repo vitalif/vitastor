@@ -34,16 +34,48 @@
   type: bool
   default: true
   info: |
-    Try to use RDMA for communication if it's available. Disable if you don't
-    want Vitastor to use RDMA. TCP-only clients can also talk to an RDMA-enabled
-    cluster, so disabling RDMA may be needed if clients have RDMA devices,
-    but they are not connected to the cluster.
+    Try to use RDMA through libibverbs for communication if it's available.
+    Disable if you don't want Vitastor to use RDMA. TCP-only clients can also
+    talk to an RDMA-enabled cluster, so disabling RDMA may be needed if clients
+    have RDMA devices, but they are not connected to the cluster.
+
+    `use_rdma` works with RoCEv1/RoCEv2 networks, but not with iWARP and,
+    maybe, with some Infiniband configurations which require RDMA-CM.
+    Consider `use_rdmacm` for such networks.
   info_ru: |
-    Пытаться использовать RDMA для связи при наличии доступных устройств.
-    Отключите, если вы не хотите, чтобы Vitastor использовал RDMA.
-    TCP-клиенты также могут работать с RDMA-кластером, так что отключать
-    RDMA может быть нужно только если у клиентов есть RDMA-устройства,
-    но они не имеют соединения с кластером Vitastor.
+    Попробовать использовать RDMA через libibverbs для связи при наличии
+    доступных устройств. Отключите, если вы не хотите, чтобы Vitastor
+    использовал RDMA. TCP-клиенты также могут работать с RDMA-кластером,
+    так что отключать RDMA может быть нужно, только если у клиентов есть
+    RDMA-устройства, но они не имеют соединения с кластером Vitastor.
+
+    `use_rdma` работает с RoCEv1/RoCEv2 сетями, но не работает с iWARP и
+    может не работать с частью конфигураций Infiniband, требующих RDMA-CM.
+    Рассмотрите включение `use_rdmacm` для таких сетей.
+- name: use_rdmacm
+  type: bool
+  default: true
+  info: |
+    Use an alternative implementation of RDMA through RDMA-CM (Connection
+    Manager). Works with all RDMA networks: Infiniband, iWARP and
+    RoCEv1/RoCEv2, and even allows to disable TCP and run only with RDMA.
+    When enabled, OSDs listen on the same address(es) and port(s) using
+    TCP and RDMA-CM. `use_rdma` is automatically disabled when `use_rdmacm`
+    is enabled.
+  info_ru: |
+    Использовать альтернативную реализацию RDMA на основе RDMA-CM (Connection
+    Manager). Работает со всеми типами RDMA-сетей: Infiniband, iWARP и
+    RoCEv1/RoCEv2, и даже позволяет полностью отключить TCP и работать
+    только на RDMA. Когда опция включена, OSD слушают один и тот же порт
+    на одних и тех же адресах через TCP и RDMA-CM. Также при включении
+    автоматически отключается опция `use_rdma`.
+- name: disable_tcp
+  type: bool
+  default: true
+  info: |
+    Fully disable TCP and only use RDMA-CM for OSD communication.
+  info_ru: |
+    Полностью отключить TCP и использовать только RDMA-CM для соединений с OSD.
 - name: rdma_device
   type: string
   info: |
@@ -93,16 +125,19 @@
     Control) и ECN (Explicit Congestion Notification).
 - name: rdma_port_num
   type: int
-  default: 1
   info: |
     RDMA device port number to use. Only for devices that have more than 1 port.
     See `phys_port_cnt` in `ibv_devinfo -v` output to determine how many ports
     your device has.
+
+    Not relevant for RDMA-CM (use_rdmacm).
   info_ru: |
     Номер порта RDMA-устройства, который следует использовать. Имеет смысл
     только для устройств, у которых более 1 порта. Чтобы узнать, сколько портов
     у вашего адаптера, посмотрите `phys_port_cnt` в выводе команды
     `ibv_devinfo -v`.
+
+    Опция неприменима к RDMA-CM (use_rdmacm).
 - name: rdma_gid_index
   type: int
   info: |
@@ -116,6 +151,8 @@
     GID auto-selection is unsupported with libibverbs < v32.
 
     A correct rdma_gid_index for RoCEv2 is usually 1 (IPv6) or 3 (IPv4).
+
+    Not relevant for RDMA-CM (use_rdmacm).
   info_ru: |
     Номер глобального идентификатора адреса RDMA-устройства, который следует
     использовать. Разным gid_index могут соответствовать разные протоколы связи:
@@ -128,15 +165,16 @@
     libibverbs < v32.
 
     Правильный rdma_gid_index для RoCEv2, как правило, 1 (IPv6) или 3 (IPv4).
+
+    Опция неприменима к RDMA-CM (use_rdmacm).
 - name: rdma_mtu
   type: int
-  default: 4096
   info: |
-    RDMA Path MTU to use. Must be 1024, 2048 or 4096. There is usually no
-    sense to change it from the default 4096.
+    RDMA Path MTU to use. Must be 1024, 2048 or 4096. Default is to use the
+    RDMA device's MTU.
   info_ru: |
     Максимальная единица передачи (Path MTU) для RDMA. Должно быть равно 1024,
-    2048 или 4096. Обычно нет смысла менять значение по умолчанию, равное 4096.
+    2048 или 4096. По умолчанию используется значение MTU RDMA-устройства.
 - name: rdma_max_sge
   type: int
   default: 128

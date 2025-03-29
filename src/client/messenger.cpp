@@ -117,6 +117,28 @@ void msgr_iothread_t::run()
 
 void osd_messenger_t::init()
 {
+#ifdef WITH_RDMACM
+    if (use_rdmacm)
+    {
+        // RDMA-CM only requires the event channel. All the remaining work is done separately
+        rdmacm_evch = rdma_create_event_channel();
+        if (!rdmacm_evch)
+        {
+            // ENODEV means that the client doesn't have RDMA devices available
+            if (errno != ENODEV || log_level > 0)
+                fprintf(stderr, "Failed to initialize RDMA-CM event channel: %s (code %d)\n", strerror(errno), errno);
+        }
+        else
+        {
+            fcntl(rdmacm_evch->fd, F_SETFL, fcntl(rdmacm_evch->fd, F_GETFL, 0) | O_NONBLOCK);
+            tfd->set_fd_handler(rdmacm_evch->fd, false, [this](int rdmacm_eventfd, int epoll_events)
+            {
+                handle_rdmacm_events();
+            });
+        }
+    }
+    else
+#endif
 #ifdef WITH_RDMA
     if (use_rdma)
     {
@@ -255,6 +277,14 @@ osd_messenger_t::~osd_messenger_t()
     }
     rdma_contexts.clear();
 #endif
+#ifdef WITH_RDMACM
+    if (rdmacm_evch)
+    {
+        tfd->set_fd_handler(rdmacm_evch->fd, false, NULL);
+        rdma_destroy_event_channel(rdmacm_evch);
+        rdmacm_evch = NULL;
+    }
+#endif
 }
 
 void osd_messenger_t::parse_config(const json11::Json & config)
@@ -265,6 +295,12 @@ void osd_messenger_t::parse_config(const json11::Json & config)
         // RDMA is on by default in RDMA-enabled builds
         this->use_rdma = config["use_rdma"].bool_value() || config["use_rdma"].uint64_value() != 0;
     }
+#ifdef WITH_RDMACM
+    // Use RDMA CM? (required for iWARP and may be useful for IB)
+    // FIXME: Only parse during start
+    this->use_rdmacm = config["use_rdmacm"].bool_value() || config["use_rdmacm"].uint64_value() != 0;
+    this->disable_tcp = this->use_rdmacm && (config["disable_tcp"].bool_value() || config["disable_tcp"].uint64_value() != 0);
+#endif
     this->rdma_device = config["rdma_device"].string_value();
     this->rdma_port_num = (uint8_t)config["rdma_port_num"].uint64_value();
     if (!config["rdma_gid_index"].is_null())
@@ -383,6 +419,9 @@ void osd_messenger_t::connect_peer(uint64_t peer_osd, json11::Json peer_state)
             wanted_peers[peer_osd].address_list = peer_state["addresses"];
         wanted_peers[peer_osd].address_changed = true;
     }
+#ifdef WITH_RDMACM
+    wanted_peers[peer_osd].peer_rdmacm = peer_state["rdmacm"].bool_value();
+#endif
     wanted_peers[peer_osd].port = (int)peer_state["port"].int64_value();
     try_connect_peer(peer_osd);
 }
@@ -408,12 +447,24 @@ void osd_messenger_t::try_connect_peer(uint64_t peer_osd)
     wp.cur_addr = wp.address_list[wp.address_index].string_value();
     wp.cur_port = wp.port;
     wp.connecting = true;
-    try_connect_peer_addr(peer_osd, wp.cur_addr.c_str(), wp.cur_port);
+#ifdef WITH_RDMACM
+    if (use_rdmacm && wp.peer_rdmacm)
+        rdmacm_try_connect_peer(peer_osd, wp.cur_addr.c_str(), wp.cur_port);
+    else
+#endif
+        try_connect_peer_tcp(peer_osd, wp.cur_addr.c_str(), wp.cur_port);
 }
 
-void osd_messenger_t::try_connect_peer_addr(osd_num_t peer_osd, const char *peer_host, int peer_port)
+void osd_messenger_t::try_connect_peer_tcp(osd_num_t peer_osd, const char *peer_host, int peer_port)
 {
     assert(peer_osd != this->osd_num);
+#ifdef WITH_RDMACM
+    if (disable_tcp)
+    {
+        on_connect_peer(peer_osd, -EINVAL);
+        return;
+    }
+#endif
     struct sockaddr_storage addr;
     if (!string_to_addr(peer_host, 0, peer_port, &addr))
     {
@@ -748,6 +799,11 @@ msgr_rdma_context_t* osd_messenger_t::choose_rdma_context(osd_client_t *cl)
 bool osd_messenger_t::is_rdma_enabled()
 {
     return rdma_contexts.size() > 0;
+}
+
+bool osd_messenger_t::is_use_rdmacm()
+{
+    return use_rdmacm;
 }
 #endif
 

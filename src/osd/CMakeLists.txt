@@ -14,6 +14,7 @@ target_link_libraries(vitastor-osd
 	Jerasure
 	${ISAL_LIBRARIES}
 	${IBVERBS_LIBRARIES}
+	${RDMACM_LIBRARIES}
 )
 
 # osd_rmw_test

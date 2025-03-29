@@ -120,6 +120,11 @@ osd_t::~osd_t()
     delete epmgr;
     if (bs)
         delete bs;
+#ifdef WITH_RDMACM
+    for (rdma_cm_id *listener: rdmacm_listeners)
+        msgr.rdmacm_destroy_listener(listener);
+    rdmacm_listeners.clear();
+#endif
     for (auto listen_fd: listen_fds)
         close(listen_fd);
     listen_fds.clear();
@@ -176,6 +181,11 @@ void osd_t::parse_config(bool init)
         bind_port = config["bind_port"].uint64_value();
         if (bind_port <= 0 || bind_port > 65535)
             bind_port = 0;
+#ifdef WITH_RDMACM
+        // Use RDMA CM? (required for iWARP and may be useful for IB)
+        this->use_rdmacm = config["use_rdmacm"].bool_value() || config["use_rdmacm"].uint64_value() != 0;
+        this->disable_tcp = this->use_rdmacm && (config["disable_tcp"].bool_value() || config["disable_tcp"].uint64_value() != 0);
+#endif
         // OSD configuration
         etcd_report_interval = config["etcd_report_interval"].uint64_value();
         if (etcd_report_interval <= 0)
@@ -348,16 +358,35 @@ void osd_t::bind_socket()
     {
         bind_addresses.push_back("0.0.0.0");
     }
-    for (auto & bind_address: bind_addresses)
+    if (!disable_tcp)
     {
-        int listen_fd = create_and_bind_socket(bind_address, listening_port ? listening_port : bind_port, listen_backlog, &listening_port);
-        fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
-        epmgr->set_fd_handler(listen_fd, false, [this](int fd, int events)
+        for (auto & bind_address: bind_addresses)
         {
-            msgr.accept_connections(fd);
-        });
-        listen_fds.push_back(listen_fd);
+            int listen_fd = create_and_bind_socket(bind_address, listening_port ? listening_port : bind_port, listen_backlog, &listening_port);
+            fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
+            epmgr->set_fd_handler(listen_fd, false, [this](int fd, int events)
+            {
+                msgr.accept_connections(fd);
+            });
+            listen_fds.push_back(listen_fd);
+        }
     }
+#ifdef WITH_RDMACM
+    if (use_rdmacm)
+    {
+        for (auto & bind_address: bind_addresses)
+        {
+            auto listener = msgr.rdmacm_listen(bind_address, listening_port, &listening_port, log_level);
+            if (listener)
+                rdmacm_listeners.push_back(listener);
+        }
+        if (!rdmacm_listeners.size() && disable_tcp)
+        {
+            fprintf(stderr, "Failed to create RDMA-CM listeners, exiting\n");
+            force_stop(1);
+        }
+    }
+#endif
 }
 
 bool osd_t::shutdown()
