@@ -47,7 +47,7 @@ struct nfs_rdma_dev_state_t
     ibv_comp_channel *channel = NULL;
     ibv_cq *cq = NULL;
     rdma_allocator_t *alloc = NULL;
-    int max_cqe = 0, used_max_cqe = 0;
+    int max_cqe = 0;
 
     static nfs_rdma_dev_state_t *create(rdma_cm_id *cmid, uint64_t rdma_malloc_round_to, uint64_t rdma_max_unused_buffers);
     ~nfs_rdma_dev_state_t();
