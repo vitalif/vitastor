@@ -50,7 +50,7 @@ On the monitor hosts:
 
 ## Configure OSDs
 
-- Put etcd_address and osd_network into `/etc/vitastor/vitastor.conf`. Example:
+- Put etcd_address and [osd_network](../config/network.en.md#osd_network) into `/etc/vitastor/vitastor.conf`. Example:
   ```
   {
     "etcd_address": ["10.200.1.10:2379","10.200.1.11:2379","10.200.1.12:2379"],

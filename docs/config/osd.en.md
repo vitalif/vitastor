@@ -10,8 +10,6 @@ These parameters only apply to OSDs, are not fixed at the moment of OSD drive
 initialization and can be changed - in /etc/vitastor/vitastor.conf or [vitastor-disk update-sb](../usage/disk.en.md#update-sb)
 with an OSD restart or, for some of them, even without restarting by updating configuration in etcd.
 
-- [osd_network](#osd_network)
-- [osd_cluster_network](#osd_cluster_network)
 - [bind_address](#bind_address)
 - [bind_port](#bind_port)
 - [osd_iothread_count](#osd_iothread_count)
@@ -66,33 +64,14 @@ with an OSD restart or, for some of them, even without restarting by updating co
 - [min_discard_size](#min_discard_size)
 - [allow_net_split](#allow_net_split)
 
-## osd_network
-
-- Type: string or array of strings
-
-Network mask of public OSD network(s) (IPv4 or IPv6). Each OSD listens on all
-addresses of UP + RUNNING interfaces matching one of these networks, on the
-same port. Port is auto-selected except if [bind_port](#bind_port) is
-explicitly specified. Bind address(es) may also be overridden manually by
-specifying [bind_address](#bind_address). If OSD networks are not specified
-at all, OSD just listens on a wildcard address (0.0.0.0).
-
-## osd_cluster_network
-
-- Type: string or array of strings
-
-Network mask of separate network(s) (IPv4 or IPv6) to use for OSD
-cluster connections. I.e. OSDs will always attempt to use these networks
-to connect to other OSDs, while clients will attempt to use networks from
-[osd_network](#osd_network).
-
 ## bind_address
 
 - Type: string or array of strings
 
-Instead of the network mask, you can also set OSD listen addresses explicitly
-using this parameter. May be useful if you want to start OSDs on interfaces
-that are not UP + RUNNING.
+Instead of the network masks ([osd_network](network.en.md#osd_network) and
+[osd_cluster_network](network.en.md#osd_cluster_network)), you can also set
+OSD listen addresses explicitly using this parameter. May be useful if you
+want to start OSDs on interfaces that are not UP + RUNNING.
 
 ## bind_port
 

@@ -50,7 +50,7 @@
 
 ## Настройте OSD
 
-- Пропишите etcd_address и osd_network в `/etc/vitastor/vitastor.conf`. Например:
+- Пропишите etcd_address и [osd_network](../config/network.ru.md#osd_network) в `/etc/vitastor/vitastor.conf`. Например:
   ```
   {
     "etcd_address": ["10.200.1.10:2379","10.200.1.11:2379","10.200.1.12:2379"],

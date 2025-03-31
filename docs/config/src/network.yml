@@ -1,35 +1,32 @@
-- name: tcp_header_buffer_size
-  type: int
-  default: 65536
+- name: osd_network
+  type: string or array of strings
+  type_ru: строка или массив строк
   info: |
-    Size of the buffer used to read data using an additional copy. Vitastor
-    packet headers are 128 bytes, payload is always at least 4 KB, so it is
-    usually beneficial to try to read multiple packets at once even though
-    it requires to copy the data an additional time. The rest of each packet
-    is received without an additional copy. You can try to play with this
-    parameter and see how it affects random iops and linear bandwidth if you
-    want.
+    Network mask of public OSD network(s) (IPv4 or IPv6). Each OSD listens on all
+    addresses of UP + RUNNING interfaces matching one of these networks, on the
+    same port. Port is auto-selected except if [bind_port](osd.en.md#bind_port) is
+    explicitly specified. Bind address(es) may also be overridden manually by
+    specifying [bind_address](osd.en.md#bind_address). If OSD networks are not specified
+    at all, OSD just listens on a wildcard address (0.0.0.0).
   info_ru: |
-    Размер буфера для чтения данных с дополнительным копированием. Пакеты
-    Vitastor содержат 128-байтные заголовки, за которыми следуют данные размером
-    от 4 КБ и для мелких операций ввода-вывода обычно выгодно за 1 вызов читать
-    сразу несколько пакетов, даже не смотря на то, что это требует лишний раз
-    скопировать данные. Часть каждого пакета за пределами значения данного
-    параметра читается без дополнительного копирования. Вы можете попробовать
-    поменять этот параметр и посмотреть, как он влияет на производительность
-    случайного и линейного доступа.
-- name: use_sync_send_recv
-  type: bool
-  default: false
+    Маски подсетей (IPv4 или IPv6) публичной сети или сетей OSD. Каждый OSD слушает
+    один и тот же порт на всех адресах поднятых (UP + RUNNING) сетевых интерфейсов,
+    соответствующих одной из указанных сетей. Порт выбирается автоматически, если
+    только [bind_port](osd.ru.md#bind_port) не задан явно. Адреса для подключений можно
+    также переопределить явно, задав [bind_address](osd.ru.md#bind_address). Если сети OSD
+    не заданы вообще, OSD слушает все адреса (0.0.0.0).
+- name: osd_cluster_network
+  type: string or array of strings
+  type_ru: строка или массив строк
   info: |
-    If true, synchronous send/recv syscalls are used instead of io_uring for
-    socket communication. Useless for OSDs because they require io_uring anyway,
-    but may be required for clients with old kernel versions.
+    Network mask of separate network(s) (IPv4 or IPv6) to use for OSD
+    cluster connections. I.e. OSDs will always attempt to use these networks
+    to connect to other OSDs, while clients will attempt to use networks from
+    [osd_network](#osd_network).
   info_ru: |
-    Если установлено в истину, то вместо io_uring для передачи данных по сети
-    будут использоваться обычные синхронные системные вызовы send/recv. Для OSD
-    это бессмысленно, так как OSD в любом случае нуждается в io_uring, но, в
-    принципе, это может применяться для клиентов со старыми версиями ядра.
+    Маски подсетей (IPv4 или IPv6) отдельной кластерной сети или сетей OSD.
+    То есть, OSD будут всегда стараться использовать эти сети для соединений
+    с другими OSD, а клиенты будут стараться использовать сети из [osd_network](#osd_network).
 - name: use_rdma
   type: bool
   default: true
@@ -356,3 +353,35 @@
     Минимальный интервал полной перезагрузки состояния из etcd. Добавлено для
     предотвращения избыточной нагрузки на etcd во время отказов, когда etcd не
     успевает рассылать потоки событий и отменяет их.
+- name: tcp_header_buffer_size
+  type: int
+  default: 65536
+  info: |
+    Size of the buffer used to read data using an additional copy. Vitastor
+    packet headers are 128 bytes, payload is always at least 4 KB, so it is
+    usually beneficial to try to read multiple packets at once even though
+    it requires to copy the data an additional time. The rest of each packet
+    is received without an additional copy. You can try to play with this
+    parameter and see how it affects random iops and linear bandwidth if you
+    want.
+  info_ru: |
+    Размер буфера для чтения данных с дополнительным копированием. Пакеты
+    Vitastor содержат 128-байтные заголовки, за которыми следуют данные размером
+    от 4 КБ и для мелких операций ввода-вывода обычно выгодно за 1 вызов читать
+    сразу несколько пакетов, даже не смотря на то, что это требует лишний раз
+    скопировать данные. Часть каждого пакета за пределами значения данного
+    параметра читается без дополнительного копирования. Вы можете попробовать
+    поменять этот параметр и посмотреть, как он влияет на производительность
+    случайного и линейного доступа.
+- name: use_sync_send_recv
+  type: bool
+  default: false
+  info: |
+    If true, synchronous send/recv syscalls are used instead of io_uring for
+    socket communication. Useless for OSDs because they require io_uring anyway,
+    but may be required for clients with old kernel versions.
+  info_ru: |
+    Если установлено в истину, то вместо io_uring для передачи данных по сети
+    будут использоваться обычные синхронные системные вызовы send/recv. Для OSD
+    это бессмысленно, так как OSD в любом случае нуждается в io_uring, но, в
+    принципе, это может применяться для клиентов со старыми версиями ядра.

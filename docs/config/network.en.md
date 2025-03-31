@@ -9,8 +9,8 @@
 These parameters apply to clients and OSDs and affect network connection logic
 between clients, OSDs and etcd.
 
-- [tcp_header_buffer_size](#tcp_header_buffer_size)
-- [use_sync_send_recv](#use_sync_send_recv)
+- [osd_network](#osd_network)
+- [osd_cluster_network](#osd_cluster_network)
 - [use_rdma](#use_rdma)
 - [use_rdmacm](#use_rdmacm)
 - [disable_tcp](#disable_tcp)
@@ -33,28 +33,28 @@ between clients, OSDs and etcd.
 - [etcd_keepalive_timeout](#etcd_keepalive_timeout)
 - [etcd_ws_keepalive_interval](#etcd_ws_keepalive_interval)
 - [etcd_min_reload_interval](#etcd_min_reload_interval)
+- [tcp_header_buffer_size](#tcp_header_buffer_size)
+- [use_sync_send_recv](#use_sync_send_recv)
 
-## tcp_header_buffer_size
+## osd_network
 
-- Type: integer
-- Default: 65536
+- Type: string or array of strings
 
-Size of the buffer used to read data using an additional copy. Vitastor
-packet headers are 128 bytes, payload is always at least 4 KB, so it is
-usually beneficial to try to read multiple packets at once even though
-it requires to copy the data an additional time. The rest of each packet
-is received without an additional copy. You can try to play with this
-parameter and see how it affects random iops and linear bandwidth if you
-want.
+Network mask of public OSD network(s) (IPv4 or IPv6). Each OSD listens on all
+addresses of UP + RUNNING interfaces matching one of these networks, on the
+same port. Port is auto-selected except if [bind_port](osd.en.md#bind_port) is
+explicitly specified. Bind address(es) may also be overridden manually by
+specifying [bind_address](osd.en.md#bind_address). If OSD networks are not specified
+at all, OSD just listens on a wildcard address (0.0.0.0).
 
-## use_sync_send_recv
+## osd_cluster_network
 
-- Type: boolean
-- Default: false
+- Type: string or array of strings
 
-If true, synchronous send/recv syscalls are used instead of io_uring for
-socket communication. Useless for OSDs because they require io_uring anyway,
-but may be required for clients with old kernel versions.
+Network mask of separate network(s) (IPv4 or IPv6) to use for OSD
+cluster connections. I.e. OSDs will always attempt to use these networks
+to connect to other OSDs, while clients will attempt to use networks from
+[osd_network](#osd_network).
 
 ## use_rdma
 
@@ -299,3 +299,25 @@ detect disconnections quickly.
 Minimum interval for full etcd state reload. Introduced to prevent
 excessive load on etcd during outages when etcd can't keep up with event
 streams and cancels them.
+
+## tcp_header_buffer_size
+
+- Type: integer
+- Default: 65536
+
+Size of the buffer used to read data using an additional copy. Vitastor
+packet headers are 128 bytes, payload is always at least 4 KB, so it is
+usually beneficial to try to read multiple packets at once even though
+it requires to copy the data an additional time. The rest of each packet
+is received without an additional copy. You can try to play with this
+parameter and see how it affects random iops and linear bandwidth if you
+want.
+
+## use_sync_send_recv
+
+- Type: boolean
+- Default: false
+
+If true, synchronous send/recv syscalls are used instead of io_uring for
+socket communication. Useless for OSDs because they require io_uring anyway,
+but may be required for clients with old kernel versions.
