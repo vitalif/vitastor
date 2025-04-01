@@ -628,7 +628,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
         },
     };
 #ifdef WITH_RDMA
-    if (rdma_contexts.size())
+    if (!use_rdmacm && rdma_contexts.size())
     {
         // Choose the right context for the selected network
         msgr_rdma_context_t *selected_ctx = choose_rdma_context(cl);
@@ -701,7 +701,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
             return;
         }
 #ifdef WITH_RDMA
-        if (cl->rdma_conn && config["rdma_address"].is_string())
+        if (!use_rdmacm && cl->rdma_conn && config["rdma_address"].is_string())
         {
             msgr_rdma_address_t addr;
             if (!msgr_rdma_address_t::from_string(config["rdma_address"].string_value().c_str(), &addr) ||

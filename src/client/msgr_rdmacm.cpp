@@ -522,6 +522,5 @@ void osd_messenger_t::rdmacm_established(rdma_cm_event *ev)
         fprintf(stderr, "Successfully connected with OSD %ju using RDMA-CM\n", peer_osd);
     // Add initial receive request(s)
     try_recv_rdma(cl);
-    osd_peer_fds[peer_osd] = cl->peer_fd;
-    on_connect_peer(peer_osd, cl->peer_fd);
+    check_peer_config(cl);
 }
