@@ -50,7 +50,7 @@ from cinder.volume import configuration
 from cinder.volume import driver
 from cinder.volume import volume_utils
 
-VITASTOR_VERSION = '2.0.0'
+VITASTOR_VERSION = '2.1.0'
 
 LOG = logging.getLogger(__name__)
 
