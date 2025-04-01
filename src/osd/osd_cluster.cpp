@@ -174,7 +174,7 @@ json11::Json osd_t::get_osd_state()
     st["port"] = listening_port;
 #ifdef WITH_RDMACM
     if (rdmacm_listeners.size())
-        st["rdmacm"] = true;
+        st["rdmacm_port"] = rdmacm_port;
 #endif
     st["primary_enabled"] = run_primary;
     st["blockstore_enabled"] = bs ? true : false;

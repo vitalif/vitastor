@@ -420,7 +420,7 @@ void osd_messenger_t::connect_peer(uint64_t peer_osd, json11::Json peer_state)
         wanted_peers[peer_osd].address_changed = true;
     }
 #ifdef WITH_RDMACM
-    wanted_peers[peer_osd].peer_rdmacm = peer_state["rdmacm"].bool_value();
+    wanted_peers[peer_osd].rdmacm_port = (int)peer_state["rdmacm_port"].int64_value();
 #endif
     wanted_peers[peer_osd].port = (int)peer_state["port"].int64_value();
     try_connect_peer(peer_osd);
@@ -448,8 +448,8 @@ void osd_messenger_t::try_connect_peer(uint64_t peer_osd)
     wp.cur_port = wp.port;
     wp.connecting = true;
 #ifdef WITH_RDMACM
-    if (use_rdmacm && wp.peer_rdmacm)
-        rdmacm_try_connect_peer(peer_osd, wp.cur_addr.c_str(), wp.cur_port);
+    if (use_rdmacm && wp.rdmacm_port)
+        rdmacm_try_connect_peer(peer_osd, wp.cur_addr.c_str(), wp.rdmacm_port, wp.cur_port);
     else
 #endif
         try_connect_peer_tcp(peer_osd, wp.cur_addr.c_str(), wp.cur_port);

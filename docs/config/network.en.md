@@ -78,9 +78,9 @@ Consider `use_rdmacm` for such networks.
 Use an alternative implementation of RDMA through RDMA-CM (Connection
 Manager). Works with all RDMA networks: Infiniband, iWARP and
 RoCEv1/RoCEv2, and even allows to disable TCP and run only with RDMA.
-When enabled, OSDs listen to the same address(es) and port(s) using
-TCP and RDMA-CM. `use_rdma` is automatically disabled when `use_rdmacm`
-is enabled.
+OSDs always use random port numbers for RDMA-CM listeners, different
+from their TCP ports. `use_rdma` is automatically disabled when
+`use_rdmacm` is enabled.
 
 ## disable_tcp
 

@@ -96,8 +96,10 @@ struct osd_wanted_peer_t
 {
     json11::Json raw_address_list;
     json11::Json address_list;
-    bool peer_rdmacm = false;
     int port = 0;
+#ifdef WITH_RDMACM
+    int rdmacm_port = 0;
+#endif
     time_t last_connect_attempt = 0;
     bool connecting = false, address_changed = false;
     int address_index = 0;
@@ -283,7 +285,7 @@ protected:
     msgr_rdma_context_t* rdmacm_get_context(ibv_context *verbs);
     msgr_rdma_context_t* rdmacm_create_qp(rdma_cm_id *cmid);
     void rdmacm_accept(rdma_cm_event *ev);
-    void rdmacm_try_connect_peer(uint64_t peer_osd, const std::string & addr, int peer_port);
+    void rdmacm_try_connect_peer(uint64_t peer_osd, const std::string & addr, int rdmacm_port, int fallback_tcp_port);
     void rdmacm_on_connect_peer_error(rdma_cm_id *cmid, int res);
     void rdmacm_address_resolved(rdma_cm_event *ev);
     void rdmacm_route_resolved(rdma_cm_event *ev);

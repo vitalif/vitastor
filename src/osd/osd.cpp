@@ -376,7 +376,8 @@ void osd_t::bind_socket()
     {
         for (auto & bind_address: bind_addresses)
         {
-            auto listener = msgr.rdmacm_listen(bind_address, listening_port, &listening_port, log_level);
+            // iWARP shares port numbers with TCP traffic and can't listen on the same port with TCP and RDMACM
+            auto listener = msgr.rdmacm_listen(bind_address, rdmacm_port, &rdmacm_port, log_level);
             if (listener)
                 rdmacm_listeners.push_back(listener);
         }

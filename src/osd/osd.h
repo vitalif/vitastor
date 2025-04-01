@@ -206,6 +206,7 @@ class osd_t
     std::vector<int> listen_fds;
 #ifdef WITH_RDMACM
     std::vector<rdma_cm_id *> rdmacm_listeners;
+    int rdmacm_port = 0;
 #endif
     ring_consumer_t consumer;
 

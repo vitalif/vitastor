@@ -15,7 +15,8 @@ struct rdmacm_connecting_t
     osd_num_t peer_osd = 0;
     std::string addr;
     sockaddr_storage parsed_addr = {};
-    int peer_port = 0;
+    int rdmacm_port = 0;
+    int tcp_port = 0;
     int timeout_ms = 0;
     int timeout_id = -1;
     msgr_rdma_context_t *rdma_context = NULL;
@@ -315,7 +316,7 @@ void osd_messenger_t::rdmacm_on_connect_peer_error(rdma_cm_id *cmid, int res)
 {
     auto conn = rdmacm_connecting.at(cmid);
     auto addr = conn->addr;
-    auto peer_port = conn->peer_port;
+    auto tcp_port = conn->tcp_port;
     auto peer_osd = conn->peer_osd;
     if (conn->timeout_id >= 0)
         tfd->clear_timer(conn->timeout_id);
@@ -334,7 +335,7 @@ void osd_messenger_t::rdmacm_on_connect_peer_error(rdma_cm_id *cmid, int res)
     if (!disable_tcp)
     {
         // Fall back to TCP instead of just reporting the error to on_connect_peer()
-        try_connect_peer_tcp(peer_osd, addr.c_str(), peer_port);
+        try_connect_peer_tcp(peer_osd, addr.c_str(), tcp_port);
     }
     else
     {
@@ -343,10 +344,10 @@ void osd_messenger_t::rdmacm_on_connect_peer_error(rdma_cm_id *cmid, int res)
     }
 }
 
-void osd_messenger_t::rdmacm_try_connect_peer(uint64_t peer_osd, const std::string & addr, int peer_port)
+void osd_messenger_t::rdmacm_try_connect_peer(uint64_t peer_osd, const std::string & addr, int rdmacm_port, int fallback_tcp_port)
 {
     struct sockaddr_storage sa = {};
-    if (!string_to_addr(addr, false, peer_port, &sa))
+    if (!string_to_addr(addr, false, rdmacm_port, &sa))
     {
         fprintf(stderr, "Address %s is invalid\n", addr.c_str());
         on_connect_peer(peer_osd, -EINVAL);
@@ -358,7 +359,7 @@ void osd_messenger_t::rdmacm_try_connect_peer(uint64_t peer_osd, const std::stri
         int res = -errno;
         fprintf(stderr, "Failed to create RDMA-CM ID: %s (code %d), using TCP\n", strerror(errno), errno);
         if (!disable_tcp)
-            try_connect_peer_tcp(peer_osd, addr.c_str(), peer_port);
+            try_connect_peer_tcp(peer_osd, addr.c_str(), fallback_tcp_port);
         else
             on_connect_peer(peer_osd, res);
         return;
@@ -380,7 +381,8 @@ void osd_messenger_t::rdmacm_try_connect_peer(uint64_t peer_osd, const std::stri
     conn->peer_osd = peer_osd;
     conn->addr = addr;
     conn->parsed_addr = sa;
-    conn->peer_port = peer_port;
+    conn->rdmacm_port = rdmacm_port;
+    conn->tcp_port = fallback_tcp_port;
     conn->timeout_ms = peer_connect_timeout*1000;
     conn->timeout_id = -1;
     if (peer_connect_timeout > 0)
@@ -465,7 +467,7 @@ void osd_messenger_t::rdmacm_route_resolved(rdma_cm_event *ev)
     if (rdma_connect(cmid, &conn_params) != 0)
     {
         int res = -errno;
-        fprintf(stderr, "Failed to connect to %s:%d via RDMA-CM: %s (code %d)\n", conn->addr.c_str(), conn->peer_port, strerror(errno), errno);
+        fprintf(stderr, "Failed to connect to %s:%d via RDMA-CM: %s (code %d)\n", conn->addr.c_str(), conn->rdmacm_port, strerror(errno), errno);
         rdmacm_on_connect_peer_error(cmid, res);
         return;
     }
@@ -484,7 +486,7 @@ void osd_messenger_t::rdmacm_established(rdma_cm_event *ev)
     auto peer_osd = conn->peer_osd;
     if (ev->event != RDMA_CM_EVENT_ESTABLISHED || ev->status != 0)
     {
-        fprintf(stderr, "Failed to connect to %s:%d via RDMA-CM: %s (code %d)\n", conn->addr.c_str(), conn->peer_port,
+        fprintf(stderr, "Failed to connect to %s:%d via RDMA-CM: %s (code %d)\n", conn->addr.c_str(), conn->rdmacm_port,
             ev->status > 0 ? "unknown error" : strerror(-ev->status), ev->status);
         rdmacm_on_connect_peer_error(cmid, ev->status);
         return;
@@ -503,7 +505,7 @@ void osd_messenger_t::rdmacm_established(rdma_cm_event *ev)
     // And an osd_client_t
     auto cl = new osd_client_t();
     cl->peer_addr = conn->parsed_addr;
-    cl->peer_port = conn->peer_port;
+    cl->peer_port = conn->rdmacm_port;
     cl->peer_fd = conn->peer_fd;
     cl->peer_state = PEER_RDMA;
     cl->connect_timeout_id = -1;
