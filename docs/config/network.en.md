@@ -40,12 +40,12 @@ between clients, OSDs and etcd.
 
 - Type: string or array of strings
 
-Network mask of public OSD network(s) (IPv4 or IPv6). Each OSD listens on all
+Network mask of public OSD network(s) (IPv4 or IPv6). Each OSD listens to all
 addresses of UP + RUNNING interfaces matching one of these networks, on the
 same port. Port is auto-selected except if [bind_port](osd.en.md#bind_port) is
 explicitly specified. Bind address(es) may also be overridden manually by
 specifying [bind_address](osd.en.md#bind_address). If OSD networks are not specified
-at all, OSD just listens on a wildcard address (0.0.0.0).
+at all, OSD just listens to a wildcard address (0.0.0.0).
 
 ## osd_cluster_network
 
@@ -78,7 +78,7 @@ Consider `use_rdmacm` for such networks.
 Use an alternative implementation of RDMA through RDMA-CM (Connection
 Manager). Works with all RDMA networks: Infiniband, iWARP and
 RoCEv1/RoCEv2, and even allows to disable TCP and run only with RDMA.
-When enabled, OSDs listen on the same address(es) and port(s) using
+When enabled, OSDs listen to the same address(es) and port(s) using
 TCP and RDMA-CM. `use_rdma` is automatically disabled when `use_rdmacm`
 is enabled.
 

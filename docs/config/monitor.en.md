@@ -74,13 +74,13 @@ Grafana dashboard suitable for this exporter is here: [Vitastor-Grafana-6+.json]
 - Type: integer
 - Default: 8060
 
-HTTP port for monitors to listen on (including metrics exporter)
+HTTP port for monitors to listen to (including metrics exporter)
 
 ## mon_http_ip
 
 - Type: string
 
-IP address for monitors to listen on (all addresses by default)
+IP address for monitors to listen to (all addresses by default)
 
 ## mon_https_cert
 

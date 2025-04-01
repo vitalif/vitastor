@@ -75,11 +75,11 @@
 - name: mon_http_port
   type: int
   default: 8060
-  info: HTTP port for monitors to listen on (including metrics exporter)
+  info: HTTP port for monitors to listen to (including metrics exporter)
   info_ru: Порт, на котором мониторы принимают HTTP-соединения (в том числе для отдачи метрик)
 - name: mon_http_ip
   type: string
-  info: IP address for monitors to listen on (all addresses by default)
+  info: IP address for monitors to listen to (all addresses by default)
   info_ru: IP-адрес, на котором мониторы принимают HTTP-соединения (по умолчанию все адреса)
 - name: mon_https_cert
   type: string
