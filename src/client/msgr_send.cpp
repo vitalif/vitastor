@@ -203,8 +203,24 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
         cl->write_msg.msg_iovlen = cl->send_list.size() < IOV_MAX ? cl->send_list.size() : IOV_MAX;
         cl->refs++;
         ring_data_t* data = ((ring_data_t*)sqe->user_data);
-        data->callback = [this, cl](ring_data_t *data) { handle_send(data->res, cl); };
-        my_uring_prep_sendmsg(sqe, peer_fd, &cl->write_msg, 0);
+        data->callback = [this, cl](ring_data_t *data) { handle_send(data->res, data->prev, data->more, cl); };
+        bool use_zc = has_sendmsg_zc && min_zerocopy_send_size >= 0;
+        if (use_zc && min_zerocopy_send_size > 0)
+        {
+            size_t avg_size = 0;
+            for (size_t i = 0; i < cl->write_msg.msg_iovlen; i++)
+                avg_size += cl->write_msg.msg_iov[i].iov_len;
+            if (avg_size/cl->write_msg.msg_iovlen < min_zerocopy_send_size)
+                use_zc = false;
+        }
+        if (use_zc)
+        {
+            my_uring_prep_sendmsg_zc(sqe, peer_fd, &cl->write_msg, MSG_WAITALL);
+        }
+        else
+        {
+            my_uring_prep_sendmsg(sqe, peer_fd, &cl->write_msg, MSG_WAITALL);
+        }
         if (iothread)
         {
             iothread->add_sqe(sqe_local);
@@ -220,7 +236,7 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
         {
             result = -errno;
         }
-        handle_send(result, cl);
+        handle_send(result, false, false, cl);
     }
     return true;
 }
@@ -240,10 +256,16 @@ void osd_messenger_t::send_replies()
     write_ready_clients.clear();
 }
 
-void osd_messenger_t::handle_send(int result, osd_client_t *cl)
+void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t *cl)
 {
-    cl->write_msg.msg_iovlen = 0;
-    cl->refs--;
+    if (!prev)
+    {
+        cl->write_msg.msg_iovlen = 0;
+    }
+    if (!more)
+    {
+        cl->refs--;
+    }
     if (cl->peer_state == PEER_STOPPED)
     {
         if (cl->refs <= 0)
@@ -261,6 +283,16 @@ void osd_messenger_t::handle_send(int result, osd_client_t *cl)
     }
     if (result >= 0)
     {
+        if (prev)
+        {
+            // Second notification - only free a batch of postponed ops
+            int i = 0;
+            for (; i < cl->zc_free_list.size() && cl->zc_free_list[i]; i++)
+                delete cl->zc_free_list[i];
+            if (i > 0)
+                cl->zc_free_list.erase(cl->zc_free_list.begin(), cl->zc_free_list.begin()+i+1);
+            return;
+        }
         int done = 0;
         while (result > 0 && done < cl->send_list.size())
         {
@@ -270,7 +302,10 @@ void osd_messenger_t::handle_send(int result, osd_client_t *cl)
                 if (cl->outbox[done].flags & MSGR_SENDP_FREE)
                 {
                     // Reply fully sent
-                    delete cl->outbox[done].op;
+                    if (more)
+                        cl->zc_free_list.push_back(cl->outbox[done].op);
+                    else
+                        delete cl->outbox[done].op;
                 }
                 result -= iov.iov_len;
                 done++;
@@ -281,6 +316,11 @@ void osd_messenger_t::handle_send(int result, osd_client_t *cl)
                 iov.iov_base = (uint8_t*)iov.iov_base + result;
                 break;
             }
+        }
+        if (more)
+        {
+            assert(done == cl->send_list.size());
+            cl->zc_free_list.push_back(NULL); // end marker
         }
         if (done > 0)
         {

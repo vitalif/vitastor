@@ -32,6 +32,8 @@
 
 #define VITASTOR_CONFIG_PATH "/etc/vitastor/vitastor.conf"
 
+#define DEFAULT_MIN_ZEROCOPY_SEND_SIZE 32*1024
+
 #define MSGR_SENDP_HDR 1
 #define MSGR_SENDP_FREE 2
 
@@ -88,6 +90,7 @@ struct osd_client_t
     int write_state = 0;
     std::vector<iovec> send_list, next_send_list;
     std::vector<msgr_sendp_t> outbox, next_outbox;
+    std::vector<osd_op_t*> zc_free_list;
 
     ~osd_client_t();
 };
@@ -176,6 +179,7 @@ protected:
     int osd_ping_timeout = 0;
     int log_level = 0;
     bool use_sync_send_recv = false;
+    int min_zerocopy_send_size = DEFAULT_MIN_ZEROCOPY_SEND_SIZE;
     int iothread_count = 0;
 
 #ifdef WITH_RDMA
@@ -202,8 +206,9 @@ protected:
     std::vector<osd_op_t*> set_immediate_ops;
 
 public:
-    timerfd_manager_t *tfd;
-    ring_loop_t *ringloop;
+    timerfd_manager_t *tfd = NULL;
+    ring_loop_t *ringloop = NULL;
+    bool has_sendmsg_zc = false;
     // osd_num_t is only for logging and asserts
     osd_num_t osd_num;
     uint64_t next_subop_id = 1;
@@ -262,7 +267,7 @@ protected:
     void cancel_op(osd_op_t *op);
 
     bool try_send(osd_client_t *cl);
-    void handle_send(int result, osd_client_t *cl);
+    void handle_send(int result, bool prev, bool more, osd_client_t *cl);
 
     bool handle_read(int result, osd_client_t *cl);
     bool handle_read_buffer(osd_client_t *cl, void *curbuf, int remain);

@@ -34,6 +34,7 @@ between clients, OSDs and etcd.
 - [etcd_ws_keepalive_interval](#etcd_ws_keepalive_interval)
 - [etcd_min_reload_interval](#etcd_min_reload_interval)
 - [tcp_header_buffer_size](#tcp_header_buffer_size)
+- [min_zerocopy_send_size](#min_zerocopy_send_size)
 - [use_sync_send_recv](#use_sync_send_recv)
 
 ## osd_network
@@ -312,6 +313,34 @@ it requires to copy the data an additional time. The rest of each packet
 is received without an additional copy. You can try to play with this
 parameter and see how it affects random iops and linear bandwidth if you
 want.
+
+## min_zerocopy_send_size
+
+- Type: integer
+- Default: 32768
+
+OSDs and clients will attempt to use io_uring-based zero-copy TCP send
+for buffers larger than this number of bytes. Zero-copy send with io_uring is
+supported since Linux kernel version 6.1. Support is auto-detected and disabled
+automatically when not available. It can also be disabled explicitly by setting
+this parameter to a negative value.
+
+⚠️ Warning! Zero-copy send performance may vary greatly from CPU to CPU and from
+one kernel version to another. Generally, it tends to only make benefit with larger
+messages. With smaller messages (say, 4 KB), it may actually be slower. 32 KB is
+enough for almost all CPUs, but even smaller values are optimal for some of them.
+For example, 4 KB is OK for EPYC Milan/Genoa and 12 KB is OK for Xeon Ice Lake
+(but verify it yourself please).
+
+Verification instructions:
+1. Add `iommu=pt` into your Linux kernel command line and reboot.
+2. Upgrade your kernel. For example, it's very important to use 6.11+ with recent AMD EPYCs.
+3. Run some tests with the [send-zerocopy liburing example](https://github.com/axboe/liburing/blob/master/examples/send-zerocopy.c)
+   to find the minimal message size for which zero-copy is optimal.
+   Use `./send-zerocopy tcp -4 -R` at the server side and
+   `time ./send-zerocopy tcp -4 -b 0 -s BUFFER_SIZE -D SERVER_IP` at the client side with
+   `-z 0` (no zero-copy) and `-z 1` (zero-copy), and compare MB/s and used CPU time
+   (user+system).
 
 ## use_sync_send_recv
 

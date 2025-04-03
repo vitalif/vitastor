@@ -18,6 +18,10 @@
 
 #define RINGLOOP_DEFAULT_SIZE 1024
 
+#ifndef IORING_RECV_MULTISHOT /* liburing-2.3 check */
+#define IORING_OP_SENDMSG_ZC 48
+#endif
+
 static inline void my_uring_prep_rw(int op, struct io_uring_sqe *sqe, int fd, const void *addr, unsigned len, off_t offset)
 {
     // Prepare a read/write operation without clearing user_data
@@ -59,6 +63,12 @@ static inline void my_uring_prep_recvmsg(struct io_uring_sqe *sqe, int fd, struc
 static inline void my_uring_prep_sendmsg(struct io_uring_sqe *sqe, int fd, const struct msghdr *msg, unsigned flags)
 {
     my_uring_prep_rw(IORING_OP_SENDMSG, sqe, fd, msg, 1, 0);
+    sqe->msg_flags = flags;
+}
+
+static inline void my_uring_prep_sendmsg_zc(struct io_uring_sqe *sqe, int fd, const struct msghdr *msg, unsigned flags)
+{
+    my_uring_prep_rw(IORING_OP_SENDMSG_ZC, sqe, fd, msg, 1, 0);
     sqe->msg_flags = flags;
 }
 
@@ -112,6 +122,8 @@ struct ring_data_t
 {
     struct iovec iov; // for single-entry read/write operations
     int res;
+    bool prev: 1;
+    bool more: 1;
     std::function<void(ring_data_t*)> callback;
 };
 
@@ -133,6 +145,7 @@ class ring_loop_t
     bool loop_again;
     struct io_uring ring;
     int ring_eventfd = -1;
+    bool support_zc = false;
 public:
     ring_loop_t(int qd, bool multithreaded = false);
     ~ring_loop_t();
@@ -162,6 +175,10 @@ public:
     inline bool has_work()
     {
         return loop_again;
+    }
+    inline bool has_sendmsg_zc()
+    {
+        return support_zc;
     }
 
     void loop();

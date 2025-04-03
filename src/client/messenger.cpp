@@ -167,6 +167,10 @@ void osd_messenger_t::init()
         }
     }
 #endif
+    if (ringloop)
+    {
+        has_sendmsg_zc = ringloop->has_sendmsg_zc();
+    }
     if (ringloop && iothread_count > 0)
     {
         for (int i = 0; i < iothread_count; i++)
@@ -329,6 +333,9 @@ void osd_messenger_t::parse_config(const json11::Json & config)
         this->receive_buffer_size = 65536;
     this->use_sync_send_recv = config["use_sync_send_recv"].bool_value() ||
         config["use_sync_send_recv"].uint64_value();
+    this->min_zerocopy_send_size = config["min_zerocopy_send_size"].is_null()
+        ? DEFAULT_MIN_ZEROCOPY_SEND_SIZE
+        : (int)config["min_zerocopy_send_size"].int64_value();
     this->peer_connect_interval = config["peer_connect_interval"].uint64_value();
     if (!this->peer_connect_interval)
         this->peer_connect_interval = 5;
@@ -897,6 +904,7 @@ static const char* local_only_params[] = {
     "tcp_header_buffer_size",
     "use_rdma",
     "use_sync_send_recv",
+    "min_zerocopy_send_size",
 };
 
 static const char **local_only_end = local_only_params + (sizeof(local_only_params)/sizeof(local_only_params[0]));

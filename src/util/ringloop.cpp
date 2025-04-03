@@ -10,6 +10,10 @@
 
 #include "ringloop.h"
 
+#ifndef IORING_CQE_F_MORE
+#define IORING_CQE_F_MORE (1U << 1)
+#endif
+
 ring_loop_t::ring_loop_t(int qd, bool multithreaded)
 {
     mt = multithreaded;
@@ -30,6 +34,16 @@ ring_loop_t::ring_loop_t(int qd, bool multithreaded)
         free_ring_data[i] = i;
     }
     in_loop = false;
+    auto probe = io_uring_get_probe();
+    if (probe)
+    {
+        support_zc = io_uring_opcode_supported(probe, IORING_OP_SENDMSG_ZC);
+#ifdef IORING_SETUP_R_DISABLED /* liburing 2.0 check */
+        io_uring_free_probe(probe);
+#else
+        free(probe);
+#endif
+    }
 }
 
 ring_loop_t::~ring_loop_t()
@@ -108,7 +122,17 @@ void ring_loop_t::loop()
         if (mt)
             mu.lock();
         struct ring_data_t *d = (struct ring_data_t*)cqe->user_data;
-        if (d->callback)
+        if (cqe->flags & IORING_CQE_F_MORE)
+        {
+            // There will be a second notification
+            d->res = cqe->res;
+            d->more = true;
+            if (d->callback)
+                d->callback(d);
+            d->prev = true;
+            d->more = false;
+        }
+        else if (d->callback)
         {
             // First free ring_data item, then call the callback
             // so it has at least 1 free slot for the next event
@@ -116,7 +140,10 @@ void ring_loop_t::loop()
             struct ring_data_t dl;
             dl.iov = d->iov;
             dl.res = cqe->res;
+            dl.more = false;
+            dl.prev = d->prev;
             dl.callback.swap(d->callback);
+            d->prev = d->more = false;
             free_ring_data[free_ring_data_ptr++] = d - ring_datas;
             if (mt)
                 mu.unlock();

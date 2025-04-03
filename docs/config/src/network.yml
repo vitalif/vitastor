@@ -373,6 +373,55 @@
     параметра читается без дополнительного копирования. Вы можете попробовать
     поменять этот параметр и посмотреть, как он влияет на производительность
     случайного и линейного доступа.
+- name: min_zerocopy_send_size
+  type: int
+  default: 32768
+  info: |
+    OSDs and clients will attempt to use io_uring-based zero-copy TCP send
+    for buffers larger than this number of bytes. Zero-copy send with io_uring is
+    supported since Linux kernel version 6.1. Support is auto-detected and disabled
+    automatically when not available. It can also be disabled explicitly by setting
+    this parameter to a negative value.
+
+    ⚠️ Warning! Zero-copy send performance may vary greatly from CPU to CPU and from
+    one kernel version to another. Generally, it tends to only make benefit with larger
+    messages. With smaller messages (say, 4 KB), it may actually be slower. 32 KB is
+    enough for almost all CPUs, but even smaller values are optimal for some of them.
+    For example, 4 KB is OK for EPYC Milan/Genoa and 12 KB is OK for Xeon Ice Lake
+    (but verify it yourself please).
+
+    Verification instructions:
+    1. Add `iommu=pt` into your Linux kernel command line and reboot.
+    2. Upgrade your kernel. For example, it's very important to use 6.11+ with recent AMD EPYCs.
+    3. Run some tests with the [send-zerocopy liburing example](https://github.com/axboe/liburing/blob/master/examples/send-zerocopy.c)
+       to find the minimal message size for which zero-copy is optimal.
+       Use `./send-zerocopy tcp -4 -R` at the server side and
+       `time ./send-zerocopy tcp -4 -b 0 -s BUFFER_SIZE -D SERVER_IP` at the client side with
+       `-z 0` (no zero-copy) and `-z 1` (zero-copy), and compare MB/s and used CPU time
+       (user+system).
+  info_ru: |
+    OSD и клиенты будут пробовать использовать TCP-отправку без копирования (zero-copy) на
+    основе io_uring для буферов, больших, чем это число байт. Отправка без копирования
+    поддерживается в io_uring, начиная с версии ядра Linux 6.1. Наличие поддержки
+    проверяется автоматически и zero-copy отключается, когда поддержки нет. Также
+    её можно отключить явно, установив данный параметр в отрицательное значение.
+
+    ⚠️ Внимание! Производительность данной функции может сильно отличаться на разных
+    процессорах и на разных версиях ядра Linux. В целом, zero-copy обычно быстрее с
+    большими сообщениями, а с мелкими (например, 4 КБ) zero-copy может быть даже
+    медленнее. 32 КБ достаточно почти для всех процессоров, но для каких-то можно
+    использовать даже меньшие значения. Например, для EPYC Milan/Genoa подходит 4 КБ,
+    а для Xeon Ice Lake - 12 КБ (но, пожалуйста, перепроверьте это сами).
+
+    Инструкция по проверке:
+    1. Добавьте `iommu=pt` в командную строку загрузки вашего ядра Linux и перезагрузитесь.
+    2. Обновите ядро. Например, для AMD EPYC очень важно использовать версию 6.11+.
+    3. Позапускайте тесты с помощью [send-zerocopy из примеров liburing](https://github.com/axboe/liburing/blob/master/examples/send-zerocopy.c),
+       чтобы найти минимальный размер сообщения, для которого zero-copy отправка оптимальна.
+       Запускайте `./send-zerocopy tcp -4 -R` на стороне сервера и
+       `time ./send-zerocopy tcp -4 -b 0 -s РАЗМЕР_БУФЕРА -D АДРЕС_СЕРВЕРА` на стороне клиента
+       с опцией `-z 0` (обычная отправка) и `-z 1` (отправка без копирования), и сравнивайте
+       скорость в МБ/с и занятое процессорное время (user+system).
 - name: use_sync_send_recv
   type: bool
   default: false
