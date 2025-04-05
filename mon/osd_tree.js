@@ -15,7 +15,7 @@ function get_osd_tree(global_config, state)
         const stat = state.osd.stats[osd_num];
         const osd_cfg = state.config.osd[osd_num];
         let reweight = osd_cfg == null ? 1 : Number(osd_cfg.reweight);
-        if (reweight < 0 || isNaN(reweight))
+        if (isNaN(reweight) || reweight < 0 || reweight > 0)
             reweight = 1;
         if (stat && stat.size && reweight && (state.osd.state[osd_num] || Number(stat.time) >= down_time ||
             osd_cfg && osd_cfg.noout))

@@ -58,6 +58,12 @@ struct osd_changer_t
             state = 100;
             return;
         }
+        if (set_reweight && new_reweight > 1)
+        {
+            result = (cli_result_t){ .err = EINVAL, .text = "Reweight can't be larger than 1" };
+            state = 100;
+            return;
+        }
         parent->etcd_txn(json11::Json::object {
             { "success", json11::Json::array {
                 json11::Json::object {
