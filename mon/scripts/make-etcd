@@ -40,6 +40,11 @@ async function run()
         console.log("/etc/systemd/system/vitastor-etcd.service already exists");
         process.exit(1);
     }
+    if (!in_docker && fs.existsSync("/etc/systemd/system/etcd.service"))
+    {
+        console.log("/etc/systemd/system/etcd.service already exists");
+        process.exit(1);
+    }
     const config = JSON.parse(fs.readFileSync(config_path, { encoding: 'utf-8' }));
     if (!config.etcd_address)
     {
@@ -97,8 +102,8 @@ WantedBy=multi-user.target
 `);
     await system(`useradd etcd`);
     await system(`systemctl daemon-reload`);
-    await system(`systemctl enable etcd`);
-    await system(`systemctl start etcd`);
+    await system(`systemctl enable vitastor-etcd`);
+    await system(`systemctl start vitastor-etcd`);
     process.exit(0);
 }
 
