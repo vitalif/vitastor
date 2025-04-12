@@ -97,6 +97,7 @@ struct osd_wanted_peer_t
     json11::Json raw_address_list;
     json11::Json address_list;
     int port = 0;
+    // FIXME: Remove separate WITH_RDMACM?
 #ifdef WITH_RDMACM
     int rdmacm_port = 0;
 #endif

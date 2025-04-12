@@ -70,6 +70,7 @@ msgr_rdma_context_t::~msgr_rdma_context_t()
 msgr_rdma_connection_t::~msgr_rdma_connection_t()
 {
     ctx->reserve_cqe(-max_send-max_recv);
+#ifdef WITH_RDMACM
     if (qp && !cmid)
         ibv_destroy_qp(qp);
     if (cmid)
@@ -79,6 +80,10 @@ msgr_rdma_connection_t::~msgr_rdma_connection_t()
             rdma_destroy_qp(cmid);
         rdma_destroy_id(cmid);
     }
+#else
+    if (qp)
+        ibv_destroy_qp(qp);
+#endif
     if (recv_buffers.size())
     {
         for (auto b: recv_buffers)

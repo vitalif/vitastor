@@ -800,7 +800,8 @@ bool osd_messenger_t::is_rdma_enabled()
 {
     return rdma_contexts.size() > 0;
 }
-
+#endif
+#ifdef WITH_RDMACM
 bool osd_messenger_t::is_use_rdmacm()
 {
     return use_rdmacm;
