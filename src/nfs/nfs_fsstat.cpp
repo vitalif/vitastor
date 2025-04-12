@@ -22,8 +22,8 @@ int nfs3_fsstat_proc(void *opaque, rpc_op_t *rop)
     {
         auto ttb = pst_it->second["total_raw_tb"].number_value();
         auto ftb = (pst_it->second["total_raw_tb"].number_value() - pst_it->second["used_raw_tb"].number_value());
-        tbytes = ttb / pst_it->second["raw_to_usable"].number_value() * ((uint64_t)2<<40);
-        fbytes = ftb / pst_it->second["raw_to_usable"].number_value() * ((uint64_t)2<<40);
+        tbytes = ttb / pst_it->second["raw_to_usable"].number_value() * ((uint64_t)1<<40);
+        fbytes = ftb / pst_it->second["raw_to_usable"].number_value() * ((uint64_t)1<<40);
     }
     *reply = (FSSTAT3res){
         .status = NFS3_OK,
