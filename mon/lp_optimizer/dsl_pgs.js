@@ -253,7 +253,7 @@ function random_custom_combinations(osd_tree, rules, count, ordered)
         for (let i = 1; i < rules.length; i++)
         {
             const filtered = filter_tree_by_rules(osd_tree, rules[i], selected);
-            const idx = select_murmur3(filtered.length, i => 'p:'+f.id+':'+filtered[i].id);
+            const idx = select_murmur3(filtered.length, i => 'p:'+f.id+':'+(filtered[i].name || filtered[i].id));
             selected.push(idx == null ? { levels: {}, id: null } : filtered[idx]);
         }
         const size = selected.filter(s => s.id !== null).length;
@@ -270,7 +270,7 @@ function random_custom_combinations(osd_tree, rules, count, ordered)
         for (const item_rules of rules)
         {
             const filtered = selected.length ? filter_tree_by_rules(osd_tree, item_rules, selected) : first;
-            const idx = select_murmur3(filtered.length, i => n+':'+filtered[i].id);
+            const idx = select_murmur3(filtered.length, i => n+':'+(filtered[i].name || filtered[i].id));
             selected.push(idx == null ? { levels: {}, id: null } : filtered[idx]);
         }
         const size = selected.filter(s => s.id !== null).length;
@@ -340,9 +340,9 @@ function filter_tree_by_rules(osd_tree, rules, selected)
 }
 
 // Convert from
-// node_list = { id: string|number, level: string, size?: number, parent?: string|number }[]
+// node_list = { id: string|number, name?: string, level: string, size?: number, parent?: string|number }[]
 // to
-// node_tree = { [node_id]: { id, level, size?, parent?, children?: child_node[], levels: { [level]: id, ... } } }
+// node_tree = { [node_id]: { id, name?, level, size?, parent?, children?: child_node[], levels: { [level]: id, ... } } }
 function index_tree(node_list)
 {
     const tree = { '': { children: [], levels: {} } };

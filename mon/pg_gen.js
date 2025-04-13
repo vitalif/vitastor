@@ -3,6 +3,7 @@
 
 const { RuleCombinator } = require('./lp_optimizer/dsl_pgs.js');
 const { SimpleCombinator, flatten_tree } = require('./lp_optimizer/simple_pgs.js');
+const { fold_failure_domains, unfold_failure_domains, fold_prev_pgs } = require('./lp_optimizer/fold.js');
 const { validate_pool_cfg, get_pg_rules } = require('./pool_config.js');
 const LPOptimizer = require('./lp_optimizer/lp_optimizer.js');
 const { scale_pg_count } = require('./pg_utils.js');
@@ -160,7 +161,6 @@ async function generate_pool_pgs(state, global_config, pool_id, osd_tree, levels
         pool_cfg.bitmap_granularity || global_config.bitmap_granularity || 4096,
         pool_cfg.immediate_commit || global_config.immediate_commit || 'all'
     );
-    pool_tree = make_hier_tree(global_config, pool_tree);
     // First try last_clean_pgs to minimize data movement
     let prev_pgs = [];
     for (const pg in ((state.history.last_clean_pgs.items||{})[pool_id]||{}))
@@ -175,14 +175,19 @@ async function generate_pool_pgs(state, global_config, pool_id, osd_tree, levels
             prev_pgs[pg-1] = [ ...state.pg.config.items[pool_id][pg].osd_set ];
         }
     }
+    const use_rules = !global_config.use_old_pg_combinator || pool_cfg.level_placement || pool_cfg.raw_placement;
+    const rules = use_rules ? get_pg_rules(pool_id, pool_cfg, global_config.placement_levels) : null;
+    const folded = fold_failure_domains(Object.values(pool_tree), use_rules ? rules : [ [ [ pool_cfg.failure_domain ] ] ]);
+    // FIXME: Remove/merge make_hier_tree() step somewhere, however it's needed to remove empty nodes
+    const folded_tree = make_hier_tree(global_config, folded.nodes);
     const old_pg_count = prev_pgs.length;
     const optimize_cfg = {
-        osd_weights: Object.values(pool_tree).filter(item => item.level === 'osd').reduce((a, c) => { a[c.id] = c.size; return a; }, {}),
-        combinator: !global_config.use_old_pg_combinator || pool_cfg.level_placement || pool_cfg.raw_placement
+        osd_weights: folded.nodes.reduce((a, c) => { if (Number(c.id)) { a[c.id] = c.size; } return a; }, {}),
+        combinator: use_rules
             // new algorithm:
-            ? new RuleCombinator(pool_tree, get_pg_rules(pool_id, pool_cfg, global_config.placement_levels), pool_cfg.max_osd_combinations)
+            ? new RuleCombinator(folded_tree, rules, pool_cfg.max_osd_combinations)
             // old algorithm:
-            : new SimpleCombinator(flatten_tree(pool_tree[''].children, levels, pool_cfg.failure_domain, 'osd'), pool_cfg.pg_size, pool_cfg.max_osd_combinations),
+            : new SimpleCombinator(flatten_tree(folded_tree[''].children, levels, pool_cfg.failure_domain, 'osd'), pool_cfg.pg_size, pool_cfg.max_osd_combinations),
         pg_count: pool_cfg.pg_count,
         pg_size: pool_cfg.pg_size,
         pg_minsize: pool_cfg.pg_minsize,
@@ -202,12 +207,11 @@ async function generate_pool_pgs(state, global_config, pool_id, osd_tree, levels
         for (const pg of prev_pgs)
         {
             while (pg.length < pool_cfg.pg_size)
-            {
                 pg.push(0);
-            }
         }
+        const folded_prev_pgs = fold_prev_pgs(prev_pgs, folded.leaves);
         optimize_result = await LPOptimizer.optimize_change({
-            prev_pgs,
+            prev_pgs: folded_prev_pgs,
             ...optimize_cfg,
         });
     }
@@ -215,6 +219,10 @@ async function generate_pool_pgs(state, global_config, pool_id, osd_tree, levels
     {
         optimize_result = await LPOptimizer.optimize_initial(optimize_cfg);
     }
+    optimize_result.int_pgs = unfold_failure_domains(optimize_result.int_pgs, prev_pgs, folded.leaves);
+    const osd_weights = Object.values(pool_tree).reduce((a, c) => { if (c.level === 'osd') { a[c.id] = c.size; } return a; }, {});
+    optimize_result.space = optimize_result.pg_effsize * LPOptimizer.pg_list_space_efficiency(optimize_result.int_pgs,
+        osd_weights, optimize_cfg.pg_minsize, 1);
     console.log(`Pool ${pool_id} (${pool_cfg.name || 'unnamed'}):`);
     LPOptimizer.print_change_stats(optimize_result);
     let pg_effsize = pool_cfg.pg_size;

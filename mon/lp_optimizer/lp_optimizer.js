@@ -98,6 +98,7 @@ async function optimize_initial({ osd_weights, combinator, pg_count, pg_size = 3
         score: lp_result.score,
         weights: lp_result.vars,
         int_pgs,
+        pg_effsize,
         space: eff * pg_effsize,
         total_space: total_weight,
     };
@@ -409,6 +410,7 @@ async function optimize_change({ prev_pgs: prev_int_pgs, osd_weights, combinator
         int_pgs: new_pgs,
         differs,
         osd_differs,
+        pg_effsize,
         space: pg_effsize * pg_list_space_efficiency(new_pgs, osd_weights, pg_minsize, parity_space),
         total_space: total_weight,
     };
