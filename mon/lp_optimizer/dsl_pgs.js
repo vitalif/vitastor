@@ -342,7 +342,7 @@ function filter_tree_by_rules(osd_tree, rules, selected)
 // Convert from
 // node_list = { id: string|number, level: string, size?: number, parent?: string|number }[]
 // to
-// node_tree = { [node_id]: { id, level, size?, parent?, children?: child_node_id[], levels: { [level]: id, ... } } }
+// node_tree = { [node_id]: { id, level, size?, parent?, children?: child_node[], levels: { [level]: id, ... } } }
 function index_tree(node_list)
 {
     const tree = { '': { children: [], levels: {} } };
@@ -357,7 +357,7 @@ function index_tree(node_list)
         tree[parent_id].children = tree[parent_id].children || [];
         tree[parent_id].children.push(tree[node.id]);
     }
-    const cur = tree[''].children;
+    const cur = [ ...tree[''].children ];
     for (let i = 0; i < cur.length; i++)
     {
         cur[i].levels[cur[i].level] = cur[i].id;
