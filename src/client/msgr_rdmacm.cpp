@@ -70,7 +70,7 @@ void osd_messenger_t::rdmacm_destroy_listener(rdma_cm_id *listener)
 
 void osd_messenger_t::handle_rdmacm_events()
 {
-    // rdma_destroy_id infinitely waits for pthread_cond if called before all events are acked :-(
+    // rdma_destroy_id infinitely waits for pthread_cond if called before all events are acked :-(...
     std::vector<rdma_cm_event> events_copy;
     while (1)
     {
@@ -83,7 +83,15 @@ void osd_messenger_t::handle_rdmacm_events()
             fprintf(stderr, "Failed to get RDMA-CM event: %s (code %d)\n", strerror(errno), errno);
             exit(1);
         }
-        events_copy.push_back(*ev);
+        // ...so we save a copy of all events EXCEPT connection requests, otherwise they sometimes fail with EVENT_DISCONNECT
+        if (ev->event == RDMA_CM_EVENT_CONNECT_REQUEST)
+        {
+            rdmacm_accept(ev);
+        }
+        else
+        {
+            events_copy.push_back(*ev);
+        }
         r = rdma_ack_cm_event(ev);
         if (r != 0)
         {
@@ -96,7 +104,7 @@ void osd_messenger_t::handle_rdmacm_events()
         auto ev = &evl;
         if (ev->event == RDMA_CM_EVENT_CONNECT_REQUEST)
         {
-            rdmacm_accept(ev);
+            // Do nothing, handled above
         }
         else if (ev->event == RDMA_CM_EVENT_CONNECT_ERROR ||
             ev->event == RDMA_CM_EVENT_REJECTED ||
@@ -287,29 +295,34 @@ void osd_messenger_t::rdmacm_accept(rdma_cm_event *ev)
         rdma_destroy_id(ev->id);
         return;
     }
-    rdma_context->cm_refs++;
-    // Wrap into a new msgr_rdma_connection_t
-    msgr_rdma_connection_t *conn = new msgr_rdma_connection_t;
-    conn->ctx = rdma_context;
-    conn->max_send = rdma_max_send;
-    conn->max_recv = rdma_max_recv;
-    conn->max_sge = rdma_max_sge > rdma_context->attrx.orig_attr.max_sge
-        ? rdma_context->attrx.orig_attr.max_sge : rdma_max_sge;
-    conn->max_msg = rdma_max_msg;
+    // Wait for RDMA_CM_ESTABLISHED, and enable the connection only after it
+    auto conn = new rdmacm_connecting_t;
     conn->cmid = ev->id;
-    conn->qp = ev->id->qp;
-    auto cl = new osd_client_t();
-    cl->peer_fd = fake_fd;
-    cl->peer_state = PEER_RDMA;
-    cl->peer_addr = *(sockaddr_storage*)rdma_get_peer_addr(ev->id);
-    cl->in_buf = malloc_or_die(receive_buffer_size);
-    cl->rdma_conn = conn;
-    clients[fake_fd] = cl;
-    rdmacm_connections[ev->id] = cl;
-    // Add initial receive request(s)
-    try_recv_rdma(cl);
-    fprintf(stderr, "[OSD %ju] new client %d: connection from %s via RDMA-CM\n", this->osd_num, fake_fd,
-        addr_to_string(cl->peer_addr).c_str());
+    conn->peer_fd = fake_fd;
+    conn->parsed_addr = *(sockaddr_storage*)rdma_get_peer_addr(ev->id);
+    conn->rdma_context = rdma_context;
+    rdmacm_set_conn_timeout(conn);
+    rdmacm_connecting[ev->id] = conn;
+    fprintf(stderr, "[OSD %ju] new client %d: connection from %s via RDMA-CM\n", this->osd_num, conn->peer_fd,
+        addr_to_string(conn->parsed_addr).c_str());
+}
+
+void osd_messenger_t::rdmacm_set_conn_timeout(rdmacm_connecting_t *conn)
+{
+    conn->timeout_ms = peer_connect_timeout*1000;
+    if (peer_connect_timeout > 0)
+    {
+        conn->timeout_id = tfd->set_timer(1000*peer_connect_timeout, false, [this, cmid = conn->cmid](int timer_id)
+        {
+            auto conn = rdmacm_connecting.at(cmid);
+            conn->timeout_id = -1;
+            if (conn->peer_osd)
+                fprintf(stderr, "RDMA-CM connection to %s timed out\n", conn->addr.c_str());
+            else
+                fprintf(stderr, "Incoming RDMA-CM connection from %s timed out\n", addr_to_string(conn->parsed_addr).c_str());
+            rdmacm_on_connect_peer_error(cmid, -EPIPE);
+        });
+    }
 }
 
 void osd_messenger_t::rdmacm_on_connect_peer_error(rdma_cm_id *cmid, int res)
@@ -332,15 +345,18 @@ void osd_messenger_t::rdmacm_on_connect_peer_error(rdma_cm_id *cmid, int res)
     }
     rdmacm_connecting.erase(cmid);
     delete conn;
-    if (!disable_tcp)
+    if (peer_osd)
     {
-        // Fall back to TCP instead of just reporting the error to on_connect_peer()
-        try_connect_peer_tcp(peer_osd, addr.c_str(), tcp_port);
-    }
-    else
-    {
-        // TCP is disabled
-        on_connect_peer(peer_osd, res == 0 ? -EINVAL : (res > 0 ? -res : res));
+        if (!disable_tcp)
+        {
+            // Fall back to TCP instead of just reporting the error to on_connect_peer()
+            try_connect_peer_tcp(peer_osd, addr.c_str(), tcp_port);
+        }
+        else
+        {
+            // TCP is disabled
+            on_connect_peer(peer_osd, res == 0 ? -EINVAL : (res > 0 ? -res : res));
+        }
     }
 }
 
@@ -374,6 +390,8 @@ void osd_messenger_t::rdmacm_try_connect_peer(uint64_t peer_osd, const std::stri
         on_connect_peer(peer_osd, res);
         return;
     }
+    if (log_level > 0)
+        fprintf(stderr, "Trying to connect to OSD %ju at %s:%d via RDMA-CM\n", peer_osd, addr.c_str(), rdmacm_port);
     auto conn = new rdmacm_connecting_t;
     rdmacm_connecting[cmid] = conn;
     conn->cmid = cmid;
@@ -383,19 +401,7 @@ void osd_messenger_t::rdmacm_try_connect_peer(uint64_t peer_osd, const std::stri
     conn->parsed_addr = sa;
     conn->rdmacm_port = rdmacm_port;
     conn->tcp_port = fallback_tcp_port;
-    conn->timeout_ms = peer_connect_timeout*1000;
-    conn->timeout_id = -1;
-    if (peer_connect_timeout > 0)
-    {
-        conn->timeout_id = tfd->set_timer(1000*peer_connect_timeout, false, [this, cmid](int timer_id)
-        {
-            auto conn = rdmacm_connecting.at(cmid);
-            conn->timeout_id = -1;
-            fprintf(stderr, "RDMA-CM connection to %s timed out\n", conn->addr.c_str());
-            rdmacm_on_connect_peer_error(cmid, -EPIPE);
-            return;
-        });
-    }
+    rdmacm_set_conn_timeout(conn);
     if (rdma_resolve_addr(cmid, NULL, (sockaddr*)&conn->parsed_addr, conn->timeout_ms) != 0)
     {
         auto res = -errno;
@@ -494,7 +500,7 @@ void osd_messenger_t::rdmacm_established(rdma_cm_event *ev)
     // Wrap into a new msgr_rdma_connection_t
     msgr_rdma_connection_t *rc = new msgr_rdma_connection_t;
     rc->ctx = conn->rdma_context;
-    rc->ctx->cm_refs++;
+    rc->ctx->cm_refs++; // FIXME now unused, count also connecting_t's when used
     rc->max_send = rdma_max_send;
     rc->max_recv = rdma_max_recv;
     rc->max_sge = rdma_max_sge > rc->ctx->attrx.orig_attr.max_sge
@@ -514,13 +520,20 @@ void osd_messenger_t::rdmacm_established(rdma_cm_event *ev)
     cl->rdma_conn = rc;
     clients[conn->peer_fd] = cl;
     if (conn->timeout_id >= 0)
+    {
         tfd->clear_timer(conn->timeout_id);
+    }
     delete conn;
     rdmacm_connecting.erase(cmid);
     rdmacm_connections[cmid] = cl;
-    if (log_level > 0)
+    if (log_level > 0 && peer_osd)
+    {
         fprintf(stderr, "Successfully connected with OSD %ju using RDMA-CM\n", peer_osd);
+    }
     // Add initial receive request(s)
     try_recv_rdma(cl);
-    check_peer_config(cl);
+    if (peer_osd)
+    {
+        check_peer_config(cl);
+    }
 }

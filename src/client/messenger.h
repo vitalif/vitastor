@@ -287,6 +287,7 @@ protected:
     msgr_rdma_context_t* rdmacm_create_qp(rdma_cm_id *cmid);
     void rdmacm_accept(rdma_cm_event *ev);
     void rdmacm_try_connect_peer(uint64_t peer_osd, const std::string & addr, int rdmacm_port, int fallback_tcp_port);
+    void rdmacm_set_conn_timeout(rdmacm_connecting_t *conn);
     void rdmacm_on_connect_peer_error(rdma_cm_id *cmid, int res);
     void rdmacm_address_resolved(rdma_cm_event *ev);
     void rdmacm_route_resolved(rdma_cm_event *ev);
