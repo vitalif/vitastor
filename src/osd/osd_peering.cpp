@@ -391,7 +391,6 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
             .sec_list = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = msgr.next_subop_id++,
                     .opcode = OSD_OP_SEC_LIST,
                 },
                 .list_pg = ps->pg_num,

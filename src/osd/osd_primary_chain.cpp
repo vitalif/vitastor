@@ -266,7 +266,6 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
                     .sec_read_bmp = {
                         .header = {
                             .magic = SECONDARY_OSD_OP_MAGIC,
-                            .id = msgr.next_subop_id++,
                             .opcode = OSD_OP_SEC_READ_BMP,
                         },
                         .len = sizeof(obj_ver_id)*(i+1-prev),

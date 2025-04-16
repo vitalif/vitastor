@@ -233,7 +233,6 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
         subop->req.sec_rw = (osd_op_sec_rw_t){
             .header = {
                 .magic = SECONDARY_OSD_OP_MAGIC,
-                .id = msgr.next_subop_id++,
                 .opcode = (uint64_t)(wr ? (cur_op->op_data->pg->scheme == POOL_SCHEME_REPLICATED ? OSD_OP_SEC_WRITE_STABLE : OSD_OP_SEC_WRITE) : OSD_OP_SEC_READ),
             },
             .oid = {
@@ -594,7 +593,6 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
             subops[i].req = (osd_any_op_t){ .sec_del = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = msgr.next_subop_id++,
                     .opcode = OSD_OP_SEC_DELETE,
                 },
                 .oid = chunk.oid,
@@ -654,7 +652,6 @@ int osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
             subops[i].req = (osd_any_op_t){ .sec_sync = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = msgr.next_subop_id++,
                     .opcode = OSD_OP_SEC_SYNC,
                 },
                 .flags = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
@@ -713,7 +710,6 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
             subops[i].req = (osd_any_op_t){ .sec_stab = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = msgr.next_subop_id++,
                     .opcode = OSD_OP_SEC_STABILIZE,
                 },
                 .len = (uint64_t)(stab_osd.len * sizeof(obj_ver_id)),
@@ -807,7 +803,6 @@ void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd
                 subop->req = (osd_any_op_t){ .sec_stab = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
-                        .id = msgr.next_subop_id++,
                         .opcode = OSD_OP_SEC_ROLLBACK,
                     },
                     .len = sizeof(obj_ver_id),

@@ -342,7 +342,6 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
         .sec_list = {
             .header = {
                 .magic = SECONDARY_OSD_OP_MAGIC,
-                .id = next_op_id(),
                 .opcode = OSD_OP_SEC_LIST,
             },
             .list_pg = cur_list->pg->pg_num,

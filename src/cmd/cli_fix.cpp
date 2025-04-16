@@ -159,7 +159,6 @@ struct cli_fix_t
                 .describe = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
-                        .id = parent->cli->next_op_id(),
                         .opcode = OSD_OP_DESCRIBE,
                     },
                     .min_inode = obj.inode,
@@ -194,7 +193,6 @@ struct cli_fix_t
                                 .sec_del = {
                                     .header = {
                                         .magic = SECONDARY_OSD_OP_MAGIC,
-                                        .id = parent->cli->next_op_id(),
                                         .opcode = OSD_OP_SEC_DELETE,
                                     },
                                     .oid = {
@@ -242,7 +240,6 @@ struct cli_fix_t
                                         .rw = {
                                             .header = {
                                                 .magic = SECONDARY_OSD_OP_MAGIC,
-                                                .id = parent->cli->next_op_id(),
                                                 .opcode = OSD_OP_SCRUB,
                                             },
                                             .inode = obj.inode,

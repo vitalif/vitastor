@@ -14,6 +14,7 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
     if (cur_op->op_type == OSD_OP_OUT)
     {
         clock_gettime(CLOCK_REALTIME, &cur_op->tv_begin);
+        cur_op->req.hdr.id = ++cl->send_op_id;
     }
     else
     {

@@ -65,7 +65,6 @@ void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oi
             .sec_list = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = msgr.next_subop_id++,
                     .opcode = OSD_OP_SEC_LIST,
                 },
                 .list_pg = pg_num,

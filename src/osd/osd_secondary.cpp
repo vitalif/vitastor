@@ -198,6 +198,12 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
     json11::Json req_json = cur_op->req.show_conf.json_len > 0
         ? json11::Json::parse(std::string((char *)cur_op->buf), json_err)
         : json11::Json();
+    if (req_json["check_sequencing"].bool_value())
+    {
+        auto cl = msgr.clients.at(cur_op->peer_fd);
+        cl->check_sequencing = true;
+        cl->read_op_id = cur_op->req.hdr.id + 1;
+    }
     // Expose sensitive configuration values so peers can check them
     json11::Json::object wire_config = json11::Json::object {
         { "osd_num", osd_num },

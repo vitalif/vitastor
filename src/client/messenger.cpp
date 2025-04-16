@@ -217,7 +217,6 @@ void osd_messenger_t::init()
                     op->req = (osd_any_op_t){
                         .hdr = {
                             .magic = SECONDARY_OSD_OP_MAGIC,
-                            .id = this->next_subop_id++,
                             .opcode = OSD_OP_PING,
                         },
                     };
@@ -629,11 +628,17 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
         .show_conf = {
             .header = {
                 .magic = SECONDARY_OSD_OP_MAGIC,
-                .id = this->next_subop_id++,
                 .opcode = OSD_OP_SHOW_CONFIG,
             },
         },
     };
+    json11::Json::object payload;
+    if (osd_num)
+    {
+        // Inform that we're OSD <osd_num>
+        payload["osd_num"] = osd_num;
+    }
+    payload["check_sequencing"] = true;
 #ifdef WITH_RDMA
     if (!use_rdmacm && rdma_contexts.size())
     {
@@ -649,19 +654,20 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
             cl->rdma_conn = msgr_rdma_connection_t::create(selected_ctx, rdma_max_send, rdma_max_recv, rdma_max_sge, rdma_max_msg);
             if (cl->rdma_conn)
             {
-                json11::Json payload = json11::Json::object {
-                    { "connect_rdma", cl->rdma_conn->addr.to_string() },
-                    { "rdma_max_msg", cl->rdma_conn->max_msg },
-                };
-                std::string payload_str = payload.dump();
-                op->req.show_conf.json_len = payload_str.size();
-                op->buf = malloc_or_die(payload_str.size());
-                op->iov.push_back(op->buf, payload_str.size());
-                memcpy(op->buf, payload_str.c_str(), payload_str.size());
+                payload["connect_rdma"] = cl->rdma_conn->addr.to_string();
+                payload["rdma_max_msg"] = cl->rdma_conn->max_msg;
             }
         }
     }
 #endif
+    if (payload.size())
+    {
+        std::string payload_str = json11::Json(payload).dump();
+        op->req.show_conf.json_len = payload_str.size();
+        op->buf = malloc_or_die(payload_str.size());
+        op->iov.push_back(op->buf, payload_str.size());
+        memcpy(op->buf, payload_str.c_str(), payload_str.size());
+    }
     op->callback = [this, cl](osd_op_t *op)
     {
         std::string json_err;

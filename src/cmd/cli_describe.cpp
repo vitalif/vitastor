@@ -147,7 +147,6 @@ struct cli_describe_t
                 .describe = (osd_op_describe_t){
                     .header = (osd_op_header_t){
                         .magic = SECONDARY_OSD_OP_MAGIC,
-                        .id = parent->cli->next_op_id(),
                         .opcode = OSD_OP_DESCRIBE,
                     },
                     .object_state = object_state,

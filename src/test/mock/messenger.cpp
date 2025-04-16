@@ -21,7 +21,9 @@ osd_messenger_t::~osd_messenger_t()
 
 void osd_messenger_t::outbox_push(osd_op_t *cur_op)
 {
-    clients[cur_op->peer_fd]->sent_ops[cur_op->req.hdr.id] = cur_op;
+    auto cl = clients.at(cur_op->peer_fd);
+    cur_op->req.hdr.id = ++cl->send_op_id;
+    cl->sent_ops[cur_op->req.hdr.id] = cur_op;
 }
 
 void osd_messenger_t::parse_config(const json11::Json & config)

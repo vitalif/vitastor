@@ -209,7 +209,6 @@ bool osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
             .sec_stab = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
-                    .id = msgr.next_subop_id++,
                     .opcode = (uint64_t)(rollback ? OSD_OP_SEC_ROLLBACK : OSD_OP_SEC_STABILIZE),
                 },
                 .len = count * sizeof(obj_ver_id),

@@ -223,7 +223,19 @@ bool osd_messenger_t::handle_finished_read(osd_client_t *cl)
         if (cl->read_op->req.hdr.magic == SECONDARY_OSD_REPLY_MAGIC)
             return handle_reply_hdr(cl);
         else if (cl->read_op->req.hdr.magic == SECONDARY_OSD_OP_MAGIC)
+        {
+            if (cl->check_sequencing)
+            {
+                if (cl->read_op->req.hdr.id != cl->read_op_id)
+                {
+                    fprintf(stderr, "Warning: operation sequencing is broken on client %d, stopping client\n", cl->peer_fd);
+                    stop_client(cl->peer_fd);
+                    return false;
+                }
+                cl->read_op_id++;
+            }
             handle_op_hdr(cl);
+        }
         else
         {
             fprintf(stderr, "Received garbage: magic=%jx id=%ju opcode=%jx from %d\n", cl->read_op->req.hdr.magic, cl->read_op->req.hdr.id, cl->read_op->req.hdr.opcode, cl->peer_fd);

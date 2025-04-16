@@ -152,7 +152,6 @@ public:
 
     //inline uint32_t get_bs_bitmap_granularity() { return st_cli.global_bitmap_granularity; }
     //inline uint64_t get_bs_block_size() { return st_cli.global_block_size; }
-    uint64_t next_op_id();
 
 #ifndef __MOCK__
 protected:

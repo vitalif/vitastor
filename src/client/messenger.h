@@ -75,12 +75,15 @@ struct osd_client_t
     int read_remaining = 0;
     int read_state = 0;
     osd_op_buf_list_t recv_list;
+    uint64_t read_op_id = 1;
+    bool check_sequencing = false;
 
     // Incoming operations
     std::vector<osd_op_t*> received_ops;
 
     // Outbound operations
     std::map<uint64_t, osd_op_t*> sent_ops;
+    uint64_t send_op_id = 0;
 
     // PGs dirtied by this client's primary-writes
     std::set<pool_pg_num_t> dirty_pgs;
@@ -211,7 +214,6 @@ public:
     bool has_sendmsg_zc = false;
     // osd_num_t is only for logging and asserts
     osd_num_t osd_num;
-    uint64_t next_subop_id = 1;
     std::map<int, osd_client_t*> clients;
     std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
     std::map<uint64_t, int> osd_peer_fds;
