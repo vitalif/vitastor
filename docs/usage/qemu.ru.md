@@ -165,10 +165,12 @@ apt-get install linux-headers-`uname -r`
 apt-get build-dep linux-image-`uname -r`-unsigned
 apt-get source linux-image-`uname -r`-unsigned
 cd linux*/drivers/vdpa
-make -C /lib/modules/`uname -r`/build M=$PWD CONFIG_VDPA=m CONFIG_VDPA_USER=m CONFIG_VIRTIO_VDPA=m -j8 modules modules_install
+make -C /lib/modules/`uname -r`/build M=$PWD CONFIG_VDPA=m CONFIG_VDPA_USER=m CONFIG_VIRTIO_VDPA=m -j8 modules
+make -C /lib/modules/`uname -r`/build M=$PWD CONFIG_VDPA=m CONFIG_VDPA_USER=m CONFIG_VIRTIO_VDPA=m modules_install
 cat Module.symvers >> /lib/modules/`uname -r`/build/Module.symvers
 cd ../virtio
-make -C /lib/modules/`uname -r`/build M=$PWD CONFIG_VDPA=m CONFIG_VDPA_USER=m CONFIG_VIRTIO_VDPA=m -j8 modules modules_install
+make -C /lib/modules/`uname -r`/build M=$PWD CONFIG_VDPA=m CONFIG_VDPA_USER=m CONFIG_VIRTIO_VDPA=m -j8 modules
+make -C /lib/modules/`uname -r`/build M=$PWD CONFIG_VDPA=m CONFIG_VDPA_USER=m CONFIG_VIRTIO_VDPA=m modules_install
 depmod -a
 ```
 

@@ -14,6 +14,9 @@ Commands:
 - [upgrade](#upgrade)
 - [defrag](#defrag)
 
+⚠️ Important: follow the instructions from [Linux NFS write size](#linux-nfs-write-size)
+for optimal Vitastor NFS performance if you use EC and HDD and mount your NFS from Linux.
+
 ## Pseudo-FS
 
 Simplified pseudo-FS proxy is used for file-based image access emulation. It's not
@@ -99,6 +102,62 @@ Other notable missing features which should be addressed in the future:
   So, again, in theory an abnormal shutdown of the FS server may leave some garbage
   in the DB. The FS is implemented is such way that this garbage doesn't affect its
   function, but having a tool to clean it up still seems a right thing to do.
+
+## Linux NFS write size
+
+Linux NFS client (nfs/nfsv3/nfsv4 kernel modules) has a hard-coded maximum I/O size,
+currently set to 1 MB - see `rsize` and `wsize` in [man 5 nfs](https://linux.die.net/man/5/nfs).
+
+This means that when you write to a file in an FS mounted over NFS, the maximum write
+request size is 1 MB, even in the O_DIRECT mode and even if the original write request
+is larger.
+
+However, for optimal linear write performance in Vitastor EC (erasure-coded) pools,
+the size of write requests should be a multiple of [block_size](../config/layout-cluster.en.md#block_size),
+multiplied by the data chunk count of the pool ([pg_size](../config/pool.en.md#pg_size)-[parity_chunks](../config/pool.en.md#parity_chunks)).
+When write requests are smaller or not a multiple of this number, Vitastor has to first
+read paired data blocks from disks, calculate new parity blocks and only then write them
+back. Obviously this is 2-3 times slower than a simple disk write.
+
+Vitastor HDD setups use 1 MB block_size by default. So, for optimal performance, if
+you use EC 2+1 and HDD, you need your NFS client to send 2 MB write requests, if you
+use EC 4+1 - 4 MB and so on.
+
+But Linux NFS client only writes in 1 MB chunks. 😢
+
+The good news is that you can fix it by rebuilding Linux NFS kernel modules 😉 🤩!
+You need to change NFS_MAX_FILE_IO_SIZE in nfs_xdr.h and then rebuild and reload modules.
+
+The instruction, using Debian as an example (should be ran under root):
+
+```
+# download current Linux kernel headers required to build modules
+apt-get install linux-headers-`uname -r`
+
+# replace NFS_MAX_FILE_IO_SIZE with a desired number (here it's 4194304 - 4 MB)
+sed -i 's/NFS_MAX_FILE_IO_SIZE\s*.*/NFS_MAX_FILE_IO_SIZE\t(4194304U)/' /lib/modules/`uname -r`/source/include/linux/nfs_xdr.h
+
+# download current Linux kernel source
+mkdir linux_src
+cd linux_src
+apt-get source linux-image-`uname -r`-unsigned
+
+# build NFS modules
+cd linux-*/fs/nfs
+make -C /lib/modules/`uname -r`/build M=$PWD -j8 modules
+make -C /lib/modules/`uname -r`/build M=$PWD modules_install
+
+# move default NFS modules away
+mv /lib/modules/`uname -r`/kernel/fs/nfs ~/nfs_orig_`uname -r`
+depmod -a
+
+# unload old modules and load the new ones
+rmmod nfsv3 nfs
+modprobe nfsv3
+```
+
+After these (not much complicated 🙂) manipulations NFS begins to be mounted
+with new wsize and rsize by default and it fixes Vitastor-NFS linear write performance.
 
 ## Horizontal scaling
 
