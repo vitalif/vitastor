@@ -63,6 +63,8 @@ with an OSD restart or, for some of them, even without restarting by updating co
 - [discard_on_start](#discard_on_start)
 - [min_discard_size](#min_discard_size)
 - [allow_net_split](#allow_net_split)
+- [enable_pg_locks](#enable_pg_locks)
+- [pg_lock_retry_interval_ms](#pg_lock_retry_interval_ms)
 
 ## bind_address
 
@@ -647,3 +649,20 @@ The downside is that it increases the probability of writing data into just pg_m
 OSDs during failover which can lead to PGs becoming incomplete after additional outages.
 
 The old behaviour in versions up to 2.0.0 was equal to enabled allow_net_split.
+
+## enable_pg_locks
+
+- Type: boolean
+
+Vitastor 2.2.0 introduces a new layer of split-brain prevention mechanism in
+addition to etcd: PG locks. They prevent split-brain even in abnormal theoretical cases
+when etcd is extremely laggy. As a new feature, by default, PG locks are only enabled
+for pools where they're required - pools with [localized reads](pool.en.md#local_reads).
+Use this parameter to enable or disable this function for all pools.
+
+## pg_lock_retry_interval_ms
+
+- Type: milliseconds
+- Default: 100
+
+Retry interval for failed PG lock attempts.

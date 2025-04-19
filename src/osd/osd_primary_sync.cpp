@@ -80,15 +80,17 @@ resume_2:
         this->unstable_writes.clear();
     }
     {
+        op_data->dirty_pg_count = dirty_pgs.size();
+        op_data->dirty_osd_count = dirty_osds.size();
         void *dirty_buf = malloc_or_die(
             sizeof(pool_pg_num_t)*dirty_pgs.size() +
+            sizeof(uint64_t)*dirty_pgs.size() +
             sizeof(osd_num_t)*dirty_osds.size() +
             sizeof(obj_ver_osd_t)*this->copies_to_delete_after_sync_count
         );
         op_data->dirty_pgs = (pool_pg_num_t*)dirty_buf;
-        op_data->dirty_osds = (osd_num_t*)((uint8_t*)dirty_buf + sizeof(pool_pg_num_t)*dirty_pgs.size());
-        op_data->dirty_pg_count = dirty_pgs.size();
-        op_data->dirty_osd_count = dirty_osds.size();
+        uint64_t *pg_del_counts = (uint64_t*)((uint8_t*)op_data->dirty_pgs + (sizeof(pool_pg_num_t))*op_data->dirty_pg_count);
+        op_data->dirty_osds = (osd_num_t*)((uint8_t*)pg_del_counts + 8*op_data->dirty_pg_count);
         if (this->copies_to_delete_after_sync_count)
         {
             op_data->copies_to_delete_count = 0;
@@ -103,16 +105,16 @@ resume_2:
                     sizeof(obj_ver_osd_t)*pg.copies_to_delete_after_sync.size()
                 );
                 op_data->copies_to_delete_count += pg.copies_to_delete_after_sync.size();
-                this->copies_to_delete_after_sync_count -= pg.copies_to_delete_after_sync.size();
-                pg.copies_to_delete_after_sync.clear();
             }
-            assert(this->copies_to_delete_after_sync_count == 0);
         }
         int dpg = 0;
         for (auto dirty_pg_num: dirty_pgs)
         {
-            pgs.at(dirty_pg_num).inflight++;
-            op_data->dirty_pgs[dpg++] = dirty_pg_num;
+            auto & pg = pgs.at(dirty_pg_num);
+            pg.inflight++;
+            op_data->dirty_pgs[dpg] = dirty_pg_num;
+            pg_del_counts[dpg] = pg.copies_to_delete_after_sync.size();
+            dpg++;
         }
         dirty_pgs.clear();
         dpg = 0;
@@ -183,23 +185,6 @@ resume_6:
                 }
             }
         }
-        if (op_data->copies_to_delete)
-        {
-            // Return 'copies to delete' back into respective PGs
-            for (int i = 0; i < op_data->copies_to_delete_count; i++)
-            {
-                auto & w = op_data->copies_to_delete[i];
-                auto & pg = pgs.at((pool_pg_num_t){
-                    .pool_id = INODE_POOL(w.oid.inode),
-                    .pg_num = map_to_pg(w.oid, st_cli.pool_config.at(INODE_POOL(w.oid.inode)).pg_stripe_size),
-                });
-                if (pg.state & PG_ACTIVE)
-                {
-                    pg.copies_to_delete_after_sync.push_back(w);
-                    copies_to_delete_after_sync_count++;
-                }
-            }
-        }
     }
     else if (op_data->copies_to_delete)
     {
@@ -212,6 +197,22 @@ resume_8:
         if (op_data->errors > 0)
         {
             goto resume_6;
+        }
+        {
+            uint64_t *pg_del_counts = (uint64_t*)((uint8_t*)op_data->dirty_pgs + (sizeof(pool_pg_num_t))*op_data->dirty_pg_count);
+            for (int i = 0; i < op_data->dirty_pg_count; i++)
+            {
+                auto & pg = pgs.at(op_data->dirty_pgs[i]);
+                auto n = pg_del_counts[i];
+                assert(copies_to_delete_after_sync_count >= n);
+                copies_to_delete_after_sync_count -= n;
+                pg.copies_to_delete_after_sync.erase(pg.copies_to_delete_after_sync.begin(), pg.copies_to_delete_after_sync.begin()+n);
+                if (!pg.misplaced_objects.size() && !pg.copies_to_delete_after_sync.size() && (pg.state & PG_HAS_MISPLACED))
+                {
+                    pg.state = pg.state & ~PG_HAS_MISPLACED;
+                    report_pg_state(pg);
+                }
+            }
         }
         if (immediate_commit == IMMEDIATE_NONE)
         {
@@ -226,15 +227,7 @@ resume_8:
     for (int i = 0; i < op_data->dirty_pg_count; i++)
     {
         auto & pg = pgs.at(op_data->dirty_pgs[i]);
-        pg.inflight--;
-        if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch)
-        {
-            finish_stop_pg(pg);
-        }
-        else if ((pg.state & PG_REPEERING) && pg.inflight == 0 && !pg.flush_batch)
-        {
-            start_pg_peering(pg);
-        }
+        rm_inflight(pg);
     }
     // FIXME: Free those in the destructor (not here)?
     free(op_data->dirty_pgs);

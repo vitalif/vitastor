@@ -632,7 +632,7 @@ void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **objec
     {
         this->misplaced_objects--;
         pg.misplaced_objects.erase(oid);
-        if (!pg.misplaced_objects.size())
+        if (!pg.misplaced_objects.size() && !pg.copies_to_delete_after_sync.size())
         {
             pg.state = pg.state & ~PG_HAS_MISPLACED;
             changed = true;

@@ -60,6 +60,7 @@ struct osd_client_t
     int ping_time_remaining = 0;
     int idle_time_remaining = 0;
     osd_num_t osd_num = 0;
+    bool is_incoming = false;
 
     void *in_buf = NULL;
 
@@ -77,6 +78,7 @@ struct osd_client_t
     osd_op_buf_list_t recv_list;
     uint64_t read_op_id = 1;
     bool check_sequencing = false;
+    bool enable_pg_locks = false;
 
     // Incoming operations
     std::vector<osd_op_t*> received_ops;

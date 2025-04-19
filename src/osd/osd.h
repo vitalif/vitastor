@@ -92,6 +92,12 @@ struct recovery_stat_t
     uint64_t count, usec, bytes;
 };
 
+struct osd_pg_lock_t
+{
+    osd_num_t primary_osd = 0;
+    uint64_t state = 0;
+};
+
 class osd_t
 {
     // config
@@ -140,6 +146,9 @@ class osd_t
     uint32_t scrub_list_limit = 1000;
     bool scrub_find_best = true;
     uint64_t scrub_ec_max_bruteforce = 100;
+    bool enable_pg_locks = false;
+    bool pg_locks_localize_only = false;
+    uint64_t pg_lock_retry_interval_ms = 100;
 
     // cluster state
 
@@ -159,6 +168,7 @@ class osd_t
 
     // peers and PGs
 
+    std::map<pool_pg_num_t, osd_pg_lock_t> pg_locks;
     std::map<pool_id_t, pg_num_t> pg_counts;
     std::map<pool_pg_num_t, pg_t> pgs;
     std::set<pool_pg_num_t> dirty_pgs;
@@ -239,6 +249,8 @@ class osd_t
     void on_change_etcd_state_hook(std::map<std::string, etcd_kv_t> & changes);
     void on_load_config_hook(json11::Json::object & changes);
     void on_reload_config_hook(json11::Json::object & changes);
+    void on_change_pool_config_hook();
+    void apply_pg_locks_localize_only();
     json11::Json on_load_pgs_checks_hook();
     void on_load_pgs_hook(bool success);
     void bind_socket();
@@ -268,11 +280,16 @@ class osd_t
     void repeer_pgs(osd_num_t osd_num);
     void start_pg_peering(pg_t & pg);
     void drop_dirty_pg_connections(pool_pg_num_t pg);
+    void record_pg_lock(pg_t & pg, osd_num_t peer_osd, uint64_t pg_state);
+    void relock_pg(pg_t & pg);
     void submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps);
     void discard_list_subop(osd_op_t *list_op);
     bool stop_pg(pg_t & pg);
     void reset_pg(pg_t & pg);
     void finish_stop_pg(pg_t & pg);
+    void rm_inflight(pg_t & pg);
+    void continue_pg(pg_t & pg);
+    bool continue_pg_peering(pg_t & pg);
 
     // flushing, recovery and backfill
     void submit_pg_flush_ops(pg_t & pg);
@@ -299,10 +316,13 @@ class osd_t
     void finish_op(osd_op_t *cur_op, int retval);
 
     // secondary ops
+    bool sec_check_pg_lock(osd_num_t primary_osd, const object_id &oid);
     void exec_sync_stab_all(osd_op_t *cur_op);
     void exec_show_config(osd_op_t *cur_op);
     void exec_secondary(osd_op_t *cur_op);
     void exec_secondary_real(osd_op_t *cur_op);
+    void exec_sec_read_bmp(osd_op_t *cur_op);
+    void exec_sec_lock(osd_op_t *cur_op);
     void secondary_op_callback(osd_op_t *cur_op);
 
     // primary ops

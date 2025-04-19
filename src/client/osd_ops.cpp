@@ -23,4 +23,5 @@ const char* osd_op_names[] = {
     "sec_read_bmp",
     "scrub",
     "describe",
+    "sec_lock",
 };

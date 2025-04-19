@@ -271,6 +271,12 @@ void osd_t::parse_config(bool init)
     inode_vanish_time = config["inode_vanish_time"].uint64_value();
     if (!inode_vanish_time)
         inode_vanish_time = 60;
+    enable_pg_locks = config["enable_pg_locks"].is_null() || json_is_true(config["enable_pg_locks"]);
+    bool old_pg_locks_localize_only = pg_locks_localize_only;
+    pg_locks_localize_only = config["enable_pg_locks"].is_null();
+    pg_lock_retry_interval_ms = config["pg_lock_retry_interval"].uint64_value();
+    if (pg_lock_retry_interval_ms <= 1)
+        pg_lock_retry_interval_ms = 100;
     auto old_auto_scrub = auto_scrub;
     auto_scrub = json_is_true(config["auto_scrub"]);
     global_scrub_interval = parse_time(config["scrub_interval"].string_value());
@@ -335,6 +341,10 @@ void osd_t::parse_config(bool init)
     if (old_recovery_tune_interval != recovery_tune_interval)
     {
         apply_recovery_tune_interval();
+    }
+    if (old_pg_locks_localize_only != pg_locks_localize_only)
+    {
+        apply_pg_locks_localize_only();
     }
 }
 
@@ -447,6 +457,7 @@ void osd_t::exec_op(osd_op_t *cur_op)
     }
     if (readonly &&
         cur_op->req.hdr.opcode != OSD_OP_SEC_READ &&
+        cur_op->req.hdr.opcode != OSD_OP_SEC_LOCK &&
         cur_op->req.hdr.opcode != OSD_OP_SEC_LIST &&
         cur_op->req.hdr.opcode != OSD_OP_READ &&
         cur_op->req.hdr.opcode != OSD_OP_SEC_READ_BMP &&

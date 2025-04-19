@@ -510,6 +510,7 @@ void osd_messenger_t::rdmacm_established(rdma_cm_event *ev)
     rc->qp = conn->cmid->qp;
     // And an osd_client_t
     auto cl = new osd_client_t();
+    cl->is_incoming = true;
     cl->peer_addr = conn->parsed_addr;
     cl->peer_port = conn->rdmacm_port;
     cl->peer_fd = conn->peer_fd;

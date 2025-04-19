@@ -65,6 +65,7 @@ void osd_t::init_cluster()
         st_cli.tfd = tfd;
         st_cli.log_level = log_level;
         st_cli.on_change_osd_state_hook = [this](osd_num_t peer_osd) { on_change_osd_state_hook(peer_osd); };
+        st_cli.on_change_pool_config_hook = [this]() { on_change_pool_config_hook(); };
         st_cli.on_change_backfillfull_hook = [this](pool_id_t pool_id) { on_change_backfillfull_hook(pool_id); };
         st_cli.on_change_pg_history_hook = [this](pool_id_t pool_id, pg_num_t pg_num) { on_change_pg_history_hook(pool_id, pg_num); };
         st_cli.on_change_hook = [this](std::map<std::string, etcd_kv_t> & changes) { on_change_etcd_state_hook(changes); };
@@ -153,6 +154,7 @@ bool osd_t::check_peer_config(osd_client_t *cl, json11::Json conf)
             return false;
         }
     }
+    cl->enable_pg_locks = conf["features"]["pg_locks"].bool_value();
     return true;
 }
 
@@ -411,6 +413,28 @@ void osd_t::on_change_osd_state_hook(osd_num_t peer_osd)
     if (msgr.wanted_peers.find(peer_osd) != msgr.wanted_peers.end())
     {
         msgr.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
+    }
+}
+
+void osd_t::on_change_pool_config_hook()
+{
+    apply_pg_locks_localize_only();
+}
+
+void osd_t::apply_pg_locks_localize_only()
+{
+    for (auto & pp: pgs)
+    {
+        auto pool_it = st_cli.pool_config.find(pp.first.pool_id);
+        if (pool_it == st_cli.pool_config.end())
+        {
+            continue;
+        }
+        auto & pool_cfg = pool_it->second;
+        auto & pg = pp.second;
+        pg.disable_pg_locks = pg_locks_localize_only &&
+            pool_cfg.scheme == POOL_SCHEME_REPLICATED &&
+            pool_cfg.local_reads == POOL_LOCAL_READ_PRIMARY;
     }
 }
 
@@ -691,20 +715,27 @@ void osd_t::apply_pg_count()
             // The external tool must wait for all PGs to come down before changing PG count
             // If it doesn't wait, a restarted OSD may apply the new count immediately which will lead to bugs
             // So an OSD just dies if it detects PG count change while there are active PGs
-            int still_active = 0;
+            int still_active_primary = 0;
             for (auto & kv: pgs)
             {
                 if (kv.first.pool_id == pool_item.first && (kv.second.state & PG_ACTIVE))
                 {
-                    still_active++;
+                    still_active_primary++;
                 }
             }
-            if (still_active > 0)
+            int still_active_secondary = 0;
+            for (auto lock_it = pg_locks.lower_bound((pool_pg_num_t){ .pool_id = pool_item.first, .pg_num = 0 });
+                lock_it != pg_locks.end() && lock_it->first.pool_id == pool_item.first; lock_it++)
+            {
+                still_active_secondary++;
+            }
+            if (still_active_primary > 0 || still_active_secondary > 0)
             {
                 printf(
                     "[OSD %ju] PG count change detected for pool %u (new is %ju, old is %u),"
-                    " but %u PG(s) are still active. This is not allowed. Exiting\n",
-                    this->osd_num, pool_item.first, pool_item.second.real_pg_count, pg_counts[pool_item.first], still_active
+                    " but %u PG(s) are still active as primary and %u as secondary. This is not allowed. Exiting\n",
+                    this->osd_num, pool_item.first, pool_item.second.real_pg_count, pg_counts[pool_item.first],
+                    still_active_primary, still_active_secondary
                 );
                 force_stop(1);
                 return;
@@ -831,22 +862,23 @@ void osd_t::apply_pg_config()
                     }
                 }
                 auto & pg = this->pgs[{ .pool_id = pool_id, .pg_num = pg_num }];
-                pg = (pg_t){
-                    .state = pg_cfg.cur_primary == this->osd_num ? PG_PEERING : PG_STARTING,
-                    .scheme = pool_item.second.scheme,
-                    .pg_cursize = 0,
-                    .pg_size = pool_item.second.pg_size,
-                    .pg_minsize = pool_item.second.pg_minsize,
-                    .pg_data_size = pool_item.second.scheme == POOL_SCHEME_REPLICATED
-                         ? 1 : pool_item.second.pg_size - pool_item.second.parity_chunks,
-                    .pool_id = pool_id,
-                    .pg_num = pg_num,
-                    .reported_epoch = pg_cfg.epoch,
-                    .target_history = pg_cfg.target_history,
-                    .all_peers = vec_all_peers,
-                    .next_scrub = pg_cfg.next_scrub,
-                    .target_set = pg_cfg.target_set,
-                };
+                pg.state = pg_cfg.cur_primary == this->osd_num ? PG_PEERING : PG_STARTING;
+                pg.scheme = pool_item.second.scheme;
+                pg.pg_cursize = 0;
+                pg.pg_size = pool_item.second.pg_size;
+                pg.pg_minsize = pool_item.second.pg_minsize;
+                pg.pg_data_size = pool_item.second.scheme == POOL_SCHEME_REPLICATED
+                     ? 1 : pool_item.second.pg_size - pool_item.second.parity_chunks;
+                pg.pool_id = pool_id;
+                pg.pg_num = pg_num;
+                pg.reported_epoch = pg_cfg.epoch;
+                pg.target_history = pg_cfg.target_history;
+                pg.all_peers = vec_all_peers;
+                pg.next_scrub = pg_cfg.next_scrub;
+                pg.target_set = pg_cfg.target_set;
+                pg.disable_pg_locks = pg_locks_localize_only &&
+                    pool_item.second.scheme == POOL_SCHEME_REPLICATED &&
+                    pool_item.second.local_reads == POOL_LOCAL_READ_PRIMARY;
                 if (pg.scheme == POOL_SCHEME_EC)
                 {
                     use_ec(pg.pg_size, pg.pg_data_size, true);

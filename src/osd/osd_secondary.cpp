@@ -79,6 +79,32 @@ void osd_t::exec_secondary(osd_op_t *op)
     }
 }
 
+bool osd_t::sec_check_pg_lock(osd_num_t primary_osd, const object_id &oid)
+{
+    if (!enable_pg_locks)
+    {
+        return true;
+    }
+    pool_id_t pool_id = INODE_POOL(oid.inode);
+    auto pool_cfg_it = st_cli.pool_config.find(pool_id);
+    if (pool_cfg_it == st_cli.pool_config.end())
+    {
+        return false;
+    }
+    auto ppg = (pool_pg_num_t){ .pool_id = pool_id, .pg_num = map_to_pg(oid, pool_cfg_it->second.pg_stripe_size) };
+    auto pg_it = pgs.find(ppg);
+    if (pg_it != pgs.end() && pg_it->second.state != PG_OFFLINE)
+    {
+        return false;
+    }
+    if (pg_it->second.disable_pg_locks)
+    {
+        return true;
+    }
+    auto lock_it = pg_locks.find(ppg);
+    return lock_it != pg_locks.end() && lock_it->second.primary_osd == primary_osd;
+}
+
 void osd_t::exec_secondary_real(osd_op_t *cur_op)
 {
     if (cur_op->req.hdr.opcode == OSD_OP_SEC_LIST &&
@@ -89,23 +115,15 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
     }
     if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
     {
-        int n = cur_op->req.sec_read_bmp.len / sizeof(obj_ver_id);
-        if (n > 0)
-        {
-            obj_ver_id *ov = (obj_ver_id*)cur_op->buf;
-            void *reply_buf = malloc_or_die(n * (8 + clean_entry_bitmap_size));
-            void *cur_buf = reply_buf;
-            for (int i = 0; i < n; i++)
-            {
-                bs->read_bitmap(ov[i].oid, ov[i].version, (uint8_t*)cur_buf + sizeof(uint64_t), (uint64_t*)cur_buf);
-                cur_buf = (uint8_t*)cur_buf + (8 + clean_entry_bitmap_size);
-            }
-            free(cur_op->buf);
-            cur_op->buf = reply_buf;
-        }
-        finish_op(cur_op, n * (8 + clean_entry_bitmap_size));
+        exec_sec_read_bmp(cur_op);
         return;
     }
+    else if (cur_op->req.hdr.opcode == OSD_OP_SEC_LOCK)
+    {
+        exec_sec_lock(cur_op);
+        return;
+    }
+    auto cl = msgr.clients.at(cur_op->peer_fd);
     cur_op->bs_op = new blockstore_op_t();
     cur_op->bs_op->callback = [this, cur_op](blockstore_op_t* bs_op) { secondary_op_callback(cur_op); };
     cur_op->bs_op->opcode = (cur_op->req.hdr.opcode == OSD_OP_SEC_READ ? BS_OP_READ
@@ -121,6 +139,13 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
     {
+        if (!(cur_op->req.sec_rw.flags & OSD_OP_IGNORE_PG_LOCK) &&
+            !sec_check_pg_lock(cl->osd_num, cur_op->req.sec_rw.oid))
+        {
+            cur_op->bs_op->retval = -EPIPE;
+            secondary_op_callback(cur_op);
+            return;
+        }
         if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ)
         {
             // Allocate memory for the read operation
@@ -143,6 +168,13 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_DELETE)
     {
+        if (!(cur_op->req.sec_del.flags & OSD_OP_IGNORE_PG_LOCK) &&
+            !sec_check_pg_lock(cl->osd_num, cur_op->req.sec_del.oid))
+        {
+            cur_op->bs_op->retval = -EPIPE;
+            secondary_op_callback(cur_op);
+            return;
+        }
         cur_op->bs_op->oid = cur_op->req.sec_del.oid;
         cur_op->bs_op->version = cur_op->req.sec_del.version;
 #ifdef OSD_STUB
@@ -157,6 +189,18 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
 #ifdef OSD_STUB
         cur_op->bs_op->retval = 0;
 #endif
+        if (enable_pg_locks && !(cur_op->req.sec_stab.flags & OSD_OP_IGNORE_PG_LOCK))
+        {
+            for (int i = 0; i < cur_op->bs_op->len; i++)
+            {
+                if (!sec_check_pg_lock(cl->osd_num, ((obj_ver_id*)cur_op->buf)[i].oid))
+                {
+                    cur_op->bs_op->retval = -EPIPE;
+                    secondary_op_callback(cur_op);
+                    return;
+                }
+            }
+        }
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_LIST)
     {
@@ -192,15 +236,96 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
 #endif
 }
 
+void osd_t::exec_sec_read_bmp(osd_op_t *cur_op)
+{
+    auto cl = msgr.clients.at(cur_op->peer_fd);
+    int n = cur_op->req.sec_read_bmp.len / sizeof(obj_ver_id);
+    if (n > 0)
+    {
+        obj_ver_id *ov = (obj_ver_id*)cur_op->buf;
+        void *reply_buf = malloc_or_die(n * (8 + clean_entry_bitmap_size));
+        void *cur_buf = reply_buf;
+        for (int i = 0; i < n; i++)
+        {
+            if (!sec_check_pg_lock(cl->osd_num, ov[i].oid) &&
+                !(cur_op->req.sec_read_bmp.flags & OSD_OP_IGNORE_PG_LOCK))
+            {
+                free(reply_buf);
+                cur_op->bs_op->retval = -EPIPE;
+                secondary_op_callback(cur_op);
+                return;
+            }
+            bs->read_bitmap(ov[i].oid, ov[i].version, (uint8_t*)cur_buf + sizeof(uint64_t), (uint64_t*)cur_buf);
+            cur_buf = (uint8_t*)cur_buf + (8 + clean_entry_bitmap_size);
+        }
+        free(cur_op->buf);
+        cur_op->buf = reply_buf;
+    }
+    finish_op(cur_op, n * (8 + clean_entry_bitmap_size));
+}
+
+// Lock/Unlock PG
+void osd_t::exec_sec_lock(osd_op_t *cur_op)
+{
+    cur_op->reply.sec_lock.cur_primary = 0;
+    auto cl = msgr.clients.at(cur_op->peer_fd);
+    if (!cl->osd_num ||
+        cur_op->req.sec_lock.flags != OSD_SEC_LOCK_PG &&
+        cur_op->req.sec_lock.flags != OSD_SEC_UNLOCK_PG ||
+        cur_op->req.sec_lock.pool_id > ((uint64_t)1<<POOL_ID_BITS) ||
+        !cur_op->req.sec_lock.pg_num ||
+        cur_op->req.sec_lock.pg_num > UINT32_MAX)
+    {
+        finish_op(cur_op, -EINVAL);
+        return;
+    }
+    auto ppg = (pool_pg_num_t){ .pool_id = (pool_id_t)cur_op->req.sec_lock.pool_id, .pg_num = (pg_num_t)cur_op->req.sec_lock.pg_num };
+    auto pool_cfg_it = st_cli.pool_config.find(ppg.pool_id);
+    if (pool_cfg_it == st_cli.pool_config.end() ||
+        pool_cfg_it->second.real_pg_count < cur_op->req.sec_lock.pg_num)
+    {
+        finish_op(cur_op, -ENOENT);
+        return;
+    }
+    auto lock_it = pg_locks.find(ppg);
+    if (cur_op->req.sec_lock.flags == OSD_SEC_LOCK_PG)
+    {
+        if (lock_it != pg_locks.end() && lock_it->second.primary_osd != cl->osd_num)
+        {
+            cur_op->reply.sec_lock.cur_primary = lock_it->second.primary_osd;
+            finish_op(cur_op, -EBUSY);
+            return;
+        }
+        auto primary_pg_it = pgs.find(ppg);
+        if (primary_pg_it != pgs.end() && primary_pg_it->second.state != PG_OFFLINE)
+        {
+            cur_op->reply.sec_lock.cur_primary = this->osd_num;
+            finish_op(cur_op, -EBUSY);
+            return;
+        }
+        pg_locks[ppg] = (osd_pg_lock_t){
+            .primary_osd = cl->osd_num,
+            .state = cur_op->req.sec_lock.pg_state,
+        };
+    }
+    else if (lock_it != pg_locks.end() && lock_it->second.primary_osd == cl->osd_num)
+    {
+        pg_locks.erase(lock_it);
+    }
+    finish_op(cur_op, 0);
+}
+
 void osd_t::exec_show_config(osd_op_t *cur_op)
 {
     std::string json_err;
     json11::Json req_json = cur_op->req.show_conf.json_len > 0
         ? json11::Json::parse(std::string((char *)cur_op->buf), json_err)
         : json11::Json();
+    auto peer_osd_num = req_json["osd_num"].uint64_value();
+    auto cl = msgr.clients.at(cur_op->peer_fd);
+    cl->osd_num = peer_osd_num;
     if (req_json["features"]["check_sequencing"].bool_value())
     {
-        auto cl = msgr.clients.at(cur_op->peer_fd);
         cl->check_sequencing = true;
         cl->read_op_id = cur_op->req.hdr.id + 1;
     }
@@ -216,6 +341,7 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
         { "immediate_commit", (immediate_commit == IMMEDIATE_ALL ? "all" :
             (immediate_commit == IMMEDIATE_SMALL ? "small" : "none")) },
         { "lease_timeout", etcd_report_interval+(st_cli.max_etcd_attempts*(2*st_cli.etcd_quick_timeout)+999)/1000 },
+        { "features", json11::Json::object{ { "pg_locks", true } } },
     };
 #ifdef WITH_RDMA
     if (msgr.is_rdma_enabled())
@@ -228,7 +354,7 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
             bool ok = msgr.connect_rdma(cur_op->peer_fd, req_json["connect_rdma"].string_value(), req_json["rdma_max_msg"].uint64_value());
             if (ok)
             {
-                auto rc = msgr.clients.at(cur_op->peer_fd)->rdma_conn;
+                auto rc = cl->rdma_conn;
                 wire_config["rdma_address"] = rc->addr.to_string();
                 wire_config["rdma_max_msg"] = rc->max_msg;
             }

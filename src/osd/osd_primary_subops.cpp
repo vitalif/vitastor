@@ -77,16 +77,7 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
         if (cur_op->op_data->pg_num > 0)
         {
             auto & pg = *cur_op->op_data->pg;
-            pg.inflight--;
-            assert(pg.inflight >= 0);
-            if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch)
-            {
-                finish_stop_pg(pg);
-            }
-            else if ((pg.state & PG_REPEERING) && pg.inflight == 0 && !pg.flush_batch)
-            {
-                start_pg_peering(pg);
-            }
+            rm_inflight(pg);
         }
         assert(!cur_op->op_data->subops);
         free(cur_op->op_data);
@@ -432,6 +423,14 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
                     : "%1$s subop to %2$jx:%3$jx v%4$ju failed locally: retval = %5$d (expected %6$d)\n",
                 osd_op_names[opcode], subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, subop->req.sec_rw.version,
                 retval, expected, peer_osd
+            );
+        }
+        else if (opcode == OSD_OP_SEC_DELETE)
+        {
+            printf(
+                "delete subop to %jx:%jx v%ju failed on osd %jd: retval = %d (expected %d)\n",
+                subop->req.sec_del.oid.inode, subop->req.sec_del.oid.stripe, subop->req.sec_del.version,
+                peer_osd, retval, expected
             );
         }
         else

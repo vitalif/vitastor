@@ -781,3 +781,23 @@
     неполными (incomplete), если упадут ещё какие-то OSD.
 
     Старое поведение в версиях до 2.0.0 было идентично включённому allow_net_split.
+- name: enable_pg_locks
+  type: bool
+  info: |
+    Vitastor 2.2.0 introduces a new layer of split-brain prevention mechanism in
+    addition to etcd: PG locks. They prevent split-brain even in abnormal theoretical cases
+    when etcd is extremely laggy. As a new feature, by default, PG locks are only enabled
+    for pools where they're required - pools with [localized reads](pool.en.md#local_reads).
+    Use this parameter to enable or disable this function for all pools.
+  info_ru: |
+    В Vitastor 2.2.0 появился новый слой защиты от сплитбрейна в дополнение к etcd -
+    блокировки PG. Они гарантируют порядок даже в теоретических ненормальных случаях,
+    когда etcd очень сильно тормозит. Так как функция новая, по умолчанию она включается
+    только для пулов, в которых она необходима - а именно, в пулах с включёнными
+    [локальными чтениями](pool.ru.md#local_reads). Ну а с помощью данного параметра
+    можно включить блокировки PG для всех пулов.
+- name: pg_lock_retry_interval_ms
+  type: ms
+  default: 100
+  info: Retry interval for failed PG lock attempts.
+  info_ru: Интервал повтора неудачных попыток блокировки PG.

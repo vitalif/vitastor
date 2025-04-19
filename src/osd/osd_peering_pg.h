@@ -49,6 +49,8 @@ struct pg_peering_state_t
     std::map<osd_num_t, pg_list_result_t> list_results;
     pool_id_t pool_id = 0;
     pg_num_t pg_num = 0;
+    bool locked = false;
+    bool lists_done = false;
 };
 
 struct obj_piece_id_t
@@ -87,6 +89,7 @@ struct pg_t
     pool_id_t pool_id = 0;
     pg_num_t pg_num = 0;
     uint64_t clean_count = 0, total_count = 0;
+    bool disable_pg_locks = false;
     // epoch number - should increase with each non-clean activation of the PG
     uint64_t epoch = 0, reported_epoch = 0;
     // target history and all potential peers
@@ -104,6 +107,10 @@ struct pg_t
     // cur_set is the current set of connected peer OSDs for this PG
     // cur_set = (role => osd_num or UINT64_MAX if missing). role numbers begin with zero
     std::vector<osd_num_t> cur_set;
+    // locked peer list => pg state reported to the peer
+    std::map<osd_num_t, uint64_t> lock_peers;
+    int inflight_locks = 0;
+    bool lock_waiting = false;
     // same thing in state_dict-like format
     pg_osd_set_t cur_loc_set;
     // moved object map. by default, each object is considered to reside on cur_set.
@@ -125,6 +132,9 @@ struct pg_t
     pg_osd_set_state_t* add_object_to_state(const object_id oid, const uint64_t state, const pg_osd_set_t & osd_set);
     void calc_object_states(int log_level);
     void print_state();
+    bool can_stop();
+    bool can_repeer();
+    void rm_inflight();
 };
 
 inline bool operator < (const pg_obj_loc_t &a, const pg_obj_loc_t &b)

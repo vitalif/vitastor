@@ -31,10 +31,13 @@
 #define OSD_OP_SEC_READ_BMP         16
 #define OSD_OP_SCRUB                17
 #define OSD_OP_DESCRIBE             18
-#define OSD_OP_MAX                  18
+#define OSD_OP_SEC_LOCK             19
+#define OSD_OP_MAX                  19
 #define OSD_RW_MAX                  64*1024*1024
 #define OSD_PROTOCOL_VERSION        1
+
 #define OSD_OP_RECOVERY_RELATED     (uint32_t)1
+#define OSD_OP_IGNORE_PG_LOCK       (uint32_t)2
 
 // Memory alignment for direct I/O (usually 512 bytes)
 #ifndef DIRECT_IO_ALIGNMENT
@@ -55,6 +58,9 @@
 
 #define OSD_DEL_SUPPORT_LEFT_ON_DEAD 1
 #define OSD_DEL_LEFT_ON_DEAD         2
+
+#define OSD_SEC_LOCK_PG 1
+#define OSD_SEC_UNLOCK_PG 2
 
 // common request and reply headers
 struct __attribute__((__packed__)) osd_op_header_t
@@ -94,7 +100,7 @@ struct __attribute__((__packed__)) osd_op_sec_rw_t
     uint32_t len;
     // bitmap/attribute length - bitmap comes after header, but before data
     uint32_t attr_len;
-    // the only possible flag is OSD_OP_RECOVERY_RELATED
+    // OSD_OP_RECOVERY_RELATED, OSD_OP_IGNORE_PG_LOCK
     uint32_t flags;
 };
 
@@ -116,7 +122,7 @@ struct __attribute__((__packed__)) osd_op_sec_del_t
     object_id oid;
     // delete version (automatic or specific)
     uint64_t version;
-    // the only possible flag is OSD_OP_RECOVERY_RELATED
+    // OSD_OP_RECOVERY_RELATED, OSD_OP_IGNORE_PG_LOCK
     uint32_t flags;
     uint32_t pad0;
 };
@@ -131,7 +137,7 @@ struct __attribute__((__packed__)) osd_reply_sec_del_t
 struct __attribute__((__packed__)) osd_op_sec_sync_t
 {
     osd_op_header_t header;
-    // the only possible flag is OSD_OP_RECOVERY_RELATED
+    // OSD_OP_RECOVERY_RELATED, OSD_OP_IGNORE_PG_LOCK
     uint32_t flags;
     uint32_t pad0;
 };
@@ -147,7 +153,7 @@ struct __attribute__((__packed__)) osd_op_sec_stab_t
     osd_op_header_t header;
     // obj_ver_id array length in bytes
     uint64_t len;
-    // the only possible flag is OSD_OP_RECOVERY_RELATED
+    // OSD_OP_RECOVERY_RELATED, OSD_OP_IGNORE_PG_LOCK
     uint32_t flags;
     uint32_t pad0;
 };
@@ -165,6 +171,8 @@ struct __attribute__((__packed__)) osd_op_sec_read_bmp_t
     osd_op_header_t header;
     // obj_ver_id array length in bytes
     uint64_t len;
+    // OSD_OP_RECOVERY_RELATED, OSD_OP_IGNORE_PG_LOCK
+    uint32_t flags;
 };
 
 struct __attribute__((__packed__)) osd_reply_sec_read_bmp_t
@@ -173,7 +181,7 @@ struct __attribute__((__packed__)) osd_reply_sec_read_bmp_t
     osd_reply_header_t header;
 };
 
-// show configuration
+// show configuration and remember peer information
 struct __attribute__((__packed__)) osd_op_show_config_t
 {
     osd_op_header_t header;
@@ -303,6 +311,25 @@ struct __attribute__((__packed__)) osd_reply_describe_item_t
     osd_num_t osd_num;  // OSD number
 };
 
+// lock/unlock PG for use by a primary OSD
+struct __attribute__((__packed__)) osd_op_sec_lock_t
+{
+    osd_op_header_t header;
+    // OSD_SEC_LOCK_PG or OSD_SEC_UNLOCK_PG
+    uint64_t flags;
+    // Pool ID and PG number
+    uint64_t pool_id;
+    uint64_t pg_num;
+    // PG state as calculated by the primary OSD
+    uint64_t pg_state;
+};
+
+struct __attribute__((__packed__)) osd_reply_sec_lock_t
+{
+    osd_reply_header_t header;
+    uint64_t cur_primary;
+};
+
 // FIXME it would be interesting to try to unify blockstore_op and osd_op formats
 union osd_any_op_t
 {
@@ -313,6 +340,7 @@ union osd_any_op_t
     osd_op_sec_stab_t sec_stab;
     osd_op_sec_read_bmp_t sec_read_bmp;
     osd_op_sec_list_t sec_list;
+    osd_op_sec_lock_t sec_lock;
     osd_op_show_config_t show_conf;
     osd_op_rw_t rw;
     osd_op_sync_t sync;
@@ -329,6 +357,7 @@ union osd_any_reply_t
     osd_reply_sec_stab_t sec_stab;
     osd_reply_sec_read_bmp_t sec_read_bmp;
     osd_reply_sec_list_t sec_list;
+    osd_reply_sec_lock_t sec_lock;
     osd_reply_show_config_t show_conf;
     osd_reply_rw_t rw;
     osd_reply_del_t del;

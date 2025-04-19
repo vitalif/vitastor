@@ -200,6 +200,7 @@ struct cli_fix_t
                                         .stripe = op->req.describe.min_offset | items[i].role,
                                     },
                                     .version = 0,
+                                    .flags = OSD_OP_IGNORE_PG_LOCK,
                                 },
                             };
                             rm_op->callback = [this, primary_osd, rm_osd_num, rm_count, &obj](osd_op_t *rm_op)

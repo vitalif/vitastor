@@ -21,28 +21,8 @@ void osd_t::handle_peers()
         {
             if (p.second.state == PG_PEERING)
             {
-                if (!p.second.peering_state->list_ops.size())
+                if (continue_pg_peering(p.second))
                 {
-                    p.second.calc_object_states(log_level);
-                    report_pg_state(p.second);
-                    schedule_scrub(p.second);
-                    incomplete_objects += p.second.incomplete_objects.size();
-                    misplaced_objects += p.second.misplaced_objects.size();
-                    // FIXME: degraded objects may currently include misplaced, too! Report them separately?
-                    degraded_objects += p.second.degraded_objects.size();
-                    if (p.second.state & PG_HAS_UNCLEAN)
-                        peering_state = peering_state | OSD_FLUSHING_PGS;
-                    else if (p.second.state & (PG_HAS_DEGRADED | PG_HAS_MISPLACED))
-                    {
-                        peering_state = peering_state | OSD_RECOVERING;
-                        if (p.second.state & PG_HAS_DEGRADED)
-                        {
-                            // Restart recovery from degraded objects
-                            recovery_last_degraded = true;
-                            recovery_last_pg = {};
-                            recovery_last_oid = {};
-                        }
-                    }
                     ringloop->wakeup();
                     return;
                 }
@@ -95,6 +75,16 @@ void osd_t::handle_peers()
 
 void osd_t::repeer_pgs(osd_num_t peer_osd)
 {
+    if (msgr.osd_peer_fds.find(peer_osd) == msgr.osd_peer_fds.end())
+    {
+        for (auto lock_it = pg_locks.begin(); lock_it != pg_locks.end(); )
+        {
+            if (lock_it->second.primary_osd == peer_osd)
+                pg_locks.erase(lock_it++);
+            else
+                lock_it++;
+        }
+    }
     // Re-peer affected PGs
     for (auto & p: pgs)
     {
@@ -114,7 +104,7 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
             {
                 // Repeer this pg
                 printf("[PG %u/%u] Repeer because of OSD %ju\n", pg.pool_id, pg.pg_num, peer_osd);
-                if (!(pg.state & (PG_ACTIVE | PG_REPEERING)) || pg.inflight == 0 && !pg.flush_batch)
+                if (!(pg.state & (PG_ACTIVE | PG_REPEERING)) || pg.can_repeer())
                 {
                     start_pg_peering(pg);
                 }
@@ -195,7 +185,6 @@ void osd_t::start_pg_peering(pg_t & pg)
     pg.state = PG_PEERING;
     this->peering_state |= OSD_PEERING_PGS;
     reset_pg(pg);
-    report_pg_state(pg);
     drop_dirty_pg_connections({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
     // Try to connect with current peers if they're up, but we don't have connections to them
     // Otherwise we may erroneously decide that the pg is incomplete :-)
@@ -322,16 +311,203 @@ void osd_t::start_pg_peering(pg_t & pg)
         pg.peering_state->pool_id = pg.pool_id;
         pg.peering_state->pg_num = pg.pg_num;
     }
-    for (osd_num_t peer_osd: cur_peers)
+    pg.peering_state->locked = false;
+    pg.peering_state->lists_done = false;
+    report_pg_state(pg);
+}
+
+bool osd_t::continue_pg_peering(pg_t & pg)
+{
+    if (pg.peering_state->locked)
     {
-        if (pg.peering_state->list_ops.find(peer_osd) != pg.peering_state->list_ops.end() ||
-            pg.peering_state->list_results.find(peer_osd) != pg.peering_state->list_results.end())
+        pg.peering_state->lists_done = true;
+        for (osd_num_t peer_osd: pg.cur_peers)
         {
+            if (pg.peering_state->list_results.find(peer_osd) == pg.peering_state->list_results.end())
+            {
+                pg.peering_state->lists_done = false;
+            }
+            if (pg.peering_state->list_ops.find(peer_osd) != pg.peering_state->list_ops.end() ||
+                pg.peering_state->list_results.find(peer_osd) != pg.peering_state->list_results.end())
+            {
+                continue;
+            }
+            submit_list_subop(peer_osd, pg.peering_state);
+        }
+    }
+    if (pg.peering_state->lists_done)
+    {
+        pg.calc_object_states(log_level);
+        report_pg_state(pg);
+        schedule_scrub(pg);
+        incomplete_objects += pg.incomplete_objects.size();
+        misplaced_objects += pg.misplaced_objects.size();
+        // FIXME: degraded objects may currently include misplaced, too! Report them separately?
+        degraded_objects += pg.degraded_objects.size();
+        if (pg.state & PG_HAS_UNCLEAN)
+            this->peering_state = peering_state | OSD_FLUSHING_PGS;
+        else if (pg.state & (PG_HAS_DEGRADED | PG_HAS_MISPLACED))
+        {
+            this->peering_state = peering_state | OSD_RECOVERING;
+            if (pg.state & PG_HAS_DEGRADED)
+            {
+                // Restart recovery from degraded objects
+                this->recovery_last_degraded = true;
+                this->recovery_last_pg = {};
+                this->recovery_last_oid = {};
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+void osd_t::record_pg_lock(pg_t & pg, osd_num_t peer_osd, uint64_t pg_state)
+{
+    if (!pg_state)
+        pg.lock_peers.erase(peer_osd);
+    else
+        pg.lock_peers[peer_osd] = pg_state;
+}
+
+void osd_t::relock_pg(pg_t & pg)
+{
+    if (!enable_pg_locks || pg.disable_pg_locks && !pg.lock_peers.size())
+    {
+        if (pg.state & PG_PEERING)
+            pg.peering_state->locked = true;
+        continue_pg(pg);
+        return;
+    }
+    if (pg.inflight_locks > 0 || pg.lock_waiting)
+    {
+        return;
+    }
+    // Check that lock_peers are equal to cur_peers and correct the difference, if any
+    uint64_t wanted_state = pg.state;
+    std::vector<osd_num_t> diff_osds;
+    if (!(pg.state & (PG_STOPPING | PG_OFFLINE | PG_INCOMPLETE)) && !pg.disable_pg_locks)
+    {
+        for (osd_num_t peer_osd: pg.cur_peers)
+        {
+            if (peer_osd != this->osd_num)
+            {
+                auto lock_it = pg.lock_peers.find(peer_osd);
+                if (lock_it == pg.lock_peers.end())
+                    diff_osds.push_back(peer_osd);
+                else
+                {
+                    if (lock_it->second != wanted_state)
+                        diff_osds.push_back(peer_osd);
+                    lock_it->second |= ((uint64_t)1 << 63);
+                }
+            }
+        }
+    }
+    int relock_osd_count = diff_osds.size();
+    for (auto & lp: pg.lock_peers)
+    {
+        if (!(lp.second & ((uint64_t)1 << 63)))
+            diff_osds.push_back(lp.first);
+        lp.second &= ~((uint64_t)1 << 63);
+    }
+    if (!diff_osds.size())
+    {
+        if (pg.state & PG_PEERING)
+            pg.peering_state->locked = true;
+        continue_pg(pg);
+        return;
+    }
+    pg.inflight_locks++;
+    for (int i = 0; i < diff_osds.size(); i++)
+    {
+        bool unlock_peer = (i >= relock_osd_count);
+        uint64_t new_state = unlock_peer ? 0 : pg.state;
+        auto peer_osd = diff_osds[i];
+        auto peer_fd_it = msgr.osd_peer_fds.find(peer_osd);
+        if (peer_fd_it == msgr.osd_peer_fds.end())
+        {
+            if (unlock_peer)
+            {
+                // Peer is dead - unlocked automatically
+                record_pg_lock(pg, peer_osd, new_state);
+                diff_osds.erase(diff_osds.begin()+(i--));
+            }
             continue;
         }
-        submit_list_subop(peer_osd, pg.peering_state);
+        int peer_fd = peer_fd_it->second;
+        auto cl = msgr.clients.at(peer_fd);
+        if (!cl->enable_pg_locks)
+        {
+            // Peer does not support locking - just instantly remember the lock as successful
+            record_pg_lock(pg, peer_osd, new_state);
+            diff_osds.erase(diff_osds.begin()+(i--));
+            continue;
+        }
+        pg.inflight_locks++;
+        osd_op_t *op = new osd_op_t();
+        op->op_type = OSD_OP_OUT;
+        op->peer_fd = peer_fd;
+        op->req = (osd_any_op_t){
+            .sec_lock = {
+                .header = {
+                    .magic = SECONDARY_OSD_OP_MAGIC,
+                    .opcode = OSD_OP_SEC_LOCK,
+                },
+                .flags = (uint64_t)(unlock_peer ? OSD_SEC_UNLOCK_PG : OSD_SEC_LOCK_PG),
+                .pool_id = pg.pool_id,
+                .pg_num = pg.pg_num,
+                .pg_state = new_state,
+            },
+        };
+        op->callback = [this, peer_osd](osd_op_t *op)
+        {
+            pool_pg_num_t pg_id = { .pool_id = (pool_id_t)op->req.sec_lock.pool_id, .pg_num = (pg_num_t)op->req.sec_lock.pg_num };
+            auto pg_it = pgs.find(pg_id);
+            if (pg_it == pgs.end())
+            {
+                return;
+            }
+            auto & pg = pg_it->second;
+            if (op->reply.hdr.retval == 0)
+            {
+                record_pg_lock(pg_it->second, peer_osd, op->req.sec_lock.pg_state);
+            }
+            else if (op->reply.hdr.retval != -EPIPE)
+            {
+                printf(
+                    (op->reply.hdr.retval == -ENOENT
+                        ? "Failed to %1$s PG %2$u/%3$u on OSD %4$ju - peer didn't load PG info yet\n"
+                        : (op->reply.sec_lock.cur_primary
+                            ? "Failed to %1$s PG %2$u/%3$u on OSD %4$ju - taken by OSD %6$ju (retval=%5$jd)\n"
+                            : "Failed to %1$s PG %2$u/%3$u on OSD %4$ju - retval=%5$jd\n")),
+                    op->req.sec_lock.flags == OSD_SEC_UNLOCK_PG ? "unlock" : "lock",
+                    pg_id.pool_id, pg_id.pg_num, peer_osd, op->reply.hdr.retval, op->reply.sec_lock.cur_primary
+                );
+                // Retry relocking/unlocking PG after a short time
+                pg.lock_waiting = true;
+                tfd->set_timer(pg_lock_retry_interval_ms, false, [this, pg_id](int)
+                {
+                    auto pg_it = pgs.find(pg_id);
+                    if (pg_it != pgs.end())
+                    {
+                        pg_it->second.lock_waiting = false;
+                        relock_pg(pg_it->second);
+                    }
+                });
+            }
+            pg.inflight_locks--;
+            relock_pg(pg);
+            delete op;
+        };
+        msgr.outbox_push(op);
     }
-    ringloop->wakeup();
+    if (pg.state & PG_PEERING)
+    {
+        pg.peering_state->locked = !diff_osds.size();
+    }
+    pg.inflight_locks--;
+    continue_pg(pg);
 }
 
 void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
@@ -379,10 +555,16 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
     }
     else
     {
+        auto role_fd_it = msgr.osd_peer_fds.find(role_osd);
+        if (role_fd_it == msgr.osd_peer_fds.end())
+        {
+            printf("Failed to get object list from OSD %ju because it is disconnected\n", role_osd);
+            return;
+        }
         // Peer
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
-        op->peer_fd = msgr.osd_peer_fds.at(role_osd);
+        op->peer_fd = role_fd_it->second;
         op->req = (osd_any_op_t){
             .sec_list = {
                 .header = {
@@ -474,8 +656,8 @@ bool osd_t::stop_pg(pg_t & pg)
         return false;
     }
     drop_dirty_pg_connections({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
-    pg.state = pg.state & ~PG_ACTIVE & ~PG_REPEERING | PG_STOPPING;
-    if (pg.inflight == 0 && !pg.flush_batch)
+    pg.state = pg.state & ~PG_STARTING & ~PG_PEERING & ~PG_INCOMPLETE & ~PG_ACTIVE & ~PG_REPEERING & ~PG_OFFLINE | PG_STOPPING;
+    if (pg.can_stop())
     {
         finish_stop_pg(pg);
     }
@@ -556,9 +738,33 @@ void osd_t::report_pg_state(pg_t & pg)
         pg_cfg.target_history = pg.target_history;
         pg_cfg.all_peers = pg.all_peers;
     }
+    relock_pg(pg);
     if (pg.state == PG_OFFLINE && !this->pg_config_applied)
     {
         apply_pg_config();
     }
     report_pg_states();
+}
+
+void osd_t::rm_inflight(pg_t & pg)
+{
+    pg.inflight--;
+    assert(pg.inflight >= 0);
+    continue_pg(pg);
+}
+
+void osd_t::continue_pg(pg_t & pg)
+{
+    if ((pg.state & PG_STOPPING) && pg.can_stop())
+    {
+        finish_stop_pg(pg);
+    }
+    else if ((pg.state & PG_REPEERING) && pg.can_repeer())
+    {
+        start_pg_peering(pg);
+    }
+    else if ((pg.state & PG_PEERING) && pg.peering_state->locked)
+    {
+        continue_pg_peering(pg);
+    }
 }

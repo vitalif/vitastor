@@ -489,3 +489,13 @@ void pg_t::print_state()
         total_count
     );
 }
+
+bool pg_t::can_stop()
+{
+    return inflight == 0 && inflight_locks == 0 && !lock_peers.size() && !flush_batch;
+}
+
+bool pg_t::can_repeer()
+{
+    return inflight == 0 && !flush_batch;
+}

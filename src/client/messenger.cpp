@@ -773,12 +773,15 @@ void osd_messenger_t::accept_connections(int listen_fd)
         fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
         int one = 1;
         setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
-        clients[peer_fd] = new osd_client_t();
-        clients[peer_fd]->peer_addr = addr;
-        clients[peer_fd]->peer_port = ntohs(((sockaddr_in*)&addr)->sin_port);
-        clients[peer_fd]->peer_fd = peer_fd;
-        clients[peer_fd]->peer_state = PEER_CONNECTED;
-        clients[peer_fd]->in_buf = malloc_or_die(receive_buffer_size);
+        auto cl = new osd_client_t();
+        clients[peer_fd] = cl;
+        cl->is_incoming = true;
+        cl->peer_addr = addr;
+        cl->peer_addr = addr;
+        cl->peer_port = ntohs(((sockaddr_in*)&addr)->sin_port);
+        cl->peer_fd = peer_fd;
+        cl->peer_state = PEER_CONNECTED;
+        cl->in_buf = malloc_or_die(receive_buffer_size);
         // Add FD to epoll
         tfd->set_fd_handler(peer_fd, false, [this](int peer_fd, int epoll_events)
         {

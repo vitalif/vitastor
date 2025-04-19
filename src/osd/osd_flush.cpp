@@ -150,14 +150,7 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
         {
             continue_primary_write(op);
         }
-        if ((pg.state & PG_STOPPING) && pg.inflight == 0 && !pg.flush_batch)
-        {
-            finish_stop_pg(pg);
-        }
-        else if ((pg.state & PG_REPEERING) && pg.inflight == 0 && !pg.flush_batch)
-        {
-            start_pg_peering(pg);
-        }
+        continue_pg(pg);
     }
 }
 
@@ -254,7 +247,8 @@ bool osd_t::pick_next_recovery(osd_recovery_op_t &op)
         restart:
             for (auto pg_it = pgs.lower_bound(recovery_last_pg); pg_it != pgs.end(); pg_it++)
             {
-                if ((pg_it->second.state & mask) == check)
+                auto & src = recovery_last_degraded ? pg_it->second.degraded_objects : pg_it->second.misplaced_objects;
+                if ((pg_it->second.state & mask) == check && src.size() > 0)
                 {
                     auto pool_it = st_cli.pool_config.find(pg_it->first.pool_id);
                     if (pool_it != st_cli.pool_config.end() && pool_it->second.backfillfull)
@@ -263,8 +257,6 @@ bool osd_t::pick_next_recovery(osd_recovery_op_t &op)
                         recovery_last_pg.pool_id++;
                         goto restart;
                     }
-                    auto & src = recovery_last_degraded ? pg_it->second.degraded_objects : pg_it->second.misplaced_objects;
-                    assert(src.size() > 0);
                     // Restart scanning from the next object
                     for (auto obj_it = src.upper_bound(recovery_last_oid); obj_it != src.end(); obj_it++)
                     {

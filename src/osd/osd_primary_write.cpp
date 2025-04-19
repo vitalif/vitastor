@@ -301,6 +301,38 @@ resume_12:
     }
     if (op_data->object_state)
     {
+        // Any kind of a non-clean object can have extra chunks, because we don't record objects
+        // as degraded & misplaced or incomplete & misplaced at the same time. So try to remove extra chunks
+        if (immediate_commit != IMMEDIATE_ALL)
+        {
+            // We can't remove extra chunks yet if fsyncs are explicit, because
+            // new copies may not be committed to stable storage yet
+            // We can only remove extra chunks after a successful SYNC for this PG
+            for (auto & chunk: op_data->object_state->osd_set)
+            {
+                // Check is the same as in submit_primary_del_subops()
+                if (pg.scheme == POOL_SCHEME_REPLICATED
+                    ? !contains_osd(pg.cur_set.data(), pg.pg_size, chunk.osd_num)
+                    : (chunk.osd_num != pg.cur_set[chunk.role]))
+                {
+                    pg.copies_to_delete_after_sync.push_back((obj_ver_osd_t){
+                        .osd_num = chunk.osd_num,
+                        .oid = {
+                            .inode = op_data->oid.inode,
+                            .stripe = op_data->oid.stripe | (pg.scheme == POOL_SCHEME_REPLICATED ? 0 : chunk.role),
+                        },
+                        .version = op_data->fact_ver,
+                    });
+                    copies_to_delete_after_sync_count++;
+                }
+            }
+            if (pg.copies_to_delete_after_sync.size() && !(pg.state & PG_HAS_MISPLACED))
+            {
+                // PG can't be active+clean until extra copies aren't removed, so mark it as PG_HAS_MISPLACED
+                pg.state |= PG_HAS_MISPLACED;
+                //this->pg_state_dirty.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
+            }
+        }
         // We must forget the unclean state of the object before deleting it
         // so the next reads don't accidentally read a deleted version
         // And it should be done at the same time as the removal of the version override
@@ -309,6 +341,7 @@ resume_12:
     }
 resume_6:
 resume_7:
+    op_data->n_subops = 0;
     if (!remember_unstable_write(cur_op, pg, pg.cur_loc_set, 6))
     {
         return;
@@ -344,48 +377,21 @@ resume_7:
             );
             recovery_stat[recovery_type].usec += usec;
         }
-        // Any kind of a non-clean object can have extra chunks, because we don't record objects
-        // as degraded & misplaced or incomplete & misplaced at the same time. So try to remove extra chunks
-        if (immediate_commit != IMMEDIATE_ALL)
-        {
-            // We can't remove extra chunks yet if fsyncs are explicit, because
-            // new copies may not be committed to stable storage yet
-            // We can only remove extra chunks after a successful SYNC for this PG
-            for (auto & chunk: op_data->object_state->osd_set)
-            {
-                // Check is the same as in submit_primary_del_subops()
-                if (pg.scheme == POOL_SCHEME_REPLICATED
-                    ? !contains_osd(pg.cur_set.data(), pg.pg_size, chunk.osd_num)
-                    : (chunk.osd_num != pg.cur_set[chunk.role]))
-                {
-                    pg.copies_to_delete_after_sync.push_back((obj_ver_osd_t){
-                        .osd_num = chunk.osd_num,
-                        .oid = {
-                            .inode = op_data->oid.inode,
-                            .stripe = op_data->oid.stripe | (pg.scheme == POOL_SCHEME_REPLICATED ? 0 : chunk.role),
-                        },
-                        .version = op_data->fact_ver,
-                    });
-                    copies_to_delete_after_sync_count++;
-                }
-            }
-            deref_object_state(pg, &op_data->object_state, true);
-        }
-        else
+        if (immediate_commit == IMMEDIATE_ALL)
         {
             submit_primary_del_subops(cur_op, pg.cur_set.data(), pg.pg_size, op_data->object_state->osd_set);
-            deref_object_state(pg, &op_data->object_state, true);
-            if (op_data->n_subops > 0)
-            {
+        }
+        deref_object_state(pg, &op_data->object_state, true);
+        if (op_data->n_subops > 0)
+        {
 resume_8:
-                op_data->st = 8;
-                return;
+            op_data->st = 8;
+            return;
 resume_9:
-                if (op_data->errors > 0)
-                {
-                    pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
-                    return;
-                }
+            if (op_data->errors > 0)
+            {
+                pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
+                return;
             }
         }
     }
