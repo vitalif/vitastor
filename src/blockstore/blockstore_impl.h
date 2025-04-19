@@ -266,6 +266,8 @@ class blockstore_impl_t
     int throttle_threshold_us = 50;
     // Maximum writes between automatically added fsync operations
     uint64_t autosync_writes = 128;
+    // Log level (0-10)
+    int log_level = 0;
     /******* END OF OPTIONS *******/
 
     struct ring_consumer_t ring_consumer;

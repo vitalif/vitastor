@@ -101,6 +101,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
         config["journal_no_same_sector_overwrites"] == "1" || config["journal_no_same_sector_overwrites"] == "yes";
     journal.inmemory = config["inmemory_journal"] != "false" && config["inmemory_journal"] != "0" &&
         config["inmemory_journal"] != "no";
+    log_level = strtoull(config["log_level"].c_str(), NULL, 10);
     // Validate
     if (journal.sector_count < 2)
     {
