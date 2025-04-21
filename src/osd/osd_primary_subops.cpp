@@ -452,15 +452,16 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
         {
             op_data->errcode = retval;
         }
-        op_data->errors++;
         if (subop->peer_fd >= 0 && retval != -EDOM && retval != -ERANGE &&
             (retval != -ENOSPC || opcode != OSD_OP_SEC_WRITE && opcode != OSD_OP_SEC_WRITE_STABLE) &&
             (retval != -EIO || opcode != OSD_OP_SEC_READ))
         {
             // Drop connection on unexpected errors
-            op_data->drops++;
             msgr.stop_client(subop->peer_fd);
+            op_data->drops++;
         }
+        // Increase op_data->errors after stop_client to prevent >= n_subops running twice
+        op_data->errors++;
     }
     else
     {
