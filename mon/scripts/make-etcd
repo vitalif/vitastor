@@ -71,7 +71,7 @@ async function run()
         console.log('etcd for Vitastor configured. Run `systemctl enable --now vitastor-etcd` to start etcd');
         process.exit(0);
     }
-    await system(`mkdir -p /var/lib/etcd`);
+    await system(`mkdir -p /var/lib/etcd/vitastor`);
     fs.writeFileSync(
         "/etc/systemd/system/vitastor-etcd.service",
 `[Unit]
@@ -82,14 +82,14 @@ Wants=network-online.target local-fs.target time-sync.target
 [Service]
 Restart=always
 Environment=GOGC=50
-ExecStart=etcd --name ${etcd_name} --data-dir /var/lib/etcd \\
+ExecStart=etcd --name ${etcd_name} --data-dir /var/lib/etcd/vitastor \\
     --snapshot-count 10000 --advertise-client-urls http://${etcds[num]}:2379 --listen-client-urls http://${etcds[num]}:2379 \\
     --initial-advertise-peer-urls http://${etcds[num]}:2380 --listen-peer-urls http://${etcds[num]}:2380 \\
     --initial-cluster-token vitastor-etcd-1 --initial-cluster ${etcd_cluster} \\
     --initial-cluster-state new --max-txn-ops=100000 --max-request-bytes=104857600 \\
     --auto-compaction-retention=10 --auto-compaction-mode=revision
-WorkingDirectory=/var/lib/etcd
-ExecStartPre=+chown -R etcd /var/lib/etcd
+WorkingDirectory=/var/lib/etcd/vitastor
+ExecStartPre=+chown -R etcd /var/lib/etcd/vitastor
 User=etcd
 PrivateTmp=false
 TasksMax=infinity
@@ -102,8 +102,9 @@ WantedBy=multi-user.target
 `);
     await system(`useradd etcd`);
     await system(`systemctl daemon-reload`);
-    await system(`systemctl enable vitastor-etcd`);
-    await system(`systemctl start vitastor-etcd`);
+    // Disable distribution etcd unit and enable our one
+    await system(`systemctl disable --now etcd`);
+    await system(`systemctl enable --now vitastor-etcd`);
     process.exit(0);
 }
 
