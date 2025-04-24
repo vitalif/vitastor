@@ -87,8 +87,22 @@ function sum_op_stats(all_osd, prev_stats)
                 for (const k in derived[type][op])
                 {
                     sum_diff[type][op] = sum_diff[type][op] || {};
-                    sum_diff[type][op][k] = (sum_diff[type][op][k] || 0n) + derived[type][op][k];
+                    if (k == 'lat')
+                        sum_diff[type][op].lat = (sum_diff[type][op].lat || 0n) + derived[type][op].lat*derived[type][op].iops;
+                    else
+                        sum_diff[type][op][k] = (sum_diff[type][op][k] || 0n) + derived[type][op][k];
                 }
+            }
+        }
+    }
+    // Calculate average (weighted by iops) op latency across all OSDs
+    for (const type in sum_diff)
+    {
+        for (const op in sum_diff[type])
+        {
+            if (sum_diff[type][op].iops)
+            {
+                sum_diff[type][op].lat /= sum_diff[type][op].iops;
             }
         }
     }
@@ -271,8 +285,7 @@ function sum_inode_stats(state, prev_stats)
                     const op_st = inode_stats[pool_id][inode_num][op];
                     op_st.bps += op_diff.bps;
                     op_st.iops += op_diff.iops;
-                    op_st.lat += op_diff.lat;
-                    op_st.n_osd = (op_st.n_osd || 0) + 1;
+                    op_st.lat += op_diff.lat*op_diff.iops;
                 }
             }
         }
@@ -285,11 +298,8 @@ function sum_inode_stats(state, prev_stats)
             for (const op of [ 'read', 'write', 'delete' ])
             {
                 const op_st = inode_stats[pool_id][inode_num][op];
-                if (op_st.n_osd)
-                {
-                    op_st.lat /= BigInt(op_st.n_osd);
-                    delete op_st.n_osd;
-                }
+                if (op_st.iops)
+                    op_st.lat /= op_st.iops;
                 if (op_st.bps > 0 || op_st.iops > 0)
                     nonzero = true;
             }
