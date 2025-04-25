@@ -100,7 +100,7 @@ function sum_op_stats(all_osd, prev_stats)
     {
         for (const op in sum_diff[type])
         {
-            if (sum_diff[type][op].iops)
+            if (sum_diff[type][op].lat)
             {
                 sum_diff[type][op].lat /= sum_diff[type][op].iops;
             }
@@ -298,7 +298,7 @@ function sum_inode_stats(state, prev_stats)
             for (const op of [ 'read', 'write', 'delete' ])
             {
                 const op_st = inode_stats[pool_id][inode_num][op];
-                if (op_st.iops)
+                if (op_st.lat)
                     op_st.lat /= op_st.iops;
                 if (op_st.bps > 0 || op_st.iops > 0)
                     nonzero = true;
