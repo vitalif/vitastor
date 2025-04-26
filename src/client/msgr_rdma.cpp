@@ -803,6 +803,9 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
             }
             if (!is_send)
             {
+                // Reset OSD ping state - client is obviously alive
+                cl->ping_time_remaining = 0;
+                cl->idle_time_remaining = osd_idle_timeout;
                 rc->cur_recv--;
                 if (!handle_read_buffer(cl, rc->recv_buffers[rc->next_recv_buf].buf, wc[i].byte_len))
                 {
