@@ -67,14 +67,17 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
         if (cur_op->req.hdr.opcode == OSD_OP_DELETE)
         {
             if (cur_op->op_data)
-                inode_stats[cur_op->req.rw.inode].op_bytes[inode_st_op] += cur_op->op_data->pg->pg_data_size * bs_block_size;
+            {
+                inode_stats[cur_op->req.rw.inode].op_bytes[inode_st_op] += (cur_op->op_data->pg
+                    ? cur_op->op_data->pg->pg_data_size : 1) * bs_block_size;
+            }
         }
         else
             inode_stats[cur_op->req.rw.inode].op_bytes[inode_st_op] += cur_op->req.rw.len;
     }
     if (cur_op->op_data)
     {
-        if (cur_op->op_data->pg_num > 0)
+        if (cur_op->op_data->pg)
         {
             auto & pg = *cur_op->op_data->pg;
             rm_inflight(pg);
@@ -117,10 +120,10 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, const ui
     bool wr = submit_type == SUBMIT_WRITE;
     osd_primary_op_data_t *op_data = cur_op->op_data;
     osd_rmw_stripe_t *stripes = op_data->stripes;
-    bool rep = op_data->pg->scheme == POOL_SCHEME_REPLICATED;
+    bool rep = !op_data->pg || op_data->pg->scheme == POOL_SCHEME_REPLICATED;
     // Allocate subops
     int n_subops = 0, zero_read = -1;
-    for (int role = 0; role < op_data->pg->pg_size; role++)
+    for (int role = 0; role < (op_data->pg ? op_data->pg->pg_size : 1); role++)
     {
         if (osd_set[role] == this->osd_num || osd_set[role] != 0 && zero_read == -1)
             zero_read = role;
@@ -143,11 +146,11 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, const ui
 int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t op_version,
     osd_rmw_stripe_t *stripes, const uint64_t* osd_set, osd_op_t *cur_op, int subop_idx, int zero_read)
 {
-    bool rep = cur_op->op_data->pg->scheme == POOL_SCHEME_REPLICATED;
+    bool rep = !cur_op->op_data->pg || cur_op->op_data->pg->scheme == POOL_SCHEME_REPLICATED;
     bool wr = submit_type == SUBMIT_WRITE;
     osd_primary_op_data_t *op_data = cur_op->op_data;
     int i = subop_idx;
-    for (int role = 0; role < op_data->pg->pg_size; role++)
+    for (int role = 0; role < (op_data->pg ? op_data->pg->pg_size : 1); role++)
     {
         // We always submit zero-length writes to all replicas, even if the stripe is not modified
         if (!(wr || !rep && stripes[role].read_end != 0 || zero_read == role || submit_type == SUBMIT_SCRUB_READ))

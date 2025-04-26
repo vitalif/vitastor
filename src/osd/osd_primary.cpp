@@ -37,7 +37,20 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     };
     pg_num_t pg_num = (oid.stripe/pool_cfg.pg_stripe_size) % pg_counts[pool_id] + 1; // like map_to_pg()
     auto pg_it = pgs.find({ .pool_id = pool_id, .pg_num = pg_num });
-    if (pg_it == pgs.end() || !(pg_it->second.state & PG_ACTIVE))
+    if (pg_it == pgs.end() || pg_it->second.state == PG_OFFLINE)
+    {
+        // Check for a local replicated read from secondary OSD
+        auto lock_it = cur_op->req.hdr.opcode == OSD_OP_READ && pool_cfg.scheme == POOL_SCHEME_REPLICATED
+            ? pg_locks.find({ .pool_id = pool_id, .pg_num = pg_num })
+            : pg_locks.end();
+        if (lock_it == pg_locks.end() || lock_it->second.state != PG_ACTIVE && lock_it->second.state != (PG_ACTIVE|PG_LEFT_ON_DEAD))
+        {
+            // FIXME: Change EPIPE to something else
+            finish_op(cur_op, -EPIPE);
+            return false;
+        }
+    }
+    else if (!(pg_it->second.state & PG_ACTIVE))
     {
         // This OSD is not primary for this PG or the PG is inactive
         // FIXME: Allow reads from PGs degraded under pg_minsize, but don't allow writes
@@ -69,7 +82,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         // Find parents from the same pool. Optimized reads only work within pools
         while (inode_it != st_cli.inode_config.end() &&
             inode_it->second.parent_id &&
-            INODE_POOL(inode_it->second.parent_id) == pg_it->second.pool_id)
+            INODE_POOL(inode_it->second.parent_id) == pool_cfg.id)
         {
             // Check for loops - FIXME check it in etcd_state_client
             if (inode_it->second.parent_id == cur_op->req.rw.inode ||
@@ -109,7 +122,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     );
     void *data_buf = (uint8_t*)op_data + sizeof(osd_primary_op_data_t);
     op_data->pg_num = pg_num;
-    op_data->pg = &pg_it->second;
+    op_data->pg = pg_it == pgs.end() ? NULL : &pg_it->second;
     op_data->oid = oid;
     op_data->stripes = (osd_rmw_stripe_t*)data_buf;
     op_data->stripe_count = stripe_count;
@@ -144,7 +157,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         chain_num++;
         auto inode_it = st_cli.inode_config.find(cur_op->req.rw.inode);
         while (inode_it != st_cli.inode_config.end() && inode_it->second.parent_id &&
-            INODE_POOL(inode_it->second.parent_id) == pg_it->second.pool_id &&
+            INODE_POOL(inode_it->second.parent_id) == pool_cfg.id &&
             // Check for loops
             inode_it->second.parent_id != cur_op->req.rw.inode)
         {
@@ -154,7 +167,10 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
             chain_num++;
         }
     }
-    pg_it->second.inflight++;
+    if (op_data->pg)
+    {
+        op_data->pg->inflight++;
+    }
     return true;
 }
 
@@ -194,6 +210,7 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         return;
     }
     osd_primary_op_data_t *op_data = cur_op->op_data;
+    pg_t *pg = op_data->pg;
     if (op_data->chain_size)
     {
         continue_chained_read(cur_op);
@@ -206,11 +223,10 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
 resume_0:
     cur_op->reply.rw.bitmap_len = 0;
     {
-        auto & pg = *op_data->pg;
         if (cur_op->req.rw.len == 0)
         {
             // len=0 => bitmap read
-            for (int role = 0; role < pg.pg_data_size; role++)
+            for (int role = 0; role < (pg ? pg->pg_data_size : 1); role++)
             {
                 op_data->stripes[role].read_start = 0;
                 op_data->stripes[role].read_end = UINT32_MAX;
@@ -218,40 +234,48 @@ resume_0:
         }
         else
         {
-            for (int role = 0; role < pg.pg_data_size; role++)
+            for (int role = 0; role < (pg ? pg->pg_data_size : 1); role++)
             {
                 op_data->stripes[role].read_start = op_data->stripes[role].req_start;
                 op_data->stripes[role].read_end = op_data->stripes[role].req_end;
             }
         }
         // Determine version
-        auto vo_it = pg.ver_override.find(op_data->oid);
-        op_data->target_ver = vo_it != pg.ver_override.end() ? vo_it->second : UINT64_MAX;
-        // PG may have degraded or misplaced objects
-        op_data->prev_set = get_object_osd_set(pg, op_data->oid, &op_data->object_state);
-        if (pg.state == PG_ACTIVE || pg.scheme == POOL_SCHEME_REPLICATED)
+        if (pg)
+        {
+            auto vo_it = pg->ver_override.find(op_data->oid);
+            op_data->target_ver = vo_it != pg->ver_override.end() ? vo_it->second : UINT64_MAX;
+            // PG may have degraded or misplaced objects
+            op_data->prev_set = get_object_osd_set(*pg, op_data->oid, &op_data->object_state);
+        }
+        else
+        {
+            op_data->target_ver = UINT64_MAX;
+            op_data->prev_set = &this->osd_num;
+        }
+        if (!pg || pg->state == PG_ACTIVE || pg->scheme == POOL_SCHEME_REPLICATED)
         {
             // Fast happy-path
-            if (pg.scheme == POOL_SCHEME_REPLICATED &&
+            if (pg && pg->scheme == POOL_SCHEME_REPLICATED &&
                 op_data->object_state && (op_data->object_state->state & OBJ_INCOMPLETE))
             {
                 finish_op(cur_op, -EIO);
                 return;
             }
-            cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_data_size, 0);
+            cur_op->buf = alloc_read_buffer(op_data->stripes, pg ? pg->pg_data_size : 1, 0);
             submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, op_data->prev_set, cur_op);
             op_data->st = 1;
         }
         else
         {
-            if (extend_missing_stripes(op_data->stripes, op_data->prev_set, pg.pg_data_size, pg.pg_size) < 0)
+            if (extend_missing_stripes(op_data->stripes, op_data->prev_set, pg->pg_data_size, pg->pg_size) < 0)
             {
                 finish_op(cur_op, -EIO);
                 return;
             }
             // Submit reads
             op_data->degraded = 1;
-            cur_op->buf = alloc_read_buffer(op_data->stripes, pg.pg_size, 0);
+            cur_op->buf = alloc_read_buffer(op_data->stripes, pg->pg_size, 0);
             submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, op_data->prev_set, cur_op);
             op_data->st = 1;
         }
@@ -261,32 +285,32 @@ resume_1:
 resume_2:
     if (op_data->errors > 0)
     {
-        if (op_data->errcode == -EIO || op_data->errcode == -EDOM)
+        if (pg && (op_data->errcode == -EIO || op_data->errcode == -EDOM))
         {
             // I/O or checksum error
             // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
-            op_data->object_state = mark_object_corrupted(*op_data->pg, op_data->oid, op_data->object_state, op_data->stripes, false);
+            op_data->object_state = mark_object_corrupted(*pg, op_data->oid, op_data->object_state, op_data->stripes, false);
             goto resume_0;
         }
         finish_op(cur_op, op_data->errcode);
         return;
     }
     cur_op->reply.rw.version = op_data->fact_ver;
-    cur_op->reply.rw.bitmap_len = op_data->pg->pg_data_size * clean_entry_bitmap_size;
+    cur_op->reply.rw.bitmap_len = (pg ? pg->pg_data_size : 1) * clean_entry_bitmap_size;
     if (op_data->degraded)
     {
         // Reconstruct missing stripes
         osd_rmw_stripe_t *stripes = op_data->stripes;
-        if (op_data->pg->scheme == POOL_SCHEME_XOR)
+        if (pg->scheme == POOL_SCHEME_XOR)
         {
-            reconstruct_stripes_xor(stripes, op_data->pg->pg_size, clean_entry_bitmap_size);
+            reconstruct_stripes_xor(stripes, pg->pg_size, clean_entry_bitmap_size);
         }
-        else if (op_data->pg->scheme == POOL_SCHEME_EC)
+        else if (pg->scheme == POOL_SCHEME_EC)
         {
-            reconstruct_stripes_ec(stripes, op_data->pg->pg_size, op_data->pg->pg_data_size, clean_entry_bitmap_size);
+            reconstruct_stripes_ec(stripes, pg->pg_size, pg->pg_data_size, clean_entry_bitmap_size);
         }
         cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
-        for (int role = 0; role < op_data->pg->pg_size; role++)
+        for (int role = 0; role < pg->pg_size; role++)
         {
             if (stripes[role].req_end != 0)
             {
