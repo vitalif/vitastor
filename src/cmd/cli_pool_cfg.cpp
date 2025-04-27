@@ -44,10 +44,10 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
         new_cfg["parity_chunks"] = parity_chunks;
     }
 
-    if (old_cfg.is_null() && new_cfg["scheme"].string_value() == "")
+    if (new_cfg["scheme"].string_value() == "")
     {
         // Default scheme
-        new_cfg["scheme"] = "replicated";
+        new_cfg["scheme"] = old_cfg.is_null() ? "replicated" : old_cfg["scheme"];
     }
     if (new_cfg.find("pg_minsize") == new_cfg.end() && (old_cfg.is_null() || new_cfg.find("pg_size") != new_cfg.end()))
     {
