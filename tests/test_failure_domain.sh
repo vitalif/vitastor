@@ -31,4 +31,8 @@ sleep 2
 $ETCDCTL get --prefix /vitastor/pg/config --print-value-only | \
     jq -s -e '([ .[0].items["1"] | .[].osd_set | map_values(. | tonumber) | select((.[0] <= 4) != (.[1] <= 4)) ] | length) == 4'
 
+# test pool with size 1
+build/src/cmd/vitastor-cli --etcd_address $ETCD_URL create-pool size1pool -s 1 -n 1 --force
+wait_condition 10 "$ETCDCTL get --prefix /vitastor/pg/config --print-value-only | jq -s -e '.[0].items["'"'"2"'"'"]'"
+
 format_green OK

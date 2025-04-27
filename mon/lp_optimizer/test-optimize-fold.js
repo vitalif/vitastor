@@ -36,6 +36,18 @@ async function run()
         [ [ [ 'dc' ], [ 'host' ] ] ]
     ), 0, 2));
 
+    console.log('\nfold_failure_domains empty rules');
+    console.log(JSON.stringify(fold_failure_domains(
+        [
+            { id: 1,       level: 'osd',  size: 1, parent: 'disk1' },
+            { id: 2,       level: 'osd',  size: 2, parent: 'disk1' },
+            { id: 'disk1', level: 'disk', parent: 'host1' },
+            { id: 'host1', level: 'host', parent: 'dc1' },
+            { id: 'dc1',   level: 'dc' },
+        ],
+        []
+    ), 0, 2));
+
     console.log('\noptimize_folded');
     // 5 DCs, 2 hosts per DC, 10 OSD per host
     const nodes = [];

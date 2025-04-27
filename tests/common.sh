@@ -87,6 +87,22 @@ wait_etcd()
     done
 }
 
+wait_condition()
+{
+    sec=$1
+    check=$2
+    proc=$3
+    i=0
+    while [[ $i -lt $sec ]]; do
+        eval "$check" && break
+        if [ $i -eq $sec ]; then
+            format_error "$proc couldn't finish in $sec seconds"
+        fi
+        sleep 1
+        i=$((i+1))
+    done
+}
+
 if [[ -n "$ANTIETCD" ]]; then
     ETCDCTL="node mon/node_modules/.bin/anticli -e $ETCD_URL"
     MON_PARAMS="--use_antietcd 1 --antietcd_data_dir ./testdata --antietcd_persist_interval 500 $MON_PARAMS"

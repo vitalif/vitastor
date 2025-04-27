@@ -34,7 +34,7 @@ function fold_failure_domains(node_list, rules)
         folded = false;
         for (const node_id in per_parent)
         {
-            const fold_node = per_parent[node_id].filter(child => per_parent[child.id||''] || interest[child.level]).length == 0;
+            const fold_node = node_id !== '' && per_parent[node_id].length > 0 && per_parent[node_id].filter(child => per_parent[child.id||''] || interest[child.level]).length == 0;
             if (fold_node)
             {
                 const old_node = node_map[node_id];

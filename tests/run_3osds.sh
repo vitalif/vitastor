@@ -127,22 +127,6 @@ try_reweight()
     sleep 3
 }
 
-wait_condition()
-{
-    sec=$1
-    check=$2
-    proc=$3
-    i=0
-    while [[ $i -lt $sec ]]; do
-        eval "$check" && break
-        if [ $i -eq $sec ]; then
-            format_error "$proc couldn't finish in $sec seconds"
-        fi
-        sleep 1
-        i=$((i+1))
-    done
-}
-
 wait_finish_rebalance()
 {
     sec=$1
