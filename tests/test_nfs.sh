@@ -165,4 +165,24 @@ if ls ./testdata/nfs | grep over1; then false; fi
 [[ "`cat ./testdata/nfs/linked1`" = "BABABA" ]]
 format_green "rename over existing file ok"
 
+# check listing and removal of a bad direntry
+sudo umount ./testdata/nfs/
+build/src/kv/vitastor-kv --etcd_address $ETCD_URL fsmeta set d11/settings.jsonLGNmGn '{"ino": 123}'
+sudo mount localhost:/ ./testdata/nfs -o port=2050,mountport=2050,nfsvers=3,soft,nolock,tcp
+ls -l ./testdata/nfs
+ls -l ./testdata/nfs/settings.jsonLGNmGn
+rm ./testdata/nfs/settings.jsonLGNmGn
+build/src/kv/vitastor-kv --etcd_address $ETCD_URL fsmeta get d11/settings.jsonLGNmGn 2>&1 | grep '(code -2)'
+ls -l ./testdata/nfs
+
+# repeat with ino=0
+sudo umount ./testdata/nfs/
+build/src/kv/vitastor-kv --etcd_address $ETCD_URL fsmeta set d11/settings.jsonLGNmGn '{"ino": 0}'
+sudo mount localhost:/ ./testdata/nfs -o port=2050,mountport=2050,nfsvers=3,soft,nolock,tcp
+ls -l ./testdata/nfs
+ls -l ./testdata/nfs/settings.jsonLGNmGn
+rm ./testdata/nfs/settings.jsonLGNmGn
+build/src/kv/vitastor-kv --etcd_address $ETCD_URL fsmeta get d11/settings.jsonLGNmGn 2>&1 | grep '(code -2)'
+ls -l ./testdata/nfs
+
 format_green OK

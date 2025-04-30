@@ -13,6 +13,12 @@ void kv_read_inode(nfs_proxy_t *proxy, uint64_t ino,
     std::function<void(int res, const std::string & value, json11::Json ientry)> cb,
     bool allow_cache)
 {
+    if (!ino)
+    {
+        // Zero value can not exist
+        cb(-ENOENT, "", json11::Json());
+        return;
+    }
     auto key = kv_inode_key(ino);
     proxy->db->get(key, [=](int res, const std::string & value)
     {
@@ -49,7 +55,7 @@ int kv_nfs3_getattr_proc(void *opaque, rpc_op_t *rop)
     auto ino = kv_fh_inode(fh);
     if (self->parent->trace)
         fprintf(stderr, "[%d] GETATTR %ju\n", self->nfs_fd, ino);
-    if (!kv_fh_valid(fh))
+    if (!kv_fh_valid(fh) || !ino)
     {
         *reply = (GETATTR3res){ .status = NFS3ERR_INVAL };
         rpc_queue_reply(rop);

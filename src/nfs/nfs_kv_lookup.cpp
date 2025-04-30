@@ -43,9 +43,30 @@ int kv_nfs3_lookup_proc(void *opaque, rpc_op_t *rop)
         uint64_t ino = direntry["ino"].uint64_value();
         kv_read_inode(self->parent, ino, [=](int res, const std::string & value, json11::Json ientry)
         {
-            if (res < 0)
+            if (res == -ENOENT)
             {
-                *reply = (LOOKUP3res){ .status = vitastor_nfs_map_err(res == -ENOENT ? -EIO : res) };
+                *reply = (LOOKUP3res){
+                    .status = NFS3_OK,
+                    .resok = (LOOKUP3resok){
+                        .object = xdr_copy_string(rop->xdrs, kv_fh(ino)),
+                        .obj_attributes = {
+                            .attributes_follow = 1,
+                            .attributes = (fattr3){
+                                .type = (ftype3)0,
+                                .mode = 0666,
+                                .nlink = 1,
+                                .fsid = self->parent->fsid,
+                                .fileid = ino,
+                            },
+                        },
+                    },
+                };
+                rpc_queue_reply(rop);
+                return;
+            }
+            else if (res < 0)
+            {
+                *reply = (LOOKUP3res){ .status = vitastor_nfs_map_err(res) };
                 rpc_queue_reply(rop);
                 return;
             }

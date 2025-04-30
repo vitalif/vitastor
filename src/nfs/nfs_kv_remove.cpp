@@ -89,12 +89,23 @@ resume_1:
 resume_2:
     if (st->res < 0)
     {
-        fprintf(stderr, "error reading inode %s: %s (code %d)\n",
-            kv_inode_key(st->ino).c_str(), strerror(-st->res), st->res);
-        auto cb = std::move(st->cb);
-        cb(st->res);
-        return;
+        if (st->res == -ENOENT)
+        {
+            // Just delete direntry and skip inode
+            fprintf(stderr, "direntry %s references a non-existing inode %ju, deleting\n",
+                kv_direntry_key(st->dir_ino, st->filename).c_str(), st->ino);
+            st->ino = 0;
+        }
+        else
+        {
+            fprintf(stderr, "error reading inode %s: %s (code %d)\n",
+                kv_inode_key(st->ino).c_str(), strerror(-st->res), st->res);
+            auto cb = std::move(st->cb);
+            cb(st->res);
+            return;
+        }
     }
+    else
     {
         std::string err;
         st->ientry = json11::Json::parse(st->ientry_text, err);
