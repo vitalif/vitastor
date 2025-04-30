@@ -210,6 +210,7 @@ resume_4:
             st->res = res;
             kv_continue_create(st, 5);
         });
+        return;
 resume_5:
         if (st->res < 0)
         {
