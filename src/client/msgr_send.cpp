@@ -319,7 +319,8 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
         }
         if (more)
         {
-            assert(done == cl->send_list.size());
+            auto expected = cl->send_list.size() < IOV_MAX ? cl->send_list.size() : IOV_MAX;
+            assert(done == expected);
             cl->zc_free_list.push_back(NULL); // end marker
         }
         if (done > 0)
