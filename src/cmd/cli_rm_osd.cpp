@@ -5,6 +5,7 @@
 #include "cli.h"
 #include "cluster_client.h"
 #include "str_util.h"
+#include "json_util.h"
 #include "epoll_manager.h"
 
 #include <algorithm>
@@ -22,8 +23,8 @@ struct rm_osd_t
     int state = 0;
     cli_result_t result;
 
-    std::set<uint64_t> to_remove;
-    std::set<uint64_t> to_restart;
+    std::set<osd_num_t> to_remove;
+    std::vector<osd_num_t> still_up;
     json11::Json::array pool_effects;
     json11::Json::array history_updates, history_checks;
     json11::Json new_pgs, new_clean_pgs;
@@ -63,8 +64,17 @@ struct rm_osd_t
             }
             to_remove.insert(osd_id);
         }
-        // Check if OSDs are still used in data distribution
         is_warning = is_dataloss = false;
+        // Check if OSDs are still up
+        for (auto osd_id: to_remove)
+        {
+            if (parent->cli->st_cli.peer_states.find(osd_id) != parent->cli->st_cli.peer_states.end())
+            {
+                is_warning = true;
+                still_up.push_back(osd_id);
+            }
+        }
+        // Check if OSDs are still used in data distribution
         for (auto & pp: parent->cli->st_cli.pool_config)
         {
             // Will OSD deletion make pool incomplete / down / degraded?
@@ -158,6 +168,9 @@ struct rm_osd_t
                                 : strtoupper(e["effect"].string_value())+" PGs"))
                 )+" after deleting OSD(s).\n";
             }
+            if (still_up.size())
+                error += (still_up.size() == 1 ? "OSD " : "OSDs ") + implode(", ", still_up) +
+                    (still_up.size() == 1 ? "is" : "are") + " still up. Use `vitastor-disk purge` to delete them.\n";
             if (is_dataloss && !force_dataloss && !dry_run)
                 error += "OSDs not deleted. Please move data to other OSDs or bypass this check with --allow-data-loss if you know what you are doing.\n";
             else if (is_warning && !force_warning && !dry_run)
