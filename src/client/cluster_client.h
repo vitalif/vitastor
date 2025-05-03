@@ -86,8 +86,8 @@ class cluster_client_t
 #ifdef __MOCK__
 public:
 #endif
-    timerfd_manager_t *tfd;
-    ring_loop_t *ringloop;
+    timerfd_manager_t *tfd = NULL;
+    ring_loop_t *ringloop = NULL;
 
     std::map<pool_id_t, uint64_t> pg_counts;
     std::map<pool_pg_num_t, osd_num_t> pg_primary;

@@ -870,7 +870,7 @@ static void get_block(kv_db_t *db, uint64_t offset, int cur_level, int recheck_p
         }
         // Block already in cache, we can proceed
         blk->usage = db->usage_counter;
-        cb(0, BLK_UPDATING);
+        db->cli->msgr.ringloop->set_immediate([=] { cb(0, BLK_UPDATING); });
         return;
     }
     cluster_op_t *op = new cluster_op_t;
