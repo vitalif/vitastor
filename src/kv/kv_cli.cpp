@@ -17,6 +17,8 @@
 #include "str_util.h"
 #include "vitastor_kv.h"
 
+#define KV_LIST_BUF_SIZE 65536
+
 const char *exe_name = NULL;
 
 class kv_cli_t
@@ -290,10 +292,26 @@ void kv_cli_t::next_cmd()
 struct kv_cli_list_t
 {
     vitastorkv_dbw_t *db = NULL;
+    std::string buf;
     void *handle = NULL;
     int format = 0;
     int n = 0;
     std::function<void(int)> cb;
+
+    void write(const std::string & str)
+    {
+        if (buf.capacity() < KV_LIST_BUF_SIZE)
+            buf.reserve(KV_LIST_BUF_SIZE);
+        if (buf.size() + str.size() > buf.capacity())
+            flush();
+        buf.append(str.data(), str.size());
+    }
+
+    void flush()
+    {
+        ::write(1, buf.data(), buf.size());
+        buf.resize(0);
+    }
 };
 
 std::vector<std::string> kv_cli_t::parse_cmd(const std::string & str)
@@ -604,11 +622,10 @@ void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<vo
             if (res < 0)
             {
                 if (res != -ENOENT)
-                {
                     fprintf(stderr, "Error: %s (code %d)\n", strerror(-res), res);
-                }
                 if (lst->format == 2)
-                    printf("\n}\n");
+                    lst->write("\n}\n");
+                lst->flush();
                 lst->db->list_close(lst->handle);
                 lst->cb(res == -ENOENT ? 0 : res);
                 delete lst;
@@ -616,11 +633,27 @@ void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<vo
             else
             {
                 if (lst->format == 2)
-                    printf(lst->n ? ",\n  %s: %s" : "{\n  %s: %s", addslashes(key).c_str(), addslashes(value).c_str());
+                {
+                    lst->write(lst->n ? ",\n  " : "{\n  ");
+                    lst->write(addslashes(key));
+                    lst->write(": ");
+                    lst->write(addslashes(value));
+                }
                 else if (lst->format == 1)
-                    printf("set %s %s\n", auto_addslashes(key).c_str(), value.c_str());
+                {
+                    lst->write("set ");
+                    lst->write(auto_addslashes(key));
+                    lst->write(" ");
+                    lst->write(value);
+                    lst->write("\n");
+                }
                 else
-                    printf("%s = %s\n", key.c_str(), value.c_str());
+                {
+                    lst->write(key);
+                    lst->write(" = ");
+                    lst->write(value);
+                    lst->write("\n");
+                }
                 lst->n++;
                 lst->db->list_next(lst->handle, NULL);
             }
