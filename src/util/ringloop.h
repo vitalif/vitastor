@@ -157,6 +157,7 @@ public:
     inline void set_immediate(const std::function<void()> cb)
     {
         immediate_queue.push_back(cb);
+        wakeup();
     }
     inline int submit()
     {
