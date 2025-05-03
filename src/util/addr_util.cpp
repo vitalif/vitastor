@@ -245,3 +245,13 @@ int create_and_bind_socket(std::string bind_address, int bind_port, int listen_b
 
     return listen_fd;
 }
+
+std::string gethostname_str()
+{
+    std::string hostname;
+    hostname.resize(1024);
+    while (gethostname((char*)hostname.data(), hostname.size()) < 0 && errno == ENAMETOOLONG)
+        hostname.resize(hostname.size()+1024);
+    hostname.resize(strnlen(hostname.data(), hostname.size()));
+    return hostname;
+}

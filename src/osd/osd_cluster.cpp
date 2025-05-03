@@ -158,18 +158,13 @@ bool osd_t::check_peer_config(osd_client_t *cl, json11::Json conf)
 
 json11::Json osd_t::get_osd_state()
 {
-    std::vector<char> hostname;
-    hostname.resize(1024);
-    while (gethostname(hostname.data(), hostname.size()) < 0 && errno == ENAMETOOLONG)
-        hostname.resize(hostname.size()+1024);
-    hostname.resize(strnlen(hostname.data(), hostname.size()));
     json11::Json::object st;
     st["state"] = "up";
     if (bind_addresses.size() != 1 || bind_addresses[0] != "0.0.0.0")
         st["addresses"] = bind_addresses;
     else
         st["addresses"] = getifaddr_list();
-    st["host"] = std::string(hostname.data(), hostname.size());
+    st["host"] = gethostname_str();
     st["version"] = VITASTOR_VERSION;
     st["port"] = listening_port;
 #ifdef WITH_RDMACM

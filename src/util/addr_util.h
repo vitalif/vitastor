@@ -21,3 +21,4 @@ bool cidr6_match(const in6_addr &address, const in6_addr &network, uint8_t bits)
 bool cidr_sockaddr_match(const sockaddr_storage &addr, const addr_mask_t &mask);
 std::vector<std::string> getifaddr_list(const std::vector<addr_mask_t> & masks = std::vector<addr_mask_t>(), bool include_v6 = false);
 int create_and_bind_socket(std::string bind_address, int bind_port, int listen_backlog, int *listening_port);
+std::string gethostname_str();
