@@ -14,6 +14,7 @@
 - [Removing a failed disk](#removing-a-failed-disk)
 - [Adding a disk](#adding-a-disk)
 - [Restoring from lost pool configuration](#restoring-from-lost-pool-configuration)
+- [Incompatibility problems](#Incompatibility-problems)
 - [Upgrading Vitastor](#upgrading-vitastor)
 - [OSD memory usage](#osd-memory-usage)
 
@@ -165,6 +166,17 @@ done
 ```
 
 After that all PGs should peer and find all previous data.
+
+## Incompatibility problems
+
+### ISA-L 2.31
+
+⚠ It is FORBIDDEN to use Vitastor 2.1.0 and earlier versions with ISA-L 2.31 and newer if
+you use EC N+K pools and K > 1 on a CPU with GF-NI instruction support, because it WILL
+lead to **data loss** during EC recovery.
+
+If you accidentally upgraded ISA-L to 2.31 but didn't upgrade Vitastor and restarted OSDs,
+then stop them as soon as possible and either update Vitastor or roll back ISA-L.
 
 ## Upgrading Vitastor
 

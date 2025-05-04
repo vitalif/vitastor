@@ -162,6 +162,7 @@ struct reed_sol_matrix_t
     int refs = 0;
     int *je_data;
     uint8_t *isal_data;
+    int isal_item_size;
     // 32 bytes = 256/8 = max pg_size/8
     std::map<std::array<uint8_t, 32>, void*> subdata;
     std::map<reed_sol_erased_t, void*> decodings;
@@ -181,20 +182,42 @@ void use_ec(int pg_size, int pg_minsize, bool use)
         }
         int *matrix = reed_sol_vandermonde_coding_matrix(pg_minsize, pg_size-pg_minsize, OSD_JERASURE_W);
         uint8_t *isal_table = NULL;
+        int item_size = 8;
 #ifdef WITH_ISAL
         uint8_t *isal_matrix = (uint8_t*)malloc_or_die(pg_minsize*(pg_size-pg_minsize));
         for (int i = 0; i < pg_minsize*(pg_size-pg_minsize); i++)
         {
             isal_matrix[i] = matrix[i];
         }
-        isal_table = (uint8_t*)malloc_or_die(pg_minsize*(pg_size-pg_minsize)*32);
+        isal_table = (uint8_t*)calloc_or_die(1, pg_minsize*(pg_size-pg_minsize)*32);
         ec_init_tables(pg_minsize, pg_size-pg_minsize, isal_matrix, isal_table);
         free(isal_matrix);
+        for (int i = pg_minsize*(pg_size-pg_minsize)*8; i < pg_minsize*(pg_size-pg_minsize)*32; i++)
+        {
+            if (isal_table[i] != 0)
+            {
+                // ISA-L GF-NI version uses 8-byte table items
+                item_size = 32;
+                break;
+            }
+        }
+        // Sanity check: rows should never consist of all zeroes
+        uint8_t zero_row[pg_minsize*item_size];
+        memset(zero_row, 0, pg_minsize*item_size);
+        for (int i = 0; i < (pg_size-pg_minsize); i++)
+        {
+            if (memcmp(isal_table + i*pg_minsize*item_size, zero_row, pg_minsize*item_size) == 0)
+            {
+                fprintf(stderr, "BUG or ISA-L incompatibility: EC tables shouldn't have all-zero rows\n");
+                abort();
+            }
+        }
 #endif
         matrices[key] = (reed_sol_matrix_t){
             .refs = 0,
             .je_data = matrix,
             .isal_data = isal_table,
+            .isal_item_size = item_size,
         };
         rs_it = matrices.find(key);
     }
@@ -235,7 +258,7 @@ static reed_sol_matrix_t* get_ec_matrix(int pg_size, int pg_minsize)
 // we don't need it. also it makes an extra allocation of int *erased on every call and doesn't cache
 // the decoding matrix.
 // all these flaws are fixed in this function:
-static void* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize)
+static void* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, int *item_size)
 {
     int edd = 0;
     int erased[pg_size];
@@ -292,6 +315,7 @@ static void* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size
         int *erased_copy = (int*)(rectable + 32*smrow*pg_minsize);
         memcpy(erased_copy, erased, pg_size*sizeof(int));
         matrix->decodings.emplace((reed_sol_erased_t){ .data = erased_copy, .size = pg_size }, rectable);
+        *item_size = matrix->isal_item_size;
         return rectable;
 #else
         int *dm_ids = (int*)malloc_or_die(sizeof(int)*(pg_minsize + pg_minsize*pg_minsize + pg_size));
@@ -355,7 +379,8 @@ static void jerasure_matrix_encode_unaligned(int k, int m, int w, int *matrix, c
 #ifdef WITH_ISAL
 void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, uint32_t bitmap_size)
 {
-    uint8_t *dectable = (uint8_t*)get_jerasure_decoding_matrix(stripes, pg_size, pg_minsize);
+    int item_size = 0;
+    uint8_t *dectable = (uint8_t*)get_jerasure_decoding_matrix(stripes, pg_size, pg_minsize, &item_size);
     if (!dectable)
     {
         return;
@@ -378,7 +403,7 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
                 }
             }
             ec_encode_data(
-                read_end-read_start, pg_minsize, wanted, dectable + wanted_base*32*pg_minsize,
+                read_end-read_start, pg_minsize, wanted, dectable + wanted_base*item_size*pg_minsize,
                 data_ptrs, data_ptrs + pg_minsize
             );
         }
@@ -433,7 +458,7 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
 #else
 void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, uint32_t bitmap_size)
 {
-    int *dm_ids = (int*)get_jerasure_decoding_matrix(stripes, pg_size, pg_minsize);
+    int *dm_ids = (int*)get_jerasure_decoding_matrix(stripes, pg_size, pg_minsize, NULL);
     if (!dm_ids)
     {
         return;
@@ -980,7 +1005,7 @@ void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
                 {
                     int item_size =
 #ifdef WITH_ISAL
-                        32;
+                        matrix->isal_item_size;
 #else
                         sizeof(int);
 #endif
