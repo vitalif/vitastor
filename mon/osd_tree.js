@@ -110,7 +110,7 @@ function make_hier_tree(global_config, tree)
             if (!(tree[node_id].children||[]).length && (tree[node_id].size||0) <= 0)
             {
                 const parent = tree[node_id].parent;
-                if (parent)
+                if (parent && tree[parent])
                 {
                     tree[parent].children = tree[parent].children.filter(c => c != tree[node_id]);
                 }
