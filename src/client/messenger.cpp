@@ -638,7 +638,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
         // Inform that we're OSD <osd_num>
         payload["osd_num"] = osd_num;
     }
-    payload["check_sequencing"] = true;
+    payload["features"] = json11::Json::object{ { "check_sequencing", true } };
 #ifdef WITH_RDMA
     if (!use_rdmacm && rdma_contexts.size())
     {

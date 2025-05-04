@@ -198,7 +198,7 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
     json11::Json req_json = cur_op->req.show_conf.json_len > 0
         ? json11::Json::parse(std::string((char *)cur_op->buf), json_err)
         : json11::Json();
-    if (req_json["check_sequencing"].bool_value())
+    if (req_json["features"]["check_sequencing"].bool_value())
     {
         auto cl = msgr.clients.at(cur_op->peer_fd);
         cl->check_sequencing = true;
