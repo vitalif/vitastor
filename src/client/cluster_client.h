@@ -100,12 +100,17 @@ public:
     uint64_t client_max_buffered_bytes = 0;
     uint64_t client_max_buffered_ops = 0;
     uint64_t client_max_writeback_iodepth = 0;
+    std::string conf_hostname;
 
     int log_level = 0;
     int client_retry_interval = 50; // ms
     int client_eio_retry_interval = 1000; // ms
     bool client_retry_enospc = true;
     int client_wait_up_timeout = 16; // sec (for listings)
+
+    std::string client_hostname;
+    std::map<std::string, int> self_tree_metrics;
+    std::map<osd_num_t, int> osd_tree_metrics;
 
     int retry_timeout_id = -1;
     int retry_timeout_duration = 0;
@@ -161,11 +166,14 @@ protected:
 protected:
     bool affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd);
     bool affects_pg(uint64_t inode, uint64_t offset, uint64_t len, pool_id_t pool_id, pg_num_t pg_num);
+
     void on_load_config_hook(json11::Json::object & config);
     void on_load_pgs_hook(bool success);
     void on_change_pool_config_hook();
     void on_change_pg_state_hook(pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary);
     void on_change_osd_state_hook(uint64_t peer_osd);
+    void on_change_node_placement_hook();
+
     void execute_internal(cluster_op_t *op);
     void unshift_op(cluster_op_t *op);
     int continue_rw(cluster_op_t *op);
@@ -190,6 +198,9 @@ protected:
     void finish_list_pg(inode_list_pg_t *pg, bool retry_epipe);
     bool check_finish_listing(inode_list_t *lst);
     void continue_raw_ops(osd_num_t peer_osd);
+
+    osd_num_t select_random_osd(const std::vector<osd_num_t> & osds);
+    osd_num_t select_nearest_osd(const std::vector<osd_num_t> & osds);
 
     friend class writeback_cache_t;
 };

@@ -125,6 +125,13 @@ All other client-side components are based on the client library:
   all current read/write operations to it fail with EPIPE error and are retried by clients.
 - After completing all secondary read/write requests, primary OSD sends the response to
   the client.
+- When [localized reads](../config/pool.en.md#local_reads) are enabled for a PG in a
+  replicated pool, and the PG is in an active and clean state (active or
+  active+left_on_dead), the client can send the request to one of secondary OSDs instead
+  of the primary. Secondary OSD checks the [PG lock](../config/osd.en.md#enable_pg_locks)
+  and handles the request locally without communicating to the primary. PG lock is required
+  for the secondary OSD to know for sure that the PG is in clean state and not switching
+  primary at the moment.
 
 ### Nuances of request handling
 

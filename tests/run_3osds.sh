@@ -68,17 +68,17 @@ if [ "$SCHEME" = "ec" ]; then
     PG_SIZE=${PG_SIZE:-5}
     PG_MINSIZE=${PG_MINSIZE:-4}
     PG_DATA_SIZE=${PG_DATA_SIZE:-3}
-    POOLCFG='"scheme":"ec","parity_chunks":'$((PG_SIZE-PG_DATA_SIZE))
+    POOLCFG="$POOLCFG"'"scheme":"ec","parity_chunks":'$((PG_SIZE-PG_DATA_SIZE))
 elif [ "$SCHEME" = "xor" ]; then
     PG_SIZE=${PG_SIZE:-3}
     PG_MINSIZE=${PG_MINSIZE:-3}
     PG_DATA_SIZE=$((PG_SIZE-1))
-    POOLCFG='"scheme":"xor","parity_chunks":1'
+    POOLCFG="$POOLCFG"'"scheme":"xor","parity_chunks":1'
 else
     PG_SIZE=${PG_SIZE:-2}
     PG_MINSIZE=${PG_MINSIZE:-2}
     PG_DATA_SIZE=1
-    POOLCFG='"scheme":"replicated"'
+    POOLCFG="$POOLCFG"'"scheme":"replicated"'
 fi
 POOLCFG='"name":"testpool","failure_domain":"osd",'$POOLCFG
 $ETCDCTL put /vitastor/config/pools '{"1":{'$POOLCFG',"pg_size":'$PG_SIZE',"pg_minsize":'$PG_MINSIZE',"pg_count":'$PG_COUNT'}}'

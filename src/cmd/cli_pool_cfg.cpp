@@ -91,7 +91,7 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
         }
         else if (key == "name" || key == "scheme" || key == "immediate_commit" ||
             key == "failure_domain" || key == "root_node" || key == "scrub_interval" || key == "used_for_app" ||
-            key == "used_for_fs" || key == "raw_placement")
+            key == "used_for_fs" || key == "raw_placement" || key == "local_reads")
         {
             if (!value.is_string())
             {
@@ -164,6 +164,10 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
     {
         new_cfg["used_for_app"] = "fs:"+new_cfg["used_for_fs"].string_value();
         new_cfg.erase("used_for_fs");
+    }
+    if (new_cfg.find("local_reads") != new_cfg.end() && new_cfg["local_reads"].string_value() == "primary")
+    {
+        new_cfg.erase("local_reads");
     }
 
     // Prevent autovivification of object keys. Now we don't modify the config, we just check it
@@ -337,6 +341,20 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
         if (!ok)
         {
             return "scrub_interval must be a time interval (number + unit s/m/h/d/M/y), but it is "+cfg["scrub_interval"].as_string();
+        }
+    }
+
+    // local_reads
+    if (!cfg["local_reads"].is_null())
+    {
+        auto lr = cfg["local_reads"].string_value();
+        if (lr != "" && lr != "primary" && lr != "nearest" && lr != "random")
+        {
+            return "local_reads must be '', 'primary', 'nearest' or 'random', but it is "+cfg["local_reads"].string_value();
+        }
+        if (lr != "" && lr != "primary" && scheme != POOL_SCHEME_REPLICATED)
+        {
+            return "EC pools don't support localized reads, please clear local_reads or set it to 'primary'";
         }
     }
 

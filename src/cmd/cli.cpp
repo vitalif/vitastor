@@ -185,6 +185,7 @@ static const char* help_text =
     "    --immediate_commit all        Put pool only on OSDs with this or larger immediate_commit (none < small < all)\n"
     "    --level_placement <rules>     Use additional failure domain rules (example: \"dc=112233\")\n"
     "    --raw_placement <rules>       Specify raw PG generation rules (see documentation for details)\n"
+    "    --local_reads primary         Local read policy for replicated pools: primary, nearest or random\n"
     "    --primary_affinity_tags tags  Prefer to put primary copies on OSDs with all specified tags\n"
     "    --scrub_interval <time>       Enable regular scrubbing for this pool. Format: number + unit s/m/h/d/M/y\n"
     "    --used_for_app fs:<name>      Mark pool as used for VitastorFS with metadata in image <name>\n"

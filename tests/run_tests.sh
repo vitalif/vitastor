@@ -63,6 +63,7 @@ SCHEME=xor ./test_write.sh
 ./test_write_no_same.sh
 
 PG_SIZE=2 ./test_heal.sh
+TEST_NAME=local_read POOLCFG='"local_reads":"random",' ./test_heal.sh
 SCHEME=ec ./test_heal.sh
 ANTIETCD=1 ./test_heal.sh
 

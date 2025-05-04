@@ -397,6 +397,7 @@ Optional parameters:
 | `--immediate_commit none`      | Put pool only on OSDs with this or larger immediate_commit (none < small < all) |
 | `--level_placement <rules>`    | Use additional failure domain rules (example: "dc=112233")                 |
 | `--raw_placement <rules>`      | Specify raw PG generation rules ([details](../config/pool.en.md#raw_placement)) |
+| `--local_reads primary`        | Local read policy for replicated pools: primary, nearest or random         |
 | `--primary_affinity_tags tags` | Prefer to put primary copies on OSDs with all specified tags               |
 | `--scrub_interval <time>`      | Enable regular scrubbing for this pool. Format: number + unit s/m/h/d/M/y  |
 | `--used_for_app fs:<name>`     | Mark pool as used for VitastorFS with metadata in image `<name>`           |

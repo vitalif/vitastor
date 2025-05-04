@@ -24,6 +24,7 @@ affect their interaction with the cluster.
 - [nbd_max_devices](#nbd_max_devices)
 - [nbd_max_part](#nbd_max_part)
 - [osd_nearfull_ratio](#osd_nearfull_ratio)
+- [hostname](#hostname)
 
 ## client_iothread_count
 
@@ -215,3 +216,12 @@ just one OSD becomes 100 % full!
 However, unlike in Ceph, 100 % full Vitastor OSDs don't crash (in Ceph they're
 unable to start at all), so you'll be able to recover from "out of space" errors
 without destroying and recreating OSDs.
+
+## hostname
+
+- Type: string
+- Can be changed online: yes
+
+Clients use host name to find their distance to OSDs when [localized reads](pool.en.md#local_reads)
+are enabled. By default, standard [gethostname](https://man7.org/linux/man-pages/man2/gethostname.2.html)
+function is used to determine host name, but you can also override it with this parameter.

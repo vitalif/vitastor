@@ -25,6 +25,7 @@
 - Recovery of degraded blocks
 - Rebalancing (data movement between OSDs)
 - [Lazy fsync support](../config/layout-cluster.en.md#immediate_commit)
+- [Localized read support](../config/pool.en.md#local_reads) for cross-datacenter setup optimization
 - Per-OSD and per-image I/O and space usage statistics in etcd
 - Snapshots and copy-on-write image clones
 - [Write throttling to smooth random write workloads in SSD+HDD configurations](../config/osd.en.md#throttle_small_writes)

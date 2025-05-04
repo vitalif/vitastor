@@ -34,6 +34,7 @@ Parameters:
 - [failure_domain](#failure_domain)
 - [level_placement](#level_placement)
 - [raw_placement](#raw_placement)
+- [local_reads](#local_reads)
 - [max_osd_combinations](#max_osd_combinations)
 - [block_size](#block_size)
 - [bitmap_granularity](#bitmap_granularity)
@@ -133,8 +134,8 @@ Pool name.
 ## scheme
 
 - Type: string
-- Required
 - One of: "replicated", "xor", "ec" or "jerasure"
+- Required
 
 Redundancy scheme used for data in this pool. "jerasure" is an alias for "ec",
 both use Reed-Solomon-Vandermonde codes based on ISA-L or jerasure libraries.
@@ -289,6 +290,26 @@ Examples:
 - EC 4+2 in 3 DC: `any, dc=1 host!=1, dc!=1, dc=3 host!=3, dc!=(1,3), dc=5 host!=5`
 - 1 replica in fixed DC + 2 in random DCs: `dc?=meow, dc!=1, dc!=(1,2)`
 
+## local_reads
+
+- Type: string
+- One of: "primary", "nearest" or "random"
+- Default: primary
+
+By default, Vitastor serves all read and write requests from the primary OSD of each PG.
+But it can also serve read requests for replicated pools from secondary OSDs in clean PGs
+(active or active+left_on_dead) which may be useful if you have OSDs with different network
+latency to the client - for example, if you have a cross-datacenter setup.
+
+If you set this parameter to "nearest", clients will try to read from the nearest OSD
+in the [Placement Tree](#placement-tree), i.e. from an OSD from the same host or datacenter.
+Distance to different OSDs will be calculated based on client hostname, determined
+automatically or set manually in the [hostname](client.en.md#hostname) parameter.
+
+If you set this parameter to "random", clients will try to distribute read requests over
+all available secondary OSDs. This mode is mainly useful for tests, but, probably, not
+really required in production setups.
+
 ## max_osd_combinations
 
 - Type: integer
@@ -324,7 +345,8 @@ Read more about this parameter in [Cluster-Wide Disk Layout Parameters](layout-c
 
 ## immediate_commit
 
-- Type: string, one of "all", "small" and "none"
+- Type: string
+- One of: "all", "small" or "none"
 - Default: none
 
 Immediate commit setting for this pool. The value from /vitastor/config/global

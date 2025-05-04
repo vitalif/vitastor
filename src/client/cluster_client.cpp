@@ -3,6 +3,7 @@
 
 #include <stdexcept>
 #include <assert.h>
+#include "pg_states.h"
 #include "cluster_client_impl.h"
 #include "json_util.h"
 
@@ -57,6 +58,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     st_cli.on_change_osd_state_hook = [this](uint64_t peer_osd) { on_change_osd_state_hook(peer_osd); };
     st_cli.on_change_pool_config_hook = [this]() { on_change_pool_config_hook(); };
     st_cli.on_change_pg_state_hook = [this](pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary) { on_change_pg_state_hook(pool_id, pg_num, prev_primary); };
+    st_cli.on_change_node_placement_hook = [this]() { on_change_node_placement_hook(); };
     st_cli.on_load_pgs_hook = [this](bool success) { on_load_pgs_hook(success); };
     st_cli.on_reload_hook = [this]() { st_cli.load_global_config(); };
 
@@ -470,9 +472,93 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
     }
     // log_level
     log_level = config["log_level"].uint64_value();
+    // hostname
+    conf_hostname = config["hostname"].string_value();
+    auto new_hostname = conf_hostname != "" ? conf_hostname : gethostname_str();
+    if (new_hostname != client_hostname)
+    {
+        self_tree_metrics.clear();
+        client_hostname = new_hostname;
+    }
     msgr.parse_config(config);
     st_cli.parse_config(config);
     st_cli.load_pgs();
+}
+
+osd_num_t cluster_client_t::select_random_osd(const std::vector<osd_num_t> & osds)
+{
+    osd_num_t alive_set[osds.size()];
+    int alive_count = 0;
+    for (auto & osd_num: osds)
+    {
+        if (!st_cli.peer_states[osd_num].is_null())
+            alive_set[alive_count++] = osd_num;
+    }
+    if (!alive_count)
+        return 0;
+    return alive_set[lrand48() % alive_count];
+}
+
+osd_num_t cluster_client_t::select_nearest_osd(const std::vector<osd_num_t> & osds)
+{
+    if (!self_tree_metrics.size())
+    {
+        std::string cur_id = client_hostname;
+        int metric = 0;
+        while (self_tree_metrics.find(cur_id) == self_tree_metrics.end())
+        {
+            self_tree_metrics[cur_id] = metric++;
+            json11::Json cur_placement = st_cli.node_placement[cur_id];
+            cur_id = cur_placement["parent"].string_value();
+        }
+        if (cur_id != "")
+        {
+            self_tree_metrics[""] = metric++;
+        }
+    }
+    osd_num_t best_osd = 0;
+    int best_metric = -1;
+    for (auto & osd_num: osds)
+    {
+        int metric = -1;
+        auto met_it = osd_tree_metrics.find(osd_num);
+        if (met_it != osd_tree_metrics.end())
+        {
+            metric = met_it->second;
+        }
+        else
+        {
+            auto & peer_state = st_cli.peer_states[osd_num];
+            if (!peer_state.is_null())
+            {
+                metric = self_tree_metrics[""];
+                bool first = true;
+                std::string cur_id = std::to_string(osd_num);
+                std::set<std::string> seen;
+                while (seen.find(cur_id) == seen.end())
+                {
+                    seen.insert(cur_id);
+                    json11::Json cur_placement = st_cli.node_placement[cur_id];
+                    std::string cur_parent = cur_placement["parent"].string_value();
+                    cur_id = (!first || cur_parent != "" ? cur_parent : peer_state["host"].string_value());
+                    first = false;
+                    auto self_it = self_tree_metrics.find(cur_id);
+                    if (self_it != self_tree_metrics.end())
+                    {
+                        metric = self_it->second;
+                        break;
+                    }
+                }
+            }
+            osd_tree_metrics[osd_num] = metric;
+        }
+        if (metric >= 0 && (best_metric < 0 || metric < best_metric))
+        {
+            best_metric = metric;
+            best_osd = osd_num;
+        }
+    }
+    return best_osd;
 }
 
 void cluster_client_t::on_load_pgs_hook(bool success)
@@ -546,11 +632,18 @@ bool cluster_client_t::get_immediate_commit(uint64_t inode)
 
 void cluster_client_t::on_change_osd_state_hook(uint64_t peer_osd)
 {
+    osd_tree_metrics.erase(peer_osd);
     if (msgr.wanted_peers.find(peer_osd) != msgr.wanted_peers.end())
     {
         msgr.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
         continue_lists();
     }
+}
+
+void cluster_client_t::on_change_node_placement_hook()
+{
+    osd_tree_metrics.clear();
+    self_tree_metrics.clear();
 }
 
 bool cluster_client_t::is_ready()
@@ -1221,6 +1314,17 @@ int cluster_client_t::try_send(cluster_op_t *op, int i)
         !pg_it->second.pause && pg_it->second.cur_primary)
     {
         osd_num_t primary_osd = pg_it->second.cur_primary;
+        if (pool_cfg.local_reads != POOL_LOCAL_READ_PRIMARY &&
+            pool_cfg.scheme == POOL_SCHEME_REPLICATED &&
+            (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP) &&
+            (pg_it->second.cur_state == PG_ACTIVE || pg_it->second.cur_state == (PG_ACTIVE|PG_LEFT_ON_DEAD)))
+        {
+            osd_num_t nearest_osd = pool_cfg.local_reads == POOL_LOCAL_READ_NEAREST
+                ? select_nearest_osd(pg_it->second.target_set)
+                : select_random_osd(pg_it->second.target_set);
+            if (nearest_osd)
+                primary_osd = nearest_osd;
+        }
         part->osd_num = primary_osd;
         auto peer_it = msgr.osd_peer_fds.find(primary_osd);
         if (peer_it != msgr.osd_peer_fds.end())

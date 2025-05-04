@@ -25,6 +25,10 @@
 #define IMMEDIATE_ALL 2
 #endif
 
+#define POOL_LOCAL_READ_PRIMARY 0
+#define POOL_LOCAL_READ_NEAREST 1
+#define POOL_LOCAL_READ_RANDOM 2
+
 struct etcd_kv_t
 {
     std::string key;
@@ -48,21 +52,22 @@ struct pg_config_t
 
 struct pool_config_t
 {
-    bool exists;
-    pool_id_t id;
+    bool exists = false;
+    pool_id_t id = 0;
     std::string name;
-    uint64_t scheme;
-    uint64_t pg_size, pg_minsize, parity_chunks;
-    uint32_t data_block_size, bitmap_granularity, immediate_commit;
-    uint64_t pg_count;
-    uint64_t real_pg_count;
+    uint64_t scheme = 0;
+    uint64_t pg_size = 0, pg_minsize = 0, parity_chunks = 0;
+    uint32_t data_block_size = 0, bitmap_granularity = 0, immediate_commit = 0;
+    uint64_t pg_count = 0;
+    uint64_t real_pg_count = 0;
     std::string failure_domain;
-    uint64_t max_osd_combinations;
-    uint64_t pg_stripe_size;
+    uint64_t max_osd_combinations = 0;
+    uint64_t pg_stripe_size = 0;
     std::map<pg_num_t, pg_config_t> pg_config;
-    uint64_t scrub_interval;
+    uint64_t scrub_interval = 0;
     std::string used_for_app;
-    int backfillfull;
+    int backfillfull = 0;
+    int local_reads = 0;
 };
 
 struct inode_config_t
@@ -130,6 +135,7 @@ public:
     std::set<osd_num_t> seen_peers;
     std::map<inode_t, inode_config_t> inode_config;
     std::map<std::string, inode_t> inode_by_name;
+    json11::Json node_placement;
 
     std::function<void(std::map<std::string, etcd_kv_t> &)> on_change_hook;
     std::function<void(json11::Json::object &)> on_load_config_hook;
@@ -140,6 +146,7 @@ public:
     std::function<void(pool_id_t, pg_num_t, osd_num_t)> on_change_pg_state_hook;
     std::function<void(pool_id_t, pg_num_t)> on_change_pg_history_hook;
     std::function<void(osd_num_t)> on_change_osd_state_hook;
+    std::function<void()> on_change_node_placement_hook;
     std::function<void()> on_reload_hook;
     std::function<void(inode_t, bool)> on_inode_change_hook;
     std::function<void(http_co_t *)> on_start_watcher_hook;

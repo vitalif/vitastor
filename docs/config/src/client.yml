@@ -271,3 +271,15 @@
     заполненные на 100% OSD вообще не могут стартовать), так что вы сможете
     восстановить работу кластера после ошибок отсутствия свободного места
     без уничтожения и пересоздания OSD.
+- name: hostname
+  type: string
+  online: true
+  info: |
+    Clients use host name to find their distance to OSDs when [localized reads](pool.en.md#local_reads)
+    are enabled. By default, standard [gethostname](https://man7.org/linux/man-pages/man2/gethostname.2.html)
+    function is used to determine host name, but you can also override it with this parameter.
+  info_ru: |
+    Клиенты используют имя хоста для определения расстояния до OSD, когда включены
+    [локальные чтения](pool.ru.md#local_reads). По умолчанию для определения имени
+    хоста используется стандартная функция [gethostname](https://man7.org/linux/man-pages/man2/gethostname.2.html),
+    но вы также можете задать имя хоста вручную данным параметром.

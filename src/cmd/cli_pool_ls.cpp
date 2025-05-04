@@ -504,6 +504,7 @@ resume_3:
                 { "failure_domain", "Failure domain" },
                 { "root_node", "Root node" },
                 { "osd_tags_fmt", "OSD tags" },
+                { "local_reads", "Local read policy" },
                 { "primary_affinity_tags_fmt", "Primary affinity" },
                 { "block_size_fmt", "Block size" },
                 { "bitmap_granularity_fmt", "Bitmap granularity" },

@@ -922,6 +922,19 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 pc.used_for_app = "fs:"+pc.used_for_app;
             else
                 pc.used_for_app = pool_item.second["used_for_app"].as_string();
+            // Local Read Configuration
+            std::string local_reads = pool_item.second["local_reads"].string_value();
+            if (local_reads == "nearest")
+                pc.local_reads = POOL_LOCAL_READ_NEAREST;
+            else if (local_reads == "random")
+                pc.local_reads = POOL_LOCAL_READ_RANDOM;
+            else if (local_reads == "" || local_reads == "primary")
+                pc.local_reads = POOL_LOCAL_READ_PRIMARY;
+            else
+            {
+                pc.local_reads = POOL_LOCAL_READ_PRIMARY;
+                fprintf(stderr, "Warning: Pool %u has invalid local_reads, using 'primary'\n", pool_id);
+            }
             // Immediate Commit Mode
             pc.immediate_commit = pool_item.second["immediate_commit"].is_string()
                 ? parse_immediate_commit(pool_item.second["immediate_commit"].string_value(), IMMEDIATE_ALL)
@@ -1255,6 +1268,13 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 });
             }
         }
+    }
+    else if (key == etcd_prefix+"/config/node_placement")
+    {
+        // <etcd_prefix>/config/node_placement
+        node_placement = value;
+        if (on_change_node_placement_hook)
+            on_change_node_placement_hook();
     }
 }
 

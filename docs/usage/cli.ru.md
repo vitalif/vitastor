@@ -414,6 +414,7 @@ OSD  PARENT            UP    SIZE  USED%    TAGS          WEIGHT  BLOCK  BITMAP 
 | `--immediate_commit none`      | ...только OSD с этим или большим immediate_commit (none < small < all)     |
 | `--level_placement <rules>`    | Задать правила дополнительных доменов отказа (пример: "dc=112233")         |
 | `--raw_placement <rules>`      | Задать низкоуровневые правила генерации PG ([детали](../config/pool.ru.md#raw_placement)) |
+| `--local_reads primary`        | Политика локальных чтений для реплик: primary, nearest или random          |
 | `--primary_affinity_tags tags` | Предпочитать OSD со всеми данными тегами для роли первичных                |
 | `--scrub_interval <time>`      | Включить скрабы с заданным интервалом времени (число + единица s/m/h/d/M/y) |
 | `--pg_stripe_size <number>`    | Увеличить блок группировки объектов по PG                                  |
