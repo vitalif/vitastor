@@ -478,11 +478,6 @@ bool osd_t::stop_pg(pg_t & pg)
         return false;
     }
     drop_dirty_pg_connections({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
-    if (!(pg.state & (PG_ACTIVE | PG_REPEERING)))
-    {
-        finish_stop_pg(pg);
-        return true;
-    }
     pg.state = pg.state & ~PG_ACTIVE & ~PG_REPEERING | PG_STOPPING;
     if (pg.inflight == 0 && !pg.flush_batch)
     {
