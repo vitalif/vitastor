@@ -215,8 +215,7 @@ void osd_t::start_pg_peering(pg_t & pg)
     {
         // Wait until all OSDs are either connected or their /osd/state disappears from etcd
         pg.state = PG_INCOMPLETE;
-        report_pg_state(pg);
-        return;
+        // Fall through to cleanup list results
     }
     // Calculate current write OSD set
     pg.pg_cursize = 0;
@@ -242,8 +241,6 @@ void osd_t::start_pg_peering(pg_t & pg)
         // because such PGs don't flush unstable entries on secondary OSDs so they can't remove these
         // entries from their journals...
         pg.state = PG_INCOMPLETE;
-        report_pg_state(pg);
-        return;
     }
     std::set<osd_num_t> cur_peers;
     std::set<osd_num_t> dead_peers;
@@ -278,8 +275,6 @@ void osd_t::start_pg_peering(pg_t & pg)
             if (nonzero >= pg.pg_data_size && found < pg.pg_data_size)
             {
                 pg.state = PG_INCOMPLETE;
-                report_pg_state(pg);
-                return;
             }
         }
     }
@@ -318,6 +313,7 @@ void osd_t::start_pg_peering(pg_t & pg)
             delete pg.peering_state;
             pg.peering_state = NULL;
         }
+        report_pg_state(pg);
         return;
     }
     if (!pg.peering_state)
