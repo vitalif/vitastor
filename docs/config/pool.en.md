@@ -310,6 +310,10 @@ If you set this parameter to "random", clients will try to distribute read reque
 all available secondary OSDs. This mode is mainly useful for tests, but, probably, not
 really required in production setups.
 
+[PG locks](osd.en.md#enable_pg_locks) are required for local reads to function. However,
+PG locks are enabled automatically by default for pools with enabled local reads, so you
+don't have to enable them explicitly.
+
 ## max_osd_combinations
 
 - Type: integer
