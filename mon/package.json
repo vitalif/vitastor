@@ -1,6 +1,6 @@
 {
   "name": "vitastor-mon",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Vitastor SDS monitor service",
   "main": "mon-main.js",
   "scripts": {
@@ -19,6 +19,6 @@
     "eslint-plugin-node": "^11.1.0"
   },
   "engines": {
-    "node": ">=12.1.0"
+    "node": ">=12.0.0"
   }
 }
