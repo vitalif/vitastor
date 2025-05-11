@@ -283,6 +283,7 @@ static json11::Json::object parse_args(int narg, const char *args[])
                 !strcmp(opt, "readonly") || !strcmp(opt, "readwrite") ||
                 !strcmp(opt, "force") || !strcmp(opt, "reverse") ||
                 !strcmp(opt, "allow-data-loss") || !strcmp(opt, "allow_data_loss") ||
+                !strcmp(opt, "allow-up") || !strcmp(opt, "allow_up") ||
                 !strcmp(opt, "down-ok") || !strcmp(opt, "down_ok") ||
                 !strcmp(opt, "dry-run") || !strcmp(opt, "dry_run") ||
                 !strcmp(opt, "help") || !strcmp(opt, "all") ||

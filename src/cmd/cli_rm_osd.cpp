@@ -15,7 +15,7 @@ struct rm_osd_t
 {
     cli_tool_t *parent;
 
-    bool dry_run, force_warning, force_dataloss;
+    bool dry_run, force_warning, force_dataloss, allow_up;
     uint64_t etcd_tx_retry_ms = 500;
     uint64_t etcd_tx_retries = 10000;
     std::vector<uint64_t> osd_ids;
@@ -168,7 +168,7 @@ struct rm_osd_t
                                 : strtoupper(e["effect"].string_value())+" PGs"))
                 )+" after deleting OSD(s).\n";
             }
-            if (still_up.size())
+            if (still_up.size() && !allow_up)
                 error += (still_up.size() == 1 ? "OSD " : "OSDs ") + implode(", ", still_up) +
                     (still_up.size() == 1 ? "is" : "are") + " still up. Use `vitastor-disk purge` to delete them.\n";
             if (is_dataloss && !force_dataloss && !dry_run)
@@ -476,6 +476,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_rm_osd(json11::Json cfg)
     auto rm_osd = new rm_osd_t();
     rm_osd->parent = this;
     rm_osd->dry_run = cfg["dry_run"].bool_value();
+    rm_osd->allow_up = cfg["allow_up"].bool_value();
     rm_osd->force_dataloss = cfg["allow_data_loss"].bool_value();
     rm_osd->force_warning = rm_osd->force_dataloss || cfg["force"].bool_value();
     if (!cfg["etcd_tx_retries"].is_null())

@@ -435,7 +435,7 @@ int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
             printf("%s\n", json11::Json(result).dump().c_str());
         return 0;
     }
-    std::vector<std::string> rm_osd_cli = { "vitastor-cli", "rm-osd" };
+    std::vector<std::string> rm_osd_cli = { "vitastor-cli", "rm-osd", "--allow-up" };
     for (auto osd_num: osd_numbers)
     {
         rm_osd_cli.push_back(std::to_string(osd_num));
