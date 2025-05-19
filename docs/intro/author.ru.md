@@ -63,7 +63,7 @@ Vitastor Network Public License 1.1, основанная на GNU GPL 3.0 с д
 
 ## Примеры
 
-- Kubernetes CSI-драйвер Vitastor, создающий PersistentVolume с помощью вызова vitastor-cli create.
+- Kubernetes CSI-драйвер Vitastor, создающий PersistentVolume с помощью вызова `vitastor-cli create`.
   - Да, взаимодействует с Vitastor через vitastor-cli.
   - Да, создавался специально для работы с Vitastor (иначе в чём же ещё его смысл).
   - Значит, CSI-драйвер **точно считается** "прокси-программой" и должен быть открыт под свободной
