@@ -70,7 +70,7 @@ struct rm_osd_t
         {
             if (parent->cli->st_cli.peer_states.find(osd_id) != parent->cli->st_cli.peer_states.end())
             {
-                is_warning = true;
+                is_warning = !allow_up;
                 still_up.push_back(osd_id);
             }
         }
