@@ -90,7 +90,7 @@ need a commercial license which doesn't contain open-source requirements.
 
 ## Why?
 
-Because I believe into the spirit of copyleft (Linux wouldn't became so popular without GPL!)
+Because I believe into the spirit of copyleft (Linux wouldn't become so popular without GPL!)
 and, at the same time, I want to have a way to monetize the product.
 
 Existing licenses including AGPL are useless for it with an SDS - SDS is a very deeply

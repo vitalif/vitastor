@@ -278,6 +278,7 @@ class osd_t
     void handle_peers();
     bool check_peer_config(osd_client_t *cl, json11::Json conf);
     void repeer_pgs(osd_num_t osd_num);
+    void repeer_pg(pg_t & pg);
     void start_pg_peering(pg_t & pg);
     void drop_dirty_pg_connections(pool_pg_num_t pg);
     void record_pg_lock(pg_t & pg, osd_num_t peer_osd, uint64_t pg_state);

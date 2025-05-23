@@ -104,18 +104,23 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
             {
                 // Repeer this pg
                 printf("[PG %u/%u] Repeer because of OSD %ju\n", pg.pool_id, pg.pg_num, peer_osd);
-                if (!(pg.state & (PG_ACTIVE | PG_REPEERING)) || pg.can_repeer())
-                {
-                    start_pg_peering(pg);
-                }
-                else
-                {
-                    // Stop accepting new operations, wait for current ones to finish or fail
-                    pg.state = pg.state & ~PG_ACTIVE | PG_REPEERING;
-                    report_pg_state(pg);
-                }
+                repeer_pg(pg);
             }
         }
+    }
+}
+
+void osd_t::repeer_pg(pg_t & pg)
+{
+    if (!(pg.state & (PG_ACTIVE | PG_REPEERING)) || pg.can_repeer())
+    {
+        start_pg_peering(pg);
+    }
+    else
+    {
+        // Stop accepting new operations, wait for current ones to finish or fail
+        pg.state = pg.state & ~PG_ACTIVE | PG_REPEERING;
+        report_pg_state(pg);
     }
 }
 

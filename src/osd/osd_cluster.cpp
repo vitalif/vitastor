@@ -432,9 +432,16 @@ void osd_t::apply_pg_locks_localize_only()
         }
         auto & pool_cfg = pool_it->second;
         auto & pg = pp.second;
+        auto old_disable_pg_locks = pg.disable_pg_locks;
         pg.disable_pg_locks = pg_locks_localize_only &&
             pool_cfg.scheme == POOL_SCHEME_REPLICATED &&
             pool_cfg.local_reads == POOL_LOCAL_READ_PRIMARY;
+        if (!pg.disable_pg_locks && old_disable_pg_locks)
+        {
+            // Relock PG
+            printf("[PG %u/%u] Repeer to enable PG locks\n", pg.pool_id, pg.pg_num);
+            repeer_pg(pg);
+        }
     }
 }
 
