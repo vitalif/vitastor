@@ -684,6 +684,24 @@ jobs:
           echo ""
         done
 
+  test_write_iothreads:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: TEST_NAME=iothreads GLOBAL_CONFIG=',"client_iothread_count":4' /root/vitastor/tests/test_write.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
   test_write_no_same:
     runs-on: ubuntu-latest
     needs: build

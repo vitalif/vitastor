@@ -59,6 +59,7 @@ SCHEME=ec IMMEDIATE_COMMIT=1 ./test_rebalance_verify.sh
 
 ./test_write.sh
 SCHEME=xor ./test_write.sh
+TEST_NAME=iothreads GLOBAL_CONFIG=',"client_iothread_count":4' ./test_write.sh
 
 ./test_write_no_same.sh
 
