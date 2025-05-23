@@ -125,6 +125,8 @@ void ring_loop_t::loop()
         if (cqe->flags & IORING_CQE_F_MORE)
         {
             // There will be a second notification
+            if (mt)
+                mu.unlock();
             d->res = cqe->res;
             d->more = true;
             if (d->callback)
