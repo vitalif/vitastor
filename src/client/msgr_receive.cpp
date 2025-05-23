@@ -33,10 +33,12 @@ void osd_messenger_t::read_requests()
             auto iothread = iothreads.size() ? iothreads[peer_fd % iothreads.size()] : NULL;
             io_uring_sqe sqe_local;
             ring_data_t data_local;
-            sqe_local.user_data = (uint64_t)&data_local;
             io_uring_sqe* sqe = (iothread ? &sqe_local : ringloop->get_sqe());
             if (iothread)
+            {
+                sqe_local = { .user_data = (uint64_t)&data_local };
                 data_local = {};
+            }
             if (!sqe)
             {
                 cl->read_msg.msg_iovlen = 0;
