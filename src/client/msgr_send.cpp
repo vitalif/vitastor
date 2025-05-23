@@ -196,10 +196,10 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
         ring_data_t data_local;
         sqe_local.user_data = (uint64_t)&data_local;
         io_uring_sqe* sqe = (iothread ? &sqe_local : ringloop->get_sqe());
+        if (iothread)
+            data_local = {};
         if (!sqe)
-        {
             return false;
-        }
         cl->write_msg.msg_iov = cl->send_list.data();
         cl->write_msg.msg_iovlen = cl->send_list.size() < IOV_MAX ? cl->send_list.size() : IOV_MAX;
         cl->refs++;
