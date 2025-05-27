@@ -13,6 +13,11 @@
 
 #pragma GCC visibility push(default)
 
+// Memory allocation alignment (page size is usually optimal)
+#ifndef MEM_ALIGNMENT
+#define MEM_ALIGNMENT 4096
+#endif
+
 inline void* memalign_or_die(size_t alignment, size_t size)
 {
     void *buf = memalign(alignment, size);

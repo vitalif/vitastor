@@ -34,6 +34,19 @@ add_executable(test_allocator EXCLUDE_FROM_ALL test_allocator.cpp ../util/alloca
 add_dependencies(build_tests test_allocator)
 add_test(NAME test_allocator COMMAND test_allocator)
 
+# test_heap
+add_executable(test_heap
+	test_heap.cpp
+	../blockstore/blockstore_heap.cpp
+	../util/crc32c.c
+	../util/allocator.cpp
+	../blockstore/blockstore_disk.cpp
+	../util/str_util.cpp
+)
+add_test(NAME test_heap COMMAND test_heap)
+target_compile_options(test_heap PRIVATE -coverage)
+target_link_options(test_heap PRIVATE -coverage)
+
 # test_cas
 add_executable(test_cas
 	test_cas.cpp

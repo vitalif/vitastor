@@ -195,7 +195,7 @@ uint64_t test_read(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ver
     op.sec_rw.version = version;
     op.sec_rw.offset = offset;
     op.sec_rw.len = len;
-    void *data = memalign(MEM_ALIGNMENT, op.sec_rw.len);
+    void *data = memalign_or_die(MEM_ALIGNMENT, op.sec_rw.len);
     write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
     int r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
     if (!check_reply(r, op, reply, op.sec_rw.len))
@@ -222,7 +222,7 @@ uint64_t test_read(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ver
     {
         return 0;
     }
-    data = memalign(MEM_ALIGNMENT, sizeof(obj_ver_id)*reply.hdr.retval);
+    data = memalign_or_die(MEM_ALIGNMENT, sizeof(obj_ver_id)*reply.hdr.retval);
     r = read_blocking(connect_fd, data, sizeof(obj_ver_id)*reply.hdr.retval);
     if (r != sizeof(obj_ver_id)*reply.hdr.retval)
     {
@@ -255,7 +255,7 @@ uint64_t test_write(int connect_fd, uint64_t inode, uint64_t stripe, uint64_t ve
     op.sec_rw.version = version;
     op.sec_rw.offset = 0;
     op.sec_rw.len = 128*1024;
-    void *data = memalign(MEM_ALIGNMENT, op.sec_rw.len);
+    void *data = memalign_or_die(MEM_ALIGNMENT, op.sec_rw.len);
     for (int i = 0; i < (op.sec_rw.len)/sizeof(uint64_t); i++)
         ((uint64_t*)data)[i] = pattern;
     write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
@@ -290,7 +290,7 @@ void* test_primary_read(int connect_fd, uint64_t inode, uint64_t offset, uint64_
     op.rw.inode = inode;
     op.rw.offset = offset;
     op.rw.len = len;
-    void *data = memalign(MEM_ALIGNMENT, len);
+    void *data = memalign_or_die(MEM_ALIGNMENT, len);
     write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
     int r = read_blocking(connect_fd, reply.buf, OSD_PACKET_SIZE);
     if (!check_reply(r, op, reply, len))
@@ -318,7 +318,7 @@ void test_primary_write(int connect_fd, uint64_t inode, uint64_t offset, uint64_
     op.rw.inode = inode;
     op.rw.offset = offset;
     op.rw.len = len;
-    void *data = memalign(MEM_ALIGNMENT, len);
+    void *data = memalign_or_die(MEM_ALIGNMENT, len);
     set_pattern(data, len, pattern);
     write_blocking(connect_fd, op.buf, OSD_PACKET_SIZE);
     write_blocking(connect_fd, data, len);
@@ -364,7 +364,7 @@ void test_list_stab(int connect_fd)
     assert(check_reply(r, op, reply, -1));
     int total_count = reply.hdr.retval;
     int stable_count = reply.sec_list.stable_count;
-    obj_ver_id *data = (obj_ver_id*)malloc(total_count * sizeof(obj_ver_id));
+    obj_ver_id *data = (obj_ver_id*)malloc_or_die(total_count * sizeof(obj_ver_id));
     assert(data);
     assert(read_blocking(connect_fd, data, total_count * sizeof(obj_ver_id)) == (total_count * sizeof(obj_ver_id)));
     int last_start = stable_count;
@@ -382,7 +382,7 @@ void test_list_stab(int connect_fd)
             last_start = i;
         }
     }
-    obj_ver_id *data2 = (obj_ver_id*)malloc(sizeof(obj_ver_id) * 32);
+    obj_ver_id *data2 = (obj_ver_id*)malloc_or_die(sizeof(obj_ver_id) * 32);
     assert(data2);
     free(data2);
     free(data);

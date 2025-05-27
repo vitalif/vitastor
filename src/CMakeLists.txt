@@ -84,6 +84,8 @@ add_custom_target(test
 	echo leak:tcmalloc > ${CMAKE_CURRENT_BINARY_DIR}/lsan-suppress.txt &&
 	env LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_BINARY_DIR}/lsan-suppress.txt ${CMAKE_CTEST_COMMAND}
 )
+# make -j16 -C ../../build test_heap && ../../build/src/test/test_heap
+# make -j16 -C ../../build test_heap && rm -f $(find ../../build -name '*.gcda') && ctest -V -T test -T coverage -R heap --test-dir ../../build && (cd ../../build; gcovr -f ../src --html --html-nested -o coverage/index.html; cd ../src/test)
 add_dependencies(test build_tests)
 
 include_directories(
