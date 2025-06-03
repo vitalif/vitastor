@@ -232,7 +232,7 @@ bool osd_messenger_t::handle_finished_read(osd_client_t *cl)
             {
                 if (cl->read_op->req.hdr.id != cl->read_op_id)
                 {
-                    fprintf(stderr, "Warning: operation sequencing is broken on client %d, stopping client\n", cl->peer_fd);
+                    fprintf(stderr, "Warning: operation sequencing is broken on client %d: expected num %ju, got %ju, stopping client\n", cl->peer_fd, cl->read_op_id, cl->read_op->req.hdr.id);
                     stop_client(cl->peer_fd);
                     return false;
                 }
