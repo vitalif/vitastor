@@ -121,6 +121,7 @@ void pretend_connected(cluster_client_t *cli, osd_num_t osd_num)
     cli->msgr.osd_peer_fds[osd_num] = peer_fd;
     cli->msgr.clients[peer_fd] = new osd_client_t();
     cli->msgr.clients[peer_fd]->osd_num = osd_num;
+    cli->msgr.clients[peer_fd]->peer_fd = peer_fd;
     cli->msgr.clients[peer_fd]->peer_state = PEER_CONNECTED;
     cli->msgr.wanted_peers.erase(osd_num);
     cli->msgr.repeer_pgs(osd_num);

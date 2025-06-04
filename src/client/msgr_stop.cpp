@@ -72,8 +72,12 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
     cl->peer_state = PEER_STOPPED;
     if (cl->osd_num)
     {
-        // ...and forget OSD peer
-        osd_peer_fds.erase(cl->osd_num);
+        auto osd_it = osd_peer_fds.find(cl->osd_num);
+        if (osd_it != osd_peer_fds.end() && osd_it->second == cl->peer_fd)
+        {
+            // ...and forget OSD peer
+            osd_peer_fds.erase(osd_it);
+        }
     }
 #ifndef __MOCK__
     // Then remove FD from the eventloop so we don't accidentally read something
