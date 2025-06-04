@@ -99,6 +99,7 @@ struct osd_client_t
     std::vector<osd_op_t*> zc_free_list;
 
     ~osd_client_t();
+    void cancel_ops();
 };
 
 struct osd_wanted_peer_t

@@ -9,38 +9,37 @@
 #include "msgr_rdma.h"
 #endif
 
-void osd_messenger_t::cancel_osd_ops(osd_client_t *cl)
+void osd_client_t::cancel_ops()
 {
     std::vector<osd_op_t*> cancel_ops;
-    cancel_ops.resize(cl->sent_ops.size());
+    cancel_ops.resize(sent_ops.size());
     int i = 0;
-    for (auto p: cl->sent_ops)
+    for (auto p: sent_ops)
     {
         cancel_ops[i++] = p.second;
     }
-    cl->sent_ops.clear();
-    cl->outbox.clear();
+    sent_ops.clear();
     for (auto op: cancel_ops)
     {
-        cancel_op(op);
+        op->cancel();
     }
 }
 
-void osd_messenger_t::cancel_op(osd_op_t *op)
+void osd_op_t::cancel()
 {
-    if (op->op_type == OSD_OP_OUT)
+    if (op_type == OSD_OP_OUT && callback)
     {
-        op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
-        op->reply.hdr.id = op->req.hdr.id;
-        op->reply.hdr.opcode = op->req.hdr.opcode;
-        op->reply.hdr.retval = -EPIPE;
-        // Copy lambda to be unaffected by `delete op`
-        std::function<void(osd_op_t*)>(op->callback)(op);
+        reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
+        reply.hdr.id = req.hdr.id;
+        reply.hdr.opcode = req.hdr.opcode;
+        reply.hdr.retval = -EPIPE;
+        // Copy lambda to be unaffected by `delete this`
+        (std::function<void(osd_op_t*)>(callback))(this);
     }
     else
     {
         // This function is only called in stop_client(), so it's fine to destroy the operation
-        delete op;
+        delete this;
     }
 }
 
@@ -107,24 +106,6 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
         // some actions and we need correct PG states to not do something silly
         repeer_pgs(cl->osd_num);
     }
-    // Then cancel all operations
-    if (cl->read_op)
-    {
-        if (!cl->read_op->callback)
-        {
-            delete cl->read_op;
-        }
-        else
-        {
-            cancel_op(cl->read_op);
-        }
-        cl->read_op = NULL;
-    }
-    if (cl->osd_num)
-    {
-        // Cancel outbound operations
-        cancel_osd_ops(cl);
-    }
     // Find the item again because it can be invalidated at this point
     it = clients.find(peer_fd);
     if (it != clients.end())
@@ -149,6 +130,17 @@ osd_client_t::~osd_client_t()
         close(peer_fd);
         peer_fd = -1;
     }
+    // Then cancel all operations
+    // Operations have to be canceled only after clearing all references to osd_client_t
+    // because otherwise their buffers may be still present in io_uring asynchronous requests
+    if (read_op)
+    {
+        // read_op may be an incoming op or a continued response for an outbound op
+        read_op->cancel();
+        read_op = NULL;
+    }
+    // Cancel outbound ops
+    cancel_ops();
 #ifndef __MOCK__
 #ifdef WITH_RDMA
     if (rdma_conn)
