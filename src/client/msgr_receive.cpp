@@ -8,11 +8,12 @@ void osd_messenger_t::read_requests()
     for (int i = 0; i < read_ready_clients.size(); i++)
     {
         int peer_fd = read_ready_clients[i];
-        osd_client_t *cl = clients[peer_fd];
-        if (cl->read_msg.msg_iovlen)
+        auto cl_it = clients.find(peer_fd);
+        if (cl_it == clients.end() || !cl_it->second || cl_it->second->read_msg.msg_iovlen)
         {
             continue;
         }
+        auto cl = cl_it->second;
         if (cl->read_remaining < receive_buffer_size)
         {
             cl->read_iov.iov_base = cl->in_buf;
@@ -60,7 +61,8 @@ void osd_messenger_t::read_requests()
             {
                 result = -errno;
             }
-            handle_read(result, cl);
+            // like set_immediate
+            tfd->set_timer_us(0, false, [this, result, cl](int){ handle_read(result, cl); });
         }
     }
     read_ready_clients.clear();

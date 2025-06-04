@@ -239,7 +239,8 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
         {
             result = -errno;
         }
-        handle_send(result, false, false, cl);
+        // like set_immediate
+        tfd->set_timer_us(0, false, [this, result, cl](int){ handle_send(result, false, false, cl); });
     }
     return true;
 }
