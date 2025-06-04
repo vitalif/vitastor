@@ -140,7 +140,7 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
     {
         if (!(cur_op->req.sec_rw.flags & OSD_OP_IGNORE_PG_LOCK) &&
-            !sec_check_pg_lock(cl->osd_num, cur_op->req.sec_rw.oid))
+            !sec_check_pg_lock(cl->in_osd_num, cur_op->req.sec_rw.oid))
         {
             cur_op->bs_op->retval = -EPIPE;
             secondary_op_callback(cur_op);
@@ -169,7 +169,7 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_DELETE)
     {
         if (!(cur_op->req.sec_del.flags & OSD_OP_IGNORE_PG_LOCK) &&
-            !sec_check_pg_lock(cl->osd_num, cur_op->req.sec_del.oid))
+            !sec_check_pg_lock(cl->in_osd_num, cur_op->req.sec_del.oid))
         {
             cur_op->bs_op->retval = -EPIPE;
             secondary_op_callback(cur_op);
@@ -193,7 +193,7 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
         {
             for (int i = 0; i < cur_op->bs_op->len; i++)
             {
-                if (!sec_check_pg_lock(cl->osd_num, ((obj_ver_id*)cur_op->buf)[i].oid))
+                if (!sec_check_pg_lock(cl->in_osd_num, ((obj_ver_id*)cur_op->buf)[i].oid))
                 {
                     cur_op->bs_op->retval = -EPIPE;
                     secondary_op_callback(cur_op);
@@ -247,7 +247,7 @@ void osd_t::exec_sec_read_bmp(osd_op_t *cur_op)
         void *cur_buf = reply_buf;
         for (int i = 0; i < n; i++)
         {
-            if (!sec_check_pg_lock(cl->osd_num, ov[i].oid) &&
+            if (!sec_check_pg_lock(cl->in_osd_num, ov[i].oid) &&
                 !(cur_op->req.sec_read_bmp.flags & OSD_OP_IGNORE_PG_LOCK))
             {
                 free(reply_buf);
@@ -269,7 +269,7 @@ void osd_t::exec_sec_lock(osd_op_t *cur_op)
 {
     cur_op->reply.sec_lock.cur_primary = 0;
     auto cl = msgr.clients.at(cur_op->peer_fd);
-    if (!cl->osd_num ||
+    if (!cl->in_osd_num ||
         cur_op->req.sec_lock.flags != OSD_SEC_LOCK_PG &&
         cur_op->req.sec_lock.flags != OSD_SEC_UNLOCK_PG ||
         cur_op->req.sec_lock.pool_id > ((uint64_t)1<<POOL_ID_BITS) ||
@@ -290,7 +290,7 @@ void osd_t::exec_sec_lock(osd_op_t *cur_op)
     auto lock_it = pg_locks.find(ppg);
     if (cur_op->req.sec_lock.flags == OSD_SEC_LOCK_PG)
     {
-        if (lock_it != pg_locks.end() && lock_it->second.primary_osd != cl->osd_num)
+        if (lock_it != pg_locks.end() && lock_it->second.primary_osd != cl->in_osd_num)
         {
             cur_op->reply.sec_lock.cur_primary = lock_it->second.primary_osd;
             finish_op(cur_op, -EBUSY);
@@ -304,11 +304,11 @@ void osd_t::exec_sec_lock(osd_op_t *cur_op)
             return;
         }
         pg_locks[ppg] = (osd_pg_lock_t){
-            .primary_osd = cl->osd_num,
+            .primary_osd = cl->in_osd_num,
             .state = cur_op->req.sec_lock.pg_state,
         };
     }
-    else if (lock_it != pg_locks.end() && lock_it->second.primary_osd == cl->osd_num)
+    else if (lock_it != pg_locks.end() && lock_it->second.primary_osd == cl->in_osd_num)
     {
         pg_locks.erase(lock_it);
     }
@@ -323,7 +323,7 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
         : json11::Json();
     auto peer_osd_num = req_json["osd_num"].uint64_value();
     auto cl = msgr.clients.at(cur_op->peer_fd);
-    cl->osd_num = peer_osd_num;
+    cl->in_osd_num = peer_osd_num;
     if (req_json["features"]["check_sequencing"].bool_value())
     {
         cl->check_sequencing = true;

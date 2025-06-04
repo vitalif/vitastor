@@ -60,6 +60,7 @@ struct osd_client_t
     int ping_time_remaining = 0;
     int idle_time_remaining = 0;
     osd_num_t osd_num = 0;
+    osd_num_t in_osd_num = 0;
     bool is_incoming = false;
 
     void *in_buf = NULL;

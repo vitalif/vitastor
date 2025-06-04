@@ -188,7 +188,7 @@ void osd_messenger_t::init()
             auto cl = cl_it->second;
             cl_it++;
             auto peer_fd = cl->peer_fd;
-            if (!cl->osd_num || cl->peer_state != PEER_CONNECTED && cl->peer_state != PEER_RDMA)
+            if (!cl->osd_num && !cl->in_osd_num || cl->peer_state != PEER_CONNECTED && cl->peer_state != PEER_RDMA)
             {
                 // Do not run keepalive on regular clients
                 continue;
