@@ -85,6 +85,7 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
     msgr.ringloop = this->ringloop;
     msgr.exec_op = [this](osd_op_t *op) { exec_op(op); };
     msgr.repeer_pgs = [this](osd_num_t peer_osd) { repeer_pgs(peer_osd); };
+    msgr.break_pg_locks = [this](osd_num_t peer_osd) { break_pg_locks(peer_osd); };
     msgr.check_config_hook = [this](osd_client_t *cl, json11::Json conf) { return check_peer_config(cl, conf); };
     msgr.init();
 

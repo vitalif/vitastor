@@ -62,6 +62,10 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
         {
             fprintf(stderr, "[OSD %ju] Stopping client %d (OSD peer %ju)\n", osd_num, peer_fd, cl->osd_num);
         }
+        else if (cl->in_osd_num)
+        {
+            fprintf(stderr, "[OSD %ju] Stopping client %d (incoming OSD peer %ju)\n", osd_num, peer_fd, cl->in_osd_num);
+        }
         else
         {
             fprintf(stderr, "[OSD %ju] Stopping client %d (regular client)\n", osd_num, peer_fd);
@@ -104,6 +108,11 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
         }
     }
 #endif
+    if (cl->in_osd_num && break_pg_locks)
+    {
+        // Break PG locks
+        break_pg_locks(cl->in_osd_num);
+    }
     if (cl->osd_num)
     {
         // Then repeer PGs because cancel_op() callbacks can try to perform

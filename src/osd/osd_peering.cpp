@@ -73,18 +73,25 @@ void osd_t::handle_peers()
     }
 }
 
+void osd_t::break_pg_locks(osd_num_t peer_osd)
+{
+    for (auto lock_it = pg_locks.begin(); lock_it != pg_locks.end(); )
+    {
+        if (lock_it->second.primary_osd == peer_osd)
+        {
+            if (log_level > 3)
+            {
+                printf("Break PG %u/%u lock on disconnection of OSD %ju\n", lock_it->first.pool_id, lock_it->first.pg_num, peer_osd);
+            }
+            pg_locks.erase(lock_it++);
+        }
+        else
+            lock_it++;
+    }
+}
+
 void osd_t::repeer_pgs(osd_num_t peer_osd)
 {
-    if (msgr.osd_peer_fds.find(peer_osd) == msgr.osd_peer_fds.end())
-    {
-        for (auto lock_it = pg_locks.begin(); lock_it != pg_locks.end(); )
-        {
-            if (lock_it->second.primary_osd == peer_osd)
-                pg_locks.erase(lock_it++);
-            else
-                lock_it++;
-        }
-    }
     // Re-peer affected PGs
     for (auto & p: pgs)
     {
@@ -471,6 +478,7 @@ void osd_t::relock_pg(pg_t & pg)
             auto pg_it = pgs.find(pg_id);
             if (pg_it == pgs.end())
             {
+                printf("Warning: PG %u/%u is gone during lock attempt\n", pg_id.pool_id, pg_id.pg_num);
                 return;
             }
             auto & pg = pg_it->second;

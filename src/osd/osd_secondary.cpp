@@ -304,6 +304,10 @@ void osd_t::exec_sec_lock(osd_op_t *cur_op)
             finish_op(cur_op, -EBUSY);
             return;
         }
+        if (log_level > 3)
+        {
+            printf("Lock PG %u/%u for OSD %ju\n", ppg.pool_id, ppg.pg_num, cl->in_osd_num);
+        }
         pg_locks[ppg] = (osd_pg_lock_t){
             .primary_osd = cl->in_osd_num,
             .state = cur_op->req.sec_lock.pg_state,
@@ -311,6 +315,10 @@ void osd_t::exec_sec_lock(osd_op_t *cur_op)
     }
     else if (lock_it != pg_locks.end() && lock_it->second.primary_osd == cl->in_osd_num)
     {
+        if (log_level > 3)
+        {
+            printf("Unlock PG %u/%u by OSD %ju\n", ppg.pool_id, ppg.pg_num, cl->in_osd_num);
+        }
         pg_locks.erase(lock_it);
     }
     finish_op(cur_op, 0);
