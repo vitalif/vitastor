@@ -417,15 +417,17 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
     if (retval != expected)
     {
         int64_t peer_osd = (msgr.clients.find(subop->peer_fd) != msgr.clients.end()
-            ? msgr.clients[subop->peer_fd]->osd_num : -subop->peer_fd);
+            ? msgr.clients[subop->peer_fd]->osd_num : 0);
         if (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE || opcode == OSD_OP_SEC_WRITE_STABLE)
         {
             printf(
                 subop->peer_fd >= 0
-                    ? "%1$s subop to %2$jx:%3$jx v%4$ju failed on osd %7$jd: retval = %5$d (expected %6$d)\n"
+                    ? (peer_osd > 0
+                        ? "%1$s subop to %2$jx:%3$jx v%4$ju failed on osd %7$ju: retval = %5$d (expected %6$d)\n"
+                        : "%1$s subop to %2$jx:%3$jx v%4$ju failed on peer %8$d: retval = %5$d (expected %6$d)\n")
                     : "%1$s subop to %2$jx:%3$jx v%4$ju failed locally: retval = %5$d (expected %6$d)\n",
                 osd_op_names[opcode], subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, subop->req.sec_rw.version,
-                retval, expected, peer_osd
+                retval, expected, peer_osd, subop->peer_fd
             );
         }
         else if (opcode == OSD_OP_SEC_DELETE)
