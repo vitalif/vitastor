@@ -434,8 +434,8 @@ void osd_t::apply_pg_locks_localize_only()
         auto & pg = pp.second;
         auto old_disable_pg_locks = pg.disable_pg_locks;
         pg.disable_pg_locks = pg_locks_localize_only &&
-            pool_cfg.scheme == POOL_SCHEME_REPLICATED &&
-            pool_cfg.local_reads == POOL_LOCAL_READ_PRIMARY;
+            (pool_cfg.scheme != POOL_SCHEME_REPLICATED ||
+            pool_cfg.local_reads == POOL_LOCAL_READ_PRIMARY);
         if (!pg.disable_pg_locks && old_disable_pg_locks)
         {
             // Relock PG
@@ -884,8 +884,8 @@ void osd_t::apply_pg_config()
                 pg.next_scrub = pg_cfg.next_scrub;
                 pg.target_set = pg_cfg.target_set;
                 pg.disable_pg_locks = pg_locks_localize_only &&
-                    pool_item.second.scheme == POOL_SCHEME_REPLICATED &&
-                    pool_item.second.local_reads == POOL_LOCAL_READ_PRIMARY;
+                    (pool_item.second.scheme != POOL_SCHEME_REPLICATED ||
+                    pool_item.second.local_reads == POOL_LOCAL_READ_PRIMARY);
                 if (pg.scheme == POOL_SCHEME_EC)
                 {
                     use_ec(pg.pg_size, pg.pg_data_size, true);

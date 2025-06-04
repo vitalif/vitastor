@@ -91,15 +91,16 @@ bool osd_t::sec_check_pg_lock(osd_num_t primary_osd, const object_id &oid)
     {
         return false;
     }
+    auto & pool_cfg = pool_cfg_it->second;
+    if (pg_locks_localize_only && (pool_cfg.scheme != POOL_SCHEME_REPLICATED || pool_cfg.local_reads == POOL_LOCAL_READ_PRIMARY))
+    {
+        return true;
+    }
     auto ppg = (pool_pg_num_t){ .pool_id = pool_id, .pg_num = map_to_pg(oid, pool_cfg_it->second.pg_stripe_size) };
     auto pg_it = pgs.find(ppg);
     if (pg_it != pgs.end() && pg_it->second.state != PG_OFFLINE)
     {
         return false;
-    }
-    if (pg_it->second.disable_pg_locks)
-    {
-        return true;
     }
     auto lock_it = pg_locks.find(ppg);
     return lock_it != pg_locks.end() && lock_it->second.primary_osd == primary_osd;
