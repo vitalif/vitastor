@@ -2,10 +2,12 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include <sys/file.h>
+#include <sys/ioctl.h>
 
 #include <stdexcept>
 
-#include "blockstore_impl.h"
+#include "blockstore.h"
+#include "ondisk_formats.h"
 #include "blockstore_disk.h"
 #include "str_util.h"
 #include "allocator.h"
@@ -44,6 +46,7 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     disk_alignment = parse_size(config["disk_alignment"]);
     journal_block_size = parse_size(config["journal_block_size"]);
     meta_block_size = parse_size(config["meta_block_size"]);
+    meta_block_target_free_space = parse_size(config["meta_block_target_free_space"]);
     bitmap_granularity = parse_size(config["bitmap_granularity"]);
     meta_format = stoull_full(config["meta_format"]);
     if (config.find("data_io") == config.end() &&
@@ -90,12 +93,16 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     if (!min_discard_size)
         min_discard_size = 1024*1024;
     discard_granularity = parse_size(config["discard_granularity"]);
+    inmemory_meta = config["inmemory_metadata"] != "false" && config["inmemory_metadata"] != "0" &&
+        config["inmemory_metadata"] != "no";
+    inmemory_journal = config["inmemory_journal"] != "false" && config["inmemory_journal"] != "0" &&
+        config["inmemory_journal"] != "no";
     // Validate
     if (!data_block_size)
     {
         data_block_size = (1 << DEFAULT_DATA_BLOCK_ORDER);
     }
-    if (is_power_of_two(data_block_size) >= 64 || data_block_size < MIN_DATA_BLOCK_SIZE || data_block_size >= MAX_DATA_BLOCK_SIZE)
+    if ((block_order = is_power_of_two(data_block_size)) >= 64 || data_block_size < MIN_DATA_BLOCK_SIZE || data_block_size >= MAX_DATA_BLOCK_SIZE)
     {
         throw std::runtime_error("Bad block size");
     }
@@ -130,6 +137,14 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     else if (meta_block_size > MAX_DATA_BLOCK_SIZE)
     {
         throw std::runtime_error("meta_block_size must not exceed "+std::to_string(MAX_DATA_BLOCK_SIZE));
+    }
+    if (!meta_block_target_free_space)
+    {
+        meta_block_target_free_space = 800;
+    }
+    if (meta_block_target_free_space >= meta_block_size)
+    {
+        throw std::runtime_error("meta_block_target_free_space must not exceed "+std::to_string(meta_block_size));
     }
     if (data_offset % disk_alignment)
     {
@@ -204,7 +219,7 @@ void blockstore_disk_t::calc_lengths(bool skip_meta_check)
         data_len = cfg_data_size;
     }
     // meta
-    uint64_t meta_area_size = (meta_fd == data_fd ? data_device_size : meta_device_size) - meta_offset;
+    meta_area_size = (meta_fd == data_fd ? data_device_size : meta_device_size) - meta_offset;
     if (meta_fd == data_fd && meta_offset <= data_offset)
     {
         meta_area_size = data_offset - meta_offset;
@@ -230,34 +245,13 @@ void blockstore_disk_t::calc_lengths(bool skip_meta_check)
     clean_entry_bitmap_size = data_block_size / bitmap_granularity / 8;
     clean_dyn_size = clean_entry_bitmap_size*2 + (csum_block_size
         ? data_block_size/csum_block_size*(data_csum_type & 0xFF) : 0);
-    clean_entry_size = sizeof(clean_disk_entry) + clean_dyn_size + 4 /*entry_csum*/;
-    meta_len = (1 + (block_count - 1 + meta_block_size / clean_entry_size) / (meta_block_size / clean_entry_size)) * meta_block_size;
-    bool new_doesnt_fit = (!meta_format && !skip_meta_check && meta_area_size < meta_len && !data_csum_type);
-    if (meta_format == BLOCKSTORE_META_FORMAT_V1 || new_doesnt_fit)
+    uint32_t entries_per_block = ((meta_block_size-meta_block_target_free_space) /
+        (24 /*sizeof(heap_object_t)*/ + 33 /*sizeof(heap_write_t)*/ + clean_dyn_size));
+    min_meta_len = (block_count+entries_per_block-1) / entries_per_block * meta_block_size;
+    meta_format = BLOCKSTORE_META_FORMAT_HEAP;
+    if (!skip_meta_check && meta_area_size < min_meta_len)
     {
-        uint64_t clean_entry_v0_size = sizeof(clean_disk_entry) + 2*clean_entry_bitmap_size;
-        uint64_t meta_v0_len = (1 + (block_count - 1 + meta_block_size / clean_entry_v0_size)
-            / (meta_block_size / clean_entry_v0_size)) * meta_block_size;
-        if (meta_format == BLOCKSTORE_META_FORMAT_V1 || meta_area_size >= meta_v0_len)
-        {
-            // Old metadata fits.
-            if (new_doesnt_fit)
-            {
-                printf("Warning: Using old metadata format without checksums because the new format"
-                    " doesn't fit into provided area (%ju bytes required, %ju bytes available)\n", meta_len, meta_area_size);
-            }
-            clean_entry_size = clean_entry_v0_size;
-            meta_len = meta_v0_len;
-            meta_format = BLOCKSTORE_META_FORMAT_V1;
-        }
-        else
-            meta_format = BLOCKSTORE_META_FORMAT_V2;
-    }
-    else
-        meta_format = BLOCKSTORE_META_FORMAT_V2;
-    if (!skip_meta_check && meta_area_size < meta_len)
-    {
-        throw std::runtime_error("Metadata area is too small, need at least "+std::to_string(meta_len)+" bytes, have only "+std::to_string(meta_area_size)+" bytes");
+        throw std::runtime_error("Metadata area is too small, need at least "+std::to_string(min_meta_len)+" bytes, have only "+std::to_string(meta_area_size)+" bytes");
     }
     // requested journal size
     if (!skip_meta_check && cfg_journal_size > journal_len)
@@ -429,14 +423,14 @@ void blockstore_disk_t::close_all()
 
 // Sadly DISCARD only works through ioctl(), but it seems to always block the device queue,
 // so it's not a big deal that we can only run it synchronously.
-int blockstore_disk_t::trim_data(allocator_t *alloc)
+int blockstore_disk_t::trim_data(std::function<bool(uint64_t)> is_free)
 {
     int r = 0;
     uint64_t j = 0, i = 0;
     uint64_t discarded = 0;
     for (; i <= block_count; i++)
     {
-        if (i >= block_count || alloc->get(i))
+        if (i >= block_count || is_free(i))
         {
             if (i > j && (i-j)*data_block_size >= min_discard_size)
             {

@@ -3,6 +3,7 @@
 
 #include "blockstore_impl.h"
 #include "blockstore_internal.h"
+#include "crc32c.h"
 
 blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd)
 {
@@ -18,31 +19,37 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
-        calc_lengths();
-        alloc_dyn_data = dsk.clean_dyn_size > sizeof(void*) || dsk.csum_block_size > 0;
+        dsk.calc_lengths();
         zero_object = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.data_block_size);
-        data_alloc = new allocator_t(dsk.block_count);
     }
     catch (std::exception & e)
     {
         dsk.close_all();
         throw;
     }
+    meta_superblock = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
+    memset(meta_superblock, 0, dsk.meta_block_size);
     flusher = new journal_flusher_t(this);
+    if (dsk.inmemory_journal)
+    {
+        buffer_area = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.journal_len);
+    }
+    heap = new blockstore_heap_t(&dsk, buffer_area, log_level);
 }
 
 blockstore_impl_t::~blockstore_impl_t()
 {
-    delete data_alloc;
+    if (heap)
+        delete heap;
+    if (buffer_area)
+        free(buffer_area);
     delete flusher;
+    if (meta_superblock)
+        free(meta_superblock);
     if (zero_object)
         free(zero_object);
     ringloop->unregister_consumer(&ring_consumer);
     dsk.close_all();
-    if (metadata_buffer)
-        free(metadata_buffer);
-    if (clean_bitmaps)
-        free(clean_bitmaps);
 }
 
 bool blockstore_impl_t::is_started()
@@ -58,10 +65,9 @@ bool blockstore_impl_t::is_stalled()
 // main event loop - produce requests
 void blockstore_impl_t::loop()
 {
-    // FIXME: initialized == 10 is ugly
     if (initialized != 10)
     {
-        // read metadata, then journal
+        // read metadata
         if (initialized == 0)
         {
             metadata_init_reader = new blockstore_init_meta(this);
@@ -74,39 +80,16 @@ void blockstore_impl_t::loop()
             {
                 delete metadata_init_reader;
                 metadata_init_reader = NULL;
-                journal_init_reader = new blockstore_init_journal(this);
-                initialized = 2;
-            }
-        }
-        if (initialized == 2)
-        {
-            int res = journal_init_reader->loop();
-            if (!res)
-            {
-                delete journal_init_reader;
-                journal_init_reader = NULL;
                 initialized = 3;
-                ringloop->wakeup();
             }
         }
         if (initialized == 3)
         {
             if (!readonly && dsk.discard_on_start)
-                dsk.trim_data(data_alloc);
-            if (journal.flush_journal)
-                initialized = 4;
-            else
-                initialized = 10;
-        }
-        if (initialized == 4)
-        {
-            if (readonly)
             {
-                printf("Can't flush the journal in readonly mode\n");
-                exit(1);
+                dsk.trim_data([this](uint64_t block_num){ return heap->is_data_used(block_num * dsk.data_block_size); });
             }
-            flusher->loop();
-            ringloop->submit();
+            initialized = 10;
         }
     }
     else
@@ -149,7 +132,7 @@ void blockstore_impl_t::loop()
             {
                 wr_st = dequeue_read(op);
             }
-            else if (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE)
+            else if (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE || op->opcode == BS_OP_DELETE)
             {
                 if (has_writes == 2)
                 {
@@ -159,16 +142,6 @@ void blockstore_impl_t::loop()
                 wr_st = dequeue_write(op);
                 has_writes = wr_st > 0 ? 1 : 2;
             }
-            else if (op->opcode == BS_OP_DELETE)
-            {
-                if (has_writes == 2)
-                {
-                    // Some writes already could not be submitted
-                    continue;
-                }
-                wr_st = dequeue_del(op);
-                has_writes = wr_st > 0 ? 1 : 2;
-            }
             else if (op->opcode == BS_OP_SYNC)
             {
                 // sync only completed writes?
@@ -176,13 +149,9 @@ void blockstore_impl_t::loop()
                 // then submit an fsync operation
                 wr_st = continue_sync(op);
             }
-            else if (op->opcode == BS_OP_STABLE)
+            else if (op->opcode == BS_OP_STABLE || op->opcode == BS_OP_ROLLBACK)
             {
                 wr_st = dequeue_stable(op);
-            }
-            else if (op->opcode == BS_OP_ROLLBACK)
-            {
-                wr_st = dequeue_rollback(op);
             }
             else if (op->opcode == BS_OP_LIST)
             {
@@ -203,10 +172,6 @@ void blockstore_impl_t::loop()
                     // ring is full, stop submission
                     break;
                 }
-                else if (PRIV(op)->wait_for == WAIT_JOURNAL)
-                {
-                    PRIV(op)->wait_detail2 = (unstable_writes.size()+unstable_unsynced);
-                }
             }
         }
         if (op_idx != new_idx)
@@ -226,14 +191,6 @@ void blockstore_impl_t::loop()
         {
             throw std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
         }
-        for (auto s: journal.submitting_sectors)
-        {
-            // Mark journal sector writes as submitted
-            if (journal.sector_info[s].submit_id)
-                journal.sector_info[s].written = true;
-            journal.sector_info[s].submit_id = 0;
-        }
-        journal.submitting_sectors.clear();
         if ((initial_ring_space - ringloop->space_left()) > 0)
         {
             live = true;
@@ -251,7 +208,7 @@ bool blockstore_impl_t::is_safe_to_stop()
     {
         return false;
     }
-    if (unsynced_big_writes.size() > 0 || unsynced_small_writes.size() > 0)
+    if (unsynced_big_write_count > 0 || unsynced_small_write_count > 0)
     {
         if (!readonly && !stop_sync_submitted)
         {
@@ -285,40 +242,13 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
         }
         PRIV(op)->wait_for = 0;
     }
-    else if (PRIV(op)->wait_for == WAIT_JOURNAL)
+    else if (PRIV(op)->wait_for == WAIT_COMPACTION)
     {
-        if (journal.used_start == PRIV(op)->wait_detail &&
-            (unstable_writes.size()+unstable_unsynced) == PRIV(op)->wait_detail2)
+        if (heap->get_compact_queue_size() >= PRIV(op)->wait_detail)
         {
             // do not submit
 #ifdef BLOCKSTORE_DEBUG
-            printf("Still waiting to flush journal offset %08jx\n", PRIV(op)->wait_detail);
-#endif
-            return;
-        }
-        flusher->release_trim();
-        PRIV(op)->wait_for = 0;
-    }
-    else if (PRIV(op)->wait_for == WAIT_JOURNAL_BUFFER)
-    {
-        int next = ((journal.cur_sector + 1) % journal.sector_count);
-        if (journal.sector_info[next].flush_count > 0 ||
-            journal.sector_info[next].dirty)
-        {
-            // do not submit
-#ifdef BLOCKSTORE_DEBUG
-            printf("Still waiting for a journal buffer\n");
-#endif
-            return;
-        }
-        PRIV(op)->wait_for = 0;
-    }
-    else if (PRIV(op)->wait_for == WAIT_FREE)
-    {
-        if (!data_alloc->get_free_count() && big_to_flush > 0)
-        {
-#ifdef BLOCKSTORE_DEBUG
-            printf("Still waiting for free space on the data device\n");
+            printf("Still waiting to reduce compaction queue size below %ju\n", PRIV(op)->wait_detail);
 #endif
             return;
         }
@@ -364,73 +294,9 @@ void blockstore_impl_t::init_op(blockstore_op_t *op)
 {
     // Call constructor without allocating memory. We'll call destructor before returning op back
     new ((void*)op->private_data) blockstore_op_private_t;
-    PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;
     PRIV(op)->wait_for = 0;
     PRIV(op)->op_state = 0;
     PRIV(op)->pending_ops = 0;
-}
-
-static bool replace_stable(object_id oid, uint64_t version, int search_start, int search_end, obj_ver_id* list)
-{
-    while (search_start < search_end)
-    {
-        int pos = search_start+(search_end-search_start)/2;
-        if (oid < list[pos].oid)
-        {
-            search_end = pos;
-        }
-        else if (list[pos].oid < oid)
-        {
-            search_start = pos+1;
-        }
-        else
-        {
-            list[pos].version = version;
-            return true;
-        }
-    }
-    return false;
-}
-
-blockstore_clean_db_t& blockstore_impl_t::clean_db_shard(object_id oid)
-{
-    uint64_t pg_num = 0;
-    uint64_t pool_id = (oid.inode >> (64-POOL_ID_BITS));
-    auto sh_it = clean_db_settings.find(pool_id);
-    if (sh_it != clean_db_settings.end())
-    {
-        // like map_to_pg()
-        pg_num = (oid.stripe / sh_it->second.pg_stripe_size) % sh_it->second.pg_count + 1;
-    }
-    return clean_db_shards[(pool_id << (64-POOL_ID_BITS)) | pg_num];
-}
-
-void blockstore_impl_t::reshard_clean_db(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size)
-{
-    uint64_t pool_id = (uint64_t)pool;
-    std::map<pool_pg_id_t, blockstore_clean_db_t> new_shards;
-    auto sh_it = clean_db_shards.lower_bound((pool_id << (64-POOL_ID_BITS)));
-    while (sh_it != clean_db_shards.end() &&
-        (sh_it->first >> (64-POOL_ID_BITS)) == pool_id)
-    {
-        for (auto & pair: sh_it->second)
-        {
-            // like map_to_pg()
-            uint64_t pg_num = (pair.first.stripe / pg_stripe_size) % pg_count + 1;
-            uint64_t shard_id = (pool_id << (64-POOL_ID_BITS)) | pg_num;
-            new_shards[shard_id][pair.first] = pair.second;
-        }
-        clean_db_shards.erase(sh_it++);
-    }
-    for (sh_it = new_shards.begin(); sh_it != new_shards.end(); sh_it++)
-    {
-        auto & to = clean_db_shards[sh_it->first];
-        to.swap(sh_it->second);
-    }
-    clean_db_settings[pool_id] = (pool_shard_settings_t){
-        .pg_count = pg_count,
-        .pg_stripe_size = pg_stripe_size,
-    };
 }
 
 void blockstore_impl_t::process_list(blockstore_op_t *op)
@@ -441,7 +307,8 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     uint64_t min_inode = op->min_oid.inode;
     uint64_t max_inode = op->max_oid.inode;
     // Check PG
-    if (pg_count != 0 && (pg_stripe_size < MIN_DATA_BLOCK_SIZE || list_pg > pg_count))
+    if (!pg_count || (pg_stripe_size < MIN_DATA_BLOCK_SIZE || list_pg > pg_count) ||
+        !INODE_POOL(min_inode) || INODE_POOL(min_inode) != INODE_POOL(max_inode))
     {
         op->retval = -EINVAL;
         FINISH_OP(op);
@@ -449,248 +316,30 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     }
     // Check if the DB needs resharding
     // (we don't know about PGs from the beginning, we only create "shards" here)
-    uint64_t first_shard = 0, last_shard = UINT64_MAX;
-    if (min_inode != 0 &&
-        // Check if min_inode == max_inode == pool_id<<N, i.e. this is a pool listing
-        (min_inode >> (64-POOL_ID_BITS)) == (max_inode >> (64-POOL_ID_BITS)))
-    {
-        pool_id_t pool_id = (min_inode >> (64-POOL_ID_BITS));
-        if (pg_count > 1)
-        {
-            // Per-pg listing
-            auto sh_it = clean_db_settings.find(pool_id);
-            if (sh_it == clean_db_settings.end() ||
-                sh_it->second.pg_count != pg_count ||
-                sh_it->second.pg_stripe_size != pg_stripe_size)
-            {
-                reshard_clean_db(pool_id, pg_count, pg_stripe_size);
-            }
-            first_shard = last_shard = ((uint64_t)pool_id << (64-POOL_ID_BITS)) | list_pg;
-        }
-        else
-        {
-            // Per-pool listing
-            first_shard = ((uint64_t)pool_id << (64-POOL_ID_BITS));
-            last_shard = ((uint64_t)(pool_id+1) << (64-POOL_ID_BITS)) - 1;
-        }
-    }
-    // Copy clean_db entries
-    int stable_count = 0, stable_alloc = 0;
-    if (min_inode != max_inode)
-    {
-        for (auto shard_it = clean_db_shards.lower_bound(first_shard);
-            shard_it != clean_db_shards.end() && shard_it->first <= last_shard;
-            shard_it++)
-        {
-            auto & clean_db = shard_it->second;
-            stable_alloc += clean_db.size();
-        }
-    }
-    if (op->list_stable_limit > 0)
-    {
-        stable_alloc = op->list_stable_limit;
-        if (stable_alloc > 1024*1024)
-            stable_alloc = 1024*1024;
-    }
-    if (stable_alloc < 32768)
-    {
-        stable_alloc = 32768;
-    }
-    obj_ver_id *stable = (obj_ver_id*)malloc(sizeof(obj_ver_id) * stable_alloc);
-    if (!stable)
-    {
-        op->retval = -ENOMEM;
-        FINISH_OP(op);
-        return;
-    }
-    auto max_oid = op->max_oid;
-    bool limited = false;
-    pool_pg_id_t last_shard_id = 0;
-    for (auto shard_it = clean_db_shards.lower_bound(first_shard);
-        shard_it != clean_db_shards.end() && shard_it->first <= last_shard;
-        shard_it++)
-    {
-        auto & clean_db = shard_it->second;
-        auto clean_it = clean_db.begin(), clean_end = clean_db.end();
-        if (op->min_oid.inode != 0 || op->min_oid.stripe != 0)
-        {
-            clean_it = clean_db.lower_bound(op->min_oid);
-        }
-        if ((max_oid.inode != 0 || max_oid.stripe != 0) && !(max_oid < op->min_oid))
-        {
-            clean_end = clean_db.upper_bound(max_oid);
-        }
-        for (; clean_it != clean_end; clean_it++)
-        {
-            if (stable_count >= stable_alloc)
-            {
-                stable_alloc *= 2;
-                obj_ver_id* nst = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
-                if (!nst)
-                {
-                    op->retval = -ENOMEM;
-                    FINISH_OP(op);
-                    return;
-                }
-                stable = nst;
-            }
-            stable[stable_count++] = {
-                .oid = clean_it->first,
-                .version = clean_it->second.version,
-            };
-            if (op->list_stable_limit > 0 && stable_count >= op->list_stable_limit)
-            {
-                if (!limited)
-                {
-                    limited = true;
-                    max_oid = stable[stable_count-1].oid;
-                }
-                break;
-            }
-        }
-        if (op->list_stable_limit > 0)
-        {
-            // To maintain the order, we have to include objects in the same range from other shards
-            if (last_shard_id != 0 && last_shard_id != shard_it->first)
-                std::sort(stable, stable+stable_count);
-            if (stable_count > op->list_stable_limit)
-                stable_count = op->list_stable_limit;
-        }
-        last_shard_id = shard_it->first;
-    }
-    if (op->list_stable_limit == 0 && first_shard != last_shard)
-    {
-        // If that's not a per-PG listing, sort clean entries (already sorted if list_stable_limit != 0)
-        std::sort(stable, stable+stable_count);
-    }
-    int clean_stable_count = stable_count;
-    // Copy dirty_db entries (sorted, too)
-    int unstable_count = 0, unstable_alloc = 0;
-    obj_ver_id *unstable = NULL;
-    {
-        auto dirty_it = dirty_db.begin(), dirty_end = dirty_db.end();
-        if (op->min_oid.inode != 0 || op->min_oid.stripe != 0)
-        {
-            dirty_it = dirty_db.lower_bound({
-                .oid = op->min_oid,
-                .version = 0,
-            });
-        }
-        if ((max_oid.inode != 0 || max_oid.stripe != 0) && !(max_oid < op->min_oid))
-        {
-            dirty_end = dirty_db.upper_bound({
-                .oid = max_oid,
-                .version = UINT64_MAX,
-            });
-        }
-        for (; dirty_it != dirty_end; dirty_it++)
-        {
-            if (!pg_count || ((dirty_it->first.oid.stripe / pg_stripe_size) % pg_count + 1) == list_pg) // like map_to_pg()
-            {
-                if (IS_DELETE(dirty_it->second.state))
-                {
-                    // Deletions are always stable, so try to zero out two possible entries
-                    if (!replace_stable(dirty_it->first.oid, 0, 0, clean_stable_count, stable))
-                    {
-                        replace_stable(dirty_it->first.oid, 0, clean_stable_count, stable_count, stable);
-                    }
-                }
-                else if (IS_STABLE(dirty_it->second.state) || (dirty_it->second.state & BS_ST_INSTANT))
-                {
-                    // First try to replace a clean stable version in the first part of the list
-                    if (!replace_stable(dirty_it->first.oid, dirty_it->first.version, 0, clean_stable_count, stable))
-                    {
-                        // Then try to replace the last dirty stable version in the second part of the list
-                        if (stable_count > 0 && stable[stable_count-1].oid == dirty_it->first.oid)
-                        {
-                            stable[stable_count-1].version = dirty_it->first.version;
-                        }
-                        else
-                        {
-                            if (stable_count >= stable_alloc)
-                            {
-                                stable_alloc += 32768;
-                                obj_ver_id *nst = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
-                                if (!nst)
-                                {
-                                    if (unstable)
-                                        free(unstable);
-                                    op->retval = -ENOMEM;
-                                    FINISH_OP(op);
-                                    return;
-                                }
-                                stable = nst;
-                            }
-                            stable[stable_count++] = dirty_it->first;
-                        }
-                    }
-                    if (op->list_stable_limit > 0 && stable_count >= op->list_stable_limit)
-                    {
-                        // Stop here
-                        break;
-                    }
-                }
-                else
-                {
-                    if (unstable_count >= unstable_alloc)
-                    {
-                        unstable_alloc += 32768;
-                        obj_ver_id *nst = (obj_ver_id*)realloc(unstable, sizeof(obj_ver_id) * unstable_alloc);
-                        if (!nst)
-                        {
-                            if (stable)
-                                free(stable);
-                            op->retval = -ENOMEM;
-                            FINISH_OP(op);
-                            return;
-                        }
-                        unstable = nst;
-                    }
-                    unstable[unstable_count++] = dirty_it->first;
-                }
-            }
-        }
-    }
-    // Remove zeroed out stable entries
-    int j = 0;
-    for (int i = 0; i < stable_count; i++)
-    {
-        if (stable[i].version != 0)
-        {
-            stable[j++] = stable[i];
-        }
-    }
-    stable_count = j;
-    if (stable_count+unstable_count > stable_alloc)
-    {
-        stable_alloc = stable_count+unstable_count;
-        obj_ver_id *nst = (obj_ver_id*)realloc(stable, sizeof(obj_ver_id) * stable_alloc);
-        if (!nst)
-        {
-            if (unstable)
-                free(unstable);
-            op->retval = -ENOMEM;
-            FINISH_OP(op);
-            return;
-        }
-        stable = nst;
-    }
-    // Copy unstable entries
-    for (int i = 0; i < unstable_count; i++)
-    {
-        stable[j++] = unstable[i];
-    }
-    free(unstable);
+    heap->reshard(INODE_POOL(min_inode), pg_count, pg_stripe_size);
+    obj_ver_id *result = NULL;
+    size_t stable_count = 0, unstable_count = 0;
+    int res = heap->list_objects(list_pg, min_inode, max_inode, &result, &stable_count, &unstable_count);
     op->version = stable_count;
-    op->retval = stable_count+unstable_count;
-    op->buf = (uint8_t*)stable;
+    op->retval = res == 0 ? stable_count+unstable_count : -res;
+    op->buf = result;
     FINISH_OP(op);
+}
+
+void blockstore_impl_t::set_no_inode_stats(const std::vector<uint64_t> & pool_ids)
+{
 }
 
 void blockstore_impl_t::dump_diagnostics()
 {
-    journal.dump_diagnostics();
     flusher->dump_diagnostics();
+}
+
+void blockstore_meta_header_v3_t::set_crc32c()
+{
+    header_csum = 0;
+    uint32_t calc = crc32c(0, this, sizeof(*this));
+    header_csum = calc;
 }
 
 void blockstore_impl_t::disk_error_abort(const char *op, int retval, int expected)
@@ -706,92 +355,9 @@ void blockstore_impl_t::disk_error_abort(const char *op, int retval, int expecte
     exit(1);
 }
 
-const std::map<uint64_t, uint64_t> & blockstore_impl_t::get_inode_space_stats()
+uint64_t blockstore_impl_t::get_free_block_count()
 {
-    return inode_space_stats;
-}
-
-void blockstore_impl_t::set_no_inode_stats(const std::vector<uint64_t> & pool_ids)
-{
-    for (auto & np: no_inode_stats)
-    {
-        np.second = 2;
-    }
-    for (auto pool_id: pool_ids)
-    {
-        if (!no_inode_stats[pool_id])
-            recalc_inode_space_stats(pool_id, false);
-        no_inode_stats[pool_id] = 1;
-    }
-    for (auto np_it = no_inode_stats.begin(); np_it != no_inode_stats.end(); )
-    {
-        if (np_it->second == 2)
-        {
-            recalc_inode_space_stats(np_it->first, true);
-            no_inode_stats.erase(np_it++);
-        }
-        else
-            np_it++;
-    }
-}
-
-void blockstore_impl_t::recalc_inode_space_stats(uint64_t pool_id, bool per_inode)
-{
-    auto sp_begin = inode_space_stats.lower_bound((pool_id << (64-POOL_ID_BITS)));
-    auto sp_end = inode_space_stats.lower_bound(((pool_id+1) << (64-POOL_ID_BITS)));
-    inode_space_stats.erase(sp_begin, sp_end);
-    auto sh_it = clean_db_shards.lower_bound((pool_id << (64-POOL_ID_BITS)));
-    while (sh_it != clean_db_shards.end() &&
-        (sh_it->first >> (64-POOL_ID_BITS)) == pool_id)
-    {
-        for (auto & pair: sh_it->second)
-        {
-            uint64_t space_id = per_inode ? pair.first.inode : (pool_id << (64-POOL_ID_BITS));
-            inode_space_stats[space_id] += dsk.data_block_size;
-        }
-        sh_it++;
-    }
-    object_id last_oid = {};
-    bool last_exists = false;
-    auto dirty_it = dirty_db.lower_bound((obj_ver_id){ .oid = { .inode = (pool_id << (64-POOL_ID_BITS)) } });
-    while (dirty_it != dirty_db.end() && (dirty_it->first.oid.inode >> (64-POOL_ID_BITS)) == pool_id)
-    {
-        if (IS_STABLE(dirty_it->second.state) && (IS_BIG_WRITE(dirty_it->second.state) || IS_DELETE(dirty_it->second.state)))
-        {
-            bool exists = false;
-            if (last_oid == dirty_it->first.oid)
-            {
-                exists = last_exists;
-            }
-            else
-            {
-                auto & clean_db = clean_db_shard(dirty_it->first.oid);
-                auto clean_it = clean_db.find(dirty_it->first.oid);
-                exists = clean_it != clean_db.end();
-            }
-            uint64_t space_id = per_inode ? dirty_it->first.oid.inode : (pool_id << (64-POOL_ID_BITS));
-            if (IS_BIG_WRITE(dirty_it->second.state))
-            {
-                if (!exists)
-                    inode_space_stats[space_id] += dsk.data_block_size;
-                last_exists = true;
-            }
-            else
-            {
-                if (exists)
-                {
-                    auto & sp = inode_space_stats[space_id];
-                    if (sp > dsk.data_block_size)
-                        sp -= dsk.data_block_size;
-                    else
-                        inode_space_stats.erase(space_id);
-                }
-                last_exists = false;
-            }
-            last_oid = dirty_it->first.oid;
-        }
-        dirty_it++;
-    }
+    return dsk.block_count - heap->get_data_used_space()/dsk.data_block_size;
 }
 
 std::string blockstore_impl_t::get_op_diag(blockstore_op_t *op)

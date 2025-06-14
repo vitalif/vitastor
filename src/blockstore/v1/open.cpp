@@ -19,7 +19,6 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
     }
     min_flusher_count = strtoull(config["min_flusher_count"].c_str(), NULL, 10);
     journal_trim_interval = strtoull(config["journal_trim_interval"].c_str(), NULL, 10);
-    flusher_start_threshold = strtoull(config["flusher_start_threshold"].c_str(), NULL, 10);
     max_write_iodepth = strtoull(config["max_write_iodepth"].c_str(), NULL, 10);
     throttle_small_writes = config["throttle_small_writes"] == "true" || config["throttle_small_writes"] == "1" || config["throttle_small_writes"] == "yes";
     throttle_target_iops = strtoull(config["throttle_target_iops"].c_str(), NULL, 10);
@@ -34,17 +33,13 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
     {
         max_flusher_count = 256;
     }
-    if (!min_flusher_count)
+    if (!min_flusher_count || journal.flush_journal)
     {
         min_flusher_count = 1;
     }
     if (!journal_trim_interval)
     {
-        journal_trim_interval = 1024;
-    }
-    if (!flusher_start_threshold)
-    {
-        flusher_start_threshold = 32;
+        journal_trim_interval = 512;
     }
     if (!max_write_iodepth)
     {
@@ -90,6 +85,11 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
     {
         disable_journal_fsync = true;
     }
+    if (config["flush_journal"] == "true" || config["flush_journal"] == "1" || config["flush_journal"] == "yes")
+    {
+        // Only flush journal and exit
+        journal.flush_journal = true;
+    }
     if (config["immediate_commit"] == "all")
     {
         immediate_commit = IMMEDIATE_ALL;
@@ -99,16 +99,22 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
         immediate_commit = IMMEDIATE_SMALL;
     }
     metadata_buf_size = strtoull(config["meta_buf_size"].c_str(), NULL, 10);
-    meta_write_recheck_parallelism = strtoull(config["meta_write_recheck_parallelism"].c_str(), NULL, 10);
+    inmemory_meta = config["inmemory_metadata"] != "false" && config["inmemory_metadata"] != "0" &&
+        config["inmemory_metadata"] != "no";
+    journal.sector_count = strtoull(config["journal_sector_buffer_count"].c_str(), NULL, 10);
+    journal.no_same_sector_overwrites = config["journal_no_same_sector_overwrites"] == "true" ||
+        config["journal_no_same_sector_overwrites"] == "1" || config["journal_no_same_sector_overwrites"] == "yes";
+    journal.inmemory = config["inmemory_journal"] != "false" && config["inmemory_journal"] != "0" &&
+        config["inmemory_journal"] != "no";
     log_level = strtoull(config["log_level"].c_str(), NULL, 10);
     // Validate
+    if (journal.sector_count < 2)
+    {
+        journal.sector_count = 32;
+    }
     if (metadata_buf_size < 65536)
     {
         metadata_buf_size = 4*1024*1024;
-    }
-    if (!meta_write_recheck_parallelism)
-    {
-        meta_write_recheck_parallelism = 16;
     }
     if (dsk.meta_device == dsk.data_device)
     {
@@ -125,5 +131,53 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
     if (immediate_commit == IMMEDIATE_ALL && !disable_data_fsync)
     {
         throw std::runtime_error("immediate_commit=all requires disable_journal_fsync and disable_data_fsync");
+    }
+    // init some fields
+    journal.block_size = dsk.journal_block_size;
+    journal.next_free = dsk.journal_block_size;
+    journal.used_start = dsk.journal_block_size;
+    // no free space because sector is initially unmapped
+    journal.in_sector_pos = dsk.journal_block_size;
+}
+
+void blockstore_impl_t::calc_lengths()
+{
+    dsk.calc_lengths();
+    journal.len = dsk.journal_len;
+    journal.block_size = dsk.journal_block_size;
+    journal.offset = dsk.journal_offset;
+    if (inmemory_meta)
+    {
+        metadata_buffer = memalign(MEM_ALIGNMENT, dsk.meta_len);
+        if (!metadata_buffer)
+            throw std::runtime_error("Failed to allocate memory for the metadata ("+std::to_string(dsk.meta_len/1024/1024)+" MB)");
+    }
+    else if (dsk.clean_entry_bitmap_size || dsk.data_csum_type)
+    {
+        clean_bitmaps = (uint8_t*)malloc(dsk.block_count * 2 * dsk.clean_entry_bitmap_size);
+        if (!clean_bitmaps)
+        {
+            throw std::runtime_error(
+                "Failed to allocate memory for the metadata sparse write bitmap ("+
+                std::to_string(dsk.block_count * 2 * dsk.clean_entry_bitmap_size / 1024 / 1024)+" MB)"
+            );
+        }
+    }
+    if (journal.inmemory)
+    {
+        journal.buffer = memalign(MEM_ALIGNMENT, journal.len);
+        if (!journal.buffer)
+            throw std::runtime_error("Failed to allocate memory for journal ("+std::to_string(journal.len/1024/1024)+" MB)");
+    }
+    else
+    {
+        journal.sector_buf = (uint8_t*)memalign(MEM_ALIGNMENT, journal.sector_count * dsk.journal_block_size);
+        if (!journal.sector_buf)
+            throw std::bad_alloc();
+    }
+    journal.sector_info = (journal_sector_info_t*)calloc(journal.sector_count, sizeof(journal_sector_info_t));
+    if (!journal.sector_info)
+    {
+        throw std::bad_alloc();
     }
 }

@@ -4,8 +4,11 @@ project(vitastor)
 
 # libvitastor_blk.so
 add_library(vitastor_blk SHARED
-	../util/allocator.cpp blockstore.cpp blockstore_impl.cpp blockstore_disk.cpp blockstore_init.cpp blockstore_open.cpp blockstore_journal.cpp blockstore_read.cpp
-	blockstore_write.cpp blockstore_sync.cpp blockstore_stable.cpp blockstore_rollback.cpp blockstore_flush.cpp ../util/crc32c.c ../util/ringloop.cpp
+	../util/allocator.cpp ../util/crc32c.c ../util/ringloop.cpp
+	blockstore_heap.cpp blockstore_disk.cpp
+	blockstore.cpp blockstore_impl.cpp blockstore_init.cpp blockstore_open.cpp
+	blockstore_flush.cpp blockstore_read.cpp blockstore_stable.cpp blockstore_sync.cpp blockstore_write.cpp
+	v1/flush.cpp v1/impl.cpp v1/init.cpp v1/journal.cpp v1/open.cpp v1/read.cpp v1/rollback.cpp v1/stable.cpp v1/sync.cpp v1/write.cpp
 )
 target_link_libraries(vitastor_blk
 	${LIBURING_LIBRARIES}

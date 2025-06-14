@@ -164,8 +164,8 @@ struct __attribute__ ((visibility("default"))) blockstore_op_t
             uint32_t list_stable_limit;
         };
     };
-    uint8_t *buf = NULL;
-    uint8_t *bitmap = NULL;
+    void *buf = NULL;
+    void *bitmap = NULL;
     int retval = 0;
 
     uint8_t private_data[BS_OP_PRIVATE_DATA_SIZE];

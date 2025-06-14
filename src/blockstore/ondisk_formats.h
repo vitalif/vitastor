@@ -148,6 +148,7 @@ inline uint32_t je_crc32(journal_entry *je)
 #define BLOCKSTORE_META_MAGIC_V1 0x726F747341544956l
 #define BLOCKSTORE_META_FORMAT_V1 1
 #define BLOCKSTORE_META_FORMAT_V2 2
+#define BLOCKSTORE_META_FORMAT_HEAP 3
 
 // metadata header (superblock)
 struct __attribute__((__packed__)) blockstore_meta_header_v1_t
@@ -171,6 +172,22 @@ struct __attribute__((__packed__)) blockstore_meta_header_v2_t
     uint32_t data_csum_type;
     uint32_t csum_block_size;
     uint32_t header_csum;
+};
+
+struct __attribute__((__packed__)) blockstore_meta_header_v3_t
+{
+    uint64_t zero;
+    uint64_t magic;
+    uint64_t version;
+    uint32_t meta_block_size;
+    uint32_t data_block_size;
+    uint32_t bitmap_granularity;
+    uint32_t data_csum_type;
+    uint32_t csum_block_size;
+    uint32_t header_csum;
+    uint64_t compacted_lsn;
+
+    void set_crc32c();
 };
 
 // 32 bytes = 24 bytes + block bitmap (4 bytes by default) + external attributes (also bitmap, 4 bytes by default)
