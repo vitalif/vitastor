@@ -410,8 +410,8 @@ sub volume_size_info
     my $prefix = defined $scfg->{vitastor_prefix} ? $scfg->{vitastor_prefix} : 'pve/';
     my ($vtype, $name, $vmid) = $class->parse_volname($volname);
     my $info = _process_list($scfg, $storeid, run_cli($scfg, [ 'ls', $prefix.$name ]))->[0];
-    #return wantarray ? ($size, $format, $used, $parent, $st->ctime) : $size;
-    return $info->{size};
+    # (size, format, used, parent, ctime)
+    return wantarray ? ($info->{size}, $info->{format}, $info->{size}, $info->{parent}, 0) : $info->{size};
 }
 
 sub volume_resize
