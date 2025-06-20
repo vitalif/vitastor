@@ -166,6 +166,7 @@ resume_2:
         entryplus3 dotdot = {};
         dotdot.name = xdr_copy_string(st->rop->xdrs, "..");
         dotdot.fileid = st->dir_ino;
+        dotdot.cookie = 1;
         dotdot.name_attributes = (post_op_attr){
             // FIXME: maybe do not read parent attributes and leave them to a GETATTR?
             .attributes_follow = 1,
