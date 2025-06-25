@@ -147,7 +147,7 @@ Output:
 struct blockstore_op_t
 {
     // operation
-    uint64_t opcode;
+    uint64_t opcode = 0;
     // finish callback
     std::function<void (blockstore_op_t*)> callback;
     union __attribute__((__packed__))
@@ -171,9 +171,9 @@ struct blockstore_op_t
             uint32_t list_stable_limit;
         };
     };
-    void *buf;
-    void *bitmap;
-    int retval;
+    void *buf = NULL;
+    void *bitmap = NULL;
+    int retval = 0;
 
     uint8_t private_data[BS_OP_PRIVATE_DATA_SIZE];
 };
