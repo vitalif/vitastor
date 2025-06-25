@@ -9,6 +9,35 @@
 #include "blockstore_heap.h"
 #include "../util/crc32c.h"
 
+static int count_writes(heap_object_t *obj)
+{
+    int n = 0;
+    for (auto wr = obj->get_writes(); wr; wr = wr->next())
+    {
+        n++;
+    }
+    return n;
+}
+
+#define FREE_SPACE_BIT 0x8000
+
+bool check_used_space(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint32_t block_num)
+{
+    uint8_t *data = heap.get_meta_block(block_num);
+    uint8_t *end = data+dsk.meta_block_size;
+    uint32_t used = 0;
+    while (data < end)
+    {
+        uint16_t region_marker = *((uint16_t*)data);
+        if (!(region_marker & FREE_SPACE_BIT))
+        {
+            used += region_marker;
+        }
+        data += (region_marker & ~FREE_SPACE_BIT);
+    }
+    return used == heap.get_meta_block_used_space(block_num);
+}
+
 int _test_do_big_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t inode, uint64_t stripe, uint64_t version, uint64_t location,
     bool stable = true, uint32_t offset = 0, uint32_t len = 0)
 {
@@ -24,7 +53,7 @@ int _test_do_big_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64
     wr->flags = BS_HEAP_BIG_WRITE | (stable ? BS_HEAP_STABLE : 0);
     assert(heap.get_max_write_entry_size() >= wr->get_size(&heap));
     assert(wr->get_size(&heap) == sizeof(heap_write_t) + 2*dsk.clean_entry_bitmap_size + (dsk.csum_block_size
-        ? ((offset+len+dsk.csum_block_size-1)/dsk.csum_block_size - offset/dsk.csum_block_size)*4 : 0));
+        ? dsk.data_block_size/dsk.csum_block_size*4 : 0));
     memset(wr->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
     if (dsk.csum_block_size)
         memset(wr->get_checksums(&heap), 0xab, dsk.data_block_size/dsk.csum_block_size*4);
@@ -112,6 +141,7 @@ void test_mvcc(bool csum)
         _test_big_write(heap, dsk, 1, 0, 1, 0);
         assert(heap.get_meta_block_used_space(0) == sizeof(heap_object_t) + sizeof(heap_write_t) +
             2*dsk.clean_entry_bitmap_size + (dsk.csum_block_size ? dsk.data_block_size/dsk.csum_block_size*4 : 0));
+        assert(check_used_space(heap, dsk, 0));
         assert(heap.get_meta_used_space() == heap.get_meta_block_used_space(0));
 
         assert(heap.find_free_data() == 0x20000);
@@ -121,7 +151,7 @@ void test_mvcc(bool csum)
         heap_object_t *obj = heap.lock_and_read_entry(oid, lsn);
         assert(obj);
         assert(lsn >= 1);
-        assert(obj->write_count == 1);
+        assert(count_writes(obj) == 1);
         heap_write_t *wr = obj->get_writes();
         assert(wr->lsn == lsn);
         assert(wr->version == 1);
@@ -129,7 +159,7 @@ void test_mvcc(bool csum)
         assert(wr->len == dsk.data_block_size);
         assert(wr->location == 0);
         assert(wr->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
-        uint64_t old_size = obj->size;
+        uint64_t old_size = obj->size + wr->size;
 
         assert(heap.read_locked_entry(oid, lsn) == obj);
 
@@ -137,12 +167,13 @@ void test_mvcc(bool csum)
 
         _test_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 16384, true);
         obj = heap.read_entry(oid, NULL);
+        assert(check_used_space(heap, dsk, 0));
         assert(heap.get_meta_block_used_space(0) == old_size + obj->get_writes()->get_size(&heap));
 
         assert(!heap.read_locked_entry(oid, UINT64_MAX));
         obj = heap.read_locked_entry(oid, lsn);
         assert(obj);
-        assert(obj->write_count == 1);
+        assert(count_writes(obj) == 1);
         wr = obj->get_writes();
         assert(wr->lsn == lsn);
         assert(wr->version == 1);
@@ -153,7 +184,7 @@ void test_mvcc(bool csum)
 
         obj = heap.read_entry(oid, NULL);
         assert(obj);
-        assert(obj->write_count == 2);
+        assert(count_writes(obj) == 2);
         wr = obj->get_writes();
         assert(wr->lsn > lsn);
         assert(wr->version == 2);
@@ -162,7 +193,7 @@ void test_mvcc(bool csum)
         assert(wr->location == 16384);
         assert(wr->flags == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
         assert(!wr->get_int_bitmap(&heap));
-        wr = wr->next(&heap);
+        wr = wr->next();
         assert(wr->lsn == lsn);
         assert(wr->version == 1);
         assert(wr->offset == 0);
@@ -214,11 +245,10 @@ void test_delete(bool csum)
         assert(heap.get_data_used_space() == 0x40000);
 
         object_id oid = { .inode = INODE_WITH_POOL(1, 2), .stripe = 0 };
-        uint32_t mblock;
-        int res = heap.post_delete(oid, &mblock);
+        int res = heap.post_delete(oid, NULL);
         assert(res == ENOENT);
-        assert(mblock == 0);
 
+        uint32_t mblock = 1;
         oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
         res = heap.post_delete(oid, &mblock);
         assert(res == 0);
@@ -248,24 +278,25 @@ void test_compact(bool csum, bool stable)
     uint64_t lsn = 0;
     heap_object_t *obj = heap.lock_and_read_entry(oid, lsn);
     assert(obj);
-    assert(obj->write_count == 1);
+    assert(count_writes(obj) == 1);
     assert(obj->get_writes()->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
     uint8_t ref_int_bitmap[dsk.clean_entry_bitmap_size];
     memset(ref_int_bitmap, 0, dsk.clean_entry_bitmap_size);
     bitmap_set(ref_int_bitmap, 0, 4096, 4096);
     assert(!memcmp(obj->get_writes()->get_int_bitmap(&heap), ref_int_bitmap, dsk.clean_entry_bitmap_size));
-    uint64_t old_size = obj->size;
+    uint64_t old_size = obj->size + obj->get_writes()->size;
 
     _test_small_write(heap, dsk, 1, 0, 3, 8192, 4096, 16384, stable);
     obj = heap.read_entry(oid, NULL);
     uint64_t wr_size = obj->get_writes()->get_size(&heap);
+    assert(check_used_space(heap, dsk, 0));
     assert(heap.get_meta_block_used_space(0) == old_size + wr_size);
 
     _test_big_write(heap, dsk, 2, 0, 1, 0x40000, true, 0, 4096);
 
     obj = heap.read_locked_entry(oid, lsn);
     assert(obj);
-    assert(obj->write_count == 1);
+    assert(count_writes(obj) == 1);
     assert(obj->get_writes()->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
 
     uint32_t mblock;
@@ -284,6 +315,7 @@ void test_compact(bool csum, bool stable)
         res = heap.post_stabilize(oid, 3, &mblock);
         assert(res == 0);
         assert(mblock == 0);
+        assert(check_used_space(heap, dsk, 0));
         assert(heap.get_meta_block_used_space(0) == 2*old_size + wr_size);
     }
 
@@ -295,28 +327,29 @@ void test_compact(bool csum, bool stable)
     heap_write_t *compact_begin = NULL, *compact_end = NULL;
     obj = heap.read_entry(oid, NULL);
     assert(obj);
-    assert(obj->write_count == 2);
+    assert(count_writes(obj) == 2);
     heap.get_compact_range(obj, UINT64_MAX, &compact_begin, &compact_end);
     assert(compact_begin == obj->get_writes());
-    assert(compact_end == obj->get_writes()->next(&heap));
+    assert(compact_end == obj->get_writes()->next());
 
     res = heap.compact_object((object_id){ .inode = INODE_WITH_POOL(1, 3), .stripe = 0 }, compact_begin->lsn, NULL);
     assert(res == ENOENT);
 
     res = heap.compact_object(compact_oid, compact_begin->lsn, NULL);
     assert(res == 0);
-    assert(heap.get_meta_block_used_space(0) == 2*old_size + (dsk.csum_block_size ? 8 /* two extra csum blocks */ : 0));
+    assert(check_used_space(heap, dsk, 0));
+    assert(heap.get_meta_block_used_space(0) == 2*old_size);
 
     obj = heap.read_entry(oid, NULL);
     assert(obj);
-    assert(obj->write_count == 1);
+    assert(count_writes(obj) == 1);
     assert(obj->get_writes()->version == 3);
     bitmap_set(ref_int_bitmap, 8192, 4096, 4096);
     assert(!memcmp(obj->get_writes()->get_int_bitmap(&heap), ref_int_bitmap, dsk.clean_entry_bitmap_size));
 
     obj = heap.read_entry({ .inode = INODE_WITH_POOL(1, 2), .stripe = 0 }, NULL);
     assert(obj);
-    assert(obj->write_count == 1);
+    assert(count_writes(obj) == 1);
     assert(obj->get_writes()->version == 1);
 
     int unlock_res = heap.unlock_entry(oid, lsn);
@@ -429,7 +462,7 @@ void test_recheck(bool async, bool csum)
         uint64_t lsn = 0;
         heap_object_t *obj = heap.lock_and_read_entry(oid, lsn);
         assert(obj);
-        assert(obj->write_count == 1);
+        assert(count_writes(obj) == 1);
         heap_write_t *wr = obj->get_writes();
         assert(wr->lsn == lsn);
         assert(wr->version == 1);
@@ -442,7 +475,7 @@ void test_recheck(bool async, bool csum)
         oid = { .inode = INODE_WITH_POOL(1, 2), .stripe = 0 };
         obj = heap.lock_and_read_entry(oid, lsn);
         assert(obj);
-        assert(obj->write_count == 2);
+        assert(count_writes(obj) == 2);
         wr = obj->get_writes();
         assert(wr->lsn == lsn);
         assert(wr->version == 2);
@@ -471,11 +504,9 @@ void test_corruption()
         // big_write
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000);
 
-        // check size
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
         heap_object_t *obj = heap.read_entry(oid, NULL);
         assert(obj);
-        assert(obj->size == sizeof(heap_object_t) + sizeof(heap_write_t) + dsk.clean_entry_bitmap_size*2);
 
         // big_write object 2
         _test_big_write(heap, dsk, 1, 0x20000, 1, 0x40000);
@@ -527,7 +558,7 @@ void test_corruption()
         oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0x20000 };
         obj = heap.lock_and_read_entry(oid, lsn);
         assert(obj);
-        assert(obj->write_count == 1);
+        assert(count_writes(obj) == 1);
         heap_write_t *wr = obj->get_writes();
         assert(wr->location == 0x40000);
         assert(wr->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
@@ -536,7 +567,7 @@ void test_corruption()
         oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0x40000 };
         obj = heap.read_entry(oid, NULL);
         assert(obj);
-        assert(obj->write_count == 1);
+        assert(count_writes(obj) == 1);
         wr = obj->get_writes();
         assert(wr->location == 0x60000);
         assert(wr->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
@@ -545,7 +576,7 @@ void test_corruption()
         oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0x60000 };
         obj = heap.read_entry(oid, NULL);
         assert(obj);
-        assert(obj->write_count == 1);
+        assert(count_writes(obj) == 1);
         wr = obj->get_writes();
         assert(wr->flags == BS_HEAP_TOMBSTONE|BS_HEAP_STABLE);
     }
@@ -609,12 +640,12 @@ void test_full_overwrite(bool stable)
         // read object
         obj = heap.read_entry(oid, NULL);
         assert(obj);
-        assert(obj->write_count == 2);
+        assert(count_writes(obj) == 2);
         heap_write_t *wr = obj->get_writes();
         assert(wr->version == 4);
         assert(wr->location == 20480);
         assert(wr->flags == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
-        wr = wr->next(&heap);
+        wr = wr->next();
         assert(wr->version == 3);
         assert(wr->location == 0x40000);
         assert(wr->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
@@ -703,34 +734,38 @@ void _test_invalid_data_setup(blockstore_disk_t & dsk, std::vector<uint8_t> & bu
     tmp.resize(dsk.meta_block_size*2);
 
     heap_object_t *obj = (heap_object_t*)tmp.data();
-    obj->size = sizeof(heap_object_t) + sizeof(heap_write_t) + dsk.clean_entry_bitmap_size;
+    obj->size = sizeof(heap_object_t);
     obj->inode = INODE_WITH_POOL(1, 1);
-    obj->write_count = 1;
+    obj->write_pos = sizeof(heap_object_t);
     heap_write_t *wr = obj->get_writes();
+    wr->next_pos = 0;
     wr->lsn = 1;
     wr->version = 1;
     wr->flags = BS_HEAP_TOMBSTONE;
+    wr->size = sizeof(heap_write_t);
     obj->crc32c = obj->calc_crc32c();
 
-    obj = obj->next();
-    obj->size = sizeof(heap_object_t) + sizeof(heap_write_t) + dsk.clean_entry_bitmap_size;
+    obj = (heap_object_t*)((uint8_t*)wr + wr->size);
+    obj->size = sizeof(heap_object_t);
     obj->inode = INODE_WITH_POOL(1, 3);
     obj->stripe = 0;
-    obj->write_count = 1;
+    obj->write_pos = sizeof(heap_object_t);
     wr = obj->get_writes();
     wr->lsn = 1;
     wr->version = 1;
     wr->flags = BS_HEAP_TOMBSTONE;
+    wr->size = sizeof(heap_write_t);
     obj->crc32c = obj->calc_crc32c();
 
     obj = (heap_object_t*)(tmp.data() + dsk.meta_block_size);
+    obj->size = sizeof(heap_object_t);
     obj->inode = INODE_WITH_POOL(1, 2);
-    obj->write_count = 1;
+    obj->write_pos = sizeof(heap_object_t);
     wr = obj->get_writes();
     wr->lsn = 2;
     wr->version = 1;
     wr->flags = BS_HEAP_TOMBSTONE;
-    obj->size = sizeof(heap_object_t) + sizeof(heap_write_t) + dsk.clean_entry_bitmap_size;
+    wr->size = sizeof(heap_write_t);
     obj->crc32c = obj->calc_crc32c();
 }
 
@@ -745,8 +780,8 @@ void test_invalid_data()
     {
         _test_invalid_data_setup(dsk, buffer_area, tmp);
         heap_object_t *obj = (heap_object_t*)tmp.data();
-        obj->size = sizeof(heap_object_t)-1;
-        obj->crc32c = obj->calc_crc32c();
+        obj->size = sizeof(heap_object_t)-2;
+        *((uint16_t*)(tmp.data()+sizeof(heap_object_t)-2)) = 0x8002;
 
         blockstore_heap_t heap(&dsk, buffer_area.data());
         heap.load_blocks(0, dsk.meta_block_size*2, tmp.data());
@@ -781,7 +816,7 @@ void test_invalid_data()
     {
         _test_invalid_data_setup(dsk, buffer_area, tmp);
         heap_object_t *obj = (heap_object_t*)tmp.data();
-        obj->write_count = 0;
+        obj->write_pos = 0;
         obj->crc32c = obj->calc_crc32c();
 
         blockstore_heap_t heap(&dsk, buffer_area.data());
@@ -802,7 +837,7 @@ void test_invalid_data()
     {
         _test_invalid_data_setup(dsk, buffer_area, tmp);
         heap_object_t *obj = (heap_object_t*)tmp.data();
-        obj->write_count = 1;
+        obj->write_pos = sizeof(heap_object_t);
         obj->crc32c = obj->calc_crc32c()+1;
 
         blockstore_heap_t heap(&dsk, buffer_area.data());
@@ -935,13 +970,13 @@ void test_rollback()
         // check object data
         obj = heap.read_entry(oid, NULL);
         assert(obj);
-        assert(obj->write_count == 2);
+        assert(count_writes(obj) == 2);
         heap_write_t *wr = obj->get_writes();
         assert(wr->version == 2);
         assert(wr->location == 16384);
         assert(wr->len == 4096);
         assert(wr->flags == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
-        wr = wr->next(&heap);
+        wr = wr->next();
         assert(wr->version == 1);
         assert(wr->location == 0x20000);
         assert(wr->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
@@ -1038,45 +1073,46 @@ void test_full_alloc()
 
     uint32_t big_write_size = (sizeof(heap_object_t) + sizeof(heap_write_t) + 2*dsk.clean_entry_bitmap_size + dsk.data_block_size/dsk.csum_block_size*4);
     uint32_t small_write_size = (sizeof(heap_write_t) + dsk.clean_entry_bitmap_size + 4);
-    assert(big_write_size == 193);
-    assert(small_write_size == 41);
-    uint32_t b_4s = (big_write_size + 4*small_write_size); // 357
+    assert(big_write_size == 197);
+    assert(small_write_size == 45);
+    uint32_t b_4s = (big_write_size + 4*small_write_size); // 377
+    uint32_t epb = (4096-800+b_4s-1)/b_4s; // entries per block
     for (int j = 0; j < 4; j++)
     {
         assert(heap.get_meta_nearfull_blocks() == j);
-        for (int i = j*10; i < j*10+10; i++)
+        for (int i = j*epb; i < j*epb+epb; i++)
         {
             _test_big_write(heap, dsk, 1, i*0x20000, 1, i*0x20000);
             _test_small_write(heap, dsk, 1, i*0x20000, 2, 8192, 4096, i*16384, true);
             _test_small_write(heap, dsk, 1, i*0x20000, 3, 8192, 4096, i*16384+4096, true);
             _test_small_write(heap, dsk, 1, i*0x20000, 4, 8192, 4096, i*16384+2*4096, true);
             _test_small_write(heap, dsk, 1, i*0x20000, 5, 8192, 4096, i*16384+3*4096, true);
-            assert(heap.get_meta_block_used_space(0) == (i < 10 ? i+1 : 10)*b_4s);
-            assert(heap.get_meta_block_used_space(1) == (i < 10 ? 0 : (i < 20 ? i-9 : 10)*b_4s));
-            assert(heap.get_meta_block_used_space(2) == (i < 20 ? 0 : (i < 30 ? i-19 : 10)*b_4s));
-            assert(heap.get_meta_block_used_space(3) == (i < 30 ? 0 : (i < 40 ? i-29 : 10)*b_4s));
+            assert(heap.get_meta_block_used_space(0) == (i < epb ? i+1 : epb)*b_4s);
+            assert(heap.get_meta_block_used_space(1) == (i < epb ? 0 : (i < 2*epb ? i+1-epb : epb)*b_4s));
+            assert(heap.get_meta_block_used_space(2) == (i < 2*epb ? 0 : (i < 3*epb ? i+1-2*epb : epb)*b_4s));
+            assert(heap.get_meta_block_used_space(3) == (i < 3*epb ? 0 : (i < 4*epb ? i+1-3*epb : epb)*b_4s));
         }
     }
 
     // After filling all blocks to (4096-800), most free blocks should start to be allocated first
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < 8; i++)
     {
         assert(heap.get_meta_nearfull_blocks() == 4);
         _test_big_write(heap, dsk, 1, (40+i)*0x20000, 1, (40+i)*0x20000);
-        assert(heap.get_meta_block_used_space(i) == (10*b_4s + big_write_size));
+        assert(heap.get_meta_block_used_space(i % 4) == (epb*b_4s + big_write_size*(i/4+1)));
     }
 
     // New writes are prevented if it may lead to inability to overwrite any object
     // - i.e. if the block doesn't have at least <max_overwrite_size> free space as the result
-    assert(_test_do_big_write(heap, dsk, 1, 44*0x20000, 1, 44*0x20000) == EAGAIN);
+    assert(_test_do_big_write(heap, dsk, 1, 48*0x20000, 1, 48*0x20000) == ENOSPC);
 
     // Overwrites are, however, allowed until the block is almost empty
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < 6; i++)
     {
-        assert(_test_do_small_write(heap, dsk, 1, 0, 6+i, 0, 4096, 44*16384+i*4096) == 0);
+        assert(_test_do_small_write(heap, dsk, 1, 0, 6+i, 0, 4096, epb*4*16384+i*4096) == 0);
     }
     assert(dsk.meta_block_size-heap.get_meta_block_used_space(0) < big_write_size);
-    assert(_test_do_small_write(heap, dsk, 1, 0, 14, 0, 4096, 44*16384+8*4096) == EAGAIN);
+    assert(_test_do_small_write(heap, dsk, 1, 0, 12, 0, 4096, 48*16384+8*4096) == ENOSPC);
 
     // Check that used_alloc_queue doesn't return used blocks
     {
@@ -1136,14 +1172,14 @@ void test_duplicate()
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
         heap_object_t *obj = heap.read_entry(oid, NULL);
         assert(obj);
-        assert(obj->write_count == 1);
+        assert(count_writes(obj) == 1);
         heap_write_t *wr = obj->get_writes();
         assert(wr->version == 2);
         assert(wr->location == 0x40000);
         assert(wr->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
 
         assert(heap.get_meta_block_used_space(0) == 0);
-        assert(heap.get_meta_block_used_space(1) == obj->size);
+        assert(heap.get_meta_block_used_space(1) == obj->size+wr->size);
         assert(heap.is_data_used(0x40000));
         assert(!heap.is_data_used(0x20000));
     }
@@ -1160,14 +1196,14 @@ void test_duplicate()
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
         heap_object_t *obj = heap.read_entry(oid, NULL);
         assert(obj);
-        assert(obj->write_count == 1);
+        assert(count_writes(obj) == 1);
         heap_write_t *wr = obj->get_writes();
         assert(wr->version == 2);
         assert(wr->location == 0x40000);
         assert(wr->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
 
         assert(heap.get_meta_block_used_space(0) == 0);
-        assert(heap.get_meta_block_used_space(1) == obj->size);
+        assert(heap.get_meta_block_used_space(1) == obj->size+wr->size);
         assert(heap.is_data_used(0x40000));
         assert(!heap.is_data_used(0x20000));
     }
@@ -1177,7 +1213,6 @@ void test_duplicate()
 
 void test_autocompact(bool csum)
 {
-    int res;
     blockstore_disk_t dsk;
     _test_init(dsk, csum);
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
@@ -1206,10 +1241,10 @@ void test_autocompact(bool csum)
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
         heap_object_t *obj = heap.read_entry(oid, NULL);
         assert(obj);
-        assert(obj->write_count == 5);
+        assert(count_writes(obj) == 5);
         assert(obj->get_writes()->lsn == 5);
 
-        big_write_size = obj->get_writes()->next(&heap)->next(&heap)->next(&heap)->next(&heap)->get_size(&heap);
+        big_write_size = obj->get_writes()->next()->next()->next()->next()->get_size(&heap);
         small_write_size = obj->get_writes()->get_size(&heap);
 
         // persist
@@ -1230,35 +1265,7 @@ void test_autocompact(bool csum)
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
         heap_object_t *obj = heap.read_entry(oid, NULL);
         assert(obj);
-        assert(obj->write_count == 5);
-        assert(obj->get_writes()->lsn == 5);
-
-        assert(heap.get_meta_block_used_space(0) == 2*sizeof(heap_object_t) + 2*big_write_size + 2*small_write_size);
-
-        // object should be in the compaction queue
-        object_id compact_oid = {};
-        res = heap.get_next_compact(compact_oid);
-        assert(res == 0);
-        assert(compact_oid == oid);
-
-        assert(heap.is_data_used(0x20000));
-        assert(!heap.is_buffer_area_free(4*4096, 4096));
-        assert(!heap.is_buffer_area_free(5*4096, 4096));
-        assert(!heap.is_buffer_area_free(6*4096, 4096));
-        assert(!heap.is_buffer_area_free(7*4096, 4096));
-
-        _test_big_write(heap, dsk, 1, 0x20000, 1, 0x40000);
-        oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0x20000 };
-        obj = heap.read_entry(oid, NULL);
-        assert(obj);
-        assert(obj->write_count == 1);
-        assert(obj->get_writes()->lsn == 7);
-
-        // two entries should be auto-compacted on the first write
-        oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
-        obj = heap.read_entry(oid, NULL);
-        assert(obj);
-        assert(obj->write_count == 3);
+        assert(count_writes(obj) == 3);
         heap_write_t *wr = obj->get_writes();
         assert(wr->lsn == 5);
         assert(wr->version == 5);
@@ -1266,14 +1273,14 @@ void test_autocompact(bool csum)
         assert(wr->len == 4096);
         assert(wr->location == 7*4096);
         assert(wr->flags == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
-        wr = wr->next(&heap);
+        wr = wr->next();
         assert(wr->lsn == 4);
         assert(wr->version == 4);
         assert(wr->offset == 5*4096);
         assert(wr->len == 4096);
         assert(wr->location == 6*4096);
         assert(wr->flags == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
-        wr = wr->next(&heap);
+        wr = wr->next();
         assert(wr->lsn == 3);
         assert(wr->version == 3);
         assert(wr->offset == 0);
@@ -1288,35 +1295,7 @@ void test_autocompact(bool csum)
         assert(!heap.is_buffer_area_free(6*4096, 4096));
         assert(!heap.is_buffer_area_free(7*4096, 4096));
 
-        assert(heap.get_meta_block_used_space(0) == 3*sizeof(heap_object_t) + 3*big_write_size + 2*small_write_size);
-    }
-
-    // same on delete
-    {
-        blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.set_fail_on_warn(true);
-        heap.set_compacted_lsn(3);
-        heap.load_blocks(0, dsk.meta_block_size, tmp.data());
-        heap.finish_load();
-
-        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
-        heap_object_t *obj = heap.read_entry(oid, NULL);
-        assert(obj);
-        assert(obj->write_count == 5);
-
-        oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0x40000 };
-        int res = heap.post_delete(oid, NULL);
-        assert(res == 0);
-
-        oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
-        obj = heap.read_entry(oid, NULL);
-        assert(obj);
-        assert(obj->write_count == 3);
-        heap_write_t *wr = obj->get_writes();
-        assert(wr->lsn == 5);
-        assert(wr->next(&heap)->lsn == 4);
-
-        assert(heap.get_meta_block_used_space(0) == sizeof(heap_object_t) + big_write_size + 2*small_write_size);
+        assert(heap.get_meta_block_used_space(0) == 2*sizeof(heap_object_t) + 2*big_write_size + 2*small_write_size);
     }
 
     printf("OK test_autocompact %s\n", csum ? "csum" : "no_csum");

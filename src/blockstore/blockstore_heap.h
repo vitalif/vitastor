@@ -29,6 +29,9 @@ class blockstore_heap_t;
 
 struct __attribute__((__packed__)) heap_write_t
 {
+    // size should have top bit cleared
+    uint16_t size = 0;
+    int16_t next_pos = 0;
     uint64_t lsn = 0;
     uint64_t version = 0;
     uint32_t offset = 0;
@@ -40,7 +43,7 @@ struct __attribute__((__packed__)) heap_write_t
     // uint8_t[] internal_bitmap
     // uint32_t[] checksums
 
-    heap_write_t *next(blockstore_heap_t *heap);
+    heap_write_t *next();
     uint32_t get_size(blockstore_heap_t *heap);
     uint32_t get_csum_size(blockstore_heap_t *heap);
     bool needs_recheck(blockstore_heap_t *heap);
@@ -56,16 +59,15 @@ struct __attribute__((__packed__)) heap_write_t
 
 struct __attribute__((__packed__)) heap_object_t
 {
+    // size should have top bit cleared
     uint16_t size = 0;
+    // linked list of write entries...
+    // newest entries are stored first to simplify scanning
+    int16_t write_pos = 0;
     uint32_t crc32c = 0;
     uint64_t inode = 0;
     uint64_t stripe = 0;
-    uint16_t write_count = 0;
 
-    // Newest entries are stored first to simplify scanning
-    // heap_write_t[] writes
-
-    heap_object_t *next();
     heap_write_t *get_writes();
     uint32_t calc_crc32c();
 };
@@ -90,7 +92,7 @@ struct heap_object_mvcc_t
 struct __attribute__((__packed__)) heap_block_info_t
 {
     uint32_t used_space = 0;
-    uint32_t virtual_free_space = 0;
+    uint32_t free_pos = 0;
     uint8_t *data = NULL;
 };
 
@@ -171,8 +173,10 @@ class blockstore_heap_t
     const uint32_t max_write_entry_size;
 
     uint64_t get_pg_id(inode_t inode, uint64_t stripe);
-    void compact_block(uint32_t block_num, object_id skip_oid);
-    bool compact_object_to(heap_object_t *obj, uint64_t lsn, heap_object_t *to_obj, uint8_t *new_csums);
+    void compact_block(uint32_t block_num);
+    uint32_t find_block_run(heap_block_info_t & block, uint32_t space);
+    uint32_t find_block_space(uint32_t block_num, uint32_t space);
+    uint32_t compact_object_to(heap_object_t *obj, uint64_t lsn, uint8_t *new_csums);
     heap_object_t *mvcc_save_copy(heap_object_t *obj);
     int add_object(object_id oid, heap_write_t *wr, uint32_t *modified_block);
     int update_object(uint32_t block_num, heap_object_t *obj, heap_write_t *wr, uint32_t *modified_block);
