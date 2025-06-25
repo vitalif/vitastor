@@ -2,8 +2,13 @@
 // Copyright (c) Vitaliy Filippov, 2025+
 // License: VNPL-1.1 (see README.md for details)
 
-#include "blockstore_heap.h"
+#include <assert.h>
+#include <string.h>
 
+#include <stdexcept>
+#include <algorithm>
+
+#include "blockstore_heap.h"
 #include "../util/allocator.h"
 #include "../util/crc32c.h"
 #include "../util/malloc_or_die.h"
@@ -813,7 +818,7 @@ void blockstore_heap_t::reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_s
         return;
     }
     uint64_t pool_id = (uint64_t)pool;
-    std::map<uint64_t, std::map<inode_t, btree::btree_map<uint64_t, uint64_t>>> new_shards;
+    std::map<uint64_t, std::map<inode_t, std::map<uint64_t, uint64_t>>> new_shards;
     auto sh_it = block_index.lower_bound((pool_id << (64-POOL_ID_BITS)));
     while (sh_it != block_index.end() && (sh_it->first >> (64-POOL_ID_BITS)) == pool_id)
     {

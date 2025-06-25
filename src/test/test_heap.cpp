@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <assert.h>
 #include "../util/malloc_or_die.h"
 #include "../util/allocator.h"

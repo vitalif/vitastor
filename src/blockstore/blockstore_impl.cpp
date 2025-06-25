@@ -1,6 +1,8 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+#include <stdexcept>
+
 #include "blockstore_impl.h"
 #include "blockstore_internal.h"
 #include "crc32c.h"

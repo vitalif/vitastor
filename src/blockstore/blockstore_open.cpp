@@ -2,6 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include <sys/file.h>
+#include <stdexcept>
 #include "blockstore_impl.h"
 
 void blockstore_impl_t::parse_config(blockstore_config_t & config)
