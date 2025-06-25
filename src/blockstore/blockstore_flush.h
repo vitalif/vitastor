@@ -95,6 +95,7 @@ class journal_flusher_t
     friend class journal_flusher_co;
 
     int advance_lsn_counter = 0;
+    uint64_t compact_counter = 0;
 
     int active_flushers = 0;
     int syncing_flushers = 0;
@@ -105,6 +106,8 @@ public:
     journal_flusher_t(blockstore_impl_t *bs);
     ~journal_flusher_t();
     void loop();
+    int get_active();
+    uint64_t get_counter();
     bool is_active();
     void request_trim();
     void release_trim();

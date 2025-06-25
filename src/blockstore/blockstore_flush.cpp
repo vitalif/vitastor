@@ -62,6 +62,16 @@ journal_flusher_co::~journal_flusher_co()
     }
 }
 
+int journal_flusher_t::get_active()
+{
+    return active_flushers;
+}
+
+uint64_t journal_flusher_t::get_counter()
+{
+    return compact_counter;
+}
+
 bool journal_flusher_t::is_active()
 {
     return active_flushers > 0 || bs->heap->get_compact_queue_size() > (force_start > 0 ? 0 : bs->flusher_start_threshold);
@@ -107,8 +117,11 @@ void journal_flusher_t::loop()
             cur_flusher_count--;
         }
     }
+    int prev_active = active_flushers;
     for (int i = 0; is_active() && i < cur_flusher_count; i++)
         co[i].loop();
+    if (prev_active && !active_flushers && force_start > 0)
+        bs->ringloop->wakeup();
 }
 
 #define await_sqe(label) \
@@ -168,7 +181,7 @@ resume_1:
         goto resume_0;
     }
     compact_lsn = begin_wr->lsn;
-    assert(end_wr < (heap_write_t*)cur_obj->next() && end_wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
+    assert(!end_wr->next() && end_wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
     clean_loc = end_wr->location;
     // "Lock" object for flushing
     repeat_it = flusher->sync_to_repeat.find(cur_oid);
@@ -194,7 +207,7 @@ resume_1:
     flusher->active_flushers++;
     // Scan versions to flush
     read_vec.clear();
-    for (auto wr = begin_wr; wr != end_wr; wr = wr->next(bs->heap))
+    for (auto wr = begin_wr; wr != end_wr; wr = wr->next())
     {
         min_compact_lsn = wr->lsn;
         bs->prepare_read(read_vec, cur_obj, wr, 0, bs->dsk.data_block_size);
@@ -206,8 +219,7 @@ resume_1:
         overwrite_end = read_vec[read_vec.size()-1].offset + read_vec[read_vec.size()-1].len;
     }
     read_to_fill_incomplete = false;
-    if (bs->dsk.csum_block_size > bs->dsk.bitmap_granularity &&
-        end_wr < (heap_write_t*)cur_obj->next())
+    if (bs->dsk.csum_block_size > bs->dsk.bitmap_granularity && end_wr->next())
     {
         // Read original checksum blocks to calculate padded checksums if required
         fill_partial_checksum_blocks();
@@ -271,13 +283,12 @@ resume_12:
 resume_13:
     if (copy_count && !fsync_batch(false, 11))
         return false;
+    bs->heap->unlock_entry(cur_oid, cur_lsn);
     // Modify the metadata entry; don't write anything. Metadata block will be written on the next write
     calc_block_checksums();
     bs->heap->compact_object(cur_oid, cur_lsn, new_data_csums);
     // Done, free all buffers
     free_buffers();
-    // Unlock entry and free referenced block only after fsync
-    bs->heap->unlock_entry(cur_oid, cur_lsn);
 #ifdef BLOCKSTORE_DEBUG
     printf("Compacted %jx:%jx v%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe, cur_version, copy_count);
 #endif
@@ -296,16 +307,16 @@ release_oid:
     repeat_it = flusher->sync_to_repeat.find(cur_oid);
     do_repeat = (repeat_it != flusher->sync_to_repeat.end() && repeat_it->second > cur_version);
     flusher->sync_to_repeat.erase(repeat_it);
+    flusher->active_flushers--;
     if (do_repeat)
     {
         // Flush the same object again
         goto resume_1;
     }
     // All done
-    flusher->active_flushers--;
+    flusher->compact_counter++;
     wait_state = 0;
     goto resume_0;
-    return true;
 }
 
 void journal_flusher_co::iterate_partial_overwrites(std::function<int(int, uint32_t, uint32_t)> cb)

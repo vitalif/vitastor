@@ -28,6 +28,8 @@ void blockstore_impl_t::cancel_all_writes(blockstore_op_t *op, int retval)
             (other_op->opcode == BS_OP_WRITE || other_op->opcode == BS_OP_WRITE_STABLE))
         {
             // Mark operations to cancel them
+            if (PRIV(other_op)->op_state != 0 && PRIV(other_op)->op_state != 100)
+                write_iodepth--;
             PRIV(other_op)->op_state = 100;
             other_op->retval = retval;
         }
@@ -85,6 +87,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         prepare_meta_block_write(op, modified_block);
         PRIV(op)->pending_ops++;
         PRIV(op)->op_state = 5;
+        write_iodepth++;
     }
     // FIXME: Allow to do initial writes as buffered, not redirected
     // FIXME: Allow to do direct writes over holes
@@ -97,20 +100,18 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (loc == UINT64_MAX ||
             !obj && heap->get_block_for_new_object(tmp_block) != 0)
         {
-            auto queue_size = heap->get_compact_queue_size();
-            if (!queue_size)
+            if (!heap->get_compact_queue_size() && !flusher->get_active())
             {
                 // no space
                 cancel_all_writes(op, -ENOSPC);
                 return 2;
             }
             PRIV(op)->wait_for = WAIT_COMPACTION;
-            PRIV(op)->wait_detail = queue_size;
+            PRIV(op)->wait_detail = flusher->get_counter();
             flusher->request_trim();
             return 0;
         }
         BS_SUBMIT_GET_SQE(sqe, data);
-        write_iodepth++;
         PRIV(op)->location = loc;
 #ifdef BLOCKSTORE_DEBUG
         printf(
@@ -141,6 +142,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         PRIV(op)->pending_ops = 1;
         unsynced_big_write_count++;
         PRIV(op)->op_state = 1;
+        write_iodepth++;
     }
     else
     {
@@ -150,13 +152,12 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (loc == UINT64_MAX)
         {
             PRIV(op)->wait_for = WAIT_COMPACTION;
-            PRIV(op)->wait_detail = heap->get_compact_queue_size();
+            PRIV(op)->wait_detail = flusher->get_counter();
             flusher->request_trim();
             return 0;
         }
         // There is sufficient space. Check SQE(s)
         BS_SUBMIT_CHECK_SQES(1 + (op->len > 0 ? 1 : 0));
-        write_iodepth++;
         uint8_t wr_buf[heap->get_max_write_entry_size()];
         heap_write_t *wr = (heap_write_t*)wr_buf;
         wr->version = op->version;
@@ -173,12 +174,15 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         int res = heap->post_write(op->oid, wr, &modified_block);
         if (res == ENOSPC)
         {
-            cancel_all_writes(op, -ENOSPC);
-            return 2;
-        }
-        else if (res == EAGAIN)
-        {
-            // Pause submission, wait for compaction
+            if (!heap->get_compact_queue_size() && !flusher->get_active())
+            {
+                // no space
+                cancel_all_writes(op, -ENOSPC);
+                return 2;
+            }
+            PRIV(op)->wait_for = WAIT_COMPACTION;
+            PRIV(op)->wait_detail = flusher->get_counter();
+            flusher->request_trim();
             return 0;
         }
         assert(res == 0);
@@ -202,11 +206,13 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (!PRIV(op)->pending_ops)
         {
             PRIV(op)->op_state = 6;
+            write_iodepth++;
             return continue_write(op);
         }
         else
         {
             PRIV(op)->op_state = 5;
+            write_iodepth++;
         }
     }
     return 1;
@@ -260,7 +266,8 @@ resume_4:
         int res = heap->post_write(op->oid, wr, &modified_block);
         if (res == ENOSPC)
         {
-            // wait for compaction
+            PRIV(op)->wait_for = WAIT_COMPACTION;
+            PRIV(op)->wait_detail = flusher->get_counter();
             return 1;
         }
         assert(res == 0);

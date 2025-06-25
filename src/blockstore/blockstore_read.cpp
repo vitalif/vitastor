@@ -19,7 +19,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     PRIV(op)->pending_ops = 0;
     auto & rv = PRIV(op)->read_vec;
     uint64_t result_version = 0;
-    for (heap_write_t *wr = obj->get_writes(); wr < (heap_write_t*)obj->next(); wr = wr->next(heap))
+    for (auto wr = obj->get_writes(); wr; wr = wr->next())
     {
         if (op->version < wr->version)
         {
@@ -362,7 +362,7 @@ int blockstore_impl_t::read_bitmap(object_id oid, uint64_t target_version, void 
     heap_object_t *obj = heap->read_entry(oid, NULL);
     if (obj)
     {
-        for (heap_write_t *wr = obj->get_writes(); wr < (heap_write_t*)obj->next(); wr = wr->next(heap))
+        for (auto wr = obj->get_writes(); wr; wr = wr->next())
         {
             if (target_version < wr->version)
             {

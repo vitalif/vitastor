@@ -244,11 +244,11 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
     }
     else if (PRIV(op)->wait_for == WAIT_COMPACTION)
     {
-        if (heap->get_compact_queue_size() >= PRIV(op)->wait_detail)
+        if (flusher->get_counter() <= PRIV(op)->wait_detail)
         {
             // do not submit
 #ifdef BLOCKSTORE_DEBUG
-            printf("Still waiting to reduce compaction queue size below %ju\n", PRIV(op)->wait_detail);
+            printf("Still waiting for more flushes\n");
 #endif
             return;
         }
