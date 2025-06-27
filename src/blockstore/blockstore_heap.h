@@ -107,26 +107,23 @@ inline bool operator < (const heap_block_free_t & a, const heap_block_free_t & b
     return a.free_space > b.free_space || a.free_space == b.free_space && a.block_num < b.block_num;
 }
 
-struct heap_extent_t
+struct multilist_alloc_t
 {
-    uint64_t start = 0;
-    uint64_t end = 0;
-};
+    const uint32_t count, maxn;
+    std::vector<int32_t> sizes;
+    std::vector<uint32_t> nexts, prevs, heads;
 
-struct heap_less_extent_by_end
-{
-    const bool operator()(const heap_extent_t & a, const heap_extent_t & b) const
-    {
-        return a.end < b.end;
-    }
-};
-
-struct heap_less_extent_by_size
-{
-    const bool operator()(const heap_extent_t & a, const heap_extent_t & b) const
-    {
-        return a.end-a.start < b.end-b.start || a.end-a.start == b.end-b.start && a.start < b.start;
-    }
+    multilist_alloc_t(uint32_t count, uint32_t maxn);
+    bool is_free(uint32_t pos);
+    uint32_t allocate(uint32_t size);
+    uint32_t find(uint32_t size);
+    void use_full(uint32_t pos);
+    void use(uint32_t pos, uint32_t size);
+    void do_free(uint32_t pos);
+    void free(uint32_t pos);
+#ifdef MULTILIST_TEST
+    void print();
+#endif
 };
 
 class blockstore_heap_t
@@ -154,8 +151,7 @@ class blockstore_heap_t
     allocator_t *meta_alloc = NULL;
     uint32_t meta_alloc_count = 0;
     uint64_t meta_used_space = 0;
-    std::set<heap_extent_t, heap_less_extent_by_end> buffer_by_end;
-    std::set<heap_extent_t, heap_less_extent_by_size> buffer_by_size;
+    multilist_alloc_t *buffer_alloc = NULL;
     std::set<heap_block_free_t> used_alloc_queue;
     std::map<heap_object_lsn_t, heap_object_mvcc_t> object_mvcc;
     std::map<uint64_t, uint32_t> mvcc_data_refs;
@@ -255,6 +251,7 @@ public:
     // buffer device allocator functions
     uint64_t find_free_buffer_area(uint64_t size);
     bool is_buffer_area_free(uint64_t location, uint64_t size);
+    uint64_t alloc_buffer_area(inode_t inode, uint64_t size);
     void use_buffer_area(inode_t inode, uint64_t location, uint64_t size);
     void free_buffer_area(inode_t inode, uint64_t location, uint64_t size);
     uint64_t get_buffer_area_used_space();

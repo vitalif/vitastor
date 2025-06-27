@@ -9,6 +9,74 @@
 #include "blockstore_heap.h"
 #include "../util/crc32c.h"
 
+#ifdef MULTILIST_TEST
+void multilist_alloc_t::print()
+{
+    printf("heads:");
+    for (int i = 0; i < maxn; i++)
+        if (heads[i])
+            printf(" %u=%u", i, heads[i]);
+    for (int i = 0; i < maxn; i++)
+        if (heads[i])
+            assert(i < maxn-1 ? sizes[heads[i]-1] == i+1 : (sizes[heads[i]-1] >= i+1));
+    printf("\n");
+    printf("sizes:");
+    for (int i = 0; i < count; i++)
+        if (sizes[i])
+            printf(" %d=%d", i, sizes[i]);
+    printf("\n");
+    printf("prevs:");
+    for (int i = 0; i < count; i++)
+        if (prevs[i])
+            printf(" %d=%d", i, prevs[i]);
+    printf("\n");
+    printf("nexts:");
+    for (int i = 0; i < count; i++)
+        if (nexts[i])
+            printf(" %d=%d", i, nexts[i]);
+    printf("\n");
+    printf("items:");
+    for (int i = 0; i < count; )
+    {
+        if (sizes[i])
+        {
+            printf(" %u=(s:%d,n:%u,p:%u)", i, sizes[i], nexts[i], prevs[i]);
+            assert(i+sizes[i] <= count);
+            if (sizes[i] > 1 && sizes[i+sizes[i]-1] != -sizes[i])
+            {
+                printf(" ERROR: start/end mismatch\n");
+                abort();
+            }
+            for (int j = i+1; j < i+sizes[i]-1; j++)
+            {
+                if (sizes[j])
+                {
+                    printf(" ERROR: internal non-zero at %d: %d\n", j, sizes[j]);
+                    abort();
+                }
+            }
+            if (nexts[i] >= 2)
+            {
+                if (nexts[i] >= 2+count)
+                {
+                    printf(" ERROR: next out of range\n");
+                    abort();
+                }
+                if (prevs[nexts[i]-2] != i+1)
+                {
+                    printf(" ERROR: prev[next] != this");
+                    abort();
+                }
+            }
+            i += sizes[i];
+        }
+        else
+            i++;
+    }
+    printf("\n");
+}
+#endif
+
 static int count_writes(heap_object_t *obj)
 {
     int n = 0;
@@ -1015,39 +1083,44 @@ void test_alloc_buffer()
 
     uint64_t pos;
 
-    pos = heap.find_free_buffer_area(4*1024*1024+1);
+    for (int i = 0; i < 4096/64; i++)
+    {
+        pos = heap.find_free_buffer_area(64*1024);
+        assert(pos == i*64*1024);
+        heap.use_buffer_area(1, pos, 64*1024);
+        assert(heap.get_buffer_area_used_space() == (i+1)*64*1024);
+        assert(!heap.is_buffer_area_free(i*64*1024+4096, 4096));
+        if (i < 4096/64-1)
+            assert(heap.is_buffer_area_free((i+1)*64*1024, 64*1024));
+    }
+
+    pos = heap.find_free_buffer_area(4096);
     assert(pos == UINT64_MAX);
 
-    pos = heap.find_free_buffer_area(4*1024*1024);
-    assert(pos == 0);
+    for (int i = 0; i < 4096/64/2; i++)
+    {
+        heap.free_buffer_area(1, i*2*64*1024, 64*1024);
+        assert(heap.get_buffer_area_used_space() == 4096*1024-(i+1)*64*1024);
+    }
 
-    pos = heap.find_free_buffer_area(1024*1024);
-    assert(pos == 0);
-    heap.use_buffer_area(1, 0, 1024*1024);
-    assert(heap.get_buffer_area_used_space() == 1024*1024);
+    for (int i = 0; i < 4096/64/2*16; i++)
+    {
+        pos = heap.find_free_buffer_area(4096);
+        assert(pos != UINT64_MAX);
+        heap.use_buffer_area(1, pos, 4096);
+    }
 
-    assert(!heap.is_buffer_area_free(1024, 1024));
-    assert(heap.is_buffer_area_free(1024*1024+1024, 1024));
-
-    pos = heap.find_free_buffer_area(1024*1024);
-    assert(pos == 1024*1024);
-    heap.use_buffer_area(1, 1024*1024, 1024*1024);
-    assert(heap.get_buffer_area_used_space() == 2*1024*1024);
-
-    heap.free_buffer_area(1, 0, 1024*1024);
-    assert(heap.get_buffer_area_used_space() == 1024*1024);
-
-    pos = heap.find_free_buffer_area(2*1024*1024+1);
+    assert(heap.get_buffer_area_used_space() == 4096*1024);
+    pos = heap.find_free_buffer_area(4096);
     assert(pos == UINT64_MAX);
 
-    heap.free_buffer_area(1, 1024*1024, 1024*1024);
-    assert(heap.get_buffer_area_used_space() == 0);
+    for (int i = 0; i < 4096/64/2*16; i++)
+    {
+        heap.free_buffer_area(1, (i/16)*2*64*1024+4096*(i%16), 4096);
+    }
 
-    pos = heap.find_free_buffer_area(4*1024*1024);
-    assert(pos == 0);
-
-    heap.use_buffer_area(1, 3*1024*1024, 1024*1024);
-    heap.free_buffer_area(1, 3*1024*1024, 1024*1024);
+    pos = heap.find_free_buffer_area(64*1024);
+    assert(pos != UINT64_MAX);
 
     printf("OK test_alloc_buffer\n");
 }

@@ -122,6 +122,193 @@ uint32_t heap_object_t::calc_crc32c()
     return res;
 }
 
+multilist_alloc_t::multilist_alloc_t(uint32_t count, uint32_t maxn):
+    count(count), maxn(maxn)
+{
+    // not-so-memory-efficient: 16 MB memory per 1 GB buffer space, but buffer spaces are small, so OK
+    assert(count > 1 && count < 0x80000000);
+    sizes.resize(count);
+    nexts.resize(count); // nexts[i] = 0 -> area is used; nexts[i] = 1 -> no next; nexts[i] >= 2 -> next item
+    prevs.resize(count);
+    heads.resize(maxn); // heads[i] = 0 -> empty list; heads[i] >= 1 -> list head
+    sizes[0] = count;
+    sizes[count-1] = -count; // end
+    nexts[0] = 1;
+    heads[maxn-1] = 1;
+#ifdef MULTILIST_TEST
+    print();
+#endif
+}
+
+bool multilist_alloc_t::is_free(uint32_t pos)
+{
+    assert(pos < count);
+    if (sizes[pos] < 0)
+        pos += sizes[pos]+1;
+    while (pos > 0 && !sizes[pos])
+        pos--;
+    return nexts[pos] > 0;
+}
+
+uint32_t multilist_alloc_t::allocate(uint32_t size)
+{
+    assert(size > 0);
+    assert(size <= maxn);
+    for (uint32_t i = size-1; i < maxn; i++)
+    {
+        if (heads[i])
+        {
+            uint32_t res = heads[i]-1;
+            assert(nexts[res] >= 1);
+            heads[i] = nexts[res]-1;
+            uint32_t area = sizes[res];
+            assert(area >= size);
+            if (area == size)
+            {
+                nexts[res] = 0;
+            }
+            else
+            {
+                uint32_t ni = area-size;
+                ni = (ni < maxn ? ni : maxn)-1;
+                sizes[res+size-1] = -size;
+                sizes[res] = size;
+                sizes[res+size-1] = -area+size;
+                sizes[res+size] = area-size;
+                nexts[res+size] = heads[ni]+1;
+                prevs[heads[ni]-1] = res+size+1;
+                assert(!prevs[res+size]);
+                heads[ni] = res+size+1;
+            }
+#ifdef MULTILIST_TEST
+            print();
+#endif
+            return res;
+        }
+    }
+    return UINT32_MAX;
+}
+
+uint32_t multilist_alloc_t::find(uint32_t size)
+{
+    assert(size > 0);
+    assert(size <= maxn);
+    for (uint32_t i = size-1; i < maxn; i++)
+    {
+        if (heads[i])
+        {
+            return heads[i]-1;
+        }
+    }
+    return UINT32_MAX;
+}
+
+void multilist_alloc_t::use(uint32_t pos, uint32_t size)
+{
+    assert(pos < count);
+    if (sizes[pos] <= 0)
+    {
+        uint32_t start = pos;
+        if (sizes[start] < 0)
+            start += sizes[start]+1;
+        else
+            while (start > 0 && !sizes[start])
+                start--;
+        assert(sizes[start] >= size);
+        use_full(start);
+        uint32_t full = sizes[start];
+        sizes[pos-1] = -pos+start;
+        sizes[start] = pos-start;
+        free(start);
+        sizes[pos+size-1] = -size;
+        sizes[pos] = size;
+        if (pos+size < start+full)
+        {
+            sizes[start+full-1] = -(full-pos-size);
+            sizes[pos+size] = full-pos-size;
+            free(pos+size);
+        }
+    }
+    else
+    {
+        assert(sizes[pos] >= size);
+        use_full(pos);
+        if (sizes[pos] > size)
+        {
+            uint32_t full = sizes[pos];
+            sizes[pos+size-1] = -size;
+            sizes[pos] = size;
+            sizes[pos+full-1] = -full+size;
+            sizes[pos+size] = full-size;
+            free(pos+size);
+        }
+    }
+#ifdef MULTILIST_TEST
+    print();
+#endif
+}
+
+void multilist_alloc_t::use_full(uint32_t pos)
+{
+    uint32_t prevsize = sizes[pos];
+    assert(prevsize);
+    assert(nexts[pos]);
+    uint32_t pi = (prevsize < maxn ? prevsize : maxn)-1;
+    if (heads[pi] == pos+1)
+        heads[pi] = nexts[pos]-1;
+    if (prevs[pos])
+        nexts[prevs[pos]-1] = nexts[pos];
+    if (nexts[pos] >= 2)
+        prevs[nexts[pos]-2] = prevs[pos];
+    prevs[pos] = 0;
+    nexts[pos] = 0;
+}
+
+void multilist_alloc_t::free(uint32_t pos)
+{
+    do_free(pos);
+#ifdef MULTILIST_TEST
+    print();
+#endif
+}
+
+void multilist_alloc_t::do_free(uint32_t pos)
+{
+    assert(!nexts[pos]);
+    uint32_t size = sizes[pos];
+    assert(size > 0);
+    // merge with previous?
+    if (pos > 0 && nexts[pos+(sizes[pos-1] == 1 ? -1 : sizes[pos-1])] > 0)
+    {
+        assert(sizes[pos-1] < 0 || sizes[pos-1] == 1);
+        uint32_t prevsize = sizes[pos-1] < 0 ? -sizes[pos-1] : 1;
+        use_full(pos-prevsize);
+        sizes[pos] = 0;
+        sizes[pos-1] = 0;
+        size += prevsize;
+        pos -= prevsize;
+        sizes[pos+size-1] = -size;
+        sizes[pos] = size;
+    }
+    // merge with next?
+    if (pos+size < count && nexts[pos+size] >= 1)
+    {
+        uint32_t nextsize = sizes[pos+size];
+        use_full(pos+size);
+        sizes[pos+size] = 0;
+        sizes[pos+size-1] = 0;
+        size += nextsize;
+        sizes[pos+size-1] = -size;
+        sizes[pos] = size;
+    }
+    uint32_t ni = (size < maxn ? size : maxn)-1; // FIXME ni -> nb (next bucket)
+    nexts[pos] = heads[ni]+1;
+    prevs[pos] = 0;
+    if (heads[ni])
+        prevs[heads[ni]-1] = pos+1;
+    heads[ni] = pos+1;
+}
+
 uint64_t blockstore_heap_t::get_pg_id(inode_t inode, uint64_t stripe)
 {
     uint64_t pg_num = 0;
@@ -149,11 +336,10 @@ blockstore_heap_t::blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_are
     assert(sizeof(heap_object_t) < sizeof(heap_write_t));
     meta_alloc = new allocator_t(meta_block_count);
     block_info.resize(meta_block_count);
-    buffer_by_end.insert((heap_extent_t){ .start = 0, .end = dsk->journal_len });
-    buffer_by_size.insert((heap_extent_t){ .start = 0, .end = dsk->journal_len });
     data_alloc = new allocator_t(dsk->block_count);
     if (!target_block_free_space)
         target_block_free_space = 800;
+    buffer_alloc = new multilist_alloc_t(dsk->journal_len / dsk->bitmap_granularity, dsk->data_block_size / dsk->bitmap_granularity - 1);
 }
 
 blockstore_heap_t::~blockstore_heap_t()
@@ -181,6 +367,10 @@ blockstore_heap_t::~blockstore_heap_t()
     if (data_alloc)
     {
         delete data_alloc;
+    }
+    if (buffer_alloc)
+    {
+        delete buffer_alloc;
     }
 }
 
@@ -1678,87 +1868,44 @@ void blockstore_heap_t::use_data(inode_t inode, uint64_t location)
 
 uint64_t blockstore_heap_t::find_free_buffer_area(uint64_t size)
 {
-    auto free_it = buffer_by_size.lower_bound((heap_extent_t){ .start = 0, .end = size });
-    if (free_it == buffer_by_size.end())
+    assert(!(size % dsk->bitmap_granularity));
+    uint32_t pos = buffer_alloc->find(size / dsk->bitmap_granularity);
+    if (pos == UINT32_MAX)
     {
         return UINT64_MAX;
     }
-    return free_it->start;
+    return pos * dsk->bitmap_granularity;
 }
 
 bool blockstore_heap_t::is_buffer_area_free(uint64_t location, uint64_t size)
 {
-    auto free_it = buffer_by_end.lower_bound((heap_extent_t){ .end = location+size });
-    return (free_it != buffer_by_end.end() && free_it->start <= location);
+    assert(!(location % dsk->bitmap_granularity));
+    return buffer_alloc->is_free(location / dsk->bitmap_granularity);
+}
+
+uint64_t blockstore_heap_t::alloc_buffer_area(inode_t inode, uint64_t size)
+{
+    assert(!(size % dsk->bitmap_granularity));
+    uint32_t res = buffer_alloc->allocate(size / dsk->bitmap_granularity);
+    if (res == UINT32_MAX)
+    {
+        return UINT64_MAX;
+    }
+    buffer_area_used_space += size;
+    return res * dsk->bitmap_granularity;
 }
 
 void blockstore_heap_t::use_buffer_area(inode_t inode, uint64_t location, uint64_t size)
 {
-    auto free_it = buffer_by_end.lower_bound((heap_extent_t){ .end = location+size });
-    assert(free_it != buffer_by_end.end() && free_it->start <= location && free_it->end >= location+size);
-    heap_extent_t extent = *free_it;
-    buffer_by_end.erase(free_it);
-    buffer_by_size.erase(extent);
-    if (extent.start == location)
-    {
-        extent.start += size;
-        buffer_by_end.insert(extent);
-        buffer_by_size.insert(extent);
-    }
-    else if (extent.end == location+size)
-    {
-        extent.end -= size;
-        buffer_by_end.insert(extent);
-        buffer_by_size.insert(extent);
-    }
-    else
-    {
-        buffer_by_end.insert((heap_extent_t){ .start = extent.start, .end = location });
-        buffer_by_size.insert((heap_extent_t){ .start = extent.start, .end = location });
-        buffer_by_end.insert((heap_extent_t){ .start = location+size, .end = extent.end });
-        buffer_by_size.insert((heap_extent_t){ .start = location+size, .end = extent.end });
-    }
+    assert(!(size % dsk->bitmap_granularity));
+    buffer_alloc->use(location / dsk->bitmap_granularity, size / dsk->bitmap_granularity);
     buffer_area_used_space += size;
 }
 
 void blockstore_heap_t::free_buffer_area(inode_t inode, uint64_t location, uint64_t size)
 {
-    auto next_it = buffer_by_end.lower_bound((heap_extent_t){ .end = location+size });
-    auto prev_it = next_it == buffer_by_end.begin() ? buffer_by_end.end() : std::prev(next_it);
-    assert(next_it == buffer_by_end.end() || next_it->start >= location+size);
-    assert(prev_it == buffer_by_end.end() || prev_it->end <= location);
-    bool merge_prev = (prev_it != buffer_by_end.end() && prev_it->end == location);
-    bool merge_next = (next_it != buffer_by_end.end() && next_it->start == location+size);
-    uint64_t prev_start = merge_prev ? prev_it->start : 0;
-    uint64_t next_end = merge_next ? next_it->end : 0;
-    if (merge_prev && merge_next)
-    {
-        buffer_by_size.erase(*prev_it);
-        buffer_by_size.erase(*next_it);
-        buffer_by_end.erase(prev_it);
-        buffer_by_end.erase(next_it);
-        buffer_by_end.insert((heap_extent_t){ .start = prev_start, .end = next_end });
-        buffer_by_size.insert((heap_extent_t){ .start = prev_start, .end = next_end });
-    }
-    else if (merge_prev)
-    {
-        buffer_by_size.erase(*prev_it);
-        buffer_by_end.erase(prev_it);
-        buffer_by_end.insert((heap_extent_t){ .start = prev_start, .end = location+size });
-        buffer_by_size.insert((heap_extent_t){ .start = prev_start, .end = location+size });
-    }
-    else if (merge_next)
-    {
-        buffer_by_size.erase(*next_it);
-        buffer_by_end.erase(next_it);
-        buffer_by_end.insert((heap_extent_t){ .start = location, .end = next_end });
-        buffer_by_size.insert((heap_extent_t){ .start = location, .end = next_end });
-    }
-    else
-    {
-        buffer_by_end.insert((heap_extent_t){ .start = location, .end = location+size });
-        buffer_by_size.insert((heap_extent_t){ .start = location, .end = location+size });
-    }
+    assert(!(location % dsk->bitmap_granularity));
+    buffer_alloc->free(location / dsk->bitmap_granularity);
     buffer_area_used_space -= size;
 }
 
