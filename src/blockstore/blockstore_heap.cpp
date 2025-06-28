@@ -334,7 +334,8 @@ blockstore_heap_t::blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_are
     assert(target_block_free_space < dsk->meta_block_size);
     assert(dsk->meta_block_size < 32768);
     assert(sizeof(heap_object_t) < sizeof(heap_write_t));
-    meta_alloc = new allocator_t(meta_block_count);
+    for (int i = 0; i < meta_alloc_buckets; i++)
+        meta_allocs[i] = new allocator_t(meta_block_count);
     block_info.resize(meta_block_count);
     data_alloc = new allocator_t(dsk->block_count);
     if (!target_block_free_space)
@@ -360,9 +361,10 @@ blockstore_heap_t::~blockstore_heap_t()
         }
     }
     object_mvcc.clear();
-    if (meta_alloc)
+    for (int i = 0; i < meta_alloc_buckets; i++)
     {
-        delete meta_alloc;
+        if (meta_allocs[i])
+            delete meta_allocs[i];
     }
     if (data_alloc)
     {
@@ -1133,20 +1135,16 @@ void blockstore_heap_t::compact_block(uint32_t block_num)
 
 int blockstore_heap_t::get_block_for_new_object(uint32_t & out_block_num)
 {
-    // Blocks with at least target_block_free_space are tried first in number order
-    uint64_t block_num = meta_alloc->find_free();
-    if (block_num >= block_info.size())
+    for (int i = 0; i < meta_alloc_buckets; i++)
     {
-        // Blocks with less than target_block_free_space are tried second, in free space order
-        auto u_it = used_alloc_queue.begin();
-        if (u_it == used_alloc_queue.end() || u_it->free_space < sizeof(heap_object_t) + 2*max_write_entry_size)
+        uint64_t block_num = meta_allocs[i]->find_free();
+        if (block_num < block_info.size())
         {
-            return ENOSPC;
+            out_block_num = block_num;
+            return 0;
         }
-        block_num = u_it->block_num;
     }
-    out_block_num = block_num;
-    return 0;
+    return ENOSPC;
 }
 
 uint32_t blockstore_heap_t::find_block_run(heap_block_info_t & inf, uint32_t space)
@@ -1694,30 +1692,27 @@ void blockstore_heap_t::add_used_space(uint32_t block_num, int32_t used_delta)
 {
     auto & inf = block_info.at(block_num);
     meta_used_space += used_delta;
-    if (inf.used_space <= dsk->meta_block_size-target_block_free_space &&
-        inf.used_space+used_delta <= dsk->meta_block_size-target_block_free_space)
-    {
-        inf.used_space += used_delta;
-        return;
-    }
-    if (inf.used_space > dsk->meta_block_size-target_block_free_space)
-    {
-        meta_alloc_count--;
-        meta_alloc->set(block_num, false);
-        used_alloc_queue.erase((heap_block_free_t){
-            .block_num = block_num,
-            .free_space = (uint32_t)(dsk->meta_block_size-inf.used_space),
-        });
-    }
+    auto minthresh = dsk->meta_block_size-target_block_free_space;
+    auto maxthresh = dsk->meta_block_size-sizeof(heap_object_t)-2*max_write_entry_size;
+    auto thresh = minthresh;
+    auto old_used_space = inf.used_space;
     inf.used_space += used_delta;
-    if (inf.used_space > dsk->meta_block_size-target_block_free_space)
+    for (int i = 0; i < meta_alloc_buckets; )
     {
-        meta_alloc_count++;
-        meta_alloc->set(block_num, true);
-        used_alloc_queue.insert((heap_block_free_t){
-            .block_num = block_num,
-            .free_space = (uint32_t)(dsk->meta_block_size-inf.used_space),
-        });
+        if (old_used_space > thresh && inf.used_space <= thresh)
+        {
+            meta_allocs[i]->set(block_num, false);
+            if (!i)
+                meta_alloc_count--;
+        }
+        else if (old_used_space <= thresh && inf.used_space > thresh)
+        {
+            meta_allocs[i]->set(block_num, true);
+            if (!i)
+                meta_alloc_count++;
+        }
+        i++;
+        thresh = (i == meta_alloc_buckets-1 ? maxthresh : minthresh + (maxthresh-minthresh)*i/(meta_alloc_buckets-1));
     }
 }
 

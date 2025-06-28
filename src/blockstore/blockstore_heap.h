@@ -96,17 +96,6 @@ struct __attribute__((__packed__)) heap_block_info_t
     uint8_t *data = NULL;
 };
 
-struct __attribute__((__packed__)) heap_block_free_t
-{
-    uint32_t block_num = 0;
-    uint32_t free_space = 0;
-};
-
-inline bool operator < (const heap_block_free_t & a, const heap_block_free_t & b)
-{
-    return a.free_space > b.free_space || a.free_space == b.free_space && a.block_num < b.block_num;
-}
-
 struct multilist_alloc_t
 {
     const uint32_t count, maxn;
@@ -138,6 +127,7 @@ class blockstore_heap_t
 
     const uint32_t meta_block_count = 0;
     uint32_t target_block_free_space = 800;
+    const int meta_alloc_buckets = 4;
 
     uint64_t next_lsn = 0;
     uint64_t compacted_lsn = 0;
@@ -147,11 +137,10 @@ class blockstore_heap_t
     std::deque<object_id> compact_queue;
     std::vector<heap_block_info_t> block_info;
     allocator_t *data_alloc = NULL;
-    allocator_t *meta_alloc = NULL;
+    allocator_t *meta_allocs[4] = {};
     uint32_t meta_alloc_count = 0;
     uint64_t meta_used_space = 0;
     multilist_alloc_t *buffer_alloc = NULL;
-    std::set<heap_block_free_t> used_alloc_queue;
     std::map<heap_object_lsn_t, heap_object_mvcc_t> object_mvcc;
     std::map<uint64_t, uint32_t> mvcc_data_refs;
     std::map<uint64_t, uint32_t> mvcc_buffer_refs;
