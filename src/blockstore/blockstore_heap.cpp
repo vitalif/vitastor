@@ -818,22 +818,25 @@ void blockstore_heap_t::reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_s
         return;
     }
     uint64_t pool_id = (uint64_t)pool;
-    std::map<uint64_t, std::map<inode_t, std::map<uint64_t, uint64_t>>> new_shards;
-    auto sh_it = block_index.lower_bound((pool_id << (64-POOL_ID_BITS)));
-    while (sh_it != block_index.end() && (sh_it->first >> (64-POOL_ID_BITS)) == pool_id)
+    std::unordered_map<uint64_t, std::unordered_map<inode_t, std::unordered_map<uint64_t, uint64_t>>> new_shards;
+    auto sh_it = block_index.begin();
+    while (sh_it != block_index.end())
     {
-        for (auto & inode_pair: sh_it->second)
+        if ((sh_it->first >> (64-POOL_ID_BITS)) == pool_id)
         {
-            inode_t inode = inode_pair.first;
-            for (auto & pair: inode_pair.second)
+            for (auto & inode_pair: sh_it->second)
             {
-                // like map_to_pg()
-                uint64_t pg_num = (pair.first / pg_stripe_size) % pg_count + 1;
-                uint64_t shard_id = (pool_id << (64-POOL_ID_BITS)) | pg_num;
-                new_shards[shard_id][inode][pair.first] = std::move(pair.second);
+                inode_t inode = inode_pair.first;
+                for (auto & pair: inode_pair.second)
+                {
+                    // like map_to_pg()
+                    uint64_t pg_num = (pair.first / pg_stripe_size) % pg_count + 1;
+                    uint64_t shard_id = (pool_id << (64-POOL_ID_BITS)) | pg_num;
+                    new_shards[shard_id][inode][pair.first] = std::move(pair.second);
+                }
             }
+            block_index.erase(sh_it++);
         }
-        block_index.erase(sh_it++);
     }
     for (sh_it = new_shards.begin(); sh_it != new_shards.end(); sh_it++)
     {
@@ -1953,10 +1956,14 @@ int blockstore_heap_t::list_objects(uint32_t pg_num, uint64_t min_inode, uint64_
         return EINVAL;
     }
     uint64_t pool_pg_id = (pool_id << (64-POOL_ID_BITS)) | (pg_count == 0 ? 0 : pg_num);
-    auto first_it = block_index[pool_pg_id].lower_bound(min_inode);
-    auto last_it = block_index[pool_pg_id].upper_bound(max_inode);
+    auto first_it = block_index[pool_pg_id].begin();
+    auto last_it = block_index[pool_pg_id].end();
     for (auto inode_it = first_it; inode_it != last_it; inode_it++)
     {
+        if (inode_it->first < min_inode || inode_it->first > max_inode)
+        {
+            continue;
+        }
         for (auto & stripe_pair: inode_it->second)
         {
             auto oid = (object_id){ .inode = inode_it->first, .stripe = stripe_pair.first };

@@ -139,7 +139,7 @@ class blockstore_heap_t
     uint64_t next_lsn = 0;
     std::unordered_map<pool_id_t, pool_shard_settings_t> pool_shard_settings;
     // PG => inode => stripe => block number
-    std::map<uint64_t, std::map<inode_t, std::map<uint64_t, uint64_t>>> block_index;
+    std::unordered_map<uint64_t, std::unordered_map<inode_t, std::unordered_map<uint64_t, uint64_t>>> block_index;
     std::vector<heap_block_info_t> block_info;
     allocator_t *data_alloc = NULL;
     multilist_index_t *meta_alloc = NULL;
