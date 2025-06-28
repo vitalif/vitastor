@@ -179,8 +179,7 @@ class blockstore_heap_t
     void reindex_block(uint32_t block_num, heap_object_t *from_obj);
     void erase_block_index(inode_t inode, uint64_t stripe);
     void free_object_space(inode_t inode, heap_write_t *from, heap_write_t *to, int mode = 0);
-    void unmark_allocated_block(uint32_t block_num);
-    void mark_allocated_block(uint32_t block_num);
+    void add_used_space(uint32_t block_num, int32_t used_delta);
 
 public:
     blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_area, int log_level = 0);

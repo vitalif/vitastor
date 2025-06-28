@@ -654,12 +654,12 @@ skip_object:
             memset(copy+block_offset, 0, dsk->meta_block_size-block_offset);
         }
         block_info[block_num] = {
-            .used_space = used_space,
+            .used_space = 0,
             .data = copy,
         };
         if (block_offset > 0)
         {
-            mark_allocated_block(block_num);
+            add_used_space(block_num, used_space);
         }
     }
     return entries_loaded;
@@ -804,10 +804,7 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(uint64_t, uint64
                                 uint32_t freed = free_writes(obj->get_writes(), next_wr);
                                 obj->write_pos = next_wr ? (uint8_t*)next_wr - (uint8_t*)obj : NULL;
                                 obj->crc32c = obj->calc_crc32c();
-                                auto & inf = block_info.at(block_num);
-                                unmark_allocated_block(block_num);
-                                inf.used_space -= freed;
-                                mark_allocated_block(block_num);
+                                add_used_space(block_num, -freed);
                             }
                         }
                     }
@@ -1277,9 +1274,7 @@ int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *mod
     }
     new_entry->size = sizeof(heap_object_t);
     new_entry->crc32c = new_entry->calc_crc32c();
-    unmark_allocated_block(block_num);
-    inf.used_space += sizeof(heap_object_t) + wr_size;
-    mark_allocated_block(block_num);
+    add_used_space(block_num, sizeof(heap_object_t) + wr_size);
     return 0;
 }
 
@@ -1429,9 +1424,7 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
         compact_queue.push_back({ .oid = oid, .lsn = new_wr->lsn });
     }
     // Change block free space
-    unmark_allocated_block(block_num);
-    inf.used_space += used_delta;
-    mark_allocated_block(block_num);
+    add_used_space(block_num, used_delta);
     return 0;
 }
 
@@ -1492,10 +1485,8 @@ int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t 
     if (unstable_big_wr && unstable_big_wr->next())
     {
         // Remove previous stable entry series
-        unmark_allocated_block(block_num);
         free_object_space(obj->inode, unstable_big_wr->next(), NULL);
-        inf.used_space -= free_writes(unstable_big_wr->next(), NULL);
-        mark_allocated_block(block_num);
+        add_used_space(block_num, -free_writes(unstable_big_wr->next(), NULL));
         unstable_big_wr->next_pos = 0;
     }
     // Set the stability flag
@@ -1560,14 +1551,12 @@ int blockstore_heap_t::post_rollback(object_id oid, uint64_t version, uint32_t *
     }
     else
     {
-        unmark_allocated_block(block_num);
         // Erase head versions
         heap_write_t *first_wr = obj->get_writes();
         free_object_space(obj->inode, first_wr, wr);
-        inf.used_space -= free_writes(first_wr, wr);
+        add_used_space(block_num, -free_writes(first_wr, wr));
         obj->write_pos = ((uint8_t*)wr - (uint8_t*)obj);
         obj->crc32c = obj->calc_crc32c();
-        mark_allocated_block(block_num);
     }
     return 0;
 }
@@ -1613,14 +1602,11 @@ int blockstore_heap_t::compact_object(object_id oid, uint64_t compact_lsn, uint8
         return ENOENT;
     }
     mvcc_save_copy(obj);
-    auto & inf = block_info.at(block_num);
     int res = EAGAIN;
     uint32_t freed = compact_object_to(obj, compact_lsn, new_csums);
     if (freed)
     {
-        unmark_allocated_block(block_num);
-        inf.used_space -= freed;
-        mark_allocated_block(block_num);
+        add_used_space(block_num, -freed);
         res = 0;
     }
     return res;
@@ -1694,23 +1680,26 @@ void blockstore_heap_t::erase_block_index(inode_t inode, uint64_t stripe)
 
 void blockstore_heap_t::erase_object(uint32_t block_num, heap_object_t *obj)
 {
-    auto & inf = block_info.at(block_num);
-    unmark_allocated_block(block_num);
     // Erase object
     erase_block_index(obj->inode, obj->stripe);
     free_object_space(obj->inode, obj->get_writes(), NULL);
-    inf.used_space -= free_writes(obj->get_writes(), NULL);
+    auto freed = free_writes(obj->get_writes(), NULL);
     auto obj_size = obj->size;
     memset((uint8_t*)obj, 0, obj_size);
     *((uint16_t*)obj) = FREE_SPACE_BIT | obj_size;
-    inf.used_space -= obj_size;
-    mark_allocated_block(block_num);
+    add_used_space(block_num, -obj_size-freed);
 }
 
-void blockstore_heap_t::unmark_allocated_block(uint32_t block_num)
+void blockstore_heap_t::add_used_space(uint32_t block_num, int32_t used_delta)
 {
     auto & inf = block_info.at(block_num);
-    meta_used_space -= inf.used_space;
+    meta_used_space += used_delta;
+    if (inf.used_space <= dsk->meta_block_size-target_block_free_space &&
+        inf.used_space+used_delta <= dsk->meta_block_size-target_block_free_space)
+    {
+        inf.used_space += used_delta;
+        return;
+    }
     if (inf.used_space > dsk->meta_block_size-target_block_free_space)
     {
         meta_alloc_count--;
@@ -1720,12 +1709,7 @@ void blockstore_heap_t::unmark_allocated_block(uint32_t block_num)
             .free_space = (uint32_t)(dsk->meta_block_size-inf.used_space),
         });
     }
-}
-
-void blockstore_heap_t::mark_allocated_block(uint32_t block_num)
-{
-    auto & inf = block_info.at(block_num);
-    meta_used_space += inf.used_space;
+    inf.used_space += used_delta;
     if (inf.used_space > dsk->meta_block_size-target_block_free_space)
     {
         meta_alloc_count++;
