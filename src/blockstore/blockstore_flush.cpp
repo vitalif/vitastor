@@ -23,6 +23,7 @@ journal_flusher_t::journal_flusher_t(blockstore_impl_t *bs)
     co = new journal_flusher_co[max_flusher_count];
     for (int i = 0; i < max_flusher_count; i++)
     {
+        co[i].co_id = i;
         co[i].bs = bs;
         co[i].flusher = this;
         if (bs->dsk.csum_block_size)
@@ -161,10 +162,21 @@ resume_0:
     res = bs->heap->get_next_compact(cur_oid);
     if (res == ENOENT)
     {
+        cur_oid = {};
         wait_state = 0;
         return true;
     }
+    for (int i = 0; i < flusher->cur_flusher_count; i++)
+    {
+        if (i != co_id && flusher->co[i].cur_oid == cur_oid)
+        {
+            // Already flushing it
+            flusher->co[i].should_repeat = true;
+            goto resume_0;
+        }
+    }
 resume_1:
+    should_repeat = false;
     cur_obj = bs->heap->lock_and_read_entry(cur_oid, cur_lsn);
     if (!cur_obj)
     {
@@ -183,24 +195,6 @@ resume_1:
     compact_lsn = begin_wr->lsn;
     assert(!end_wr->next() && end_wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
     clean_loc = end_wr->location;
-    // "Lock" object for flushing
-    repeat_it = flusher->sync_to_repeat.find(cur_oid);
-    if (repeat_it != flusher->sync_to_repeat.end())
-    {
-#ifdef BLOCKSTORE_DEBUG
-        printf("Postpone %jx:%jx v%ju\n", cur_oid.inode, cur_oid.stripe, cur_version);
-#endif
-        // We don't flush different parts of history of the same object in parallel
-        // So we check if someone is already flushing this object
-        // In that case we set sync_to_repeat and pick another object
-        // Another coroutine will see it and re-queue the object after it finishes
-        if (repeat_it->second < cur_version)
-            repeat_it->second = cur_version;
-        bs->heap->unlock_entry(cur_oid, cur_lsn);
-        goto resume_0;
-    }
-    else
-        flusher->sync_to_repeat[cur_oid] = 0;
 #ifdef BLOCKSTORE_DEBUG
     printf("Flushing %jx:%jx v%ju .. v%ju\n", cur_oid.inode, cur_oid.stripe, end_wr->version, begin_wr->version);
 #endif
@@ -304,11 +298,8 @@ resume_17:
             return false;
     }
 release_oid:
-    repeat_it = flusher->sync_to_repeat.find(cur_oid);
-    do_repeat = (repeat_it != flusher->sync_to_repeat.end() && repeat_it->second > cur_version);
-    flusher->sync_to_repeat.erase(repeat_it);
     flusher->active_flushers--;
-    if (do_repeat)
+    if (should_repeat)
     {
         // Flush the same object again
         goto resume_1;

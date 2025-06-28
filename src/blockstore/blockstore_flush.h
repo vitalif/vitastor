@@ -39,6 +39,7 @@ class journal_flusher_co
 {
     blockstore_impl_t *bs;
     journal_flusher_t *flusher;
+    int co_id;
     int wait_state, wait_count;
     struct io_uring_sqe *sqe;
     struct ring_data_t *data;
@@ -55,6 +56,7 @@ class journal_flusher_co
     heap_object_t *cur_obj;
     heap_write_t *begin_wr, *end_wr;
     uint32_t modified_block;
+    bool should_repeat;
 
     std::vector<copy_buffer_t> read_vec;
     uint32_t overwrite_start, overwrite_end;
@@ -100,7 +102,6 @@ class journal_flusher_t
     int active_flushers = 0;
     int syncing_flushers = 0;
     std::list<flusher_sync_t> syncs;
-    std::map<object_id, uint64_t> sync_to_repeat;
 
 public:
     journal_flusher_t(blockstore_impl_t *bs);
