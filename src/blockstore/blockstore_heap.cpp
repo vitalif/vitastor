@@ -596,7 +596,6 @@ skip_object:
             }
             // Allocate space
             bool to_compact = false;
-            uint64_t to_compact_queue = 0;
             used_space += obj->size;
             for (auto wr = obj->get_writes(); wr; wr = wr->next(), wr_i++)
             {
@@ -612,7 +611,7 @@ skip_object:
                 }
                 if (wr->needs_compact(this->compacted_lsn))
                 {
-                    to_compact_queue = to_compact_queue ? to_compact_queue : wr->lsn;
+                    compact_queue.push_back((heap_object_lsn_t){ .oid = oid, .lsn = wr->lsn });
                 }
                 else if (wr->is_compacted(this->compacted_lsn))
                 {
@@ -624,7 +623,7 @@ skip_object:
                     {
                         // We can't just collapse the object entry when csum_block_size is larger
                         // than bitmap_granularity, so we add the object into the compact queue
-                        to_compact_queue = to_compact_queue ? to_compact_queue : wr->lsn;
+                        compact_queue.push_back((heap_object_lsn_t){ .oid = oid, .lsn = wr->lsn });
                     }
                 }
             }
@@ -635,14 +634,6 @@ skip_object:
             if (lsn > next_lsn)
             {
                 next_lsn = lsn;
-            }
-            if (to_compact_queue)
-            {
-                if (compact_queue_lsn.find(oid) == compact_queue_lsn.end())
-                {
-                    compact_queue.push_back(oid);
-                }
-                compact_queue_lsn[oid] = to_compact_queue;
             }
             if (to_recheck)
             {
@@ -676,9 +667,9 @@ skip_object:
 
 void blockstore_heap_t::finish_load()
 {
-    std::sort(compact_queue.begin(), compact_queue.end(), [this](const object_id & a, const object_id & b)
+    std::sort(compact_queue.begin(), compact_queue.end(), [this](const heap_object_lsn_t & a, const heap_object_lsn_t & b)
     {
-        return compact_queue_lsn[a] < compact_queue_lsn[b];
+        return a.lsn < b.lsn;
     });
 }
 
@@ -1009,7 +1000,6 @@ uint32_t blockstore_heap_t::compact_object_to(heap_object_t *obj, uint64_t compa
     const int cap = dsk->meta_block_size/sizeof(heap_write_t);
     heap_write_t *compacted_wrs[cap];
     int compacted_wr_count = 0;
-    bool has_more = false;
     bool skip = false;
     heap_write_t *big_wr = NULL, *pre_wr = NULL;
     for (auto wr = obj->get_writes(); wr; wr = wr->next())
@@ -1017,10 +1007,6 @@ uint32_t blockstore_heap_t::compact_object_to(heap_object_t *obj, uint64_t compa
         if (wr->is_compacted(compact_lsn))
         {
             compacted_wrs[compacted_wr_count++] = wr;
-        }
-        else if (wr->needs_compact(compact_lsn))
-        {
-            has_more = true;
         }
         if (compacted_wr_count)
         {
@@ -1044,10 +1030,6 @@ uint32_t blockstore_heap_t::compact_object_to(heap_object_t *obj, uint64_t compa
     if (compacted_wr_count == 0 || skip)
     {
         return 0;
-    }
-    if (!has_more)
-    {
-        compact_queue_lsn.erase((object_id){ .inode = obj->inode, .stripe = obj->stripe });
     }
     free_object_space(obj->inode, compacted_wrs[0], big_wr);
     // Collapse compacted_wrs[] into big_wr
@@ -1289,11 +1271,9 @@ int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *mod
         memset(int_bitmap, 0, dsk->clean_entry_bitmap_size);
         bitmap_set(int_bitmap, wr->offset, wr->len, dsk->bitmap_granularity);
     }
-    if (wr->needs_compact(0) &&
-        compact_queue_lsn.find(oid) == compact_queue_lsn.end())
+    if (wr->needs_compact(0))
     {
-        compact_queue.push_back(oid);
-        compact_queue_lsn[oid] = new_wr->lsn;
+        compact_queue.push_back({ .oid = oid, .lsn = new_wr->lsn });
     }
     new_entry->size = sizeof(heap_object_t);
     new_entry->crc32c = new_entry->calc_crc32c();
@@ -1444,11 +1424,9 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
     obj->write_pos = offset - ((uint8_t*)obj - inf.data);
     obj->crc32c = obj->calc_crc32c();
     // Add to compaction queue
-    if (new_wr->needs_compact(0) &&
-        compact_queue_lsn.find(oid) == compact_queue_lsn.end())
+    if (new_wr->needs_compact(0))
     {
-        compact_queue.push_back(oid);
-        compact_queue_lsn[oid] = new_wr->lsn;
+        compact_queue.push_back({ .oid = oid, .lsn = new_wr->lsn });
     }
     // Change block free space
     unmark_allocated_block(block_num);
@@ -1528,15 +1506,14 @@ int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t 
         {
             wr->flags |= BS_HEAP_STABLE;
         }
-        if (wr->needs_compact(0))
+        if (wr->needs_compact(0) && to_compact == 0)
         {
             to_compact = wr->lsn;
         }
     }
-    if (to_compact && compact_queue_lsn.find(oid) == compact_queue_lsn.end())
+    if (to_compact)
     {
-        compact_queue.push_back(oid);
-        compact_queue_lsn[oid] = to_compact;
+        compact_queue.push_back({ .oid = oid, .lsn = to_compact });
     }
     obj->crc32c = obj->calc_crc32c();
     return 0;
@@ -1619,15 +1596,9 @@ int blockstore_heap_t::get_next_compact(object_id & oid)
 {
     while (compact_queue.size())
     {
-        auto qoid = compact_queue.front();
+        oid = compact_queue.front().oid;
         compact_queue.pop_front();
-        auto lsn_it = compact_queue_lsn.find(qoid);
-        if (lsn_it != compact_queue_lsn.end())
-        {
-            oid = qoid;
-            compact_queue_lsn.erase(lsn_it);
-            return 0;
-        }
+        return 0;
     }
     return ENOENT;
 }

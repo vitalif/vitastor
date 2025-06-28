@@ -145,7 +145,6 @@ class blockstore_heap_t
     // PG => inode => stripe => block number
     std::map<uint64_t, std::map<inode_t, btree::btree_map<uint64_t, uint64_t>>> block_index;
     std::deque<object_id> compact_queue;
-    std::map<object_id, uint64_t> compact_queue_lsn;
     std::vector<heap_block_info_t> block_info;
     allocator_t *data_alloc = NULL;
     allocator_t *meta_alloc = NULL;
