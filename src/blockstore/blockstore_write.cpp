@@ -29,7 +29,9 @@ void blockstore_impl_t::cancel_all_writes(blockstore_op_t *op, int retval)
         {
             // Mark operations to cancel them
             if (PRIV(other_op)->op_state != 0 && PRIV(other_op)->op_state != 100)
+            {
                 write_iodepth--;
+            }
             PRIV(other_op)->op_state = 100;
             other_op->retval = retval;
         }
@@ -91,7 +93,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     }
     // FIXME: Allow to do initial writes as buffered, not redirected
     // FIXME: Allow to do direct writes over holes
-    else if (!obj || op->offset == 0 && op->len == dsk.data_block_size)
+    else if (!obj || (obj->get_writes()->flags & BS_HEAP_TYPE) == BS_HEAP_TOMBSTONE ||
+        op->offset == 0 && op->len == dsk.data_block_size)
     {
         // Big (redirect) write
         PRIV(op)->is_big = true;
@@ -144,6 +147,55 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         PRIV(op)->op_state = 1;
         write_iodepth++;
     }
+    // Only one INTENT_WRITE is allowed at a time, but in fact,
+    // parallel writes to the same object are forbidden anyway
+    else if (disable_data_fsync &&
+        op->opcode == BS_OP_WRITE_STABLE &&
+        op->len > 0 && op->len <= dsk.bitmap_granularity /* FIXME atomic_write_size */ &&
+        (obj->get_writes()->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
+        obj->get_writes()->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE)))
+    {
+        // Direct intent-write
+        BS_SUBMIT_CHECK_SQES(1);
+        for (auto wr = obj->get_writes(); wr; wr = wr->next())
+        {
+            assert(wr->flags != BS_HEAP_BIG_WRITE);
+            if (wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE))
+            {
+                PRIV(op)->location = wr->location;
+            }
+        }
+        uint8_t wr_buf[heap->get_max_write_entry_size()];
+        heap_write_t *wr = (heap_write_t*)wr_buf;
+        wr->version = op->version;
+        wr->offset = op->offset;
+        wr->len = op->len;
+        wr->location = 0;
+        wr->flags = BS_HEAP_INTENT_WRITE | BS_HEAP_STABLE;
+        if (op->bitmap)
+            memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
+        heap->calc_checksums(wr, (uint8_t*)op->buf, true);
+        uint32_t modified_block;
+        int res = heap->post_write(op->oid, wr, &modified_block);
+        if (res == ENOSPC)
+        {
+            if (!heap->get_compact_queue_size() && !flusher->get_active())
+            {
+                // no space
+                cancel_all_writes(op, -ENOSPC);
+                return 2;
+            }
+            PRIV(op)->wait_for = WAIT_COMPACTION;
+            PRIV(op)->wait_detail = flusher->get_counter();
+            flusher->request_trim();
+            return 0;
+        }
+        assert(res == 0);
+        prepare_meta_block_write(op, modified_block);
+        unsynced_small_write_count++;
+        PRIV(op)->op_state = 9;
+        write_iodepth++;
+    }
     else
     {
         // Small (buffered) overwrite
@@ -170,7 +222,6 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
         heap->calc_checksums(wr, (uint8_t*)op->buf, true);
         uint32_t modified_block;
-        heap->use_buffer_area(op->oid.inode, loc, op->len);
         int res = heap->post_write(op->oid, wr, &modified_block);
         if (res == ENOSPC)
         {
@@ -186,6 +237,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             return 0;
         }
         assert(res == 0);
+        heap->use_buffer_area(op->oid.inode, loc, op->len);
         prepare_meta_block_write(op, modified_block);
         if (op->len > 0)
         {
@@ -203,17 +255,9 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             // Zero-length overwrite. Allowed to bump object version in EC placement groups without actually writing data
         }
         unsynced_small_write_count++;
-        if (!PRIV(op)->pending_ops)
-        {
-            PRIV(op)->op_state = 6;
-            write_iodepth++;
-            return continue_write(op);
-        }
-        else
-        {
-            PRIV(op)->op_state = 5;
-            write_iodepth++;
-        }
+        assert(PRIV(op)->pending_ops);
+        PRIV(op)->op_state = 5;
+        write_iodepth++;
     }
     return 1;
 }
@@ -229,6 +273,8 @@ int blockstore_impl_t::continue_write(blockstore_op_t *op)
         goto resume_6;
     else if (op_state == 8)
         goto resume_8;
+    else if (op_state == 10)
+        goto resume_10;
     else
     {
         // In progress
@@ -318,6 +364,26 @@ resume_8:
     write_iodepth--;
     FINISH_OP(op);
     return 2;
+resume_10:
+    // Direct intent-write
+    heap_object_t *obj = heap->read_entry(op->oid, NULL);
+    uint64_t loc = UINT64_MAX;
+    for (auto wr = obj->get_writes(); wr; wr = wr->next())
+    {
+        if (wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE))
+            loc = wr->location;
+    }
+    if (loc != PRIV(op)->location)
+    {
+        goto resume_8;
+    }
+    BS_SUBMIT_GET_SQE(sqe, data);
+    data->iov = (struct iovec){ op->buf, op->len };
+    data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
+    io_uring_prep_writev(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + loc + op->offset);
+    PRIV(op)->pending_ops++;
+    PRIV(op)->op_state = 7;
+    return 1;
 }
 
 void blockstore_impl_t::handle_write_event(ring_data_t *data, blockstore_op_t *op)

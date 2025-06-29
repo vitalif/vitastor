@@ -109,7 +109,7 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *op)
 
 uint32_t blockstore_impl_t::prepare_read(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end)
 {
-    if (wr->offset >= end || wr->offset+wr->len <= start)
+    if (wr->offset >= end || wr->offset+wr->len <= start || (wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE)
     {
         return 0;
     }

@@ -19,11 +19,12 @@ struct pool_shard_settings_t
     uint32_t pg_stripe_size;
 };
 
-#define BS_HEAP_TYPE 3
+#define BS_HEAP_TYPE 7
 #define BS_HEAP_SMALL_WRITE 1
 #define BS_HEAP_BIG_WRITE 2
 #define BS_HEAP_TOMBSTONE 3
-#define BS_HEAP_STABLE 4
+#define BS_HEAP_INTENT_WRITE 4
+#define BS_HEAP_STABLE 8
 
 class blockstore_heap_t;
 
@@ -150,7 +151,7 @@ class blockstore_heap_t
     std::deque<object_id> recheck_queue;
     int recheck_in_progress = 0;
     bool in_recheck = false;
-    std::function<void(uint64_t, uint64_t, uint8_t*, std::function<void()>)> recheck_cb;
+    std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> recheck_cb;
     int recheck_queue_depth = 0;
 
     const uint32_t max_write_entry_size;
@@ -180,7 +181,7 @@ public:
     // finish loading
     void finish_load();
     // recheck small write data after reading the database from disk
-    bool recheck_small_writes(std::function<void(uint64_t, uint64_t, uint8_t*, std::function<void()>)> read_buffer, int queue_depth);
+    bool recheck_small_writes(std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> read_buffer, int queue_depth);
     // initialize metadata area (fill it with empty data)
     // returns 0 when done, EAGAIN when the caller has to wait more
     int initialize();

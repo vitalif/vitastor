@@ -250,37 +250,34 @@ resume_4:
             return 1;
         }
     }
-    if (!bs->dsk.inmemory_journal)
-    {
-        // asynchronous recheck
-        bs->heap->recheck_small_writes([this](uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
-        {
-            if (!buf)
-            {
-                wait_state = 7;
-                bs->ringloop->wakeup();
-                return;
-            }
-            GET_SQE();
-            data->iov = (iovec){ buf, len };
-            data->callback = [this, offset, cb](ring_data_t *data)
-            {
-                if (data->res < 0)
-                {
-                    fprintf(stderr, "Buffer area read failed at offset %ju: %d\n", offset, data->res);
-                    exit(1);
-                }
-                cb();
-            };
-            io_uring_prep_readv(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->dsk.journal_offset + offset);
-            bs->ringloop->submit();
-        }, bs->meta_write_recheck_parallelism);
+    // asynchronous recheck
 resume_6:
-        wait_state = 6;
-        return 1;
+    wait_state = 6;
+    bs->heap->recheck_small_writes([this](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
+    {
+        if (!buf)
+        {
+            wait_state = 7;
+            bs->ringloop->wakeup();
+            return;
+        }
+        GET_SQE();
+        data->iov = (iovec){ buf, len };
+        data->callback = [this, offset, cb](ring_data_t *data)
+        {
+            if (data->res < 0)
+            {
+                fprintf(stderr, "Buffer area read failed at offset %ju: %d\n", offset, data->res);
+                exit(1);
+            }
+            cb();
+        };
+        io_uring_prep_readv(sqe, (is_data ? bs->dsk.data_fd : bs->dsk.journal_fd), &data->iov, 1,
+            (is_data ? bs->dsk.data_offset : bs->dsk.journal_offset) + offset);
+        bs->ringloop->submit();
+    }, bs->meta_write_recheck_parallelism);
+    return 1;
 resume_7:
-        ;
-    }
     free(metadata_buffer);
     metadata_buffer = NULL;
     return 0;

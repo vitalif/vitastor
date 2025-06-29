@@ -569,11 +569,12 @@ void test_recheck(bool async, bool csum)
         if (async)
         {
             int calls = 0;
-            bool done = heap.recheck_small_writes([&](uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
+            bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
             {
                 calls++;
                 if (len)
                 {
+                    assert(!is_data);
                     assert(len == 4096);
                     assert(offset == 16384 || offset == 20480);
                     assert(cb);
