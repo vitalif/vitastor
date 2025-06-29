@@ -142,8 +142,8 @@ class blockstore_heap_t
     uint64_t meta_used_space = 0;
     multilist_alloc_t *buffer_alloc = NULL;
     std::map<heap_object_lsn_t, heap_object_mvcc_t> object_mvcc;
-    std::map<uint64_t, uint32_t> mvcc_data_refs;
-    std::map<uint64_t, uint32_t> mvcc_buffer_refs;
+    std::unordered_map<uint64_t, uint32_t> mvcc_data_refs;
+    std::unordered_map<uint64_t, uint32_t> mvcc_buffer_refs;
     std::map<uint64_t, uint64_t> inode_space_stats;
     uint64_t buffer_area_used_space = 0;
     uint64_t data_used_space = 0;
