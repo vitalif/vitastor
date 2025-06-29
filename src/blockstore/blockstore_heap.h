@@ -104,7 +104,6 @@ struct multilist_alloc_t
 
     multilist_alloc_t(uint32_t count, uint32_t maxn);
     bool is_free(uint32_t pos);
-    uint32_t allocate(uint32_t size);
     uint32_t find(uint32_t size);
     void use_full(uint32_t pos);
     void use(uint32_t pos, uint32_t size);
@@ -238,7 +237,6 @@ public:
     // buffer device allocator functions
     uint64_t find_free_buffer_area(uint64_t size);
     bool is_buffer_area_free(uint64_t location, uint64_t size);
-    uint64_t alloc_buffer_area(inode_t inode, uint64_t size);
     void use_buffer_area(inode_t inode, uint64_t location, uint64_t size);
     void free_buffer_area(inode_t inode, uint64_t location, uint64_t size);
     uint64_t get_buffer_area_used_space();

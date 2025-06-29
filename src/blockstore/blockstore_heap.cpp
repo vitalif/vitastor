@@ -150,45 +150,6 @@ bool multilist_alloc_t::is_free(uint32_t pos)
     return nexts[pos] > 0;
 }
 
-uint32_t multilist_alloc_t::allocate(uint32_t size)
-{
-    assert(size > 0);
-    assert(size <= maxn);
-    for (uint32_t i = size-1; i < maxn; i++)
-    {
-        if (heads[i])
-        {
-            uint32_t res = heads[i]-1;
-            assert(nexts[res] >= 1);
-            heads[i] = nexts[res]-1;
-            uint32_t area = sizes[res];
-            assert(area >= size);
-            if (area == size)
-            {
-                nexts[res] = 0;
-            }
-            else
-            {
-                uint32_t ni = area-size;
-                ni = (ni < maxn ? ni : maxn)-1;
-                sizes[res+size-1] = -size;
-                sizes[res] = size;
-                sizes[res+size-1] = -area+size;
-                sizes[res+size] = area-size;
-                nexts[res+size] = heads[ni]+1;
-                prevs[heads[ni]-1] = res+size+1;
-                assert(!prevs[res+size]);
-                heads[ni] = res+size+1;
-            }
-#ifdef MULTILIST_TEST
-            print();
-#endif
-            return res;
-        }
-    }
-    return UINT32_MAX;
-}
-
 uint32_t multilist_alloc_t::find(uint32_t size)
 {
     assert(size > 0);
@@ -1831,18 +1792,6 @@ bool blockstore_heap_t::is_buffer_area_free(uint64_t location, uint64_t size)
 {
     assert(!(location % dsk->bitmap_granularity));
     return buffer_alloc->is_free(location / dsk->bitmap_granularity);
-}
-
-uint64_t blockstore_heap_t::alloc_buffer_area(inode_t inode, uint64_t size)
-{
-    assert(!(size % dsk->bitmap_granularity));
-    uint32_t res = buffer_alloc->allocate(size / dsk->bitmap_granularity);
-    if (res == UINT32_MAX)
-    {
-        return UINT64_MAX;
-    }
-    buffer_area_used_space += size;
-    return res * dsk->bitmap_granularity;
 }
 
 void blockstore_heap_t::use_buffer_area(inode_t inode, uint64_t location, uint64_t size)
