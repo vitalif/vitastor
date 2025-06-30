@@ -106,6 +106,25 @@ bool check_used_space(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint32_
     return used == heap.get_meta_block_used_space(block_num);
 }
 
+int count_free_fragments(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint32_t block_num)
+{
+    uint8_t *data = heap.get_meta_block(block_num);
+    uint8_t *end = data+dsk.meta_block_size;
+    int fragments = 0;
+    bool is_free = false;
+    while (data < end)
+    {
+        uint16_t region_marker = *((uint16_t*)data);
+        if ((region_marker & FREE_SPACE_BIT) && !is_free)
+        {
+            fragments++;
+        }
+        is_free = !!(region_marker & FREE_SPACE_BIT);
+        data += (region_marker & ~FREE_SPACE_BIT);
+    }
+    return fragments;
+}
+
 int _test_do_big_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t inode, uint64_t stripe, uint64_t version, uint64_t location,
     bool stable = true, uint32_t offset = 0, uint32_t len = 0)
 {
@@ -327,6 +346,47 @@ void test_delete(bool csum)
     }
 
     printf("OK test_delete %s\n", csum ? "csum" : "no_csum");
+}
+
+void test_compact_block()
+{
+    blockstore_disk_t dsk;
+    _test_init(dsk, true);
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    dsk.meta_area_size = 4096*3;
+    blockstore_heap_t heap(&dsk, buffer_area.data());
+    heap.finish_load();
+
+    uint32_t big_write_size = (sizeof(heap_object_t) + sizeof(heap_write_t) + 2*dsk.clean_entry_bitmap_size + dsk.data_block_size/dsk.csum_block_size*4);
+    uint32_t small_write_size = (sizeof(heap_write_t) + dsk.clean_entry_bitmap_size + 4);
+    assert(big_write_size == 197);
+    assert(small_write_size == 45);
+    uint32_t nwr = dsk.meta_block_size/(big_write_size+small_write_size);
+
+    {
+        for (uint32_t i = 0; i < nwr*2; i++)
+        {
+            _test_big_write(heap, dsk, 1, i*0x20000, 1, i*0x20000);
+            _test_small_write(heap, dsk, 1, i*0x20000, 2, 0, 4096, i*4096, true);
+        }
+        assert(_test_do_big_write(heap, dsk, 1, (nwr*2+1)*0x20000, 1, (nwr*2+1)*0x20000) == ENOSPC);
+        // Compact all small writes
+        for (uint32_t i = 0; i < nwr*2; i++)
+        {
+            int res = heap.compact_object((object_id){ .inode = INODE_WITH_POOL(1, 1), .stripe = i*0x20000 }, 1000000, NULL);
+            assert(res == 0);
+        }
+        // Check fragmentation
+        assert(count_free_fragments(heap, dsk, 0) == nwr);
+        assert(count_free_fragments(heap, dsk, 1) == nwr);
+        // Write 3 more objects
+        _test_big_write(heap, dsk, 1, nwr*2*0x20000, 1, nwr*2*0x20000);
+        _test_big_write(heap, dsk, 1, (nwr*2+1)*0x20000, 1, (nwr*2+1)*0x20000);
+        _test_big_write(heap, dsk, 1, (nwr*2+2)*0x20000, 1, (nwr*2+2)*0x20000);
+        assert(count_free_fragments(heap, dsk, 0) == 1);
+    }
+
+    printf("OK test_compact_block\n");
 }
 
 void test_compact(bool csum, bool stable)
@@ -1382,6 +1442,7 @@ int main(int narg, char *args[])
     test_update(false);
     test_delete(true);
     test_delete(false);
+    test_compact_block();
     test_compact(true, true);
     test_compact(true, false);
     test_compact(false, true);
