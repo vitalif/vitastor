@@ -194,7 +194,7 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
                 .disk_offset = wr->location + start - wr->offset,
                 .disk_len = end-start,
                 .buf = buffer_area + wr->location + start - wr->offset,
-                .wr_offset = (uint32_t)((uint8_t*)wr - (uint8_t*)obj),
+                .wr_lsn = wr->lsn,
             });
         }
         else if (dsk.csum_block_size <= dsk.bitmap_granularity)
@@ -243,7 +243,7 @@ void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec,
         .len = end-start,
         .disk_offset = wr->location + blk_start - wr->offset,
         .disk_len = blk_end - blk_start,
-        .wr_offset = (uint32_t)((uint8_t*)wr - (uint8_t*)obj),
+        .wr_lsn = wr->lsn,
     };
     if (blk_start != start || blk_end != end)
     {
@@ -330,7 +330,10 @@ bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
         {
             continue;
         }
-        heap_write_t *wr = (heap_write_t*)((uint8_t*)obj + vec.wr_offset);
+        heap_write_t *wr = obj->get_writes();
+        while (wr && wr->lsn != vec.wr_lsn)
+            wr = wr->next();
+        assert(wr);
         uint32_t blk_start = vec.offset, blk_end = vec.offset + vec.len;
         if (vec.copy_flags & COPY_BUF_PADDED)
         {

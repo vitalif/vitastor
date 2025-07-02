@@ -409,7 +409,10 @@ int journal_flusher_co::check_and_punch_checksums()
         auto & vec = read_vec[i];
         if (!(vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_ZERO)))
         {
-            heap_write_t *wr = (heap_write_t*)((uint8_t*)cur_obj + vec.wr_offset);
+            heap_write_t *wr = cur_obj->get_writes();
+            while (wr && wr->lsn != vec.wr_lsn)
+                wr = wr->next();
+            assert(wr);
             bs->heap->calc_block_checksums(
                 (uint32_t*)wr->get_checksums(bs->heap), vec.buf, wr->get_int_bitmap(bs->heap), vec.offset, vec.offset+vec.len, false,
                 [&](uint32_t mismatch_pos, uint32_t expected_csum, uint32_t real_csum)
@@ -434,7 +437,7 @@ int journal_flusher_co::check_and_punch_checksums()
         // Nothing to do
         return 0;
     }
-    cur_obj = bs->heap->read_entry(cur_oid, &modified_block);
+    cur_obj = bs->heap->read_entry(cur_oid, &modified_block, true);
     if (!cur_obj)
     {
         // Object is deleted, abort compaction
@@ -498,10 +501,13 @@ void journal_flusher_co::calc_block_checksums()
         auto len = it->len;
         while ((block_done+len) >= bs->dsk.csum_block_size)
         {
-            if (!block_done && it->wr_offset)
+            if (!block_done && it->wr_lsn)
             {
                 // We may take existing checksums if an overwrite contains a full block
-                heap_write_t *wr = (heap_write_t*)((uint8_t*)cur_obj + it->wr_offset);
+                heap_write_t *wr = cur_obj->get_writes();
+                while (wr && wr->lsn != it->wr_lsn)
+                    wr = wr->next();
+                assert(wr);
                 assert(!(it->offset % bs->dsk.csum_block_size));
                 assert(!(wr->offset % bs->dsk.csum_block_size));
                 auto full_csum_offset = (it->offset - wr->offset) / bs->dsk.csum_block_size;
