@@ -853,26 +853,40 @@ void blockstore_heap_t::reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_s
     };
 }
 
-heap_object_t *blockstore_heap_t::lock_and_read_entry(object_id oid, uint64_t & lsn)
+heap_object_t *blockstore_heap_t::lock_and_read_entry(object_id oid, uint64_t & copy_id)
 {
     auto obj = read_entry(oid, NULL);
     if (!obj)
     {
         return NULL;
     }
-    lsn = obj->get_writes()->lsn;
-    auto & mvcc = object_mvcc[(heap_object_lsn_t){ .oid = oid, .lsn = lsn }];
-    mvcc.readers++;
-    if (mvcc.entry_copy)
+    auto mvcc_it = object_mvcc.lower_bound({ .oid = { .inode = oid.inode, .stripe = oid.stripe+1 }, .lsn = 0 });
+    copy_id = 1;
+    if (mvcc_it != object_mvcc.begin())
     {
-        return mvcc.entry_copy;
+        mvcc_it--;
+        if (mvcc_it->first.oid == oid)
+        {
+            if (mvcc_it->second.entry_copy)
+            {
+                // Already modified, need to create another copy
+                copy_id = mvcc_it->first.lsn+1;
+            }
+            else
+            {
+                copy_id = mvcc_it->first.lsn;
+                mvcc_it->second.readers++;
+                return obj;
+            }
+        }
     }
+    object_mvcc[(heap_object_lsn_t){ .oid = oid, .lsn = copy_id }] = (heap_object_mvcc_t){ .readers = 1 };
     return obj;
 }
 
-heap_object_t *blockstore_heap_t::read_locked_entry(object_id oid, uint64_t lsn)
+heap_object_t *blockstore_heap_t::read_locked_entry(object_id oid, uint64_t copy_id)
 {
-    auto mvcc_it = object_mvcc.find((heap_object_lsn_t){ .oid = oid, .lsn = lsn });
+    auto mvcc_it = object_mvcc.find((heap_object_lsn_t){ .oid = oid, .lsn = copy_id });
     if (mvcc_it == object_mvcc.end())
     {
         return NULL;
@@ -884,9 +898,9 @@ heap_object_t *blockstore_heap_t::read_locked_entry(object_id oid, uint64_t lsn)
     return read_entry(oid, NULL);
 }
 
-bool blockstore_heap_t::unlock_entry(object_id oid, uint64_t lsn)
+bool blockstore_heap_t::unlock_entry(object_id oid, uint64_t copy_id)
 {
-    auto mvcc_it = object_mvcc.find((heap_object_lsn_t){ .oid = oid, .lsn = lsn });
+    auto mvcc_it = object_mvcc.find((heap_object_lsn_t){ .oid = oid, .lsn = copy_id });
     if (mvcc_it == object_mvcc.end())
     {
         return false;
@@ -1266,13 +1280,20 @@ int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *mod
 heap_object_t *blockstore_heap_t::mvcc_save_copy(heap_object_t *obj)
 {
     auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
-    auto lsn = obj->get_writes()->lsn;
-    auto mvcc_it = object_mvcc.find((heap_object_lsn_t){ .oid = oid, .lsn = lsn });
-    if (mvcc_it == object_mvcc.end())
+    auto mvcc_it = object_mvcc.lower_bound({ .oid = { .inode = oid.inode, .stripe = oid.stripe+1 }, .lsn = 0 });
+    if (mvcc_it == object_mvcc.begin())
     {
         return NULL;
     }
-    assert(!mvcc_it->second.entry_copy);
+    mvcc_it--;
+    if (mvcc_it->first.oid != oid)
+    {
+        return NULL;
+    }
+    if (mvcc_it->second.entry_copy)
+    {
+        return mvcc_it->second.entry_copy;
+    }
     assert(obj->size == sizeof(heap_object_t));
     uint32_t total_size = obj->size;
     for (auto wr = obj->get_writes(); wr; wr = wr->next())
@@ -1361,8 +1382,8 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
     {
         *modified_block = block_num;
     }
-    // Save a copy of the object
-    heap_object_t *obj_copy = mvcc_save_copy(obj);
+    // Save a copy of the object - only when overwriting
+    heap_object_t *obj_copy = is_overwrite ? mvcc_save_copy(obj) : NULL;
     bool tracking_active = !!obj_copy;
     if (!tracking_active)
     {
@@ -1486,10 +1507,10 @@ int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t 
         *before_compact_lsn = pre_wr->lsn;
     }
     // Save a copy of the object
-    mvcc_save_copy(obj);
     if (unstable_big_wr && unstable_big_wr->next())
     {
         // Remove previous stable entry series
+        mvcc_save_copy(obj);
         free_object_space(obj->inode, unstable_big_wr->next(), NULL);
         add_used_space(block_num, -free_writes(unstable_big_wr->next(), NULL));
         unstable_big_wr->next_pos = 0;

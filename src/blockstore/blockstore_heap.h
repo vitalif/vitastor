@@ -203,13 +203,13 @@ public:
     void reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size);
     // read an object entry and lock it against removal
     // in the future, may become asynchronous
-    heap_object_t *lock_and_read_entry(object_id oid, uint64_t & lsn);
+    heap_object_t *lock_and_read_entry(object_id oid, uint64_t & copy_id);
     // re-read a locked object entry with the given lsn (pointer may be invalidated)
-    heap_object_t *read_locked_entry(object_id oid, uint64_t lsn);
+    heap_object_t *read_locked_entry(object_id oid, uint64_t copy_id);
     // read an object entry without locking it
     heap_object_t *read_entry(object_id oid, uint32_t *block_num_ptr, bool for_update = false);
     // unlock an entry
-    bool unlock_entry(object_id oid, uint64_t lsn);
+    bool unlock_entry(object_id oid, uint64_t copy_id);
     // set or verify checksums in a write request
     bool calc_checksums(heap_write_t *wr, uint8_t *data, bool set);
     // set or verify raw block checksums

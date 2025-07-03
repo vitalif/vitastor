@@ -234,13 +234,13 @@ void test_mvcc(bool csum)
         assert(heap.find_free_data() == 0x20000);
 
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
-        uint64_t lsn = 0;
-        heap_object_t *obj = heap.lock_and_read_entry(oid, lsn);
+        uint64_t copy_id = 0;
+        heap_object_t *obj = heap.lock_and_read_entry(oid, copy_id);
         assert(obj);
-        assert(lsn >= 1);
+        assert(copy_id == 1);
         assert(count_writes(obj) == 1);
         heap_write_t *wr = obj->get_writes();
-        assert(wr->lsn == lsn);
+        assert(wr->lsn == 1);
         assert(wr->version == 1);
         assert(wr->offset == 0);
         assert(wr->len == dsk.data_block_size);
@@ -248,7 +248,7 @@ void test_mvcc(bool csum)
         assert(wr->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
         uint64_t old_size = obj->size + wr->size;
 
-        assert(heap.read_locked_entry(oid, lsn) == obj);
+        assert(heap.read_locked_entry(oid, copy_id) == obj);
 
         assert(_test_do_small_write(heap, dsk, 1, 0, 1, 0, 4096, 0) == EINVAL);
 
@@ -258,38 +258,24 @@ void test_mvcc(bool csum)
         assert(heap.get_meta_block_used_space(0) == old_size + obj->get_writes()->get_size(&heap));
 
         assert(!heap.read_locked_entry(oid, UINT64_MAX));
-        obj = heap.read_locked_entry(oid, lsn);
-        assert(obj);
+        assert(heap.read_locked_entry(oid, copy_id) == obj); // small_write isn't MVCCed
+
+        _test_big_write(heap, dsk, 1, 0, 3, 0x20000);
+        obj = heap.read_entry(oid, NULL);
         assert(count_writes(obj) == 1);
         wr = obj->get_writes();
-        assert(wr->lsn == lsn);
-        assert(wr->version == 1);
-        assert(wr->offset == 0);
-        assert(wr->len == dsk.data_block_size);
-        assert(wr->location == 0);
+        assert(wr->lsn == 3);
+        assert(wr->version == 3);
         assert(wr->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
 
-        obj = heap.read_entry(oid, NULL);
-        assert(obj);
+        assert(heap.read_locked_entry(oid, copy_id) != obj); // big_write is MVCCed
+        obj = heap.read_locked_entry(oid, copy_id);
         assert(count_writes(obj) == 2);
         wr = obj->get_writes();
-        assert(wr->lsn > lsn);
-        assert(wr->version == 2);
-        assert(wr->offset == 8192);
-        assert(wr->len == 4096);
-        assert(wr->location == 16384);
-        assert(wr->flags == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
-        assert(!wr->get_int_bitmap(&heap));
-        wr = wr->next();
-        assert(wr->lsn == lsn);
-        assert(wr->version == 1);
-        assert(wr->offset == 0);
-        assert(wr->len == dsk.data_block_size);
-        assert(wr->location == 0);
-        assert(wr->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
+        assert(wr->lsn == 2);
 
         assert(!heap.unlock_entry(oid, UINT64_MAX));
-        assert(heap.unlock_entry(oid, lsn));
+        assert(heap.unlock_entry(oid, copy_id));
     }
 
     printf("OK test_mvcc %s\n", csum ? "csum" : "no_csum");
@@ -403,8 +389,8 @@ void test_compact(bool csum, bool stable)
 
     // write unstable - stabilize - compact
     object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
-    uint64_t lsn = 0;
-    heap_object_t *obj = heap.lock_and_read_entry(oid, lsn);
+    uint64_t copy_id = 0;
+    heap_object_t *obj = heap.lock_and_read_entry(oid, copy_id);
     assert(obj);
     assert(count_writes(obj) == 1);
     assert(obj->get_writes()->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
@@ -422,10 +408,9 @@ void test_compact(bool csum, bool stable)
 
     _test_big_write(heap, dsk, 2, 0, 1, 0x40000, true, 0, 4096);
 
-    obj = heap.read_locked_entry(oid, lsn);
+    obj = heap.read_locked_entry(oid, copy_id);
     assert(obj);
-    assert(count_writes(obj) == 1);
-    assert(obj->get_writes()->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
+    assert(count_writes(obj) == 2);
 
     uint32_t mblock;
     object_id compact_oid = {};
@@ -486,7 +471,7 @@ void test_compact(bool csum, bool stable)
     assert(count_writes(obj) == 1);
     assert(obj->get_writes()->version == 1);
 
-    int unlock_res = heap.unlock_entry(oid, lsn);
+    int unlock_res = heap.unlock_entry(oid, copy_id);
     assert(unlock_res);
 
     printf("OK test_compact %s %s\n", stable ? "stable" : "unstable", csum ? "csum" : "no_csum");
@@ -503,9 +488,9 @@ void test_modify_bitmap()
 
     _test_big_write(heap, dsk, 1, 0, 1, 0x20000);
 
-    uint64_t lsn = 0;
+    uint64_t copy_id = 0;
     object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
-    heap_object_t *obj = heap.lock_and_read_entry(oid, lsn);
+    heap_object_t *obj = heap.lock_and_read_entry(oid, copy_id);
     assert(obj);
 
     uint32_t modified_block = 1;
@@ -519,7 +504,7 @@ void test_modify_bitmap()
     uint8_t ref_int_bitmap[dsk.clean_entry_bitmap_size];
     memset(ref_int_bitmap, 0xFF, dsk.clean_entry_bitmap_size);
 
-    obj = heap.read_locked_entry(oid, lsn);
+    obj = heap.read_locked_entry(oid, copy_id);
     assert(obj);
     assert(!memcmp(obj->get_writes()->get_int_bitmap(&heap), ref_int_bitmap, dsk.clean_entry_bitmap_size));
 
@@ -528,7 +513,7 @@ void test_modify_bitmap()
     bitmap_clear(ref_int_bitmap, 4096, 16384, dsk.bitmap_granularity);
     assert(!memcmp(obj->get_writes()->get_int_bitmap(&heap), ref_int_bitmap, dsk.clean_entry_bitmap_size));
 
-    int unlock_res = heap.unlock_entry(oid, lsn);
+    int unlock_res = heap.unlock_entry(oid, copy_id);
     assert(unlock_res);
 
     printf("OK test_modify_bitmap\n");
@@ -594,12 +579,11 @@ void test_recheck(bool async, bool csum)
 
         // read object 1 - big_write should be there but small_write should be rechecked and removed
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
-        uint64_t lsn = 0;
-        heap_object_t *obj = heap.lock_and_read_entry(oid, lsn);
+        heap_object_t *obj = heap.read_entry(oid, NULL);
         assert(obj);
         assert(count_writes(obj) == 1);
         heap_write_t *wr = obj->get_writes();
-        assert(wr->lsn == lsn);
+        assert(wr->lsn == 1);
         assert(wr->version == 1);
         assert(wr->offset == 0);
         assert(wr->len == dsk.data_block_size);
@@ -608,11 +592,11 @@ void test_recheck(bool async, bool csum)
 
         // read object 2 - both writes should be present
         oid = { .inode = INODE_WITH_POOL(1, 2), .stripe = 0 };
-        obj = heap.lock_and_read_entry(oid, lsn);
+        obj = heap.read_entry(oid, NULL);
         assert(obj);
         assert(count_writes(obj) == 2);
         wr = obj->get_writes();
-        assert(wr->lsn == lsn);
+        assert(wr->lsn == 4);
         assert(wr->version == 2);
         assert(wr->offset == 8192);
         assert(wr->len == 4096);
@@ -736,8 +720,8 @@ void test_full_overwrite(bool stable)
 
         // read it to test mvcc
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
-        uint64_t read_lsn = 0;
-        heap_object_t *obj = heap.lock_and_read_entry(oid, read_lsn);
+        uint64_t copy_id = 0;
+        heap_object_t *obj = heap.lock_and_read_entry(oid, copy_id);
         assert(obj);
 
         // small_write
@@ -745,14 +729,11 @@ void test_full_overwrite(bool stable)
 
         // big_write again
         _test_big_write(heap, dsk, 1, 0, 3, 0x40000, stable, 16384, 4096);
-        if (stable)
-        {
-            assert(heap.is_buffer_area_free(16384, 4096)); // should be freed because it's not in MVCC
-        }
+        assert(!heap.is_buffer_area_free(16384, 4096)); // should not be freed because MVCC includes it
         assert(heap.is_data_used(0x20000)); // should NOT be freed - still referenced by MVCC
 
         // free mvcc
-        heap.unlock_entry(oid, read_lsn);
+        heap.unlock_entry(oid, copy_id);
         if (stable)
         {
             assert(!heap.is_data_used(0x20000)); // should now be freed
@@ -1028,8 +1009,8 @@ void test_destructor_mvcc()
 
         // read it to test mvcc
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
-        uint64_t read_lsn = 0;
-        heap_object_t *obj = heap.lock_and_read_entry(oid, read_lsn);
+        uint64_t copy_id = 0;
+        heap_object_t *obj = heap.lock_and_read_entry(oid, copy_id);
         assert(obj);
 
         _test_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 16384, true);
@@ -1056,8 +1037,8 @@ void test_rollback()
 
         // read it to test mvcc
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
-        uint64_t read_lsn = 0;
-        heap_object_t *obj = heap.lock_and_read_entry(oid, read_lsn);
+        uint64_t copy_id = 0;
+        heap_object_t *obj = heap.lock_and_read_entry(oid, copy_id);
         assert(obj);
 
         // already stable
@@ -1072,9 +1053,10 @@ void test_rollback()
         _test_small_write(heap, dsk, 1, 0, 4, 20480, 4096, 20480, false);
 
         // second read
-        uint64_t read2_lsn = 0;
-        obj = heap.lock_and_read_entry(oid, read2_lsn);
+        uint64_t copy2_id = 0;
+        obj = heap.lock_and_read_entry(oid, copy2_id);
         assert(obj);
+        assert(copy2_id == copy_id);
 
         // rollback
         assert(heap.is_data_used(0x20000));
@@ -1092,15 +1074,13 @@ void test_rollback()
         assert(!heap.is_buffer_area_free(16384, 4096));
         assert(!heap.is_buffer_area_free(20480, 4096));
 
-        // free second mvcc
-        heap.unlock_entry(oid, read2_lsn);
+        // free mvcc
+        heap.unlock_entry(oid, copy2_id);
+        heap.unlock_entry(oid, copy_id);
         assert(heap.is_data_used(0x20000));
         assert(!heap.is_data_used(0x40000));
         assert(!heap.is_buffer_area_free(16384, 4096));
         assert(heap.is_buffer_area_free(20480, 4096));
-
-        // free first mvcc
-        heap.unlock_entry(oid, read_lsn);
 
         // check object data
         obj = heap.read_entry(oid, NULL);
