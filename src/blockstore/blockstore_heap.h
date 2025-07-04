@@ -155,7 +155,7 @@ class blockstore_heap_t
     uint64_t data_used_space = 0;
 
     std::deque<heap_inflight_lsn_t> inflight_lsn;
-    uint64_t first_inflight_lsn = 0;
+    uint64_t first_inflight_lsn = 1;
     uint64_t completed_lsn = 0;
 
     std::vector<heap_object_lsn_t> tmp_compact_queue;
@@ -180,6 +180,7 @@ class blockstore_heap_t
     void erase_block_index(inode_t inode, uint64_t stripe);
     void free_object_space(inode_t inode, heap_write_t *from, heap_write_t *to, int mode = 0);
     void add_used_space(uint32_t block_num, int32_t used_delta);
+    void push_inflight_lsn(object_id oid, heap_write_t *wr);
 
 public:
     blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_area, int log_level = 0);
@@ -220,7 +221,7 @@ public:
     int post_write(object_id oid, heap_write_t *wr, uint32_t *modified_block);
     // stabilize an unstable object version
     // return 0 if OK, ENOENT if not exists
-    int post_stabilize(object_id oid, uint64_t version, uint32_t *modified_block, uint64_t *before_compact_lsn, uint64_t *to_compact_lsn);
+    int post_stabilize(object_id oid, uint64_t version, uint32_t *modified_block, uint64_t *new_lsn, uint64_t *new_to_lsn);
     // rollback an unstable object version
     // return 0 if OK, ENOENT if not exists, EBUSY if already stable
     int post_rollback(object_id oid, uint64_t version, uint32_t *modified_block);
@@ -242,7 +243,6 @@ public:
     int get_block_for_new_object(uint32_t & out_block_num);
 
     // inflight write tracking
-    void push_inflight_lsn(uint64_t lsn, object_id oid, uint64_t flags);
     void complete_lsn(uint64_t lsn);
     uint64_t get_completed_lsn();
     void add_to_compact_queue(object_id oid);

@@ -1264,7 +1264,7 @@ int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *mod
     new_wr->size = wr_size;
     new_wr->lsn = ++next_lsn;
     wr->lsn = new_wr->lsn;
-    push_inflight_lsn(new_wr->lsn, oid, wr->needs_compact(0) ? HEAP_INFLIGHT_COMPACTABLE : 0);
+    push_inflight_lsn(oid, new_wr);
     if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
     {
         uint8_t *int_bitmap = new_wr->get_int_bitmap(this);
@@ -1430,7 +1430,7 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
     new_wr->size = wr_size;
     new_wr->lsn = ++next_lsn;
     wr->lsn = new_wr->lsn;
-    push_inflight_lsn(new_wr->lsn, oid, wr->needs_compact(0) ? HEAP_INFLIGHT_COMPACTABLE : 0);
+    push_inflight_lsn(oid, new_wr);
     if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
     {
         uint8_t *int_bitmap = new_wr->get_int_bitmap(this);
@@ -1455,7 +1455,7 @@ int blockstore_heap_t::post_write(object_id oid, heap_write_t *wr, uint32_t *mod
     return update_object(block_num, obj, wr, modified_block);
 }
 
-int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t *modified_block, uint64_t *before_compact_lsn, uint64_t *to_compact_lsn)
+int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t *modified_block, uint64_t *new_lsn, uint64_t *new_to_lsn)
 {
     uint32_t block_num = 0;
     heap_object_t *obj = read_entry(oid, &block_num);
@@ -1469,21 +1469,21 @@ int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t 
     heap_write_t *unstable_wr = NULL;
     heap_write_t *unstable_big_wr = NULL;
     heap_write_t *wr = obj->get_writes();
-    heap_write_t *pre_wr = NULL;
     if (wr->version < version)
     {
         // No such version
         return ENOENT;
     }
+    uint64_t stab_count = 0;
     for (; wr; wr = wr->next())
     {
         if ((wr->flags & BS_HEAP_STABLE))
         {
-            pre_wr = wr;
             break;
         }
         else if (wr->version <= version)
         {
+            stab_count++;
             unstable_wr = wr;
             if (!unstable_big_wr &&
                 ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE ||
@@ -1502,10 +1502,6 @@ int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t 
     {
         *modified_block = block_num;
     }
-    if (before_compact_lsn && pre_wr && pre_wr->needs_compact(0))
-    {
-        *before_compact_lsn = pre_wr->lsn;
-    }
     // Save a copy of the object
     if (unstable_big_wr && unstable_big_wr->next())
     {
@@ -1515,22 +1511,25 @@ int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t 
         add_used_space(block_num, -free_writes(unstable_big_wr->next(), NULL));
         unstable_big_wr->next_pos = 0;
     }
-    // Set the stability flag
-    uint64_t to_compact = 0;
+    // Set the stability flag and assign new LSNs
+    if (new_lsn)
+    {
+        *new_lsn = next_lsn+1;
+    }
+    if (new_to_lsn)
+    {
+        *new_to_lsn = next_lsn+stab_count;
+    }
+    next_lsn += stab_count;
+    uint64_t last_lsn = next_lsn;
     for (wr = obj->get_writes(); wr; wr = wr->next())
     {
         if (!(wr->flags & BS_HEAP_STABLE) && wr->version <= version)
         {
             wr->flags |= BS_HEAP_STABLE;
+            wr->lsn = last_lsn--;
+            push_inflight_lsn(oid, wr);
         }
-        if (wr->needs_compact(0) && to_compact == 0)
-        {
-            to_compact = wr->lsn;
-        }
-    }
-    if (to_compact_lsn)
-    {
-        *to_compact_lsn = to_compact;
     }
     obj->crc32c = obj->calc_crc32c();
     return 0;
@@ -1932,17 +1931,20 @@ void blockstore_heap_t::set_fail_on_warn(bool fail)
     fail_on_warn = fail;
 }
 
-void blockstore_heap_t::push_inflight_lsn(uint64_t lsn, object_id oid, uint64_t flags)
+void blockstore_heap_t::push_inflight_lsn(object_id oid, heap_write_t *wr)
 {
-    if (!inflight_lsn.size())
+    uint64_t next_inf = first_inflight_lsn + inflight_lsn.size();
+    uint64_t flags = wr->needs_compact(0) ? HEAP_INFLIGHT_COMPACTABLE : 0;
+    if (wr->lsn == next_inf)
     {
-        first_inflight_lsn = lsn;
+        inflight_lsn.push_back((heap_inflight_lsn_t){ .oid = oid, .flags = flags });
     }
     else
     {
-        assert(lsn == first_inflight_lsn+inflight_lsn.size());
+        if (wr->lsn > next_inf)
+            inflight_lsn.resize(wr->lsn-first_inflight_lsn+1);
+        inflight_lsn[wr->lsn-first_inflight_lsn] = (heap_inflight_lsn_t){ .oid = oid, .flags = flags };
     }
-    inflight_lsn.push_back((heap_inflight_lsn_t){ .oid = oid, .flags = flags });
 }
 
 void blockstore_heap_t::complete_lsn(uint64_t lsn)
