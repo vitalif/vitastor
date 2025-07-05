@@ -53,7 +53,7 @@ struct blockstore_op_private_t
     int pending_ops;
     int op_state;
 
-    // Read, write
+    // Read, write, stabilize
     uint64_t lsn;
 
     // Read
@@ -63,9 +63,11 @@ struct blockstore_op_private_t
     uint64_t location;
     bool is_big;
 
-    // Stabilize/rollback
+    // Stabilize, rollback
     int stab_pos;
-    std::vector<uint64_t> to_compact;
+
+    // Stabilize
+    uint64_t to_lsn;
 
     // Write
     struct iovec iov_zerofill[3];
@@ -117,7 +119,6 @@ class blockstore_impl_t: public blockstore_i
 
     journal_flusher_t *flusher;
     int write_iodepth = 0;
-    std::unordered_map<object_id, uint64_t> committing_lsn;
 
     bool live = false, queue_stall = false;
     ring_loop_t *ringloop;
@@ -165,7 +166,7 @@ class blockstore_impl_t: public blockstore_i
     // Write
     bool enqueue_write(blockstore_op_t *op);
     void cancel_all_writes(blockstore_op_t *op, int retval);
-    void prepare_meta_block_write(blockstore_op_t *op, uint64_t modified_block);
+    void prepare_meta_block_write(blockstore_op_t *op, uint64_t modified_block, io_uring_sqe *sqe = NULL);
     int dequeue_write(blockstore_op_t *op);
     int continue_write(blockstore_op_t *op);
     void handle_write_event(ring_data_t *data, blockstore_op_t *op);

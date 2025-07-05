@@ -186,10 +186,6 @@ resume_1:
     cur_version = cur_obj->get_writes()->version;
     // Find the range to compact
     compact_lsn = bs->heap->get_completed_lsn();
-    if (auto cm_it = bs->committing_lsn.find(cur_oid); cm_it != bs->committing_lsn.end())
-    {
-        compact_lsn = cm_it->second;
-    }
     bs->heap->get_compact_range(cur_obj, compact_lsn, &begin_wr, &end_wr);
     if (!begin_wr)
     {

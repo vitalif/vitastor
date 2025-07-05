@@ -37,10 +37,13 @@ void blockstore_impl_t::cancel_all_writes(blockstore_op_t *op, int retval)
     FINISH_OP(op);
 }
 
-void blockstore_impl_t::prepare_meta_block_write(blockstore_op_t *op, uint64_t modified_block)
+void blockstore_impl_t::prepare_meta_block_write(blockstore_op_t *op, uint64_t modified_block, io_uring_sqe *sqe)
 {
-    io_uring_sqe *sqe = get_sqe();
-    assert(sqe != NULL);
+    if (!sqe)
+    {
+        sqe = get_sqe();
+        assert(sqe != NULL);
+    }
     ring_data_t *data = ((ring_data_t*)sqe->user_data);
     data->iov = (struct iovec){ heap->get_meta_block(modified_block), (size_t)dsk.meta_block_size };
     data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
