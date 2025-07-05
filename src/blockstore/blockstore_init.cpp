@@ -117,7 +117,7 @@ resume_1:
     }
     else
     {
-        blockstore_meta_header_v2_t *hdr = (blockstore_meta_header_v2_t *)bs->meta_superblock;
+        blockstore_meta_header_v3_t *hdr = (blockstore_meta_header_v3_t *)bs->meta_superblock;
         if (hdr->zero != 0 || hdr->magic != BLOCKSTORE_META_MAGIC_V1 || hdr->version < BLOCKSTORE_META_FORMAT_V1)
         {
             printf(
@@ -153,6 +153,7 @@ resume_1:
             );
             exit(1);
         }
+        bs->heap->set_compacted_lsn(hdr->compacted_lsn);
     }
     if (bs->dsk.inmemory_journal)
     {

@@ -403,6 +403,7 @@ void test_compact(bool csum, bool stable)
     _test_small_write(heap, dsk, 1, 0, 3, 8192, 4096, 16384, stable);
     obj = heap.read_entry(oid, NULL);
     uint64_t wr_size = obj->get_writes()->get_size(&heap);
+    assert(obj->get_writes()->lsn == 2);
     assert(check_used_space(heap, dsk, 0));
     assert(heap.get_meta_block_used_space(0) == old_size + wr_size);
 
@@ -411,6 +412,10 @@ void test_compact(bool csum, bool stable)
     obj = heap.read_locked_entry(oid, copy_id);
     assert(obj);
     assert(count_writes(obj) == 2);
+
+    heap.mark_lsn_completed(1);
+    heap.mark_lsn_completed(2);
+    heap.mark_lsn_completed(3);
 
     uint32_t mblock;
     object_id compact_oid = {};
@@ -435,9 +440,9 @@ void test_compact(bool csum, bool stable)
         assert(new_to_lsn == 4);
         assert(check_used_space(heap, dsk, 0));
         assert(heap.get_meta_block_used_space(0) == 2*old_size + wr_size);
+        heap.mark_lsn_completed(4);
     }
 
-    heap.add_to_compact_queue(oid);
     assert(heap.get_compact_queue_size() == 1);
     res = heap.get_next_compact(compact_oid);
     assert(res == 0);
@@ -447,15 +452,18 @@ void test_compact(bool csum, bool stable)
     obj = heap.read_entry(oid, NULL);
     assert(obj);
     assert(count_writes(obj) == 2);
-    heap.get_compact_range(obj, UINT64_MAX, &compact_begin, &compact_end);
+    heap.get_compact_range(obj, 4, &compact_begin, &compact_end);
     assert(compact_begin == obj->get_writes());
     assert(compact_end == obj->get_writes()->next());
+
+    heap.mark_object_compacted(obj, 4);
+    assert(heap.get_compacted_lsn() == (stable ? 3 : 4));
+    assert(heap.get_compact_queue_size() == 0);
 
     res = heap.compact_object((object_id){ .inode = INODE_WITH_POOL(1, 3), .stripe = 0 }, compact_begin->lsn, NULL);
     assert(res == ENOENT);
 
-    res = heap.compact_object(compact_oid, compact_begin->lsn, NULL);
-    assert(res == 0);
+    heap.mark_lsn_trimmed((stable ? 3 : 4));
     assert(check_used_space(heap, dsk, 0));
     assert(heap.get_meta_block_used_space(0) == 2*old_size);
 

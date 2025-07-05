@@ -84,6 +84,13 @@ inline bool operator < (const heap_object_lsn_t & a, const heap_object_lsn_t & b
     return a.oid < b.oid || a.oid == b.oid && a.lsn < b.lsn;
 }
 
+struct tmp_compact_item_t
+{
+    object_id oid;
+    uint64_t lsn;
+    bool compact;
+};
+
 struct heap_object_mvcc_t
 {
     uint32_t readers = 0;
@@ -136,11 +143,9 @@ class blockstore_heap_t
     const int meta_alloc_buckets = 4;
 
     uint64_t next_lsn = 0;
-    uint64_t compacted_lsn = 0;
     std::map<pool_id_t, pool_shard_settings_t> pool_shard_settings;
     // PG => inode => stripe => block number
     std::map<uint64_t, std::map<inode_t, btree::btree_map<uint64_t, uint64_t>>> block_index;
-    std::deque<object_id> compact_queue;
     std::vector<heap_block_info_t> block_info;
     allocator_t *data_alloc = NULL;
     allocator_t *meta_allocs[4] = {};
@@ -154,11 +159,15 @@ class blockstore_heap_t
     uint64_t buffer_area_used_space = 0;
     uint64_t data_used_space = 0;
 
+    // LSN queue: inflight (writing) -> completed [-> fsynced] -> compactable -> compacted [-> fsynced] -> trimmed and removed
     std::deque<heap_inflight_lsn_t> inflight_lsn;
-    uint64_t first_inflight_lsn = 1;
+    uint32_t to_compact_count = 0;
+    uint64_t first_inflight_lsn = 0;
     uint64_t completed_lsn = 0;
+    uint64_t compacted_lsn = 0;
+    uint64_t next_compact_lsn = 0;
 
-    std::vector<heap_object_lsn_t> tmp_compact_queue;
+    std::vector<tmp_compact_item_t> tmp_compact_queue;
     std::deque<object_id> recheck_queue;
     int recheck_in_progress = 0;
     bool in_recheck = false;
@@ -180,7 +189,7 @@ class blockstore_heap_t
     void erase_block_index(inode_t inode, uint64_t stripe);
     void free_object_space(inode_t inode, heap_write_t *from, heap_write_t *to, int mode = 0);
     void add_used_space(uint32_t block_num, int32_t used_delta);
-    void push_inflight_lsn(object_id oid, heap_write_t *wr);
+    void push_inflight_lsn(object_id oid, uint64_t lsn, uint64_t flags);
 
 public:
     blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_area, int log_level = 0);
@@ -243,9 +252,11 @@ public:
     int get_block_for_new_object(uint32_t & out_block_num);
 
     // inflight write tracking
-    void complete_lsn(uint64_t lsn);
+    void mark_lsn_completed(uint64_t lsn);
+    void mark_lsn_compacted(uint64_t lsn);
+    void mark_object_compacted(heap_object_t *obj, uint64_t max_lsn);
+    void mark_lsn_trimmed(uint64_t lsn);
     uint64_t get_completed_lsn();
-    void add_to_compact_queue(object_id oid);
 
     // data device block allocator functions
     uint64_t find_free_data();
@@ -269,6 +280,7 @@ public:
     uint64_t get_meta_total_space();
     uint64_t get_meta_used_space();
     uint32_t get_meta_nearfull_blocks();
+    uint32_t get_inflight_queue_size();
     uint32_t get_compact_queue_size();
 
     // get maximum size for a temporary heap_write_t buffer

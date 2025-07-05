@@ -244,7 +244,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
     }
     else if (PRIV(op)->wait_for == WAIT_COMPACTION)
     {
-        if (flusher->get_counter() <= PRIV(op)->wait_detail)
+        if (flusher->get_compact_counter() <= PRIV(op)->wait_detail)
         {
             // do not submit
 #ifdef BLOCKSTORE_DEBUG

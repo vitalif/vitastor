@@ -51,7 +51,6 @@ class journal_flusher_co
     object_id cur_oid;
     uint64_t copy_id;
     uint64_t compact_lsn;
-    uint64_t min_compact_lsn;
     uint64_t cur_version;
     heap_object_t *cur_obj;
     heap_write_t *begin_wr, *end_wr;
@@ -108,7 +107,7 @@ public:
     ~journal_flusher_t();
     void loop();
     int get_active();
-    uint64_t get_counter();
+    uint64_t get_compact_counter();
     bool is_active();
     void request_trim();
     void release_trim();

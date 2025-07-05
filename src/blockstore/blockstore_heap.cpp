@@ -61,7 +61,7 @@ bool heap_write_t::needs_recheck(blockstore_heap_t *heap)
 
 bool heap_write_t::needs_compact(uint64_t compacted_lsn)
 {
-    return lsn > compacted_lsn && (flags == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) || flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE));
+    return lsn > compacted_lsn && flags == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
 }
 
 bool heap_write_t::is_compacted(uint64_t compacted_lsn)
@@ -585,9 +585,9 @@ skip_object:
                     // Mark data block as used
                     use_data(obj->inode, wr->location);
                 }
-                if (wr->needs_compact(this->compacted_lsn))
+                if (wr->lsn > this->compacted_lsn)
                 {
-                    tmp_compact_queue.push_back((heap_object_lsn_t){ .oid = oid, .lsn = wr->lsn });
+                    tmp_compact_queue.push_back((tmp_compact_item_t){ .oid = oid, .lsn = wr->lsn, .compact = wr->needs_compact(0) });
                 }
                 else if (wr->is_compacted(this->compacted_lsn))
                 {
@@ -599,7 +599,7 @@ skip_object:
                     {
                         // We can't just collapse the object entry when csum_block_size is larger
                         // than bitmap_granularity, so we add the object into the compact queue
-                        tmp_compact_queue.push_back((heap_object_lsn_t){ .oid = oid, .lsn = wr->lsn });
+                        tmp_compact_queue.push_back((tmp_compact_item_t){ .oid = oid, .lsn = wr->lsn, .compact = wr->needs_compact(0) });
                     }
                 }
             }
@@ -643,13 +643,28 @@ skip_object:
 
 void blockstore_heap_t::finish_load()
 {
-    std::sort(tmp_compact_queue.begin(), tmp_compact_queue.end(), [this](const heap_object_lsn_t & a, const heap_object_lsn_t & b)
+    completed_lsn = first_inflight_lsn = next_lsn+1;
+    if (!tmp_compact_queue.size())
+    {
+        return;
+    }
+    std::sort(tmp_compact_queue.begin(), tmp_compact_queue.end(), [this](const tmp_compact_item_t & a, const tmp_compact_item_t & b)
     {
         return a.lsn < b.lsn;
     });
+    first_inflight_lsn = tmp_compact_queue[0].lsn;
+    if (compacted_lsn < tmp_compact_queue[0].lsn-1)
+    {
+        compacted_lsn = tmp_compact_queue[0].lsn-1;
+    }
     for (auto & e: tmp_compact_queue)
     {
-        compact_queue.push_back(e.oid);
+        push_inflight_lsn(e.oid, e.lsn, HEAP_INFLIGHT_DONE | (e.compact ? HEAP_INFLIGHT_COMPACTABLE : 0));
+    }
+    while (compacted_lsn+1-first_inflight_lsn < inflight_lsn.size() &&
+        !(inflight_lsn[compacted_lsn+1-first_inflight_lsn].flags & HEAP_INFLIGHT_COMPACTABLE))
+    {
+        compacted_lsn++;
     }
     tmp_compact_queue.clear();
 }
@@ -758,7 +773,7 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
                 uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, wr->len);
                 if (log_level > 5)
                 {
-                    fprintf(stderr, "Notice: rechecking %u bytes at %ju in %s area\n", wr->len, loc, is_intent ? "data" : "buffer");
+                    fprintf(stderr, "Notice: rechecking %u bytes at %ju in %s area (lsn %lu)\n", wr->len, loc, is_intent ? "data" : "buffer", wr->lsn);
                 }
                 recheck_cb(is_intent, loc, wr->len, buf, [this, oid, lsn = wr->lsn, buf]()
                 {
@@ -1264,7 +1279,7 @@ int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *mod
     new_wr->size = wr_size;
     new_wr->lsn = ++next_lsn;
     wr->lsn = new_wr->lsn;
-    push_inflight_lsn(oid, new_wr);
+    push_inflight_lsn(oid, new_wr->lsn, new_wr->needs_compact(0) ? HEAP_INFLIGHT_COMPACTABLE : 0);
     if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
     {
         uint8_t *int_bitmap = new_wr->get_int_bitmap(this);
@@ -1430,7 +1445,7 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
     new_wr->size = wr_size;
     new_wr->lsn = ++next_lsn;
     wr->lsn = new_wr->lsn;
-    push_inflight_lsn(oid, new_wr);
+    push_inflight_lsn(oid, new_wr->lsn, new_wr->needs_compact(0) ? HEAP_INFLIGHT_COMPACTABLE : 0);
     if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
     {
         uint8_t *int_bitmap = new_wr->get_int_bitmap(this);
@@ -1528,7 +1543,7 @@ int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t 
         {
             wr->flags |= BS_HEAP_STABLE;
             wr->lsn = last_lsn--;
-            push_inflight_lsn(oid, wr);
+            push_inflight_lsn(oid, wr->lsn, wr->needs_compact(0) ? HEAP_INFLIGHT_COMPACTABLE : 0);
         }
     }
     obj->crc32c = obj->calc_crc32c();
@@ -1608,10 +1623,24 @@ int blockstore_heap_t::post_delete(object_id oid, uint32_t *modified_block)
 
 int blockstore_heap_t::get_next_compact(object_id & oid)
 {
-    while (compact_queue.size())
+    if (next_compact_lsn < first_inflight_lsn)
     {
-        oid = compact_queue.front();
-        compact_queue.pop_front();
+        next_compact_lsn = first_inflight_lsn;
+    }
+    while (next_compact_lsn-first_inflight_lsn < inflight_lsn.size())
+    {
+        auto & item = inflight_lsn[next_compact_lsn-first_inflight_lsn];
+        if (!(item.flags & HEAP_INFLIGHT_COMPACTABLE))
+        {
+            next_compact_lsn++;
+            continue;
+        }
+        if (!(item.flags & HEAP_INFLIGHT_DONE))
+        {
+            break;
+        }
+        next_compact_lsn++;
+        oid = item.oid;
         return 0;
     }
     return ENOENT;
@@ -1918,7 +1947,12 @@ uint32_t blockstore_heap_t::get_meta_nearfull_blocks()
 
 uint32_t blockstore_heap_t::get_compact_queue_size()
 {
-    return compact_queue.size();
+    return to_compact_count;
+}
+
+uint32_t blockstore_heap_t::get_inflight_queue_size()
+{
+    return inflight_lsn.size();
 }
 
 uint32_t blockstore_heap_t::get_max_write_entry_size()
@@ -1931,48 +1965,99 @@ void blockstore_heap_t::set_fail_on_warn(bool fail)
     fail_on_warn = fail;
 }
 
-void blockstore_heap_t::push_inflight_lsn(object_id oid, heap_write_t *wr)
+void blockstore_heap_t::push_inflight_lsn(object_id oid, uint64_t lsn, uint64_t flags)
 {
     uint64_t next_inf = first_inflight_lsn + inflight_lsn.size();
-    uint64_t flags = wr->needs_compact(0) ? HEAP_INFLIGHT_COMPACTABLE : 0;
-    if (wr->lsn == next_inf)
+    if (flags & HEAP_INFLIGHT_COMPACTABLE)
+    {
+        to_compact_count++;
+    }
+    if (lsn == next_inf)
     {
         inflight_lsn.push_back((heap_inflight_lsn_t){ .oid = oid, .flags = flags });
     }
     else
     {
-        if (wr->lsn > next_inf)
-            inflight_lsn.resize(wr->lsn-first_inflight_lsn+1);
-        inflight_lsn[wr->lsn-first_inflight_lsn] = (heap_inflight_lsn_t){ .oid = oid, .flags = flags };
+        if (lsn > next_inf)
+        {
+            inflight_lsn.resize(lsn-first_inflight_lsn+1, (heap_inflight_lsn_t){ .flags = HEAP_INFLIGHT_DONE });
+        }
+        inflight_lsn[lsn-first_inflight_lsn] = (heap_inflight_lsn_t){ .oid = oid, .flags = flags };
     }
 }
 
-void blockstore_heap_t::complete_lsn(uint64_t lsn)
+void blockstore_heap_t::mark_lsn_completed(uint64_t lsn)
 {
     assert(lsn >= first_inflight_lsn && lsn < first_inflight_lsn+inflight_lsn.size());
-    assert(!(inflight_lsn[lsn - first_inflight_lsn].flags & HEAP_INFLIGHT_DONE));
-    inflight_lsn[lsn - first_inflight_lsn].flags |= HEAP_INFLIGHT_DONE;
-    if (lsn == first_inflight_lsn)
+    auto & item = inflight_lsn[lsn - first_inflight_lsn];
+    assert(!(item.flags & HEAP_INFLIGHT_DONE));
+    item.flags |= HEAP_INFLIGHT_DONE;
+    if (lsn == compacted_lsn+1 && !(item.flags & HEAP_INFLIGHT_COMPACTABLE))
     {
-        while (inflight_lsn.size() && (inflight_lsn[0].flags & HEAP_INFLIGHT_DONE))
+        assert(compacted_lsn+1 >= first_inflight_lsn);
+        while (compacted_lsn+1-first_inflight_lsn < inflight_lsn.size() &&
+            (inflight_lsn[compacted_lsn+1-first_inflight_lsn].flags == HEAP_INFLIGHT_DONE))
         {
-            if ((inflight_lsn[0].flags & HEAP_INFLIGHT_COMPACTABLE))
-            {
-                compact_queue.push_back(inflight_lsn[0].oid);
-            }
-            inflight_lsn.pop_front();
-            first_inflight_lsn++;
+            compacted_lsn++;
         }
-        completed_lsn = first_inflight_lsn-1;
+        assert(inflight_lsn[compacted_lsn-first_inflight_lsn].flags == HEAP_INFLIGHT_DONE);
+    }
+    if (lsn > completed_lsn)
+    {
+        assert(completed_lsn+1 >= first_inflight_lsn);
+        while (completed_lsn+1-first_inflight_lsn < inflight_lsn.size() &&
+            (inflight_lsn[completed_lsn+1-first_inflight_lsn].flags & HEAP_INFLIGHT_DONE))
+        {
+            completed_lsn++;
+        }
+    }
+}
+
+void blockstore_heap_t::mark_lsn_compacted(uint64_t lsn)
+{
+    assert(lsn >= first_inflight_lsn && lsn < first_inflight_lsn+inflight_lsn.size());
+    auto & item = inflight_lsn[lsn - first_inflight_lsn];
+    assert(item.flags & HEAP_INFLIGHT_DONE);
+    if (!(item.flags & HEAP_INFLIGHT_COMPACTABLE))
+        return;
+    item.flags -= HEAP_INFLIGHT_COMPACTABLE;
+    to_compact_count--;
+    if (lsn == compacted_lsn+1)
+    {
+        assert(completed_lsn+1 >= first_inflight_lsn);
+        while (compacted_lsn+1-first_inflight_lsn < inflight_lsn.size() &&
+            (inflight_lsn[compacted_lsn+1-first_inflight_lsn].flags == HEAP_INFLIGHT_DONE))
+        {
+            compacted_lsn++;
+        }
+    }
+}
+
+void blockstore_heap_t::mark_object_compacted(heap_object_t *obj, uint64_t max_lsn)
+{
+    for (auto wr = obj->get_writes(); wr; wr = wr->next())
+    {
+        if (wr->is_compacted(max_lsn))
+        {
+            mark_lsn_compacted(wr->lsn);
+        }
+    }
+}
+
+void blockstore_heap_t::mark_lsn_trimmed(uint64_t lsn)
+{
+    assert(lsn >= first_inflight_lsn && lsn < first_inflight_lsn+inflight_lsn.size());
+    while (first_inflight_lsn <= lsn && inflight_lsn.size() > 0)
+    {
+        assert(inflight_lsn[0].flags == HEAP_INFLIGHT_DONE);
+        // FIXME don't touch unflushable lsns
+        compact_object(inflight_lsn[0].oid, lsn, NULL); // FIXME from prev trimmed lsn
+        inflight_lsn.pop_front();
+        first_inflight_lsn++;
     }
 }
 
 uint64_t blockstore_heap_t::get_completed_lsn()
 {
     return completed_lsn;
-}
-
-void blockstore_heap_t::add_to_compact_queue(object_id oid)
-{
-    compact_queue.push_back(oid);
 }

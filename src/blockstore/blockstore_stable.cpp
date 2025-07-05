@@ -86,7 +86,7 @@ resume_4:
     // FIXME: Also mark as fsynced
     for (uint64_t lsn = priv->lsn; lsn <= priv->to_lsn; lsn++)
     {
-        heap->complete_lsn(lsn);
+        heap->mark_lsn_completed(lsn);
     }
     // Done. Don't touch op->retval - if anything resulted in ENOENT, return it as is
     FINISH_OP(op);

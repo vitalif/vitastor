@@ -103,14 +103,14 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (loc == UINT64_MAX ||
             !obj && heap->get_block_for_new_object(tmp_block) != 0)
         {
-            if (!heap->get_compact_queue_size() && !write_iodepth && !flusher->get_active())
+            if (!heap->get_inflight_queue_size())
             {
                 // no space
                 cancel_all_writes(op, -ENOSPC);
                 return 2;
             }
             PRIV(op)->wait_for = WAIT_COMPACTION;
-            PRIV(op)->wait_detail = flusher->get_counter();
+            PRIV(op)->wait_detail = flusher->get_compact_counter();
             flusher->request_trim();
             return 0;
         }
@@ -179,14 +179,14 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         int res = heap->post_write(op->oid, wr, &modified_block);
         if (res == ENOSPC)
         {
-            if (!heap->get_compact_queue_size() && !write_iodepth && !flusher->get_active())
+            if (!heap->get_inflight_queue_size())
             {
                 // no space
                 cancel_all_writes(op, -ENOSPC);
                 return 2;
             }
             PRIV(op)->wait_for = WAIT_COMPACTION;
-            PRIV(op)->wait_detail = flusher->get_counter();
+            PRIV(op)->wait_detail = flusher->get_compact_counter();
             flusher->request_trim();
             return 0;
         }
@@ -205,7 +205,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (loc == UINT64_MAX)
         {
             PRIV(op)->wait_for = WAIT_COMPACTION;
-            PRIV(op)->wait_detail = flusher->get_counter();
+            PRIV(op)->wait_detail = flusher->get_compact_counter();
             flusher->request_trim();
             return 0;
         }
@@ -226,14 +226,14 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         int res = heap->post_write(op->oid, wr, &modified_block);
         if (res == ENOSPC)
         {
-            if (!heap->get_compact_queue_size() && !write_iodepth && !flusher->get_active())
+            if (!heap->get_inflight_queue_size())
             {
                 // no space
                 cancel_all_writes(op, -ENOSPC);
                 return 2;
             }
             PRIV(op)->wait_for = WAIT_COMPACTION;
-            PRIV(op)->wait_detail = flusher->get_counter();
+            PRIV(op)->wait_detail = flusher->get_compact_counter();
             flusher->request_trim();
             return 0;
         }
@@ -315,7 +315,7 @@ resume_4:
         if (res == ENOSPC)
         {
             PRIV(op)->wait_for = WAIT_COMPACTION;
-            PRIV(op)->wait_detail = flusher->get_counter();
+            PRIV(op)->wait_detail = flusher->get_compact_counter();
             return 1;
         }
         assert(res == 0);
@@ -364,7 +364,7 @@ resume_6:
 resume_8:
     // Acknowledge write
     op->retval = op->len;
-    heap->complete_lsn(PRIV(op)->lsn);
+    heap->mark_lsn_completed(PRIV(op)->lsn);
     write_iodepth--;
     FINISH_OP(op);
     return 2;
