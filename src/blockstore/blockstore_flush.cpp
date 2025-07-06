@@ -162,6 +162,7 @@ bool journal_flusher_co::loop()
     else if (wait_state == 19) goto resume_19;
     else if (wait_state == 20) goto resume_20;
 resume_0:
+    cur_oid = {};
     res = bs->heap->get_next_compact(cur_oid);
     if (res == ENOENT)
     {
