@@ -351,44 +351,42 @@ resume_4:
         return 1;
     }
 resume_6:
+    // Apply throttling to not fill the journal too fast for the SSD+HDD case
+    if (!PRIV(op)->is_big && throttle_small_writes)
     {
-#ifdef BLOCKSTORE_DEBUG
-        printf("Ack write %jx:%jx v%ju\n", op->oid.inode, op->oid.stripe, op->version);
-#endif
-        // Apply throttling to not fill the journal too fast for the SSD+HDD case
-        if (!PRIV(op)->is_big && throttle_small_writes)
+        // Apply throttling
+        timespec tv_end;
+        clock_gettime(CLOCK_REALTIME, &tv_end);
+        uint64_t exec_us =
+            (tv_end.tv_sec - PRIV(op)->tv_begin.tv_sec)*1000000 +
+            (tv_end.tv_nsec - PRIV(op)->tv_begin.tv_nsec)/1000;
+        // Compare with target execution time
+        // 100% free -> target time = 0
+        // 0% free -> target time = iodepth/parallelism * (iops + size/bw) / write per second
+        uint64_t buffer_free_space = dsk.journal_len - heap->get_buffer_area_used_space();
+        uint64_t ref_us =
+            (write_iodepth <= throttle_target_parallelism ? 100 : 100*write_iodepth/throttle_target_parallelism)
+            * (1000000/throttle_target_iops + op->len*1000000/throttle_target_mbs/1024/1024)
+            / 100;
+        ref_us -= ref_us * buffer_free_space / dsk.journal_len;
+        if (ref_us > exec_us + throttle_threshold_us)
         {
-            // Apply throttling
-            timespec tv_end;
-            clock_gettime(CLOCK_REALTIME, &tv_end);
-            uint64_t exec_us =
-                (tv_end.tv_sec - PRIV(op)->tv_begin.tv_sec)*1000000 +
-                (tv_end.tv_nsec - PRIV(op)->tv_begin.tv_nsec)/1000;
-            // Compare with target execution time
-            // 100% free -> target time = 0
-            // 0% free -> target time = iodepth/parallelism * (iops + size/bw) / write per second
-            uint64_t buffer_free_space = dsk.journal_len - heap->get_buffer_area_used_space();
-            uint64_t ref_us =
-                (write_iodepth <= throttle_target_parallelism ? 100 : 100*write_iodepth/throttle_target_parallelism)
-                * (1000000/throttle_target_iops + op->len*1000000/throttle_target_mbs/1024/1024)
-                / 100;
-            ref_us -= ref_us * buffer_free_space / dsk.journal_len;
-            if (ref_us > exec_us + throttle_threshold_us)
+            // Pause reply
+            PRIV(op)->op_state = 7;
+            // Remember that the timer can in theory be called right here
+            tfd->set_timer_us(ref_us-exec_us, false, [this, op](int timer_id)
             {
-                // Pause reply
-                PRIV(op)->op_state = 7;
-                // Remember that the timer can in theory be called right here
-                tfd->set_timer_us(ref_us-exec_us, false, [this, op](int timer_id)
-                {
-                    PRIV(op)->op_state++;
-                    ringloop->wakeup();
-                });
-                return 1;
-            }
+                PRIV(op)->op_state++;
+                ringloop->wakeup();
+            });
+            return 1;
         }
     }
 resume_8:
     // Acknowledge write
+#ifdef BLOCKSTORE_DEBUG
+    printf("Ack write %jx:%jx v%ju\n", op->oid.inode, op->oid.stripe, op->version);
+#endif
     op->retval = op->len;
     heap->mark_lsn_completed(PRIV(op)->lsn);
     write_iodepth--;
