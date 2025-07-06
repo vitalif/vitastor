@@ -1146,6 +1146,7 @@ void blockstore_heap_t::compact_block(uint32_t block_num)
         *((uint16_t*)cur) = FREE_SPACE_BIT | (dsk->meta_block_size-(cur-new_data));
         memset(cur+2, 0, dsk->meta_block_size-(cur-new_data)-2);
     }
+    free(inf.data);
     inf.data = new_data;
     inf.free_pos = cur-new_data;
     assert(inf.used_space == (cur-new_data));
@@ -1417,13 +1418,23 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
             mvcc_buffer_refs[wr->location]++;
         }
     }
+    const uint8_t *old_data = inf.data;
     const uint32_t offset = find_block_space(block_num, wr_size);
+    if (old_data != inf.data)
+    {
+        obj = read_entry(oid, NULL);
+    }
     assert(offset != UINT32_MAX);
     memcpy(inf.data + offset, wr, wr_size);
     heap_write_t *new_wr = (heap_write_t*)(inf.data + offset);
     int32_t used_delta = wr_size;
     if (is_overwrite)
     {
+        for (auto wr = obj->get_writes(); wr; wr = wr->next())
+        {
+            if (wr->needs_compact(0))
+                mark_lsn_compacted(wr->lsn);
+        }
         free_object_space(obj->inode, obj->get_writes(), NULL);
         // Free old write entries
         used_delta -= free_writes(obj->get_writes(), NULL);
@@ -1735,6 +1746,11 @@ void blockstore_heap_t::erase_block_index(inode_t inode, uint64_t stripe)
 void blockstore_heap_t::erase_object(uint32_t block_num, heap_object_t *obj)
 {
     // Erase object
+    for (auto wr = obj->get_writes(); wr; wr = wr->next())
+    {
+        if (wr->needs_compact(0))
+            mark_lsn_compacted(wr->lsn);
+    }
     erase_block_index(obj->inode, obj->stripe);
     free_object_space(obj->inode, obj->get_writes(), NULL);
     auto freed = free_writes(obj->get_writes(), NULL);
