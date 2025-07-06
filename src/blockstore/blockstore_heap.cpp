@@ -657,6 +657,20 @@ skip_object:
             wr_i = 0;
             for (auto wr = obj->get_writes(); wr; wr = wr->next(), wr_i++)
             {
+                if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE &&
+                    !is_buffer_area_free(wr->location, wr->len))
+                {
+                    fprintf(stderr, "Notice: write %jx:%jx v%lu (l%lu) buffered data overlaps with other writes, skipping object\n",
+                        obj->inode, obj->stripe, wr->version, wr->lsn);
+                    goto skip_object;
+                }
+                if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE &&
+                    is_data_used(wr->location))
+                {
+                    fprintf(stderr, "Notice: write %jx:%jx v%lu (l%lu) data overlaps with other writes, skipping object\n",
+                        obj->inode, obj->stripe, wr->version, wr->lsn);
+                    goto skip_object;
+                }
                 if (wr->needs_recheck(this))
                 {
                     if (!buffer_area || (wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE)
