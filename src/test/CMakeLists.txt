@@ -37,6 +37,7 @@ add_test(NAME test_allocator COMMAND test_allocator)
 # test_heap
 add_executable(test_heap
 	test_heap.cpp
+	../blockstore/multilist.cpp
 	../blockstore/blockstore_heap.cpp
 	../util/crc32c.c
 	../util/allocator.cpp
