@@ -146,6 +146,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         unsynced_big_write_count++;
         PRIV(op)->op_state = 1;
         write_iodepth++;
+        inflight_big++;
     }
     // Only one INTENT_WRITE is allowed at a time, but in fact,
     // parallel writes to the same object are forbidden anyway
@@ -277,6 +278,10 @@ int blockstore_impl_t::continue_write(blockstore_op_t *op)
         goto resume_8;
     else if (op_state == 10)
         goto resume_10;
+    else if (op_state == 11)
+        goto resume_11;
+    else if (op_state == 12)
+        goto resume_12;
     else
     {
         // In progress
@@ -284,16 +289,37 @@ int blockstore_impl_t::continue_write(blockstore_op_t *op)
     }
 resume_2:
     // We must fsync all big writes to avoid complex write workflows
-    // It's anyway OK for all HDDs and for server SSDs
+    // It's OK for all HDDs and for server SSDs, but slightly worse for desktop SSDs
     // The other way is to add another type of MVCC to blockstore_heap: "forward" MVCC :)
+    inflight_big--;
     if (!disable_data_fsync)
     {
-        // fsync data
-        // FIXME: Share fsyncs with fsync batches from flusher
+        // fsync data in a batch
+resume_11:
+        if (inflight_big > 0)
+        {
+            PRIV(op)->op_state = 11;
+            return 1;
+        }
+        if (fsyncing_data)
+        {
+resume_12:
+            if (fsyncing_data)
+            {
+                PRIV(op)->op_state = 12;
+                return 1;
+            }
+            goto resume_4;
+        }
+        fsyncing_data = true;
         BS_SUBMIT_GET_SQE(sqe, data);
         io_uring_prep_fsync(sqe, dsk.data_fd, IORING_FSYNC_DATASYNC);
         data->iov = { 0 };
-        data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
+        data->callback = [this, op](ring_data_t *data)
+        {
+            fsyncing_data = false;
+            handle_write_event(data, op);
+        };
         PRIV(op)->pending_ops++;
         PRIV(op)->op_state = 3;
         return 1;

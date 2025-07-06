@@ -119,6 +119,8 @@ class blockstore_impl_t: public blockstore_i
 
     journal_flusher_t *flusher;
     int write_iodepth = 0;
+    int inflight_big = 0;
+    bool fsyncing_data = false;
 
     bool live = false, queue_stall = false;
     ring_loop_t *ringloop;
