@@ -161,18 +161,18 @@ bool journal_flusher_co::loop()
     else if (wait_state == 18) goto resume_18;
     else if (wait_state == 19) goto resume_19;
     else if (wait_state == 20) goto resume_20;
-    else if (wait_state == 21) goto resume_21;
 resume_0:
     res = bs->heap->get_next_compact(cur_oid);
     if (res == ENOENT)
     {
         if (co_id == 0 && flusher->force_start > 0)
         {
+resume_16:
+resume_17:
 resume_18:
 resume_19:
 resume_20:
-resume_21:
-            if (!trim_lsn(18))
+            if (!trim_lsn(16))
                 return false;
         }
         cur_oid = {};
@@ -209,7 +209,7 @@ resume_1:
     assert(!end_wr->next() && end_wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
     clean_loc = end_wr->location;
 #ifdef BLOCKSTORE_DEBUG
-    printf("Flushing %jx:%jx v%ju .. v%ju\n", cur_oid.inode, cur_oid.stripe, end_wr->version, begin_wr->version);
+    printf("Compacting %jx:%jx l%ju .. l%ju (last l%ju)\n", cur_oid.inode, cur_oid.stripe, end_wr->lsn, begin_wr->lsn, compact_lsn);
 #endif
     flusher->active_flushers++;
     // Scan versions to flush
@@ -283,12 +283,6 @@ resume_10:
         wait_state = 10;
         return false;
     }
-    // Sync data before modifying metadata
-resume_11:
-resume_12:
-resume_13:
-    if (copy_count && !fsync_batch(false, 11))
-        return false;
     // Lock is only needed to prevent freeing the big_write because we overwrite it...
     bs->heap->unlock_entry(cur_oid, copy_id);
     // Mark the object compacted, but don't free and remove small_writes
@@ -305,7 +299,7 @@ resume_13:
     // Done, free all buffers
     free_buffers();
 #ifdef BLOCKSTORE_DEBUG
-    printf("Compacted %jx:%jx v%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe, cur_version, copy_count);
+    printf("Compacted %jx:%jx l%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe, compact_lsn, copy_count);
 #endif
     flusher->compact_counter++;
     flusher->active_flushers--;
@@ -313,11 +307,12 @@ resume_13:
     if (co_id == 0 && !((++flusher->advance_lsn_counter) % bs->journal_trim_interval))
     {
         flusher->advance_lsn_counter = 0;
+resume_11:
+resume_12:
+resume_13:
 resume_14:
 resume_15:
-resume_16:
-resume_17:
-        if (!trim_lsn(14))
+        if (!trim_lsn(11))
             return false;
     }
 release_oid:
@@ -687,12 +682,14 @@ bool journal_flusher_co::trim_lsn(int wait_base)
     else if (wait_state == wait_base+1) goto resume_1;
     else if (wait_state == wait_base+2) goto resume_2;
     else if (wait_state == wait_base+3) goto resume_3;
+    else if (wait_state == wait_base+4) goto resume_4;
     compact_lsn = bs->heap->get_compacted_lsn();
     if (((blockstore_meta_header_v3_t*)bs->meta_superblock)->compacted_lsn == compact_lsn)
     {
         return true;
     }
     flusher->active_flushers++;
+    assert(!wait_count);
     if (!bs->disable_meta_fsync)
     {
         await_sqe(0);
@@ -700,24 +697,34 @@ bool journal_flusher_co::trim_lsn(int wait_base)
         data->callback = simple_callback_w;
         io_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
         wait_count++;
-resume_1:
-        if (wait_count > 0)
-        {
-            wait_state = wait_base+1;
-            return false;
-        }
+    }
+    if (!bs->disable_data_fsync && bs->dsk.data_fd != bs->dsk.meta_fd)
+    {
+        await_sqe(1);
+        data->iov = { 0 };
+        data->callback = simple_callback_w;
+        io_uring_prep_fsync(sqe, bs->dsk.data_fd, IORING_FSYNC_DATASYNC);
+        wait_count++;
+    }
+resume_2:
+    if (wait_count > 0)
+    {
+        wait_state = wait_base+2;
+        return false;
     }
     ((blockstore_meta_header_v3_t*)bs->meta_superblock)->compacted_lsn = compact_lsn;
     ((blockstore_meta_header_v3_t*)bs->meta_superblock)->set_crc32c();
-    await_sqe(2);
+    await_sqe(3);
     data->iov = (struct iovec){ bs->meta_superblock, (size_t)bs->dsk.meta_block_size };
     data->callback = simple_callback_w;
     io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
+    // Update superblock with datasync
+    sqe->rw_flags = RWF_DSYNC;
     wait_count++;
-resume_3:
+resume_4:
     if (wait_count > 0)
     {
-        wait_state = wait_base+3;
+        wait_state = wait_base+4;
         return false;
     }
     bs->heap->mark_lsn_trimmed(compact_lsn);
