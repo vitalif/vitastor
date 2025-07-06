@@ -9,74 +9,6 @@
 #include "blockstore_heap.h"
 #include "../util/crc32c.h"
 
-#ifdef MULTILIST_TEST
-void multilist_alloc_t::print()
-{
-    printf("heads:");
-    for (int i = 0; i < maxn; i++)
-        if (heads[i])
-            printf(" %u=%u", i, heads[i]);
-    for (int i = 0; i < maxn; i++)
-        if (heads[i])
-            assert(i < maxn-1 ? sizes[heads[i]-1] == i+1 : (sizes[heads[i]-1] >= i+1));
-    printf("\n");
-    printf("sizes:");
-    for (int i = 0; i < count; i++)
-        if (sizes[i])
-            printf(" %d=%d", i, sizes[i]);
-    printf("\n");
-    printf("prevs:");
-    for (int i = 0; i < count; i++)
-        if (prevs[i])
-            printf(" %d=%d", i, prevs[i]);
-    printf("\n");
-    printf("nexts:");
-    for (int i = 0; i < count; i++)
-        if (nexts[i])
-            printf(" %d=%d", i, nexts[i]);
-    printf("\n");
-    printf("items:");
-    for (int i = 0; i < count; )
-    {
-        if (sizes[i])
-        {
-            printf(" %u=(s:%d,n:%u,p:%u)", i, sizes[i], nexts[i], prevs[i]);
-            assert(i+sizes[i] <= count);
-            if (sizes[i] > 1 && sizes[i+sizes[i]-1] != -sizes[i])
-            {
-                printf(" ERROR: start/end mismatch\n");
-                abort();
-            }
-            for (int j = i+1; j < i+sizes[i]-1; j++)
-            {
-                if (sizes[j])
-                {
-                    printf(" ERROR: internal non-zero at %d: %d\n", j, sizes[j]);
-                    abort();
-                }
-            }
-            if (nexts[i] >= 2)
-            {
-                if (nexts[i] >= 2+count)
-                {
-                    printf(" ERROR: next out of range\n");
-                    abort();
-                }
-                if (prevs[nexts[i]-2] != i+1)
-                {
-                    printf(" ERROR: prev[next] != this");
-                    abort();
-                }
-            }
-            i += sizes[i];
-        }
-        else
-            i++;
-    }
-    printf("\n");
-}
-#endif
-
 static int count_writes(heap_object_t *obj)
 {
     int n = 0;
@@ -1132,6 +1064,16 @@ void test_alloc_buffer()
     blockstore_disk_t dsk;
     _test_init(dsk, false);
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+
+    {
+        multilist_alloc_t alloc(2048, 31);
+        alloc.use(1998, 1);
+        alloc.verify();
+        alloc.use(70, 1);
+        alloc.verify();
+        alloc.use(206, 1);
+        alloc.verify();
+    }
 
     blockstore_heap_t heap(&dsk, buffer_area.data());
     heap.finish_load();

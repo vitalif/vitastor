@@ -123,9 +123,8 @@ struct multilist_alloc_t
     void use(uint32_t pos, uint32_t size);
     void do_free(uint32_t pos);
     void free(uint32_t pos);
-#ifdef MULTILIST_TEST
+    void verify();
     void print();
-#endif
 };
 
 class blockstore_heap_t

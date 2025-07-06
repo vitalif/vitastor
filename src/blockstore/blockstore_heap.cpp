@@ -148,7 +148,7 @@ multilist_alloc_t::multilist_alloc_t(uint32_t count, uint32_t maxn):
     sizes[count-1] = -count; // end
     nexts[0] = 1;
     heads[maxn-1] = 1;
-#ifdef MULTILIST_TEST
+#ifdef MULTILIST_TRACE
     print();
 #endif
 }
@@ -177,6 +177,127 @@ uint32_t multilist_alloc_t::find(uint32_t size)
     return UINT32_MAX;
 }
 
+void multilist_alloc_t::verify()
+{
+    std::set<uint32_t> reachable;
+    for (int i = 0; i < maxn; i++)
+    {
+        uint32_t cur = heads[i];
+        while (cur)
+        {
+            if (!nexts[cur-1])
+            {
+                fprintf(stderr, "ERROR: item %d from freelist %d is not free\n", cur-1, i);
+                print();
+                abort();
+            }
+            if (nexts[cur-1] >= count+2)
+            {
+                fprintf(stderr, "ERROR: next out of range at %d: %d\n", cur-1, nexts[cur-1]);
+                print();
+                abort();
+            }
+            if (!(i < maxn-1 ? sizes[cur-1] == i+1 : (sizes[cur-1] >= i+1)))
+            {
+                fprintf(stderr, "ERROR: item %d is in wrong freelist: expected size %d, but actual size is %d\n", cur-1, i+1, sizes[cur-1]);
+                print();
+                abort();
+            }
+            if (reachable.find(cur-1) != reachable.end())
+            {
+                fprintf(stderr, "ERROR: doubly-claimed item %d\n", cur-1);
+                print();
+                abort();
+            }
+            reachable.insert(cur-1);
+            cur = nexts[cur-1]-1;
+        }
+    }
+    for (int i = 0; i < count; )
+    {
+        if (sizes[i])
+        {
+            assert(i+sizes[i] <= count);
+            if (sizes[i] > 1 && sizes[i+sizes[i]-1] != -sizes[i])
+            {
+                fprintf(stderr, "ERROR: start/end mismatch at %d: sizes[%d] should be %d, but is %d\n", i, i+sizes[i]-1, -sizes[i], sizes[i+sizes[i]-1]);
+                print();
+                abort();
+            }
+            for (int j = i+1; j < i+sizes[i]-1; j++)
+            {
+                if (sizes[j])
+                {
+                    fprintf(stderr, "ERROR: internal non-zero at %d: %d\n", j, sizes[j]);
+                    print();
+                    abort();
+                }
+            }
+            if (nexts[i] && reachable.find(i) == reachable.end())
+            {
+                fprintf(stderr, "ERROR: %d is unreachable from heads\n", i);
+                print();
+                abort();
+            }
+            if (nexts[i] >= 2)
+            {
+                if (nexts[i] >= 2+count)
+                {
+                    fprintf(stderr, "ERROR: next out of range at %d: %d\n", i, nexts[i]);
+                    print();
+                    abort();
+                }
+                if (prevs[nexts[i]-2] != i+1)
+                {
+                    fprintf(stderr, "ERROR: prev[next] (%d) != this (%d) at %d", prevs[nexts[i]-2], i+1, i);
+                    print();
+                    abort();
+                }
+            }
+            i += (sizes[i] > 1 ? sizes[i] : 1);
+        }
+        else
+            i++;
+    }
+}
+
+void multilist_alloc_t::print()
+{
+    printf("heads:");
+    for (int i = 0; i < maxn; i++)
+        if (heads[i])
+            printf(" %u=%u", i, heads[i]);
+    printf("\n");
+    printf("sizes:");
+    for (int i = 0; i < count; i++)
+        if (sizes[i])
+            printf(" %d=%d", i, sizes[i]);
+    printf("\n");
+    printf("prevs:");
+    for (int i = 0; i < count; i++)
+        if (prevs[i])
+            printf(" %d=%d", i, prevs[i]);
+    printf("\n");
+    printf("nexts:");
+    for (int i = 0; i < count; i++)
+        if (nexts[i])
+            printf(" %d=%d", i, nexts[i]);
+    printf("\n");
+    printf("items:");
+    for (int i = 0; i < count; )
+    {
+        if (sizes[i])
+        {
+            printf(" %u=(s:%d,n:%u,p:%u)", i, sizes[i], nexts[i], prevs[i]);
+            assert(i+sizes[i] <= count);
+            i += (sizes[i] > 1 ? sizes[i] : 1);
+        }
+        else
+            i++;
+    }
+    printf("\n");
+}
+
 void multilist_alloc_t::use(uint32_t pos, uint32_t size)
 {
     assert(pos < count);
@@ -198,8 +319,8 @@ void multilist_alloc_t::use(uint32_t pos, uint32_t size)
         sizes[pos] = size;
         if (pos+size < start+full)
         {
-            sizes[start+full-1] = -(full-pos-size);
-            sizes[pos+size] = full-pos-size;
+            sizes[start+full-1] = -(start+full-pos-size);
+            sizes[pos+size] = start+full-pos-size;
             free(pos+size);
         }
     }
@@ -217,7 +338,7 @@ void multilist_alloc_t::use(uint32_t pos, uint32_t size)
             free(pos+size);
         }
     }
-#ifdef MULTILIST_TEST
+#ifdef MULTILIST_TRACE
     print();
 #endif
 }
@@ -241,7 +362,7 @@ void multilist_alloc_t::use_full(uint32_t pos)
 void multilist_alloc_t::free(uint32_t pos)
 {
     do_free(pos);
-#ifdef MULTILIST_TEST
+#ifdef MULTILIST_TRACE
     print();
 #endif
 }
