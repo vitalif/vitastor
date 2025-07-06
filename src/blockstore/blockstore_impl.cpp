@@ -166,6 +166,7 @@ void blockstore_impl_t::loop()
             }
             if (wr_st == 0)
             {
+                PRIV(op)->pending_ops = 0;
                 ringloop->restore(prev_sqe_pos);
                 if (PRIV(op)->wait_for == WAIT_SQE)
                 {

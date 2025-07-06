@@ -87,7 +87,6 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         int res = heap->post_delete(op->oid, &modified_block);
         assert(res == 0);
         prepare_meta_block_write(op, modified_block);
-        PRIV(op)->pending_ops++;
         PRIV(op)->op_state = 5;
         write_iodepth++;
     }
@@ -142,7 +141,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         io_uring_prep_writev(
             sqe, dsk.data_fd, PRIV(op)->iov_zerofill, vcnt, dsk.data_offset + loc + op->offset - stripe_offset
         );
-        PRIV(op)->pending_ops = 1;
+        PRIV(op)->pending_ops++;
         unsynced_big_write_count++;
         PRIV(op)->op_state = 1;
         write_iodepth++;

@@ -6,6 +6,10 @@
 
 int blockstore_impl_t::continue_sync(blockstore_op_t *op)
 {
+    int op_state = PRIV(op)->op_state;
+    if (op_state == 1) goto resume_1;
+    if (op_state == 2) goto resume_2;
+    assert(!op_state);
     if (immediate_commit == IMMEDIATE_ALL || !unsynced_big_write_count && !unsynced_small_write_count)
     {
         // We can return immediately because sync is only dequeued after all previous writes
@@ -14,10 +18,6 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         FINISH_OP(op);
         return 2;
     }
-    int op_state = PRIV(op)->op_state;
-    if (op_state == 1) goto resume_1;
-    if (op_state == 2) goto resume_2;
-    assert(!op_state);
     stop_sync_submitted = false;
     if (unsynced_small_write_count > 0 && !disable_journal_fsync)
     {
@@ -28,7 +28,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         PRIV(op)->pending_ops++;
     }
-    if (!disable_meta_fsync)
+    if (!disable_meta_fsync && dsk.meta_fd != dsk.journal_fd)
     {
         // fsync meta
         BS_SUBMIT_GET_SQE(sqe, data);
