@@ -1506,6 +1506,10 @@ int blockstore_heap_t::get_next_compact(object_id & oid)
     }
     while (next_compact_lsn-first_inflight_lsn < inflight_lsn.size())
     {
+        if (next_compact_lsn > (dsk->disable_meta_fsync && dsk->disable_journal_fsync ? completed_lsn : fsynced_lsn))
+        {
+            return ENOENT;
+        }
         auto & item = inflight_lsn[next_compact_lsn-first_inflight_lsn];
         if (!(item.flags & HEAP_INFLIGHT_COMPACTABLE))
         {
@@ -1895,6 +1899,15 @@ void blockstore_heap_t::mark_lsn_completed(uint64_t lsn)
     }
 }
 
+void blockstore_heap_t::mark_lsn_fsynced(uint64_t lsn)
+{
+    if (lsn > fsynced_lsn)
+    {
+        assert(lsn >= first_inflight_lsn && lsn <= completed_lsn);
+        fsynced_lsn = lsn;
+    }
+}
+
 void blockstore_heap_t::mark_lsn_compacted(uint64_t lsn)
 {
     assert(lsn >= first_inflight_lsn && lsn < first_inflight_lsn+inflight_lsn.size());
@@ -1942,4 +1955,9 @@ void blockstore_heap_t::mark_lsn_trimmed(uint64_t lsn)
 uint64_t blockstore_heap_t::get_completed_lsn()
 {
     return completed_lsn;
+}
+
+uint64_t blockstore_heap_t::get_fsynced_lsn()
+{
+    return dsk->disable_meta_fsync && dsk->disable_journal_fsync ? completed_lsn : fsynced_lsn;
 }

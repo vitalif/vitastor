@@ -79,6 +79,7 @@ class journal_flusher_co
     bool write_meta_block(int wait_base);
     bool read_buffered(int wait_base);
     bool fsync_batch(bool fsync_meta, int wait_base);
+    int fsync_buffer(int wait_base);
     bool trim_lsn(int wait_base);
 public:
     journal_flusher_co();
@@ -100,6 +101,7 @@ class journal_flusher_t
 
     int active_flushers = 0;
     int syncing_flushers = 0;
+    int syncing_buffer = 0;
     std::list<flusher_sync_t> syncs;
 
 public:
@@ -107,6 +109,7 @@ public:
     ~journal_flusher_t();
     void loop();
     int get_active();
+    int get_syncing_buffer();
     uint64_t get_compact_counter();
     bool is_active();
     void request_trim();

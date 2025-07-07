@@ -235,7 +235,7 @@ resume_4:
     // metadata read finished
     bs->heap->finish_load();
     printf("Metadata entries loaded: %ju, used blocks: %ju / %ju\n", entries_loaded, bs->heap->get_data_used_space() / bs->dsk.data_block_size, bs->dsk.block_count);
-    if (zero_on_init && !bs->disable_meta_fsync)
+    if (zero_on_init && !bs->dsk.disable_meta_fsync)
     {
         GET_SQE();
         io_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);

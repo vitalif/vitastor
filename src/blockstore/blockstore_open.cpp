@@ -78,18 +78,6 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
     {
         readonly = true;
     }
-    if (config["disable_data_fsync"] == "true" || config["disable_data_fsync"] == "1" || config["disable_data_fsync"] == "yes")
-    {
-        disable_data_fsync = true;
-    }
-    if (config["disable_meta_fsync"] == "true" || config["disable_meta_fsync"] == "1" || config["disable_meta_fsync"] == "yes")
-    {
-        disable_meta_fsync = true;
-    }
-    if (config["disable_journal_fsync"] == "true" || config["disable_journal_fsync"] == "1" || config["disable_journal_fsync"] == "yes")
-    {
-        disable_journal_fsync = true;
-    }
     if (config["immediate_commit"] == "all")
     {
         immediate_commit = IMMEDIATE_ALL;
@@ -110,19 +98,11 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
     {
         meta_write_recheck_parallelism = 16;
     }
-    if (dsk.meta_device == dsk.data_device)
-    {
-        disable_meta_fsync = disable_data_fsync;
-    }
-    if (dsk.journal_device == dsk.meta_device)
-    {
-        disable_journal_fsync = disable_meta_fsync;
-    }
-    if (immediate_commit != IMMEDIATE_NONE && !disable_journal_fsync)
+    if (immediate_commit != IMMEDIATE_NONE && !dsk.disable_journal_fsync)
     {
         throw std::runtime_error("immediate_commit requires disable_journal_fsync");
     }
-    if (immediate_commit == IMMEDIATE_ALL && !disable_data_fsync)
+    if (immediate_commit == IMMEDIATE_ALL && !dsk.disable_data_fsync)
     {
         throw std::runtime_error("immediate_commit=all requires disable_journal_fsync and disable_data_fsync");
     }

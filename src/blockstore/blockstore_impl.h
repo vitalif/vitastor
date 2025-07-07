@@ -53,7 +53,7 @@ struct blockstore_op_private_t
     int pending_ops;
     int op_state;
 
-    // Read, write, stabilize
+    // Read, write, sync, stabilize
     uint64_t lsn;
 
     // Read
@@ -80,8 +80,6 @@ class blockstore_impl_t: public blockstore_i
 
     /******* OPTIONS *******/
     bool readonly = false;
-    // It is safe to disable fsync() if drive write cache is writethrough
-    bool disable_data_fsync = false, disable_meta_fsync = false, disable_journal_fsync = false;
     // Enable if you want every operation to be executed with an "implicit fsync"
     // Suitable only for server SSDs with capacitors, requires disabled data and journal fsyncs
     int immediate_commit = IMMEDIATE_NONE;

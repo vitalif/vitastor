@@ -97,6 +97,9 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
         config["inmemory_metadata"] != "no";
     inmemory_journal = config["inmemory_journal"] != "false" && config["inmemory_journal"] != "0" &&
         config["inmemory_journal"] != "no";
+    disable_data_fsync = config["disable_data_fsync"] == "true" || config["disable_data_fsync"] == "1" || config["disable_data_fsync"] == "yes";
+    disable_meta_fsync = config["disable_meta_fsync"] == "true" || config["disable_meta_fsync"] == "1" || config["disable_meta_fsync"] == "yes";
+    disable_journal_fsync = config["disable_journal_fsync"] == "true" || config["disable_journal_fsync"] == "1" || config["disable_journal_fsync"] == "yes";
     // Validate
     if (!data_block_size)
     {
@@ -193,6 +196,14 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     if (journal_offset % journal_block_size)
     {
         throw std::runtime_error("journal_offset must be a multiple of journal_block_size = "+std::to_string(journal_block_size));
+    }
+    if (meta_device == data_device)
+    {
+        disable_meta_fsync = disable_data_fsync;
+    }
+    if (journal_device == meta_device)
+    {
+        disable_journal_fsync = disable_meta_fsync;
     }
 }
 

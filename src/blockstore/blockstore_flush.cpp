@@ -68,6 +68,11 @@ int journal_flusher_t::get_active()
     return active_flushers;
 }
 
+int journal_flusher_t::get_syncing_buffer()
+{
+    return syncing_buffer;
+}
+
 uint64_t journal_flusher_t::get_compact_counter()
 {
     return compact_counter;
@@ -75,7 +80,7 @@ uint64_t journal_flusher_t::get_compact_counter()
 
 bool journal_flusher_t::is_active()
 {
-    return active_flushers > 0 || force_start > 0 || bs->heap->get_compact_queue_size() > bs->flusher_start_threshold;
+    return active_flushers > 0;
 }
 
 void journal_flusher_t::request_trim()
@@ -119,7 +124,7 @@ void journal_flusher_t::loop()
         }
     }
     int prev_active = active_flushers;
-    for (int i = 0; is_active() && i < cur_flusher_count; i++)
+    for (int i = 0; (active_flushers > 0 || force_start > 0 || bs->heap->get_compact_queue_size() > bs->flusher_start_threshold) && i < cur_flusher_count; i++)
         co[i].loop();
     if (prev_active && !active_flushers && force_start > 0)
         bs->ringloop->wakeup();
@@ -161,9 +166,26 @@ bool journal_flusher_co::loop()
     else if (wait_state == 18) goto resume_18;
     else if (wait_state == 19) goto resume_19;
     else if (wait_state == 20) goto resume_20;
+    else if (wait_state == 21) goto resume_21;
+    else if (wait_state == 22) goto resume_22;
+    else if (wait_state == 23) goto resume_23;
 resume_0:
+    wait_state = 0;
     cur_oid = {};
     res = bs->heap->get_next_compact(cur_oid);
+    if (res == ENOENT && flusher->force_start > 0 && co_id == 0 &&
+        (!bs->dsk.disable_journal_fsync || !bs->dsk.disable_meta_fsync))
+    {
+resume_21:
+resume_22:
+resume_23:
+        res = fsync_buffer(21);
+        if (!res)
+        {
+            return false;
+        }
+        res = (res == 2 ? bs->heap->get_next_compact(cur_oid) : ENOENT);
+    }
     if (res == ENOENT)
     {
         if (co_id == 0 && flusher->force_start > 0)
@@ -323,7 +345,6 @@ release_oid:
         goto resume_1;
     }
     // All done
-    wait_state = 0;
     goto resume_0;
 }
 
@@ -619,7 +640,7 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
     if (wait_state == wait_base)        goto resume_0;
     else if (wait_state == wait_base+1) goto resume_1;
     else if (wait_state == wait_base+2) goto resume_2;
-    if (!(fsync_meta ? bs->disable_meta_fsync : bs->disable_data_fsync))
+    if (!(fsync_meta ? bs->dsk.disable_meta_fsync : bs->dsk.disable_data_fsync))
     {
         cur_sync = flusher->syncs.end();
         while (cur_sync != flusher->syncs.begin())
@@ -677,6 +698,53 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
     return true;
 }
 
+int journal_flusher_co::fsync_buffer(int wait_base)
+{
+    if (wait_state == wait_base)        goto resume_0;
+    else if (wait_state == wait_base+1) goto resume_1;
+    else if (wait_state == wait_base+2) goto resume_2;
+    if (!bs->unsynced_big_write_count && !bs->unsynced_small_write_count)
+    {
+        return 1;
+    }
+    if (flusher->syncing_buffer)
+    {
+        return 0;
+    }
+    compact_lsn = bs->heap->get_completed_lsn();
+    flusher->active_flushers++;
+    flusher->syncing_buffer++;
+    assert(!wait_count);
+    if (!bs->dsk.disable_meta_fsync)
+    {
+        bs->unsynced_big_write_count = 0;
+        await_sqe(0);
+        data->iov = { 0 };
+        data->callback = simple_callback_w;
+        io_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
+        wait_count++;
+    }
+    if (bs->unsynced_small_write_count > 0 && !bs->dsk.disable_journal_fsync && bs->dsk.journal_fd != bs->dsk.meta_fd)
+    {
+        bs->unsynced_small_write_count = 0;
+        await_sqe(1);
+        data->iov = { 0 };
+        data->callback = simple_callback_w;
+        io_uring_prep_fsync(sqe, bs->dsk.journal_fd, IORING_FSYNC_DATASYNC);
+        wait_count++;
+    }
+resume_2:
+    if (wait_count > 0)
+    {
+        wait_state = wait_base+2;
+        return 0;
+    }
+    bs->heap->mark_lsn_fsynced(compact_lsn);
+    flusher->active_flushers--;
+    flusher->syncing_buffer--;
+    return 2;
+}
+
 bool journal_flusher_co::trim_lsn(int wait_base)
 {
     if (wait_state == wait_base)        goto resume_0;
@@ -691,7 +759,7 @@ bool journal_flusher_co::trim_lsn(int wait_base)
     }
     flusher->active_flushers++;
     assert(!wait_count);
-    if (!bs->disable_meta_fsync)
+    if (!bs->dsk.disable_meta_fsync)
     {
         await_sqe(0);
         data->iov = { 0 };
@@ -699,7 +767,7 @@ bool journal_flusher_co::trim_lsn(int wait_base)
         io_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
         wait_count++;
     }
-    if (!bs->disable_data_fsync && bs->dsk.data_fd != bs->dsk.meta_fd)
+    if (!bs->dsk.disable_data_fsync && bs->dsk.data_fd != bs->dsk.meta_fd)
     {
         await_sqe(1);
         data->iov = { 0 };

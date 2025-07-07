@@ -142,14 +142,13 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             sqe, dsk.data_fd, PRIV(op)->iov_zerofill, vcnt, dsk.data_offset + loc + op->offset - stripe_offset
         );
         PRIV(op)->pending_ops++;
-        unsynced_big_write_count++;
         PRIV(op)->op_state = 1;
         write_iodepth++;
         inflight_big++;
     }
     // Only one INTENT_WRITE is allowed at a time, but in fact,
     // parallel writes to the same object are forbidden anyway
-    else if (disable_data_fsync &&
+    else if (dsk.disable_data_fsync &&
         op->opcode == BS_OP_WRITE_STABLE &&
         op->len > 0 && op->len <= dsk.bitmap_granularity /* FIXME atomic_write_size */ &&
         (obj->get_writes()->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
@@ -193,7 +192,6 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         assert(res == 0);
         PRIV(op)->lsn = wr->lsn;
         prepare_meta_block_write(op, modified_block);
-        unsynced_small_write_count++;
         PRIV(op)->op_state = 9;
         write_iodepth++;
     }
@@ -256,7 +254,6 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         {
             // Zero-length overwrite. Allowed to bump object version in EC placement groups without actually writing data
         }
-        unsynced_small_write_count++;
         assert(PRIV(op)->pending_ops);
         PRIV(op)->op_state = 5;
         write_iodepth++;
@@ -291,7 +288,7 @@ resume_2:
     // It's OK for all HDDs and for server SSDs, but slightly worse for desktop SSDs
     // The other way is to add another type of MVCC to blockstore_heap: "forward" MVCC :)
     inflight_big--;
-    if (!disable_data_fsync)
+    if (!dsk.disable_data_fsync)
     {
         // fsync data in a batch
 resume_11:
@@ -388,6 +385,10 @@ resume_8:
 #endif
     op->retval = op->len;
     heap->mark_lsn_completed(PRIV(op)->lsn);
+    if (PRIV(op)->is_big)
+        unsynced_big_write_count++;
+    else
+        unsynced_small_write_count++;
     write_iodepth--;
     FINISH_OP(op);
     return 2;

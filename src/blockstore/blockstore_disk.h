@@ -43,6 +43,8 @@ struct blockstore_disk_t
     // I/O modes for data, metadata and journal: direct or "" = O_DIRECT, cached = O_SYNC, directsync = O_DIRECT|O_SYNC
     // O_SYNC without O_DIRECT = use Linux page cache for reads and writes
     std::string data_io, meta_io, journal_io;
+    // It is safe to disable fsync() if drive write cache is writethrough
+    bool disable_data_fsync = false, disable_meta_fsync = false, disable_journal_fsync = false;
     // Keep journal (buffered data) in memory?
     bool inmemory_meta = true;
     // Keep metadata in memory?

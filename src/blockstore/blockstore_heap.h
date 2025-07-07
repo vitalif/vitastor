@@ -147,6 +147,7 @@ class blockstore_heap_t
     uint32_t to_compact_count = 0;
     uint64_t first_inflight_lsn = 0;
     uint64_t completed_lsn = 0;
+    uint64_t fsynced_lsn = 0;
     uint64_t compacted_lsn = 0;
     uint64_t next_compact_lsn = 0;
 
@@ -236,10 +237,12 @@ public:
 
     // inflight write tracking
     void mark_lsn_completed(uint64_t lsn);
+    void mark_lsn_fsynced(uint64_t lsn);
     void mark_lsn_compacted(uint64_t lsn);
     void mark_object_compacted(heap_object_t *obj, uint64_t max_lsn);
     void mark_lsn_trimmed(uint64_t lsn);
     uint64_t get_completed_lsn();
+    uint64_t get_fsynced_lsn();
 
     // data device block allocator functions
     uint64_t find_free_data();

@@ -67,7 +67,7 @@ resume_1:
         return 0;
     }
 resume_2:
-    if (!disable_meta_fsync)
+    if (!dsk.disable_meta_fsync)
     {
         BS_SUBMIT_GET_SQE(sqe, data);
         io_uring_prep_fsync(sqe, dsk.meta_fd, IORING_FSYNC_DATASYNC);
