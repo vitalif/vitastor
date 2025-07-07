@@ -38,12 +38,14 @@ struct bs_data
     std::vector<io_u*> completed;
     int op_n = 0, inflight = 0;
     bool last_sync = false;
+    bool trace = false;
 };
 
 struct bs_options
 {
     int __pad;
     char *json_config = NULL;
+    int trace = 0;
 };
 
 static struct fio_option options[] = {
@@ -57,12 +59,23 @@ static struct fio_option options[] = {
         .group  = FIO_OPT_G_FILENAME,
     },
     {
+        .name   = "bs_trace",
+        .lname  = "trace",
+        .type   = FIO_OPT_BOOL,
+        .off1   = offsetof(struct bs_options, trace),
+        .help   = "Trace operations",
+        .def    = "0",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
         .name = NULL,
     },
 };
 
 static int bs_setup(struct thread_data *td)
 {
+    bs_options *o = (bs_options*)td->eo;
     bs_data *bsd;
     //fio_file *f;
     //int r;
@@ -82,6 +95,8 @@ static int bs_setup(struct thread_data *td)
         td->o.nr_files = td->o.nr_files ? : 1;
         td->o.open_files++;
     }
+
+    bsd->trace = o->trace ? true : false;
 
     //f = td->files[0];
     //f->real_file_size = size;
@@ -176,15 +191,14 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->version = UINT64_MAX; // last unstable
         op->offset = io->offset % bsd->bs->get_block_size();
         op->len = io->xfer_buflen;
-        op->callback = [io](blockstore_op_t *op)
+        op->callback = [io, n = bsd->op_n](blockstore_op_t *op)
         {
             io->error = op->retval < 0 ? -op->retval : 0;
             bs_data *bsd = (bs_data*)io->engine_data;
             bsd->inflight--;
             bsd->completed.push_back(io);
-#ifdef BLOCKSTORE_DEBUG
-            printf("--- OP_READ %llx n=%d retval=%d\n", io, n, op->retval);
-#endif
+            if (bsd->trace)
+                printf("--- OP_READ %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
             delete op;
         };
         break;
@@ -198,30 +212,28 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->version = 0; // assign automatically
         op->offset = io->offset % bsd->bs->get_block_size();
         op->len = io->xfer_buflen;
-        op->callback = [io](blockstore_op_t *op)
+        op->callback = [io, n = bsd->op_n](blockstore_op_t *op)
         {
             io->error = op->retval < 0 ? -op->retval : 0;
             bs_data *bsd = (bs_data*)io->engine_data;
             bsd->inflight--;
             bsd->completed.push_back(io);
-#ifdef BLOCKSTORE_DEBUG
-            printf("--- OP_WRITE %llx n=%d retval=%d\n", io, n, op->retval);
-#endif
+            if (bsd->trace)
+                printf("--- OP_WRITE %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
             delete op;
         };
         bsd->last_sync = false;
         break;
     case DDIR_SYNC:
         op->opcode = BS_OP_SYNC_STAB_ALL;
-        op->callback = [io](blockstore_op_t *op)
+        op->callback = [io, n = bsd->op_n](blockstore_op_t *op)
         {
             bs_data *bsd = (bs_data*)io->engine_data;
             io->error = op->retval < 0 ? -op->retval : 0;
             bsd->completed.push_back(io);
             bsd->inflight--;
-#ifdef BLOCKSTORE_DEBUG
-            printf("--- OP_SYNC %llx n=%d retval=%d\n", io, n, op->retval);
-#endif
+            if (bsd->trace)
+                printf("--- OP_SYNC %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
             delete op;
         };
         bsd->last_sync = true;
@@ -232,9 +244,8 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         return FIO_Q_COMPLETED;
     }
 
-#ifdef BLOCKSTORE_DEBUG
-    printf("+++ %s %llx n=%d\n", op->opcode == OP_READ ? "OP_READ" : (op->opcode == OP_WRITE ? "OP_WRITE" : "OP_SYNC"), io, n);
-#endif
+    if (bsd->trace)
+        printf("+++ %s %zx n=%d\n", op->opcode == BS_OP_READ ? "OP_READ" : (op->opcode == BS_OP_WRITE_STABLE ? "OP_WRITE" : "OP_SYNC"), (size_t)op, bsd->op_n);
     io->error = 0;
     bsd->inflight++;
     bsd->bs->enqueue_op(op);
