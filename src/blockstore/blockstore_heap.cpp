@@ -527,10 +527,14 @@ void blockstore_heap_t::finish_load()
     {
         push_inflight_lsn(e.oid, e.lsn, HEAP_INFLIGHT_DONE | (e.compact ? HEAP_INFLIGHT_COMPACTABLE : 0));
     }
-    while (compacted_lsn+1-first_inflight_lsn < inflight_lsn.size() &&
-        !(inflight_lsn[compacted_lsn+1-first_inflight_lsn].flags & HEAP_INFLIGHT_COMPACTABLE))
+    if (compacted_lsn+1-first_inflight_lsn < inflight_lsn.size())
     {
-        compacted_lsn++;
+        auto it = inflight_lsn.begin() + (compacted_lsn+1-first_inflight_lsn);
+        while (it != inflight_lsn.end() && !(it->flags & HEAP_INFLIGHT_COMPACTABLE))
+        {
+            compacted_lsn++;
+            it++;
+        }
     }
     tmp_compact_queue.clear();
 }
@@ -1938,30 +1942,34 @@ void blockstore_heap_t::push_inflight_lsn(object_id oid, uint64_t lsn, uint64_t 
 void blockstore_heap_t::mark_lsn_completed(uint64_t lsn)
 {
     assert(lsn >= first_inflight_lsn && lsn < first_inflight_lsn+inflight_lsn.size());
-    auto & item = inflight_lsn[lsn - first_inflight_lsn];
-    assert(!(item.flags & HEAP_INFLIGHT_DONE));
-    item.flags |= HEAP_INFLIGHT_DONE;
-    if (lsn == compacted_lsn+1 && !(item.flags & HEAP_INFLIGHT_COMPACTABLE))
+    auto it = inflight_lsn.begin() + (lsn-first_inflight_lsn);
+    assert(!(it->flags & HEAP_INFLIGHT_DONE));
+    it->flags |= HEAP_INFLIGHT_DONE;
+    if (lsn == compacted_lsn+1 && !(it->flags & HEAP_INFLIGHT_COMPACTABLE))
     {
         assert(compacted_lsn+1 >= first_inflight_lsn);
-        while (compacted_lsn+1-first_inflight_lsn < inflight_lsn.size() &&
-            (inflight_lsn[compacted_lsn+1-first_inflight_lsn].flags == HEAP_INFLIGHT_DONE))
+        while (it != inflight_lsn.end() && (it->flags == HEAP_INFLIGHT_DONE))
         {
+            it++;
             compacted_lsn++;
         }
-        assert(inflight_lsn[compacted_lsn-first_inflight_lsn].flags == HEAP_INFLIGHT_DONE);
     }
     if (lsn > completed_lsn)
     {
         assert(completed_lsn+1 >= first_inflight_lsn);
-        while (completed_lsn+1-first_inflight_lsn < inflight_lsn.size() &&
-            (inflight_lsn[completed_lsn+1-first_inflight_lsn].flags & HEAP_INFLIGHT_DONE))
+        if (completed_lsn+1-first_inflight_lsn < inflight_lsn.size())
         {
-            completed_lsn++;
-        }
-        if (dsk->disable_meta_fsync && dsk->disable_journal_fsync)
-        {
-            deref_overwrites(completed_lsn);
+            auto old_completed_lsn = completed_lsn;
+            auto it = inflight_lsn.begin() + (completed_lsn+1-first_inflight_lsn);
+            while (it != inflight_lsn.end() && (it->flags & HEAP_INFLIGHT_DONE))
+            {
+                completed_lsn++;
+                it++;
+            }
+            if (old_completed_lsn != completed_lsn && dsk->disable_meta_fsync && dsk->disable_journal_fsync)
+            {
+                deref_overwrites(completed_lsn);
+            }
         }
     }
 }
