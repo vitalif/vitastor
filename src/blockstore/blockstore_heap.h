@@ -111,6 +111,15 @@ struct heap_inflight_lsn_t
     uint64_t flags;
 };
 
+struct heap_refqi_t
+{
+    uint64_t lsn;
+    uint64_t inode;
+    uint64_t location;
+    uint32_t len;
+    bool is_data;
+};
+
 class blockstore_heap_t
 {
     friend class heap_write_t;
@@ -150,6 +159,7 @@ class blockstore_heap_t
     uint64_t fsynced_lsn = 0;
     uint64_t compacted_lsn = 0;
     uint64_t next_compact_lsn = 0;
+    std::deque<heap_refqi_t> overwrite_ref_queue;
 
     std::vector<tmp_compact_item_t> tmp_compact_queue;
     std::deque<object_id> recheck_queue;
@@ -165,12 +175,17 @@ class blockstore_heap_t
     uint32_t find_block_run(heap_block_info_t & block, uint32_t space);
     uint32_t find_block_space(uint32_t block_num, uint32_t space);
     uint32_t compact_object_to(heap_object_t *obj, uint64_t lsn, uint8_t *new_csums);
-    heap_object_t *mvcc_save_copy(heap_object_t *obj);
+    bool mvcc_save_copy(heap_object_t *obj);
+    bool mvcc_check_tracking(object_id oid);
     int add_object(object_id oid, heap_write_t *wr, uint32_t *modified_block);
+    void mark_overwritten(uint64_t over_lsn, uint64_t inode, heap_write_t *wr, heap_write_t *end_wr, bool tracking_active);
     int update_object(uint32_t block_num, heap_object_t *obj, heap_write_t *wr, uint32_t *modified_block);
-    void erase_object(uint32_t block_num, heap_object_t *obj);
+    void erase_object(uint32_t block_num, heap_object_t *obj, uint64_t lsn, bool tracking_active);
     void reindex_block(uint32_t block_num, heap_object_t *from_obj);
     void erase_block_index(inode_t inode, uint64_t stripe);
+    void deref_data(uint64_t inode, uint64_t location, bool free_at_0);
+    void deref_buffer(uint64_t inode, uint64_t location, uint32_t len, bool free_at_0);
+    void deref_overwrites(uint64_t lsn);
     void free_object_space(inode_t inode, heap_write_t *from, heap_write_t *to, int mode = 0);
     void add_used_space(uint32_t block_num, int32_t used_delta);
     void push_inflight_lsn(object_id oid, uint64_t lsn, uint64_t flags);
