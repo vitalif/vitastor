@@ -541,7 +541,7 @@ uint64_t blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uin
                 next_lsn = wr->lsn;
             }
         }
-        // btree_map<ui64, ui32> anyway stores std::pair<ui64, ui32>'s of 16 bytes size
+        // maps anyway store std::pair<ui64, ui32>'s of 16 bytes size
         // so we can store block_offset in it too
         block_index[get_pg_id(obj->inode, obj->stripe)][obj->inode][obj->stripe] = (uint8_t*)obj - buf + disk_offset;
         entries_loaded += wr_i;
@@ -818,7 +818,7 @@ void blockstore_heap_t::reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_s
         return;
     }
     uint64_t pool_id = (uint64_t)pool;
-    std::unordered_map<uint64_t, std::unordered_map<inode_t, std::unordered_map<uint64_t, uint64_t>>> new_shards;
+    emhash7::HashMap<uint64_t, emhash7::HashMap<inode_t, emhash5::HashMap<uint64_t, uint64_t>>> new_shards;
     auto sh_it = block_index.begin();
     while (sh_it != block_index.end())
     {

@@ -11,7 +11,8 @@
 #include <vector>
 
 #include "../client/object_id.h"
-//#include "../../cpp-btree/btree_map.h"
+#include "../../emhash/hash_table5.hpp"
+#include "../../emhash/hash_table7.hpp"
 #include "blockstore_disk.h"
 #include "multilist.h"
 
@@ -137,9 +138,9 @@ class blockstore_heap_t
     uint32_t target_block_free_space = 800;
 
     uint64_t next_lsn = 0;
-    std::unordered_map<pool_id_t, pool_shard_settings_t> pool_shard_settings;
+    emhash7::HashMap<pool_id_t, pool_shard_settings_t> pool_shard_settings;
     // PG => inode => stripe => block number
-    std::unordered_map<uint64_t, std::unordered_map<inode_t, std::unordered_map<uint64_t, uint64_t>>> block_index;
+    emhash7::HashMap<uint64_t, emhash7::HashMap<inode_t, emhash5::HashMap<uint64_t, uint64_t>>> block_index;
     std::vector<heap_block_info_t> block_info;
     allocator_t *data_alloc = NULL;
     multilist_index_t *meta_alloc = NULL;
