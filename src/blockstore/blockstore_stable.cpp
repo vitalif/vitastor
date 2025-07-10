@@ -24,7 +24,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
         uint64_t new_to_lsn = 0;
         int res = op->opcode == BS_OP_STABLE
             ? heap->post_stabilize(v[priv->stab_pos].oid, v[priv->stab_pos].version, &modified_block, &new_lsn, &new_to_lsn)
-            : heap->post_rollback(v[priv->stab_pos].oid, v[priv->stab_pos].version, &modified_block);
+            : heap->post_rollback(v[priv->stab_pos].oid, v[priv->stab_pos].version, &new_lsn, &modified_block);
         if (res != 0)
         {
             assert(res == ENOENT || res == EBUSY);
@@ -34,7 +34,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
         {
             if (!priv->lsn)
                 priv->lsn = new_lsn;
-            priv->to_lsn = new_to_lsn;
+            priv->to_lsn = op->opcode == BS_OP_STABLE ? new_to_lsn : new_lsn;
         }
         priv->stab_pos++;
     }

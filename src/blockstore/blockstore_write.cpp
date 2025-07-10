@@ -84,7 +84,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         }
         BS_SUBMIT_CHECK_SQES(1);
         uint32_t modified_block;
-        int res = heap->post_delete(op->oid, &modified_block);
+        int res = heap->post_delete(op->oid, &PRIV(op)->lsn, &modified_block);
         assert(res == 0);
         prepare_meta_block_write(op, modified_block);
         PRIV(op)->op_state = 5;

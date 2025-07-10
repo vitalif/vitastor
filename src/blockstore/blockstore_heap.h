@@ -232,10 +232,10 @@ public:
     int post_stabilize(object_id oid, uint64_t version, uint32_t *modified_block, uint64_t *new_lsn, uint64_t *new_to_lsn);
     // rollback an unstable object version
     // return 0 if OK, ENOENT if not exists, EBUSY if already stable
-    int post_rollback(object_id oid, uint64_t version, uint32_t *modified_block);
+    int post_rollback(object_id oid, uint64_t version, uint64_t *new_lsn, uint32_t *modified_block);
     // forget an object
     // return error code
-    int post_delete(object_id oid, uint32_t *modified_block);
+    int post_delete(object_id oid, uint64_t *new_lsn, uint32_t *modified_block);
     // get the next object to compact
     // guaranteed to return objects in min lsn order
     // returns 0 if OK, ENOENT if nothing to compact

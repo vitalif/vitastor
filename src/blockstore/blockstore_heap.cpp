@@ -1454,7 +1454,7 @@ int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t 
     return 0;
 }
 
-int blockstore_heap_t::post_rollback(object_id oid, uint64_t version, uint32_t *modified_block)
+int blockstore_heap_t::post_rollback(object_id oid, uint64_t version, uint64_t *new_lsn, uint32_t *modified_block)
 {
     uint32_t block_num = 0;
     heap_object_t *obj = read_entry(oid, &block_num);
@@ -1490,6 +1490,10 @@ int blockstore_heap_t::post_rollback(object_id oid, uint64_t version, uint32_t *
     }
     bool tracking_active = mvcc_save_copy(obj);
     ++next_lsn;
+    if (new_lsn)
+    {
+        *new_lsn = next_lsn;
+    }
     push_inflight_lsn(oid, next_lsn, 0);
     if (!wr)
     {
@@ -1507,7 +1511,7 @@ int blockstore_heap_t::post_rollback(object_id oid, uint64_t version, uint32_t *
     return 0;
 }
 
-int blockstore_heap_t::post_delete(object_id oid, uint32_t *modified_block)
+int blockstore_heap_t::post_delete(object_id oid, uint64_t *new_lsn, uint32_t *modified_block)
 {
     uint32_t block_num = 0;
     heap_object_t *obj = read_entry(oid, &block_num);
@@ -1524,6 +1528,10 @@ int blockstore_heap_t::post_delete(object_id oid, uint32_t *modified_block)
     auto & inf = block_info.at(block_num);
     assert(inf.data);
     ++next_lsn;
+    if (new_lsn)
+    {
+        *new_lsn = next_lsn;
+    }
     push_inflight_lsn(oid, next_lsn, 0);
     erase_object(block_num, obj, next_lsn, tracking_active);
     return 0;

@@ -140,6 +140,7 @@ void _test_init(blockstore_disk_t & dsk, bool csum)
     dsk.data_fd = 0;
     dsk.meta_fd = 1;
     dsk.journal_fd = 2;
+    dsk.disable_journal_fsync = dsk.disable_meta_fsync = true;
     dsk.calc_lengths();
 }
 
@@ -250,13 +251,16 @@ void test_delete(bool csum)
         assert(heap.get_data_used_space() == 0x40000);
 
         object_id oid = { .inode = INODE_WITH_POOL(1, 2), .stripe = 0 };
-        int res = heap.post_delete(oid, NULL);
+        int res = heap.post_delete(oid, NULL, NULL);
         assert(res == ENOENT);
 
-        uint32_t mblock = 1;
+        uint32_t mblock = 100;
+        uint64_t new_lsn = 0;
         oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
-        res = heap.post_delete(oid, &mblock);
+        res = heap.post_delete(oid, &new_lsn, &mblock);
+        assert(mblock == 0);
         assert(res == 0);
+        heap.mark_lsn_completed(new_lsn);
 
         uint64_t lsn = 0;
         heap_object_t *obj = heap.lock_and_read_entry(oid, lsn);
@@ -657,6 +661,7 @@ void test_full_overwrite(bool stable)
 
         // big_write
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000);
+        heap.mark_lsn_completed(1);
 
         // read it to test mvcc
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
@@ -666,11 +671,13 @@ void test_full_overwrite(bool stable)
 
         // small_write
         _test_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 16384, true);
+        heap.mark_lsn_completed(2);
 
         // big_write again
         _test_big_write(heap, dsk, 1, 0, 3, 0x40000, stable, 16384, 4096);
         assert(!heap.is_buffer_area_free(16384, 4096)); // should not be freed because MVCC includes it
         assert(heap.is_data_used(0x20000)); // should NOT be freed - still referenced by MVCC
+        heap.mark_lsn_completed(3);
 
         // free mvcc
         heap.unlock_entry(oid, copy_id);
@@ -686,10 +693,12 @@ void test_full_overwrite(bool stable)
             assert(res == EINVAL);
         }
         _test_small_write(heap, dsk, 1, 0, 4, 20480, 4096, 20480, stable);
+        heap.mark_lsn_completed(4);
 
         if (!stable)
         {
             res = heap.post_stabilize(oid, 4, NULL, NULL, NULL);
+            heap.mark_lsn_completed(5);
             assert(res == 0);
         }
 
@@ -973,7 +982,9 @@ void test_rollback()
 
         // some writes
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000);
+        heap.mark_lsn_completed(1);
         _test_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 16384, true);
+        heap.mark_lsn_completed(2);
 
         // read it to test mvcc
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
@@ -982,15 +993,18 @@ void test_rollback()
         assert(obj);
 
         // already stable
-        uint32_t mblock;
-        res = heap.post_rollback(oid, 2, &mblock);
+        uint64_t new_lsn = 0;
+        uint32_t mblock = 0;
+        res = heap.post_rollback(oid, 2, &new_lsn, &mblock);
         assert(res == 0);
-        res = heap.post_rollback(oid, 1, NULL);
+        res = heap.post_rollback(oid, 1, &new_lsn, NULL);
         assert(res == EBUSY);
 
         // unstable writes
         _test_big_write(heap, dsk, 1, 0, 3, 0x40000, false, 16384, 4096);
+        heap.mark_lsn_completed(3);
         _test_small_write(heap, dsk, 1, 0, 4, 20480, 4096, 20480, false);
+        heap.mark_lsn_completed(4);
 
         // second read
         uint64_t copy2_id = 0;
@@ -1003,12 +1017,13 @@ void test_rollback()
         assert(heap.is_data_used(0x40000));
         assert(!heap.is_buffer_area_free(16384, 4096));
         assert(!heap.is_buffer_area_free(20480, 4096));
-        res = heap.post_rollback({ .inode = INODE_WITH_POOL(1, 1), .stripe = 0x20000 }, 2, NULL);
+        res = heap.post_rollback({ .inode = INODE_WITH_POOL(1, 1), .stripe = 0x20000 }, 2, NULL, NULL);
         assert(res == ENOENT);
-        res = heap.post_rollback(oid, 5, NULL);
+        res = heap.post_rollback(oid, 5, NULL, NULL);
         assert(res == ENOENT);
-        res = heap.post_rollback(oid, 2, NULL);
+        res = heap.post_rollback(oid, 2, &new_lsn, NULL);
         assert(res == 0);
+        heap.mark_lsn_completed(new_lsn);
         assert(heap.is_data_used(0x20000));
         assert(heap.is_data_used(0x40000));
         assert(!heap.is_buffer_area_free(16384, 4096));
@@ -1049,8 +1064,10 @@ void test_rollback()
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0x20000 };
         _test_big_write(heap, dsk, 1, 0x20000, 1, 0x20000, false);
 
-        res = heap.post_rollback(oid, 0, NULL);
+        uint64_t new_lsn = 0;
+        res = heap.post_rollback(oid, 0, &new_lsn, NULL);
         assert(res == 0);
+        heap.mark_lsn_completed(new_lsn);
 
         assert(!heap.read_entry(oid, NULL));
         assert(!heap.is_data_used(0x20000));
@@ -1187,14 +1204,16 @@ void test_full_alloc()
     // Check that used_alloc_queue doesn't return used blocks
     {
         // object from block 2
+        uint64_t new_lsn = 0;
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 11*0x20000 };
-        int res = heap.post_delete(oid, NULL);
+        int res = heap.post_delete(oid, &new_lsn, NULL);
         assert(res == 0);
+        heap.mark_lsn_completed(new_lsn);
 
         uint32_t block_num = 0;
         assert(!heap.read_entry(oid, &block_num));
 
-        _test_big_write(heap, dsk, 1, 11*0x20000, 6, 11*0x20000);
+        _test_big_write(heap, dsk, 1, 11*0x20000, 6, 48*0x20000);
         assert(heap.read_entry(oid, &block_num));
         assert(block_num == 1);
     }
