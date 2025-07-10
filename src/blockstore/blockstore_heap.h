@@ -253,7 +253,7 @@ public:
     // inflight write tracking
     void mark_lsn_completed(uint64_t lsn);
     void mark_lsn_fsynced(uint64_t lsn);
-    void mark_lsn_compacted(uint64_t lsn);
+    void mark_lsn_compacted(uint64_t lsn, bool allow_undone = false);
     void mark_object_compacted(heap_object_t *obj, uint64_t max_lsn);
     void mark_lsn_trimmed(uint64_t lsn);
     uint64_t get_completed_lsn();

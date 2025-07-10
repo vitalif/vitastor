@@ -1249,7 +1249,7 @@ void blockstore_heap_t::mark_overwritten(uint64_t over_lsn, uint64_t inode, heap
     {
         if (wr->needs_compact(0))
         {
-            mark_lsn_compacted(wr->lsn);
+            mark_lsn_compacted(wr->lsn, true);
         }
         if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
         {
@@ -1676,8 +1676,12 @@ void blockstore_heap_t::erase_object(uint32_t block_num, heap_object_t *obj, uin
     if (!lsn)
     {
         for (auto wr = obj->get_writes(); wr; wr = wr->next())
+        {
             if (wr->needs_compact(0))
-                mark_lsn_compacted(wr->lsn);
+            {
+                mark_lsn_compacted(wr->lsn, true);
+            }
+        }
         free_object_space(obj->inode, obj->get_writes(), NULL);
     }
     else
@@ -1979,11 +1983,11 @@ void blockstore_heap_t::mark_lsn_fsynced(uint64_t lsn)
     }
 }
 
-void blockstore_heap_t::mark_lsn_compacted(uint64_t lsn)
+void blockstore_heap_t::mark_lsn_compacted(uint64_t lsn, bool allow_undone)
 {
     assert(lsn >= first_inflight_lsn && lsn < first_inflight_lsn+inflight_lsn.size());
     auto & item = inflight_lsn[lsn - first_inflight_lsn];
-    assert(item.flags & HEAP_INFLIGHT_DONE);
+    assert((item.flags & HEAP_INFLIGHT_DONE) || allow_undone);
     if (!(item.flags & HEAP_INFLIGHT_COMPACTABLE))
         return;
     item.flags -= HEAP_INFLIGHT_COMPACTABLE;
