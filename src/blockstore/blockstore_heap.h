@@ -4,6 +4,8 @@
 
 #pragma once
 
+#define EMH_EXT
+
 #include <map>
 #include <unordered_map>
 #include <set>

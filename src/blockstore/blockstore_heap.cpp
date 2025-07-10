@@ -147,11 +147,11 @@ uint64_t blockstore_heap_t::get_pg_id(inode_t inode, uint64_t stripe)
 {
     uint64_t pg_num = 0;
     uint64_t pool_id = (inode >> (64-POOL_ID_BITS));
-    auto sh_it = pool_shard_settings.find(pool_id);
-    if (sh_it != pool_shard_settings.end())
+    auto *sh = pool_shard_settings.try_get(pool_id);
+    if (sh)
     {
         // like map_to_pg()
-        pg_num = (stripe / sh_it->second.pg_stripe_size) % sh_it->second.pg_count + 1;
+        pg_num = (stripe / sh->pg_stripe_size) % sh->pg_count + 1;
     }
     return ((pool_id << (64-POOL_ID_BITS)) | pg_num);
 }
@@ -942,30 +942,24 @@ bool blockstore_heap_t::unlock_entry(object_id oid, uint64_t copy_id)
 heap_object_t *blockstore_heap_t::read_entry(object_id oid, uint32_t *block_num_ptr, bool for_update)
 {
     auto pool_pg_id = get_pg_id(oid.inode, oid.stripe);
-    auto & pg_index = block_index[pool_pg_id];
-    auto inode_it = pg_index.find(oid.inode);
-    if (inode_it == pg_index.end())
-    {
+    auto *pg_index = block_index.try_get(pool_pg_id);
+    if (!pg_index)
         return NULL;
-    }
-    auto stripe_it = inode_it->second.find(oid.stripe);
-    if (stripe_it == inode_it->second.end())
-    {
+    auto *inode = pg_index->try_get(oid.inode);
+    if (!inode)
         return NULL;
-    }
-    uint64_t block_pos = stripe_it->second;
+    auto *stripe = inode->try_get(oid.stripe);
+    if (!stripe)
+        return NULL;
+    uint64_t block_pos = *stripe;
     uint32_t block_num = block_pos / dsk->meta_block_size;
     assert(block_info[block_num].data != NULL);
     heap_object_t *obj = (heap_object_t*)(block_info[block_num].data + (block_pos % dsk->meta_block_size));
     assert(obj->inode == oid.inode && obj->stripe == oid.stripe);
     if (block_num_ptr)
-    {
         *block_num_ptr = block_num;
-    }
     if (for_update)
-    {
         mvcc_save_copy(obj);
-    }
     return obj;
 }
 
