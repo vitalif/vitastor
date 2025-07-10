@@ -382,12 +382,18 @@ skip_object:
                     block_num, block_offset, expected_crc32c, obj->crc32c);
                 goto skip_corrupted;
             }
-            bool to_recheck = false;
+            bool to_recheck = false, to_compact = true;
             heap_write_t *remove_wr = NULL;
             uint32_t remove_i = 0;
             wr_i = 0;
             for (auto wr = obj->get_writes(); wr; wr = wr->next(), wr_i++)
             {
+                if (wr->is_compacted(this->compacted_lsn))
+                {
+                    // FIXME block checksums should be modified in flusher in this case
+                    to_compact = true;
+                    continue;
+                }
                 if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE &&
                     !is_buffer_area_free(wr->location, wr->len))
                 {
@@ -436,10 +442,13 @@ skip_object:
                 obj->write_pos = next_wr ? (uint8_t*)next_wr - (uint8_t*)obj : NULL;
                 obj->crc32c = obj->calc_crc32c();
             }
+            if (to_compact)
+            {
+                compact_object_to(obj, compacted_lsn, NULL, false);
+            }
             // Allocate space
-            bool to_compact = false;
             used_space += obj->size;
-            for (auto wr = obj->get_writes(); wr; wr = wr->next(), wr_i++)
+            for (auto wr = obj->get_writes(); wr; wr = wr->next())
             {
                 used_space += wr->size;
                 if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE)
@@ -455,23 +464,6 @@ skip_object:
                 {
                     tmp_compact_queue.push_back((tmp_compact_item_t){ .oid = oid, .lsn = wr->lsn, .compact = wr->needs_compact(0) });
                 }
-                else if (wr->is_compacted(this->compacted_lsn))
-                {
-                    if (wr->can_be_collapsed(this))
-                    {
-                        to_compact = true;
-                    }
-                    else
-                    {
-                        // We can't just collapse the object entry when csum_block_size is larger
-                        // than bitmap_granularity, so we add the object into the compact queue
-                        tmp_compact_queue.push_back((tmp_compact_item_t){ .oid = oid, .lsn = wr->lsn, .compact = wr->needs_compact(0) });
-                    }
-                }
-            }
-            if (to_compact)
-            {
-                used_space -= compact_object_to(obj, compacted_lsn, NULL);
             }
             if (lsn > next_lsn)
             {
@@ -882,12 +874,12 @@ void blockstore_heap_t::get_compact_range(heap_object_t *obj, uint64_t max_lsn, 
     }
 }
 
-uint32_t blockstore_heap_t::compact_object_to(heap_object_t *obj, uint64_t compact_lsn, uint8_t *new_csums)
+uint32_t blockstore_heap_t::compact_object_to(heap_object_t *obj, uint64_t compact_lsn, uint8_t *new_csums, bool do_free)
 {
     const int cap = dsk->meta_block_size/sizeof(heap_write_t);
     heap_write_t *compacted_wrs[cap];
     int compacted_wr_count = 0;
-    bool skip = false;
+    bool skip_csums = false;
     heap_write_t *big_wr = NULL, *pre_wr = NULL;
     for (auto wr = obj->get_writes(); wr; wr = wr->next())
     {
@@ -906,7 +898,7 @@ uint32_t blockstore_heap_t::compact_object_to(heap_object_t *obj, uint64_t compa
             assert(compacted_wr_count == 1 || wr->is_allowed_before_compacted(compact_lsn, is_last));
             if (!new_csums && !wr->can_be_collapsed(this))
             {
-                skip = true;
+                skip_csums = true;
             }
         }
         else
@@ -914,11 +906,14 @@ uint32_t blockstore_heap_t::compact_object_to(heap_object_t *obj, uint64_t compa
             pre_wr = wr;
         }
     }
-    if (compacted_wr_count == 0 || skip)
+    if (compacted_wr_count == 0)
     {
         return 0;
     }
-    free_object_space(obj->inode, compacted_wrs[0], big_wr);
+    if (do_free)
+    {
+        free_object_space(obj->inode, compacted_wrs[0], big_wr);
+    }
     // Collapse compacted_wrs[] into big_wr
     big_wr->lsn = compacted_wrs[0]->lsn;
     big_wr->version = compacted_wrs[0]->version;
@@ -941,7 +936,7 @@ uint32_t blockstore_heap_t::compact_object_to(heap_object_t *obj, uint64_t compa
         auto cur_wr = compacted_wrs[i];
         bitmap_set(int_bmp, cur_wr->offset, cur_wr->len, dsk->bitmap_granularity);
         // copy checksums
-        if (csums && !new_csums)
+        if (csums && !skip_csums && !new_csums)
         {
             assert(i == compacted_wr_count-1 ||
                 (cur_wr->offset % dsk->csum_block_size) == 0 &&
@@ -1574,7 +1569,7 @@ int blockstore_heap_t::compact_object(object_id oid, uint64_t compact_lsn, uint8
     }
     mvcc_save_copy(obj);
     int res = EAGAIN;
-    uint32_t freed = compact_object_to(obj, compact_lsn, new_csums);
+    uint32_t freed = compact_object_to(obj, compact_lsn, new_csums, true);
     if (freed)
     {
         add_used_space(block_num, -freed);

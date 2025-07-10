@@ -174,7 +174,7 @@ class blockstore_heap_t
     void compact_block(uint32_t block_num);
     uint32_t find_block_run(heap_block_info_t & block, uint32_t space);
     uint32_t find_block_space(uint32_t block_num, uint32_t space);
-    uint32_t compact_object_to(heap_object_t *obj, uint64_t lsn, uint8_t *new_csums);
+    uint32_t compact_object_to(heap_object_t *obj, uint64_t lsn, uint8_t *new_csums, bool do_free);
     bool mvcc_save_copy(heap_object_t *obj);
     bool mvcc_check_tracking(object_id oid);
     int add_object(object_id oid, heap_write_t *wr, uint32_t *modified_block);
