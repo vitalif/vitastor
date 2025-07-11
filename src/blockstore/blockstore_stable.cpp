@@ -66,27 +66,19 @@ resume_1:
         priv->op_state = 1;
         return 0;
     }
-resume_2:
-    if (!dsk.disable_meta_fsync)
-    {
-        BS_SUBMIT_GET_SQE(sqe, data);
-        io_uring_prep_fsync(sqe, dsk.meta_fd, IORING_FSYNC_DATASYNC);
-        data->iov = { 0 };
-        data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
-        priv->pending_ops++;
-    }
-resume_3:
-    if (priv->pending_ops > 0)
-    {
-        priv->op_state = 3;
-        return 0;
-    }
-resume_4:
     // Mark writes as completed to allow compaction
-    // FIXME: Also mark as fsynced
     for (uint64_t lsn = priv->lsn; lsn <= priv->to_lsn; lsn++)
     {
         heap->mark_lsn_completed(lsn);
+    }
+    // Fsync, just because our semantics imply that commit (stabilize) is immediately fsynced
+resume_2:
+resume_3:
+resume_4:
+    int res = do_sync(op, 2);
+    if (res != 2)
+    {
+        return res;
     }
     // Done. Don't touch op->retval - if anything resulted in ENOENT, return it as is
     FINISH_OP(op);

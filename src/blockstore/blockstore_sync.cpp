@@ -6,7 +6,21 @@
 
 int blockstore_impl_t::continue_sync(blockstore_op_t *op)
 {
-    int op_state = PRIV(op)->op_state;
+    if (!PRIV(op)->op_state)
+    {
+        op->retval = 0;
+    }
+    int res = do_sync(op, 0);
+    if (res == 2)
+    {
+        FINISH_OP(op);
+    }
+    return res;
+}
+
+int blockstore_impl_t::do_sync(blockstore_op_t *op, int base_state)
+{
+    int op_state = PRIV(op)->op_state - base_state;
     if (op_state == 1) goto resume_1;
     if (op_state == 2) goto resume_2;
     assert(!op_state);
@@ -19,8 +33,6 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
     {
         // We can return immediately because sync is only dequeued after all previous writes
         unsynced_big_write_count = unsynced_small_write_count = 0;
-        op->retval = 0;
-        FINISH_OP(op);
         return 2;
     }
     PRIV(op)->lsn = heap->get_completed_lsn();
@@ -48,12 +60,10 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
 resume_1:
     if (PRIV(op)->pending_ops > 0)
     {
-        PRIV(op)->op_state = 1;
+        PRIV(op)->op_state = base_state+1;
         return 1;
     }
 resume_2:
     heap->mark_lsn_fsynced(PRIV(op)->lsn);
-    op->retval = 0;
-    FINISH_OP(op);
     return 2;
 }

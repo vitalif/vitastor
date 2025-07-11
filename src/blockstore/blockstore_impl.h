@@ -173,6 +173,7 @@ class blockstore_impl_t: public blockstore_i
 
     // Sync
     int continue_sync(blockstore_op_t *op);
+    int do_sync(blockstore_op_t *op, int base_state);
 
     // Stabilize
     int dequeue_stable(blockstore_op_t *op);
