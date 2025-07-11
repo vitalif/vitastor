@@ -1283,7 +1283,7 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
     }
     if (!(obj->get_writes()->flags & BS_HEAP_STABLE) && (wr->flags & BS_HEAP_STABLE))
     {
-        // Stable overwrites are not allowed over unstable - FIXME maybe they are? :-)
+        // Stable overwrites are not allowed over unstable
         return EINVAL;
     }
     if (wr->version <= obj->get_writes()->version)
@@ -2027,8 +2027,8 @@ void blockstore_heap_t::mark_lsn_trimmed(uint64_t lsn)
     while (first_inflight_lsn <= lsn && inflight_lsn.size() > 0)
     {
         assert(inflight_lsn[0].flags == HEAP_INFLIGHT_DONE);
-        // FIXME don't touch unflushable lsns
-        compact_object(inflight_lsn[0].oid, lsn, NULL); // FIXME from prev trimmed lsn
+        // In the future maybe we could skip unflushable LSNs here
+        compact_object(inflight_lsn[0].oid, lsn, NULL);
         inflight_lsn.pop_front();
         first_inflight_lsn++;
     }
