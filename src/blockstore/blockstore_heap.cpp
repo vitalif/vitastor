@@ -390,7 +390,6 @@ skip_object:
             {
                 if (wr->is_compacted(this->compacted_lsn))
                 {
-                    // FIXME block checksums should be modified in flusher in this case
                     to_compact = true;
                     continue;
                 }

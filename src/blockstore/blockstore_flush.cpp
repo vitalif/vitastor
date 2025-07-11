@@ -18,7 +18,6 @@ journal_flusher_t::journal_flusher_t(blockstore_impl_t *bs)
     this->cur_flusher_count = bs->min_flusher_count;
     this->target_flusher_count = bs->min_flusher_count;
     active_flushers = 0;
-    syncing_flushers = 0;
     advance_lsn_counter = 0;
     co = new journal_flusher_co[max_flusher_count];
     for (int i = 0; i < max_flusher_count; i++)
@@ -169,6 +168,8 @@ bool journal_flusher_co::loop()
     else if (wait_state == 21) goto resume_21;
     else if (wait_state == 22) goto resume_22;
     else if (wait_state == 23) goto resume_23;
+    else if (wait_state == 24) goto resume_24;
+    else if (wait_state == 25) goto resume_25;
 resume_0:
     wait_state = 0;
     cur_oid = {};
@@ -252,6 +253,10 @@ resume_1:
     {
         // Read original checksum blocks to calculate padded checksums if required
         fill_partial_checksum_blocks();
+        if (read_to_fill_incomplete)
+        {
+            flusher->wanting_meta_fsync++;
+        }
     }
     // Read buffered data
     cur_obj = NULL;
@@ -259,25 +264,35 @@ resume_1:
 resume_2:
 resume_3:
     if (!read_buffered(2))
+    {
         return false;
+    }
     // Now, if csum_block_size is > bitmap_granularity and if we are doing partial checksum block updates,
     // perform a trick: clear bitmap bits in the metadata entry and recalculate block checksum with zeros
     // in place of overwritten parts. Then, even if the actual partial update fully or partially fails,
     // we'll have a correct checksum because it won't include overwritten parts!
     // The same thing actually happens even when csum_block_size == bitmap_granularity, but in that case
     // we never need to read (and thus verify) overwritten parts from the data device.
+    if (read_to_fill_incomplete)
+    {
+        flusher->wanting_meta_fsync--;
+    }
     res = check_and_punch_checksums();
     if (res == EBUSY)
     {
 resume_4:
 resume_5:
         if (!write_meta_block(4))
+        {
             return false;
+        }
 resume_6:
 resume_7:
 resume_8:
-        if (!fsync_batch(true, 6)) // FIXME: is it correct to batch here
+        if (!fsync_meta(6))
+        {
             return false;
+        }
     }
     else if (res == ENOENT || res == EDOM)
     {
@@ -311,13 +326,22 @@ resume_10:
     // Mark the object compacted, but don't free and remove small_writes
     // We'll free and remove them only when trimming
     // The only thing we modify here are big_write block checksums if >4k block is used
-    cur_obj = bs->heap->read_entry(cur_oid, NULL);
+    cur_obj = bs->heap->read_entry(cur_oid, &modified_block);
     if (!cur_obj)
     {
         // Abort compaction
         goto release_oid;
     }
     calc_block_checksums();
+    if (read_to_fill_incomplete)
+    {
+resume_24:
+resume_25:
+        if (!write_meta_block(24))
+        {
+            return false;
+        }
+    }
     bs->heap->mark_object_compacted(cur_obj, compact_lsn);
     // Done, free all buffers
     free_buffers();
@@ -635,66 +659,37 @@ resume_1:
     return true;
 }
 
-bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
+bool journal_flusher_co::fsync_meta(int wait_base)
 {
     if (wait_state == wait_base)        goto resume_0;
     else if (wait_state == wait_base+1) goto resume_1;
     else if (wait_state == wait_base+2) goto resume_2;
-    if (!(fsync_meta ? bs->dsk.disable_meta_fsync : bs->dsk.disable_data_fsync))
+resume_0:
+    if (bs->dsk.disable_meta_fsync)
     {
-        cur_sync = flusher->syncs.end();
-        while (cur_sync != flusher->syncs.begin())
-        {
-            cur_sync--;
-            if (cur_sync->fsync_meta == fsync_meta && cur_sync->state == 0)
-            {
-                goto sync_found;
-            }
-        }
-        cur_sync = flusher->syncs.emplace(flusher->syncs.end(), (flusher_sync_t){
-            .fsync_meta = fsync_meta,
-            .ready_count = 0,
-            .state = 0,
-        });
-    sync_found:
-        cur_sync->ready_count++;
-        flusher->syncing_flushers++;
-    resume_1:
-        if (!cur_sync->state)
-        {
-            if (flusher->syncing_flushers >= flusher->active_flushers || true /*FIXME*/)
-            {
-                // Sync batch is ready. Do it.
-                await_sqe(0);
-                data->iov = { 0 };
-                data->callback = simple_callback_w;
-                io_uring_prep_fsync(sqe, fsync_meta ? bs->dsk.meta_fd : bs->dsk.data_fd, IORING_FSYNC_DATASYNC);
-                cur_sync->state = 1;
-                wait_count++;
-            resume_2:
-                if (wait_count > 0)
-                {
-                    wait_state = wait_base+2;
-                    return false;
-                }
-                // Sync completed. All previous coroutines waiting for it must be resumed
-                cur_sync->state = 2;
-                bs->ringloop->wakeup();
-            }
-            else
-            {
-                // Wait until someone else sends and completes a sync.
-                wait_state = wait_base+1;
-                return false;
-            }
-        }
-        flusher->syncing_flushers--;
-        cur_sync->ready_count--;
-        if (cur_sync->ready_count == 0)
-        {
-            flusher->syncs.erase(cur_sync);
-        }
+        return true;
     }
+    if (flusher->wanting_meta_fsync || flusher->fsyncing_meta > 0)
+    {
+        wait_state = wait_base;
+        return false;
+    }
+    flusher->fsyncing_meta = true;
+    // Sync batch is ready. Do it.
+    await_sqe(1);
+    data->iov = { 0 };
+    data->callback = simple_callback_w;
+    io_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
+    wait_count++;
+resume_2:
+    if (wait_count > 0)
+    {
+        wait_state = wait_base+2;
+        return false;
+    }
+    // Sync completed. All previous coroutines waiting for it must be resumed
+    flusher->fsyncing_meta = false;
+    bs->ringloop->wakeup();
     return true;
 }
 

@@ -269,7 +269,7 @@ void multilist_alloc_t::do_free(uint32_t pos)
         sizes[pos+size-1] = -size;
         sizes[pos] = size;
     }
-    uint32_t ni = (size < maxn ? size : maxn)-1; // FIXME ni -> nb (next bucket)
+    uint32_t ni = (size < maxn ? size : maxn)-1;
     nexts[pos] = heads[ni]+1;
     prevs[pos] = 0;
     if (heads[ni])

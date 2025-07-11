@@ -17,13 +17,6 @@ struct meta_sector_t
     int usage_count;
 };
 
-struct flusher_sync_t
-{
-    bool fsync_meta;
-    int ready_count;
-    int state;
-};
-
 struct flusher_meta_write_t
 {
     uint64_t sector, pos;
@@ -44,8 +37,6 @@ class journal_flusher_co
     struct io_uring_sqe *sqe;
     struct ring_data_t *data;
 
-    std::list<flusher_sync_t>::iterator cur_sync;
-    std::map<object_id, uint64_t>::iterator repeat_it;
     std::function<void(ring_data_t*)> simple_callback_r, simple_callback_w;
 
     object_id cur_oid;
@@ -78,7 +69,7 @@ class journal_flusher_co
     void calc_block_checksums();
     bool write_meta_block(int wait_base);
     bool read_buffered(int wait_base);
-    bool fsync_batch(bool fsync_meta, int wait_base);
+    bool fsync_meta(int wait_base);
     int fsync_buffer(int wait_base);
     bool trim_lsn(int wait_base);
 public:
@@ -100,9 +91,9 @@ class journal_flusher_t
     uint64_t compact_counter = 0;
 
     int active_flushers = 0;
-    int syncing_flushers = 0;
+    int wanting_meta_fsync = 0;
+    bool fsyncing_meta = false;
     int syncing_buffer = 0;
-    std::list<flusher_sync_t> syncs;
 
 public:
     journal_flusher_t(blockstore_impl_t *bs);
