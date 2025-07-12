@@ -30,6 +30,8 @@ struct blockstore_disk_t
     uint32_t journal_block_size = 4096;
     // Metadata block size - minimum_io_size of the metadata device is the best choice
     uint32_t meta_block_size = 4096;
+    // Atomic write size of the data block device
+    uint32_t atomic_write_size = 4096;
     // Target free space in metadata blocks
     uint32_t meta_block_target_free_space = 800;
     // Sparse write tracking granularity. 4 KB is a good choice. Must be a multiple of disk_alignment

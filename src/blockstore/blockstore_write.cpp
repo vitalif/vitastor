@@ -150,7 +150,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     // parallel writes to the same object are forbidden anyway
     else if (dsk.disable_data_fsync &&
         op->opcode == BS_OP_WRITE_STABLE &&
-        op->len > 0 && op->len <= dsk.bitmap_granularity /* FIXME atomic_write_size */ &&
+        op->len > 0 && op->len <= dsk.atomic_write_size &&
         (obj->get_writes()->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
         obj->get_writes()->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE)))
     {

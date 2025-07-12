@@ -49,6 +49,8 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     meta_block_target_free_space = parse_size(config["meta_block_target_free_space"]);
     bitmap_granularity = parse_size(config["bitmap_granularity"]);
     meta_format = stoull_full(config["meta_format"]);
+    atomic_write_size = (config.find("atomic_write_size") != config.end()
+        ? parse_size(config["atomic_write_size"]) : 4096);
     if (config.find("data_io") == config.end() &&
         config.find("meta_io") == config.end() &&
         config.find("journal_io") == config.end())
