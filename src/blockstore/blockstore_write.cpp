@@ -394,21 +394,11 @@ resume_8:
     return 2;
 resume_10:
     // Direct intent-write
-    heap_object_t *obj = heap->read_entry(op->oid, NULL);
-    uint64_t loc = UINT64_MAX;
-    for (auto wr = obj->get_writes(); wr; wr = wr->next())
-    {
-        if (wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE))
-            loc = wr->location;
-    }
-    if (loc != PRIV(op)->location)
-    {
-        goto resume_8;
-    }
+    // LSN is not marked as completed so big_write won't be freed
     BS_SUBMIT_GET_SQE(sqe, data);
     data->iov = (struct iovec){ op->buf, op->len };
     data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
-    io_uring_prep_writev(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + loc + op->offset);
+    io_uring_prep_writev(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + PRIV(op)->location + op->offset);
     PRIV(op)->pending_ops++;
     PRIV(op)->op_state = 7;
     return 1;
