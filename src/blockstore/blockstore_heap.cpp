@@ -272,7 +272,7 @@ uint64_t blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uin
             }
             if (region_marker > dsk->meta_block_size-block_offset)
             {
-                fprintf(stderr, "Warning: Entry is too large in metadata block %u at %u (%u > max %ju bytes), skipping the rest of block\n",
+                fprintf(stderr, "Warning: Entry is too large in metadata block %u at %u (%u > max %u bytes), skipping the rest of block\n",
                     block_num, block_offset, region_marker, dsk->meta_block_size-block_offset);
                 if (fail_on_warn)
                     abort();

@@ -27,13 +27,13 @@ struct blockstore_disk_t
     // Required write alignment and journal/metadata/data areas' location alignment
     uint32_t disk_alignment = 4096;
     // Journal block size - minimum_io_size of the journal device is the best choice
-    uint64_t journal_block_size = 4096;
+    uint32_t journal_block_size = 4096;
     // Metadata block size - minimum_io_size of the metadata device is the best choice
-    uint64_t meta_block_size = 4096;
+    uint32_t meta_block_size = 4096;
     // Target free space in metadata blocks
     uint32_t meta_block_target_free_space = 800;
     // Sparse write tracking granularity. 4 KB is a good choice. Must be a multiple of disk_alignment
-    uint64_t bitmap_granularity = 4096;
+    uint32_t bitmap_granularity = 4096;
     // Data checksum type, BLOCKSTORE_CSUM_NONE or BLOCKSTORE_CSUM_CRC32C
     uint32_t data_csum_type = BLOCKSTORE_CSUM_NONE;
     // Checksum block size, must be a multiple of bitmap_granularity

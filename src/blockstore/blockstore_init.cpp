@@ -145,7 +145,7 @@ resume_1:
             printf(
                 "Configuration stored in metadata superblock"
                 " (meta_block_size=%u, data_block_size=%u, bitmap_granularity=%u, data_csum_type=%u, csum_block_size=%u)"
-                " differs from OSD configuration (%ju/%u/%ju, %u/%u).\n",
+                " differs from OSD configuration (%u/%u/%u, %u/%u).\n",
                 hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity,
                 hdr->data_csum_type, hdr->csum_block_size,
                 bs->dsk.meta_block_size, bs->dsk.data_block_size, bs->dsk.bitmap_granularity,
