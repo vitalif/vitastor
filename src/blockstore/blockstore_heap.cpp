@@ -1373,6 +1373,15 @@ int blockstore_heap_t::post_write(object_id oid, heap_write_t *wr, uint32_t *mod
     return update_object(block_num, obj, wr, modified_block);
 }
 
+int blockstore_heap_t::post_write(uint32_t & block_num, object_id oid, heap_object_t *obj, heap_write_t *wr)
+{
+    if (!obj)
+    {
+        return add_object(oid, wr, &block_num);
+    }
+    return update_object(block_num, obj, wr, &block_num);
+}
+
 int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t *modified_block, uint64_t *new_lsn, uint64_t *new_to_lsn)
 {
     uint32_t block_num = 0;
@@ -1523,6 +1532,11 @@ int blockstore_heap_t::post_delete(object_id oid, uint64_t *new_lsn, uint32_t *m
     {
         *modified_block = block_num;
     }
+    return post_delete(block_num, obj, new_lsn);
+}
+
+int blockstore_heap_t::post_delete(uint32_t block_num, heap_object_t *obj, uint64_t *new_lsn)
+{
     bool tracking_active = mvcc_save_copy(obj);
     auto & inf = block_info.at(block_num);
     assert(inf.data);
@@ -1531,7 +1545,7 @@ int blockstore_heap_t::post_delete(object_id oid, uint64_t *new_lsn, uint32_t *m
     {
         *new_lsn = next_lsn;
     }
-    push_inflight_lsn(oid, next_lsn, 0);
+    push_inflight_lsn((object_id){ .inode = obj->inode, .stripe = obj->stripe }, next_lsn, 0);
     erase_object(block_num, obj, next_lsn, tracking_active);
     return 0;
 }

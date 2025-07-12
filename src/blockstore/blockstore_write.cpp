@@ -71,7 +71,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         return 0;
     }
     PRIV(op)->is_big = false;
-    heap_object_t *obj = heap->read_entry(op->oid, NULL);
+    uint32_t modified_block = 0;
+    heap_object_t *obj = heap->read_entry(op->oid, &modified_block);
     if (op->opcode == BS_OP_DELETE)
     {
         // Delete
@@ -83,8 +84,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             return 2;
         }
         BS_SUBMIT_CHECK_SQES(1);
-        uint32_t modified_block;
-        int res = heap->post_delete(op->oid, &PRIV(op)->lsn, &modified_block);
+        int res = heap->post_delete(modified_block, obj, &PRIV(op)->lsn);
         assert(res == 0);
         prepare_meta_block_write(op, modified_block);
         PRIV(op)->op_state = 5;
@@ -174,8 +174,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (op->bitmap)
             memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
         heap->calc_checksums(wr, (uint8_t*)op->buf, true);
-        uint32_t modified_block;
-        int res = heap->post_write(op->oid, wr, &modified_block);
+        int res = heap->post_write(modified_block, op->oid, obj, wr);
         if (res == ENOSPC)
         {
             if (!heap->get_inflight_queue_size())
@@ -220,8 +219,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (op->bitmap)
             memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
         heap->calc_checksums(wr, (uint8_t*)op->buf, true);
-        uint32_t modified_block;
-        int res = heap->post_write(op->oid, wr, &modified_block);
+        int res = heap->post_write(modified_block, op->oid, obj, wr);
         if (res == ENOSPC)
         {
             if (!heap->get_inflight_queue_size())

@@ -227,6 +227,7 @@ public:
     // auto-compacts the object, then adds a write entry to it and to the compaction queue
     // return 0 if OK, or maybe ENOSPC
     int post_write(object_id oid, heap_write_t *wr, uint32_t *modified_block);
+    int post_write(uint32_t & block_num, object_id oid, heap_object_t *obj, heap_write_t *wr);
     // stabilize an unstable object version
     // return 0 if OK, ENOENT if not exists
     int post_stabilize(object_id oid, uint64_t version, uint32_t *modified_block, uint64_t *new_lsn, uint64_t *new_to_lsn);
@@ -236,6 +237,7 @@ public:
     // forget an object
     // return error code
     int post_delete(object_id oid, uint64_t *new_lsn, uint32_t *modified_block);
+    int post_delete(uint32_t block_num, heap_object_t *obj, uint64_t *new_lsn);
     // get the next object to compact
     // guaranteed to return objects in min lsn order
     // returns 0 if OK, ENOENT if nothing to compact
