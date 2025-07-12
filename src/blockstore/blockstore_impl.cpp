@@ -96,30 +96,21 @@ void blockstore_impl_t::loop()
     {
         // try to submit ops
         unsigned initial_ring_space = ringloop->space_left();
-        // has_writes == 0 - no writes before the current queue item
-        // has_writes == 1 - some writes in progress
-        // has_writes == 2 - tried to submit some writes, but failed
-        int has_writes = 0, op_idx = 0, new_idx = 0;
+        int op_idx = 0, new_idx = 0;
         for (; op_idx < submit_queue.size(); op_idx++, new_idx++)
         {
             auto op = submit_queue[op_idx];
             submit_queue[new_idx] = op;
-            // FIXME: This needs some simplification
-            // Writes should not block reads if the ring is not full and reads don't depend on them
-            // In all other cases we should stop submission
             if (PRIV(op)->wait_for)
             {
                 check_wait(op);
                 if (PRIV(op)->wait_for == WAIT_SQE)
                 {
+                    // ring is full, stop submission
                     break;
                 }
                 else if (PRIV(op)->wait_for)
                 {
-                    if (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE || op->opcode == BS_OP_DELETE)
-                    {
-                        has_writes = 2;
-                    }
                     continue;
                 }
             }
@@ -134,19 +125,11 @@ void blockstore_impl_t::loop()
             }
             else if (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE || op->opcode == BS_OP_DELETE)
             {
-                if (has_writes == 2)
-                {
-                    // Some writes already could not be submitted
-                    continue;
-                }
                 wr_st = dequeue_write(op);
-                has_writes = wr_st > 0 ? 1 : 2;
             }
             else if (op->opcode == BS_OP_SYNC)
             {
-                // sync only completed writes?
-                // wait for the data device fsync to complete, then submit journal writes for big writes
-                // then submit an fsync operation
+                // syncs only completed writes, so doesn't have to be blocked by anything
                 wr_st = continue_sync(op);
             }
             else if (op->opcode == BS_OP_STABLE || op->opcode == BS_OP_ROLLBACK)

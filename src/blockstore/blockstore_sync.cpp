@@ -31,7 +31,7 @@ int blockstore_impl_t::do_sync(blockstore_op_t *op, int base_state)
     }
     if (dsk.disable_journal_fsync && dsk.disable_meta_fsync || !unsynced_big_write_count && !unsynced_small_write_count)
     {
-        // We can return immediately because sync is only dequeued after all previous writes
+        // We can return immediately because sync only syncs previous writes
         unsynced_big_write_count = unsynced_small_write_count = 0;
         return 2;
     }
