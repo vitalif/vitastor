@@ -310,21 +310,22 @@ skip_object:
             heap_object_t *obj = (heap_object_t *)data;
             if (!obj->write_pos)
             {
-                fprintf(stderr, "Warning: Object in metadata block %u at %u does not contain writes, skipping\n", block_num, block_offset);
+                fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u does not contain writes, skipping\n",
+                    obj->inode, obj->stripe, block_num, block_offset);
                 goto skip_corrupted;
             }
             // Verify write chain
-            if (obj->write_pos < -(int16_t)block_offset || obj->write_pos > (int16_t)(dsk->meta_block_size-block_offset))
+            if (obj->write_pos < -(int16_t)block_offset || obj->write_pos > (int16_t)(dsk->meta_block_size-block_offset-sizeof(heap_write_t)))
             {
-                fprintf(stderr, "Warning: Object in metadata block %u at %u write offset (%d) exceeds block boundaries, skipping object\n",
-                    block_num, block_offset, obj->write_pos);
+                fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u write offset (%d) exceeds block boundaries, skipping object\n",
+                    obj->inode, obj->stripe, block_num, block_offset, obj->write_pos);
                 goto skip_corrupted;
             }
             if (obj->write_pos < 0 && obj->write_pos > -sizeof(heap_write_t) ||
                 obj->write_pos > 0 && obj->write_pos < sizeof(heap_object_t))
             {
-                fprintf(stderr, "Warning: Object in metadata block %u at %u write offset (%d) intersects the object itself, skipping object\n",
-                    block_num, block_offset, obj->write_pos);
+                fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u write offset (%d) intersects the object itself, skipping object\n",
+                    obj->inode, obj->stripe, block_num, block_offset, obj->write_pos);
                 goto skip_corrupted;
             }
             uint32_t wr_i = 0;
@@ -333,22 +334,21 @@ skip_object:
                 uint32_t wr_pos = ((uint8_t*)wr - buf - buf_offset);
                 if (wr->size != wr->get_size(this))
                 {
-                    fprintf(stderr, "Warning: Object in metadata block %u at %u list entry #%u at %u size is invalid: %u instead of %u, skipping object\n",
-                        block_num, block_offset, wr_i, wr_pos, wr->size, wr->get_size(this));
+                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u list entry #%u at %u size is invalid: %u instead of %u, skipping object\n",
+                        obj->inode, obj->stripe, block_num, block_offset, wr_i, wr_pos, wr->size, wr->get_size(this));
                     goto skip_corrupted;
                 }
                 auto offset_it = offsets_seen.upper_bound({ .end = wr_pos });
                 if (offset_it != offsets_seen.end() && offset_it->start < wr_pos+wr->size)
                 {
-                    // FIXME: tests for it
-                    fprintf(stderr, "Warning: Object in metadata block %u at %u list entry #%u (%u..%u) intersects with other entries (%u..%u) or is double-claimed, skipping object\n",
-                        block_num, block_offset, wr_i, wr_pos, wr_pos+wr->size, offset_it->start, offset_it->end);
+                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u list entry #%u (%u..%u) intersects with other entries (%u..%u) or is double-claimed, skipping object\n",
+                        obj->inode, obj->stripe, block_num, block_offset, wr_i, wr_pos, wr_pos+wr->size, offset_it->start, offset_it->end);
                     goto skip_corrupted;
                 }
                 if (wr->next_pos < -(int16_t)wr_pos || wr->next_pos > (int16_t)(dsk->meta_block_size - wr_pos))
                 {
-                    fprintf(stderr, "Warning: Object in metadata block %u at %u list entry #%u at %u next item offset (%d) exceeds block boundaries, skipping object\n",
-                        block_num, block_offset, wr_i, wr_pos, wr->next_pos);
+                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u list entry #%u at %u next item offset (%d) exceeds block boundaries, skipping object\n",
+                        obj->inode, obj->stripe, block_num, block_offset, wr_i, wr_pos, wr->next_pos);
                     goto skip_corrupted;
                 }
                 offsets_seen.insert({ .start = wr_pos, .end = wr_pos+wr->size, .type = 2 });
@@ -363,14 +363,14 @@ skip_object:
                 if (dup_obj->get_writes()->lsn >= lsn)
                 {
                     // Object is duplicated on disk
-                    fprintf(stderr, "Warning: Object in metadata block %u at %u is an older duplicate, skipping\n",
-                        block_num, block_offset);
+                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u is an older duplicate, skipping\n",
+                        obj->inode, obj->stripe, block_num, block_offset);
                     goto skip_object;
                 }
                 else
                 {
-                    fprintf(stderr, "Warning: Object in metadata block %u at %u is a newer duplicate, overriding\n",
-                        block_num, block_offset);
+                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u is a newer duplicate, overriding\n",
+                        obj->inode, obj->stripe, block_num, block_offset);
                     erase_object(dup_block, dup_obj, 0, false);
                 }
             }
@@ -378,8 +378,8 @@ skip_object:
             uint32_t expected_crc32c = obj->calc_crc32c();
             if (obj->crc32c != expected_crc32c)
             {
-                fprintf(stderr, "Warning: Object in metadata block %u at %u is corrupt (crc32c mismatch: expected %08x, got %08x), skipping\n",
-                    block_num, block_offset, expected_crc32c, obj->crc32c);
+                fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u is corrupt (crc32c mismatch: expected %08x, got %08x), skipping\n",
+                    obj->inode, obj->stripe, block_num, block_offset, expected_crc32c, obj->crc32c);
                 goto skip_corrupted;
             }
             bool to_recheck = false, to_compact = true;

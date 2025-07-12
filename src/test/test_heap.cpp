@@ -796,6 +796,7 @@ void test_reshard_list()
 
 void _test_invalid_data_setup(blockstore_disk_t & dsk, std::vector<uint8_t> & buffer_area, std::vector<uint8_t> & tmp)
 {
+    tmp.clear();
     tmp.resize(dsk.meta_block_size*2);
 
     heap_object_t *obj = (heap_object_t*)tmp.data();
@@ -919,11 +920,11 @@ void test_invalid_data()
         assert(heap.read_entry(oid, NULL));
     }
 
-    // Object write size exceeds object size
+    // Bad write size
     {
         _test_invalid_data_setup(dsk, buffer_area, tmp);
         heap_object_t *obj = (heap_object_t*)tmp.data();
-        obj->get_writes()->flags = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
+        obj->get_writes()->size--;
         obj->crc32c = obj->calc_crc32c();
 
         blockstore_heap_t heap(&dsk, buffer_area.data());
@@ -935,8 +936,94 @@ void test_invalid_data()
 
         oid = { .inode = INODE_WITH_POOL(1, 2), .stripe = 0 };
         assert(heap.read_entry(oid, NULL));
+    }
+
+    // Bad write positions:
+    // 1) exceeds block back
+    // 2) exceeds block forward
+    // 3) intersects with object end
+    // 4) intersects with object beginning
+    for (int i = 0; i < 4; i++)
+    {
+        _test_invalid_data_setup(dsk, buffer_area, tmp);
+        heap_object_t *obj = (heap_object_t*)(tmp.data() + sizeof(heap_object_t) + sizeof(heap_write_t));
+        if (i == 0)
+            obj->write_pos = -(int16_t)(sizeof(heap_object_t)+sizeof(heap_write_t)+1);
+        else if (i == 1)
+            obj->write_pos = dsk.meta_block_size-sizeof(heap_object_t)-2*sizeof(heap_write_t)+1;
+        else if (i == 2)
+            obj->write_pos = -1;
+        else if (i == 3)
+            obj->write_pos = 5;
+        obj->crc32c = obj->calc_crc32c();
+
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.load_blocks(0, dsk.meta_block_size*2, tmp.data());
+        heap.finish_load();
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 3), .stripe = 0 };
+        assert(!heap.read_entry(oid, NULL));
+
+        oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        assert(heap.read_entry(oid, NULL));
+
+        oid = { .inode = INODE_WITH_POOL(1, 2), .stripe = 0 };
+        assert(heap.read_entry(oid, NULL));
+    }
+
+    // Object write intersects with other writes
+    {
+        _test_invalid_data_setup(dsk, buffer_area, tmp);
+        // Object2 Object1 BadLength Write2
+        uint8_t *nb = tmp.data() + dsk.meta_block_size;
+        memcpy(nb, tmp.data() + sizeof(heap_object_t) + sizeof(heap_write_t), sizeof(heap_object_t));
+        nb += sizeof(heap_object_t);
+        memcpy(nb, tmp.data(), sizeof(heap_object_t));
+        nb += sizeof(heap_object_t);
+        *((uint16_t*)nb) = sizeof(heap_write_t) + 4;
+        nb += 2;
+        memcpy(nb, tmp.data() + 2*sizeof(heap_object_t) + sizeof(heap_write_t), sizeof(heap_write_t));
+
+        heap_object_t *obj = (heap_object_t*)(tmp.data() + dsk.meta_block_size);
+        obj->write_pos = 2*sizeof(heap_object_t) + 2;
+        obj->crc32c = obj->calc_crc32c();
+
+        obj = (heap_object_t*)(tmp.data() + dsk.meta_block_size + sizeof(heap_object_t));
+        obj->write_pos = sizeof(heap_object_t);
+        obj->crc32c = obj->calc_crc32c();
+
+        memset(tmp.data(), 0, dsk.meta_block_size);
+
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.load_blocks(0, dsk.meta_block_size*2, tmp.data());
+        heap.finish_load();
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        assert(!heap.read_entry(oid, NULL));
 
         oid = { .inode = INODE_WITH_POOL(1, 3), .stripe = 0 };
+        assert(heap.read_entry(oid, NULL));
+    }
+
+    // Write list entry exceeds block boundaries
+    for (int i = 0; i < 2; i++)
+    {
+        _test_invalid_data_setup(dsk, buffer_area, tmp);
+        heap_object_t *obj = (heap_object_t*)tmp.data();
+        obj->get_writes()->next_pos = (i == 0 ? -sizeof(heap_object_t)-1 : dsk.meta_block_size - sizeof(heap_object_t) - sizeof(heap_write_t) + 1);
+        obj->crc32c = obj->calc_crc32c();
+
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.load_blocks(0, dsk.meta_block_size*2, tmp.data());
+        heap.finish_load();
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        assert(!heap.read_entry(oid, NULL));
+
+        oid = { .inode = INODE_WITH_POOL(1, 3), .stripe = 0 };
+        assert(heap.read_entry(oid, NULL));
+
+        oid = { .inode = INODE_WITH_POOL(1, 2), .stripe = 0 };
         assert(heap.read_entry(oid, NULL));
     }
 
