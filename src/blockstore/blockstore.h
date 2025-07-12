@@ -42,8 +42,7 @@
 #define BS_OP_DELETE 6
 #define BS_OP_LIST 7
 #define BS_OP_ROLLBACK 8
-#define BS_OP_SYNC_STAB_ALL 9
-#define BS_OP_MAX 9
+#define BS_OP_MAX 8
 
 #define BS_OP_PRIVATE_DATA_SIZE 256
 
@@ -112,14 +111,6 @@ Input:
 
 Output:
 - retval = 0 or negative error number (-ENOENT if no such version for stabilize)
-
-## BS_OP_SYNC_STAB_ALL
-
-ONLY FOR TESTS! Sync and mark all unstable object versions as stable, at once.
-
-Input: Nothing except opcode
-Output:
-- retval = 0 or negative error number (-EINVAL)
 
 ## BS_OP_LIST
 

@@ -225,7 +225,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         bsd->last_sync = false;
         break;
     case DDIR_SYNC:
-        op->opcode = BS_OP_SYNC_STAB_ALL;
+        op->opcode = BS_OP_SYNC;
         op->callback = [io, n = bsd->op_n](blockstore_op_t *op)
         {
             bs_data *bsd = (bs_data*)io->engine_data;
