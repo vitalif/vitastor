@@ -55,7 +55,7 @@ uint32_t heap_write_t::get_csum_size(blockstore_heap_t *heap)
 
 bool heap_write_t::needs_recheck(blockstore_heap_t *heap)
 {
-    return len > 0 && lsn >= heap->compacted_lsn && (flags == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE)
+    return len > 0 && lsn > heap->compacted_lsn && (flags == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE)
         || flags == BS_HEAP_SMALL_WRITE || flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE));
 }
 
@@ -92,17 +92,17 @@ uint8_t *heap_write_t::get_ext_bitmap(blockstore_heap_t *heap)
 
 uint8_t *heap_write_t::get_int_bitmap(blockstore_heap_t *heap)
 {
-    if ((flags & BS_HEAP_TYPE) != BS_HEAP_BIG_WRITE || !len)
+    if ((flags & BS_HEAP_TYPE) != BS_HEAP_BIG_WRITE)
         return NULL;
     return ((uint8_t*)this + sizeof(heap_write_t) + heap->dsk->clean_entry_bitmap_size);
 }
 
 uint8_t *heap_write_t::get_checksums(blockstore_heap_t *heap)
 {
-    if (!heap->dsk->csum_block_size || !len)
+    if (!heap->dsk->csum_block_size)
         return NULL;
-    if ((flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ||
-        (flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE)
+    if (len && ((flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ||
+        (flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE))
         return ((uint8_t*)this + sizeof(heap_write_t) + heap->dsk->clean_entry_bitmap_size);
     if ((flags & BS_HEAP_TYPE) != BS_HEAP_BIG_WRITE)
         return NULL;
@@ -534,7 +534,8 @@ bool blockstore_heap_t::calc_checksums(heap_write_t *wr, uint8_t *data, bool set
 {
     if (!dsk->csum_block_size)
     {
-        if ((wr->flags & BS_HEAP_TYPE) != BS_HEAP_SMALL_WRITE)
+        if ((wr->flags & BS_HEAP_TYPE) != BS_HEAP_SMALL_WRITE &&
+            (wr->flags & BS_HEAP_TYPE) != BS_HEAP_INTENT_WRITE)
         {
             return true;
         }
@@ -1276,21 +1277,22 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
         // Something in the block has to be compacted
         return ENOSPC;
     }
-    if ((obj->get_writes()->flags & BS_HEAP_TYPE) == BS_HEAP_TOMBSTONE && !is_overwrite)
+    auto first_wr = obj->get_writes();
+    if ((first_wr->flags & BS_HEAP_TYPE) == BS_HEAP_TOMBSTONE && !is_overwrite)
     {
         // Small overwrites are only allowed over live objects
         return EINVAL;
     }
-    if (!(obj->get_writes()->flags & BS_HEAP_STABLE) && (wr->flags & BS_HEAP_STABLE))
+    if (!(first_wr->flags & BS_HEAP_STABLE) && (wr->flags & BS_HEAP_STABLE))
     {
         // Stable overwrites are not allowed over unstable
         return EINVAL;
     }
-    if (wr->version <= obj->get_writes()->version)
+    if (wr->version <= first_wr->version)
     {
         if (!wr->version)
         {
-            wr->version = obj->get_writes()->version + 1;
+            wr->version = first_wr->version + 1;
         }
         else
         {
@@ -1321,6 +1323,7 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
     if (old_data != inf.data)
     {
         obj = read_entry(oid, NULL);
+        first_wr = obj->get_writes();
     }
     assert(offset != UINT32_MAX);
     memcpy(inf.data + offset, wr, wr_size);
@@ -1330,17 +1333,18 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
     int32_t used_delta = wr_size;
     if (is_overwrite)
     {
-        mark_overwritten(new_wr->lsn, obj->inode, obj->get_writes(), NULL, tracking_active);
+        mark_overwritten(new_wr->lsn, obj->inode, first_wr, NULL, tracking_active);
         // Free old write entries
-        used_delta -= free_writes(obj->get_writes(), NULL);
+        used_delta -= free_writes(first_wr, NULL);
         new_wr->next_pos = 0;
     }
     else if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE &&
-        (obj->get_writes()->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE)
+        (first_wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE)
     {
         assert(wr->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE));
-        auto second_wr = obj->get_writes()->next();
-        used_delta -= free_writes(obj->get_writes(), second_wr);
+        auto second_wr = first_wr->next();
+        bitmap_set(second_wr->get_int_bitmap(this), first_wr->offset, first_wr->len, dsk->bitmap_granularity);
+        used_delta -= free_writes(first_wr, second_wr);
         new_wr->next_pos = (uint8_t*)second_wr - (uint8_t*)new_wr;
     }
     else

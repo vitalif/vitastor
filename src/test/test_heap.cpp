@@ -90,7 +90,7 @@ void _test_big_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t
 }
 
 int _test_do_small_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t inode, uint64_t stripe, uint64_t version,
-    uint32_t offset, uint32_t len, uint64_t location, bool stable = true, uint32_t *checksums = NULL)
+    uint32_t offset, uint32_t len, uint64_t location, bool stable = true, uint32_t *checksums = NULL, bool is_intent = false)
 {
     object_id oid = { .inode = INODE_WITH_POOL(1, inode), .stripe = stripe };
     uint8_t wr_buf[heap.get_max_write_entry_size()];
@@ -99,7 +99,7 @@ int _test_do_small_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint
     wr->offset = offset;
     wr->len = len;
     wr->location = location;
-    wr->flags = BS_HEAP_SMALL_WRITE | (stable ? BS_HEAP_STABLE : 0);
+    wr->flags = (is_intent ? BS_HEAP_INTENT_WRITE : BS_HEAP_SMALL_WRITE) | (stable ? BS_HEAP_STABLE : 0);
     assert(wr->get_size(&heap) == sizeof(heap_write_t) + dsk.clean_entry_bitmap_size + (dsk.csum_block_size
         ? ((offset+len+dsk.csum_block_size-1)/dsk.csum_block_size - offset/dsk.csum_block_size)*4 : 4));
     memset(wr->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
@@ -120,12 +120,14 @@ int _test_do_small_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint
 }
 
 void _test_small_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t inode, uint64_t stripe, uint64_t version,
-    uint32_t offset, uint32_t len, uint64_t location, bool stable = true, uint32_t *checksums = NULL)
+    uint32_t offset, uint32_t len, uint64_t location, bool stable = true, uint32_t *checksums = NULL, bool is_intent = false)
 {
-    heap.use_buffer_area(INODE_WITH_POOL(1, inode), location, len); // blocks are allocated before write and outside the heap_t
-    int res = _test_do_small_write(heap, dsk, inode, stripe, version, offset, len, location, stable, checksums);
+    if (!is_intent)
+        heap.use_buffer_area(INODE_WITH_POOL(1, inode), location, len); // blocks are allocated before write and outside the heap_t
+    int res = _test_do_small_write(heap, dsk, inode, stripe, version, offset, len, location, stable, checksums, is_intent);
     assert(res == 0);
-    assert(!heap.is_buffer_area_free(location, len));
+    if (!is_intent)
+        assert(!heap.is_buffer_area_free(location, len));
 }
 
 void _test_init(blockstore_disk_t & dsk, bool csum)
@@ -463,7 +465,7 @@ void test_modify_bitmap()
     printf("OK test_modify_bitmap\n");
 }
 
-void test_recheck(bool async, bool csum)
+void test_recheck(bool async, bool csum, bool intent)
 {
     blockstore_disk_t dsk;
     _test_init(dsk, csum);
@@ -480,11 +482,11 @@ void test_recheck(bool async, bool csum)
 
         // object 1
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000);
-        _test_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 16384, true, &buf_csum);
+        _test_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 16384, true, &buf_csum, intent);
 
         // object 2
         _test_big_write(heap, dsk, 2, 0, 1, 0x40000);
-        _test_small_write(heap, dsk, 2, 0, 2, 8192, 4096, 20480, true, &buf_csum);
+        _test_small_write(heap, dsk, 2, 0, 2, 8192, 4096, 20480, true, &buf_csum, intent);
 
         // persist
         assert(heap.get_meta_block_used_space(0) > 0);
@@ -497,29 +499,37 @@ void test_recheck(bool async, bool csum)
         memset(buffer_area.data()+16384, 0, 4096); // invalid data
         memset(buffer_area.data()+20480, 0xab, 4096); // valid data
 
-        blockstore_heap_t heap(&dsk, async ? NULL : buffer_area.data());
+        blockstore_heap_t heap(&dsk, async ? NULL : buffer_area.data(), 10);
         heap.load_blocks(0, dsk.meta_block_size, tmp.data());
-        heap.finish_load();
 
-        if (async)
+        int calls = 0;
+        bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
         {
-            int calls = 0;
-            bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
+            calls++;
+            if (len)
             {
-                calls++;
-                if (len)
+                if (!intent)
                 {
                     assert(!is_data);
                     assert(len == 4096);
                     assert(offset == 16384 || offset == 20480);
-                    assert(cb);
                     memcpy(buf, buffer_area.data()+offset, len);
-                    cb();
                 }
-            }, 1);
-            assert(done);
-            assert(calls == 3);
-        }
+                else
+                {
+                    assert(is_data);
+                    assert(len == 4096);
+                    assert(offset == 0x20000+8192 || offset == 0x40000+8192);
+                    memcpy(buf, buffer_area.data() + (offset == 0x20000+8192 ? 16384 : 20480), len);
+                }
+                assert(cb);
+                cb();
+            }
+        }, 1);
+        assert(done);
+        assert(calls == (async || intent ? 3 : 1));
+
+        heap.finish_load();
 
         // read object 1 - big_write should be there but small_write should be rechecked and removed
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
@@ -548,7 +558,7 @@ void test_recheck(bool async, bool csum)
         assert(wr->flags == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
     }
 
-    printf("OK test_recheck %s %s\n", async ? "async" : "sync", csum ? "csum" : "no_csum");
+    printf("OK test_recheck %s %s %s\n", async ? "async" : "sync", csum ? "csum" : "no_csum", intent ? "intent" : "buffered");
 }
 
 void test_corruption()
@@ -1477,6 +1487,44 @@ void test_autocompact(bool csum)
     printf("OK test_autocompact %s\n", csum ? "csum" : "no_csum");
 }
 
+void test_intent_write(bool csum)
+{
+    blockstore_disk_t dsk;
+    _test_init(dsk, csum);
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    memset(buffer_area.data(), 0xab, 4096);
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_load();
+
+        _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 4096);
+        heap.mark_lsn_completed(1);
+
+        _test_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 0, true, NULL, true);
+        heap.mark_lsn_completed(2);
+
+        _test_small_write(heap, dsk, 1, 0, 3, 16384, 4096, 0, true, NULL, true);
+        heap.mark_lsn_completed(3);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_object_t *obj = heap.read_entry(oid, NULL);
+        assert(obj);
+        assert(count_writes(obj) == 2); // intent overwrites previous intent
+        assert(obj->get_writes()->lsn == 3);
+
+        uint8_t ref_int_bitmap[dsk.clean_entry_bitmap_size];
+        memset(ref_int_bitmap, 0, dsk.clean_entry_bitmap_size);
+        bitmap_set(ref_int_bitmap, 0, 4096, 4096);
+        bitmap_set(ref_int_bitmap, 8192, 4096, 4096);
+        assert(!memcmp(obj->get_writes()->next()->get_int_bitmap(&heap), ref_int_bitmap, dsk.clean_entry_bitmap_size));
+
+        assert(check_used_space(heap, dsk, 0));
+    }
+
+    printf("OK test_intent_write %s\n", csum ? "csum" : "no_csum");
+}
+
 int main(int narg, char *args[])
 {
     test_mvcc(true);
@@ -1491,10 +1539,14 @@ int main(int narg, char *args[])
     test_compact(false, true);
     test_compact(false, false);
     test_modify_bitmap();
-    test_recheck(false, true);
-    test_recheck(false, false);
-    test_recheck(true, true);
-    test_recheck(true, false);
+    test_recheck(false, true, false);
+    test_recheck(false, false, false);
+    test_recheck(true, true, false);
+    test_recheck(true, false, false);
+    test_recheck(false, true, true);
+    test_recheck(false, false, true);
+    test_recheck(true, true, true);
+    test_recheck(true, false, true);
     test_corruption();
     test_full_overwrite(true);
     test_full_overwrite(false);
@@ -1507,5 +1559,7 @@ int main(int narg, char *args[])
     test_duplicate();
     test_autocompact(true);
     test_autocompact(false);
+    test_intent_write(true);
+    test_intent_write(false);
     return 0;
 }
