@@ -96,6 +96,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         op->offset == 0 && op->len == dsk.data_block_size)
     {
         // Big (redirect) write
+        BS_SUBMIT_CHECK_SQES(1);
         PRIV(op)->is_big = true;
         uint32_t tmp_block;
         uint64_t loc = heap->find_free_data();
@@ -113,7 +114,6 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             flusher->request_trim();
             return 0;
         }
-        BS_SUBMIT_GET_SQE(sqe, data);
         PRIV(op)->location = loc;
 #ifdef BLOCKSTORE_DEBUG
         printf(
@@ -122,6 +122,17 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         );
 #endif
         heap->use_data(op->oid.inode, PRIV(op)->location);
+        if (!dsk.disable_data_fsync)
+        {
+            // Do big_write as an INTENT to avoid fsync
+            bool ok = make_big_write(op, 0, 0, &modified_block);
+            assert(ok);
+            obj = heap->read_entry(op->oid, &modified_block);
+            heap->mark_lsn_completed(PRIV(op)->lsn);
+            goto process_intent;
+        }
+        io_uring_sqe *sqe = get_sqe();
+        ring_data_t *data = ((ring_data_t*)sqe->user_data);
         uint64_t stripe_offset = (op->offset % dsk.bitmap_granularity);
         uint64_t stripe_end = (op->offset + op->len) % dsk.bitmap_granularity;
         // Zero fill up to dsk.bitmap_granularity
@@ -164,6 +175,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 PRIV(op)->location = wr->location;
             }
         }
+process_intent:
         uint8_t wr_buf[heap->get_max_write_entry_size()];
         heap_write_t *wr = (heap_write_t*)wr_buf;
         wr->version = op->version;
@@ -259,6 +271,26 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     return 1;
 }
 
+bool blockstore_impl_t::make_big_write(blockstore_op_t *op, uint32_t offset, uint32_t len, uint32_t *modified_block)
+{
+    uint8_t wr_buf[heap->get_max_write_entry_size()];
+    heap_write_t *wr = (heap_write_t*)wr_buf;
+    wr->version = op->version;
+    wr->offset = offset;
+    wr->len = len;
+    wr->location = PRIV(op)->location;
+    wr->flags = BS_HEAP_BIG_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0);
+    if (op->bitmap)
+        memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
+    heap->calc_checksums(wr, (uint8_t*)op->buf, true);
+    int res = heap->post_write(op->oid, wr, modified_block);
+    if (res == ENOSPC)
+        return false;
+    assert(res == 0);
+    PRIV(op)->lsn = wr->lsn;
+    return true;
+}
+
 int blockstore_impl_t::continue_write(blockstore_op_t *op)
 {
     int op_state = PRIV(op)->op_state;
@@ -320,26 +352,13 @@ resume_12:
     }
 resume_4:
     {
-        uint8_t wr_buf[heap->get_max_write_entry_size()];
-        heap_write_t *wr = (heap_write_t*)wr_buf;
-        wr->version = op->version;
-        wr->offset = op->offset;
-        wr->len = op->len;
-        wr->location = PRIV(op)->location;
-        wr->flags = BS_HEAP_BIG_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0);
-        if (op->bitmap)
-            memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
-        heap->calc_checksums(wr, (uint8_t*)op->buf, true);
-        uint32_t modified_block;
-        int res = heap->post_write(op->oid, wr, &modified_block);
-        if (res == ENOSPC)
+        uint32_t modified_block = 0;
+        if (!make_big_write(op, op->offset, op->len, &modified_block))
         {
             PRIV(op)->wait_for = WAIT_COMPACTION;
             PRIV(op)->wait_detail = flusher->get_compact_counter();
             return 1;
         }
-        assert(res == 0);
-        PRIV(op)->lsn = wr->lsn;
         prepare_meta_block_write(op, modified_block);
         PRIV(op)->op_state = 5;
         return 1;
