@@ -75,7 +75,7 @@ int _test_do_big_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64
         ? dsk.data_block_size/dsk.csum_block_size*4 : 0));
     memset(wr->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
     if (dsk.csum_block_size)
-        memset(wr->get_checksums(&heap), 0xab, dsk.data_block_size/dsk.csum_block_size*4);
+        memset(wr->get_checksums(&heap), 0xde, dsk.data_block_size/dsk.csum_block_size*4);
     uint32_t mblock;
     return heap.post_write(oid, wr, &mblock);
 }
@@ -411,6 +411,13 @@ void test_compact(bool csum, bool stable)
     assert(obj->get_writes()->version == 3);
     bitmap_set(ref_int_bitmap, 8192, 4096, 4096);
     assert(!memcmp(obj->get_writes()->get_int_bitmap(&heap), ref_int_bitmap, dsk.clean_entry_bitmap_size));
+    if (csum)
+    {
+        uint8_t ref_csums[dsk.data_block_size/dsk.csum_block_size*4];
+        memset(ref_csums, 0xde, sizeof(ref_csums));
+        memset(ref_csums+8, 0xab, 4);
+        assert(!memcmp(obj->get_writes()->get_checksums(&heap), ref_csums, sizeof(ref_csums)));
+    }
 
     obj = heap.read_entry({ .inode = INODE_WITH_POOL(1, 2), .stripe = 0 }, NULL);
     assert(obj);
@@ -1518,6 +1525,13 @@ void test_intent_write(bool csum)
         bitmap_set(ref_int_bitmap, 0, 4096, 4096);
         bitmap_set(ref_int_bitmap, 8192, 4096, 4096);
         assert(!memcmp(obj->get_writes()->next()->get_int_bitmap(&heap), ref_int_bitmap, dsk.clean_entry_bitmap_size));
+        if (csum)
+        {
+            uint8_t ref_csums[dsk.data_block_size/dsk.csum_block_size*4];
+            memset(ref_csums, 0xde, sizeof(ref_csums));
+            memset(ref_csums+8, 0xab, 4);
+            assert(!memcmp(obj->get_writes()->next()->get_checksums(&heap), ref_csums, sizeof(ref_csums)));
+        }
 
         assert(check_used_space(heap, dsk, 0));
     }

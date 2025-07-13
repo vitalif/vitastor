@@ -1332,6 +1332,12 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
         assert(wr->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE));
         auto second_wr = first_wr->next();
         bitmap_set(second_wr->get_int_bitmap(this), first_wr->offset, first_wr->len, dsk->bitmap_granularity);
+        if (dsk->csum_block_size && wr->can_be_collapsed(this))
+        {
+            const uint32_t csum_size = (dsk->data_csum_type & 0xFF);
+            memcpy(second_wr->get_checksums(this) + first_wr->offset/dsk->csum_block_size*csum_size,
+                first_wr->get_checksums(this), first_wr->len/dsk->csum_block_size*csum_size);
+        }
         used_delta -= free_writes(first_wr, second_wr);
         new_wr->next_pos = (uint8_t*)second_wr - (uint8_t*)new_wr;
     }
