@@ -148,11 +148,11 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     }
     // Only one INTENT_WRITE is allowed at a time, but in fact,
     // parallel writes to the same object are forbidden anyway
-    else if (dsk.disable_data_fsync &&
-        op->opcode == BS_OP_WRITE_STABLE &&
+    else if (op->opcode == BS_OP_WRITE_STABLE &&
         op->len > 0 && op->len <= dsk.atomic_write_size &&
+        // One intent-write is allowed even with fsyncs because BIG_WRITE is always counted as fsynced
         (obj->get_writes()->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
-        obj->get_writes()->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE)))
+        obj->get_writes()->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) && dsk.disable_data_fsync))
     {
         // Direct intent-write
         BS_SUBMIT_CHECK_SQES(1);

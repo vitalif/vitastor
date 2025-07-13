@@ -71,8 +71,7 @@ bool heap_write_t::is_compacted(uint64_t compacted_lsn)
 
 bool heap_write_t::can_be_collapsed(blockstore_heap_t *heap)
 {
-    return flags == BS_HEAP_INTENT_WRITE ||
-        !heap->dsk->csum_block_size || heap->dsk->csum_block_size == heap->dsk->bitmap_granularity ||
+    return !heap->dsk->csum_block_size || heap->dsk->csum_block_size == heap->dsk->bitmap_granularity ||
         !(offset % heap->dsk->csum_block_size) && !(len % heap->dsk->csum_block_size);
 }
 
@@ -1991,7 +1990,7 @@ void blockstore_heap_t::mark_lsn_fsynced(uint64_t lsn)
 {
     if (lsn > fsynced_lsn)
     {
-        assert(lsn >= first_inflight_lsn && lsn <= completed_lsn);
+        assert(lsn <= completed_lsn);
         fsynced_lsn = lsn;
         deref_overwrites(lsn);
     }
