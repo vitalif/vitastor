@@ -97,6 +97,7 @@ void blockstore_impl_t::loop()
         // try to submit ops
         unsigned initial_ring_space = ringloop->space_left();
         int op_idx = 0, new_idx = 0;
+        bool has_unfinished_writes = false;
         for (; op_idx < submit_queue.size(); op_idx++, new_idx++)
         {
             auto op = submit_queue[op_idx];
@@ -111,6 +112,9 @@ void blockstore_impl_t::loop()
                 }
                 else if (PRIV(op)->wait_for)
                 {
+                    has_unfinished_writes = has_unfinished_writes || op->opcode == BS_OP_WRITE ||
+                        op->opcode == BS_OP_WRITE_STABLE || op->opcode == BS_OP_DELETE ||
+                        op->opcode == BS_OP_STABLE || op->opcode == BS_OP_ROLLBACK;
                     continue;
                 }
             }
@@ -126,6 +130,7 @@ void blockstore_impl_t::loop()
             else if (op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE || op->opcode == BS_OP_DELETE)
             {
                 wr_st = dequeue_write(op);
+                has_unfinished_writes = has_unfinished_writes || (wr_st != 2);
             }
             else if (op->opcode == BS_OP_SYNC)
             {
@@ -135,12 +140,20 @@ void blockstore_impl_t::loop()
             else if (op->opcode == BS_OP_STABLE || op->opcode == BS_OP_ROLLBACK)
             {
                 wr_st = dequeue_stable(op);
+                has_unfinished_writes = has_unfinished_writes || (wr_st != 2);
             }
             else if (op->opcode == BS_OP_LIST)
             {
-                // LIST doesn't have to be blocked by previous modifications
-                process_list(op);
-                wr_st = 2;
+                // LIST has to be blocked by previous writes and commits/rollbacks
+                if (!has_unfinished_writes)
+                {
+                    process_list(op);
+                    wr_st = 2;
+                }
+                else
+                {
+                    wr_st = 0;
+                }
             }
             if (wr_st == 2)
             {
