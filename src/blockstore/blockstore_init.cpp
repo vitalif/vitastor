@@ -233,7 +233,6 @@ resume_4:
         return 1;
     }
     // metadata read finished
-    bs->heap->finish_load();
     printf("Metadata entries loaded: %ju, used blocks: %ju / %ju\n", entries_loaded, bs->heap->get_data_used_space() / bs->dsk.data_block_size, bs->dsk.block_count);
     if (zero_on_init && !bs->dsk.disable_meta_fsync)
     {
@@ -279,6 +278,7 @@ resume_6:
     }, bs->meta_write_recheck_parallelism);
     return 1;
 resume_7:
+    bs->heap->finish_load();
     free(metadata_buffer);
     metadata_buffer = NULL;
     return 0;
