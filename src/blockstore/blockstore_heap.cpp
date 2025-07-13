@@ -1105,10 +1105,6 @@ int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *mod
     {
         return EINVAL;
     }
-    if (!wr->version)
-    {
-        wr->version = 1;
-    }
     const uint32_t wr_size = wr->get_size(this);
     // Allocate block
     uint32_t block_num = 0;
@@ -1288,17 +1284,10 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
         // Stable overwrites are not allowed over unstable
         return EINVAL;
     }
-    if (wr->version <= first_wr->version)
+    if (wr->version < first_wr->version)
     {
-        if (!wr->version)
-        {
-            wr->version = first_wr->version + 1;
-        }
-        else
-        {
-            // Overwrites with a smaller version are forbidden
-            return EINVAL;
-        }
+        // Overwrites with a smaller version are forbidden
+        return EINVAL;
     }
     if (modified_block)
     {

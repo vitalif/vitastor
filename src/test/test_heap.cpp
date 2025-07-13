@@ -185,12 +185,12 @@ void test_mvcc(bool csum)
 
         assert(heap.read_locked_entry(oid, copy_id) == obj);
 
-        assert(_test_do_small_write(heap, dsk, 1, 0, 1, 0, 4096, 0) == EINVAL);
-
         _test_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 16384, true);
         obj = heap.read_entry(oid, NULL);
         assert(check_used_space(heap, dsk, 0));
         assert(heap.get_meta_block_used_space(0) == old_size + obj->get_writes()->get_size(&heap));
+
+        assert(_test_do_small_write(heap, dsk, 1, 0, 1, 0, 4096, 0) == EINVAL);
 
         assert(!heap.read_locked_entry(oid, UINT64_MAX));
         assert(heap.read_locked_entry(oid, copy_id) == obj); // small_write isn't MVCCed
