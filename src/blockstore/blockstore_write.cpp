@@ -161,6 +161,13 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     // parallel writes to the same object are forbidden anyway
     else if (op->opcode == BS_OP_WRITE_STABLE &&
         op->len > 0 && op->len <= dsk.atomic_write_size &&
+        // Intent-writes are disabled if "absolutely correct during compaction" checksum validation algorithm is enabled
+        // We could also do RMW here when padded_csum_update is enabled, but it's unclear if we need it
+        (!padded_csum_update || dsk.csum_block_size <= dsk.bitmap_granularity ||
+            !(op->offset % dsk.csum_block_size) &&
+            !(op->len % dsk.csum_block_size) &&
+            (obj->get_writes()->flags != (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) ||
+            obj->get_writes()->can_be_collapsed(heap))) &&
         // One intent-write is allowed even with fsyncs because BIG_WRITE is always counted as fsynced
         (obj->get_writes()->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
         obj->get_writes()->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) && dsk.disable_data_fsync))

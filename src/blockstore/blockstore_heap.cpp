@@ -59,9 +59,11 @@ bool heap_write_t::needs_recheck(blockstore_heap_t *heap)
         || flags == BS_HEAP_SMALL_WRITE || flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE));
 }
 
-bool heap_write_t::needs_compact(uint64_t compacted_lsn)
+bool heap_write_t::needs_compact(blockstore_heap_t *heap)
 {
-    return lsn > compacted_lsn && flags == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
+    return (flags == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) ||
+        flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) && heap->dsk->csum_block_size > heap->dsk->bitmap_granularity &&
+        ((offset % heap->dsk->csum_block_size) || (len % heap->dsk->csum_block_size)));
 }
 
 bool heap_write_t::is_compacted(uint64_t compacted_lsn)
@@ -460,7 +462,7 @@ skip_object:
                 }
                 if (wr->lsn > this->compacted_lsn)
                 {
-                    tmp_compact_queue.push_back((tmp_compact_item_t){ .oid = oid, .lsn = wr->lsn, .compact = wr->needs_compact(0) });
+                    tmp_compact_queue.push_back((tmp_compact_item_t){ .oid = oid, .lsn = wr->lsn, .compact = wr->needs_compact(this) });
                 }
             }
             if (lsn > next_lsn)
@@ -1140,7 +1142,7 @@ int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *mod
     new_wr->size = wr_size;
     new_wr->lsn = ++next_lsn;
     wr->lsn = new_wr->lsn;
-    push_inflight_lsn(oid, new_wr->lsn, new_wr->needs_compact(0) ? HEAP_INFLIGHT_COMPACTABLE : 0);
+    push_inflight_lsn(oid, new_wr->lsn, new_wr->needs_compact(this) ? HEAP_INFLIGHT_COMPACTABLE : 0);
     if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
     {
         uint8_t *int_bitmap = new_wr->get_int_bitmap(this);
@@ -1242,7 +1244,7 @@ void blockstore_heap_t::mark_overwritten(uint64_t over_lsn, uint64_t inode, heap
 {
     while (wr && wr != end_wr)
     {
-        if (wr->needs_compact(0))
+        if (wr->needs_compact(this))
         {
             mark_lsn_compacted(wr->lsn, true);
         }
@@ -1281,6 +1283,18 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
     if (!(first_wr->flags & BS_HEAP_STABLE) && (wr->flags & BS_HEAP_STABLE))
     {
         // Stable overwrites are not allowed over unstable
+        return EINVAL;
+    }
+    if (wr->flags == BS_HEAP_INTENT_WRITE)
+    {
+        // Unstable intent writes are not allowed
+        return EINVAL;
+    }
+    if (wr->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) &&
+        first_wr->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) &&
+        !first_wr->can_be_collapsed(this))
+    {
+        // Intent writes are not allowed over noncollapsible intent writes
         return EINVAL;
     }
     if (wr->version < first_wr->version)
@@ -1329,10 +1343,9 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
     else if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE &&
         (first_wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE)
     {
-        assert(wr->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE));
         auto second_wr = first_wr->next();
         bitmap_set(second_wr->get_int_bitmap(this), first_wr->offset, first_wr->len, dsk->bitmap_granularity);
-        if (dsk->csum_block_size && wr->can_be_collapsed(this))
+        if (dsk->csum_block_size)
         {
             const uint32_t csum_size = (dsk->data_csum_type & 0xFF);
             memcpy(second_wr->get_checksums(this) + first_wr->offset/dsk->csum_block_size*csum_size,
@@ -1346,7 +1359,7 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
         new_wr->next_pos = ((uint8_t*)obj + obj->write_pos) - (uint8_t*)new_wr;
     }
     wr->lsn = new_wr->lsn;
-    push_inflight_lsn(oid, new_wr->lsn, new_wr->needs_compact(0) ? HEAP_INFLIGHT_COMPACTABLE : 0);
+    push_inflight_lsn(oid, new_wr->lsn, new_wr->needs_compact(this) ? HEAP_INFLIGHT_COMPACTABLE : 0);
     if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
     {
         uint8_t *int_bitmap = new_wr->get_int_bitmap(this);
@@ -1453,7 +1466,7 @@ int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t 
         {
             wr->flags |= BS_HEAP_STABLE;
             wr->lsn = last_lsn--;
-            push_inflight_lsn(oid, wr->lsn, wr->needs_compact(0) ? HEAP_INFLIGHT_COMPACTABLE : 0);
+            push_inflight_lsn(oid, wr->lsn, wr->needs_compact(this) ? HEAP_INFLIGHT_COMPACTABLE : 0);
         }
     }
     obj->crc32c = obj->calc_crc32c();
@@ -1696,7 +1709,7 @@ void blockstore_heap_t::erase_object(uint32_t block_num, heap_object_t *obj, uin
     {
         for (auto wr = obj->get_writes(); wr; wr = wr->next())
         {
-            if (wr->needs_compact(0))
+            if (wr->needs_compact(this))
             {
                 mark_lsn_compacted(wr->lsn, true);
             }

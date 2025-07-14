@@ -162,7 +162,7 @@ class blockstore_impl_t: public blockstore_i
     void prepare_disk_read(std::vector<copy_buffer_t> & read_vec, int & pos, heap_object_t *obj, heap_write_t *wr,
         uint32_t blk_start, uint32_t blk_end, uint32_t start, uint32_t end, uint32_t copy_flags);
     void find_holes(std::vector<copy_buffer_t> & read_vec, uint32_t item_start, uint32_t item_end,
-        std::function<void(int&, bool, uint32_t, uint32_t)> callback);
+        std::function<void(int&, uint32_t, uint32_t)> callback);
     void handle_read_event(ring_data_t *data, blockstore_op_t *op);
     bool verify_read_checksums(blockstore_op_t *op);
 

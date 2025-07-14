@@ -161,17 +161,14 @@ uint32_t blockstore_impl_t::prepare_read_with_bitmaps(std::vector<copy_buffer_t>
 uint32_t blockstore_impl_t::prepare_read_zero(std::vector<copy_buffer_t> & read_vec, uint32_t start, uint32_t end)
 {
     uint32_t res = 0;
-    find_holes(read_vec, start, end, [&](int & pos, bool alloc, uint32_t start, uint32_t end)
+    find_holes(read_vec, start, end, [&](int & pos, uint32_t start, uint32_t end)
     {
-        if (!alloc)
-        {
-            res += end-start;
-            read_vec.insert(read_vec.begin() + (pos++), (copy_buffer_t){
-                .copy_flags = COPY_BUF_ZERO,
-                .offset = start,
-                .len = end-start,
-            });
-        }
+        res += end-start;
+        read_vec.insert(read_vec.begin() + (pos++), (copy_buffer_t){
+            .copy_flags = COPY_BUF_ZERO,
+            .offset = start,
+            .len = end-start,
+        });
     });
     return res;
 }
@@ -179,12 +176,8 @@ uint32_t blockstore_impl_t::prepare_read_zero(std::vector<copy_buffer_t> & read_
 uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end)
 {
     uint32_t res = 0;
-    find_holes(read_vec, start, end, [&](int & pos, bool alloc, uint32_t start, uint32_t end)
+    find_holes(read_vec, start, end, [&](int & pos, uint32_t start, uint32_t end)
     {
-        if (alloc)
-        {
-            return;
-        }
         res += end-start;
         if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE && dsk.inmemory_journal)
         {
@@ -280,7 +273,7 @@ void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec,
 
 void blockstore_impl_t::find_holes(std::vector<copy_buffer_t> & read_vec,
     uint32_t item_start, uint32_t item_end,
-    std::function<void(int&, bool, uint32_t, uint32_t)> callback)
+    std::function<void(int&, uint32_t, uint32_t)> callback)
 {
     auto cur_start = item_start;
     int i = 0;
@@ -290,14 +283,14 @@ void blockstore_impl_t::find_holes(std::vector<copy_buffer_t> & read_vec,
         if (i >= read_vec.size() || (read_vec[i].copy_flags & COPY_BUF_CSUM_FILL) || read_vec[i].offset >= item_end)
         {
             // Hole (at end): cur_start .. item_end
-            callback(i, false, cur_start, item_end);
+            callback(i, cur_start, item_end);
             break;
         }
         else if (read_vec[i].offset > cur_start)
         {
             // Hole: cur_start .. min(read_vec[i].offset, item_end)
             auto cur_end = read_vec[i].offset > item_end ? item_end : read_vec[i].offset;
-            callback(i, false, cur_start, cur_end);
+            callback(i, cur_start, cur_end);
             cur_start = cur_end;
         }
         else if (read_vec[i].offset + read_vec[i].len > cur_start)
@@ -305,7 +298,7 @@ void blockstore_impl_t::find_holes(std::vector<copy_buffer_t> & read_vec,
             // Allocated: cur_start .. min(read_vec[i].offset + read_vec[i].len, item_end)
             auto cur_end = read_vec[i].offset + read_vec[i].len;
             cur_end = cur_end > item_end ? item_end : cur_end;
-            callback(i, true, cur_start, cur_end);
+            //callback(i, true, cur_start, cur_end);
             cur_start = cur_end;
             i++;
         }

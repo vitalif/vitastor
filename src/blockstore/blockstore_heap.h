@@ -49,7 +49,7 @@ struct __attribute__((__packed__)) heap_write_t
     uint32_t get_size(blockstore_heap_t *heap);
     uint32_t get_csum_size(blockstore_heap_t *heap);
     bool needs_recheck(blockstore_heap_t *heap);
-    bool needs_compact(uint64_t compacted_lsn);
+    bool needs_compact(blockstore_heap_t *heap);
     bool is_compacted(uint64_t compacted_lsn);
     bool can_be_collapsed(blockstore_heap_t *heap);
     bool is_allowed_before_compacted(uint64_t compacted_lsn, bool is_last_entry);

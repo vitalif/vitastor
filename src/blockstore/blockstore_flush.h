@@ -44,7 +44,7 @@ class journal_flusher_co
     uint64_t compact_lsn;
     uint64_t cur_version;
     heap_object_t *cur_obj;
-    heap_write_t *begin_wr, *end_wr;
+    heap_write_t *begin_wr, *end_wr, *unaligned_intent;
     uint32_t modified_block;
     bool should_repeat;
 
@@ -64,6 +64,7 @@ class journal_flusher_co
     void iterate_partial_overwrites(std::function<int(int, uint32_t, uint32_t)> cb);
     void iterate_checksum_holes(std::function<void(int, uint32_t, uint32_t)> cb);
     void fill_partial_checksum_blocks();
+    void fill_unaligned_intent_checksums();
     void free_buffers();
     int check_and_punch_checksums();
     void calc_block_checksums();

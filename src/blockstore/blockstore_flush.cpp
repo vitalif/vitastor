@@ -238,9 +238,14 @@ resume_1:
     flusher->active_flushers++;
     // Scan versions to flush
     read_vec.clear();
+    unaligned_intent = NULL;
     for (auto wr = begin_wr; wr != end_wr; wr = wr->next())
     {
         bs->prepare_read(read_vec, cur_obj, wr, 0, bs->dsk.data_block_size);
+        if (wr->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) && !wr->can_be_collapsed(bs->heap))
+        {
+            unaligned_intent = wr;
+        }
     }
     overwrite_start = overwrite_end = 0;
     if (read_vec.size() > 0)
@@ -249,7 +254,7 @@ resume_1:
         overwrite_end = read_vec[read_vec.size()-1].offset + read_vec[read_vec.size()-1].len;
     }
     read_to_fill_incomplete = false;
-    if (bs->dsk.csum_block_size > bs->dsk.bitmap_granularity && end_wr->next())
+    if (bs->dsk.csum_block_size > bs->dsk.bitmap_granularity)
     {
         // Read original checksum blocks to calculate padded checksums if required
         fill_partial_checksum_blocks();
@@ -257,6 +262,8 @@ resume_1:
         {
             flusher->wanting_meta_fsync++;
         }
+        // Unaligned intent checksums have to be recalculated by reading data blocks from the disk
+        fill_unaligned_intent_checksums();
     }
     // Read buffered data
     cur_obj = NULL;
@@ -423,6 +430,7 @@ void journal_flusher_co::fill_partial_checksum_blocks()
     {
         read_to_fill_incomplete = true;
         int out_pos = read_vec.size();
+        // FIXME: Take end_wr bitmap into account here, now it's incorrect
         bs->prepare_disk_read(read_vec, out_pos, cur_obj, end_wr,
             hole_start - hole_start % bs->dsk.csum_block_size, hole_start - hole_start % bs->dsk.csum_block_size + bs->dsk.csum_block_size,
             hole_start - hole_start % bs->dsk.csum_block_size, hole_start - hole_start % bs->dsk.csum_block_size + bs->dsk.csum_block_size,
@@ -434,6 +442,23 @@ void journal_flusher_co::fill_partial_checksum_blocks()
             .len = hole_end-hole_start,
             .buf = read_vec[out_pos].buf + hole_start - read_vec[out_pos].offset,
         });
+    });
+}
+
+void journal_flusher_co::fill_unaligned_intent_checksums()
+{
+    if (!unaligned_intent)
+    {
+        return;
+    }
+    assert(unaligned_intent->next() == end_wr);
+    uint32_t blk_start = unaligned_intent->offset, blk_end = unaligned_intent->offset + unaligned_intent->len;
+    blk_start = (blk_start / bs->dsk.csum_block_size) * bs->dsk.csum_block_size;
+    blk_end = ((blk_end-1) / bs->dsk.csum_block_size + 1) * bs->dsk.csum_block_size;
+    bs->find_holes(read_vec, blk_start, blk_end, [&](int & pos, uint32_t start, uint32_t end)
+    {
+        // FIXME: Take end_wr bitmap + unaligned_intent range into account here too
+        bs->prepare_disk_read(read_vec, pos, cur_obj, end_wr, start, end, start, end, COPY_BUF_SKIP_CSUM);
     });
 }
 
