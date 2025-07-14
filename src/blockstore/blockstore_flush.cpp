@@ -253,7 +253,7 @@ resume_1:
     {
         // Read original checksum blocks to calculate padded checksums if required
         fill_partial_checksum_blocks();
-        if (read_to_fill_incomplete)
+        if (read_to_fill_incomplete && bs->padded_csum_update)
         {
             flusher->wanting_meta_fsync++;
         }
@@ -273,7 +273,7 @@ resume_3:
     // we'll have a correct checksum because it won't include overwritten parts!
     // The same thing actually happens even when csum_block_size == bitmap_granularity, but in that case
     // we never need to read (and thus verify) overwritten parts from the data device.
-    if (read_to_fill_incomplete)
+    if (read_to_fill_incomplete && bs->padded_csum_update)
     {
         flusher->wanting_meta_fsync--;
     }
@@ -422,17 +422,17 @@ void journal_flusher_co::fill_partial_checksum_blocks()
     iterate_checksum_holes([&](int vec_pos, uint32_t hole_start, uint32_t hole_end)
     {
         read_to_fill_incomplete = true;
-        int pos = read_vec.size();
-        bs->prepare_disk_read(read_vec, pos, cur_obj, end_wr,
+        int out_pos = read_vec.size();
+        bs->prepare_disk_read(read_vec, out_pos, cur_obj, end_wr,
             hole_start - hole_start % bs->dsk.csum_block_size, hole_start - hole_start % bs->dsk.csum_block_size + bs->dsk.csum_block_size,
-            hole_start - hole_start % bs->dsk.csum_block_size, hole_start - hole_start % bs->dsk.csum_block_size + bs->dsk.csum_block_size);
-        pos--;
-        read_vec[pos].copy_flags |= COPY_BUF_CSUM_FILL;
+            hole_start - hole_start % bs->dsk.csum_block_size, hole_start - hole_start % bs->dsk.csum_block_size + bs->dsk.csum_block_size,
+            COPY_BUF_CSUM_FILL | (bs->padded_csum_update ? 0 : COPY_BUF_SKIP_CSUM));
+        out_pos--;
         read_vec.insert(read_vec.begin()+vec_pos, (copy_buffer_t){
             .copy_flags = COPY_BUF_JOURNAL|COPY_BUF_COALESCED,
             .offset = hole_start,
             .len = hole_end-hole_start,
-            .buf = read_vec[pos].buf + hole_start - read_vec[pos].offset,
+            .buf = read_vec[out_pos].buf + hole_start - read_vec[out_pos].offset,
         });
     });
 }
@@ -465,7 +465,7 @@ int journal_flusher_co::check_and_punch_checksums()
     for (int i = 0; i < read_vec.size(); i++)
     {
         auto & vec = read_vec[i];
-        if (!(vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_ZERO)))
+        if (!(vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_ZERO|COPY_BUF_SKIP_CSUM)))
         {
             heap_write_t *wr = cur_obj->get_writes();
             while (wr && wr->lsn != vec.wr_lsn)
@@ -490,7 +490,7 @@ int journal_flusher_co::check_and_punch_checksums()
         // FIXME: Report the corrupted object to the upper layer
         return EDOM;
     }
-    if (!read_to_fill_incomplete)
+    if (!read_to_fill_incomplete || !bs->padded_csum_update)
     {
         // Nothing to do
         return 0;

@@ -103,6 +103,9 @@ class blockstore_impl_t: public blockstore_i
     uint64_t autosync_writes = 128;
     // Log level (0-10)
     int log_level = 0;
+    // Enable correct block checksum validation on objects updated with small writes when checksum block
+    // is larger than bitmap_granularity, at the expense of extra metadata fsyncs during compaction
+    bool padded_csum_update = false;
     /******* END OF OPTIONS *******/
 
     struct ring_consumer_t ring_consumer;
@@ -157,7 +160,7 @@ class blockstore_impl_t: public blockstore_i
     uint32_t prepare_read_zero(std::vector<copy_buffer_t> & read_vec, uint32_t start, uint32_t end);
     uint32_t prepare_read_simple(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end);
     void prepare_disk_read(std::vector<copy_buffer_t> & read_vec, int & pos, heap_object_t *obj, heap_write_t *wr,
-        uint32_t blk_start, uint32_t blk_end, uint32_t start, uint32_t end);
+        uint32_t blk_start, uint32_t blk_end, uint32_t start, uint32_t end, uint32_t copy_flags);
     void find_holes(std::vector<copy_buffer_t> & read_vec, uint32_t item_start, uint32_t item_end,
         std::function<void(int&, bool, uint32_t, uint32_t)> callback);
     void handle_read_event(ring_data_t *data, blockstore_op_t *op);
