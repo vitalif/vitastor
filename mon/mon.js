@@ -96,6 +96,7 @@ class Mon
                     }
                     else
                     {
+                        res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
                         res.write(export_prometheus_metrics(this.state));
                     }
                 }
