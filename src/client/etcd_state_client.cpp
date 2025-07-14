@@ -1056,6 +1056,10 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             }
             pool_item.second.real_pg_count = n;
         }
+        if (on_change_pg_config_hook)
+        {
+            on_change_pg_config_hook();
+        }
     }
     else if (key.substr(0, etcd_prefix.length()+12) == etcd_prefix+"/pg/history/")
     {

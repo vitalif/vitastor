@@ -142,6 +142,7 @@ public:
     std::function<json11::Json()> load_pgs_checks_hook;
     std::function<void(bool)> on_load_pgs_hook;
     std::function<void()> on_change_pool_config_hook;
+    std::function<void()> on_change_pg_config_hook;
     std::function<void(pool_id_t)> on_change_backfillfull_hook;
     std::function<void(pool_id_t, pg_num_t, osd_num_t)> on_change_pg_state_hook;
     std::function<void(pool_id_t, pg_num_t)> on_change_pg_history_hook;

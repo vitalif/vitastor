@@ -57,6 +57,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
     st_cli.on_change_osd_state_hook = [this](uint64_t peer_osd) { on_change_osd_state_hook(peer_osd); };
     st_cli.on_change_pool_config_hook = [this]() { on_change_pool_config_hook(); };
+    st_cli.on_change_pg_config_hook = [this]() { on_change_pool_config_hook(); };
     st_cli.on_change_pg_state_hook = [this](pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary) { on_change_pg_state_hook(pool_id, pg_num, prev_primary); };
     st_cli.on_change_node_placement_hook = [this]() { on_change_node_placement_hook(); };
     st_cli.on_load_pgs_hook = [this](bool success) { on_load_pgs_hook(success); };
@@ -563,7 +564,7 @@ osd_num_t cluster_client_t::select_nearest_osd(const std::vector<osd_num_t> & os
 
 void cluster_client_t::on_load_pgs_hook(bool success)
 {
-    for (auto pool_item: st_cli.pool_config)
+    for (auto & pool_item: st_cli.pool_config)
     {
         pg_counts[pool_item.first] = pool_item.second.real_pg_count;
     }
@@ -583,10 +584,15 @@ void cluster_client_t::on_load_pgs_hook(bool success)
 
 void cluster_client_t::on_change_pool_config_hook()
 {
-    for (auto pool_item: st_cli.pool_config)
+    for (auto & pool_item: st_cli.pool_config)
     {
         if (pg_counts[pool_item.first] != pool_item.second.real_pg_count)
         {
+            if (log_level > 2 && pg_counts[pool_item.first])
+            {
+                printf("Pool %u (%s) PG count changed from %lu to %lu\n", pool_item.first, pool_item.second.name.c_str(),
+                    pg_counts[pool_item.first], pool_item.second.real_pg_count);
+            }
             // At this point, all pool operations should have been suspended
             // And now they have to be resliced!
             for (auto op = op_queue_head; op; op = op->next)
