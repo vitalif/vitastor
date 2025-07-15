@@ -34,7 +34,9 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
             }
         }
         fulfilled += prepare_read(PRIV(op)->read_vec, obj, wr, op->offset, op->offset+op->len);
-        if (fulfilled == op->len)
+        if (fulfilled == op->len ||
+            wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
+            wr->flags == (BS_HEAP_TOMBSTONE|BS_HEAP_STABLE))
         {
             break;
         }
@@ -109,7 +111,7 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *op)
 
 uint32_t blockstore_impl_t::prepare_read(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end)
 {
-    if (wr->offset >= end || wr->offset+wr->len <= start || (wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE)
+    if (wr->offset >= end || wr->offset+wr->len <= start)
     {
         return 0;
     }
@@ -131,10 +133,10 @@ uint32_t blockstore_impl_t::prepare_read_with_bitmaps(std::vector<copy_buffer_t>
     // BIG_WRITEs contain a bitmap and we have to handle its holes at the upper level, especially with padded checksums
     uint32_t res = 0;
     uint8_t *bmp = wr->get_int_bitmap(heap);
-    uint64_t bmp_start = 0, bmp_end = 0, bmp_size = dsk.data_block_size/dsk.bitmap_granularity;
+    uint32_t bmp_start = 0, bmp_end = 0, bmp_size = dsk.data_block_size/dsk.bitmap_granularity;
     while (bmp_start < bmp_size)
     {
-        while (!(bmp[bmp_end >> 3] & (1 << (bmp_end & 0x7))) && bmp_end < bmp_size)
+        while (bmp_end < bmp_size && !(bmp[bmp_end >> 3] & (1 << (bmp_end & 0x7))))
         {
             bmp_end++;
         }
@@ -143,7 +145,7 @@ uint32_t blockstore_impl_t::prepare_read_with_bitmaps(std::vector<copy_buffer_t>
             res += prepare_read_zero(read_vec, bmp_start * dsk.bitmap_granularity, bmp_end * dsk.bitmap_granularity);
         }
         bmp_start = bmp_end;
-        while (bmp[bmp_end >> 3] & (1 << (bmp_end & 0x7)) && bmp_end < bmp_size)
+        while (bmp_end < bmp_size && (bmp[bmp_end >> 3] & (1 << (bmp_end & 0x7))))
         {
             bmp_end++;
         }
@@ -248,11 +250,13 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
 void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec, int & pos, heap_object_t *obj, heap_write_t *wr,
     uint32_t blk_start, uint32_t blk_end, uint32_t start, uint32_t end, uint32_t copy_flags)
 {
+    // Only one INTENT_WRITE is allowed at a time
+    assert(wr->flags != (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) || wr->next()->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
     copy_buffer_t vec = {
         .copy_flags = ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ? COPY_BUF_JOURNAL : COPY_BUF_DATA) | copy_flags,
         .offset = start,
         .len = end-start,
-        .disk_offset = wr->location + blk_start - wr->offset,
+        .disk_offset = ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE ? wr->next()->location : wr->location) + blk_start - wr->offset,
         .disk_len = blk_end - blk_start,
         .wr_lsn = wr->lsn,
     };
