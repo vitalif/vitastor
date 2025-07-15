@@ -3,6 +3,7 @@
 
 #include "blockstore_impl.h"
 #include "blockstore_internal.h"
+#include "allocator.h"
 
 bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 {
@@ -289,6 +290,8 @@ bool blockstore_impl_t::make_big_write(blockstore_op_t *op, uint32_t offset, uin
     wr->flags = BS_HEAP_BIG_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0);
     if (op->bitmap)
         memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
+    memset(wr->get_int_bitmap(heap), 0, dsk.clean_entry_bitmap_size);
+    bitmap_set(wr->get_int_bitmap(heap), offset, len, dsk.bitmap_granularity);
     heap->calc_checksums(wr, (uint8_t*)op->buf, true);
     int res = heap->post_write(op->oid, wr, modified_block);
     if (res == ENOSPC)

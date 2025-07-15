@@ -58,7 +58,7 @@ int count_free_fragments(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint
 }
 
 int _test_do_big_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t inode, uint64_t stripe, uint64_t version, uint64_t location,
-    bool stable = true, uint32_t offset = 0, uint32_t len = 0)
+    bool stable = true, uint32_t offset = 0, uint32_t len = 0, uint32_t *checksums = NULL)
 {
     if (!offset && !len)
         len = dsk.data_block_size;
@@ -74,17 +74,24 @@ int _test_do_big_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64
     assert(wr->get_size(&heap) == sizeof(heap_write_t) + 2*dsk.clean_entry_bitmap_size + (dsk.csum_block_size
         ? dsk.data_block_size/dsk.csum_block_size*4 : 0));
     memset(wr->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
+    memset(wr->get_int_bitmap(&heap), 0, dsk.clean_entry_bitmap_size);
+    bitmap_set(wr->get_int_bitmap(&heap), offset, len, dsk.bitmap_granularity);
     if (dsk.csum_block_size)
-        memset(wr->get_checksums(&heap), 0xde, dsk.data_block_size/dsk.csum_block_size*4);
+    {
+        if (checksums)
+            memcpy(wr->get_checksums(&heap), checksums, dsk.data_block_size/dsk.csum_block_size*4);
+        else
+            memset(wr->get_checksums(&heap), 0xde, dsk.data_block_size/dsk.csum_block_size*4);
+    }
     uint32_t mblock;
     return heap.post_write(oid, wr, &mblock);
 }
 
 void _test_big_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t inode, uint64_t stripe, uint64_t version, uint64_t location,
-    bool stable = true, uint32_t offset = 0, uint32_t len = 0)
+    bool stable = true, uint32_t offset = 0, uint32_t len = 0, uint32_t *checksums = NULL)
 {
     heap.use_data(INODE_WITH_POOL(1, inode), location); // blocks are allocated before write and outside the heap_t
-    int res = _test_do_big_write(heap, dsk, inode, stripe, version, location, stable, offset, len);
+    int res = _test_do_big_write(heap, dsk, inode, stripe, version, location, stable, offset, len, checksums);
     assert(res == 0);
     assert(heap.is_data_used(location));
 }
@@ -323,7 +330,10 @@ void test_compact(bool csum, bool stable)
     blockstore_heap_t heap(&dsk, buffer_area.data());
     heap.finish_load();
 
-    _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 4096);
+    memset(buffer_area.data(), 0x19, 4096);
+    uint32_t csums[dsk.data_block_size/(dsk.csum_block_size ? dsk.csum_block_size : 4096)] = {};
+    csums[0] = crc32c(0, buffer_area.data(), 4096);
+    _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 4096, csums);
 
     // write unstable - stabilize - compact
     object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
@@ -338,7 +348,9 @@ void test_compact(bool csum, bool stable)
     assert(!memcmp(obj->get_writes()->get_int_bitmap(&heap), ref_int_bitmap, dsk.clean_entry_bitmap_size));
     uint64_t old_size = obj->size + obj->get_writes()->size;
 
-    _test_small_write(heap, dsk, 1, 0, 3, 8192, 4096, 16384, stable);
+    memset(buffer_area.data()+8192, 0xAA, 4096);
+    csums[2] = crc32c(0, buffer_area.data()+8192, 4096);
+    _test_small_write(heap, dsk, 1, 0, 3, 8192, 4096, 16384, stable, &csums[2]);
     obj = heap.read_entry(oid, NULL);
     uint64_t wr_size = obj->get_writes()->get_size(&heap);
     assert(obj->get_writes()->lsn == 2);
@@ -413,10 +425,8 @@ void test_compact(bool csum, bool stable)
     assert(!memcmp(obj->get_writes()->get_int_bitmap(&heap), ref_int_bitmap, dsk.clean_entry_bitmap_size));
     if (csum)
     {
-        uint8_t ref_csums[dsk.data_block_size/dsk.csum_block_size*4];
-        memset(ref_csums, 0xde, sizeof(ref_csums));
-        memset(ref_csums+8, 0xab, 4);
-        assert(!memcmp(obj->get_writes()->get_checksums(&heap), ref_csums, sizeof(ref_csums)));
+        assert(heap.calc_checksums(obj->get_writes(), buffer_area.data(), false));
+        assert(!memcmp(obj->get_writes()->get_checksums(&heap), csums, dsk.data_block_size/dsk.csum_block_size*4));
     }
 
     obj = heap.read_entry({ .inode = INODE_WITH_POOL(1, 2), .stripe = 0 }, NULL);

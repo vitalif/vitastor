@@ -563,24 +563,33 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *dat
     uint32_t pos = start;
     uint32_t block_end = (start/dsk->csum_block_size + 1)*dsk->csum_block_size;
     uint32_t block_crc = 0;
+    bool isset = false;
     while (pos < end)
     {
         if (bitmap)
         {
             while (pos < end && pos < block_end)
             {
-                if (!bitmap[pos/dsk->bitmap_granularity/8] & (1 << ((pos/dsk->bitmap_granularity) % 8)))
-                    block_crc = crc32c_pad(block_crc, NULL, 0, dsk->bitmap_granularity, 0);
-                else
-                    block_crc = crc32c(block_crc, data, dsk->bitmap_granularity);
-                data += dsk->bitmap_granularity;
-                pos += dsk->bitmap_granularity;
+                uint32_t prev = pos;
+                while (pos < end && pos < block_end && !(bitmap[pos/dsk->bitmap_granularity/8] & (1 << ((pos/dsk->bitmap_granularity) % 8))))
+                    pos += dsk->bitmap_granularity;
+                if (pos > prev && (isset || pos < block_end))
+                    block_crc = crc32c_pad(block_crc, NULL, 0, pos-prev, 0);
+                prev = pos;
+                while (pos < end && pos < block_end && (bitmap[pos/dsk->bitmap_granularity/8] & (1 << ((pos/dsk->bitmap_granularity) % 8))))
+                    pos += dsk->bitmap_granularity;
+                if (pos > prev)
+                {
+                    block_crc = crc32c(block_crc, data+prev-start, pos-prev);
+                    isset = true;
+                }
             }
         }
         else
         {
-            block_crc = crc32c(block_crc, data, (end > block_end ? block_end : end) - pos);
+            block_crc = crc32c(block_crc, data+pos-start, (end > block_end ? block_end : end) - pos);
             pos = (end > block_end ? block_end : end);
+            isset = true;
         }
         if (set)
         {
@@ -596,6 +605,9 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *dat
             else
                 return false;
         }
+        block_end += dsk->csum_block_size;
+        block_crc = 0;
+        isset = false;
         block_csums++;
     }
     return res;
@@ -1143,12 +1155,6 @@ int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *mod
     new_wr->lsn = ++next_lsn;
     wr->lsn = new_wr->lsn;
     push_inflight_lsn(oid, new_wr->lsn, new_wr->needs_compact(this) ? HEAP_INFLIGHT_COMPACTABLE : 0);
-    if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
-    {
-        uint8_t *int_bitmap = new_wr->get_int_bitmap(this);
-        memset(int_bitmap, 0, dsk->clean_entry_bitmap_size);
-        bitmap_set(int_bitmap, wr->offset, wr->len, dsk->bitmap_granularity);
-    }
     new_entry->size = sizeof(heap_object_t);
     new_entry->crc32c = new_entry->calc_crc32c();
     add_used_space(block_num, sizeof(heap_object_t) + wr_size);
@@ -1360,12 +1366,6 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
     }
     wr->lsn = new_wr->lsn;
     push_inflight_lsn(oid, new_wr->lsn, new_wr->needs_compact(this) ? HEAP_INFLIGHT_COMPACTABLE : 0);
-    if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
-    {
-        uint8_t *int_bitmap = new_wr->get_int_bitmap(this);
-        memset(int_bitmap, 0, dsk->clean_entry_bitmap_size);
-        bitmap_set(int_bitmap, wr->offset, wr->len, dsk->bitmap_granularity);
-    }
     obj->write_pos = offset - ((uint8_t*)obj - inf.data);
     obj->crc32c = obj->calc_crc32c();
     // Change block free space
