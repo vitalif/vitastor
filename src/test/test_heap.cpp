@@ -479,8 +479,11 @@ void test_recheck(bool async, bool csum, bool intent)
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
     std::vector<uint8_t> tmp;
 
-    memset(buffer_area.data(), 0xab, 4096);
-    uint32_t buf_csum = crc32c(0, buffer_area.data(), 4096);
+    memset(buffer_area.data(), 0xab, 12288);
+    uint32_t csum_4096 = crc32c(0, buffer_area.data(), 4096);
+    uint32_t csum_8192 = crc32c(0, buffer_area.data(), 8192);
+    uint32_t csum_12288 = crc32c(0, buffer_area.data(), 12288);
+    uint32_t three_csums[3] = { csum_4096, csum_4096, csum_4096 };
 
     // write
     {
@@ -489,11 +492,11 @@ void test_recheck(bool async, bool csum, bool intent)
 
         // object 1
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000);
-        _test_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 16384, true, &buf_csum, intent);
+        _test_small_write(heap, dsk, 1, 0, 2, 8192, 8*1024, 16*1024, true, csum ? three_csums : &csum_8192, intent);
 
         // object 2
         _test_big_write(heap, dsk, 2, 0, 1, 0x40000);
-        _test_small_write(heap, dsk, 2, 0, 2, 8192, 4096, 20480, true, &buf_csum, intent);
+        _test_small_write(heap, dsk, 2, 0, 2, 8192, 12*1024, 24*1024, true, csum ? three_csums : &csum_12288, intent);
 
         // persist
         assert(heap.get_meta_block_used_space(0) > 0);
@@ -503,8 +506,8 @@ void test_recheck(bool async, bool csum, bool intent)
 
     // reload heap
     {
-        memset(buffer_area.data()+16384, 0, 4096); // invalid data
-        memset(buffer_area.data()+20480, 0xab, 4096); // valid data
+        memset(buffer_area.data()+16*1024, 0xab, 20*1024); // valid data
+        memset(buffer_area.data()+20*1024+64, 0xcc, 4); // invalid data in the second block of the first write
 
         blockstore_heap_t heap(&dsk, async ? NULL : buffer_area.data(), 10);
         heap.load_blocks(0, dsk.meta_block_size, tmp.data());
@@ -518,16 +521,14 @@ void test_recheck(bool async, bool csum, bool intent)
                 if (!intent)
                 {
                     assert(!is_data);
-                    assert(len == 4096);
-                    assert(offset == 16384 || offset == 20480);
+                    assert(offset == 16384 && len == 8192 || offset == 24*1024 && len == 12*1024);
                     memcpy(buf, buffer_area.data()+offset, len);
                 }
                 else
                 {
                     assert(is_data);
-                    assert(len == 4096);
-                    assert(offset == 0x20000+8192 || offset == 0x40000+8192);
-                    memcpy(buf, buffer_area.data() + (offset == 0x20000+8192 ? 16384 : 20480), len);
+                    assert(offset == 0x20000+8192 && len == 8192 || 0x40000+8192 && len == 12*1024);
+                    memcpy(buf, buffer_area.data() + (offset == 0x20000+8192 ? 16*1024 : 24*1024), len);
                 }
                 assert(cb);
                 cb();
@@ -560,8 +561,8 @@ void test_recheck(bool async, bool csum, bool intent)
         assert(wr->lsn == 4);
         assert(wr->version == 2);
         assert(wr->offset == 8192);
-        assert(wr->len == 4096);
-        assert(wr->location == 20480);
+        assert(wr->len == 12*1024);
+        assert(wr->location == 24*1024);
         assert(wr->flags == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
     }
 
