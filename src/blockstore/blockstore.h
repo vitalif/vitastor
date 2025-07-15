@@ -176,7 +176,7 @@ typedef std::map<std::string, std::string> blockstore_config_t;
 class __attribute__((visibility("default"))) blockstore_i
 {
 public:
-    static blockstore_i* create(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd);
+    static blockstore_i* create(blockstore_config_t & config, ring_loop_i *ringloop, timerfd_manager_t *tfd);
 
     virtual ~blockstore_i() = default;
 

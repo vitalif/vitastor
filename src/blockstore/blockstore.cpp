@@ -6,7 +6,7 @@
 #include "blockstore_impl.h"
 #include "v1/impl.h"
 
-blockstore_i* blockstore_i::create(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd)
+blockstore_i* blockstore_i::create(blockstore_config_t & config, ring_loop_i *ringloop, timerfd_manager_t *tfd)
 {
     auto meta_format = stoull_full(config["meta_format"]);
     if (meta_format == BLOCKSTORE_META_FORMAT_HEAP)

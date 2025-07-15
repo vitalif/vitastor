@@ -4,6 +4,7 @@
 #include <sys/timerfd.h>
 #include <sys/poll.h>
 #include <sys/epoll.h>
+#include <assert.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
@@ -15,21 +16,27 @@ timerfd_manager_t::timerfd_manager_t(std::function<void(int, bool, std::function
 {
     this->set_fd_handler = set_fd_handler;
     wait_state = 0;
-    timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
-    if (timerfd < 0)
+    if (set_fd_handler)
     {
-        throw std::runtime_error(std::string("timerfd_create: ") + strerror(errno));
+        timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
+        if (timerfd < 0)
+        {
+            throw std::runtime_error(std::string("timerfd_create: ") + strerror(errno));
+        }
+        set_fd_handler(timerfd, false, [this](int fd, int events)
+        {
+            handle_readable();
+        });
     }
-    set_fd_handler(timerfd, false, [this](int fd, int events)
-    {
-        handle_readable();
-    });
 }
 
 timerfd_manager_t::~timerfd_manager_t()
 {
-    set_fd_handler(timerfd, false, NULL);
-    close(timerfd);
+    if (timerfd >= 0)
+    {
+        set_fd_handler(timerfd, false, NULL);
+        close(timerfd);
+    }
 }
 
 void timerfd_manager_t::inc_timer(timerfd_timer_t & t)
@@ -52,7 +59,14 @@ int timerfd_manager_t::set_timer_us(uint64_t micros, bool repeat, std::function<
 {
     int timer_id = id++;
     timespec start;
-    clock_gettime(CLOCK_MONOTONIC, &start);
+    if (timerfd >= 0)
+    {
+        clock_gettime(CLOCK_MONOTONIC, &start);
+    }
+    else
+    {
+        start = cur;
+    }
     timers.push_back({
         .id = timer_id,
         .micros = micros,
@@ -101,7 +115,7 @@ again:
     {
         nearest = -1;
         itimerspec exp = {};
-        if (timerfd_settime(timerfd, 0, &exp, NULL))
+        if (timerfd >= 0 && timerfd_settime(timerfd, 0, &exp, NULL))
         {
             throw std::runtime_error(std::string("timerfd_settime: ") + strerror(errno));
         }
@@ -120,7 +134,14 @@ again:
             }
         }
         timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
+        if (timerfd >= 0)
+        {
+            clock_gettime(CLOCK_MONOTONIC, &now);
+        }
+        else
+        {
+            now = cur;
+        }
         itimerspec exp = {
             .it_interval = { 0 },
             .it_value = timers[nearest].next,
@@ -142,7 +163,7 @@ again:
             }
             exp.it_value = { .tv_sec = 0, .tv_nsec = 1 };
         }
-        if (timerfd_settime(timerfd, 0, &exp, NULL))
+        if (timerfd >= 0 && timerfd_settime(timerfd, 0, &exp, NULL))
         {
             throw std::runtime_error(std::string("timerfd_settime: ") + strerror(errno));
         }
@@ -177,4 +198,14 @@ void timerfd_manager_t::trigger_nearest()
     }
     nearest = -1;
     cb(nearest_id);
+}
+
+void timerfd_manager_t::tick(timespec passed)
+{
+    assert(timerfd == -1);
+    cur.tv_sec += passed.tv_sec;
+    cur.tv_nsec += passed.tv_nsec;
+    cur.tv_sec += (cur.tv_nsec / 1000000000);
+    cur.tv_nsec = (cur.tv_nsec % 1000000000);
+    set_nearest(true);
 }

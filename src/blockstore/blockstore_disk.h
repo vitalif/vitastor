@@ -17,6 +17,10 @@
 // Lower byte of checksum type is its length
 #define BLOCKSTORE_CSUM_CRC32C 0x104
 
+#define MOCK_DATA_FD 1000
+#define MOCK_META_FD 1001
+#define MOCK_JOURNAL_FD 1002
+
 class allocator_t;
 
 struct blockstore_disk_t
@@ -65,6 +69,8 @@ struct blockstore_disk_t
     uint64_t block_count = 0;
     uint32_t clean_entry_bitmap_size = 0;
     uint32_t clean_entry_size = 0, clean_dyn_size = 0; // for meta_v1/2
+
+    bool mock_mode = false;
 
     void parse_config(std::map<std::string, std::string> & config);
     void open_data();

@@ -5,11 +5,12 @@
 #include "blockstore_internal.h"
 #include "crc32c.h"
 
-blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd)
+blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_i *ringloop, timerfd_manager_t *tfd, bool mock_mode)
 {
     assert(sizeof(blockstore_op_private_t) <= BS_OP_PRIVATE_DATA_SIZE);
     this->tfd = tfd;
     this->ringloop = ringloop;
+    dsk.mock_mode = mock_mode;
     ring_consumer.loop = [this]() { loop(); };
     ringloop->register_consumer(&ring_consumer);
     initialized = 0;

@@ -19,11 +19,12 @@ struct timerfd_timer_t
 class __attribute__((visibility("default"))) timerfd_manager_t
 {
     int wait_state = 0;
-    int timerfd;
+    int timerfd = -1;
     int nearest = -1;
     int id = 1;
     int onstack = 0;
     std::vector<timerfd_timer_t> timers;
+    timespec cur = {};
 
     void inc_timer(timerfd_timer_t & t);
     void set_nearest(bool trigger_inline);
@@ -37,4 +38,5 @@ public:
     int set_timer(uint64_t millis, bool repeat, std::function<void(int)> callback);
     int set_timer_us(uint64_t micros, bool repeat, std::function<void(int)> callback);
     void clear_timer(int timer_id);
+    void tick(timespec passed);
 };

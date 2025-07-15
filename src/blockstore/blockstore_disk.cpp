@@ -102,6 +102,15 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     disable_data_fsync = config["disable_data_fsync"] == "true" || config["disable_data_fsync"] == "1" || config["disable_data_fsync"] == "yes";
     disable_meta_fsync = config["disable_meta_fsync"] == "true" || config["disable_meta_fsync"] == "1" || config["disable_meta_fsync"] == "yes";
     disable_journal_fsync = config["disable_journal_fsync"] == "true" || config["disable_journal_fsync"] == "1" || config["disable_journal_fsync"] == "yes";
+    if (mock_mode)
+    {
+        data_device_size = parse_size(config["data_device_size"]);
+        data_device_sect = parse_size(config["data_device_sect"]);
+        meta_device_size = parse_size(config["meta_device_size"]);
+        meta_device_sect = parse_size(config["meta_device_sect"]);
+        journal_device_size = parse_size(config["journal_device_size"]);
+        journal_device_sect = parse_size(config["journal_device_sect"]);
+    }
     // Validate
     if (!data_block_size)
     {
@@ -328,12 +337,15 @@ static int bs_openmode(const std::string & mode)
 
 void blockstore_disk_t::open_data()
 {
-    data_fd = open(data_device.c_str(), bs_openmode(data_io) | O_RDWR);
+    data_fd = mock_mode ? MOCK_DATA_FD : open(data_device.c_str(), bs_openmode(data_io) | O_RDWR);
     if (data_fd == -1)
     {
         throw std::runtime_error("Failed to open data device "+data_device+": "+std::string(strerror(errno)));
     }
-    check_size(data_fd, &data_device_size, &data_device_sect, "data device");
+    if (!mock_mode)
+    {
+        check_size(data_fd, &data_device_size, &data_device_sect, "data device");
+    }
     if (disk_alignment % data_device_sect)
     {
         throw std::runtime_error(
@@ -345,7 +357,7 @@ void blockstore_disk_t::open_data()
     {
         throw std::runtime_error("data_offset exceeds device size = "+std::to_string(data_device_size));
     }
-    if (!disable_flock && flock(data_fd, LOCK_EX|LOCK_NB) != 0)
+    if (!mock_mode && !disable_flock && flock(data_fd, LOCK_EX|LOCK_NB) != 0)
     {
         throw std::runtime_error(std::string("Failed to lock data device: ") + strerror(errno));
     }
@@ -355,17 +367,20 @@ void blockstore_disk_t::open_meta()
 {
     if (meta_device != data_device || meta_io != data_io)
     {
-        meta_fd = open(meta_device.c_str(), bs_openmode(meta_io) | O_RDWR);
+        meta_fd = mock_mode ? MOCK_META_FD : open(meta_device.c_str(), bs_openmode(meta_io) | O_RDWR);
         if (meta_fd == -1)
         {
             throw std::runtime_error("Failed to open metadata device "+meta_device+": "+std::string(strerror(errno)));
         }
-        check_size(meta_fd, &meta_device_size, &meta_device_sect, "metadata device");
+        if (!mock_mode)
+        {
+            check_size(meta_fd, &meta_device_size, &meta_device_sect, "metadata device");
+        }
         if (meta_offset >= meta_device_size)
         {
             throw std::runtime_error("meta_offset exceeds device size = "+std::to_string(meta_device_size));
         }
-        if (!disable_flock && meta_device != data_device && flock(meta_fd, LOCK_EX|LOCK_NB) != 0)
+        if (!mock_mode && !disable_flock && meta_device != data_device && flock(meta_fd, LOCK_EX|LOCK_NB) != 0)
         {
             throw std::runtime_error(std::string("Failed to lock metadata device: ") + strerror(errno));
         }
@@ -393,13 +408,20 @@ void blockstore_disk_t::open_journal()
 {
     if (journal_device != meta_device || journal_io != meta_io)
     {
-        journal_fd = open(journal_device.c_str(), bs_openmode(journal_io) | O_RDWR);
+        journal_fd = mock_mode ? MOCK_JOURNAL_FD : open(journal_device.c_str(), bs_openmode(journal_io) | O_RDWR);
         if (journal_fd == -1)
         {
             throw std::runtime_error("Failed to open journal device "+journal_device+": "+std::string(strerror(errno)));
         }
-        check_size(journal_fd, &journal_device_size, &journal_device_sect, "journal device");
-        if (!disable_flock && journal_device != meta_device && flock(journal_fd, LOCK_EX|LOCK_NB) != 0)
+        if (!mock_mode)
+        {
+            check_size(journal_fd, &journal_device_size, &journal_device_sect, "journal device");
+        }
+        if (journal_offset >= journal_device_size)
+        {
+            throw std::runtime_error("journal_offset exceeds device size = "+std::to_string(journal_device_size));
+        }
+        if (!mock_mode && !disable_flock && journal_device != meta_device && flock(journal_fd, LOCK_EX|LOCK_NB) != 0)
         {
             throw std::runtime_error(std::string("Failed to lock journal device: ") + strerror(errno));
         }
@@ -425,12 +447,15 @@ void blockstore_disk_t::open_journal()
 
 void blockstore_disk_t::close_all()
 {
-    if (data_fd >= 0)
-        close(data_fd);
-    if (meta_fd >= 0 && meta_fd != data_fd)
-        close(meta_fd);
-    if (journal_fd >= 0 && journal_fd != meta_fd)
-        close(journal_fd);
+    if (!mock_mode)
+    {
+        if (data_fd >= 0)
+            close(data_fd);
+        if (meta_fd >= 0 && meta_fd != data_fd)
+            close(meta_fd);
+        if (journal_fd >= 0 && journal_fd != meta_fd)
+            close(journal_fd);
+    }
     data_fd = meta_fd = journal_fd = -1;
 }
 
@@ -438,6 +463,10 @@ void blockstore_disk_t::close_all()
 // so it's not a big deal that we can only run it synchronously.
 int blockstore_disk_t::trim_data(std::function<bool(uint64_t)> is_free)
 {
+    if (mock_mode)
+    {
+        return -EINVAL;
+    }
     int r = 0;
     uint64_t j = 0, i = 0;
     uint64_t discarded = 0;

@@ -124,7 +124,7 @@ class blockstore_impl_t: public blockstore_i
     bool fsyncing_data = false;
 
     bool live = false, queue_stall = false;
-    ring_loop_t *ringloop;
+    ring_loop_i *ringloop;
     timerfd_manager_t *tfd;
 
     bool stop_sync_submitted;
@@ -187,7 +187,7 @@ class blockstore_impl_t: public blockstore_i
 
 public:
 
-    blockstore_impl_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd);
+    blockstore_impl_t(blockstore_config_t & config, ring_loop_i *ringloop, timerfd_manager_t *tfd, bool mock_mode = false);
     ~blockstore_impl_t();
 
     void parse_config(blockstore_config_t & config);
