@@ -65,7 +65,7 @@ target_link_libraries(test_crc32
 )
 
 # test_blockstore
-add_executable(test_blockstore test_blockstore.cpp)
+add_executable(test_blockstore test_blockstore.cpp ringloop_mock.cpp)
 target_link_libraries(test_blockstore vitastor_blk)
 add_test(NAME test_blockstore COMMAND test_blockstore)
 

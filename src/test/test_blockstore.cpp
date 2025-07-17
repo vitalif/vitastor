@@ -2,6 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include <malloc.h>
+#include "ringloop_mock.h"
 #include "blockstore_impl.h"
 
 int main(int narg, char *args[])
@@ -27,7 +28,7 @@ int main(int narg, char *args[])
         assert(ok);
     });
     timerfd_manager_t *tfd = new timerfd_manager_t(nullptr);
-    data_disk = new disk_mock_t(ringloop, 1073741824);
+    data_disk = new disk_mock_t(ringloop, 1073741824, false);
     blockstore_impl_t *bs = new blockstore_impl_t(config, ringloop, tfd, true);
 
     // Wait for blockstore init
