@@ -249,7 +249,7 @@ void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec,
         .copy_flags = ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ? COPY_BUF_JOURNAL : COPY_BUF_DATA) | copy_flags,
         .offset = start,
         .len = end-start,
-        .disk_offset = ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE ? wr->next()->location : wr->location) + blk_start - wr->offset,
+        .disk_offset = ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE ? wr->next()->location : wr->location) + blk_start,
         .disk_len = blk_end - blk_start,
         .wr_lsn = wr->lsn,
     };
@@ -334,7 +334,7 @@ bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
     auto & rv = PRIV(op)->read_vec;
     for (auto & vec: rv)
     {
-        if (vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_SKIP_CSUM))
+        if (vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_SKIP_CSUM|COPY_BUF_ZERO))
         {
             continue;
         }
@@ -351,11 +351,13 @@ bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
             blk_end = blk_end > wr->offset+wr->len ? wr->offset+wr->len : blk_end;
             memcpy(op->buf + vec.offset - op->offset, vec.buf + vec.offset - blk_start, vec.len);
         }
-        if (!heap->calc_block_checksums((uint32_t*)wr->get_checksums(heap), vec.buf, wr->get_int_bitmap(heap),
+        uint8_t *buf = vec.buf ? vec.buf : (op->buf + vec.offset - op->offset);
+        uint32_t *csums = (uint32_t*)(wr->get_checksums(heap) + (blk_start/dsk.csum_block_size)*(dsk.data_csum_type & 0xFF));
+        if (!heap->calc_block_checksums(csums, buf, wr->get_int_bitmap(heap),
             blk_start, blk_end, false, [&](uint32_t mismatch_pos, uint32_t expected_csum, uint32_t real_csum)
             {
                 printf(
-                    "Checksum mismatch in object %jx:%jx v%ju in %s area at offset 0x%jx+%x: %08x vs %08x\n",
+                    "Checksum mismatch in object %jx:%jx v%ju in %s area at offset 0x%jx+%x: %08x expected vs %08x actual\n",
                     op->oid.inode, op->oid.stripe, op->version,
                     (vec.copy_flags & COPY_BUF_JOURNAL) ? "buffer" : "data", vec.disk_offset,
                     mismatch_pos, expected_csum, real_csum

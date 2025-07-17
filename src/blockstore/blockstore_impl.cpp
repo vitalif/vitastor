@@ -320,7 +320,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     int res = heap->list_objects(list_pg, min_inode, max_inode, &result, &stable_count, &unstable_count);
     op->version = stable_count;
     op->retval = res == 0 ? stable_count+unstable_count : -res;
-    op->buf = result;
+    op->buf = (uint8_t*)result;
     FINISH_OP(op);
 }
 

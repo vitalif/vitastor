@@ -566,11 +566,11 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *dat
     bool isset = false;
     while (pos < end)
     {
+        uint32_t prev = pos;
         if (bitmap)
         {
             while (pos < end && pos < block_end)
             {
-                uint32_t prev = pos;
                 while (pos < end && pos < block_end && !(bitmap[pos/dsk->bitmap_granularity/8] & (1 << ((pos/dsk->bitmap_granularity) % 8))))
                     pos += dsk->bitmap_granularity;
                 if (pos > prev && (isset || pos < block_end))
@@ -599,7 +599,7 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *dat
         {
             if (bad_block_cb)
             {
-                bad_block_cb(pos-start, *block_csums, block_crc);
+                bad_block_cb(prev-start, *block_csums, block_crc);
                 res = false;
             }
             else
