@@ -19,6 +19,7 @@ if("${CMAKE_INSTALL_PREFIX}" MATCHES "^/usr/local/?$")
 	endif()
 	set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
 endif()
+set(ENABLE_COVERAGE false CACHE BOOL "Enable code coverage")
 
 add_definitions(-DVITASTOR_VERSION="2.4.4")
 add_definitions(-D_GNU_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fdiagnostics-color=always -fno-omit-frame-pointer -fvisibility=hidden -I ${CMAKE_SOURCE_DIR}/src)
@@ -30,6 +31,11 @@ endif (${WITH_ASAN})
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fvisibility-inlines-hidden")
 set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} -fvisibility-inlines-hidden")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fvisibility-inlines-hidden")
+
+if (${ENABLE_COVERAGE})
+	add_definitions(-coverage)
+	add_link_options(-coverage)
+endif()
 
 set(CMAKE_BUILD_TYPE RelWithDebInfo)
 string(REGEX REPLACE "([\\/\\-]O)[^ \t\r\n]*" "\\13" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
@@ -86,6 +92,8 @@ add_custom_target(test
 )
 # make -j16 -C ../../build test_heap && ../../build/src/test/test_heap
 # make -j16 -C ../../build test_heap && rm -f $(find ../../build -name '*.gcda') && ctest -V -T test -T coverage -R heap --test-dir ../../build && (cd ../../build; gcovr -f ../src --html --html-nested -o coverage/index.html; cd ../src/test)
+# make -j16 -C ../../build test_blockstore && rm -f $(find ../../build -name '*.gcda') && ctest -V -T test -T coverage -R blockstore --test-dir ../../build && (cd ../../build; gcovr -f ../src --html --html-nested -o coverage/index.html; cd ../src/test)
+# kcov --include-path=../../../src ../../kcov ./test_blockstore
 add_dependencies(test build_tests)
 
 include_directories(
