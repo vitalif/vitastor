@@ -275,7 +275,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
 {
     if (PRIV(op)->wait_for == WAIT_SQE)
     {
-        if (ringloop->sqes_left() < PRIV(op)->wait_detail)
+        if (ringloop->space_left() < PRIV(op)->wait_detail)
         {
             // stop submission if there's still no free space
 #ifdef BLOCKSTORE_DEBUG

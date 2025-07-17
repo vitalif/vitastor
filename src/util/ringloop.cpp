@@ -192,7 +192,7 @@ void ring_loop_t::restore(unsigned sqe_tail)
     ring.sq.sqe_tail = sqe_tail;
 }
 
-int ring_loop_t::sqes_left()
+unsigned ring_loop_t::space_left()
 {
     struct io_uring_sq *sq = &ring.sq;
     unsigned int head = io_uring_smp_load_acquire(sq->khead);

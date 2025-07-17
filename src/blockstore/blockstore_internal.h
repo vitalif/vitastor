@@ -27,7 +27,7 @@
 #define IS_INSTANT(st) (((st) & BS_ST_TYPE_MASK) == BS_ST_DELETE || ((st) & BS_ST_INSTANT))
 
 #define BS_SUBMIT_CHECK_SQES(n) \
-    if (ringloop->sqes_left() < (n))\
+    if (ringloop->space_left() < (n))\
     {\
         /* Pause until there are more requests available */\
         PRIV(op)->wait_detail = (n);\
