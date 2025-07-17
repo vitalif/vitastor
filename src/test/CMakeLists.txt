@@ -64,8 +64,11 @@ target_link_libraries(test_crc32
 	vitastor_blk
 )
 
-## test_blockstore, test_shit
-#add_executable(test_blockstore test_blockstore.cpp)
-#target_link_libraries(test_blockstore blockstore)
+# test_blockstore
+add_executable(test_blockstore test_blockstore.cpp)
+target_link_libraries(test_blockstore vitastor_blk)
+add_test(NAME test_blockstore COMMAND test_blockstore)
+
+## test_shit
 #add_executable(test_shit test_shit.cpp osd_peering_pg.cpp)
 #target_link_libraries(test_shit ${LIBURING_LIBRARIES} m)
