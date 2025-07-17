@@ -170,6 +170,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             (obj->get_writes()->flags != (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) ||
             obj->get_writes()->can_be_collapsed(heap))) &&
         // One intent-write is allowed even with fsyncs because BIG_WRITE is always counted as fsynced
+        dsk.disable_meta_fsync &&
         (obj->get_writes()->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
         obj->get_writes()->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) && dsk.disable_data_fsync))
     {
