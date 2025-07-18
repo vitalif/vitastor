@@ -17,6 +17,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     // Modify in-memory state and assign contiguous LSNs
     priv->stab_pos = 0;
     priv->lsn = priv->to_lsn = 0;
+    op->retval = 0;
     while (priv->stab_pos < op->len)
     {
         uint32_t modified_block = 0;

@@ -132,6 +132,14 @@ struct bs_test_t
     }
 };
 
+static bool memcheck(uint8_t *buf, uint8_t byte, size_t len)
+{
+    for (size_t i = 0; i < len; i++)
+        if (buf[i] != byte)
+            return false;
+    return true;
+}
+
 static void test_simple()
 {
     printf("\n-- test_simple\n");
@@ -274,10 +282,144 @@ static void test_fsync(bool separate_meta)
     free(op2.buf);
 }
 
+static void test_intent_over_unstable()
+{
+    printf("\n-- test_intent_over_unstable\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.init();
+
+    // Write
+    printf("writing\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 20480;
+    op.len = 4096;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+    memset(op.buf, 0xaa, 4096);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Write again
+    printf("writing again\n");
+    op.version = 2;
+    op.offset = 28*1024;
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    free(op.buf);
+}
+
+static void test_padded_csum_intent()
+{
+    printf("\n-- test_padded_csum_intent\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["csum_block_size"] = "16384";
+    test.init();
+
+    // Write
+    printf("writing\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 8192;
+    op.len = 4096;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+    memset(op.buf, 0xaa, 4096);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Read
+    printf("reading\n");
+    blockstore_op_t op2;
+    op2.opcode = BS_OP_READ;
+    op2.oid = { .inode = 1, .stripe = 0 };
+    op2.version = UINT64_MAX;
+    op2.offset = 0;
+    op2.len = 128*1024;
+    op2.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    test.exec_op(&op2);
+    assert(op2.retval == op2.len);
+    assert(is_zero(op2.buf, 8*1024));
+    assert(memcmp(op2.buf+8*1024, op.buf, 4*1024) == 0);
+    assert(is_zero(op2.buf+12*1024, 116*1024));
+
+    // Write again (intent)
+    printf("writing (intent)\n");
+    op.version = 2;
+    op.offset = 28*1024;
+    memset(op.buf, 0xbb, 4096);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Write again (small because uncompactable)
+    printf("writing (small)\n");
+    op.version = 3;
+    op.offset = 60*1024;
+    memset(op.buf, 0xcc, 4096);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Check that these are really big+intent+small writes
+    // (intent is not collapsible because of csum_block_size > bitmap_granularity)
+    heap_object_t *obj = test.bs->heap->read_entry((object_id){ .inode = 1, .stripe = 0 }, NULL);
+    assert(obj);
+    assert(!obj->get_writes()->next()->next()->next());
+    assert(obj->get_writes()->flags == BS_HEAP_SMALL_WRITE);
+    assert(obj->get_writes()->next()->flags == BS_HEAP_INTENT_WRITE);
+    assert(obj->get_writes()->next()->next()->flags == BS_HEAP_BIG_WRITE);
+
+    // Commit
+    printf("commit version 3\n");
+    op.opcode = BS_OP_STABLE;
+    op.len = 1;
+    *((obj_ver_id*)op.buf) = {
+        .oid = { .inode = 1, .stripe = 0 },
+        .version = 3,
+    };
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    assert(test.bs->heap->get_compact_queue_size());
+
+    // Trigger & wait compaction
+    test.bs->flusher->request_trim();
+    // FIXME: Не зацикливаться при обломе
+    while (test.bs->heap->get_compact_queue_size())
+        test.ringloop->loop();
+    test.bs->flusher->release_trim();
+
+    // Read again and check
+    printf("reading compacted\n");
+    op2.version = UINT64_MAX;
+    test.exec_op(&op2);
+    assert(op2.retval == op2.len);
+    assert(memcheck(op2.buf, 0, 8*1024));
+    assert(memcheck(op2.buf+8*1024, 0xaa, 4*1024));
+    assert(memcheck(op2.buf+12*1024, 0, 16*1024));
+    assert(memcheck(op2.buf+28*1024, 0xbb, 4*1024));
+    assert(memcheck(op2.buf+32*1024, 0, 28*1024));
+    assert(memcheck(op2.buf+60*1024, 0xcc, 4*1024));
+    assert(memcheck(op2.buf+64*1024, 0, 64*1024));
+
+    obj = test.bs->heap->read_entry((object_id){ .inode = 1, .stripe = 0 }, NULL);
+    assert(!obj->get_writes()->next());
+
+    free(op.buf);
+    free(op2.buf);
+}
+
 int main(int narg, char *args[])
 {
     test_simple();
     test_fsync(false);
     test_fsync(true);
+    test_intent_over_unstable();
+    test_padded_csum_intent();
     return 0;
 }

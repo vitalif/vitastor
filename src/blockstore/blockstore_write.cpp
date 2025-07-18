@@ -177,13 +177,14 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     {
         // Direct intent-write
         BS_SUBMIT_CHECK_SQES(1);
-        for (auto wr = obj->get_writes(); wr; wr = wr->next())
+        if ((obj->get_writes()->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
         {
-            assert(wr->flags != BS_HEAP_BIG_WRITE);
-            if (wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE))
-            {
-                PRIV(op)->location = wr->location;
-            }
+            PRIV(op)->location = obj->get_writes()->location;
+        }
+        else
+        {
+            assert((obj->get_writes()->next()->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE);
+            PRIV(op)->location = obj->get_writes()->next()->location;
         }
 process_intent:
         uint8_t wr_buf[heap->get_max_write_entry_size()];

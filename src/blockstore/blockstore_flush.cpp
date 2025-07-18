@@ -56,6 +56,7 @@ journal_flusher_t::~journal_flusher_t()
 
 journal_flusher_co::~journal_flusher_co()
 {
+    free_buffers();
     if (csum_buf)
     {
         free(csum_buf);
@@ -235,7 +236,7 @@ resume_1:
 #endif
     flusher->active_flushers++;
     // Scan versions to flush
-    read_vec.clear();
+    free_buffers();
     for (auto wr = begin_wr; wr != end_wr; wr = wr->next())
     {
         bs->prepare_read(read_vec, cur_obj, wr, 0, bs->dsk.data_block_size);
@@ -295,18 +296,20 @@ resume_8:
     else if (res == ENOENT || res == EDOM)
     {
         // Abort compaction
-        goto release_oid;
+        flusher->active_flushers--;
+        goto resume_0;
     }
     assert(res == 0);
     // Submit data writes
     copy_count = 0;
     for (i = 0; i < read_vec.size(); i++)
     {
-        if (read_vec[i].copy_flags & COPY_BUF_JOURNAL)
+        if ((read_vec[i].copy_flags & COPY_BUF_JOURNAL) &&
+            !(read_vec[i].copy_flags & COPY_BUF_COALESCED))
         {
             assert(read_vec[i].buf);
             await_sqe(9);
-            data->iov = (struct iovec){ read_vec[i].buf, (size_t)read_vec[i].len };
+            data->iov = (struct iovec){ (bs->dsk.inmemory_journal ? bs->buffer_area + read_vec[i].disk_offset : read_vec[i].buf), (size_t)read_vec[i].len };
             data->callback = simple_callback_w;
             io_uring_prep_writev(sqe, bs->dsk.data_fd, &data->iov, 1, bs->dsk.data_offset + clean_loc + read_vec[i].offset);
             wait_count++;
@@ -328,7 +331,7 @@ resume_10:
     if (!cur_obj)
     {
         // Abort compaction
-        goto release_oid;
+        goto resume_0;
     }
     calc_block_checksums();
     if (read_to_fill_incomplete)
@@ -341,8 +344,7 @@ resume_24:
         }
     }
     bs->heap->mark_object_compacted(cur_obj, compact_lsn);
-    // Done, free all buffers
-    free_buffers();
+    // Done
 #ifdef BLOCKSTORE_DEBUG
     printf("Compacted %jx:%jx l%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe, compact_lsn, copy_count);
 #endif
@@ -360,7 +362,6 @@ resume_15:
         if (!trim_lsn(11))
             return false;
     }
-release_oid:
     if (should_repeat)
     {
         // Flush the same object again
@@ -374,20 +375,23 @@ void journal_flusher_co::iterate_partial_overwrites(std::function<int(int, uint3
 {
     int prev = 0;
     uint32_t prev_begin = 0, prev_end = 0;
-    for (int i = 0; i < read_vec.size() && !(read_vec[i].copy_flags & COPY_BUF_CSUM_FILL); i++)
+    for (int i = 0; i < read_vec.size(); i++)
     {
-        if (read_vec[i].copy_flags != (COPY_BUF_JOURNAL|COPY_BUF_COALESCED))
+        if (!(read_vec[i].copy_flags & COPY_BUF_COALESCED))
         {
             if (read_vec[i].offset > prev_end)
             {
-                i += cb(prev, prev_begin, prev_end);
+                if (prev_end > prev_begin && ((prev_begin % bs->dsk.csum_block_size) || (prev_end % bs->dsk.csum_block_size)))
+                {
+                    i += cb(prev, prev_begin, prev_end);
+                }
                 prev = i;
                 prev_begin = read_vec[i].offset;
             }
             prev_end = read_vec[i].offset + read_vec[i].len;
         }
     }
-    if (prev_end > prev_begin)
+    if (prev_end > prev_begin && ((prev_begin % bs->dsk.csum_block_size) || (prev_end % bs->dsk.csum_block_size)))
     {
         cb(prev, prev_begin, prev_end);
     }
@@ -401,14 +405,12 @@ void journal_flusher_co::iterate_checksum_holes(std::function<void(int, uint32_t
         if ((prev_begin % bs->dsk.csum_block_size) &&
             (prev_begin / bs->dsk.csum_block_size) != (prev_end / bs->dsk.csum_block_size))
         {
-            cb(pos, prev_begin, prev_begin + bs->dsk.csum_block_size - prev_begin%bs->dsk.csum_block_size);
+            cb(pos, prev_begin - prev_begin%bs->dsk.csum_block_size, prev_begin);
             r++;
         }
-        if ((prev_end % bs->dsk.csum_block_size) ||
-            (prev_begin % bs->dsk.csum_block_size) &&
-            (prev_end / bs->dsk.csum_block_size) == (prev_begin / bs->dsk.csum_block_size))
+        if (prev_end % bs->dsk.csum_block_size)
         {
-            cb(i, prev_end - (prev_end % bs->dsk.csum_block_size ? (prev_end % bs->dsk.csum_block_size) : bs->dsk.csum_block_size), prev_end);
+            cb(i, prev_end, prev_end - (prev_end % bs->dsk.csum_block_size) + bs->dsk.csum_block_size);
             r++;
         }
         return r;
@@ -420,17 +422,18 @@ void journal_flusher_co::fill_partial_checksum_blocks()
     iterate_checksum_holes([&](int vec_pos, uint32_t hole_start, uint32_t hole_end)
     {
         read_to_fill_incomplete = true;
-        int out_pos = read_vec.size();
-        bs->prepare_disk_read(read_vec, out_pos, cur_obj, end_wr,
+        bs->prepare_disk_read(read_vec, read_vec.size(), cur_obj, end_wr,
             hole_start - hole_start % bs->dsk.csum_block_size, hole_start - hole_start % bs->dsk.csum_block_size + bs->dsk.csum_block_size,
             hole_start - hole_start % bs->dsk.csum_block_size, hole_start - hole_start % bs->dsk.csum_block_size + bs->dsk.csum_block_size,
             COPY_BUF_CSUM_FILL | (bs->padded_csum_update ? 0 : COPY_BUF_SKIP_CSUM));
-        out_pos--;
+        auto & vec = read_vec[read_vec.size()-1];
+        if (!vec.buf)
+            vec.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, vec.disk_len);
         read_vec.insert(read_vec.begin()+vec_pos, (copy_buffer_t){
             .copy_flags = COPY_BUF_JOURNAL|COPY_BUF_COALESCED,
             .offset = hole_start,
             .len = hole_end-hole_start,
-            .buf = read_vec[out_pos].buf + hole_start - read_vec[out_pos].offset,
+            .buf = vec.buf + hole_start - vec.offset,
         });
     });
 }
@@ -458,7 +461,7 @@ int journal_flusher_co::check_and_punch_checksums()
         return 0;
     }
     // Verify data checksums
-    cur_obj = bs->heap->read_locked_entry(cur_oid, copy_id);
+    cur_obj = bs->heap->read_locked_entry(cur_oid, copy_id); // FIXME locks can be removed from flusher
     bool csum_ok = true;
     for (int i = 0; i < read_vec.size(); i++)
     {
@@ -469,9 +472,11 @@ int journal_flusher_co::check_and_punch_checksums()
             while (wr && wr->lsn != vec.wr_lsn)
                 wr = wr->next();
             assert(wr);
+            uint32_t *csums = (uint32_t*)(wr->get_checksums(bs->heap)
+                + (vec.offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)
+                - (((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE) ? 0 : (wr->offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)));
             bs->heap->calc_block_checksums(
-                (uint32_t*)((uint8_t*)wr->get_checksums(bs->heap) + vec.offset/bs->dsk.csum_block_size*(bs->dsk.data_csum_type & 0xFF)),
-                vec.buf, wr->get_int_bitmap(bs->heap), vec.offset, vec.offset+vec.len, false,
+                csums, vec.buf, wr->get_int_bitmap(bs->heap), vec.offset, vec.offset+vec.len, false,
                 [&](uint32_t mismatch_pos, uint32_t expected_csum, uint32_t real_csum)
                 {
                     printf("Checksum mismatch in object %jx:%jx v%ju in %s area at offset 0x%jx: got %08x, expected %08x\n",
@@ -546,7 +551,7 @@ void journal_flusher_co::calc_block_checksums()
     for (auto it = read_vec.begin(); it != read_vec.end(); it++)
     {
         if (it->copy_flags & COPY_BUF_CSUM_FILL)
-            break;
+            continue;
         if (block_done == 0)
         {
             // `read_vec` should contain aligned items, possibly split into pieces
@@ -637,6 +642,8 @@ bool journal_flusher_co::read_buffered(int wait_base)
         {
             await_sqe(0);
             auto & vec = read_vec[i];
+            if (!vec.buf)
+                vec.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, vec.disk_len);
             data->iov = (struct iovec){ vec.buf, (size_t)vec.disk_len };
             wait_count++;
             io_uring_prep_readv(

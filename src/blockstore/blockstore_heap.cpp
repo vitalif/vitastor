@@ -1366,7 +1366,9 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
     else if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE &&
         (first_wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE)
     {
+        // FIXME: All other types of writes should also purge&merge the intent write
         auto second_wr = first_wr->next();
+        second_wr->version = first_wr->version;
         bitmap_set(second_wr->get_int_bitmap(this), first_wr->offset, first_wr->len, dsk->bitmap_granularity);
         if (dsk->csum_block_size)
         {

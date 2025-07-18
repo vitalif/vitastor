@@ -195,7 +195,7 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
         else if (dsk.csum_block_size <= dsk.bitmap_granularity)
         {
             // simple disk read
-            prepare_disk_read(read_vec, pos, obj, wr, start, end, start, end, 0);
+            prepare_disk_read(read_vec, pos++, obj, wr, start, end, start, end, 0);
         }
         else
         {
@@ -221,7 +221,7 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
                 blk_end == end && blk_start == start)
             {
                 // single block, two partial blocks, or any number of full blocks
-                prepare_disk_read(read_vec, pos, obj, wr, blk_start, blk_end, start, end, skip_csum);
+                prepare_disk_read(read_vec, pos++, obj, wr, blk_start, blk_end, start, end, skip_csum);
             }
             else
             {
@@ -229,18 +229,18 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
                 uint32_t full_start = (blk_start != start ? blk_start+dsk.csum_block_size : blk_start);
                 uint32_t full_end = (blk_end != end ? blk_end-dsk.csum_block_size : blk_end);
                 if (blk_start != start)
-                    prepare_disk_read(read_vec, pos, obj, wr, blk_start, full_start, start, full_start, skip_csum);
+                    prepare_disk_read(read_vec, pos++, obj, wr, blk_start, full_start, start, full_start, skip_csum);
                 if (full_start > full_end)
-                    prepare_disk_read(read_vec, pos, obj, wr, full_start, full_end, full_start, full_end, skip_csum);
+                    prepare_disk_read(read_vec, pos++, obj, wr, full_start, full_end, full_start, full_end, skip_csum);
                 if (blk_end != end)
-                    prepare_disk_read(read_vec, pos, obj, wr, full_end, blk_end, full_end, end, skip_csum);
+                    prepare_disk_read(read_vec, pos++, obj, wr, full_end, blk_end, full_end, end, skip_csum);
             }
         }
     });
     return res;
 }
 
-void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec, int & pos, heap_object_t *obj, heap_write_t *wr,
+void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec, int pos, heap_object_t *obj, heap_write_t *wr,
     uint32_t blk_start, uint32_t blk_end, uint32_t start, uint32_t end, uint32_t copy_flags)
 {
     // Only one INTENT_WRITE is allowed at a time
@@ -256,19 +256,19 @@ void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec,
     if (blk_start != start || blk_end != end)
     {
         vec.copy_flags |= COPY_BUF_PADDED;
-        if (read_vec.size() > pos && (read_vec[pos].copy_flags & ~COPY_BUF_CSUM_FILL) == vec.copy_flags &&
-            read_vec[pos].offset >= blk_start && read_vec[pos].offset+read_vec[pos].len <= blk_end)
+        if (pos > 0 && read_vec.size() >= pos && (read_vec[pos-1].copy_flags & ~COPY_BUF_CSUM_FILL) == vec.copy_flags &&
+            read_vec[pos-1].offset >= blk_start && read_vec[pos-1].offset+read_vec[pos-1].len <= blk_end)
         {
             // This is the same block as the previous one, we can read it only once
             vec.copy_flags |= COPY_BUF_COALESCED;
-            vec.buf = read_vec[pos].buf;
+            vec.buf = read_vec[pos-1].buf;
         }
         else
         {
             vec.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, blk_end-blk_start);
         }
     }
-    read_vec.insert(read_vec.begin() + (pos++), vec);
+    read_vec.insert(read_vec.begin() + pos, vec);
 }
 
 void blockstore_impl_t::find_holes(std::vector<copy_buffer_t> & read_vec,

@@ -76,6 +76,7 @@ struct blockstore_op_private_t
 
 class blockstore_impl_t: public blockstore_i
 {
+public:
     blockstore_disk_t dsk;
 
     /******* OPTIONS *******/
@@ -134,10 +135,6 @@ class blockstore_impl_t: public blockstore_i
         return ringloop->get_sqe();
     }
 
-    friend class blockstore_init_meta;
-    friend class journal_flusher_t;
-    friend class journal_flusher_co;
-
     void open_data();
     void open_meta();
     void open_journal();
@@ -159,7 +156,7 @@ class blockstore_impl_t: public blockstore_i
     uint32_t prepare_read_with_bitmaps(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end);
     uint32_t prepare_read_zero(std::vector<copy_buffer_t> & read_vec, uint32_t start, uint32_t end);
     uint32_t prepare_read_simple(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end);
-    void prepare_disk_read(std::vector<copy_buffer_t> & read_vec, int & pos, heap_object_t *obj, heap_write_t *wr,
+    void prepare_disk_read(std::vector<copy_buffer_t> & read_vec, int pos, heap_object_t *obj, heap_write_t *wr,
         uint32_t blk_start, uint32_t blk_end, uint32_t start, uint32_t end, uint32_t copy_flags);
     void find_holes(std::vector<copy_buffer_t> & read_vec, uint32_t item_start, uint32_t item_end,
         std::function<void(int&, uint32_t, uint32_t)> callback);
@@ -186,7 +183,7 @@ class blockstore_impl_t: public blockstore_i
     // List
     void process_list(blockstore_op_t *op);
 
-public:
+/*public:*/
 
     blockstore_impl_t(blockstore_config_t & config, ring_loop_i *ringloop, timerfd_manager_t *tfd, bool mock_mode = false);
     ~blockstore_impl_t();

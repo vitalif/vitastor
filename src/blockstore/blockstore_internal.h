@@ -41,10 +41,10 @@
 // Suspend operation until there are <wait_detail> bytes of free space in the journal on disk
 #define WAIT_COMPACTION 2
 
-#define COPY_BUF_JOURNAL 1
-#define COPY_BUF_DATA 2
-#define COPY_BUF_ZERO 4
-#define COPY_BUF_CSUM_FILL 8
-#define COPY_BUF_COALESCED 16
-#define COPY_BUF_PADDED 32
-#define COPY_BUF_SKIP_CSUM 64
+#define COPY_BUF_JOURNAL    0x01
+#define COPY_BUF_DATA       0x02
+#define COPY_BUF_ZERO       0x04
+#define COPY_BUF_CSUM_FILL  0x08
+#define COPY_BUF_COALESCED  0x10
+#define COPY_BUF_PADDED     0x20
+#define COPY_BUF_SKIP_CSUM  0x40
