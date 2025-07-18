@@ -55,8 +55,9 @@ uint32_t heap_write_t::get_csum_size(blockstore_heap_t *heap)
 
 bool heap_write_t::needs_recheck(blockstore_heap_t *heap)
 {
-    return len > 0 && lsn > heap->compacted_lsn && (flags == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE)
-        || flags == BS_HEAP_SMALL_WRITE || flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE));
+    return len > 0 && lsn > heap->compacted_lsn &&
+        ((flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ||
+        (flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE);
 }
 
 bool heap_write_t::needs_compact(blockstore_heap_t *heap)
@@ -418,6 +419,14 @@ skip_object:
                     else if (!calc_checksums(wr, buffer_area + wr->location, false))
                     {
                         // entry is invalid (not fully written before OSD crash) - remove it and all newer (previous) entries too
+                        if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE &&
+                            wr->next() && (wr->next()->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE &&
+                            wr->next()->version == wr->version)
+                        {
+                            // BIG_WRITE+INTENT_WRITE pair
+                            wr = wr->next();
+                            wr_i++;
+                        }
                         remove_wr = wr;
                         remove_i = wr_i;
                     }
@@ -636,12 +645,12 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
         {
             if (wr->needs_recheck(this))
             {
-                bool is_intent = (wr->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE));
+                bool is_intent = (wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE;
                 uint64_t loc = wr->location;
                 if (is_intent)
                 {
                     auto next_wr = wr->next();
-                    assert(next_wr && next_wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
+                    assert(next_wr && next_wr->flags == (BS_HEAP_BIG_WRITE | (wr->flags & BS_HEAP_STABLE)));
                     loc = wr->offset + next_wr->location;
                 }
                 recheck_in_progress++;
@@ -664,6 +673,14 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
                         }
                         if (wr && !calc_checksums(wr, buf, false))
                         {
+                            if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE &&
+                                wr->next() && (wr->next()->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE &&
+                                wr->next()->version == wr->version)
+                            {
+                                // BIG_WRITE+INTENT_WRITE pair
+                                wr = wr->next();
+                                wr_i++;
+                            }
                             // Erase all writes to the object from this one to the newest
                             if (!wr->next_pos)
                             {
@@ -1291,13 +1308,13 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
         // Stable overwrites are not allowed over unstable
         return EINVAL;
     }
-    if (wr->flags == BS_HEAP_INTENT_WRITE)
+    if (wr->flags == BS_HEAP_INTENT_WRITE && (first_wr->flags & BS_HEAP_STABLE))
     {
-        // Unstable intent writes are not allowed
+        // Unstable intent writes over stable are not allowed
         return EINVAL;
     }
-    if (wr->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) &&
-        first_wr->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) &&
+    if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE &&
+        (first_wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE &&
         !first_wr->can_be_collapsed(this))
     {
         // Intent writes are not allowed over noncollapsible intent writes

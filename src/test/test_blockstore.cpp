@@ -2,42 +2,145 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include <malloc.h>
+#include "str_util.h"
 #include "ringloop_mock.h"
 #include "blockstore_impl.h"
 
-int main(int narg, char *args[])
+struct bs_test_t
 {
     blockstore_config_t config;
-    config["data_device"] = "./test_data.bin";
-    config["data_device_size"] = "1073741824";
-    config["data_device_sect"] = "4096";
-    config["meta_offset"] = "0";
-    config["journal_offset"] = "16777216";
-    config["data_offset"] = "33554432";
-    config["disable_data_fsync"] = "1";
-    config["immediate_commit"] = "all";
-    config["log_level"] = "10";
-    config["data_csum_type"] = "crc32c";
-    config["csum_block_size"] = "4096";
-
     disk_mock_t *data_disk = NULL;
-    ring_loop_mock_t *ringloop = new ring_loop_mock_t(RINGLOOP_DEFAULT_SIZE, [&](io_uring_sqe *sqe)
-    {
-        assert(sqe->fd == MOCK_DATA_FD);
-        bool ok = data_disk->submit(sqe);
-        assert(ok);
-    });
-    timerfd_manager_t *tfd = new timerfd_manager_t(nullptr);
-    data_disk = new disk_mock_t(ringloop, 1073741824, false);
-    blockstore_impl_t *bs = new blockstore_impl_t(config, ringloop, tfd, true);
+    disk_mock_t *meta_disk = NULL;
+    ring_loop_mock_t *ringloop = NULL;
+    timerfd_manager_t *tfd = NULL;
+    blockstore_impl_t *bs = NULL;
 
-    // Wait for blockstore init
-    while (!bs->is_started())
-        ringloop->loop();
-    printf("init completed\n");
+    ~bs_test_t()
+    {
+        destroy();
+    }
+
+    void destroy_bs()
+    {
+        if (bs)
+        {
+            delete bs;
+            bs = NULL;
+        }
+    }
+
+    void destroy()
+    {
+        while (bs && !bs->is_safe_to_stop())
+            ringloop->loop();
+        destroy_bs();
+        if (tfd)
+        {
+            delete tfd;
+            tfd = NULL;
+        }
+        if (meta_disk)
+        {
+            delete meta_disk;
+            meta_disk = NULL;
+        }
+        if (data_disk)
+        {
+            delete data_disk;
+            data_disk = NULL;
+        }
+        if (ringloop)
+        {
+            delete ringloop;
+            ringloop = NULL;
+        }
+    }
+
+    void default_cfg()
+    {
+        config["data_device"] = "./test_data.bin";
+        config["data_device_size"] = "1073741824";
+        config["data_device_sect"] = "4096";
+        config["meta_offset"] = "0";
+        config["journal_offset"] = "16777216";
+        config["data_offset"] = "33554432";
+        config["disable_data_fsync"] = "1";
+        config["immediate_commit"] = "all";
+        config["log_level"] = "10";
+        config["data_csum_type"] = "crc32c";
+        config["csum_block_size"] = "4096";
+    }
+
+    void init()
+    {
+        if (!ringloop)
+        {
+            ringloop = new ring_loop_mock_t(RINGLOOP_DEFAULT_SIZE, [&](io_uring_sqe *sqe)
+            {
+                if (sqe->fd == MOCK_DATA_FD)
+                {
+                    bool ok = data_disk->submit(sqe);
+                    assert(ok);
+                }
+                else if (sqe->fd == MOCK_META_FD)
+                {
+                    bool ok = meta_disk->submit(sqe);
+                    assert(ok);
+                }
+                else
+                {
+                    assert(0);
+                }
+            });
+        }
+        if (!tfd)
+        {
+            tfd = new timerfd_manager_t(nullptr);
+        }
+        if (!data_disk)
+        {
+            data_disk = new disk_mock_t(ringloop, parse_size(config["data_device_size"]), config["disable_data_fsync"] != "1");
+            data_disk->clear(0, parse_size(config["data_offset"]));
+        }
+        uint64_t meta_size = parse_size(config["meta_device_size"]);
+        if (meta_size && !meta_disk)
+        {
+            meta_disk = new disk_mock_t(ringloop, meta_size, config["disable_meta_fsync"] != "1");
+            meta_disk->clear(0, meta_size);
+        }
+        if (!bs)
+        {
+            bs = new blockstore_impl_t(config, ringloop, tfd, true);
+            while (!bs->is_started())
+                ringloop->loop();
+            printf("blockstore initialized\n");
+        }
+    }
+
+    void exec_op(blockstore_op_t *op)
+    {
+        bool done = false;
+        op->callback = [&](blockstore_op_t *op)
+        {
+            printf("op opcode=%lu completed retval=%d\n", op->opcode, op->retval);
+            done = true;
+        };
+        bs->enqueue_op(op);
+        while (!done)
+            ringloop->loop();
+        op->callback = nullptr;
+    }
+};
+
+static void test_simple()
+{
+    printf("\n-- test_simple\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.init();
 
     // Write
-    bool done = false;
     blockstore_op_t op;
     uint64_t version = 0;
     op.opcode = BS_OP_WRITE;
@@ -47,51 +150,35 @@ int main(int narg, char *args[])
     op.len = 4096;
     op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
     memset(op.buf, 0xaa, 4096);
-    op.callback = [&](blockstore_op_t *op)
-    {
-        printf("op completed code=%lu retval=%d\n", op->opcode, op->retval);
-        done = true;
-    };
-    bs->enqueue_op(&op);
-    while (!done)
-        ringloop->loop();
+    test.exec_op(&op);
     assert(op.retval == op.len);
 
     // Sync
     printf("version %ju written, syncing\n", op.version);
-    done = false;
     version = op.version;
     op.opcode = BS_OP_SYNC;
-    bs->enqueue_op(&op);
-    while (!done)
-        ringloop->loop();
+    test.exec_op(&op);
     assert(op.retval == 0);
 
     // Commit
     printf("commit version %ju\n", version);
-    done = false;
     op.opcode = BS_OP_STABLE;
     op.len = 1;
     *((obj_ver_id*)op.buf) = {
         .oid = { .inode = 1, .stripe = 0 },
         .version = version,
     };
-    bs->enqueue_op(&op);
-    while (!done)
-        ringloop->loop();
+    test.exec_op(&op);
     assert(op.retval == 0);
 
     // Read
     printf("reading 0-128K\n");
-    done = false;
     op.opcode = BS_OP_READ;
     op.oid = { .inode = 1, .stripe = 0 };
     op.version = UINT64_MAX;
     op.offset = 0;
     op.len = 128*1024;
-    bs->enqueue_op(&op);
-    while (!done)
-        ringloop->loop();
+    test.exec_op(&op);
     assert(op.retval == op.len);
     uint8_t *cmp = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
     memset(cmp, 0, 128*1024);
@@ -106,13 +193,91 @@ int main(int narg, char *args[])
     free(cmp);
 
     free(op.buf);
+}
 
-    // Destroy
-    while (!bs->is_safe_to_stop())
-        ringloop->loop();
-    delete bs;
-    delete tfd;
-    delete data_disk;
-    delete ringloop;
+static void test_fsync(bool separate_meta)
+{
+    printf("\n-- test_fsync%s\n", separate_meta ? " separate_meta" : "");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    if (separate_meta)
+    {
+        test.config["meta_device"] = "./test_meta.bin";
+        test.config["disable_meta_fsync"] = "1";
+        test.config["meta_device_size"] = "33554432";
+        test.config["meta_device_sect"] = "4096";
+        test.config["data_offset"] = "0";
+    }
+    test.init();
+
+    // Write
+    printf("writing\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 16384;
+    op.len = 4096;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+    memset(op.buf, 0xaa, 4096);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Destroy and restart without sync
+    printf("destroying\n");
+    test.destroy_bs();
+    test.data_disk->discard_buffers(true, 0);
+    test.init();
+
+    // Check ENOENT
+    printf("checking for ENOENT\n");
+    blockstore_op_t op2;
+    op2.opcode = BS_OP_READ;
+    op2.oid = { .inode = 1, .stripe = 0 };
+    op2.version = UINT64_MAX;
+    op2.offset = 0;
+    op2.len = 128*1024;
+    op2.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    test.exec_op(&op2);
+    assert(op2.retval == -ENOENT);
+
+    // Write again
+    printf("writing again\n");
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Sync
+    printf("version %ju written, syncing\n", op.version);
+    op.opcode = BS_OP_SYNC;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+
+    // Discard and restart again
+    printf("destroying again\n");
+    test.destroy_bs();
+    test.data_disk->discard_buffers(true, 0);
+    test.init();
+
+    // Check that it's present now
+    printf("checking for OK\n");
+    op2.version = UINT64_MAX;
+    test.exec_op(&op2);
+    assert(op2.retval == op2.len);
+    assert(is_zero(op2.buf, 16*1024));
+    assert(memcmp(op2.buf+16*1024, op.buf, 4*1024) == 0);
+    assert(is_zero(op2.buf+20*1024, 108*1024));
+
+    free(op.buf);
+    free(op2.buf);
+}
+
+int main(int narg, char *args[])
+{
+    test_simple();
+    test_fsync(false);
+    test_fsync(true);
     return 0;
 }

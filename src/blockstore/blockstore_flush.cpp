@@ -169,7 +169,6 @@ bool journal_flusher_co::loop()
     else if (wait_state == 22) goto resume_22;
     else if (wait_state == 23) goto resume_23;
     else if (wait_state == 24) goto resume_24;
-    else if (wait_state == 25) goto resume_25;
 resume_0:
     wait_state = 0;
     cur_oid = {};
@@ -179,7 +178,6 @@ resume_0:
     {
 resume_21:
 resume_22:
-resume_23:
         res = fsync_buffer(21);
         if (!res)
         {
@@ -335,9 +333,9 @@ resume_10:
     calc_block_checksums();
     if (read_to_fill_incomplete)
     {
+resume_23:
 resume_24:
-resume_25:
-        if (!write_meta_block(24))
+        if (!write_meta_block(23))
         {
             return false;
         }
@@ -698,8 +696,7 @@ int journal_flusher_co::fsync_buffer(int wait_base)
 {
     if (wait_state == wait_base)        goto resume_0;
     else if (wait_state == wait_base+1) goto resume_1;
-    else if (wait_state == wait_base+2) goto resume_2;
-    if (!bs->unsynced_big_write_count && !bs->unsynced_small_write_count)
+    if (bs->dsk.disable_journal_fsync && bs->dsk.disable_meta_fsync && bs->dsk.disable_data_fsync || !bs->unsynced_big_write_count && !bs->unsynced_small_write_count)
     {
         return 1;
     }
@@ -707,32 +704,20 @@ int journal_flusher_co::fsync_buffer(int wait_base)
     {
         return 0;
     }
-    compact_lsn = bs->heap->get_completed_lsn();
     flusher->active_flushers++;
     flusher->syncing_buffer++;
+resume_0:
     assert(!wait_count);
-    if (!bs->dsk.disable_meta_fsync)
+    compact_lsn = bs->heap->get_completed_lsn();
+    if (!bs->submit_fsyncs(wait_count))
     {
-        bs->unsynced_big_write_count = 0;
-        await_sqe(0);
-        data->iov = { 0 };
-        data->callback = simple_callback_w;
-        io_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
-        wait_count++;
+        wait_state = wait_base+0;
+        return 0;
     }
-    if (bs->unsynced_small_write_count > 0 && !bs->dsk.disable_journal_fsync && bs->dsk.journal_fd != bs->dsk.meta_fd)
-    {
-        bs->unsynced_small_write_count = 0;
-        await_sqe(1);
-        data->iov = { 0 };
-        data->callback = simple_callback_w;
-        io_uring_prep_fsync(sqe, bs->dsk.journal_fd, IORING_FSYNC_DATASYNC);
-        wait_count++;
-    }
-resume_2:
+resume_1:
     if (wait_count > 0)
     {
-        wait_state = wait_base+2;
+        wait_state = wait_base+1;
         return 0;
     }
     bs->heap->mark_lsn_fsynced(compact_lsn);

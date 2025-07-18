@@ -124,10 +124,10 @@ class blockstore_impl_t: public blockstore_i
     bool fsyncing_data = false;
 
     bool live = false, queue_stall = false;
-    ring_loop_i *ringloop;
-    timerfd_manager_t *tfd;
+    ring_loop_i *ringloop = NULL;
+    timerfd_manager_t *tfd = NULL;
 
-    bool stop_sync_submitted;
+    bool stop_sync_submitted = false;
 
     inline struct io_uring_sqe* get_sqe()
     {
@@ -177,6 +177,7 @@ class blockstore_impl_t: public blockstore_i
 
     // Sync
     int continue_sync(blockstore_op_t *op);
+    bool submit_fsyncs(int & wait_count);
     int do_sync(blockstore_op_t *op, int base_state);
 
     // Stabilize

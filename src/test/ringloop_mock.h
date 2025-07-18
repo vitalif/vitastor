@@ -56,6 +56,7 @@ public:
     bool trace = false;
     disk_mock_t(ring_loop_mock_t *loop, size_t size, bool buffered);
     ~disk_mock_t();
+    void clear(size_t offset, size_t len);
     void discard_buffers(bool all, uint32_t seed);
     bool submit(io_uring_sqe *sqe);
 };

@@ -3,6 +3,7 @@
 
 #include "blockstore_impl.h"
 #include "blockstore_internal.h"
+#include "str_util.h"
 #include "crc32c.h"
 
 #define INIT_META_EMPTY 0
@@ -15,14 +16,6 @@
     if (!sqe)\
         throw std::runtime_error("io_uring is full during initialization");\
     data = ((ring_data_t*)sqe->user_data)
-
-static bool iszero(uint64_t *buf, int len)
-{
-    for (int i = 0; i < len; i++)
-        if (buf[i] != 0)
-            return false;
-    return true;
-}
 
 blockstore_init_meta::blockstore_init_meta(blockstore_impl_t *bs)
 {
@@ -74,7 +67,7 @@ resume_1:
         wait_state = 1;
         return 1;
     }
-    if (iszero((uint64_t*)bs->meta_superblock, bs->dsk.meta_block_size / sizeof(uint64_t)))
+    if (is_zero((uint64_t*)bs->meta_superblock, bs->dsk.meta_block_size))
     {
         {
             blockstore_meta_header_v3_t *hdr = (blockstore_meta_header_v3_t *)bs->meta_superblock;

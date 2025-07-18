@@ -35,8 +35,8 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
         }
         fulfilled += prepare_read(PRIV(op)->read_vec, obj, wr, op->offset, op->offset+op->len);
         if (fulfilled == op->len ||
-            wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
-            wr->flags == (BS_HEAP_TOMBSTONE|BS_HEAP_STABLE))
+            (wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE ||
+            (wr->flags & BS_HEAP_TYPE) == BS_HEAP_TOMBSTONE)
         {
             break;
         }
@@ -111,10 +111,6 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *op)
 
 uint32_t blockstore_impl_t::prepare_read(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end)
 {
-    if (wr->offset >= end || wr->offset+wr->len <= start)
-    {
-        return 0;
-    }
     start = start < wr->offset ? wr->offset : start;
     end = end > wr->offset+wr->len ? wr->offset+wr->len : end;
     if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
@@ -176,6 +172,10 @@ uint32_t blockstore_impl_t::prepare_read_zero(std::vector<copy_buffer_t> & read_
 uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end)
 {
     uint32_t res = 0;
+    if (wr->offset >= end || wr->offset+wr->len <= start)
+    {
+        return 0;
+    }
     find_holes(read_vec, start, end, [&](int & pos, uint32_t start, uint32_t end)
     {
         res += end-start;
@@ -244,7 +244,7 @@ void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec,
     uint32_t blk_start, uint32_t blk_end, uint32_t start, uint32_t end, uint32_t copy_flags)
 {
     // Only one INTENT_WRITE is allowed at a time
-    assert(wr->flags != (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) || wr->next()->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
+    assert((wr->flags & BS_HEAP_TYPE) != BS_HEAP_INTENT_WRITE || (wr->next()->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE);
     copy_buffer_t vec = {
         .copy_flags = ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ? COPY_BUF_JOURNAL : COPY_BUF_DATA) | copy_flags,
         .offset = start,
@@ -352,7 +352,9 @@ bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
             memcpy(op->buf + vec.offset - op->offset, vec.buf + vec.offset - blk_start, vec.len);
         }
         uint8_t *buf = vec.buf ? vec.buf : (op->buf + vec.offset - op->offset);
-        uint32_t *csums = (uint32_t*)(wr->get_checksums(heap) + (blk_start/dsk.csum_block_size)*(dsk.data_csum_type & 0xFF));
+        uint32_t *csums = (uint32_t*)(wr->get_checksums(heap)
+            + (blk_start/dsk.csum_block_size)*(dsk.data_csum_type & 0xFF)
+            - (((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE) ? 0 : (wr->offset/dsk.csum_block_size)*(dsk.data_csum_type & 0xFF)));
         if (!heap->calc_block_checksums(csums, buf, wr->get_int_bitmap(heap),
             blk_start, blk_end, false, [&](uint32_t mismatch_pos, uint32_t expected_csum, uint32_t real_csum)
             {

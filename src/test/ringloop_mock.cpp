@@ -229,8 +229,18 @@ void disk_mock_t::erase_buffers(uint64_t begin, uint64_t end)
     }
 }
 
+void disk_mock_t::clear(size_t offset, size_t len)
+{
+    if (offset < size)
+    {
+        memset(data+offset, 0, len < size-offset ? len : size-offset);
+    }
+}
+
 void disk_mock_t::discard_buffers(bool all, uint32_t seed)
 {
+    if (trace)
+        printf("disk: discard buffers all=%d seed=%u\n", all, seed);
     if (all)
     {
         for (auto & b: buffers)
@@ -267,7 +277,7 @@ ssize_t disk_mock_t::copy_from_sqe(io_uring_sqe *sqe, uint8_t *to, uint64_t base
         }
         size_t cur = (off + v[i].iov_len > size ? size-off : v[i].iov_len);
         if (trace)
-            printf("write %zu+%zu from %jx\n", off, cur, (uint64_t)v[i].iov_base);
+            printf("disk: write %zu+%zu from %jx\n", off, cur, (uint64_t)v[i].iov_base);
         memcpy(to + off - base_offset, v[i].iov_base, cur);
         off += v[i].iov_len;
     }
@@ -320,7 +330,7 @@ bool disk_mock_t::submit(io_uring_sqe *sqe)
             {
                 size_t cur = (off + v[i].iov_len > size ? size-off : v[i].iov_len);
                 if (trace)
-                    printf("read %zu+%zu to %jx\n", off, cur, (uint64_t)v[i].iov_base);
+                    printf("disk: read %zu+%zu to %jx\n", off, cur, (uint64_t)v[i].iov_base);
                 if (buffers.size())
                     read_item((uint8_t*)v[i].iov_base, off, cur);
                 else
@@ -361,6 +371,8 @@ bool disk_mock_t::submit(io_uring_sqe *sqe)
     }
     else if (sqe->opcode == IORING_OP_FSYNC)
     {
+        if (trace)
+            printf("disk: fsync\n");
         if (buffers.size())
         {
             for (auto & b: buffers)
