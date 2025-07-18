@@ -568,6 +568,32 @@ bool blockstore_heap_t::calc_checksums(heap_write_t *wr, uint8_t *data, bool set
 bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *data, uint8_t *bitmap, uint32_t start, uint32_t end,
     bool set, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb)
 {
+    return calc_block_checksums(block_csums, bitmap, start, end, [&](uint32_t pos, uint32_t & len)
+    {
+        len = UINT32_MAX;
+        return data+pos-start;
+    }, set, bad_block_cb);
+}
+
+static uint32_t crc32c_iter(uint32_t prev_crc, const std::function<uint8_t*(uint32_t start, uint32_t & len)> & next, uint32_t pos, uint32_t size)
+{
+    uint32_t cur_len = 0;
+    while (size > 0)
+    {
+        uint8_t *data = next(pos, cur_len);
+        assert(data);
+        cur_len = (cur_len < size ? cur_len : size);
+        prev_crc = crc32c(prev_crc, data, cur_len);
+        pos += cur_len;
+        size -= cur_len;
+    }
+    return prev_crc;
+}
+
+bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *bitmap,
+    uint32_t start, uint32_t end, std::function<uint8_t*(uint32_t start, uint32_t & len)> next,
+    bool set, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb)
+{
     bool res = true;
     uint32_t pos = start;
     uint32_t block_end = (start/dsk->csum_block_size + 1)*dsk->csum_block_size;
@@ -575,28 +601,30 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *dat
     bool isset = false;
     while (pos < end)
     {
-        uint32_t prev = pos;
         if (bitmap)
         {
+            uint32_t prev = pos;
             while (pos < end && pos < block_end)
             {
                 while (pos < end && pos < block_end && !(bitmap[pos/dsk->bitmap_granularity/8] & (1 << ((pos/dsk->bitmap_granularity) % 8))))
                     pos += dsk->bitmap_granularity;
-                if (pos > prev && (isset || pos < block_end))
+                // zero padding at the beginning or at the end of the block is not counted
+                if (pos > prev && prev > 0 && pos < block_end)
                     block_crc = crc32c_pad(block_crc, NULL, 0, pos-prev, 0);
                 prev = pos;
                 while (pos < end && pos < block_end && (bitmap[pos/dsk->bitmap_granularity/8] & (1 << ((pos/dsk->bitmap_granularity) % 8))))
                     pos += dsk->bitmap_granularity;
                 if (pos > prev)
                 {
-                    block_crc = crc32c(block_crc, data+prev-start, pos-prev);
                     isset = true;
+                    block_crc = crc32c_iter(block_crc, next, prev, pos-prev);
                 }
+                prev = pos;
             }
         }
         else
         {
-            block_crc = crc32c(block_crc, data+pos-start, (end > block_end ? block_end : end) - pos);
+            block_crc = crc32c_iter(block_crc, next, pos, (end > block_end ? block_end : end)-pos);
             pos = (end > block_end ? block_end : end);
             isset = true;
         }
@@ -604,11 +632,11 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *dat
         {
             *block_csums = block_crc;
         }
-        else if (block_crc != *block_csums)
+        else if (isset && block_crc != *block_csums)
         {
             if (bad_block_cb)
             {
-                bad_block_cb(prev-start, *block_csums, block_crc);
+                bad_block_cb(block_end, *block_csums, block_crc);
                 res = false;
             }
             else
@@ -616,7 +644,6 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *dat
         }
         block_end += dsk->csum_block_size;
         block_crc = 0;
-        isset = false;
         block_csums++;
     }
     return res;
@@ -888,7 +915,8 @@ void blockstore_heap_t::get_compact_range(heap_object_t *obj, uint64_t max_lsn, 
     {
         if (wr->is_compacted(max_lsn))
         {
-            *begin_wr = wr;
+            if (!*begin_wr)
+                *begin_wr = wr;
             *end_wr = wr;
         }
         else if (*begin_wr)
@@ -1949,6 +1977,11 @@ uint32_t blockstore_heap_t::get_meta_nearfull_blocks()
 }
 
 uint32_t blockstore_heap_t::get_compact_queue_size()
+{
+    return inflight_lsn.size() - (next_compact_lsn < first_inflight_lsn ? 0 : next_compact_lsn-first_inflight_lsn);
+}
+
+uint32_t blockstore_heap_t::get_to_compact_count()
 {
     return to_compact_count;
 }

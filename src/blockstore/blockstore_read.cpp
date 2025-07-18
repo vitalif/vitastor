@@ -111,8 +111,6 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *op)
 
 uint32_t blockstore_impl_t::prepare_read(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end)
 {
-    start = start < wr->offset ? wr->offset : start;
-    end = end > wr->offset+wr->len ? wr->offset+wr->len : end;
     if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
     {
         return prepare_read_with_bitmaps(read_vec, obj, wr, start, end);
@@ -176,6 +174,8 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
     {
         return 0;
     }
+    start = start < wr->offset ? wr->offset : start;
+    end = end > wr->offset+wr->len ? wr->offset+wr->len : end;
     find_holes(read_vec, start, end, [&](int & pos, uint32_t start, uint32_t end)
     {
         res += end-start;
@@ -206,33 +206,31 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
             blk_end = ((end-1) / dsk.csum_block_size + 1) * dsk.csum_block_size;
             blk_end = blk_end > wr->offset+wr->len ? wr->offset+wr->len : blk_end;
             uint32_t skip_csum = 0;
-            if (!padded_csum_update)
+            if (!perfect_csum_update && (wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
             {
                 for (auto owr = obj->get_writes(); owr && owr != wr; owr = owr->next())
-                {
                     if (owr->offset < blk_end && owr->offset+owr->len > blk_start)
-                    {
                         skip_csum = COPY_BUF_SKIP_CSUM;
-                    }
-                }
             }
-            if (blk_end == blk_start+dsk.csum_block_size ||
-                blk_end == blk_start+2*dsk.csum_block_size && blk_end != end && blk_start != start ||
+            if ((blk_end-1)/dsk.csum_block_size == blk_start/dsk.csum_block_size ||
+                blk_end/dsk.csum_block_size == blk_start/dsk.csum_block_size+1 && blk_end != end && blk_start != start ||
                 blk_end == end && blk_start == start)
             {
-                // single block, two partial blocks, or any number of full blocks
+                // single block, exactly two partial blocks, or any number of full blocks
+                // i.e. [..X.] or [..XX][XX..] or [XXXX]..[XXXX]
                 prepare_disk_read(read_vec, pos++, obj, wr, blk_start, blk_end, start, end, skip_csum);
             }
             else
             {
-                // one or two partial blocks
+                // one or two partial blocks plus any number of full blocks
+                // i.e. [..XX][XXXX][X...]
                 uint32_t full_start = (blk_start != start ? blk_start+dsk.csum_block_size : blk_start);
                 uint32_t full_end = (blk_end != end ? blk_end-dsk.csum_block_size : blk_end);
-                if (blk_start != start)
+                if (blk_start != start) // starting padded block
                     prepare_disk_read(read_vec, pos++, obj, wr, blk_start, full_start, start, full_start, skip_csum);
-                if (full_start > full_end)
+                if (full_end > full_start) // full non-padded blocks
                     prepare_disk_read(read_vec, pos++, obj, wr, full_start, full_end, full_start, full_end, skip_csum);
-                if (blk_end != end)
+                if (blk_end != end) // ending padded block
                     prepare_disk_read(read_vec, pos++, obj, wr, full_end, blk_end, full_end, end, skip_csum);
             }
         }
@@ -359,10 +357,10 @@ bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
             blk_start, blk_end, false, [&](uint32_t mismatch_pos, uint32_t expected_csum, uint32_t real_csum)
             {
                 printf(
-                    "Checksum mismatch in object %jx:%jx v%ju in %s area at offset 0x%jx+%x: %08x expected vs %08x actual\n",
-                    op->oid.inode, op->oid.stripe, op->version,
+                    "Checksum mismatch in object %jx:%jx v%ju, offset 0x%x in %s area at offset 0x%jx: %08x expected vs %08x actual\n",
+                    op->oid.inode, op->oid.stripe, op->version, mismatch_pos,
                     (vec.copy_flags & COPY_BUF_JOURNAL) ? "buffer" : "data", vec.disk_offset,
-                    mismatch_pos, expected_csum, real_csum
+                    expected_csum, real_csum
                 );
             }))
         {

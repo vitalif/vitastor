@@ -50,13 +50,12 @@ class journal_flusher_co
 
     std::vector<copy_buffer_t> read_vec;
     uint32_t overwrite_start, overwrite_end;
+    uint32_t big_start, big_end;
     int i, res;
     bool read_to_fill_incomplete;
     int copy_count;
     uint64_t clean_loc;
     flusher_meta_write_t meta_old, meta_new;
-    uint8_t *csum_buf = NULL;
-    uint8_t *new_data_csums = NULL;
     bool do_repeat = false;
 
     friend class journal_flusher_t;
@@ -66,7 +65,7 @@ class journal_flusher_co
     void fill_partial_checksum_blocks();
     void free_buffers();
     int check_and_punch_checksums();
-    void calc_block_checksums();
+    bool calc_block_checksums();
     bool write_meta_block(int wait_base);
     bool read_buffered(int wait_base);
     bool fsync_meta(int wait_base);
@@ -99,7 +98,6 @@ public:
     journal_flusher_t(blockstore_impl_t *bs);
     ~journal_flusher_t();
     void loop();
-    int get_active();
     int get_syncing_buffer();
     uint64_t get_compact_counter();
     bool is_active();

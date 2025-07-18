@@ -106,7 +106,7 @@ public:
     int log_level = 0;
     // Enable correct block checksum validation on objects updated with small writes when checksum block
     // is larger than bitmap_granularity, at the expense of extra metadata fsyncs during compaction
-    bool padded_csum_update = false;
+    bool perfect_csum_update = false;
     /******* END OF OPTIONS *******/
 
     struct ring_consumer_t ring_consumer;

@@ -393,7 +393,7 @@ void test_compact(bool csum, bool stable)
         heap.mark_lsn_completed(4);
     }
 
-    assert(heap.get_compact_queue_size() == 1);
+    assert(heap.get_to_compact_count() == 1);
     res = heap.get_next_compact(compact_oid);
     assert(res == 0);
     assert(oid == compact_oid);
@@ -408,7 +408,7 @@ void test_compact(bool csum, bool stable)
 
     heap.mark_object_compacted(obj, 4);
     assert(heap.get_compacted_lsn() == (stable ? 3 : 4));
-    assert(heap.get_compact_queue_size() == 0);
+    assert(heap.get_to_compact_count() == 0);
 
     res = heap.compact_object((object_id){ .inode = INODE_WITH_POOL(1, 3), .stripe = 0 }, compact_begin->lsn, NULL);
     assert(res == ENOENT);

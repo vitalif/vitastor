@@ -313,13 +313,15 @@ static void test_intent_over_unstable()
     free(op.buf);
 }
 
-static void test_padded_csum_intent()
+static void test_padded_csum_intent(bool perfect)
 {
-    printf("\n-- test_padded_csum_intent\n");
+    printf("\n-- test_padded_csum_intent%s\n", perfect ? " perfect_csum_update" : "");
 
     bs_test_t test;
     test.default_cfg();
     test.config["csum_block_size"] = "16384";
+    if (perfect)
+        test.config["perfect_csum_update"] = "1";
     test.init();
 
     // Write
@@ -350,8 +352,8 @@ static void test_padded_csum_intent()
     assert(memcmp(op2.buf+8*1024, op.buf, 4*1024) == 0);
     assert(is_zero(op2.buf+12*1024, 116*1024));
 
-    // Write again (intent)
-    printf("writing (intent)\n");
+    // Write again (intent if not "perfect")
+    printf("writing (%s)\n", perfect ? "small" : "intent");
     op.version = 2;
     op.offset = 28*1024;
     memset(op.buf, 0xbb, 4096);
@@ -372,7 +374,7 @@ static void test_padded_csum_intent()
     assert(obj);
     assert(!obj->get_writes()->next()->next()->next());
     assert(obj->get_writes()->flags == BS_HEAP_SMALL_WRITE);
-    assert(obj->get_writes()->next()->flags == BS_HEAP_INTENT_WRITE);
+    assert(obj->get_writes()->next()->flags == (perfect ? BS_HEAP_SMALL_WRITE : BS_HEAP_INTENT_WRITE));
     assert(obj->get_writes()->next()->next()->flags == BS_HEAP_BIG_WRITE);
 
     // Commit
@@ -389,10 +391,13 @@ static void test_padded_csum_intent()
 
     // Trigger & wait compaction
     test.bs->flusher->request_trim();
-    // FIXME: Не зацикливаться при обломе
     while (test.bs->heap->get_compact_queue_size())
         test.ringloop->loop();
+    while (test.bs->flusher->is_active())
+        test.ringloop->loop();
     test.bs->flusher->release_trim();
+    // Check that compaction succeeded
+    assert(!test.bs->heap->get_to_compact_count());
 
     // Read again and check
     printf("reading compacted\n");
@@ -420,6 +425,7 @@ int main(int narg, char *args[])
     test_fsync(false);
     test_fsync(true);
     test_intent_over_unstable();
-    test_padded_csum_intent();
+    test_padded_csum_intent(false);
+    test_padded_csum_intent(true);
     return 0;
 }

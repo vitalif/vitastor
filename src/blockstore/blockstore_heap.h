@@ -224,6 +224,9 @@ public:
     // set or verify raw block checksums
     bool calc_block_checksums(uint32_t *block_csums, uint8_t *data, uint8_t *bitmap, uint32_t start, uint32_t end,
         bool set, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb);
+    bool calc_block_checksums(uint32_t *block_csums, uint8_t *bitmap,
+        uint32_t start, uint32_t end, std::function<uint8_t*(uint32_t start, uint32_t & len)> next,
+        bool set, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb);
     // auto-compacts the object, then adds a write entry to it and to the compaction queue
     // return 0 if OK, or maybe ENOSPC
     int post_write(object_id oid, heap_write_t *wr, uint32_t *modified_block);
@@ -285,6 +288,7 @@ public:
     uint32_t get_meta_nearfull_blocks();
     uint32_t get_inflight_queue_size();
     uint32_t get_compact_queue_size();
+    uint32_t get_to_compact_count();
 
     // get maximum size for a temporary heap_write_t buffer
     uint32_t get_max_write_entry_size();
