@@ -1391,12 +1391,14 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
         used_delta -= free_writes(first_wr, NULL);
         new_wr->next_pos = 0;
     }
-    else if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE &&
-        (first_wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE)
+    else if ((first_wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE &&
+        first_wr->can_be_collapsed(this))
     {
-        // FIXME: All other types of writes should also purge&merge the intent write
         auto second_wr = first_wr->next();
         second_wr->version = first_wr->version;
+        second_wr->len = (first_wr->offset+first_wr->len > second_wr->offset+second_wr->len ? first_wr->offset+first_wr->len : second_wr->offset+second_wr->len);
+        second_wr->offset = first_wr->offset < second_wr->offset ? first_wr->offset : second_wr->offset;
+        second_wr->len -= second_wr->offset;
         bitmap_set(second_wr->get_int_bitmap(this), first_wr->offset, first_wr->len, dsk->bitmap_granularity);
         if (dsk->csum_block_size)
         {

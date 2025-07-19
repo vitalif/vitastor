@@ -1536,6 +1536,8 @@ void test_intent_write(bool csum)
         assert(obj);
         assert(count_writes(obj) == 2); // intent overwrites previous intent
         assert(obj->get_writes()->lsn == 3);
+        assert(obj->get_writes()->next()->offset == 0);
+        assert(obj->get_writes()->next()->len == 12288);
 
         uint8_t ref_int_bitmap[dsk.clean_entry_bitmap_size];
         memset(ref_int_bitmap, 0, dsk.clean_entry_bitmap_size);
