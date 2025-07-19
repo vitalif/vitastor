@@ -410,7 +410,7 @@ void journal_flusher_co::iterate_checksum_holes(std::function<void(int, uint32_t
             uint32_t blk_begin = (prev_begin - prev_begin%bs->dsk.csum_block_size);
             if (blk_begin < big_start)
                 blk_begin = big_start;
-            cb(pos, blk_begin, prev_begin);
+            cb(pos++, blk_begin, prev_begin);
             r++;
         }
         if ((prev_end % bs->dsk.csum_block_size) && prev_end < big_end)
@@ -418,7 +418,7 @@ void journal_flusher_co::iterate_checksum_holes(std::function<void(int, uint32_t
             uint32_t blk_end = prev_end - (prev_end % bs->dsk.csum_block_size) + bs->dsk.csum_block_size;
             if (blk_end > big_end)
                 blk_end = big_end;
-            cb(i, prev_end, blk_end);
+            cb(++pos, prev_end, blk_end);
             r++;
         }
         return r;
@@ -430,10 +430,12 @@ void journal_flusher_co::fill_partial_checksum_blocks()
     iterate_checksum_holes([&](int vec_pos, uint32_t hole_start, uint32_t hole_end)
     {
         read_to_fill_incomplete = true;
-//        bs->prepare_read(read_vec, cur_obj, end_wr, hole_start, hole_end);
+        uint32_t blk_begin = (hole_start - hole_start % bs->dsk.csum_block_size);
         bs->prepare_disk_read(read_vec, read_vec.size(), cur_obj, end_wr,
-            hole_start - hole_start % bs->dsk.csum_block_size, hole_start - hole_start % bs->dsk.csum_block_size + bs->dsk.csum_block_size,
-            hole_start - hole_start % bs->dsk.csum_block_size, hole_start - hole_start % bs->dsk.csum_block_size + bs->dsk.csum_block_size,
+            blk_begin < big_start ? big_start : blk_begin,
+            (blk_begin + bs->dsk.csum_block_size) > big_end ? big_end : (blk_begin + bs->dsk.csum_block_size),
+            blk_begin < big_start ? big_start : blk_begin,
+            (blk_begin + bs->dsk.csum_block_size) > big_end ? big_end : (blk_begin + bs->dsk.csum_block_size),
             COPY_BUF_CSUM_FILL | (bs->perfect_csum_update ? 0 : COPY_BUF_SKIP_CSUM));
         auto & vec = read_vec[read_vec.size()-1];
         if (!vec.buf)
@@ -469,7 +471,7 @@ int journal_flusher_co::check_and_punch_checksums()
         return 0;
     }
     // Verify data checksums
-    cur_obj = bs->heap->read_locked_entry(cur_oid, copy_id); // FIXME locks can be removed from flusher
+    cur_obj = bs->heap->read_locked_entry(cur_oid, copy_id);
     bool csum_ok = true;
     for (int i = 0; i < read_vec.size(); i++)
     {
@@ -507,8 +509,7 @@ int journal_flusher_co::check_and_punch_checksums()
         // Nothing to do
         return 0;
     }
-    // FIXME: Do it before read_buffered?
-    cur_obj = bs->heap->read_entry(cur_oid, &modified_block, true);
+    cur_obj = bs->heap->read_entry(cur_oid, &modified_block);
     if (!cur_obj)
     {
         // Object is deleted, abort compaction

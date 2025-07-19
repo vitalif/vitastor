@@ -160,6 +160,7 @@ public:
         uint32_t blk_start, uint32_t blk_end, uint32_t start, uint32_t end, uint32_t copy_flags);
     void find_holes(std::vector<copy_buffer_t> & read_vec, uint32_t item_start, uint32_t item_end,
         std::function<void(int&, uint32_t, uint32_t)> callback);
+    void free_read_buffers(std::vector<copy_buffer_t> & rv);
     void handle_read_event(ring_data_t *data, blockstore_op_t *op);
     bool verify_read_checksums(blockstore_op_t *op);
 

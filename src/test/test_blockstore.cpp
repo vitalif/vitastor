@@ -11,6 +11,7 @@ struct bs_test_t
     blockstore_config_t config;
     disk_mock_t *data_disk = NULL;
     disk_mock_t *meta_disk = NULL;
+    std::function<bool(io_uring_sqe*)> sqe_handler;
     ring_loop_mock_t *ringloop = NULL;
     timerfd_manager_t *tfd = NULL;
     blockstore_impl_t *bs = NULL;
@@ -77,15 +78,20 @@ struct bs_test_t
         {
             ringloop = new ring_loop_mock_t(RINGLOOP_DEFAULT_SIZE, [&](io_uring_sqe *sqe)
             {
-                if (sqe->fd == MOCK_DATA_FD)
+                if (sqe_handler && sqe_handler(sqe))
+                {
+                }
+                else if (sqe->fd == MOCK_DATA_FD)
                 {
                     bool ok = data_disk->submit(sqe);
                     assert(ok);
+                    ringloop->mark_completed((ring_data_t*)sqe->user_data);
                 }
                 else if (sqe->fd == MOCK_META_FD)
                 {
                     bool ok = meta_disk->submit(sqe);
                     assert(ok);
+                    ringloop->mark_completed((ring_data_t*)sqe->user_data);
                 }
                 else
                 {
@@ -99,13 +105,13 @@ struct bs_test_t
         }
         if (!data_disk)
         {
-            data_disk = new disk_mock_t(ringloop, parse_size(config["data_device_size"]), config["disable_data_fsync"] != "1");
+            data_disk = new disk_mock_t(parse_size(config["data_device_size"]), config["disable_data_fsync"] != "1");
             data_disk->clear(0, parse_size(config["data_offset"]));
         }
         uint64_t meta_size = parse_size(config["meta_device_size"]);
         if (meta_size && !meta_disk)
         {
-            meta_disk = new disk_mock_t(ringloop, meta_size, config["disable_meta_fsync"] != "1");
+            meta_disk = new disk_mock_t(meta_size, config["disable_meta_fsync"] != "1");
             meta_disk->clear(0, meta_size);
         }
         if (!bs)
@@ -419,6 +425,88 @@ static void test_padded_csum_intent(bool perfect)
     free(op2.buf);
 }
 
+static void test_padded_csum_parallel_read(bool perfect, uint32_t offset)
+{
+    printf("\n-- test_padded_csum_parallel_read%s offset=%u\n", perfect ? " perfect_csum_update" : "", offset);
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["csum_block_size"] = "16384";
+    test.config["atomic_write_size"] = "0";
+    if (perfect)
+        test.config["perfect_csum_update"] = "1";
+    test.init();
+
+    // Write
+    printf("writing (initial)\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 8192;
+    op.len = 16384;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 16384);
+    memset(op.buf, 0xaa, 16384);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Write 2
+    printf("writing (%u+%u)\n", offset, 4096);
+    op.version = 2;
+    op.offset = offset;
+    op.len = 4096;
+    memset(op.buf, 0xbb, 4096);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Trigger & wait compaction
+    test.bs->flusher->request_trim();
+    std::vector<ring_data_t*> flush_writes;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_WRITEV &&
+            sqe->off >= test.bs->dsk.data_offset)
+        {
+            bool ok = test.data_disk->submit(sqe);
+            assert(ok);
+            flush_writes.push_back((ring_data_t*)sqe->user_data);
+            return true;
+        }
+        return false;
+    };
+    // Wait for 2 flusher writes, execute and pause them
+    while (test.bs->heap->get_compact_queue_size() && flush_writes.size() < 1)
+        test.ringloop->loop();
+    while (test.bs->flusher->is_active() && flush_writes.size() < 1)
+        test.ringloop->loop();
+    // Run a read operation in parallel - it shouldn't complain about checksum errors
+    printf("reading in parallel\n");
+    blockstore_op_t op2;
+    op2.opcode = BS_OP_READ;
+    op2.oid = { .inode = 1, .stripe = 0 };
+    op2.version = 1;
+    op2.offset = 0;
+    op2.len = 128*1024;
+    op2.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    test.exec_op(&op2);
+    assert(op2.retval == op2.len);
+    // Continue flushing
+    test.sqe_handler = NULL;
+    for (auto & w: flush_writes)
+        test.ringloop->mark_completed(w);
+    flush_writes.clear();
+    while (test.bs->heap->get_compact_queue_size() && flush_writes.size() < 2)
+        test.ringloop->loop();
+    while (test.bs->flusher->is_active() && flush_writes.size() < 2)
+        test.ringloop->loop();
+    test.bs->flusher->release_trim();
+    // Check that compaction succeeded
+    assert(!test.bs->heap->get_to_compact_count());
+
+    free(op.buf);
+    free(op2.buf);
+}
+
 int main(int narg, char *args[])
 {
     test_simple();
@@ -427,5 +515,9 @@ int main(int narg, char *args[])
     test_intent_over_unstable();
     test_padded_csum_intent(false);
     test_padded_csum_intent(true);
+    test_padded_csum_parallel_read(false, 8192);
+    test_padded_csum_parallel_read(true, 8192);
+    test_padded_csum_parallel_read(false, 16384);
+    test_padded_csum_parallel_read(true, 16384);
     return 0;
 }

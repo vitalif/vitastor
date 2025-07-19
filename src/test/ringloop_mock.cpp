@@ -166,9 +166,8 @@ void ring_loop_mock_t::mark_completed(ring_data_t *data)
     wakeup();
 }
 
-disk_mock_t::disk_mock_t(ring_loop_mock_t *loop, size_t size, bool buffered)
+disk_mock_t::disk_mock_t(size_t size, bool buffered)
 {
-    this->loop = loop;
     this->size = size;
     this->data = (uint8_t*)malloc_or_die(size);
     this->buffered = buffered;
@@ -392,6 +391,5 @@ bool disk_mock_t::submit(io_uring_sqe *sqe)
     // 1) reads submitted in parallel to writes (not after completing the write) should return old or new data randomly
     // 2) parallel operation completions should be delivered in random order
     // 3) when fsync is enabled, write cache should be sometimes lost during a simulated power outage
-    loop->mark_completed(userdata);
     return true;
 }

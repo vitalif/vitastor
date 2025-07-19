@@ -54,17 +54,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     {
         // Need to wait. undo added requests, unlock lsn
         heap->unlock_entry(op->oid, PRIV(op)->lsn);
-        if (dsk.csum_block_size > dsk.bitmap_granularity)
-        {
-            for (auto & vec: rv)
-            {
-                if (!(vec.copy_flags & COPY_BUF_COALESCED) && vec.buf)
-                {
-                    free(vec.buf);
-                    vec.buf = NULL;
-                }
-            }
-        }
+        free_read_buffers(rv);
         rv.clear();
         return 0;
     }
@@ -73,6 +63,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     {
         // everything is fulfilled from memory
         op->retval = op->len;
+        free_read_buffers(rv);
         FINISH_OP(op);
         return 2;
     }
@@ -305,6 +296,21 @@ void blockstore_impl_t::find_holes(std::vector<copy_buffer_t> & read_vec,
     }
 }
 
+void blockstore_impl_t::free_read_buffers(std::vector<copy_buffer_t> & rv)
+{
+    if (dsk.csum_block_size > dsk.bitmap_granularity)
+    {
+        for (auto & vec: rv)
+        {
+            if (!(vec.copy_flags & COPY_BUF_COALESCED) && vec.buf)
+            {
+                free(vec.buf);
+                vec.buf = NULL;
+            }
+        }
+    }
+}
+
 void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op)
 {
     live = true;
@@ -322,6 +328,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
         else if (op->retval == 0)
             op->retval = op->len;
         heap->unlock_entry(op->oid, PRIV(op)->lsn);
+        free_read_buffers(PRIV(op)->read_vec);
         FINISH_OP(op);
     }
 }

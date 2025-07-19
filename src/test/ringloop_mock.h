@@ -47,14 +47,13 @@ class disk_mock_t
     std::map<uint64_t, iovec> buffers;
     size_t size = 0;
     bool buffered = false;
-    ring_loop_mock_t *loop = NULL;
 
     void erase_buffers(uint64_t begin, uint64_t end);
     ssize_t copy_from_sqe(io_uring_sqe *sqe, uint8_t *to, uint64_t base_offset);
     void read_item(uint8_t *to, uint64_t offset, uint64_t len);
 public:
     bool trace = false;
-    disk_mock_t(ring_loop_mock_t *loop, size_t size, bool buffered);
+    disk_mock_t(size_t size, bool buffered);
     ~disk_mock_t();
     void clear(size_t offset, size_t len);
     void discard_buffers(bool all, uint32_t seed);
