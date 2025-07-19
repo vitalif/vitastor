@@ -11,33 +11,6 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     return true;
 }
 
-void blockstore_impl_t::cancel_all_writes(blockstore_op_t *op, int retval)
-{
-    bool found = false;
-    for (auto other_op: submit_queue)
-    {
-        if (!other_op)
-        {
-            // freed operations during submitting are zeroed
-        }
-        else if (other_op == op)
-        {
-            // <op> may be present in queue multiple times due to moving operations in submit_queue
-            found = true;
-        }
-        else if (found && other_op->oid == op->oid &&
-            (other_op->opcode == BS_OP_WRITE || other_op->opcode == BS_OP_WRITE_STABLE) &&
-            !PRIV(other_op)->op_state)
-        {
-            // Mark operations to cancel them
-            PRIV(other_op)->op_state = 100;
-            other_op->retval = retval;
-        }
-    }
-    op->retval = retval;
-    FINISH_OP(op);
-}
-
 void blockstore_impl_t::prepare_meta_block_write(blockstore_op_t *op, uint64_t modified_block, io_uring_sqe *sqe)
 {
     if (!sqe)
@@ -57,12 +30,6 @@ void blockstore_impl_t::prepare_meta_block_write(blockstore_op_t *op, uint64_t m
 // First step of the write algorithm: dequeue operation and submit initial write(s)
 int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
 {
-    if (PRIV(op)->op_state == 100)
-    {
-        // This is the flag used to cancel ops
-        FINISH_OP(op);
-        return 2;
-    }
     if (PRIV(op)->op_state)
     {
         return continue_write(op);
@@ -107,7 +74,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             if (!heap->get_inflight_queue_size())
             {
                 // no space
-                cancel_all_writes(op, -ENOSPC);
+                op->retval = -ENOSPC;
+                FINISH_OP(op);
                 return 2;
             }
             PRIV(op)->wait_for = WAIT_COMPACTION;
@@ -203,7 +171,8 @@ process_intent:
             if (!heap->get_inflight_queue_size())
             {
                 // no space
-                cancel_all_writes(op, -ENOSPC);
+                op->retval = -ENOSPC;
+                FINISH_OP(op);
                 return 2;
             }
             PRIV(op)->wait_for = WAIT_COMPACTION;
@@ -248,7 +217,8 @@ process_intent:
             if (!heap->get_inflight_queue_size())
             {
                 // no space
-                cancel_all_writes(op, -ENOSPC);
+                op->retval = -ENOSPC;
+                FINISH_OP(op);
                 return 2;
             }
             PRIV(op)->wait_for = WAIT_COMPACTION;

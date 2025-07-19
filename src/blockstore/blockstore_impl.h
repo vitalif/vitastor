@@ -165,7 +165,6 @@ public:
 
     // Write
     bool enqueue_write(blockstore_op_t *op);
-    void cancel_all_writes(blockstore_op_t *op, int retval);
     void prepare_meta_block_write(blockstore_op_t *op, uint64_t modified_block, io_uring_sqe *sqe = NULL);
     int dequeue_write(blockstore_op_t *op);
     bool make_big_write(blockstore_op_t *op, uint32_t offset, uint32_t len, uint32_t *modified_block);
