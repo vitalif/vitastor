@@ -974,7 +974,10 @@ void test_invalid_data()
     for (int i = 0; i < 4; i++)
     {
         _test_invalid_data_setup(dsk, buffer_area, tmp);
-        heap_object_t *obj = (heap_object_t*)(tmp.data() + sizeof(heap_object_t) + sizeof(heap_write_t));
+        tmp.resize(dsk.meta_block_size*3);
+        memmove(tmp.data()+dsk.meta_block_size, tmp.data(), 2*dsk.meta_block_size);
+        memset(tmp.data(), 0, dsk.meta_block_size);
+        heap_object_t *obj = (heap_object_t*)(tmp.data() + dsk.meta_block_size + sizeof(heap_object_t) + sizeof(heap_write_t));
         if (i == 0)
             obj->write_pos = -(int16_t)(sizeof(heap_object_t)+sizeof(heap_write_t)+1);
         else if (i == 1)
@@ -986,7 +989,7 @@ void test_invalid_data()
         obj->crc32c = obj->calc_crc32c();
 
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.load_blocks(0, dsk.meta_block_size*2, tmp.data());
+        heap.load_blocks(0, dsk.meta_block_size*3, tmp.data());
         heap.finish_load();
 
         object_id oid = { .inode = INODE_WITH_POOL(1, 3), .stripe = 0 };
@@ -1037,12 +1040,15 @@ void test_invalid_data()
     for (int i = 0; i < 2; i++)
     {
         _test_invalid_data_setup(dsk, buffer_area, tmp);
-        heap_object_t *obj = (heap_object_t*)tmp.data();
+        tmp.resize(dsk.meta_block_size*3);
+        memmove(tmp.data()+dsk.meta_block_size, tmp.data(), 2*dsk.meta_block_size);
+        memset(tmp.data(), 0, dsk.meta_block_size);
+        heap_object_t *obj = (heap_object_t*)(tmp.data() + dsk.meta_block_size);
         obj->get_writes()->next_pos = (i == 0 ? -sizeof(heap_object_t)-1 : dsk.meta_block_size - sizeof(heap_object_t) - sizeof(heap_write_t) + 1);
         obj->crc32c = obj->calc_crc32c();
 
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.load_blocks(0, dsk.meta_block_size*2, tmp.data());
+        heap.load_blocks(0, dsk.meta_block_size*3, tmp.data());
         heap.finish_load();
 
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
