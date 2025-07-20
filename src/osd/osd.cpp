@@ -196,7 +196,6 @@ void osd_t::parse_config(bool init)
             etcd_stats_interval = 30;
         readonly = json_is_true(config["readonly"]);
         run_primary = !json_is_false(config["run_primary"]);
-        allow_test_ops = json_is_true(config["allow_test_ops"]);
     }
     log_level = config["log_level"].uint64_value();
     auto old_no_rebalance = no_rebalance;
@@ -470,11 +469,7 @@ void osd_t::exec_op(osd_op_t *cur_op)
         finish_op(cur_op, -EROFS);
         return;
     }
-    if (cur_op->req.hdr.opcode == OSD_OP_TEST_SYNC_STAB_ALL)
-    {
-        exec_sync_stab_all(cur_op);
-    }
-    else if (cur_op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)
+    if (cur_op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)
     {
         exec_show_config(cur_op);
     }

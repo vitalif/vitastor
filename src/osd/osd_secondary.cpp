@@ -378,27 +378,3 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
     cur_op->iov.push_back(cur_op->buf, cfg_str.size()+1);
     finish_op(cur_op, cfg_str.size()+1);
 }
-
-void osd_t::exec_sync_stab_all(osd_op_t *cur_op)
-{
-    // Sync and stabilize all objects
-    // This command is only valid for tests
-    cur_op->bs_op = new blockstore_op_t();
-    if (!allow_test_ops)
-    {
-        cur_op->bs_op->retval = -EINVAL;
-        secondary_op_callback(cur_op);
-        return;
-    }
-    cur_op->bs_op->opcode = BS_OP_SYNC_STAB_ALL;
-    cur_op->bs_op->callback = [this, cur_op](blockstore_op_t *bs_op)
-    {
-        secondary_op_callback(cur_op);
-    };
-#ifdef OSD_STUB
-    cur_op->bs_op->retval = 0;
-    secondary_op_callback(cur_op);
-#else
-    bs->enqueue_op(cur_op->bs_op);
-#endif
-}

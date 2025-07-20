@@ -119,7 +119,6 @@ class osd_t
     bool disable_tcp = false;
     // FIXME: Implement client queue depth limit
     int client_queue_depth = 128;
-    bool allow_test_ops = false;
     int print_stats_interval = 3;
     int slow_log_interval = 10;
     int immediate_commit = IMMEDIATE_NONE;
@@ -319,7 +318,6 @@ class osd_t
 
     // secondary ops
     bool sec_check_pg_lock(osd_num_t primary_osd, const object_id &oid);
-    void exec_sync_stab_all(osd_op_t *cur_op);
     void exec_show_config(osd_op_t *cur_op);
     void exec_secondary(osd_op_t *cur_op);
     void exec_secondary_real(osd_op_t *cur_op);

@@ -290,7 +290,6 @@ static uint64_t bs_op_to_osd_op[] = {
     OSD_OP_SEC_DELETE,          // BS_OP_DELETE = 6
     OSD_OP_SEC_LIST,            // BS_OP_LIST = 7
     OSD_OP_SEC_ROLLBACK,        // BS_OP_ROLLBACK = 8
-    OSD_OP_TEST_SYNC_STAB_ALL,  // BS_OP_SYNC_STAB_ALL = 9
 };
 
 void osd_t::handle_primary_bs_subop(osd_op_t *subop)
