@@ -7,7 +7,7 @@
 #define VITASTOR_QEMU_PROXY_H
 
 // C API wrapper version
-#define VITASTOR_C_API_VERSION 5
+#define VITASTOR_C_API_VERSION 4
 
 #ifndef POOL_ID_BITS
 #define POOL_ID_BITS 16

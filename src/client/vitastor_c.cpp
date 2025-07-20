@@ -178,7 +178,14 @@ vitastor_c *vitastor_c_create_uring_json(const char **options, int options_len)
     json11::Json::object cfg;
     for (int i = 0; i < options_len-1; i += 2)
     {
-        cfg[options[i]] = std::string(options[i+1]);
+        if (!strcmp(options[i], "__version_check_buffer"))
+        {
+            int buf_size = strlen(options[i+1])+1;
+            if (buf_size > strlen(VITASTOR_VERSION))
+                strncpy((char*)options[i+1], VITASTOR_VERSION, buf_size);
+        }
+        else
+            cfg[options[i]] = std::string(options[i+1]);
     }
     json11::Json cfg_json(cfg);
     vitastor_c *self = new vitastor_c;

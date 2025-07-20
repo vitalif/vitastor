@@ -58,6 +58,7 @@ typedef struct VitastorClient
 {
     void *proxy;
     int uring_eventfd;
+    int auto_loop;
 
     void *watch;
     char *config_path;
@@ -297,9 +298,8 @@ static void coroutine_fn vitastor_co_get_metadata(VitastorRPC *task)
 
     qemu_mutex_lock(&client->mutex);
     vitastor_c_watch_inode(client->proxy, client->image, vitastor_co_generic_cb, task);
-#if !defined VITASTOR_C_API_VERSION || VITASTOR_C_API_VERSION < 5
-    vitastor_schedule_uring_handler(client);
-#endif
+    if (!client->auto_loop)
+        vitastor_schedule_uring_handler(client);
     qemu_mutex_unlock(&client->mutex);
 
     while (!task->complete)
@@ -452,6 +452,9 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     client->ctx = bdrv_get_aio_context(bs);
 #if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 2
     str_array opt = {};
+    char version_buffer[32];
+    memset(version_buffer, ' ', sizeof(version_buffer));
+    version_buffer[sizeof(version_buffer)-1] = '\0';
     strarray_push_kv(&opt, "config_path", qdict_get_try_str(options, "config-path"));
     strarray_push_kv(&opt, "etcd_address", qdict_get_try_str(options, "etcd-host"));
     strarray_push_kv(&opt, "etcd_prefix", qdict_get_try_str(options, "etcd-prefix"));
@@ -461,7 +464,9 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     strarray_push_kv(&opt, "rdma_gid_index", qdict_get_try_str(options, "rdma-gid-index"));
     strarray_push_kv(&opt, "rdma_mtu", qdict_get_try_str(options, "rdma-mtu"));
     strarray_push_kv(&opt, "client_writeback_allowed", (flags & BDRV_O_NOCACHE) ? "0" : "1");
+    strarray_push_kv(&opt, "__version_check_buffer", version_buffer);
     client->proxy = vitastor_c_create_uring_json(opt.items, opt.len);
+    client->auto_loop = 0;
     strarray_free(&opt);
     if (client->proxy)
     {
@@ -474,6 +479,12 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
             return -1;
         }
         universal_aio_set_fd_handler(client->ctx, client->uring_eventfd, vitastor_uring_handler, NULL, client);
+        int vitastor_version[3] = { 0 };
+        if (sscanf(version_buffer, "%d.%d.%d", &vitastor_version[0], &vitastor_version[1], &vitastor_version[2]) == 3 &&
+            vitastor_version[0] >= 2)
+        {
+            client->auto_loop = 1;
+        }
     }
     else
     {
@@ -793,9 +804,8 @@ static int coroutine_fn vitastor_co_preadv(BlockDriverState *bs,
     uint64_t inode = client->watch ? vitastor_c_inode_get_num(client->watch) : client->inode;
     qemu_mutex_lock(&client->mutex);
     vitastor_c_read(client->proxy, inode, offset, bytes, iov->iov, iov->niov, vitastor_co_read_cb, &task);
-#if !defined VITASTOR_C_API_VERSION || VITASTOR_C_API_VERSION < 5
-    vitastor_schedule_uring_handler(client);
-#endif
+    if (!client->auto_loop)
+        vitastor_schedule_uring_handler(client);
     qemu_mutex_unlock(&client->mutex);
 
     while (!task.complete)
@@ -829,9 +839,8 @@ static int coroutine_fn vitastor_co_pwritev(BlockDriverState *bs,
     uint64_t inode = client->watch ? vitastor_c_inode_get_num(client->watch) : client->inode;
     qemu_mutex_lock(&client->mutex);
     vitastor_c_write(client->proxy, inode, offset, bytes, 0, iov->iov, iov->niov, vitastor_co_generic_cb, &task);
-#if !defined VITASTOR_C_API_VERSION || VITASTOR_C_API_VERSION < 5
-    vitastor_schedule_uring_handler(client);
-#endif
+    if (!client->auto_loop)
+        vitastor_schedule_uring_handler(client);
     qemu_mutex_unlock(&client->mutex);
 
     while (!task.complete)
@@ -911,9 +920,8 @@ static int coroutine_fn vitastor_co_block_status(
         task.bitmap = client->last_bitmap = NULL;
         qemu_mutex_lock(&client->mutex);
         vitastor_c_read_bitmap(client->proxy, task.inode, task.offset, task.len, !client->skip_parents, vitastor_co_read_bitmap_cb, &task);
-#if !defined VITASTOR_C_API_VERSION || VITASTOR_C_API_VERSION < 5
-        vitastor_schedule_uring_handler(client);
-#endif
+        if (!client->auto_loop)
+            vitastor_schedule_uring_handler(client);
         qemu_mutex_unlock(&client->mutex);
         while (!task.complete)
         {
@@ -1000,9 +1008,8 @@ static int coroutine_fn vitastor_co_flush(BlockDriverState *bs)
 
     qemu_mutex_lock(&client->mutex);
     vitastor_c_sync(client->proxy, vitastor_co_generic_cb, &task);
-#if !defined VITASTOR_C_API_VERSION || VITASTOR_C_API_VERSION < 5
-    vitastor_schedule_uring_handler(client);
-#endif
+    if (!client->auto_loop)
+        vitastor_schedule_uring_handler(client);
     qemu_mutex_unlock(&client->mutex);
 
     while (!task.complete)
