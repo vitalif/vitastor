@@ -155,16 +155,19 @@ static void qemu_vitastor_unescape(char *src)
 // vitastor[:key=value]*
 // vitastor[:etcd_host=127.0.0.1]:inode=1:pool=1[:rdma_gid_index=3]
 // vitastor:config_path=/etc/vitastor/vitastor.conf:image=testimg
+// vitastor://?config_path=/etc/vitastor/vitastor.conf&image=testimg
 static void vitastor_parse_filename(const char *filename, QDict *options, Error **errp)
 {
     const char *start;
     char *p, *buf;
 
-    if (!strstart(filename, "vitastor:", &start))
+    int url_style = strstart(filename, "vitastor://?", &start);
+    if (!url_style && !strstart(filename, "vitastor:", &start))
     {
         error_setg(errp, "File name must start with 'vitastor:'");
         return;
     }
+    char delim = url_style ? '&' : ':';
 
     buf = g_strdup(start);
     p = buf;
@@ -184,7 +187,7 @@ static void vitastor_parse_filename(const char *filename, QDict *options, Error 
             if (name[i] == '_')
                 name[i] = '-';
         qemu_vitastor_unescape(name);
-        value = qemu_vitastor_next_tok(p, ':', &p);
+        value = qemu_vitastor_next_tok(p, delim, &p);
         qemu_vitastor_unescape(value);
         if (!strcmp(name, "inode") ||
             !strcmp(name, "pool") ||
@@ -603,6 +606,29 @@ static void vitastor_close(BlockDriverState *bs)
     free(client->last_bitmap);
     client->last_bitmap = NULL;
 }
+
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 2
+static void vitastor_refresh_filename(BlockDriverState *bs)
+{
+    VitastorClient *client = bs->opaque;
+    size_t len = 0;
+    int n = 0;
+    len = snprintf(bs->exact_filename, sizeof(bs->exact_filename), "vitastor://");
+    if (len < sizeof(bs->exact_filename))
+    {
+        if (client->image)
+            len += snprintf(bs->exact_filename+len, sizeof(bs->exact_filename)-len, "%cimage=%s", (n++ ? '&' : '?'), client->image);
+        else
+            len += snprintf(bs->exact_filename+len, sizeof(bs->exact_filename)-len, "%cpool=%ju&inode=%ju&size=%ju", (n++ ? '&' : '?'), client->pool, client->inode, client->size);
+    }
+    if (client->config_path && len < sizeof(bs->exact_filename))
+        len += snprintf(bs->exact_filename+len, sizeof(bs->exact_filename)-len, "%cconfig_path=%s", (n++ ? '&' : '?'), client->config_path);
+    if (client->etcd_host && len < sizeof(bs->exact_filename))
+        len += snprintf(bs->exact_filename+len, sizeof(bs->exact_filename)-len, "%cetcd_host=%s", (n++ ? '&' : '?'), client->etcd_host);
+    if (client->etcd_prefix && len < sizeof(bs->exact_filename))
+        len += snprintf(bs->exact_filename+len, sizeof(bs->exact_filename)-len, "%cetcd_prefix=%s", (n++ ? '&' : '?'), client->etcd_prefix);
+}
+#endif
 
 #if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 2
 static int vitastor_probe_blocksizes(BlockDriverState *bs, BlockSizes *bsz)
@@ -1037,6 +1063,9 @@ static BlockDriver bdrv_vitastor = {
 #else
     .bdrv_get_info                  = vitastor_get_info,
     .bdrv_getlength                 = vitastor_getlength,
+#endif
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 2
+    .bdrv_refresh_filename          = vitastor_refresh_filename,
 #endif
 #if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 2
     .bdrv_probe_blocksizes          = vitastor_probe_blocksizes,
