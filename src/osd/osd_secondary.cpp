@@ -161,8 +161,8 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
         cur_op->bs_op->version = cur_op->req.sec_rw.version;
         cur_op->bs_op->offset = cur_op->req.sec_rw.offset;
         cur_op->bs_op->len = cur_op->req.sec_rw.len;
-        cur_op->bs_op->buf = cur_op->buf;
-        cur_op->bs_op->bitmap = cur_op->bitmap;
+        cur_op->bs_op->buf = (uint8_t*)cur_op->buf;
+        cur_op->bs_op->bitmap = (uint8_t*)cur_op->bitmap;
 #ifdef OSD_STUB
         cur_op->bs_op->retval = cur_op->bs_op->len;
 #endif
@@ -186,7 +186,7 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
         cur_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
     {
         cur_op->bs_op->len = cur_op->req.sec_stab.len/sizeof(obj_ver_id);
-        cur_op->bs_op->buf = cur_op->buf;
+        cur_op->bs_op->buf = (uint8_t*)cur_op->buf;
 #ifdef OSD_STUB
         cur_op->bs_op->retval = 0;
 #endif

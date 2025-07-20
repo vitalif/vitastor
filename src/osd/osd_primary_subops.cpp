@@ -209,8 +209,8 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
                 .offset = wr ? si->write_start : si->read_start,
                 .len = subop_len,
             } },
-            .buf = wr ? si->write_buf : si->read_buf,
-            .bitmap = si->bmp_buf,
+            .buf = (uint8_t*)(wr ? si->write_buf : si->read_buf),
+            .bitmap = (uint8_t*)si->bmp_buf,
         });
 #ifdef OSD_DEBUG
          printf(
@@ -702,7 +702,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
                 {
                     .len = (uint32_t)stab_osd.len,
                 },
-                .buf = (void*)(op_data->unstable_writes + stab_osd.start),
+                .buf = (uint8_t*)(op_data->unstable_writes + stab_osd.start),
             });
             bs->enqueue_op(subops[i].bs_op);
         }
@@ -789,7 +789,7 @@ void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd
                     {
                         .len = 1,
                     },
-                    .buf = (void*)(op_data->unstable_writes + i),
+                    .buf = (uint8_t*)(op_data->unstable_writes + i),
                 });
 #ifdef OSD_DEBUG
                 printf(
