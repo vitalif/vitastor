@@ -374,7 +374,7 @@ int main(int argc, char *argv[])
         {
             self.dsk.meta_block_size = strtoul(cmd[2], NULL, 10);
             self.dsk.meta_offset = strtoull(cmd[3], NULL, 10);
-            self.dsk.meta_len = strtoull(cmd[4], NULL, 10);
+            self.dsk.meta_area_size = strtoull(cmd[4], NULL, 10);
         }
         else
         {
@@ -404,7 +404,7 @@ int main(int argc, char *argv[])
                 return 1;
             self.new_meta_device = self.dsk.meta_device;
             self.new_meta_offset = self.dsk.meta_offset;
-            self.new_meta_len = self.dsk.meta_len;
+            self.new_meta_len = self.dsk.meta_area_size;
         }
         std::string json_err;
         json11::Json meta = json11::Json::parse(read_all_fd(0), json_err);

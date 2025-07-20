@@ -29,7 +29,7 @@ int disk_tool_t::resize_data(std::string device)
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
-        dsk.calc_lengths(true);
+        dsk.calc_lengths();
     }
     catch (std::exception & e)
     {
@@ -61,7 +61,7 @@ int disk_tool_t::resize_data(std::string device)
         dsk.journal_fd = old_journal_fd;
         dsk.meta_fd = old_meta_fd;
         dsk.data_fd = old_data_fd;
-        dsk.calc_lengths(true);
+        dsk.calc_lengths();
         dsk.journal_fd = -1;
         dsk.meta_fd = -1;
         dsk.data_fd = -1;
@@ -83,7 +83,7 @@ int disk_tool_t::resize_data(std::string device)
         ? move_options["new_meta_device"] : dsk.meta_device;
     // Calculate new data & meta offsets
     new_data_offset = 4096 + (new_journal_device == dsk.data_device ? new_journal_len : 0) +
-        (new_meta_device == dsk.data_device ? dsk.meta_len : 0);
+        (new_meta_device == dsk.data_device ? dsk.meta_area_size : 0);
     new_data_offset += ((dsk.data_offset-new_data_offset) % dsk.data_block_size);
     if (new_data_offset != dsk.data_offset)
         move_options["new_data_offset"] = std::to_string(new_data_offset);
@@ -236,7 +236,7 @@ int disk_tool_t::resize_parse_move_meta(std::map<std::string, std::string> & mov
         auto new_journal_device = move_options.find("new_journal_device") != move_options.end()
             ? move_options["new_journal_device"] : dsk.journal_device;
         move_options["new_meta_device"] = dsk.data_device;
-        move_options["new_meta_len"] = std::to_string(dsk.meta_len);
+        move_options["new_meta_len"] = std::to_string(dsk.meta_area_size);
     }
     else
     {
@@ -260,7 +260,7 @@ int disk_tool_t::resize_parse_move_meta(std::map<std::string, std::string> & mov
                 fprintf(stderr, "metadata is already on a partition of %s\n", options["move_meta"].c_str());
                 return 0;
             }
-            new_meta_len = ((dsk.meta_len+1024*1024-1)/1024/1024)*1024*1024;
+            new_meta_len = ((dsk.meta_area_size+1024*1024-1)/1024/1024)*1024*1024;
             if (!dry_run)
             {
                 auto devinfos = collect_devices({ real_dev });

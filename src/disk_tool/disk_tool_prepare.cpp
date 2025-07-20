@@ -72,6 +72,10 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
                 options["disable_"+dev+"_fsync"] = "1";
         }
     }
+    if (options["meta_format"] == "")
+    {
+        options["meta_format"] = std::to_string(BLOCKSTORE_META_FORMAT_HEAP);
+    }
     if (options["meta_device"] == "" || options["meta_device"] == options["data_device"])
     {
         options["disable_meta_fsync"] = options["disable_data_fsync"];
@@ -108,6 +112,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         if (options.find("autosync_writes") == options.end())
             options["autosync_writes"] = "512";
     }
+    uint64_t new_meta_len = parse_size(options["meta_len"]);
     json11::Json::object sb;
     blockstore_disk_t dsk;
     try
@@ -121,22 +126,22 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
-        dsk.calc_lengths(true);
+        dsk.calc_lengths();
         sb = json11::Json::object {
+            { "meta_format", options["meta_format"] },
             { "data_device", options["data_device"] },
             { "meta_device", options["meta_device"] },
             { "journal_device", options["journal_device"] },
             { "block_size", (uint64_t)dsk.data_block_size },
-            { "meta_block_size", dsk.meta_block_size },
-            { "journal_block_size", dsk.journal_block_size },
+            { "meta_block_size", (uint64_t)dsk.meta_block_size },
+            { "journal_block_size", (uint64_t)dsk.journal_block_size },
             { "data_size", dsk.cfg_data_size },
             { "disk_alignment", (uint64_t)dsk.disk_alignment },
-            { "bitmap_granularity", dsk.bitmap_granularity },
+            { "bitmap_granularity", (uint64_t)dsk.bitmap_granularity },
             { "disable_device_lock", dsk.disable_flock },
             { "journal_offset", 4096 },
-            { "meta_offset", 4096 + (dsk.meta_device == dsk.journal_device ? dsk.journal_len : 0) },
-            { "data_offset", 4096 + (dsk.data_device == dsk.meta_device ? dsk.meta_len : 0) +
-                (dsk.data_device == dsk.journal_device ? dsk.journal_len : 0) },
+            { "meta_offset", dsk.meta_offset },
+            { "data_offset", dsk.data_offset + (new_meta_len ? 0 : (dsk.meta_format == BLOCKSTORE_META_FORMAT_HEAP ? dsk.min_meta_len*2 : dsk.min_meta_len)) },
             { "journal_no_same_sector_overwrites", !is_hdd || is_hybrid },
             { "journal_sector_buffer_count", 1024 },
             { "disable_data_fsync", json_is_true(options["disable_data_fsync"]) },
@@ -180,7 +185,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     }
     sb["osd_num"] = osd_num;
     // Zero out metadata and journal
-    if (write_zero(dsk.meta_fd, sb["meta_offset"].uint64_value(), dsk.meta_len) != 0 ||
+    if (write_zero(dsk.meta_fd, sb["meta_offset"].uint64_value(), dsk.meta_area_size) != 0 ||
         write_zero(dsk.journal_fd, sb["journal_offset"].uint64_value(), dsk.journal_len) != 0)
     {
         fprintf(stderr, "Failed to zero out metadata or journal: %s\n", strerror(errno));
@@ -527,9 +532,9 @@ int disk_tool_t::get_meta_partition(std::vector<vitastor_dev_info_t> & ssds, std
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
-        dsk.calc_lengths(true);
+        dsk.calc_lengths();
         dsk.close_all();
-        meta_size = dsk.meta_len;
+        meta_size = dsk.min_meta_len;
     }
     catch (std::exception & e)
     {

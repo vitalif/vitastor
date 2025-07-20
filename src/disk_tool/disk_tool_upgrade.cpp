@@ -107,7 +107,7 @@ int disk_tool_t::upgrade_simple_unit(std::string unit)
                 dsk.open_data();
                 dsk.open_meta();
                 dsk.open_journal();
-                dsk.calc_lengths(true);
+                dsk.calc_lengths();
                 dsk.close_all();
             }
             catch (std::exception & e)
@@ -116,9 +116,8 @@ int disk_tool_t::upgrade_simple_unit(std::string unit)
                 fprintf(stderr, "Error: %s\n", e.what());
                 return 1;
             }
-            options.erase("meta_format");
-            if (m_is_d && m_o < d_o && d_o-m_o < dsk.meta_len)
-                d_o += ((dsk.meta_len - (d_o-m_o) + blk-1) / blk) * blk;
+            if (m_is_d && m_o < d_o && d_o-m_o < dsk.min_meta_len)
+                d_o += ((dsk.min_meta_len - (d_o-m_o) + blk-1) / blk) * blk;
         }
         resize["new_data_offset"] = d_o;
         resize["new_meta_offset"] = m_o;

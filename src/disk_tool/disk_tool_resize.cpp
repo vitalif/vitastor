@@ -140,7 +140,7 @@ int disk_tool_t::resize_parse_params()
         new_data_offset == dsk.data_offset &&
         new_data_len == dsk.data_len &&
         new_meta_offset == dsk.meta_offset &&
-        (new_meta_len == dsk.meta_len || new_meta_len == 0) &&
+        (new_meta_len == dsk.meta_area_size || new_meta_len == 0) &&
         new_journal_offset == dsk.journal_offset &&
         new_journal_len == dsk.journal_len &&
         options.find("force") == options.end())

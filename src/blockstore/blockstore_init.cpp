@@ -147,6 +147,12 @@ resume_1:
             exit(1);
         }
         bs->heap->set_compacted_lsn(hdr->compacted_lsn);
+        if (bs->dsk.meta_format != hdr->version)
+        {
+            bs->dsk.meta_format = hdr->version;
+            bs->dsk.calc_lengths();
+        }
+        bs->dsk.check_lengths();
     }
     if (bs->dsk.inmemory_journal)
     {

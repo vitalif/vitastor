@@ -32,15 +32,16 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
     int buf_size = 1024*1024;
     if (buf_size % dsk.meta_block_size)
         buf_size = 8*dsk.meta_block_size;
-    if (buf_size > dsk.meta_len)
-        buf_size = dsk.meta_len;
     void *data = memalign_or_die(MEM_ALIGNMENT, buf_size);
-    lseek64(dsk.meta_fd, dsk.meta_offset, 0);
-    read_blocking(dsk.meta_fd, data, dsk.meta_block_size);
     // Check superblock
     blockstore_meta_header_v2_t *hdr = (blockstore_meta_header_v2_t *)data;
+    lseek64(dsk.meta_fd, dsk.meta_offset, 0);
+    read_blocking(dsk.meta_fd, hdr, dsk.meta_block_size);
     if (hdr->zero == 0 && hdr->magic == BLOCKSTORE_META_MAGIC_V1)
     {
+        dsk.meta_format = hdr->version;
+        dsk.calc_lengths();
+        dsk.check_lengths();
         if (hdr->version == BLOCKSTORE_META_FORMAT_V1)
         {
             // Vitastor 0.6-0.8 - static array of clean_disk_entry with bitmaps
@@ -80,15 +81,6 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
         {
             fprintf(stderr, "Using block size of %u bytes based on information from the superblock\n", hdr->meta_block_size);
             dsk.meta_block_size = hdr->meta_block_size;
-            if (buf_size % dsk.meta_block_size)
-            {
-                buf_size = 8*dsk.meta_block_size;
-                void *new_data = memalign_or_die(MEM_ALIGNMENT, buf_size);
-                memcpy(new_data, data, dsk.meta_block_size);
-                free(data);
-                data = new_data;
-                hdr = (blockstore_meta_header_v2_t *)data;
-            }
         }
         dsk.meta_format = hdr->version;
         dsk.data_block_size = hdr->data_block_size;
@@ -102,14 +94,15 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
                     *(hdr->data_csum_type & 0xff))
                 : 0)
             + (dsk.meta_format == BLOCKSTORE_META_FORMAT_V2 ? 4 /*entry_csum*/ : 0);
+        // Read
         uint64_t block_num = 0;
         hdr_fn(hdr);
         hdr = NULL;
         meta_pos = dsk.meta_block_size;
         lseek64(dsk.meta_fd, dsk.meta_offset+meta_pos, 0);
-        while (meta_pos < dsk.meta_len)
+        while (meta_pos < dsk.meta_area_size)
         {
-            uint64_t read_len = buf_size < dsk.meta_len-meta_pos ? buf_size : dsk.meta_len-meta_pos;
+            uint64_t read_len = buf_size < dsk.meta_area_size-meta_pos ? buf_size : dsk.meta_area_size-meta_pos;
             read_blocking(dsk.meta_fd, data, read_len);
             meta_pos += read_len;
             for (uint64_t blk = 0; blk < read_len; blk += dsk.meta_block_size)
@@ -136,14 +129,15 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)>
     }
     else
     {
-        // Vitastor 0.4-0.5 - static array of clean_disk_entry
+        // Vitastor 0.4-0.5 - static array of clean_disk_entry without header
+        lseek64(dsk.meta_fd, dsk.meta_offset, 0);
         dsk.clean_entry_bitmap_size = 0;
         dsk.clean_entry_size = sizeof(clean_disk_entry);
         uint64_t block_num = 0;
         hdr_fn(NULL);
-        while (meta_pos < dsk.meta_len)
+        while (meta_pos < dsk.meta_area_size)
         {
-            uint64_t read_len = buf_size < dsk.meta_len-meta_pos ? buf_size : dsk.meta_len-meta_pos;
+            uint64_t read_len = buf_size < dsk.meta_area_size-meta_pos ? buf_size : dsk.meta_area_size-meta_pos;
             read_blocking(dsk.meta_fd, data, read_len);
             meta_pos += read_len;
             for (uint64_t blk = 0; blk < read_len; blk += dsk.meta_block_size)
@@ -181,7 +175,7 @@ int disk_tool_t::dump_load_check_superblock(const std::string & device)
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
-        dsk.calc_lengths(true);
+        dsk.calc_lengths();
     }
     catch (std::exception & e)
     {
@@ -228,7 +222,7 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v2_t *hdr)
     }
     else
     {
-        printf("{\"version\":\"0.5\",\"meta_block_size\":%ju,\"entries\":[\n", dsk.meta_block_size);
+        printf("{\"version\":\"0.5\",\"meta_block_size\":%u,\"entries\":[\n", dsk.meta_block_size);
     }
     first_entry = true;
 }

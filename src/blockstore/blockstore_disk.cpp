@@ -9,6 +9,7 @@
 #include "blockstore.h"
 #include "ondisk_formats.h"
 #include "blockstore_disk.h"
+#include "blockstore_heap.h"
 #include "str_util.h"
 #include "allocator.h"
 
@@ -208,6 +209,10 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     {
         throw std::runtime_error("journal_offset must be a multiple of journal_block_size = "+std::to_string(journal_block_size));
     }
+    if (!meta_format)
+    {
+        meta_format = BLOCKSTORE_META_FORMAT_HEAP;
+    }
     if (meta_device == data_device)
     {
         disable_meta_fsync = disable_data_fsync;
@@ -218,7 +223,7 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     }
 }
 
-void blockstore_disk_t::calc_lengths(bool skip_meta_check)
+void blockstore_disk_t::calc_lengths()
 {
     // data
     data_len = data_device_size - data_offset;
@@ -267,16 +272,37 @@ void blockstore_disk_t::calc_lengths(bool skip_meta_check)
     clean_entry_bitmap_size = data_block_size / bitmap_granularity / 8;
     clean_dyn_size = clean_entry_bitmap_size*2 + (csum_block_size
         ? data_block_size/csum_block_size*(data_csum_type & 0xFF) : 0);
-    uint32_t entries_per_block = ((meta_block_size-meta_block_target_free_space) /
-        (24 /*sizeof(heap_object_t)*/ + 33 /*sizeof(heap_write_t)*/ + clean_dyn_size));
-    min_meta_len = (block_count+entries_per_block-1) / entries_per_block * meta_block_size;
-    meta_format = BLOCKSTORE_META_FORMAT_HEAP;
-    if (!skip_meta_check && meta_area_size < min_meta_len)
+    if (meta_format == BLOCKSTORE_META_FORMAT_HEAP)
+    {
+        uint32_t entries_per_block = ((meta_block_size-meta_block_target_free_space) /
+            (sizeof(heap_object_t) + sizeof(heap_write_t) + clean_dyn_size));
+        min_meta_len = (block_count+entries_per_block-1) / entries_per_block * meta_block_size;
+    }
+    else if (meta_format == BLOCKSTORE_META_FORMAT_V1)
+    {
+        clean_entry_size = 24 /*sizeof(clean_disk_entry)*/ + 2*clean_entry_bitmap_size;
+        min_meta_len = (1 + (block_count - 1 + meta_block_size / clean_entry_size)
+            / (meta_block_size / clean_entry_size)) * meta_block_size;
+    }
+    else if (meta_format == BLOCKSTORE_META_FORMAT_V2)
+    {
+        clean_entry_size = 24 /*sizeof(clean_disk_entry)*/ + clean_dyn_size + 4 /*entry_csum*/;
+        min_meta_len = (1 + (block_count - 1 + meta_block_size / clean_entry_size) / (meta_block_size / clean_entry_size)) * meta_block_size;
+    }
+    else
+    {
+        throw std::runtime_error("meta_format = "+std::to_string(meta_format)+" is not supported");
+    }
+}
+
+void blockstore_disk_t::check_lengths()
+{
+    if (meta_area_size < min_meta_len)
     {
         throw std::runtime_error("Metadata area is too small, need at least "+std::to_string(min_meta_len)+" bytes, have only "+std::to_string(meta_area_size)+" bytes");
     }
     // requested journal size
-    if (!skip_meta_check && cfg_journal_size > journal_len)
+    if (cfg_journal_size > journal_len)
     {
         throw std::runtime_error("Requested journal_size is too large");
     }

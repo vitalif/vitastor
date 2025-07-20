@@ -83,7 +83,7 @@ int disk_tool_t::trim_data(std::string device)
         return r;
     }
     // Trim
-    r = dsk.trim_data(data_alloc);
+    r = dsk.trim_data([&](uint64_t block_num) { return data_alloc->get(block_num); });
     dsk.close_all();
     return r == 0;
 }
