@@ -12,7 +12,7 @@
 // [LD_PRELOAD=libasan.so.8] \
 // fio -name=test -thread -ioengine=../build/src/blockstore/libfio_vitastor_blk.so \
 //     -bs=4k -direct=1 -rw=randwrite -iodepth=16 -size=900M -loops=10 \
-//     -bs_config='{"data_device":"./test_data.bin","meta_offset":0,"journal_offset":16777216,"data_offset":33554432,"disable_data_fsync":true,"immediate_commit":"all","journal_no_same_sector_overwrites":true}'
+//     -bs_config='{"data_device":"./test_data.bin","meta_offset":0,"journal_offset":16777216,"data_offset":33554432,"disable_data_fsync":true,"meta_format":3,"immediate_commit":"all","log_level":100,"journal_no_same_sector_overwrites":true,"journal_sector_buffer_count":1024}'
 //
 // Linear write:
 //
