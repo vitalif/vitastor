@@ -8,8 +8,8 @@
 
 int disk_tool_t::dump_journal()
 {
-    dump_with_blocks = options["format"] == "blocks";
-    dump_with_data = options["format"] == "data" || options["format"] == "blocks,data";
+    dump_with_blocks = options["format"] == "blocks" || options["format"] == "blocks,data";
+    dump_with_data = options["format"] == "data" || options["format"] == "blocks,data" || options["format"] == "";
     if (dsk.journal_block_size < DIRECT_IO_ALIGNMENT || (dsk.journal_block_size % DIRECT_IO_ALIGNMENT) ||
         dsk.journal_block_size > 128*1024)
     {
