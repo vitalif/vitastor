@@ -356,23 +356,32 @@ skip_object:
                 offsets_seen.insert({ .start = wr_pos, .end = wr_pos+wr->size, .type = 2 });
             }
             // Check for duplicates
-            uint64_t lsn = obj->get_writes()->lsn;
             auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
             uint32_t dup_block;
             heap_object_t *dup_obj = read_entry(oid, &dup_block);
             if (dup_obj != NULL)
             {
-                if (dup_obj->get_writes()->lsn >= lsn)
+                uint64_t lsn = 0;
+                for (auto wr = obj->get_writes(); wr; wr = wr->next())
+                {
+                    lsn = lsn < wr->lsn ? wr->lsn : lsn;
+                }
+                uint64_t dup_lsn = 0;
+                for (auto wr = dup_obj->get_writes(); wr; wr = wr->next())
+                {
+                    dup_lsn = dup_lsn < wr->lsn ? wr->lsn : dup_lsn;
+                }
+                if (dup_lsn >= lsn)
                 {
                     // Object is duplicated on disk
-                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u is an older duplicate, skipping\n",
-                        obj->inode, obj->stripe, block_num, block_offset);
+                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u is an older duplicate (lsn %lu <= %lu), skipping\n",
+                        obj->inode, obj->stripe, block_num, block_offset, dup_lsn, lsn);
                     goto skip_object;
                 }
                 else
                 {
-                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u is a newer duplicate, overriding\n",
-                        obj->inode, obj->stripe, block_num, block_offset);
+                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u is a newer duplicate (lsn %lu < %lu), overriding\n",
+                        obj->inode, obj->stripe, block_num, block_offset, dup_lsn, lsn);
                     erase_object(dup_block, dup_obj, 0, false);
                 }
             }
@@ -473,10 +482,10 @@ skip_object:
                 {
                     tmp_compact_queue.push_back((tmp_compact_item_t){ .oid = oid, .lsn = wr->lsn, .compact = wr->needs_compact(this) });
                 }
-            }
-            if (lsn > next_lsn)
-            {
-                next_lsn = lsn;
+                if (wr->lsn > next_lsn)
+                {
+                    next_lsn = wr->lsn;
+                }
             }
             if (to_recheck)
             {
