@@ -35,8 +35,8 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
         }
         fulfilled += prepare_read(PRIV(op)->read_vec, obj, wr, op->offset, op->offset+op->len);
         if (fulfilled == op->len ||
-            (wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE ||
-            (wr->flags & BS_HEAP_TYPE) == BS_HEAP_TOMBSTONE)
+            wr->type() == BS_HEAP_BIG_WRITE ||
+            wr->type() == BS_HEAP_TOMBSTONE)
         {
             break;
         }
@@ -102,11 +102,11 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *op)
 
 uint32_t blockstore_impl_t::prepare_read(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end)
 {
-    if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
+    if (wr->type() == BS_HEAP_BIG_WRITE)
     {
         return prepare_read_with_bitmaps(read_vec, obj, wr, start, end);
     }
-    if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_TOMBSTONE)
+    if (wr->type() == BS_HEAP_TOMBSTONE)
     {
         return prepare_read_zero(read_vec, start, end);
     }
@@ -170,7 +170,7 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
     find_holes(read_vec, start, end, [&](int & pos, uint32_t start, uint32_t end)
     {
         res += end-start;
-        if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE && dsk.inmemory_journal)
+        if (wr->type() == BS_HEAP_SMALL_WRITE && dsk.inmemory_journal)
         {
             // read buffered data from memory
             read_vec.insert(read_vec.begin() + (pos++), (copy_buffer_t){
@@ -197,7 +197,7 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
             blk_end = ((end-1) / dsk.csum_block_size + 1) * dsk.csum_block_size;
             blk_end = blk_end > wr->offset+wr->len ? wr->offset+wr->len : blk_end;
             uint32_t skip_csum = 0;
-            if (!perfect_csum_update && (wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
+            if (!perfect_csum_update && wr->type() == BS_HEAP_BIG_WRITE)
             {
                 for (auto owr = obj->get_writes(); owr && owr != wr; owr = owr->next())
                     if (owr->offset < blk_end && owr->offset+owr->len > blk_start)
@@ -233,12 +233,12 @@ void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec,
     uint32_t blk_start, uint32_t blk_end, uint32_t start, uint32_t end, uint32_t copy_flags)
 {
     // Only one INTENT_WRITE is allowed at a time
-    assert((wr->flags & BS_HEAP_TYPE) != BS_HEAP_INTENT_WRITE || (wr->next()->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE);
+    assert(wr->type() != BS_HEAP_INTENT_WRITE || wr->next()->type() == BS_HEAP_BIG_WRITE);
     copy_buffer_t vec = {
-        .copy_flags = ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ? COPY_BUF_JOURNAL : COPY_BUF_DATA) | copy_flags,
+        .copy_flags = (wr->type() == BS_HEAP_SMALL_WRITE ? COPY_BUF_JOURNAL : COPY_BUF_DATA) | copy_flags,
         .offset = start,
         .len = end-start,
-        .disk_offset = ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE ? wr->next()->location : wr->location) + blk_start,
+        .disk_offset = (wr->type() == BS_HEAP_INTENT_WRITE ? wr->next()->location : wr->location) + blk_start,
         .disk_len = blk_end - blk_start,
         .wr_lsn = wr->lsn,
     };
@@ -359,7 +359,7 @@ bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
         uint8_t *buf = vec.buf ? vec.buf : (op->buf + vec.offset - op->offset);
         uint32_t *csums = (uint32_t*)(wr->get_checksums(heap)
             + (blk_start/dsk.csum_block_size)*(dsk.data_csum_type & 0xFF)
-            - (((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE) ? 0 : (wr->offset/dsk.csum_block_size)*(dsk.data_csum_type & 0xFF)));
+            - ((wr->type() == BS_HEAP_BIG_WRITE) ? 0 : (wr->offset/dsk.csum_block_size)*(dsk.data_csum_type & 0xFF)));
         if (!heap->calc_block_checksums(csums, buf, wr->get_int_bitmap(heap),
             blk_start, blk_end, false, [&](uint32_t mismatch_pos, uint32_t expected_csum, uint32_t real_csum)
             {

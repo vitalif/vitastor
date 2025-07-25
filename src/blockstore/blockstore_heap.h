@@ -46,6 +46,7 @@ struct __attribute__((__packed__)) heap_write_t
     // uint32_t[] checksums
 
     heap_write_t *next();
+    inline uint8_t type() const { return (flags & BS_HEAP_TYPE); }
     uint32_t get_size(blockstore_heap_t *heap);
     uint32_t get_csum_size(blockstore_heap_t *heap);
     bool needs_recheck(blockstore_heap_t *heap);

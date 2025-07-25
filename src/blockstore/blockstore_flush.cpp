@@ -484,7 +484,7 @@ int journal_flusher_co::check_and_punch_checksums()
             assert(wr);
             uint32_t *csums = (uint32_t*)(wr->get_checksums(bs->heap)
                 + (vec.offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)
-                - (((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE) ? 0 : (wr->offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)));
+                - ((wr->type() == BS_HEAP_BIG_WRITE) ? 0 : (wr->offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)));
             bs->heap->calc_block_checksums(
                 csums, vec.buf, wr->get_int_bitmap(bs->heap), vec.offset, vec.offset+vec.len, false,
                 [&](uint32_t mismatch_pos, uint32_t expected_csum, uint32_t real_csum)

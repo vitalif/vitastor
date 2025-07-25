@@ -60,7 +60,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     }
     // FIXME: Allow to do initial writes as buffered, not redirected
     // FIXME: Allow to do direct writes over holes
-    else if (!obj || (obj->get_writes()->flags & BS_HEAP_TYPE) == BS_HEAP_TOMBSTONE ||
+    else if (!obj || obj->get_writes()->type() == BS_HEAP_TOMBSTONE ||
         op->offset == 0 && op->len == dsk.data_block_size)
     {
         // Big (redirect) write
@@ -145,13 +145,13 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     {
         // Direct intent-write
         BS_SUBMIT_CHECK_SQES(1);
-        if ((obj->get_writes()->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
+        if (obj->get_writes()->type() == BS_HEAP_BIG_WRITE)
         {
             PRIV(op)->location = obj->get_writes()->location;
         }
         else
         {
-            assert((obj->get_writes()->next()->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE);
+            assert(obj->get_writes()->next()->type() == BS_HEAP_BIG_WRITE);
             PRIV(op)->location = obj->get_writes()->next()->location;
         }
 process_intent:
