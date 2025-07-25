@@ -434,19 +434,25 @@ void test_compact(bool csum, bool stable)
         res = heap.get_next_compact(compact_oid);
         assert(res == ENOENT);
 
-        res = heap.post_stabilize({ .inode = INODE_WITH_POOL(1, 2), .stripe = 0 }, 3, NULL);
+        uint64_t to_lsn = 0, before_lsn = 0;
+        res = heap.post_stabilize({ .inode = INODE_WITH_POOL(1, 2), .stripe = 0 }, 3, NULL, &before_lsn, &to_lsn);
         assert(res == ENOENT);
-        res = heap.post_stabilize(oid, 5, NULL);
+        res = heap.post_stabilize(oid, 5, NULL, &before_lsn, &to_lsn);
         assert(res == ENOENT);
-        res = heap.post_stabilize(oid, 1, &mblock);
+        res = heap.post_stabilize(oid, 1, &mblock, &before_lsn, &to_lsn);
         assert(res == 0);
-        res = heap.post_stabilize(oid, 3, &mblock);
+        assert(before_lsn == 0);
+        assert(to_lsn == 0);
+        res = heap.post_stabilize(oid, 3, &mblock, &before_lsn, &to_lsn);
         assert(res == 0);
         assert(mblock == 0);
+        assert(before_lsn == 0);
+        assert(to_lsn == 2);
         assert(check_used_space(heap, dsk, 0));
         assert(heap.get_meta_block_used_space(0) == 2*old_size + wr_size);
     }
 
+    heap.add_to_compact_queue(oid);
     assert(heap.get_compact_queue_size() == 1);
     res = heap.get_next_compact(compact_oid);
     assert(res == 0);
@@ -762,7 +768,7 @@ void test_full_overwrite(bool stable)
 
         if (!stable)
         {
-            res = heap.post_stabilize(oid, 4, NULL);
+            res = heap.post_stabilize(oid, 4, NULL, NULL, NULL);
             assert(res == 0);
         }
 

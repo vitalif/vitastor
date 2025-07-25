@@ -16,6 +16,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     assert(!priv->op_state);
     priv->stab_pos = 0;
     op->retval = 0;
+    priv->to_compact.resize(op->len);
     while (priv->stab_pos < op->len)
     {
         io_uring_sqe *sqe = get_sqe();
@@ -27,9 +28,11 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
             priv->wait_for = WAIT_SQE;
             return 0;
         }
-        uint32_t modified_block;
+        uint32_t modified_block = 0;
+        uint64_t before_compact = 0;
+        uint64_t to_compact = 0;
         int res = op->opcode == BS_OP_STABLE
-            ? heap->post_stabilize(v[priv->stab_pos].oid, v[priv->stab_pos].version, &modified_block)
+            ? heap->post_stabilize(v[priv->stab_pos].oid, v[priv->stab_pos].version, &modified_block, &before_compact, &to_compact)
             : heap->post_rollback(v[priv->stab_pos].oid, v[priv->stab_pos].version, &modified_block);
         if (res != 0)
         {
@@ -37,8 +40,16 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
             FINISH_OP(op);
             return 2;
         }
-        prepare_meta_block_write(op, modified_block);
-        priv->pending_ops++;
+        if (modified_block)
+        {
+            if (to_compact)
+            {
+                priv->to_compact[priv->stab_pos] = true;
+                committing_lsn[v[priv->stab_pos].oid] = before_compact;
+            }
+            prepare_meta_block_write(op, modified_block);
+            priv->pending_ops++;
+        }
         priv->stab_pos++;
     }
 resume_1:
@@ -63,6 +74,18 @@ resume_3:
         return 0;
     }
 resume_4:
+    for (int i = 0; i < op->len; i++)
+    {
+        if (priv->to_compact[i])
+        {
+            // Add to compact queue only when metadata writes are finished
+            heap->add_to_compact_queue(v[i].oid);
+            auto cm_it = committing_lsn.find(v[i].oid);
+            assert(cm_it != committing_lsn.end());
+            if (cm_it->second <= priv->to_compact[i])
+                committing_lsn.erase(cm_it);
+        }
+    }
     // Done. Don't touch op->retval - if anything resulted in ENOENT, return it as is
     FINISH_OP(op);
     return 2;

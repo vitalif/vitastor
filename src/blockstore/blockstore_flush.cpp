@@ -177,7 +177,7 @@ resume_0:
     }
 resume_1:
     should_repeat = false;
-    cur_obj = bs->heap->lock_and_read_entry(cur_oid, cur_lsn);
+    cur_obj = bs->heap->lock_and_read_entry(cur_oid, copy_id);
     if (!cur_obj)
     {
         // Object does not exist
@@ -185,14 +185,18 @@ resume_1:
     }
     cur_version = cur_obj->get_writes()->version;
     // Find the range to compact
-    bs->heap->get_compact_range(cur_obj, cur_lsn, &begin_wr, &end_wr);
+    compact_lsn = bs->heap->get_completed_lsn();
+    if (auto cm_it = bs->committing_lsn.find(cur_oid); cm_it != bs->committing_lsn.end())
+    {
+        compact_lsn = cm_it->second;
+    }
+    bs->heap->get_compact_range(cur_obj, compact_lsn, &begin_wr, &end_wr);
     if (!begin_wr)
     {
         // Nothing to flush
-        bs->heap->unlock_entry(cur_oid, cur_lsn);
+        bs->heap->unlock_entry(cur_oid, copy_id);
         goto resume_0;
     }
-    compact_lsn = begin_wr->lsn;
     assert(!end_wr->next() && end_wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
     clean_loc = end_wr->location;
 #ifdef BLOCKSTORE_DEBUG
@@ -277,10 +281,10 @@ resume_12:
 resume_13:
     if (copy_count && !fsync_batch(false, 11))
         return false;
-    bs->heap->unlock_entry(cur_oid, cur_lsn);
+    bs->heap->unlock_entry(cur_oid, copy_id);
     // Modify the metadata entry; don't write anything. Metadata block will be written on the next write
     calc_block_checksums();
-    bs->heap->compact_object(cur_oid, cur_lsn, new_data_csums);
+    bs->heap->compact_object(cur_oid, compact_lsn, new_data_csums);
     // Done, free all buffers
     free_buffers();
 #ifdef BLOCKSTORE_DEBUG
@@ -398,7 +402,7 @@ int journal_flusher_co::check_and_punch_checksums()
         return 0;
     }
     // Verify data checksums
-    cur_obj = bs->heap->read_locked_entry(cur_oid, cur_lsn);
+    cur_obj = bs->heap->read_locked_entry(cur_oid, copy_id);
     bool csum_ok = true;
     for (int i = 0; i < read_vec.size(); i++)
     {
@@ -436,7 +440,7 @@ int journal_flusher_co::check_and_punch_checksums()
         // Object is deleted, abort compaction
         return ENOENT;
     }
-    bs->heap->get_compact_range(cur_obj, cur_lsn, &begin_wr, &end_wr);
+    bs->heap->get_compact_range(cur_obj, compact_lsn, &begin_wr, &end_wr);
     if (!begin_wr || begin_wr->lsn != compact_lsn)
     {
         // Object is overwritten, abort compaction
@@ -476,7 +480,7 @@ void journal_flusher_co::calc_block_checksums()
     if (bs->dsk.csum_block_size <= bs->dsk.bitmap_granularity)
         return;
     new_data_csums = csum_buf + overwrite_start/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF);
-    cur_obj = bs->heap->read_locked_entry(cur_oid, cur_lsn);
+    cur_obj = bs->heap->read_locked_entry(cur_oid, copy_id);
     uint64_t block_offset = 0;
     uint32_t block_done = 0;
     uint32_t block_csum = 0;

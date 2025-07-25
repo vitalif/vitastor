@@ -97,6 +97,12 @@ struct __attribute__((__packed__)) heap_block_info_t
     uint8_t *data = NULL;
 };
 
+struct heap_inflight_lsn_t
+{
+    object_id oid;
+    uint64_t flags;
+};
+
 struct multilist_alloc_t
 {
     const uint32_t count, maxn;
@@ -148,6 +154,11 @@ class blockstore_heap_t
     uint64_t buffer_area_used_space = 0;
     uint64_t data_used_space = 0;
 
+    std::deque<heap_inflight_lsn_t> inflight_lsn;
+    uint64_t first_inflight_lsn = 0;
+    uint64_t completed_lsn = 0;
+
+    std::vector<heap_object_lsn_t> tmp_compact_queue;
     std::deque<object_id> recheck_queue;
     int recheck_in_progress = 0;
     bool in_recheck = false;
@@ -209,7 +220,7 @@ public:
     int post_write(object_id oid, heap_write_t *wr, uint32_t *modified_block);
     // stabilize an unstable object version
     // return 0 if OK, ENOENT if not exists
-    int post_stabilize(object_id oid, uint64_t version, uint32_t *modified_block);
+    int post_stabilize(object_id oid, uint64_t version, uint32_t *modified_block, uint64_t *before_compact_lsn, uint64_t *to_compact_lsn);
     // rollback an unstable object version
     // return 0 if OK, ENOENT if not exists, EBUSY if already stable
     int post_rollback(object_id oid, uint64_t version, uint32_t *modified_block);
@@ -229,6 +240,12 @@ public:
         obj_ver_id **result_list, size_t *stable_count, size_t *unstable_count);
     // set a block number for a new object and returns error status: 0, EAGAIN or ENOSPC
     int get_block_for_new_object(uint32_t & out_block_num);
+
+    // inflight write tracking
+    void push_inflight_lsn(uint64_t lsn, object_id oid, uint64_t flags);
+    void complete_lsn(uint64_t lsn);
+    uint64_t get_completed_lsn();
+    void add_to_compact_queue(object_id oid);
 
     // data device block allocator functions
     uint64_t find_free_data();

@@ -25,13 +25,10 @@ void blockstore_impl_t::cancel_all_writes(blockstore_op_t *op, int retval)
             found = true;
         }
         else if (found && other_op->oid == op->oid &&
-            (other_op->opcode == BS_OP_WRITE || other_op->opcode == BS_OP_WRITE_STABLE))
+            (other_op->opcode == BS_OP_WRITE || other_op->opcode == BS_OP_WRITE_STABLE) &&
+            !PRIV(other_op)->op_state)
         {
             // Mark operations to cancel them
-            if (PRIV(other_op)->op_state != 0 && PRIV(other_op)->op_state != 100)
-            {
-                write_iodepth--;
-            }
             PRIV(other_op)->op_state = 100;
             other_op->retval = retval;
         }
@@ -103,7 +100,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (loc == UINT64_MAX ||
             !obj && heap->get_block_for_new_object(tmp_block) != 0)
         {
-            if (!heap->get_compact_queue_size() && !flusher->get_active())
+            if (!heap->get_compact_queue_size() && !write_iodepth && !flusher->get_active())
             {
                 // no space
                 cancel_all_writes(op, -ENOSPC);
@@ -179,7 +176,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         int res = heap->post_write(op->oid, wr, &modified_block);
         if (res == ENOSPC)
         {
-            if (!heap->get_compact_queue_size() && !flusher->get_active())
+            if (!heap->get_compact_queue_size() && !write_iodepth && !flusher->get_active())
             {
                 // no space
                 cancel_all_writes(op, -ENOSPC);
@@ -191,6 +188,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             return 0;
         }
         assert(res == 0);
+        PRIV(op)->lsn = wr->lsn;
         prepare_meta_block_write(op, modified_block);
         unsynced_small_write_count++;
         PRIV(op)->op_state = 9;
@@ -225,7 +223,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         int res = heap->post_write(op->oid, wr, &modified_block);
         if (res == ENOSPC)
         {
-            if (!heap->get_compact_queue_size() && !flusher->get_active())
+            if (!heap->get_compact_queue_size() && !write_iodepth && !flusher->get_active())
             {
                 // no space
                 cancel_all_writes(op, -ENOSPC);
@@ -237,6 +235,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             return 0;
         }
         assert(res == 0);
+        PRIV(op)->lsn = wr->lsn;
         heap->use_buffer_area(op->oid.inode, loc, op->len);
         prepare_meta_block_write(op, modified_block);
         if (op->len > 0)
@@ -317,6 +316,7 @@ resume_4:
             return 1;
         }
         assert(res == 0);
+        PRIV(op)->lsn = wr->lsn;
         prepare_meta_block_write(op, modified_block);
         PRIV(op)->op_state = 5;
         return 1;
@@ -361,6 +361,7 @@ resume_6:
 resume_8:
     // Acknowledge write
     op->retval = op->len;
+    heap->complete_lsn(PRIV(op)->lsn);
     write_iodepth--;
     FINISH_OP(op);
     return 2;

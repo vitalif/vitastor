@@ -49,7 +49,7 @@ class journal_flusher_co
     std::function<void(ring_data_t*)> simple_callback_r, simple_callback_w;
 
     object_id cur_oid;
-    uint64_t cur_lsn;
+    uint64_t copy_id;
     uint64_t compact_lsn;
     uint64_t min_compact_lsn;
     uint64_t cur_version;
