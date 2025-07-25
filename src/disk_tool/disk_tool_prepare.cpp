@@ -9,6 +9,7 @@
 int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_hdd, json11::Json::object & result)
 {
     static const char *allow_additional_params[] = {
+        "meta_format",
         "data_csum_type",
         "csum_block_size",
         "autosync_writes",
@@ -128,7 +129,8 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         dsk.open_meta();
         dsk.open_journal();
         dsk.calc_lengths();
-        dsk.data_offset += (new_meta_len ? 0 : (dsk.meta_format == BLOCKSTORE_META_FORMAT_HEAP ? dsk.min_meta_len*2 : dsk.min_meta_len));
+        if (dsk.data_device == dsk.meta_device && !new_meta_len)
+            dsk.data_offset += (dsk.meta_format == BLOCKSTORE_META_FORMAT_HEAP ? dsk.min_meta_len*2 : dsk.min_meta_len);
         dsk.meta_area_size = (dsk.data_device == dsk.meta_device ? dsk.data_offset : dsk.meta_device_size) - dsk.meta_offset;
         sb = json11::Json::object {
             { "meta_format", options["meta_format"] },

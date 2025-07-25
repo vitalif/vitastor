@@ -1,6 +1,9 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+#define _XOPEN_SOURCE
+#include <limits.h>
+
 #include "disk_tool.h"
 #include "rw_blocking.h"
 #include "str_util.h"
@@ -25,65 +28,87 @@ int disk_tool_t::raw_resize()
     // Parse parameters
     r = resize_parse_params();
     if (r != 0)
-        return r;
+        goto ret;
     // Fill allocator
     fprintf(stderr, "Reading metadata\n");
     data_alloc = new allocator_t((new_data_len < dsk.data_len ? dsk.data_len : new_data_len) / dsk.data_block_size);
     r = process_meta(
-        [this](blockstore_meta_header_v2_t *hdr)
+        [this](blockstore_meta_header_v3_t *hdr)
         {
             resize_init(hdr);
+        },
+        [this](blockstore_heap_t *heap, heap_object_t *obj, uint32_t meta_block_num)
+        {
+            for (auto wr = obj->get_writes(); wr; wr = wr->next())
+            {
+                if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
+                {
+                    data_alloc->set(wr->location / dsk.data_block_size, true);
+                }
+            }
         },
         [this](uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap)
         {
             data_alloc->set(block_num, true);
-        }
+        },
+        true, true
     );
     if (r != 0)
-        return r;
-    fprintf(stderr, "Reading journal\n");
-    r = process_journal([this](void *buf)
+        goto ret;
+    if (dsk.meta_format != BLOCKSTORE_META_FORMAT_HEAP)
     {
-        return process_journal_block(buf, [this](int num, journal_entry *je)
+        fprintf(stderr, "Reading journal\n");
+        r = process_journal([this](void *buf)
         {
-            if (je->type == JE_BIG_WRITE || je->type == JE_BIG_WRITE_INSTANT)
+            return process_journal_block(buf, [this](int num, journal_entry *je)
             {
-                data_alloc->set(je->big_write.location / dsk.data_block_size, true);
-            }
+                if (je->type == JE_BIG_WRITE || je->type == JE_BIG_WRITE_INSTANT)
+                {
+                    data_alloc->set(je->big_write.location / dsk.data_block_size, true);
+                }
+            });
         });
-    });
-    if (r != 0)
-        return r;
+        if (r != 0)
+            goto ret;
+    }
     // Remap blocks
     r = resize_remap_blocks();
     if (r != 0)
-        return r;
+        goto ret;
     // Copy data blocks into new places
     fprintf(stderr, "Moving data blocks\n");
     r = resize_copy_data();
     if (r != 0)
-        return r;
-    // Rewrite journal
-    fprintf(stderr, "Rebuilding journal\n");
-    r = resize_rewrite_journal();
-    if (r != 0)
-        return r;
+        goto ret;
     // Rewrite metadata
+    resize_alloc_journal();
     fprintf(stderr, "Rebuilding metadata\n");
-    r = resize_rewrite_meta();
+    r = resize_rebuild_meta();
     if (r != 0)
-        return r;
+        goto ret;
+    if (new_meta_format != BLOCKSTORE_META_FORMAT_HEAP)
+    {
+        // Rewrite journal
+        fprintf(stderr, "Rebuilding journal\n");
+        r = resize_rebuild_journal();
+        if (r != 0)
+            goto ret;
+        fprintf(stderr, "Writing new journal\n");
+    }
+    else
+        fprintf(stderr, "Writing new buffer area\n");
     // Write new journal
-    fprintf(stderr, "Writing new journal\n");
     r = resize_write_new_journal();
     if (r != 0)
-        return r;
+        goto ret;
     // Write new metadata
     fprintf(stderr, "Writing new metadata\n");
     r = resize_write_new_meta();
     if (r != 0)
-        return r;
+        goto ret;
     fprintf(stderr, "Done\n");
+ret:
+    free_new_meta();
     return 0;
 }
 
@@ -127,6 +152,8 @@ int disk_tool_t::resize_parse_params()
         ? parse_size(options["new_journal_offset"]) : dsk.journal_offset;
     new_journal_len = options.find("new_journal_len") != options.end()
         ? parse_size(options["new_journal_len"]) : dsk.journal_len;
+    new_meta_format = options.find("new_meta_format") != options.end()
+        ? stoull_full(options["new_meta_format"]) : 0;
     if (new_data_len+new_data_offset > dsk.data_device_size)
         new_data_len = dsk.data_device_size-new_data_offset;
     if (new_meta_device == dsk.data_device && new_data_offset < new_meta_offset &&
@@ -152,7 +179,7 @@ int disk_tool_t::resize_parse_params()
     return 0;
 }
 
-void disk_tool_t::resize_init(blockstore_meta_header_v2_t *hdr)
+void disk_tool_t::resize_init(blockstore_meta_header_v3_t *hdr)
 {
     if (hdr && dsk.data_block_size != hdr->data_block_size)
     {
@@ -171,6 +198,15 @@ void disk_tool_t::resize_init(blockstore_meta_header_v2_t *hdr)
         dsk.data_csum_type = hdr->data_csum_type;
         dsk.csum_block_size = hdr->csum_block_size;
     }
+    if (hdr && dsk.meta_format != hdr->version)
+    {
+        dsk.meta_format = hdr->version;
+    }
+    if (new_meta_format == 0)
+    {
+        new_meta_format = hdr && hdr->version == BLOCKSTORE_META_FORMAT_HEAP ? BLOCKSTORE_META_FORMAT_HEAP : BLOCKSTORE_META_FORMAT_V2;
+    }
+    dsk.calc_lengths();
     if (((new_data_offset-dsk.data_offset) % dsk.data_block_size))
     {
         fprintf(stderr, "Data alignment mismatch: old data offset is 0x%jx, new is 0x%jx, but alignment on %x should be equal\n",
@@ -360,15 +396,57 @@ int disk_tool_t::resize_copy_data()
     return 0;
 }
 
-int disk_tool_t::resize_rewrite_journal()
+void disk_tool_t::resize_alloc_journal()
 {
-    // Simply overwriting on the fly may be impossible because old and new areas may overlap
-    // For now, just build new journal data in memory
     new_journal_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_journal_len);
+    memset(new_journal_buf, 0, new_journal_len);
     new_journal_ptr = new_journal_buf;
     new_journal_data = new_journal_ptr + dsk.journal_block_size;
     new_journal_in_pos = 0;
-    memset(new_journal_buf, 0, new_journal_len);
+}
+
+void disk_tool_t::build_journal_start()
+{
+    journal_entry *ne = (journal_entry*)(new_journal_ptr + new_journal_in_pos);
+    *((journal_entry_start*)ne) = (journal_entry_start){
+        .magic = JOURNAL_MAGIC,
+        .type = JE_START,
+        .size = sizeof(journal_entry_start),
+        .journal_start = dsk.journal_block_size,
+        .version = JOURNAL_VERSION_V2,
+        .data_csum_type = dsk.data_csum_type,
+        .csum_block_size = dsk.csum_block_size,
+    };
+    ne->crc32 = je_crc32(ne);
+    new_journal_ptr += dsk.journal_block_size;
+    new_journal_data = new_journal_ptr+dsk.journal_block_size;
+    new_journal_in_pos = 0;
+}
+
+void disk_tool_t::choose_journal_block(uint32_t je_size)
+{
+    if (dsk.journal_block_size < new_journal_in_pos+je_size)
+    {
+        new_journal_ptr = new_journal_data;
+        if (new_journal_ptr-new_journal_buf >= new_journal_len)
+        {
+            fprintf(stderr, "Error: live entries don't fit to the new journal\n");
+            exit(1);
+        }
+        new_journal_data = new_journal_ptr+dsk.journal_block_size;
+        new_journal_in_pos = 0;
+        if (dsk.journal_block_size < je_size)
+        {
+            fprintf(stderr, "Error: journal entry too large (%u bytes)\n", je_size);
+            exit(1);
+        }
+    }
+}
+
+int disk_tool_t::resize_rebuild_journal()
+{
+    // Simply overwriting on the fly may be impossible because old and new areas may overlap
+    // For now, just build new journal data in memory
     process_journal([this](void *buf)
     {
         return process_journal_block(buf, [this](int num, journal_entry *je)
@@ -385,39 +463,11 @@ int disk_tool_t::resize_rewrite_journal()
                     );
                     exit(1);
                 }
-                journal_entry *ne = (journal_entry*)(new_journal_ptr + new_journal_in_pos);
-                *((journal_entry_start*)ne) = (journal_entry_start){
-                    .magic = JOURNAL_MAGIC,
-                    .type = JE_START,
-                    .size = sizeof(journal_entry_start),
-                    .journal_start = dsk.journal_block_size,
-                    .version = JOURNAL_VERSION_V2,
-                    .data_csum_type = dsk.data_csum_type,
-                    .csum_block_size = dsk.csum_block_size,
-                };
-                ne->crc32 = je_crc32(ne);
-                new_journal_ptr += dsk.journal_block_size;
-                new_journal_data = new_journal_ptr+dsk.journal_block_size;
-                new_journal_in_pos = 0;
+                build_journal_start();
             }
             else
             {
-                if (dsk.journal_block_size < new_journal_in_pos+je->size)
-                {
-                    new_journal_ptr = new_journal_data;
-                    if (new_journal_ptr-new_journal_buf >= new_journal_len)
-                    {
-                        fprintf(stderr, "Error: live entries don't fit to the new journal\n");
-                        exit(1);
-                    }
-                    new_journal_data = new_journal_ptr+dsk.journal_block_size;
-                    new_journal_in_pos = 0;
-                    if (dsk.journal_block_size < je->size)
-                    {
-                        fprintf(stderr, "Error: journal entry too large (%u bytes)\n", je->size);
-                        exit(1);
-                    }
-                }
+                choose_journal_block(je->size);
                 journal_entry *ne = (journal_entry*)(new_journal_ptr + new_journal_in_pos);
                 memcpy(ne, je, je->size);
                 ne->crc32_prev = new_crc32_prev;
@@ -464,30 +514,173 @@ int disk_tool_t::resize_write_new_journal()
     fsync(new_journal_fd);
     close(new_journal_fd);
     new_journal_fd = -1;
-    free(new_journal_buf);
-    new_journal_buf = NULL;
     return 0;
 }
 
-int disk_tool_t::resize_rewrite_meta()
+int disk_tool_t::resize_rebuild_meta()
 {
-    new_meta_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_meta_len);
-    memset(new_meta_buf, 0, new_meta_len);
+    if (new_meta_format == BLOCKSTORE_META_FORMAT_HEAP)
+    {
+        new_dsk = dsk;
+        new_dsk.data_offset = new_data_offset;
+        new_dsk.data_len = new_data_len;
+        new_dsk.block_count = new_data_len / dsk.data_block_size;
+        new_dsk.journal_device = new_journal_device;
+        new_dsk.journal_offset = new_journal_offset;
+        new_dsk.journal_len = new_journal_len;
+        new_dsk.meta_device = new_meta_device;
+        new_dsk.meta_offset = new_meta_offset;
+        new_dsk.meta_area_size = new_meta_len;
+        new_dsk.meta_format = new_meta_format;
+        new_heap = new blockstore_heap_t(&new_dsk, NULL, 0);
+        new_meta_hdr = (blockstore_meta_header_v3_t *)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
+        memset(new_meta_hdr, 0, dsk.meta_block_size);
+    }
+    else
+    {
+        new_meta_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_meta_len);
+        memset(new_meta_buf, 0, new_meta_len);
+        new_meta_hdr = (blockstore_meta_header_v3_t *)new_meta_buf;
+    }
+    std::vector<heap_write_t*> writes;
     int r = process_meta(
-        [this](blockstore_meta_header_v2_t *hdr)
+        [&](blockstore_meta_header_v3_t *hdr)
         {
-            blockstore_meta_header_v2_t *new_hdr = (blockstore_meta_header_v2_t *)new_meta_buf;
-            new_hdr->zero = 0;
-            new_hdr->magic = BLOCKSTORE_META_MAGIC_V1;
-            new_hdr->version = BLOCKSTORE_META_FORMAT_V2;
-            new_hdr->meta_block_size = dsk.meta_block_size;
-            new_hdr->data_block_size = dsk.data_block_size;
-            new_hdr->bitmap_granularity = dsk.bitmap_granularity ? dsk.bitmap_granularity : 4096;
-            new_hdr->data_csum_type = dsk.data_csum_type;
-            new_hdr->csum_block_size = dsk.csum_block_size;
-            new_hdr->header_csum = crc32c(0, new_hdr, sizeof(*new_hdr));
+            new_meta_hdr->zero = 0;
+            new_meta_hdr->magic = BLOCKSTORE_META_MAGIC_V1;
+            new_meta_hdr->version = new_meta_format == 0 ? BLOCKSTORE_META_FORMAT_HEAP : new_meta_format;
+            new_meta_hdr->meta_block_size = dsk.meta_block_size;
+            new_meta_hdr->data_block_size = dsk.data_block_size;
+            new_meta_hdr->bitmap_granularity = dsk.bitmap_granularity ? dsk.bitmap_granularity : 4096;
+            new_meta_hdr->data_csum_type = dsk.data_csum_type;
+            new_meta_hdr->csum_block_size = dsk.csum_block_size;
+            new_meta_hdr->compacted_lsn = hdr->compacted_lsn;
+            new_meta_hdr->header_csum = 0;
+            new_meta_hdr->header_csum = crc32c(0, new_meta_hdr, new_meta_hdr->version == BLOCKSTORE_META_FORMAT_HEAP
+                ? sizeof(blockstore_meta_header_v3_t) : sizeof(blockstore_meta_header_v2_t));
+            if (hdr->version == BLOCKSTORE_META_FORMAT_HEAP && new_meta_format != BLOCKSTORE_META_FORMAT_HEAP)
+            {
+                build_journal_start();
+            }
         },
-        [this](uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap)
+        [&](blockstore_heap_t *heap, heap_object_t *obj, uint32_t meta_block_num)
+        {
+            for (auto wr = obj->get_writes(); wr; wr = wr->next())
+            {
+                if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
+                {
+                    if (wr->next() && new_meta_hdr->data_csum_type != 0 &&
+                        ((wr->offset % new_meta_hdr->csum_block_size) || (wr->len % new_meta_hdr->csum_block_size)))
+                    {
+                        fprintf(stderr, "Error: big_write journal entries not aligned to csum_block_size can't be converted between v0.9 and v3.0 metadata\n");
+                        exit(1);
+                    }
+                    auto block_num = wr->location / dsk.data_block_size;
+                    auto remap_it = data_remap.find(block_num);
+                    if (remap_it != data_remap.end())
+                        block_num = remap_it->second;
+                    if (block_num < free_first || block_num >= total_blocks-free_last)
+                    {
+                        fprintf(stderr, "BUG: remapped block %ju not in range %ju..%ju\n", block_num, free_first, total_blocks-free_last);
+                        exit(1);
+                    }
+                    block_num += data_idx_diff;
+                    wr->location = block_num * dsk.data_block_size;
+                }
+                else if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE)
+                {
+                    if (new_heap && wr->len > 0)
+                    {
+                        if (new_journal_ptr-new_journal_buf+wr->len > new_journal_len)
+                        {
+                            fprintf(stderr, "Small write data doesn't fit into the new buffer area\n");
+                            exit(1);
+                        }
+                        memcpy(new_journal_ptr, buffer_area+wr->location, wr->len);
+                        wr->location = new_journal_ptr-new_journal_buf;
+                        new_journal_ptr += wr->len;
+                    }
+                }
+                else if (!new_heap)
+                {
+                    fprintf(stderr, "Object %jx:%jx can't be converted to the old format because it contains %s\n",
+                        obj->inode, obj->stripe, (wr->flags & BS_HEAP_TYPE) == BS_HEAP_TOMBSTONE
+                            ? "a tombstone" : ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE ? "an intent_write entry" : "an unknown entry"));
+                    exit(1);
+                }
+            }
+            if (new_heap)
+            {
+                // New -> New
+                new_heap->copy_object(obj, NULL);
+            }
+            else
+            {
+                // Fill journal
+                writes.clear();
+                for (auto wr = obj->get_writes(); wr; wr = wr->next())
+                {
+                    writes.push_back(wr);
+                }
+                for (ssize_t i = writes.size()-2; i >= 0; i--)
+                {
+                    auto wr = writes[i];
+                    assert((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE || wr->flags == BS_HEAP_BIG_WRITE);
+                    uint32_t je_size = dsk.dirty_dyn_size(wr->offset, wr->len) +
+                        ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ? sizeof(journal_entry_small_write) : sizeof(journal_entry_big_write));
+                    choose_journal_block(je_size);
+                    journal_entry *je = (journal_entry*)(new_journal_ptr + new_journal_in_pos);
+                    je->magic = JOURNAL_MAGIC;
+                    je->type = (wr->flags & BS_HEAP_STABLE) ? JE_SMALL_WRITE_INSTANT : JE_SMALL_WRITE;
+                    je->size = je_size;
+                    je->crc32_prev = new_crc32_prev;
+                    je->small_write.oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
+                    je->small_write.version = wr->version;
+                    je->small_write.offset = wr->offset;
+                    je->small_write.len = wr->len;
+                    if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE)
+                    {
+                        je->small_write.data_offset = new_journal_data-new_journal_buf;
+                        if (je->small_write.data_offset + je->small_write.len > new_journal_len)
+                        {
+                            fprintf(stderr, "Error: live entries don't fit to the new journal\n");
+                            exit(1);
+                        }
+                        memcpy(new_journal_data, buffer_area+wr->location, je->small_write.len);
+                        new_journal_data += je->small_write.len;
+                        if (dsk.data_csum_type == 0 && wr->get_checksum(heap))
+                            je->small_write.crc32_data = *wr->get_checksum(heap);
+                    }
+                    else
+                    {
+                        je->big_write.location = wr->location;
+                    }
+                    memcpy((uint8_t*)je + je->size, wr->get_ext_bitmap(heap), new_clean_entry_bitmap_size);
+                    if (dsk.data_csum_type != 0 && wr->get_checksums(heap))
+                        memcpy((uint8_t*)je + je->size + new_clean_entry_bitmap_size, wr->get_checksums(heap), new_data_csum_size);
+                    je->crc32 = je_crc32(je);
+                    new_journal_in_pos += je->size;
+                    new_crc32_prev = je->crc32;
+                }
+                // New -> Old
+                if (writes[writes.size()-1]->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE)
+                {
+                    auto big_wr = writes[writes.size()-1];
+                    uint64_t block_num = big_wr->location / dsk.data_block_size;
+                    clean_disk_entry *new_entry = (clean_disk_entry*)(new_meta_buf + dsk.meta_block_size +
+                        dsk.meta_block_size*(block_num / new_entries_per_block) +
+                        new_clean_entry_size*(block_num % new_entries_per_block));
+                    new_entry->oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
+                    new_entry->version = big_wr->version;
+                    memcpy(new_entry->bitmap, big_wr->get_ext_bitmap(heap), new_clean_entry_bitmap_size);
+                    memcpy(new_entry->bitmap + new_clean_entry_bitmap_size, big_wr->get_int_bitmap(heap), new_clean_entry_bitmap_size);
+                    memcpy(new_entry->bitmap + 2*new_clean_entry_bitmap_size, big_wr->get_checksums(heap), new_data_csum_size);
+                    uint32_t *new_entry_csum = (uint32_t*)(((uint8_t*)new_entry) + new_clean_entry_size - 4);
+                    *new_entry_csum = crc32c(0, new_entry, new_clean_entry_size - 4);
+                }
+            }
+        },
+        [&](uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap)
         {
             auto remap_it = data_remap.find(block_num);
             if (remap_it != data_remap.end())
@@ -498,26 +691,44 @@ int disk_tool_t::resize_rewrite_meta()
                 exit(1);
             }
             block_num += data_idx_diff;
-            clean_disk_entry *new_entry = (clean_disk_entry*)(new_meta_buf + dsk.meta_block_size +
-                dsk.meta_block_size*(block_num / new_entries_per_block) +
-                new_clean_entry_size*(block_num % new_entries_per_block));
-            new_entry->oid = entry->oid;
-            new_entry->version = entry->version;
-            if (bitmap)
-                memcpy(new_entry->bitmap, bitmap, 2*new_clean_entry_bitmap_size + new_data_csum_size);
+            if (new_heap)
+            {
+                // Old -> New
+                uint8_t wr_buf[new_heap->get_max_write_entry_size()];
+                heap_write_t *wr = (heap_write_t*)wr_buf;
+                wr->flags = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
+                wr->location = block_num * dsk.data_block_size;
+                wr->next_pos = 0;
+                wr->offset = 0;
+                wr->len = 0;
+                wr->size = wr->get_size(new_heap);
+                if (bitmap)
+                {
+                    memcpy(wr->get_ext_bitmap(new_heap), bitmap, new_clean_entry_bitmap_size);
+                    memcpy(wr->get_int_bitmap(new_heap), bitmap+new_clean_entry_bitmap_size, new_clean_entry_bitmap_size);
+                    memcpy(wr->get_checksums(new_heap), bitmap+2*new_clean_entry_bitmap_size, new_data_csum_size);
+                }
+                new_heap->post_write(entry->oid, wr, NULL, NULL);
+            }
             else
-                memset(new_entry->bitmap, 0xff, 2*new_clean_entry_bitmap_size);
-            uint32_t *new_entry_csum = (uint32_t*)(((uint8_t*)new_entry) + new_clean_entry_size - 4);
-            *new_entry_csum = crc32c(0, new_entry, new_clean_entry_size - 4);
-        }
+            {
+                // Old -> Old
+                clean_disk_entry *new_entry = (clean_disk_entry*)(new_meta_buf + dsk.meta_block_size +
+                    dsk.meta_block_size*(block_num / new_entries_per_block) +
+                    new_clean_entry_size*(block_num % new_entries_per_block));
+                new_entry->oid = entry->oid;
+                new_entry->version = entry->version;
+                if (bitmap)
+                    memcpy(new_entry->bitmap, bitmap, 2*new_clean_entry_bitmap_size + new_data_csum_size);
+                else
+                    memset(new_entry->bitmap, 0xff, 2*new_clean_entry_bitmap_size);
+                uint32_t *new_entry_csum = (uint32_t*)(((uint8_t*)new_entry) + new_clean_entry_size - 4);
+                *new_entry_csum = crc32c(0, new_entry, new_clean_entry_size - 4);
+            }
+        },
+        true, true
     );
-    if (r != 0)
-    {
-        free(new_meta_buf);
-        new_meta_buf = NULL;
-        return r;
-    }
-    return 0;
+    return r;
 }
 
 int disk_tool_t::resize_write_new_meta()
@@ -529,11 +740,60 @@ int disk_tool_t::resize_write_new_meta()
         return 1;
     }
     lseek64(new_meta_fd, new_meta_offset, 0);
-    write_blocking(new_meta_fd, new_meta_buf, new_meta_len);
+    if (new_meta_buf)
+    {
+        write_blocking(new_meta_fd, new_meta_buf, new_meta_len);
+    }
+    else
+    {
+        assert(new_heap);
+        uint32_t new_meta_blocks = new_meta_len / dsk.meta_block_size - 1;
+        uint8_t *zero_block = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
+        memset(zero_block, 0, dsk.meta_block_size);
+        std::vector<iovec> iov;
+        iov.reserve(IOV_MAX);
+        iov.push_back((iovec){ .iov_base = new_meta_hdr, .iov_len = dsk.meta_block_size });
+        for (uint32_t i = 0; i < new_meta_blocks; i++)
+        {
+            uint8_t *data = new_heap->get_meta_block(i);
+            iov.push_back((iovec){ .iov_base = data ? data : zero_block, .iov_len = dsk.meta_block_size });
+            if (iov.size() >= IOV_MAX)
+            {
+                writev_blocking(new_meta_fd, iov.data(), iov.size());
+                iov.clear();
+            }
+        }
+        if (iov.size() > 0)
+            writev_blocking(new_meta_fd, iov.data(), iov.size());
+        free(zero_block);
+        zero_block = NULL;
+    }
     fsync(new_meta_fd);
     close(new_meta_fd);
     new_meta_fd = -1;
-    free(new_meta_buf);
-    new_meta_buf = NULL;
     return 0;
+}
+
+void disk_tool_t::free_new_meta()
+{
+    if (new_heap)
+    {
+        delete new_heap;
+        new_heap = NULL;
+    }
+    if ((uint8_t*)new_meta_hdr != new_meta_buf)
+    {
+        free(new_meta_hdr);
+        new_meta_hdr = NULL;
+    }
+    if (new_meta_buf)
+    {
+        free(new_meta_buf);
+        new_meta_buf = NULL;
+    }
+    if (new_journal_buf)
+    {
+        free(new_journal_buf);
+        new_journal_buf = NULL;
+    }
 }

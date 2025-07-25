@@ -15,7 +15,7 @@ trap "kill -9 $(jobs -p) || true; sudo losetup -d $LOOP1 $LOOP2"' || true' EXIT
 # also test prepare --hybrid :)
 # non-vitastor random type UUID to prevent udev activation
 mount | grep '/dev type devtmpfs' || sudo mount udev /dev/ -t devtmpfs
-sudo build/src/disk_tool/vitastor-disk-test prepare --no_init 1 --meta_reserve 1x,1M \
+sudo build/src/disk_tool/vitastor-disk-test prepare --meta_format 2 --no_init 1 --meta_reserve 1x,1M \
     --block_size 131072 --osd_num 987654 --part_type_uuid 0df42ae0-3695-4395-a957-7d5ff3645c56 \
     --hybrid --fast-devices $LOOP2 $LOOP1
 

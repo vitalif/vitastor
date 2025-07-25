@@ -145,6 +145,9 @@ void _test_init(blockstore_disk_t & dsk, bool csum)
     if (csum)
         config["data_csum_type"] = "crc32c";
     dsk.parse_config(config);
+    dsk.data_device = "data";
+    dsk.meta_device = "meta";
+    dsk.journal_device = "journal";
     dsk.data_device_size = 1*1024*1024*1024;
     dsk.meta_device_size = 4*1024*1024;
     dsk.journal_device_size = 4*1024*1024;
@@ -1236,6 +1239,7 @@ void test_alloc_buffer()
         heap.use_buffer_area(1, pos, 64*1024);
         assert(heap.get_buffer_area_used_space() == (i+1)*64*1024);
         assert(!heap.is_buffer_area_free(i*64*1024+4096, 4096));
+        assert(heap.is_buffer_area_free(i*64*1024+4096, 0)); // zero length is always free
         if (i < 4096/64-1)
             assert(heap.is_buffer_area_free((i+1)*64*1024, 64*1024));
     }
@@ -1280,9 +1284,9 @@ void test_full_alloc()
     dsk.data_device_size = 8*1024*1024;
     dsk.meta_device_size = 5*4096;
     dsk.journal_device_size = 4*1024*1024;
-    dsk.data_fd = 0;
-    dsk.meta_fd = 1;
-    dsk.journal_fd = 2;
+    dsk.data_device = "data";
+    dsk.meta_device = "meta";
+    dsk.journal_device = "journal";
     dsk.calc_lengths();
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
 
@@ -1581,9 +1585,9 @@ void test_move()
     dsk.data_device_size = 8*1024*1024;
     dsk.meta_device_size = 5*4096;
     dsk.journal_device_size = 4*1024*1024;
-    dsk.data_fd = 0;
-    dsk.meta_fd = 1;
-    dsk.journal_fd = 2;
+    dsk.data_device = "data";
+    dsk.meta_device = "meta";
+    dsk.journal_device = "journal";
     dsk.calc_lengths();
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
 

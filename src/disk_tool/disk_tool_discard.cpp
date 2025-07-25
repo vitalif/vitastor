@@ -54,12 +54,22 @@ int disk_tool_t::trim_data(std::string device)
     fprintf(stderr, "Reading metadata\n");
     data_alloc = new allocator_t(dsk.block_count);
     r = process_meta(
-        [this](blockstore_meta_header_v2_t *hdr) {},
+        [this](blockstore_meta_header_v3_t *hdr) {},
+        [this](blockstore_heap_t *heap, heap_object_t *obj, uint32_t meta_block_num)
+        {
+            for (auto wr = obj->get_writes(); wr; wr = wr->next())
+            {
+                if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
+                {
+                    data_alloc->set(wr->location / dsk.data_block_size, true);
+                }
+            }
+        },
         [this](uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap)
         {
             data_alloc->set(block_num, true);
         },
-        false
+        false, false
     );
     if (r != 0)
     {

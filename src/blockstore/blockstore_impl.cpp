@@ -355,7 +355,8 @@ void blockstore_impl_t::dump_diagnostics()
 void blockstore_meta_header_v3_t::set_crc32c()
 {
     header_csum = 0;
-    uint32_t calc = crc32c(0, this, sizeof(*this));
+    uint32_t calc = crc32c(0, this, version == BLOCKSTORE_META_FORMAT_HEAP
+        ? sizeof(blockstore_meta_header_v3_t) : sizeof(blockstore_meta_header_v2_t));
     header_csum = calc;
 }
 

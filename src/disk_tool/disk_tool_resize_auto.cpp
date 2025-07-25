@@ -82,8 +82,10 @@ int disk_tool_t::resize_data(std::string device)
     auto new_meta_device = move_options.find("new_meta_device") != move_options.end()
         ? move_options["new_meta_device"] : dsk.meta_device;
     // Calculate new data & meta offsets
+    if (!new_meta_len)
+        new_meta_len = (dsk.meta_format == BLOCKSTORE_META_FORMAT_HEAP ? dsk.min_meta_len*2 : dsk.min_meta_len);
     new_data_offset = 4096 + (new_journal_device == dsk.data_device ? new_journal_len : 0) +
-        (new_meta_device == dsk.data_device ? dsk.meta_area_size : 0);
+        (new_meta_device == dsk.data_device ? new_meta_len : 0);
     new_data_offset += ((dsk.data_offset-new_data_offset) % dsk.data_block_size);
     if (new_data_offset != dsk.data_offset)
         move_options["new_data_offset"] = std::to_string(new_data_offset);
@@ -236,7 +238,7 @@ int disk_tool_t::resize_parse_move_meta(std::map<std::string, std::string> & mov
         auto new_journal_device = move_options.find("new_journal_device") != move_options.end()
             ? move_options["new_journal_device"] : dsk.journal_device;
         move_options["new_meta_device"] = dsk.data_device;
-        move_options["new_meta_len"] = std::to_string(dsk.meta_area_size);
+        move_options["new_meta_len"] = std::to_string(new_meta_len);
     }
     else
     {
@@ -246,7 +248,6 @@ int disk_tool_t::resize_parse_move_meta(std::map<std::string, std::string> & mov
         std::string parent_dev = get_parent_device(real_dev);
         if (parent_dev == "")
             return 1;
-        uint64_t new_meta_len = 0;
         if (parent_dev == real_dev)
         {
             // whole disk - create partition

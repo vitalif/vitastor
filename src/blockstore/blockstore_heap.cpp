@@ -1285,18 +1285,11 @@ void blockstore_heap_t::allocate_block(heap_block_info_t & inf)
     }
 }
 
-int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *modified_block)
+int blockstore_heap_t::allocate_new_object(object_id oid, uint32_t full_object_size, uint32_t *modified_block, heap_object_t **new_obj)
 {
-    // By now, initial small_writes are not allowed
-    if (wr->type() != BS_HEAP_BIG_WRITE &&
-        wr->type() != BS_HEAP_TOMBSTONE)
-    {
-        return EINVAL;
-    }
-    const uint32_t wr_size = wr->get_size(this);
-    // Allocate block (always leave at least <max_write_entry_size> free_space in the block)
     uint32_t block_num = 0;
-    int res = get_block_for_new_object(block_num, sizeof(heap_object_t)+wr_size+max_write_entry_size);
+    // Allocate block (always leave at least <max_write_entry_size> free_space in the block)
+    int res = get_block_for_new_object(block_num, full_object_size+max_write_entry_size);
     if (res != 0)
     {
         return res;
@@ -1307,27 +1300,66 @@ int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *mod
     {
         *modified_block = block_num;
     }
-    const uint32_t offset = find_block_space(block_num, sizeof(heap_object_t)+wr_size);
+    const uint32_t offset = find_block_space(block_num, full_object_size);
     if (offset == UINT32_MAX)
     {
         return ENOSPC;
     }
+    add_used_space(block_num, full_object_size);
     block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode][oid.stripe] = (uint64_t)block_num*dsk->meta_block_size + offset;
-    // and just append the object entry
-    heap_object_t *new_entry = (heap_object_t *)(inf.data + offset);
-    new_entry->write_pos = sizeof(heap_object_t);
-    new_entry->inode = oid.inode;
-    new_entry->stripe = oid.stripe;
-    heap_write_t *new_wr = new_entry->get_writes();
+    *new_obj = (heap_object_t *)(inf.data + offset);
+    return 0;
+}
+
+int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *modified_block)
+{
+    // By now, initial small_writes are not allowed
+    if (wr->type() != BS_HEAP_BIG_WRITE &&
+        wr->type() != BS_HEAP_TOMBSTONE)
+    {
+        return EINVAL;
+    }
+    const uint32_t wr_size = wr->get_size(this);
+    heap_object_t *new_obj = NULL;
+    int res = allocate_new_object(oid, sizeof(heap_object_t)+wr_size, modified_block, &new_obj);
+    if (res != 0)
+    {
+        return res;
+    }
+    // Fill the object entry
+    new_obj->size = sizeof(heap_object_t);
+    new_obj->write_pos = sizeof(heap_object_t);
+    new_obj->inode = oid.inode;
+    new_obj->stripe = oid.stripe;
+    heap_write_t *new_wr = new_obj->get_writes();
     memcpy(new_wr, wr, wr_size);
     new_wr->next_pos = 0;
     new_wr->size = wr_size;
     new_wr->lsn = ++next_lsn;
     wr->lsn = new_wr->lsn;
     push_inflight_lsn(oid, new_wr->lsn, new_wr->needs_compact(this) ? HEAP_INFLIGHT_COMPACTABLE : 0);
-    new_entry->size = sizeof(heap_object_t);
-    new_entry->crc32c = new_entry->calc_crc32c();
-    add_used_space(block_num, sizeof(heap_object_t) + wr_size);
+    new_obj->crc32c = new_obj->calc_crc32c();
+    return 0;
+}
+
+int blockstore_heap_t::copy_object(heap_object_t *obj, uint32_t *modified_block)
+{
+    // Allocate block (always leave at least <max_write_entry_size> free_space in the block)
+    auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
+    assert(!read_entry(oid, NULL));
+    uint32_t full_object_size = obj->size;
+    for (auto wr = obj->get_writes(); wr; wr = wr->next())
+    {
+        full_object_size += wr->size;
+    }
+    heap_object_t *new_obj = NULL;
+    int res = allocate_new_object(oid, full_object_size, modified_block, &new_obj);
+    if (res != 0)
+    {
+        return res;
+    }
+    copy_full_object((uint8_t*)new_obj, obj);
+    new_obj->crc32c = new_obj->calc_crc32c();
     return 0;
 }
 

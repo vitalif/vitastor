@@ -16,6 +16,7 @@
 #include "json11/json11.hpp"
 #include "blockstore_disk.h"
 #include "blockstore.h"
+#include "blockstore_heap.h"
 #include "ondisk_formats.h"
 #include "crc32c.h"
 #include "allocator.h"
@@ -46,7 +47,9 @@ struct disk_tool_t
     std::map<std::string, std::string> options;
     bool test_mode = false;
     bool all = false, json = false, now = false;
-    bool dump_with_blocks, dump_with_data;
+    bool dump_with_blocks = false, dump_with_data = false;
+    bool dump_as_old = false;
+    int log_level = 1;
     blockstore_disk_t dsk;
 
     // resize data and/or move metadata and journal
@@ -61,25 +64,30 @@ struct disk_tool_t
     uint64_t meta_pos;
     uint64_t journal_pos, journal_calc_data_pos;
 
+    uint8_t *buffer_area = NULL;
     bool first_block, first_entry;
 
-    allocator_t *data_alloc;
+    allocator_t *data_alloc = NULL;
     std::map<uint64_t, uint64_t> data_remap;
     std::map<uint64_t, uint64_t>::iterator remap_it;
-    ring_loop_t *ringloop;
+    ring_loop_t *ringloop = NULL;
     ring_consumer_t ring_consumer;
     int remap_active;
     journal_entry_start je_start;
-    uint8_t *new_journal_buf, *new_meta_buf, *new_journal_ptr, *new_journal_data;
+    uint8_t *new_journal_buf = NULL, *new_meta_buf = NULL, *new_journal_ptr = NULL, *new_journal_data = NULL;
+    blockstore_meta_header_v3_t *new_meta_hdr = NULL;
+    blockstore_disk_t new_dsk;
+    blockstore_heap_t *new_heap = NULL;
     uint64_t new_journal_in_pos;
     int64_t data_idx_diff;
     uint64_t total_blocks, free_first, free_last;
     uint64_t new_clean_entry_bitmap_size, new_data_csum_size, new_clean_entry_size, new_entries_per_block;
-    int new_journal_fd, new_meta_fd;
-    resizer_data_moving_t *moving_blocks;
+    uint32_t new_meta_format = 0;
+    int new_journal_fd = -1, new_meta_fd = -1;
+    resizer_data_moving_t *moving_blocks = NULL;
 
     bool started;
-    void *small_write_data;
+    void *small_write_data = NULL;
     uint32_t data_crc32;
     bool data_csum_valid;
     uint32_t crc32_last;
@@ -91,17 +99,24 @@ struct disk_tool_t
     void dump_journal_entry(int num, journal_entry *je, bool json);
     int process_journal(std::function<int(void*)> block_fn, bool do_open = true);
     int process_journal_block(void *buf, std::function<void(int, journal_entry*)> iter_fn);
-    int process_meta(std::function<void(blockstore_meta_header_v2_t *)> hdr_fn,
-        std::function<void(uint64_t, clean_disk_entry*, uint8_t*)> record_fn, bool do_open = true);
+    int process_meta(std::function<void(blockstore_meta_header_v3_t *)> hdr_fn,
+        std::function<void(blockstore_heap_t *heap, heap_object_t *obj, uint32_t meta_block_num)> obj_fn,
+        std::function<void(uint64_t block_num, clean_disk_entry *entry_v1, uint8_t *bitmap)> record_fn,
+        bool with_data, bool do_open);
 
     int dump_meta();
-    void dump_meta_header(blockstore_meta_header_v2_t *hdr);
+    void dump_meta_header(blockstore_meta_header_v3_t *hdr);
     void dump_meta_entry(uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap);
+    void dump_heap_entry_as_old(blockstore_heap_t *heap, heap_object_t *obj);
+    void dump_heap_entry(blockstore_heap_t *heap, heap_object_t *obj);
 
     int dump_load_check_superblock(const std::string & device);
 
     int write_json_journal(json11::Json entries);
     int write_json_meta(json11::Json meta);
+    int write_json_heap(json11::Json meta, json11::Json journal);
+    int index_journal_by_object(json11::Json journal,
+        std::map<object_id, std::vector<json11::Json::object>> & journal_by_object);
 
     int resize_data(std::string device);
     int resize_parse_move_journal(std::map<std::string, std::string> & move_options, bool dry_run);
@@ -109,13 +124,17 @@ struct disk_tool_t
 
     int raw_resize();
     int resize_parse_params();
-    void resize_init(blockstore_meta_header_v2_t *hdr);
+    void resize_init(blockstore_meta_header_v3_t *hdr);
     int resize_remap_blocks();
     int resize_copy_data();
-    int resize_rewrite_journal();
+    void resize_alloc_journal();
+    void build_journal_start();
+    void choose_journal_block(uint32_t je_size);
+    int resize_rebuild_journal();
     int resize_write_new_journal();
-    int resize_rewrite_meta();
+    int resize_rebuild_meta();
     int resize_write_new_meta();
+    void free_new_meta();
 
     int udev_import(std::string device);
     int read_sb(std::string device);

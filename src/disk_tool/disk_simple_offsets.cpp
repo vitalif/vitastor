@@ -12,6 +12,7 @@
 #include "blockstore.h"
 #include "blockstore_disk.h"
 #include "blockstore_heap.h"
+#include "ondisk_formats.h"
 
 // Calculate offsets for a block device and print OSD command line parameters
 void disk_tool_simple_offsets(json11::Json cfg, bool json_output)

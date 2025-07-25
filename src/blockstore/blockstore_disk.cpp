@@ -228,11 +228,11 @@ void blockstore_disk_t::calc_lengths()
 {
     // data
     data_len = data_device_size - data_offset;
-    if (data_fd == meta_fd && data_offset < meta_offset)
+    if (data_device == meta_device && data_offset < meta_offset)
     {
         data_len = meta_offset - data_offset;
     }
-    if (data_fd == journal_fd && data_offset < journal_offset)
+    if (data_device == journal_device && data_offset < journal_offset)
     {
         data_len = data_len < journal_offset-data_offset
             ? data_len : journal_offset-data_offset;
@@ -247,23 +247,23 @@ void blockstore_disk_t::calc_lengths()
         data_len = cfg_data_size;
     }
     // meta
-    meta_area_size = (meta_fd == data_fd ? data_device_size : meta_device_size) - meta_offset;
-    if (meta_fd == data_fd && meta_offset <= data_offset)
+    meta_area_size = (meta_device == data_device ? data_device_size : meta_device_size) - meta_offset;
+    if (meta_device == data_device && meta_offset <= data_offset)
     {
         meta_area_size = data_offset - meta_offset;
     }
-    if (meta_fd == journal_fd && meta_offset <= journal_offset)
+    if (meta_device == journal_device && meta_offset <= journal_offset)
     {
         meta_area_size = meta_area_size < journal_offset-meta_offset
             ? meta_area_size : journal_offset-meta_offset;
     }
     // journal
-    journal_len = (journal_fd == data_fd ? data_device_size : (journal_fd == meta_fd ? meta_device_size : journal_device_size)) - journal_offset;
-    if (journal_fd == data_fd && journal_offset <= data_offset)
+    journal_len = (journal_device == data_device ? data_device_size : (journal_device == meta_device ? meta_device_size : journal_device_size)) - journal_offset;
+    if (journal_device == data_device && journal_offset <= data_offset)
     {
         journal_len = data_offset - journal_offset;
     }
-    if (journal_fd == meta_fd && journal_offset <= meta_offset)
+    if (journal_device == meta_device && journal_offset <= meta_offset)
     {
         journal_len = journal_len < meta_offset-journal_offset
             ? journal_len : meta_offset-journal_offset;

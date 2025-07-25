@@ -215,6 +215,7 @@ class blockstore_heap_t
     bool mvcc_check_tracking(object_id oid);
     void free_mvcc(heap_mvcc_map_t::iterator mvcc_it);
     void allocate_block(heap_block_info_t & inf);
+    int allocate_new_object(object_id oid, uint32_t full_object_size, uint32_t *modified_block, heap_object_t **new_obj);
     int add_object(object_id oid, heap_write_t *wr, uint32_t *modified_block);
     void mark_overwritten(uint64_t over_lsn, uint64_t inode, heap_write_t *wr, heap_write_t *end_wr, bool tracking_active);
     int update_object(uint32_t block_num, heap_object_t *obj, heap_write_t *wr, uint32_t *modified_block, uint32_t *moved_from_block);
@@ -268,6 +269,8 @@ public:
     bool calc_block_checksums(uint32_t *block_csums, uint8_t *bitmap,
         uint32_t start, uint32_t end, std::function<uint8_t*(uint32_t start, uint32_t & len)> next,
         bool set, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb);
+    // copy an object as is
+    int copy_object(heap_object_t *obj, uint32_t *modified_block);
     // auto-compacts the object, then adds a write entry to it and to the compaction queue
     // return 0 if OK, or maybe ENOSPC
     int post_write(object_id oid, heap_write_t *wr, uint32_t *modified_block, uint32_t *moved_from_block);
