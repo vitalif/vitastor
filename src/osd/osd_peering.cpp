@@ -488,15 +488,14 @@ void osd_t::relock_pg(pg_t & pg)
             }
             else if (op->reply.hdr.retval != -EPIPE)
             {
-                printf(
-                    (op->reply.hdr.retval == -ENOENT
-                        ? "Failed to %1$s PG %2$u/%3$u on OSD %4$ju - peer didn't load PG info yet\n"
-                        : (op->reply.sec_lock.cur_primary
-                            ? "Failed to %1$s PG %2$u/%3$u on OSD %4$ju - taken by OSD %6$ju (retval=%5$jd)\n"
-                            : "Failed to %1$s PG %2$u/%3$u on OSD %4$ju - retval=%5$jd\n")),
-                    op->req.sec_lock.flags == OSD_SEC_UNLOCK_PG ? "unlock" : "lock",
-                    pg_id.pool_id, pg_id.pg_num, peer_osd, op->reply.hdr.retval, op->reply.sec_lock.cur_primary
-                );
+                printf("Failed to %s PG %u/%u on OSD %ju - ", op->req.sec_lock.flags == OSD_SEC_UNLOCK_PG ? "unlock" : "lock",
+                    pg_id.pool_id, pg_id.pg_num, peer_osd);
+                if (op->reply.hdr.retval == -ENOENT)
+                    printf("peer didn't load PG info yet\n");
+                else if (op->reply.sec_lock.cur_primary)
+                    printf("taken by OSD %ju (retval=%jd)\n", op->reply.sec_lock.cur_primary, op->reply.hdr.retval);
+                else
+                    printf("retval=%jd\n", op->reply.hdr.retval);
                 // Retry relocking/unlocking PG after a short time
                 pg.lock_waiting = true;
                 tfd->set_timer(pg_lock_retry_interval_ms, false, [this, pg_id](int)
