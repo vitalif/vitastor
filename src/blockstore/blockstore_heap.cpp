@@ -1682,8 +1682,8 @@ void blockstore_heap_t::deref_data(uint64_t inode, uint64_t location, bool free_
     }
     if (ref_it == mvcc_data_refs.end() && free_at_0)
     {
-        assert(data_alloc->get(location >> dsk->block_order));
-        data_alloc->set(location >> dsk->block_order, false);
+        assert(data_alloc->get(location / dsk->data_block_size));
+        data_alloc->set(location / dsk->data_block_size, false);
         auto & space = inode_space_stats[inode];
         assert(space >= dsk->data_block_size);
         space -= dsk->data_block_size;
@@ -1895,20 +1895,20 @@ uint64_t blockstore_heap_t::find_free_data()
     uint64_t loc = data_alloc->find_free();
     if (loc != UINT64_MAX)
     {
-        loc = loc << dsk->block_order;
+        loc = loc * dsk->data_block_size;
     }
     return loc;
 }
 
 bool blockstore_heap_t::is_data_used(uint64_t location)
 {
-    return data_alloc->get(location >> dsk->block_order);
+    return data_alloc->get(location / dsk->data_block_size);
 }
 
 void blockstore_heap_t::use_data(inode_t inode, uint64_t location)
 {
-    assert(!data_alloc->get(location >> dsk->block_order));
-    data_alloc->set(location >> dsk->block_order, true);
+    assert(!data_alloc->get(location / dsk->data_block_size));
+    data_alloc->set(location / dsk->data_block_size, true);
     inode_space_stats[inode] += dsk->data_block_size;
     data_used_space += dsk->data_block_size;
 }
