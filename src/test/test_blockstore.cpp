@@ -194,6 +194,7 @@ static void test_simple()
     op.len = 128*1024;
     test.exec_op(&op);
     assert(op.retval == op.len);
+    assert(op.version == 1);
     uint8_t *cmp = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
     memset(cmp, 0, 128*1024);
     memset(cmp+16384, 0xaa, 4096);
@@ -204,6 +205,25 @@ static void test_simple()
         printf("read returned incorrect data\n");
         abort();
     }
+
+    // Zero-length read
+    printf("reading 0-0\n");
+    op.version = UINT64_MAX;
+    op.offset = 0;
+    op.len = 0;
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+    assert(op.version == 1);
+
+    // Small read
+    printf("reading 16K-24K\n");
+    op.version = UINT64_MAX;
+    op.offset = 16*1024;
+    op.len = 8*1024;
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+    assert(!memcmp(op.buf, cmp+16*1024, 8*1024));
+
     free(cmp);
 
     free(op.buf);

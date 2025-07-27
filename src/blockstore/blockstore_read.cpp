@@ -44,6 +44,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     if (!result_version)
     {
         // May happen if there are entries but all of them are > requested version
+        heap->unlock_entry(op->oid, PRIV(op)->lsn);
         op->version = 0;
         op->retval = -ENOENT;
         FINISH_OP(op);
@@ -62,6 +63,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     if (!PRIV(op)->pending_ops)
     {
         // everything is fulfilled from memory
+        heap->unlock_entry(op->oid, PRIV(op)->lsn);
         op->retval = op->len;
         free_read_buffers(rv);
         FINISH_OP(op);
@@ -115,10 +117,10 @@ uint32_t blockstore_impl_t::prepare_read(std::vector<copy_buffer_t> & read_vec, 
 
 uint32_t blockstore_impl_t::prepare_read_with_bitmaps(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end)
 {
-    // BIG_WRITEs contain a bitmap and we have to handle its holes at the upper level, especially with padded checksums
+    // BIG_WRITEs contain a bitmap and we have to handle its holes
     uint32_t res = 0;
     uint8_t *bmp = wr->get_int_bitmap(heap);
-    uint32_t bmp_start = 0, bmp_end = 0, bmp_size = dsk.data_block_size/dsk.bitmap_granularity;
+    uint32_t bmp_start = start/dsk.bitmap_granularity, bmp_end = bmp_start, bmp_size = end/dsk.bitmap_granularity;
     while (bmp_start < bmp_size)
     {
         while (bmp_end < bmp_size && !(bmp[bmp_end >> 3] & (1 << (bmp_end & 0x7))))

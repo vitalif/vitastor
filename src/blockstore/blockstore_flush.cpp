@@ -224,7 +224,7 @@ resume_1:
     }
     assert(!end_wr->next() && end_wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
     clean_loc = end_wr->location;
-    if (bs->log_level > 9)
+    if (bs->log_level > 10)
         printf("Compacting %jx:%jx l%ju .. l%ju (last l%ju)\n", cur_oid.inode, cur_oid.stripe, end_wr->lsn, begin_wr->lsn, compact_lsn);
     flusher->active_flushers++;
     // Scan versions to flush
@@ -344,7 +344,7 @@ resume_24:
     }
     bs->heap->mark_object_compacted(cur_obj, compact_lsn);
     // Done
-    if (bs->log_level > 9)
+    if (bs->log_level > 10)
         printf("Compacted %jx:%jx l%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe, compact_lsn, copy_count);
     flusher->compact_counter++;
     flusher->active_flushers--;
