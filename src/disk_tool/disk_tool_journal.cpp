@@ -528,7 +528,9 @@ int disk_tool_t::write_json_journal(json11::Json entries)
                 .data_offset = (uint64_t)(new_journal_data-new_journal_buf),
                 .crc32_data = !dsk.data_csum_type ? 0 : (uint32_t)sscanf_json("%x", rec["data_crc32"]),
             };
-            uint32_t data_csum_size = !dsk.data_csum_type ? 0 : ne->small_write.len/dsk.csum_block_size*(dsk.data_csum_type & 0xFF);
+            uint32_t data_csum_blocks = !dsk.data_csum_type ? 0 :
+                (((ne->small_write.offset+ne->small_write.len)/dsk.csum_block_size - ne->small_write.len/dsk.csum_block_size));
+            uint32_t data_csum_size = data_csum_blocks*(dsk.data_csum_type & 0xFF);
             fromhexstr(rec["bitmap"].string_value(), dsk.clean_entry_bitmap_size, ((uint8_t*)ne) + sizeof(journal_entry_small_write) + data_csum_size);
             fromhexstr(rec["data"].string_value(), ne->small_write.len, new_journal_data);
             if (ne->small_write.len > 0 && !rec["data"].is_string())
@@ -537,17 +539,21 @@ int disk_tool_t::write_json_journal(json11::Json entries)
                 free(new_journal_buf);
                 return 1;
             }
-            if (dsk.data_csum_type)
-                fromhexstr(rec["block_csums"].string_value(), data_csum_size, ((uint8_t*)ne) + sizeof(journal_entry_small_write));
-            if (rec["data"].is_string())
+            if (ne->small_write.len > 0)
             {
                 if (!dsk.data_csum_type)
                     ne->small_write.crc32_data = crc32c(0, new_journal_data, ne->small_write.len);
                 else if (dsk.data_csum_type == BLOCKSTORE_CSUM_CRC32C)
                 {
                     uint32_t *block_csums = (uint32_t*)(((uint8_t*)ne) + sizeof(journal_entry_small_write));
-                    for (uint32_t i = 0; i < ne->small_write.len; i += dsk.csum_block_size, block_csums++)
-                        *block_csums = crc32c(0, new_journal_data+i, dsk.csum_block_size);
+                    for (uint32_t i = 0; i < data_csum_blocks; i++)
+                    {
+                        uint32_t block_begin = (ne->small_write.offset/dsk.csum_block_size + i) * dsk.csum_block_size;
+                        uint32_t block_end = (ne->small_write.offset/dsk.csum_block_size + (i+1)) * dsk.csum_block_size;
+                        block_begin = block_begin < ne->small_write.offset ? ne->small_write.offset : block_begin;
+                        block_end = block_end > ne->small_write.offset+ne->small_write.len ? ne->small_write.offset+ne->small_write.len : block_end;
+                        block_csums[i] = crc32c(0, new_journal_data+block_begin-ne->small_write.offset, block_end-block_begin);
+                    }
                 }
             }
             new_journal_data += ne->small_write.len;
@@ -568,7 +574,9 @@ int disk_tool_t::write_json_journal(json11::Json entries)
                 .len = (uint32_t)rec["len"].uint64_value(),
                 .location = sscanf_json(NULL, rec["loc"]),
             };
-            uint32_t data_csum_size = !dsk.data_csum_type ? 0 : ne->big_write.len/dsk.csum_block_size*(dsk.data_csum_type & 0xFF);
+            uint32_t data_csum_blocks = !dsk.data_csum_type ? 0 :
+                (((ne->small_write.offset+ne->small_write.len)/dsk.csum_block_size - ne->small_write.len/dsk.csum_block_size));
+            uint32_t data_csum_size = data_csum_blocks*(dsk.data_csum_type & 0xFF);
             fromhexstr(rec["bitmap"].string_value(), dsk.clean_entry_bitmap_size, ((uint8_t*)ne) + sizeof(journal_entry_big_write) + data_csum_size);
             if (dsk.data_csum_type)
                 fromhexstr(rec["block_csums"].string_value(), data_csum_size, ((uint8_t*)ne) + sizeof(journal_entry_big_write));
