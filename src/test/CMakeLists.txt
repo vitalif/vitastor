@@ -36,6 +36,7 @@ add_test(NAME test_allocator COMMAND test_allocator)
 
 # test_heap
 add_executable(test_heap
+	EXCLUDE_FROM_ALL
 	test_heap.cpp
 	../blockstore/multilist.cpp
 	../blockstore/blockstore_heap.cpp
@@ -44,6 +45,7 @@ add_executable(test_heap
 	../blockstore/blockstore_disk.cpp
 	../util/str_util.cpp
 )
+add_dependencies(build_tests test_heap)
 add_test(NAME test_heap COMMAND test_heap)
 target_compile_options(test_heap PRIVATE -coverage)
 target_link_options(test_heap PRIVATE -coverage)
@@ -65,7 +67,8 @@ target_link_libraries(test_crc32
 )
 
 # test_blockstore
-add_executable(test_blockstore test_blockstore.cpp ringloop_mock.cpp)
+add_executable(test_blockstore EXCLUDE_FROM_ALL test_blockstore.cpp ringloop_mock.cpp)
+add_dependencies(build_tests test_blockstore)
 target_link_libraries(test_blockstore vitastor_blk)
 add_test(NAME test_blockstore COMMAND test_blockstore)
 
