@@ -65,7 +65,7 @@ resume_1:
     if (priv->pending_ops > 0)
     {
         priv->op_state = 1;
-        return 0;
+        return 1;
     }
     // Mark writes as completed to allow compaction
     for (uint64_t lsn = priv->lsn; lsn <= priv->to_lsn; lsn++)

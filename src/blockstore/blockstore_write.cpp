@@ -277,6 +277,7 @@ bool blockstore_impl_t::make_big_write(blockstore_op_t *op, uint32_t offset, uin
 int blockstore_impl_t::continue_write(blockstore_op_t *op)
 {
     int op_state = PRIV(op)->op_state;
+again:
     if (op_state == 2)
         goto resume_2;
     else if (op_state == 4)
@@ -294,7 +295,11 @@ int blockstore_impl_t::continue_write(blockstore_op_t *op)
     else
     {
         // In progress
-        return 1;
+        assert(op_state < 10);
+        if (PRIV(op)->pending_ops > 0)
+            return 1;
+        op_state++;
+        goto again;
     }
 resume_2:
     // We must fsync all big writes to avoid complex write workflows
@@ -372,7 +377,7 @@ resume_6:
             // Remember that the timer can in theory be called right here
             tfd->set_timer_us(ref_us-exec_us, false, [this, op](int timer_id)
             {
-                PRIV(op)->op_state++;
+                PRIV(op)->op_state = 8;
                 ringloop->wakeup();
             });
             return 1;
@@ -416,7 +421,6 @@ void blockstore_impl_t::handle_write_event(ring_data_t *data, blockstore_op_t *o
     assert(PRIV(op)->pending_ops >= 0);
     if (PRIV(op)->pending_ops == 0)
     {
-        PRIV(op)->op_state++;
         ringloop->wakeup();
     }
 }
