@@ -17,7 +17,7 @@ RUN set -e -x; \
         echo "deb https://vitastor.io/debian $REL main" >> /etc/apt/sources.list; \
     fi; \
     grep '^deb ' /etc/apt/sources.list | perl -pe 's/^deb/deb-src/' >> /etc/apt/sources.list; \
-    perl -i -pe 's/Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources || true; \
+    perl -i -pe 's/Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/*.sources || true; \
     echo 'APT::Install-Recommends false;' >> /etc/apt/apt.conf; \
     echo 'APT::Install-Suggests false;' >> /etc/apt/apt.conf
 
