@@ -51,7 +51,7 @@
     Рассмотрите включение `use_rdmacm` для таких сетей.
 - name: use_rdmacm
   type: bool
-  default: true
+  default: false
   info: |
     Use an alternative implementation of RDMA through RDMA-CM (Connection
     Manager). Works with all RDMA networks: Infiniband, iWARP and

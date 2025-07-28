@@ -1186,9 +1186,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         osd_num_t peer_osd = std::stoull(key.substr(etcd_prefix.length()+11));
         if (peer_osd > 0)
         {
-            if (value.is_object() && value["state"] == "up" &&
-                value["addresses"].is_array() &&
-                value["port"].int64_value() > 0 && value["port"].int64_value() < 65536)
+            if (value.is_object() && value["state"] == "up")
             {
                 this->peer_states[peer_osd] = value;
                 this->seen_peers.insert(peer_osd);

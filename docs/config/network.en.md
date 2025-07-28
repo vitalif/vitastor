@@ -74,7 +74,7 @@ Consider `use_rdmacm` for such networks.
 ## use_rdmacm
 
 - Type: boolean
-- Default: true
+- Default: false
 
 Use an alternative implementation of RDMA through RDMA-CM (Connection
 Manager). Works with all RDMA networks: Infiniband, iWARP and
