@@ -228,7 +228,8 @@ process_intent:
         }
         assert(res == 0);
         PRIV(op)->lsn = wr->lsn;
-        heap->use_buffer_area(op->oid.inode, loc, op->len);
+        if (op->len)
+            heap->use_buffer_area(op->oid.inode, loc, op->len);
         prepare_meta_block_write(op, modified_block);
         if (op->len > 0)
         {

@@ -571,13 +571,12 @@ bool blockstore_heap_t::calc_checksums(heap_write_t *wr, uint8_t *data, bool set
 {
     if (!dsk->csum_block_size)
     {
-        if (wr->type() != BS_HEAP_SMALL_WRITE &&
-            wr->type() != BS_HEAP_INTENT_WRITE)
+        // Single checksum
+        uint32_t *wr_csum = wr->get_checksum(this);
+        if (!wr_csum)
         {
             return true;
         }
-        // Single checksum
-        uint32_t *wr_csum = wr->get_checksum(this);
         uint32_t real_csum = crc32c(0, data, wr->len);
         if (set)
         {
@@ -1309,7 +1308,7 @@ bool blockstore_heap_t::mvcc_save_copy(heap_object_t *obj)
                 add_ref = 1;
             }
         }
-        else if (wr->type() == BS_HEAP_SMALL_WRITE)
+        else if (wr->type() == BS_HEAP_SMALL_WRITE && wr->len > 0)
         {
             mvcc_buffer_refs[wr->location] += add_ref;
         }
@@ -1331,7 +1330,7 @@ void blockstore_heap_t::mark_overwritten(uint64_t over_lsn, uint64_t inode, heap
             overwrite_ref_queue.push_back((heap_refqi_t){ .lsn = over_lsn, .inode = inode, .location = wr->location, .len = 0, .is_data = true });
             mvcc_data_refs[wr->location] += !tracking_active;
         }
-        else if (wr->type() == BS_HEAP_SMALL_WRITE && wr->size > 0)
+        else if (wr->type() == BS_HEAP_SMALL_WRITE && wr->len > 0)
         {
             overwrite_ref_queue.push_back((heap_refqi_t){ .lsn = over_lsn, .inode = inode, .location = wr->location, .len = wr->len, .is_data = false });
             mvcc_buffer_refs[wr->location] += !tracking_active;
@@ -1393,7 +1392,7 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
         {
             mvcc_data_refs[wr->location]++;
         }
-        else if (wr->type() == BS_HEAP_SMALL_WRITE)
+        else if (wr->type() == BS_HEAP_SMALL_WRITE && wr->len > 0)
         {
             mvcc_buffer_refs[wr->location]++;
         }
@@ -1760,7 +1759,7 @@ void blockstore_heap_t::free_object_space(inode_t inode, heap_write_t *from, hea
                 break;
             }
         }
-        else if (wr->type() == BS_HEAP_SMALL_WRITE)
+        else if (wr->type() == BS_HEAP_SMALL_WRITE && wr->len > 0)
         {
             deref_buffer(inode, wr->location, wr->len, mode != BS_HEAP_FREE_MAIN);
         }

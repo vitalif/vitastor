@@ -161,6 +161,7 @@ bool journal_flusher_co::loop()
     else if (wait_state == 24) goto resume_24;
 resume_0:
     wait_state = 0;
+    wait_count = 0;
     cur_oid = {};
     res = bs->heap->get_next_compact(cur_oid);
     if (res == ENOENT && flusher->force_start > 0 && co_id == 0 &&
