@@ -15,6 +15,7 @@
   - Debian 11 (Bullseye): `deb https://vitastor.io/debian bullseye main`
   - Debian 10 (Buster): `deb https://vitastor.io/debian buster main`
   - Ubuntu 22.04 (Jammy): `deb https://vitastor.io/debian jammy main`
+  - Ubuntu 24.04 (Noble): `deb https://vitastor.io/debian noble main`
   - Add `-oldstable` to bookworm/bullseye/buster in this line to install the last
     stable version from 0.9.x branch instead of 1.x
 - Install packages: `apt update; apt install vitastor lp-solve etcd linux-image-amd64 qemu-system-x86`
