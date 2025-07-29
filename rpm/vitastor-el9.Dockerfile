@@ -1,7 +1,7 @@
 # Build packages for AlmaLinux 9 inside a container
 # cd ..
 # docker build -t vitastor-buildenv:el9 -f rpm/vitastor-el9.Dockerfile .
-# docker run --rm -v ./:/root/vitastor vitastor-buildenv:el9 /root/vitastor/rpm/vitastor-build.sh
+# docker run -i --rm -v ./:/root/vitastor vitastor-buildenv:el9 /root/vitastor/rpm/vitastor-build.sh
 
 FROM almalinux:9
 

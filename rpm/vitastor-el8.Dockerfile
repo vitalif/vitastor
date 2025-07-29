@@ -1,7 +1,7 @@
 # Build packages for CentOS 8 inside a container
 # cd ..
 # docker build -t vitastor-buildenv:el8 -f rpm/vitastor-el8.Dockerfile .
-# docker run --rm -v ./:/root/vitastor vitastor-buildenv:el8 /root/vitastor/rpm/vitastor-build.sh
+# docker run -i --rm -v ./:/root/vitastor vitastor-buildenv:el8 /root/vitastor/rpm/vitastor-build.sh
 
 FROM centos:8
 

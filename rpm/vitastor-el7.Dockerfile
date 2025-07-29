@@ -1,7 +1,7 @@
 # Build packages for CentOS 7 inside a container
 # cd ..
 # docker build -t vitastor-buildenv:el7 -f rpm/vitastor-el7.Dockerfile .
-# docker run --rm -v ./:/root/vitastor vitastor-buildenv:el7 /root/vitastor/rpm/vitastor-build.sh
+# docker run -i --rm -v ./:/root/vitastor vitastor-buildenv:el7 /root/vitastor/rpm/vitastor-build.sh
 
 # localedef -i ru_RU -f UTF-8 ru_RU.UTF-8
 
