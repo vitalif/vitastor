@@ -7,22 +7,24 @@ set -e
 VITASTOR=$(dirname $0)
 VITASTOR=$(realpath "$VITASTOR/..")
 
-EL=$(rpm --eval '%dist')
-if [ "$EL" = ".el8" ]; then
+REL=$(rpm --eval '%dist')
+REL=${REL##.}
+if [ "$REL" = "el8" ]; then
     # CentOS 8
     . /opt/rh/gcc-toolset-9/enable
-elif [ "$EL" = ".el7" ]; then
+elif [ "$REL" = "el7" ]; then
     # CentOS 7
     . /opt/rh/devtoolset-9/enable
 fi
 cd ~/rpmbuild/SPECS
 rpmbuild -bp fio.spec
 cd $VITASTOR
-VER=$(grep ^Version: rpm/vitastor-el7.spec | awk '{print $2}')
+VER=$(grep ^Version: rpm/vitastor-$REL.spec | awk '{print $2}')
+rm -rf fio
 ln -s ~/rpmbuild/BUILD/fio*/ fio
 sh copy-fio-includes.sh
 rm fio
 mv fio-copy fio
 FIO=`rpm -qi fio | perl -e 'while(<>) { /^Epoch[\s:]+(\S+)/ && print "$1:"; /^Version[\s:]+(\S+)/ && print $1; /^Release[\s:]+(\S+)/ && print "-$1"; }'`
-perl -i -pe 's/(Requires:\s*fio)([^\n]+)?/$1 = '$FIO'/' $VITASTOR/rpm/vitastor-el$EL.spec
-tar --transform "s#^#vitastor-$VER/#" --exclude 'rpm/*.rpm' -czf $VITASTOR/../vitastor-$VER$(rpm --eval '%dist').tar.gz *
+perl -i -pe 's/(Requires:\s*fio)([^\n]+)?/$1 = '$FIO'/' $VITASTOR/rpm/vitastor-$REL.spec
+tar --transform "s#^#vitastor-$VER/#" --exclude 'rpm/*.rpm' -czf $VITASTOR/../vitastor-$VER.$REL.tar.gz $(ls | grep -v packages)

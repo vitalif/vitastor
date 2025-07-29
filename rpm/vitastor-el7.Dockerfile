@@ -1,5 +1,8 @@
 # Build packages for CentOS 7 inside a container
-# cd ..; podman build -t vitastor-el7 -v `pwd`/packages:/root/packages -f rpm/vitastor-el7.Dockerfile .
+# cd ..
+# docker build -t vitastor-buildenv:el7 -f rpm/vitastor-el7.Dockerfile .
+# docker run --rm -v ./:/root/vitastor vitastor-buildenv:el7 /root/vitastor/rpm/vitastor-build.sh
+
 # localedef -i ru_RU -f UTF-8 ru_RU.UTF-8
 
 FROM centos:7
@@ -7,7 +10,9 @@ FROM centos:7
 WORKDIR /root
 
 RUN rm -f /etc/yum.repos.d/CentOS-Media.repo
+RUN sed -i 's/^mirrorlist=/#mirrorlist=/; s!#baseurl=http://mirror.centos.org/centos/\$releasever!baseurl=http://vault.centos.org/7.9.2009!' /etc/yum.repos.d/*.repo
 RUN yum -y --enablerepo=extras install centos-release-scl epel-release yum-utils rpm-build
+RUN perl -i -pe 's!mirrorlist=!#mirrorlist=!s; s!#\s*baseurl=http://mirror.centos.org!baseurl=http://vault.centos.org!' /etc/yum.repos.d/CentOS-SCLo-scl*.repo
 RUN yum -y install https://vitastor.io/rpms/centos/7/vitastor-release-1.0-1.el7.noarch.rpm
 RUN yum -y install devtoolset-9-gcc-c++ devtoolset-9-libatomic-devel gcc make cmake gperftools-devel \
     fio rh-nodejs12 jerasure-devel libisa-l-devel gf-complete-devel rdma-core-devel libnl3-devel
@@ -30,18 +35,3 @@ RUN set -e; \
     cp ~/rpmbuild/SRPMS/liburing* /root/packages/liburing-el7/
 
 RUN rpm -i `ls /root/packages/liburing-el7/liburing-*.x86_64.rpm | grep -v debug`
-
-ADD . /root/vitastor
-
-RUN set -e; \
-    cd /root/vitastor/rpm; \
-    sh build-tarball.sh; \
-    VER=$(grep ^Version: vitastor-el7.spec | awk '{print $2}'); \
-    cp /root/vitastor-$VER.el7.tar.gz ~/rpmbuild/SOURCES; \
-    cp vitastor-el7.spec ~/rpmbuild/SPECS/vitastor.spec; \
-    cd ~/rpmbuild/SPECS/; \
-    rpmbuild -ba vitastor.spec; \
-    mkdir -p /root/packages/vitastor-el7; \
-    rm -rf /root/packages/vitastor-el7/*; \
-    cp ~/rpmbuild/RPMS/*/*vitastor* /root/packages/vitastor-el7/; \
-    cp ~/rpmbuild/SRPMS/vitastor* /root/packages/vitastor-el7/

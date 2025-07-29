@@ -1,5 +1,7 @@
 # Build packages for AlmaLinux 9 inside a container
-# cd ..; podman build -t vitastor-el9 -v `pwd`/packages:/root/packages -f rpm/vitastor-el9.Dockerfile .
+# cd ..
+# docker build -t vitastor-buildenv:el9 -f rpm/vitastor-el9.Dockerfile .
+# docker run --rm -v ./:/root/vitastor vitastor-buildenv:el9 /root/vitastor/rpm/vitastor-build.sh
 
 FROM almalinux:9
 
@@ -12,18 +14,3 @@ RUN dnf -y install gcc-c++ gperftools-devel fio nodejs rpm-build jerasure-devel 
 RUN dnf download --source fio
 RUN rpm --nomd5 -i fio*.src.rpm
 RUN cd ~/rpmbuild/SPECS && dnf builddep -y --spec fio.spec
-
-ADD . /root/vitastor
-
-RUN set -e; \
-    cd /root/vitastor/rpm; \
-    sh build-tarball.sh; \
-    VER=$(grep ^Version: vitastor-el9.spec | awk '{print $2}'); \
-    cp /root/vitastor-$VER.el9.tar.gz ~/rpmbuild/SOURCES; \
-    cp vitastor-el9.spec ~/rpmbuild/SPECS/vitastor.spec; \
-    cd ~/rpmbuild/SPECS/; \
-    rpmbuild -ba vitastor.spec; \
-    mkdir -p /root/packages/vitastor-el9; \
-    rm -rf /root/packages/vitastor-el9/*; \
-    cp ~/rpmbuild/RPMS/*/*vitastor* /root/packages/vitastor-el9/; \
-    cp ~/rpmbuild/SRPMS/vitastor* /root/packages/vitastor-el9/

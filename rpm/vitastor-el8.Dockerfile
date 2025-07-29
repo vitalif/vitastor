@@ -1,5 +1,7 @@
 # Build packages for CentOS 8 inside a container
-# cd ..; podman build -t vitastor-el8 -v `pwd`/packages:/root/packages -f rpm/vitastor-el8.Dockerfile .
+# cd ..
+# docker build -t vitastor-buildenv:el8 -f rpm/vitastor-el8.Dockerfile .
+# docker run --rm -v ./:/root/vitastor vitastor-buildenv:el8 /root/vitastor/rpm/vitastor-build.sh
 
 FROM centos:8
 
@@ -29,18 +31,3 @@ RUN set -e; \
     cp ~/rpmbuild/SRPMS/liburing* /root/packages/liburing-el8/
 
 RUN rpm -i `ls /root/packages/liburing-el8/liburing-*.x86_64.rpm | grep -v debug`
-
-ADD . /root/vitastor
-
-RUN set -e; \
-    cd /root/vitastor/rpm; \
-    sh build-tarball.sh; \
-    VER=$(grep ^Version: vitastor-el8.spec | awk '{print $2}'); \
-    cp /root/vitastor-$VER.el8.tar.gz ~/rpmbuild/SOURCES; \
-    cp vitastor-el8.spec ~/rpmbuild/SPECS/vitastor.spec; \
-    cd ~/rpmbuild/SPECS/; \
-    rpmbuild -ba vitastor.spec; \
-    mkdir -p /root/packages/vitastor-el8; \
-    rm -rf /root/packages/vitastor-el8/*; \
-    cp ~/rpmbuild/RPMS/*/*vitastor* /root/packages/vitastor-el8/; \
-    cp ~/rpmbuild/SRPMS/vitastor* /root/packages/vitastor-el8/
