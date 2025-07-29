@@ -1,7 +1,5 @@
 #!/bin/bash
+# Ubuntu 22.04 Jammy Jellyfish
 
-cat < vitastor.Dockerfile > ../Dockerfile
-cd ..
-mkdir -p packages
-sudo podman build --build-arg DISTRO=ubuntu --build-arg REL=jammy -v `pwd`/packages:/root/packages -f Dockerfile .
-rm Dockerfile
+docker build --build-arg DISTRO=ubuntu --build-arg REL=jammy -t vitastor-buildenv:jammy -f vitastor-buildenv.Dockerfile .
+docker run --rm -e REL=jammy -v `dirname $0`/../:/root/vitastor vitastor-buildenv:jammy /root/vitastor/debian/vitastor-build.sh

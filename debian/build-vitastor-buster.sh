@@ -1,7 +1,4 @@
 #!/bin/bash
 
-cat < vitastor.Dockerfile > ../Dockerfile
-cd ..
-mkdir -p packages
-sudo podman build --build-arg DISTRO=debian --build-arg REL=buster -v `pwd`/packages:/root/packages -f Dockerfile .
-rm Dockerfile
+docker build --build-arg DISTRO=debian --build-arg REL=buster -t vitastor-buildenv:buster -f vitastor-buildenv.Dockerfile .
+docker run --rm -e REL=buster -v `dirname $0`/../:/root/vitastor vitastor-buildenv:buster /root/vitastor/debian/vitastor-build.sh
