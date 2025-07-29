@@ -1,6 +1,6 @@
 {
   "name": "vitastor",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "Low-level native bindings to Vitastor client library",
   "main": "index.js",
   "keywords": [
