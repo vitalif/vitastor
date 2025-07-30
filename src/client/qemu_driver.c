@@ -14,6 +14,7 @@
 #endif
 #include "block/block_int.h"
 #include "qapi/error.h"
+#include "qapi/qmp/qjson.h"
 #include "qapi/qmp/qdict.h"
 #include "qapi/qmp/qerror.h"
 #include "qemu/error-report.h"
@@ -65,6 +66,7 @@ typedef struct VitastorClient
     char *etcd_host;
     char *etcd_prefix;
     char *image;
+    char *file_mirror_path;
     int skip_parents;
     uint64_t inode;
     uint64_t pool;
@@ -432,6 +434,70 @@ static void strarray_free(str_array *a)
 }
 #endif
 
+static void check_config(VitastorClient *client)
+{
+    size_t bufsize = 64*1024, maxsize = 1024*1024, done = 0;
+    ssize_t r = 0;
+    char *data = NULL;
+    QObject *obj = NULL;
+    QDict *qd = NULL;
+    int fd = open(client->config_path, O_RDONLY);
+    if (fd < 0)
+    {
+        fprintf(stderr, "vitastor: failed to read %s: %s\n", client->config_path, strerror(errno));
+        return;
+    }
+    data = (char*)malloc(bufsize);
+    if (!data)
+    {
+        fprintf(stderr, "vitastor: memory allocation failed\n");
+        goto end_free;
+    }
+    while (1)
+    {
+        if (bufsize <= done)
+        {
+            if (bufsize >= maxsize)
+            {
+                fprintf(stderr, "vitastor: config file exceeds %zu bytes\n", maxsize);
+                goto end_free;
+            }
+            bufsize *= 2;
+            data = (char*)realloc(data, bufsize);
+            if (!data)
+            {
+                fprintf(stderr, "vitastor: memory allocation failed\n");
+                goto end_free;
+            }
+        }
+        r = read(fd, data+done, bufsize-done);
+        if (r < 0)
+        {
+            if (errno == EAGAIN || errno == EINTR)
+                continue;
+            fprintf(stderr, "vitastor: failed to read %s: %s\n", client->config_path, strerror(errno));
+            break;
+        }
+        done += r;
+    }
+    obj = qobject_from_json(data
+#if QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 9 || QEMU_VERSION_MAJOR >= 3
+        , NULL
+#endif
+    );
+    qd = qobject_to(QDict, obj);
+    if (qd)
+    {
+        client->file_mirror_path = g_strdup(qdict_get_try_str(qd, "qemu_file_mirror_path"));
+    }
+end_free:
+    if (obj)
+        qobject_unref(obj);
+    if (data)
+        free(data);
+    close(fd);
+}
+
 static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, Error **errp)
 {
     VitastorRPC task;
@@ -450,6 +516,10 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     client->rdma_gid_index = qdict_get_try_int(options, "rdma-gid-index", 0);
     client->rdma_mtu = qdict_get_try_int(options, "rdma-mtu", 0);
     client->ctx = bdrv_get_aio_context(bs);
+    if (client->config_path && strlen(client->config_path))
+    {
+        check_config(client);
+    }
 #if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 2
     str_array opt = {};
     char version_buffer[32];
@@ -624,6 +694,11 @@ static void vitastor_refresh_filename(BlockDriverState *bs)
     VitastorClient *client = bs->opaque;
     size_t len = 0;
     int n = 0;
+    if (client->image && client->file_mirror_path)
+    {
+        len = snprintf(bs->exact_filename, sizeof(bs->exact_filename), "%s%s", client->file_mirror_path, client->image);
+        return;
+    }
     len = snprintf(bs->exact_filename, sizeof(bs->exact_filename), "vitastor://");
     if (len < sizeof(bs->exact_filename))
     {
