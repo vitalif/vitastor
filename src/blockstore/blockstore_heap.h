@@ -172,15 +172,19 @@ class blockstore_heap_t
     const uint32_t max_write_entry_size;
 
     uint64_t get_pg_id(inode_t inode, uint64_t stripe);
-    void compact_block(uint32_t block_num);
+    void defragment_block(uint32_t block_num);
     uint32_t find_block_run(heap_block_info_t & block, uint32_t space);
     uint32_t find_block_space(uint32_t block_num, uint32_t space);
+    uint32_t block_has_compactable(uint8_t *data);
     uint32_t compact_object_to(heap_object_t *obj, uint64_t lsn, uint8_t *new_csums, bool do_free);
+    void copy_full_object(uint8_t *dst, heap_object_t *obj);
     bool mvcc_save_copy(heap_object_t *obj);
     bool mvcc_check_tracking(object_id oid);
+    void allocate_block(heap_block_info_t & inf);
     int add_object(object_id oid, heap_write_t *wr, uint32_t *modified_block);
     void mark_overwritten(uint64_t over_lsn, uint64_t inode, heap_write_t *wr, heap_write_t *end_wr, bool tracking_active);
-    int update_object(uint32_t block_num, heap_object_t *obj, heap_write_t *wr, uint32_t *modified_block);
+    int update_object(uint32_t block_num, heap_object_t *obj, heap_write_t *wr, uint32_t *modified_block, uint32_t *moved_from_block);
+    void init_erase(uint32_t block_num, heap_object_t *obj);
     void erase_object(uint32_t block_num, heap_object_t *obj, uint64_t lsn, bool tracking_active);
     void reindex_block(uint32_t block_num, heap_object_t *from_obj);
     void erase_block_index(inode_t inode, uint64_t stripe);
@@ -232,8 +236,8 @@ public:
         bool set, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb);
     // auto-compacts the object, then adds a write entry to it and to the compaction queue
     // return 0 if OK, or maybe ENOSPC
-    int post_write(object_id oid, heap_write_t *wr, uint32_t *modified_block);
-    int post_write(uint32_t & block_num, object_id oid, heap_object_t *obj, heap_write_t *wr);
+    int post_write(object_id oid, heap_write_t *wr, uint32_t *modified_block, uint32_t *moved_from_block);
+    int post_write(uint32_t & block_num, object_id oid, heap_object_t *obj, heap_write_t *wr, uint32_t *moved_from_block);
     // stabilize an unstable object version
     // return 0 if OK, ENOENT if not exists
     int post_stabilize(object_id oid, uint64_t version, uint32_t *modified_block, uint64_t *new_lsn, uint64_t *new_to_lsn);
