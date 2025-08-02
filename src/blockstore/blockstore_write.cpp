@@ -39,7 +39,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         return 0;
     }
     PRIV(op)->is_big = false;
-    uint32_t modified_block = 0;
+    uint32_t modified_block = UINT32_MAX, moved_from_block = UINT32_MAX;
     heap_object_t *obj = heap->read_entry(op->oid, &modified_block);
     if (op->opcode == BS_OP_DELETE)
     {
@@ -94,8 +94,10 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         if (!dsk.disable_data_fsync && dsk.disable_meta_fsync)
         {
             // Do big_write as an INTENT to avoid data fsync
-            bool ok = make_big_write(op, 0, 0, &modified_block);
-            assert(ok);
+            int res = make_big_write(op, 0, 0, &modified_block, &moved_from_block);
+            assert(res == 0);
+            if (moved_from_block != UINT32_MAX)
+                prepare_meta_block_write(op, moved_from_block);
             obj = heap->read_entry(op->oid, &modified_block);
             heap->mark_lsn_completed(PRIV(op)->lsn);
             goto process_intent;
@@ -165,23 +167,26 @@ process_intent:
         if (op->bitmap)
             memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
         heap->calc_checksums(wr, (uint8_t*)op->buf, true);
-        int res = heap->post_write(modified_block, op->oid, obj, wr);
-        if (res == ENOSPC)
+        int res = heap->post_write(modified_block, op->oid, obj, wr, &moved_from_block);
+        if (res == EAGAIN)
         {
-            if (!heap->get_inflight_queue_size())
-            {
-                // no space
-                op->retval = -ENOSPC;
-                FINISH_OP(op);
-                return 2;
-            }
+            assert(heap->get_inflight_queue_size());
             PRIV(op)->wait_for = WAIT_COMPACTION;
             PRIV(op)->wait_detail = flusher->get_compact_counter();
             flusher->request_trim();
             return 0;
         }
+        else if (res == ENOSPC)
+        {
+            // no space
+            op->retval = -ENOSPC;
+            FINISH_OP(op);
+            return 2;
+        }
         assert(res == 0);
         PRIV(op)->lsn = wr->lsn;
+        if (moved_from_block != UINT32_MAX)
+            prepare_meta_block_write(op, moved_from_block);
         prepare_meta_block_write(op, modified_block);
         PRIV(op)->op_state = 9;
         write_iodepth++;
@@ -211,25 +216,28 @@ process_intent:
         if (op->bitmap)
             memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
         heap->calc_checksums(wr, (uint8_t*)op->buf, true);
-        int res = heap->post_write(modified_block, op->oid, obj, wr);
-        if (res == ENOSPC)
+        int res = heap->post_write(modified_block, op->oid, obj, wr, &moved_from_block);
+        if (res == EAGAIN)
         {
-            if (!heap->get_inflight_queue_size())
-            {
-                // no space
-                op->retval = -ENOSPC;
-                FINISH_OP(op);
-                return 2;
-            }
+            assert(heap->get_inflight_queue_size());
             PRIV(op)->wait_for = WAIT_COMPACTION;
             PRIV(op)->wait_detail = flusher->get_compact_counter();
             flusher->request_trim();
             return 0;
         }
+        else if (res == ENOSPC)
+        {
+            // no space
+            op->retval = -ENOSPC;
+            FINISH_OP(op);
+            return 2;
+        }
         assert(res == 0);
         PRIV(op)->lsn = wr->lsn;
         if (op->len)
             heap->use_buffer_area(op->oid.inode, loc, op->len);
+        if (moved_from_block != UINT32_MAX)
+            prepare_meta_block_write(op, moved_from_block);
         prepare_meta_block_write(op, modified_block);
         if (op->len > 0)
         {
@@ -253,7 +261,7 @@ process_intent:
     return 1;
 }
 
-bool blockstore_impl_t::make_big_write(blockstore_op_t *op, uint32_t offset, uint32_t len, uint32_t *modified_block)
+int blockstore_impl_t::make_big_write(blockstore_op_t *op, uint32_t offset, uint32_t len, uint32_t *modified_block, uint32_t *moved_from_block)
 {
     uint8_t wr_buf[heap->get_max_write_entry_size()];
     heap_write_t *wr = (heap_write_t*)wr_buf;
@@ -267,12 +275,12 @@ bool blockstore_impl_t::make_big_write(blockstore_op_t *op, uint32_t offset, uin
     memset(wr->get_int_bitmap(heap), 0, dsk.clean_entry_bitmap_size);
     bitmap_set(wr->get_int_bitmap(heap), offset, len, dsk.bitmap_granularity);
     heap->calc_checksums(wr, (uint8_t*)op->buf, true);
-    int res = heap->post_write(op->oid, wr, modified_block);
-    if (res == ENOSPC)
-        return false;
+    int res = heap->post_write(op->oid, wr, modified_block, moved_from_block);
+    if (res != 0)
+        return res;
     assert(res == 0);
     PRIV(op)->lsn = wr->lsn;
-    return true;
+    return 0;
 }
 
 int blockstore_impl_t::continue_write(blockstore_op_t *op)
@@ -341,13 +349,24 @@ resume_12:
     }
 resume_4:
     {
-        uint32_t modified_block = 0;
-        if (!make_big_write(op, op->offset, op->len, &modified_block))
+        uint32_t modified_block = UINT32_MAX, moved_from_block = UINT32_MAX;
+        int res = make_big_write(op, op->offset, op->len, &modified_block, &moved_from_block);
+        if (res == EAGAIN)
         {
             PRIV(op)->wait_for = WAIT_COMPACTION;
             PRIV(op)->wait_detail = flusher->get_compact_counter();
             return 1;
         }
+        else if (res == ENOSPC)
+        {
+            heap->free_data(op->oid.inode, PRIV(op)->location);
+            write_iodepth--;
+            op->retval = -ENOSPC;
+            FINISH_OP(op);
+            return 2;
+        }
+        if (moved_from_block != UINT32_MAX)
+            prepare_meta_block_write(op, moved_from_block);
         prepare_meta_block_write(op, modified_block);
         PRIV(op)->op_state = 5;
         return 1;

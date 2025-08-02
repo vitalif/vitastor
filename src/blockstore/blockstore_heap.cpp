@@ -1999,6 +1999,14 @@ void blockstore_heap_t::use_data(inode_t inode, uint64_t location)
     data_used_space += dsk->data_block_size;
 }
 
+void blockstore_heap_t::free_data(inode_t inode, uint64_t location)
+{
+    assert(data_alloc->get(location / dsk->data_block_size));
+    data_alloc->set(location / dsk->data_block_size, false);
+    inode_space_stats[inode] -= dsk->data_block_size;
+    data_used_space -= dsk->data_block_size;
+}
+
 uint64_t blockstore_heap_t::find_free_buffer_area(uint64_t size)
 {
     assert(!(size % dsk->bitmap_granularity));

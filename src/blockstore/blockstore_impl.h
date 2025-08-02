@@ -168,7 +168,7 @@ public:
     bool enqueue_write(blockstore_op_t *op);
     void prepare_meta_block_write(blockstore_op_t *op, uint64_t modified_block, io_uring_sqe *sqe = NULL);
     int dequeue_write(blockstore_op_t *op);
-    bool make_big_write(blockstore_op_t *op, uint32_t offset, uint32_t len, uint32_t *modified_block);
+    int make_big_write(blockstore_op_t *op, uint32_t offset, uint32_t len, uint32_t *modified_block, uint32_t *moved_from_block);
     int continue_write(blockstore_op_t *op);
     void handle_write_event(ring_data_t *data, blockstore_op_t *op);
 

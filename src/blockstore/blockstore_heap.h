@@ -275,6 +275,7 @@ public:
     uint64_t find_free_data();
     bool is_data_used(uint64_t location);
     void use_data(inode_t inode, uint64_t location);
+    void free_data(inode_t inode, uint64_t location);
 
     // buffer device allocator functions
     uint64_t find_free_buffer_area(uint64_t size);
