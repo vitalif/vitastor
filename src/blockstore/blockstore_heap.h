@@ -133,7 +133,6 @@ class blockstore_heap_t
 
     const uint32_t meta_block_count = 0;
     uint32_t target_block_free_space = 800;
-    const int meta_alloc_buckets = 4;
 
     uint64_t next_lsn = 0;
     std::map<pool_id_t, pool_shard_settings_t> pool_shard_settings;
@@ -141,7 +140,7 @@ class blockstore_heap_t
     std::map<uint64_t, std::map<inode_t, btree::btree_map<uint64_t, uint64_t>>> block_index;
     std::vector<heap_block_info_t> block_info;
     allocator_t *data_alloc = NULL;
-    allocator_t *meta_allocs[4] = {};
+    multilist_index_t *meta_alloc = NULL;
     uint32_t meta_alloc_count = 0;
     uint64_t meta_used_space = 0;
     multilist_alloc_t *buffer_alloc = NULL;
@@ -260,7 +259,7 @@ public:
     int list_objects(uint32_t pg_num, uint64_t min_inode, uint64_t max_inode,
         obj_ver_id **result_list, size_t *stable_count, size_t *unstable_count);
     // set a block number for a new object and returns error status: 0, EAGAIN or ENOSPC
-    int get_block_for_new_object(uint32_t & out_block_num);
+    int get_block_for_new_object(uint32_t & out_block_num, uint32_t size = 0);
 
     // inflight write tracking
     void mark_lsn_completed(uint64_t lsn);

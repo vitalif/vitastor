@@ -15,6 +15,8 @@
 #define HEAP_INFLIGHT_DONE 1
 #define HEAP_INFLIGHT_COMPACTABLE 2
 
+#define MIN_ALLOC (sizeof(heap_object_t)+sizeof(heap_write_t))
+
 heap_write_t *heap_write_t::next()
 {
     return (next_pos ? (heap_write_t*)((uint8_t*)this + next_pos) : NULL);
@@ -161,8 +163,7 @@ blockstore_heap_t::blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_are
     assert(target_block_free_space < dsk->meta_block_size);
     assert(dsk->meta_block_size < 32768);
     assert(sizeof(heap_object_t) < sizeof(heap_write_t));
-    for (int i = 0; i < meta_alloc_buckets; i++)
-        meta_allocs[i] = new allocator_t(meta_block_count);
+    meta_alloc = new multilist_index_t(meta_block_count, 1 + dsk->meta_block_size/MIN_ALLOC, 0);
     block_info.resize(meta_block_count);
     data_alloc = new allocator_t(dsk->block_count);
     if (!target_block_free_space)
@@ -188,19 +189,9 @@ blockstore_heap_t::~blockstore_heap_t()
         }
     }
     object_mvcc.clear();
-    for (int i = 0; i < meta_alloc_buckets; i++)
-    {
-        if (meta_allocs[i])
-            delete meta_allocs[i];
-    }
-    if (data_alloc)
-    {
-        delete data_alloc;
-    }
-    if (buffer_alloc)
-    {
-        delete buffer_alloc;
-    }
+    delete meta_alloc;
+    delete data_alloc;
+    delete buffer_alloc;
 }
 
 // set initially compacted lsn - should be done before loading
@@ -1101,16 +1092,28 @@ void blockstore_heap_t::defragment_block(uint32_t block_num)
     assert(inf.used_space == (cur-new_data));
 }
 
-int blockstore_heap_t::get_block_for_new_object(uint32_t & out_block_num)
+int blockstore_heap_t::get_block_for_new_object(uint32_t & out_block_num, uint32_t size)
 {
-    for (int i = 0; i < meta_alloc_buckets; i++)
+    if (!size)
+        size = sizeof(heap_object_t)+get_max_write_entry_size();
+    uint32_t maxfull = dsk->meta_block_size/MIN_ALLOC - (size+MIN_ALLOC-1)/MIN_ALLOC;
+    uint32_t nearfull = dsk->meta_block_size/MIN_ALLOC - target_block_free_space/MIN_ALLOC;
+    if (nearfull > maxfull)
+        nearfull = maxfull;
+    for (int i = 1; i < nearfull; i++)
     {
-        uint64_t block_num = meta_allocs[i]->find_free();
-        if (block_num < block_info.size())
-        {
-            out_block_num = block_num;
+        out_block_num = meta_alloc->find(i);
+        if (out_block_num != UINT32_MAX)
             return 0;
-        }
+    }
+    out_block_num = meta_alloc->find(0);
+    if (out_block_num != UINT32_MAX)
+        return 0;
+    for (int i = nearfull; i <= maxfull; i++)
+    {
+        out_block_num = meta_alloc->find(i);
+        if (out_block_num != UINT32_MAX)
+            return 0;
     }
     return ENOSPC;
 }
@@ -1224,9 +1227,9 @@ int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *mod
         return EINVAL;
     }
     const uint32_t wr_size = wr->get_size(this);
-    // Allocate block
+    // Allocate block (always leave at least <max_write_entry_size> free_space in the block)
     uint32_t block_num = 0;
-    int res = get_block_for_new_object(block_num);
+    int res = get_block_for_new_object(block_num, sizeof(heap_object_t)+wr_size+max_write_entry_size);
     if (res != 0)
     {
         return res;
@@ -1418,16 +1421,16 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
             return EAGAIN;
         }
         // Otherwise, move the object
-        uint32_t new_block = 0;
-        int res = get_block_for_new_object(new_block);
-        if (res == ENOSPC)
-        {
-            return ENOSPC;
-        }
         uint32_t full_size = obj->size;
         for (auto wr = obj->get_writes(); wr; wr = wr->next())
         {
             full_size += wr->size;
+        }
+        uint32_t new_block = 0;
+        int res = get_block_for_new_object(new_block, full_size+wr_size);
+        if (res == ENOSPC)
+        {
+            return ENOSPC;
         }
         inf = &block_info.at(new_block);
         if (inf->used_space+full_size+wr_size > dsk->meta_block_size-2)
@@ -1877,28 +1880,16 @@ void blockstore_heap_t::add_used_space(uint32_t block_num, int32_t used_delta)
 {
     auto & inf = block_info.at(block_num);
     meta_used_space += used_delta;
-    auto minthresh = dsk->meta_block_size-target_block_free_space;
-    auto maxthresh = dsk->meta_block_size-sizeof(heap_object_t)-2*max_write_entry_size;
-    auto thresh = minthresh;
+    auto thresh = dsk->meta_block_size-target_block_free_space;
     auto old_used_space = inf.used_space;
     inf.used_space += used_delta;
-    for (int i = 0; i < meta_alloc_buckets; )
-    {
-        if (old_used_space > thresh && inf.used_space <= thresh)
-        {
-            meta_allocs[i]->set(block_num, false);
-            if (!i)
-                meta_alloc_count--;
-        }
-        else if (old_used_space <= thresh && inf.used_space > thresh)
-        {
-            meta_allocs[i]->set(block_num, true);
-            if (!i)
-                meta_alloc_count++;
-        }
-        i++;
-        thresh = (i == meta_alloc_buckets-1 ? maxthresh : minthresh + (maxthresh-minthresh)*i/(meta_alloc_buckets-1));
-    }
+    meta_alloc->change(block_num,
+        dsk->meta_block_size/MIN_ALLOC - (dsk->meta_block_size-old_used_space)/MIN_ALLOC,
+        dsk->meta_block_size/MIN_ALLOC - (dsk->meta_block_size-inf.used_space)/MIN_ALLOC);
+    if (old_used_space > thresh && inf.used_space <= thresh)
+        meta_alloc_count--;
+    if (old_used_space <= thresh && inf.used_space > thresh)
+        meta_alloc_count++;
 }
 
 int blockstore_heap_t::list_objects(uint32_t pg_num, uint64_t min_inode, uint64_t max_inode,

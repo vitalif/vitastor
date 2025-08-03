@@ -1308,7 +1308,10 @@ void test_full_alloc()
     {
         assert(heap.get_meta_nearfull_blocks() == 4);
         _test_big_write(heap, dsk, 1, (40+i)*0x20000, 1, (40+i)*0x20000);
-        assert(heap.get_meta_block_used_space(i % 4) == (epb*b_4s + big_write_size*(i/4+1)));
+    }
+    for (int i = 0; i < 4; i++)
+    {
+        assert(heap.get_meta_block_used_space(i) == (epb*b_4s + big_write_size*2));
     }
 
     // New writes are prevented if it may lead to inability to overwrite any object
