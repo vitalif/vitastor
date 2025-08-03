@@ -276,3 +276,63 @@ void multilist_alloc_t::do_free(uint32_t pos)
         prevs[heads[ni]-1] = pos+1;
     heads[ni] = pos+1;
 }
+
+multilist_index_t::multilist_index_t(uint32_t count, uint32_t max_used, uint32_t init_used):
+    count(count), max_used(max_used)
+{
+    assert(init_used < max_used);
+    nexts.resize(count, UINT32_MAX);
+    prevs.resize(count, UINT32_MAX);
+    heads.resize(max_used, UINT32_MAX);
+    for (size_t i = 0; i < count-1; i++)
+    {
+        nexts[i] = i+1;
+        prevs[i+1] = i;
+    }
+    prevs[0] = UINT32_MAX;
+    nexts[count-1] = UINT32_MAX;
+    heads[init_used] = 0;
+}
+
+uint32_t multilist_index_t::find(uint32_t wanted_used)
+{
+    assert(wanted_used < max_used);
+    return heads[wanted_used];
+}
+
+void multilist_index_t::change(uint32_t pos, uint32_t old_used, uint32_t new_used)
+{
+    if (new_used == old_used)
+        return;
+    assert(old_used < max_used && new_used < max_used);
+    if (prevs[pos] != UINT32_MAX)
+        nexts[prevs[pos]] = nexts[pos];
+    if (nexts[pos] != UINT32_MAX)
+        prevs[nexts[pos]] = prevs[pos];
+    if (heads[old_used] == pos)
+        heads[old_used] = nexts[pos];
+    prevs[pos] = UINT32_MAX;
+    if (heads[new_used] != UINT32_MAX)
+        prevs[heads[new_used]] = pos;
+    nexts[pos] = heads[new_used];
+    heads[new_used] = pos;
+}
+
+void multilist_index_t::print()
+{
+    printf("heads:");
+    for (int i = 0; i < max_used; i++)
+        if (heads[i] != UINT32_MAX)
+            printf(" %u=%u", i, heads[i]);
+    printf("\n");
+    printf("prevs:");
+    for (int i = 0; i < count; i++)
+        if (prevs[i] != UINT32_MAX)
+            printf(" %d=%d", i, prevs[i]);
+    printf("\n");
+    printf("nexts:");
+    for (int i = 0; i < count; i++)
+        if (nexts[i] != UINT32_MAX)
+            printf(" %d=%d", i, nexts[i]);
+    printf("\n");
+}

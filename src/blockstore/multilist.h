@@ -23,3 +23,15 @@ struct multilist_alloc_t
     void verify();
     void print();
 };
+
+struct multilist_index_t
+{
+    const uint32_t count, max_used;
+    std::vector<uint32_t> nexts, prevs, heads;
+
+    // used should be always < max_used
+    multilist_index_t(uint32_t count, uint32_t max_used, uint32_t init_used);
+    uint32_t find(uint32_t wanted_used);
+    void change(uint32_t pos, uint32_t old_used, uint32_t new_used);
+    void print();
+};
