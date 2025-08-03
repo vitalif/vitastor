@@ -353,8 +353,10 @@ resume_4:
         int res = make_big_write(op, op->offset, op->len, &modified_block, &moved_from_block);
         if (res == EAGAIN)
         {
+            assert(heap->get_inflight_queue_size());
             PRIV(op)->wait_for = WAIT_COMPACTION;
             PRIV(op)->wait_detail = flusher->get_compact_counter();
+            flusher->request_trim();
             return 1;
         }
         else if (res == ENOSPC)
