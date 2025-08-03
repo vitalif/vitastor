@@ -43,6 +43,7 @@ struct osd_primary_op_data_t
             osd_num_t *dirty_osds;
             int dirty_osd_count;
             obj_ver_id *unstable_writes;
+            uint64_t *unstable_ver_counts;
             obj_ver_osd_t *copies_to_delete;
             int copies_to_delete_count;
         };
