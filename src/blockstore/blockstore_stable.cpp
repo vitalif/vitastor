@@ -33,6 +33,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
         }
         if (new_lsn)
         {
+            assert(priv->lsn == 0 || priv->to_lsn == new_lsn-1);
             if (!priv->lsn)
                 priv->lsn = new_lsn;
             priv->to_lsn = op->opcode == BS_OP_STABLE ? new_to_lsn : new_lsn;

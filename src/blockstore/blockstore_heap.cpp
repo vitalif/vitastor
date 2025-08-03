@@ -1572,6 +1572,7 @@ int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t 
                 wr->type() == BS_HEAP_TOMBSTONE))
             {
                 unstable_big_wr = wr;
+                break;
             }
         }
     }
@@ -1613,6 +1614,7 @@ int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t 
             push_inflight_lsn(oid, wr->lsn, wr->needs_compact(this) ? HEAP_INFLIGHT_COMPACTABLE : 0);
         }
     }
+    assert(last_lsn == next_lsn-stab_count);
     obj->crc32c = obj->calc_crc32c();
     return 0;
 }
