@@ -771,6 +771,7 @@ void test_reshard_list()
         _test_big_write(heap, dsk, 1, 0x40000, 1, 0);
         _test_big_write(heap, dsk, 2, 0x60000, 1, 0x60000);
         _test_big_write(heap, dsk, 2, 0x60000, 2, 0x80000, false);
+        _test_small_write(heap, dsk, 2, 0x60000, 3, 4096, 4096, 0, false);
 
         obj_ver_id *listing = NULL;
         size_t stable_count = 0, unstable_count = 0;
@@ -784,7 +785,7 @@ void test_reshard_list()
         res = heap.list_objects(1, INODE_WITH_POOL(1, 1), INODE_WITH_POOL(1, UINT64_MAX), &listing, &stable_count, &unstable_count);
         assert(res == 0);
         assert(stable_count == 4);
-        assert(unstable_count == 1);
+        assert(unstable_count == 2);
         free(listing);
         listing = NULL;
 
@@ -815,7 +816,7 @@ void test_reshard_list()
         res = heap.list_objects(2, INODE_WITH_POOL(1, 1), INODE_WITH_POOL(1, UINT64_MAX), &listing, &stable_count, &unstable_count);
         assert(res == 0);
         assert(stable_count == 2);
-        assert(unstable_count == 1);
+        assert(unstable_count == 2);
         free(listing);
         listing = NULL;
     }

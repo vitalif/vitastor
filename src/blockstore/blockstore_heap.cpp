@@ -1931,15 +1931,15 @@ int blockstore_heap_t::list_objects(uint32_t pg_num, uint64_t min_inode, uint64_
                     stable_version = wr->version;
                     break;
                 }
-            }
-            if (!(first_wr->flags & BS_HEAP_STABLE))
-            {
-                if (unstable_size >= unstable_alloc)
+                else
                 {
-                    unstable_alloc = (!unstable_alloc ? 128 : unstable_alloc*2);
-                    unstable = (obj_ver_id*)realloc_or_die(unstable, sizeof(obj_ver_id) * unstable_alloc);
+                    if (unstable_size >= unstable_alloc)
+                    {
+                        unstable_alloc = (!unstable_alloc ? 128 : unstable_alloc*2);
+                        unstable = (obj_ver_id*)realloc_or_die(unstable, sizeof(obj_ver_id) * unstable_alloc);
+                    }
+                    unstable[unstable_size++] = (obj_ver_id){ .oid = oid, .version = wr->version };
                 }
-                unstable[unstable_size++] = (obj_ver_id){ .oid = oid, .version = stable_version };
             }
             if (stable_version)
             {
