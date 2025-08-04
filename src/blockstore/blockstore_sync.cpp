@@ -20,7 +20,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
 
 bool blockstore_impl_t::submit_fsyncs(int & wait_count)
 {
-    int n = ((unsynced_small_write_count > 0 || unsynced_big_write_count > 0) && !dsk.disable_meta_fsync) +
+    int n = ((unsynced_small_write_count > 0 || unsynced_big_write_count > 0 || unsynced_meta_write_count > 0) && !dsk.disable_meta_fsync) +
         (unsynced_small_write_count > 0 && !dsk.disable_journal_fsync && dsk.journal_fd != dsk.meta_fd) +
         (unsynced_big_write_count > 0 && !dsk.disable_data_fsync && dsk.data_fd != dsk.meta_fd && dsk.data_fd != dsk.journal_fd);
     if (ringloop->space_left() < n)
@@ -40,7 +40,7 @@ bool blockstore_impl_t::submit_fsyncs(int & wait_count)
         if (!wait_count)
             ringloop->wakeup();
     };
-    if (!dsk.disable_meta_fsync)
+    if ((unsynced_small_write_count > 0 || unsynced_big_write_count > 0 || unsynced_meta_write_count > 0) && !dsk.disable_meta_fsync)
     {
         // fsync meta
         io_uring_sqe *sqe = get_sqe();
@@ -75,6 +75,7 @@ bool blockstore_impl_t::submit_fsyncs(int & wait_count)
     }
     unsynced_big_write_count = 0;
     unsynced_small_write_count = 0;
+    unsynced_meta_write_count = 0;
     return true;
 }
 
@@ -92,7 +93,7 @@ int blockstore_impl_t::do_sync(blockstore_op_t *op, int base_state)
     if (dsk.disable_journal_fsync && dsk.disable_meta_fsync && dsk.disable_data_fsync || !unsynced_big_write_count && !unsynced_small_write_count)
     {
         // We can return immediately because sync only syncs previous writes
-        unsynced_big_write_count = unsynced_small_write_count = 0;
+        unsynced_big_write_count = unsynced_small_write_count = unsynced_meta_write_count = 0;
         return 2;
     }
     PRIV(op)->lsn = heap->get_completed_lsn();

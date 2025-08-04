@@ -73,6 +73,7 @@ resume_1:
     {
         heap->mark_lsn_completed(lsn);
     }
+    unsynced_meta_write_count++;
     // Fsync, just because our semantics imply that commit (stabilize) is immediately fsynced
     priv->op_state = 2;
 resume_2:
