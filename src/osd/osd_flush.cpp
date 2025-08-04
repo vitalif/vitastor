@@ -310,22 +310,25 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
     op->osd_op->peer_fd = -1;
     op->osd_op->callback = [this, op](osd_op_t *osd_op)
     {
-        if (osd_op->reply.hdr.retval < 0)
+        ringloop->set_immediate([this, op]()
         {
-            // Error recovering object
-            // EPIPE is totally harmless (peer is gone), others like EIO/EDOM may be not
-            printf(
-                "[PG %u/%u] Recovery operation failed with object %jx:%jx: error %jd\n",
-                INODE_POOL(op->oid.inode),
-                map_to_pg(op->oid, st_cli.pool_config.at(INODE_POOL(op->oid.inode)).pg_stripe_size),
-                op->oid.inode, op->oid.stripe, osd_op->reply.hdr.retval
-            );
-        }
-        else if (log_level > 2)
-        {
-            printf("Recovery operation done for %jx:%jx\n", op->oid.inode, op->oid.stripe);
-        }
-        finish_recovery_op(op);
+            if (op->osd_op->reply.hdr.retval < 0)
+            {
+                // Error recovering object
+                // EPIPE is totally harmless (peer is gone), others like EIO/EDOM may be not
+                printf(
+                    "[PG %u/%u] Recovery operation failed with object %jx:%jx: error %jd\n",
+                    INODE_POOL(op->oid.inode),
+                    map_to_pg(op->oid, st_cli.pool_config.at(INODE_POOL(op->oid.inode)).pg_stripe_size),
+                    op->oid.inode, op->oid.stripe, op->osd_op->reply.hdr.retval
+                );
+            }
+            else if (log_level > 2)
+            {
+                printf("Recovery operation done for %jx:%jx\n", op->oid.inode, op->oid.stripe);
+            }
+            finish_recovery_op(op);
+        });
     };
     exec_op(op->osd_op);
 }
