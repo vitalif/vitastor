@@ -18,6 +18,12 @@
   - Ubuntu 24.04 (Noble): `deb https://vitastor.io/debian noble main`
   - Add `-oldstable` to bookworm/bullseye/buster in this line to install the last
     stable version from 0.9.x branch instead of 1.x
+- To always prefer vitastor-patched QEMU and Libvirt versions, add the following to `/etc/apt/preferences`:
+  ```
+  Package: *
+  Pin: origin "vitastor.io"
+  Pin-Priority: 501
+  ```
 - Install packages: `apt update; apt install vitastor lp-solve etcd linux-image-amd64 qemu-system-x86`
 
 ## CentOS
