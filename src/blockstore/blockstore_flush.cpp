@@ -361,6 +361,10 @@ bool journal_flusher_co::loop()
     else if (wait_state == 28) goto resume_28;
     else if (wait_state == 29) goto resume_29;
     else if (wait_state == 30) goto resume_30;
+    else if (wait_state == 31) goto resume_31;
+    else if (wait_state == 32) goto resume_32;
+    else if (wait_state == 33) goto resume_33;
+
 resume_0:
     if (flusher->flush_queue.size() < flusher->min_flusher_count && !flusher->trim_wanted ||
         !flusher->flush_queue.size() || !flusher->dequeuing)
@@ -486,13 +490,14 @@ resume_2:
     resume_10:
     resume_11:
     resume_12:
+    resume_13:
         if (fill_incomplete && !clear_incomplete_csum_block_bits(5))
             return false;
         // Wait for journal data reads if the journal is not inmemory
-    resume_13:
+    resume_14:
         if (wait_journal_count > 0)
         {
-            wait_state = wait_base+13;
+            wait_state = wait_base+14;
             return false;
         }
         if (bs->dsk.csum_block_size)
@@ -509,7 +514,7 @@ resume_2:
         {
             if (it->copy_flags == COPY_BUF_JOURNAL || it->copy_flags == (COPY_BUF_JOURNAL|COPY_BUF_COALESCED))
             {
-                await_sqe(14);
+                await_sqe(15);
                 data->iov = (struct iovec){ it->buf, (size_t)it->len };
                 data->callback = simple_callback_w;
                 my_uring_prep_writev(
@@ -519,23 +524,25 @@ resume_2:
             }
         }
         // Wait for data writes and metadata reads
-    resume_15:
     resume_16:
-        if (!wait_meta_reads(15))
+    resume_17:
+        if (!wait_meta_reads(16))
             return false;
         // Sync data before writing metadata
-    resume_17:
     resume_18:
     resume_19:
-        if (copy_count && !fsync_batch(false, 17))
+    resume_20:
+        if (copy_count && !fsync_batch(false, 18))
             return false;
-        // Modify the new metadata entry
-        update_metadata_entry();
-        // Update clean_db - it must be equal to the metadata entry
-        update_clean_db();
-        // And write metadata entries
         if (old_clean_loc != UINT64_MAX && old_clean_loc != clean_loc)
         {
+    resume_21:
+            inflight_meta_sector = flusher->inflight_meta_sectors.find(meta_old.sector);
+            if (inflight_meta_sector != flusher->inflight_meta_sectors.end()) 
+            {
+                wait_state = wait_base+20;
+                return false;
+            }
             // zero out old metadata entry
             {
                 clean_disk_entry *old_entry = (clean_disk_entry*)((uint8_t*)meta_old.buf + meta_old.pos*bs->dsk.clean_entry_size);
@@ -548,26 +555,50 @@ resume_2:
                 }
             }
             memset((uint8_t*)meta_old.buf + meta_old.pos*bs->dsk.clean_entry_size, 0, bs->dsk.clean_entry_size);
-    resume_20:
-            if (meta_old.sector != meta_new.sector && !write_meta_block(meta_old, 20))
-                return false;
-        }
-    resume_21:
-        if (!write_meta_block(meta_new, 21))
-            return false;
+            if (meta_old.sector != meta_new.sector) 
+            {
+                flusher->inflight_meta_sectors.insert(meta_old.sector);
     resume_22:
+                if (!write_meta_block(meta_old, 22))
+                    return false;
+    resume_23:
+                if (wait_count > 0)
+                {
+                    wait_state = wait_base+23;
+                    return false;
+                }
+                flusher->inflight_meta_sectors.erase(meta_old.sector);
+            }
+        }
+    resume_24:
+        inflight_meta_sector = flusher->inflight_meta_sectors.find(meta_new.sector);
+        if (inflight_meta_sector != flusher->inflight_meta_sectors.end()) {
+            wait_state = wait_base+24;
+            return false;
+        }
+        flusher->inflight_meta_sectors.insert(meta_new.sector);
+        // Modify the new metadata entry
+        update_metadata_entry();
+        // Update clean_db - it must be equal to the metadata entry
+        update_clean_db();
+        // And write metadata entries
+    resume_25:
+        if (!write_meta_block(meta_new, 25))
+            return false;
+    resume_26:
         if (wait_count > 0)
         {
-            wait_state = wait_base+22;
+            wait_state = wait_base+26;
             return false;
         }
+        flusher->inflight_meta_sectors.erase(meta_new.sector);
         // Done, free all buffers
         free_buffers();
         // And sync metadata (in batches - not per each operation!)
-    resume_23:
-    resume_24:
-    resume_25:
-        if (!fsync_batch(true, 23))
+    resume_27:
+    resume_28:
+    resume_29:
+        if (!fsync_batch(true, 27))
             return false;
         // Free the data block only when metadata is synced
         free_data_blocks();
@@ -590,12 +621,12 @@ resume_2:
         if (bs->journal_trim_interval && !((++flusher->journal_trim_counter) % bs->journal_trim_interval) ||
             flusher->trim_wanted > 0)
         {
-    resume_26:
-    resume_27:
-    resume_28:
-    resume_29:
     resume_30:
-            if (!trim_journal(26))
+    resume_31:
+    resume_32:
+    resume_33:
+    resume_34:
+            if (!trim_journal(30))
                 return false;
         }
         // All done
@@ -734,6 +765,7 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
     else if (wait_state == wait_base+5) goto resume_5;
     else if (wait_state == wait_base+6) goto resume_6;
     else if (wait_state == wait_base+7) goto resume_7;
+    else if (wait_state == wait_base+8) goto resume_8;
     cleared_incomplete = false;
     for (auto it = v.begin(); it != v.end(); it++)
     {
@@ -754,9 +786,17 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
         if (!wait_meta_reads(wait_base+0))
             return false;
     resume_2:
-        if (wait_journal_count > 0)
+        inflight_meta_sector = flusher->inflight_meta_sectors.find(meta_new.sector);
+        if (inflight_meta_sector != flusher->inflight_meta_sectors.end()) 
         {
             wait_state = wait_base+2;
+            return false;
+        }
+        flusher->inflight_meta_sectors.insert(meta_new.sector);
+    resume_3:
+        if (wait_journal_count > 0)
+        {
+            wait_state = wait_base+3;
             return false;
         }
         // Verify data checksums
@@ -837,19 +877,20 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
             }
         }
         // Write and fsync the modified metadata entry
-    resume_3:
-        if (!write_meta_block(meta_new, wait_base+3))
-            return false;
     resume_4:
+        if (!write_meta_block(meta_new, wait_base+4))
+            return false;
+    resume_5:
         if (wait_count > 0)
         {
-            wait_state = wait_base+4;
+            wait_state = wait_base+5;
             return false;
         }
-    resume_5:
+        flusher->inflight_meta_sectors.erase(meta_new.sector);
     resume_6:
     resume_7:
-        if (!fsync_batch(true, wait_base+5))
+    resume_8:
+        if (!fsync_batch(true, wait_base+6))
             return false;
     }
     return true;
