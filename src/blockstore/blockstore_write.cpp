@@ -169,26 +169,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         if (op->opcode == BS_OP_WRITE_STABLE)
             state |= BS_ST_INSTANT;
         if (op->bitmap)
-        {
-            // Only allow to overwrite part of the object bitmap respective to the write's offset/len
-            uint32_t bit = op->offset/dsk.bitmap_granularity;
-            uint32_t bits_left = op->len/dsk.bitmap_granularity;
-            while (!(bit % 8) && bits_left >= 8)
-            {
-                // Copy bytes
-                dyn_ptr[bit/8] = ((uint8_t*)op->bitmap)[bit/8];
-                bit += 8;
-                bits_left -= 8;
-            }
-            while (bits_left > 0)
-            {
-                // Copy bits
-                dyn_ptr[bit/8] = (dyn_ptr[bit/8] & ~(1 << (bit%8)))
-                    | (((uint8_t*)op->bitmap)[bit/8] & (1 << bit%8));
-                bit++;
-                bits_left--;
-            }
-        }
+            memcpy(dyn_ptr, op->bitmap, dsk.clean_entry_bitmap_size);
     }
     // Calculate checksums
     // FIXME: Allow to receive checksums from outside?
