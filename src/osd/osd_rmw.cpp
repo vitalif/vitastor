@@ -21,16 +21,31 @@ extern "C" {
 
 static inline void extend_read(uint32_t start, uint32_t end, osd_rmw_stripe_t & stripe)
 {
-    if (stripe.read_end == 0)
+    if (end == UINT32_MAX)
+    {
+        // UINT32_MAX means that the stripe only needs bitmap
+        if (!stripe.read_end)
+        {
+            stripe.read_start = 0;
+            stripe.read_end = UINT32_MAX;
+        }
+    }
+    else if (stripe.read_end == UINT32_MAX)
+    {
+        if (end > 0)
+        {
+            stripe.read_start = start;
+            stripe.read_end = end;
+        }
+    }
+    else if (stripe.read_end == 0)
     {
         stripe.read_start = start;
         stripe.read_end = end;
     }
     else
     {
-        if (stripe.read_end < end && end != UINT32_MAX ||
-            // UINT32_MAX means that stripe only needs bitmap, end != 0 => needs also data
-            stripe.read_end == UINT32_MAX && end != 0)
+        if (stripe.read_end < end)
             stripe.read_end = end;
         if (stripe.read_start > start)
             stripe.read_start = start;
@@ -664,6 +679,11 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
         for (int role = 0; role < pg_minsize; role++)
         {
             cover_read(start, end, stripes[role]);
+            if (!stripes[role].read_end && (stripes[role].req_start != 0 || stripes[role].req_end != chunk_size))
+            {
+                // Read bitmaps even if we don't need data but it's not fully overwritten
+                stripes[role].read_end = UINT32_MAX;
+            }
         }
     }
     if (write_osd_set != read_osd_set)

@@ -897,7 +897,7 @@ void test14()
 15. EC 2+2 partial overwrite with 1 missing stripe
    calc_rmw(offset=64K+28K, len=4K, osd_set=[1,2,3,0], write_set=[1,2,3,0])
    = {
-     read: [ [ 28K, 32K ], [ 0, 0 ], [ 0, 0 ], [ 0, 0 ] ],
+     read: [ [ 28K, 32K ], [ 0, -1 (BITMAP ONLY) ], [ 0, 0 ], [ 0, 0 ] ],
      write: [ [ 0, 0 ], [ 28K, 32K ], [ 28K, 32K ], [ 0, 0 ] ],
      input buffer: [ write1 ],
      rmw buffer: [ write2, read0 ],
@@ -925,7 +925,7 @@ void test15(bool second)
         stripes[i].bmp_buf = bitmaps+i;
     assert(rmw_buf);
     assert(stripes[0].read_start == 28*1024 && stripes[0].read_end == 32*1024);
-    assert(stripes[1].read_start == 0 && stripes[1].read_end == 0);
+    assert(stripes[1].read_start == 0 && stripes[1].read_end == UINT32_MAX);
     assert(stripes[2].read_start == 0 && stripes[2].read_end == 0);
     assert(stripes[3].read_start == 0 && stripes[3].read_end == 0);
     assert(stripes[0].write_start == 0 && stripes[0].write_end == 0);
