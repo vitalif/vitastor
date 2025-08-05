@@ -69,6 +69,7 @@ resume_1:
     }
     if (is_zero((uint64_t*)bs->meta_superblock, bs->dsk.meta_block_size))
     {
+        bs->dsk.check_lengths();
         {
             blockstore_meta_header_v3_t *hdr = (blockstore_meta_header_v3_t *)bs->meta_superblock;
             hdr->zero = 0;

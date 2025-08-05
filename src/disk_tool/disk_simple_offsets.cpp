@@ -11,6 +11,7 @@
 #include "str_util.h"
 #include "blockstore.h"
 #include "blockstore_disk.h"
+#include "blockstore_heap.h"
 
 // Calculate offsets for a block device and print OSD command line parameters
 void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
@@ -23,6 +24,9 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
     uint64_t journal_offset = parse_size(cfg["journal_offset"].string_value());
     uint64_t device_size = parse_size(cfg["device_size"].string_value());
     uint32_t csum_block_size = parse_size(cfg["csum_block_size"].string_value());
+    uint32_t meta_format = cfg["meta_format"].uint64_value();
+    if (!meta_format)
+        meta_format = BLOCKSTORE_META_FORMAT_HEAP;
     uint32_t data_csum_type = BLOCKSTORE_CSUM_NONE;
     if (cfg["data_csum_type"] == "crc32c")
         data_csum_type = BLOCKSTORE_CSUM_CRC32C;
@@ -123,15 +127,45 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
     uint64_t meta_offset = journal_offset + ((journal_size+device_block_size-1)/device_block_size)*device_block_size;
     uint64_t data_csum_size = (data_csum_type ? data_block_size/csum_block_size*(data_csum_type & 0xFF) : 0);
     uint64_t clean_entry_bitmap_size = data_block_size/bitmap_granularity/8;
-    uint64_t clean_entry_size = 24 /*sizeof(clean_disk_entry)*/ + 2*clean_entry_bitmap_size + data_csum_size + 4 /*entry_csum*/;
-    uint64_t entries_per_block = device_block_size / clean_entry_size;
     uint64_t object_count = ((device_size-meta_offset)/data_block_size);
-    uint64_t meta_size = (1 + (object_count+entries_per_block-1)/entries_per_block) * device_block_size;
+    uint64_t meta_size;
+    if (meta_format == BLOCKSTORE_META_FORMAT_HEAP)
+    {
+        uint32_t min_object_size = sizeof(heap_object_t)+sizeof(heap_write_t)+data_csum_size+2*clean_entry_bitmap_size;
+        uint32_t meta_block_target_free_space = cfg["meta_block_target_free_space"].uint64_value();
+        if (!meta_block_target_free_space || meta_block_target_free_space > device_block_size-min_object_size)
+            meta_block_target_free_space = 800;
+        double meta_reserve = cfg["meta_reserve"].number_value();
+        if (!meta_reserve)
+            meta_reserve = 1.5;
+        else if (meta_reserve < 1)
+            meta_reserve = 1;
+        uint32_t entries_per_block = (device_block_size-meta_block_target_free_space) / min_object_size;
+        meta_size = device_block_size * (uint64_t)((object_count+entries_per_block-1) / entries_per_block * meta_reserve);
+    }
+    else if (meta_format == BLOCKSTORE_META_FORMAT_V2)
+    {
+        uint64_t clean_entry_size = 24 /*sizeof(clean_disk_entry)*/ + 2*clean_entry_bitmap_size + data_csum_size + 4 /*entry_csum*/;
+        uint64_t entries_per_block = device_block_size / clean_entry_size;
+        meta_size = (1 + (object_count+entries_per_block-1)/entries_per_block) * device_block_size;
+    }
+    else if (meta_format == BLOCKSTORE_META_FORMAT_V1)
+    {
+        uint64_t clean_entry_size = 24 /*sizeof(clean_disk_entry)*/ + 2*clean_entry_bitmap_size;
+        uint64_t entries_per_block = device_block_size / clean_entry_size;
+        meta_size = (1 + (object_count+entries_per_block-1)/entries_per_block) * device_block_size;
+    }
+    else
+    {
+        fprintf(stderr, "meta_format %u is not supported\n", meta_format);
+        exit(1);
+    }
     uint64_t data_offset = meta_offset + meta_size;
     if (format == "json")
     {
         // JSON
         printf("%s\n", json11::Json(json11::Json::object {
+            { "meta_format", (uint64_t)meta_format },
             { "meta_block_size", device_block_size },
             { "journal_block_size", device_block_size },
             { "data_size", device_size-data_offset },
@@ -145,9 +179,9 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
     {
         // Env
         printf(
-            "meta_block_size=%ju\njournal_block_size=%ju\ndata_size=%ju\n"
+            "meta_format=%u\nmeta_block_size=%ju\njournal_block_size=%ju\ndata_size=%ju\n"
             "data_device=%s\njournal_offset=%ju\nmeta_offset=%ju\ndata_offset=%ju\n",
-            device_block_size, device_block_size, device_size-data_offset,
+            meta_format, device_block_size, device_block_size, device_size-data_offset,
             device.c_str(), journal_offset, meta_offset, data_offset
         );
     }
@@ -167,8 +201,8 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
             printf("--data_size %ju\n", device_size-data_offset);
         }
         printf(
-            "--data_device %s\n--journal_offset %ju\n--meta_offset %ju\n--data_offset %ju\n",
-            device.c_str(), journal_offset, meta_offset, data_offset
+            "--meta_format %u\n--data_device %s\n--journal_offset %ju\n--meta_offset %ju\n--data_offset %ju\n",
+            meta_format, device.c_str(), journal_offset, meta_offset, data_offset
         );
     }
 }

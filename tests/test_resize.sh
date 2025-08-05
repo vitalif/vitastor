@@ -25,6 +25,7 @@ done
 
 for i in $(seq 1 $OSD_COUNT); do
     offsets=$(build/src/disk_tool/vitastor-disk simple-offsets --format json ./testdata/bin/test_osd$i.bin)
+    meta_format=$(echo $offsets | jq -r .meta_format)
     meta_offset=$(echo $offsets | jq -r .meta_offset)
     data_offset=$(echo $offsets | jq -r .data_offset)
     build/src/disk_tool/vitastor-disk dump-journal --io cached --json ./testdata/bin/test_osd$i.bin 4096 0 $meta_offset >./testdata/journal_before_resize.json
@@ -51,6 +52,7 @@ $ETCDCTL del --prefix /vitastor/osd/state/
 
 for i in $(seq 1 $OSD_COUNT); do
     build/src/osd/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $NO_SAME $OSD_ARGS --etcd_address $ETCD_URL \
+        --meta_format $meta_format \
         --data_device ./testdata/bin/test_osd$i.bin \
         --meta_offset 0 \
         --journal_offset $((1024*1024)) \
