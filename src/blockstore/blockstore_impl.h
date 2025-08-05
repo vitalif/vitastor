@@ -19,6 +19,7 @@
 #include <deque>
 #include <new>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "cpp-btree/btree_map.h"
 
