@@ -635,7 +635,7 @@ void test_corruption()
     // reload heap with corruption
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.set_fail_on_warn(true);
+        heap.set_abort_on_corruption(true);
         tmp.data()[10]++; // corrupt the first object
         heap.load_blocks(0, dsk.meta_block_size, tmp.data());
         heap.finish_load();
@@ -1379,7 +1379,7 @@ void test_duplicate()
     // reload heap with duplicate
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.set_fail_on_warn(true);
+        heap.set_abort_on_corruption(true);
         heap.load_blocks(0, 2*dsk.meta_block_size, tmp.data());
         heap.finish_load();
 
@@ -1402,7 +1402,7 @@ void test_duplicate()
     // reload heap with duplicate in different order
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.set_fail_on_warn(true);
+        heap.set_abort_on_corruption(true);
         heap.load_blocks(dsk.meta_block_size, dsk.meta_block_size, tmp.data()+dsk.meta_block_size);
         heap.load_blocks(0, dsk.meta_block_size, tmp.data());
         heap.finish_load();
@@ -1470,7 +1470,7 @@ void test_autocompact(bool csum)
     // reload heap with autocompaction
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.set_fail_on_warn(true);
+        heap.set_abort_on_corruption(true);
         heap.set_compacted_lsn(3);
         assert(heap.get_compacted_lsn() == 3);
         heap.load_blocks(0, dsk.meta_block_size, tmp.data());

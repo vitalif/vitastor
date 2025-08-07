@@ -128,7 +128,8 @@ class blockstore_heap_t
 
     blockstore_disk_t *dsk = NULL;
     uint8_t* buffer_area = NULL;
-    bool fail_on_warn = false;
+    bool abort_on_corruption = false;
+    bool abort_on_overlap = true;
     int log_level = 0;
 
     const uint32_t meta_block_count = 0;
@@ -301,5 +302,6 @@ public:
     uint32_t get_max_write_entry_size();
 
     // only for tests
-    void set_fail_on_warn(bool fail);
+    void set_abort_on_corruption(bool fail);
+    void set_abort_on_overlap(bool fail);
 };

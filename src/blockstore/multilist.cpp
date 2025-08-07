@@ -173,7 +173,7 @@ void multilist_alloc_t::print()
 
 void multilist_alloc_t::use(uint32_t pos, uint32_t size)
 {
-    assert(pos < count);
+    assert(pos+size <= count && size > 0);
     if (sizes[pos] <= 0)
     {
         uint32_t start = pos;

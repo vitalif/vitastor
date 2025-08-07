@@ -209,14 +209,8 @@ uint64_t blockstore_heap_t::get_compacted_lsn()
 struct verify_offset_t
 {
     uint32_t start;
-    uint32_t end;
-    uint32_t type;
+    bool handled;
 };
-
-inline bool operator < (const verify_offset_t & a, const verify_offset_t & b)
-{
-    return a.end < b.end;
-}
 
 static uint32_t free_writes(heap_write_t *wr, heap_write_t *to)
 {
@@ -242,9 +236,10 @@ void blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t size, uint8_t
         uint32_t block_num = (disk_offset + buf_offset) / dsk->meta_block_size;
         assert(block_num < block_info.size());
         uint32_t block_offset = 0;
-        std::set<verify_offset_t> offsets_seen;
+        std::map<uint32_t, verify_offset_t> offsets_seen;
         while (block_offset < dsk->meta_block_size - 2)
         {
+            heap_write_t *skip_erase_wr = NULL, *skip_erase_to = NULL;
             uint8_t *data = buf + buf_offset + block_offset;
             uint16_t & region_marker = *((uint16_t*)data);
             if (!region_marker)
@@ -266,7 +261,7 @@ void blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t size, uint8_t
             {
                 fprintf(stderr, "Warning: Entry is too large in metadata block %u at %u (%u > max %u bytes), skipping the rest of block\n",
                     block_num, block_offset, region_marker, dsk->meta_block_size-block_offset);
-                if (fail_on_warn)
+                if (abort_on_corruption)
                     abort();
                 if (block_offset > 0)
                 {
@@ -280,9 +275,16 @@ void blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t size, uint8_t
                 fprintf(stderr, "Warning: Entry is too small in metadata block %u at %u (%u < min %ju bytes), skipping\n",
                     block_num, block_offset, region_marker, sizeof(heap_object_t));
 skip_corrupted:
-                if (fail_on_warn)
+                if (abort_on_corruption)
                     abort();
 skip_object:
+                offsets_seen[block_offset+region_marker].handled = false;
+                for (auto wr = skip_erase_wr; wr && wr != skip_erase_to; wr = wr->next())
+                {
+                    uint32_t wr_pos = ((uint8_t*)wr - buf - buf_offset);
+                    offsets_seen[wr_pos+wr->size].handled = false;
+                }
+skip_unseen:
                 if (block_offset > 0 && region_marker > 0)
                 {
                     if (region_marker >= 2)
@@ -294,17 +296,35 @@ skip_object:
             }
             if (region_marker != sizeof(heap_object_t))
             {
-                // Write entry
+                // Write entry (probably) (or garbage)
+                auto offset_it = offsets_seen.find(block_offset+region_marker);
+                if (offset_it == offsets_seen.end())
+                {
+                    offsets_seen[block_offset+region_marker] = (verify_offset_t){ .start = block_offset, .handled = false };
+                }
                 block_offset += region_marker;
                 continue;
             }
-            offsets_seen.insert((verify_offset_t){ .start = block_offset, .end = block_offset + region_marker, .type = 1 });
             heap_object_t *obj = (heap_object_t *)data;
+            {
+                auto offset_it = offsets_seen.upper_bound(block_offset);
+                if (offset_it != offsets_seen.end() && offset_it->second.start < block_offset+region_marker && offset_it->second.handled)
+                {
+                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u intersects with a write entry, skipping\n",
+                        obj->inode, obj->stripe, block_num, block_offset);
+                    if (abort_on_corruption)
+                        abort();
+                    goto skip_unseen;
+                }
+                offsets_seen[block_offset+region_marker] = (verify_offset_t){ .start = block_offset, .handled = true };
+            }
             if (!obj->write_pos)
             {
                 fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u does not contain writes, skipping\n",
                     obj->inode, obj->stripe, block_num, block_offset);
-                goto skip_corrupted;
+                if (abort_on_corruption)
+                    abort();
+                goto skip_unseen;
             }
             // Verify write chain
             if (obj->write_pos < -(int16_t)block_offset || obj->write_pos > (int16_t)(dsk->meta_block_size-block_offset-sizeof(heap_write_t)))
@@ -321,6 +341,7 @@ skip_object:
                 goto skip_corrupted;
             }
             uint32_t wr_i = 0;
+            skip_erase_wr = obj->get_writes();
             for (auto wr = obj->get_writes(); wr; wr = wr->next(), wr_i++)
             {
                 uint32_t wr_pos = ((uint8_t*)wr - buf - buf_offset);
@@ -330,11 +351,11 @@ skip_object:
                         obj->inode, obj->stripe, block_num, block_offset, wr_i, wr_pos, wr->size, wr->get_size(this));
                     goto skip_corrupted;
                 }
-                auto offset_it = offsets_seen.upper_bound({ .end = wr_pos });
-                if (offset_it != offsets_seen.end() && offset_it->start < wr_pos+wr->size)
+                auto offset_it = offsets_seen.upper_bound(wr_pos);
+                if (offset_it != offsets_seen.end() && offset_it->second.start < wr_pos+wr->size && offset_it->second.handled)
                 {
                     fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u list entry #%u (%u..%u) intersects with other entries (%u..%u) or is double-claimed, skipping object\n",
-                        obj->inode, obj->stripe, block_num, block_offset, wr_i, wr_pos, wr_pos+wr->size, offset_it->start, offset_it->end);
+                        obj->inode, obj->stripe, block_num, block_offset, wr_i, wr_pos, wr_pos+wr->size, offset_it->second.start, offset_it->first);
                     goto skip_corrupted;
                 }
                 if (wr->next_pos < -(int16_t)wr_pos || wr->next_pos > (int16_t)(dsk->meta_block_size - wr_pos))
@@ -343,7 +364,8 @@ skip_object:
                         obj->inode, obj->stripe, block_num, block_offset, wr_i, wr_pos, wr->next_pos);
                     goto skip_corrupted;
                 }
-                offsets_seen.insert({ .start = wr_pos, .end = wr_pos+wr->size, .type = 2 });
+                offsets_seen[wr_pos+wr->size] = (verify_offset_t){ .start = wr_pos, .handled = true };
+                skip_erase_to = wr->next();
             }
             // Check for duplicates
             auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
@@ -397,15 +419,19 @@ skip_object:
                 if (wr->type() == BS_HEAP_SMALL_WRITE &&
                     !is_buffer_area_free(wr->location, wr->len))
                 {
-                    fprintf(stderr, "Notice: write %jx:%jx v%lu (l%lu) buffered data overlaps with other writes, skipping object\n",
+                    fprintf(stderr, "Error: write %jx:%jx v%lu (l%lu) buffered data overlaps with other writes, skipping object\n",
                         obj->inode, obj->stripe, wr->version, wr->lsn);
+                    if (abort_on_overlap)
+                        abort();
                     goto skip_object;
                 }
                 if (wr->type() == BS_HEAP_BIG_WRITE &&
                     is_data_used(wr->location))
                 {
-                    fprintf(stderr, "Notice: write %jx:%jx v%lu (l%lu) data overlaps with other writes, skipping object\n",
+                    fprintf(stderr, "Error: write %jx:%jx v%lu (l%lu) data overlaps with other writes, skipping object\n",
                         obj->inode, obj->stripe, wr->version, wr->lsn);
+                    if (abort_on_overlap)
+                        abort();
                     goto skip_object;
                 }
                 if (wr->needs_recheck(this))
@@ -460,6 +486,15 @@ skip_object:
             }
             handle_object(obj);
             block_offset += obj->size;
+        }
+        for (auto & op: offsets_seen)
+        {
+            if (!op.second.handled)
+            {
+                uint16_t & region_marker = *(uint16_t*)(buf + buf_offset + op.second.start);
+                assert(!(region_marker & FREE_SPACE_BIT));
+                region_marker |= FREE_SPACE_BIT;
+            }
         }
         handle_block(block_num, block_offset, buf+buf_offset);
     }
@@ -2019,6 +2054,10 @@ bool blockstore_heap_t::is_buffer_area_free(uint64_t location, uint64_t size)
 
 void blockstore_heap_t::use_buffer_area(inode_t inode, uint64_t location, uint64_t size)
 {
+    if (!size)
+    {
+        return;
+    }
     assert(!(size % dsk->bitmap_granularity));
     buffer_alloc->use(location / dsk->bitmap_granularity, size / dsk->bitmap_granularity);
     buffer_area_used_space += size;
@@ -2093,9 +2132,14 @@ uint32_t blockstore_heap_t::get_max_write_entry_size()
     return max_write_entry_size;
 }
 
-void blockstore_heap_t::set_fail_on_warn(bool fail)
+void blockstore_heap_t::set_abort_on_corruption(bool fail)
 {
-    fail_on_warn = fail;
+    abort_on_corruption = fail;
+}
+
+void blockstore_heap_t::set_abort_on_overlap(bool fail)
+{
+    abort_on_overlap = fail;
 }
 
 void blockstore_heap_t::push_inflight_lsn(object_id oid, uint64_t lsn, uint64_t flags)
