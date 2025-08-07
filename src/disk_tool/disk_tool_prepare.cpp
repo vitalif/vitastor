@@ -9,6 +9,8 @@
 int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_hdd, json11::Json::object & result)
 {
     static const char *allow_additional_params[] = {
+        "data_csum_type",
+        "csum_block_size",
         "autosync_writes",
         "data_io",
         "meta_io",
