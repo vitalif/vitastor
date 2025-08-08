@@ -146,6 +146,7 @@ public:
     int metadata_buf_size;
     blockstore_init_meta* metadata_init_reader;
 
+    void init();
     void check_wait(blockstore_op_t *op);
     void init_op(blockstore_op_t *op);
 

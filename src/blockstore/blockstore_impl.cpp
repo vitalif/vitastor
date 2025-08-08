@@ -30,6 +30,10 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_i *
     }
     meta_superblock = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
     memset(meta_superblock, 0, dsk.meta_block_size);
+}
+
+void blockstore_impl_t::init()
+{
     flusher = new journal_flusher_t(this);
     if (dsk.inmemory_journal)
     {
@@ -40,11 +44,12 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_i *
 
 blockstore_impl_t::~blockstore_impl_t()
 {
+    if (flusher)
+        delete flusher;
     if (heap)
         delete heap;
     if (buffer_area)
         free(buffer_area);
-    delete flusher;
     if (meta_superblock)
         free(meta_superblock);
     if (zero_object)

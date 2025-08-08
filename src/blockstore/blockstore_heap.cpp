@@ -162,6 +162,8 @@ blockstore_heap_t::blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_are
 {
     assert(target_block_free_space < dsk->meta_block_size);
     assert(dsk->meta_block_size < 32768);
+    assert(dsk->meta_area_size > 0);
+    assert(dsk->journal_len > 0);
     assert(sizeof(heap_object_t) < sizeof(heap_write_t));
     meta_alloc = new multilist_index_t(meta_block_count, 1 + dsk->meta_block_size/MIN_ALLOC, 0);
     block_info.resize(meta_block_count);

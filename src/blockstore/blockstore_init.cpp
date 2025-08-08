@@ -147,7 +147,6 @@ resume_1:
             );
             exit(1);
         }
-        bs->heap->set_compacted_lsn(hdr->compacted_lsn);
         if (bs->dsk.meta_format != hdr->version)
         {
             bs->dsk.meta_format = hdr->version;
@@ -155,6 +154,8 @@ resume_1:
         }
         bs->dsk.check_lengths();
     }
+    bs->init();
+    bs->heap->set_compacted_lsn(((blockstore_meta_header_v3_t *)bs->meta_superblock)->compacted_lsn);
     if (bs->dsk.inmemory_journal)
     {
         // Read buffer area

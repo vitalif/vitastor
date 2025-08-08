@@ -118,15 +118,18 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     try
     {
         dsk.parse_config(options);
-        // Set all offsets to 4096 to calculate metadata size with excess
+        // Calculate metadata sizes (with excess)
         dsk.journal_offset = 4096;
-        dsk.meta_offset = 4096;
-        dsk.data_offset = 4096;
+        dsk.meta_offset = 4096 + (dsk.meta_device == dsk.journal_device ? dsk.cfg_journal_size : 0);
+        dsk.data_offset = 4096 + (dsk.data_device == dsk.meta_device && new_meta_len ? new_meta_len : 0) +
+            (dsk.data_device == dsk.journal_device ? dsk.cfg_journal_size : 0);
         dsk.data_io = dsk.meta_io = dsk.journal_io = (options["io"] == "cached" ? "cached" : "direct");
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
         dsk.calc_lengths();
+        dsk.data_offset += (new_meta_len ? 0 : (dsk.meta_format == BLOCKSTORE_META_FORMAT_HEAP ? dsk.min_meta_len*2 : dsk.min_meta_len));
+        dsk.meta_area_size = (dsk.data_device == dsk.meta_device ? dsk.data_offset : dsk.meta_device_size) - dsk.meta_offset;
         sb = json11::Json::object {
             { "meta_format", options["meta_format"] },
             { "data_device", options["data_device"] },
@@ -141,7 +144,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
             { "disable_device_lock", dsk.disable_flock },
             { "journal_offset", 4096 },
             { "meta_offset", dsk.meta_offset },
-            { "data_offset", dsk.data_offset + (new_meta_len ? 0 : (dsk.meta_format == BLOCKSTORE_META_FORMAT_HEAP ? dsk.min_meta_len*2 : dsk.min_meta_len)) },
+            { "data_offset", dsk.data_offset },
             { "journal_no_same_sector_overwrites", !is_hdd || is_hybrid },
             { "journal_sector_buffer_count", 1024 },
             { "disable_data_fsync", json_is_true(options["disable_data_fsync"]) },
