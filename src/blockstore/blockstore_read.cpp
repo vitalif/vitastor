@@ -19,14 +19,16 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     PRIV(op)->pending_ops = 0;
     auto & rv = PRIV(op)->read_vec;
     uint64_t result_version = 0;
+    bool found = false;
     for (auto wr = obj->get_writes(); wr; wr = wr->next())
     {
         if (op->version < wr->version)
         {
             continue;
         }
-        if (!result_version)
+        if (!found)
         {
+            found = true;
             result_version = wr->version;
             if (op->bitmap)
             {
@@ -41,7 +43,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
             break;
         }
     }
-    if (!result_version)
+    if (!found)
     {
         // May happen if there are entries but all of them are > requested version
         heap->unlock_entry(op->oid, PRIV(op)->lsn);
