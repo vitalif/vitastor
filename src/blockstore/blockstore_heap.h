@@ -5,6 +5,7 @@
 #pragma once
 
 #include <map>
+#include <unordered_map>
 #include <set>
 #include <deque>
 #include <vector>
@@ -136,7 +137,7 @@ class blockstore_heap_t
     uint32_t target_block_free_space = 800;
 
     uint64_t next_lsn = 0;
-    std::map<pool_id_t, pool_shard_settings_t> pool_shard_settings;
+    std::unordered_map<pool_id_t, pool_shard_settings_t> pool_shard_settings;
     // PG => inode => stripe => block number
     std::map<uint64_t, std::map<inode_t, btree::btree_map<uint64_t, uint64_t>>> block_index;
     std::vector<heap_block_info_t> block_info;
