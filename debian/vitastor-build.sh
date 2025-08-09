@@ -51,6 +51,7 @@ DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto -sa
 rm -rf /root/vitastor/packages/vitastor-$REL/vitastor-*/
 
 # Why does ubuntu rename debug packages to *.ddeb?
+cd /root/vitastor/packages/vitastor-$REL
 if ls *.ddeb >/dev/null; then
     perl -i -pe 's/\.ddeb/.deb/' *.buildinfo *.changes
     for i in *.ddeb; do
