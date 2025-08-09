@@ -857,33 +857,43 @@ heap_object_t *blockstore_heap_t::lock_and_read_entry(object_id oid, uint64_t & 
     {
         return NULL;
     }
-    auto mvcc_it = object_mvcc.lower_bound({ .oid = { .inode = oid.inode, .stripe = oid.stripe+1 }, .lsn = 0 });
-    copy_id = 1;
-    if (mvcc_it != object_mvcc.begin())
+    heap_mvcc_copy_id_t mvcc_id = { .oid = { .inode = oid.inode, .stripe = oid.stripe }, .copy_id = 1 };
+    auto mvcc_it = object_mvcc.find(mvcc_id);
+    if (mvcc_it != object_mvcc.end())
     {
-        mvcc_it--;
-        if (mvcc_it->first.oid == oid)
+        while (true)
         {
-            if (mvcc_it->second.entry_copy)
+            mvcc_id.copy_id++;
+            auto next_it = object_mvcc.find(mvcc_id);
+            if (next_it == object_mvcc.end())
             {
-                // Already modified, need to create another copy
-                copy_id = mvcc_it->first.lsn+1;
+                mvcc_id.copy_id--;
+                break;
             }
-            else
-            {
-                copy_id = mvcc_it->first.lsn;
-                mvcc_it->second.readers++;
-                return obj;
-            }
+            mvcc_it = next_it;
+        }
+        if (mvcc_it->second.entry_copy)
+        {
+            // Already modified, need to create another copy
+            mvcc_id.copy_id++;
+            object_mvcc[mvcc_id] = (heap_object_mvcc_t){ .readers = 1 };
+        }
+        else
+        {
+            mvcc_it->second.readers++;
         }
     }
-    object_mvcc[(heap_object_lsn_t){ .oid = oid, .lsn = copy_id }] = (heap_object_mvcc_t){ .readers = 1 };
+    else
+    {
+        object_mvcc[mvcc_id] = (heap_object_mvcc_t){ .readers = 1 };
+    }
+    copy_id = mvcc_id.copy_id;
     return obj;
 }
 
 heap_object_t *blockstore_heap_t::read_locked_entry(object_id oid, uint64_t copy_id)
 {
-    auto mvcc_it = object_mvcc.find((heap_object_lsn_t){ .oid = oid, .lsn = copy_id });
+    auto mvcc_it = object_mvcc.find((heap_mvcc_copy_id_t){ .oid = oid, .copy_id = copy_id });
     if (mvcc_it == object_mvcc.end())
     {
         return NULL;
@@ -895,9 +905,22 @@ heap_object_t *blockstore_heap_t::read_locked_entry(object_id oid, uint64_t copy
     return read_entry(oid, NULL);
 }
 
+void blockstore_heap_t::free_mvcc(std::unordered_map<heap_mvcc_copy_id_t, heap_object_mvcc_t>::iterator mvcc_it)
+{
+    if (mvcc_it->second.entry_copy)
+    {
+        // Free refcounted data & buffer blocks
+        heap_object_t *obj = (heap_object_t*)mvcc_it->second.entry_copy;
+        free_object_space(obj->inode, obj->get_writes(), NULL, BS_HEAP_FREE_MVCC);
+        free(mvcc_it->second.entry_copy);
+    }
+    object_mvcc.erase(mvcc_it);
+}
+
 bool blockstore_heap_t::unlock_entry(object_id oid, uint64_t copy_id)
 {
-    auto mvcc_it = object_mvcc.find((heap_object_lsn_t){ .oid = oid, .lsn = copy_id });
+    auto mvcc_id = (heap_mvcc_copy_id_t){ .oid = oid, .copy_id = copy_id };
+    auto mvcc_it = object_mvcc.find(mvcc_id);
     if (mvcc_it == object_mvcc.end())
     {
         return false;
@@ -905,37 +928,37 @@ bool blockstore_heap_t::unlock_entry(object_id oid, uint64_t copy_id)
     mvcc_it->second.readers--;
     if (!mvcc_it->second.readers)
     {
-        if (mvcc_it->second.entry_copy)
+        mvcc_id.copy_id++;
+        if (object_mvcc.find(mvcc_id) != object_mvcc.end())
         {
-            // Free refcounted data & buffer blocks
-            heap_object_t *obj = (heap_object_t*)mvcc_it->second.entry_copy;
-            free_object_space(obj->inode, obj->get_writes(), NULL, BS_HEAP_FREE_MVCC);
-            bool is_last_mvcc = true;
-            if (mvcc_it != object_mvcc.end())
-            {
-                // object_mvcc may contain multiple copied entries, but always in a whole sequence
-                auto next_it = std::next(mvcc_it);
-                if (next_it->first.oid == oid && next_it->second.entry_copy)
-                    is_last_mvcc = false;
-            }
-            if (is_last_mvcc && mvcc_it != object_mvcc.begin())
-            {
-                auto prev_it = std::prev(mvcc_it);
-                if (prev_it->first.oid == oid && prev_it->second.entry_copy)
-                    is_last_mvcc = false;
-            }
-            if (is_last_mvcc)
-            {
-                // Free data references from the newest object version when the last MVCC is freed
-                heap_object_t *new_obj = read_entry(oid, NULL);
-                if (new_obj)
-                {
-                    free_object_space(new_obj->inode, new_obj->get_writes(), NULL, BS_HEAP_FREE_MAIN);
-                }
-            }
-            free(mvcc_it->second.entry_copy);
+            // Next entry isn't freed yet
+            return true;
         }
-        object_mvcc.erase(mvcc_it);
+        mvcc_id.copy_id--;
+        // Free this entry
+        free_mvcc(mvcc_it);
+        // Free all previous entries with 0 refcount
+        while (mvcc_id.copy_id > 1)
+        {
+            mvcc_id.copy_id--;
+            mvcc_it = object_mvcc.find(mvcc_id);
+            assert(mvcc_it != object_mvcc.end());
+            if (mvcc_it->second.readers)
+            {
+                mvcc_id.copy_id++;
+                break;
+            }
+            free_mvcc(mvcc_it);
+        }
+        if (mvcc_id.copy_id == 1)
+        {
+            // Free data references from the newest object version when the last MVCC is freed
+            heap_object_t *new_obj = read_entry(oid, NULL);
+            if (new_obj)
+            {
+                free_object_space(new_obj->inode, new_obj->get_writes(), NULL, BS_HEAP_FREE_MAIN);
+            }
+        }
     }
     return true;
 }
@@ -1306,13 +1329,13 @@ int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *mod
 
 bool blockstore_heap_t::mvcc_check_tracking(object_id oid)
 {
-    auto mvcc_it = object_mvcc.lower_bound({ .oid = { .inode = oid.inode, .stripe = oid.stripe }, .lsn = 0 });
+    auto mvcc_it = object_mvcc.find((heap_mvcc_copy_id_t){ .oid = oid, .copy_id = 1 });
     if (mvcc_it == object_mvcc.end())
     {
         // no copies
         return false;
     }
-    return (mvcc_it->first.oid == oid && mvcc_it->second.entry_copy);
+    return mvcc_it->second.entry_copy;
 }
 
 void blockstore_heap_t::copy_full_object(uint8_t *dst, heap_object_t *obj)
@@ -1335,17 +1358,23 @@ void blockstore_heap_t::copy_full_object(uint8_t *dst, heap_object_t *obj)
 bool blockstore_heap_t::mvcc_save_copy(heap_object_t *obj)
 {
     auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
-    auto mvcc_it = object_mvcc.lower_bound({ .oid = { .inode = oid.inode, .stripe = oid.stripe+1 }, .lsn = 0 });
-    if (mvcc_it == object_mvcc.begin())
+    auto mvcc_id = (heap_mvcc_copy_id_t){ .oid = oid, .copy_id = 1 };
+    auto mvcc_it = object_mvcc.find(mvcc_id);
+    if (mvcc_it == object_mvcc.end())
     {
         // no copies
         return false;
     }
-    mvcc_it--;
-    if (mvcc_it->first.oid != oid)
+    while (true)
     {
-        // no copies :-)
-        return false;
+        mvcc_id.copy_id++;
+        auto next_it = object_mvcc.find(mvcc_id);
+        if (next_it == object_mvcc.end())
+        {
+            mvcc_id.copy_id--;
+            break;
+        }
+        mvcc_it = next_it;
     }
     if (mvcc_it->second.entry_copy)
     {
@@ -1365,7 +1394,7 @@ bool blockstore_heap_t::mvcc_save_copy(heap_object_t *obj)
     bool for_obj = false;
     // save_copy is performed when the object is modified, so object_mvcc may only
     // contain 1 version with entry_copy == NULL
-    if (mvcc_it == object_mvcc.begin() || std::prev(mvcc_it)->first.oid != oid)
+    if (mvcc_id.copy_id == 1)
     {
         // Init refcounts for the copy and for the object itself, when it's the first MVCC entry
         add_ref = 2;

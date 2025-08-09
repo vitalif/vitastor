@@ -97,6 +97,31 @@ struct tmp_compact_item_t
     bool compact;
 };
 
+struct heap_mvcc_copy_id_t
+{
+    object_id oid;
+    uint64_t copy_id;
+};
+
+inline bool operator == (const heap_mvcc_copy_id_t & a, const heap_mvcc_copy_id_t & b)
+{
+    return a.oid.inode == b.oid.inode && a.oid.stripe == b.oid.stripe && a.copy_id == b.copy_id;
+}
+
+namespace std
+{
+    template<> struct hash<heap_mvcc_copy_id_t>
+    {
+        inline size_t operator()(const heap_mvcc_copy_id_t &s) const
+        {
+            size_t seed = std::hash<object_id>()(s.oid);
+            // Copy-pasted from spp::hash_combine()
+            seed ^= (s.copy_id + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+            return seed;
+        }
+    };
+};
+
 struct heap_object_mvcc_t
 {
     uint32_t readers = 0;
@@ -149,7 +174,7 @@ class blockstore_heap_t
     uint32_t meta_alloc_count = 0;
     uint64_t meta_used_space = 0;
     multilist_alloc_t *buffer_alloc = NULL;
-    std::map<heap_object_lsn_t, heap_object_mvcc_t> object_mvcc;
+    std::unordered_map<heap_mvcc_copy_id_t, heap_object_mvcc_t> object_mvcc;
     std::unordered_map<uint64_t, uint32_t> mvcc_data_refs;
     std::unordered_map<uint64_t, uint32_t> mvcc_buffer_refs;
     std::map<uint64_t, uint64_t> inode_space_stats;
@@ -184,6 +209,7 @@ class blockstore_heap_t
     void copy_full_object(uint8_t *dst, heap_object_t *obj);
     bool mvcc_save_copy(heap_object_t *obj);
     bool mvcc_check_tracking(object_id oid);
+    void free_mvcc(std::unordered_map<heap_mvcc_copy_id_t, heap_object_mvcc_t>::iterator mvcc_it);
     void allocate_block(heap_block_info_t & inf);
     int add_object(object_id oid, heap_write_t *wr, uint32_t *modified_block);
     void mark_overwritten(uint64_t over_lsn, uint64_t inode, heap_write_t *wr, heap_write_t *end_wr, bool tracking_active);
