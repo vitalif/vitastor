@@ -819,7 +819,7 @@ void blockstore_heap_t::reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_s
     }
     uint32_t old_pg_count = !pool_settings.pg_count ? 1 : pool_settings.pg_count;
     uint64_t pool_id = (uint64_t)pool;
-    emhash7::HashMap<uint64_t, emhash7::HashMap<inode_t, emhash5::HashMap<uint64_t, uint64_t>>> new_shards;
+    emhash7::HashMap<uint64_t, emhash7::HashMap<inode_t, emhash7::HashMap<uint64_t, uint64_t>>> new_shards;
     for (uint32_t pg_num = 0; pg_num <= old_pg_count; pg_num++)
     {
         auto sh_it = block_index.find((pool_id << (64-POOL_ID_BITS)) | pg_num);
@@ -905,7 +905,7 @@ heap_object_t *blockstore_heap_t::read_locked_entry(object_id oid, uint64_t copy
     return read_entry(oid, NULL);
 }
 
-void blockstore_heap_t::free_mvcc(std::unordered_map<heap_mvcc_copy_id_t, heap_object_mvcc_t>::iterator mvcc_it)
+void blockstore_heap_t::free_mvcc(emhash7::HashMap<heap_mvcc_copy_id_t, heap_object_mvcc_t>::iterator mvcc_it)
 {
     if (mvcc_it->second.entry_copy)
     {
