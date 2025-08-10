@@ -12,6 +12,8 @@
 extern "C" {
 #endif
 uint32_t crc32c(uint32_t crc, const void *buf, size_t len);
+uint32_t crc32c_pad(uint32_t prev_crc, const void *buf, size_t len, size_t left_pad, size_t right_pad);
+uint32_t crc32c_nopad(uint32_t prev_crc, const void *buf, size_t len, size_t left_pad, size_t right_pad);
 #ifdef __cplusplus
 };
 #endif

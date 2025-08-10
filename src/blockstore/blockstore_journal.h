@@ -216,6 +216,3 @@ struct blockstore_journal_check_t
 };
 
 journal_entry* prefill_single_journal_entry(journal_t & journal, uint16_t type, uint32_t size);
-
-uint32_t crc32c_pad(uint32_t prev_crc, const void *buf, size_t len, size_t left_pad, size_t right_pad);
-uint32_t crc32c_nopad(uint32_t prev_crc, const void *buf, size_t len, size_t left_pad, size_t right_pad);

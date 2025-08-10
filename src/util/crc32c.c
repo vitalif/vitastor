@@ -372,3 +372,31 @@ uint32_t crc32c(uint32_t crc, const void *buf, size_t len)
     return sse42 ? crc32c_hw(crc, buf, len) : crc32c_sw(crc, buf, len);
 #endif
 }
+
+static uint8_t zero_page[4096] = {};
+
+uint32_t crc32c_pad(uint32_t prev_crc, const void *buf, size_t len, size_t left_pad, size_t right_pad)
+{
+    uint32_t r = prev_crc;
+    while (left_pad >= 4096)
+    {
+        r = crc32c(r, zero_page, 4096);
+        left_pad -= 4096;
+    }
+    if (left_pad > 0)
+        r = crc32c(r, zero_page, left_pad);
+    r = crc32c(r, buf, len);
+    while (right_pad >= 4096)
+    {
+        r = crc32c(r, zero_page, 4096);
+        right_pad -= 4096;
+    }
+    if (left_pad > 0)
+        r = crc32c(r, zero_page, right_pad);
+    return r;
+}
+
+uint32_t crc32c_nopad(uint32_t prev_crc, const void *buf, size_t len, size_t left_pad, size_t right_pad)
+{
+    return crc32c(0, buf, len);
+}
