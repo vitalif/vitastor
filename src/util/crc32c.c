@@ -39,6 +39,17 @@
 #include <unistd.h>
 #include "crc32c.h"
 
+#ifdef WITH_ISAL
+
+#include <isa-l/crc.h>
+
+uint32_t crc32c(uint32_t crc, const void *buf, size_t len)
+{
+    return crc32_iscsi((unsigned char*)buf, len, crc ^ 0xffffffff) ^ 0xffffffff;
+}
+
+#else
+
 /* CRC-32C (iSCSI) polynomial in reversed bit order. */
 #define POLY 0x82f63b78
 
@@ -376,6 +387,8 @@ uint32_t crc32c(uint32_t crc, const void *buf, size_t len)
     return sse42 == 2 ? crc32c_hw(crc, buf, len) : crc32c_sw(crc, buf, len);
 #endif
 }
+
+#endif
 
 static uint8_t zero_page[4096] = {};
 

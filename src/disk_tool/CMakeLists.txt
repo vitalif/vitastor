@@ -12,4 +12,5 @@ add_executable(vitastor-disk
 target_link_libraries(vitastor-disk
 	tcmalloc_minimal
 	${LIBURING_LIBRARIES}
+	${ISAL_LIBRARIES}
 )
