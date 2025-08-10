@@ -13,9 +13,8 @@
 #include <vector>
 
 #include "../client/object_id.h"
-#include "../../emhash/hash_table5.hpp"
 #include "../../emhash/hash_table7.hpp"
-#include "../../emhash/thirdparty/martin/unordered_dense.h"
+#include "../util/wyhash.h"
 #include "blockstore_disk.h"
 #include "multilist.h"
 
@@ -151,7 +150,7 @@ struct heap_refqi_t
     bool is_data;
 };
 
-using i64hash_t = ankerl::unordered_dense::hash<uint64_t>;
+using i64hash_t = wyhash::hash<uint64_t>;
 using heap_block_index_t = emhash7::HashMap<uint64_t, emhash7::HashMap<inode_t, emhash7::HashMap<uint64_t, uint64_t, i64hash_t>, i64hash_t>, i64hash_t>;
 using heap_mvcc_map_t = emhash7::HashMap<heap_mvcc_copy_id_t, heap_object_mvcc_t>;
 
