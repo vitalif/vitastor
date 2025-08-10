@@ -45,6 +45,9 @@ add_executable(test_heap
 	../blockstore/blockstore_disk.cpp
 	../util/str_util.cpp
 )
+target_link_libraries(test_heap
+	${ISAL_LIBRARIES}
+)
 add_dependencies(build_tests test_heap)
 add_test(NAME test_heap COMMAND test_heap)
 target_compile_options(test_heap PRIVATE -coverage)
@@ -63,13 +66,13 @@ add_executable(test_crc32
 	test_crc32.cpp
 )
 target_link_libraries(test_crc32
-	vitastor_blk
+	vitastor_blk ${ISAL_LIBRARIES}
 )
 
 # test_blockstore
 add_executable(test_blockstore EXCLUDE_FROM_ALL test_blockstore.cpp ringloop_mock.cpp)
 add_dependencies(build_tests test_blockstore)
-target_link_libraries(test_blockstore vitastor_blk)
+target_link_libraries(test_blockstore vitastor_blk vitastor_common ${ISAL_LIBRARIES})
 add_test(NAME test_blockstore COMMAND test_blockstore)
 
 ## test_shit
