@@ -364,7 +364,7 @@ bool journal_flusher_co::loop()
     else if (wait_state == 31) goto resume_31;
     else if (wait_state == 32) goto resume_32;
     else if (wait_state == 33) goto resume_33;
-
+    else if (wait_state == 34) goto resume_34;
 resume_0:
     if (flusher->flush_queue.size() < flusher->min_flusher_count && !flusher->trim_wanted ||
         !flusher->flush_queue.size() || !flusher->dequeuing)
@@ -536,13 +536,6 @@ resume_2:
             return false;
         if (old_clean_loc != UINT64_MAX && old_clean_loc != clean_loc)
         {
-    resume_21:
-            inflight_meta_sector = flusher->inflight_meta_sectors.find(meta_old.sector);
-            if (inflight_meta_sector != flusher->inflight_meta_sectors.end()) 
-            {
-                wait_state = wait_base+20;
-                return false;
-            }
             // zero out old metadata entry
             {
                 clean_disk_entry *old_entry = (clean_disk_entry*)((uint8_t*)meta_old.buf + meta_old.pos*bs->dsk.clean_entry_size);
@@ -555,8 +548,14 @@ resume_2:
                 }
             }
             memset((uint8_t*)meta_old.buf + meta_old.pos*bs->dsk.clean_entry_size, 0, bs->dsk.clean_entry_size);
-            if (meta_old.sector != meta_new.sector) 
+            if (meta_old.sector != meta_new.sector)
             {
+    resume_21:
+                if (flusher->inflight_meta_sectors.find(meta_old.sector) != flusher->inflight_meta_sectors.end())
+                {
+                    wait_state = wait_base+21;
+                    return false;
+                }
                 flusher->inflight_meta_sectors.insert(meta_old.sector);
     resume_22:
                 if (!write_meta_block(meta_old, 22))
@@ -571,8 +570,8 @@ resume_2:
             }
         }
     resume_24:
-        inflight_meta_sector = flusher->inflight_meta_sectors.find(meta_new.sector);
-        if (inflight_meta_sector != flusher->inflight_meta_sectors.end()) {
+        if (flusher->inflight_meta_sectors.find(meta_new.sector) != flusher->inflight_meta_sectors.end())
+        {
             wait_state = wait_base+24;
             return false;
         }
@@ -786,8 +785,7 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
         if (!wait_meta_reads(wait_base+0))
             return false;
     resume_2:
-        inflight_meta_sector = flusher->inflight_meta_sectors.find(meta_new.sector);
-        if (inflight_meta_sector != flusher->inflight_meta_sectors.end()) 
+        if (flusher->inflight_meta_sectors.find(meta_new.sector) != flusher->inflight_meta_sectors.end())
         {
             wait_state = wait_base+2;
             return false;

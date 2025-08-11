@@ -76,7 +76,6 @@ class journal_flusher_co
     uint8_t *new_clean_bitmap;
 
     uint64_t new_trim_pos;
-    std::unordered_set<uint64_t>::iterator inflight_meta_sector;
 
     friend class journal_flusher_t;
     void scan_dirty();
