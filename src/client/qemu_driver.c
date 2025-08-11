@@ -14,28 +14,42 @@
 #endif
 #include "block/block_int.h"
 #include "qapi/error.h"
-#include "qapi/qmp/qjson.h"
-#include "qapi/qmp/qdict.h"
 #include "qapi/qmp/qerror.h"
 #include "qemu/error-report.h"
 #include "qemu/module.h"
 #include "qemu/option.h"
 
-#if QEMU_VERSION_MAJOR >= 3
-#include "qemu/units.h"
-#include "block/qdict.h"
-#include "qemu/cutils.h"
-#elif QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 10
-#include "qemu/cutils.h"
+#if QEMU_VERSION_MAJOR >= 10
+#include "qobject/qstring.h"
+#include "qobject/qdict.h"
+#include "qobject/qobject.h"
+#include "qobject/qjson.h"
+#elif QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 10
 #include "qapi/qmp/qstring.h"
+#include "qapi/qmp/qdict.h"
+#include "qapi/qmp/qobject.h"
 #include "qapi/qmp/qjson.h"
 #else
+#include "qapi/qmp/qstring.h"
 #include "qapi/qmp/qint.h"
+#include "qapi/qmp/qdict.h"
+#include "qapi/qmp/qobject.h"
+#include "qapi/qmp/qjson.h"
 #define qdict_put_int(options, name, num_val) qdict_put_obj(options, name, QOBJECT(qint_from_int(num_val)))
 #define qdict_put_str(options, name, value) qdict_put_obj(options, name, QOBJECT(qstring_from_str(value)))
 #define qobject_unref QDECREF
 #endif
-#if QEMU_VERSION_MAJOR == 4 && QEMU_VERSION_MINOR >= 2 || QEMU_VERSION_MAJOR > 4
+
+// parse_uint_full()
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 6
+#include "qemu/cutils.h"
+#else
+#include "qemu-common.h"
+#endif
+
+#if QEMU_VERSION_MAJOR >= 10
+#include "system/replay.h"
+#elif QEMU_VERSION_MAJOR == 4 && QEMU_VERSION_MINOR >= 2 || QEMU_VERSION_MAJOR > 4
 #include "sysemu/replay.h"
 #else
 #include "sysemu/sysemu.h"
