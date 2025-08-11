@@ -478,6 +478,10 @@ static void check_config(VitastorClient *client)
             fprintf(stderr, "vitastor: failed to read %s: %s\n", client->config_path, strerror(errno));
             break;
         }
+        if (!r)
+        {
+            break;
+        }
         done += r;
     }
     obj = qobject_from_json(data
