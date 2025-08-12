@@ -119,7 +119,7 @@ class journal_flusher_t
 
     std::map<uint64_t, meta_sector_t> meta_sectors;
     std::deque<object_id> flush_queue;
-    std::map<object_id, uint64_t> flush_versions; // FIXME: consider unordered_map?
+    std::unordered_map<object_id, uint64_t> flush_versions;
     std::unordered_set<uint64_t> inflight_meta_sectors;
 
     bool try_find_older(std::map<obj_ver_id, dirty_entry>::iterator & dirty_end, obj_ver_id & cur);
