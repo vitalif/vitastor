@@ -36,6 +36,7 @@ ring_loop_t::ring_loop_t(int qd, bool multithreaded)
         support_zc = io_uring_opcode_supported(probe, IORING_OP_SENDMSG_ZC);
         io_uring_free_probe(probe);
     }
+    io_uring_set_iowait(&ring, false);
 }
 
 ring_loop_t::~ring_loop_t()
