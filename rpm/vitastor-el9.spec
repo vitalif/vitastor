@@ -7,7 +7,6 @@ License:        Vitastor Network Public License 1.1
 URL:            https://vitastor.io/
 Source0:        vitastor-2.2.3.el9.tar.gz
 
-BuildRequires:  liburing-devel >= 0.6
 BuildRequires:  gperftools-devel
 BuildRequires:  gcc-c++
 BuildRequires:  nodejs >= 10

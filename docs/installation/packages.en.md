@@ -49,7 +49,6 @@
   recommended because io_uring is a relatively new technology and there is
   at least one bug which reproduces with io_uring and HP SmartArray
   controllers in 5.4
-- liburing 0.4 or newer
 - lp_solve
 - etcd 3.4.15 or newer. Earlier versions won't work because of various bugs,
   for example [#12402](https://github.com/etcd-io/etcd/pull/12402).

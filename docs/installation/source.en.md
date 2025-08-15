@@ -15,7 +15,7 @@
 - gcc and g++ 8 or newer, clang 10 or newer, or other compiler with C++11 plus
   designated initializers support from C++20
 - CMake
-- liburing, jerasure headers and libraries
+- jerasure headers and libraries
 - ISA-L, libibverbs and librdmacm headers and libraries (optional)
 - tcmalloc (google-perftools-dev)
 

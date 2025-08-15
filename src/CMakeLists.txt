@@ -12,6 +12,7 @@ set(WITH_QEMU false CACHE BOOL "Build QEMU driver inside Vitastor source tree")
 set(WITH_FIO true CACHE BOOL "Build FIO driver")
 set(QEMU_PLUGINDIR qemu CACHE STRING "QEMU plugin directory suffix (qemu-kvm on RHEL)")
 set(WITH_ASAN false CACHE BOOL "Build with AddressSanitizer")
+set(WITH_SYSTEM_LIBURING false CACHE BOOL "Use system liburing")
 if("${CMAKE_INSTALL_PREFIX}" MATCHES "^/usr/local/?$")
 	if(EXISTS "/etc/debian_version")
 		set(CMAKE_INSTALL_LIBDIR "lib/${CMAKE_LIBRARY_ARCHITECTURE}")
@@ -20,7 +21,7 @@ if("${CMAKE_INSTALL_PREFIX}" MATCHES "^/usr/local/?$")
 endif()
 
 add_definitions(-DVITASTOR_VERSION="2.2.3")
-add_definitions(-D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fdiagnostics-color=always -fno-omit-frame-pointer -I ${CMAKE_SOURCE_DIR}/src)
+add_definitions(-D_GNU_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fdiagnostics-color=always -fno-omit-frame-pointer -I ${CMAKE_SOURCE_DIR}/src)
 add_link_options(-fno-omit-frame-pointer)
 if (${WITH_ASAN})
 	add_definitions(-fsanitize=address)
@@ -49,7 +50,6 @@ endmacro(install_symlink)
 check_include_file("linux/nbd-netlink.h" HAVE_NBD_NETLINK_H)
 
 find_package(PkgConfig)
-pkg_check_modules(LIBURING REQUIRED liburing)
 if (${WITH_QEMU})
 	pkg_check_modules(GLIB REQUIRED glib-2.0)
 endif (${WITH_QEMU})
@@ -65,6 +65,15 @@ pkg_check_modules(RDMACM librdmacm)
 if (RDMACM_LIBRARIES)
 	add_definitions(-DWITH_RDMACM)
 endif (RDMACM_LIBRARIES)
+
+if (${WITH_SYSTEM_LIBURING})
+	pkg_check_modules(LIBURING REQUIRED liburing>=2.10)
+	include_directories(${LIBURING_INCLUDE_DIRS})
+else()
+	include_directories(${CMAKE_SOURCE_DIR}/src/liburing/include)
+	add_subdirectory(liburing)
+	set(LIBURING_LIBRARIES uring)
+endif (${WITH_SYSTEM_LIBURING})
 
 add_custom_target(build_tests)
 add_custom_target(test
@@ -86,7 +95,6 @@ include_directories(
 	${CMAKE_SOURCE_DIR}/src/test
 	${CMAKE_SOURCE_DIR}/src/util
 	/usr/include/jerasure
-	${LIBURING_INCLUDE_DIRS}
 	${IBVERBS_INCLUDE_DIRS}
 )
 

@@ -7,7 +7,6 @@ License:        Vitastor Network Public License 1.1
 URL:            https://vitastor.io/
 Source0:        vitastor-2.2.3.el8.tar.gz
 
-BuildRequires:  liburing-devel >= 0.6
 BuildRequires:  gperftools-devel
 BuildRequires:  gcc-toolset-9-gcc-c++
 BuildRequires:  nodejs >= 10
@@ -34,8 +33,6 @@ size with configurable redundancy (replication or erasure codes/XOR).
 Summary:        Vitastor - OSD
 Requires:       libJerasure2
 Requires:       libisa-l
-Requires:       liburing >= 0.6
-Requires:       liburing < 2
 Requires:       vitastor-client = %{version}-%{release}
 Requires:       util-linux
 Requires:       parted
@@ -58,8 +55,6 @@ scheduling cluster-level operations.
 
 %package -n vitastor-client
 Summary:        Vitastor - client
-Requires:       liburing >= 0.6
-Requires:       liburing < 2
 
 
 %description -n vitastor-client

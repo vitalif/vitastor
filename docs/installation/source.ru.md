@@ -15,7 +15,7 @@
 - gcc и g++ >= 8, либо clang >= 10, либо другой компилятор с поддержкой C++11 плюс
   назначенных инициализаторов (designated initializers) из C++20
 - CMake
-- Заголовки и библиотеки liburing, jerasure
+- Заголовки и библиотеки jerasure
 - Опционально - заголовки и библиотеки ISA-L, libibverbs, librdmacm
 - tcmalloc (google-perftools-dev)
 

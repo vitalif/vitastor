@@ -17,17 +17,3 @@ RUN dnf -y install gcc-toolset-9 gcc-toolset-9-gcc-c++ gperftools-devel \
 RUN dnf download --source fio
 RUN rpm --nomd5 -i fio*.src.rpm
 RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo=powertools --spec fio.spec
-
-ADD https://vitastor.io/rpms/liburing-el7/liburing-0.7-2.el7.src.rpm /root
-
-RUN set -e; \
-    rpm -i liburing*.src.rpm; \
-    cd ~/rpmbuild/SPECS/; \
-    . /opt/rh/gcc-toolset-9/enable; \
-    rpmbuild -ba liburing.spec; \
-    mkdir -p /root/packages/liburing-el8; \
-    rm -rf /root/packages/liburing-el8/*; \
-    cp ~/rpmbuild/RPMS/*/liburing* /root/packages/liburing-el8/; \
-    cp ~/rpmbuild/SRPMS/liburing* /root/packages/liburing-el8/
-
-RUN rpm -i `ls /root/packages/liburing-el8/liburing-*.x86_64.rpm | grep -v debug`

@@ -26,7 +26,7 @@ RUN if [ "$REL" = "buster" -o "$REL" = "bullseye" -o "$REL" = "bookworm" ]; then
     echo 'APT::Install-Suggests false;' >> /etc/apt/apt.conf
 
 RUN apt-get update
-RUN DEBIAN_FRONTEND=noninteractive TZ=Europe/Moscow apt-get -y install fio liburing-dev libgoogle-perftools-dev devscripts
+RUN DEBIAN_FRONTEND=noninteractive TZ=Europe/Moscow apt-get -y install fio libgoogle-perftools-dev devscripts
 RUN DEBIAN_FRONTEND=noninteractive TZ=Europe/Moscow apt-get -y build-dep qemu
 # To build a custom version
 #RUN cp /root/packages/qemu-orig/* /root

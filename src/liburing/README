@@ -1,0 +1,25 @@
+liburing
+--------
+
+This is a copy if liburing 2.11 from https://github.com/axboe/liburing/
+
+For more info on io_uring, please see:
+
+https://kernel.dk/io_uring.pdf
+
+Subscribe to io-uring@vger.kernel.org for io_uring related discussions
+and development for both kernel and userspace. The list is archived here:
+
+https://lore.kernel.org/io-uring/
+
+License
+-------
+
+"This repo" refers to the current directory as it's a copy. :-)
+
+All software contained within this repo is dual licensed LGPL and MIT, see
+COPYING and LICENSE, except for a header coming from the kernel which is
+dual licensed GPL with a Linux-syscall-note exception and MIT, see
+COPYING.GPL and <https://spdx.org/licenses/Linux-syscall-note.html>.
+
+Jens Axboe 2022-05-19

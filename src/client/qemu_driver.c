@@ -5,7 +5,6 @@
 
 #ifdef VITASTOR_SOURCE_TREE
 #define BUILD_DSO
-#define _GNU_SOURCE
 #endif
 #include "qemu/osdep.h"
 #include "qemu/main-loop.h"
