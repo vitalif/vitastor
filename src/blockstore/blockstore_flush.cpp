@@ -517,7 +517,7 @@ resume_2:
                 await_sqe(15);
                 data->iov = (struct iovec){ it->buf, (size_t)it->len };
                 data->callback = simple_callback_w;
-                my_uring_prep_writev(
+                io_uring_prep_writev(
                     sqe, bs->dsk.data_fd, &data->iov, 1, bs->dsk.data_offset + clean_loc + it->offset
                 );
                 wait_count++;
@@ -746,7 +746,7 @@ bool journal_flusher_co::write_meta_block(flusher_meta_write_t & meta_block, int
     await_sqe(0);
     data->iov = (struct iovec){ meta_block.buf, (size_t)bs->dsk.meta_block_size };
     data->callback = simple_callback_w;
-    my_uring_prep_writev(
+    io_uring_prep_writev(
         sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bs->dsk.meta_block_size + meta_block.sector
     );
     wait_count++;
@@ -1129,7 +1129,7 @@ bool journal_flusher_co::read_dirty(int wait_base)
         vi.buf = memalign_or_die(MEM_ALIGNMENT, vi.len);
         data->iov = (struct iovec){ vi.buf, (size_t)vi.len };
         data->callback = simple_callback_r;
-        my_uring_prep_readv(
+        io_uring_prep_readv(
             sqe, bs->dsk.data_fd, &data->iov, 1, bs->dsk.data_offset + old_clean_loc + vi.offset
         );
         wait_count++;
@@ -1161,7 +1161,7 @@ bool journal_flusher_co::read_dirty(int wait_base)
                 await_sqe(1);
                 data->iov = (struct iovec){ v[i].buf, (size_t)v[i].len };
                 data->callback = simple_callback_rj;
-                my_uring_prep_readv(
+                io_uring_prep_readv(
                     sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset + v[i].disk_offset
                 );
                 wait_journal_count++;
@@ -1254,7 +1254,7 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
         data->iov = (struct iovec){ wr.it->second.buf, (size_t)bs->dsk.meta_block_size };
         data->callback = simple_callback_r;
         wr.submitted = true;
-        my_uring_prep_readv(
+        io_uring_prep_readv(
             sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bs->dsk.meta_block_size + wr.sector
         );
         wait_count++;
@@ -1352,7 +1352,7 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
                 await_sqe(0);
                 data->iov = { 0 };
                 data->callback = simple_callback_w;
-                my_uring_prep_fsync(sqe, fsync_meta ? bs->dsk.meta_fd : bs->dsk.data_fd, IORING_FSYNC_DATASYNC);
+                io_uring_prep_fsync(sqe, fsync_meta ? bs->dsk.meta_fd : bs->dsk.data_fd, IORING_FSYNC_DATASYNC);
                 cur_sync->state = 1;
                 wait_count++;
             resume_2:
@@ -1422,7 +1422,7 @@ bool journal_flusher_co::trim_journal(int wait_base)
             ((journal_entry_start*)flusher->journal_superblock)->crc32 = je_crc32((journal_entry*)flusher->journal_superblock);
             data->iov = (struct iovec){ flusher->journal_superblock, (size_t)bs->dsk.journal_block_size };
             data->callback = simple_callback_w;
-            my_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
+            io_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
             wait_count++;
         resume_2:
             if (wait_count > 0)
@@ -1433,7 +1433,7 @@ bool journal_flusher_co::trim_journal(int wait_base)
             if (!bs->disable_journal_fsync)
             {
                 await_sqe(3);
-                my_uring_prep_fsync(sqe, bs->dsk.journal_fd, IORING_FSYNC_DATASYNC);
+                io_uring_prep_fsync(sqe, bs->dsk.journal_fd, IORING_FSYNC_DATASYNC);
                 data->iov = { 0 };
                 data->callback = simple_callback_w;
                 wait_count++;

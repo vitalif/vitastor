@@ -688,7 +688,7 @@ void nfs_client_t::submit_read(unsigned wanted_size)
     read_msg.msg_iovlen = 1;
     ring_data_t* data = ((ring_data_t*)sqe->user_data);
     data->callback = [this](ring_data_t *data) { handle_read(data->res); };
-    my_uring_prep_recvmsg(sqe, nfs_fd, &read_msg, 0);
+    io_uring_prep_recvmsg(sqe, nfs_fd, &read_msg, 0);
     refs++;
 }
 
@@ -815,7 +815,7 @@ void nfs_client_t::submit_send()
     write_msg.msg_iovlen = send_list.size() < IOV_MAX ? send_list.size() : IOV_MAX;
     ring_data_t* data = ((ring_data_t*)sqe->user_data);
     data->callback = [this](ring_data_t *data) { handle_send(data->res); };
-    my_uring_prep_sendmsg(sqe, nfs_fd, &write_msg, 0);
+    io_uring_prep_sendmsg(sqe, nfs_fd, &write_msg, 0);
     refs++;
 }
 

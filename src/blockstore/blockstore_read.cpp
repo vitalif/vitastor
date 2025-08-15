@@ -27,7 +27,7 @@ int blockstore_impl_t::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_
     BS_SUBMIT_GET_SQE(sqe, data);
     data->iov = (struct iovec){ buf, (size_t)len };
     PRIV(op)->pending_ops++;
-    my_uring_prep_readv(
+    io_uring_prep_readv(
         sqe,
         IS_JOURNAL(item_state) ? dsk.journal_fd : dsk.data_fd,
         &data->iov, 1,
@@ -356,7 +356,7 @@ bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uin
         int n_cur = n_iov-n_pos < IOV_MAX ? n_iov-n_pos : IOV_MAX;
         BS_SUBMIT_GET_SQE(sqe, data);
         PRIV(op)->pending_ops++;
-        my_uring_prep_readv(sqe, submit_fd, iov + n_pos, n_cur, submit_offset + clean_loc + item_start + d_pos);
+        io_uring_prep_readv(sqe, submit_fd, iov + n_pos, n_cur, submit_offset + clean_loc + item_start + d_pos);
         data->callback = [this, op](ring_data_t *data) { handle_read_event(data, op); };
         if (n_pos > 0 || n_pos + IOV_MAX < n_iov)
         {
@@ -702,7 +702,7 @@ uint8_t* blockstore_impl_t::read_clean_meta_block(blockstore_op_t *op, uint64_t 
     BS_SUBMIT_GET_SQE(sqe, data);
     data->iov = (struct iovec){ buf, (size_t)dsk.meta_block_size };
     PRIV(op)->pending_ops++;
-    my_uring_prep_readv(sqe, dsk.meta_fd, &data->iov, 1, dsk.meta_offset + dsk.meta_block_size + sector);
+    io_uring_prep_readv(sqe, dsk.meta_fd, &data->iov, 1, dsk.meta_offset + dsk.meta_block_size + sector);
     data->callback = [this, op](ring_data_t *data) { handle_read_event(data, op); };
     // return pointer to checksums + bitmap
     return buf + pos + sizeof(clean_disk_entry);

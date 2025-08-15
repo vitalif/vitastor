@@ -365,7 +365,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         }
         data->iov.iov_len = op->len + stripe_offset + stripe_end; // to check it in the callback
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
-        my_uring_prep_writev(
+        io_uring_prep_writev(
             sqe, dsk.data_fd, PRIV(op)->iov_zerofill, vcnt, dsk.data_offset + (loc << dsk.block_order) + op->offset - stripe_offset
         );
         PRIV(op)->pending_ops = 1;
@@ -492,7 +492,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 .op = op,
             });
             data2->callback = [this, flush_id = journal.submit_id](ring_data_t *data) { handle_journal_write(data, flush_id); };
-            my_uring_prep_writev(
+            io_uring_prep_writev(
                 sqe2, dsk.journal_fd, &data2->iov, 1, journal.offset + journal.next_free
             );
             PRIV(op)->pending_ops++;

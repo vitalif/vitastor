@@ -120,7 +120,7 @@ void epoll_manager_t::handle_uring_event()
     }
     pending = false;
     ring_data_t *data = ((ring_data_t*)sqe->user_data);
-    my_uring_prep_poll_add(sqe, epoll_fd, POLLIN);
+    io_uring_prep_poll_add(sqe, epoll_fd, POLLIN);
     data->callback = [this](ring_data_t *data)
     {
         if (data->res < 0 && data->res != -ECANCELED)

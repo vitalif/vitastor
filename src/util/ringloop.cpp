@@ -10,10 +10,6 @@
 
 #include "ringloop.h"
 
-#ifndef IORING_CQE_F_MORE
-#define IORING_CQE_F_MORE (1U << 1)
-#endif
-
 ring_loop_t::ring_loop_t(int qd, bool multithreaded)
 {
     mt = multithreaded;
@@ -38,11 +34,7 @@ ring_loop_t::ring_loop_t(int qd, bool multithreaded)
     if (probe)
     {
         support_zc = io_uring_opcode_supported(probe, IORING_OP_SENDMSG_ZC);
-#ifdef IORING_SETUP_R_DISABLED /* liburing 2.0 check */
         io_uring_free_probe(probe);
-#else
-        free(probe);
-#endif
     }
 }
 

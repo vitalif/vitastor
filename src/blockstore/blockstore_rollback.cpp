@@ -101,7 +101,7 @@ resume_2:
     if (!disable_journal_fsync)
     {
         BS_SUBMIT_GET_SQE(sqe, data);
-        my_uring_prep_fsync(sqe, dsk.journal_fd, IORING_FSYNC_DATASYNC);
+        io_uring_prep_fsync(sqe, dsk.journal_fd, IORING_FSYNC_DATASYNC);
         data->iov = { 0 };
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         PRIV(op)->min_flushed_journal_sector = PRIV(op)->max_flushed_journal_sector = 0;

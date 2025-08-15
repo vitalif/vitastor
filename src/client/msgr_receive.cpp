@@ -48,7 +48,7 @@ void osd_messenger_t::read_requests()
             }
             ring_data_t* data = ((ring_data_t*)sqe->user_data);
             data->callback = [this, cl](ring_data_t *data) { handle_read(data->res, cl); };
-            my_uring_prep_recvmsg(sqe, peer_fd, &cl->read_msg, 0);
+            io_uring_prep_recvmsg(sqe, peer_fd, &cl->read_msg, 0);
             if (iothread)
             {
                 iothread->add_sqe(sqe_local);

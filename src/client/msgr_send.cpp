@@ -218,11 +218,11 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
         }
         if (use_zc)
         {
-            my_uring_prep_sendmsg_zc(sqe, peer_fd, &cl->write_msg, MSG_WAITALL);
+            io_uring_prep_sendmsg_zc(sqe, peer_fd, &cl->write_msg, MSG_WAITALL);
         }
         else
         {
-            my_uring_prep_sendmsg(sqe, peer_fd, &cl->write_msg, MSG_WAITALL);
+            io_uring_prep_sendmsg(sqe, peer_fd, &cl->write_msg, MSG_WAITALL);
         }
         if (iothread)
         {

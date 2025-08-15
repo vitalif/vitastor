@@ -1008,7 +1008,7 @@ protected:
         data->callback = [this](ring_data_t *data) { handle_send(data->res); };
         send_msg.msg_iov = send_list.data();
         send_msg.msg_iovlen = send_list.size();
-        my_uring_prep_sendmsg(sqe, nbd_fd, &send_msg, MSG_ZEROCOPY);
+        io_uring_prep_sendmsg(sqe, nbd_fd, &send_msg, MSG_ZEROCOPY);
     }
 
     void handle_send(int result)
@@ -1076,7 +1076,7 @@ protected:
         }
         read_msg.msg_iov = &read_iov;
         read_msg.msg_iovlen = 1;
-        my_uring_prep_recvmsg(sqe, nbd_fd, &read_msg, 0);
+        io_uring_prep_recvmsg(sqe, nbd_fd, &read_msg, 0);
     }
 
     void handle_read(int result)

@@ -294,7 +294,7 @@ int disk_tool_t::resize_copy_data()
                     moving_blocks[i].state = DM_ST_READING;
                     struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
                     data->iov = (struct iovec){ moving_blocks[i].buf, dsk.data_block_size };
-                    my_uring_prep_readv(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + moving_blocks[i].old_loc*dsk.data_block_size);
+                    io_uring_prep_readv(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + moving_blocks[i].old_loc*dsk.data_block_size);
                     data->callback = [this, i](ring_data_t *data)
                     {
                         if (data->res != dsk.data_block_size)
@@ -319,7 +319,7 @@ int disk_tool_t::resize_copy_data()
                     moving_blocks[i].state = DM_ST_WRITING;
                     struct ring_data_t *data = ((ring_data_t*)sqe->user_data);
                     data->iov = (struct iovec){ moving_blocks[i].buf, dsk.data_block_size };
-                    my_uring_prep_writev(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + moving_blocks[i].new_loc*dsk.data_block_size);
+                    io_uring_prep_writev(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + moving_blocks[i].new_loc*dsk.data_block_size);
                     data->callback = [this, i](ring_data_t *data)
                     {
                         if (data->res != dsk.data_block_size)

@@ -70,7 +70,7 @@ void msgr_iothread_t::add_to_ringloop(ring_loop_t *outer_loop)
     assert(sqe != NULL);
     this->outer_loop = outer_loop;
     this->outer_loop_data = ((ring_data_t*)sqe->user_data);
-    my_uring_prep_poll_add(sqe, eventfd, POLLIN);
+    io_uring_prep_poll_add(sqe, eventfd, POLLIN);
     outer_loop_data->callback = [this](ring_data_t *data)
     {
         if (data->res < 0)

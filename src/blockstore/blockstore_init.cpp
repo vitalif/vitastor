@@ -66,7 +66,7 @@ int blockstore_init_meta::loop()
     last_read_offset = 0;
     data->iov = { metadata_buffer, (size_t)bs->dsk.meta_block_size };
     data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
-    my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
+    io_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
     bs->ringloop->submit();
     submitted++;
 resume_1:
@@ -104,7 +104,7 @@ resume_1:
             last_read_offset = 0;
             data->iov = (struct iovec){ metadata_buffer, (size_t)bs->dsk.meta_block_size };
             data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
-            my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
+            io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
             bs->ringloop->submit();
             submitted++;
         resume_3:
@@ -213,12 +213,12 @@ resume_2:
                 data->iov = { bufs[i].buf, (size_t)bufs[i].size };
                 data->callback = [this, i](ring_data_t *data) { handle_event(data, i); };
                 if (!zero_on_init)
-                    my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
+                    io_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
                 else
                 {
                     // Fill metadata with zeroes
                     memset(data->iov.iov_base, 0, data->iov.iov_len);
-                    my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
+                    io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
                 }
                 bs->ringloop->submit();
                 break;
@@ -245,7 +245,7 @@ resume_2:
                 assert(bufs[i].size <= 0x7fffffff);
                 data->iov = { bufs[i].buf, (size_t)bufs[i].size };
                 data->callback = [this, i](ring_data_t *data) { handle_event(data, i); };
-                my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
+                io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
                 bs->ringloop->submit();
                 bufs[i].state = INIT_META_WRITING;
                 submitted++;
@@ -274,7 +274,7 @@ resume_2:
             last_read_offset = (1+next_offset)*bs->dsk.meta_block_size;
             data->iov = { metadata_buffer, (size_t)bs->dsk.meta_block_size };
             data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
-            my_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (1+next_offset)*bs->dsk.meta_block_size);
+            io_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (1+next_offset)*bs->dsk.meta_block_size);
             bs->ringloop->submit();
             submitted++;
 resume_5:
@@ -291,7 +291,7 @@ resume_5:
             GET_SQE();
             data->iov = { metadata_buffer, (size_t)bs->dsk.meta_block_size };
             data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
-            my_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (1+next_offset)*bs->dsk.meta_block_size);
+            io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (1+next_offset)*bs->dsk.meta_block_size);
             bs->ringloop->submit();
             submitted++;
 resume_6:
@@ -313,7 +313,7 @@ resume_6:
     if (zero_on_init && !bs->disable_meta_fsync)
     {
         GET_SQE();
-        my_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
+        io_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
         last_read_offset = 0;
         data->iov = { 0 };
         data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
@@ -495,7 +495,7 @@ int blockstore_init_journal::loop()
     data = ((ring_data_t*)sqe->user_data);
     data->iov = { submitted_buf, (size_t)bs->journal.block_size };
     data->callback = simple_callback;
-    my_uring_prep_readv(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
+    io_uring_prep_readv(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
     bs->ringloop->submit();
     wait_count = 1;
 resume_1:
@@ -536,7 +536,7 @@ resume_1:
             GET_SQE();
             data->iov = (struct iovec){ submitted_buf, (size_t)(2*bs->journal.block_size) };
             data->callback = simple_callback;
-            my_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
+            io_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset);
             wait_count++;
             bs->ringloop->submit();
         resume_6:
@@ -548,7 +548,7 @@ resume_1:
             if (!bs->disable_journal_fsync)
             {
                 GET_SQE();
-                my_uring_prep_fsync(sqe, bs->dsk.journal_fd, IORING_FSYNC_DATASYNC);
+                io_uring_prep_fsync(sqe, bs->dsk.journal_fd, IORING_FSYNC_DATASYNC);
                 data->iov = { 0 };
                 data->callback = simple_callback;
                 wait_count++;
@@ -636,7 +636,7 @@ resume_1:
                     (size_t)(end - journal_pos < JOURNAL_BUFFER_SIZE ? end - journal_pos : JOURNAL_BUFFER_SIZE),
                 };
                 data->callback = [this](ring_data_t *data1) { handle_event(data1); };
-                my_uring_prep_readv(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset + journal_pos);
+                io_uring_prep_readv(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset + journal_pos);
                 bs->ringloop->submit();
             }
             while (done.size() > 0)
@@ -651,7 +651,7 @@ resume_1:
                         GET_SQE();
                         data->iov = { init_write_buf, (size_t)bs->journal.block_size };
                         data->callback = simple_callback;
-                        my_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset + init_write_sector);
+                        io_uring_prep_writev(sqe, bs->dsk.journal_fd, &data->iov, 1, bs->journal.offset + init_write_sector);
                         wait_count++;
                         bs->ringloop->submit();
                     resume_7:
@@ -665,7 +665,7 @@ resume_1:
                             GET_SQE();
                             data->iov = { 0 };
                             data->callback = simple_callback;
-                            my_uring_prep_fsync(sqe, bs->dsk.journal_fd, IORING_FSYNC_DATASYNC);
+                            io_uring_prep_fsync(sqe, bs->dsk.journal_fd, IORING_FSYNC_DATASYNC);
                             wait_count++;
                             bs->ringloop->submit();
                         }
