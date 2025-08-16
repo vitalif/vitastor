@@ -525,7 +525,7 @@ static int sec_invalidate(struct thread_data *td, struct fio_file *f)
     return 0;
 }
 
-struct ioengine_ops ioengine = {
+struct ioengine_ops __attribute__((visibility("default"))) ioengine = {
     .name               = "vitastor_cluster",
     .version            = FIO_IOOPS_VERSION,
     .flags              = FIO_MEMALIGN | FIO_DISKLESSIO | FIO_NOEXTEND,

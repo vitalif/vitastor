@@ -152,7 +152,7 @@ struct blockstore_op_t;
 
 struct osd_primary_op_data_t;
 
-struct osd_op_t
+struct __attribute__((visibility("default"))) osd_op_t
 {
     timespec tv_begin = { 0 }, tv_end = { 0 };
     uint64_t op_type = OSD_OP_IN;

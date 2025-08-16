@@ -22,6 +22,8 @@
 #include <stdint.h>
 #include <sys/uio.h>
 
+#pragma GCC visibility push(default)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -84,5 +86,7 @@ uint32_t vitastor_c_inode_get_immediate_commit(vitastor_c *client, uint64_t inod
 #ifdef __cplusplus
 }
 #endif
+
+#pragma GCC visibility pop
 
 #endif

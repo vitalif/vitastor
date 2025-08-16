@@ -12,6 +12,8 @@
 /*************************** HEADER FILES ***************************/
 #include <stddef.h>
 
+#pragma GCC visibility push(default)
+
 /****************************** MACROS ******************************/
 #define SHA256_BLOCK_SIZE 32            // SHA256 outputs a 32 byte digest
 
@@ -37,5 +39,7 @@ void sha256_final(SHA256_CTX *ctx, BYTE hash[]);
 #ifdef __cplusplus
 };
 #endif
+
+#pragma GCC visibility pop
 
 #endif   // SHA256_H

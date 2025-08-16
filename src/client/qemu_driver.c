@@ -57,11 +57,11 @@
 #include "vitastor_c.h"
 
 #ifdef VITASTOR_SOURCE_TREE
-void qemu_module_dummy(void)
+void __attribute__((visibility("default"))) qemu_module_dummy(void)
 {
 }
 
-void DSO_STAMP_FUN(void)
+void __attribute__((visibility("default"))) DSO_STAMP_FUN(void)
 {
 }
 #endif

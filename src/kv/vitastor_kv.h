@@ -19,7 +19,7 @@ class cluster_client_t;
 
 struct kv_db_t;
 
-struct vitastorkv_dbw_t
+struct __attribute__((visibility("default"))) vitastorkv_dbw_t
 {
     // cli = vitastor_c_get_internal_client(client)
     vitastorkv_dbw_t(cluster_client_t *cli);

@@ -92,7 +92,7 @@ struct inode_watch_t
 
 struct http_co_t;
 
-struct etcd_state_client_t
+struct __attribute__((visibility("default"))) etcd_state_client_t
 {
 protected:
     std::vector<std::string> local_ips;

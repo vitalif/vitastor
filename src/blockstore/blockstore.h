@@ -135,7 +135,7 @@ Output:
 
 */
 
-struct blockstore_op_t
+struct __attribute__ ((visibility("default"))) blockstore_op_t
 {
     // operation
     uint64_t opcode = 0;
@@ -173,7 +173,7 @@ typedef std::map<std::string, std::string> blockstore_config_t;
 
 class blockstore_impl_t;
 
-class blockstore_t
+class __attribute__((visibility("default"))) blockstore_t
 {
     blockstore_impl_t *impl;
 public:

@@ -31,7 +31,7 @@ struct cluster_op_part_t
     osd_op_t op;
 };
 
-struct cluster_op_t
+struct __attribute__((visibility("default"))) cluster_op_t
 {
     uint64_t opcode; // OSD_OP_READ, OSD_OP_WRITE, OSD_OP_SYNC, OSD_OP_DELETE, OSD_OP_READ_BITMAP, OSD_OP_READ_CHAIN_BITMAP
     uint64_t inode;
@@ -81,7 +81,7 @@ struct inode_list_pg_t;
 class writeback_cache_t;
 
 // FIXME: Split into public and private interfaces
-class cluster_client_t
+class __attribute__((visibility("default"))) cluster_client_t
 {
 #ifdef __MOCK__
 public:

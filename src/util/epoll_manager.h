@@ -8,7 +8,7 @@
 #include "ringloop.h"
 #include "timerfd_manager.h"
 
-class epoll_manager_t
+class __attribute__((visibility("default"))) epoll_manager_t
 {
     int epoll_fd;
     bool pending;

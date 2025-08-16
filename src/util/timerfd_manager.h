@@ -16,7 +16,7 @@ struct timerfd_timer_t
     std::function<void(int)> callback;
 };
 
-class timerfd_manager_t
+class __attribute__((visibility("default"))) timerfd_manager_t
 {
     int wait_state = 0;
     int timerfd;

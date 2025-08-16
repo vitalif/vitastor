@@ -8,6 +8,8 @@
 
 #define is_white(a) ((a) == ' ' || (a) == '\t' || (a) == '\r' || (a) == '\n')
 
+#pragma GCC visibility push(default)
+
 std::string base64_encode(const std::string &in);
 std::string base64_decode(const std::string &in);
 uint64_t parse_size(std::string size_str, bool *ok = NULL);
@@ -32,3 +34,5 @@ std::string addslashes(const std::string & str, const char *toescape = "\\\"");
 std::string realpath_str(std::string path, bool nofail = true);
 std::string format_datetime(uint64_t unixtime);
 bool is_zero(void *buf, size_t size);
+
+#pragma GCC visibility pop

@@ -6,6 +6,8 @@
 #include <malloc.h>
 #include <stdlib.h>
 
+#pragma GCC visibility push(default)
+
 inline void* memalign_or_die(size_t alignment, size_t size)
 {
     void *buf = memalign(alignment, size);
@@ -49,3 +51,5 @@ inline void* calloc_or_die(size_t nmemb, size_t size)
     }
     return buf;
 }
+
+#pragma GCC visibility pop

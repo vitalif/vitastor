@@ -32,7 +32,7 @@ struct ring_consumer_t
     std::function<void(void)> loop;
 };
 
-class ring_loop_t
+class __attribute__((visibility("default"))) ring_loop_t
 {
     std::vector<std::function<void()>> immediate_queue, immediate_queue2;
     std::vector<ring_consumer_t*> consumers;

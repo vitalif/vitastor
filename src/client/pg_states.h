@@ -3,6 +3,8 @@
 
 #pragma once
 
+#pragma GCC visibility push(default)
+
 // Placement group states
 // STARTING -> [acquire lock] -> PEERING -> INCOMPLETE|ACTIVE
 // ACTIVE -> REPEERING -> PEERING
@@ -50,3 +52,5 @@ extern const int pg_state_bit_count;
 extern const int object_state_bits[];
 extern const char *object_state_names[];
 extern const int object_state_bit_count;
+
+#pragma GCC visibility pop

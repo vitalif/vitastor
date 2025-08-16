@@ -174,7 +174,7 @@ struct osd_messenger_t;
 struct rdmacm_connecting_t;
 #endif
 
-struct osd_messenger_t
+struct __attribute__((visibility("default"))) osd_messenger_t
 {
 protected:
     int keepalive_timer_id = -1;

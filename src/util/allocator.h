@@ -5,6 +5,8 @@
 
 #include <stdint.h>
 
+#pragma GCC visibility push(default)
+
 // Hierarchical bitmap allocator
 class allocator_t
 {
@@ -25,3 +27,5 @@ public:
 void bitmap_set(void *bitmap, uint64_t start, uint64_t len, uint64_t bitmap_granularity);
 void bitmap_clear(void *bitmap, uint64_t start, uint64_t len, uint64_t bitmap_granularity);
 bool bitmap_check(void *bitmap, uint64_t start, uint64_t len, uint64_t bitmap_granularity);
+
+#pragma GCC visibility pop

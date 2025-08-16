@@ -19,7 +19,6 @@
 #include "liburing/io_uring_version.h"
 #include "liburing/barrier.h"
 
-
 #ifndef uring_unlikely
 #define uring_unlikely(cond)	__builtin_expect(!!(cond), 0)
 #endif
