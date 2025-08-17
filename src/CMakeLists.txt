@@ -112,7 +112,7 @@ add_subdirectory(test)
 
 ### Install
 
-install(TARGETS vitastor-osd vitastor-disk vitastor-nbd vitastor-nfs vitastor-cli vitastor-kv vitastor-kv-stress RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS vitastor-osd vitastor-disk vitastor-nbd vitastor-ublk vitastor-nfs vitastor-cli vitastor-kv vitastor-kv-stress RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install_symlink(vitastor-disk ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vitastor-dump-journal)
 install_symlink(vitastor-cli ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vitastor-rm)
 install_symlink(vitastor-cli ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vita)

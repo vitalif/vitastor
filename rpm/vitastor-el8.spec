@@ -161,6 +161,7 @@ chown vitastor:vitastor /var/lib/vitastor
 
 %files -n vitastor-client
 %_bindir/vitastor-nbd
+%_bindir/vitastor-ublk
 %_bindir/vitastor-nfs
 %_bindir/vitastor-cli
 %_bindir/vitastor-rm

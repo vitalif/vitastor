@@ -3,6 +3,8 @@ liburing
 
 This is a copy if liburing 2.11 from https://github.com/axboe/liburing/
 
+ublk_cmd.h is a copy from https://github.com/ublk-org/ublksrv/blob/master/include/ublk_cmd.h
+
 For more info on io_uring, please see:
 
 https://kernel.dk/io_uring.pdf

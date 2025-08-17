@@ -10,10 +10,15 @@
 
 #include "ringloop.h"
 
-ring_loop_t::ring_loop_t(int qd, bool multithreaded)
+ring_loop_t::ring_loop_t(int qd, bool multithreaded, bool sqe128)
 {
     mt = multithreaded;
-    int ret = io_uring_queue_init(qd, &ring, 0);
+    io_uring_params params = {};
+    if (sqe128)
+    {
+        params.flags = IORING_SETUP_SQE128;
+    }
+    int ret = io_uring_queue_init_params(qd, &ring, &params);
     if (ret < 0)
     {
         throw std::runtime_error(std::string("io_uring_queue_init: ") + strerror(-ret));
@@ -179,7 +184,8 @@ unsigned ring_loop_t::save()
 void ring_loop_t::restore(unsigned sqe_tail)
 {
     assert(ring.sq.sqe_tail >= sqe_tail);
-    for (unsigned i = sqe_tail; i < ring.sq.sqe_tail; i++)
+    unsigned inc = (1 << io_uring_sqe_shift(&ring));
+    for (unsigned i = sqe_tail; i < ring.sq.sqe_tail; i += inc)
     {
         free_ring_data[free_ring_data_ptr++] = ((ring_data_t*)ring.sq.sqes[i & *ring.sq.kring_mask].user_data) - ring_datas;
     }
@@ -191,7 +197,7 @@ int ring_loop_t::sqes_left()
     struct io_uring_sq *sq = &ring.sq;
     unsigned int head = io_uring_smp_load_acquire(sq->khead);
     unsigned int next = sq->sqe_tail + 1;
-    int left = *sq->kring_entries - (next - head);
+    int left = (*sq->kring_entries - (next - head)) >> io_uring_sqe_shift(&ring);
     if (left > free_ring_data_ptr)
     {
         // return min(sqes left, ring_datas left)

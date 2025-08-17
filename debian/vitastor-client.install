@@ -2,6 +2,7 @@ usr/bin/vita
 usr/bin/vitastor-cli
 usr/bin/vitastor-rm
 usr/bin/vitastor-nbd
+usr/bin/vitastor-ublk
 usr/bin/vitastor-nfs
 usr/bin/vitastor-kv
 usr/bin/vitastor-kv-stress

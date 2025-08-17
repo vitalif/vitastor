@@ -47,7 +47,7 @@ class __attribute__((visibility("default"))) ring_loop_t
     int ring_eventfd = -1;
     bool support_zc = false;
 public:
-    ring_loop_t(int qd, bool multithreaded = false);
+    ring_loop_t(int qd, bool multithreaded = false, bool sqe128 = false);
     ~ring_loop_t();
     void register_consumer(ring_consumer_t *consumer);
     void unregister_consumer(ring_consumer_t *consumer);

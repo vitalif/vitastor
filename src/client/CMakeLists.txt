@@ -68,6 +68,12 @@ if (HAVE_NBD_NETLINK_H AND NL3_LIBRARIES)
 	target_compile_definitions(vitastor-nbd PUBLIC HAVE_NBD_NETLINK_H)
 endif (HAVE_NBD_NETLINK_H AND NL3_LIBRARIES)
 
+# vitastor-ublk
+add_executable(vitastor-ublk
+	ublk_server.cpp
+)
+target_link_libraries(vitastor-ublk vitastor_client)
+
 if (${WITH_QEMU})
 	# qemu_driver.so
 	add_library(qemu_vitastor SHARED
