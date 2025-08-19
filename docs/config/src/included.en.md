@@ -24,6 +24,8 @@
 
 {{../../installation/kubernetes.en.md}}
 
+{{../../installation/s3.en.md}}
+
 {{../../installation/source.en.md}}
 
 {{../../config.en.md|indent=1}}
@@ -53,6 +55,8 @@
 {{../../usage/disk.en.md}}
 
 {{../../usage/fio.en.md}}
+
+{{../../usage/ublk.en.md}}
 
 {{../../usage/nbd.en.md}}
 

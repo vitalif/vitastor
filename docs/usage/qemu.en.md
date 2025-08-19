@@ -130,23 +130,16 @@ Linux kernel, starting with version 5.15, supports a new interface for attaching
 to the host - VDUSE (vDPA Device in Userspace). QEMU, starting with 7.2, has support for
 exporting QEMU block devices over this protocol using qemu-storage-daemon.
 
-VDUSE is currently the best interface to attach Vitastor disks as kernel devices because:
-- It avoids data copies and thus achieves much better performance than [NBD](nbd.en.md)
-- It doesn't have NBD timeout problem - the device doesn't die if an operation executes for too long
+VDUSE advantages:
+
+- VDUSE copies memory 1 time instead of 2, and is thus faster than [NBD](nbd.en.md) for linear read/write.
+- It doesn't have NBD timeout problem - the device doesn't die if an operation executes for too long.
 - It doesn't have hung device problem - if the userspace process dies it can be restarted (!)
-  and block device will continue operation
-- It doesn't seem to have the device number limit
+  and block device will continue operation (UBLK can do it too).
+- It doesn't seem to have the device number limit (UBLK also doesn't).
 
-Example performance comparison:
-
-|                      | direct fio  | NBD         | VDUSE       |
-|----------------------|-------------|-------------|-------------|
-| linear write         | 3.85 GB/s   | 1.12 GB/s   | 3.85 GB/s   |
-| 4k random write Q128 | 240000 iops | 120000 iops | 178000 iops |
-| 4k random write Q1   | 9500 iops   | 7620 iops   | 7640 iops   |
-| linear read          | 4.3 GB/s    | 1.8 GB/s    | 2.85 GB/s   |
-| 4k random read Q128  | 287000 iops | 140000 iops | 189000 iops |
-| 4k random read Q1    | 9600 iops   | 7640 iops   | 7780 iops   |
+At the same time, VDUSE may be slower or faster than [UBLK](ublk.en.md) for linear read/write,
+and iops-wise it's sometimes even slower than NBD. See performance comparison examples at the page [UBLK](ublk.en.md).
 
 To try VDUSE you need at least Linux 5.15, built with VDUSE support
 (CONFIG_VDPA=m, CONFIG_VDPA_USER=m, CONFIG_VIRTIO_VDPA=m).

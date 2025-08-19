@@ -52,7 +52,7 @@
 - Generic user-space client library
 - [Native QEMU driver](../usage/qemu.en.md)
 - [Loadable fio engine for benchmarks](../usage/fio.en.md)
-- [NBD proxy for kernel mounts](../usage/nbd.en.md)
+- [UBLK](../usage/ublk.en.md) and [NBD](../usage/nbd.en.md) servers for kernel mounts
 - [Simplified NFS proxy for file-based image access emulation (suitable for VMWare)](../usage/nfs.en.md#pseudo-fs)
 
 ## Roadmap

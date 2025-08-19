@@ -25,6 +25,8 @@ affect their interaction with the cluster.
 - [nbd_max_part](#nbd_max_part)
 - [osd_nearfull_ratio](#osd_nearfull_ratio)
 - [hostname](#hostname)
+- [ublk_queue_depth](#ublk_queue_depth)
+- [ublk_max_io_size](#ublk_max_io_size)
 
 ## client_iothread_count
 
@@ -225,3 +227,17 @@ without destroying and recreating OSDs.
 Clients use host name to find their distance to OSDs when [localized reads](pool.en.md#local_reads)
 are enabled. By default, standard [gethostname](https://man7.org/linux/man-pages/man2/gethostname.2.html)
 function is used to determine host name, but you can also override it with this parameter.
+
+## ublk_queue_depth
+
+- Type: integer
+- Default: 256
+
+Default queue depth for [Vitastor ublk servers](../usage/ublk.en.md).
+
+## ublk_max_io_size
+
+- Type: integer
+
+Default maximum I/O size for Vitastor [ublk servers](../usage/ublk.en.md).
+The largest of 1 MB and pool block size multiplied by EC data chunk count is used if not specified.

@@ -26,6 +26,8 @@
 
 {{../../installation/source.ru.md}}
 
+{{../../installation/s3.ru.md}}
+
 {{../../config.ru.md|indent=1}}
 
 {{../../config/common.ru.md|indent=2}}
@@ -53,6 +55,8 @@
 {{../../usage/disk.ru.md}}
 
 {{../../usage/fio.ru.md}}
+
+{{../../usage/ublk.ru.md}}
 
 {{../../usage/nbd.ru.md}}
 

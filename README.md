@@ -19,7 +19,7 @@ supports TCP and RDMA and may achieve 4 KB read and write latency as low as ~0.1
 with proper hardware which is ~10 times faster than other popular SDS's like Ceph
 or internal systems of public clouds.
 
-Vitastor supports QEMU, NBD, NFS protocols, OpenStack, OpenNebula, Proxmox, Kubernetes drivers.
+Vitastor supports QEMU, UBLK, NBD, NFS protocols, OpenStack, OpenNebula, Proxmox, Kubernetes drivers.
 More drivers may be created easily.
 
 Read more details in the documentation. You can start from here: [Quick Start](docs/intro/quickstart.en.md).
@@ -64,8 +64,9 @@ Read more details in the documentation. You can start from here: [Quick Start](d
   - [vitastor-cli](docs/usage/cli.en.md) (command-line interface)
   - [vitastor-disk](docs/usage/disk.en.md) (disk management tool)
   - [fio](docs/usage/fio.en.md) for benchmarks
-  - [NBD](docs/usage/nbd.en.md) for kernel mounts
-  - [QEMU and qemu-img](docs/usage/qemu.en.md)
+  - [UBLK](docs/usage/ublk.en.md) for kernel mounts
+  - [NBD](docs/usage/nbd.en.md) - old interface for kernel mounts
+  - [QEMU, qemu-img and VDUSE](docs/usage/qemu.en.md)
   - [NFS](docs/usage/nfs.en.md) clustered file system and pseudo-FS proxy
   - [Administration](docs/usage/admin.en.md)
 - Performance

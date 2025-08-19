@@ -1,4 +1,4 @@
-[Documentation](../../README.md#documentation) → Usage → ublk
+[Documentation](../../README.md#documentation) → Usage → UBLK
 
 -----
 
@@ -9,11 +9,37 @@
 [ublk](https://docs.kernel.org/block/ublk.html) is a new io_uring-based Linux interface
 for user-space block device drivers, available since Linux 6.0.
 
-It's still not zero-copy, but so far it's the fastest userspace block device interface,
-outperforming both [NBD](nbd.en.md) and [VDUSE](qemu.en.md#vduse). It also allows to recover
-devices even if the server (vitastor-ublk process) dies.
+It's not zero-copy, but it's still a fast implementation, outperforming both [NBD](nbd.en.md)
+and [VDUSE](qemu.en.md#vduse) iops-wise and may or may not outperform VDUSE in linear I/O MB/s.
+ublk also allows to recover devices even if the server (vitastor-ublk process) dies.
 
-Supports the following commands:
+## Example performance comparison
+
+TCP (100G), 3 hosts each with 6 NVMe OSDs, 3 replicas, single client
+
+|                      | direct fio  | NBD         | VDUSE      | UBLK        |
+|----------------------|-------------|-------------|------------|-------------|
+| linear write         | 3807 MB/s   | 1832 MB/s   | 3226 MB/s  | 3027 MB/s   |
+| linear read          | 3067 MB/s   | 1885 MB/s   | 1800 MB/s  | 2076 MB/s   |
+| 4k random write Q128 | 128624 iops | 91060 iops  | 94621 iops | 149450 iops |
+| 4k random read Q128  | 117769 iops | 153408 iops | 93157 iops | 171987 iops |
+| 4k random write Q1   | 8090 iops   | 6442 iops   | 6316 iops  | 7272 iops   |
+| 4k random read Q1    | 9474 iops   | 7200 iops   | 6840 iops  | 8038 iops   |
+
+RDMA (100G), 3 hosts each with 6 NVMe OSDs, 3 replicas, single client
+
+|                      | direct fio  | NBD         | VDUSE       | UBLK        |
+|----------------------|-------------|-------------|-------------|-------------|
+| linear write         | 6998 MB/s   | 1878 MB/s   | 4249 MB/s   | 3140 MB/s   |
+| linear read          | 8628 MB/s   | 3389 MB/s   | 5062 MB/s   | 3674 MB/s   |
+| 4k random write Q128 | 222541 iops | 181589 iops | 138281 iops | 218222 iops |
+| 4k random read Q128  | 412647 iops | 239987 iops | 151663 iops | 269583 iops |
+| 4k random write Q1   | 11601 iops  | 8592 iops   | 9111 iops   | 10000 iops  |
+| 4k random read Q1    | 10102 iops  | 7788 iops   | 8111 iops   | 8965 iops   |
+
+## Commands
+
+vitastor-ublk supports the following commands:
 
 - [map](#map)
 - [unmap](#unmap)
