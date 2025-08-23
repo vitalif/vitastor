@@ -133,6 +133,18 @@ struct rpc_msg {
 };
 typedef struct rpc_msg rpc_msg;
 
+struct authsys_parms {
+	u_int stamp;
+	xdr_string_t machinename;
+	u_int uid;
+	u_int gid;
+	struct {
+		u_int gids_len;
+		u_int *gids_val;
+	} gids;
+};
+typedef struct authsys_parms authsys_parms;
+
 /* the xdr functions */
 
 
@@ -151,6 +163,7 @@ extern  bool_t xdr_rpc_rejected_reply (XDR *, rpc_rejected_reply*);
 extern  bool_t xdr_rpc_reply_body (XDR *, rpc_reply_body*);
 extern  bool_t xdr_rpc_msg_body (XDR *, rpc_msg_body*);
 extern  bool_t xdr_rpc_msg (XDR *, rpc_msg*);
+extern  bool_t xdr_authsys_parms (XDR *, authsys_parms*);
 
 
 #ifdef __cplusplus

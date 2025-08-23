@@ -111,3 +111,11 @@ struct rpc_msg {
 	u_int xid;
 	rpc_msg_body body;
 };
+
+struct authsys_parms {
+	unsigned int stamp;
+	string machinename<255>;
+	unsigned int uid;
+	unsigned int gid;
+	unsigned int gids<16>;
+};

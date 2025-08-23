@@ -35,6 +35,7 @@ struct rpc_op_t
     void *client;
     void *buffer;
     XDR *xdrs;
+    authsys_parms auth_sys;
     rpc_msg in_msg, out_msg;
     rdma_msg in_rdma_msg;
     rpc_rdma_errcode rdma_error;

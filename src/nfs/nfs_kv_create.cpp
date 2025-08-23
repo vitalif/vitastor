@@ -122,6 +122,10 @@ static void kv_continue_create(kv_create_state *st, int state)
     st->attrobj["ctime"] = nfstime_now_str();
     if (st->attrobj.find("mtime") == st->attrobj.end())
         st->attrobj["mtime"] = st->attrobj["ctime"];
+    if (st->rop->auth_sys.uid && st->attrobj.find("uid") == st->attrobj.end())
+        st->attrobj["uid"] = (uint64_t)st->rop->auth_sys.uid;
+    if (st->rop->auth_sys.gid && st->attrobj.find("gid") == st->attrobj.end())
+        st->attrobj["gid"] = (uint64_t)st->rop->auth_sys.gid;
     st->attrs = std::move(st->attrobj);
 resume_1:
     // Generate inode ID

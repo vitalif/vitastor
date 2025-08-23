@@ -1168,6 +1168,16 @@ int nfs_client_t::handle_rpc_op(rpc_op_t *rop)
         // Incoming buffer isn't needed to handle request, so return 0
         return 0;
     }
+    if (rop->in_msg.body.cbody.cred.flavor == RPC_AUTH_SYS)
+    {
+        // Parse authentication header
+        if (!xdr_decode(rop->xdrs, rop->in_msg.body.cbody.cred.body.data, rop->in_msg.body.cbody.cred.body.size, (xdrproc_t)xdr_authsys_parms, &rop->auth_sys))
+        {
+            rop->out_msg.body.rbody.areply.reply_data.stat = RPC_GARBAGE_ARGS;
+            rpc_queue_reply(rop);
+            return 0;
+        }
+    }
     rop->out_msg.body.rbody.areply.reply_data.stat = RPC_SUCCESS;
     rop->reply_fn = proc_it->resp_fn;
     rop->referenced = 0;
