@@ -179,7 +179,7 @@ function filter_osds_by_block_layout(orig_tree, osd_stats, block_size, bitmap_gr
         if (orig_tree[osd].level === 'osd')
         {
             const osd_stat = osd_stats[osd];
-            if (osd_stat && (osd_stat.bs_block_size && osd_stat.bs_block_size != block_size ||
+            if (osd_stat && (osd_stat.data_block_size && osd_stat.data_block_size != block_size ||
                 osd_stat.bitmap_granularity && osd_stat.bitmap_granularity != bitmap_granularity ||
                 osd_stat.immediate_commit == 'small' && immediate_commit == 'all' ||
                 osd_stat.immediate_commit == 'none' && immediate_commit != 'none'))
