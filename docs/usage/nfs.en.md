@@ -89,6 +89,8 @@ POSIX features currently not implemented in VitastorFS:
   instead of actually allocated space
 - Access times (`atime`) are not tracked (like `-o noatime`)
 - Modification time (`mtime`) is updated lazily every second (like `-o lazytime`)
+- Permission enforcement is disabled by default (and Linux NFS client doesn't
+  enforce them too). Use `--enforce 1` to enable it.
 
 Other notable missing features which should be addressed in the future:
 - Inode ID reuse. Currently inode IDs always grow, the limit is 2^48 inodes, so
@@ -258,4 +260,5 @@ Options:
 | `--nfspath <PATH>` | set NFS export path to \<PATH> (default is /)            |
 | `--pidfile <FILE>` | write process ID to the specified file                   |
 | `--logfile <FILE>` | log to the specified file                                |
+| `--enforce 1`      | enforce permissions at the server side (no by default)   |
 | `--foreground 1`   | stay in foreground, do not daemonize                     |
