@@ -186,3 +186,12 @@ To remove the device:
 vdpa dev del test1
 kill <qemu-storage-daemon_process_PID>
 ```
+
+## Veeam
+
+Vitastor QEMU driver has a feature that allows to trick third-party systems like Veeam not able to parse qemu-img
+vitastor URIs: [qemu_file_mirror_path](../config/client.en.md#qemu_file_mirror_path).
+
+To make such systems work, you should set this option to an FS directory path (for example, `/mnt/vitastor/`) and
+mount this directory using [`vitastor-nfs mount --block`](../usage/nfs.en.md). It will make them access
+your images using files and, hopefully, succeed in doing their normal job :).

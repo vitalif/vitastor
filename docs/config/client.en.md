@@ -27,6 +27,7 @@ affect their interaction with the cluster.
 - [hostname](#hostname)
 - [ublk_queue_depth](#ublk_queue_depth)
 - [ublk_max_io_size](#ublk_max_io_size)
+- [qemu_file_mirror_path](#qemu_file_mirror_path)
 
 ## client_iothread_count
 
@@ -241,3 +242,14 @@ Default queue depth for [Vitastor ublk servers](../usage/ublk.en.md).
 
 Default maximum I/O size for Vitastor [ublk servers](../usage/ublk.en.md).
 The largest of 1 MB and pool block size multiplied by EC data chunk count is used if not specified.
+
+## qemu_file_mirror_path
+
+- Type: string
+
+When set to an FS directory path (for example, `/mnt/vitastor/`), `qemu-img info` and similar
+QAPI commands return the name of the image inside this directory instead of normal
+`vitastor://?image=abc` URI as `filename`.
+
+This allows to then mount this path using [vitastor-nfs](../usage/nfs.en.md) and trick
+third-party systems like Veeam which rely on `filename` in the image info but don't support Vitastor.

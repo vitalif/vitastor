@@ -299,3 +299,20 @@
     Максимальный размер запроса ввода-вывода для [ublk-серверов Vitastor](../usage/ublk.ru.md).
     Если не задан, используется максимум из 1 МБ и размера блока пула, умноженного на число частей
     данных EC-пула.
+- name: qemu_file_mirror_path
+  type: string
+  info: |
+    When set to an FS directory path (for example, `/mnt/vitastor/`), `qemu-img info` and similar
+    QAPI commands return the name of the image inside this directory instead of normal
+    `vitastor://?image=abc` URI as `filename`.
+
+    This allows to then mount this path using [vitastor-nfs](../usage/nfs.en.md) and trick
+    third-party systems like Veeam which rely on `filename` in the image info but don't support Vitastor.
+  info_ru: |
+    Если установить эту опцию равной пути к каталогу в ФС, команда `qemu-img info` и подобные
+    команды QAPI будут возвращать в поле `filename` имя образа внутри заданного каталога вместо
+    обычного адреса типа `vitastor://?image=abc`.
+
+    Это позволяет смонтировать этот путь с помощью [vitastor-nfs](../usage/nfs.ru.md) и обмануть
+    сторонние системы типа Veeam, которые полагаются на поле `filename` в информации об образе QEMU,
+    но не поддерживают Vitastor.

@@ -188,3 +188,12 @@ vdpa dev add name test1 mgmtdev vduse
 vdpa dev del test1
 kill <PID_процесса_qemu-storage-daemon>
 ```
+
+## Veeam
+
+Драйвер Vitastor QEMU имеет функцию, которая позволяет обманывать сторонние системы типа Veeam, которые
+не могут сами по себе разобрать адреса дисков в vitastor: [qemu_file_mirror_path](../config/client.ru.md#qemu_file_mirror_path).
+
+Чтобы заставить такие системы работать, вам нужно установить эту опцию равной пути к некоторому каталогу
+в ФС (например, `/mnt/vitastor/`) и примонтировать этот каталог с помощью [`vitastor-nfs mount --block`](../usage/nfs.ru.md).
+Они начнут обращаться к образам как к файлам и, вероятно, смогут заработать корректно :).
