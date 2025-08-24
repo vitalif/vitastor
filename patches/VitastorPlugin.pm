@@ -261,7 +261,7 @@ sub free_image
     my ($vtype, $name, $vmid, undef, undef, undef) = $class->parse_volname($volname);
     $class->deactivate_volume($storeid, $scfg, $volname);
     my $full_list = run_cli($scfg, [ 'ls', '-l' ]);
-    my $list = _process_list($scfg, $storeid, $full_list);
+    my $list = _process_list($scfg, $storeid, $full_list, 0);
     # Remove image and all its snapshots
     my $rm_names = {
         map { ($prefix.$_->{name} => 1) }
@@ -269,6 +269,10 @@ sub free_image
         @$list
     };
     my $children = [ grep { $_->{parent_name} && $rm_names->{$_->{parent_name}} } @$full_list ];
+    $children = [ grep { 
+        substr($_->{name}, 0, length($prefix.$name)) ne $prefix.$name &&
+        substr($_->{name}, 0, length($prefix.$name)+1) ne $prefix.$name.'@'
+    } @$children ];
     die "Image has children: ".join(', ', map {
         substr($_->{name}, 0, length $prefix) eq $prefix
             ? substr($_->name, length $prefix)
@@ -288,14 +292,15 @@ sub free_image
 
 sub _process_list
 {
-    my ($scfg, $storeid, $result) = @_;
+    my ($scfg, $storeid, $result, $skip_snapshot) = @_;
+    $skip_snapshot = 1 if !defined $skip_snapshot;
     my $prefix = defined $scfg->{vitastor_prefix} ? $scfg->{vitastor_prefix} : 'pve/';
     my $list = [];
     foreach my $el (@$result)
     {
         next if !$el->{name} || length($prefix) && substr($el->{name}, 0, length $prefix) ne $prefix;
         my $name = substr($el->{name}, length $prefix);
-        next if $name =~ /@/;
+        next if $skip_snapshot && $name =~ /@/;
         my ($owner) = $name =~ /^(?:vm|base)-(\d+)-/s;
         next if !defined $owner;
         my $parent = !defined $el->{parent_name}
