@@ -9,7 +9,7 @@
 Чтобы подключить Vitastor к Proxmox Virtual Environment (поддерживаются версии 6.4-8.x):
 
 - Добавьте соответствующий Debian-репозиторий Vitastor в sources.list на хостах Proxmox:
-  bookworm для 8.1+, pve8.0 для 8.0, bullseye для 7.4, pve7.3 для 7.3, pve7.2 для 7.2, pve7.1 для 7.1, buster для 6.4
+  trixie для 9.0+, bookworm для 8.1+, pve8.0 для 8.0, bullseye для 7.4, pve7.3 для 7.3, pve7.2 для 7.2, pve7.1 для 7.1, buster для 6.4
 - Установите пакеты vitastor-client, pve-qemu-kvm, pve-storage-vitastor (* или см. сноску) из репозитория Vitastor
 - Определите тип хранилища в `/etc/pve/storage.cfg` (см. ниже)
 - Обязательно заблокируйте доступ от виртуальных машин к сети Vitastor (OSD и etcd), т.к. Vitastor (пока) не поддерживает аутентификацию

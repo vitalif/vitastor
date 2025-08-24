@@ -11,7 +11,8 @@
 - Добавьте ключ репозитория Vitastor:
   `wget https://vitastor.io/debian/pubkey.gpg -O /etc/apt/trusted.gpg.d/vitastor.gpg`
 - Добавьте репозиторий Vitastor в /etc/apt/sources.list:
-  - Debian 12 (Bookworm/Sid): `deb https://vitastor.io/debian bookworm main`
+  - Debian 13 (Trixie/Sid): `deb https://vitastor.io/debian trixie main`
+  - Debian 12 (Bookworm): `deb https://vitastor.io/debian bookworm main`
   - Debian 11 (Bullseye): `deb https://vitastor.io/debian bullseye main`
   - Debian 10 (Buster): `deb https://vitastor.io/debian buster main`
   - Ubuntu 22.04 (Jammy): `deb https://vitastor.io/debian jammy main`
