@@ -786,6 +786,12 @@ resume_1:
         cb(st->res == 0 ? -EINVAL : st->res);
         return;
     }
+    if (st->proxy->enforce_perms && !kv_is_accessible(st->rop->auth_sys, st->ientry, ACCESS3_MODIFY))
+    {
+        auto cb = std::move(st->cb);
+        cb(-EACCES);
+        return;
+    }
     st->was_immediate = st->proxy->cli->get_immediate_commit(st->ino);
     st->new_size = st->ientry["size"].uint64_value();
     if (st->new_size < st->offset + st->size)

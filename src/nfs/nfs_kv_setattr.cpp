@@ -53,6 +53,12 @@ resume_1:
         cb(st->res);
         return;
     }
+    if (st->self->parent->enforce_perms && !kv_is_accessible(st->rop->auth_sys, st->ientry, ACCESS3_MODIFY))
+    {
+        auto cb = std::move(st->cb);
+        cb(-EACCES);
+        return;
+    }
     if (st->ientry["type"].string_value() != "file" &&
         st->ientry["type"].string_value() != "" &&
         !st->set_attrs["size"].is_null())

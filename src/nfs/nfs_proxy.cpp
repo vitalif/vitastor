@@ -119,6 +119,7 @@ static const char* help_text =
     "  --nfspath <PATH>  set NFS export path to <PATH> (default is /)\n"
     "  --pidfile <FILE>  write process ID to the specified file\n"
     "  --logfile <FILE>  log to the specified file\n"
+    "  --enforce 1       enforce permissions at the server side (default is disabled)\n"
     "  --foreground 1    stay in foreground, do not daemonize\n"
     "\n"
     "NFS proxy is stateless if you use immediate_commit=all in your cluster and if\n"
@@ -206,6 +207,7 @@ void nfs_proxy_t::run(json11::Json cfg)
         bind_address = "0.0.0.0";
     default_pool = cfg["pool"].as_string();
     portmap_enabled = !json_is_false(cfg["portmap"]);
+    enforce_perms = json_is_true(cfg["enforce"]);
     nfs_port = cfg["port"].uint64_value() & 0xffff;
 #ifdef WITH_RDMACM
     nfs_rdma_port = cfg["nfs_rdma"].uint64_value() & 0xffff;

@@ -94,7 +94,7 @@ static void nfs_kv_continue_readdir(nfs_kv_readdir_state *st, int state)
         return;
     }
     // Add . and ..
-    if (st->cookie <= 1)
+    if (st->cookie <= 1 || st->self->parent->enforce_perms)
     {
         kv_read_inode(st->self->parent, st->dir_ino, [st](int res, const std::string & value, json11::Json ientry)
         {
@@ -111,6 +111,15 @@ resume_1:
             cb(st->res);
             return;
         }
+        if (st->self->parent->enforce_perms && !kv_is_accessible(st->rop->auth_sys, st->ientry, ACCESS3_READ))
+        {
+            auto cb = std::move(st->cb);
+            cb(-EACCES);
+            return;
+        }
+    }
+    if (st->cookie <= 1)
+    {
         if (st->cookie == 0)
         {
             auto fh = kv_fh(st->dir_ino);

@@ -44,6 +44,7 @@ static void nfs_kv_continue_delete(kv_del_state *st, int state)
     else if (state == 5) goto resume_5;
     else if (state == 6) goto resume_6;
     else if (state == 7) goto resume_7;
+    else if (state == 8) goto resume_8;
     else
     {
         fprintf(stderr, "BUG: invalid state in nfs_kv_continue_delete()");
@@ -123,6 +124,28 @@ resume_2:
         cb(st->is_rmdir ? -ENOTDIR : -EISDIR);
         return;
     }
+    if (st->self->parent->enforce_perms)
+    {
+        // Check directory permission
+        kv_read_inode(st->self->parent, st->dir_ino, [st](int res, const std::string & value, json11::Json attrs)
+        {
+            st->res = (res != 0 ? res : (attrs["type"].string_value() != "dir" ? -ENOTDIR :
+                (st->self->parent->enforce_perms && (
+                    !kv_is_accessible(st->rop->auth_sys, attrs, ACCESS3_DELETE) &&
+                    (!(attrs["mode"].uint64_value() & 01000 /* directory sticky bit */) ||
+                        st->ientry["uid"].uint64_value() != st->rop->auth_sys.uid)
+                ) ? -EACCES : 0)));
+            nfs_kv_continue_delete(st, 8);
+        }, st->allow_cache);
+        return;
+resume_8:
+        if (st->res < 0)
+        {
+            auto cb = std::move(st->cb);
+            cb(st->res);
+            return;
+        }
+    }
     // (3) Delete direntry with CAS
     st->self->parent->db->del(kv_direntry_key(st->dir_ino, st->filename), [st](int res)
     {
@@ -157,7 +180,7 @@ resume_3:
     }
     if (st->is_rmdir)
     {
-        // (4) Check if directory actually is not empty
+        // (4) Check if the directory actually is not empty
         st->list_handle = st->self->parent->db->list_start(kv_direntry_key(st->ino, ""));
         st->self->parent->db->list_next(st->list_handle, [st](int res, const std::string & key, const std::string & value)
         {

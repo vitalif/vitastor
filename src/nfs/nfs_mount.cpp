@@ -16,31 +16,17 @@ nfsstat3 vitastor_nfs_map_err(int err)
     }
     return (err == EINVAL ? NFS3ERR_INVAL
         : (err == ENOENT ? NFS3ERR_NOENT
+        : (err == EACCES ? NFS3ERR_ACCES
         : (err == ENOSPC ? NFS3ERR_NOSPC
         : (err == EEXIST ? NFS3ERR_EXIST
         : (err == EISDIR ? NFS3ERR_ISDIR
         : (err == ENOTDIR ? NFS3ERR_NOTDIR
         : (err == ENOTEMPTY ? NFS3ERR_NOTEMPTY
-        : (err == EIO ? NFS3ERR_IO : (err ? NFS3ERR_IO : NFS3_OK)))))))));
+        : (err == EIO ? NFS3ERR_IO : (err ? NFS3ERR_IO : NFS3_OK))))))))));
 }
 
 int nfs3_null_proc(void *opaque, rpc_op_t *rop)
 {
-    rpc_queue_reply(rop);
-    return 0;
-}
-
-int nfs3_access_proc(void *opaque, rpc_op_t *rop)
-{
-    //nfs_client_t *self = (nfs_client_t*)opaque;
-    ACCESS3args *args = (ACCESS3args*)rop->request;
-    ACCESS3res *reply = (ACCESS3res*)rop->reply;
-    *reply = (ACCESS3res){
-        .status = NFS3_OK,
-        .resok = (ACCESS3resok){
-            .access = args->access,
-        },
-    };
     rpc_queue_reply(rop);
     return 0;
 }

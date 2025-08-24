@@ -111,6 +111,7 @@ static void kv_continue_create(kv_create_state *st, int state)
     else if (state == 3) goto resume_3;
     else if (state == 4) goto resume_4;
     else if (state == 5) goto resume_5;
+    else if (state == 6) goto resume_6;
     if (st->self->parent->trace)
         fprintf(stderr, "[%d] CREATE %ju/%s ATTRS %s\n", st->self->nfs_fd, st->dir_ino, st->filename.c_str(), json11::Json(st->attrobj).dump().c_str());
     if (st->filename == "" || st->filename.find("/") != std::string::npos)
@@ -127,6 +128,24 @@ static void kv_continue_create(kv_create_state *st, int state)
     if (st->rop->auth_sys.gid && st->attrobj.find("gid") == st->attrobj.end())
         st->attrobj["gid"] = (uint64_t)st->rop->auth_sys.gid;
     st->attrs = std::move(st->attrobj);
+    if (st->self->parent->enforce_perms)
+    {
+        // Check that the directory is actually a directory and is accessible
+        kv_read_inode(st->self->parent, st->dir_ino, [st](int res, const std::string & value, json11::Json attrs)
+        {
+            st->res = res == 0 ? (attrs["type"].string_value() == "dir"
+                ? (kv_is_accessible(st->rop->auth_sys, attrs, ACCESS3_MODIFY) ? 0 : -EACCES) : -ENOTDIR) : res;
+            kv_continue_create(st, 6);
+        }, true/*allow_cache*/);
+        return;
+resume_6:
+        if (st->res < 0)
+        {
+            auto cb = std::move(st->cb);
+            cb(st->res);
+            return;
+        }
+    }
 resume_1:
     // Generate inode ID
     // Directories and special files don't need pool

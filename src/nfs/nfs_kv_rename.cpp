@@ -60,6 +60,7 @@ static void nfs_kv_continue_rename(nfs_kv_rename_state *st, int state)
     else if (state == 10) goto resume_10;
     else if (state == 11) goto resume_11;
     else if (state == 12) goto resume_12;
+    else if (state == 13) goto resume_13;
     else
     {
         fprintf(stderr, "BUG: invalid state in nfs_kv_continue_rename()");
@@ -154,16 +155,35 @@ resume_3:
             }
         }
     }
-    else
+    if (!st->new_exists || st->self->parent->enforce_perms)
     {
         // Check that the new directory is actually a directory
         kv_read_inode(st->self->parent, st->new_dir_ino, [st](int res, const std::string & value, json11::Json attrs)
         {
-            st->res = res == 0 ? (attrs["type"].string_value() == "dir" ? 0 : -ENOTDIR) : res;
+            st->res = (res != 0 ? res : (attrs["type"].string_value() != "dir" ? -ENOTDIR :
+                (st->self->parent->enforce_perms && !kv_is_accessible(st->rop->auth_sys, attrs, ACCESS3_MODIFY) ? -EACCES : 0)));
             nfs_kv_continue_rename(st, 4);
         });
         return;
 resume_4:
+        if (st->res < 0)
+        {
+            auto cb = std::move(st->cb);
+            cb(st->res);
+            return;
+        }
+    }
+    if (st->self->parent->enforce_perms)
+    {
+        // Check that the old directory is accessible
+        kv_read_inode(st->self->parent, st->old_dir_ino, [st](int res, const std::string & value, json11::Json attrs)
+        {
+            st->res = (res != 0 ? res : (attrs["type"].string_value() != "dir" ? -ENOTDIR :
+                (!kv_is_accessible(st->rop->auth_sys, attrs, ACCESS3_MODIFY) ? -EACCES : 0)));
+            nfs_kv_continue_rename(st, 13);
+        });
+        return;
+resume_13:
         if (st->res < 0)
         {
             auto cb = std::move(st->cb);

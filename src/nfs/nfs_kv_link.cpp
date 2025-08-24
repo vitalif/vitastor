@@ -49,7 +49,8 @@ resume_0:
     st->res2 = 0;
     kv_read_inode(st->self->parent, st->ino, [st](int res, const std::string & value, json11::Json attrs)
     {
-        st->res = res == 0 ? (attrs["type"].string_value() == "dir" ? -EISDIR : 0) : res;
+        st->res = (res != 0 ? res : (attrs["type"].string_value() == "dir" ? -EISDIR :
+            (st->self->parent->enforce_perms && !kv_is_accessible(st->rop->auth_sys, attrs, ACCESS3_READ) ? -EACCES : 0)));
         st->ientry_text = value;
         st->ientry = attrs;
         if (!--st->wait)
@@ -60,7 +61,8 @@ resume_0:
         // Check that the new directory exists
         kv_read_inode(st->self->parent, st->dir_ino, [st](int res, const std::string & value, json11::Json attrs)
         {
-            st->res2 = res == 0 ? (attrs["type"].string_value() == "dir" ? 0 : -ENOTDIR) : res;
+            st->res2 = (res != 0 ? res : (attrs["type"].string_value() != "dir" ? -ENOTDIR :
+                (st->self->parent->enforce_perms && !kv_is_accessible(st->rop->auth_sys, attrs, ACCESS3_MODIFY) ? -EACCES : 0)));
             if (!--st->wait)
                 nfs_kv_continue_link(st, 1);
         });

@@ -70,6 +70,13 @@ int kv_nfs3_lookup_proc(void *opaque, rpc_op_t *rop)
                 rpc_queue_reply(rop);
                 return;
             }
+            else if (self->parent->enforce_perms && ientry["type"] != "link" &&
+                !kv_is_accessible(rop->auth_sys, ientry, ACCESS3_LOOKUP))
+            {
+                *reply = (LOOKUP3res){ .status = NFS3ERR_ACCES };
+                rpc_queue_reply(rop);
+                return;
+            }
             *reply = (LOOKUP3res){
                 .status = NFS3_OK,
                 .resok = (LOOKUP3resok){

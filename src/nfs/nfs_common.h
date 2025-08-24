@@ -12,7 +12,6 @@ void nfs_kv_procs(nfs_client_t *self);
 int nfs3_fsstat_proc(void *opaque, rpc_op_t *rop);
 int nfs3_fsinfo_proc(void *opaque, rpc_op_t *rop);
 int nfs3_pathconf_proc(void *opaque, rpc_op_t *rop);
-int nfs3_access_proc(void *opaque, rpc_op_t *rop);
 int nfs3_null_proc(void *opaque, rpc_op_t *rop);
 int nfs3_commit_proc(void *opaque, rpc_op_t *rop);
 int mount3_mnt_proc(void *opaque, rpc_op_t *rop);

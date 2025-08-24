@@ -66,6 +66,12 @@ resume_1:
             cb(st->res < 0 ? st->res : -EINVAL);
             return;
         }
+        if (st->self->parent->enforce_perms && !kv_is_accessible(st->rop->auth_sys, st->ientry, ACCESS3_READ))
+        {
+            auto cb = std::move(st->cb);
+            cb(-EACCES);
+            return;
+        }
         if (st->ientry["shared_ino"].uint64_value() != 0)
         {
             if (st->offset >= st->ientry["size"].uint64_value())
@@ -142,9 +148,9 @@ resume_2:
             return;
         }
     }
-    else if (st->self->rdma_conn)
+    else if (st->self->rdma_conn || st->self->parent->enforce_perms)
     {
-        // Take ientry from read_hack_cache for RDMA connections
+        // Take ientry from read_hack_cache for RDMA connections or for the permission check
         {
             auto rh_it = st->self->parent->kvfs->read_hack_cache.find(st->ino);
             if (rh_it != st->self->parent->kvfs->read_hack_cache.end())
@@ -169,6 +175,12 @@ resume_4:
                 return;
             }
             st->self->parent->kvfs->read_hack_cache[st->ino] = st->ientry;
+        }
+        if (st->self->parent->enforce_perms && !kv_is_accessible(st->rop->auth_sys, st->ientry, ACCESS3_READ))
+        {
+            auto cb = std::move(st->cb);
+            cb(-EACCES);
+            return;
         }
     }
     st->aligned_offset = align_down(st->offset);

@@ -33,7 +33,8 @@ public:
     // FIXME: Maybe allow to create files in different pools?
     std::string default_pool;
     std::string export_root;
-    bool portmap_enabled;
+    bool enforce_perms = false;
+    bool portmap_enabled = false;
     bool nfs_port_auto = false;
     unsigned nfs_port = 0;
     unsigned nfs_rdma_port = 0;

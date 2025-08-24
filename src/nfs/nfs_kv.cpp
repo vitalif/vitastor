@@ -182,7 +182,7 @@ void nfs_kv_procs(nfs_client_t *self)
         {NFS_PROGRAM, NFS_V3, NFS3_GETATTR,     kv_nfs3_getattr_proc,     (xdrproc_t)xdr_GETATTR3args,     sizeof(GETATTR3args),     (xdrproc_t)xdr_GETATTR3res,     sizeof(GETATTR3res),     self},
         {NFS_PROGRAM, NFS_V3, NFS3_SETATTR,     kv_nfs3_setattr_proc,     (xdrproc_t)xdr_SETATTR3args,     sizeof(SETATTR3args),     (xdrproc_t)xdr_SETATTR3res,     sizeof(SETATTR3res),     self},
         {NFS_PROGRAM, NFS_V3, NFS3_LOOKUP,      kv_nfs3_lookup_proc,      (xdrproc_t)xdr_LOOKUP3args,      sizeof(LOOKUP3args),      (xdrproc_t)xdr_LOOKUP3res,      sizeof(LOOKUP3res),      self},
-        {NFS_PROGRAM, NFS_V3, NFS3_ACCESS,      nfs3_access_proc,         (xdrproc_t)xdr_ACCESS3args,      sizeof(ACCESS3args),      (xdrproc_t)xdr_ACCESS3res,      sizeof(ACCESS3res),      self},
+        {NFS_PROGRAM, NFS_V3, NFS3_ACCESS,      kv_nfs3_access_proc,      (xdrproc_t)xdr_ACCESS3args,      sizeof(ACCESS3args),      (xdrproc_t)xdr_ACCESS3res,      sizeof(ACCESS3res),      self},
         {NFS_PROGRAM, NFS_V3, NFS3_READLINK,    kv_nfs3_readlink_proc,    (xdrproc_t)xdr_READLINK3args,    sizeof(READLINK3args),    (xdrproc_t)xdr_READLINK3res,    sizeof(READLINK3res),    self},
         {NFS_PROGRAM, NFS_V3, NFS3_READ,        kv_nfs3_read_proc,        (xdrproc_t)xdr_READ3args,        sizeof(READ3args),        (xdrproc_t)xdr_READ3res,        sizeof(READ3res),        self},
         {NFS_PROGRAM, NFS_V3, NFS3_WRITE,       kv_nfs3_write_proc,       (xdrproc_t)xdr_WRITE3args,       sizeof(WRITE3args),       (xdrproc_t)xdr_WRITE3res,       sizeof(WRITE3res),       self},

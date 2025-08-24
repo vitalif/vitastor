@@ -135,7 +135,10 @@ uint64_t align_shared_size(nfs_client_t *self, uint64_t size);
 void nfs_do_rmw(nfs_rmw_t *rmw);
 void nfs_move_inode_from(nfs_proxy_t *proxy, uint64_t ino, uint64_t shared_ino,
     uint64_t shared_offset, std::function<void(int res, bool moved)> cb);
+uint32_t kv_get_access(const authsys_parms & auth_sys, const json11::Json & attrs);
+bool kv_is_accessible(const authsys_parms & auth_sys, const json11::Json & attrs, uint32_t access);
 
+int kv_nfs3_access_proc(void *opaque, rpc_op_t *rop);
 int kv_nfs3_getattr_proc(void *opaque, rpc_op_t *rop);
 int kv_nfs3_setattr_proc(void *opaque, rpc_op_t *rop);
 int kv_nfs3_lookup_proc(void *opaque, rpc_op_t *rop);
