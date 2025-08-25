@@ -1,8 +1,8 @@
-diff --git a/block/meson.build b/block/meson.build
-index 34b1b2a306..24ca0f1e52 100644
---- a/block/meson.build
-+++ b/block/meson.build
-@@ -114,6 +114,7 @@ foreach m : [
+Index: pve-qemu-kvm-10.0.2/block/meson.build
+===================================================================
+--- pve-qemu-kvm-10.0.2.orig/block/meson.build
++++ pve-qemu-kvm-10.0.2/block/meson.build
+@@ -126,6 +126,7 @@ foreach m : [
    [libnfs, 'nfs', files('nfs.c')],
    [libssh, 'ssh', files('ssh.c')],
    [rbd, 'rbd', files('rbd.c')],
@@ -10,11 +10,11 @@ index 34b1b2a306..24ca0f1e52 100644
  ]
    if m[0].found()
      module_ss = ss.source_set()
-diff --git a/meson.build b/meson.build
-index 8ec796d835..22793f3f7d 100644
---- a/meson.build
-+++ b/meson.build
-@@ -1622,6 +1622,26 @@ if not get_option('rbd').auto() or have_block
+Index: pve-qemu-kvm-10.0.2/meson.build
+===================================================================
+--- pve-qemu-kvm-10.0.2.orig/meson.build
++++ pve-qemu-kvm-10.0.2/meson.build
+@@ -1622,6 +1622,26 @@ if not get_option('rbd').auto() or have_
    endif
  endif
  
@@ -41,7 +41,7 @@ index 8ec796d835..22793f3f7d 100644
  glusterfs = not_found
  glusterfs_ftruncate_has_stat = false
  glusterfs_iocb_has_stat = false
-@@ -2510,6 +2530,7 @@ endif
+@@ -2514,6 +2534,7 @@ endif
  config_host_data.set('CONFIG_OPENGL', opengl.found())
  config_host_data.set('CONFIG_PLUGIN', get_option('plugins'))
  config_host_data.set('CONFIG_RBD', rbd.found())
@@ -49,7 +49,7 @@ index 8ec796d835..22793f3f7d 100644
  config_host_data.set('CONFIG_RDMA', rdma.found())
  config_host_data.set('CONFIG_RELOCATABLE', get_option('relocatable'))
  config_host_data.set('CONFIG_SAFESTACK', get_option('safe_stack'))
-@@ -4801,6 +4822,7 @@ summary_info += {'fdt support':       fdt_opt == 'internal' ? 'internal' : fdt}
+@@ -4812,6 +4833,7 @@ summary_info += {'fdt support':       fd
  summary_info += {'libcap-ng support': libcap_ng}
  summary_info += {'bpf support':       libbpf}
  summary_info += {'rbd support':       rbd}
@@ -57,11 +57,11 @@ index 8ec796d835..22793f3f7d 100644
  summary_info += {'smartcard support': cacard}
  summary_info += {'U2F support':       u2f}
  summary_info += {'libusb':            libusb}
-diff --git a/meson_options.txt b/meson_options.txt
-index 59d973bca0..a3e7123980 100644
---- a/meson_options.txt
-+++ b/meson_options.txt
-@@ -202,6 +202,8 @@ option('pvg', type: 'feature', value: 'auto',
+Index: pve-qemu-kvm-10.0.2/meson_options.txt
+===================================================================
+--- pve-qemu-kvm-10.0.2.orig/meson_options.txt
++++ pve-qemu-kvm-10.0.2/meson_options.txt
+@@ -202,6 +202,8 @@ option('pvg', type: 'feature', value: 'a
         description: 'macOS paravirtualized graphics support')
  option('rbd', type : 'feature', value : 'auto',
         description: 'Ceph block device driver')
@@ -70,24 +70,23 @@ index 59d973bca0..a3e7123980 100644
  option('opengl', type : 'feature', value : 'auto',
         description: 'OpenGL support')
  option('rdma', type : 'feature', value : 'auto',
-diff --git a/qapi/block-core.json b/qapi/block-core.json
-index b1937780e1..a511193620 100644
---- a/qapi/block-core.json
-+++ b/qapi/block-core.json
-@@ -3216,7 +3216,7 @@
-             'parallels', 'preallocate', 'qcow', 'qcow2', 'qed', 'quorum',
+Index: pve-qemu-kvm-10.0.2/qapi/block-core.json
+===================================================================
+--- pve-qemu-kvm-10.0.2.orig/qapi/block-core.json
++++ pve-qemu-kvm-10.0.2/qapi/block-core.json
+@@ -3599,7 +3599,7 @@
              'raw', 'rbd',
              { 'name': 'replication', 'if': 'CONFIG_REPLICATION' },
+             'pbs',
 -            'ssh', 'throttle', 'vdi', 'vhdx',
 +            'ssh', 'throttle', 'vdi', 'vhdx', 'vitastor',
              { 'name': 'virtio-blk-vfio-pci', 'if': 'CONFIG_BLKIO' },
              { 'name': 'virtio-blk-vhost-user', 'if': 'CONFIG_BLKIO' },
              { 'name': 'virtio-blk-vhost-vdpa', 'if': 'CONFIG_BLKIO' },
-@@ -4299,6 +4299,28 @@
-             '*key-secret': 'str',
+@@ -4725,6 +4725,28 @@
              '*server': ['InetSocketAddressBase'] } }
  
-+##
+ ##
 +# @BlockdevOptionsVitastor:
 +#
 +# Driver specific block device options for vitastor
@@ -109,10 +108,11 @@ index b1937780e1..a511193620 100644
 +            '*etcd-host': 'str',
 +            '*etcd-prefix': 'str' } }
 +
- ##
++##
  # @ReplicationMode:
  #
-@@ -4767,6 +4789,7 @@
+ # An enumeration of replication modes.
+@@ -5194,6 +5216,7 @@
        'throttle':   'BlockdevOptionsThrottle',
        'vdi':        'BlockdevOptionsGenericFormat',
        'vhdx':       'BlockdevOptionsGenericFormat',
@@ -120,11 +120,10 @@ index b1937780e1..a511193620 100644
        'virtio-blk-vfio-pci':
                      { 'type': 'BlockdevOptionsVirtioBlkVfioPci',
                        'if': 'CONFIG_BLKIO' },
-@@ -5240,6 +5263,20 @@
-             '*cluster-size' :   'size',
+@@ -5674,6 +5697,20 @@
              '*encrypt' :        'RbdEncryptionCreateOptions' } }
  
-+##
+ ##
 +# @BlockdevCreateOptionsVitastor:
 +#
 +# Driver specific image creation options for Vitastor.
@@ -138,10 +137,11 @@ index b1937780e1..a511193620 100644
 +  'data': { 'location':         'BlockdevOptionsVitastor',
 +            'size':             'size' } }
 +
- ##
++##
  # @BlockdevVmdkSubformat:
  #
-@@ -5462,6 +5499,7 @@
+ # Subformat options for VMDK images
+@@ -5895,6 +5932,7 @@
        'ssh':            'BlockdevCreateOptionsSsh',
        'vdi':            'BlockdevCreateOptionsVdi',
        'vhdx':           'BlockdevCreateOptionsVhdx',
@@ -149,10 +149,10 @@ index b1937780e1..a511193620 100644
        'vmdk':           'BlockdevCreateOptionsVmdk',
        'vpc':            'BlockdevCreateOptionsVpc'
    } }
-diff --git a/scripts/meson-buildoptions.sh b/scripts/meson-buildoptions.sh
-index 3e8e00852b..45aff3b6a9 100644
---- a/scripts/meson-buildoptions.sh
-+++ b/scripts/meson-buildoptions.sh
+Index: pve-qemu-kvm-10.0.2/scripts/meson-buildoptions.sh
+===================================================================
+--- pve-qemu-kvm-10.0.2.orig/scripts/meson-buildoptions.sh
++++ pve-qemu-kvm-10.0.2/scripts/meson-buildoptions.sh
 @@ -175,6 +175,7 @@ meson_options_help() {
    printf "%s\n" '  qga-vss         build QGA VSS support (broken with MinGW)'
    printf "%s\n" '  qpl             Query Processing Library support'
