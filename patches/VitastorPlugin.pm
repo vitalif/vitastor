@@ -499,4 +499,55 @@ sub rename_volume
     return "${storeid}:${base_name}${target_volname}";
 }
 
+sub _monkey_patch_qemu_blockdev_options
+{
+    my ($cfg, $volid, $machine_version, $options) = @_;
+    my ($storeid, $volname) = PVE::Storage::parse_volume_id($volid);
+
+    my $scfg = PVE::Storage::storage_config($cfg, $storeid);
+
+    my $plugin = PVE::Storage::Plugin->lookup($scfg->{type});
+
+    my ($vtype) = $plugin->parse_volname($volname);
+    die "cannot use volume of type '$vtype' as a QEMU blockdevice\n"
+        if $vtype ne 'images' && $vtype ne 'iso' && $vtype ne 'import';
+
+    return $plugin->qemu_blockdev_options($scfg, $storeid, $volname, $machine_version, $options);
+}
+
+sub qemu_blockdev_options
+{
+    my ($class, $scfg, $storeid, $volname, $machine_version, $options) = @_;
+    my $prefix = defined $scfg->{vitastor_prefix} ? $scfg->{vitastor_prefix} : 'pve/';
+    my ($vtype, $name, $vmid) = $class->parse_volname($volname);
+    $name .= '@'.$options->{'snapshot-name'} if $options->{'snapshot-name'};
+    if ($scfg->{vitastor_nbd})
+    {
+        my $mapped = run_cli($scfg, [ 'ls' ], binary => '/usr/bin/vitastor-nbd');
+        my ($kerneldev) = grep { $mapped->{$_}->{image} eq $prefix.$name } keys %$mapped;
+        die "Image not mapped via NBD" if !$kerneldev;
+        return { driver => 'host_device', filename => $kerneldev };
+    }
+    my $blockdev = {
+        driver => 'vitastor',
+        image => $prefix.$name,
+    };
+    if ($scfg->{vitastor_config_path})
+    {
+        $blockdev->{'config-path'} = $scfg->{vitastor_config_path};
+    }
+    if ($scfg->{vitastor_etcd_address})
+    {
+        # FIXME This is the only exception: etcd_address -> etcd_host for qemu
+        $blockdev->{'etcd-host'} = $scfg->{vitastor_etcd_address};
+    }
+    if ($scfg->{vitastor_etcd_prefix})
+    {
+        $blockdev->{'etcd-prefix'} = $scfg->{vitastor_etcd_prefix};
+    }
+    return $blockdev;
+}
+
+*PVE::Storage::qemu_blockdev_options = *_monkey_patch_qemu_blockdev_options;
+
 1;
