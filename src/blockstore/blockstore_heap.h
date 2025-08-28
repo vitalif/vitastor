@@ -198,6 +198,8 @@ public:
     void set_compacted_lsn(uint64_t compacted_lsn);
     uint64_t get_compacted_lsn();
     // load data from the disk, returns count of loaded write entries
+    void read_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf,
+        std::function<void(heap_object_t*)> handle_object, std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block);
     uint64_t load_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf);
     // finish loading
     void finish_load();

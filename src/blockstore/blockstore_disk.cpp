@@ -364,6 +364,10 @@ static int bs_openmode(const std::string & mode)
 
 void blockstore_disk_t::open_data()
 {
+    if (data_fd >= 0)
+    {
+        throw std::runtime_error("data device is already opened");
+    }
     data_fd = mock_mode ? MOCK_DATA_FD : open(data_device.c_str(), bs_openmode(data_io) | O_RDWR);
     if (data_fd == -1)
     {
@@ -392,6 +396,10 @@ void blockstore_disk_t::open_data()
 
 void blockstore_disk_t::open_meta()
 {
+    if (meta_fd >= 0)
+    {
+        throw std::runtime_error("metadata device is already opened");
+    }
     if (meta_device != data_device || meta_io != data_io)
     {
         meta_fd = mock_mode ? MOCK_META_FD : open(meta_device.c_str(), bs_openmode(meta_io) | O_RDWR);
@@ -433,6 +441,10 @@ void blockstore_disk_t::open_meta()
 
 void blockstore_disk_t::open_journal()
 {
+    if (journal_fd >= 0)
+    {
+        throw std::runtime_error("journal device is already opened");
+    }
     if (journal_device != meta_device || journal_io != meta_io)
     {
         journal_fd = mock_mode ? MOCK_JOURNAL_FD : open(journal_device.c_str(), bs_openmode(journal_io) | O_RDWR);

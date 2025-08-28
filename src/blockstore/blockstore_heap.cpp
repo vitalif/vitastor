@@ -243,14 +243,14 @@ static uint32_t free_writes(heap_write_t *wr, heap_write_t *to)
 }
 
 // EASY PEASY LEMON SQUEEZIE
-uint64_t blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf)
+void blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf,
+    std::function<void(heap_object_t*)> handle_object, std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block)
 {
-    uint64_t entries_loaded = 0;
     for (uint64_t buf_offset = 0; buf_offset < size; buf_offset += dsk->meta_block_size)
     {
         uint32_t block_num = (disk_offset + buf_offset) / dsk->meta_block_size;
         assert(block_num < block_info.size());
-        uint32_t block_offset = 0, used_space = 0;
+        uint32_t block_offset = 0;
         std::set<verify_offset_t> offsets_seen;
         while (block_offset < dsk->meta_block_size - 2)
         {
@@ -463,56 +463,75 @@ skip_object:
             {
                 compact_object_to(obj, compacted_lsn, NULL, false);
             }
-            // Allocate space
-            used_space += obj->size;
-            for (auto wr = obj->get_writes(); wr; wr = wr->next())
-            {
-                used_space += wr->size;
-                if (wr->type() == BS_HEAP_SMALL_WRITE)
-                {
-                    use_buffer_area(obj->inode, wr->location, wr->len);
-                }
-                else if (wr->type() == BS_HEAP_BIG_WRITE)
-                {
-                    // Mark data block as used
-                    use_data(obj->inode, wr->location);
-                }
-                if (wr->lsn > this->compacted_lsn)
-                {
-                    tmp_compact_queue.push_back((tmp_compact_item_t){ .oid = oid, .lsn = wr->lsn, .compact = wr->needs_compact(this) });
-                }
-                if (wr->lsn > next_lsn)
-                {
-                    next_lsn = wr->lsn;
-                }
-            }
             if (to_recheck)
             {
                 recheck_queue.push_back(oid);
             }
-            // btree_map<ui64, ui32> anyway stores std::pair<ui64, ui32>'s of 16 bytes size
-            // so we can store block_offset in it too
-            block_index[get_pg_id(obj->inode, obj->stripe)][obj->inode][obj->stripe] = (uint32_t)block_num*dsk->meta_block_size + block_offset;
-            entries_loaded += wr_i;
+            handle_object(obj);
             block_offset += obj->size;
         }
+        handle_block(block_num, block_offset, buf+buf_offset);
+    }
+}
+
+uint64_t blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf)
+{
+    uint64_t entries_loaded = 0;
+    uint32_t used_space = 0;
+    read_blocks(disk_offset, size, buf, [&](heap_object_t *obj)
+    {
+        // Allocate space
+        used_space += obj->size;
+        uint32_t wr_i = 0;
+        for (auto wr = obj->get_writes(); wr; wr = wr->next(), wr_i++)
+        {
+            used_space += wr->size;
+            if (wr->type() == BS_HEAP_SMALL_WRITE)
+            {
+                use_buffer_area(obj->inode, wr->location, wr->len);
+            }
+            else if (wr->type() == BS_HEAP_BIG_WRITE)
+            {
+                // Mark data block as used
+                use_data(obj->inode, wr->location);
+            }
+            if (wr->lsn > this->compacted_lsn)
+            {
+                tmp_compact_queue.push_back((tmp_compact_item_t){
+                    .oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe },
+                    .lsn = wr->lsn,
+                    .compact = wr->needs_compact(this),
+                });
+            }
+            if (wr->lsn > next_lsn)
+            {
+                next_lsn = wr->lsn;
+            }
+        }
+        // btree_map<ui64, ui32> anyway stores std::pair<ui64, ui32>'s of 16 bytes size
+        // so we can store block_offset in it too
+        block_index[get_pg_id(obj->inode, obj->stripe)][obj->inode][obj->stripe] = (uint8_t*)obj - buf + disk_offset;
+        entries_loaded += wr_i;
+    }, [&](uint32_t block_num, uint32_t last_offset, uint8_t *buf)
+    {
         uint8_t *copy = NULL;
-        if (block_offset > 0)
+        if (used_space > 0)
         {
             // Do not store free blocks in memory
             copy = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk->meta_block_size);
-            memcpy(copy, buf+buf_offset, block_offset);
-            memset(copy+block_offset, 0, dsk->meta_block_size-block_offset);
+            memcpy(copy, buf, last_offset);
+            memset(copy+last_offset, 0, dsk->meta_block_size-last_offset);
         }
         block_info[block_num] = {
             .used_space = 0,
             .data = copy,
         };
-        if (block_offset > 0)
+        if (used_space > 0)
         {
             add_used_space(block_num, used_space);
         }
-    }
+        used_space = 0;
+    });
     return entries_loaded;
 }
 
