@@ -30,7 +30,7 @@ std::string base64_encode(const std::string &in)
     return out;
 }
 
-static char T[256] = { 0 };
+static int T[256] = { 0 };
 
 std::string base64_decode(const std::string &in)
 {
