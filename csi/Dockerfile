@@ -36,7 +36,7 @@ RUN (echo deb http://vitastor.io/debian bookworm main > /etc/apt/sources.list.d/
     ((echo 'Package: *'; echo 'Pin: origin "vitastor.io"'; echo 'Pin-Priority: 1000') > /etc/apt/preferences.d/vitastor.pref) && \
     wget -q -O /etc/apt/trusted.gpg.d/vitastor.gpg https://vitastor.io/debian/pubkey.gpg && \
     apt-get update && \
-    apt-get install -y vitastor-client && \
+    apt-get install -y vitastor-client ibverbs-providers && \
     wget https://vitastor.io/archive/qemu/qemu-bookworm-9.2.2%2Bds-1%2Bvitastor4/qemu-utils_9.2.2%2Bds-1%2Bvitastor4_amd64.deb && \
     wget https://vitastor.io/archive/qemu/qemu-bookworm-9.2.2%2Bds-1%2Bvitastor4/qemu-block-extra_9.2.2%2Bds-1%2Bvitastor4_amd64.deb && \
     dpkg -x qemu-utils*.deb tmp1 && \
