@@ -130,7 +130,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, const ui
         if (osd_set[role] != 0 && (wr || !rep && stripes[role].read_end != 0))
             n_subops++;
     }
-    if (!n_subops && (submit_type == SUBMIT_RMW_READ || rep))
+    if (zero_read >= 0 && !n_subops && (submit_type == SUBMIT_RMW_READ || rep))
         n_subops = 1;
     else
         zero_read = -1;
