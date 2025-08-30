@@ -60,8 +60,7 @@ class journal_flusher_co
 
     friend class journal_flusher_t;
 
-    void iterate_partial_overwrites(std::function<int(int, uint32_t, uint32_t)> cb);
-    void iterate_checksum_holes(std::function<void(int, uint32_t, uint32_t)> cb);
+    void iterate_checksum_holes(std::function<void(int & pos, uint32_t hole_start, uint32_t hole_end)> cb);
     void fill_partial_checksum_blocks();
     void free_buffers();
     int check_and_punch_checksums();

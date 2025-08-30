@@ -342,6 +342,13 @@ resume_24:
         {
             return false;
         }
+        // Recheck the object because it could be invalidated again
+        cur_obj = bs->heap->read_entry(cur_oid, &modified_block);
+        if (!cur_obj)
+        {
+            // Abort compaction
+            goto resume_0;
+        }
     }
     bs->heap->mark_object_compacted(cur_obj, compact_lsn);
     // Done
@@ -370,83 +377,53 @@ resume_15:
     goto resume_0;
 }
 
-void journal_flusher_co::iterate_partial_overwrites(std::function<int(int, uint32_t, uint32_t)> cb)
+void journal_flusher_co::iterate_checksum_holes(std::function<void(int & pos, uint32_t hole_start, uint32_t hole_end)> cb)
 {
-    int prev = 0;
-    uint32_t prev_begin = 0, prev_end = 0;
-    for (int i = 0; i < read_vec.size() && !(read_vec[i].copy_flags & COPY_BUF_CSUM_FILL); i++)
+    bs->find_holes(read_vec, 0, bs->dsk.data_block_size, [&](int & pos, uint32_t hole_start, uint32_t hole_end)
     {
-        if (!(read_vec[i].copy_flags & COPY_BUF_COALESCED))
+        if (hole_start % bs->dsk.csum_block_size)
         {
-            if (read_vec[i].offset > prev_end)
-            {
-                if (prev_end > prev_begin &&
-                    ((prev_begin % bs->dsk.csum_block_size) && prev_begin > big_start ||
-                    (prev_end % bs->dsk.csum_block_size) && prev_end < big_end))
-                {
-                    i += cb(prev, prev_begin, prev_end);
-                }
-                prev = i;
-                prev_begin = read_vec[i].offset;
-            }
-            prev_end = read_vec[i].offset + read_vec[i].len;
+            uint32_t blk_end = hole_start - (hole_start % bs->dsk.csum_block_size) + bs->dsk.csum_block_size;
+            cb(pos, hole_start, hole_end < blk_end ? hole_end : blk_end);
         }
-    }
-    if (prev_end > prev_begin &&
-        ((prev_begin % bs->dsk.csum_block_size) && prev_begin > big_start ||
-        (prev_end % bs->dsk.csum_block_size) && prev_end < big_end))
-    {
-        cb(prev, prev_begin, prev_end);
-    }
-}
-
-void journal_flusher_co::iterate_checksum_holes(std::function<void(int, uint32_t, uint32_t)> cb)
-{
-    iterate_partial_overwrites([&](int pos, uint32_t prev_begin, uint32_t prev_end)
-    {
-        int r = 0;
-        if ((prev_begin % bs->dsk.csum_block_size) && prev_begin > big_start &&
-            (prev_begin / bs->dsk.csum_block_size) != (prev_end / bs->dsk.csum_block_size))
+        if ((hole_end % bs->dsk.csum_block_size) &&
+            (!(hole_start % bs->dsk.csum_block_size) || (hole_end / bs->dsk.csum_block_size) != (hole_start / bs->dsk.csum_block_size)))
         {
-            uint32_t blk_begin = (prev_begin - prev_begin%bs->dsk.csum_block_size);
-            if (blk_begin < big_start)
-                blk_begin = big_start;
-            cb(pos++, blk_begin, prev_begin);
-            r++;
+            cb(pos, hole_end - (hole_end % bs->dsk.csum_block_size), hole_end);
         }
-        if ((prev_end % bs->dsk.csum_block_size) && prev_end < big_end)
-        {
-            uint32_t blk_end = prev_end - (prev_end % bs->dsk.csum_block_size) + bs->dsk.csum_block_size;
-            if (blk_end > big_end)
-                blk_end = big_end;
-            cb(++pos, prev_end, blk_end);
-            r++;
-        }
-        return r;
     });
 }
 
 void journal_flusher_co::fill_partial_checksum_blocks()
 {
-    iterate_checksum_holes([&](int vec_pos, uint32_t hole_start, uint32_t hole_end)
+    iterate_checksum_holes([&](int & vec_pos, uint32_t hole_start, uint32_t hole_end)
     {
         read_to_fill_incomplete = true;
         uint32_t blk_begin = (hole_start - hole_start % bs->dsk.csum_block_size);
-        bs->prepare_disk_read(read_vec, read_vec.size(), cur_obj, end_wr,
-            blk_begin < big_start ? big_start : blk_begin,
-            (blk_begin + bs->dsk.csum_block_size) > big_end ? big_end : (blk_begin + bs->dsk.csum_block_size),
-            blk_begin < big_start ? big_start : blk_begin,
-            (blk_begin + bs->dsk.csum_block_size) > big_end ? big_end : (blk_begin + bs->dsk.csum_block_size),
-            COPY_BUF_CSUM_FILL | (bs->perfect_csum_update ? 0 : COPY_BUF_SKIP_CSUM));
+        blk_begin = (blk_begin < big_start ? big_start : blk_begin);
+        uint32_t blk_end = (blk_begin + bs->dsk.csum_block_size) > big_end ? big_end : (blk_begin + bs->dsk.csum_block_size);
+        uint32_t copy_flags = COPY_BUF_CSUM_FILL | (bs->perfect_csum_update ? 0 : COPY_BUF_SKIP_CSUM);
+        if (!read_vec.size() || read_vec.back().copy_flags != copy_flags ||
+            read_vec.back().offset != blk_begin || read_vec.back().len != blk_end-blk_begin)
+        {
+            read_vec.push_back((copy_buffer_t){
+                .copy_flags = COPY_BUF_DATA | copy_flags,
+                .offset = blk_begin,
+                .len = blk_end - blk_begin,
+                .disk_offset = end_wr->location + blk_begin,
+                .disk_len = blk_end - blk_begin,
+                .buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, blk_end - blk_begin),
+                .wr_lsn = end_wr->lsn,
+            });
+        }
         auto & vec = read_vec[read_vec.size()-1];
-        if (!vec.buf)
-            vec.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, vec.disk_len);
         read_vec.insert(read_vec.begin()+vec_pos, (copy_buffer_t){
             .copy_flags = COPY_BUF_JOURNAL|COPY_BUF_COALESCED,
             .offset = hole_start,
-            .len = hole_end-hole_start,
+            .len = hole_end - hole_start,
             .buf = vec.buf + hole_start - vec.offset,
         });
+        vec_pos++;
     });
 }
 
@@ -525,11 +502,18 @@ int journal_flusher_co::check_and_punch_checksums()
     uint8_t *bmp = end_wr->get_int_bitmap(bs->heap);
     uint8_t *csums = end_wr->get_checksums(bs->heap);
     // Clear bits
-    iterate_partial_overwrites([&](int pos, uint32_t start, uint32_t end)
+    for (auto & vec: read_vec)
     {
-        bitmap_clear(bmp, start, end-start, bs->dsk.bitmap_granularity);
-        return 0;
-    });
+        if (vec.copy_flags & COPY_BUF_CSUM_FILL)
+        {
+            break;
+        }
+        if (!(vec.copy_flags & COPY_BUF_COALESCED) &&
+            ((vec.offset % bs->dsk.csum_block_size) || (vec.len % bs->dsk.csum_block_size)))
+        {
+            bitmap_clear(bmp, vec.offset, vec.len, bs->dsk.bitmap_granularity);
+        }
+    }
     // Update partial block checksums
     for (auto & vec: read_vec)
     {
