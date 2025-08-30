@@ -306,7 +306,8 @@ void blockstore_impl_t::free_read_buffers(std::vector<copy_buffer_t> & rv)
     {
         for (auto & vec: rv)
         {
-            if (!(vec.copy_flags & COPY_BUF_COALESCED) && vec.buf)
+            if (!(vec.copy_flags & COPY_BUF_COALESCED) && vec.buf &&
+                (!buffer_area || vec.buf < buffer_area || vec.buf >= (uint8_t*)buffer_area + dsk.journal_len))
             {
                 free(vec.buf);
                 vec.buf = NULL;
