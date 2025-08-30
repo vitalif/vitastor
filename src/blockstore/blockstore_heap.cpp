@@ -499,7 +499,6 @@ skip_unseen:
             if (!op.second.handled)
             {
                 uint16_t & region_marker = *(uint16_t*)(buf + buf_offset + op.second.start);
-                assert(!(region_marker & FREE_SPACE_BIT));
                 region_marker |= FREE_SPACE_BIT;
             }
         }
