@@ -591,6 +591,7 @@ bool journal_flusher_co::calc_block_checksums()
             }, true, NULL
         );
     }
+    cur_obj->crc32c = cur_obj->calc_crc32c();
     return true;
 }
 
