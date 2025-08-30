@@ -235,10 +235,10 @@ static uint32_t free_writes(heap_write_t *wr, heap_write_t *to)
 }
 
 // EASY PEASY LEMON SQUEEZIE
-void blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf,
+void blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uint8_t *buf,
     std::function<void(heap_object_t*)> handle_object, std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block)
 {
-    for (uint64_t buf_offset = 0; buf_offset < size; buf_offset += dsk->meta_block_size)
+    for (uint64_t buf_offset = 0; buf_offset < disk_size; buf_offset += dsk->meta_block_size)
     {
         uint32_t block_num = (disk_offset + buf_offset) / dsk->meta_block_size;
         assert(block_num < block_info.size());
@@ -2086,7 +2086,7 @@ uint64_t blockstore_heap_t::find_free_buffer_area(uint64_t size)
 bool blockstore_heap_t::is_buffer_area_free(uint64_t location, uint64_t size)
 {
     assert(!(location % dsk->bitmap_granularity));
-    return buffer_alloc->is_free(location / dsk->bitmap_granularity);
+    return !size || buffer_alloc->is_free(location / dsk->bitmap_granularity);
 }
 
 void blockstore_heap_t::use_buffer_area(inode_t inode, uint64_t location, uint64_t size)
