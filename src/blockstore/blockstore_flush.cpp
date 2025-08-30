@@ -629,8 +629,8 @@ bool journal_flusher_co::read_buffered(int wait_base)
     }
     for (i = 0; i < read_vec.size(); i++)
     {
-        if (read_vec[i].copy_flags == COPY_BUF_JOURNAL && !bs->dsk.inmemory_journal ||
-            (read_vec[i].copy_flags & COPY_BUF_DATA) && !(read_vec[i].copy_flags & COPY_BUF_COALESCED))
+        if (!(read_vec[i].copy_flags & COPY_BUF_COALESCED) &&
+            ((read_vec[i].copy_flags & COPY_BUF_JOURNAL) && !bs->dsk.inmemory_journal || (read_vec[i].copy_flags & COPY_BUF_DATA)))
         {
             await_sqe(0);
             auto & vec = read_vec[i];

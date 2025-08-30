@@ -79,15 +79,19 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *op)
 {
     for (auto & vec: PRIV(op)->read_vec)
     {
-        if (vec.copy_flags == COPY_BUF_ZERO)
+        if (vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_CSUM_FILL))
+        {
+            // This buffer references another one
+        }
+        else if (vec.copy_flags == COPY_BUF_ZERO)
         {
             memset(op->buf + vec.offset - op->offset, 0, vec.len);
         }
-        else if (vec.copy_flags == COPY_BUF_JOURNAL && dsk.inmemory_journal)
+        else if ((vec.copy_flags & COPY_BUF_JOURNAL) && dsk.inmemory_journal)
         {
             memcpy(op->buf + vec.offset - op->offset, buffer_area + vec.disk_offset, vec.len);
         }
-        else if (!(vec.copy_flags & COPY_BUF_COALESCED))
+        else
         {
             BS_SUBMIT_GET_SQE(sqe, data);
             data->iov = (struct iovec){ vec.buf ? vec.buf : (op->buf + vec.offset - op->offset), (size_t)vec.disk_len };
@@ -178,7 +182,7 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
         {
             // read buffered data from memory
             read_vec.insert(read_vec.begin() + (pos++), (copy_buffer_t){
-                .copy_flags = COPY_BUF_JOURNAL,
+                .copy_flags = COPY_BUF_JOURNAL | COPY_BUF_SKIP_CSUM,
                 .offset = start,
                 .len = end-start,
                 .disk_offset = wr->location + start - wr->offset,
