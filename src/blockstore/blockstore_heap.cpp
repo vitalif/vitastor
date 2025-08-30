@@ -244,7 +244,7 @@ void blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, ui
         assert(block_num < block_info.size());
         uint32_t block_offset = 0;
         std::map<uint32_t, verify_offset_t> offsets_seen;
-        while (block_offset < dsk->meta_block_size - 2)
+        while (block_offset <= dsk->meta_block_size-2)
         {
             heap_write_t *skip_erase_wr = NULL, *skip_erase_to = NULL;
             uint8_t *data = buf + buf_offset + block_offset;
@@ -553,6 +553,8 @@ uint64_t blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uin
             copy = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk->meta_block_size);
             memcpy(copy, buf, last_offset);
             memset(copy+last_offset, 0, dsk->meta_block_size-last_offset);
+            if (last_offset <= dsk->meta_block_size-2)
+                *(uint16_t*)(copy+last_offset) = FREE_SPACE_BIT | (dsk->meta_block_size-last_offset);
         }
         block_info[block_num] = {
             .used_space = 0,
@@ -1109,7 +1111,7 @@ void blockstore_heap_t::defragment_block(uint32_t block_num)
     const uint8_t *new_end = new_data+dsk->meta_block_size;
     uint8_t *old = inf.data;
     uint8_t *cur = new_data;
-    while (old < end)
+    while (old <= end-2)
     {
         uint16_t region_marker = *((uint16_t*)old);
         if (region_marker & FREE_SPACE_BIT)
@@ -1185,7 +1187,7 @@ uint32_t blockstore_heap_t::find_block_run(heap_block_info_t & inf, uint32_t spa
     uint8_t *data = inf.data + inf.free_pos;
     uint8_t *end = inf.data + dsk->meta_block_size;
     uint8_t *last_free = NULL;
-    while (data < end)
+    while (data <= end-2)
     {
         uint16_t region_marker = *((uint16_t*)data);
         assert(region_marker);
@@ -1200,8 +1202,10 @@ uint32_t blockstore_heap_t::find_block_run(heap_block_info_t & inf, uint32_t spa
                 // Merge free regions
                 *((uint16_t*)last_free) += (region_marker & ~FREE_SPACE_BIT);
                 *((uint16_t*)data) = 0;
+                inf.free_pos = last_free-inf.data;
             }
             uint16_t region_size = *((uint16_t*)last_free) & ~FREE_SPACE_BIT;
+            assert(last_free-inf.data+region_size <= dsk->meta_block_size);
             if (region_size == space)
             {
                 inf.free_pos = last_free-inf.data+space;
