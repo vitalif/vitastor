@@ -153,13 +153,13 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
     for (int role = 0; role < (op_data->pg ? op_data->pg->pg_size : 1); role++)
     {
         // We always submit zero-length writes to all replicas, even if the stripe is not modified
-        if (!(wr || !rep && stripes[role].read_end != 0 || zero_read == role || submit_type == SUBMIT_SCRUB_READ))
+        if (!(wr || !rep && stripes[role].read_end != 0 || zero_read == role))
         {
             continue;
         }
         osd_num_t role_osd_num = osd_set[role];
         int stripe_num = rep ? 0 : role;
-        osd_rmw_stripe_t *si = stripes + (submit_type == SUBMIT_SCRUB_READ ? role : stripe_num);
+        osd_rmw_stripe_t *si = stripes + stripe_num;
         if (role_osd_num != 0)
         {
             si->osd_num = role_osd_num;
