@@ -306,7 +306,7 @@ resume_8:
         {
             assert(read_vec[i].buf);
             await_sqe(9);
-            data->iov = (struct iovec){ (bs->dsk.inmemory_journal ? bs->buffer_area + read_vec[i].disk_offset : read_vec[i].buf), (size_t)read_vec[i].len };
+            data->iov = (struct iovec){ read_vec[i].buf, (size_t)read_vec[i].len };
             data->callback = simple_callback_w;
             io_uring_prep_writev(sqe, bs->dsk.data_fd, &data->iov, 1, bs->dsk.data_offset + clean_loc + read_vec[i].offset);
             wait_count++;
@@ -551,8 +551,10 @@ bool journal_flusher_co::calc_block_checksums()
     // Set bits
     for (auto & vec: read_vec)
     {
-        if (!(vec.copy_flags & COPY_BUF_COALESCED))
+        if (!(vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_CSUM_FILL)))
+        {
             bitmap_set(bmp, vec.offset, vec.len, bs->dsk.bitmap_granularity);
+        }
     }
     end_wr->offset = big_start;
     end_wr->len = big_end-big_start;
