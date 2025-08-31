@@ -252,13 +252,14 @@ void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec,
     };
     if (blk_start != start || blk_end != end)
     {
+        assert(!(copy_flags & COPY_BUF_CSUM_FILL));
         vec.copy_flags |= COPY_BUF_PADDED;
-        if (pos > 0 && read_vec.size() >= pos && (read_vec[pos-1].copy_flags & ~COPY_BUF_CSUM_FILL) == vec.copy_flags &&
-            read_vec[pos-1].offset >= blk_start && read_vec[pos-1].offset+read_vec[pos-1].len <= blk_end)
+        if (pos > 0 && read_vec.size() >= pos && read_vec[pos-1].copy_flags == vec.copy_flags &&
+            read_vec[pos-1].offset <= blk_start && read_vec[pos-1].offset+read_vec[pos-1].len >= blk_end)
         {
             // This is the same block as the previous one, we can read it only once
             vec.copy_flags |= COPY_BUF_COALESCED;
-            vec.buf = read_vec[pos-1].buf;
+            vec.buf = read_vec[pos-1].buf + blk_start - read_vec[pos-1].offset;
         }
         else
         {
@@ -348,10 +349,8 @@ bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
     auto & rv = PRIV(op)->read_vec;
     for (auto & vec: rv)
     {
-        if (vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_SKIP_CSUM|COPY_BUF_ZERO))
-        {
+        if (vec.copy_flags & COPY_BUF_ZERO)
             continue;
-        }
         heap_write_t *wr = obj->get_writes();
         while (wr && wr->lsn != vec.wr_lsn)
             wr = wr->next();
@@ -365,6 +364,8 @@ bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
             blk_end = blk_end > wr->offset+wr->len ? wr->offset+wr->len : blk_end;
             memcpy(op->buf + vec.offset - op->offset, vec.buf + vec.offset - blk_start, vec.len);
         }
+        if (vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_SKIP_CSUM))
+            continue;
         uint8_t *buf = vec.buf ? vec.buf : (op->buf + vec.offset - op->offset);
         uint32_t *csums = (uint32_t*)(wr->get_checksums(heap)
             + (blk_start/dsk.csum_block_size)*(dsk.data_csum_type & 0xFF)
