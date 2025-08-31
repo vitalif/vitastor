@@ -30,6 +30,7 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_i *
         dsk.close_all();
         throw;
     }
+    memset(zero_object, 0, dsk.data_block_size);
     meta_superblock = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
     memset(meta_superblock, 0, dsk.meta_block_size);
 }
