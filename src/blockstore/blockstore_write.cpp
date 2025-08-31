@@ -242,8 +242,10 @@ process_intent:
         if (op->len > 0)
         {
             // Prepare buffered data write
-            assert(dsk.inmemory_journal);
-            memcpy((uint8_t*)buffer_area + loc, op->buf, op->len);
+            if (dsk.inmemory_journal)
+            {
+                memcpy((uint8_t*)buffer_area + loc, op->buf, op->len);
+            }
             BS_SUBMIT_GET_SQE(sqe2, data2);
             data2->iov = (struct iovec){ op->buf, op->len };
             data2->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };

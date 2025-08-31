@@ -302,11 +302,13 @@ resume_8:
     for (i = 0; i < read_vec.size(); i++)
     {
         if ((read_vec[i].copy_flags & COPY_BUF_JOURNAL) &&
-            !(read_vec[i].copy_flags & COPY_BUF_COALESCED))
+            !(read_vec[i].copy_flags & COPY_BUF_COALESCED) ||
+            (read_vec[i].copy_flags & COPY_BUF_PADDED)) // FIXME Shit, simplify these flags
         {
             assert(read_vec[i].buf);
             await_sqe(9);
-            data->iov = (struct iovec){ read_vec[i].buf, (size_t)read_vec[i].len };
+            data->iov = (struct iovec){ read_vec[i].buf + (read_vec[i].copy_flags & COPY_BUF_PADDED
+                ? read_vec[i].offset - read_vec[i].disk_offset : 0), (size_t)read_vec[i].len };
             data->callback = simple_callback_w;
             io_uring_prep_writev(sqe, bs->dsk.data_fd, &data->iov, 1, bs->dsk.data_offset + clean_loc + read_vec[i].offset);
             wait_count++;
@@ -410,7 +412,8 @@ void journal_flusher_co::fill_partial_checksum_blocks()
                 .copy_flags = COPY_BUF_DATA | copy_flags,
                 .offset = blk_begin,
                 .len = blk_end - blk_begin,
-                .disk_offset = end_wr->location + blk_begin,
+                .disk_loc = end_wr->location,
+                .disk_offset = blk_begin,
                 .disk_len = blk_end - blk_begin,
                 .buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, blk_end - blk_begin),
                 .wr_lsn = end_wr->lsn,
@@ -421,6 +424,8 @@ void journal_flusher_co::fill_partial_checksum_blocks()
             .copy_flags = COPY_BUF_JOURNAL|COPY_BUF_COALESCED,
             .offset = hole_start,
             .len = hole_end - hole_start,
+            .disk_offset = hole_start,
+            .disk_len = hole_end - hole_start,
             .buf = vec.buf + hole_start - vec.offset,
         });
         vec_pos++;
@@ -461,16 +466,16 @@ int journal_flusher_co::check_and_punch_checksums()
                 wr = wr->next();
             assert(wr);
             uint32_t *csums = (uint32_t*)(wr->get_checksums(bs->heap)
-                + (vec.offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)
+                + (vec.disk_offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)
                 - ((wr->type() == BS_HEAP_BIG_WRITE) ? 0 : (wr->offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)));
             bs->heap->calc_block_checksums(
-                csums, vec.buf, wr->get_int_bitmap(bs->heap), vec.offset, vec.offset+vec.len, false,
+                csums, vec.buf, wr->get_int_bitmap(bs->heap), vec.disk_offset, vec.disk_offset+vec.disk_len, false,
                 [&](uint32_t mismatch_pos, uint32_t expected_csum, uint32_t real_csum)
                 {
                     printf("Checksum mismatch during compaction in object %jx:%jx v%ju, offset 0x%x in %s area at offset 0x%jx: got %08x, expected %08x\n",
                         cur_oid.inode, cur_oid.stripe, wr->version, mismatch_pos,
                         (vec.copy_flags & COPY_BUF_JOURNAL ? "buffer" : "data"),
-                        vec.disk_offset, real_csum, expected_csum);
+                        vec.disk_loc+vec.disk_offset, real_csum, expected_csum);
                     csum_ok = false;
                 }
             );
@@ -586,7 +591,7 @@ bool journal_flusher_co::calc_block_checksums()
                     if (read_vec[i].offset+read_vec[i].len > start)
                     {
                         len = read_vec[i].offset+read_vec[i].len-start;
-                        return read_vec[i].buf + start-read_vec[i].offset;
+                        return read_vec[i].buf + start-read_vec[i].disk_offset;
                     }
                 }
                 return (uint8_t*)NULL;
@@ -644,7 +649,7 @@ bool journal_flusher_co::read_buffered(int wait_base)
                 sqe,
                 (vec.copy_flags & COPY_BUF_JOURNAL) ? bs->dsk.journal_fd : bs->dsk.data_fd,
                 &data->iov, 1,
-                ((vec.copy_flags & COPY_BUF_JOURNAL) ? bs->dsk.journal_offset : bs->dsk.data_offset) + vec.disk_offset
+                ((vec.copy_flags & COPY_BUF_JOURNAL) ? bs->dsk.journal_offset : bs->dsk.data_offset) + vec.disk_loc + vec.disk_offset
             );
             data->callback = simple_callback_r;
         }

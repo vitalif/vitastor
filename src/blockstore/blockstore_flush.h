@@ -4,7 +4,7 @@
 struct copy_buffer_t
 {
     uint32_t copy_flags;
-    uint64_t offset, len, disk_offset, disk_len;
+    uint64_t offset, len, disk_loc, disk_offset, disk_len;
     uint8_t *buf;
     uint64_t wr_lsn;
 };
