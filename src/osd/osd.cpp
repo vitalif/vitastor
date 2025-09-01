@@ -291,7 +291,7 @@ void osd_t::parse_config(bool init)
     scrub_sleep_ms = config["scrub_sleep"].uint64_value();
     scrub_list_limit = config["scrub_list_limit"].uint64_value();
     if (!scrub_list_limit)
-        scrub_list_limit = 1000;
+        scrub_list_limit = 262144;
     if (!old_auto_scrub && auto_scrub)
     {
         // Schedule scrubbing

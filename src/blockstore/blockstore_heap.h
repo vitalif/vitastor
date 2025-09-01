@@ -291,7 +291,7 @@ public:
     // mark an object as compacted up to the given lsn
     int compact_object(object_id oid, uint64_t lsn, uint8_t *new_csums);
     // retrieve object listing from a PG
-    int list_objects(uint32_t pg_num, uint64_t min_inode, uint64_t max_inode,
+    int list_objects(uint32_t pg_num, object_id min_oid, object_id max_oid,
         obj_ver_id **result_list, size_t *stable_count, size_t *unstable_count);
     // set a block number for a new object and returns error status: 0, EAGAIN or ENOSPC
     int get_block_for_new_object(uint32_t & out_block_num, uint32_t size = 0);

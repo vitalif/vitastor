@@ -491,7 +491,7 @@ Can be used to slow down scrubbing if it affects user load too much.
 ## scrub_list_limit
 
 - Type: integer
-- Default: 1000
+- Default: 262144
 - Can be changed online: yes
 
 Number of objects to list in one listing operation during scrub.

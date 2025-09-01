@@ -1965,15 +1965,15 @@ void blockstore_heap_t::add_used_space(uint32_t block_num, int32_t used_delta)
         meta_alloc_count++;
 }
 
-int blockstore_heap_t::list_objects(uint32_t pg_num, uint64_t min_inode, uint64_t max_inode,
+int blockstore_heap_t::list_objects(uint32_t pg_num, object_id min_oid, object_id max_oid,
     obj_ver_id **result_list, size_t *stable_count, size_t *unstable_count)
 {
     obj_ver_id *res = NULL;
     size_t res_size = 0, res_alloc = 0;
     obj_ver_id *unstable = NULL;
     size_t unstable_size = 0, unstable_alloc = 0;
-    uint64_t pool_id = (min_inode >> (64-POOL_ID_BITS));
-    if (pool_id == 0 || pool_id != (max_inode >> (64-POOL_ID_BITS)))
+    uint64_t pool_id = (min_oid.inode >> (64-POOL_ID_BITS));
+    if (pool_id == 0 || pool_id != (max_oid.inode >> (64-POOL_ID_BITS)))
     {
         return EINVAL;
     }
@@ -1988,13 +1988,17 @@ int blockstore_heap_t::list_objects(uint32_t pg_num, uint64_t min_inode, uint64_
     auto last_it = block_index[pool_pg_id].end();
     for (auto inode_it = first_it; inode_it != last_it; inode_it++)
     {
-        if (inode_it->first < min_inode || inode_it->first > max_inode)
+        if (inode_it->first < min_oid.inode || inode_it->first > max_oid.inode)
         {
             continue;
         }
         for (auto & stripe_pair: inode_it->second)
         {
             auto oid = (object_id){ .inode = inode_it->first, .stripe = stripe_pair.first };
+            if (oid < min_oid || max_oid < oid)
+            {
+                continue;
+            }
             const uint64_t block_pos = stripe_pair.second;
             const uint32_t block_num = block_pos / dsk->meta_block_size;
             heap_object_t *obj = (heap_object_t*)(block_info[block_num].data + (block_pos % dsk->meta_block_size));

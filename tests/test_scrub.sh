@@ -7,6 +7,8 @@ if [[ ("$SCHEME" = "" || "$SCHEME" = "replicated") && ("$PG_SIZE" = "" || "$PG_S
     OSD_COUNT=2
 fi
 
+OSD_ARGS="--scrub_list_limit 1000 $OSD_ARGS"
+
 . `dirname $0`/run_3osds.sh
 
 check_qemu

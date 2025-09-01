@@ -776,21 +776,26 @@ void test_reshard_list()
 
         obj_ver_id *listing = NULL;
         size_t stable_count = 0, unstable_count = 0;
-        res = heap.list_objects(1, INODE_WITH_POOL(0, 1), INODE_WITH_POOL(1, 1), &listing, &stable_count, &unstable_count);
+        res = heap.list_objects(1, (object_id){ .inode = INODE_WITH_POOL(0, 1) },
+            (object_id){ .inode = INODE_WITH_POOL(1, 1), .stripe = UINT64_MAX }, &listing, &stable_count, &unstable_count);
         assert(res == EINVAL);
-        res = heap.list_objects(1, INODE_WITH_POOL(1, 1), INODE_WITH_POOL(2, 1), &listing, &stable_count, &unstable_count);
+        res = heap.list_objects(1, (object_id){ .inode = INODE_WITH_POOL(1, 1) },
+            (object_id){ .inode = INODE_WITH_POOL(2, 1), .stripe = UINT64_MAX }, &listing, &stable_count, &unstable_count);
         assert(res == EINVAL);
-        res = heap.list_objects(2, INODE_WITH_POOL(1, 1), INODE_WITH_POOL(1, 1), &listing, &stable_count, &unstable_count);
+        res = heap.list_objects(2, (object_id){ .inode = INODE_WITH_POOL(1, 1) },
+            (object_id){ .inode = INODE_WITH_POOL(1, 1), .stripe = UINT64_MAX }, &listing, &stable_count, &unstable_count);
         assert(res == EINVAL);
 
-        res = heap.list_objects(1, INODE_WITH_POOL(1, 1), INODE_WITH_POOL(1, UINT64_MAX), &listing, &stable_count, &unstable_count);
+        res = heap.list_objects(1, (object_id){ .inode = INODE_WITH_POOL(1, 1) },
+            (object_id){ .inode = INODE_WITH_POOL(1, UINT64_MAX), .stripe = UINT64_MAX }, &listing, &stable_count, &unstable_count);
         assert(res == 0);
         assert(stable_count == 4);
         assert(unstable_count == 2);
         free(listing);
         listing = NULL;
 
-        res = heap.list_objects(1, INODE_WITH_POOL(1, 1), INODE_WITH_POOL(1, 1), &listing, &stable_count, &unstable_count);
+        res = heap.list_objects(1, (object_id){ .inode = INODE_WITH_POOL(1, 1) },
+            (object_id){ .inode = INODE_WITH_POOL(1, 1), .stripe = UINT64_MAX }, &listing, &stable_count, &unstable_count);
         assert(res == 0);
         assert(stable_count == 3);
         assert(unstable_count == 0);
@@ -805,16 +810,19 @@ void test_reshard_list()
         assert(heap.read_entry((object_id){ .inode = INODE_WITH_POOL(1, 2), .stripe = 0x60000 }, NULL));
         assert(!heap.read_entry((object_id){ .inode = INODE_WITH_POOL(1, 2), .stripe = 0x80000 }, NULL));
 
-        res = heap.list_objects(3, INODE_WITH_POOL(1, 1), INODE_WITH_POOL(1, 1), &listing, &stable_count, &unstable_count);
+        res = heap.list_objects(3, (object_id){ .inode = INODE_WITH_POOL(1, 1) },
+            (object_id){ .inode = INODE_WITH_POOL(1, 1), .stripe = UINT64_MAX }, &listing, &stable_count, &unstable_count);
         assert(res == EINVAL);
-        res = heap.list_objects(1, INODE_WITH_POOL(1, 1), INODE_WITH_POOL(1, 1), &listing, &stable_count, &unstable_count);
+        res = heap.list_objects(1, (object_id){ .inode = INODE_WITH_POOL(1, 1) },
+            (object_id){ .inode = INODE_WITH_POOL(1, 1), .stripe = UINT64_MAX }, &listing, &stable_count, &unstable_count);
         assert(res == 0);
         assert(stable_count == 2);
         assert(unstable_count == 0);
         free(listing);
         listing = NULL;
 
-        res = heap.list_objects(2, INODE_WITH_POOL(1, 1), INODE_WITH_POOL(1, UINT64_MAX), &listing, &stable_count, &unstable_count);
+        res = heap.list_objects(2, (object_id){ .inode = INODE_WITH_POOL(1, 1) },
+            (object_id){ .inode = INODE_WITH_POOL(1, UINT64_MAX), .stripe = UINT64_MAX }, &listing, &stable_count, &unstable_count);
         assert(res == 0);
         assert(stable_count == 2);
         assert(unstable_count == 2);

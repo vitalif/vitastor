@@ -566,7 +566,7 @@
     сильно влияет на пользовательскую нагрузку.
 - name: scrub_list_limit
   type: int
-  default: 1000
+  default: 262144
   online: true
   info: |
     Number of objects to list in one listing operation during scrub.

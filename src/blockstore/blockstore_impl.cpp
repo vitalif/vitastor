@@ -325,7 +325,18 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     heap->reshard(INODE_POOL(min_inode), pg_count, pg_stripe_size);
     obj_ver_id *result = NULL;
     size_t stable_count = 0, unstable_count = 0;
-    int res = heap->list_objects(list_pg, min_inode, max_inode, &result, &stable_count, &unstable_count);
+    int res = heap->list_objects(list_pg, op->min_oid, op->max_oid, &result, &stable_count, &unstable_count);
+    if (op->list_stable_limit)
+    {
+        // Ordered result is expected - used by scrub
+        // We use an unordered map
+        std::sort(result, result + stable_count);
+        if (stable_count > op->list_stable_limit)
+        {
+            memmove(result + op->list_stable_limit, result + stable_count, unstable_count);
+            stable_count = op->list_stable_limit;
+        }
+    }
     op->version = stable_count;
     op->retval = res == 0 ? stable_count+unstable_count : -res;
     op->buf = (uint8_t*)result;

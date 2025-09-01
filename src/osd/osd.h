@@ -149,7 +149,7 @@ class osd_t
     uint64_t global_scrub_interval = 30*86400;
     uint64_t scrub_queue_depth = 1;
     uint64_t scrub_sleep_ms = 0;
-    uint32_t scrub_list_limit = 1000;
+    uint32_t scrub_list_limit = 262144;
     bool scrub_find_best = true;
     uint64_t scrub_ec_max_bruteforce = 100;
     bool enable_pg_locks = false;
