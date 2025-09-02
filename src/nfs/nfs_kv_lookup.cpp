@@ -23,6 +23,81 @@ int kv_nfs3_lookup_proc(void *opaque, rpc_op_t *rop)
         rpc_queue_reply(rop);
         return 0;
     }
+    if (filename == ".")
+    {
+        kv_read_inode(self->parent, dir_ino, [=](int res, const std::string & value, json11::Json ientry)
+        {
+            if (res < 0)
+            {
+                *reply = (LOOKUP3res){ .status = vitastor_nfs_map_err(-res) };
+                rpc_queue_reply(rop);
+                return;
+            }
+            *reply = (LOOKUP3res){
+                .status = NFS3_OK,
+                .resok = (LOOKUP3resok){
+                    .object = xdr_copy_string(rop->xdrs, kv_fh(dir_ino)),
+                    .obj_attributes = {
+                        .attributes_follow = 1,
+                        .attributes = get_kv_attributes(self->parent, dir_ino, ientry),
+                    },
+                },
+            };
+            rpc_queue_reply(rop);
+        });
+        return 1;
+    }
+    if (filename == "..")
+    {
+        kv_read_inode(self->parent, dir_ino, [=](int res, const std::string & value, json11::Json ientry)
+        {
+            if (res < 0)
+            {
+                *reply = (LOOKUP3res){ .status = vitastor_nfs_map_err(-res) };
+                rpc_queue_reply(rop);
+                return;
+            }
+            uint64_t parent_ino = ientry["parent_ino"].uint64_value();
+            if (parent_ino)
+            {
+                kv_read_inode(self->parent, parent_ino, [=](int res, const std::string & value, json11::Json parent_ientry)
+                {
+                    if (res < 0)
+                    {
+                        *reply = (LOOKUP3res){ .status = vitastor_nfs_map_err(-res) };
+                        rpc_queue_reply(rop);
+                        return;
+                    }
+                    *reply = (LOOKUP3res){
+                        .status = NFS3_OK,
+                        .resok = (LOOKUP3resok){
+                            .object = xdr_copy_string(rop->xdrs, kv_fh(parent_ino)),
+                            .obj_attributes = {
+                                .attributes_follow = 1,
+                                .attributes = get_kv_attributes(self->parent, parent_ino, parent_ientry),
+                            },
+                        },
+                    };
+                    rpc_queue_reply(rop);
+                });
+            }
+            else
+            {
+                *reply = (LOOKUP3res){
+                    .status = NFS3_OK,
+                    .resok = (LOOKUP3resok){
+                        .object = xdr_copy_string(rop->xdrs, kv_fh(dir_ino)),
+                        .obj_attributes = {
+                            .attributes_follow = 1,
+                            .attributes = get_kv_attributes(self->parent, dir_ino, ientry),
+                        },
+                    },
+                };
+                rpc_queue_reply(rop);
+            }
+        });
+        return 1;
+    }
     self->parent->db->get(kv_direntry_key(dir_ino, filename), [=](int res, const std::string & value)
     {
         if (res < 0)
