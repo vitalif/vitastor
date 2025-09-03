@@ -25,7 +25,10 @@ nfstime3 nfstime_from_str(const std::string & s)
             t.nseconds /= 10;
     }
     else
+    {
         t.seconds = stoull_full(s, 10);
+        t.nseconds = 0;
+    }
     return t;
 }
 
