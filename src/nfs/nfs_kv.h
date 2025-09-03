@@ -83,6 +83,7 @@ struct kv_fs_state_t
     std::vector<uint8_t> scrap_block;
 
     void init(nfs_proxy_t *proxy, json11::Json cfg);
+    void init_root_inode();
     void touch_inodes();
     void update_inode(inode_t ino, bool allow_cache, std::function<void(json11::Json::object &)> change, std::function<void(int)> cb);
     void upgrade_db(std::function<void(int)> cb);

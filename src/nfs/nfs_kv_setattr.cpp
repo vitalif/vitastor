@@ -97,7 +97,7 @@ resume_1:
     }, [st](int res, const std::string & cas_value)
     {
         st->cas_res = res;
-        return (res == 0 || res == -ENOENT && st->ino == KV_ROOT_INODE) && cas_value == st->ientry_text;
+        return res == 0 && cas_value == st->ientry_text;
     });
     return;
 resume_2:
