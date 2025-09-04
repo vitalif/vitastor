@@ -70,6 +70,8 @@ TEST_NAME=local_read POOLCFG='"local_reads":"random",' ./test_heal.sh
 SCHEME=ec ./test_heal.sh
 ANTIETCD=1 ./test_heal.sh
 
+./test_reweight_half.sh
+
 TEST_NAME=csum_32k_dmj OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k --inmemory_metadata false --inmemory_journal false" OFFSET_ARGS=$OSD_ARGS ./test_heal.sh
 TEST_NAME=csum_32k_dj  OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k --inmemory_journal false" OFFSET_ARGS=$OSD_ARGS ./test_heal.sh
 TEST_NAME=csum_32k     OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k" OFFSET_ARGS=$OSD_ARGS ./test_heal.sh
