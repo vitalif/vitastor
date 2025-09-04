@@ -1167,7 +1167,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             if (!cur_primary || !value["state"].is_array() || !state ||
                 (state & PG_OFFLINE) && state != PG_OFFLINE ||
                 (state & PG_PEERING) && state != PG_PEERING ||
-                (state & PG_INCOMPLETE) && state != PG_INCOMPLETE)
+                (state & PG_INCOMPLETE) && state != PG_INCOMPLETE && state != (PG_INCOMPLETE|PG_HAS_INVALID))
             {
                 fprintf(stderr, "Unexpected pool %u PG %u state in etcd: primary=%ju, state=%s\n", pool_id, pg_num, cur_primary, value["state"].dump().c_str());
                 return;
