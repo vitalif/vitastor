@@ -128,6 +128,8 @@ void pg_obj_state_check_t::handle_version()
         n_copies++;
         if (replicated && replica > 0 || replica >= pg->pg_size)
         {
+            printf("Object %jx:%jx has invalid chunk number: %u > %u\n", list[list_pos].oid.inode,
+                list[list_pos].oid.stripe, replica, replicated ? 0 : pg->pg_size);
             n_invalid++;
         }
         else
