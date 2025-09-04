@@ -73,6 +73,8 @@ Options (automatic mode):
 --max_other 10%
   Use disks for OSD data even if they already have non-Vitastor partitions,
   but only if these take up no more than this percent of disk space.
+--dry-run
+  Check and print new OSD count for each disk but do not actually create them.
 ```
 
 Options (single-device mode):

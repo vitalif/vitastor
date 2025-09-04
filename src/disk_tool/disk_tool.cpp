@@ -48,6 +48,8 @@ static const char *help_text =
     "    --max_other 10%\n"
     "      Use disks for OSD data even if they already have non-Vitastor partitions,\n"
     "      but only if these take up no more than this percent of disk space.\n"
+    "    --dry-run\n"
+    "      Check and print new OSD count for each disk but do not actually create them.\n"
     "  \n"
     "  Options (single-device mode):\n"
     "    --data_device <DEV>        Use partition <DEV> for data\n"

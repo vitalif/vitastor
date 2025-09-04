@@ -435,7 +435,7 @@ json11::Json disk_tool_t::add_partitions(vitastor_dev_info_t & devinfo, std::vec
 }
 
 std::vector<std::string> disk_tool_t::get_new_data_parts(vitastor_dev_info_t & dev,
-    uint64_t osd_per_disk, uint64_t max_other_percent)
+    uint64_t osd_per_disk, uint64_t max_other_percent, uint64_t *check_new_count)
 {
     std::vector<std::string> use_parts;
     uint64_t want_parts = 0;
@@ -457,7 +457,6 @@ std::vector<std::string> disk_tool_t::get_new_data_parts(vitastor_dev_info_t & d
                 {
                     // Use this partition
                     use_parts.push_back(part["uuid"].string_value());
-                    osds_exist++;
                 }
                 else
                 {
@@ -480,9 +479,21 @@ std::vector<std::string> disk_tool_t::get_new_data_parts(vitastor_dev_info_t & d
         }
         // Still create OSD(s) if a disk has no more than (max_other_percent) other data
         if (osds_exist >= osd_per_disk || (dev.free+osds_size) < dev.size*(100-max_other_percent)/100)
+        {
             fprintf(stderr, "%s is already partitioned, skipping\n", dev.path.c_str());
+            use_parts.clear();
+        }
         else
-            want_parts = osd_per_disk-osds_exist;
+        {
+            if (use_parts.size() >= osd_per_disk-osds_exist)
+                use_parts.resize(osd_per_disk-osds_exist);
+            want_parts = osd_per_disk-osds_exist-use_parts.size();
+        }
+    }
+    if (check_new_count)
+    {
+        *check_new_count = want_parts;
+        return use_parts;
     }
     if (want_parts > 0)
     {
@@ -684,10 +695,25 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
     }
     json11::Json::array all_results, errors;
     auto journal_size = options["journal_size"];
+    if (options.find("dry_run") != options.end())
+    {
+        json11::Json::array results;
+        for (auto & dev: devinfo)
+        {
+            uint64_t new_part_count = 0;
+            auto existing_part_count = get_new_data_parts(dev, osd_per_disk, max_other_percent, &new_part_count).size();
+            results.push_back(json11::Json::object{ { "device_path", dev.path }, { "new_osd_count", existing_part_count+new_part_count } });
+            if (!json && new_part_count+existing_part_count > 0)
+                printf("Will initialize %ju OSD(s) on %s\n", existing_part_count+new_part_count, dev.path.c_str());
+        }
+        if (json)
+            printf("%s\n", json11::Json(json11::Json::object{{ "devices", results }}).dump().c_str());
+        return 0;
+    }
     for (auto & dev: devinfo)
     {
         // Select new partitions and create an OSD on each of them
-        for (const auto & uuid: get_new_data_parts(dev, osd_per_disk, max_other_percent))
+        for (const auto & uuid: get_new_data_parts(dev, osd_per_disk, max_other_percent, NULL))
         {
             options["force"] = true;
             options["data_device"] = "/dev/disk/by-partuuid/"+strtolower(uuid);

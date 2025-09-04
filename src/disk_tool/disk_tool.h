@@ -134,7 +134,8 @@ struct disk_tool_t
     int prepare(std::vector<std::string> devices);
     std::vector<vitastor_dev_info_t> collect_devices(const std::vector<std::string> & devices);
     json11::Json add_partitions(vitastor_dev_info_t & devinfo, std::vector<std::string> sizes);
-    std::vector<std::string> get_new_data_parts(vitastor_dev_info_t & dev, uint64_t osd_per_disk, uint64_t max_other_percent);
+    std::vector<std::string> get_new_data_parts(vitastor_dev_info_t & dev,
+        uint64_t osd_per_disk, uint64_t max_other_percent, uint64_t *check_new_count);
     int get_meta_partition(std::vector<vitastor_dev_info_t> & ssds, std::map<std::string, std::string> & options);
 
     int upgrade_simple_unit(std::string unit);
