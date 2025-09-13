@@ -4,6 +4,3 @@
 [submodule "json11"]
 	path = json11
 	url = ../json11.git
-[submodule "emhash"]
-	path = emhash
-	url = ../emhash.git

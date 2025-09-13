@@ -11,8 +11,7 @@
 #include <vector>
 
 #include "../client/object_id.h"
-#include "../../emhash/hash_table7.hpp"
-#include "../util/wyhash.h"
+#include "../util/robin_hood.h"
 #include "blockstore_disk.h"
 #include "multilist.h"
 
@@ -148,9 +147,10 @@ struct heap_refqi_t
     bool is_data;
 };
 
-using i64hash_t = wyhash::hash<uint64_t>;
-using heap_block_index_t = emhash7::HashMap<uint64_t, emhash7::HashMap<inode_t, emhash7::HashMap<uint64_t, uint64_t, i64hash_t>, i64hash_t>, i64hash_t>;
-using heap_mvcc_map_t = emhash7::HashMap<heap_mvcc_copy_id_t, heap_object_mvcc_t>;
+using i64hash_t = robin_hood::hash<uint64_t>;
+using heap_block_index_t = robin_hood::unordered_flat_map<uint64_t,
+    robin_hood::unordered_flat_map<inode_t, robin_hood::unordered_flat_map<uint64_t, uint64_t, i64hash_t, std::equal_to<uint64_t>, 88>, i64hash_t>, i64hash_t>;
+using heap_mvcc_map_t = robin_hood::unordered_flat_map<heap_mvcc_copy_id_t, heap_object_mvcc_t>;
 
 class blockstore_heap_t
 {
@@ -167,7 +167,7 @@ class blockstore_heap_t
     uint32_t target_block_free_space = 800;
 
     uint64_t next_lsn = 0;
-    emhash7::HashMap<pool_id_t, pool_shard_settings_t> pool_shard_settings;
+    robin_hood::unordered_flat_map<pool_id_t, pool_shard_settings_t> pool_shard_settings;
     // PG => inode => stripe => block number
     heap_block_index_t block_index;
     std::vector<heap_block_info_t> block_info;
