@@ -41,7 +41,7 @@ int disk_tool_t::raw_resize()
         {
             for (auto wr = obj->get_writes(); wr; wr = wr->next())
             {
-                if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
+                if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
                 {
                     data_alloc->set(wr->location / dsk.data_block_size, true);
                 }
@@ -567,7 +567,7 @@ int disk_tool_t::resize_rebuild_meta()
         {
             for (auto wr = obj->get_writes(); wr; wr = wr->next())
             {
-                if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
+                if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
                 {
                     if (wr->next() && new_meta_hdr->data_csum_type != 0 &&
                         ((wr->offset % new_meta_hdr->csum_block_size) || (wr->len % new_meta_hdr->csum_block_size)))
@@ -587,7 +587,7 @@ int disk_tool_t::resize_rebuild_meta()
                     block_num += data_idx_diff;
                     wr->location = block_num * dsk.data_block_size;
                 }
-                else if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE)
+                else if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE)
                 {
                     if (new_heap && wr->len > 0)
                     {
@@ -604,8 +604,8 @@ int disk_tool_t::resize_rebuild_meta()
                 else if (!new_heap)
                 {
                     fprintf(stderr, "Object %jx:%jx can't be converted to the old format because it contains %s\n",
-                        obj->inode, obj->stripe, (wr->flags & BS_HEAP_TYPE) == BS_HEAP_TOMBSTONE
-                            ? "a tombstone" : ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE ? "an intent_write entry" : "an unknown entry"));
+                        obj->inode, obj->stripe, (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_TOMBSTONE
+                            ? "a tombstone" : ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE ? "an intent_write entry" : "an unknown entry"));
                     exit(1);
                 }
             }
@@ -625,20 +625,20 @@ int disk_tool_t::resize_rebuild_meta()
                 for (ssize_t i = writes.size()-2; i >= 0; i--)
                 {
                     auto wr = writes[i];
-                    assert((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE || wr->flags == BS_HEAP_BIG_WRITE);
+                    assert((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE || wr->entry_type == BS_HEAP_BIG_WRITE);
                     uint32_t je_size = dsk.dirty_dyn_size(wr->offset, wr->len) +
-                        ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ? sizeof(journal_entry_small_write) : sizeof(journal_entry_big_write));
+                        ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ? sizeof(journal_entry_small_write) : sizeof(journal_entry_big_write));
                     choose_journal_block(je_size);
                     journal_entry *je = (journal_entry*)(new_journal_ptr + new_journal_in_pos);
                     je->magic = JOURNAL_MAGIC;
-                    je->type = (wr->flags & BS_HEAP_STABLE) ? JE_SMALL_WRITE_INSTANT : JE_SMALL_WRITE;
+                    je->type = (wr->entry_type & BS_HEAP_STABLE) ? JE_SMALL_WRITE_INSTANT : JE_SMALL_WRITE;
                     je->size = je_size;
                     je->crc32_prev = new_crc32_prev;
                     je->small_write.oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
                     je->small_write.version = wr->version;
                     je->small_write.offset = wr->offset;
                     je->small_write.len = wr->len;
-                    if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE)
+                    if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE)
                     {
                         je->small_write.data_offset = new_journal_data-new_journal_buf;
                         if (je->small_write.data_offset + je->small_write.len > new_journal_len)
@@ -663,7 +663,7 @@ int disk_tool_t::resize_rebuild_meta()
                     new_crc32_prev = je->crc32;
                 }
                 // New -> Old
-                if (writes[writes.size()-1]->flags == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE)
+                if (writes[writes.size()-1]->entry_type == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE)
                 {
                     auto big_wr = writes[writes.size()-1];
                     uint64_t block_num = big_wr->location / dsk.data_block_size;
@@ -696,7 +696,7 @@ int disk_tool_t::resize_rebuild_meta()
                 // Old -> New
                 uint8_t wr_buf[new_heap->get_max_write_entry_size()];
                 heap_write_t *wr = (heap_write_t*)wr_buf;
-                wr->flags = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
+                wr->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
                 wr->location = block_num * dsk.data_block_size;
                 wr->next_pos = 0;
                 wr->offset = 0;

@@ -68,14 +68,14 @@ bool heap_write_t::needs_recheck(blockstore_heap_t *heap)
 
 bool heap_write_t::needs_compact(blockstore_heap_t *heap)
 {
-    return (flags == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) ||
-        flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) && heap->dsk->csum_block_size > heap->dsk->bitmap_granularity &&
+    return (entry_type == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) ||
+        entry_type == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) && heap->dsk->csum_block_size > heap->dsk->bitmap_granularity &&
         ((offset % heap->dsk->csum_block_size) || (len % heap->dsk->csum_block_size)));
 }
 
 bool heap_write_t::is_compacted(uint64_t compacted_lsn)
 {
-    return lsn <= compacted_lsn && (flags == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) || flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE));
+    return lsn <= compacted_lsn && (entry_type == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) || entry_type == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE));
 }
 
 bool heap_write_t::can_be_collapsed(blockstore_heap_t *heap)
@@ -87,8 +87,8 @@ bool heap_write_t::can_be_collapsed(blockstore_heap_t *heap)
 bool heap_write_t::is_allowed_before_compacted(uint64_t compacted_lsn, bool is_last_entry)
 {
     return lsn <= compacted_lsn && (is_last_entry
-        ? (flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE))
-        : (flags == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) || flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE)));
+        ? (entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE))
+        : (entry_type == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) || entry_type == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE)));
 }
 
 uint8_t *heap_write_t::get_ext_bitmap(blockstore_heap_t *heap)
@@ -738,7 +738,7 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
                 if (is_intent)
                 {
                     auto next_wr = wr->next();
-                    assert(next_wr && next_wr->flags == (BS_HEAP_BIG_WRITE | (wr->flags & BS_HEAP_STABLE)));
+                    assert(next_wr && next_wr->entry_type == (BS_HEAP_BIG_WRITE | (wr->entry_type & BS_HEAP_STABLE)));
                     loc = wr->offset + next_wr->location;
                 }
                 recheck_in_progress++;
@@ -1247,8 +1247,8 @@ uint32_t blockstore_heap_t::block_has_compactable(uint8_t *data)
             region_marker > sizeof(heap_object_t))
         {
             heap_write_t *wr = (heap_write_t*)data;
-            if (wr->flags == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) ||
-                wr->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE))
+            if (wr->entry_type == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) ||
+                wr->entry_type == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE))
             {
                 // May be freed in the future
                 sum += wr->size;
@@ -1447,7 +1447,7 @@ bool blockstore_heap_t::mvcc_save_copy(heap_object_t *obj)
         if (wr->type() == BS_HEAP_BIG_WRITE)
         {
             mvcc_data_refs[wr->location] += add_ref;
-            if (wr->flags & BS_HEAP_STABLE)
+            if (wr->entry_type & BS_HEAP_STABLE)
             {
                 if (!for_obj)
                 {
@@ -1491,19 +1491,19 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
 {
     const auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
     // First some validation
-    bool is_overwrite = (wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) || wr->flags == (BS_HEAP_TOMBSTONE|BS_HEAP_STABLE));
+    bool is_overwrite = (wr->entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) || wr->entry_type == (BS_HEAP_TOMBSTONE|BS_HEAP_STABLE));
     auto first_wr = obj->get_writes();
     if (first_wr->type() == BS_HEAP_TOMBSTONE && !is_overwrite)
     {
         // Small overwrites are only allowed over live objects
         return EINVAL;
     }
-    if (!(first_wr->flags & BS_HEAP_STABLE) && (wr->flags & BS_HEAP_STABLE))
+    if (!(first_wr->entry_type & BS_HEAP_STABLE) && (wr->entry_type & BS_HEAP_STABLE))
     {
         // Stable overwrites are not allowed over unstable
         return EINVAL;
     }
-    if (wr->flags == BS_HEAP_INTENT_WRITE && (first_wr->flags & BS_HEAP_STABLE))
+    if (wr->entry_type == BS_HEAP_INTENT_WRITE && (first_wr->entry_type & BS_HEAP_STABLE))
     {
         // Unstable intent writes over stable are not allowed
         return EINVAL;
@@ -1673,7 +1673,7 @@ int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t 
     uint64_t stab_count = 0;
     for (; wr; wr = wr->next())
     {
-        if ((wr->flags & BS_HEAP_STABLE))
+        if ((wr->entry_type & BS_HEAP_STABLE))
         {
             break;
         }
@@ -1721,9 +1721,9 @@ int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t 
     uint64_t last_lsn = next_lsn;
     for (wr = obj->get_writes(); wr; wr = wr->next())
     {
-        if (!(wr->flags & BS_HEAP_STABLE) && wr->version <= version)
+        if (!(wr->entry_type & BS_HEAP_STABLE) && wr->version <= version)
         {
-            wr->flags |= BS_HEAP_STABLE;
+            wr->entry_type |= BS_HEAP_STABLE;
             wr->lsn = last_lsn--;
             push_inflight_lsn(oid, wr->lsn, wr->needs_compact(this) ? HEAP_INFLIGHT_COMPACTABLE : 0);
         }
@@ -1750,14 +1750,14 @@ int blockstore_heap_t::post_rollback(object_id oid, uint64_t version, uint64_t *
         // No such version
         return ENOENT;
     }
-    if (wr->version == version && (wr->flags & BS_HEAP_STABLE))
+    if (wr->version == version && (wr->entry_type & BS_HEAP_STABLE))
     {
         // Already rolled back
         return 0;
     }
     for (; wr && wr->version > version; wr = wr->next())
     {
-        if (wr->flags & BS_HEAP_STABLE)
+        if (wr->entry_type & BS_HEAP_STABLE)
         {
             // Already committed, can't rollback
             return EBUSY;
@@ -1939,7 +1939,7 @@ void blockstore_heap_t::free_object_space(inode_t inode, heap_write_t *from, hea
         if (wr->type() == BS_HEAP_BIG_WRITE)
         {
             deref_data(inode, wr->location, mode != BS_HEAP_FREE_MAIN);
-            if (mode == BS_HEAP_FREE_MVCC && (wr->flags & BS_HEAP_STABLE))
+            if (mode == BS_HEAP_FREE_MVCC && (wr->entry_type & BS_HEAP_STABLE))
             {
                 // Stop at the last visible version
                 break;
@@ -2045,7 +2045,7 @@ int blockstore_heap_t::list_objects(uint32_t pg_num, object_id min_oid, object_i
             auto first_wr = obj->get_writes();
             for (auto wr = first_wr; wr; wr = wr->next())
             {
-                if (wr->flags & BS_HEAP_STABLE)
+                if (wr->entry_type & BS_HEAP_STABLE)
                 {
                     stable_version = wr->version;
                     break;

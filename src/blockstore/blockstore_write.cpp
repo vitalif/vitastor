@@ -136,14 +136,14 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         (!perfect_csum_update || dsk.csum_block_size <= dsk.bitmap_granularity ||
             !(op->offset % dsk.csum_block_size) &&
             !(op->len % dsk.csum_block_size) &&
-            (obj->get_writes()->flags != (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) ||
+            (obj->get_writes()->entry_type != (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) ||
             obj->get_writes()->can_be_collapsed(heap))) &&
         // One intent-write is allowed even with fsyncs because BIG_WRITE is always counted as fsynced
         dsk.disable_meta_fsync &&
         (op->opcode == BS_OP_WRITE_STABLE &&
-            (obj->get_writes()->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
-            obj->get_writes()->flags == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) && dsk.disable_data_fsync) ||
-        op->opcode == BS_OP_WRITE && obj->get_writes()->flags == BS_HEAP_BIG_WRITE))
+            (obj->get_writes()->entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
+            obj->get_writes()->entry_type == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) && dsk.disable_data_fsync) ||
+        op->opcode == BS_OP_WRITE && obj->get_writes()->entry_type == BS_HEAP_BIG_WRITE))
     {
         // Direct intent-write
         BS_SUBMIT_CHECK_SQES(1);
@@ -163,7 +163,7 @@ process_intent:
         wr->offset = op->offset;
         wr->len = op->len;
         wr->location = 0;
-        wr->flags = BS_HEAP_INTENT_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0);
+        wr->entry_type = BS_HEAP_INTENT_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0);
         if (op->bitmap)
             memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
         heap->calc_checksums(wr, (uint8_t*)op->buf, true);
@@ -212,7 +212,7 @@ process_intent:
         wr->len = op->len;
         wr->location = loc;
         PRIV(op)->location = loc;
-        wr->flags = BS_HEAP_SMALL_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0);
+        wr->entry_type = BS_HEAP_SMALL_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0);
         if (op->bitmap)
             memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
         heap->calc_checksums(wr, (uint8_t*)op->buf, true);
@@ -271,7 +271,7 @@ int blockstore_impl_t::make_big_write(blockstore_op_t *op, uint32_t offset, uint
     wr->offset = offset;
     wr->len = len;
     wr->location = PRIV(op)->location;
-    wr->flags = BS_HEAP_BIG_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0);
+    wr->entry_type = BS_HEAP_BIG_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0);
     if (op->bitmap)
         memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
     memset(wr->get_int_bitmap(heap), 0, dsk.clean_entry_bitmap_size);

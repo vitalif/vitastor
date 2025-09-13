@@ -223,7 +223,7 @@ resume_1:
         bs->heap->unlock_entry(cur_oid, copy_id);
         goto resume_0;
     }
-    assert(!end_wr->next() && end_wr->flags == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
+    assert(!end_wr->next() && end_wr->entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
     clean_loc = end_wr->location;
     if (bs->log_level > 10)
         printf("Compacting %jx:%jx l%ju .. l%ju (last l%ju)\n", cur_oid.inode, cur_oid.stripe, end_wr->lsn, begin_wr->lsn, compact_lsn);

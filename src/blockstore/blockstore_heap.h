@@ -35,19 +35,19 @@ struct __attribute__((__packed__)) heap_write_t
     // size should have top bit cleared
     uint16_t size = 0;
     int16_t next_pos = 0;
+    uint8_t entry_type = 0; // BS_HEAP_*
     uint64_t lsn = 0;
     uint64_t version = 0;
     uint32_t offset = 0;
     uint32_t len = 0;
     uint64_t location = 0;
-    uint8_t flags = 0; // 1|2|3 = small|big|tombstone, 4|0 = stable|unstable
 
     // uint8_t[] external_bitmap
     // uint8_t[] internal_bitmap
     // uint32_t[] checksums
 
     heap_write_t *next();
-    inline uint8_t type() const { return (flags & BS_HEAP_TYPE); }
+    inline uint8_t type() const { return (entry_type & BS_HEAP_TYPE); }
     uint32_t get_size(blockstore_heap_t *heap);
     uint32_t get_csum_size(blockstore_heap_t *heap);
     bool needs_recheck(blockstore_heap_t *heap);

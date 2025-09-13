@@ -337,11 +337,11 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v3_t *hdr)
 void disk_tool_t::dump_heap_entry_as_old(blockstore_heap_t *heap, heap_object_t *obj)
 {
     heap_write_t *wr = NULL;
-    for (wr = obj->get_writes(); wr && wr->flags != (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) &&
-        wr->flags != (BS_HEAP_TOMBSTONE|BS_HEAP_STABLE); wr = wr->next())
+    for (wr = obj->get_writes(); wr && wr->entry_type != (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) &&
+        wr->entry_type != (BS_HEAP_TOMBSTONE|BS_HEAP_STABLE); wr = wr->next())
     {
     }
-    if (!wr || wr->flags != (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE))
+    if (!wr || wr->entry_type != (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE))
     {
         return;
     }
@@ -398,19 +398,19 @@ void disk_tool_t::dump_heap_entry(blockstore_heap_t *heap, heap_object_t *obj)
 #define ENTRY_FMT "{\"lsn\":%ju,\"version\":%ju,\"type\":\"%s\",\"stable\":%s,\"offset\":%u,\"len\":%u"
             (first_wr ? ENTRY_FMT : ("," ENTRY_FMT)),
 #undef ENTRY_FMT
-            wr->lsn, wr->version, (wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ? "small" : (
-                (wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE ? "big" : (
-                (wr->flags & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE ? "intent" : (
-                (wr->flags & BS_HEAP_TYPE) == BS_HEAP_TOMBSTONE ? "tombstone" : "unknown"))),
-            (wr->flags & BS_HEAP_STABLE) ? "true" : "false",
+            wr->lsn, wr->version, (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ? "small" : (
+                (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE ? "big" : (
+                (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE ? "intent" : (
+                (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_TOMBSTONE ? "tombstone" : "unknown"))),
+            (wr->entry_type & BS_HEAP_STABLE) ? "true" : "false",
             wr->offset, wr->len
         );
-        if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE ||
-            (wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE && !dump_with_data)
+        if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE ||
+            (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE && !dump_with_data)
         {
             printf(",\"location\":%ju", wr->location);
         }
-        else if ((wr->flags & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE && dump_with_data)
+        else if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE && dump_with_data)
         {
             printf(",\"data\":\"");
             for (uint32_t i = 0; i < wr->len; i++)
@@ -612,6 +612,7 @@ int disk_tool_t::write_json_heap(json11::Json meta, json11::Json journal)
             heap_object_t *obj = (heap_object_t*)object_buf.data();
             obj->size = sizeof(heap_object_t);
             obj->write_pos = meta_entry["writes"].array_items().size() ? sizeof(heap_object_t) : 0;
+            obj->entry_type = BS_HEAP_OBJECT;
             obj->inode = oid.inode;
             obj->stripe = oid.stripe;
             size_t pos = sizeof(heap_object_t);
@@ -636,7 +637,7 @@ int disk_tool_t::write_json_heap(json11::Json meta, json11::Json journal)
                     invalid = true;
                     break;
                 }
-                wr->flags = wr_type | (write_entry["stable"].bool_value() ? BS_HEAP_STABLE : 0);
+                wr->entry_type = wr_type | (write_entry["stable"].bool_value() ? BS_HEAP_STABLE : 0);
                 wr->lsn = write_entry["lsn"].uint64_value();
                 wr->version = write_entry["version"].uint64_value();
                 wr->offset = write_entry["offset"].uint64_value();
@@ -769,11 +770,12 @@ close_err:
             heap_object_t *obj = (heap_object_t*)(new_meta_buf + meta_offset + used_space);
             obj->size = sizeof(heap_object_t);
             obj->write_pos = sizeof(heap_object_t);
+            obj->entry_type = BS_HEAP_OBJECT;
             obj->inode = oid.inode;
             obj->stripe = oid.stripe;
             heap_write_t *wr = obj->get_writes();
             wr->next_pos = 0;
-            wr->flags = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
+            wr->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
             wr->lsn = ++next_lsn;
             wr->version = sscanf_json(NULL, meta_entry["version"]);
             wr->offset = 0;
@@ -802,7 +804,7 @@ close_err:
                             fprintf(stderr, "Error: entry data is missing, please generate the dump with --json --format data\n");
                             goto close_err;
                         }
-                        wr->flags = BS_HEAP_SMALL_WRITE | (rec["type"] == "small_write_instant" ? BS_HEAP_STABLE : 0);
+                        wr->entry_type = BS_HEAP_SMALL_WRITE | (rec["type"] == "small_write_instant" ? BS_HEAP_STABLE : 0);
                         fromhexstr(rec["bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_ext_bitmap(&heap));
                         fromhexstr(rec["data"].string_value(), wr->len, new_journal_buf+buffer_pos);
                         if (wr->len > 0)
@@ -816,7 +818,7 @@ close_err:
                     }
                     else if (rec["type"] == "big_write" || rec["type"] == "big_write_instant")
                     {
-                        wr->flags = BS_HEAP_BIG_WRITE | (rec["type"] == "big_write_instant" ? BS_HEAP_STABLE : 0);
+                        wr->entry_type = BS_HEAP_BIG_WRITE | (rec["type"] == "big_write_instant" ? BS_HEAP_STABLE : 0);
                         wr->location = sscanf_json(NULL, rec["loc"]);
                         bitmap_set(wr->get_int_bitmap(&heap), wr->offset, wr->len, new_meta_hdr->bitmap_granularity);
                         fromhexstr(rec["bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_ext_bitmap(&heap));
