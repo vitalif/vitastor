@@ -295,7 +295,7 @@ void test_compact_block()
 
     uint32_t big_write_size = (sizeof(heap_object_t) + sizeof(heap_write_t) + 2*dsk.clean_entry_bitmap_size + dsk.data_block_size/dsk.csum_block_size*4);
     uint32_t small_write_size = (sizeof(heap_write_t) + dsk.clean_entry_bitmap_size + 4);
-    assert(big_write_size == 197);
+    assert(big_write_size == 198);
     assert(small_write_size == 45);
     uint32_t nwr = dsk.meta_block_size/(big_write_size+small_write_size);
 
@@ -319,7 +319,8 @@ void test_compact_block()
         _test_big_write(heap, dsk, 1, nwr*2*0x20000, 1, nwr*2*0x20000);
         _test_big_write(heap, dsk, 1, (nwr*2+1)*0x20000, 1, (nwr*2+1)*0x20000);
         _test_big_write(heap, dsk, 1, (nwr*2+2)*0x20000, 1, (nwr*2+2)*0x20000);
-        assert(count_free_fragments(heap, dsk, 0) == 1);
+        assert(count_free_fragments(heap, dsk, 0) == nwr+1);
+        assert(count_free_fragments(heap, dsk, 1) == 1);
     }
 
     printf("OK test_compact_block\n");
@@ -842,6 +843,7 @@ void _test_invalid_data_setup(blockstore_disk_t & dsk, std::vector<uint8_t> & bu
     tmp.resize(dsk.meta_block_size*2);
 
     heap_object_t *obj = (heap_object_t*)tmp.data();
+    obj->entry_type = BS_HEAP_OBJECT;
     obj->size = sizeof(heap_object_t);
     obj->inode = INODE_WITH_POOL(1, 1);
     obj->write_pos = sizeof(heap_object_t);
@@ -854,6 +856,7 @@ void _test_invalid_data_setup(blockstore_disk_t & dsk, std::vector<uint8_t> & bu
     obj->crc32c = obj->calc_crc32c();
 
     obj = (heap_object_t*)((uint8_t*)wr + wr->size);
+    obj->entry_type = BS_HEAP_OBJECT;
     obj->size = sizeof(heap_object_t);
     obj->inode = INODE_WITH_POOL(1, 3);
     obj->stripe = 0;
@@ -866,6 +869,7 @@ void _test_invalid_data_setup(blockstore_disk_t & dsk, std::vector<uint8_t> & bu
     obj->crc32c = obj->calc_crc32c();
 
     obj = (heap_object_t*)(tmp.data() + dsk.meta_block_size);
+    obj->entry_type = BS_HEAP_OBJECT;
     obj->size = sizeof(heap_object_t);
     obj->inode = INODE_WITH_POOL(1, 2);
     obj->write_pos = sizeof(heap_object_t);
@@ -1296,7 +1300,7 @@ void test_full_alloc()
 
     uint32_t big_write_size = (sizeof(heap_object_t) + sizeof(heap_write_t) + 2*dsk.clean_entry_bitmap_size + dsk.data_block_size/dsk.csum_block_size*4);
     uint32_t small_write_size = (sizeof(heap_write_t) + dsk.clean_entry_bitmap_size + 4);
-    assert(big_write_size == 197);
+    assert(big_write_size == 198);
     assert(small_write_size == 45);
     uint32_t b_4s = (big_write_size + 4*small_write_size); // 377
     uint32_t epb = (4096-800+b_4s-1)/b_4s; // entries per block
@@ -1597,7 +1601,7 @@ void test_move()
 
     uint32_t big_write_size = (sizeof(heap_object_t) + sizeof(heap_write_t) + 2*dsk.clean_entry_bitmap_size + dsk.data_block_size/dsk.csum_block_size*4);
     uint32_t small_write_size = (sizeof(heap_write_t) + dsk.clean_entry_bitmap_size + 4);
-    assert(big_write_size == 197);
+    assert(big_write_size == 198);
     assert(small_write_size == 45);
 
     // Fill block 1 almost completely with unstable small writes

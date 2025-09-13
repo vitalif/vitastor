@@ -22,10 +22,11 @@ struct pool_shard_settings_t
 };
 
 #define BS_HEAP_TYPE 7
-#define BS_HEAP_SMALL_WRITE 1
-#define BS_HEAP_BIG_WRITE 2
-#define BS_HEAP_TOMBSTONE 3
-#define BS_HEAP_INTENT_WRITE 4
+#define BS_HEAP_OBJECT 1
+#define BS_HEAP_SMALL_WRITE 2
+#define BS_HEAP_BIG_WRITE 3
+#define BS_HEAP_TOMBSTONE 4
+#define BS_HEAP_INTENT_WRITE 5
 #define BS_HEAP_STABLE 8
 
 class blockstore_heap_t;
@@ -68,6 +69,7 @@ struct __attribute__((__packed__)) heap_object_t
     // linked list of write entries...
     // newest entries are stored first to simplify scanning
     int16_t write_pos = 0;
+    uint8_t entry_type = 0; // BS_HEAP_*
     uint32_t crc32c = 0;
     uint64_t inode = 0;
     uint64_t stripe = 0;

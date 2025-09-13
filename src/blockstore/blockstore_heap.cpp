@@ -22,6 +22,8 @@
 
 #define MIN_ALLOC (sizeof(heap_object_t)+sizeof(heap_write_t))
 
+static constexpr uint32_t heap_entry_type_pos = 4;
+
 heap_write_t *heap_write_t::next()
 {
     return (next_pos ? (heap_write_t*)((uint8_t*)this + next_pos) : NULL);
@@ -169,7 +171,6 @@ blockstore_heap_t::blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_are
     assert(dsk->meta_block_size < 32768);
     assert(dsk->meta_area_size > 0);
     assert(dsk->journal_len > 0);
-    assert(sizeof(heap_object_t) < sizeof(heap_write_t));
     meta_alloc = new multilist_index_t(meta_block_count, 1 + dsk->meta_block_size/MIN_ALLOC, 0);
     block_info.resize(meta_block_count);
     data_alloc = new allocator_t(dsk->block_count);
@@ -277,9 +278,28 @@ void blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, ui
                 }
                 break;
             }
-            if (region_marker < sizeof(heap_object_t))
+            const uint8_t entry_type = data[heap_entry_type_pos];
+            if (entry_type != BS_HEAP_OBJECT)
             {
-                fprintf(stderr, "Warning: Entry is too small in metadata block %u at %u (%u < min %ju bytes), skipping\n",
+                // Write entry (probably) (or garbage)
+                if ((entry_type & BS_HEAP_TYPE) < BS_HEAP_OBJECT ||
+                    (entry_type & BS_HEAP_TYPE) > BS_HEAP_INTENT_WRITE ||
+                    (entry_type & ~(BS_HEAP_TYPE|BS_HEAP_STABLE)))
+                {
+                    fprintf(stderr, "Warning: Entry of unknown type %u in metadata block %u at %u, skipping\n",
+                        entry_type, block_num, block_offset);
+                }
+                auto offset_it = offsets_seen.find(block_offset+region_marker);
+                if (offset_it == offsets_seen.end())
+                {
+                    offsets_seen[block_offset+region_marker] = (verify_offset_t){ .start = block_offset, .handled = false };
+                }
+                block_offset += region_marker;
+                continue;
+            }
+            if (region_marker != sizeof(heap_object_t))
+            {
+                fprintf(stderr, "Warning: Object entry has invalid size in metadata block %u at %u (%u != %ju bytes), skipping\n",
                     block_num, block_offset, region_marker, sizeof(heap_object_t));
 skip_corrupted:
                 if (abort_on_corruption)
@@ -299,17 +319,6 @@ skip_unseen:
                     region_marker |= FREE_SPACE_BIT;
                 }
                 block_offset += (region_marker & ~FREE_SPACE_BIT);
-                continue;
-            }
-            if (region_marker != sizeof(heap_object_t))
-            {
-                // Write entry (probably) (or garbage)
-                auto offset_it = offsets_seen.find(block_offset+region_marker);
-                if (offset_it == offsets_seen.end())
-                {
-                    offsets_seen[block_offset+region_marker] = (verify_offset_t){ .start = block_offset, .handled = false };
-                }
-                block_offset += region_marker;
                 continue;
             }
             heap_object_t *obj = (heap_object_t *)data;
@@ -352,6 +361,14 @@ skip_unseen:
             for (auto wr = obj->get_writes(); wr; wr = wr->next(), wr_i++)
             {
                 uint32_t wr_pos = ((uint8_t*)wr - buf - buf_offset);
+                if ((wr->entry_type & BS_HEAP_TYPE) < BS_HEAP_SMALL_WRITE ||
+                    (wr->entry_type & BS_HEAP_TYPE) > BS_HEAP_INTENT_WRITE ||
+                    (wr->entry_type & ~(BS_HEAP_TYPE|BS_HEAP_STABLE)))
+                {
+                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u list entry #%u at %u type %u is invalid, skipping object\n",
+                        obj->inode, obj->stripe, block_num, block_offset, wr_i, wr_pos, entry_type);
+                    goto skip_corrupted;
+                }
                 if (wr->size != wr->get_size(this))
                 {
                     fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u list entry #%u at %u size is invalid: %u instead of %u, skipping object\n",
@@ -1127,7 +1144,7 @@ void blockstore_heap_t::defragment_block(uint32_t block_num)
             old += (region_marker & ~FREE_SPACE_BIT);
             continue;
         }
-        if (region_marker != sizeof(heap_object_t))
+        if (old[heap_entry_type_pos] != BS_HEAP_OBJECT)
         {
             // heap_write_t, skip
             old += region_marker;
@@ -1135,6 +1152,7 @@ void blockstore_heap_t::defragment_block(uint32_t block_num)
         }
         // object header
         heap_object_t *obj = (heap_object_t *)old;
+        assert(obj->size == sizeof(heap_object_t));
         heap_object_t *new_obj = (heap_object_t *)cur;
         memcpy(cur, obj, sizeof(heap_object_t));
         new_obj->write_pos = sizeof(heap_object_t);
@@ -1244,7 +1262,7 @@ uint32_t blockstore_heap_t::block_has_compactable(uint8_t *data)
         uint16_t region_marker = *((uint16_t*)data);
         assert(region_marker);
         if (!(region_marker & FREE_SPACE_BIT) &&
-            region_marker > sizeof(heap_object_t))
+            data[heap_entry_type_pos] != BS_HEAP_OBJECT)
         {
             heap_write_t *wr = (heap_write_t*)data;
             if (wr->entry_type == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) ||
@@ -1335,6 +1353,7 @@ int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *mod
     // Fill the object entry
     new_obj->size = sizeof(heap_object_t);
     new_obj->write_pos = sizeof(heap_object_t);
+    new_obj->entry_type = BS_HEAP_OBJECT;
     new_obj->inode = oid.inode;
     new_obj->stripe = oid.stripe;
     heap_write_t *new_wr = new_obj->get_writes();
