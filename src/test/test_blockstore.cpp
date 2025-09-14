@@ -399,9 +399,9 @@ static void test_padded_csum_intent(bool perfect)
     heap_object_t *obj = test.bs->heap->read_entry((object_id){ .inode = 1, .stripe = 0 }, NULL);
     assert(obj);
     assert(!obj->get_writes()->next()->next()->next());
-    assert(obj->get_writes()->flags == BS_HEAP_SMALL_WRITE);
-    assert(obj->get_writes()->next()->flags == (perfect ? BS_HEAP_SMALL_WRITE : BS_HEAP_INTENT_WRITE));
-    assert(obj->get_writes()->next()->next()->flags == BS_HEAP_BIG_WRITE);
+    assert(obj->get_writes()->entry_type == BS_HEAP_SMALL_WRITE);
+    assert(obj->get_writes()->next()->entry_type == (perfect ? BS_HEAP_SMALL_WRITE : BS_HEAP_INTENT_WRITE));
+    assert(obj->get_writes()->next()->next()->entry_type == BS_HEAP_BIG_WRITE);
 
     // Commit
     printf("commit version 3\n");

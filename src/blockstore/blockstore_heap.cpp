@@ -136,7 +136,7 @@ uint32_t heap_object_t::calc_crc32c()
 {
     uint32_t old_crc32c = crc32c;
     crc32c = 0;
-    uint32_t res = ::crc32c(0, (uint8_t*)this, sizeof(this));
+    uint32_t res = ::crc32c(0, (uint8_t*)this, sizeof(heap_object_t));
     for (heap_write_t *wr = get_writes(); wr; wr = wr->next())
     {
         res = ::crc32c(res, (uint8_t*)wr, wr->size);

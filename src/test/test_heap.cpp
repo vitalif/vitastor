@@ -640,7 +640,7 @@ void test_corruption()
     // reload heap with corruption
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.set_abort_on_corruption(true);
+        heap.set_abort_on_corruption(false);
         tmp.data()[10]++; // corrupt the first object
         heap.load_blocks(0, dsk.meta_block_size, tmp.data());
         heap.finish_load();
