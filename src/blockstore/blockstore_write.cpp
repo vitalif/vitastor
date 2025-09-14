@@ -149,12 +149,12 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         BS_SUBMIT_CHECK_SQES(1);
         if (obj->get_writes()->type() == BS_HEAP_BIG_WRITE)
         {
-            PRIV(op)->location = obj->get_writes()->big().location;
+            PRIV(op)->location = obj->get_writes()->big_location(heap);
         }
         else
         {
             assert(obj->get_writes()->next()->type() == BS_HEAP_BIG_WRITE);
-            PRIV(op)->location = obj->get_writes()->next()->big().location;
+            PRIV(op)->location = obj->get_writes()->next()->big_location(heap);
         }
 process_intent:
         uint8_t wr_buf[heap->get_max_write_entry_size()];
@@ -269,7 +269,7 @@ int blockstore_impl_t::make_big_write(blockstore_op_t *op, uint32_t offset, uint
     heap_write_t *wr = (heap_write_t*)wr_buf;
     wr->entry_type = BS_HEAP_BIG_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0);
     wr->version = op->version;
-    wr->big().location = PRIV(op)->location;
+    wr->set_big_location(heap, PRIV(op)->location);
     if (op->bitmap)
         memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
     memset(wr->get_int_bitmap(heap), 0, dsk.clean_entry_bitmap_size);

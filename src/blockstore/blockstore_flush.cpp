@@ -224,7 +224,7 @@ resume_1:
         goto resume_0;
     }
     assert(!end_wr->next() && end_wr->entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
-    clean_loc = end_wr->big().location;
+    clean_loc = end_wr->big_location(bs->heap);
     if (bs->log_level > 10)
         printf("Compacting %jx:%jx l%ju .. l%ju (last l%ju)\n", cur_oid.inode, cur_oid.stripe, end_wr->lsn, begin_wr->lsn, compact_lsn);
     flusher->active_flushers++;
@@ -409,7 +409,7 @@ void journal_flusher_co::fill_partial_checksum_blocks()
                 .copy_flags = COPY_BUF_DATA | copy_flags,
                 .offset = blk_begin,
                 .len = blk_end - blk_begin,
-                .disk_loc = end_wr->big().location,
+                .disk_loc = end_wr->big_location(bs->heap),
                 .disk_offset = blk_begin,
                 .disk_len = blk_end - blk_begin,
                 .buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, blk_end - blk_begin),

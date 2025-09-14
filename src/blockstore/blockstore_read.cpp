@@ -252,9 +252,9 @@ void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec,
         .copy_flags = (wr->type() == BS_HEAP_SMALL_WRITE ? COPY_BUF_JOURNAL : COPY_BUF_DATA) | copy_flags,
         .offset = start,
         .len = end-start,
-        .disk_loc = (wr->type() == BS_HEAP_INTENT_WRITE ? wr->next()->big().location
+        .disk_loc = (wr->type() == BS_HEAP_INTENT_WRITE ? wr->next()->big_location(heap)
             : (wr->type() == BS_HEAP_SMALL_WRITE ? wr->small().location-wr->small().offset
-            : wr->big().location)),
+            : wr->big_location(heap))),
         .disk_offset = blk_start,
         .disk_len = blk_end - blk_start,
         .wr_lsn = wr->lsn,

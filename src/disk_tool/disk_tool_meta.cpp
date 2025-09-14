@@ -346,10 +346,10 @@ void disk_tool_t::dump_heap_entry_as_old(blockstore_heap_t *heap, heap_object_t 
         return;
     }
     printf(
-#define ENTRY_FMT "{\"block\":%ju,\"pool\":%u,\"inode\":\"0x%jx\",\"stripe\":\"0x%jx\",\"version\":%ju"
+#define ENTRY_FMT "{\"block\":%u,\"pool\":%u,\"inode\":\"0x%jx\",\"stripe\":\"0x%jx\",\"version\":%ju"
         (first_entry ? ENTRY_FMT : (",\n" ENTRY_FMT)),
 #undef ENTRY_FMT
-        wr->big().location/dsk.data_block_size, INODE_POOL(obj->inode), INODE_NO_POOL(obj->inode),
+        wr->big().block_num, INODE_POOL(obj->inode), INODE_NO_POOL(obj->inode),
         obj->stripe, wr->version
     );
     printf(",\"bitmap\":\"");
@@ -406,7 +406,7 @@ void disk_tool_t::dump_heap_entry(blockstore_heap_t *heap, heap_object_t *obj)
         );
         if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
         {
-            printf(",\"location\":%ju", wr->big().location);
+            printf(",\"location\":%ju", wr->big_location(heap));
         }
         else if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE)
         {
@@ -670,7 +670,10 @@ int disk_tool_t::write_json_heap(json11::Json meta, json11::Json journal)
                 }
                 else if (wr_type == BS_HEAP_BIG_WRITE)
                 {
-                    wr->big().location = write_entry["location"].uint64_value();
+                    uint64_t loc = write_entry["location"].uint64_value();
+                    assert(!(loc % dsk.data_block_size));
+                    assert((loc / dsk.data_block_size) < 0xFFFF0000);
+                    wr->set_big_location(new_heap, loc);
                 }
                 if (write_entry["bitmap"].is_string() && wr->get_int_bitmap(new_heap))
                 {
@@ -794,7 +797,7 @@ close_err:
             wr->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
             wr->lsn = ++next_lsn;
             wr->version = sscanf_json(NULL, meta_entry["version"]);
-            wr->big().location = meta_entry["block"].uint64_value() * new_meta_hdr->data_block_size;
+            wr->set_big_location(&heap, meta_entry["block"].uint64_value() * new_meta_hdr->data_block_size);
             wr->size = wr->get_size(&heap);
             fromhexstr(meta_entry["bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_int_bitmap(&heap));
             fromhexstr(meta_entry["ext_bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_ext_bitmap(&heap));
@@ -836,7 +839,7 @@ close_err:
                     else if (rec["type"] == "big_write" || rec["type"] == "big_write_instant")
                     {
                         wr->entry_type = BS_HEAP_BIG_WRITE | (rec["type"] == "big_write_instant" ? BS_HEAP_STABLE : 0);
-                        wr->big().location = sscanf_json(NULL, rec["loc"]);
+                        wr->set_big_location(&heap, sscanf_json(NULL, rec["loc"]));
                         bitmap_set(wr->get_int_bitmap(&heap), wr_offset, wr_len, new_meta_hdr->bitmap_granularity);
                         fromhexstr(rec["bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_ext_bitmap(&heap));
                         if (new_meta_hdr->data_csum_type != 0)

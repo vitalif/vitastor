@@ -43,7 +43,7 @@ int disk_tool_t::raw_resize()
             {
                 if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
                 {
-                    data_alloc->set(wr->big().location / dsk.data_block_size, true);
+                    data_alloc->set(wr->big().block_num, true);
                 }
             }
         },
@@ -569,7 +569,7 @@ int disk_tool_t::resize_rebuild_meta()
             {
                 if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
                 {
-                    auto block_num = wr->big().location / dsk.data_block_size;
+                    uint64_t block_num = wr->big().block_num;
                     auto remap_it = data_remap.find(block_num);
                     if (remap_it != data_remap.end())
                         block_num = remap_it->second;
@@ -579,7 +579,7 @@ int disk_tool_t::resize_rebuild_meta()
                         exit(1);
                     }
                     block_num += data_idx_diff;
-                    wr->big().location = block_num * dsk.data_block_size;
+                    wr->big().block_num = block_num;
                 }
                 else if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE)
                 {
@@ -648,7 +648,7 @@ int disk_tool_t::resize_rebuild_meta()
                     }
                     else
                     {
-                        je->big_write.location = wr->big().location;
+                        je->big_write.location = wr->big_location(heap);
                     }
                     memcpy((uint8_t*)je + je->size, wr->get_ext_bitmap(heap), new_clean_entry_bitmap_size);
                     if (dsk.data_csum_type != 0 && wr->get_checksums(heap))
@@ -663,7 +663,7 @@ int disk_tool_t::resize_rebuild_meta()
                 if (writes[writes.size()-1]->entry_type == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE)
                 {
                     auto big_wr = writes[writes.size()-1];
-                    uint64_t block_num = big_wr->big().location / dsk.data_block_size;
+                    uint64_t block_num = big_wr->big().block_num;
                     clean_disk_entry *new_entry = (clean_disk_entry*)(new_meta_buf + dsk.meta_block_size +
                         dsk.meta_block_size*(block_num / new_entries_per_block) +
                         new_clean_entry_size*(block_num % new_entries_per_block));
@@ -694,7 +694,7 @@ int disk_tool_t::resize_rebuild_meta()
                 uint8_t wr_buf[new_heap->get_max_write_entry_size()];
                 heap_write_t *wr = (heap_write_t*)wr_buf;
                 wr->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
-                wr->big().location = block_num * dsk.data_block_size;
+                wr->big().block_num = block_num;
                 wr->next_pos = 0;
                 wr->size = wr->get_size(new_heap);
                 if (bitmap)

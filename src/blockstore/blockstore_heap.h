@@ -50,7 +50,7 @@ struct __attribute__((__packed__)) heap_big_write_t
     uint8_t flags;
     uint64_t lsn;
     uint64_t version;
-    uint64_t location;
+    uint32_t block_num;
 };
 
 struct __attribute__((__packed__)) heap_tombstone_t
@@ -90,6 +90,8 @@ struct __attribute__((__packed__)) heap_write_t
     uint8_t *get_int_bitmap(blockstore_heap_t *heap);
     uint8_t *get_checksums(blockstore_heap_t *heap);
     uint32_t *get_checksum(blockstore_heap_t *heap);
+    uint64_t big_location(blockstore_heap_t *heap);
+    void set_big_location(blockstore_heap_t *heap, uint64_t location);
 };
 
 struct __attribute__((__packed__)) heap_object_t

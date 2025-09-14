@@ -146,6 +146,17 @@ uint32_t *heap_write_t::get_checksum(blockstore_heap_t *heap)
     return (uint32_t*)((uint8_t*)this + sizeof(heap_small_write_t) + heap->dsk->clean_entry_bitmap_size);
 }
 
+uint64_t heap_write_t::big_location(blockstore_heap_t *heap)
+{
+    return ((uint64_t)big().block_num) * heap->dsk->data_block_size;
+}
+
+void heap_write_t::set_big_location(blockstore_heap_t *heap, uint64_t location)
+{
+    assert(!(location % heap->dsk->data_block_size));
+    big().block_num = location / heap->dsk->data_block_size;
+}
+
 heap_write_t *heap_object_t::get_writes()
 {
     return (heap_write_t*)((uint8_t*)this + write_pos);
@@ -192,6 +203,7 @@ blockstore_heap_t::blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_are
     assert(dsk->journal_len > 0);
     meta_alloc = new multilist_index_t(meta_block_count, 1 + dsk->meta_block_size/MIN_ALLOC, 0);
     block_info.resize(meta_block_count);
+    assert(dsk->block_count <= 0xFFFF0000);
     data_alloc = new allocator_t(dsk->block_count);
     if (!target_block_free_space)
         target_block_free_space = 800;
@@ -468,7 +480,7 @@ skip_unseen:
                         abort();
                     goto skip_object;
                 }
-                if (wr->type() == BS_HEAP_BIG_WRITE && is_data_used(wr->big().location))
+                if (wr->type() == BS_HEAP_BIG_WRITE && is_data_used(wr->big_location(this)))
                 {
                     fprintf(stderr, "Error: write %jx:%jx v%lu (l%lu) data overlaps with other writes, skipping object\n",
                         obj->inode, obj->stripe, wr->version, wr->lsn);
@@ -560,7 +572,7 @@ uint64_t blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uin
             else if (wr->type() == BS_HEAP_BIG_WRITE)
             {
                 // Mark data block as used
-                use_data(obj->inode, wr->big().location);
+                use_data(obj->inode, wr->big_location(this));
             }
             if (wr->lsn > this->compacted_lsn)
             {
@@ -781,7 +793,7 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
                 {
                     auto next_wr = wr->next();
                     assert(next_wr && next_wr->entry_type == (BS_HEAP_BIG_WRITE | (wr->entry_type & BS_HEAP_STABLE)));
-                    loc = wr->small().offset + next_wr->big().location;
+                    loc = wr->small().offset + next_wr->big_location(this);
                 }
                 recheck_in_progress++;
                 uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, wr->small().len);
@@ -1482,7 +1494,7 @@ bool blockstore_heap_t::mvcc_save_copy(heap_object_t *obj)
     {
         if (wr->type() == BS_HEAP_BIG_WRITE)
         {
-            mvcc_data_refs[wr->big().location] += add_ref;
+            mvcc_data_refs[wr->big_location(this)] += add_ref;
             if (wr->entry_type & BS_HEAP_STABLE)
             {
                 if (!for_obj)
@@ -1511,8 +1523,8 @@ void blockstore_heap_t::mark_overwritten(uint64_t over_lsn, uint64_t inode, heap
         }
         if (wr->type() == BS_HEAP_BIG_WRITE)
         {
-            overwrite_ref_queue.push_back((heap_refqi_t){ .lsn = over_lsn, .inode = inode, .location = wr->big().location, .len = 0, .is_data = true });
-            mvcc_data_refs[wr->big().location] += !tracking_active;
+            overwrite_ref_queue.push_back((heap_refqi_t){ .lsn = over_lsn, .inode = inode, .location = wr->big_location(this), .len = 0, .is_data = true });
+            mvcc_data_refs[wr->big_location(this)] += !tracking_active;
         }
         else if (wr->type() == BS_HEAP_SMALL_WRITE && wr->small().len > 0)
         {
@@ -1609,7 +1621,7 @@ int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, hea
         // MVCC reference tracking is in action for the object, increase the refcount
         if (wr->type() == BS_HEAP_BIG_WRITE)
         {
-            mvcc_data_refs[wr->big().location]++;
+            mvcc_data_refs[wr->big_location(this)]++;
         }
         else if (wr->type() == BS_HEAP_SMALL_WRITE && wr->small().len > 0)
         {
@@ -1974,7 +1986,7 @@ void blockstore_heap_t::free_object_space(inode_t inode, heap_write_t *from, hea
     {
         if (wr->type() == BS_HEAP_BIG_WRITE)
         {
-            deref_data(inode, wr->big().location, mode != BS_HEAP_FREE_MAIN);
+            deref_data(inode, wr->big_location(this), mode != BS_HEAP_FREE_MAIN);
             if (mode == BS_HEAP_FREE_MVCC && (wr->entry_type & BS_HEAP_STABLE))
             {
                 // Stop at the last visible version
