@@ -224,7 +224,7 @@ resume_1:
         goto resume_0;
     }
     assert(!end_wr->next() && end_wr->entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
-    clean_loc = end_wr->location;
+    clean_loc = end_wr->big().location;
     if (bs->log_level > 10)
         printf("Compacting %jx:%jx l%ju .. l%ju (last l%ju)\n", cur_oid.inode, cur_oid.stripe, end_wr->lsn, begin_wr->lsn, compact_lsn);
     flusher->active_flushers++;
@@ -241,8 +241,6 @@ resume_1:
     {
         overwrite_start = read_vec[0].offset;
         overwrite_end = read_vec[read_vec.size()-1].offset + read_vec[read_vec.size()-1].len;
-        big_start = overwrite_start < end_wr->offset ? overwrite_start : end_wr->offset;
-        big_end = overwrite_end > end_wr->offset+end_wr->len ? overwrite_end : end_wr->offset+end_wr->len;
     }
     read_to_fill_incomplete = false;
     if (bs->dsk.csum_block_size > bs->dsk.bitmap_granularity)
@@ -402,8 +400,7 @@ void journal_flusher_co::fill_partial_checksum_blocks()
     {
         read_to_fill_incomplete = true;
         uint32_t blk_begin = (hole_start - hole_start % bs->dsk.csum_block_size);
-        blk_begin = (blk_begin < big_start ? big_start : blk_begin);
-        uint32_t blk_end = (blk_begin + bs->dsk.csum_block_size) > big_end ? big_end : (blk_begin + bs->dsk.csum_block_size);
+        uint32_t blk_end = (blk_begin + bs->dsk.csum_block_size);
         uint32_t copy_flags = COPY_BUF_CSUM_FILL | (bs->perfect_csum_update ? 0 : COPY_BUF_SKIP_CSUM);
         if (!read_vec.size() || read_vec.back().copy_flags != copy_flags ||
             read_vec.back().offset != blk_begin || read_vec.back().len != blk_end-blk_begin)
@@ -412,7 +409,7 @@ void journal_flusher_co::fill_partial_checksum_blocks()
                 .copy_flags = COPY_BUF_DATA | copy_flags,
                 .offset = blk_begin,
                 .len = blk_end - blk_begin,
-                .disk_loc = end_wr->location,
+                .disk_loc = end_wr->big().location,
                 .disk_offset = blk_begin,
                 .disk_len = blk_end - blk_begin,
                 .buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, blk_end - blk_begin),
@@ -467,7 +464,7 @@ int journal_flusher_co::check_and_punch_checksums()
             assert(wr);
             uint32_t *csums = (uint32_t*)(wr->get_checksums(bs->heap)
                 + (vec.disk_offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)
-                - ((wr->type() == BS_HEAP_BIG_WRITE) ? 0 : (wr->offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)));
+                - ((wr->type() == BS_HEAP_BIG_WRITE) ? 0 : (wr->small().offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)));
             bs->heap->calc_block_checksums(
                 csums, vec.buf, wr->get_int_bitmap(bs->heap), vec.disk_offset, vec.disk_offset+vec.disk_len, false,
                 [&](uint32_t mismatch_pos, uint32_t expected_csum, uint32_t real_csum)
@@ -524,7 +521,7 @@ int journal_flusher_co::check_and_punch_checksums()
     {
         if (vec.copy_flags & COPY_BUF_CSUM_FILL)
         {
-            uint32_t csum_off = (vec.offset/bs->dsk.csum_block_size - end_wr->offset/bs->dsk.csum_block_size) * (bs->dsk.data_csum_type & 0xFF);
+            uint32_t csum_off = vec.offset/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF);
             bs->heap->calc_block_checksums((uint32_t*)(csums+csum_off), vec.buf, bmp, vec.offset, vec.offset+vec.len, true, NULL);
         }
     }
@@ -561,8 +558,6 @@ bool journal_flusher_co::calc_block_checksums()
             bitmap_set(bmp, vec.offset, vec.len, bs->dsk.bitmap_granularity);
         }
     }
-    end_wr->offset = big_start;
-    end_wr->len = big_end-big_start;
     // Update block checksums
     size_t i = 0;
     while (i < read_vec.size() && !(read_vec[i].copy_flags & COPY_BUF_CSUM_FILL))
@@ -576,10 +571,10 @@ bool journal_flusher_co::calc_block_checksums()
             end = read_vec[i].offset+read_vec[i].len;
             i++;
         }
-        // `read_vec` should contain aligned items (with respect to big_start/big_end), possibly split into pieces
-        assert(!(start % bs->dsk.csum_block_size) || start == big_start);
-        assert(!(end % bs->dsk.csum_block_size) || end == big_end);
-        uint32_t csum_off = (start/bs->dsk.csum_block_size - big_start/bs->dsk.csum_block_size) * (bs->dsk.data_csum_type & 0xFF);
+        // `read_vec` should contain aligned items, possibly split into pieces
+        assert(!(start % bs->dsk.csum_block_size));
+        assert(!(end % bs->dsk.csum_block_size));
+        uint32_t csum_off = start/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF);
         bs->heap->calc_block_checksums(
             (uint32_t*)(csums+csum_off), bmp, start, end,
             [&](uint32_t start, uint32_t & len)

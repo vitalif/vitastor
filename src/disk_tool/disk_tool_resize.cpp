@@ -43,7 +43,7 @@ int disk_tool_t::raw_resize()
             {
                 if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
                 {
-                    data_alloc->set(wr->location / dsk.data_block_size, true);
+                    data_alloc->set(wr->big().location / dsk.data_block_size, true);
                 }
             }
         },
@@ -569,13 +569,7 @@ int disk_tool_t::resize_rebuild_meta()
             {
                 if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
                 {
-                    if (wr->next() && new_meta_hdr->data_csum_type != 0 &&
-                        ((wr->offset % new_meta_hdr->csum_block_size) || (wr->len % new_meta_hdr->csum_block_size)))
-                    {
-                        fprintf(stderr, "Error: big_write journal entries not aligned to csum_block_size can't be converted between v0.9 and v3.0 metadata\n");
-                        exit(1);
-                    }
-                    auto block_num = wr->location / dsk.data_block_size;
+                    auto block_num = wr->big().location / dsk.data_block_size;
                     auto remap_it = data_remap.find(block_num);
                     if (remap_it != data_remap.end())
                         block_num = remap_it->second;
@@ -585,20 +579,20 @@ int disk_tool_t::resize_rebuild_meta()
                         exit(1);
                     }
                     block_num += data_idx_diff;
-                    wr->location = block_num * dsk.data_block_size;
+                    wr->big().location = block_num * dsk.data_block_size;
                 }
                 else if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE)
                 {
-                    if (new_heap && wr->len > 0)
+                    if (new_heap && wr->small().len > 0)
                     {
-                        if (new_journal_ptr-new_journal_buf+wr->len > new_journal_len)
+                        if (new_journal_ptr-new_journal_buf+wr->small().len > new_journal_len)
                         {
                             fprintf(stderr, "Small write data doesn't fit into the new buffer area\n");
                             exit(1);
                         }
-                        memcpy(new_journal_ptr, buffer_area+wr->location, wr->len);
-                        wr->location = new_journal_ptr-new_journal_buf;
-                        new_journal_ptr += wr->len;
+                        memcpy(new_journal_ptr, buffer_area+wr->small().location, wr->small().len);
+                        wr->small().location = new_journal_ptr-new_journal_buf;
+                        new_journal_ptr += wr->small().len;
                     }
                 }
                 else if (!new_heap)
@@ -626,8 +620,9 @@ int disk_tool_t::resize_rebuild_meta()
                 {
                     auto wr = writes[i];
                     assert((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE || wr->entry_type == BS_HEAP_BIG_WRITE);
-                    uint32_t je_size = dsk.dirty_dyn_size(wr->offset, wr->len) +
-                        ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ? sizeof(journal_entry_small_write) : sizeof(journal_entry_big_write));
+                    uint32_t je_size = ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE
+                        ? sizeof(journal_entry_small_write) + dsk.dirty_dyn_size(wr->small().offset, wr->small().len)
+                        : sizeof(journal_entry_big_write) + dsk.dirty_dyn_size(0, dsk.data_block_size));
                     choose_journal_block(je_size);
                     journal_entry *je = (journal_entry*)(new_journal_ptr + new_journal_in_pos);
                     je->magic = JOURNAL_MAGIC;
@@ -636,28 +631,30 @@ int disk_tool_t::resize_rebuild_meta()
                     je->crc32_prev = new_crc32_prev;
                     je->small_write.oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
                     je->small_write.version = wr->version;
-                    je->small_write.offset = wr->offset;
-                    je->small_write.len = wr->len;
-                    if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE)
+                    if (wr->type() == BS_HEAP_SMALL_WRITE)
                     {
+                        je->small_write.offset = wr->small().offset;
+                        je->small_write.len = wr->small().len;
                         je->small_write.data_offset = new_journal_data-new_journal_buf;
                         if (je->small_write.data_offset + je->small_write.len > new_journal_len)
                         {
                             fprintf(stderr, "Error: live entries don't fit to the new journal\n");
                             exit(1);
                         }
-                        memcpy(new_journal_data, buffer_area+wr->location, je->small_write.len);
+                        memcpy(new_journal_data, buffer_area+wr->small().location, je->small_write.len);
                         new_journal_data += je->small_write.len;
                         if (dsk.data_csum_type == 0 && wr->get_checksum(heap))
                             je->small_write.crc32_data = *wr->get_checksum(heap);
                     }
                     else
                     {
-                        je->big_write.location = wr->location;
+                        je->big_write.location = wr->big().location;
                     }
                     memcpy((uint8_t*)je + je->size, wr->get_ext_bitmap(heap), new_clean_entry_bitmap_size);
                     if (dsk.data_csum_type != 0 && wr->get_checksums(heap))
-                        memcpy((uint8_t*)je + je->size + new_clean_entry_bitmap_size, wr->get_checksums(heap), new_data_csum_size);
+                    {
+                        memcpy((uint8_t*)je + je->size + new_clean_entry_bitmap_size, wr->get_checksums(heap), wr->get_csum_size(heap));
+                    }
                     je->crc32 = je_crc32(je);
                     new_journal_in_pos += je->size;
                     new_crc32_prev = je->crc32;
@@ -666,7 +663,7 @@ int disk_tool_t::resize_rebuild_meta()
                 if (writes[writes.size()-1]->entry_type == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE)
                 {
                     auto big_wr = writes[writes.size()-1];
-                    uint64_t block_num = big_wr->location / dsk.data_block_size;
+                    uint64_t block_num = big_wr->big().location / dsk.data_block_size;
                     clean_disk_entry *new_entry = (clean_disk_entry*)(new_meta_buf + dsk.meta_block_size +
                         dsk.meta_block_size*(block_num / new_entries_per_block) +
                         new_clean_entry_size*(block_num % new_entries_per_block));
@@ -697,10 +694,8 @@ int disk_tool_t::resize_rebuild_meta()
                 uint8_t wr_buf[new_heap->get_max_write_entry_size()];
                 heap_write_t *wr = (heap_write_t*)wr_buf;
                 wr->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
-                wr->location = block_num * dsk.data_block_size;
+                wr->big().location = block_num * dsk.data_block_size;
                 wr->next_pos = 0;
-                wr->offset = 0;
-                wr->len = 0;
                 wr->size = wr->get_size(new_heap);
                 if (bitmap)
                 {

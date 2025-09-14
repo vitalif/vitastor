@@ -149,21 +149,21 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         BS_SUBMIT_CHECK_SQES(1);
         if (obj->get_writes()->type() == BS_HEAP_BIG_WRITE)
         {
-            PRIV(op)->location = obj->get_writes()->location;
+            PRIV(op)->location = obj->get_writes()->big().location;
         }
         else
         {
             assert(obj->get_writes()->next()->type() == BS_HEAP_BIG_WRITE);
-            PRIV(op)->location = obj->get_writes()->next()->location;
+            PRIV(op)->location = obj->get_writes()->next()->big().location;
         }
 process_intent:
         uint8_t wr_buf[heap->get_max_write_entry_size()];
         heap_write_t *wr = (heap_write_t*)wr_buf;
         wr->version = op->version;
-        wr->offset = op->offset;
-        wr->len = op->len;
-        wr->location = 0;
         wr->entry_type = BS_HEAP_INTENT_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0);
+        wr->small().offset = op->offset;
+        wr->small().len = op->len;
+        wr->small().location = 0;
         if (op->bitmap)
             memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
         heap->calc_checksums(wr, (uint8_t*)op->buf, true);
@@ -208,11 +208,11 @@ process_intent:
         uint8_t wr_buf[heap->get_max_write_entry_size()];
         heap_write_t *wr = (heap_write_t*)wr_buf;
         wr->version = op->version;
-        wr->offset = op->offset;
-        wr->len = op->len;
-        wr->location = loc;
-        PRIV(op)->location = loc;
         wr->entry_type = BS_HEAP_SMALL_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0);
+        wr->small().offset = op->offset;
+        wr->small().len = op->len;
+        wr->small().location = loc;
+        PRIV(op)->location = loc;
         if (op->bitmap)
             memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
         heap->calc_checksums(wr, (uint8_t*)op->buf, true);
@@ -267,16 +267,14 @@ int blockstore_impl_t::make_big_write(blockstore_op_t *op, uint32_t offset, uint
 {
     uint8_t wr_buf[heap->get_max_write_entry_size()];
     heap_write_t *wr = (heap_write_t*)wr_buf;
-    wr->version = op->version;
-    wr->offset = offset;
-    wr->len = len;
-    wr->location = PRIV(op)->location;
     wr->entry_type = BS_HEAP_BIG_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0);
+    wr->version = op->version;
+    wr->big().location = PRIV(op)->location;
     if (op->bitmap)
         memcpy(wr->get_ext_bitmap(heap), op->bitmap, dsk.clean_entry_bitmap_size);
     memset(wr->get_int_bitmap(heap), 0, dsk.clean_entry_bitmap_size);
     bitmap_set(wr->get_int_bitmap(heap), offset, len, dsk.bitmap_granularity);
-    heap->calc_checksums(wr, (uint8_t*)op->buf, true);
+    heap->calc_checksums(wr, (uint8_t*)op->buf, true, offset, len);
     int res = heap->post_write(op->oid, wr, modified_block, moved_from_block);
     if (res != 0)
         return res;

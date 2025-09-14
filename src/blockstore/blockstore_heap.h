@@ -31,6 +31,37 @@ struct pool_shard_settings_t
 
 class blockstore_heap_t;
 
+struct __attribute__((__packed__)) heap_small_write_t
+{
+    uint16_t size;
+    int16_t next_pos;
+    uint8_t flags;
+    uint64_t lsn;
+    uint64_t version;
+    uint64_t location;
+    uint32_t offset;
+    uint32_t len;
+};
+
+struct __attribute__((__packed__)) heap_big_write_t
+{
+    uint16_t size;
+    int16_t next_pos;
+    uint8_t flags;
+    uint64_t lsn;
+    uint64_t version;
+    uint64_t location;
+};
+
+struct __attribute__((__packed__)) heap_tombstone_t
+{
+    uint16_t size;
+    int16_t next_pos;
+    uint8_t flags;
+    uint64_t lsn;
+    uint64_t version;
+};
+
 struct __attribute__((__packed__)) heap_write_t
 {
     // size should have top bit cleared
@@ -39,9 +70,6 @@ struct __attribute__((__packed__)) heap_write_t
     uint8_t entry_type = 0; // BS_HEAP_*
     uint64_t lsn = 0;
     uint64_t version = 0;
-    uint32_t offset = 0;
-    uint32_t len = 0;
-    uint64_t location = 0;
 
     // uint8_t[] external_bitmap
     // uint8_t[] internal_bitmap
@@ -49,6 +77,8 @@ struct __attribute__((__packed__)) heap_write_t
 
     heap_write_t *next();
     inline uint8_t type() const { return (entry_type & BS_HEAP_TYPE); }
+    inline heap_small_write_t& small() { return *(heap_small_write_t*)this; }
+    inline heap_big_write_t& big() { return *(heap_big_write_t*)this; }
     uint32_t get_size(blockstore_heap_t *heap);
     uint32_t get_csum_size(blockstore_heap_t *heap);
     bool needs_recheck(blockstore_heap_t *heap);
@@ -262,7 +292,7 @@ public:
     // unlock an entry
     bool unlock_entry(object_id oid, uint64_t copy_id);
     // set or verify checksums in a write request
-    bool calc_checksums(heap_write_t *wr, uint8_t *data, bool set);
+    bool calc_checksums(heap_write_t *wr, uint8_t *data, bool set, uint32_t offset = 0, uint32_t len = 0);
     // set or verify raw block checksums
     bool calc_block_checksums(uint32_t *block_csums, uint8_t *data, uint8_t *bitmap, uint32_t start, uint32_t end,
         bool set, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb);

@@ -349,7 +349,7 @@ void disk_tool_t::dump_heap_entry_as_old(blockstore_heap_t *heap, heap_object_t 
 #define ENTRY_FMT "{\"block\":%ju,\"pool\":%u,\"inode\":\"0x%jx\",\"stripe\":\"0x%jx\",\"version\":%ju"
         (first_entry ? ENTRY_FMT : (",\n" ENTRY_FMT)),
 #undef ENTRY_FMT
-        wr->location/dsk.data_block_size, INODE_POOL(obj->inode), INODE_NO_POOL(obj->inode),
+        wr->big().location/dsk.data_block_size, INODE_POOL(obj->inode), INODE_NO_POOL(obj->inode),
         obj->stripe, wr->version
     );
     printf(",\"bitmap\":\"");
@@ -395,27 +395,36 @@ void disk_tool_t::dump_heap_entry(blockstore_heap_t *heap, heap_object_t *obj)
     for (wr = obj->get_writes(); wr; wr = wr->next())
     {
         printf(
-#define ENTRY_FMT "{\"lsn\":%ju,\"version\":%ju,\"type\":\"%s\",\"stable\":%s,\"offset\":%u,\"len\":%u"
+#define ENTRY_FMT "{\"lsn\":%ju,\"version\":%ju,\"type\":\"%s\",\"stable\":%s"
             (first_wr ? ENTRY_FMT : ("," ENTRY_FMT)),
 #undef ENTRY_FMT
             wr->lsn, wr->version, (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ? "small" : (
                 (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE ? "big" : (
                 (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE ? "intent" : (
                 (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_TOMBSTONE ? "tombstone" : "unknown"))),
-            (wr->entry_type & BS_HEAP_STABLE) ? "true" : "false",
-            wr->offset, wr->len
+            (wr->entry_type & BS_HEAP_STABLE) ? "true" : "false"
         );
-        if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE ||
-            (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE && !dump_with_data)
+        if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
         {
-            printf(",\"location\":%ju", wr->location);
+            printf(",\"location\":%ju", wr->big().location);
         }
-        else if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE && dump_with_data)
+        else if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE)
         {
-            printf(",\"data\":\"");
-            for (uint32_t i = 0; i < wr->len; i++)
-                printf("%02x", buffer_area[wr->location + i]);
-            printf("\"");
+            printf(",\"offset\":%u,\"len\":%u", wr->small().offset, wr->small().len);
+        }
+        else if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE)
+        {
+            if (!dump_with_data)
+            {
+                printf(",\"offset\":%u,\"len\":%u,\"location\":%ju", wr->small().offset, wr->small().len, wr->small().location);
+            }
+            else
+            {
+                printf(",\"data\":\"");
+                for (uint32_t i = 0; i < wr->small().len; i++)
+                    printf("%02x", buffer_area[wr->small().location + i]);
+                printf("\"");
+            }
         }
         uint8_t* bitmap = wr->get_int_bitmap(heap);
         if (bitmap)
@@ -640,21 +649,28 @@ int disk_tool_t::write_json_heap(json11::Json meta, json11::Json journal)
                 wr->entry_type = wr_type | (write_entry["stable"].bool_value() ? BS_HEAP_STABLE : 0);
                 wr->lsn = write_entry["lsn"].uint64_value();
                 wr->version = write_entry["version"].uint64_value();
-                wr->offset = write_entry["offset"].uint64_value();
-                wr->len = write_entry["len"].uint64_value();
-                wr->location = write_entry["location"].uint64_value();
                 wr->size = wr->get_size(new_heap);
                 wr->next_pos = wr->size;
-                if (wr_type == BS_HEAP_SMALL_WRITE && write_entry["data"].is_string() && wr->len > 0)
+                if (wr_type == BS_HEAP_SMALL_WRITE || wr_type == BS_HEAP_INTENT_WRITE)
                 {
-                    if (!new_journal_buf)
+                    wr->small().offset = write_entry["offset"].uint64_value();
+                    wr->small().len = write_entry["len"].uint64_value();
+                    wr->small().location = write_entry["location"].uint64_value();
+                    if (wr_type == BS_HEAP_SMALL_WRITE && write_entry["data"].is_string() && wr->small().len > 0)
                     {
-                        fprintf(stderr, "Loading small write data requires overwriting buffer area\n");
-                        free_new_meta();
-                        return 1;
+                        if (!new_journal_buf)
+                        {
+                            fprintf(stderr, "Loading small write data requires overwriting buffer area\n");
+                            free_new_meta();
+                            return 1;
+                        }
+                        wr->small().location = new_heap->find_free_buffer_area(wr->small().len);
+                        fromhexstr(write_entry["data"].string_value(), wr->small().len, new_journal_buf + wr->small().location);
                     }
-                    wr->location = new_heap->find_free_buffer_area(wr->len);
-                    fromhexstr(write_entry["data"].string_value(), wr->len, new_journal_buf + wr->location);
+                }
+                else if (wr_type == BS_HEAP_BIG_WRITE)
+                {
+                    wr->big().location = write_entry["location"].uint64_value();
                 }
                 if (write_entry["bitmap"].is_string() && wr->get_int_bitmap(new_heap))
                 {
@@ -778,9 +794,7 @@ close_err:
             wr->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
             wr->lsn = ++next_lsn;
             wr->version = sscanf_json(NULL, meta_entry["version"]);
-            wr->offset = 0;
-            wr->len = new_meta_hdr->data_block_size;
-            wr->location = meta_entry["block"].uint64_value() * new_meta_hdr->data_block_size;
+            wr->big().location = meta_entry["block"].uint64_value() * new_meta_hdr->data_block_size;
             wr->size = wr->get_size(&heap);
             fromhexstr(meta_entry["bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_int_bitmap(&heap));
             fromhexstr(meta_entry["ext_bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_ext_bitmap(&heap));
@@ -795,36 +809,39 @@ close_err:
                     wr->next_pos = 0;
                     wr->lsn = ++next_lsn;
                     wr->version = rec["ver"].uint64_value();
-                    wr->offset = rec["offset"].uint64_value();
-                    wr->len = rec["len"].uint64_value();
+                    uint64_t wr_offset = rec["offset"].uint64_value();
+                    uint64_t wr_len = rec["len"].uint64_value();
                     if (rec["type"] == "small_write" || rec["type"] == "small_write_instant")
                     {
-                        if (wr->len > 0 && !rec["data"].is_string())
+                        if (wr_len > 0 && !rec["data"].is_string())
                         {
                             fprintf(stderr, "Error: entry data is missing, please generate the dump with --json --format data\n");
                             goto close_err;
                         }
                         wr->entry_type = BS_HEAP_SMALL_WRITE | (rec["type"] == "small_write_instant" ? BS_HEAP_STABLE : 0);
+                        wr->small().offset = wr_offset;
+                        wr->small().len = wr_len;
+                        wr->small().location = buffer_pos;
                         fromhexstr(rec["bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_ext_bitmap(&heap));
-                        fromhexstr(rec["data"].string_value(), wr->len, new_journal_buf+buffer_pos);
-                        if (wr->len > 0)
+                        fromhexstr(rec["data"].string_value(), wr_len, new_journal_buf+buffer_pos);
+                        if (wr_len > 0)
                         {
                             if (!new_meta_hdr->data_csum_type)
-                                *wr->get_checksum(&heap) = crc32c(0, new_journal_buf+buffer_pos, wr->len);
+                                *wr->get_checksum(&heap) = crc32c(0, new_journal_buf+buffer_pos, wr_len);
                             else
-                                heap.calc_block_checksums((uint32_t*)wr->get_checksums(&heap), new_journal_buf+buffer_pos, NULL, wr->offset, wr->offset+wr->len, true, NULL);
+                                heap.calc_block_checksums((uint32_t*)wr->get_checksums(&heap), new_journal_buf+buffer_pos, NULL, wr_offset, wr_offset+wr_len, true, NULL);
                         }
-                        buffer_pos += wr->len;
+                        buffer_pos += wr_len;
                     }
                     else if (rec["type"] == "big_write" || rec["type"] == "big_write_instant")
                     {
                         wr->entry_type = BS_HEAP_BIG_WRITE | (rec["type"] == "big_write_instant" ? BS_HEAP_STABLE : 0);
-                        wr->location = sscanf_json(NULL, rec["loc"]);
-                        bitmap_set(wr->get_int_bitmap(&heap), wr->offset, wr->len, new_meta_hdr->bitmap_granularity);
+                        wr->big().location = sscanf_json(NULL, rec["loc"]);
+                        bitmap_set(wr->get_int_bitmap(&heap), wr_offset, wr_len, new_meta_hdr->bitmap_granularity);
                         fromhexstr(rec["bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_ext_bitmap(&heap));
                         if (new_meta_hdr->data_csum_type != 0)
                         {
-                            if ((wr->offset % new_meta_hdr->csum_block_size) || (wr->len % new_meta_hdr->csum_block_size))
+                            if ((wr_offset % new_meta_hdr->csum_block_size) || (wr_len % new_meta_hdr->csum_block_size))
                             {
                                 fprintf(stderr,
                                     "Error: big_write journal entries not aligned to csum_block_size can't be converted between v0.9 and v3.0 metadata\n"
@@ -832,8 +849,8 @@ close_err:
                                 goto close_err;
                             }
                             fromhexstr(rec["block_csums"].string_value(),
-                                ((wr->offset+wr->len+new_meta_hdr->csum_block_size-1)/new_meta_hdr->csum_block_size
-                                    - wr->offset/new_meta_hdr->csum_block_size) * (new_meta_hdr->data_csum_type & 0xFF),
+                                ((wr_offset+wr_len+new_meta_hdr->csum_block_size-1)/new_meta_hdr->csum_block_size
+                                    - wr_offset/new_meta_hdr->csum_block_size) * (new_meta_hdr->data_csum_type & 0xFF),
                                 wr->get_checksums(&heap));
                         }
                     }

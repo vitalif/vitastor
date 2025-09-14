@@ -398,6 +398,8 @@ static void test_padded_csum_intent(bool perfect)
     // (intent is not collapsible because of csum_block_size > bitmap_granularity)
     heap_object_t *obj = test.bs->heap->read_entry((object_id){ .inode = 1, .stripe = 0 }, NULL);
     assert(obj);
+    assert(obj->get_writes()->next());
+    assert(obj->get_writes()->next()->next());
     assert(!obj->get_writes()->next()->next()->next());
     assert(obj->get_writes()->entry_type == BS_HEAP_SMALL_WRITE);
     assert(obj->get_writes()->next()->entry_type == (perfect ? BS_HEAP_SMALL_WRITE : BS_HEAP_INTENT_WRITE));
