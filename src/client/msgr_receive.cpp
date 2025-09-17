@@ -109,6 +109,7 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
             if (!handle_read_buffer(cl, cl->in_buf, result))
             {
                 clear_immediate_ops(peer_fd);
+                handle_immediate_ops();
                 return false;
             }
         }
@@ -122,6 +123,7 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
                 if (!handle_finished_read(cl))
                 {
                     clear_immediate_ops(peer_fd);
+                    handle_immediate_ops();
                     return false;
                 }
             }
@@ -140,7 +142,7 @@ void osd_messenger_t::clear_immediate_ops(int peer_fd)
     size_t i = 0, j = 0;
     while (i < set_immediate_ops.size())
     {
-        if (set_immediate_ops[i]->peer_fd == peer_fd)
+        if (set_immediate_ops[i]->peer_fd == peer_fd && set_immediate_ops[i]->op_type == OSD_OP_IN)
         {
             delete set_immediate_ops[i];
         }
