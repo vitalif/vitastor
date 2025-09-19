@@ -199,7 +199,7 @@ resume_4:
         else
         {
             // Not OK, restore direntry
-            st->self->parent->db->del(kv_direntry_key(st->dir_ino, st->filename), [st](int res)
+            st->self->parent->db->set(kv_direntry_key(st->dir_ino, st->filename), st->direntry_text, [st](int res)
             {
                 st->res2 = res;
                 nfs_kv_continue_delete(st, 5);
