@@ -33,7 +33,7 @@ import (
 type NodeServer struct
 {
     *Driver
-    useVduse        bool
+    method          MountMethod
     stateDir        string
     nfsStageDir     string
     mounter         mount.Interface
@@ -81,16 +81,23 @@ func NewNodeServer(driver *Driver) *NodeServer
     }
     ns := &NodeServer{
         Driver:      driver,
-        useVduse:    checkVduseSupport(),
+        method:      selectMountMethod(),
         stateDir:    stateDir,
         nfsStageDir: nfsStageDir,
         mounter:     mount.New(""),
         volumeLocks: make(map[string]bool),
     }
     ns.cond = sync.NewCond(&ns.mu)
-    if (ns.useVduse)
+    if (ns.method == MOUNT_VDUSE)
     {
         ns.restoreVduseDaemons()
+    }
+    else if (ns.method == MOUNT_UBLK)
+    {
+        ns.restoreUblkDaemons()
+    }
+    if (ns.method == MOUNT_VDUSE || ns.method == MOUNT_UBLK)
+    {
         dur, err := time.ParseDuration(os.Getenv("RESTART_INTERVAL"))
         if (err != nil)
         {
@@ -136,7 +143,14 @@ func (ns *NodeServer) restarter()
     for
     {
         <-ticker.C
-        ns.restoreVduseDaemons()
+        if (ns.method == MOUNT_VDUSE)
+        {
+            ns.restoreVduseDaemons()
+        }
+        else if (ns.method == MOUNT_UBLK)
+        {
+            ns.restoreUblkDaemons()
+        }
     }
 }
 
@@ -227,6 +241,78 @@ func (ns *NodeServer) checkVduseState(stateFile string, devs map[string]interfac
         if (err != nil)
         {
             klog.Warningf("failed to restart storage daemon for volume %v: %v", state.Image, err)
+        }
+    }
+}
+
+func (ns *NodeServer) restoreUblkDaemons()
+{
+    pattern := ns.stateDir+"vitastor-ublk-*.json"
+    stateFiles, err := filepath.Glob(pattern)
+    if (err != nil)
+    {
+        klog.Errorf("failed to list %s: %v", pattern, err)
+    }
+    if (len(stateFiles) == 0)
+    {
+        return
+    }
+    for _, stateFile := range stateFiles
+    {
+        deviceNum := stateFile[len(ns.stateDir) + len("vitastor-ublk-") :]
+        deviceNum = deviceNum[0:len(deviceNum)-5]
+        ns.checkUblkState(deviceNum)
+    }
+}
+
+func (ns *NodeServer) checkUblkState(deviceNum string)
+{
+    // Check if the ublk daemon is still active
+
+    // Read state file
+    stateFile := ns.stateDir + "vitastor-ublk-" + deviceNum + ".json"
+    stateJSON, err := os.ReadFile(stateFile)
+    if (err != nil)
+    {
+        klog.Warningf("error reading state file %v: %v", stateFile, err)
+        return
+    }
+    var state DeviceState
+    err = json.Unmarshal(stateJSON, &state)
+    if (err != nil)
+    {
+        klog.Warningf("state file %v contains invalid JSON (error %v): %v", stateFile, err, string(stateJSON))
+        return
+    }
+
+    // Lock volume
+    ns.lockVolume(state.ConfigPath+":block:"+state.Image)
+    defer ns.unlockVolume(state.ConfigPath+":block:"+state.Image)
+
+    // Recheck state file after locking
+    _, err = os.ReadFile(stateFile)
+    if (err != nil)
+    {
+        klog.Warningf("state file %v disappeared, skipping volume", stateFile)
+        return
+    }
+
+    // Check if the vitastor-ublk process is still active
+    pidFile := ns.stateDir + "vitastor-ublk-" + deviceNum + ".pid"
+    exists := false
+    proc, err := findByPidFile(pidFile)
+    if (err == nil)
+    {
+        exists = proc.Signal(syscall.Signal(0)) == nil
+    }
+    if (!exists)
+    {
+        // Restart daemon
+        klog.Warningf("recovering UBLK device /dev/ublkb%v for volume %v", deviceNum, state.Image)
+        _, err = mapUblk(ns.stateDir, state.Image, state.ConfigPath, state.Readonly, "/dev/ublkb"+deviceNum)
+        if (err != nil)
+        {
+            klog.Warningf("failed to recover ublk device for volume %v: %v", state.Image, err)
         }
     }
 }
@@ -417,13 +503,17 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
     }
 
     var devicePath, vdpaId string
-    if (!ns.useVduse)
+    if (ns.method == MOUNT_UBLK)
     {
-        devicePath, err = mapNbd(volName, ctxVars, false)
+        devicePath, err = mapUblk(ns.stateDir, volName, ctxVars["configPath"], false, "")
     }
-    else
+    else if (ns.method == MOUNT_VDUSE)
     {
         devicePath, vdpaId, err = mapVduse(ns.stateDir, volName, ctxVars, false)
+    }
+    else /* if (ns.method == MOUNT_NBD) */
+    {
+        devicePath, err = mapNbd(volName, ctxVars, false)
     }
     if (err != nil)
     {
@@ -496,10 +586,6 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
                 case "xfs":
                     _, err = systemCombined("xfs_growfs", devicePath)
             }
-            if (err != nil)
-            {
-                goto unmap
-            }
         }
     }
     if (err != nil)
@@ -513,13 +599,17 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
     return &csi.NodeStageVolumeResponse{}, nil
 
 unmap:
-    if (!ns.useVduse || len(devicePath) >= 8 && devicePath[0:8] == "/dev/nbd")
+    if (ns.method == MOUNT_UBLK)
     {
-        unmapNbd(devicePath)
+        unmapUblk(ns.stateDir, devicePath)
     }
-    else
+    else if (ns.method == MOUNT_VDUSE)
     {
         unmapVduseById(ns.stateDir, vdpaId)
+    }
+    else /* if (ns.method == MOUNT_NBD) */
+    {
+        unmapNbd(devicePath)
     }
     return nil, err
 }
@@ -583,13 +673,17 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
     // unmap device
     if (len(refList) == 0)
     {
-        if (!ns.useVduse)
+        if (ns.method == MOUNT_UBLK)
         {
-            unmapNbd(devicePath)
+            unmapUblk(ns.stateDir, devicePath)
         }
-        else
+        else if (ns.method == MOUNT_VDUSE)
         {
             unmapVduse(ns.stateDir, devicePath)
+        }
+        else /* if (ns.method == MOUNT_NBD) */
+        {
+            unmapNbd(devicePath)
         }
     }
 

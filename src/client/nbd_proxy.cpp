@@ -272,6 +272,8 @@ const char *help_text =
     "  --dev_num N\n"
     "    Use the specified device /dev/nbdN instead of automatic selection (alternative syntax\n"
     "    to /dev/nbdN positional parameter).\n"
+    "  --readonly\n"
+    "    Make the device read-only.\n"
     "  --foreground 1\n"
     "    Stay in foreground, do not daemonize.\n"
     "\n"
@@ -372,7 +374,7 @@ public:
             else if (args[i][0] == '-' && args[i][1] == '-')
             {
                 const char *opt = args[i]+2;
-                cfg[opt] = !strcmp(opt, "json") || !strcmp(opt, "all") ||
+                cfg[opt] = !strcmp(opt, "json") || !strcmp(opt, "all") || !strcmp(opt, "readonly") ||
                     !strcmp(opt, "force") || i == narg-1 ? "1" : args[++i];
             }
             else if (pos == 0)

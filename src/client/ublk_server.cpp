@@ -40,12 +40,14 @@ const char *help_text =
     "    Make the device read-only.\n"
     "  --hdd\n"
     "    Mark the device as rotational.\n"
-    "  --logfile /path/to/log/file.txt\n"
-    "    Write log messages to the specified file instead of dropping them (in background mode)\n"
-    "    or printing them to the standard output (in foreground mode).\n"
     "  --dev_num N\n"
     "    Use the specified device /dev/ublkbN instead of automatic selection (alternative syntax\n"
     "    to /dev/ublkbN positional parameter).\n"
+    "  --pidfile /run/ublk_pid_file.pid\n"
+    "    Write process ID to the specified file.\n"
+    "  --logfile /path/to/log/file.txt\n"
+    "    Write log messages to the specified file instead of dropping them (in background mode)\n"
+    "    or printing them to the standard output (in foreground mode).\n"
     "  --foreground 1\n"
     "    Stay in foreground, do not daemonize.\n"
     "\n"
@@ -79,6 +81,7 @@ protected:
     inode_watch_t *watch = NULL;
 
     std::string logfile = "/dev/null";
+    std::string pidfile;
 
 public:
     ublk_server()
@@ -300,10 +303,8 @@ help:
         load_module();
 
         bool bg = cfg["foreground"].is_null();
-        if (cfg["logfile"].string_value() != "")
-        {
-            logfile = cfg["logfile"].string_value();
-        }
+        logfile = cfg["logfile"].string_value();
+        pidfile = cfg["pidfile"].string_value();
 
         open_control();
         if (recover)
@@ -331,6 +332,8 @@ help:
             close(notifyfd[0]);
         }
         start_device(recover);
+        if (pidfile != "")
+            write_pid();
         if (bg)
         {
             daemonize_reopen_stdio();
@@ -397,6 +400,22 @@ help:
         open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT, 0666);
         if (chdir("/") != 0)
             fprintf(stderr, "Warning: Failed to chdir into /\n");
+    }
+
+    void write_pid()
+    {
+        int fd = open(pidfile.c_str(), O_WRONLY|O_CREAT|O_TRUNC, 0666);
+        if (fd < 0)
+        {
+            fprintf(stderr, "Failed to create pid file %s: %s (code %d)\n", pidfile.c_str(), strerror(errno), errno);
+            return;
+        }
+        auto pid = std::to_string(getpid());
+        if (write(fd, pid.c_str(), pid.size()) < 0)
+        {
+            fprintf(stderr, "Failed to write pid to %s: %s (code %d)\n", pidfile.c_str(), strerror(errno), errno);
+        }
+        close(fd);
     }
 
     json11::Json::object list_mapped()

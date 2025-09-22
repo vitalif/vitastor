@@ -22,6 +22,14 @@ import (
     "google.golang.org/grpc/status"
 )
 
+type MountMethod int
+
+const (
+    MOUNT_NBD   MountMethod = 0
+    MOUNT_VDUSE MountMethod = 1
+    MOUNT_UBLK  MountMethod = 2
+)
+
 func Contains(list []string, s string) bool
 {
     for i := 0; i < len(list); i++
@@ -34,29 +42,26 @@ func Contains(list []string, s string) bool
     return false
 }
 
-func checkVduseSupport() bool
+func selectMountMethod() MountMethod
 {
+    // Check UBLK support (ublk_drv kernel module)
+    if (checkModule("ublk_drv"))
+    {
+        klog.Infof("UBLK support enabled successfully")
+        return MOUNT_UBLK
+    }
+    klog.Errorf(
+        "Your host apparently has no UBLK support. UBLK support disabled."+
+        " For UBLK you need at least Linux 6.0 and the ublk_drv kernel module.",
+    )
     // Check VDUSE support (vdpa, vduse, virtio-vdpa kernel modules)
     vduse := true
     for _, mod := range []string{"vdpa", "vduse", "virtio-vdpa"}
     {
-        _, err := os.Stat("/sys/module/"+mod)
-        if (err != nil)
+        if (!checkModule(mod))
         {
-            if (!errors.Is(err, os.ErrNotExist))
-            {
-                klog.Errorf("failed to check /sys/module/%s: %v", mod, err)
-            }
-            c := exec.Command("/sbin/modprobe", mod)
-            c.Stdout = os.Stderr
-            c.Stderr = os.Stderr
-            err := c.Run()
-            if (err != nil)
-            {
-                klog.Errorf("/sbin/modprobe %s failed: %v", mod, err)
-                vduse = false
-                break
-            }
+            vduse = false
+            break
         }
     }
     // Check that vdpa tool functions
@@ -71,18 +76,38 @@ func checkVduseSupport() bool
             vduse = false
         }
     }
-    if (!vduse)
-    {
-        klog.Errorf(
-            "Your host apparently has no VDUSE support. VDUSE support disabled, NBD will be used to map devices."+
-            " For VDUSE you need at least Linux 5.15 and the following kernel modules: vdpa, virtio-vdpa, vduse.",
-        )
-    }
-    else
+    if (vduse)
     {
         klog.Infof("VDUSE support enabled successfully")
+        return MOUNT_VDUSE
     }
-    return vduse
+    klog.Errorf(
+        "Your host apparently has no VDUSE support. VDUSE support disabled, NBD will be used to map devices."+
+        " For VDUSE you need at least Linux 5.15 and the following kernel modules: vdpa, virtio-vdpa, vduse.",
+    )
+    return MOUNT_NBD
+}
+
+func checkModule(mod string) bool
+{
+    _, err := os.Stat("/sys/module/"+mod)
+    if (err != nil)
+    {
+        if (!errors.Is(err, os.ErrNotExist))
+        {
+            klog.Errorf("failed to check /sys/module/%s: %v", mod, err)
+        }
+        c := exec.Command("/sbin/modprobe", mod)
+        c.Stdout = os.Stderr
+        c.Stderr = os.Stderr
+        err := c.Run()
+        if (err != nil)
+        {
+            klog.Errorf("/sbin/modprobe %s failed: %v", mod, err)
+            return false
+        }
+    }
+    return true
 }
 
 func mapNbd(volName string, ctxVars map[string]string, readonly bool) (string, error)
@@ -219,6 +244,7 @@ func mapVduse(stateDir string, volName string, ctxVars map[string]string, readon
                     stateJSON, _ := json.Marshal(&DeviceState{
                         ConfigPath: ctxVars["configPath"],
                         VdpaId:     vdpaId,
+
                         Image:      volName,
                         Blockdev:   blockdev,
                         Readonly:   readonly,
@@ -308,6 +334,117 @@ func unmapVduseById(stateDir, vdpaId string)
             klog.Errorf("Failed to kill started qemu-storage-daemon: %v", err)
         }
         os.Remove(pidFile)
+    }
+}
+
+func mapUblk(stateDir string, volName string, configPath string, readonly bool, recoverDev string) (string, error)
+{
+    pidFile := ""
+    if (recoverDev != "")
+    {
+        if (len(recoverDev) < 10 || recoverDev[0:10] != "/dev/ublkb")
+        {
+            return "", fmt.Errorf("recover: %s does not start with /dev/ublkb", recoverDev)
+        }
+        pidFile = stateDir + "vitastor-ublk-" + recoverDev[10:] + ".pid"
+    }
+    else
+    {
+        pidFd, err := os.CreateTemp(stateDir, "vitastor-tmp-*.pid")
+        if (err != nil)
+        {
+            return "", err
+        }
+        pidFile = pidFd.Name()
+        pidFd.Close()
+    }
+    // Map device via vitastor-ublk
+    args := []string{
+        "map", "--image", volName, "--pidfile", pidFile,
+    }
+    if (configPath != "")
+    {
+        args = append(args, "--config_path", configPath)
+    }
+    if (readonly)
+    {
+        args = append(args, "--readonly")
+    }
+    if (recoverDev != "")
+    {
+        args = append(args, "--recover", recoverDev)
+    }
+    stdout, stderr, err := system("/usr/bin/vitastor-ublk", args...)
+    if (err != nil)
+    {
+        return "", err
+    }
+    devicePath := strings.TrimSpace(string(stdout))
+    if (devicePath == "")
+    {
+        return "", fmt.Errorf("vitastor-ublk did not return the name of the device. output: %s", stderr)
+    }
+    if (len(devicePath) >= 10 && devicePath[0:10] == "/dev/ublkb")
+    {
+        // Generate state file
+        devNum := devicePath[10:]
+        pidNew := stateDir + "vitastor-ublk-" + devNum + ".pid"
+        if (pidFile != pidNew)
+        {
+            err := os.Rename(pidFile, pidNew)
+            if (err != nil)
+            {
+                klog.Errorf("Failed to rename PID file %s to %s: %v", pidFile, pidNew, err)
+            }
+            else
+            {
+                pidFile = pidNew
+            }
+        }
+        stateFile := stateDir + "vitastor-ublk-" + devNum + ".json"
+        stateJSON, _ := json.Marshal(&DeviceState{
+            ConfigPath: configPath,
+            Image:      volName,
+            Readonly:   readonly,
+            PidFile:    pidFile,
+        })
+        err = os.WriteFile(stateFile, stateJSON, 0600)
+        if (err == nil)
+        {
+            klog.Infof("Attached volume %s via UBLK as %s", volName, devicePath)
+            return devicePath, nil
+        }
+        os.Remove(stateFile)
+    }
+    killErr := killByPidFile(pidFile)
+    if (killErr != nil)
+    {
+        klog.Errorf("Failed to kill started vitastor-ublk: %v", killErr)
+    }
+    os.Remove(pidFile)
+    return "", err
+}
+
+func unmapUblk(stateDir, devicePath string)
+{
+    if (len(devicePath) < 10 || devicePath[0:10] != "/dev/ublkb")
+    {
+        klog.Errorf("%s does not start with /dev/ublkb", devicePath)
+        return
+    }
+    unmapOut, unmapErr := exec.Command("/usr/bin/vitastor-ublk", "unmap", devicePath).CombinedOutput()
+    if (unmapErr != nil)
+    {
+        klog.Errorf("failed to unmap UBLK device %s: %s, error: %v", devicePath, unmapOut, unmapErr)
+    }
+    for _, ext := range []string{"json", "pid"}
+    {
+        fn := stateDir + "vitastor-ublk-" + devicePath[10:] + "." + ext
+        err := os.Remove(fn)
+        if (err != nil)
+        {
+            klog.Errorf("failed to remove %s: %v", fn, err)
+        }
     }
 }
 
