@@ -16,6 +16,8 @@ import (
     "syscall"
 
     "k8s.io/klog"
+    "k8s.io/utils/mount"
+
     "google.golang.org/grpc/codes"
     "google.golang.org/grpc/status"
 )
@@ -339,4 +341,44 @@ func systemCombined(program string, args ...string) ([]byte, error)
         return nil, status.Error(codes.Internal, outStr+" (status "+err.Error()+")")
     }
     return out.Bytes(), nil
+}
+
+func GetDeviceNameFromMount(mountPath string) (string, error)
+{
+    // Use /proc/self/mountinfo to correctly parse bind mounts for block device files
+    mps, err := mount.ParseMountInfo("/proc/self/mountinfo")
+    if (err != nil)
+    {
+        return "", err
+    }
+
+    slTarget, err := filepath.EvalSymlinks(mountPath)
+    if (err != nil)
+    {
+        slTarget = mountPath
+    }
+
+    device := ""
+    for _, mp := range mps
+    {
+        if (mp.MountPoint == slTarget)
+        {
+            device = mp.Source
+            if (device[0] != '/' && mp.Root != "/")
+            {
+                // Handle {Source=udev Root=/vdb MountPoint=/var/lib/kubelet/tralaleylo/tralala}
+                for _, other := range mps
+                {
+                    if (other.Root == "/" && other.Source == mp.Source)
+                    {
+                        device = other.MountPoint + mp.Root
+                        break
+                    }
+                }
+            }
+            break
+        }
+    }
+
+    return device, nil
 }

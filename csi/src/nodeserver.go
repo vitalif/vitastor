@@ -545,7 +545,7 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
     defer ns.unlockVolume(ctxVars["configPath"]+":block:"+volName)
 
     targetPath := req.GetStagingTargetPath()
-    devicePath, _, err := mount.GetDeviceNameFromMount(ns.mounter, targetPath)
+    devicePath, err := GetDeviceNameFromMount(targetPath)
     if (err != nil)
     {
         if (os.IsNotExist(err))
@@ -897,7 +897,7 @@ func (ns *NodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
     }
 
     targetPath := req.GetTargetPath()
-    devicePath, _, err := mount.GetDeviceNameFromMount(ns.mounter, targetPath)
+    devicePath, err := GetDeviceNameFromMount(targetPath)
     if (err != nil)
     {
         if (os.IsNotExist(err))
