@@ -282,6 +282,10 @@ resume_6:
             });
             return;
 resume_7:
+            if (!st->res)
+            {
+                st->self->parent->kvfs->touch_queue.insert(st->dir_ino);
+            }
             auto cb = std::move(st->cb);
             cb(st->res);
             return;
