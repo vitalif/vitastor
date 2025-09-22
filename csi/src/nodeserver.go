@@ -439,7 +439,8 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
     else
     {
         // Check existing format
-        existingFormat, err := diskMounter.GetDiskFormat(devicePath)
+        var existingFormat string
+        existingFormat, err = diskMounter.GetDiskFormat(devicePath)
         if (err != nil)
         {
             klog.Errorf("failed to get disk format for path %s, error: %v", err)
