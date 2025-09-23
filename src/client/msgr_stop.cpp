@@ -52,6 +52,7 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
         return;
     }
     osd_client_t *cl = it->second;
+    // FIXME: This 'force' flag is probably an ugly reenterability hack - check its logic and maybe remove it
     if (cl->peer_state == PEER_CONNECTING && !force || cl->peer_state == PEER_STOPPED)
     {
         return;
@@ -73,6 +74,7 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
     }
     // First set state to STOPPED so another stop_client() call doesn't try to free it again
     cl->refs++;
+    int prev_state = cl->peer_state;
     cl->peer_state = PEER_STOPPED;
     if (cl->osd_num)
     {
@@ -113,10 +115,12 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
         // Break PG locks
         break_pg_locks(cl->in_osd_num);
     }
-    if (cl->osd_num)
+    if (cl->osd_num && prev_state != PEER_CONNECTING)
     {
         // Then repeer PGs because cancel_op() callbacks can try to perform
         // some actions and we need correct PG states to not do something silly
+        // PEER_CONNECTING has neither 'just dropped the connection' nor 'just connected'
+        // so do not repeer on it.
         repeer_pgs(cl->osd_num);
     }
     // Find the item again because it can be invalidated at this point
