@@ -204,10 +204,10 @@ void osd_t::start_pg_peering(pg_t & pg)
     for (auto pg_osd: pg.all_peers)
     {
         if (pg_osd != this->osd_num &&
-            msgr.osd_peer_fds.find(pg_osd) == msgr.osd_peer_fds.end() &&
-            msgr.wanted_peers.find(pg_osd) == msgr.wanted_peers.end())
+            msgr.osd_peer_fds.find(pg_osd) == msgr.osd_peer_fds.end())
         {
-            msgr.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
+            if (msgr.wanted_peers.find(pg_osd) == msgr.wanted_peers.end())
+                msgr.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
             if (!st_cli.peer_states[pg_osd].is_null())
                 all_connected = false;
         }
