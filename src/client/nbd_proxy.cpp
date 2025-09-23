@@ -697,20 +697,6 @@ help:
             ringloop->loop();
             ringloop->wait();
         }
-        stop = false;
-        cluster_op_t *close_sync = new cluster_op_t;
-        close_sync->opcode = OSD_OP_SYNC;
-        close_sync->callback = [&stop](cluster_op_t *op)
-        {
-            stop = true;
-            delete op;
-        };
-        cli->execute(close_sync);
-        while (!stop)
-        {
-            ringloop->loop();
-            ringloop->wait();
-        }
         cli->flush();
         delete cli;
         delete epmgr;
