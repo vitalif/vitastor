@@ -335,7 +335,7 @@ help:
         {
             daemonize_reopen_stdio();
             int ok = 0;
-            write(notifyfd[1], &ok, sizeof(ok));
+            (void)write(notifyfd[1], &ok, sizeof(ok));
             close(notifyfd[1]);
         }
         else
@@ -377,7 +377,7 @@ help:
             // Parent - check status
             close(notifyfd[1]);
             int child_errno = 1;
-            read(notifyfd[0], &child_errno, sizeof(child_errno));
+            (void)read(notifyfd[0], &child_errno, sizeof(child_errno));
             if (!child_errno)
                 printf("/dev/ublkb%d\n", ublk_dev.dev_id);
             exit(child_errno);

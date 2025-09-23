@@ -912,7 +912,7 @@ protected:
             int r, nbd = open(path, O_RDWR), qd_fd;
             if (nbd < 0)
             {
-                write(notifyfd[1], &errno, sizeof(errno));
+                (void)write(notifyfd[1], &errno, sizeof(errno));
                 exit(1);
             }
             r = ioctl(nbd, NBD_SET_SOCK, sockfd[1]);
@@ -954,7 +954,7 @@ protected:
             close(qd_fd);
             // Notify parent
             errno = 0;
-            write(notifyfd[1], &errno, sizeof(errno));
+            (void)write(notifyfd[1], &errno, sizeof(errno));
             close(notifyfd[1]);
             close(sockfd[0]);
             if (bg)
@@ -971,11 +971,11 @@ protected:
             ioctl(nbd, NBD_CLEAR_SOCK);
             exit(0);
     end_close:
-            write(notifyfd[1], &errno, sizeof(errno));
+            (void)write(notifyfd[1], &errno, sizeof(errno));
             close(nbd);
             exit(2);
     end_unmap:
-            write(notifyfd[1], &errno, sizeof(errno));
+            (void)write(notifyfd[1], &errno, sizeof(errno));
             ioctl(nbd, NBD_CLEAR_SOCK);
             close(nbd);
             exit(3);
