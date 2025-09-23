@@ -71,6 +71,8 @@ SCHEME=ec ./test_heal.sh
 ANTIETCD=1 ./test_heal.sh
 
 ./test_reweight_half.sh
+./test_snapshot_pool2.sh
+./test_snapshot_read_bitmap.sh
 
 TEST_NAME=csum_32k_dmj OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k --inmemory_metadata false --inmemory_journal false" OFFSET_ARGS=$OSD_ARGS ./test_heal.sh
 TEST_NAME=csum_32k_dj  OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k --inmemory_journal false" OFFSET_ARGS=$OSD_ARGS ./test_heal.sh
@@ -81,8 +83,6 @@ TEST_NAME=csum_4k      OSD_ARGS="--data_csum_type crc32c" OFFSET_ARGS=$OSD_ARGS 
 
 ./test_resize.sh
 ./test_resize_auto.sh
-
-./test_snapshot_pool2.sh
 
 ./test_osd_tags.sh
 

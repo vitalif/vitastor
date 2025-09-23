@@ -828,6 +828,42 @@ jobs:
           echo ""
         done
 
+  test_snapshot_pool2:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: /root/vitastor/tests/test_snapshot_pool2.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_snapshot_read_bitmap:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: /root/vitastor/tests/test_snapshot_read_bitmap.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
   test_heal_csum_32k_dmj:
     runs-on: ubuntu-latest
     needs: build
@@ -963,24 +999,6 @@ jobs:
       id: test
       timeout-minutes: 3
       run: /root/vitastor/tests/test_resize_auto.sh
-    - name: Print logs
-      if: always() && steps.test.outcome == 'failure'
-      run: |
-        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
-          echo "-------- $i --------"
-          cat $i
-          echo ""
-        done
-
-  test_snapshot_pool2:
-    runs-on: ubuntu-latest
-    needs: build
-    container: ${{env.TEST_IMAGE}}:${{github.sha}}
-    steps:
-    - name: Run test
-      id: test
-      timeout-minutes: 3
-      run: /root/vitastor/tests/test_snapshot_pool2.sh
     - name: Print logs
       if: always() && steps.test.outcome == 'failure'
       run: |

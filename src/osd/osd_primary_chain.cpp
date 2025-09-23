@@ -17,10 +17,22 @@ void osd_t::continue_chained_read(osd_op_t *cur_op)
     else if (op_data->st == 4)
         goto resume_4;
     cur_op->reply.rw.bitmap_len = 0;
-    for (int role = 0; role < (pg ? pg->pg_data_size : 1); role++)
+    if (cur_op->req.rw.len == 0)
     {
-        op_data->stripes[role].read_start = op_data->stripes[role].req_start;
-        op_data->stripes[role].read_end = op_data->stripes[role].req_end;
+        // len=0 => bitmap read
+        for (int role = 0; role < (pg ? pg->pg_data_size : 1); role++)
+        {
+            op_data->stripes[role].read_start = 0;
+            op_data->stripes[role].read_end = UINT32_MAX;
+        }
+    }
+    else
+    {
+        for (int role = 0; role < (pg ? pg->pg_data_size : 1); role++)
+        {
+            op_data->stripes[role].read_start = op_data->stripes[role].req_start;
+            op_data->stripes[role].read_end = op_data->stripes[role].req_end;
+        }
     }
 resume_1:
 resume_2:
