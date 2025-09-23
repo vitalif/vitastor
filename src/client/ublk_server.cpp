@@ -618,13 +618,13 @@ protected:
             .types = UBLK_PARAM_TYPE_BASIC,
             .basic = {
                 .attrs = attrs, // UBLK_ATTR_READ_ONLY | UBLK_ATTR_ROTATIONAL | UBLK_ATTR_VOLATILE_CACHE | UBLK_ATTR_FUA
-                .logical_bs_shift = 9,
+                .logical_bs_shift = phys_shift,
                 .physical_bs_shift = phys_shift,
                 .io_opt_shift = io_opt_shift,
                 .io_min_shift = phys_shift,
-                .max_sectors = max_io_buf_bytes / phys_block_size,
+                .max_sectors = max_io_buf_bytes / 512,
                 .chunk_sectors = 0,
-                .dev_sectors = device_size / phys_block_size,
+                .dev_sectors = device_size / 512,
                 .virt_boundary_mask = 0,
             },
             .discard = {
